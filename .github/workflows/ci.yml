@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (lint + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  build:
+    name: build ${{ matrix.name }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { name: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc }
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macos-x64, os: macos-latest, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release -p vibebms --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          mkdir -p dist/vibeBMS
+          cp README.md dist/vibeBMS/
+          cp -r docs dist/vibeBMS/
+          if [ -f target/${{ matrix.target }}/release/vibebms.exe ]; then
+            cp target/${{ matrix.target }}/release/vibebms.exe dist/vibeBMS/
+          else
+            cp target/${{ matrix.target }}/release/vibebms dist/vibeBMS/
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-${{ matrix.name }}
+          path: dist/vibeBMS
+
+  android:
+    name: build android (experimental)
+    needs: test
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-apk --locked
+      - run: cargo apk build -p vibebms-android --release
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_LATEST_HOME }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-android
+          path: target/release/apk/*.apk

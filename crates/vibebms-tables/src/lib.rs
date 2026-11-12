@@ -266,6 +266,38 @@ fn decode_body(bytes: &[u8]) -> String {
     }
 }
 
+/// Known mirrors used when the primary host is unreachable
+/// (ribbit.xyz is frequently down).
+pub const MIRRORS: &[(&str, &str)] = &[
+    (
+        "http://www.ribbit.xyz/bms/tables/insane.html",
+        "https://darksabun.club/table/archive/insane1/",
+    ),
+    (
+        "http://www.ribbit.xyz/bms/tables/normal.html",
+        "https://darksabun.club/table/archive/normal1/",
+    ),
+];
+
+/// Fetch a table, falling back to a known mirror on failure.
+pub fn fetch_table_with_fallback(
+    fetcher: &dyn Fetcher,
+    url: &str,
+) -> Result<DifficultyTable, TableError> {
+    match fetch_table(fetcher, url) {
+        Ok(t) => Ok(t),
+        Err(e) => match MIRRORS.iter().find(|(u, _)| *u == url) {
+            Some((_, mirror)) => {
+                log::info!("{url} failed ({e}); trying mirror {mirror}");
+                let mut t = fetch_table(fetcher, mirror)?;
+                t.source_url = url.to_string();
+                Ok(t)
+            }
+            None => Err(e),
+        },
+    }
+}
+
 /// Abstraction over HTTP so the logic can be unit-tested.
 pub trait Fetcher {
     fn get(&self, url: &str) -> Result<String, TableError>;

@@ -6,6 +6,7 @@ members = [
     "crates/vibebms-ir",
     "crates/vibebms-audio",
     "crates/vibebms",
+    "crates/vibebms-android",
 ]
 default-members = ["crates/vibebms"]
 

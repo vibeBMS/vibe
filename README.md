@@ -1,0 +1,130 @@
+# vibeBMS
+
+Lunatic Rave 2 / beatoraja를 레퍼런스로 한 **크로스플랫폼 네이티브 BMS 플레이어**입니다.
+Rust + wgpu(Vulkan/Metal/DX12/GL) + cpal로 작성되어 x86/ARM Windows·macOS·Linux에서 네이티브로 동작하고,
+iPad·Android·Surface 같은 터치 기기를 위한 화면 컨트롤러 모드를 내장하고 있습니다.
+
+- 실행하면 별도 설정창 없이 바로 선곡 화면으로 들어가며, **모든 설정은 게임 안에서** 변경합니다.
+- 설정·DB·난이도표 캐시·테마는 모두 **실행파일 옆 폴더에 포터블하게** 저장됩니다.
+- 실행파일이 있는 폴더 안의 BMS는 **자동으로 스캔**되고, 추가 폴더도 등록할 수 있습니다.
+
+> 상태: 초기 개발 버전(0.1). 코어 엔진(파서·판정·게이지·LN/CN/HCN)은 단위 테스트로 검증되어 있고,
+> 데스크톱(Linux)에서 실제 구동·스크린샷으로 확인했습니다. 모바일 빌드는 스캐폴딩만 되어 있으며 실기기 검증 전입니다.
+> 아래 [구현 현황](#구현-현황)을 참고하세요.
+
+## 빠른 시작
+
+```sh
+cargo run --release                     # 선곡 화면
+cargo run --release -- path/to/song.bme --autoplay   # 차트 바로 플레이
+python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생성
+```
+
+릴리스 빌드된 실행파일을 원하는 폴더에 두고, 그 폴더 안(하위 폴더 포함)에 BMS 폴더를 넣으면 됩니다.
+다른 위치의 BMS 폴더는 창에 **드래그 앤 드롭**하거나 `SETTINGS › LIBRARY`에서 추가합니다.
+
+```text
+<root>/vibebms(.exe)
+<root>/config/config.toml        설정 (게임 내에서 편집, 직접 편집도 가능)
+<root>/cache/library.db          곡/스코어 DB (SQLite)
+<root>/cache/tables/*.json       난이도표 캐시
+<root>/themes/<name>/theme.toml  커스텀 테마
+<root>/fonts/*.ttf|otf|ttc       폰트 지정(선택)
+<root>/<아무 폴더>/...            자동 스캔되는 BMS
+```
+
+실행 폴더에 쓰기 권한이 없으면(예: Program Files) 사용자 데이터 폴더로 대체하고,
+환경변수 `VIBEBMS_ROOT`로 위치를 직접 지정할 수도 있습니다.
+
+## 조작
+
+| | 키보드 기본값 (beatoraja와 동일) |
+|---|---|
+| 1P 7키 | `Z S X D C F V`, 스크래치 `LShift`(↑) / `LCtrl`(↓) |
+| 2P 7키 | `M K , L . ; /`, 스크래치 `RShift` / `RCtrl` |
+| 9키(PMS) | `A S D F G H J K L` |
+| 선곡 | ↑↓/스크래치 이동, Enter/1·3·5·7번 키 결정, Backspace/2번 키 뒤로, `/` 검색 |
+| 선곡 단축키 | F2 RANDOM, F3 게이지, F4 LN 모드, F5 오토플레이, F6 1P/2P, F7/F8 하이스피드, F9 판정 프리셋, F12 재스캔 |
+| 플레이 중 | ↑↓ 하이스피드(Duration), PgUp/PgDn SUDDEN+, ←→ 판정 오프셋, Esc 종료 |
+| 공통 | F1/Tab 설정, F11 전체화면 |
+
+- **컨트롤러(IIDX 전용 컨트롤러 포함)**: `SETTINGS › KEY CONFIG`에서 버튼을 눌러 학습시킵니다.
+  아날로그 턴테이블 축은 회전 방향으로 ↑/↓ 스크래치 입력이 되며, 멈추면 떼어진 것으로 처리합니다.
+- **터치 모드**: `SETTINGS › TOUCH`. Auto(모바일·터치 감지 시 활성) / On / Off.
+  - **IIDX 배열**: 턴테이블(원을 문질러 회전, 방향 전환 시 BSS 종료 입력) + 흰 건반 4개/검은 건반 3개 2단 배치
+  - **키보드 배열**: 한 줄 건반(스크래치는 위아래 스와이프)
+  - 세로/가로 모두 싱글 플레이, 가로에서는 더블 플레이(턴테이블 2개) 지원, 1P/2P 방향 전환
+  - 손가락을 옆 건반으로 미끄러뜨리면 건반이 전환되고, 멀티터치를 지원합니다.
+
+## 기능
+
+### 차트
+- BMS/BME/BML/PMS, BMSON(사운드 슬라이스 포함)
+- `#RANDOM/#IF/#ELSEIF/#ELSE/#ENDIF`(중첩), `#SWITCH/#CASE/#SKIP/#DEF`, `#BASE 62`
+- BPM 변경(03/08), STOP, `#SCROLL`, 마디 길이, LNTYPE 1, `#LNOBJ`, `#LNMODE`, 지뢰(Dx/Ex), 투명 노트
+- 5/7/10/14키, 9키(PMS) 자동 판별, Shift_JIS / EUC-KR / UTF-8 자동 인코딩 감지
+- MD5/SHA-256 (난이도표·IR 매칭용)
+
+### 플레이
+- 판정 프리셋: **beatoraja**(모드별 판정폭 + #RANK/#DEFEXRANK 스케일링 규칙), **LR2**(#RANK별 판정폭), **IIDX**(프레임 기반 근사)
+- 판정 알고리즘: Combo / Duration / Lowest, 커스텀 판정폭(PG/GR/GD %)
+- 게이지: ASSIST EASY, EASY, NORMAL, HARD, **EX-HARD**, HAZARD, 단위(CLASS/EX-CLASS/EXHARD-CLASS) — beatoraja/LR2/IIDX 규칙 세트
+- **GAUGE AUTO SHIFT**: CONTINUE / HARD→GROOVE / BEST CLEAR / SELECT TO UNDER (모든 게이지 병렬 계산)
+- **LN / CN / HCN(헬차지노트)**, 백스핀 스크래치, 지뢰, 공POOR, PMS 1회 POOR 규칙
+- 배치 옵션: MIRROR, RANDOM, R-RANDOM, S-RANDOM, SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, DP FLIP, BATTLE
+- 어시스트: AUTO-SCRATCH, LEGACY NOTE, 지뢰 제거, 오토플레이
+- 하이스피드: 플로팅(메인 BPM 기준 Duration/그린넘버 고정) / CONSTANT, SUDDEN+ / HIDDEN+ / LIFT
+- 클리어 램프(L-ASSIST~MAX), EX 스코어, DJ LEVEL, FAST/SLOW, 게이지 그래프, 타이밍 히스토그램
+- 이미지 BGA(BMP/PNG/JPG, 레이어 블랙키, POOR BGA)
+- 단위/코스 플레이(난이도표의 `course` — 게이지 이월, `grade_mirror`/`gauge_lr2`/`ln`/`cn`/`hcn` 제약)
+
+### 난이도표 / IR
+- bmstable 포맷(`<meta name="bmstable">` → header.json → data.json): **LR2식 발광BMS/통상 난이도표**,
+  **Satellite / Stella** 기본 등록. 표의 레벨 폴더, 미설치 곡(다운로드 URL 표시), 코스 지원.
+  ribbit.xyz가 내려가 있으면 미러로 자동 대체합니다.
+- IR: `IrClient` 트레이트로 확장 가능.
+  - **LR2IR** 랭킹 조회(읽기 전용)
+  - **JSON IR 프로토콜**(beatoraja `IRScoreData`와 같은 필드) — 점수 전송/랭킹/로그인. [docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)
+  - beatoraja의 IR은 Java 플러그인(jar)이라 네이티브 앱에서 그대로 로드할 수 없습니다. 각 IR 서비스는 어댑터를 추가해야 합니다.
+
+### 오디오 / 성능
+- cpal 저지연 출력(버퍼 크기 설정, Windows ASIO / Linux JACK 기능 플래그), 샘플 단위로 정확한 BGM/오토 키음 스케줄링
+- 같은 키음 재발음 시 이전 음 컷(BMS 동작), 512 보이스, 소프트 클리핑
+- 키음 병렬 디코딩(WAV/OGG/MP3/FLAC, 깨진 RIFF 헤더 폴백, `a.wav`→`a.ogg` 대체 탐색)
+- 렌더러는 단일 파이프라인 배치 렌더링, 저지연 프레젠테이션(Mailbox/Immediate 우선), 프레임 제한 옵션
+
+### 테마
+`themes/default/theme.toml`이 첫 실행 시 생성됩니다. 폴더를 복사해 색상·레인 폭·노트 높이·배경 이미지를 바꾸고
+`SETTINGS › DISPLAY › Theme`에서 선택하세요. 테마 폴더의 `fonts/`에 폰트를 넣으면 우선 사용됩니다.
+
+## 구현 현황
+
+| 영역 | 상태 |
+|---|---|
+| 코어 엔진(파서/타이밍/판정/게이지/점수/랜덤) | ✅ 구현 + 단위 테스트 |
+| 데스크톱 앱(선곡/플레이/결과/설정/터치) | ✅ Linux에서 구동 확인, Windows 크로스 컴파일 확인, macOS는 CI 빌드 |
+| ARM(Windows on ARM, Apple Silicon, Linux aarch64) | ✅ CI 매트릭스 |
+| Android | 🧪 `crates/vibebms-android` (cargo-apk) — 실기기 미검증 |
+| iOS/iPadOS | 🧪 빌드 가이드 + Info.plist — 실기기 미검증 |
+| LR2 / beatoraja 스킨 호환 | ⏳ 미구현 (현재는 내장 UI + theme.toml) |
+| 동영상 BGA(mpg/wmv/mp4) | ⏳ 미구현 |
+| 리플레이 저장/재생, 고스트 배틀, 타깃 스코어 | ⏳ 미구현 (엔진에 ghost 데이터는 기록됨) |
+| 특정 IR 서비스 전용 어댑터(MochaIR 등) | ⏳ 프로토콜 확인 후 추가 필요 |
+
+판정·게이지 상수와 출처, 근사치인 부분은 [docs/RULES.md](docs/RULES.md)에 정리했습니다.
+빌드 방법(크로스 컴파일·모바일)은 [docs/BUILDING.md](docs/BUILDING.md)를 보세요.
+
+## 구조
+
+```text
+crates/vibebms-core     파서, 타이밍, 판정, 게이지, 점수, 랜덤, 판정 엔진 (플랫폼 의존성 없음)
+crates/vibebms-tables   난이도표 로더
+crates/vibebms-ir       IR 클라이언트
+crates/vibebms-audio    디코더 + 믹서
+crates/vibebms          앱 (winit + wgpu)
+crates/vibebms-android  Android 패키징
+```
+
+## 크레딧
+판정·게이지 규칙은 beatoraja(exch-bms2, GPL-3.0)의 공개 소스와 LR2 커뮤니티에 공개된 판정폭을 참고해
+독자적으로 구현했습니다. 차트·음원은 포함하지 않습니다(`tools/gen_demo.py`는 자체 생성 데모).

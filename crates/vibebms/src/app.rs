@@ -296,7 +296,7 @@ impl Ctx {
             .spawn(move || {
                 let f = vibebms_tables::UreqFetcher::default();
                 for (name, url, cache) in todo {
-                    match vibebms_tables::fetch_table(&f, &url) {
+                    match vibebms_tables::fetch_table_with_fallback(&f, &url) {
                         Ok(t) => {
                             if let Ok(j) = serde_json::to_vec(&t) {
                                 let _ = std::fs::write(&cache, j);
