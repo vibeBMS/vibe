@@ -2,7 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+)]
 pub enum ClearType {
     #[default]
     NoPlay = 0,
@@ -37,10 +39,22 @@ impl ClearType {
 
     pub fn from_id(id: i64) -> ClearType {
         use ClearType::*;
-        [NoPlay, Failed, AssistEasy, LightAssistEasy, Easy, Normal, Hard, ExHard, FullCombo, Perfect, Max]
-            .get(id.clamp(0, 10) as usize)
-            .copied()
-            .unwrap_or(NoPlay)
+        [
+            NoPlay,
+            Failed,
+            AssistEasy,
+            LightAssistEasy,
+            Easy,
+            Normal,
+            Hard,
+            ExHard,
+            FullCombo,
+            Perfect,
+            Max,
+        ]
+        .get(id.clamp(0, 10) as usize)
+        .copied()
+        .unwrap_or(NoPlay)
     }
 }
 
@@ -156,7 +170,9 @@ impl Score {
     /// Lamp given the gauge outcome. `gauge_clear` is the lamp of the
     /// qualified gauge, or `None` when failed.
     pub fn clear_type(&self, gauge_clear: Option<ClearType>, assist: bool) -> ClearType {
-        let Some(gc) = gauge_clear else { return ClearType::Failed };
+        let Some(gc) = gauge_clear else {
+            return ClearType::Failed;
+        };
         if assist {
             return ClearType::AssistEasy;
         }
@@ -187,15 +203,28 @@ mod tests {
 
     #[test]
     fn lamps() {
-        let mut s = Score { total_notes: 2, passed: 2, ..Default::default() };
+        let mut s = Score {
+            total_notes: 2,
+            passed: 2,
+            ..Default::default()
+        };
         s.add(0, true);
         s.add(1, false);
         assert_eq!(s.ex_score(), 3);
-        assert_eq!(s.clear_type(Some(ClearType::Normal), false), ClearType::Perfect);
+        assert_eq!(
+            s.clear_type(Some(ClearType::Normal), false),
+            ClearType::Perfect
+        );
         s.counts[1] = [0, 0];
         s.add(2, true);
-        assert_eq!(s.clear_type(Some(ClearType::Hard), false), ClearType::FullCombo);
+        assert_eq!(
+            s.clear_type(Some(ClearType::Hard), false),
+            ClearType::FullCombo
+        );
         assert_eq!(s.clear_type(None, false), ClearType::Failed);
-        assert_eq!(s.clear_type(Some(ClearType::Hard), true), ClearType::AssistEasy);
+        assert_eq!(
+            s.clear_type(Some(ClearType::Hard), true),
+            ClearType::AssistEasy
+        );
     }
 }

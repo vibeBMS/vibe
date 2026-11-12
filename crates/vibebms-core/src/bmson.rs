@@ -165,7 +165,8 @@ fn map_lane(mode: PlayMode, x: i64) -> Option<u8> {
                 7 => Some(5),
                 _ => None,
             };
-            lane.filter(|_| player < mode.players()).map(|l| l + player * 6)
+            lane.filter(|_| player < mode.players())
+                .map(|l| l + player * 6)
         }
         PlayMode::Beat7K | PlayMode::Beat14K => (x < 8 * mode.players()).then_some(x),
     };
@@ -173,13 +174,19 @@ fn map_lane(mode: PlayMode, x: i64) -> Option<u8> {
 }
 
 fn x_of(v: &serde_json::Value) -> i64 {
-    v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)).unwrap_or(0)
+    v.as_i64()
+        .or_else(|| v.as_f64().map(|f| f as i64))
+        .unwrap_or(0)
 }
 
 pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     let b: Bmson = serde_json::from_slice(bytes).map_err(|e| ChartError::Parse(e.to_string()))?;
     let info = &b.info;
-    let res = if info.resolution > 0.0 { info.resolution } else { 240.0 };
+    let res = if info.resolution > 0.0 {
+        info.resolution
+    } else {
+        240.0
+    };
     let beat = |y: f64| y / res;
     let mode = mode_from_hint(&info.mode_hint);
     let default_ln = match info.ln_type {
@@ -206,7 +213,11 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     let mut chart = Chart::default();
     let mut meta = ChartMeta {
         title: info.title.clone(),
-        subtitle: if info.subtitle.is_empty() { info.chart_name.clone() } else { info.subtitle.clone() },
+        subtitle: if info.subtitle.is_empty() {
+            info.chart_name.clone()
+        } else {
+            info.subtitle.clone()
+        },
         artist: info.artist.clone(),
         subartist: info.subartists.join(" "),
         genre: info.genre.clone(),
@@ -266,7 +277,14 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
                     } else {
                         NoteKind::Normal
                     };
-                    chart.notes.push(Note { lane, time, beat: beat(n.y), pos: p(n.y), sound, kind });
+                    chart.notes.push(Note {
+                        lane,
+                        time,
+                        beat: beat(n.y),
+                        pos: p(n.y),
+                        sound,
+                        kind,
+                    });
                 }
                 Some(_) => {}
                 None => chart.bgm.push(BgmEvent { time, sound }),
@@ -278,17 +296,30 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
             let file = chart.sound_files.len() as u32;
             chart.sound_files.push(ch.name.clone());
             let sound = chart.sounds.len() as SoundId;
-            chart.sounds.push(SoundSlice { file, start: 0, end: None });
+            chart.sounds.push(SoundSlice {
+                file,
+                start: 0,
+                end: None,
+            });
             for n in &ch.notes {
                 if let Some(lane) = map_lane(mode, x_of(&n.x)) {
                     let kind = if mine {
                         meta.has_mine = true;
-                        NoteKind::Mine { damage: n.damage as f32 }
+                        NoteKind::Mine {
+                            damage: n.damage as f32,
+                        }
                     } else {
                         meta.has_invisible = true;
                         NoteKind::Invisible
                     };
-                    chart.notes.push(Note { lane, time: t(n.y), beat: beat(n.y), pos: p(n.y), sound, kind });
+                    chart.notes.push(Note {
+                        lane,
+                        time: t(n.y),
+                        beat: beat(n.y),
+                        pos: p(n.y),
+                        sound,
+                        kind,
+                    });
                 }
             }
         }
@@ -299,15 +330,25 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
         id_map.insert(h.id, chart.images.len() as u32);
         chart.images.push(h.name.clone());
     }
-    for (evs, layer) in [(&b.bga.bga_events, BgaLayer::Base), (&b.bga.layer_events, BgaLayer::Layer), (&b.bga.poor_events, BgaLayer::Poor)] {
+    for (evs, layer) in [
+        (&b.bga.bga_events, BgaLayer::Base),
+        (&b.bga.layer_events, BgaLayer::Layer),
+        (&b.bga.poor_events, BgaLayer::Poor),
+    ] {
         for e in evs {
-            chart.bga.push(BgaEvent { time: t(e.y), layer, image: id_map.get(&e.id).copied() });
+            chart.bga.push(BgaEvent {
+                time: t(e.y),
+                layer,
+                image: id_map.get(&e.id).copied(),
+            });
         }
     }
     chart.bga.sort_by_key(|e| e.time);
     meta.has_bga = !chart.bga.is_empty();
 
-    chart.notes.sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
+    chart
+        .notes
+        .sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
     chart.bgm.sort_by_key(|e| e.time);
 
     let last = chart.notes.iter().map(|n| match n.kind {
@@ -316,16 +357,29 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     });
     let last = last.fold(0.0f64, f64::max);
     chart.bar_lines = match &b.lines {
-        Some(l) if !l.is_empty() => l.iter().map(|l| BarLine { time: t(l.y), pos: p(l.y) }).collect(),
+        Some(l) if !l.is_empty() => l
+            .iter()
+            .map(|l| BarLine {
+                time: t(l.y),
+                pos: p(l.y),
+            })
+            .collect(),
         _ => (0..=((last / 4.0).ceil() as usize + 1))
-            .map(|m| BarLine { time: timing.time_at_beat(m as f64 * 4.0), pos: timing.pos_at_beat(m as f64 * 4.0) })
+            .map(|m| BarLine {
+                time: timing.time_at_beat(m as f64 * 4.0),
+                pos: timing.pos_at_beat(m as f64 * 4.0),
+            })
             .collect(),
     };
     chart.timing = timing;
     chart.meta = meta;
     // resolve bmson TOTAL (percent of the default)
     let default_total = chart.total(LnType::Ln);
-    chart.meta.total = Some(if info.total > 0.0 { info.total / 100.0 * default_total } else { default_total });
+    chart.meta.total = Some(if info.total > 0.0 {
+        info.total / 100.0 * default_total
+    } else {
+        default_total
+    });
     chart.compute_bpm_stats();
     Ok(chart)
 }

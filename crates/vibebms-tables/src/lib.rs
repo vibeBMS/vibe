@@ -83,8 +83,14 @@ impl std::error::Error for TableError {}
 
 /// Well-known tables offered by default.
 pub const DEFAULT_TABLES: &[(&str, &str)] = &[
-    ("発狂BMS難易度表 (★)", "http://www.ribbit.xyz/bms/tables/insane.html"),
-    ("通常難易度表 (☆)", "http://www.ribbit.xyz/bms/tables/normal.html"),
+    (
+        "発狂BMS難易度表 (★)",
+        "http://www.ribbit.xyz/bms/tables/insane.html",
+    ),
+    (
+        "通常難易度表 (☆)",
+        "http://www.ribbit.xyz/bms/tables/normal.html",
+    ),
     ("Satellite (sl)", "https://stellabms.xyz/sl/table.html"),
     ("Stella (st)", "https://stellabms.xyz/st/table.html"),
 ];
@@ -112,7 +118,10 @@ pub fn find_bmstable_meta(html: &str) -> Option<String> {
     let mut from = 0;
     while let Some(i) = lower[from..].find("<meta") {
         let start = from + i;
-        let end = lower[start..].find('>').map(|e| start + e).unwrap_or(lower.len());
+        let end = lower[start..]
+            .find('>')
+            .map(|e| start + e)
+            .unwrap_or(lower.len());
         let tag = &html[start..end];
         let ltag = &lower[start..end];
         if ltag.contains("bmstable") {
@@ -155,7 +164,9 @@ fn attr(tag: &str, ltag: &str, name: &str) -> Option<String> {
 }
 
 pub fn parse_header(v: &Value) -> Result<TableHeader, TableError> {
-    let o = v.as_object().ok_or_else(|| TableError::Format("header is not an object".into()))?;
+    let o = v
+        .as_object()
+        .ok_or_else(|| TableError::Format("header is not an object".into()))?;
     let get = |k: &str| o.get(k).map(s).unwrap_or_default();
     let mut courses = Vec::new();
     if let Some(c) = o.get("course") {
@@ -188,7 +199,10 @@ pub fn parse_header(v: &Value) -> Result<TableHeader, TableError> {
                             .map(|t| CourseTrophy {
                                 name: t.get("name").map(s).unwrap_or_default(),
                                 missrate: t.get("missrate").and_then(Value::as_f64).unwrap_or(0.0),
-                                scorerate: t.get("scorerate").and_then(Value::as_f64).unwrap_or(0.0),
+                                scorerate: t
+                                    .get("scorerate")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(0.0),
                             })
                             .collect()
                     })
@@ -211,7 +225,9 @@ pub fn parse_header(v: &Value) -> Result<TableHeader, TableError> {
 }
 
 pub fn parse_data(v: &Value) -> Result<Vec<TableEntry>, TableError> {
-    let a = v.as_array().ok_or_else(|| TableError::Format("data is not an array".into()))?;
+    let a = v
+        .as_array()
+        .ok_or_else(|| TableError::Format("data is not an array".into()))?;
     Ok(a.iter()
         .filter_map(Value::as_object)
         .map(|o| {
@@ -237,7 +253,9 @@ fn join(base: &str, rel: &str) -> Result<String, TableError> {
         return Ok(u.to_string());
     }
     let b = Url::parse(base).map_err(|e| TableError::Format(format!("bad url {base}: {e}")))?;
-    b.join(rel).map(|u| u.to_string()).map_err(|e| TableError::Format(e.to_string()))
+    b.join(rel)
+        .map(|u| u.to_string())
+        .map_err(|e| TableError::Format(e.to_string()))
 }
 
 fn decode_body(bytes: &[u8]) -> String {
@@ -269,10 +287,17 @@ impl Default for UreqFetcher {
 
 impl Fetcher for UreqFetcher {
     fn get(&self, url: &str) -> Result<String, TableError> {
-        let resp = self.agent.get(url).call().map_err(|e| TableError::Http(e.to_string()))?;
+        let resp = self
+            .agent
+            .get(url)
+            .call()
+            .map_err(|e| TableError::Http(e.to_string()))?;
         let mut buf = Vec::new();
         use std::io::Read;
-        resp.into_reader().take(64 << 20).read_to_end(&mut buf).map_err(|e| TableError::Http(e.to_string()))?;
+        resp.into_reader()
+            .take(64 << 20)
+            .read_to_end(&mut buf)
+            .map_err(|e| TableError::Http(e.to_string()))?;
         Ok(decode_body(&buf))
     }
 }
@@ -284,24 +309,38 @@ pub fn fetch_table(fetcher: &dyn Fetcher, url: &str) -> Result<DifficultyTable, 
     let (header_url, header_text) = if trimmed.starts_with('{') {
         (url.to_string(), first.clone())
     } else {
-        let meta = find_bmstable_meta(&first).ok_or_else(|| TableError::Format("no <meta name=\"bmstable\"> found".into()))?;
+        let meta = find_bmstable_meta(&first)
+            .ok_or_else(|| TableError::Format("no <meta name=\"bmstable\"> found".into()))?;
         let hu = join(url, &meta)?;
         let text = fetcher.get(&hu)?;
         (hu, text)
     };
-    let hv: Value = serde_json::from_str(header_text.trim_start_matches('\u{feff}')).map_err(|e| TableError::Format(format!("header: {e}")))?;
+    let hv: Value = serde_json::from_str(header_text.trim_start_matches('\u{feff}'))
+        .map_err(|e| TableError::Format(format!("header: {e}")))?;
     let header = parse_header(&hv)?;
     let data_url = join(&header_url, &header.data_url)?;
     let dt = fetcher.get(&data_url)?;
-    let dv: Value = serde_json::from_str(dt.trim_start_matches('\u{feff}')).map_err(|e| TableError::Format(format!("data: {e}")))?;
+    let dv: Value = serde_json::from_str(dt.trim_start_matches('\u{feff}'))
+        .map_err(|e| TableError::Format(format!("data: {e}")))?;
     let entries = parse_data(&dv)?;
-    let fetched_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    Ok(DifficultyTable { source_url: url.to_string(), header, entries, fetched_at })
+    let fetched_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok(DifficultyTable {
+        source_url: url.to_string(),
+        header,
+        entries,
+        fetched_at,
+    })
 }
 
 /// Compare levels naturally ("2" < "10", "10" < "10+", numbers before text).
 fn level_key(l: &str) -> (u8, f64, String) {
-    let num: String = l.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+    let num: String = l
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
     match num.parse::<f64>() {
         Ok(n) => (0, n, l[num.len()..].to_string()),
         Err(_) => (1, 0.0, l.to_string()),
@@ -317,8 +356,17 @@ impl DifficultyTable {
                 seen.push(l.clone());
             }
         }
-        let mut rest: Vec<String> = self.entries.iter().map(|e| e.level.clone()).filter(|l| !seen.contains(l)).collect();
-        rest.sort_by(|a, b| level_key(a).partial_cmp(&level_key(b)).unwrap_or(std::cmp::Ordering::Equal));
+        let mut rest: Vec<String> = self
+            .entries
+            .iter()
+            .map(|e| e.level.clone())
+            .filter(|l| !seen.contains(l))
+            .collect();
+        rest.sort_by(|a, b| {
+            level_key(a)
+                .partial_cmp(&level_key(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         rest.dedup();
         seen.extend(rest);
         seen
@@ -328,7 +376,13 @@ impl DifficultyTable {
         let levels = self.levels();
         let mut m = BTreeMap::new();
         for (i, l) in levels.iter().enumerate() {
-            m.insert(i, (l.clone(), self.entries.iter().filter(|e| &e.level == l).collect()));
+            m.insert(
+                i,
+                (
+                    l.clone(),
+                    self.entries.iter().filter(|e| &e.level == l).collect(),
+                ),
+            );
         }
         m
     }
@@ -347,21 +401,36 @@ mod tests {
     struct Mock(HashMap<String, String>);
     impl Fetcher for Mock {
         fn get(&self, url: &str) -> Result<String, TableError> {
-            self.0.get(url).cloned().ok_or_else(|| TableError::Http(format!("404 {url}")))
+            self.0
+                .get(url)
+                .cloned()
+                .ok_or_else(|| TableError::Http(format!("404 {url}")))
         }
     }
 
     #[test]
     fn meta_parsing() {
-        assert_eq!(find_bmstable_meta(r#"<html><head><META NAME="bmstable" CONTENT="header.json"></head>"#).as_deref(), Some("header.json"));
-        assert_eq!(find_bmstable_meta("<meta name='bmstable' content='./h.json' />").as_deref(), Some("./h.json"));
+        assert_eq!(
+            find_bmstable_meta(
+                r#"<html><head><META NAME="bmstable" CONTENT="header.json"></head>"#
+            )
+            .as_deref(),
+            Some("header.json")
+        );
+        assert_eq!(
+            find_bmstable_meta("<meta name='bmstable' content='./h.json' />").as_deref(),
+            Some("./h.json")
+        );
         assert_eq!(find_bmstable_meta("<meta charset=utf-8>"), None);
     }
 
     #[test]
     fn full_fetch_with_relative_urls() {
         let mut m = HashMap::new();
-        m.insert("https://ex.com/t/table.html".into(), r#"<meta name="bmstable" content="header.json">"#.into());
+        m.insert(
+            "https://ex.com/t/table.html".into(),
+            r#"<meta name="bmstable" content="header.json">"#.into(),
+        );
         m.insert(
             "https://ex.com/t/header.json".into(),
             r#"{"name":"Test","symbol":"sl","data_url":"data/score.json","level_order":["0","1",2],

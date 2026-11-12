@@ -77,7 +77,9 @@ fn parse_f64(s: &str) -> Option<f64> {
     // tolerate trailing junk such as "150.00 ;comment"
     let end = s
         .char_indices()
-        .find(|(_, c)| !(c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+' || *c == 'e' || *c == 'E'))
+        .find(|(_, c)| {
+            !(c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+' || *c == 'e' || *c == 'E')
+        })
         .map(|(i, _)| i)
         .unwrap_or(s.len());
     s[..end].parse().ok()
@@ -97,9 +99,22 @@ fn gcd(a: u64, b: u64) -> u64 {
 
 #[derive(Debug)]
 enum Frame {
-    Random { value: u32 },
-    If { active: bool, matched: bool, parent: bool, depth: usize },
-    Switch { value: u32, active: bool, matched: bool, skipping: bool, parent: bool },
+    Random {
+        value: u32,
+    },
+    If {
+        active: bool,
+        matched: bool,
+        parent: bool,
+        depth: usize,
+    },
+    Switch {
+        value: u32,
+        active: bool,
+        matched: bool,
+        skipping: bool,
+        parent: bool,
+    },
 }
 
 struct Flow {
@@ -123,7 +138,10 @@ impl Flow {
     }
 
     fn random_depth(&self) -> usize {
-        self.stack.iter().filter(|f| matches!(f, Frame::Random { .. })).count()
+        self.stack
+            .iter()
+            .filter(|f| matches!(f, Frame::Random { .. }))
+            .count()
     }
 
     fn current_random(&self) -> u32 {
@@ -180,18 +198,35 @@ impl Flow {
                 }
                 let parent = self.active();
                 let hit = self.current_random() == n();
-                self.stack.push(Frame::If { active: parent && hit, matched: hit, parent, depth });
+                self.stack.push(Frame::If {
+                    active: parent && hit,
+                    matched: hit,
+                    parent,
+                    depth,
+                });
             }
             "ELSEIF" => {
                 let r = self.current_random();
-                if let Some(Frame::If { active, matched, parent, .. }) = self.stack.last_mut() {
+                if let Some(Frame::If {
+                    active,
+                    matched,
+                    parent,
+                    ..
+                }) = self.stack.last_mut()
+                {
                     let hit = !*matched && r == n();
                     *active = *parent && hit;
                     *matched |= hit;
                 }
             }
             "ELSE" => {
-                if let Some(Frame::If { active, matched, parent, .. }) = self.stack.last_mut() {
+                if let Some(Frame::If {
+                    active,
+                    matched,
+                    parent,
+                    ..
+                }) = self.stack.last_mut()
+                {
                     *active = *parent && !*matched;
                     *matched = true;
                 }
@@ -211,11 +246,24 @@ impl Flow {
                     self.used = true;
                     n()
                 };
-                self.stack.push(Frame::Switch { value, active: false, matched: false, skipping: false, parent });
+                self.stack.push(Frame::Switch {
+                    value,
+                    active: false,
+                    matched: false,
+                    skipping: false,
+                    parent,
+                });
             }
             "CASE" => {
                 let v = n();
-                if let Some(Frame::Switch { value, active, matched, skipping, parent }) = self.stack.last_mut() {
+                if let Some(Frame::Switch {
+                    value,
+                    active,
+                    matched,
+                    skipping,
+                    parent,
+                }) = self.stack.last_mut()
+                {
                     if !*skipping && !*active && *value == v {
                         *active = *parent;
                         *matched = true;
@@ -223,7 +271,10 @@ impl Flow {
                 }
             }
             "SKIP" => {
-                if let Some(Frame::Switch { active, skipping, .. }) = self.stack.last_mut() {
+                if let Some(Frame::Switch {
+                    active, skipping, ..
+                }) = self.stack.last_mut()
+                {
                     if *active {
                         *active = false;
                         *skipping = true;
@@ -231,7 +282,14 @@ impl Flow {
                 }
             }
             "DEF" => {
-                if let Some(Frame::Switch { active, matched, skipping, parent, .. }) = self.stack.last_mut() {
+                if let Some(Frame::Switch {
+                    active,
+                    matched,
+                    skipping,
+                    parent,
+                    ..
+                }) = self.stack.last_mut()
+                {
                     if !*skipping && !*matched {
                         *active = *parent;
                         *matched = true;
@@ -309,7 +367,11 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         used: false,
     };
 
-    let mut meta = ChartMeta { md5: md5_hex(bytes), sha256: sha256_hex(bytes), ..Default::default() };
+    let mut meta = ChartMeta {
+        md5: md5_hex(bytes),
+        sha256: sha256_hex(bytes),
+        ..Default::default()
+    };
     let mut initial_bpm = 130.0;
     let mut b62 = false;
     let mut wav_defs: HashMap<u32, String> = HashMap::new();
@@ -324,7 +386,9 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
 
     for raw in text.lines() {
         let line = raw.trim();
-        let Some(body) = line.strip_prefix('#') else { continue };
+        let Some(body) = line.strip_prefix('#') else {
+            continue;
+        };
         let bb = body.as_bytes();
         // channel line: #mmmcc:data
         if bb.len() >= 6 && bb[..3].iter().all(u8::is_ascii_digit) && bb[5] == b':' {
@@ -354,7 +418,9 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
             continue;
         }
         let idx = |prefix: &str| -> Option<u32> {
-            ukey.strip_prefix(prefix).filter(|r| r.len() == 2).and_then(|_| parse_id(&key.as_bytes()[prefix.len()..], b62))
+            ukey.strip_prefix(prefix)
+                .filter(|r| r.len() == 2)
+                .and_then(|_| parse_id(&key.as_bytes()[prefix.len()..], b62))
         };
         match ukey.as_str() {
             "TITLE" => meta.title = arg.to_owned(),
@@ -414,7 +480,10 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     }
     meta.has_random = flow.used;
     meta.random_selections = flow.selections;
-    let lnobj: HashSet<u32> = lnobj_raw.iter().filter_map(|s| parse_id(s.trim().as_bytes(), b62)).collect();
+    let lnobj: HashSet<u32> = lnobj_raw
+        .iter()
+        .filter_map(|s| parse_id(s.trim().as_bytes(), b62))
+        .collect();
 
     // measure start beats
     let max_measure = lines.iter().map(|l| l.0).max().unwrap_or(0);
@@ -435,7 +504,11 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         let file = chart.sound_files.len() as u32;
         chart.sound_files.push(wav_defs[&id].clone());
         wav_map.insert(id, chart.sounds.len() as SoundId);
-        chart.sounds.push(SoundSlice { file, start: 0, end: None });
+        chart.sounds.push(SoundSlice {
+            file,
+            start: 0,
+            end: None,
+        });
     }
     let snd = |id: u32| wav_map.get(&id).copied().unwrap_or(NO_SOUND);
     let mut bmp_map: HashMap<u32, u32> = HashMap::new();
@@ -462,7 +535,8 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
             if pair == b"00" {
                 continue;
             }
-            let beat = measure_start[*measure as usize] + (i as f64 / n as f64) * 4.0 * mlen(*measure);
+            let beat =
+                measure_start[*measure as usize] + (i as f64 / n as f64) * 4.0 * mlen(*measure);
             let g = gcd(i as u64, n as u64).max(1);
             let pos_key = (*measure, i as u64 / g, n as u64 / g);
             let id = || parse_id(pair, b62);
@@ -473,7 +547,8 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
                     }
                 }
                 b"03" => {
-                    if let Ok(v) = u32::from_str_radix(std::str::from_utf8(pair).unwrap_or("0"), 16) {
+                    if let Ok(v) = u32::from_str_radix(std::str::from_utf8(pair).unwrap_or("0"), 16)
+                    {
                         timing_events.push((beat, TimingEvent::Bpm(v as f64)));
                     }
                 }
@@ -518,7 +593,14 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
                     };
                     let Some(id) = id() else { continue };
                     match map_key(ch[1], pms, player) {
-                        Some(key) => objs.push(RawObj { player: if pms { 0 } else { player }, key, beat, pos_key, id, kind }),
+                        Some(key) => objs.push(RawObj {
+                            player: if pms { 0 } else { player },
+                            key,
+                            beat,
+                            pos_key,
+                            id,
+                            kind,
+                        }),
                         None => {
                             // free zone (x7) and unknown lanes: keep the sound as BGM
                             if kind == ObjKind::Visible {
@@ -535,8 +617,12 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     let mode = if pms {
         PlayMode::Popn9K
     } else {
-        let double = objs.iter().any(|o| o.player == 1 && o.kind != ObjKind::Invisible);
-        let seven = objs.iter().any(|o| (o.key == 5 || o.key == 6) && o.kind != ObjKind::Invisible);
+        let double = objs
+            .iter()
+            .any(|o| o.player == 1 && o.kind != ObjKind::Invisible);
+        let seven = objs
+            .iter()
+            .any(|o| (o.key == 5 || o.key == 6) && o.kind != ObjKind::Invisible);
         match (double, seven) {
             (false, false) => PlayMode::Beat5K,
             (false, true) => PlayMode::Beat7K,
@@ -546,7 +632,11 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     };
     meta.mode = Some(mode);
     let lane_of = |o: &RawObj| -> Option<u8> {
-        let key = if o.key == SCRATCH { mode.keys_per_player() } else { o.key };
+        let key = if o.key == SCRATCH {
+            mode.keys_per_player()
+        } else {
+            o.key
+        };
         if key >= mode.lanes_per_player() || o.player >= mode.players() {
             return None;
         }
@@ -574,7 +664,14 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
             }
             ObjKind::Invisible => {
                 meta.has_invisible = true;
-                notes.push(Note { lane, time: t_of(o.beat), beat: o.beat, pos: p_of(o.beat), sound: snd(o.id), kind: NoteKind::Invisible });
+                notes.push(Note {
+                    lane,
+                    time: t_of(o.beat),
+                    beat: o.beat,
+                    pos: p_of(o.beat),
+                    sound: snd(o.id),
+                    kind: NoteKind::Invisible,
+                });
             }
             ObjKind::Mine => {
                 meta.has_mine = true;
@@ -584,7 +681,9 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
                     beat: o.beat,
                     pos: p_of(o.beat),
                     sound: snd(0),
-                    kind: NoteKind::Mine { damage: o.id as f32 },
+                    kind: NoteKind::Mine {
+                        damage: o.id as f32,
+                    },
                 });
             }
         }
@@ -596,7 +695,13 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         beat: s.beat,
         pos: p_of(s.beat),
         sound: snd(s.id),
-        kind: NoteKind::Long { end_time: t_of(e_beat), end_beat: e_beat, end_pos: p_of(e_beat), end_sound, ln_type: meta.ln_type },
+        kind: NoteKind::Long {
+            end_time: t_of(e_beat),
+            end_beat: e_beat,
+            end_pos: p_of(e_beat),
+            end_sound,
+            ln_type: meta.ln_type,
+        },
     };
 
     for lane in 0..lanes {
@@ -609,14 +714,25 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         for pair in &mut it {
             if pair.len() == 2 {
                 let end_sound = snd(pair[1].id);
-                let end_sound = if end_sound == snd(pair[0].id) { NO_SOUND } else { end_sound };
+                let end_sound = if end_sound == snd(pair[0].id) {
+                    NO_SOUND
+                } else {
+                    end_sound
+                };
                 notes.push(make_long(&pair[0], pair[1].beat, end_sound, lane_u8));
                 ranges.push((pair[0].beat, pair[1].beat));
                 meta.has_long = true;
             } else {
                 // dangling start: treat as a normal note
                 let s = &pair[0];
-                notes.push(Note { lane: lane_u8, time: t_of(s.beat), beat: s.beat, pos: p_of(s.beat), sound: snd(s.id), kind: NoteKind::Normal });
+                notes.push(Note {
+                    lane: lane_u8,
+                    time: t_of(s.beat),
+                    beat: s.beat,
+                    pos: p_of(s.beat),
+                    sound: snd(s.id),
+                    kind: NoteKind::Normal,
+                });
             }
         }
         // normal channel notes, with LNOBJ terminators
@@ -625,7 +741,14 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         let mut pending: Option<RawObj> = None;
         let flush = |p: Option<RawObj>, notes: &mut Vec<Note>| {
             if let Some(s) = p {
-                notes.push(Note { lane: lane_u8, time: t_of(s.beat), beat: s.beat, pos: p_of(s.beat), sound: snd(s.id), kind: NoteKind::Normal });
+                notes.push(Note {
+                    lane: lane_u8,
+                    time: t_of(s.beat),
+                    beat: s.beat,
+                    pos: p_of(s.beat),
+                    sound: snd(s.id),
+                    kind: NoteKind::Normal,
+                });
             }
         };
         for o in vis {
@@ -635,7 +758,11 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
             if lnobj.contains(&o.id) {
                 if let Some(s) = pending.take() {
                     let end_sound = snd(o.id);
-                    let end_sound = if end_sound == snd(s.id) { NO_SOUND } else { end_sound };
+                    let end_sound = if end_sound == snd(s.id) {
+                        NO_SOUND
+                    } else {
+                        end_sound
+                    };
                     notes.push(make_long(&s, o.beat, end_sound, lane_u8));
                     meta.has_long = true;
                 }
@@ -654,18 +781,31 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         .into_iter()
         .filter_map(|(beat, id)| {
             let sound = snd(id);
-            (sound != NO_SOUND).then(|| BgmEvent { time: t_of(beat), sound })
+            (sound != NO_SOUND).then(|| BgmEvent {
+                time: t_of(beat),
+                sound,
+            })
         })
         .collect();
 
     bga_raw.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     chart.bga = bga_raw
         .into_iter()
-        .map(|(beat, layer, id)| BgaEvent { time: t_of(beat), layer, image: bmp_map.get(&id).copied() })
+        .map(|(beat, layer, id)| BgaEvent {
+            time: t_of(beat),
+            layer,
+            image: bmp_map.get(&id).copied(),
+        })
         .collect();
     meta.has_bga = !chart.bga.is_empty();
 
-    chart.bar_lines = measure_start.iter().map(|b| BarLine { time: t_of(*b), pos: p_of(*b) }).collect();
+    chart.bar_lines = measure_start
+        .iter()
+        .map(|b| BarLine {
+            time: t_of(*b),
+            pos: p_of(*b),
+        })
+        .collect();
 
     chart.timing = timing;
     chart.meta = meta;
@@ -678,7 +818,15 @@ mod tests {
     use super::*;
 
     fn parse(s: &str) -> Chart {
-        parse_bms(s.as_bytes(), "bms", &ParseOptions { random_seed: Some(1), ..Default::default() }).unwrap()
+        parse_bms(
+            s.as_bytes(),
+            "bms",
+            &ParseOptions {
+                random_seed: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
 
     #[test]
@@ -725,7 +873,9 @@ mod tests {
     #[test]
     fn measure_length_bpm_stop() {
         // measure 0 is 3/4 long; BPM 120 -> 240 at measure 1; stop 48 (1 beat) at measure 1
-        let c = parse("#BPM 120\n#STOP01 48\n#00002:0.75\n#00103:F0\n#00109:01\n#00111:01\n#00211:01\n");
+        let c = parse(
+            "#BPM 120\n#STOP01 48\n#00002:0.75\n#00103:F0\n#00109:01\n#00111:01\n#00211:01\n",
+        );
         let n: Vec<_> = c.notes.iter().collect();
         assert_eq!(n[0].time, 1_500_000);
         // measure 1 is 4 beats at 240 = 1 s, plus 1 beat stop at 240 = 0.25 s
@@ -741,7 +891,10 @@ mod tests {
             let c = parse_bms(
                 src.as_bytes(),
                 "bms",
-                &ParseOptions { random_selections: Some(vec![sel]), ..Default::default() },
+                &ParseOptions {
+                    random_selections: Some(vec![sel]),
+                    ..Default::default()
+                },
             )
             .unwrap();
             assert_eq!(c.notes.len(), 1);
@@ -750,9 +903,25 @@ mod tests {
         }
         // nested + else
         let src = "#RANDOM 2\n#IF 1\n#RANDOM 2\n#IF 2\n#00113:01\n#ENDIF\n#ENDRANDOM\n#ELSE\n#00114:01\n#ENDIF\n#ENDRANDOM\n";
-        let c = parse_bms(src.as_bytes(), "bms", &ParseOptions { random_selections: Some(vec![1, 2]), ..Default::default() }).unwrap();
+        let c = parse_bms(
+            src.as_bytes(),
+            "bms",
+            &ParseOptions {
+                random_selections: Some(vec![1, 2]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(c.notes[0].lane, 2);
-        let c = parse_bms(src.as_bytes(), "bms", &ParseOptions { random_selections: Some(vec![2]), ..Default::default() }).unwrap();
+        let c = parse_bms(
+            src.as_bytes(),
+            "bms",
+            &ParseOptions {
+                random_selections: Some(vec![2]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(c.notes[0].lane, 3);
     }
 
@@ -774,8 +943,14 @@ mod tests {
     #[test]
     fn mines_and_invisible() {
         let c = parse("#WAV00 boom.wav\n#WAV01 a.wav\n#001D1:0A\n#00131:01\n#00111:01\n");
-        assert!(c.notes.iter().any(|n| matches!(n.kind, NoteKind::Mine { damage } if damage == 10.0)));
-        assert!(c.notes.iter().any(|n| matches!(n.kind, NoteKind::Invisible)));
+        assert!(c
+            .notes
+            .iter()
+            .any(|n| matches!(n.kind, NoteKind::Mine { damage } if damage == 10.0)));
+        assert!(c
+            .notes
+            .iter()
+            .any(|n| matches!(n.kind, NoteKind::Invisible)));
         assert_eq!(c.note_count(), 1);
     }
 

@@ -1,7 +1,40 @@
 [package]
 name = "vibebms"
+description = "Cross-platform, native, high performance BMS player"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "vibebms_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vibebms"
+path = "src/main.rs"
+
+[features]
+default = []
+asio = ["vibebms-audio/asio"]
+
 [dependencies]
+vibebms-core.workspace = true
+vibebms-tables.workspace = true
+vibebms-ir.workspace = true
+vibebms-audio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+winit = { version = "0.30", features = ["serde"] }
+wgpu = "24"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+fontdue = "0.9"
+fontdb = "0.16"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+toml = "0.8"
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+gilrs = "0.11"

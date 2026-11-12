@@ -33,7 +33,9 @@ pub enum NoteKind {
         ln_type: Option<LnType>,
     },
     /// Land mine; damage in gauge percent.
-    Mine { damage: f32 },
+    Mine {
+        damage: f32,
+    },
     /// Invisible note (BMS channels 3x/4x): only provides keysounds.
     Invisible,
 }

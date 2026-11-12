@@ -1,7 +1,18 @@
 [package]
 name = "vibebms-audio"
+description = "Low latency keysound mixer and decoder for vibeBMS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+# Windows ASIO output (requires the ASIO SDK at build time, see cpal docs)
+asio = ["cpal/asio"]
+# Linux JACK output
+jack = ["cpal/jack"]
+
 [dependencies]
+cpal = "0.15"
+symphonia = { version = "0.5", features = ["mp3"] }
+log.workspace = true

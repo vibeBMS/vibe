@@ -40,11 +40,26 @@ pub enum JudgeAlgorithm {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EngineEvent {
-    Judge { lane: u8, judge: usize, diff: i64, combo: u32, tail: bool },
-    Sound { sound: SoundId, lane: u8 },
+    Judge {
+        lane: u8,
+        judge: usize,
+        diff: i64,
+        combo: u32,
+        tail: bool,
+    },
+    Sound {
+        sound: SoundId,
+        lane: u8,
+    },
     /// Mute / unmute a keysound (HCN body, early LN release).
-    Volume { sound: SoundId, volume: f32 },
-    Mine { lane: u8, damage: f32 },
+    Volume {
+        sound: SoundId,
+        volume: f32,
+    },
+    Mine {
+        lane: u8,
+        damage: f32,
+    },
     /// Survival gauge emptied (play should stop unless GAS=Continue).
     Failed,
 }
@@ -164,9 +179,16 @@ impl Engine {
             }
             let (kind, end_time, end_sound) = match &n.kind {
                 NoteKind::Normal => (PKind::Normal, n.time, NO_SOUND),
-                NoteKind::Long { end_time, end_sound, ln_type, .. } => {
-                    (PKind::Long(ln_type.unwrap_or(cfg.default_ln)), *end_time, *end_sound)
-                }
+                NoteKind::Long {
+                    end_time,
+                    end_sound,
+                    ln_type,
+                    ..
+                } => (
+                    PKind::Long(ln_type.unwrap_or(cfg.default_ln)),
+                    *end_time,
+                    *end_sound,
+                ),
                 NoteKind::Mine { damage } => (PKind::Mine(*damage), n.time, NO_SOUND),
                 NoteKind::Invisible => {
                     lane_hidden[lane].push((n.time, n.sound));
@@ -192,7 +214,10 @@ impl Engine {
         let total = chart.total_judgements(cfg.default_ln) as u32;
         let mut auto = cfg.auto_lanes.clone();
         auto.resize(lanes, false);
-        let cfg = EngineConfig { auto_lanes: auto, ..cfg };
+        let cfg = EngineConfig {
+            auto_lanes: auto,
+            ..cfg
+        };
         let last_time = notes.iter().map(|n| n.end_time).max().unwrap_or(0);
         Engine {
             notes,
@@ -205,7 +230,10 @@ impl Engine {
             judge_end,
             prev_time: i64::MIN / 4,
             gauge,
-            score: Score { total_notes: total, ..Default::default() },
+            score: Score {
+                total_notes: total,
+                ..Default::default()
+            },
             combo: 0,
             events: Vec::new(),
             queue: Vec::new(),
@@ -239,7 +267,10 @@ impl Engine {
 
     /// HCN currently gaining gauge on this lane.
     pub fn hcn_active(&self, lane: usize) -> bool {
-        self.lanes.get(lane).map(|l| l.passing.is_some() && l.increase).unwrap_or(false)
+        self.lanes
+            .get(lane)
+            .map(|l| l.passing.is_some() && l.increase)
+            .unwrap_or(false)
     }
 
     pub fn is_auto(&self, lane: usize) -> bool {
@@ -303,7 +334,10 @@ impl Engine {
 
     fn sound(&mut self, sound: SoundId, lane: usize) {
         if sound != NO_SOUND {
-            self.events.push(EngineEvent::Sound { sound, lane: lane as u8 });
+            self.events.push(EngineEvent::Sound {
+                sound,
+                lane: lane as u8,
+            });
         }
     }
 
@@ -337,7 +371,10 @@ impl Engine {
                     PKind::Mine(damage) if pressed => {
                         self.gauge.add_value(-damage);
                         let s = n.sound;
-                        self.events.push(EngineEvent::Mine { lane: lane as u8, damage });
+                        self.events.push(EngineEvent::Mine {
+                            lane: lane as u8,
+                            damage,
+                        });
                         self.sound(s, lane);
                         self.check_failed();
                     }
@@ -351,7 +388,9 @@ impl Engine {
                             self.sound(s, lane);
                             self.judge_note(i, false, PGREAT, 0, true);
                         }
-                        PKind::Long(lt) if n.state == 0 && self.lanes[lane].processing.is_none() => {
+                        PKind::Long(lt)
+                            if n.state == 0 && self.lanes[lane].processing.is_none() =>
+                        {
                             let s = n.sound;
                             self.sound(s, lane);
                             if lt == LnType::Ln {
@@ -395,7 +434,9 @@ impl Engine {
         // HCN gauge ticks
         let dt = t - prev;
         for lane in 0..self.lanes.len() {
-            let Some(p) = self.lanes[lane].passing else { continue };
+            let Some(p) = self.lanes[lane].passing else {
+                continue;
+            };
             if self.notes[p].state == 0 {
                 continue;
             }
@@ -407,7 +448,10 @@ impl Engine {
                     self.lanes[lane].passing_count -= HCN_TICK;
                 }
                 if self.notes[p].end_state > 3 {
-                    self.events.push(EngineEvent::Volume { sound: snd, volume: 1.0 });
+                    self.events.push(EngineEvent::Volume {
+                        sound: snd,
+                        volume: 1.0,
+                    });
                 }
             } else {
                 self.lanes[lane].passing_count -= dt;
@@ -416,7 +460,10 @@ impl Engine {
                     self.lanes[lane].passing_count += HCN_TICK;
                 }
                 if self.notes[p].end_state > 3 {
-                    self.events.push(EngineEvent::Volume { sound: snd, volume: 0.0 });
+                    self.events.push(EngineEvent::Volume {
+                        sound: snd,
+                        volume: 0.0,
+                    });
                 }
             }
             self.check_failed();
@@ -429,8 +476,14 @@ impl Engine {
         let b = &self.notes[t2];
         let w = self.windows();
         match self.cfg.algorithm {
-            JudgeAlgorithm::Combo => b.state == 0 && a.time < ptime + w.time(nt, GOOD, false) && b.time <= ptime + w.time(nt, GOOD, true),
-            JudgeAlgorithm::Duration => (a.time - ptime).abs() > (b.time - ptime).abs() && b.state == 0,
+            JudgeAlgorithm::Combo => {
+                b.state == 0
+                    && a.time < ptime + w.time(nt, GOOD, false)
+                    && b.time <= ptime + w.time(nt, GOOD, true)
+            }
+            JudgeAlgorithm::Duration => {
+                (a.time - ptime).abs() > (b.time - ptime).abs() && b.state == 0
+            }
             JudgeAlgorithm::Lowest => false,
         }
     }
@@ -442,7 +495,10 @@ impl Engine {
         if ev.pressed {
             if let Some(p) = self.lanes[lane].processing {
                 let lt = self.notes[p].ln_type().unwrap_or(LnType::Ln);
-                let other_dir = self.lanes[lane].sc_key.map(|k| k != ev.key).unwrap_or(false);
+                let other_dir = self.lanes[lane]
+                    .sc_key
+                    .map(|k| k != ev.key)
+                    .unwrap_or(false);
                 if lt != LnType::Ln && sc && other_dir {
                     // back-spin scratch: spinning the other way ends the note
                     let dm = self.notes[p].end_time - ptime;
@@ -480,7 +536,8 @@ impl Engine {
                 let n = &self.notes[i];
                 if self.cfg.rules.miss_one
                     && (n.state != 0
-                        || (n.play_time.is_some() && (dm > w.time(nt, GOOD, true) || dm < w.time(nt, GOOD, false))))
+                        || (n.play_time.is_some()
+                            && (dm > w.time(nt, GOOD, true) || dm < w.time(nt, GOOD, false))))
                 {
                     continue;
                 }
@@ -499,7 +556,9 @@ impl Engine {
                     }
                 };
                 if judge < 6 {
-                    let closer = best.map(|(b, _)| (self.notes[b].time - ptime).abs() > (n.time - ptime).abs()).unwrap_or(true);
+                    let closer = best
+                        .map(|(b, _)| (self.notes[b].time - ptime).abs() > (n.time - ptime).abs())
+                        .unwrap_or(true);
                     if judge < 4 || closer {
                         best = Some((i, judge));
                     }
@@ -547,9 +606,18 @@ impl Engine {
                 None => self.empty_press_sound(lane, ptime),
             }
         } else {
-            let Some(p) = self.lanes[lane].processing else { return };
+            let Some(p) = self.lanes[lane].processing else {
+                return;
+            };
             let mut dm = self.notes[p].end_time - ptime;
-            let mut judge = self.windows().judge(if sc { NoteType::LongScratchEnd } else { NoteType::LongEnd }, dm);
+            let mut judge = self.windows().judge(
+                if sc {
+                    NoteType::LongScratchEnd
+                } else {
+                    NoteType::LongEnd
+                },
+                dm,
+            );
             let lt = self.notes[p].ln_type().unwrap_or(LnType::Ln);
             let any_held = self.lanes[lane].keys.iter().any(|k| *k);
             if lt != LnType::Ln {
@@ -613,7 +681,13 @@ impl Engine {
             return;
         }
         let ln = &self.lane_notes[lane];
-        let mut cand: Option<(i64, SoundId, bool)> = ln.first().map(|&i| (self.notes[i].time, self.notes[i].sound, self.notes[i].is_mine()));
+        let mut cand: Option<(i64, SoundId, bool)> = ln.first().map(|&i| {
+            (
+                self.notes[i].time,
+                self.notes[i].sound,
+                self.notes[i].is_mine(),
+            )
+        });
         let hidden = &self.lane_hidden[lane];
         let h = hidden.partition_point(|(t, _)| *t < ptime);
         if h > 0 {
@@ -646,7 +720,11 @@ impl Engine {
         for lane in 0..self.lanes.len() {
             let sc = self.scratch[lane];
             let nt = self.note_type(lane);
-            let margin = if sc { self.windows().scratch_ln_margin } else { self.windows().ln_margin };
+            let margin = if sc {
+                self.windows().scratch_ln_margin
+            } else {
+                self.windows().ln_margin
+            };
             if let Some(p) = self.lanes[lane].processing {
                 let lt = self.notes[p].ln_type().unwrap_or(LnType::Ln);
                 let end = self.notes[p].end_time;
@@ -656,7 +734,10 @@ impl Engine {
                     if let (Some(rt), Some(ej)) = (rt, ej) {
                         if ej >= 3 && rt + margin <= mtime {
                             let (s, es) = (self.notes[p].sound, self.notes[p].end_sound);
-                            self.events.push(EngineEvent::Volume { sound: s, volume: 0.0 });
+                            self.events.push(EngineEvent::Volume {
+                                sound: s,
+                                volume: 0.0,
+                            });
                             self.judge_ln_mode(p, ej, end - rt);
                             self.sound(es, lane);
                             self.lanes[lane].processing = None;
@@ -668,7 +749,10 @@ impl Engine {
                     if end < mtime {
                         let (judge, dur) = match (ej, rt) {
                             (Some(j), Some(r)) => (j, end - r),
-                            _ => (self.lanes[lane].ln_start_judge, self.lanes[lane].ln_start_dur),
+                            _ => (
+                                self.lanes[lane].ln_start_judge,
+                                self.lanes[lane].ln_start_dur,
+                            ),
                         };
                         let es = self.notes[p].end_sound;
                         self.judge_ln_mode(p, judge, dur);
@@ -681,7 +765,10 @@ impl Engine {
                     if rt + margin <= mtime {
                         if ej >= 3 {
                             let s = self.notes[p].sound;
-                            self.events.push(EngineEvent::Volume { sound: s, volume: 0.0 });
+                            self.events.push(EngineEvent::Volume {
+                                sound: s,
+                                volume: 0.0,
+                            });
                         }
                         let es = self.notes[p].end_sound;
                         self.judge_note(p, true, ej, end - rt, true);
@@ -721,7 +808,10 @@ impl Engine {
             // charge note held too long past its end
             if let Some(p) = e.lanes[lane].processing {
                 let n = &e.notes[p];
-                if n.ln_type() != Some(LnType::Ln) && n.end_state == 0 && n.end_time < mtime + bad_late {
+                if n.ln_type() != Some(LnType::Ln)
+                    && n.end_state == 0
+                    && n.end_time < mtime + bad_late
+                {
                     let dm = n.end_time - mtime;
                     e.judge_note(p, true, POOR, dm, true);
                     e.lanes[lane].processing = None;
@@ -758,7 +848,11 @@ impl Engine {
             self.ghost.push(judge as u8);
         }
         let n = &mut self.notes[i];
-        let pt = if tail { &mut n.end_play_time } else { &mut n.play_time };
+        let pt = if tail {
+            &mut n.end_play_time
+        } else {
+            &mut n.play_time
+        };
         if self.cfg.rules.miss_one && judge == POOR && pt.is_some() {
             return;
         }
@@ -778,7 +872,13 @@ impl Engine {
             self.combo = 0;
         }
         self.gauge.update(judge, 1.0);
-        self.events.push(EngineEvent::Judge { lane, judge, diff, combo: self.combo, tail });
+        self.events.push(EngineEvent::Judge {
+            lane,
+            judge,
+            diff,
+            combo: self.combo,
+            tail,
+        });
         self.check_failed();
     }
 
@@ -791,7 +891,10 @@ impl Engine {
 
     /// Fraction of lane key state, for key beams.
     pub fn key_down(&self, lane: usize) -> bool {
-        self.lanes.get(lane).map(|l| l.keys.iter().any(|k| *k) || l.auto_hold).unwrap_or(false)
+        self.lanes
+            .get(lane)
+            .map(|l| l.keys.iter().any(|k| *k) || l.auto_hold)
+            .unwrap_or(false)
     }
 }
 
@@ -805,9 +908,21 @@ mod tests {
 
     fn engine(src: &str, ln: LnType, auto: bool) -> (Chart, Engine) {
         let chart = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
-        let rules = judge_rules(JudgePreset::Beatoraja, RuleFamily::SevenKeys, JudgeRank::Rank(3), None);
+        let rules = judge_rules(
+            JudgePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(3),
+            None,
+        );
         let total = chart.total(ln);
-        let gauge = GrooveGauge::new(GaugePreset::Beatoraja, RuleFamily::SevenKeys, GaugeType::Normal, GaugeAutoShift::None, total, chart.total_judgements(ln));
+        let gauge = GrooveGauge::new(
+            GaugePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            GaugeType::Normal,
+            GaugeAutoShift::None,
+            total,
+            chart.total_judgements(ln),
+        );
         let cfg = EngineConfig {
             rules,
             default_ln: ln,
@@ -820,11 +935,21 @@ mod tests {
     }
 
     fn press(e: &mut Engine, lane: u8, t: i64) {
-        e.input(InputEvent { time: t, lane, key: 0, pressed: true });
+        e.input(InputEvent {
+            time: t,
+            lane,
+            key: 0,
+            pressed: true,
+        });
         e.update(t);
     }
     fn release(e: &mut Engine, lane: u8, t: i64) {
-        e.input(InputEvent { time: t, lane, key: 0, pressed: false });
+        e.input(InputEvent {
+            time: t,
+            lane,
+            key: 0,
+            pressed: false,
+        });
         e.update(t);
     }
 
@@ -956,12 +1081,19 @@ mod tests {
 
     #[test]
     fn mines_damage_when_held() {
-        let (_, mut e) = engine("#BPM 120\n#WAV00 boom.wav\n#001D1:0A\n#00112:01\n", LnType::Ln, false);
+        let (_, mut e) = engine(
+            "#BPM 120\n#WAV00 boom.wav\n#001D1:0A\n#00112:01\n",
+            LnType::Ln,
+            false,
+        );
         e.update(1_000_000);
         press(&mut e, 0, 1_900_000);
         let g = e.gauge.value();
         e.update(2_100_000);
-        let mines: Vec<_> = e.drain_events().filter(|ev| matches!(ev, EngineEvent::Mine { .. })).collect();
+        let mines: Vec<_> = e
+            .drain_events()
+            .filter(|ev| matches!(ev, EngineEvent::Mine { .. }))
+            .collect();
         assert_eq!(mines.len(), 1);
         assert!(e.gauge.value() < g);
     }

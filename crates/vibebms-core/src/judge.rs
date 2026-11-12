@@ -77,12 +77,17 @@ impl JudgeWindows {
     /// Index of the first window containing `diff`, or `table.len()` if none.
     pub fn judge(&self, t: NoteType, diff: i64) -> usize {
         let tab = self.table(t);
-        tab.iter().position(|(l, e)| diff >= *l && diff <= *e).unwrap_or(tab.len())
+        tab.iter()
+            .position(|(l, e)| diff >= *l && diff <= *e)
+            .unwrap_or(tab.len())
     }
 
     /// Bound of window `judge` (`early` = upper bound). 0 when out of range.
     pub fn time(&self, t: NoteType, judge: usize, early: bool) -> i64 {
-        self.table(t).get(judge).map(|w| if early { w.1 } else { w.0 }).unwrap_or(0)
+        self.table(t)
+            .get(judge)
+            .map(|w| if early { w.1 } else { w.0 })
+            .unwrap_or(0)
     }
 
     /// Smallest late bound / largest early bound over note and scratch tables.
@@ -179,11 +184,23 @@ struct WindowRule {
 }
 
 const RULE_NORMAL: WindowRule = WindowRule {
-    rank: [[25, 25, 25, 25, 100], [50, 50, 50, 50, 100], [75, 75, 75, 75, 100], [100, 100, 100, 100, 100], [125, 125, 125, 125, 100]],
+    rank: [
+        [25, 25, 25, 25, 100],
+        [50, 50, 50, 50, 100],
+        [75, 75, 75, 75, 100],
+        [100, 100, 100, 100, 100],
+        [125, 125, 125, 125, 100],
+    ],
     fixed: [false, false, false, false, true],
 };
 const RULE_PMS: WindowRule = WindowRule {
-    rank: [[100, 33, 33, 100, 100], [100, 50, 50, 100, 100], [100, 70, 70, 100, 100], [100, 100, 100, 100, 100], [100, 133, 133, 100, 100]],
+    rank: [
+        [100, 33, 33, 100, 100],
+        [100, 50, 50, 100, 100],
+        [100, 70, 70, 100, 100],
+        [100, 100, 100, 100, 100],
+        [100, 133, 133, 100, 100],
+    ],
     fixed: [true, false, false, true, true],
 };
 
@@ -202,9 +219,23 @@ impl WindowRule {
 
     fn create(&self, org: &[(i64, i64)], judgerank: i64, rate: WindowRate) -> Vec<(i64, i64)> {
         let n = org.len();
-        let pct: Vec<i64> = (0..n).map(|i| if self.fixed.get(i).copied().unwrap_or(true) { 100 } else { judgerank }).collect();
+        let pct: Vec<i64> = (0..n)
+            .map(|i| {
+                if self.fixed.get(i).copied().unwrap_or(true) {
+                    100
+                } else {
+                    judgerank
+                }
+            })
+            .collect();
         let mut j: Vec<(i64, i64)> = (0..n)
-            .map(|i| if self.fixed.get(i).copied().unwrap_or(true) { org[i] } else { (org[i].0 * pct[i] / 100, org[i].1 * pct[i] / 100) })
+            .map(|i| {
+                if self.fixed.get(i).copied().unwrap_or(true) {
+                    org[i]
+                } else {
+                    (org[i].0 * pct[i] / 100, org[i].1 * pct[i] / 100)
+                }
+            })
             .collect();
         // keep scaled windows between neighbouring fixed windows
         let mut fixmin: Option<usize> = None;
@@ -279,10 +310,26 @@ fn lr2_windows(rank: JudgeRank) -> Vec<(i64, i64)> {
 }
 
 /// IIDX-like windows (µs, frame based at 60 fps).
-const IIDX_NOTE: [(i64, i64); 5] = [(-16_667, 16_667), (-33_333, 33_333), (-116_667, 116_667), (-250_000, 250_000), (-150_000, 500_000)];
-const IIDX_LN_END: [(i64, i64); 4] = [(-120_000, 120_000), (-160_000, 160_000), (-200_000, 200_000), (-250_000, 250_000)];
+const IIDX_NOTE: [(i64, i64); 5] = [
+    (-16_667, 16_667),
+    (-33_333, 33_333),
+    (-116_667, 116_667),
+    (-250_000, 250_000),
+    (-150_000, 500_000),
+];
+const IIDX_LN_END: [(i64, i64); 4] = [
+    (-120_000, 120_000),
+    (-160_000, 160_000),
+    (-200_000, 200_000),
+    (-250_000, 250_000),
+];
 
-pub fn judge_rules(preset: JudgePreset, fam: RuleFamily, rank: JudgeRank, rate: Option<WindowRate>) -> JudgeRules {
+pub fn judge_rules(
+    preset: JudgePreset,
+    fam: RuleFamily,
+    rank: JudgeRank,
+    rate: Option<WindowRate>,
+) -> JudgeRules {
     let f = family(fam);
     let rate = rate.unwrap_or([100, 100, 100]);
     let windows = match preset {
@@ -291,10 +338,25 @@ pub fn judge_rules(preset: JudgePreset, fam: RuleFamily, rank: JudgeRank, rate: 
             let jr = rule.judgerank(rank);
             let mk = |t: &[(i64, i64)]| rule.create(&us(t), jr, rate);
             let note = mk(f.note);
-            let scratch = if f.scratch.is_empty() { note.clone() } else { mk(f.scratch) };
+            let scratch = if f.scratch.is_empty() {
+                note.clone()
+            } else {
+                mk(f.scratch)
+            };
             let ln_end = mk(f.ln_end);
-            let scratch_ln_end = if f.scratch_ln_end.is_empty() { ln_end.clone() } else { mk(f.scratch_ln_end) };
-            JudgeWindows { note, scratch, ln_end, scratch_ln_end, ln_margin: f.ln_margin * 1000, scratch_ln_margin: 0 }
+            let scratch_ln_end = if f.scratch_ln_end.is_empty() {
+                ln_end.clone()
+            } else {
+                mk(f.scratch_ln_end)
+            };
+            JudgeWindows {
+                note,
+                scratch,
+                ln_end,
+                scratch_ln_end,
+                ln_margin: f.ln_margin * 1000,
+                scratch_ln_margin: 0,
+            }
         }
         JudgePreset::Lr2 => {
             let note = us(&lr2_windows(rank));
@@ -317,7 +379,12 @@ pub fn judge_rules(preset: JudgePreset, fam: RuleFamily, rank: JudgeRank, rate: 
             scratch_ln_margin: 0,
         },
     };
-    JudgeRules { windows, combo: f.combo, miss_one: f.miss_one, vanish: f.vanish }
+    JudgeRules {
+        windows,
+        combo: f.combo,
+        miss_one: f.miss_one,
+        vanish: f.vanish,
+    }
 }
 
 #[cfg(test)]
@@ -326,16 +393,31 @@ mod tests {
 
     #[test]
     fn beatoraja_7k_rank_scaling() {
-        let easy = judge_rules(JudgePreset::Beatoraja, RuleFamily::SevenKeys, JudgeRank::Rank(3), None);
+        let easy = judge_rules(
+            JudgePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(3),
+            None,
+        );
         assert_eq!(easy.windows.note[0], (-20_000, 20_000));
         assert_eq!(easy.windows.note[3], (-280_000, 220_000));
-        let normal = judge_rules(JudgePreset::Beatoraja, RuleFamily::SevenKeys, JudgeRank::Rank(2), None);
+        let normal = judge_rules(
+            JudgePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(2),
+            None,
+        );
         assert_eq!(normal.windows.note[0], (-15_000, 15_000));
         assert_eq!(normal.windows.note[2], (-112_500, 112_500));
         // empty-poor window is fixed
         assert_eq!(normal.windows.note[4], (-150_000, 500_000));
         // DEFEXRANK 100 == NORMAL
-        let d = judge_rules(JudgePreset::Beatoraja, RuleFamily::SevenKeys, JudgeRank::DefExRank(100.0), None);
+        let d = judge_rules(
+            JudgePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            JudgeRank::DefExRank(100.0),
+            None,
+        );
         assert_eq!(d.windows.note, normal.windows.note);
         assert_eq!(normal.windows.judge(NoteType::Note, 10_000), PGREAT);
         assert_eq!(normal.windows.judge(NoteType::Note, -40_000), GREAT);
@@ -344,7 +426,12 @@ mod tests {
 
     #[test]
     fn pms_rule_keeps_pg_and_bad_fixed() {
-        let hard = judge_rules(JudgePreset::Beatoraja, RuleFamily::Pms, JudgeRank::Rank(0), None);
+        let hard = judge_rules(
+            JudgePreset::Beatoraja,
+            RuleFamily::Pms,
+            JudgeRank::Rank(0),
+            None,
+        );
         assert_eq!(hard.windows.note[0], (-20_000, 20_000));
         assert_eq!(hard.windows.note[3], (-183_000, 183_000));
         assert_eq!(hard.windows.note[1], (-20_000, 20_000)); // 50*33% clamped up to PG
@@ -352,7 +439,12 @@ mod tests {
 
     #[test]
     fn lr2_windows_table() {
-        let r = judge_rules(JudgePreset::Lr2, RuleFamily::SevenKeys, JudgeRank::Rank(2), None);
+        let r = judge_rules(
+            JudgePreset::Lr2,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(2),
+            None,
+        );
         assert_eq!(r.windows.note[0], (-18_000, 18_000));
         assert_eq!(r.windows.note[2], (-100_000, 100_000));
         assert_eq!(r.windows.note[3], (-200_000, 200_000));
@@ -360,7 +452,12 @@ mod tests {
 
     #[test]
     fn custom_rate() {
-        let r = judge_rules(JudgePreset::Beatoraja, RuleFamily::SevenKeys, JudgeRank::Rank(3), Some([200, 100, 100]));
+        let r = judge_rules(
+            JudgePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(3),
+            Some([200, 100, 100]),
+        );
         assert_eq!(r.windows.note[0], (-40_000, 40_000));
         assert_eq!(r.windows.note[1], (-60_000, 60_000));
     }

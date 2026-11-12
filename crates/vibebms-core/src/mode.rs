@@ -129,7 +129,13 @@ mod tests {
         assert!(PlayMode::Beat14K.is_scratch(7));
         assert!(PlayMode::Beat14K.is_scratch(15));
         assert!(!PlayMode::Popn9K.is_scratch(8));
-        assert_eq!(PlayMode::Beat7K.display_order(0, false), vec![7, 0, 1, 2, 3, 4, 5, 6]);
-        assert_eq!(PlayMode::Beat14K.display_order(1, true), vec![8, 9, 10, 11, 12, 13, 14, 15]);
+        assert_eq!(
+            PlayMode::Beat7K.display_order(0, false),
+            vec![7, 0, 1, 2, 3, 4, 5, 6]
+        );
+        assert_eq!(
+            PlayMode::Beat14K.display_order(1, true),
+            vec![8, 9, 10, 11, 12, 13, 14, 15]
+        );
     }
 }

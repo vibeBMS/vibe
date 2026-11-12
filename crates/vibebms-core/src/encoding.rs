@@ -28,7 +28,9 @@ pub fn decode_text(bytes: &[u8]) -> String {
         return euc.into_owned();
     }
     let (s, _, _) = UTF_8.decode(bytes);
-    if s.chars().filter(|c| *c == '\u{FFFD}').count() <= sjis.chars().filter(|c| *c == '\u{FFFD}').count() {
+    if s.chars().filter(|c| *c == '\u{FFFD}').count()
+        <= sjis.chars().filter(|c| *c == '\u{FFFD}').count()
+    {
         s.into_owned()
     } else {
         sjis.into_owned()
@@ -40,13 +42,19 @@ fn non_ascii(s: &str) -> usize {
 }
 
 fn hangul_ratio(s: &str) -> f64 {
-    let h = s.chars().filter(|c| ('\u{AC00}'..='\u{D7A3}').contains(c)).count();
+    let h = s
+        .chars()
+        .filter(|c| ('\u{AC00}'..='\u{D7A3}').contains(c))
+        .count();
     h as f64 / non_ascii(s) as f64
 }
 
 fn kana_ratio(s: &str) -> f64 {
     // half-width katakana is the tell-tale sign of mis-decoded EUC-KR
-    let k = s.chars().filter(|c| ('\u{FF61}'..='\u{FF9F}').contains(c)).count();
+    let k = s
+        .chars()
+        .filter(|c| ('\u{FF61}'..='\u{FF9F}').contains(c))
+        .count();
     k as f64 / non_ascii(s) as f64
 }
 

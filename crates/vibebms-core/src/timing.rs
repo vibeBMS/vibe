@@ -57,10 +57,22 @@ pub enum TimingEvent {
 
 impl TimingMap {
     pub fn new(initial_bpm: f64) -> Self {
-        let bpm = if initial_bpm > 0.0 { initial_bpm } else { 130.0 };
+        let bpm = if initial_bpm > 0.0 {
+            initial_bpm
+        } else {
+            130.0
+        };
         Self {
-            segs: vec![TimeSeg { beat: 0.0, time: 0.0, bpm }],
-            scroll: vec![ScrollSeg { beat: 0.0, pos: 0.0, scroll: 1.0 }],
+            segs: vec![TimeSeg {
+                beat: 0.0,
+                time: 0.0,
+                bpm,
+            }],
+            scroll: vec![ScrollSeg {
+                beat: 0.0,
+                pos: 0.0,
+                scroll: 1.0,
+            }],
             stops: Vec::new(),
         }
     }
@@ -70,14 +82,16 @@ impl TimingMap {
     pub fn build(initial_bpm: f64, mut events: Vec<(f64, TimingEvent)>) -> Self {
         let mut map = TimingMap::new(initial_bpm);
         events.sort_by(|a, b| {
-            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal).then_with(|| {
-                let rank = |e: &TimingEvent| match e {
-                    TimingEvent::Bpm(_) => 0,
-                    TimingEvent::Scroll(_) => 1,
-                    _ => 2,
-                };
-                rank(&a.1).cmp(&rank(&b.1))
-            })
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let rank = |e: &TimingEvent| match e {
+                        TimingEvent::Bpm(_) => 0,
+                        TimingEvent::Scroll(_) => 1,
+                        _ => 2,
+                    };
+                    rank(&a.1).cmp(&rank(&b.1))
+                })
         });
         let mut i = 0;
         while i < events.len() {
@@ -108,13 +122,28 @@ impl TimingMap {
                     map.segs[0].time = stop;
                     if stop > 0.0 {
                         // keep a zero-length segment so notes at beat 0 happen before the stop
-                        map.segs.insert(0, TimeSeg { beat: 0.0, time: 0.0, bpm });
+                        map.segs.insert(
+                            0,
+                            TimeSeg {
+                                beat: 0.0,
+                                time: 0.0,
+                                bpm,
+                            },
+                        );
                     }
                 } else {
-                    map.segs.push(TimeSeg { beat, time: t + stop, bpm });
+                    map.segs.push(TimeSeg {
+                        beat,
+                        time: t + stop,
+                        bpm,
+                    });
                 }
                 if stop > 0.0 {
-                    map.stops.push(StopEvent { beat, time: t.round() as i64, duration: stop.round() as i64 });
+                    map.stops.push(StopEvent {
+                        beat,
+                        time: t.round() as i64,
+                        duration: stop.round() as i64,
+                    });
                 }
             }
             if let Some(s) = new_scroll {
@@ -123,7 +152,11 @@ impl TimingMap {
                 if last.beat == beat {
                     last.scroll = s;
                 } else {
-                    map.scroll.push(ScrollSeg { beat, pos, scroll: s });
+                    map.scroll.push(ScrollSeg {
+                        beat,
+                        pos,
+                        scroll: s,
+                    });
                 }
             }
             i = j;
@@ -171,7 +204,9 @@ impl TimingMap {
     }
 
     pub fn is_stopped_at(&self, t: i64) -> bool {
-        self.stops.iter().any(|s| t >= s.time && t < s.time + s.duration)
+        self.stops
+            .iter()
+            .any(|s| t >= s.time && t < s.time + s.duration)
     }
 
     /// Scroll position for a beat (integral of the SCROLL factor).
@@ -190,7 +225,10 @@ impl TimingMap {
         let mut v: Vec<BpmChange> = Vec::new();
         for s in &self.segs {
             if v.last().map(|l| l.bpm != s.bpm).unwrap_or(true) {
-                v.push(BpmChange { time: s.time.round() as i64, bpm: s.bpm });
+                v.push(BpmChange {
+                    time: s.time.round() as i64,
+                    bpm: s.bpm,
+                });
             }
         }
         v
@@ -244,7 +282,10 @@ mod tests {
         // 120 BPM, at beat 4 change to 240 and stop for 1 beat (at 240 = 0.25 s)
         let m = TimingMap::build(
             120.0,
-            vec![(4.0, TimingEvent::StopBeats(1.0)), (4.0, TimingEvent::Bpm(240.0))],
+            vec![
+                (4.0, TimingEvent::StopBeats(1.0)),
+                (4.0, TimingEvent::Bpm(240.0)),
+            ],
         );
         assert_eq!(m.time_at_beat(4.0), 2_000_000); // note on the stop: before it
         assert_eq!(m.time_at_beat(5.0), 2_000_000 + 250_000 + 250_000);

@@ -90,9 +90,18 @@ pub fn battle(chart: &mut Chart) {
         _ => return,
     };
     let lpp = mode.lanes_per_player() as u8;
-    let copy: Vec<Note> = chart.notes.iter().map(|n| Note { lane: n.lane + lpp, ..n.clone() }).collect();
+    let copy: Vec<Note> = chart
+        .notes
+        .iter()
+        .map(|n| Note {
+            lane: n.lane + lpp,
+            ..n.clone()
+        })
+        .collect();
     chart.notes.extend(copy);
-    chart.notes.sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
+    chart
+        .notes
+        .sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
     chart.meta.mode = Some(dp);
 }
 
@@ -106,7 +115,9 @@ pub fn legacy_note(chart: &mut Chart) {
 }
 
 pub fn remove_mines(chart: &mut Chart) {
-    chart.notes.retain(|n| !matches!(n.kind, NoteKind::Mine { .. }));
+    chart
+        .notes
+        .retain(|n| !matches!(n.kind, NoteKind::Mine { .. }));
 }
 
 /// Apply a lane option to one player side.
@@ -141,7 +152,11 @@ pub fn apply(chart: &mut Chart, player: usize, opt: LaneOption, seed: i64, hran_
             lane_map(chart, &keys, &rev);
         }
         LaneOption::Random | LaneOption::RandomEx => {
-            let src = if opt == LaneOption::Random { &keys } else { &with_scratch };
+            let src = if opt == LaneOption::Random {
+                &keys
+            } else {
+                &with_scratch
+            };
             let mut dst = src.clone();
             rng.shuffle(&mut dst);
             lane_map(chart, src, &dst);
@@ -158,14 +173,30 @@ pub fn apply(chart: &mut Chart, player: usize, opt: LaneOption, seed: i64, hran_
                 .collect();
             lane_map(chart, &keys, &dst);
         }
-        LaneOption::SRandom | LaneOption::SRandomEx | LaneOption::HRandom | LaneOption::Spiral | LaneOption::AllScratch => {
+        LaneOption::SRandom
+        | LaneOption::SRandomEx
+        | LaneOption::HRandom
+        | LaneOption::Spiral
+        | LaneOption::AllScratch => {
             per_note(chart, mode, &keys, scratch, opt, &mut rng, hran_threshold);
         }
     }
 }
 
-fn per_note(chart: &mut Chart, mode: PlayMode, keys: &[usize], scratch: Option<usize>, opt: LaneOption, rng: &mut JavaRandom, threshold: i64) {
-    let pool: Vec<usize> = if opt == LaneOption::SRandomEx { keys.iter().copied().chain(scratch).collect() } else { keys.to_vec() };
+fn per_note(
+    chart: &mut Chart,
+    mode: PlayMode,
+    keys: &[usize],
+    scratch: Option<usize>,
+    opt: LaneOption,
+    rng: &mut JavaRandom,
+    threshold: i64,
+) {
+    let pool: Vec<usize> = if opt == LaneOption::SRandomEx {
+        keys.iter().copied().chain(scratch).collect()
+    } else {
+        keys.to_vec()
+    };
     let movable = |lane: usize| -> bool {
         pool.contains(&lane) || (opt == LaneOption::AllScratch && scratch == Some(lane))
     };
@@ -173,7 +204,11 @@ fn per_note(chart: &mut Chart, mode: PlayMode, keys: &[usize], scratch: Option<u
     let mut busy_until = vec![i64::MIN; lanes];
     let mut last_time = vec![i64::MIN / 2; lanes];
     let mut spiral_offset = 0usize;
-    let spiral_dir = if rng.next_int_bounded(2) == 0 { 1 } else { keys.len() - 1 };
+    let spiral_dir = if rng.next_int_bounded(2) == 0 {
+        1
+    } else {
+        keys.len() - 1
+    };
 
     let mut i = 0;
     let notes = &mut chart.notes;
@@ -184,7 +219,9 @@ fn per_note(chart: &mut Chart, mode: PlayMode, keys: &[usize], scratch: Option<u
             j += 1;
         }
         // playable notes of this side at this timestamp
-        let idx: Vec<usize> = (i..j).filter(|&k| notes[k].is_playable() && movable(notes[k].lane as usize)).collect();
+        let idx: Vec<usize> = (i..j)
+            .filter(|&k| notes[k].is_playable() && movable(notes[k].lane as usize))
+            .collect();
         if !idx.is_empty() {
             match opt {
                 LaneOption::Spiral => {
@@ -195,7 +232,11 @@ fn per_note(chart: &mut Chart, mode: PlayMode, keys: &[usize], scratch: Option<u
                             let mut target = keys[(p + spiral_offset) % keys.len()];
                             if busy_until[target] >= t || used.contains(&target) {
                                 // keep the pattern playable: fall back to any free lane
-                                if let Some(f) = keys.iter().copied().find(|l| busy_until[*l] < t && !used.contains(l)) {
+                                if let Some(f) = keys
+                                    .iter()
+                                    .copied()
+                                    .find(|l| busy_until[*l] < t && !used.contains(l))
+                                {
                                     target = f;
                                 }
                             }
@@ -214,7 +255,11 @@ fn per_note(chart: &mut Chart, mode: PlayMode, keys: &[usize], scratch: Option<u
                     }
                 }
                 _ => {
-                    let mut free: Vec<usize> = pool.iter().copied().filter(|l| busy_until[*l] < t).collect();
+                    let mut free: Vec<usize> = pool
+                        .iter()
+                        .copied()
+                        .filter(|l| busy_until[*l] < t)
+                        .collect();
                     rng.shuffle(&mut free);
                     if opt == LaneOption::HRandom {
                         // lanes that would not create a fast jack come first
@@ -228,8 +273,7 @@ fn per_note(chart: &mut Chart, mode: PlayMode, keys: &[usize], scratch: Option<u
                 }
             }
         }
-        for k in i..j {
-            let n = &notes[k];
+        for n in &notes[i..j] {
             if n.is_playable() {
                 let l = n.lane as usize;
                 last_time[l] = n.end_time();
@@ -267,7 +311,15 @@ mod tests {
 
     #[test]
     fn per_note_randoms_never_overlap() {
-        for opt in [LaneOption::SRandom, LaneOption::HRandom, LaneOption::Spiral, LaneOption::SRandomEx, LaneOption::AllScratch, LaneOption::Random, LaneOption::RRandom] {
+        for opt in [
+            LaneOption::SRandom,
+            LaneOption::HRandom,
+            LaneOption::Spiral,
+            LaneOption::SRandomEx,
+            LaneOption::AllScratch,
+            LaneOption::Random,
+            LaneOption::RRandom,
+        ] {
             for seed in 0..20 {
                 let mut c = chart();
                 let count = c.notes.len();
@@ -279,7 +331,10 @@ mod tests {
                 assert_eq!(l.len(), count, "{opt:?} produced overlapping notes");
                 // no note inside a long note's body on the same lane
                 for ln in c.notes.iter().filter(|n| n.is_long()) {
-                    assert!(!c.notes.iter().any(|n| n.lane == ln.lane && n.time > ln.time && n.time <= ln.end_time()));
+                    assert!(!c
+                        .notes
+                        .iter()
+                        .any(|n| n.lane == ln.lane && n.time > ln.time && n.time <= ln.end_time()));
                 }
             }
         }
