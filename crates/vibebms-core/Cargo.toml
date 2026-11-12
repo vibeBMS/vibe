@@ -4,6 +4,7 @@ description = "BMS/BMSON parsing, timing, judge, gauge and scoring engine for vi
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
 serde.workspace = true

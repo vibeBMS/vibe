@@ -8,8 +8,10 @@
 //!   (`JudgeProperty` / `JudgeWindowRule`).
 //! * `Lr2` preset: the classic LR2 per-#RANK windows (±8/24/40 … ±21/60/120,
 //!   BAD ±200 ms).
-//! * `Iidx` preset: arcade-like frame based windows (PG ±1F, GR ±2F, GD ±7F at
-//!   60 fps, BAD ±250 ms). These are approximations, see `docs/RULES.md`.
+//! * `Iidx` preset: windows counted in frames of the 120 Hz LIGHTNING MODEL
+//!   cabinet (PG ±2F, GR ±4F, GD ±14F, BAD ±30F = ±16.67/33.33/116.67/250 ms)
+//!   with input timing quantised to the 120 Hz frame grid. Konami does not
+//!   publish the windows; these are community figures, see `docs/RULES.md`.
 
 use crate::chart::JudgeRank;
 use crate::mode::RuleFamily;
@@ -62,9 +64,30 @@ pub struct JudgeWindows {
     /// Grace period after an early LN release before it is judged (µs).
     pub ln_margin: i64,
     pub scratch_ln_margin: i64,
+    /// Quantise timing differences to frames of this rate (IIDX: 120 Hz).
+    pub frame_hz: Option<u32>,
+}
+
+/// Duration of `frames` frames at `hz` in µs (rounded).
+pub fn frames_us(frames: i64, hz: u32) -> i64 {
+    let hz = hz.max(1) as i64;
+    let v = frames * 1_000_000;
+    (v + v.signum() * hz / 2) / hz
 }
 
 impl JudgeWindows {
+    /// Snap a timing difference to the frame grid (no-op without `frame_hz`).
+    pub fn quantize(&self, diff: i64) -> i64 {
+        match self.frame_hz {
+            Some(hz) => {
+                let hz = hz.max(1) as i64;
+                let f = (diff * hz + diff.signum() * 500_000) / 1_000_000;
+                frames_us(f, hz as u32)
+            }
+            None => diff,
+        }
+    }
+
     pub fn table(&self, t: NoteType) -> &[(i64, i64)] {
         match t {
             NoteType::Note => &self.note,
@@ -309,20 +332,14 @@ fn lr2_windows(rank: JudgeRank) -> Vec<(i64, i64)> {
     v
 }
 
-/// IIDX-like windows (µs, frame based at 60 fps).
-const IIDX_NOTE: [(i64, i64); 5] = [
-    (-16_667, 16_667),
-    (-33_333, 33_333),
-    (-116_667, 116_667),
-    (-250_000, 250_000),
-    (-150_000, 500_000),
-];
-const IIDX_LN_END: [(i64, i64); 4] = [
-    (-120_000, 120_000),
-    (-160_000, 160_000),
-    (-200_000, 200_000),
-    (-250_000, 250_000),
-];
+/// IIDX windows in 120 Hz frames (late, early): PG, GR, GD, BAD, empty POOR.
+pub const IIDX_HZ: u32 = 120;
+const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-30, 30), (-18, 60)];
+const IIDX_LN_END_FRAMES: [(i64, i64); 4] = [(-14, 14), (-19, 19), (-24, 24), (-30, 30)];
+
+fn iidx(frames: &[(i64, i64)]) -> Vec<(i64, i64)> {
+    frames.iter().map(|(l, e)| (frames_us(*l, IIDX_HZ), frames_us(*e, IIDX_HZ))).collect()
+}
 
 pub fn judge_rules(
     preset: JudgePreset,
@@ -356,6 +373,7 @@ pub fn judge_rules(
                 scratch_ln_end,
                 ln_margin: f.ln_margin * 1000,
                 scratch_ln_margin: 0,
+                frame_hz: None,
             }
         }
         JudgePreset::Lr2 => {
@@ -368,15 +386,17 @@ pub fn judge_rules(
                 scratch_ln_end: ln_end,
                 ln_margin: 0,
                 scratch_ln_margin: 0,
+                frame_hz: None,
             }
         }
         JudgePreset::Iidx => JudgeWindows {
-            note: IIDX_NOTE.to_vec(),
-            scratch: IIDX_NOTE.to_vec(),
-            ln_end: IIDX_LN_END.to_vec(),
-            scratch_ln_end: IIDX_LN_END.to_vec(),
+            note: iidx(&IIDX_NOTE_FRAMES),
+            scratch: iidx(&IIDX_NOTE_FRAMES),
+            ln_end: iidx(&IIDX_LN_END_FRAMES),
+            scratch_ln_end: iidx(&IIDX_LN_END_FRAMES),
             ln_margin: 0,
             scratch_ln_margin: 0,
+            frame_hz: Some(IIDX_HZ),
         },
     };
     JudgeRules {
@@ -448,6 +468,20 @@ mod tests {
         assert_eq!(r.windows.note[0], (-18_000, 18_000));
         assert_eq!(r.windows.note[2], (-100_000, 100_000));
         assert_eq!(r.windows.note[3], (-200_000, 200_000));
+    }
+
+    #[test]
+    fn iidx_120hz_frames() {
+        let r = judge_rules(JudgePreset::Iidx, RuleFamily::SevenKeys, JudgeRank::Rank(2), None);
+        let w = &r.windows;
+        assert_eq!(w.note[0], (-16_667, 16_667));
+        assert_eq!(w.note[1], (-33_333, 33_333));
+        assert_eq!(w.note[3], (-250_000, 250_000));
+        // 20 ms snaps to 2 frames (16.67 ms) -> PGREAT; 21 ms snaps to 3 frames -> GREAT
+        assert_eq!(w.judge(NoteType::Note, w.quantize(20_000)), PGREAT);
+        assert_eq!(w.judge(NoteType::Note, w.quantize(-21_000)), GREAT);
+        assert_eq!(w.quantize(4_000), 0);
+        assert_eq!(w.quantize(-4_200), -8_333);
     }
 
     #[test]

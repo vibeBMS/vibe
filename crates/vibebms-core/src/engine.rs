@@ -501,7 +501,7 @@ impl Engine {
                     .unwrap_or(false);
                 if lt != LnType::Ln && sc && other_dir {
                     // back-spin scratch: spinning the other way ends the note
-                    let dm = self.notes[p].end_time - ptime;
+                    let dm = self.windows().quantize(self.notes[p].end_time - ptime);
                     let j = self.windows().judge(NoteType::LongScratchEnd, dm);
                     let s = self.notes[p].end_sound;
                     self.sound(s, lane);
@@ -519,7 +519,7 @@ impl Engine {
             for k in cursor..self.lane_notes[lane].len() {
                 let i = self.lane_notes[lane][k];
                 let n = &self.notes[i];
-                let dm = n.time - ptime;
+                let dm = self.cfg.rules.windows.quantize(n.time - ptime);
                 if dm >= self.judge_end {
                     break;
                 }
@@ -568,7 +568,7 @@ impl Engine {
             }
             match best {
                 Some((i, judge)) => {
-                    let dm = self.notes[i].time - ptime;
+                    let dm = self.windows().quantize(self.notes[i].time - ptime);
                     let s = self.notes[i].sound;
                     self.sound(s, lane);
                     let vanish = self.cfg.rules.vanish[judge];
@@ -609,7 +609,7 @@ impl Engine {
             let Some(p) = self.lanes[lane].processing else {
                 return;
             };
-            let mut dm = self.notes[p].end_time - ptime;
+            let mut dm = self.windows().quantize(self.notes[p].end_time - ptime);
             let mut judge = self.windows().judge(
                 if sc {
                     NoteType::LongScratchEnd

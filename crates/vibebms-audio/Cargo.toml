@@ -4,6 +4,7 @@ description = "Low latency keysound mixer and decoder for vibeBMS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [features]
 default = []
