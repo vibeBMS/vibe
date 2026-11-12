@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vibebms-core",
+    "crates/vibebms-tables",
+    "crates/vibebms-ir",
+    "crates/vibebms-audio",
+    "crates/vibebms",
+]
+default-members = ["crates/vibebms"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+repository = "https://github.com/eseiker/vibeBMS"
+
+[workspace.dependencies]
+vibebms-core = { path = "crates/vibebms-core" }
+vibebms-tables = { path = "crates/vibebms-tables" }
+vibebms-ir = { path = "crates/vibebms-ir" }
+vibebms-audio = { path = "crates/vibebms-audio" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+md-5 = "0.10"
+sha2 = "0.10"
+encoding_rs = "0.8"
+ureq = { version = "2.12", default-features = false, features = ["tls", "gzip", "json"] }
+
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 2

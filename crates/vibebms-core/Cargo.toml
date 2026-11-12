@@ -1,0 +1,13 @@
+[package]
+name = "vibebms-core"
+description = "BMS/BMSON parsing, timing, judge, gauge and scoring engine for vibeBMS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+md-5.workspace = true
+sha2.workspace = true
+encoding_rs.workspace = true

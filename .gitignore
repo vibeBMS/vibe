@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+# portable runtime data created next to the executable during development
+/config/
+/cache/
+/scores/
+/replays/
+*.db
+*.db-journal
+.DS_Store
