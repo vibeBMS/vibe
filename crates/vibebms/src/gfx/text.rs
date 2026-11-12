@@ -35,6 +35,9 @@ pub struct Text {
     pub generation: u64,
 }
 
+/// Inter (SIL OFL 1.1, see assets/fonts/OFL.txt).
+const EMBEDDED_FONT: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.otf");
+
 const PREFERRED_FAMILIES: &[&str] = &[
     // Japanese + Korean coverage
     "Noto Sans CJK JP",
@@ -74,10 +77,14 @@ impl Text {
         };
         // user supplied fonts first
         for dir in extra_dirs {
-            let Ok(rd) = std::fs::read_dir(dir) else {
+            let Ok(rd) = crate::platform::vfs::read_dir(dir) else {
                 continue;
             };
-            let mut files: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+            let mut files: Vec<_> = rd
+                .into_iter()
+                .filter(|e| !e.is_dir)
+                .map(|e| e.path)
+                .collect();
             files.sort();
             for p in files {
                 let ext = p
@@ -87,13 +94,31 @@ impl Text {
                 if !matches!(ext.as_str(), "ttf" | "otf" | "ttc") {
                     continue;
                 }
-                if let Ok(data) = std::fs::read(&p) {
+                if let Ok(data) = crate::platform::vfs::read(&p) {
                     match fontdue::Font::from_bytes(data, settings(0)) {
                         Ok(f) => {
                             log::info!("font: {}", p.display());
                             fonts.push(f)
                         }
                         Err(e) => log::warn!("font {}: {e}", p.display()),
+                    }
+                }
+            }
+        }
+        // web build: fonts served next to index.html, listed in fonts/fonts.txt
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(list) = crate::platform::Http.request("GET", "fonts/fonts.txt", &[], None) {
+            for name in String::from_utf8_lossy(&list)
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            {
+                if let Ok(data) =
+                    crate::platform::Http.request("GET", &format!("fonts/{name}"), &[], None)
+                {
+                    match fontdue::Font::from_bytes(data, settings(0)) {
+                        Ok(f) => fonts.push(f),
+                        Err(e) => log::warn!("font {name}: {e}"),
                     }
                 }
             }
@@ -136,6 +161,10 @@ impl Text {
                     fonts.push(f);
                 }
             }
+        }
+        // bundled Latin fallback (always available, e.g. in the web build)
+        if let Ok(f) = fontdue::Font::from_bytes(EMBEDDED_FONT, settings(0)) {
+            fonts.push(f);
         }
         if fonts.is_empty() {
             log::error!("no usable font found; text will not be displayed. Put a .ttf into the fonts/ folder.");

@@ -6,11 +6,11 @@ use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
+use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::theme::Theme;
 use crate::ui;
 use std::sync::mpsc::{channel, Receiver};
-use std::time::{Duration, Instant};
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::JUDGE_NAMES;
 use vibebms_core::score::{ClearType, Score};
@@ -58,7 +58,7 @@ impl ResultScene {
         let mut ir_rx = None;
         let mut ir_status = String::new();
         if !d.autoplay {
-            if let Some(lib) = &ctx.lib {
+            if let Some(lib) = ctx.lib.as_mut() {
                 let b = lib.record_play(&song.sha256, ln, &d.score, d.clear);
                 ctx.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
@@ -92,8 +92,9 @@ impl ResultScene {
                 let (tx, rx) = channel();
                 ir_rx = Some(rx);
                 ir_status = format!("{}: sending…", cfg.name);
-                std::thread::spawn(move || {
-                    let msg = match vibebms_ir::create_client(&cfg) {
+                let http = ctx.http();
+                crate::platform::spawn("ir-submit", move || {
+                    let msg = match vibebms_ir::create_client(&cfg, http) {
                         Some(c) if c.can_submit() => match c.submit(&sub) {
                             Ok(()) => format!("{}: submitted", cfg.name),
                             Err(e) => format!("{}: {e}", cfg.name),

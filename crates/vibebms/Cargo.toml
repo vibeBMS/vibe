@@ -27,15 +27,29 @@ serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
 winit = { version = "0.30", features = ["serde"] }
-wgpu = "24"
+wgpu = { version = "24", features = ["webgl"] }
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 fontdue = "0.9"
 fontdb = "0.16"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+web-time = "1"
 toml = "0.8"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq.workspace = true
+
+[target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
+ureq = { workspace = true, features = ["native-certs"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 gilrs = "0.11"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+console_log = "1"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "XmlHttpRequest", "XmlHttpRequestResponseType", "Location"] }

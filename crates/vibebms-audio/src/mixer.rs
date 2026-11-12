@@ -3,7 +3,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Bus {
@@ -307,6 +307,13 @@ impl Mixer {
     pub fn set_bus_volume(&self, bus: Bus, v: f32) {
         let _ = self.tx.send(Cmd::BusVolume(bus, v));
     }
+    /// Browsers start audio suspended until a user gesture; call on input.
+    pub fn resume(&self) {
+        if let Some(s) = &self._stream {
+            let _ = s.play();
+        }
+    }
+
     pub fn set_master(&self, v: f32) {
         let _ = self.tx.send(Cmd::Master(v));
     }

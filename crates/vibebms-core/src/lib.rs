@@ -31,15 +31,24 @@ pub use mode::PlayMode;
 /// Decode any supported chart file based on its extension.
 pub fn load_chart(path: &std::path::Path, opts: &bms::ParseOptions) -> Result<Chart, ChartError> {
     let bytes = std::fs::read(path).map_err(|e| ChartError::Io(e.to_string()))?;
+    load_chart_bytes(path, &bytes, opts)
+}
+
+/// Decode chart bytes; `path` selects the format by extension and is stored in the meta.
+pub fn load_chart_bytes(
+    path: &std::path::Path,
+    bytes: &[u8],
+    opts: &bms::ParseOptions,
+) -> Result<Chart, ChartError> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     let mut chart = if ext == "bmson" {
-        bmson::parse_bmson(&bytes)?
+        bmson::parse_bmson(bytes)?
     } else {
-        bms::parse_bms(&bytes, &ext, opts)?
+        bms::parse_bms(bytes, &ext, opts)?
     };
     chart.meta.path = Some(path.to_path_buf());
     Ok(chart)

@@ -97,7 +97,7 @@ impl Theme {
     pub fn load(themes_dir: &Path, name: &str) -> Theme {
         let dir = themes_dir.join(name);
         let file = dir.join("theme.toml");
-        let tf: ThemeFile = std::fs::read_to_string(&file)
+        let tf: ThemeFile = crate::platform::vfs::read_to_string(&file)
             .ok()
             .and_then(|s| {
                 toml::from_str(&s)
@@ -105,14 +105,13 @@ impl Theme {
                     .ok()
             })
             .unwrap_or_default();
-        if !file.exists() && name == "default" {
+        if !crate::platform::vfs::is_file(&file) && name == "default" {
             // write the defaults so users have a template to copy
-            let _ = std::fs::create_dir_all(&dir);
             if let Ok(s) = toml::to_string_pretty(&ThemeFile::default()) {
-                let _ = std::fs::write(&file, s);
+                let _ = crate::platform::vfs::write(&file, s.as_bytes());
             }
         }
-        Theme::from_file(&tf, dir.is_dir().then_some(dir))
+        Theme::from_file(&tf, crate::platform::vfs::is_dir(&dir).then_some(dir))
     }
 
     pub fn from_file(t: &ThemeFile, dir: Option<PathBuf>) -> Theme {
@@ -142,11 +141,13 @@ impl Theme {
     }
 
     pub fn list(themes_dir: &Path) -> Vec<String> {
-        let mut v: Vec<String> = std::fs::read_dir(themes_dir)
+        let mut v: Vec<String> = crate::platform::vfs::read_dir(themes_dir)
             .map(|rd| {
-                rd.flatten()
-                    .filter(|e| e.path().join("theme.toml").is_file())
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                rd.into_iter()
+                    .filter(|e| {
+                        e.is_dir && crate::platform::vfs::is_file(&e.path.join("theme.toml"))
+                    })
+                    .filter_map(|e| e.path.file_name().map(|n| n.to_string_lossy().into_owned()))
                     .collect()
             })
             .unwrap_or_default();

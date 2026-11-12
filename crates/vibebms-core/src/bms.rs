@@ -353,8 +353,8 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     let pms = ext.eq_ignore_ascii_case("pms");
 
     let seed = opts.random_seed.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as i64)
             .unwrap_or(0)
     });

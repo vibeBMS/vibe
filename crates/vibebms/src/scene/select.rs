@@ -5,6 +5,7 @@ use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Color, Gfx, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::Song;
+use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::theme::Theme;
 use crate::ui;
@@ -13,7 +14,6 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use vibebms_audio::{Bus, PlayOptions, Sample};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
@@ -522,10 +522,18 @@ impl SelectScene {
         let rate = ctx.mixer.sample_rate;
         let (tx, rx) = channel();
         self.preview_rx = Some(rx);
-        std::thread::spawn(move || {
-            let s = vibebms_audio::resolve_sound_path(&dir, &name)
-                .and_then(|p| vibebms_audio::decode_file(&p, rate).ok())
-                .map(Arc::new);
+        crate::platform::spawn("preview", move || {
+            let s =
+                crate::platform::vfs::find_by_stem(&dir, &name, crate::platform::vfs::AUDIO_EXTS)
+                    .and_then(|p| {
+                        let ext = p
+                            .extension()
+                            .map(|e| e.to_string_lossy().to_lowercase())
+                            .unwrap_or_default();
+                        let bytes = crate::platform::vfs::read(&p).ok()?;
+                        vibebms_audio::decode_bytes(bytes, &ext, rate).ok()
+                    })
+                    .map(Arc::new);
             let _ = tx.send(s);
         });
     }
@@ -564,8 +572,9 @@ impl SelectScene {
         };
         let (tx, rx) = channel();
         self.ranking.insert(song.sha256.clone(), Rank::Loading(rx));
-        std::thread::spawn(move || {
-            let r = match vibebms_ir::create_client(&cfg) {
+        let http = ctx.http();
+        crate::platform::spawn("ir-ranking", move || {
+            let r = match vibebms_ir::create_client(&cfg, http) {
                 Some(c) => c.ranking(&chart).map_err(|e| e.to_string()),
                 None => Err("IR disabled".into()),
             };
@@ -641,28 +650,9 @@ impl SelectScene {
 
 /// Resolve an image path, trying common extension substitutions.
 pub fn resolve_image(p: &Path) -> Option<std::path::PathBuf> {
-    if p.is_file() {
-        return Some(p.to_path_buf());
-    }
-    let stem = p.file_stem()?.to_string_lossy().to_lowercase();
     let dir = p.parent()?;
-    std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .find(|q| {
-            q.file_stem()
-                .map(|s| s.to_string_lossy().to_lowercase() == stem)
-                .unwrap_or(false)
-                && q.extension()
-                    .map(|e| {
-                        matches!(
-                            e.to_string_lossy().to_lowercase().as_str(),
-                            "png" | "jpg" | "jpeg" | "bmp" | "gif"
-                        )
-                    })
-                    .unwrap_or(false)
-        })
+    let name = p.file_name()?.to_string_lossy();
+    crate::platform::vfs::find_by_stem(dir, &name, crate::platform::vfs::IMAGE_EXTS)
 }
 
 fn lamp_name(c: ClearType) -> &'static str {

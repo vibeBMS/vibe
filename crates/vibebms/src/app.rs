@@ -6,18 +6,18 @@ use crate::gfx::{rgba, with_alpha, Batch, Gfx, Rect, TexId};
 use crate::input::{InputEv, Phase};
 use crate::library::{BestScore, Library, ScanProgress, Song};
 use crate::paths::Paths;
+use crate::platform::{Duration, Instant};
 use crate::theme::Theme;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use vibebms_audio::{AudioConfig, Mixer};
 use vibebms_tables::DifficultyTable;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
@@ -148,6 +148,7 @@ pub struct Ctx {
     pub want_theme_reload: bool,
     pub gpu_name: String,
     pub bg_texture: Option<TexId>,
+    pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
 
 impl Ctx {
@@ -218,16 +219,15 @@ impl Ctx {
         }
         let progress = Arc::new(ScanProgress::default());
         self.scan = Some(progress.clone());
-        let db = self.paths.db_file();
+        let db = self.paths.songs_cache();
         let roots = self.scan_roots();
         let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
             .iter()
             .map(|d| self.paths.root.join(d))
             .collect();
-        std::thread::Builder::new()
-            .name("scan".into())
-            .spawn(move || crate::library::scan(db, roots, skip, progress))
-            .ok();
+        crate::platform::spawn("scan", move || {
+            crate::library::scan(db, roots, skip, progress)
+        });
     }
 
     pub fn reload_library(&mut self) {
@@ -254,7 +254,7 @@ impl Ctx {
         self.tables.clear();
         for t in self.config.tables.iter().filter(|t| t.enabled) {
             let f = self.table_cache_file(&t.url);
-            if let Some(dt) = std::fs::read(&f)
+            if let Some(dt) = crate::platform::vfs::read(&f)
                 .ok()
                 .and_then(|b| serde_json::from_slice::<DifficultyTable>(&b).ok())
             {
@@ -269,8 +269,8 @@ impl Ctx {
         if self.table_rx.is_some() {
             return;
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let now = crate::platform::SystemTime::now()
+            .duration_since(crate::platform::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let todo: Vec<(String, String, PathBuf)> = self
@@ -291,29 +291,50 @@ impl Ctx {
         }
         let (tx, rx) = channel();
         self.table_rx = Some(rx);
-        std::thread::Builder::new()
-            .name("tables".into())
-            .spawn(move || {
-                let f = vibebms_tables::UreqFetcher::default();
-                for (name, url, cache) in todo {
-                    match vibebms_tables::fetch_table_with_fallback(&f, &url) {
-                        Ok(t) => {
-                            if let Ok(j) = serde_json::to_vec(&t) {
-                                let _ = std::fs::write(&cache, j);
-                            }
-                            let _ = tx.send(TableMsg::Loaded(t));
+        crate::platform::spawn("tables", move || {
+            let f = crate::platform::Http;
+            for (name, url, cache) in todo {
+                match vibebms_tables::fetch_table_with_fallback(&f, &url) {
+                    Ok(t) => {
+                        if let Ok(j) = serde_json::to_vec(&t) {
+                            let _ = crate::platform::vfs::write(&cache, &j);
                         }
-                        Err(e) => {
-                            let _ = tx.send(TableMsg::Failed(name, e.to_string()));
-                        }
+                        let _ = tx.send(TableMsg::Loaded(t));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(TableMsg::Failed(name, e.to_string()));
                     }
                 }
-                let _ = tx.send(TableMsg::Done);
-            })
-            .ok();
+            }
+            let _ = tx.send(TableMsg::Done);
+        });
+    }
+
+    /// HTTP transport for IR clients.
+    pub fn http(&self) -> vibebms_ir::Http {
+        Arc::new(crate::platform::Http)
     }
 
     pub fn poll_jobs(&mut self) {
+        // web: newly picked files -> read the chart files, then scan
+        if crate::platform::vfs::take_added() {
+            let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
+                .iter()
+                .map(|d| self.paths.root.join(d))
+                .collect();
+            let charts = crate::library::find_charts(&self.scan_roots(), &skip);
+            self.toast(format!("Reading {} charts…", charts.len()));
+            self.prefetch = Some(crate::platform::vfs::Prefetch::files(charts));
+        }
+        if self
+            .prefetch
+            .as_ref()
+            .map(|p| p.finished())
+            .unwrap_or(false)
+        {
+            self.prefetch = None;
+            self.start_scan();
+        }
         if let Some(s) = &self.scan {
             if s.done.load(Ordering::Acquire) {
                 let changed = s.changed.load(Ordering::Acquire);
@@ -382,7 +403,7 @@ struct Running {
     batch: Batch,
     ctx: Ctx,
     scenes: Vec<Box<dyn Scene>>,
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
     gilrs: Option<gilrs::Gilrs>,
     last_touch: Option<Instant>,
     mouse_down: bool,
@@ -392,21 +413,43 @@ struct Running {
     next_frame: Instant,
 }
 
+pub enum UserEvent {
+    /// GPU initialisation finished (asynchronous in browsers).
+    GfxReady(Arc<Window>, Box<Result<Gfx, String>>),
+}
+
 pub struct App {
     run: Option<Running>,
     paths: Paths,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    proxy: Option<EventLoopProxy<UserEvent>>,
+    creating: bool,
 }
 
 impl App {
     pub fn new(paths: Paths) -> App {
-        App { run: None, paths }
+        App {
+            run: None,
+            paths,
+            proxy: None,
+            creating: false,
+        }
+    }
+
+    pub fn with_proxy(paths: Paths, proxy: EventLoopProxy<UserEvent>) -> App {
+        App {
+            run: None,
+            paths,
+            proxy: Some(proxy),
+            creating: false,
+        }
     }
 }
 
 pub fn run() {
     let paths = Paths::detect();
     log::info!("data root: {}", paths.root.display());
-    let event_loop = match EventLoop::new() {
+    let event_loop = match EventLoop::<UserEvent>::with_user_event().build() {
         Ok(e) => e,
         Err(e) => {
             log::error!("cannot create event loop: {e}");
@@ -414,7 +457,15 @@ pub fn run() {
         }
     };
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut app = App::new(paths);
+    #[allow(unused_mut)]
+    let mut app = App::with_proxy(paths, event_loop.create_proxy());
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::EventLoopExtWebSys;
+        crate::web::install_file_input(app.paths.root.clone());
+        event_loop.spawn_app(app);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     if let Err(e) = event_loop.run_app(&mut app) {
         log::error!("event loop: {e}");
     }
@@ -422,6 +473,19 @@ pub fn run() {
 
 impl Running {
     fn dispatch(&mut self, el: &ActiveEventLoop, ev: InputEv) {
+        // browsers only start audio after a user gesture
+        if crate::platform::IS_WEB
+            && matches!(
+                ev,
+                InputEv::Key { pressed: true, .. }
+                    | InputEv::Pointer {
+                        phase: Phase::Down,
+                        ..
+                    }
+            )
+        {
+            self.ctx.mixer.resume();
+        }
         let Some(top) = self.scenes.last_mut() else {
             return;
         };
@@ -457,12 +521,12 @@ impl Running {
     }
 
     fn poll_gamepads(&mut self, el: &ActiveEventLoop) {
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
         {
             let mut evs = Vec::new();
             if let Some(g) = self.gilrs.as_mut() {
                 let now_i = Instant::now();
-                let now_s = std::time::SystemTime::now();
+                let now_s = crate::platform::SystemTime::now();
                 while let Some(e) = g.next_event() {
                     let age = now_s
                         .duration_since(e.time)
@@ -496,7 +560,7 @@ impl Running {
                 self.dispatch(el, e);
             }
         }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
+        #[cfg(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))]
         let _ = el;
     }
 
@@ -592,37 +656,9 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
     }
 }
 
-impl ApplicationHandler for App {
-    fn resumed(&mut self, el: &ActiveEventLoop) {
-        if self.run.is_some() {
-            return;
-        }
+impl App {
+    fn init(&mut self, window: Arc<Window>, mut gfx: Gfx) {
         let config = Config::load(&self.paths.config_file());
-        let mut attrs = Window::default_attributes()
-            .with_title("vibeBMS")
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                config.display.width.max(320),
-                config.display.height.max(240),
-            ));
-        if config.display.fullscreen {
-            attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
-        }
-        let window = match el.create_window(attrs) {
-            Ok(w) => Arc::new(w),
-            Err(e) => {
-                log::error!("window: {e}");
-                el.exit();
-                return;
-            }
-        };
-        let mut gfx = match Gfx::new(window.clone(), config.display.present_mode) {
-            Ok(g) => g,
-            Err(e) => {
-                log::error!("graphics init failed: {e}");
-                el.exit();
-                return;
-            }
-        };
         let theme = Theme::load(&self.paths.themes, &config.theme);
         let theme_fonts = theme.dir.as_ref().map(|d| d.join("fonts"));
         let mut font_dirs = vec![self.paths.fonts.as_path()];
@@ -640,9 +676,7 @@ impl ApplicationHandler for App {
             system_volume: a.system,
             max_voices: 512,
         });
-        let lib = Library::open(&self.paths.db_file())
-            .map_err(|e| log::error!("library: {e}"))
-            .ok();
+        let lib = Some(Library::open(&self.paths.cache, &self.paths.scores));
         let size = window.inner_size();
         let bg_texture = theme
             .background_image
@@ -670,16 +704,23 @@ impl ApplicationHandler for App {
             want_theme_reload: false,
             gpu_name: gfx.adapter_name.clone(),
             bg_texture,
+            prefetch: None,
         };
         ctx.reload_library();
         ctx.load_cached_tables();
         ctx.start_scan();
-        ctx.refresh_tables(false);
+        if !crate::platform::IS_WEB {
+            ctx.refresh_tables(false);
+        }
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
         // `vibebms <chart> [--autoplay]` plays a chart directly
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args: Vec<String> = if crate::platform::IS_WEB {
+            Vec::new()
+        } else {
+            std::env::args().skip(1).collect()
+        };
         let autoplay = args.iter().any(|a| a == "--autoplay" || a == "-a");
         if let Some(p) = args.iter().find(|a| !a.starts_with('-')) {
             let path = PathBuf::from(p);
@@ -704,7 +745,7 @@ impl ApplicationHandler for App {
             batch: Batch::default(),
             ctx,
             scenes,
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
             gilrs: gilrs::Gilrs::new()
                 .map_err(|e| log::warn!("gamepads unavailable: {e}"))
                 .ok(),
@@ -715,6 +756,72 @@ impl ApplicationHandler for App {
             fps_since: now,
             next_frame: now,
         });
+    }
+}
+
+impl ApplicationHandler<UserEvent> for App {
+    fn user_event(&mut self, el: &ActiveEventLoop, ev: UserEvent) {
+        match ev {
+            UserEvent::GfxReady(window, gfx) => match *gfx {
+                Ok(gfx) => self.init(window, gfx),
+                Err(e) => {
+                    log::error!("graphics init failed: {e}");
+                    el.exit();
+                }
+            },
+        }
+    }
+
+    fn resumed(&mut self, el: &ActiveEventLoop) {
+        if self.run.is_some() || self.creating {
+            return;
+        }
+        let config = Config::load(&self.paths.config_file());
+        let mut attrs = Window::default_attributes()
+            .with_title("vibeBMS")
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                config.display.width.max(320),
+                config.display.height.max(240),
+            ));
+        if config.display.fullscreen {
+            attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowAttributesExtWebSys;
+            attrs = attrs
+                .with_append(true)
+                .with_prevent_default(true)
+                .with_focusable(true);
+        }
+        let window = match el.create_window(attrs) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                log::error!("window: {e}");
+                el.exit();
+                return;
+            }
+        };
+        self.creating = true;
+        #[cfg(target_arch = "wasm32")]
+        {
+            let proxy = self.proxy.clone();
+            let mode = config.display.present_mode;
+            wasm_bindgen_futures::spawn_local(async move {
+                let g = Gfx::create(window.clone(), mode).await;
+                if let Some(p) = proxy {
+                    let _ = p.send_event(UserEvent::GfxReady(window, Box::new(g)));
+                }
+            });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        match Gfx::new(window.clone(), config.display.present_mode) {
+            Ok(g) => self.init(window, g),
+            Err(e) => {
+                log::error!("graphics init failed: {e}");
+                el.exit();
+            }
+        }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

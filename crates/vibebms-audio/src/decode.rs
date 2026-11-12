@@ -73,26 +73,30 @@ pub fn resolve_sound_path(dir: &Path, name: &str) -> Option<PathBuf> {
 
 /// Decode any supported file into interleaved PCM at `rate`.
 pub fn decode_file(path: &Path, rate: u32) -> Result<Sample, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    match decode_symphonia(path, &ext) {
+    decode_bytes(bytes, &ext, rate)
+}
+
+/// Decode in-memory file data (`ext` is a format hint such as "ogg").
+pub fn decode_bytes(bytes: Vec<u8>, ext: &str, rate: u32) -> Result<Sample, String> {
+    match decode_symphonia(bytes.clone(), ext) {
         Ok((ch, sr, pcm)) => Ok(convert(ch, sr, &pcm, rate)),
         Err(e) => {
             // tolerate broken RIFF headers that symphonia rejects
-            if ext == "wav" {
-                if let Some((ch, sr, pcm)) = decode_wav_fallback(path) {
-                    return Ok(convert(ch, sr, &pcm, rate));
-                }
+            if let Some((ch, sr, pcm)) = decode_wav_fallback(&bytes) {
+                return Ok(convert(ch, sr, &pcm, rate));
             }
             Err(e)
         }
     }
 }
 
-fn decode_symphonia(path: &Path, ext: &str) -> Result<(u16, u32, Vec<f32>), String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+fn decode_symphonia(bytes: Vec<u8>, ext: &str) -> Result<(u16, u32, Vec<f32>), String> {
+    let file = std::io::Cursor::new(bytes);
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
     hint.with_extension(ext);
@@ -161,8 +165,7 @@ fn decode_symphonia(path: &Path, ext: &str) -> Result<(u16, u32, Vec<f32>), Stri
 }
 
 /// Minimal PCM RIFF reader that ignores bogus chunk sizes.
-fn decode_wav_fallback(path: &Path) -> Option<(u16, u32, Vec<f32>)> {
-    let b = std::fs::read(path).ok()?;
+fn decode_wav_fallback(b: &[u8]) -> Option<(u16, u32, Vec<f32>)> {
     if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
         return None;
     }
@@ -263,35 +266,65 @@ pub struct SoundBank {
 impl SoundBank {
     /// `progress` is incremented once per file.
     pub fn load(dir: &Path, files: &[String], rate: u32, progress: &AtomicUsize) -> SoundBank {
+        let resolve = |name: &str| resolve_sound_path(dir, name);
+        let read = |p: &Path| std::fs::read(p).ok();
+        Self::load_with(files, rate, progress, &resolve, &read)
+    }
+
+    /// Load with custom path resolution and file access (virtual file systems).
+    pub fn load_with(
+        files: &[String],
+        rate: u32,
+        progress: &AtomicUsize,
+        resolve: &(dyn Fn(&str) -> Option<PathBuf> + Sync),
+        read: &(dyn Fn(&Path) -> Option<Vec<u8>> + Sync),
+    ) -> SoundBank {
         let n = files.len();
-        let threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-            .clamp(1, 16);
-        let next = AtomicUsize::new(0);
         let mut slots: Vec<Option<Arc<Sample>>> = vec![None; n];
-        let results = std::sync::Mutex::new(&mut slots);
-        std::thread::scope(|s| {
-            for _ in 0..threads {
-                s.spawn(|| loop {
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    if i >= n {
-                        break;
-                    }
-                    let r = resolve_sound_path(dir, &files[i]).and_then(|p| {
-                        match decode_file(&p, rate) {
-                            Ok(s) => Some(Arc::new(s)),
-                            Err(e) => {
-                                log::debug!("decode {}: {e}", p.display());
-                                None
-                            }
-                        }
-                    });
-                    results.lock().unwrap()[i] = r;
-                    progress.fetch_add(1, Ordering::Relaxed);
-                });
+        let load_one = |i: usize| -> Option<Arc<Sample>> {
+            let p = resolve(&files[i])?;
+            let bytes = read(&p)?;
+            let ext = p
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            match decode_bytes(bytes, &ext, rate) {
+                Ok(s) => Some(Arc::new(s)),
+                Err(e) => {
+                    log::debug!("decode {}: {e}", p.display());
+                    None
+                }
             }
-        });
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            for (i, slot) in slots.iter_mut().enumerate() {
+                *slot = load_one(i);
+                progress.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .clamp(1, 16);
+            let next = AtomicUsize::new(0);
+            let results = std::sync::Mutex::new(&mut slots);
+            std::thread::scope(|s| {
+                for _ in 0..threads {
+                    s.spawn(|| loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= n {
+                            break;
+                        }
+                        let r = load_one(i);
+                        results.lock().unwrap()[i] = r;
+                        progress.fetch_add(1, Ordering::Relaxed);
+                    });
+                }
+            });
+        }
         SoundBank { samples: slots }
     }
 

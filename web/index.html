@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>vibeBMS</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b0d14; overflow: hidden; touch-action: none; }
+    canvas { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
+    #open { position: fixed; left: 12px; bottom: 12px; z-index: 10; font: 14px system-ui, sans-serif;
+            color: #f2f4f8; background: #161a26e6; border: 1px solid #4fc3f7; border-radius: 6px;
+            padding: 8px 12px; cursor: pointer; }
+    #open input { display: none; }
+  </style>
+</head>
+<body>
+  <!-- folder picker: files are mounted under /vibebms/bms/ inside the app -->
+  <label id="open">📂 Open BMS folder
+    <input id="bms-input" type="file" webkitdirectory directory multiple />
+  </label>
+  <script type="module">
+    import init from "./pkg/vibebms_web.js";
+    init();
+  </script>
+</body>
+</html>

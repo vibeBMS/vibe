@@ -7,8 +7,8 @@
 use crate::config::TouchStyle;
 use crate::gfx::{with_alpha, Batch, Color, Rect};
 use crate::input::{LaneEv, Phase};
+use crate::platform::Instant;
 use std::collections::HashMap;
-use std::time::Instant;
 use vibebms_core::PlayMode;
 
 #[derive(Clone, Copy, Debug)]

@@ -253,36 +253,52 @@ pub struct Gfx {
 }
 
 impl Gfx {
+    /// Blocking constructor for native platforms.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
     ) -> Result<Gfx, String> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        pollster::block_on(Self::create(window, mode))
+    }
+
+    /// Async constructor (required in browsers). Uses WebGPU when available
+    /// and falls back to WebGL2.
+    pub async fn create(
+        window: Arc<winit::window::Window>,
+        mode: crate::config::PresentMode,
+    ) -> Result<Gfx, String> {
+        let instance = wgpu::util::new_instance_with_webgpu_detection(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
-        });
+        })
+        .await;
         let surface = instance
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-        .ok_or("no suitable GPU adapter")?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or("no suitable GPU adapter")?;
         let info = adapter.get_info();
         log::info!("gpu: {} ({:?})", info.name, info.backend);
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("vibebms"),
-                required_features: wgpu::Features::empty(),
-                required_limits:
-                    wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        ))
-        .map_err(|e| e.to_string())?;
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("vibebms"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                        .using_resolution(adapter.limits()),
+                    memory_hints: wgpu::MemoryHints::Performance,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -638,10 +654,21 @@ impl Gfx {
 }
 
 pub fn load_rgba(path: &std::path::Path, color_key_black: bool) -> Option<(u32, u32, Vec<u8>)> {
-    let img = match image::open(path) {
-        Ok(i) => i,
+    let bytes = match crate::platform::vfs::read(path) {
+        Ok(b) => b,
         Err(e) => {
             log::debug!("image {}: {e}", path.display());
+            return None;
+        }
+    };
+    load_rgba_bytes(&bytes, color_key_black)
+}
+
+pub fn load_rgba_bytes(bytes: &[u8], color_key_black: bool) -> Option<(u32, u32, Vec<u8>)> {
+    let img = match image::load_from_memory(bytes) {
+        Ok(i) => i,
+        Err(e) => {
+            log::debug!("image decode: {e}");
             return None;
         }
     };

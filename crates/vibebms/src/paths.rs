@@ -6,7 +6,8 @@
 //! ```text
 //! <root>/vibebms(.exe)
 //! <root>/config/config.toml
-//! <root>/cache/library.db
+//! <root>/cache/songs.json        (scan cache, safe to delete)
+//! <root>/scores/scores.json      (your records)
 //! <root>/cache/tables/*.json
 //! <root>/themes/<name>/theme.toml
 //! <root>/fonts/*.ttf|otf|ttc        (optional font overrides)
@@ -25,15 +26,20 @@ pub struct Paths {
     pub themes: PathBuf,
     pub fonts: PathBuf,
     pub replays: PathBuf,
+    pub scores: PathBuf,
+    pub skins: PathBuf,
 }
 
 /// Directory names under the root that are never scanned for charts.
 pub const INTERNAL_DIRS: &[&str] = &[
-    "config", "cache", "themes", "fonts", "replays", "target", "skins", "crates", "docs",
+    "config", "cache", "themes", "fonts", "replays", "scores", "target", "skins", "crates", "docs",
 ];
 
 impl Paths {
     pub fn detect() -> Paths {
+        if crate::platform::IS_WEB {
+            return Paths::at(PathBuf::from("/vibebms"));
+        }
         let root = std::env::var_os("VIBEBMS_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(default_root);
@@ -53,10 +59,14 @@ impl Paths {
             themes: root.join("themes"),
             fonts: root.join("fonts"),
             replays: root.join("replays"),
+            scores: root.join("scores"),
+            skins: root.join("skins"),
             root,
         };
-        for d in [&p.config, &p.cache, &p.tables, &p.themes, &p.replays] {
-            let _ = std::fs::create_dir_all(d);
+        for d in [
+            &p.config, &p.cache, &p.tables, &p.themes, &p.replays, &p.scores, &p.skins,
+        ] {
+            let _ = crate::platform::vfs::create_dir_all(d);
         }
         p
     }
@@ -65,8 +75,8 @@ impl Paths {
         self.config.join("config.toml")
     }
 
-    pub fn db_file(&self) -> PathBuf {
-        self.cache.join("library.db")
+    pub fn songs_cache(&self) -> PathBuf {
+        self.cache.join("songs.json")
     }
 }
 
@@ -122,8 +132,5 @@ fn fallback_root() -> PathBuf {
 }
 
 fn writable(dir: &Path) -> bool {
-    let probe = dir.join(".vibebms-write-test");
-    let ok = std::fs::write(&probe, b"ok").is_ok();
-    let _ = std::fs::remove_file(&probe);
-    ok
+    crate::platform::vfs::writable(dir)
 }

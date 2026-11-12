@@ -338,7 +338,10 @@ const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-30, 30
 const IIDX_LN_END_FRAMES: [(i64, i64); 4] = [(-14, 14), (-19, 19), (-24, 24), (-30, 30)];
 
 fn iidx(frames: &[(i64, i64)]) -> Vec<(i64, i64)> {
-    frames.iter().map(|(l, e)| (frames_us(*l, IIDX_HZ), frames_us(*e, IIDX_HZ))).collect()
+    frames
+        .iter()
+        .map(|(l, e)| (frames_us(*l, IIDX_HZ), frames_us(*e, IIDX_HZ)))
+        .collect()
 }
 
 pub fn judge_rules(
@@ -472,7 +475,12 @@ mod tests {
 
     #[test]
     fn iidx_120hz_frames() {
-        let r = judge_rules(JudgePreset::Iidx, RuleFamily::SevenKeys, JudgeRank::Rank(2), None);
+        let r = judge_rules(
+            JudgePreset::Iidx,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(2),
+            None,
+        );
         let w = &r.windows;
         assert_eq!(w.note[0], (-16_667, 16_667));
         assert_eq!(w.note[1], (-33_333, 33_333));

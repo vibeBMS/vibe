@@ -8,5 +8,5 @@
 pub mod decode;
 pub mod mixer;
 
-pub use decode::{decode_file, resolve_sound_path, Sample, SoundBank};
+pub use decode::{decode_bytes, decode_file, resolve_sound_path, Sample, SoundBank};
 pub use mixer::{AudioConfig, Bus, Mixer, PlayOptions};

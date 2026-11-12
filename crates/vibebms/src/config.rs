@@ -363,12 +363,14 @@ impl Default for Config {
 
 impl Config {
     pub fn load(path: &std::path::Path) -> Config {
-        match std::fs::read_to_string(path) {
+        match crate::platform::vfs::read_to_string(path) {
             Ok(s) => match toml::from_str(&s) {
                 Ok(c) => c,
                 Err(e) => {
                     log::error!("config parse error ({e}); backing up and using defaults");
-                    let _ = std::fs::copy(path, path.with_extension("toml.bak"));
+                    if let Ok(b) = crate::platform::vfs::read(path) {
+                        let _ = crate::platform::vfs::write(&path.with_extension("toml.bak"), &b);
+                    }
                     Config::default()
                 }
             },
@@ -379,9 +381,8 @@ impl Config {
     pub fn save(&self, path: &std::path::Path) {
         match toml::to_string_pretty(self) {
             Ok(s) => {
-                let tmp = path.with_extension("toml.tmp");
-                if std::fs::write(&tmp, s).is_ok() {
-                    let _ = std::fs::rename(&tmp, path);
+                if let Err(e) = crate::platform::vfs::write(path, s.as_bytes()) {
+                    log::error!("saving config: {e}");
                 }
             }
             Err(e) => log::error!("config serialize error: {e}"),

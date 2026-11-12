@@ -10,9 +10,9 @@ use crate::config::{
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
 use crate::input::{InputEv, Phase};
+use crate::platform::Instant;
 use crate::theme::Theme;
 use crate::ui;
-use std::time::Instant;
 use vibebms_audio::Bus;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugeAutoShift, GaugePreset, GaugeType};

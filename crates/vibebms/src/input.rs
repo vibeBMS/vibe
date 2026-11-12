@@ -1,8 +1,8 @@
 //! Device input -> lanes.
 
 use crate::config::{KeyConfig, LaneKeys, SideKeys};
+use crate::platform::{Duration, Instant};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use vibebms_core::PlayMode;
 use winit::keyboard::KeyCode;
 

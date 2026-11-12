@@ -6,6 +6,7 @@ use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Color, Gfx, Rect, TexId};
 use crate::input::{InputEv, LaneEv, LaneMapper, Phase};
 use crate::library::Song;
+use crate::platform::{Duration, Instant};
 use crate::scene::result::{ResultData, ResultScene};
 use crate::touch::{self, TouchInput, Zone};
 use crate::ui;
@@ -13,7 +14,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use vibebms_audio::{Bus, PlayOptions, SoundBank};
 use vibebms_core::chart::{BgaLayer, Chart, NoteKind, SoundId, NO_SOUND};
 use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent};
@@ -97,6 +97,9 @@ struct Layout {
 pub struct PlayScene {
     req: PlayRequest,
     stage: Stage,
+    /// Chart/sound loading job, started once the files are available.
+    job: Option<Box<dyn FnOnce() + Send>>,
+    prefetch: crate::platform::vfs::Prefetch,
     rx: Option<Receiver<Result<Box<Loaded>, String>>>,
     progress: Arc<AtomicUsize>,
     total_files: Arc<AtomicUsize>,
@@ -156,83 +159,89 @@ impl PlayScene {
             .map(|c| c.has("grade_mirror"))
             .unwrap_or(true);
         let in_course = req.course.is_some();
-        std::thread::Builder::new()
-            .name("load".into())
-            .spawn(move || {
-                let r = (|| -> Result<Box<Loaded>, String> {
-                    let seed = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(1);
-                    let mut chart = vibebms_core::load_chart(
-                        &path,
-                        &vibebms_core::bms::ParseOptions {
-                            random_seed: Some(seed),
-                            random_selections: None,
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                    // chart transforms (options)
-                    if play.battle && !chart.mode().is_double() {
-                        lane_option::battle(&mut chart);
-                    }
-                    let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
-                    let allowed = |o: LaneOption| {
-                        if in_course && !(course_mirror && o == LaneOption::Mirror) {
-                            LaneOption::Off
-                        } else {
-                            o
-                        }
-                    };
-                    lane_option::apply(&mut chart, 0, allowed(play.random_1p), seed, thr);
-                    if chart.mode().is_double() {
-                        lane_option::apply(
-                            &mut chart,
-                            1,
-                            allowed(play.random_2p),
-                            seed.wrapping_add(1),
-                            thr,
-                        );
-                        if play.dp_option == DoubleOption::Flip {
-                            lane_option::flip(&mut chart);
-                        }
-                    }
-                    if play.legacy_note {
-                        lane_option::legacy_note(&mut chart);
-                    }
-                    if play.no_mine {
-                        lane_option::remove_mines(&mut chart);
-                    }
-                    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-                    t2.store(chart.sound_files.len(), Ordering::Relaxed);
-                    let bank = SoundBank::load(&dir, &chart.sound_files, rate, &p2);
-                    let images = if play.bga {
-                        chart
-                            .images
-                            .iter()
-                            .map(|f| rgba_of(&dir.join(f.replace('\\', "/")), true))
-                            .collect()
+        let song_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let job = move || {
+            let r = (|| -> Result<Box<Loaded>, String> {
+                let seed = crate::platform::SystemTime::now()
+                    .duration_since(crate::platform::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(1);
+                let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
+                let mut chart = vibebms_core::load_chart_bytes(
+                    &path,
+                    &bytes,
+                    &vibebms_core::bms::ParseOptions {
+                        random_seed: Some(seed),
+                        random_selections: None,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+                // chart transforms (options)
+                if play.battle && !chart.mode().is_double() {
+                    lane_option::battle(&mut chart);
+                }
+                let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
+                let allowed = |o: LaneOption| {
+                    if in_course && !(course_mirror && o == LaneOption::Mirror) {
+                        LaneOption::Off
                     } else {
-                        Vec::new()
-                    };
-                    let stagefile = (!chart.meta.stagefile.is_empty())
-                        .then(|| rgba_of(&dir.join(&chart.meta.stagefile), false))
-                        .flatten();
-                    Ok(Box::new(Loaded {
-                        chart,
-                        bank,
-                        images,
-                        stagefile,
-                        seed,
-                    }))
-                })();
-                let _ = tx.send(r);
-            })
-            .ok();
+                        o
+                    }
+                };
+                lane_option::apply(&mut chart, 0, allowed(play.random_1p), seed, thr);
+                if chart.mode().is_double() {
+                    lane_option::apply(
+                        &mut chart,
+                        1,
+                        allowed(play.random_2p),
+                        seed.wrapping_add(1),
+                        thr,
+                    );
+                    if play.dp_option == DoubleOption::Flip {
+                        lane_option::flip(&mut chart);
+                    }
+                }
+                if play.legacy_note {
+                    lane_option::legacy_note(&mut chart);
+                }
+                if play.no_mine {
+                    lane_option::remove_mines(&mut chart);
+                }
+                let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+                t2.store(chart.sound_files.len(), Ordering::Relaxed);
+                let resolve = |name: &str| {
+                    crate::platform::vfs::find_by_stem(&dir, name, crate::platform::vfs::AUDIO_EXTS)
+                };
+                let read = |p: &Path| crate::platform::vfs::read(p).ok();
+                let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
+                let images = if play.bga {
+                    chart
+                        .images
+                        .iter()
+                        .map(|f| rgba_of(&dir.join(f.replace('\\', "/")), true))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let stagefile = (!chart.meta.stagefile.is_empty())
+                    .then(|| rgba_of(&dir.join(&chart.meta.stagefile), false))
+                    .flatten();
+                Ok(Box::new(Loaded {
+                    chart,
+                    bank,
+                    images,
+                    stagefile,
+                    seed,
+                }))
+            })();
+            let _ = tx.send(r);
+        };
         let mode = PlayMode::Beat7K;
         PlayScene {
             req,
             stage: Stage::Loading,
+            job: Some(Box::new(job)),
+            prefetch: crate::platform::vfs::Prefetch::dirs(&[song_dir]),
             rx: Some(rx),
             progress,
             total_files,
@@ -701,6 +710,11 @@ impl Scene for PlayScene {
     }
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
+        if self.job.is_some() && self.prefetch.finished() {
+            if let Some(job) = self.job.take() {
+                crate::platform::spawn("load", job);
+            }
+        }
         if let Some(rx) = &self.rx {
             if let Ok(r) = rx.try_recv() {
                 self.rx = None;

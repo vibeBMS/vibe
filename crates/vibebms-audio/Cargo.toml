@@ -17,3 +17,7 @@ jack = ["cpal/jack"]
 cpal = "0.15"
 symphonia = { version = "0.5", features = ["mp3"] }
 log.workspace = true
+web-time = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.15", features = ["wasm-bindgen"] }

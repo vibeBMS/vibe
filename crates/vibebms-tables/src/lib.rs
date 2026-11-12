@@ -258,7 +258,8 @@ fn join(base: &str, rel: &str) -> Result<String, TableError> {
         .map_err(|e| TableError::Format(e.to_string()))
 }
 
-fn decode_body(bytes: &[u8]) -> String {
+/// Decode a response body (UTF-8 with BOM, or Shift_JIS for old tables).
+pub fn decode_body(bytes: &[u8]) -> String {
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     match std::str::from_utf8(bytes) {
         Ok(s) => s.to_owned(),
@@ -303,10 +304,12 @@ pub trait Fetcher {
     fn get(&self, url: &str) -> Result<String, TableError>;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct UreqFetcher {
     agent: ureq::Agent,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Default for UreqFetcher {
     fn default() -> Self {
         let agent = ureq::AgentBuilder::new()
@@ -317,6 +320,7 @@ impl Default for UreqFetcher {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Fetcher for UreqFetcher {
     fn get(&self, url: &str) -> Result<String, TableError> {
         let resp = self
@@ -355,8 +359,8 @@ pub fn fetch_table(fetcher: &dyn Fetcher, url: &str) -> Result<DifficultyTable, 
     let dv: Value = serde_json::from_str(dt.trim_start_matches('\u{feff}'))
         .map_err(|e| TableError::Format(format!("data: {e}")))?;
     let entries = parse_data(&dv)?;
-    let fetched_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let fetched_at = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     Ok(DifficultyTable {
