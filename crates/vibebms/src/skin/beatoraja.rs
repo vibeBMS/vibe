@@ -203,10 +203,18 @@ pub fn read_value(path: &Path) -> Result<Value, String> {
     read_skin(path, None).map(|v| v.0)
 }
 
+/// What a Lua skin's `skin_config` is made from: chosen option per
+/// property name, the skin's header, the user's offsets by name.
+type SkinConfig<'a> = (
+    &'a HashMap<String, i64>,
+    &'a Value,
+    &'a HashMap<String, [i32; 6]>,
+);
+
 /// A skin's table, with the Lua state it ran in (Lua skins).
 fn read_skin(
     path: &Path,
-    skin_config: Option<(&HashMap<String, i64>, &Value, &HashMap<String, [i32; 6]>)>,
+    skin_config: Option<SkinConfig<'_>>,
 ) -> Result<(Value, Option<script::Script>), String> {
     let ext = path
         .extension()
@@ -1114,7 +1122,7 @@ mod lua {
     /// selected op) is exported like beatoraja does.
     pub fn eval(
         path: &Path,
-        skin_config: Option<(&HashMap<String, i64>, &Value, &HashMap<String, [i32; 6]>)>,
+        skin_config: Option<SkinConfig<'_>>,
     ) -> Result<(Value, script::Script), String> {
         let src = vfs::read(path).map_err(|e| e.to_string())?;
         let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
@@ -1178,10 +1186,7 @@ mod lua {
 #[cfg(target_arch = "wasm32")]
 mod lua {
     use super::*;
-    pub fn eval(
-        path: &Path,
-        _: Option<(&HashMap<String, i64>, &Value, &HashMap<String, [i32; 6]>)>,
-    ) -> Result<(Value, script::Script), String> {
+    pub fn eval(path: &Path, _: Option<SkinConfig<'_>>) -> Result<(Value, script::Script), String> {
         Err(format!(
             "{}: Lua skins are not supported in the web build",
             path.display()
