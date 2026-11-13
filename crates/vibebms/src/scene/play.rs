@@ -224,9 +224,9 @@ impl PlayScene {
                 } else {
                     (Vec::new(), Vec::new())
                 };
-                let stagefile = (!chart.meta.stagefile.is_empty())
-                    .then(|| rgba_of(&dir.join(&chart.meta.stagefile), false))
-                    .flatten();
+                let stagefile = crate::platform::vfs::inside(&dir, &chart.meta.stagefile)
+                    .filter(|_| !chart.meta.stagefile.is_empty())
+                    .and_then(|p| rgba_of(&p, false));
                 Ok(Box::new(Loaded {
                     chart,
                     bank,

@@ -39,13 +39,14 @@ impl Archive {
         }
         let data_start = u32_at(&data, 8)?;
         let names = u32_at(&data, 12)?;
-        let file_tab = names + u32_at(&data, 16)?;
-        let dir_tab = names + u32_at(&data, 20)?;
+        let file_tab = names.checked_add(u32_at(&data, 16)?)?;
+        let dir_tab = names.checked_add(u32_at(&data, 20)?)?;
         let head = if ver >= 2 { 44 } else { 40 };
         let name = |o: usize| -> Option<String> {
-            let n = u16_at(&data, names + o)? as usize * 4;
+            let at = names.checked_add(o)?;
+            let n = u16_at(&data, at)? as usize * 4;
             // the upper-case form comes first
-            let raw = data.get(names + o + 4..names + o + 4 + n)?;
+            let raw = data.get(at + 4..at + 4 + n)?;
             let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
             let (s, _, _) = encoding_rs::SHIFT_JIS.decode(&raw[..end]);
             Some(s.into_owned())
@@ -53,16 +54,19 @@ impl Archive {
         let mut files = HashMap::new();
         // walk directories from the root (directory table offset 0)
         let mut stack = vec![(0usize, String::new())];
-        let mut guard = 0;
+        let mut seen = std::collections::HashSet::new();
         while let Some((dir, prefix)) = stack.pop() {
-            guard += 1;
-            if guard > 100_000 {
-                return None;
+            // each directory once (a crafted archive can loop)
+            if !seen.insert(dir) {
+                continue;
             }
-            let count = u32_at(&data, dir_tab + dir + 8)?;
-            let first = u32_at(&data, dir_tab + dir + 12)?;
+            let d = dir_tab.checked_add(dir)?;
+            let count = u32_at(&data, d + 8)?;
+            let first = u32_at(&data, d + 12)?;
             for k in 0..count {
-                let fh = file_tab + first + k * head;
+                let fh = file_tab
+                    .checked_add(first)?
+                    .checked_add(k.checked_mul(head)?)?;
                 let nm = name(u32_at(&data, fh)?)?;
                 let attr = u32_at(&data, fh + 4)?;
                 let addr = u32_at(&data, fh + 32)?;
@@ -76,7 +80,7 @@ impl Archive {
                 if attr & 0x10 != 0 {
                     stack.push((addr, format!("{path}/")));
                 } else {
-                    files.insert(path, (data_start + addr, size, packed));
+                    files.insert(path, (data_start.checked_add(addr)?, size, packed));
                 }
             }
         }
@@ -86,8 +90,11 @@ impl Archive {
     fn get(&self, rel: &str) -> Option<Vec<u8>> {
         let &(off, size, packed) = self.files.get(&rel.to_uppercase())?;
         match packed {
-            None => self.data.get(off..off + size).map(<[u8]>::to_vec),
-            Some(p) => decode(self.data.get(off..off + p)?).filter(|d| d.len() == size),
+            None => self
+                .data
+                .get(off..off.checked_add(size)?)
+                .map(<[u8]>::to_vec),
+            Some(p) => decode(self.data.get(off..off.checked_add(p)?)?).filter(|d| d.len() == size),
         }
     }
 }
@@ -97,7 +104,8 @@ fn decode(src: &[u8]) -> Option<Vec<u8>> {
     let dest = u32_at(src, 0)?;
     let mut left = u32_at(src, 4)?.checked_sub(9)?;
     let key = *src.get(8)?;
-    let mut out = Vec::with_capacity(dest);
+    // the stated size is only a hint until the data bears it out
+    let mut out = Vec::with_capacity(dest.min(1 << 24));
     let mut sp = 9;
     let byte = |i: usize| src.get(i).copied();
     while left > 0 {

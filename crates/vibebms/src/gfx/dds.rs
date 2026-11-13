@@ -26,8 +26,11 @@ pub fn decode(b: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
             b"DXT2" | b"DXT3" | b"DXT4" | b"DXT5" => 16,
             _ => return None,
         };
-        let mut out = vec![0u8; w_ * h_ * 4];
         let (bw, bh) = (w_.div_ceil(4), h_.div_ceil(4));
+        if data.len() < bw * bh * block {
+            return None;
+        }
+        let mut out = vec![0u8; w_ * h_ * 4];
         for by in 0..bh {
             for bx in 0..bw {
                 let o = (by * bw + bx) * block;
@@ -65,9 +68,12 @@ pub fn decode(b: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
             return 0;
         }
         let shift = m.trailing_zeros();
-        let max = m >> shift;
-        (((v & m) >> shift) * 255 / max) as u8
+        let max = (m >> shift) as u64;
+        (((v & m) >> shift) as u64 * 255 / max) as u8
     };
+    if data.len() < w_ * h_ * bpp {
+        return None;
+    }
     let mut out = Vec::with_capacity(w_ * h_ * 4);
     for i in 0..w_ * h_ {
         let p = data.get(i * bpp..i * bpp + bpp)?;

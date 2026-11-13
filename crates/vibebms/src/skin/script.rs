@@ -355,9 +355,9 @@ return fns
             defaults(&lua, &vb, 0)?;
             // `require` and `dofile` read Lua files of the skin's theme
             // folder (the parent of the skin file's folder) only
-            let root = normalize(dir.parent().unwrap_or(dir));
+            let root = crate::platform::vfs::normalize(dir.parent().unwrap_or(dir));
             let inside = move |p: &Path| {
-                let p = normalize(p);
+                let p = crate::platform::vfs::normalize(p);
                 let ext = p
                     .extension()
                     .map(|x| x.to_string_lossy().to_lowercase())
@@ -435,22 +435,6 @@ return fns
                 .deny_recursive_tables(false);
             self.lua.from_value_with::<Value>(v, opts)
         }
-    }
-
-    /// `p` with `.` and `..` resolved lexically.
-    fn normalize(p: &Path) -> std::path::PathBuf {
-        use std::path::Component;
-        let mut out = std::path::PathBuf::new();
-        for c in p.components() {
-            match c {
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    out.pop();
-                }
-                c => out.push(c),
-            }
-        }
-        out
     }
 
     /// State access functions before / outside a frame.

@@ -44,18 +44,9 @@ fn src(v: &[i64; 22], image_sizes: &[Option<(u32, u32)>]) -> Option<Src> {
     let (x, y) = (v[3] as f32, v[4] as f32);
     let w = if v[5] < 0 { iw as f32 } else { v[5] as f32 };
     let h = if v[6] < 0 { ih as f32 } else { v[6] as f32 };
-    let dx = v[7].max(1) as usize;
-    let dy = v[8].max(1) as usize;
-    let (fw, fh) = (w / dx as f32, h / dy as f32);
-    let mut frames = Vec::with_capacity(dx * dy);
-    for j in 0..dy {
-        for i in 0..dx {
-            frames.push([x + fw * i as f32, y + fh * j as f32, fw, fh]);
-        }
-    }
     Some(Src {
         image: img,
-        frames,
+        frames: Src::grid([x, y, w, h], v[7], v[8]),
         cycle: v[9],
         timer: v[10] as i32,
     })
@@ -165,19 +156,22 @@ impl Loader<'_> {
         })
     }
 
-    /// Resolve `LR2files\Theme\...` and wildcards (`#CUSTOMFILE`).
+    /// Resolve `LR2files\Theme\...` and wildcards (`#CUSTOMFILE`). Files
+    /// outside the skins folder are not read (an empty path).
     fn path(&self, raw: &str) -> PathBuf {
         let mut s = raw.trim().replace('\\', "/");
-        if let Some(i) = s.to_ascii_lowercase().find("lr2files/theme/") {
-            s = s[i + "lr2files/theme/".len()..].to_string();
-            return self.glob(&self.root.join(&s), raw);
-        }
-        let p = Path::new(&s);
-        let p = if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            self.dir.join(p)
+        let base = match s.to_ascii_lowercase().find("lr2files/theme/") {
+            Some(i) => {
+                s = s[i + "lr2files/theme/".len()..].to_string();
+                &self.root
+            }
+            None => &self.dir,
         };
+        let p = vfs::normalize(&base.join(&s));
+        if Path::new(&s).has_root() || !p.starts_with(vfs::normalize(&self.root)) {
+            log::warn!("skin: {raw} is outside the skins folder");
+            return PathBuf::new();
+        }
         self.glob(&p, raw)
     }
 
@@ -451,7 +445,7 @@ impl Loader<'_> {
                         digits,
                         id: v[11] as i32,
                         align: v[12] as i32,
-                        keta: v[13].max(1) as usize,
+                        keta: v[13].clamp(1, 32) as usize,
                         pad: (digits > 10).then_some(10),
                     });
                 } else {
@@ -461,7 +455,7 @@ impl Loader<'_> {
                     } else {
                         return;
                     };
-                    let keta = v[13].max(1) as usize;
+                    let keta = v[13].clamp(1, 32) as usize;
                     self.skin.judges[side].combo[j] = Some((s, Dst::default(), keta));
                     self.judge_side = side;
                     self.lane_kind = j;
@@ -620,7 +614,7 @@ impl Loader<'_> {
                 let font = NumberFont {
                     src: s_,
                     digits,
-                    keta: v[13].max(1) as usize,
+                    keta: v[13].clamp(1, 32) as usize,
                     align: v[12] as i32,
                 };
                 let sl = self.songlist();

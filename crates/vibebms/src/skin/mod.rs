@@ -100,6 +100,18 @@ pub struct Src {
 }
 
 impl Src {
+    /// The frames of a `div_x` × `div_y` grid over (x, y, w, h), row by row.
+    pub fn grid(rect: [f32; 4], div_x: i64, div_y: i64) -> Vec<[f32; 4]> {
+        // a skin can ask for any grid; real ones stay far below this
+        let dx = div_x.clamp(1, 1024) as usize;
+        let dy = div_y.clamp(1, 1024).min(65536 / dx as i64) as usize;
+        let [x, y, w, h] = rect;
+        let (fw, fh) = (w / dx as f32, h / dy as f32);
+        (0..dy)
+            .flat_map(|j| (0..dx).map(move |i| [x + fw * i as f32, y + fh * j as f32, fw, fh]))
+            .collect()
+    }
+
     pub fn frame(&self, now: i64, st: &dyn SkinState) -> Option<[f32; 4]> {
         if self.frames.is_empty() {
             return None;

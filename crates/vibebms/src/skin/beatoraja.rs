@@ -350,18 +350,9 @@ impl Ctx<'_> {
             n if n <= 0 => ih as f32,
             n => n as f32,
         };
-        let dx = i(def, "divx", 1).max(1) as usize;
-        let dy = i(def, "divy", 1).max(1) as usize;
-        let (fw, fh) = (w / dx as f32, h / dy as f32);
-        let mut frames = Vec::new();
-        for j in 0..dy {
-            for k in 0..dx {
-                frames.push([x + fw * k as f32, y + fh * j as f32, fw, fh]);
-            }
-        }
         Some(Src {
             image: img,
-            frames,
+            frames: Src::grid([x, y, w, h], i(def, "divx", 1), i(def, "divy", 1)),
             cycle: i(def, "cycle", 0),
             timer: self
                 .dyn_id(def.get("timer"), ScriptKind::Timer)
@@ -455,7 +446,7 @@ impl Ctx<'_> {
             digits,
             id: self.value_id(def, ScriptKind::Int),
             align: i(def, "align", 0) as i32,
-            keta: i(def, "digit", 1).max(1) as usize,
+            keta: i(def, "digit", 1).clamp(1, 32) as usize,
             // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the padding image
             // (the 11th; '0' for fonts without one)
             pad: match i(def, "zeropadding", 0) {

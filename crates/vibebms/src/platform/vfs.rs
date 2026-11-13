@@ -290,6 +290,8 @@ mod imp {
             .unwrap_or_else(|| "zip".into());
         let base = root.join("bms").join(stem);
         let mut n = 0;
+        // what a pack may unpack to (a zip can claim, or expand to, anything)
+        let mut budget: u64 = 2 << 30;
         FS.with(|fs| {
             let mut fs = fs.borrow_mut();
             for i in 0..z.len() {
@@ -306,10 +308,18 @@ mod imp {
                 if rel.as_os_str().is_empty() {
                     continue;
                 }
-                let mut buf = Vec::with_capacity(f.size() as usize);
-                if f.read_to_end(&mut buf).is_err() {
+                let mut buf = Vec::with_capacity(f.size().min(budget) as usize);
+                if (&mut f).take(budget + 1).read_to_end(&mut buf).is_err() {
                     continue;
                 }
+                if buf.len() as u64 > budget {
+                    log::warn!(
+                        "{name}: larger than {} MB unpacked; stopped",
+                        (2u64 << 30) >> 20
+                    );
+                    break;
+                }
+                budget -= buf.len() as u64;
                 let size = buf.len() as i64;
                 fs.files.insert(
                     base.join(rel),
@@ -391,12 +401,41 @@ pub fn read_to_string(p: &Path) -> io::Result<String> {
     String::from_utf8(read(p)?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
+/// `p` with `.` and `..` resolved (without looking at the file system).
+pub fn normalize(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// `name` (a file a chart or skin refers to) under `dir`; `None` for an
+/// absolute path, a drive or network path, or one that climbs out with `..`.
+pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let name = name.replace('\\', "/");
+    let rel = Path::new(&name);
+    let ok = !name.starts_with('/')
+        && rel
+            .components()
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
+    ok.then(|| dir.join(rel))
+}
+
 /// Find a file in `dir` whose stem matches `name`'s stem (case-insensitive),
 /// preferring extensions in `exts` order. Used for BMS-style references like
 /// `a.wav` that ship as `a.ogg`.
 pub fn find_by_stem(dir: &Path, name: &str, exts: &[&str]) -> Option<PathBuf> {
+    let p = inside(dir, name)?;
     let name = name.replace('\\', "/");
-    let p = dir.join(&name);
     if is_file(&p) {
         return Some(p);
     }
@@ -432,7 +471,7 @@ pub fn find_by_stem(dir: &Path, name: &str, exts: &[&str]) -> Option<PathBuf> {
     best.map(|b| b.1)
 }
 
-pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac", "opus"];
+pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac"];
 pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif"];
 
 /// Background read of lazily mounted files (web). Natively it completes immediately.
@@ -481,5 +520,40 @@ impl Prefetch {
 
     pub fn finished(&self) -> bool {
         self.done() >= self.total
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chart_files_stay_in_the_song_folder() {
+        let dir = Path::new("/songs/a");
+        assert_eq!(inside(dir, "bga\\x.png"), Some(dir.join("bga/x.png")));
+        assert_eq!(inside(dir, "./x.wav"), Some(dir.join("x.wav")));
+        for bad in [
+            "../b/x.wav",
+            "/etc/passwd",
+            "\\\\host\\share\\a.png",
+            "a/../../x",
+        ] {
+            assert_eq!(inside(dir, bad), None, "{bad}");
+        }
+        assert_eq!(normalize(Path::new("/a/b/../c/./d")), Path::new("/a/c/d"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn sound_fallback_by_stem() {
+        let dir = std::env::temp_dir().join(format!("vibebms-stem-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Kick.OGG"), b"x").unwrap();
+        assert_eq!(
+            find_by_stem(&dir, "kick.wav", AUDIO_EXTS),
+            Some(dir.join("Kick.OGG"))
+        );
+        assert_eq!(find_by_stem(&dir, "../kick.wav", AUDIO_EXTS), None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

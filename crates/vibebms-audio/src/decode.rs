@@ -31,42 +31,6 @@ impl Sample {
     }
 }
 
-const EXTS: [&str; 5] = ["wav", "ogg", "mp3", "flac", "opus"];
-
-/// Resolve a BMS sound reference. BMS files frequently reference `x.wav`
-/// while shipping `x.ogg`, and file systems may be case sensitive.
-pub fn resolve_sound_path(dir: &Path, name: &str) -> Option<PathBuf> {
-    let name = name.replace('\\', "/");
-    let p = dir.join(&name);
-    if p.is_file() {
-        return Some(p);
-    }
-    let rel = Path::new(&name);
-    let parent = dir.join(rel.parent().unwrap_or(Path::new("")));
-    let stem = rel.file_stem()?.to_string_lossy().to_lowercase();
-    let entries = std::fs::read_dir(&parent).ok()?;
-    let mut best: Option<(usize, PathBuf)> = None;
-    for e in entries.flatten() {
-        let path = e.path();
-        let Some(fs) = path.file_stem().map(|s| s.to_string_lossy().to_lowercase()) else {
-            continue;
-        };
-        if fs != stem {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        if let Some(rank) = EXTS.iter().position(|x| *x == ext) {
-            if best.as_ref().map(|b| rank < b.0).unwrap_or(true) {
-                best = Some((rank, path));
-            }
-        }
-    }
-    best.map(|b| b.1)
-}
-
 /// Decode any supported file into interleaved PCM at `rate`.
 pub fn decode_file(path: &Path, rate: u32) -> Result<Sample, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -260,13 +224,6 @@ pub struct SoundBank {
 }
 
 impl SoundBank {
-    /// `progress` is incremented once per file.
-    pub fn load(dir: &Path, files: &[String], rate: u32, progress: &AtomicUsize) -> SoundBank {
-        let resolve = |name: &str| resolve_sound_path(dir, name);
-        let read = |p: &Path| std::fs::read(p).ok();
-        Self::load_with(files, rate, progress, &resolve, &read)
-    }
-
     /// Load with custom path resolution and file access (virtual file systems).
     pub fn load_with(
         files: &[String],
@@ -355,20 +312,20 @@ mod tests {
     }
 
     #[test]
-    fn decode_and_resample_and_fallback_names() {
+    fn decode_resample_and_load() {
         let dir = std::env::temp_dir().join(format!("vibebms-audio-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        write_wav(&dir.join("Kick.WAV"), 22050, 22050);
-        let p = resolve_sound_path(&dir, "kick.ogg").expect("fallback by stem");
-        let s = decode_file(&p, 44100).unwrap();
+        write_wav(&dir.join("kick.wav"), 22050, 22050);
+        let s = decode_file(&dir.join("kick.wav"), 44100).unwrap();
         assert_eq!(s.channels, 1);
         assert!((s.frames as i64 - 44100).abs() <= 2);
         let progress = AtomicUsize::new(0);
-        let bank = SoundBank::load(
-            &dir,
+        let bank = SoundBank::load_with(
             &["kick.wav".into(), "missing.wav".into()],
             48000,
             &progress,
+            &|name| Some(dir.join(name)),
+            &|p| std::fs::read(p).ok(),
         );
         assert!(bank.get(0).is_some());
         assert!(bank.get(1).is_none());

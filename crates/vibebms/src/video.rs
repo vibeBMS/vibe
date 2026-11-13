@@ -60,7 +60,7 @@ mod native {
     /// Width and height of the first video stream (from ffmpeg's report).
     fn probe(exe: &str, path: &Path) -> Option<(u32, u32)> {
         let out = Command::new(exe)
-            .args(["-hide_banner", "-i"])
+            .args(["-hide_banner", "-protocol_whitelist", "file", "-i"])
             .arg(path)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -126,7 +126,10 @@ mod native {
             let Some(exe) = ffmpeg() else { return };
             let (w, h) = self.size;
             let child = Command::new(exe)
-                .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
+                .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
+                // local files only: a crafted "video" (an HLS playlist, say)
+                // cannot make ffmpeg open anything else
+                .args(["-protocol_whitelist", "file", "-i"])
                 .arg(&self.path)
                 .args([
                     "-an",

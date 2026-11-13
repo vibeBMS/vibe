@@ -601,14 +601,8 @@ impl SelectScene {
             } else {
                 &s.banner
             };
-            (!img.is_empty()).then(|| {
-                Path::new(&s.path)
-                    .parent()
-                    .unwrap_or(Path::new(""))
-                    .join(img)
-                    .to_string_lossy()
-                    .into_owned()
-            })
+            let dir = Path::new(&s.path).parent().unwrap_or(Path::new(""));
+            crate::platform::vfs::inside(dir, img).map(|p| p.to_string_lossy().into_owned())
         });
         let cur = self.banner.as_ref().map(|b| b.0.clone());
         if want == cur {
