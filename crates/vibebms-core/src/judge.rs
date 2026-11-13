@@ -228,14 +228,16 @@ const RULE_PMS: WindowRule = WindowRule {
 impl WindowRule {
     /// Convert a chart's rank to the single percentage beatoraja stores.
     fn judgerank(&self, r: JudgeRank) -> i64 {
-        match r {
+        let pct = match r {
             JudgeRank::Rank(n) if (0..5).contains(&n) => self.rank[n as usize][1],
             JudgeRank::Rank(_) => self.rank[2][1],
             JudgeRank::DefExRank(v) if v > 0.0 => (v * self.rank[2][1] as f64 / 100.0) as i64,
             JudgeRank::DefExRank(_) => self.rank[2][1],
             JudgeRank::Bmson(v) if v > 0.0 => v as i64,
             JudgeRank::Bmson(_) => 100,
-        }
+        };
+        // a chart can ask for anything; keep the window arithmetic in range
+        pct.clamp(1, 10_000)
     }
 
     fn create(&self, org: &[(i64, i64)], judgerank: i64, rate: WindowRate) -> Vec<(i64, i64)> {

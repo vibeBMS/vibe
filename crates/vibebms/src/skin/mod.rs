@@ -62,17 +62,30 @@ pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     })
 }
 
-/// (type, name) of any supported skin file.
+/// (type, name) of any supported skin file (cached: reading a Lua skin's
+/// header runs it).
 pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
+    type Cache = HashMap<(PathBuf, (i64, i64)), Option<(SkinType, String)>>;
+    static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+    let key = (path.to_path_buf(), crate::platform::vfs::stamp(path));
+    if let Some(h) = CACHE.lock().ok()?.get_or_insert_default().get(&key) {
+        return h.clone();
+    }
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    match ext.as_str() {
+    let h = match ext.as_str() {
         "lr2skin" => lr2::header(path),
         "json" | "luaskin" => beatoraja::header(path),
         _ => None,
-    }
+    };
+    CACHE
+        .lock()
+        .ok()?
+        .get_or_insert_default()
+        .insert(key, h.clone());
+    h
 }
 
 /// A source image region set (animation frames).

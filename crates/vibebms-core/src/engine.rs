@@ -924,6 +924,27 @@ mod tests {
         (chart, e)
     }
 
+    #[test]
+    fn hostile_charts_play_through() {
+        for head in [
+            "#00102:1e300",
+            "#00102:0",
+            "#BPM 0",
+            "#BPM -120",
+            "#BPM01 0\n#00108:01",
+            "#STOP01 1e300\n#00109:01",
+            "#STOP01 -1e9\n#00109:01",
+            "#DEFEXRANK 1e300",
+        ] {
+            let src = format!("#BPM 120\n{head}\n#00111:0101\n#00211:01\n#00251:0101");
+            let (c, mut e) = engine(&src, LnType::Ln, true);
+            let end = c.length().clamp(0, 600_000_000);
+            for t in (0..end).step_by(50_000) {
+                e.update(t);
+            }
+        }
+    }
+
     fn press(e: &mut Engine, lane: u8, t: i64) {
         e.input(InputEvent {
             time: t,

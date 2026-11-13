@@ -242,7 +242,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
         let file = chart.sound_files.len() as u32;
         chart.sound_files.push(ch.name.clone());
         let mut notes: Vec<&BNote> = ch.notes.iter().collect();
-        notes.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+        notes.sort_by(|a, b| a.y.total_cmp(&b.y));
         // Each note plays the channel's file from the point the previous
         // restart (c == false) happened, until the next note in the channel.
         let mut restart_time = 0i64;

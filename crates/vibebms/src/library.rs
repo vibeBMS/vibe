@@ -115,18 +115,42 @@ fn load_songs(file: &Path) -> Vec<SongRecord> {
         .unwrap_or_default()
 }
 
+/// The score records, one by one: a record that does not read is dropped,
+/// and the file is copied to `scores.json.bak` first (the next save
+/// rewrites it).
+fn load_scores(file: &Path) -> Vec<ScoreRecord> {
+    let Ok(b) = vfs::read(file) else {
+        return Vec::new();
+    };
+    let (records, bad) = match serde_json::from_slice::<Vec<serde_json::Value>>(&b) {
+        Ok(list) => {
+            let n = list.len();
+            let ok: Vec<ScoreRecord> = list
+                .into_iter()
+                .filter_map(|v| serde_json::from_value(v).ok())
+                .collect();
+            let bad = n - ok.len();
+            (ok, bad)
+        }
+        Err(_) => (Vec::new(), 1),
+    };
+    if bad > 0 {
+        let bak = file.with_extension("json.bak");
+        log::error!(
+            "{}: {bad} unreadable record(s); the file is saved as {}",
+            file.display(),
+            bak.display()
+        );
+        let _ = vfs::write(&bak, &b);
+    }
+    records
+}
+
 impl Library {
     /// `cache` holds the scan cache, `data` the score file.
     pub fn open(cache: &Path, data: &Path) -> Library {
         let scores_file = data.join("scores.json");
-        let scores = vfs::read(&scores_file)
-            .ok()
-            .and_then(|b| {
-                serde_json::from_slice::<Vec<ScoreRecord>>(&b)
-                    .map_err(|e| log::error!("scores.json: {e}"))
-                    .ok()
-            })
-            .unwrap_or_default()
+        let scores = load_scores(&scores_file)
             .into_iter()
             .map(|r| ((r.sha256, r.ln), r.best))
             .collect();
@@ -339,10 +363,14 @@ pub fn scan(
             random_seed: Some(0),
             ..Default::default()
         };
-        match vfs::read(f)
-            .map_err(|e| e.to_string())
-            .and_then(|b| vibebms_core::load_chart_bytes(f, &b, &opts).map_err(|e| e.to_string()))
-        {
+        // a parser bug on one file skips that file
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            vfs::read(f).map_err(|e| e.to_string()).and_then(|b| {
+                vibebms_core::load_chart_bytes(f, &b, &opts).map_err(|e| e.to_string())
+            })
+        }))
+        .unwrap_or_else(|_| Err("the parser panicked".into()));
+        match parsed {
             Ok(c) if c.note_count() > 0 => {
                 results.lock().unwrap().push(SongRecord {
                     song: song_from_chart(f, folder.clone(), &c),
@@ -389,6 +417,17 @@ pub fn scan(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unreadable_score_records_are_kept_aside() {
+        let dir = std::env::temp_dir().join(format!("vibebms-scores-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("scores.json");
+        std::fs::write(&file, r#"[{"sha256": "a", "ln": 0}, {"sha256": 5}]"#).unwrap();
+        assert_eq!(load_scores(&file).len(), 1);
+        assert!(dir.join("scores.json.bak").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn scan_and_scores() {

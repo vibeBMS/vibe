@@ -1148,11 +1148,7 @@ mod lua {
             .map_err(e)?;
             g.set("skin_config", cfg).map_err(e)?;
         }
-        let v: mlua::Value = lua
-            .load(&src[..])
-            .set_name(path.display().to_string())
-            .eval()
-            .map_err(e)?;
+        let v: mlua::Value = script::text_chunk(&lua, &src, path).eval().map_err(e)?;
         let json = sc.to_json(v).map_err(e)?;
         Ok((json, sc))
     }
@@ -1389,11 +1385,20 @@ mod tests {
         .unwrap()
         .0;
         assert_eq!(raw["image"][1]["id"], "img2");
-        // no way out of the sandbox
-        let escape = "return (os == nil and io == nil and package.loadlib == nil and #package.searchers == 2)";
+        // what the sandbox keeps out
+        let escape = r#"
+            local ok = os == nil and io == nil and debug == nil and string.dump == nil
+                and package.loadlib == nil and package.searchpath == nil
+                and not pcall(require, "io") and not pcall(require, "os")
+                and load("\27Lua", "b", "b") == nil
+            package.path = "/etc/?"
+            return ok and not pcall(require, "passwd") and not pcall(dofile, "../../x.lua")"#;
         std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
         let (v, _) = read_skin(&dir.join("esc.luaskin"), None).unwrap();
         assert_eq!(v, Value::Bool(true));
+        // endless loops are stopped
+        std::fs::write(dir.join("loop.luaskin"), "while true do end").unwrap();
+        assert!(read_skin(&dir.join("loop.luaskin"), None).is_err());
         std::fs::remove_dir_all(&dir).ok();
         let rt = s.script.clone().expect("scripts");
         let (img, num, txt) = (&s.objects[0], &s.objects[1], &s.objects[2]);

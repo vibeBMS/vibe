@@ -288,6 +288,29 @@ if type(root) == "table" then walk(root) end
 return fns
 "#;
 
+    /// Lua memory per skin.
+    const MEMORY_LIMIT: usize = 256 << 20;
+    /// Time a skin may take to load, and its scripts per frame.
+    #[cfg(not(test))]
+    const LOAD_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+    #[cfg(test)]
+    const LOAD_TIME: std::time::Duration = std::time::Duration::from_millis(300);
+    const FRAME_TIME: std::time::Duration = std::time::Duration::from_secs(1);
+
+    /// When running scripts are stopped.
+    struct Deadline(std::time::Instant);
+
+    fn arm(lua: &Lua, budget: std::time::Duration) {
+        lua.set_app_data(Deadline(std::time::Instant::now() + budget));
+    }
+
+    /// A Lua source file as a chunk (never compiled bytecode).
+    pub fn text_chunk<'a>(lua: &'a Lua, src: &'a [u8], path: &Path) -> mlua::chunk::Chunk<'a> {
+        lua.load(src)
+            .set_name(path.display().to_string())
+            .set_mode(mlua::chunk::ChunkMode::Text)
+    }
+
     /// The Lua state of a skin while it loads.
     pub struct Script {
         lua: Lua,
@@ -299,52 +322,93 @@ return fns
         /// A Lua state with the skin modules; `global` also exposes them as
         /// globals (JSON skins), `dir` is the skin's `require` path.
         pub fn new(dir: &Path, global: bool) -> mlua::Result<Script> {
-            let lua = Lua::new();
-            // nothing outside the skin folder
-            for k in ["os", "io", "debug", "dofile", "loadfile"] {
-                lua.globals().set(k, LV::Nil)?;
-            }
+            // no os / io / debug: scripts only reach what the skin modules give
+            let libs = mlua::StdLib::COROUTINE
+                | mlua::StdLib::TABLE
+                | mlua::StdLib::STRING
+                | mlua::StdLib::UTF8
+                | mlua::StdLib::MATH
+                | mlua::StdLib::PACKAGE;
+            let lua = Lua::new_with(libs, mlua::LuaOptions::default())?;
+            lua.set_memory_limit(MEMORY_LIMIT)?;
+            lua.set_hook(
+                mlua::HookTriggers::new().every_nth_instruction(10_000),
+                |lua, _| match lua.app_data_ref::<Deadline>() {
+                    Some(d) if std::time::Instant::now() > d.0 => {
+                        Err(mlua::Error::runtime("skin script ran too long"))
+                    }
+                    _ => Ok(mlua::VmState::Continue),
+                },
+            )?;
+            arm(&lua, LOAD_TIME);
+            // text chunks only: Lua does not verify compiled bytecode
+            lua.load(
+                r##"local load = load
+                load = function(chunk, name, _, ...)
+                    if select("#", ...) > 0 then return load(chunk, name, "t", ...) end
+                    return load(chunk, name, "t")
+                end
+                string.dump = nil"##,
+            )
+            .call::<()>(())?;
             let vb = lua.create_table()?;
             defaults(&lua, &vb, 0)?;
-            let pkg: Table = lua.globals().get("package")?;
-            pkg.set(
-                "path",
-                format!(
-                    "{}/?.lua;{}/?.luaskin;{}/?/init.lua",
-                    dir.display(),
-                    dir.display(),
-                    dir.display()
-                ),
-            )?;
-            pkg.set("cpath", "")?;
-            // Lua modules only: no native libraries
-            pkg.set("loadlib", LV::Nil)?;
-            let searchers: Table = pkg.get("searchers")?;
-            for k in [4, 3] {
-                searchers.raw_set(k, LV::Nil)?;
-            }
-            // dofile, for Lua files inside the skin's folder only
+            // `require` and `dofile` read Lua files of the skin's theme
+            // folder (the parent of the skin file's folder) only
             let root = normalize(dir.parent().unwrap_or(dir));
+            let inside = move |p: &Path| {
+                let p = normalize(p);
+                let ext = p
+                    .extension()
+                    .map(|x| x.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                (p.starts_with(&root) && matches!(ext.as_str(), "lua" | "luaskin")).then_some(p)
+            };
+            let pkg: Table = lua.globals().get("package")?;
+            for k in ["path", "cpath"] {
+                pkg.set(k, "")?;
+            }
+            for k in ["loadlib", "searchpath"] {
+                pkg.set(k, LV::Nil)?;
+            }
+            let base = dir.to_path_buf();
+            let find = inside.clone();
+            let searcher = lua.create_function(move |lua, name: String| {
+                let rel = name.replace('.', "/");
+                let found = [
+                    format!("{rel}.lua"),
+                    format!("{rel}.luaskin"),
+                    format!("{rel}/init.lua"),
+                ]
+                .iter()
+                .filter_map(|r| find(&base.join(r)))
+                .find(|p| crate::platform::vfs::is_file(p));
+                let Some(path) = found else {
+                    return Ok(LV::String(
+                        lua.create_string(format!("no skin file {name}"))?,
+                    ));
+                };
+                let src = crate::platform::vfs::read(&path)
+                    .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                Ok(LV::Function(text_chunk(lua, &src, &path).into_function()?))
+            })?;
+            let preload: LV = pkg.get::<Table>("searchers")?.raw_get(1)?;
+            let searchers = lua.create_table()?;
+            searchers.raw_set(1, preload)?;
+            searchers.raw_set(2, searcher)?;
+            pkg.set("searchers", searchers)?;
             let base = dir.to_path_buf();
             lua.globals().set(
                 "dofile",
                 lua.create_function(move |lua, p: String| {
-                    let path = normalize(&base.join(p.replace('\\', "/")));
-                    let ext = path
-                        .extension()
-                        .map(|x| x.to_string_lossy().to_lowercase())
-                        .unwrap_or_default();
-                    if !path.starts_with(&root) || !matches!(ext.as_str(), "lua" | "luaskin") {
+                    let Some(path) = inside(&base.join(p.replace('\\', "/"))) else {
                         return Err(mlua::Error::runtime(format!(
-                            "dofile: {} is outside the skin",
-                            path.display()
+                            "dofile: {p} is outside the skin"
                         )));
-                    }
+                    };
                     let src = crate::platform::vfs::read(&path)
                         .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                    lua.load(&src[..])
-                        .set_name(path.display().to_string())
-                        .call::<mlua::MultiValue>(())
+                    text_chunk(lua, &src, &path).call::<mlua::MultiValue>(())
                 })?,
             )?;
             lua.load(PRELUDE)
@@ -635,6 +699,7 @@ return fns
 
         /// Evaluate every script for this frame (`now` = scene ms).
         pub fn update(&self, st: &dyn SkinState, now: i64) {
+            arm(&self.lua, FRAME_TIME);
             let now_us = now.saturating_mul(1000);
             let r = self.lua.scope(|s| {
                 let vb = &self.vb;

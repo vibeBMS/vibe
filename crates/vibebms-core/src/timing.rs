@@ -82,16 +82,14 @@ impl TimingMap {
     pub fn build(initial_bpm: f64, mut events: Vec<(f64, TimingEvent)>) -> Self {
         let mut map = TimingMap::new(initial_bpm);
         events.sort_by(|a, b| {
-            a.0.partial_cmp(&b.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let rank = |e: &TimingEvent| match e {
-                        TimingEvent::Bpm(_) => 0,
-                        TimingEvent::Scroll(_) => 1,
-                        _ => 2,
-                    };
-                    rank(&a.1).cmp(&rank(&b.1))
-                })
+            a.0.total_cmp(&b.0).then_with(|| {
+                let rank = |e: &TimingEvent| match e {
+                    TimingEvent::Bpm(_) => 0,
+                    TimingEvent::Scroll(_) => 1,
+                    _ => 2,
+                };
+                rank(&a.1).cmp(&rank(&b.1))
+            })
         });
         let mut i = 0;
         while i < events.len() {
@@ -253,7 +251,7 @@ impl TimingMap {
         }
         let main = durations
             .iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .max_by(|a, b| a.1.total_cmp(&b.1))
             .map(|e| e.0)
             .unwrap_or(self.segs[0].bpm);
         (min, max, main)

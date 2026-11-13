@@ -82,7 +82,11 @@ fn parse_f64(s: &str) -> Option<f64> {
         })
         .map(|(i, _)| i)
         .unwrap_or(s.len());
-    s[..end].parse().ok()
+    // finite and in a range the timing arithmetic survives
+    s[..end]
+        .parse()
+        .ok()
+        .filter(|v: &f64| v.is_finite() && v.abs() <= 1e9)
 }
 
 fn parse_i32(s: &str) -> Option<i32> {
@@ -708,7 +712,7 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         let lane_u8 = lane as u8;
         // LNTYPE 1 channel long notes: pair consecutive objects
         let mut ln: Vec<RawObj> = longs[lane].values().cloned().collect();
-        ln.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap());
+        ln.sort_by(|a, b| a.beat.total_cmp(&b.beat));
         let mut ranges: Vec<(f64, f64)> = Vec::new();
         let mut it = ln.chunks(2);
         for pair in &mut it {
@@ -737,7 +741,7 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         }
         // normal channel notes, with LNOBJ terminators
         let mut vis: Vec<RawObj> = visible[lane].values().cloned().collect();
-        vis.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap());
+        vis.sort_by(|a, b| a.beat.total_cmp(&b.beat));
         let mut pending: Option<RawObj> = None;
         let flush = |p: Option<RawObj>, notes: &mut Vec<Note>| {
             if let Some(s) = p {
@@ -776,7 +780,7 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     notes.sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
     chart.notes = notes;
 
-    bgm_raw.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    bgm_raw.sort_by(|a, b| a.0.total_cmp(&b.0));
     chart.bgm = bgm_raw
         .into_iter()
         .filter_map(|(beat, id)| {
@@ -788,7 +792,7 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
         })
         .collect();
 
-    bga_raw.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    bga_raw.sort_by(|a, b| a.0.total_cmp(&b.0));
     chart.bga = bga_raw
         .into_iter()
         .map(|(beat, layer, id)| BgaEvent {
@@ -844,6 +848,38 @@ mod tests {
         assert_eq!(playable.iter().filter(|n| n.lane == 6).count(), 1); // key 7
         assert_eq!(c.bgm.len(), 2);
         assert_eq!(c.bgm[1].time, 3_000_000);
+    }
+
+    #[test]
+    fn hostile_numbers_do_not_panic() {
+        for head in [
+            "#00102:1e999",
+            "#00102:1e300",
+            "#00102:0",
+            "#00102:-1",
+            "#BPM 0",
+            "#BPM -120",
+            "#BPM 1e300",
+            "#BPM NaN",
+            "#BPM01 0\n#00108:01",
+            "#STOP01 1e300\n#00109:01",
+            "#STOP01 -1e9\n#00109:01",
+            "#SCROLL01 1e300\n#001SC:01",
+            "#DEFEXRANK 1e300",
+            "#TOTAL 1e300",
+        ] {
+            let src = format!("#BPM 120\n{head}\n#00111:0101\n#00211:01");
+            let c = parse_bms(src.as_bytes(), "bms", &ParseOptions::default()).unwrap();
+            let _ = (
+                c.length(),
+                c.timing.pos_at_time(1e6),
+                c.timing.bpm_changes(),
+            );
+            let _ = c.timing.bpm_stats(c.length());
+            for t in [0.0, 1e6, 1e12] {
+                let _ = (c.timing.beat_at_time(t), c.timing.bpm_at_time(t));
+            }
+        }
     }
 
     #[test]
