@@ -173,7 +173,8 @@ pub enum Kind {
         id: i32,
         align: i32,
         keta: usize,
-        zero_pad: bool,
+        /// Glyph drawn in leading positions (`None` = blank).
+        pad: Option<usize>,
     },
     Text {
         id: i32,
@@ -196,6 +197,9 @@ pub enum Kind {
         part_h: f32,
         step: (f32, f32),
         parts: usize,
+        /// beatoraja style: the destination covers the whole gauge and is
+        /// split into `parts` cells (LR2 places one cell per step).
+        split: bool,
     },
     Bga,
     /// The note field (lanes from `#DST_NOTE`).

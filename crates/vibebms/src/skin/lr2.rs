@@ -363,7 +363,6 @@ impl Loader<'_> {
                 };
                 let n = s.frames.len();
                 let digits = if n % 24 == 0 {
-                    s.frames.truncate(12);
                     12
                 } else if n % 11 == 0 {
                     s.frames.truncate(11);
@@ -381,7 +380,7 @@ impl Loader<'_> {
                         id: v[11] as i32,
                         align: v[12] as i32,
                         keta: v[13].max(1) as usize,
-                        zero_pad: digits > 10,
+                        pad: (digits > 10).then_some(10),
                     });
                 } else {
                     let side = usize::from(cmd.ends_with("2P"));
@@ -448,6 +447,7 @@ impl Loader<'_> {
                         part_h: ph,
                         step: (v[11] as f32, v[12] as f32),
                         parts,
+                        split: false,
                     });
                 }
             }

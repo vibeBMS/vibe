@@ -46,7 +46,8 @@ pub trait Hooks {
     fn bga(&mut self, d: &mut Draw, rect: Rect);
     fn ref_image(&self, id: i32) -> Option<TexId>;
     /// (value 0..100, border, survival gauge)
-    fn gauge(&self) -> (f32, f32, bool);
+    /// (value, border, survival, gauge type in beatoraja order).
+    fn gauge(&self) -> (f32, f32, bool, usize);
     /// Current judgement for a side: (judge 0..5, combo).
     fn judge(&self, side: usize) -> Option<(usize, u32)>;
 }
@@ -95,7 +96,7 @@ impl LoadedSkin {
         digits: usize,
         keta: usize,
         align: i32,
-        zero_pad: bool,
+        pad: Option<usize>,
         value: i64,
         now: i64,
         st: &dyn SkinState,
@@ -112,12 +113,15 @@ impl LoadedSkin {
         for j in (0..keta).rev() {
             if v > 0 || j == keta - 1 {
                 slots[j] = Some((v % 10) as usize);
-            } else if zero_pad && digits > 10 {
-                slots[j] = Some(10);
+            } else if pad.is_some() {
+                slots[j] = pad;
             }
             v /= 10;
         }
-        if neg && digits >= 12 {
+        // signed fonts (24 images): a positive and a negative set of
+        // 0-9, padding, sign; the sign goes in front of the first digit
+        let signed = digits == 12;
+        if signed {
             if let Some(j) = slots.iter().position(|s| s.is_some()) {
                 if j > 0 {
                     slots[j - 1] = Some(11);
@@ -130,8 +134,10 @@ impl LoadedSkin {
             2 => r.w * blanks * 0.5,
             _ => 0.0,
         };
-        // animated digit sets: frames are grouped by `digits`
-        let sets = (src.frames.len() / digits).max(1);
+        // animated digit sets: frames are grouped by `digits` (x2 when signed)
+        let group = if signed { 24 } else { digits };
+        let sign_off = if signed && neg { 12 } else { 0 };
+        let sets = (src.frames.len() / group).max(1);
         let set = if src.cycle > 0 && sets > 1 {
             let t = if src.timer > 0 {
                 st.timer(src.timer).map(|s| now - s).unwrap_or(0)
@@ -144,7 +150,11 @@ impl LoadedSkin {
         };
         for (j, s) in slots.iter().enumerate() {
             let Some(dg) = s else { continue };
-            let Some(f) = src.frames.get(set * digits + dg) else {
+            let Some(f) = src
+                .frames
+                .get(set * group + sign_off + dg)
+                .or_else(|| src.frames.get(*dg))
+            else {
                 continue;
             };
             if let Some((t, uv)) = self.uv(d, src, *f) {
@@ -198,12 +208,10 @@ impl LoadedSkin {
                     id,
                     align,
                     keta,
-                    zero_pad,
+                    pad,
                 } => {
                     if let Some(v) = st.number(*id) {
-                        self.number(
-                            d, src, *digits, *keta, *align, *zero_pad, v, now, st, r, &fr,
-                        );
+                        self.number(d, src, *digits, *keta, *align, *pad, v, now, st, r, &fr);
                     }
                 }
                 Kind::Text { id, align } => {
@@ -226,10 +234,11 @@ impl LoadedSkin {
                     let Some(f) = src.frame(now, st) else {
                         continue;
                     };
+                    // direction 1 fills bottom-to-top
                     let (rr, ff) = if *dir == 1 {
                         (
-                            Rect::new(r.x, r.y, r.w, r.h * v),
-                            [f[0], f[1], f[2], f[3] * v],
+                            Rect::new(r.x, r.bottom() - r.h * v, r.w, r.h * v),
+                            [f[0], f[1] + f[3] * (1.0 - v), f[2], f[3] * v],
                         )
                     } else {
                         (
@@ -258,13 +267,27 @@ impl LoadedSkin {
                     self.blit(d, src, now, st, rr, &fr);
                 }
                 Kind::Gauge {
-                    src, step, parts, ..
+                    src,
+                    step,
+                    parts,
+                    split,
+                    ..
                 } => {
-                    let (value, border, survival) = hooks.gauge();
+                    let (value, border, survival, ty) = hooks.gauge();
                     let n = *parts as f32;
                     let lit = (value / 100.0 * n).floor() as usize;
                     let per = 100.0 / n;
                     let groups = src.frames.len() / 4;
+                    // one 4-image group per gauge type (beatoraja order), or
+                    // groove + survival, or a single group
+                    let group = if groups > ty {
+                        ty
+                    } else if groups > 1 && survival {
+                        1
+                    } else {
+                        0
+                    };
+                    let pw = if *split { fr.rect.w / n } else { fr.rect.w };
                     for i in 0..*parts {
                         let above = survival || (i as f32 + 1.0) * per > border;
                         let idx = match (i < lit, above) {
@@ -273,22 +296,19 @@ impl LoadedSkin {
                             (false, true) => 2,
                             (false, false) => 3,
                         };
-                        let Some(f) = src
-                            .frames
-                            .get(idx + if groups > 1 && survival { 4 } else { 0 })
-                            .or(src.frames.get(idx))
+                        let Some(f) = src.frames.get(idx + group * 4).or(src.frames.get(idx))
                         else {
                             continue;
                         };
                         let (sx, sy) = if step.0.abs() >= 1.0 || step.1.abs() >= 1.0 {
                             (step.0, step.1)
                         } else {
-                            (fr.rect.w, 0.0)
+                            (pw, 0.0)
                         };
                         let pr = xf.rect(Rect::new(
                             fr.rect.x + sx * i as f32,
                             fr.rect.y + sy * i as f32,
-                            fr.rect.w,
+                            pw,
                             fr.rect.h,
                         ));
                         if let Some((t, uv)) = self.uv(d, src, *f) {
@@ -337,7 +357,7 @@ impl LoadedSkin {
                     cf.rect.w * xf.sx,
                     cf.rect.h * xf.sy,
                 );
-                let n = if csrc.frames.len() % 12 == 0 {
+                let n = if csrc.frames.len() % 24 == 0 {
                     12
                 } else if csrc.frames.len() % 11 == 0 {
                     11
@@ -345,7 +365,7 @@ impl LoadedSkin {
                     10
                 };
                 let cr = Rect::new(cr.x - cr.w * (*keta - digits) as f32, cr.y, cr.w, cr.h);
-                self.number(d, csrc, n, *keta, 0, false, combo as i64, now, st, cr, &cf);
+                self.number(d, csrc, n, *keta, 0, None, combo as i64, now, st, cr, &cf);
             }
         }
         self.blit(d, src, now, st, jr, &fr);

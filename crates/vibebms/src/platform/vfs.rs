@@ -296,6 +296,26 @@ mod imp {
 
 pub use imp::*;
 
+/// Files compiled into the executable (the default skins), addressed as
+/// `<builtin>/...` — a name that cannot exist on any real file system.
+pub const BUILTIN: &str = "<builtin>";
+static BUILTIN_FILES: include_dir::Dir =
+    include_dir::include_dir!("$CARGO_MANIFEST_DIR/assets/builtin");
+
+fn builtin(p: &Path) -> Option<&'static [u8]> {
+    let rel = p.strip_prefix(BUILTIN).ok()?;
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    BUILTIN_FILES.get_file(rel.as_str()).map(|f| f.contents())
+}
+
+/// Read a file (built-in files first).
+pub fn read(p: &Path) -> io::Result<Vec<u8>> {
+    match builtin(p) {
+        Some(b) => Ok(b.to_vec()),
+        None => imp::read(p),
+    }
+}
+
 pub fn read_to_string(p: &Path) -> io::Result<String> {
     String::from_utf8(read(p)?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }

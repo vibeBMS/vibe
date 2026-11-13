@@ -256,10 +256,9 @@ impl Ctx<'_> {
     }
 
     fn number_kind(&self, def: &Value) -> Option<Kind> {
-        let mut src = self.src(def)?;
+        let src = self.src(def)?;
         let n = src.frames.len();
         let digits = if n % 24 == 0 {
-            src.frames.truncate(12);
             12
         } else if n % 11 == 0 {
             11
@@ -274,7 +273,14 @@ impl Ctx<'_> {
             id: i(def, "ref", 0) as i32,
             align: i(def, "align", 0) as i32,
             keta: i(def, "digit", 1).max(1) as usize,
-            zero_pad: digits > 10 || i(def, "zeropadding", 0) > 0,
+            // zeropadding: 1 = '0', 2 = the padding image; LR2-style 11-image
+            // fonts pad with their 11th image by default
+            pad: match i(def, "zeropadding", 0) {
+                1 => Some(0),
+                2 if digits > 10 => Some(10),
+                2 => Some(0),
+                _ => (digits > 10).then_some(10),
+            },
         })
     }
 }
@@ -461,6 +467,7 @@ pub fn load(
                     part_h: ph,
                     step: (0.0, 0.0),
                     parts,
+                    split: true,
                 }
             })
         } else if bga.map(|b| id_of(b) == id).unwrap_or(false) {
@@ -610,6 +617,38 @@ mod lua {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_default_skins_load() {
+        use crate::scene::play_skin::default_skin;
+        use vibebms_core::PlayMode;
+        let size = |p: &Path| {
+            let b = vfs::read(p).ok()?;
+            image::ImageReader::new(std::io::Cursor::new(b))
+                .with_guessed_format()
+                .ok()?
+                .into_dimensions()
+                .ok()
+        };
+        for mode in PlayMode::ALL {
+            for (p2, portrait) in [(false, false), (true, false), (false, true), (true, true)] {
+                let path = default_skin(mode, p2, portrait);
+                let sk = load(&path, &HashMap::new(), &size)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                assert_eq!(sk.kind.mode(), Some(mode), "{}", path.display());
+                assert_eq!(sk.lanes.len(), mode.lane_count());
+                assert!(sk
+                    .lanes
+                    .iter()
+                    .all(|l| l.rect.is_some() && l.note.is_some()));
+                assert!(sk.images.iter().all(Option::is_some), "{}", path.display());
+                assert!(sk.judges[0].judge.iter().all(Option::is_some));
+                if mode.is_double() {
+                    assert!(sk.judges[1].judge.iter().all(Option::is_some));
+                }
+            }
+        }
+    }
 
     const JSON: &str = r#"{
       // comments and trailing commas are accepted like beatoraja's parser

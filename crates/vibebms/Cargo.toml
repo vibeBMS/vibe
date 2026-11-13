@@ -25,6 +25,7 @@ vibebms-tables.workspace = true
 vibebms-ir.workspace = true
 vibebms-audio.workspace = true
 serde.workspace = true
+include_dir = "0.7"
 serde_json.workspace = true
 log.workspace = true
 winit = { version = "0.30", features = ["serde"] }

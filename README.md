@@ -95,8 +95,17 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 - 키음 병렬 디코딩(WAV/OGG/MP3/FLAC, 깨진 RIFF 헤더 폴백, `a.wav`→`a.ogg` 대체 탐색)
 - 렌더러는 단일 파이프라인 배치 렌더링, 저지연 프레젠테이션(Mailbox/Immediate 우선), 프레임 제한 옵션
 
+### 기본 스킨
+실행 파일에 내장된 기본 플레이 스킨(beatoraja JSON 형식)이 모든 모드에 쓰입니다: 가로 SP(7/5/9키, 1P·2P 각각 레이아웃),
+가로 DP(14/10키), 세로 SP(7/5/9키, BGA를 노트 필드 뒤에 깔고 하단에 점수/판정 정보). 화면이 세로면 세로 레이아웃,
+`1P/2P` 설정에 따라 필드 위치가 자동으로 바뀝니다. 노트 필드+턴테이블/건반+게이지, BGA, 점수/그래프/판정 카운트/BPM 등
+장르의 일반적인 배치 관례만 따랐고, 아트는 모두 `tools/gen_default_skins.py`가 도형·그라디언트·Inter 폰트(OFL)로 절차적으로
+그린 오리지널입니다(특정 게임의 그래픽·로고는 사용하지 않음). 수정하려면 스크립트를 고쳐 다시 실행하면
+`crates/vibebms/assets/builtin/skins/default/`가 재생성됩니다. 코드로 그리는 예전 화면은 `Play skin` 메뉴의 `CLASSIC`.
+
 ### 스킨 (LR2 / beatoraja)
-`skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다.
+`skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다
+(DEFAULT → CLASSIC → 설치된 스킨 순으로 순환).
 지원: `#IMAGE`, `#SRC/#DST_IMAGE`(키프레임·가속·루프·타이머·조건·회전·가산 블렌딩), `_NUMBER`, `_TEXT`(시스템 폰트), `_BARGRAPH`,
 `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`/`_LN_*`/`_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE`/`_NOWCOMBO`, `#IF/#ELSE`, `#CUSTOMOPTION`(기본값),
 `#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨.
@@ -126,6 +135,7 @@ Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 
 | iOS/iPadOS | 🧪 빌드 가이드 + Info.plist — 실기기 미검증 |
 | LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨으로 검증 (실제 공개 스킨 호환성은 추가 검증 필요) |
 | beatoraja JSON/Lua 플레이 스킨 | 🧪 정적 구조 지원(Lua 런타임 함수 미평가), 합성 스킨으로 검증 |
+| 내장 기본 스킨(가로 SP 1P/2P, DP, 세로 SP) | ✅ 7/5/9/14/10키 레이아웃, 로드 테스트 + 스크린샷 확인 |
 | 선곡/결과 스킨, 스킨 옵션 선택 UI | ⏳ 미구현 |
 | 동영상 BGA(mpg/wmv/mp4) | ⏳ 미구현 |
 | 리플레이 저장/재생, 고스트 배틀, 타깃 스코어 | ⏳ 미구현 (엔진에 ghost 데이터는 기록됨) |

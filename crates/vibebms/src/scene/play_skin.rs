@@ -37,18 +37,50 @@ fn lane_from_lr2(mode: PlayMode, idx: i32) -> Option<usize> {
     }
 }
 
-/// Load the configured skin for this chart's mode, if any.
+/// `config.skins` value selecting the play view drawn in code.
+pub const CLASSIC: &str = "classic";
+
+/// The built-in default skin for a mode, side and screen orientation.
+pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool) -> PathBuf {
+    let name = match mode {
+        PlayMode::Beat14K => "play14".to_string(),
+        PlayMode::Beat10K => "play10".to_string(),
+        m => format!(
+            "play{}{}{}",
+            m.keys_per_player(),
+            if portrait { "_portrait" } else { "" },
+            if p2 { "_2p" } else { "" }
+        ),
+    };
+    PathBuf::from(crate::platform::vfs::BUILTIN)
+        .join("skins/default")
+        .join(name + ".json")
+}
+
+/// Load the configured skin for this chart's mode (the built-in default
+/// unless another one is chosen); `None` = classic view.
 pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<LoadedSkin> {
-    let rel = ctx.config.skins.get(scene.mode().label())?;
-    if rel.is_empty() {
-        return None;
-    }
-    let path = {
-        let p = PathBuf::from(rel);
-        if p.is_absolute() {
-            p
-        } else {
-            ctx.paths.root.join(p)
+    let mode = scene.mode();
+    let rel = ctx
+        .config
+        .skins
+        .get(mode.label())
+        .map(String::as_str)
+        .unwrap_or("");
+    let path = match rel {
+        CLASSIC => return None,
+        "" => default_skin(
+            mode,
+            ctx.config.play.side == crate::config::Side::P2,
+            ctx.height > ctx.width,
+        ),
+        rel => {
+            let p = PathBuf::from(rel);
+            if p.is_absolute() {
+                p
+            } else {
+                ctx.paths.root.join(p)
+            }
         }
     };
     let st = SceneState {
@@ -512,7 +544,14 @@ impl Hooks for SceneHooks<'_> {
         if !self.st.ctx.config.play.bga {
             return;
         }
-        for t in s.bga_textures(self.st.now) {
+        let layers = s.bga_textures(self.st.now);
+        if layers.is_empty() && !s.chart.meta.has_bga {
+            // charts without BGA show their stage file instead
+            if let Some(t) = s.stage_tex {
+                d.image_fit(t, rect, 0.8);
+            }
+        }
+        for t in layers {
             d.image_fit(t, rect, 1.0);
         }
     }
@@ -524,13 +563,13 @@ impl Hooks for SceneHooks<'_> {
         }
     }
 
-    fn gauge(&self) -> (f32, f32, bool) {
+    fn gauge(&self) -> (f32, f32, bool, usize) {
         match self.st.s.engine.as_ref() {
             Some(e) => {
                 let g = e.gauge.current();
-                (g.value(), g.elem.border, g.ty.is_survival())
+                (g.value(), g.elem.border, g.ty.is_survival(), g.ty as usize)
             }
-            None => (0.0, 80.0, false),
+            None => (0.0, 80.0, false, 2),
         }
     }
 

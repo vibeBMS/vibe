@@ -521,7 +521,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     act: Act::None,
                 },
             ];
-            // LR2 play skins found in <root>/skins
+            // default (data skin) / classic (drawn in code) / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
             const MODES: [(&str, Adjust); 5] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
@@ -531,12 +531,11 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 ("9KEYS", |c, d| cycle_skin(c, d, "9KEYS")),
             ];
             for (m, f) in MODES {
-                let cur = c
-                    .skins
-                    .get(m)
-                    .filter(|s| !s.is_empty())
-                    .map(|p| skin_label(p))
-                    .unwrap_or_else(|| "BUILT-IN".into());
+                let cur = match c.skins.get(m).map(String::as_str).unwrap_or("") {
+                    "" => "DEFAULT".into(),
+                    super::play_skin::CLASSIC => "CLASSIC".into(),
+                    p => skin_label(p),
+                };
                 v.push(it(format!("Play skin ({m})"), cur, f));
             }
             v
@@ -1350,14 +1349,14 @@ fn skin_label(path: &str) -> String {
     })
 }
 
-/// Cycle the play skin for a key mode through "built-in" and matching LR2 skins.
+/// Cycle the play skin for a key mode: default, classic, then matching skins.
 fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
     let want = vibebms_core::PlayMode::ALL
         .iter()
         .copied()
         .find(|m| m.label() == mode)
         .map(super::play_skin::skin_type);
-    let mut opts: Vec<String> = vec![String::new()];
+    let mut opts: Vec<String> = vec![String::new(), super::play_skin::CLASSIC.into()];
     for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
         if Some(t) == want {
             let rel = p
@@ -1370,9 +1369,9 @@ fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
     let cur = c.config.skins.get(mode).cloned().unwrap_or_default();
     let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
     let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
-    if opts.len() == 1 {
+    if opts.len() == 2 {
         c.toast(format!(
-            "No {mode} LR2 skins in {}",
+            "Put more {mode} skins in {}",
             c.paths.skins.display()
         ));
     }
