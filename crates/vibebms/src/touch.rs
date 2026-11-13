@@ -35,14 +35,13 @@ impl Zone {
     }
 }
 
-/// An IIDX key face in mm, the gap between neighbouring keys (the 33 mm
-/// wide buttons sit almost edge to edge: seven of them and the turntable
-/// fit 26 cm), how much higher the blue keys sit, and the turntable's
-/// distance to key 1.
+/// The IIDX keypad in mm: key faces, the gap between neighbouring white
+/// keys, the gap between the white row and the blue row above it, and the
+/// turntable's distance to key 1.
 const ARCADE_KEY_W: f32 = 29.0;
 const ARCADE_KEY_H: f32 = 46.0;
-const ARCADE_KEY_GAP: f32 = 6.0;
-const ARCADE_ROW_OFFSET: f32 = 23.0;
+const ARCADE_KEY_GAP: f32 = 12.0;
+const ARCADE_ROW_GAP: f32 = 10.0;
 const ARCADE_DISC_GAP: f32 = 12.0;
 
 /// `area` narrowed to `w`, centred.
@@ -108,21 +107,26 @@ pub fn layout(
             }
         }
         TouchStyle::Iidx => {
-            // the arcade keys, scaled to the controls' height (`u` px per mm)
-            let u = area.h / (ARCADE_KEY_H + ARCADE_ROW_OFFSET);
-            let keypad = keys as f32 * (ARCADE_KEY_W + ARCADE_KEY_GAP) - ARCADE_KEY_GAP;
+            // the arcade keypad scaled to the controls' height (`u` px per
+            // mm): white keys below, the blue ones above over the gaps
+            let u = area.h / (ARCADE_KEY_H * 2.0 + ARCADE_ROW_GAP);
+            let whites = keys.div_ceil(2) as f32;
+            let pitch = (ARCADE_KEY_W + ARCADE_KEY_GAP) * u;
+            let keypad = whites * pitch - ARCADE_KEY_GAP * u;
             let r = area.h * 0.47;
             let disc = sc_lane.map_or(0.0, |_| r * 2.0 + ARCADE_DISC_GAP * u);
-            let arcade = area.w >= disc + keypad * u;
-            let area = if arcade {
-                centred(area, disc + keypad * u)
+            // too narrow (portrait, one side of double play): the same
+            // keypad, narrower
+            let fits = area.w >= disc + keypad;
+            let area = if fits {
+                centred(area, disc + keypad)
             } else {
                 area
             };
             let mut keys_area = area;
             if let Some(sc) = sc_lane {
-                let r = if arcade { r } else { r.min(area.w * 0.2) };
-                let d = if arcade { disc } else { r * 2.0 + gap * 2.0 };
+                let r = if fits { r } else { r.min(area.w * 0.2) };
+                let d = if fits { disc } else { r * 2.0 + gap * 2.0 };
                 let cx = if scratch_right {
                     area.right() - r
                 } else {
@@ -145,28 +149,20 @@ pub fn layout(
                     area.h,
                 );
             }
+            let pitch = if fits {
+                pitch
+            } else {
+                keys_area.w / (whites - ARCADE_KEY_GAP / (ARCADE_KEY_W + ARCADE_KEY_GAP))
+            };
+            let kw = pitch * ARCADE_KEY_W / (ARCADE_KEY_W + ARCADE_KEY_GAP);
+            let kh = ARCADE_KEY_H * u;
             for k in 0..keys {
                 let black = k % 2 == 1;
-                let rect = if arcade {
-                    // side by side, the blue keys raised
-                    let x = keys_area.x + k as f32 * (ARCADE_KEY_W + ARCADE_KEY_GAP) * u;
-                    let y = if black {
-                        area.y
-                    } else {
-                        area.y + ARCADE_ROW_OFFSET * u
-                    };
-                    Rect::new(x, y, ARCADE_KEY_W * u, ARCADE_KEY_H * u)
-                } else {
-                    // too narrow for that: two rows, the blue keys between
-                    // the white ones
-                    let kw = keys_area.w / keys.div_ceil(2) as f32;
-                    let rh = keys_area.h * 0.5;
-                    let x = keys_area.x + (k / 2) as f32 * kw + if black { kw * 0.5 } else { 0.0 };
-                    let y = if black { keys_area.y } else { keys_area.y + rh };
-                    Rect::new(x + gap * 0.5, y + gap * 0.5, kw - gap, rh - gap)
-                };
+                let x =
+                    keys_area.x + (k / 2) as f32 * pitch + if black { pitch * 0.5 } else { 0.0 };
+                let y = if black { area.y } else { area.bottom() - kh };
                 zones.push(Zone {
-                    shape: Shape::Rect(rect),
+                    shape: Shape::Rect(Rect::new(x, y, kw, kh)),
                     lane: (base + k) as u8,
                     scratch: false,
                     black,
@@ -423,9 +419,9 @@ mod tests {
             Shape::Rect(r) => r.w,
             Shape::Circle { r, .. } => r * 2.0,
         };
-        // arcade proportions (29 x 46 in a 69 high box), the set centred
+        // arcade proportions (29 x 46, two rows in a 102 high box), centred
         let key = z.iter().find(|z| !z.scratch).map(width_of).unwrap();
-        assert!((key - 240.0 * 29.0 / 69.0).abs() < 0.5, "{key}");
+        assert!((key - 240.0 * 29.0 / 102.0).abs() < 0.5, "{key}");
         let (left, right) = (
             xs.iter().cloned().fold(f32::MAX, f32::min),
             xs.iter().cloned().fold(0.0, f32::max),
