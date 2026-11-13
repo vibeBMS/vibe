@@ -50,7 +50,7 @@ impl Rect {
 
 pub type Color = [f32; 4];
 
-pub fn rgba(hex: u32) -> Color {
+pub const fn rgba(hex: u32) -> Color {
     [
         ((hex >> 24) & 0xff) as f32 / 255.0,
         ((hex >> 16) & 0xff) as f32 / 255.0,

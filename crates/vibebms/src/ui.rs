@@ -3,19 +3,19 @@
 use crate::app::Draw;
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Rect};
-use crate::theme::Theme;
+use crate::theme::{ACCENT, PANEL, TEXT, TEXT_DIM};
 
 /// Panel look shared with the default skins: rounded, thin border, a short
 /// accent tab on the top edge.
-pub fn panel(d: &mut Draw, r: Rect, theme: &Theme) {
+pub fn panel(d: &mut Draw, r: Rect) {
     let t = 1.0;
-    d.b.rounded_panel(r, 8.0, opaque(theme.panel), edge(theme), t);
+    d.b.rounded_panel(r, 8.0, opaque(PANEL), edge(), t);
     let tab = (r.w * 0.15).clamp(12.0, 50.0);
-    d.b.rect(Rect::new(r.x + 10.0, r.y, tab, 2.0), theme.accent);
+    d.b.rect(Rect::new(r.x + 10.0, r.y, tab, 2.0), ACCENT);
 }
 
-fn edge(theme: &Theme) -> crate::gfx::Color {
-    with_alpha(theme.text_dim, 0.4)
+fn edge() -> crate::gfx::Color {
+    with_alpha(TEXT_DIM, 0.4)
 }
 
 /// The panel colour without its transparency (a translucent fill would let
@@ -25,11 +25,11 @@ fn opaque(c: crate::gfx::Color) -> crate::gfx::Color {
 }
 
 /// A button; returns its rect for hit-testing.
-pub fn button(d: &mut Draw, r: Rect, label: &str, theme: &Theme, ui: f32, active: bool) -> Rect {
+pub fn button(d: &mut Draw, r: Rect, label: &str, ui: f32, active: bool) -> Rect {
     let (fill, border) = if active {
-        (mix(theme.panel, theme.accent, 0.22), theme.accent)
+        (mix(PANEL, ACCENT, 0.22), ACCENT)
     } else {
-        (lighter(theme.panel), edge(theme))
+        (lighter(PANEL), edge())
     };
     d.b.rounded_panel(r, 7.0, fill, border, if active { 1.5 } else { 1.0 });
     let size = (16.0 * ui).min(r.h * 0.6);
@@ -38,7 +38,7 @@ pub fn button(d: &mut Draw, r: Rect, label: &str, theme: &Theme, ui: f32, active
         r.x + r.w * 0.5,
         r.y + (r.h - size) * 0.5 - size * 0.08,
         size,
-        theme.text,
+        TEXT,
         Align::Center,
         r.w - 8.0,
     );
@@ -64,17 +64,11 @@ pub fn lift(c: crate::gfx::Color, t: f32) -> crate::gfx::Color {
 }
 
 /// A list row (settings items, menus); `selected` uses the accent.
-pub fn row(d: &mut Draw, r: Rect, theme: &Theme, selected: bool) {
+pub fn row(d: &mut Draw, r: Rect, selected: bool) {
     if selected {
-        d.b.rounded_panel(
-            r,
-            6.0,
-            mix(theme.panel, theme.accent, 0.18),
-            theme.accent,
-            1.5,
-        );
+        d.b.rounded_panel(r, 6.0, mix(PANEL, ACCENT, 0.18), ACCENT, 1.5);
     } else {
-        d.b.rounded_panel(r, 6.0, lighter(theme.panel), edge(theme), 1.0);
+        d.b.rounded_panel(r, 6.0, lighter(PANEL), edge(), 1.0);
     }
 }
 

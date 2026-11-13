@@ -7,7 +7,7 @@ use crate::input::{InputEv, Phase};
 use crate::library::{BestScore, Library, ScanProgress, Song};
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant};
-use crate::theme::Theme;
+use crate::theme;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -134,7 +134,6 @@ pub enum TableMsg {
 pub struct Ctx {
     pub paths: Paths,
     pub config: Config,
-    pub theme: Theme,
     pub lib: Option<Library>,
     pub songs: Arc<Vec<Song>>,
     pub scores: HashMap<(String, i32), BestScore>,
@@ -150,9 +149,7 @@ pub struct Ctx {
     pub fps: f32,
     pub want_fullscreen: Option<bool>,
     pub want_present_mode: bool,
-    pub want_theme_reload: bool,
     pub gpu_name: String,
-    pub bg_texture: Option<TexId>,
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
@@ -626,18 +623,6 @@ impl Running {
             self.gfx
                 .set_present_mode(self.ctx.config.display.present_mode);
         }
-        if std::mem::take(&mut self.ctx.want_theme_reload) {
-            self.ctx.theme = Theme::load(&self.ctx.paths.themes, &self.ctx.config.theme);
-            if let Some(t) = self.ctx.bg_texture.take() {
-                self.gfx.free_texture(t);
-            }
-            self.ctx.bg_texture = self
-                .ctx
-                .theme
-                .background_image
-                .clone()
-                .and_then(|p| self.gfx.load_image(&p, false));
-        }
         let next = match self.scenes.last_mut() {
             Some(top) => top.update(&mut self.ctx, &mut self.gfx, now),
             None => Next::Quit,
@@ -654,7 +639,7 @@ impl Running {
             top.draw(&mut self.ctx, &mut d, now);
         }
         draw_overlay(&mut self.ctx, &mut d, now);
-        if let Err(e) = self.gfx.render(&self.batch, self.ctx.theme.background) {
+        if let Err(e) = self.gfx.render(&self.batch, theme::BACKGROUND) {
             log::warn!("render: {e}");
         }
         self.frame_count += 1;
@@ -705,14 +690,14 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         d.b.rect(r, with_alpha(rgba(0x000000d0), a));
         d.b.rect(
             Rect::new(r.x, r.y, 3.0 * ui, r.h),
-            with_alpha(ctx.theme.accent, a),
+            with_alpha(theme::ACCENT, a),
         );
         d.text(
             msg,
             r.x + 12.0 * ui,
             r.y + 7.0 * ui,
             size,
-            with_alpha(ctx.theme.text, a),
+            with_alpha(theme::TEXT, a),
             Align::Left,
         );
         y += r.h + 6.0 * ui;
@@ -724,7 +709,7 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
             6.0,
             ctx.height - 22.0,
             16.0,
-            ctx.theme.text_dim,
+            theme::TEXT_DIM,
             Align::Left,
         );
     }
@@ -733,13 +718,7 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
 impl App {
     fn init(&mut self, window: Arc<Window>, mut gfx: Gfx) {
         let config = Config::load(&self.paths.config_file());
-        let theme = Theme::load(&self.paths.themes, &config.theme);
-        let theme_fonts = theme.dir.as_ref().map(|d| d.join("fonts"));
-        let mut font_dirs = vec![self.paths.fonts.as_path()];
-        if let Some(t) = theme_fonts.as_deref() {
-            font_dirs.insert(0, t);
-        }
-        let text = Text::new(&font_dirs);
+        let text = Text::new(&[self.paths.fonts.as_path()]);
         let a = &config.audio;
         let mixer = Mixer::new(&AudioConfig {
             buffer_frames: a.buffer_frames,
@@ -757,14 +736,9 @@ impl App {
             gfx.resize(width, height);
             winit::dpi::PhysicalSize::new(width, height)
         };
-        let bg_texture = theme
-            .background_image
-            .clone()
-            .and_then(|p| gfx.load_image(&p, false));
         let mut ctx = Ctx {
             paths: self.paths.clone(),
             config,
-            theme,
             lib,
             songs: Arc::new(Vec::new()),
             scores: HashMap::new(),
@@ -780,9 +754,7 @@ impl App {
             fps: 0.0,
             want_fullscreen: None,
             want_present_mode: false,
-            want_theme_reload: false,
             gpu_name: gfx.adapter_name.clone(),
-            bg_texture,
             prefetch: None,
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),

@@ -1,6 +1,6 @@
 //! Portable directory layout.
 //!
-//! Everything (config, song database, table cache, themes, replays) lives
+//! Everything (config, song database, table cache, replays) lives
 //! next to the executable so the whole install can be copied around:
 //!
 //! ```text
@@ -9,7 +9,6 @@
 //! <root>/cache/songs.json        (scan cache, safe to delete)
 //! <root>/scores/scores.json      (your records)
 //! <root>/cache/tables/*.json
-//! <root>/themes/<name>/theme.toml
 //! <root>/fonts/*.ttf|otf|ttc        (optional font overrides)
 //! <root>/replays/
 //! <root>/<any folder with BMS files> (scanned automatically)
@@ -23,7 +22,6 @@ pub struct Paths {
     pub config: PathBuf,
     pub cache: PathBuf,
     pub tables: PathBuf,
-    pub themes: PathBuf,
     pub fonts: PathBuf,
     pub replays: PathBuf,
     pub scores: PathBuf,
@@ -32,7 +30,7 @@ pub struct Paths {
 
 /// Directory names under the root that are never scanned for charts.
 pub const INTERNAL_DIRS: &[&str] = &[
-    "config", "cache", "themes", "fonts", "replays", "scores", "target", "skins", "crates", "docs",
+    "config", "cache", "fonts", "replays", "scores", "target", "skins", "crates", "docs",
 ];
 
 impl Paths {
@@ -43,7 +41,7 @@ impl Paths {
         let root = std::env::var_os("VIBEBMS_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(default_root);
-        let root = if writable(&root) {
+        let root = if crate::platform::vfs::writable(&root) {
             root
         } else {
             fallback_root()
@@ -56,7 +54,6 @@ impl Paths {
             config: root.join("config"),
             cache: root.join("cache"),
             tables: root.join("cache").join("tables"),
-            themes: root.join("themes"),
             fonts: root.join("fonts"),
             replays: root.join("replays"),
             scores: root.join("scores"),
@@ -64,7 +61,7 @@ impl Paths {
             root,
         };
         for d in [
-            &p.config, &p.cache, &p.tables, &p.themes, &p.replays, &p.scores, &p.skins,
+            &p.config, &p.cache, &p.tables, &p.replays, &p.scores, &p.skins,
         ] {
             let _ = crate::platform::vfs::create_dir_all(d);
         }
@@ -129,8 +126,4 @@ fn fallback_root() -> PathBuf {
         base.display()
     );
     base.join("vibeBMS")
-}
-
-fn writable(dir: &Path) -> bool {
-    crate::platform::vfs::writable(dir)
 }

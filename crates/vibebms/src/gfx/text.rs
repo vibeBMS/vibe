@@ -1,6 +1,6 @@
 //! Text rendering with fontdue and a glyph atlas.
 //!
-//! Fonts are looked up in `<root>/fonts`, the theme, and then the system
+//! Fonts are looked up in `<root>/fonts` and then the system
 //! (CJK-capable fonts first, since BMS titles are mostly Japanese/Korean).
 //! Missing glyphs fall back font by font.
 

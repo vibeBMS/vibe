@@ -8,6 +8,7 @@ use crate::input::{InputEv, LaneEv, LaneMapper, Phase};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
 use crate::scene::result::{ResultData, ResultScene};
+use crate::theme;
 use crate::touch::{self, TouchInput, Zone};
 use crate::ui;
 use std::path::{Path, PathBuf};
@@ -559,7 +560,6 @@ impl PlayScene {
                 *area,
                 player,
                 *right,
-                ctx.theme.lane_width,
             ));
         }
     }
@@ -934,7 +934,6 @@ impl Scene for PlayScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let ui = ctx.ui();
-        let th = ctx.theme.clone();
         if let Stage::Loading = self.stage {
             let (w, h) = (ctx.width, ctx.height);
             if let Some(t) = self.stage_tex {
@@ -946,7 +945,7 @@ impl Scene for PlayScene {
                 w * 0.5,
                 h * 0.3,
                 18.0 * ui,
-                th.text_dim,
+                theme::TEXT_DIM,
                 Align::Center,
                 w * 0.9,
             );
@@ -955,7 +954,7 @@ impl Scene for PlayScene {
                 w * 0.5,
                 h * 0.36,
                 34.0 * ui,
-                th.text,
+                theme::TEXT,
                 Align::Center,
                 w * 0.9,
             );
@@ -964,7 +963,7 @@ impl Scene for PlayScene {
                 w * 0.5,
                 h * 0.36 + 48.0 * ui,
                 20.0 * ui,
-                th.text_dim,
+                theme::TEXT_DIM,
                 Align::Center,
                 w * 0.9,
             );
@@ -974,14 +973,14 @@ impl Scene for PlayScene {
                     w * 0.5,
                     h * 0.22,
                     22.0 * ui,
-                    th.accent,
+                    theme::ACCENT,
                     Align::Center,
                 );
             }
             let total = self.total_files.load(Ordering::Relaxed).max(1);
             let done = self.progress.load(Ordering::Relaxed);
             let bar = Rect::new(w * 0.25, h * 0.62, w * 0.5, 6.0 * ui);
-            d.b.rect(bar, with_alpha(th.text_dim, 0.3));
+            d.b.rect(bar, with_alpha(theme::TEXT_DIM, 0.3));
             d.b.rect(
                 Rect::new(
                     bar.x,
@@ -989,7 +988,7 @@ impl Scene for PlayScene {
                     bar.w * (done as f32 / total as f32).min(1.0),
                     bar.h,
                 ),
-                th.accent,
+                theme::ACCENT,
             );
             let dots = ".".repeat((self.loading_since.elapsed().as_millis() / 300 % 4) as usize);
             d.text(
@@ -997,7 +996,7 @@ impl Scene for PlayScene {
                 w * 0.5,
                 bar.y + 16.0 * ui,
                 16.0 * ui,
-                th.text_dim,
+                theme::TEXT_DIM,
                 Align::Center,
             );
             return;
@@ -1028,7 +1027,6 @@ impl PlayScene {
             }
         }
         if ctx.touch_enabled() {
-            let th = &ctx.theme;
             for (area, _, _) in &areas {
                 d.b.rect(*area, rgba(0x05060aff));
             }
@@ -1036,22 +1034,21 @@ impl PlayScene {
                 d.b,
                 &self.zones,
                 ctx.config.touch.opacity,
-                th.note_white,
-                th.note_blue,
-                th.note_scratch,
+                theme::NOTE_WHITE,
+                theme::NOTE_BLUE,
+                theme::NOTE_SCRATCH,
             );
         }
         // touch HUD: hi-speed, lane cover and quit buttons
         self.hud_rects.clear();
         if ctx.touch_enabled() {
             let ui = ctx.ui();
-            let th = ctx.theme.clone();
             let (bw, bh) = (54.0 * ui, 34.0 * ui);
             let labels = ["HS−", "HS+", "SUD−", "SUD+", "×"];
             let x0 = ctx.width - bw * labels.len() as f32 - 8.0;
             for (i, l) in labels.iter().enumerate() {
                 let r = Rect::new(x0 + i as f32 * bw, 6.0 * ui, bw - 4.0, bh);
-                ui::button(d, r, l, &th, ui * 0.9, false);
+                ui::button(d, r, l, ui * 0.9, false);
                 self.hud_rects.push((r, i));
             }
         }

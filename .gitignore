@@ -5,6 +5,7 @@
 /cache/
 /scores/
 /replays/
+/skins/
 *.db
 *.db-journal
 .DS_Store

@@ -30,7 +30,6 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 <root>/scores/scores.json        플레이 기록
 <root>/skins/<스킨>/*.lr2skin     LR2 플레이 스킨
 <root>/cache/tables/*.json       난이도표 캐시
-<root>/themes/<name>/theme.toml  커스텀 테마
 <root>/fonts/*.ttf|otf|ttc       폰트 지정(선택)
 <root>/<아무 폴더>/...            자동 스캔되는 BMS
 ```
@@ -155,11 +154,6 @@ iOS의 오디오 잠금은 첫 터치에 해제합니다. CI는 push마다 웹 �
 `https://<owner>.github.io/<repo>/` 링크로 바로 열 수 있고, 실행 요약(Summary)에 링크가 표시됩니다.
 설정·기록은 localStorage에 저장. 웹에는 시스템 폰트가 없으므로 일본어/한국어 제목을 보려면 `web/fonts/`에 CJK 폰트를 넣고 `fonts.txt`에 나열하세요.
 난이도표/IR은 해당 서버가 CORS를 허용해야 동작합니다.
-
-### 테마
-`default` 테마는 내장 값(기본 스킨과 같은 팔레트)을 쓰며, 그 값이 `themes/default/theme.toml.example`로 기록됩니다.
-새 폴더(`themes/<이름>/theme.toml`)에 복사해 메뉴 색상·터치 버튼 폭·배경 이미지를 바꾸고(게임 화면은 스킨이 그립니다)
-`SETTINGS › DISPLAY › Theme`에서 선택하세요. 테마 폴더의 `fonts/`에 폰트를 넣으면 우선 사용됩니다.
 
 ## 구현 현황
 

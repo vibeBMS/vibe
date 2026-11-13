@@ -42,8 +42,9 @@ pub fn layout(
     area: Rect,
     player: usize,
     scratch_right: bool,
-    lane_width: [f32; 2],
 ) -> Vec<Zone> {
+    // width units of a key and of the scratch
+    let lane_width = [1.0, 1.7];
     let keys = mode.keys_per_player();
     let base = player * mode.lanes_per_player();
     let sc_lane = mode.scratch_lane(player).map(|l| l as u8);
@@ -339,7 +340,6 @@ mod tests {
             Rect::new(0.0, 500.0, 800.0, 300.0),
             0,
             false,
-            [1.0, 1.7],
         );
         assert_eq!(z.len(), 8);
         let mut lanes: Vec<u8> = z.iter().map(|z| z.lane).collect();
@@ -352,7 +352,6 @@ mod tests {
             Rect::new(0.0, 0.0, 900.0, 100.0),
             0,
             false,
-            [1.0, 1.7],
         );
         assert_eq!(k.len(), 9);
     }
@@ -362,15 +361,14 @@ mod tests {
         let zones = layout(
             PlayMode::Beat7K,
             TouchStyle::Keyboard,
-            Rect::new(0.0, 0.0, 850.0, 100.0),
+            Rect::new(0.0, 0.0, 870.0, 100.0),
             0,
             false,
-            [1.0, 1.5],
         );
         let mut t = TouchInput::default();
         let now = Instant::now();
         let mut out = Vec::new();
-        // keyboard layout: scratch (1.5 units = 150px) then 7 keys of 100px
+        // keyboard layout: scratch (1.7 units = 170px) then 7 keys of 100px
         assert!(t.pointer(&zones, 1, Phase::Down, 175.0, 50.0, now, 6.0, &mut out));
         assert_eq!(out.last().unwrap().lane, 0);
         t.pointer(&zones, 1, Phase::Move, 275.0, 50.0, now, 6.0, &mut out);

@@ -326,7 +326,6 @@ pub struct Config {
     pub bms_dirs: Vec<String>,
     /// Scan the executable directory itself.
     pub scan_root: bool,
-    pub theme: String,
     pub play: PlayConfig,
     pub keys: KeyConfig,
     pub touch: TouchConfig,
@@ -351,7 +350,6 @@ impl Default for Config {
             player_name: "PLAYER".into(),
             bms_dirs: Vec::new(),
             scan_root: true,
-            theme: "default".into(),
             play: PlayConfig::default(),
             keys: KeyConfig::default(),
             touch: TouchConfig::default(),

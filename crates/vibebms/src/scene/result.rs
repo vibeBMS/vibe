@@ -12,6 +12,7 @@ use crate::scene::result_skin::{ResultHooks, ResultState, EVENT_CONTINUE, EVENT_
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
+use crate::theme;
 use std::sync::mpsc::{channel, Receiver};
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::score::{ClearType, Score};
@@ -329,7 +330,7 @@ impl Scene for ResultScene {
                 12.0 * ui,
                 ctx.height - 26.0 * ui,
                 14.0 * ui,
-                ctx.theme.accent,
+                theme::ACCENT,
                 Align::Left,
             );
         }

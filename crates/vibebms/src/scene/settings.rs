@@ -11,7 +11,7 @@ use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
 use crate::input::{InputEv, Phase};
 use crate::platform::Instant;
-use crate::theme::Theme;
+use crate::theme;
 use crate::ui;
 use vibebms_audio::Bus;
 use vibebms_core::engine::JudgeAlgorithm;
@@ -524,7 +524,6 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             }),
         ],
         4 => {
-            let themes = Theme::list(&ctx.paths.themes);
             let mut v = vec![
                 it("Fullscreen (F11)", onoff(c.display.fullscreen), |c, _| {
                     c.config.display.fullscreen = !c.config.display.fullscreen;
@@ -565,22 +564,6 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 it("Show FPS", onoff(c.display.show_fps), |c, _| {
                     c.config.display.show_fps = !c.config.display.show_fps
                 }),
-                Item {
-                    label: "Theme".into(),
-                    value: c.theme.clone(),
-                    act: if themes.len() > 1 {
-                        Act::Adjust(|c, d| {
-                            let list = Theme::list(&c.paths.themes);
-                            let i =
-                                list.iter().position(|t| *t == c.config.theme).unwrap_or(0) as i32;
-                            c.config.theme =
-                                list[(i + d).rem_euclid(list.len() as i32) as usize].clone();
-                            c.want_theme_reload = true;
-                        })
-                    } else {
-                        Act::None
-                    },
-                },
                 Item {
                     label: "GPU".into(),
                     value: ctx.gpu_name.clone(),
@@ -1198,25 +1181,24 @@ impl Scene for SettingsScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let ui = ctx.ui();
-        let th = ctx.theme.clone();
         let (w, h) = (ctx.width, ctx.height);
         d.b.gradient(
             Rect::new(0.0, 0.0, w, h),
-            crate::ui::lift(th.background, 0.04),
-            th.background,
+            crate::ui::lift(theme::BACKGROUND, 0.04),
+            theme::BACKGROUND,
         );
         let header = 48.0 * ui;
-        d.b.rect(Rect::new(0.0, 0.0, w, header), th.panel);
+        d.b.rect(Rect::new(0.0, 0.0, w, header), theme::PANEL);
         d.b.rect(
             Rect::new(0.0, header - 2.0, w, 2.0),
-            with_alpha(th.accent, 0.6),
+            with_alpha(theme::ACCENT, 0.6),
         );
         d.text(
             "SETTINGS",
             16.0 * ui,
             12.0 * ui,
             22.0 * ui,
-            th.accent,
+            theme::ACCENT,
             Align::Left,
         );
         d.text(
@@ -1224,14 +1206,13 @@ impl Scene for SettingsScene {
             w * 0.5,
             15.0 * ui,
             15.0 * ui,
-            th.text_dim,
+            theme::TEXT_DIM,
             Align::Center,
         );
         self.back_rect = ui::button(
             d,
             Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
             "◀ BACK",
-            &th,
             ui,
             false,
         );
@@ -1269,10 +1250,13 @@ impl Scene for SettingsScene {
                     40.0 * ui,
                 )
             };
-            ui::button(d, r, c, &th, ui * 0.95, i == self.cat);
+            ui::button(d, r, c, ui * 0.95, i == self.cat);
             if i == self.cat && !self.focus_items {
                 // keyboard focus on the categories: accent tab on the left
-                d.b.rect(Rect::new(r.x - 4.0, r.y + 6.0, 3.0, r.h - 12.0), th.accent);
+                d.b.rect(
+                    Rect::new(r.x - 4.0, r.y + 6.0, 3.0, r.h - 12.0),
+                    theme::ACCENT,
+                );
             }
             self.cat_rects.push((r, i));
         }
@@ -1295,18 +1279,22 @@ impl Scene for SettingsScene {
             }
             let r = Rect::new(item_r.x + 10.0 * ui, y, item_r.w - 20.0 * ui, rh - 4.0);
             let selected = i == self.sel && self.focus_items;
-            ui::row(d, r, &th, selected);
+            ui::row(d, r, selected);
             d.text_fit(
                 &item.label,
                 r.x + 12.0 * ui,
                 r.y + (r.h - 17.0 * ui) * 0.5,
                 17.0 * ui,
-                th.text,
+                theme::TEXT,
                 Align::Left,
                 r.w * 0.55,
             );
             let interactive = !matches!(item.act, Act::None);
-            let vcol = if interactive { th.accent } else { th.text_dim };
+            let vcol = if interactive {
+                theme::ACCENT
+            } else {
+                theme::TEXT_DIM
+            };
             let value = if matches!(
                 item.act,
                 Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..)
@@ -1330,8 +1318,11 @@ impl Scene for SettingsScene {
         // modal: text edit / key learning
         if let Some((tf, s)) = &self.edit {
             let r = Rect::new(w * 0.1, h * 0.38, w * 0.8, 90.0 * ui);
-            d.b.rect(Rect::new(0.0, 0.0, w, h), with_alpha(th.background, 0.7));
-            ui::panel(d, r, &th);
+            d.b.rect(
+                Rect::new(0.0, 0.0, w, h),
+                with_alpha(theme::BACKGROUND, 0.7),
+            );
+            ui::panel(d, r);
             let caret = if (now.elapsed().as_millis() / 500) % 2 == 0 {
                 "_"
             } else {
@@ -1347,7 +1338,7 @@ impl Scene for SettingsScene {
                 r.x + 14.0 * ui,
                 r.y + 10.0 * ui,
                 15.0 * ui,
-                th.text_dim,
+                theme::TEXT_DIM,
                 Align::Left,
             );
             d.text_fit(
@@ -1355,15 +1346,18 @@ impl Scene for SettingsScene {
                 r.x + 14.0 * ui,
                 r.y + 42.0 * ui,
                 22.0 * ui,
-                th.text,
+                theme::TEXT,
                 Align::Left,
                 r.w - 28.0 * ui,
             );
         }
         if let Some((slot, _)) = &self.learning {
             let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);
-            d.b.rect(Rect::new(0.0, 0.0, w, h), with_alpha(th.background, 0.7));
-            ui::panel(d, r, &th);
+            d.b.rect(
+                Rect::new(0.0, 0.0, w, h),
+                with_alpha(theme::BACKGROUND, 0.7),
+            );
+            ui::panel(d, r);
             let what = if matches!(slot, Slot::ScratchAxis(_)) {
                 "Spin the turntable"
             } else {
@@ -1374,7 +1368,7 @@ impl Scene for SettingsScene {
                 r.x + r.w * 0.5,
                 r.y + 18.0 * ui,
                 22.0 * ui,
-                th.text,
+                theme::TEXT,
                 Align::Center,
             );
             d.text(
@@ -1382,7 +1376,7 @@ impl Scene for SettingsScene {
                 r.x + r.w * 0.5,
                 r.y + 54.0 * ui,
                 15.0 * ui,
-                th.text_dim,
+                theme::TEXT_DIM,
                 Align::Center,
             );
         }

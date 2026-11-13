@@ -11,6 +11,7 @@ use crate::scene::select_skin::{SelectHooks, SelectState};
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
+use crate::theme;
 use crate::ui;
 use std::collections::HashMap;
 use std::path::Path;
@@ -1099,21 +1100,20 @@ impl SelectScene {
         // search box (typing is not part of skins)
         if let Some(q) = &self.search_edit {
             let ui = ctx.ui();
-            let th = &ctx.theme;
             let r = Rect::new(
                 ctx.width * 0.25,
                 ctx.height * 0.45,
                 ctx.width * 0.5,
                 44.0 * ui,
             );
-            d.b.rect(r, with_alpha(th.panel, 0.97));
-            d.b.rect_outline(r, 2.0, th.accent);
+            d.b.rect(r, with_alpha(theme::PANEL, 0.97));
+            d.b.rect_outline(r, 2.0, theme::ACCENT);
             d.text_fit(
                 &format!("SEARCH: {q}_"),
                 r.x + 12.0 * ui,
                 r.y + 10.0 * ui,
                 20.0 * ui,
-                th.text,
+                theme::TEXT,
                 Align::Left,
                 r.w - 24.0 * ui,
             );
