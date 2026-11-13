@@ -443,7 +443,7 @@ impl Ctx<'_> {
 }
 
 /// "RRGGBB" / "RRGGBBAA" (beatoraja colours).
-fn hex_color(s: &str) -> [f32; 4] {
+pub(crate) fn hex_color(s: &str) -> [f32; 4] {
     let s = s.trim_start_matches('#');
     let b = |k: usize| {
         u8::from_str_radix(s.get(k..k + 2).unwrap_or("ff"), 16).unwrap_or(255) as f32 / 255.0
@@ -453,7 +453,7 @@ fn hex_color(s: &str) -> [f32; 4] {
 
 /// beatoraja gaugegraph colours: a `color` list (4 per gauge kind) or the
 /// named fields with beatoraja's defaults.
-fn gauge_style(g: &Value) -> GraphStyle {
+pub(crate) fn gauge_style(g: &Value) -> GraphStyle {
     let list: Vec<[f32; 4]> = arr(g.get("color"))
         .iter()
         .filter_map(Value::as_str)
