@@ -727,6 +727,26 @@ impl Gfx {
 
     /// Load an image file. `color_key_black` makes pure black transparent
     /// (BMS BGA layer convention).
+    /// Load an image; `key` turns that colour transparent if the image has
+    /// no alpha of its own (LR2 `#TRANSCOLOR`).
+    pub fn load_image_keyed(
+        &mut self,
+        path: &std::path::Path,
+        key: Option<[u8; 3]>,
+    ) -> Option<TexId> {
+        let (w, h, mut px) = load_rgba(path, false)?;
+        if let Some(k) = key {
+            if px.chunks_exact(4).all(|p| p[3] == 255) {
+                for p in px.chunks_exact_mut(4) {
+                    if p[..3] == k {
+                        p[3] = 0;
+                    }
+                }
+            }
+        }
+        Some(self.create_texture(w, h, &px))
+    }
+
     pub fn load_image(&mut self, path: &std::path::Path, color_key_black: bool) -> Option<TexId> {
         let img = load_rgba(path, color_key_black)?;
         Some(self.create_texture(img.0, img.1, &img.2))

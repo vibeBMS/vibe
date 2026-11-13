@@ -693,6 +693,7 @@ pub fn load(
         finish_margin_ms: i(&sk, "finishmargin", 0),
         script: None,
         fonts: Vec::new(),
+        trans_color: None,
     };
     let note = sk.get("note").and_then(obj);
     let gauge = sk.get("gauge").and_then(obj);

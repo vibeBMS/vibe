@@ -87,6 +87,7 @@ pub trait Hooks {
 
 impl LoadedSkin {
     pub fn load(skin: Skin, gfx: &mut Gfx) -> LoadedSkin {
+        let key = skin.trans_color;
         let mut lazy = vec![false; skin.images.len()];
         for f in &skin.fonts {
             for (img, _) in f.glyphs.values() {
@@ -102,7 +103,7 @@ impl LoadedSkin {
             .map(|(p, lazy)| {
                 p.as_ref()
                     .filter(|_| !lazy)
-                    .and_then(|p| gfx.load_image(p, false))
+                    .and_then(|p| gfx.load_image_keyed(p, key))
             })
             .collect();
         LoadedSkin {
@@ -116,11 +117,12 @@ impl LoadedSkin {
     /// Load the font sheets drawing asked for (call once per frame).
     pub fn load_pending(&mut self, gfx: &mut Gfx) {
         let wanted = std::mem::take(&mut *self.wanted.borrow_mut());
+        let key = self.skin.trans_color;
         for i in wanted {
             if self.tex.get(i).is_some_and(Option::is_none) {
                 let t = self.skin.images[i]
                     .as_ref()
-                    .and_then(|p| gfx.load_image(p, false));
+                    .and_then(|p| gfx.load_image_keyed(p, key));
                 self.tex[i] = t;
                 // a sheet that cannot load is not asked for again
                 self.lazy[i] = false;

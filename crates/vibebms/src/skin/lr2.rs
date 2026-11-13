@@ -373,6 +373,10 @@ impl Loader<'_> {
                 self.sizes.push(size);
                 self.skin.images.push(size.map(|_| p));
             }
+            "#TRANSCOLOR" => {
+                let c = |n: i64| n.clamp(0, 255) as u8;
+                self.skin.trans_color = Some([c(v[1]), c(v[2]), c(v[3])]);
+            }
             "#STARTINPUT" => self.skin.input_ms = v[1],
             "#SCENETIME" => self.skin.scene_ms = v[1],
             "#FADEOUT" => self.skin.fadeout_ms = v[1],
@@ -799,6 +803,7 @@ pub fn load(
             finish_margin_ms: 0,
             script: None,
             fonts: Vec::new(),
+            trans_color: None,
         },
         sizes: Vec::new(),
         image_size,
@@ -1255,7 +1260,7 @@ mod debug_dump {
                 l.note.as_ref().map(|n| (n.image, n.frames.len()))
             );
         }
-        for o in s.objects.iter().take(400) {
+        for o in s.objects.iter() {
             let k = format!("{:?}", o.kind);
             println!(
                 "{} | {:?} ops {:?} t {}",

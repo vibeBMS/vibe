@@ -539,6 +539,9 @@ pub struct Skin {
     pub script: Option<std::rc::Rc<script::Runtime>>,
     /// LR2 bitmap fonts (`#LR2FONT`).
     pub fonts: Vec<BitmapFont>,
+    /// LR2 `#TRANSCOLOR`: this colour is transparent in images without
+    /// an alpha channel.
+    pub trans_color: Option<[u8; 3]>,
 }
 
 /// An LR2 bitmap font: glyph images at a design height.

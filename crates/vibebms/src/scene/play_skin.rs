@@ -146,6 +146,16 @@ impl SceneState<'_> {
             1046 => matches!(p.gauge, GaugeType::ExHard | GaugeType::ExHardClass),
             50 => true,
             51 => false,
+            // the song's lamp so far (skins pick images by it at load time)
+            100..=105 | 1100..=1104 => {
+                let ln = if m.has_long { s.ln as i32 } else { 0 };
+                let c = self
+                    .ctx
+                    .best(&s.req.song, ln)
+                    .map(|b| b.clear)
+                    .unwrap_or_default();
+                return super::skinned::lamp_option(c, id);
+            }
             150..=155 => m.difficulty == id - 150,
             160 => mode == PlayMode::Beat7K,
             161 => mode == PlayMode::Beat5K,

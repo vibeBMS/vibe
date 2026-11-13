@@ -139,20 +139,7 @@ impl SelectState<'_> {
             1046 => matches!(p.gauge, GaugeType::ExHard | GaugeType::ExHardClass),
             100..=105 | 1100..=1104 => {
                 let c = best.map(|b| b.clear).unwrap_or(ClearType::NoPlay);
-                song.is_some()
-                    && c == match id {
-                        100 => ClearType::NoPlay,
-                        101 => ClearType::Failed,
-                        102 => ClearType::Easy,
-                        103 => ClearType::Normal,
-                        104 => ClearType::Hard,
-                        105 => ClearType::FullCombo,
-                        1100 => ClearType::AssistEasy,
-                        1101 => ClearType::LightAssistEasy,
-                        1102 => ClearType::ExHard,
-                        1103 => ClearType::Perfect,
-                        _ => ClearType::Max,
-                    }
+                song.is_some() && super::skinned::lamp_option(c, id).unwrap_or(false)
             }
             150..=155 => song.map(|s| s.difficulty == id - 150).unwrap_or(false),
             160..=164 => {

@@ -100,6 +100,26 @@ pub fn chart_option(m: &ChartMeta, mode: vibebms_core::PlayMode, id: i32) -> Opt
     })
 }
 
+/// LR2 lamp options 100-105 (exactly one holds: lamps LR2 lacks count as
+/// the nearest one) and beatoraja's exact 1100-1104.
+pub fn lamp_option(c: vibebms_core::score::ClearType, id: i32) -> Option<bool> {
+    use vibebms_core::score::ClearType as C;
+    Some(match id {
+        100 => c == C::NoPlay,
+        101 => c == C::Failed,
+        102 => matches!(c, C::AssistEasy | C::LightAssistEasy | C::Easy),
+        103 => c == C::Normal,
+        104 => matches!(c, C::Hard | C::ExHard),
+        105 => matches!(c, C::FullCombo | C::Perfect | C::Max),
+        1100 => c == C::AssistEasy,
+        1101 => c == C::LightAssistEasy,
+        1102 => c == C::ExHard,
+        1103 => c == C::Perfect,
+        1104 => c == C::Max,
+        _ => return None,
+    })
+}
+
 /// Index of a DJ level in LR2 / beatoraja rank options (0 = AAA ... 7 = F).
 pub fn rank_index(l: DjLevel) -> i32 {
     7 - l as i32
