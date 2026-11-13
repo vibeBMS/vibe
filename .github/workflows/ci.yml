@@ -15,7 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
+      # pinned so new clippy lints don't break the build unexpectedly
+      - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2

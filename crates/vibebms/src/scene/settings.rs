@@ -333,10 +333,10 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             let mut v = Vec::new();
             for side in 0..2 {
                 let sk = if side == 0 { &k.p1 } else { &k.p2 };
-                for i in 0..7 {
+                for (i, lk) in sk.keys.iter().enumerate().take(7) {
                     v.push(Item {
                         label: format!("{}P key {}", side + 1, i + 1),
-                        value: keys_label(&sk.keys[i]),
+                        value: keys_label(lk),
                         act: Act::Bind(Slot::Key { side, idx: i }),
                     });
                 }
@@ -365,10 +365,10 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     act: Act::Bind(Slot::ScratchAxis(side)),
                 });
             }
-            for i in 0..9 {
+            for (i, lk) in k.pms.iter().enumerate().take(9) {
                 v.push(Item {
                     label: format!("9K button {}", i + 1),
-                    value: keys_label(&k.pms[i]),
+                    value: keys_label(lk),
                     act: Act::Bind(Slot::Pms(i)),
                 });
             }
