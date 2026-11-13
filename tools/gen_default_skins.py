@@ -812,19 +812,26 @@ def gauge_number(sk, x, y):
     return w + 19 + pw
 
 
-def gauge_row(sk, img, f, x, y, w):
-    panel(img, (x, y, w, 36))
-    gw = (w - 120) // 50 * 50
-    gauge(sk, x + 8, y + 6, gw, 24)
-    gauge_number(sk, x + w - 104, y + 3)
+def gauge_number_width(sk):
+    return sk.num("n_gauge", 107, 3)[1] * 3 + 19 + sk.parts.items["pct"][2]
 
 
-def info_row(sk, img, f, x, y, w):
-    panel(img, (x, y, w, 38))
-    draw_label(img, f, x + 8, y + 7, "DURATION", 12)
-    sk.number("n_green", 312, 4, x + 100, y + 8)
-    draw_label(img, f, x + w // 2 + 20, y + 7, "LEVEL", 12)
-    sk.number("n_green", 96, 2, x + w // 2 + 80, y + 8, color=TEXT)
+def gauge_block(sk, img, f, x, y, w):
+    """Gauge across the full width `w`, its value above the right end (54 px)."""
+    draw_label(img, f, x + 2, y + 12, "GROOVE GAUGE", 11)
+    gauge_number(sk, x + w - gauge_number_width(sk), y)
+    ImageDraw.Draw(img).rounded_rectangle((x - 2, y + 28, x + w + 1, y + 53), 4,
+                                          fill=(6, 7, 11, 255), outline=EDGE + (255,))
+    gauge(sk, x, y + 30, w, 22)
+
+
+def info_row(sk, img, f, x, y, w, h=30):
+    panel(img, (x, y, w, h))
+    ty = y + (h - 22) // 2
+    draw_label(img, f, x + 10, ty + 4, "DURATION", 12)
+    sk.number("n_green", 312, 4, x + 100, ty)
+    draw_label(img, f, x + w // 2 + 20, ty + 4, "LEVEL", 12)
+    sk.number("n_green", 96, 2, x + w // 2 + 80, ty, color=TEXT)
 
 
 def header(sk, img, f, x, y, w, h, align=0):
@@ -904,23 +911,33 @@ def graph_panel(sk, img, f, x, y, w, h):
 
 
 def judge_panel(sk, img, f, x, y, w, h):
+    """Judge table: count, FAST and SLOW per judgement; the last row holds the
+    combo breaks and the FAST / SLOW totals."""
     panel(img, (x, y, w, h), "JUDGE", f)
-    step = min(22, (h - 30) // 5)
-    wide = w >= 230
-    nr = x + (w // 2 + 20 if wide else w - 14)
-    for i, (s_, ref) in enumerate(zip(["PERFECT", "GREAT", "GOOD", "BAD", "POOR"],
-                                      (110, 111, 112, 113, 114))):
-        ry = y + 24 + i * step
-        draw_label(img, f, x + 12, ry + 2, s_, 13, TEXT)
-        cw = sk.num("n_small", ref, 4)[1]
-        sk.number("n_small", ref, 4, nr - cw * 4, ry + 1)
-    if wide:
-        for i, (s_, ref, col) in enumerate((("FAST", 423, BLUE), ("SLOW", 424, RED))):
-            ry = y + 24 + i * step * 2
-            draw_label(img, f, x + w // 2 + 32, ry + 2, s_, 12, col)
-            cw = sk.num("n_small", ref, 4)[1]
-            sk.number("n_small", ref, 4, x + w - 14 - cw * 4, ry + 1 + step,
-                      color=mix(col, (255, 255, 255), 0.4))
+    d = ImageDraw.Draw(img)
+    wide = w >= 300
+    cw = sk.num("n_small", 110, 4)[1]
+    keta = 4 if wide else 3
+    tot_r = x + (w * 50) // 100
+    fast_r = x + (w * 76) // 100
+    slow_r = x + w - 12
+    fast_c, slow_c = (140, 195, 255), (255, 140, 150)
+    draw_label(img, f, fast_r - cw * keta // 2, y + 7, "FAST", 11, BLUE, anchor="ma")
+    draw_label(img, f, slow_r - cw * keta // 2, y + 7, "SLOW", 11, RED, anchor="ma")
+    rh = (h - 40) // 6
+    names = ["PERFECT", "GREAT", "GOOD", "BAD", "POOR"] if wide else ["PG", "GR", "GD", "BD", "PR"]
+    for i, (name, ref) in enumerate(zip(names, (110, 111, 112, 113, 114))):
+        ry = y + 24 + i * rh
+        draw_label(img, f, x + 12, ry + 2, name, 13, TEXT)
+        sk.number("n_small", ref, 4, tot_r - cw * 4, ry)
+        sk.number("n_small", 410 + i * 2, keta, fast_r - cw * keta, ry, color=fast_c)
+        sk.number("n_small", 411 + i * 2, keta, slow_r - cw * keta, ry, color=slow_c)
+    ry = y + 24 + 5 * rh + 4
+    d.line((x + 10, ry - 3, x + w - 10, ry - 3), fill=EDGE + (255,), width=1)
+    draw_label(img, f, x + 12, ry + 2, "COMBO BREAK" if wide else "CB", 13, AMBER)
+    sk.number("n_small", 425, 4, tot_r - cw * 4, ry, color=(255, 220, 140))
+    sk.number("n_small", 423, keta, fast_r - cw * keta, ry, color=fast_c)
+    sk.number("n_small", 424, keta, slow_r - cw * keta, ry, color=slow_c)
 
 
 def bpm_panel(sk, img, f, x, y, w, h):
@@ -987,8 +1004,8 @@ def land_sp(fonts, parts, mode, side):
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
     field(sk, mode, 0, side, fx, 0, 540, sw, kw, 548, 80, 0.62)
     progress(sk, 16, 0, 540)
-    gauge_row(sk, img, f, 40, 636, 400)
-    info_row(sk, img, f, 40, 676, 400)
+    gauge_block(sk, img, f, fx - (820 if side else 0), 630, fw)
+    info_row(sk, img, f, 40, 688, 400)
     score_panel(sk, img, f, 944, 100, 320, 140)
     best_panel(sk, img, f, 944, 248, 320)
     graph_panel(sk, img, f, 944, 320, 320, 236)
@@ -1021,8 +1038,8 @@ def land_9(fonts, parts):
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
     field(sk, "9", 0, 0, fx, 0, 520, 0, kw, 526, 104, 0.6)
     progress(sk, fx - 24, 0, 520)
-    gauge_row(sk, img, f, fx, 638, fw)
-    info_row(sk, img, f, fx, 678, fw)
+    gauge_block(sk, img, f, fx, 632, fw)
+    info_row(sk, img, f, fx, 690, fw, 28)
     header(sk, img, f, 16, 8, 376, 86)
     bga_frame(sk, img, 16, 100, 376, 376)
     score_panel(sk, img, f, 16, 484, 376, 140)
@@ -1065,9 +1082,9 @@ def land_dp(fonts, parts, mode):
     d.rounded_rectangle((440, 92, 452, 390), 3, fill=(24, 28, 42, 255))
     progress(sk, 440, 88, 306)
     bga_frame(sk, img, 466, 86, 348, 310)
-    gauge_row(sk, img, f, 420, 404, 440)
-    score_panel(sk, img, f, 420, 448, 216, 128)
-    bpm_panel(sk, img, f, 644, 448, 216, 128)
+    gauge_block(sk, img, f, 428, 400, 424)
+    score_panel(sk, img, f, 420, 460, 216, 118)
+    bpm_panel(sk, img, f, 644, 460, 216, 118)
     judge_panel(sk, img, f, 420, 584, 216, 130)
     time_panel(sk, img, f, 644, 584, 216, 130)
     ready(sk, f1 + fw // 2, 270)
@@ -1100,18 +1117,18 @@ def port_sp(fonts, parts, mode, side):
     sk.number("n_small", 163, 1, 642, 42)
     draw_label(img, f, 657, 41, ":", 15, TEXT)
     sk.number("n_small", 164, 2, 662, 42, zeropad=True)
-    d.rectangle((30, 76, 690, 1090), fill=(0, 0, 0, 255))
-    d.rounded_rectangle((10, 80, 22, 996), 3, fill=(24, 28, 42, 255))
+    d.rectangle((30, 76, 690, 1056), fill=(0, 0, 0, 255))
+    d.rounded_rectangle((10, 80, 22, 966), 3, fill=(24, 28, 42, 255))
     sk.j["bga"] = {"id": "bga"}
-    sk.put("bga", fx, 76, fw, 920, a=110)
+    sk.put("bga", fx, 76, fw, 890, a=110)
     ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
-    field(sk, mode, 0, side, fx, 76, 920, sw, kw, 1004, 84, 0.6, translucent=True)
-    progress(sk, 10, 80, 916)
-    gauge_row(sk, img, f, 24, 1094, 672)
-    score_panel(sk, img, f, 24, 1140, 216, 134)
-    bpm_panel(sk, img, f, 248, 1140, 216, 134)
-    judge_panel(sk, img, f, 472, 1140, 224, 134)
+    field(sk, mode, 0, side, fx, 76, 890, sw, kw, 974, 84, 0.6, translucent=True)
+    progress(sk, 10, 80, 886)
+    gauge_block(sk, img, f, fx, 1058, fw)
+    score_panel(sk, img, f, 24, 1118, 216, 156)
+    bpm_panel(sk, img, f, 248, 1118, 216, 156)
+    judge_panel(sk, img, f, 472, 1118, 224, 156)
     ready(sk, fx + fw // 2, 500)
     return sk, img
 

@@ -114,6 +114,9 @@ pub struct Score {
     pub total_notes: u32,
     /// Judgements processed so far.
     pub passed: u32,
+    /// Judgements that broke the combo (CB).
+    #[serde(default)]
+    pub combo_breaks: u32,
 }
 
 impl Score {

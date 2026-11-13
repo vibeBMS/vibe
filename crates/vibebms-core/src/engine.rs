@@ -870,6 +870,7 @@ impl Engine {
         }
         if !keep {
             self.combo = 0;
+            self.score.combo_breaks += 1;
         }
         self.gauge.update(judge, 1.0);
         self.events.push(EngineEvent::Judge {
@@ -978,6 +979,7 @@ mod tests {
         assert_eq!(e.score.ex_score(), 3);
         assert_eq!(e.combo(), 0);
         assert_eq!(e.score.max_combo, 3);
+        assert_eq!(e.score.combo_breaks, 1);
         assert!(e.is_finished(5_000_000));
         assert_eq!(e.score.count(1), 1);
         assert_eq!(e.score.counts[1][1], 1); // late
@@ -992,6 +994,7 @@ mod tests {
         press(&mut e, 0, 2_000_000);
         assert_eq!(judges(&mut e), vec![MISS, PGREAT]);
         assert_eq!(e.combo(), 1); // 7K: empty poor keeps combo
+        assert_eq!(e.score.combo_breaks, 0);
     }
 
     #[test]

@@ -332,6 +332,7 @@ impl SkinState for SceneState<'_> {
                 sc?.counts[j][((id - 410) % 2) as usize] as i64
             }
             420 => sc?.count(MISS) as i64,
+            425 => sc?.combo_breaks as i64,
             423 => sc?.fast() as i64,
             424 => sc?.slow() as i64,
             115 => rate(sc?.rate()) / 100,
