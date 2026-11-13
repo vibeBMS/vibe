@@ -49,10 +49,12 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 | 9키(PMS) | `A S D F G H J K L` |
 | 선곡 | ↑↓ 이동, Enter 결정, Backspace 뒤로, `/` 검색, F2~F9 옵션, F12 재스캔 |
 | 플레이 | ↑↓ 하이스피드, PgUp/PgDn SUDDEN+, ←→ 판정 오프셋, Esc 종료 |
+| 플레이 중 START(`Q`) / SELECT(`W`) | beatoraja와 같은 조작 패널: START+흰 건반 느리게 / 파란 건반 빠르게, START+턴테이블 레인 커버(커버가 없으면 LIFT), START 두 번 커버 켜기/끄기, SELECT+건반·턴테이블 표시 시간 미세 조정, START+SELECT 1초 종료 |
 | 공통 | F1/Tab 설정, F11 전체화면 |
 
 - 컨트롤러(IIDX 전용 컨트롤러 포함)는 `SETTINGS › KEY CONFIG`에서 버튼을 눌러 등록합니다. 아날로그 턴테이블도 지원합니다.
 - 터치 모드(`SETTINGS › TOUCH`): IIDX 배열(턴테이블 + 2단 건반) 또는 한 줄 건반, 세로/가로 SP와 가로 DP, 멀티터치·슬라이드.
+  건반은 아케이드 크기에 맞추며(화면 크기는 기기로 추정, 설정에서 지정 가능), 화면 START/SELECT 버튼으로 위 조작 패널을 엽니다.
 
 ## 기능
 

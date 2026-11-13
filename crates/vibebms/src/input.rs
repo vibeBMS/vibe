@@ -92,6 +92,12 @@ impl LaneMapper {
                 m.pads.entry(*p).or_insert((lane as u8, sub));
             }
         };
+        // START / SELECT: the hi-speed panel (pseudo lanes; a key bound to
+        // a lane too stays the lane's)
+        let controls = |m: &mut LaneMapper| {
+            add(&cfg.start, crate::touch::START as usize, 0, m);
+            add(&cfg.select, crate::touch::SELECT as usize, 0, m);
+        };
         if mode == PlayMode::Popn9K {
             for (i, lk) in cfg.pms.iter().take(9).enumerate() {
                 add(lk, i, 0, &mut m);
@@ -100,6 +106,7 @@ impl LaneMapper {
             for (i, lk) in cfg.p1.keys.iter().take(7).enumerate() {
                 add(lk, i, 0, &mut m);
             }
+            controls(&mut m);
             return m;
         }
         let k = mode.keys_per_player();
@@ -121,6 +128,7 @@ impl LaneMapper {
         if cfg.any_axis_is_scratch {
             m.any_axis = (0..mode.players()).map(|p| (p * lpp + k) as u8).collect();
         }
+        controls(&mut m);
         m
     }
 

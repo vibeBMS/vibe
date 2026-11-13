@@ -5,7 +5,7 @@
 //! circling the turntable reverses scratch direction (back-spin scratch).
 
 use crate::config::TouchStyle;
-use crate::gfx::{with_alpha, Batch, Color, Rect};
+use crate::gfx::{with_alpha, Batch, Rect};
 use crate::input::{LaneEv, Phase};
 use crate::platform::Instant;
 use std::collections::HashMap;
@@ -16,6 +16,10 @@ pub enum Shape {
     Rect(Rect),
     Circle { cx: f32, cy: f32, r: f32 },
 }
+
+/// Pseudo lanes of the START and SELECT buttons (the hi-speed panel).
+pub const START: u8 = 254;
+pub const SELECT: u8 = 255;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Zone {
@@ -82,6 +86,19 @@ pub fn layout(
     let mut zones = Vec::new();
     match style {
         TouchStyle::Keyboard => {
+            // START and SELECT in a band above the keys
+            let band = area.h * 0.16;
+            for (i, lane) in [START, SELECT].into_iter().enumerate() {
+                let w = area.w * 0.2;
+                let x = if i == 0 { area.x } else { area.right() - w };
+                zones.push(Zone {
+                    shape: Shape::Rect(Rect::new(x + gap * 0.5, area.y, w - gap, band - gap)),
+                    lane,
+                    scratch: false,
+                    black: false,
+                });
+            }
+            let area = Rect::new(area.x, area.y + band, area.w, area.h - band);
             let order = mode.display_order(player, scratch_right);
             let units: f32 = order
                 .iter()
@@ -158,11 +175,28 @@ pub fn layout(
                 area.h,
             );
             let kw = pitch * ARCADE_KEY_W / (ARCADE_KEY_W + ARCADE_KEY_GAP);
+            let top = area.y + (area.h - kh * 2.0 - row_gap) * 0.5;
+            // START above key 1 and SELECT above the last key, beside the
+            // blue keys (where the keypad has room)
+            let cell = pitch * 0.5 - (pitch - kw) * 0.35;
+            for (lane, x) in [
+                (START, keys_area.x),
+                (
+                    SELECT,
+                    keys_area.x + (keys - 1) as f32 * pitch * 0.5 + kw - cell,
+                ),
+            ] {
+                zones.push(Zone {
+                    shape: Shape::Rect(Rect::new(x, top, cell, kh * 0.6)),
+                    lane,
+                    scratch: false,
+                    black: false,
+                });
+            }
             for k in 0..keys {
                 let black = k % 2 == 1;
                 let x =
                     keys_area.x + (k / 2) as f32 * pitch + if black { pitch * 0.5 } else { 0.0 };
-                let top = area.y + (area.h - kh * 2.0 - row_gap) * 0.5;
                 let y = if black { top } else { top + kh + row_gap };
                 zones.push(Zone {
                     shape: Shape::Rect(Rect::new(x, y, kw, kh)),
@@ -309,8 +343,11 @@ impl TouchInput {
                     }
                     return true;
                 }
-                // slide between keys
-                if let Some(ni) = zones.iter().position(|nz| !nz.scratch && nz.hit(x, y)) {
+                // slide between keys (not onto START / SELECT)
+                if let Some(ni) = zones
+                    .iter()
+                    .position(|nz| !nz.scratch && nz.lane < START && nz.hit(x, y))
+                {
                     if ni != zi {
                         let (lane, sub) = (p.lane, p.sub);
                         let nl = zones[ni].lane;
@@ -334,23 +371,18 @@ impl TouchInput {
         }
     }
 
-    pub fn draw(
-        &self,
-        batch: &mut Batch,
-        zones: &[Zone],
-        opacity: f32,
-        white: Color,
-        blue: Color,
-        scratch: Color,
-    ) {
+    pub fn draw(&self, batch: &mut Batch, zones: &[Zone], opacity: f32) {
+        use crate::theme::{ACCENT, NOTE_BLUE, NOTE_SCRATCH, NOTE_WHITE};
         for z in zones {
             let pressed = self.is_pressed(z.lane);
-            let base = if z.scratch {
-                scratch
+            let base = if z.lane >= START {
+                ACCENT
+            } else if z.scratch {
+                NOTE_SCRATCH
             } else if z.black {
-                blue
+                NOTE_BLUE
             } else {
-                white
+                NOTE_WHITE
             };
             let fill = with_alpha(base, opacity * if pressed { 0.85 } else { 0.28 });
             let edge = with_alpha(base, opacity * 0.9);
@@ -393,10 +425,12 @@ mod tests {
             false,
             4.0,
         );
-        assert_eq!(z.len(), 8);
+        // the lanes, START and SELECT
+        assert_eq!(z.len(), 10);
         let mut lanes: Vec<u8> = z.iter().map(|z| z.lane).collect();
         lanes.sort();
-        assert_eq!(lanes, (0..8).collect::<Vec<u8>>());
+        assert_eq!(lanes[..8], (0..8).collect::<Vec<u8>>());
+        assert_eq!(lanes[8..], [START, SELECT]);
         assert!(z[0].scratch);
         let k = layout(
             PlayMode::Popn9K,
@@ -406,7 +440,7 @@ mod tests {
             false,
             4.0,
         );
-        assert_eq!(k.len(), 9);
+        assert_eq!(k.len(), 11);
     }
 
     #[test]
@@ -425,7 +459,11 @@ mod tests {
             Shape::Circle { r, .. } => r * 2.0,
         };
         // the real key width (29 mm at 4 px per mm), the set centred
-        let key = z.iter().find(|z| !z.scratch).map(width_of).unwrap();
+        let key = z
+            .iter()
+            .find(|z| !z.scratch && z.lane < START)
+            .map(width_of)
+            .unwrap();
         assert!((key - 29.0 * 4.0).abs() < 0.5, "{key}");
         let (left, right) = (
             xs.iter().cloned().fold(f32::MAX, f32::min),
@@ -444,10 +482,13 @@ mod tests {
             panic!("turntable first");
         };
         assert!(cx - r < 0.0 && cx + r > 0.5 * r);
-        assert!(z[1..].iter().all(|z| match z.shape {
-            Shape::Rect(k) => (k.w - 116.0).abs() < 0.5 && k.right() <= 850.5,
-            _ => false,
-        }));
+        assert!(z[1..]
+            .iter()
+            .filter(|z| z.lane < START)
+            .all(|z| match z.shape {
+                Shape::Rect(k) => (k.w - 116.0).abs() < 0.5 && k.right() <= 850.5,
+                _ => false,
+            }));
     }
 
     #[test]
@@ -471,13 +512,14 @@ mod tests {
         assert_eq!(out[2].lane, 1);
         out.clear();
         // scratch: swipe down then up => press, then release+press (BSS)
-        t.pointer(&zones, 2, Phase::Down, 50.0, 10.0, now, 6.0, &mut out);
-        t.pointer(&zones, 2, Phase::Move, 50.0, 40.0, now, 6.0, &mut out);
-        t.pointer(&zones, 2, Phase::Move, 50.0, 10.0, now, 6.0, &mut out);
+        // (below the START / SELECT band)
+        t.pointer(&zones, 2, Phase::Down, 50.0, 60.0, now, 6.0, &mut out);
+        t.pointer(&zones, 2, Phase::Move, 50.0, 90.0, now, 6.0, &mut out);
+        t.pointer(&zones, 2, Phase::Move, 50.0, 60.0, now, 6.0, &mut out);
         let sc: Vec<_> = out.iter().map(|e| (e.lane, e.sub, e.pressed)).collect();
         assert_eq!(sc, vec![(7, 0, true), (7, 0, false), (7, 1, true)]);
         out.clear();
-        t.pointer(&zones, 2, Phase::Up, 50.0, 10.0, now, 6.0, &mut out);
+        t.pointer(&zones, 2, Phase::Up, 50.0, 60.0, now, 6.0, &mut out);
         assert_eq!(out[0].sub, 1);
         assert!(!out[0].pressed);
     }

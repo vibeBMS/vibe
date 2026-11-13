@@ -1,10 +1,10 @@
 //! Gameplay: loading, audio scheduling, judging, rendering, touch controls.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::config::Side;
+use crate::config::{PlayConfig, Side};
 use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Gfx, Rect, TexId};
-use crate::input::{InputEv, LaneEv, LaneMapper, Phase};
+use crate::input::{InputEv, LaneEv, LaneMapper};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
 use crate::scene::result::{ResultData, ResultScene};
@@ -119,7 +119,8 @@ pub struct PlayScene {
     pub(crate) ln: LnType,
     pub(crate) seed: i64,
     pub(crate) error: Option<String>,
-    pub(crate) hud_rects: Vec<(Rect, usize)>,
+    /// START / SELECT: the hi-speed panel.
+    ctl: Control,
     pub(crate) assist: bool,
     /// Why this play is not recorded (`None`: it is).
     unranked: Option<&'static str>,
@@ -140,6 +141,51 @@ pub struct PlayScene {
 fn rgba_of(path: &Path, key: bool) -> Option<Rgba> {
     let p = crate::scene::select::resolve_image(path)?;
     crate::gfx::load_rgba(&p, key)
+}
+
+/// beatoraja's controls while playing: with START held the white keys
+/// lower the hi-speed and the blue keys raise it, the turntable moves the
+/// lane cover (LIFT when no cover is shown); with SELECT held the keys and
+/// turntable change the duration finely. START twice shows / hides the
+/// cover; START and SELECT held for a second end the play.
+#[derive(Default)]
+struct Control {
+    start: bool,
+    select: bool,
+    last_start: Option<Instant>,
+    both_since: Option<Instant>,
+    /// Turntable held with the panel open: direction and last step.
+    scratch: Option<(i32, Instant)>,
+    /// SUDDEN+ to bring back with the cover.
+    stash: f32,
+}
+
+impl Control {
+    fn open(&self) -> bool {
+        self.start || self.select
+    }
+
+    /// One turntable step in `dir` (START: cover, SELECT: duration).
+    fn turn(&self, p: &mut PlayConfig, dir: i32) {
+        if self.start {
+            adjust_cover(p, dir as f32 * 0.005);
+        } else {
+            adjust_duration(p, dir * 2);
+        }
+    }
+}
+
+fn adjust_duration(p: &mut PlayConfig, d: i32) {
+    p.duration_ms = (p.duration_ms as i32 + d).clamp(100, 5000) as u32;
+}
+
+/// The lane cover when it shows (or there is no LIFT), else the LIFT.
+fn adjust_cover(p: &mut PlayConfig, d: f32) {
+    if p.lane_cover || p.sudden > 0.0 || p.lift <= 0.0 {
+        p.sudden = (p.sudden + d).clamp(0.0, 0.8);
+    } else {
+        p.lift = (p.lift - d).clamp(0.0, 0.6);
+    }
 }
 
 impl PlayScene {
@@ -288,7 +334,7 @@ impl PlayScene {
             ln: ctx.config.play.ln_mode,
             seed: 0,
             error: None,
-            hud_rects: Vec::new(),
+            ctl: Control::default(),
             assist: false,
             unranked: None,
             options_label: String::new(),
@@ -665,16 +711,59 @@ impl PlayScene {
         Next::Replace(Box::new(ResultScene::new(ctx, data)))
     }
 
-    fn hud_action(&mut self, ctx: &mut Ctx, i: usize) {
+    /// START / SELECT and what they do to the keys: `true` when the event
+    /// was taken (it does not reach the judge).
+    fn control(&mut self, ctx: &mut Ctx, e: &LaneEv) -> bool {
         let p = &mut ctx.config.play;
-        match i {
-            0 => p.duration_ms = p.duration_ms.saturating_sub(25).max(100),
-            1 => p.duration_ms = (p.duration_ms + 25).min(5000),
-            2 => p.sudden = (p.sudden - 0.02).max(0.0),
-            3 => p.sudden = (p.sudden + 0.02).min(0.8),
-            4 => self.quit = true,
-            _ => {}
+        let c = &mut self.ctl;
+        match e.lane {
+            touch::START => {
+                c.start = e.pressed;
+                if e.pressed {
+                    let twice = c
+                        .last_start
+                        .is_some_and(|t| e.time.duration_since(t) < Duration::from_millis(500));
+                    if twice {
+                        // show / hide the lane cover
+                        if p.lane_cover || p.sudden > 0.0 {
+                            c.stash = p.sudden;
+                            p.lane_cover = false;
+                            p.sudden = 0.0;
+                        } else {
+                            p.lane_cover = true;
+                            p.sudden = if c.stash > 0.0 { c.stash } else { 0.2 };
+                        }
+                    }
+                    c.last_start = (!twice).then_some(e.time);
+                }
+            }
+            touch::SELECT => c.select = e.pressed,
+            _ if !c.open() => return false,
+            // releases go on to the judge (the key may have been down first)
+            _ if !e.pressed => {
+                if self.mode.is_scratch(e.lane as usize) {
+                    c.scratch = None;
+                }
+                return false;
+            }
+            lane if self.mode.is_scratch(lane as usize) => {
+                let dir = if e.sub == 0 { -1 } else { 1 };
+                c.turn(p, dir);
+                c.scratch = Some((dir, e.time));
+            }
+            lane => {
+                let blue = lane as usize % self.mode.lanes_per_player() % 2 == 1;
+                let d = match (c.start, blue) {
+                    (true, false) => 25,
+                    (true, true) => -25,
+                    (false, false) => -1,
+                    (false, true) => 1,
+                };
+                adjust_duration(p, d);
+            }
         }
+        c.both_since = (c.start && c.select).then(|| c.both_since.unwrap_or(e.time));
+        true
     }
 }
 
@@ -687,6 +776,20 @@ impl Scene for PlayScene {
     }
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
+        // the turntable keeps turning the panel's value while held
+        if let Some((dir, last)) = self.ctl.scratch.filter(|_| self.ctl.open()) {
+            if now.duration_since(last) >= Duration::from_millis(50) {
+                self.ctl.turn(&mut ctx.config.play, dir);
+                self.ctl.scratch = Some((dir, now));
+            }
+        }
+        if self
+            .ctl
+            .both_since
+            .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(1))
+        {
+            self.quit = true;
+        }
         // no game events are run from play skin scripts yet
         if let Some(sk) = self.skin.as_mut() {
             sk.script_events();
@@ -880,10 +983,10 @@ impl Scene for PlayScene {
                             }
                             self.quit = true;
                         }
-                        KeyCode::ArrowUp => self.hud_action(ctx, 1),
-                        KeyCode::ArrowDown => self.hud_action(ctx, 0),
-                        KeyCode::PageUp => self.hud_action(ctx, 3),
-                        KeyCode::PageDown => self.hud_action(ctx, 2),
+                        KeyCode::ArrowUp => adjust_duration(&mut ctx.config.play, 25),
+                        KeyCode::ArrowDown => adjust_duration(&mut ctx.config.play, -25),
+                        KeyCode::PageUp => adjust_cover(&mut ctx.config.play, 0.02),
+                        KeyCode::PageDown => adjust_cover(&mut ctx.config.play, -0.02),
                         KeyCode::ArrowLeft => ctx.config.play.judge_offset_ms -= 1,
                         KeyCode::ArrowRight => ctx.config.play.judge_offset_ms += 1,
                         _ => {}
@@ -914,27 +1017,18 @@ impl Scene for PlayScene {
                 ..
             } => {
                 let thr = ctx.config.touch.scratch_threshold_deg;
-                let handled = ctx.touch_enabled()
-                    && self.touch.pointer(
-                        &self.zones,
-                        *id,
-                        *phase,
-                        *x,
-                        *y,
-                        *time,
-                        thr,
-                        &mut lane_evs,
-                    );
-                if !handled && *phase == Phase::Down {
-                    if let Some(i) = ui::hit(&self.hud_rects, *x, *y) {
-                        self.hud_action(ctx, i);
-                    }
+                if ctx.touch_enabled() {
+                    self.touch
+                        .pointer(&self.zones, *id, *phase, *x, *y, *time, thr, &mut lane_evs);
                 }
             }
             _ => {}
         }
-        if matches!(self.stage, Stage::Playing) {
-            for e in lane_evs {
+        for e in lane_evs {
+            if !matches!(self.stage, Stage::Loading) && self.control(ctx, &e) {
+                continue;
+            }
+            if matches!(self.stage, Stage::Playing) {
                 self.feed(e, offset);
             }
         }
@@ -1036,6 +1130,66 @@ impl Scene for PlayScene {
 }
 
 impl PlayScene {
+    /// The hi-speed panel while START / SELECT is held.
+    fn draw_panel(&self, ctx: &Ctx, d: &mut Draw, view_h: f32, now: Instant) {
+        let ui = ctx.ui();
+        let p = &ctx.config.play;
+        let (w, h) = (440.0 * ui, 150.0 * ui);
+        let r = Rect::new((ctx.width - w) * 0.5, view_h * 0.12, w, h);
+        ui::panel(d, r);
+        let size = 18.0 * ui;
+        let line = |i: f32| r.y + 14.0 * ui + i * size * 1.45;
+        let x = r.x + 18.0 * ui;
+        let cover = if p.lane_cover || p.sudden > 0.0 {
+            format!("{:.0}%", p.sudden * 100.0)
+        } else {
+            "OFF".into()
+        };
+        let rows = [
+            format!(
+                "HI-SPEED   {} ms   (GN {})",
+                p.duration_ms,
+                p.duration_ms * 3 / 5
+            ),
+            format!("SUDDEN+  {cover}      LIFT  {:.0}%", p.lift * 100.0),
+        ];
+        for (i, row) in rows.iter().enumerate() {
+            d.text(row, x, line(i as f32), size, theme::TEXT, Align::Left);
+        }
+        let hint = match (self.ctl.start, self.ctl.select) {
+            (true, true) => "HOLD TO QUIT".to_string(),
+            (true, false) => {
+                "WHITE: SLOWER   BLUE: FASTER   TURNTABLE: COVER   START x2: COVER ON/OFF".into()
+            }
+            _ => "WHITE: -1 ms   BLUE: +1 ms   TURNTABLE: DURATION".into(),
+        };
+        d.text_fit(
+            &hint,
+            x,
+            line(2.2),
+            size * 0.72,
+            theme::TEXT_DIM,
+            Align::Left,
+            w - 36.0 * ui,
+        );
+        if let Some(t) = self.ctl.both_since {
+            let k = (now.duration_since(t).as_secs_f32()).min(1.0);
+            d.b.rect(
+                Rect::new(r.x, r.bottom() - 4.0 * ui, r.w * k, 4.0 * ui),
+                theme::ACCENT,
+            );
+        } else if self.ctl.start {
+            d.text(
+                "+ SELECT (HOLD): QUIT",
+                x,
+                line(3.0),
+                size * 0.72,
+                theme::TEXT_DIM,
+                Align::Left,
+            );
+        }
+    }
+
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let areas = self.touch_areas(ctx);
         self.rebuild_zones(ctx, &areas);
@@ -1057,27 +1211,32 @@ impl PlayScene {
             for (area, _, _) in &areas {
                 d.b.rect(*area, rgba(0x05060aff));
             }
-            self.touch.draw(
-                d.b,
-                &self.zones,
-                ctx.config.touch.opacity,
-                theme::NOTE_WHITE,
-                theme::NOTE_BLUE,
-                theme::NOTE_SCRATCH,
-            );
+            self.touch.draw(d.b, &self.zones, ctx.config.touch.opacity);
         }
-        // touch HUD: hi-speed, lane cover and quit buttons
-        self.hud_rects.clear();
         if ctx.touch_enabled() {
             let ui = ctx.ui();
-            let (bw, bh) = (54.0 * ui, 34.0 * ui);
-            let labels = ["HS−", "HS+", "SUD−", "SUD+", "×"];
-            let x0 = ctx.width - bw * labels.len() as f32 - 8.0;
-            for (i, l) in labels.iter().enumerate() {
-                let r = Rect::new(x0 + i as f32 * bw, 6.0 * ui, bw - 4.0, bh);
-                ui::button(d, r, l, ui * 0.9, false);
-                self.hud_rects.push((r, i));
+            for z in self.zones.iter().filter(|z| z.lane >= touch::START) {
+                if let touch::Shape::Rect(r) = z.shape {
+                    let label = if z.lane == touch::START {
+                        "START"
+                    } else {
+                        "SELECT"
+                    };
+                    let size = (r.w * 0.22).min(14.0 * ui);
+                    d.text_fit(
+                        label,
+                        r.x + r.w * 0.5,
+                        r.y + (r.h - size) * 0.5,
+                        size,
+                        theme::TEXT,
+                        Align::Center,
+                        r.w * 0.9,
+                    );
+                }
             }
+        }
+        if self.ctl.open() {
+            self.draw_panel(ctx, d, view_h, now);
         }
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
