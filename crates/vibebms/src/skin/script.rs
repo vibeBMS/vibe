@@ -5,11 +5,12 @@
 //! Each script value gets a synthetic id (`SCRIPT_ID + n`) in the namespace
 //! of what it replaces (option, timer, number, ...). Once per frame
 //! [`Runtime::update`] evaluates every script against the scene's
-//! [`SkinState`], and [`Scripted`] answers those ids from the results.
+//! [`SkinState`], and [`Overlay`] answers those ids from the results.
 //! Scripts reach the game through beatoraja's `main_state`, `timer_util`
 //! and `event_util` modules (as globals in JSON skins).
 
 use super::SkinState;
+use std::collections::HashMap;
 
 /// First synthetic id of a script value.
 pub const SCRIPT_ID: i32 = 1 << 24;
@@ -75,21 +76,24 @@ fn script_index(id: i32) -> Option<usize> {
     (id >= SCRIPT_ID).then(|| (id - SCRIPT_ID) as usize)
 }
 
-/// A scene's state with the skin's script values on top.
-pub struct Scripted<'a> {
+/// A scene's state with the skin's own values on top: script results and
+/// the user's offsets.
+pub struct Overlay<'a> {
     pub st: &'a dyn SkinState,
-    pub rt: &'a Runtime,
+    pub rt: Option<&'a Runtime>,
+    pub offsets: &'a HashMap<i32, [f32; 6]>,
 }
 
-impl Scripted<'_> {
+impl Overlay<'_> {
     fn val(&self, id: i32) -> Option<Val> {
-        script_index(id).map(|k| self.rt.value(k))
+        let rt = self.rt?;
+        script_index(id).map(|k| rt.value(k))
     }
 }
 
-impl SkinState for Scripted<'_> {
+impl SkinState for Overlay<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
-        if let Some(us) = self.rt.timer_override(id) {
+        if let Some(us) = self.rt.and_then(|rt| rt.timer_override(id)) {
             return us;
         }
         match self.val(id) {
@@ -134,7 +138,7 @@ impl SkinState for Scripted<'_> {
         self.st.distribution(rank)
     }
     fn offset(&self, id: i32) -> Option<[f32; 6]> {
-        self.st.offset(id)
+        self.offsets.get(&id).copied().or_else(|| self.st.offset(id))
     }
 }
 

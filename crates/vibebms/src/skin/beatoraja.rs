@@ -1373,7 +1373,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn lua_skin_scripts() {
-        use crate::skin::script::Scripted;
+        use crate::skin::script::Overlay;
         let dir = std::env::temp_dir().join(format!("vibebms-lscript-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let lua = r#"
@@ -1422,7 +1422,11 @@ mod tests {
         };
         let st = ScriptSt { flag: false };
         rt.update(&st, 100);
-        let sc = Scripted { st: &st, rt: &rt };
+        let sc = Overlay {
+            st: &st,
+            rt: Some(&rt),
+            offsets: &HashMap::new(),
+        };
         assert_eq!(sc.number(num_id), Some(42));
         assert_eq!(sc.text(txt_id).as_deref(), Some("ex 21"));
         assert!(num.dst.ops.iter().all(|o| sc.option(*o)));
@@ -1431,7 +1435,11 @@ mod tests {
         let st = ScriptSt { flag: true };
         rt.update(&st, 300);
         rt.update(&st, 400);
-        let sc = Scripted { st: &st, rt: &rt };
+        let sc = Overlay {
+            st: &st,
+            rt: Some(&rt),
+            offsets: &HashMap::new(),
+        };
         assert_eq!(sc.timer(img.dst.timer), Some(300));
         // click: the script runs on the next frame and asks for event 15
         let (act, _) = img.act.unwrap();
@@ -1485,7 +1493,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn json_skin_scripts() {
-        use crate::skin::script::Scripted;
+        use crate::skin::script::Overlay;
         let dir = std::env::temp_dir().join(format!("vibebms-jscript-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let json = r#"{
@@ -1510,13 +1518,21 @@ mod tests {
         assert_eq!(o.dst.ops[0], 32);
         let st = ScriptSt { flag: true };
         rt.update(&st, 250);
-        let sc = Scripted { st: &st, rt: &rt };
+        let sc = Overlay {
+            st: &st,
+            rt: Some(&rt),
+            offsets: &HashMap::new(),
+        };
         assert_eq!(sc.number(id), Some(22));
         assert!(sc.option(o.dst.ops[1]));
         assert_eq!(sc.timer(10001), Some(250));
         let st = ScriptSt { flag: false };
         rt.update(&st, 300);
-        let sc = Scripted { st: &st, rt: &rt };
+        let sc = Overlay {
+            st: &st,
+            rt: Some(&rt),
+            offsets: &HashMap::new(),
+        };
         assert!(!sc.option(o.dst.ops[1]));
         assert_eq!(sc.timer(10001), None);
     }

@@ -1,6 +1,7 @@
 //! Drawing a loaded skin.
 
 use super::*;
+use super::script::Overlay;
 use crate::app::Draw;
 use crate::gfx::text::Align;
 use crate::gfx::{Gfx, TexId};
@@ -426,34 +427,13 @@ impl LoadedSkin {
             self.skin.width,
             self.skin.height,
         ))));
-        if self.skin.offsets.is_empty() {
-            self.draw_scripted(d, view, now, st, hooks);
-        } else {
-            let st = WithOffsets {
-                st,
-                offsets: &self.skin.offsets,
-            };
-            self.draw_scripted(d, view, now, &st, hooks);
+        let offsets = &self.skin.offsets;
+        let rt = self.skin.script.as_deref();
+        if let Some(rt) = rt {
+            rt.update(&Overlay { st, rt: None, offsets }, now);
         }
+        self.draw_objects(d, view, now, &Overlay { st, rt, offsets }, hooks);
         d.b.set_base_clip(None);
-    }
-
-    fn draw_scripted(
-        &self,
-        d: &mut Draw,
-        view: Rect,
-        now: i64,
-        st: &dyn SkinState,
-        hooks: &mut dyn Hooks,
-    ) {
-        match &self.skin.script {
-            Some(rt) => {
-                rt.update(st, now);
-                let st = super::script::Scripted { st, rt };
-                self.draw_objects(d, view, now, &st, hooks);
-            }
-            None => self.draw_objects(d, view, now, st, hooks),
-        }
     }
 
     /// A click on an object with event `act`: script events are taken
@@ -708,41 +688,5 @@ impl LoadedSkin {
             }
         }
         self.blit(d, src, now, st, jr, &fr);
-    }
-}
-
-/// A scene's state with the skin's user offsets (beatoraja `offset`).
-struct WithOffsets<'a> {
-    st: &'a dyn SkinState,
-    offsets: &'a std::collections::HashMap<i32, [f32; 6]>,
-}
-
-impl SkinState for WithOffsets<'_> {
-    fn timer(&self, id: i32) -> Option<i64> {
-        self.st.timer(id)
-    }
-    fn option(&self, id: i32) -> bool {
-        self.st.option(id)
-    }
-    fn number(&self, id: i32) -> Option<i64> {
-        self.st.number(id)
-    }
-    fn text(&self, id: i32) -> Option<String> {
-        self.st.text(id)
-    }
-    fn rate(&self, id: i32) -> f32 {
-        self.st.rate(id)
-    }
-    fn button(&self, id: i32) -> Option<i64> {
-        self.st.button(id)
-    }
-    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
-        self.st.distribution(rank)
-    }
-    fn offset(&self, id: i32) -> Option<[f32; 6]> {
-        self.offsets
-            .get(&id)
-            .copied()
-            .or_else(|| self.st.offset(id))
     }
 }
