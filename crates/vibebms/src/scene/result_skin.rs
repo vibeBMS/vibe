@@ -269,6 +269,13 @@ fn gauge_color(t: GaugeType, above: bool) -> Color {
 }
 
 impl Hooks for ResultHooks<'_> {
+    fn ref_image(&self, id: i32) -> Option<crate::gfx::TexId> {
+        match id {
+            100 | 101 => self.st.s.stage_tex,
+            _ => None,
+        }
+    }
+
     fn clickable(&mut self, rect: Rect, act: i32, _click: i32) {
         self.clicks.push((rect, act));
     }

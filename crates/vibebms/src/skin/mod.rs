@@ -105,7 +105,14 @@ pub struct Dst {
     pub loop_ms: i64,
     pub timer: i32,
     pub ops: Vec<i32>,
+    /// beatoraja offsets added from game state (`SkinState::offset`).
+    pub offsets: Vec<i32>,
 }
+
+/// beatoraja offset ids.
+pub const OFFSET_LIFT: i32 = 3;
+pub const OFFSET_LANECOVER: i32 = 4;
+pub const OFFSET_HIDDEN_COVER: i32 = 5;
 
 /// Evaluated destination for this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -182,6 +189,18 @@ impl Dst {
             }
             _ => (a.rect, a.color, a.angle),
         };
+        let (mut rect, mut color, mut angle) = (rect, color, angle);
+        for id in &self.offsets {
+            if let Some([x, y, w, h, r, a]) = st.offset(*id) {
+                // offsets are y-up like beatoraja destinations
+                rect.x += x;
+                rect.y -= y + h;
+                rect.w += w;
+                rect.h += h;
+                angle -= r;
+                color[3] = (color[3] + a / 255.0).clamp(0.0, 1.0);
+            }
+        }
         let c = self.center.min(9);
         Some(Frame {
             rect,
@@ -245,6 +264,13 @@ pub enum Kind {
     Graph(GraphKind),
     /// The music select bar list.
     SongList,
+    /// beatoraja hidden / lift cover: an image clipped above `line` (y down,
+    /// skin pixels; the line rises with LIFT when `link_lift`).
+    Cover {
+        src: Src,
+        line: Option<f32>,
+        link_lift: bool,
+    },
     /// The note field (lanes from `#DST_NOTE`).
     Notes,
     JudgeLine(Src),
@@ -475,6 +501,11 @@ pub trait SkinState {
     /// a namespace of their own; defaults to the number with that id).
     fn button(&self, id: i32) -> Option<i64> {
         self.number(id)
+    }
+    /// beatoraja offset (x, y, w, h, angle, alpha) in skin pixels, y up.
+    fn offset(&self, id: i32) -> Option<[f32; 6]> {
+        let _ = id;
+        None
     }
 }
 

@@ -299,6 +299,14 @@ impl Ctx<'_> {
                 .filter_map(Value::as_i64)
                 .map(|o| o as i32)
                 .collect(),
+            offsets: d
+                .get("offset")
+                .and_then(Value::as_i64)
+                .into_iter()
+                .chain(arr(d.get("offsets")).iter().filter_map(Value::as_i64))
+                .map(|o| o as i32)
+                .filter(|o| *o != 0)
+                .collect(),
             ..Default::default()
         };
         let mut prev: Option<[i64; 10]> = None;
@@ -552,7 +560,7 @@ pub fn load(
 
     for d in arr(sk.get("destination")) {
         let id = id_of(d);
-        let dst = cx.dst(d);
+        let mut dst = cx.dst(d);
         let kind = if let Some(img) = cx.find("image", &id) {
             match i(img, "ref", 0) {
                 // game-supplied image (100 stage file, 101 back bmp, 102 banner)
@@ -591,7 +599,11 @@ pub fn load(
         } else if let Some(set) = cx.find("imageset", &id) {
             let srcs: Vec<Src> = arr(set.get("images"))
                 .iter()
-                .filter_map(|x| x.as_str().map(String::from))
+                .map(|x| {
+                    x.as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| x.to_string())
+                })
                 .filter_map(|iid| cx.find("image", &iid).and_then(|im| cx.src(im)))
                 .collect();
             (!srcs.is_empty()).then(|| Kind::ImageSet {
@@ -686,6 +698,28 @@ pub fn load(
                     split: true,
                 }
             })
+        } else if let Some(c) = cx
+            .find("hiddenCover", &id)
+            .map(|c| (c, OFFSET_HIDDEN_COVER))
+            .or_else(|| cx.find("liftCover", &id).map(|c| (c, OFFSET_LIFT)))
+        {
+            let (def, off) = c;
+            dst.offsets.push(off);
+            cx.src(def).map(|src| Kind::Cover {
+                src,
+                line: match i(def, "disapearLine", -1) {
+                    l if l >= 0 => Some(h - l as f32),
+                    _ => None,
+                },
+                link_lift: def
+                    .get("isDisapearLineLinkLift")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            })
+        } else if let Some(r) = id.parse::<i32>().ok().filter(|n| *n < 0) {
+            // game-supplied images: -100 stage file, -101 back bmp,
+            // -102 banner, -110 black, -111 white
+            Some(Kind::RefImage(-r))
         } else if let Some(sl) = sk.get("songlist").filter(|n| id_of(n) == id) {
             skin.songlist = Some(songlist(&cx, sl, h));
             Some(Kind::SongList)

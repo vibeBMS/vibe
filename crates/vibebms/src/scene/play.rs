@@ -122,6 +122,8 @@ pub struct PlayScene {
     pub(crate) finished_instant: Option<Instant>,
     pub(crate) key_off: Vec<Option<Instant>>,
     pub(crate) bomb_at: Vec<Option<Instant>>,
+    /// Last judgement per lane (skin values 500-519).
+    pub(crate) lane_judge: Vec<Option<usize>>,
     pub(crate) skin: Option<crate::skin::render::LoadedSkin>,
 }
 
@@ -269,6 +271,7 @@ impl PlayScene {
             finished_instant: None,
             key_off: Vec::new(),
             bomb_at: Vec::new(),
+            lane_judge: Vec::new(),
             skin: None,
             quit: false,
         }
@@ -376,6 +379,7 @@ impl PlayScene {
         self.key_flash = vec![None; lanes];
         self.key_off = vec![None; lanes];
         self.bomb_at = vec![None; lanes];
+        self.lane_judge = vec![None; lanes];
         // keysounds of auto lanes are scheduled ahead like BGM for exact timing
         self.auto_notes = chart
             .notes
@@ -704,6 +708,9 @@ impl Scene for PlayScene {
                 } => {
                     let player = self.mode.player_of_lane(lane as usize).min(1);
                     self.last_judge[player] = Some((judge, diff, now, combo));
+                    if let Some(j) = self.lane_judge.get_mut(lane as usize) {
+                        *j = Some(judge);
+                    }
                     if judge <= GREAT {
                         self.bombs.push((lane, now, judge));
                         if let Some(b) = self.bomb_at.get_mut(lane as usize) {

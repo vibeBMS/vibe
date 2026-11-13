@@ -6,7 +6,7 @@ use crate::config::HiSpeedMode;
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
-use crate::skin::{SkinState, SkinType};
+use crate::skin::{SkinState, SkinType, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
 use std::path::PathBuf;
 use vibebms_core::chart::NoteKind;
 use vibebms_core::gauge::GaugeType;
@@ -258,6 +258,44 @@ impl SkinState for SceneState<'_> {
         }
     }
 
+    fn button(&self, id: i32) -> Option<i64> {
+        let s = self.s;
+        match id {
+            // last judgement of a lane / of a side
+            500..=519 => {
+                let lane = lane_from_lr2(s.mode(), id - 500)?;
+                s.lane_judge.get(lane).copied().flatten().map(|j| j as i64)
+            }
+            520 | 521 => s.last_judge[(id - 520) as usize].map(|j| j.0 as i64),
+            _ => self.number(id),
+        }
+    }
+
+    fn offset(&self, id: i32) -> Option<[f32; 6]> {
+        let p = &self.ctx.config.play;
+        // lane height in skin pixels (the first lane of the note field)
+        let lane_h = self
+            .s
+            .skin
+            .as_ref()?
+            .skin
+            .lanes
+            .iter()
+            .find_map(|l| l.rect)
+            .map(|r| r.h)?;
+        let span = lane_h * (1.0 - p.lift);
+        Some(match id {
+            OFFSET_LIFT => [0.0, p.lift * lane_h, 0.0, 0.0, 0.0, 0.0],
+            OFFSET_LANECOVER if p.lane_cover || p.sudden > 0.0 => {
+                [0.0, -p.sudden * span, 0.0, 0.0, 0.0, 0.0]
+            }
+            OFFSET_LANECOVER => [0.0; 6],
+            OFFSET_HIDDEN_COVER if p.hidden > 0.0 => [0.0, p.hidden * span, 0.0, 0.0, 0.0, 0.0],
+            OFFSET_HIDDEN_COVER => [0.0, 0.0, 0.0, 0.0, 0.0, -255.0],
+            _ => return None,
+        })
+    }
+
     fn option(&self, id: i32) -> bool {
         let (abs, neg) = (id.abs(), id < 0);
         let v = self.static_option(abs).unwrap_or_else(|| {
@@ -452,7 +490,9 @@ impl Hooks for SceneHooks<'_> {
             };
             let note_h =
                 |src: &crate::skin::Src| src.frames.first().map(|f| f[3] * xf.sy).unwrap_or(4.0);
-            d.b.set_clip(Some(Rect::new(r.x, top, r.w, judge_y - top + 2.0)));
+            // HIDDEN+ hides notes above the judge line
+            let bottom = judge_y + 2.0 - p.hidden * (judge_y - top);
+            d.b.set_clip(Some(Rect::new(r.x, top, r.w, (bottom - top).max(0.0))));
             let Some(list) = s.lane_notes.get(lane) else {
                 continue;
             };

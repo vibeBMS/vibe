@@ -56,6 +56,8 @@ pub struct ResultScene {
     clicks: Vec<(Rect, i32)>,
     pub(crate) skin: Option<LoadedSkin>,
     skin_tried: bool,
+    /// The chart's stage file (skin reference image 100).
+    pub(crate) stage_tex: Option<crate::gfx::TexId>,
     /// Leaving (skin fade-out running): when it started and what follows.
     pub(crate) leaving: Option<Instant>,
     leave_to: Option<Leave>,
@@ -140,6 +142,7 @@ impl ResultScene {
             clicks: Vec::new(),
             skin: None,
             skin_tried: false,
+            stage_tex: None,
             leaving: None,
             leave_to: None,
         }
@@ -208,6 +211,14 @@ impl Scene for ResultScene {
         }
         if !self.skin_tried {
             self.skin_tried = true;
+            if !self.d.meta.stagefile.is_empty() {
+                let p = std::path::Path::new(&self.d.request.song.path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new(""))
+                    .join(&self.d.meta.stagefile);
+                self.stage_tex = crate::scene::select::resolve_image(&p)
+                    .and_then(|rp| gfx.load_image(&rp, false));
+            }
             let kind = if self.d.course.is_some() && !self.next_stage() {
                 SkinType::CourseResult
             } else {
@@ -233,6 +244,9 @@ impl Scene for ResultScene {
     fn exit(&mut self, _ctx: &mut Ctx, gfx: &mut Gfx) {
         if let Some(mut s) = self.skin.take() {
             s.free(gfx);
+        }
+        if let Some(t) = self.stage_tex.take() {
+            gfx.free_texture(t);
         }
     }
 

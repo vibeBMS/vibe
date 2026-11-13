@@ -255,6 +255,30 @@ impl LoadedSkin {
             }
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => self.blit(d, src, now, st, r, &fr),
+                // beatoraja's plain black / white
+                Kind::RefImage(110) => d.b.rect(r, [0.0, 0.0, 0.0, fr.color[3]]),
+                Kind::RefImage(111) => d.b.rect(r, fr.color),
+                Kind::Cover {
+                    src,
+                    line,
+                    link_lift,
+                } => {
+                    // drawn only above the disappear line (which LIFT raises)
+                    let clip = line.map(|l| {
+                        let lift = if *link_lift {
+                            st.offset(OFFSET_LIFT).map(|o| o[1]).unwrap_or(0.0)
+                        } else {
+                            0.0
+                        };
+                        let ly = xf.oy + (l - lift) * xf.sy;
+                        Rect::new(r.x, r.y.min(ly), r.w, (ly - r.y).max(0.0))
+                    });
+                    if clip.map(|c| c.h > 0.0).unwrap_or(true) {
+                        d.b.set_clip(clip);
+                        self.blit(d, src, now, st, r, &fr);
+                        d.b.set_clip(None);
+                    }
+                }
                 Kind::RefImage(id) => {
                     if let Some(t) = hooks.ref_image(*id) {
                         d.b.quad(t, r, [0.0, 0.0, 1.0, 1.0], fr.color);
