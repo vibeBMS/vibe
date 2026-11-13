@@ -84,10 +84,9 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 - bmstable 포맷(`<meta name="bmstable">` → header.json → data.json): **LR2식 발광BMS/통상 난이도표**,
   **Satellite / Stella** 기본 등록. 표의 레벨 폴더, 미설치 곡(다운로드 URL 표시), 코스 지원.
   ribbit.xyz가 내려가 있으면 미러로 자동 대체합니다.
-- IR: `IrClient` 트레이트로 확장 가능.
-  - **LR2IR** 랭킹 조회(읽기 전용)
-  - **JSON IR 프로토콜**(beatoraja `IRScoreData`와 같은 필드) — 점수 전송/랭킹/로그인. [docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)
-  - beatoraja의 IR은 Java 플러그인(jar)이라 네이티브 앱에서 그대로 로드할 수 없습니다. 각 IR 서비스는 어댑터를 추가해야 합니다.
+- IR: **JSON IR 프로토콜**(beatoraja `IRScoreData`와 같은 필드)로 랭킹 조회와 점수 전송.
+  [docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md). beatoraja의 IR은 Java 플러그인(jar)이라 그대로 쓸 수 없어,
+  서버 쪽에서 이 프로토콜을 받으면 됩니다.
 
 ### 오디오 / 성능
 - cpal 저지연 출력(버퍼 크기 설정, Windows ASIO / Linux JACK 기능 플래그), 샘플 단위로 정확한 BGM/오토 키음 스케줄링

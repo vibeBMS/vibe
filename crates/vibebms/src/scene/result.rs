@@ -87,21 +87,12 @@ impl ResultScene {
                 ctx.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
             }
-            if let Some(cfg) = ctx
-                .config
-                .ir
-                .iter()
-                .find(|c| c.enabled && c.auto_submit)
-                .cloned()
-            {
+            let cfg = &ctx.config.ir_server;
+            if let Some(client) = vibebms_ir::JsonIr::new(cfg).filter(|_| cfg.auto_submit) {
                 let chart = vibebms_ir::ChartRef {
                     md5: song.md5.clone(),
                     sha256: song.sha256.clone(),
-                    title: song.title.clone(),
-                    artist: song.artist.clone(),
-                    mode: song.mode.clone(),
                     ln_type: format!("{:?}", d.ln).to_uppercase(),
-                    notes: d.score.total_notes,
                 };
                 let mut sub = vibebms_ir::ScoreSubmission::from_score(&chart, &d.score, d.clear);
                 sub.option = d.options.clone();
@@ -117,22 +108,16 @@ impl ResultScene {
                 ir_rx = Some(rx);
                 ir_status = format!("{}: sending…", cfg.name);
                 let name = cfg.name.clone();
-                match vibebms_ir::create_client(&cfg)
-                    .map(|c| (c.can_submit(), c.submit_request(&sub)))
-                {
-                    Some((true, Ok(req))) => crate::platform::ir_send(req, move |r| {
+                match client.submit_request(&sub) {
+                    Ok(req) => crate::platform::ir_send(req, move |r| {
                         let _ = tx.send(match r {
                             Ok(_) => format!("{name}: submitted"),
                             Err(e) => format!("{name}: {e}"),
                         });
                     }),
-                    Some((_, Err(e))) => {
+                    Err(e) => {
                         let _ = tx.send(format!("{name}: {e}"));
                     }
-                    Some((false, _)) => {
-                        let _ = tx.send(format!("{name}: score submission not supported"));
-                    }
-                    None => {}
                 }
             }
         }

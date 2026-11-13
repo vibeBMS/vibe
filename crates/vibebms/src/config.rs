@@ -333,7 +333,8 @@ pub struct Config {
     pub display: DisplayConfig,
     pub audio: AudioSettings,
     pub tables: Vec<TableConfig>,
-    pub ir: Vec<IrConfig>,
+    /// Internet ranking server (an older `ir` list is ignored).
+    pub ir_server: IrConfig,
     /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
     pub skins: std::collections::BTreeMap<String, String>,
     /// Skin custom options: skin (as in `skins`) -> option name -> chosen label.
@@ -364,7 +365,7 @@ impl Default for Config {
                     enabled: true,
                 })
                 .collect(),
-            ir: vec![IrConfig::default()],
+            ir_server: IrConfig::default(),
             skins: Default::default(),
             skin_options: Default::default(),
             skin_offsets: Default::default(),

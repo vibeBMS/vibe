@@ -41,7 +41,6 @@ enum TextField {
     IrUrl,
     IrName,
     IrToken,
-    IrUser,
 }
 
 /// Which binding a key-config row edits.
@@ -788,46 +787,11 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             v
         }
         8 => {
-            let ir = c.ir.first().cloned().unwrap_or_default();
+            let ir = &c.ir_server;
             vec![
-                it(
-                    "Internet ranking",
-                    if !ir.enabled {
-                        "OFF".to_string()
-                    } else {
-                        ir.kind.to_uppercase()
-                    },
-                    |c, d| {
-                        if c.config.ir.is_empty() {
-                            c.config.ir.push(Default::default());
-                        }
-                        let ir = &mut c.config.ir[0];
-                        let state = if !ir.enabled {
-                            0
-                        } else if ir.kind == "lr2ir" {
-                            1
-                        } else {
-                            2
-                        };
-                        match (state + d).rem_euclid(3) {
-                            0 => ir.enabled = false,
-                            1 => {
-                                ir.enabled = true;
-                                ir.kind = "lr2ir".into();
-                                ir.name = "LR2IR".into();
-                                ir.url = vibebms_ir::LR2IR_BASE.into();
-                            }
-                            _ => {
-                                ir.enabled = true;
-                                ir.kind = "json".into();
-                                if ir.name == "LR2IR" {
-                                    ir.name = "IR".into();
-                                    ir.url.clear();
-                                }
-                            }
-                        }
-                    },
-                ),
+                it("Internet ranking", onoff(ir.enabled), |c, _| {
+                    c.config.ir_server.enabled = !c.config.ir_server.enabled
+                }),
                 Item {
                     label: "Name".into(),
                     value: ir.name.clone(),
@@ -839,11 +803,6 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     act: Act::Text(TextField::IrUrl),
                 },
                 Item {
-                    label: "User".into(),
-                    value: ir.user.clone(),
-                    act: Act::Text(TextField::IrUser),
-                },
-                Item {
                     label: "API token".into(),
                     value: if ir.token.is_empty() {
                         "—".into()
@@ -853,13 +812,10 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     act: Act::Text(TextField::IrToken),
                 },
                 it("Auto submit scores", onoff(ir.auto_submit), |c, _| {
-                    if let Some(ir) = c.config.ir.first_mut() {
-                        ir.auto_submit = !ir.auto_submit
-                    }
+                    c.config.ir_server.auto_submit = !c.config.ir_server.auto_submit
                 }),
                 Item {
-                    label: "LR2IR is read-only (rankings). JSON IR protocol: docs/IR_PROTOCOL.md"
-                        .into(),
+                    label: "Protocol: docs/IR_PROTOCOL.md".into(),
                     value: String::new(),
                     act: Act::None,
                 },
@@ -913,24 +869,8 @@ impl SettingsScene {
             Act::Text(tf) if enter || d != 0 => {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
-                    TextField::IrUrl => ctx
-                        .config
-                        .ir
-                        .first()
-                        .map(|i| i.url.clone())
-                        .unwrap_or_default(),
-                    TextField::IrName => ctx
-                        .config
-                        .ir
-                        .first()
-                        .map(|i| i.name.clone())
-                        .unwrap_or_default(),
-                    TextField::IrUser => ctx
-                        .config
-                        .ir
-                        .first()
-                        .map(|i| i.user.clone())
-                        .unwrap_or_default(),
+                    TextField::IrUrl => ctx.config.ir_server.url.clone(),
+                    TextField::IrName => ctx.config.ir_server.name.clone(),
                     _ => String::new(),
                 };
                 self.edit = Some((tf, cur));
@@ -994,9 +934,6 @@ impl SettingsScene {
 
     fn commit_text(&mut self, ctx: &mut Ctx, tf: TextField, s: String) {
         let s = s.trim().to_string();
-        if ctx.config.ir.is_empty() {
-            ctx.config.ir.push(Default::default());
-        }
         match tf {
             TextField::PlayerName => ctx.config.player_name = s,
             TextField::AddFolder => {
@@ -1019,10 +956,9 @@ impl SettingsScene {
                     ctx.refresh_tables(false);
                 }
             }
-            TextField::IrUrl => ctx.config.ir[0].url = s,
-            TextField::IrName => ctx.config.ir[0].name = s,
-            TextField::IrUser => ctx.config.ir[0].user = s,
-            TextField::IrToken => ctx.config.ir[0].token = s,
+            TextField::IrUrl => ctx.config.ir_server.url = s,
+            TextField::IrName => ctx.config.ir_server.name = s,
+            TextField::IrToken => ctx.config.ir_server.token = s,
         }
         ctx.save_config();
     }

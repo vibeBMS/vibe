@@ -572,7 +572,7 @@ impl SelectScene {
         if self.last_move.elapsed() < Duration::from_millis(700) {
             return;
         }
-        let Some(cfg) = ctx.config.ir.iter().find(|c| c.enabled).cloned() else {
+        let Some(client) = vibebms_ir::JsonIr::new(&ctx.config.ir_server) else {
             return;
         };
         let Some((_, song)) = self.selected_song(ctx) else {
@@ -584,26 +584,13 @@ impl SelectScene {
         let chart = vibebms_ir::ChartRef {
             md5: song.md5.clone(),
             sha256: song.sha256.clone(),
-            title: song.title.clone(),
-            artist: song.artist.clone(),
-            mode: song.mode.clone(),
             ln_type: format!("{:?}", ctx.config.play.ln_mode).to_uppercase(),
-            notes: song.notes as u32,
         };
         let (tx, rx) = channel();
         self.ranking.insert(song.sha256.clone(), Rank::Loading(rx));
-        let Some(client) = vibebms_ir::create_client(&cfg) else {
-            return;
-        };
-        match client.ranking_request(&chart) {
-            Ok(req) => crate::platform::ir_send(req, move |body| {
-                let r = body.and_then(|b| client.parse_ranking(&b).map_err(|e| e.to_string()));
-                let _ = tx.send(r);
-            }),
-            Err(e) => {
-                let _ = tx.send(Err(e.to_string()));
-            }
-        }
+        crate::platform::ir_send(client.ranking_request(&chart), move |body| {
+            let _ = tx.send(body.and_then(|b| vibebms_ir::JsonIr::parse_ranking(&b)));
+        });
     }
 
     fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {

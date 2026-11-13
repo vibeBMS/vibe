@@ -1,30 +1,19 @@
-//! Internet Ranking (IR) integration.
+//! Internet Ranking (IR): a small REST/JSON protocol (`docs/IR_PROTOCOL.md`)
+//! whose score payload mirrors beatoraja's `IRScoreData`.
 //!
-//! beatoraja loads IR implementations as Java plugins, which a native player
-//! cannot use. vibeBMS instead defines the [`IrClient`] trait and ships:
-//!
-//! * [`Lr2Ir`]: read-only rankings from LR2IR (`getrankingxml.cgi`).
-//! * [`JsonIr`]: a small documented REST/JSON protocol (see
-//!   `docs/IR_PROTOCOL.md`) whose payload mirrors beatoraja's
-//!   `IRScoreData`, so IR servers can add a vibeBMS endpoint easily.
-//!
-//! New IR services are added by implementing [`IrClient`] and registering
-//! them in [`create_client`].
+//! The client is HTTP-free: it builds [`HttpRequest`]s and parses response
+//! bodies; the application sends them with its own HTTP stack.
 
 use serde::{Deserialize, Serialize};
 use vibebms_core::score::{ClearType, Score};
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+/// The chart a request is about.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChartRef {
     pub md5: String,
     pub sha256: String,
-    pub title: String,
-    pub artist: String,
-    /// e.g. "7KEYS"
-    pub mode: String,
     /// "LN" / "CN" / "HCN"
     pub ln_type: String,
-    pub notes: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -112,30 +101,7 @@ impl ScoreSubmission {
     }
 }
 
-#[derive(Debug)]
-pub enum IrError {
-    Unsupported,
-    NotLoggedIn,
-    Http(String),
-    Format(String),
-}
-
-impl std::fmt::Display for IrError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IrError::Unsupported => write!(f, "not supported by this IR"),
-            IrError::NotLoggedIn => write!(f, "not logged in"),
-            IrError::Http(e) => write!(f, "network error: {e}"),
-            IrError::Format(e) => write!(f, "bad response: {e}"),
-        }
-    }
-}
-impl std::error::Error for IrError {}
-
-pub type IrResult<T> = Result<T, IrError>;
-
-/// An HTTP request an [`IrClient`] wants sent. The application performs it
-/// with its own HTTP stack (native or browser) and feeds the body back.
+/// An HTTP request for the application to send.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HttpRequest {
     pub method: &'static str,
@@ -144,81 +110,78 @@ pub struct HttpRequest {
     pub body: Vec<u8>,
 }
 
-impl HttpRequest {
-    fn get(url: String) -> Self {
-        HttpRequest {
-            method: "GET",
-            url,
-            headers: Vec::new(),
-            body: Vec::new(),
-        }
-    }
-}
-
-/// HTTP-free IR client: builds requests and parses responses.
-pub trait IrClient: Send + Sync {
-    fn name(&self) -> &str;
-    fn can_submit(&self) -> bool {
-        false
-    }
-    fn ranking_request(&self, chart: &ChartRef) -> IrResult<HttpRequest>;
-    fn parse_ranking(&self, body: &[u8]) -> IrResult<Vec<IrScore>>;
-    fn submit_request(&self, _score: &ScoreSubmission) -> IrResult<HttpRequest> {
-        Err(IrError::Unsupported)
-    }
-    fn login_request(&self, _user: &str, _password: &str) -> IrResult<HttpRequest> {
-        Err(IrError::Unsupported)
-    }
-    /// Returns the API token from a login response.
-    fn parse_login(&self, _body: &[u8]) -> IrResult<String> {
-        Err(IrError::Unsupported)
-    }
-    /// Web page for a chart, if the IR has one.
-    fn chart_url(&self, _chart: &ChartRef) -> Option<String> {
-        None
-    }
-}
-
-/// User-facing IR configuration (stored in the portable config file).
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// User-facing IR settings (stored in the config file).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct IrConfig {
     pub enabled: bool,
-    /// "lr2ir" or "json"
-    pub kind: String,
     pub name: String,
+    /// Base URL of the IR's API.
     pub url: String,
-    pub user: String,
-    /// API token for JSON IRs (obtained by logging in or from the IR site).
+    /// API token (from the IR's web site); needed to submit scores.
     pub token: String,
     pub auto_submit: bool,
 }
 
-impl Default for IrConfig {
-    fn default() -> Self {
-        IrConfig {
-            enabled: true,
-            kind: "lr2ir".into(),
-            name: "LR2IR".into(),
-            url: LR2IR_BASE.into(),
-            user: String::new(),
-            token: String::new(),
-            auto_submit: false,
+/// A JSON IR client.
+pub struct JsonIr {
+    base: String,
+    token: String,
+}
+
+impl JsonIr {
+    /// The client for a configuration, if it is enabled and has a URL.
+    pub fn new(cfg: &IrConfig) -> Option<JsonIr> {
+        (cfg.enabled && !cfg.url.trim().is_empty()).then(|| JsonIr {
+            base: cfg.url.trim().trim_end_matches('/').to_string(),
+            token: cfg.token.clone(),
+        })
+    }
+
+    fn req(&self, method: &'static str, path: String, body: Vec<u8>) -> HttpRequest {
+        let mut headers = vec![("Accept".to_string(), "application/json".to_string())];
+        if !body.is_empty() {
+            headers.push(("Content-Type".into(), "application/json".into()));
+        }
+        if !self.token.is_empty() {
+            headers.push(("Authorization".into(), format!("Bearer {}", self.token)));
+        }
+        HttpRequest {
+            method,
+            url: format!("{}{path}", self.base),
+            headers,
+            body,
         }
     }
+
+    pub fn ranking_request(&self, chart: &ChartRef) -> HttpRequest {
+        self.req(
+            "GET",
+            format!(
+                "/ranking?sha256={}&md5={}&lntype={}",
+                enc(&chart.sha256),
+                enc(&chart.md5),
+                enc(&chart.ln_type)
+            ),
+            Vec::new(),
+        )
+    }
+
+    pub fn parse_ranking(body: &[u8]) -> Result<Vec<IrScore>, String> {
+        serde_json::from_slice(body).map_err(|e| format!("bad response: {e}"))
+    }
+
+    /// The submission request (`Err` without an API token).
+    pub fn submit_request(&self, score: &ScoreSubmission) -> Result<HttpRequest, String> {
+        if self.token.is_empty() {
+            return Err("no API token".into());
+        }
+        let body = serde_json::to_vec(score).map_err(|e| e.to_string())?;
+        Ok(self.req("POST", "/scores".into(), body))
+    }
 }
 
-pub fn create_client(cfg: &IrConfig) -> Option<Box<dyn IrClient>> {
-    if !cfg.enabled {
-        return None;
-    }
-    match cfg.kind.as_str() {
-        "lr2ir" => Some(Box::new(Lr2Ir::new(&cfg.url))),
-        "json" => Some(Box::new(JsonIr::new(&cfg.name, &cfg.url, &cfg.token))),
-        _ => None,
-    }
-}
-
+/// Percent-encode a query value.
 fn enc(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
@@ -230,220 +193,24 @@ fn enc(s: &str) -> String {
         .collect()
 }
 
-// ---------------------------------------------------------------- LR2IR --
-
-pub const LR2IR_BASE: &str = "http://www.dream-pro.info/~lavalse/LR2IR";
-
-pub struct Lr2Ir {
-    base: String,
-}
-
-impl Lr2Ir {
-    pub fn new(base: &str) -> Self {
-        let base = if base.is_empty() { LR2IR_BASE } else { base };
-        Lr2Ir {
-            base: base.trim_end_matches('/').to_string(),
-        }
-    }
-}
-
-fn tag<'a>(s: &'a str, name: &str) -> Option<&'a str> {
-    let open = format!("<{name}>");
-    let close = format!("</{name}>");
-    let a = s.find(&open)? + open.len();
-    let b = s[a..].find(&close)? + a;
-    Some(s[a..b].trim())
-}
-
-/// LR2IR clear codes: 1 FAILED, 2 EASY, 3 CLEAR, 4 HARD, 5 FULL COMBO.
-fn lr2_clear(v: u32) -> ClearType {
-    match v {
-        1 => ClearType::Failed,
-        2 => ClearType::Easy,
-        3 => ClearType::Normal,
-        4 => ClearType::Hard,
-        5 => ClearType::FullCombo,
-        _ => ClearType::NoPlay,
-    }
-}
-
-pub fn parse_lr2ir_ranking(xml: &str) -> Vec<IrScore> {
-    let mut out = Vec::new();
-    for (i, block) in xml.split("<score>").skip(1).enumerate() {
-        let n = |t: &str| {
-            tag(block, t)
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(0)
-        };
-        let pg = n("pg");
-        let gr = n("gr");
-        out.push(IrScore {
-            rank: i as u32 + 1,
-            player: tag(block, "name").unwrap_or("").to_string(),
-            player_id: tag(block, "id").unwrap_or("").to_string(),
-            clear: lr2_clear(n("clear")),
-            ex_score: pg * 2 + gr,
-            pgreat: pg,
-            great: gr,
-            max_combo: n("combo"),
-            min_bp: n("minbp"),
-            notes: n("notes"),
-        });
-    }
-    out.sort_by_key(|s| std::cmp::Reverse(s.ex_score));
-    for (i, s) in out.iter_mut().enumerate() {
-        s.rank = i as u32 + 1;
-    }
-    out
-}
-
-impl IrClient for Lr2Ir {
-    fn name(&self) -> &str {
-        "LR2IR"
-    }
-
-    fn ranking_request(&self, chart: &ChartRef) -> IrResult<HttpRequest> {
-        if chart.md5.is_empty() {
-            return Err(IrError::Unsupported); // LR2IR is keyed by MD5 (no bmson)
-        }
-        Ok(HttpRequest::get(format!(
-            "{}/2/getrankingxml.cgi?id=1&songmd5={}&lastupdate=",
-            self.base, chart.md5
-        )))
-    }
-
-    fn parse_ranking(&self, body: &[u8]) -> IrResult<Vec<IrScore>> {
-        Ok(parse_lr2ir_ranking(&encoding_rs::SHIFT_JIS.decode(body).0))
-    }
-
-    fn chart_url(&self, chart: &ChartRef) -> Option<String> {
-        (!chart.md5.is_empty())
-            .then(|| format!("{}/search.cgi?mode=ranking&bmsmd5={}", self.base, chart.md5))
-    }
-}
-
-// ----------------------------------------------------------------- JSON --
-
-/// Generic JSON IR (see `docs/IR_PROTOCOL.md`).
-pub struct JsonIr {
-    name: String,
-    base: String,
-    token: String,
-}
-
-impl JsonIr {
-    pub fn new(name: &str, base: &str, token: &str) -> Self {
-        JsonIr {
-            name: name.to_string(),
-            base: base.trim_end_matches('/').to_string(),
-            token: token.to_string(),
-        }
-    }
-
-    fn req(&self, method: &'static str, path: String, body: Option<Vec<u8>>) -> HttpRequest {
-        let mut headers = vec![("Accept".to_string(), "application/json".to_string())];
-        if body.is_some() {
-            headers.push(("Content-Type".into(), "application/json".into()));
-        }
-        if !self.token.is_empty() {
-            headers.push(("Authorization".into(), format!("Bearer {}", self.token)));
-        }
-        HttpRequest {
-            method,
-            url: format!("{}{path}", self.base),
-            headers,
-            body: body.unwrap_or_default(),
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct LoginResponse {
-    token: String,
-}
-
-fn fmt_err(e: serde_json::Error) -> IrError {
-    IrError::Format(e.to_string())
-}
-
-impl IrClient for JsonIr {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn can_submit(&self) -> bool {
-        !self.token.is_empty()
-    }
-
-    fn ranking_request(&self, chart: &ChartRef) -> IrResult<HttpRequest> {
-        Ok(self.req(
-            "GET",
-            format!(
-                "/ranking?sha256={}&md5={}&lntype={}",
-                enc(&chart.sha256),
-                enc(&chart.md5),
-                enc(&chart.ln_type)
-            ),
-            None,
-        ))
-    }
-
-    fn parse_ranking(&self, body: &[u8]) -> IrResult<Vec<IrScore>> {
-        serde_json::from_slice(body).map_err(fmt_err)
-    }
-
-    fn submit_request(&self, score: &ScoreSubmission) -> IrResult<HttpRequest> {
-        if self.token.is_empty() {
-            return Err(IrError::NotLoggedIn);
-        }
-        Ok(self.req(
-            "POST",
-            "/scores".into(),
-            Some(serde_json::to_vec(score).map_err(fmt_err)?),
-        ))
-    }
-
-    fn login_request(&self, user: &str, password: &str) -> IrResult<HttpRequest> {
-        let body = serde_json::to_vec(&serde_json::json!({ "user": user, "password": password }))
-            .map_err(fmt_err)?;
-        Ok(self.req("POST", "/login".into(), Some(body)))
-    }
-
-    fn parse_login(&self, body: &[u8]) -> IrResult<String> {
-        Ok(serde_json::from_slice::<LoginResponse>(body)
-            .map_err(fmt_err)?
-            .token)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parses_lr2ir_xml() {
-        let xml = "#<?xml version=\"1.0\" encoding=\"shift_jis\"?><ranking>\
-            <score><name>alice</name><id>1</id><clear>4</clear><notes>500</notes><combo>300</combo><pg>400</pg><gr>80</gr><minbp>5</minbp></score>\
-            <score><name>bob</name><id>2</id><clear>5</clear><notes>500</notes><combo>500</combo><pg>450</pg><gr>50</gr><minbp>0</minbp></score>\
-            </ranking><lastupdate>x</lastupdate>";
-        let r = parse_lr2ir_ranking(xml);
-        assert_eq!(r.len(), 2);
-        assert_eq!(r[0].player, "bob");
-        assert_eq!(r[0].ex_score, 950);
-        assert_eq!(r[0].clear, ClearType::FullCombo);
-        assert_eq!(r[1].rank, 2);
-    }
-
-    #[test]
     fn json_ir_requests() {
-        let ir = JsonIr::new("x", "https://ir.example/api/", "tok");
-        let r = ir
-            .ranking_request(&ChartRef {
-                sha256: "ab".into(),
-                ln_type: "LN".into(),
-                ..Default::default()
-            })
-            .unwrap();
+        let cfg = IrConfig {
+            enabled: true,
+            url: "https://ir.example/api/".into(),
+            token: "tok".into(),
+            ..Default::default()
+        };
+        let ir = JsonIr::new(&cfg).unwrap();
+        let r = ir.ranking_request(&ChartRef {
+            sha256: "ab".into(),
+            ln_type: "LN".into(),
+            ..Default::default()
+        });
         assert_eq!(
             r.url,
             "https://ir.example/api/ranking?sha256=ab&md5=&lntype=LN"
@@ -452,7 +219,7 @@ mod tests {
             .headers
             .iter()
             .any(|(k, v)| k == "Authorization" && v == "Bearer tok"));
-        assert_eq!(ir.parse_login(br#"{"token":"t2"}"#).unwrap(), "t2");
+        assert!(JsonIr::new(&IrConfig::default()).is_none());
     }
 
     #[test]

@@ -1,13 +1,10 @@
 # vibeBMS JSON IR protocol
 
 A minimal REST protocol so that any IR server can accept vibeBMS scores. Configure it in
-`SETTINGS › IR` (kind `JSON`, base URL, API token). All bodies are UTF-8 JSON.
+`SETTINGS › IR` (base URL, API token). All bodies are UTF-8 JSON.
 
-Authentication: `Authorization: Bearer <token>` on every request once a token is known.
-
-## `POST {base}/login`
-Request `{"user": "...", "password": "..."}` → `{"token": "..."}`.
-(Servers may instead hand out tokens on their web site; the token can be pasted in settings.)
+Authentication: `Authorization: Bearer <token>` on every request when a token is set. Servers
+hand out tokens on their web site; the player pastes it in settings.
 
 ## `GET {base}/ranking?sha256=...&md5=...&lntype=LN|CN|HCN`
 Response: array of
@@ -29,9 +26,6 @@ Body (`ScoreSubmission` in `crates/vibebms-ir`), field names follow beatoraja's 
 ```
 `e*` = early (FAST), `l*` = late (SLOW); `ms` = empty POOR. Respond with any 2xx on success.
 
-## LR2IR
-The built-in LR2IR client only reads rankings from
-`{base}/2/getrankingxml.cgi?id=1&songmd5=<md5>` (no submission).
-
-## Adding another IR
-Implement `vibebms_ir::IrClient` and register it in `create_client` (`crates/vibebms-ir/src/lib.rs`).
+## Other IRs
+A service with its own API can be supported by putting a small server speaking this protocol in
+front of it; the client lives in `crates/vibebms-ir/src/lib.rs`.
