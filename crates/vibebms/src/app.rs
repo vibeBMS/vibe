@@ -145,6 +145,8 @@ pub struct Ctx {
     pub touch_seen: bool,
     pub width: f32,
     pub height: f32,
+    /// Device pixels per logical pixel (point).
+    pub scale: f32,
     pub library_version: u64,
     pub fps: f32,
     pub want_fullscreen: Option<bool>,
@@ -745,6 +747,7 @@ impl App {
             touch_seen: false,
             width: size.width as f32,
             height: size.height as f32,
+            scale: window.scale_factor() as f32,
             library_version: 0,
             fps: 0.0,
             want_fullscreen: None,
@@ -889,6 +892,7 @@ impl ApplicationHandler<UserEvent> for App {
                 r.gfx.resize(w, h);
                 r.ctx.width = w as f32;
                 r.ctx.height = h as f32;
+                r.ctx.scale = r.window.scale_factor() as f32;
             }
             WindowEvent::RedrawRequested => r.frame(el),
             WindowEvent::KeyboardInput { event, .. } => {

@@ -35,6 +35,10 @@ impl Zone {
     }
 }
 
+/// Millimetres per logical pixel the controls are sized for: a point on an
+/// iPad (264 ppi at 2x). Phones and most screens are denser or close.
+pub const MM_PER_POINT: f32 = 0.1924;
+
 /// The IIDX keypad in mm: key faces, the gap between neighbouring white
 /// keys, the gap between the white row and the blue row above it, and the
 /// turntable's distance to key 1.
@@ -60,6 +64,7 @@ pub fn layout(
     area: Rect,
     player: usize,
     scratch_right: bool,
+    px_per_mm: f32,
 ) -> Vec<Zone> {
     // width units of a key and of the scratch
     let lane_width = [1.0, 1.7];
@@ -107,9 +112,12 @@ pub fn layout(
             }
         }
         TouchStyle::Iidx => {
-            // the arcade keypad scaled to the controls' height (`u` px per
-            // mm): white keys below, the blue ones above over the gaps
-            let u = area.h / (ARCADE_KEY_H * 2.0 + ARCADE_ROW_GAP);
+            // the arcade keypad at its real width: white keys below, the
+            // blue ones above over the gaps (the rows share the controls'
+            // height, at most the real key height)
+            let u = px_per_mm;
+            let row_gap = (ARCADE_ROW_GAP * u).min(area.h * 0.15);
+            let kh = (ARCADE_KEY_H * u).min((area.h - row_gap) * 0.5);
             let whites = keys.div_ceil(2) as f32;
             let pitch = (ARCADE_KEY_W + ARCADE_KEY_GAP) * u;
             let keypad = whites * pitch - ARCADE_KEY_GAP * u;
@@ -155,12 +163,12 @@ pub fn layout(
                 keys_area.w / (whites - ARCADE_KEY_GAP / (ARCADE_KEY_W + ARCADE_KEY_GAP))
             };
             let kw = pitch * ARCADE_KEY_W / (ARCADE_KEY_W + ARCADE_KEY_GAP);
-            let kh = ARCADE_KEY_H * u;
             for k in 0..keys {
                 let black = k % 2 == 1;
                 let x =
                     keys_area.x + (k / 2) as f32 * pitch + if black { pitch * 0.5 } else { 0.0 };
-                let y = if black { area.y } else { area.bottom() - kh };
+                let top = area.y + (area.h - kh * 2.0 - row_gap) * 0.5;
+                let y = if black { top } else { top + kh + row_gap };
                 zones.push(Zone {
                     shape: Shape::Rect(Rect::new(x, y, kw, kh)),
                     lane: (base + k) as u8,
@@ -388,6 +396,7 @@ mod tests {
             Rect::new(0.0, 500.0, 800.0, 300.0),
             0,
             false,
+            4.0,
         );
         assert_eq!(z.len(), 8);
         let mut lanes: Vec<u8> = z.iter().map(|z| z.lane).collect();
@@ -400,6 +409,7 @@ mod tests {
             Rect::new(0.0, 0.0, 900.0, 100.0),
             0,
             false,
+            4.0,
         );
         assert_eq!(k.len(), 9);
     }
@@ -407,7 +417,7 @@ mod tests {
     #[test]
     fn wide_areas_keep_keys_together() {
         let area = Rect::new(0.0, 500.0, 2400.0, 240.0);
-        let z = layout(PlayMode::Beat7K, TouchStyle::Iidx, area, 0, false);
+        let z = layout(PlayMode::Beat7K, TouchStyle::Iidx, area, 0, false, 4.0);
         let xs: Vec<f32> = z
             .iter()
             .map(|z| match z.shape {
@@ -419,9 +429,9 @@ mod tests {
             Shape::Rect(r) => r.w,
             Shape::Circle { r, .. } => r * 2.0,
         };
-        // arcade proportions (29 x 46, two rows in a 102 high box), centred
+        // the real key width (29 mm at 4 px per mm), the set centred
         let key = z.iter().find(|z| !z.scratch).map(width_of).unwrap();
-        assert!((key - 240.0 * 29.0 / 102.0).abs() < 0.5, "{key}");
+        assert!((key - 29.0 * 4.0).abs() < 0.5, "{key}");
         let (left, right) = (
             xs.iter().cloned().fold(f32::MAX, f32::min),
             xs.iter().cloned().fold(0.0, f32::max),
@@ -437,6 +447,7 @@ mod tests {
             Rect::new(0.0, 0.0, 870.0, 200.0),
             0,
             false,
+            4.0,
         );
         let mut t = TouchInput::default();
         let now = Instant::now();

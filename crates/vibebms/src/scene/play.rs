@@ -576,6 +576,7 @@ impl PlayScene {
                 *area,
                 player,
                 *right,
+                ctx.scale / touch::MM_PER_POINT,
             ));
         }
     }
