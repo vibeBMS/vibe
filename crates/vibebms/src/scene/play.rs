@@ -69,6 +69,8 @@ struct Loaded {
     videos: Vec<Option<PathBuf>>,
     stagefile: Option<Rgba>,
     seed: i64,
+    /// Why the play is not the chart as written (it is then not recorded).
+    altered: Option<&'static str>,
 }
 
 enum Stage {
@@ -119,6 +121,8 @@ pub struct PlayScene {
     pub(crate) error: Option<String>,
     pub(crate) hud_rects: Vec<(Rect, usize)>,
     pub(crate) assist: bool,
+    /// Why this play is not recorded (`None`: it is).
+    unranked: Option<&'static str>,
     pub(crate) options_label: String,
     pub(crate) finished_at: Option<i64>,
     pub(crate) key_flash: Vec<Option<Instant>>,
@@ -171,8 +175,10 @@ impl PlayScene {
                 )
                 .map_err(|e| e.to_string())?;
                 // chart transforms (options)
+                let mut altered = None;
                 if play.battle && !chart.mode().is_double() {
                     lane_option::battle(&mut chart);
+                    altered = Some("BATTLE");
                 }
                 let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
                 let allowed = |o: LaneOption| {
@@ -199,7 +205,11 @@ impl PlayScene {
                     lane_option::legacy_note(&mut chart);
                 }
                 if play.no_mine {
+                    let n = chart.notes.len();
                     lane_option::remove_mines(&mut chart);
+                    if chart.notes.len() != n {
+                        altered = altered.or(Some("NO MINE"));
+                    }
                 }
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
@@ -234,6 +244,7 @@ impl PlayScene {
                     videos,
                     stagefile,
                     seed,
+                    altered,
                 }))
             })();
             let _ = tx.send(r);
@@ -279,6 +290,7 @@ impl PlayScene {
             error: None,
             hud_rects: Vec::new(),
             assist: false,
+            unranked: None,
             options_label: String::new(),
             finished_at: None,
             key_flash: Vec::new(),
@@ -340,11 +352,15 @@ impl PlayScene {
             videos,
             stagefile,
             seed,
+            altered,
         } = *l;
         self.seed = seed;
         self.mode = chart.mode();
         let p = &ctx.config.play;
         let course = self.req.course.as_ref();
+        self.unranked = altered
+            .or(p.custom_judge.map(|_| "CUSTOM JUDGE"))
+            .or(course.map(|_| "COURSE"));
         // LN mode: course constraints may force one
         if let Some(c) = course {
             if c.has("ln") {
@@ -626,6 +642,8 @@ impl PlayScene {
                 .map(|c| (c.time, c.bpm))
                 .collect(),
             autoplay: self.req.autoplay,
+            unranked: self.unranked,
+            assist: self.assist,
             options: self.options_label.clone(),
             judge: format!(
                 "{} / {}",

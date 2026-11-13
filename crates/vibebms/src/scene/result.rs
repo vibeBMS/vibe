@@ -44,6 +44,11 @@ pub struct ResultData {
     pub length_us: i64,
     pub bpm_log: Vec<(i64, f64)>,
     pub autoplay: bool,
+    /// Why the play is not recorded (options that change the chart or
+    /// the judge, a course stage).
+    pub unranked: Option<&'static str>,
+    /// Assist options were on (the lamp is ASSIST; scores are not sent).
+    pub assist: bool,
     pub options: String,
     pub judge: String,
     pub seed: i64,
@@ -82,14 +87,17 @@ impl ResultScene {
         let mut after = None;
         let mut ir_rx = None;
         let mut ir_status = String::new();
-        if !d.autoplay {
+        if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
+            ir_status = format!("{why}: not saved");
+        } else if !d.autoplay {
             if let Some(lib) = ctx.lib.as_mut() {
                 let b = lib.record_play(&song.sha256, ln, &d.score, d.clear);
                 ctx.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
             }
             let cfg = &ctx.config.ir_server;
-            if let Some(client) = vibebms_ir::JsonIr::new(cfg).filter(|_| cfg.auto_submit) {
+            let send = cfg.auto_submit && !d.assist;
+            if let Some(client) = vibebms_ir::JsonIr::new(cfg).filter(|_| send) {
                 let chart = vibebms_ir::ChartRef {
                     md5: song.md5.clone(),
                     sha256: song.sha256.clone(),

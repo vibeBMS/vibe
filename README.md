@@ -54,6 +54,7 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 - **게이지**: ASSIST EASY ~ HAZARD, 단위 게이지, GAUGE AUTO SHIFT.
 - **노트**: LN / CN / HCN, 백스핀 스크래치, 지뢰, 공POOR.
 - **옵션**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE, 어시스트, 플로팅/고정 하이스피드, SUDDEN+/HIDDEN+/LIFT.
+  BATTLE·지뢰 제거·커스텀 판정이나 코스 중 플레이는 곡 기록에 남지 않고, 어시스트 플레이는 IR로 보내지 않습니다.
 - **BGA**: 이미지 BGA(레이어, POOR), 동영상 BGA(데스크톱, 설치된 `ffmpeg` 사용 — `VIBEBMS_FFMPEG`로 경로 지정).
 - **단위/코스**, 클리어 램프, EX 스코어, FAST/SLOW, 게이지·타이밍 그래프.
 - **난이도표**: bmstable 형식. 발광/통상 난이도표, Satellite, Stella가 기본 등록되어 있습니다.
