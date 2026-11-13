@@ -160,6 +160,8 @@ pub struct Engine {
     failed: bool,
     /// (chart time, diff) of every PG..BAD judgement, for timing graphs.
     pub timing_log: Vec<(i64, i64)>,
+    /// Every judgement in order: (note time us, judge, sign of the error).
+    pub judge_log: Vec<(i64, u8, i8)>,
     /// Judgement in order of resolution (ghost data).
     pub ghost: Vec<u8>,
     last_time: i64,
@@ -239,6 +241,7 @@ impl Engine {
             queue: Vec::new(),
             failed: false,
             timing_log: Vec::new(),
+            judge_log: Vec::new(),
             ghost: Vec::new(),
             last_time,
         }
@@ -863,6 +866,8 @@ impl Engine {
         if judge < POOR {
             self.timing_log.push((time, diff));
         }
+        self.judge_log
+            .push((time, judge as u8, diff.signum() as i8));
         let keep = self.cfg.rules.combo[judge];
         if keep && judge < MISS {
             self.combo += 1;

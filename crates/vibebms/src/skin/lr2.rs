@@ -452,6 +452,8 @@ impl Loader<'_> {
                 }
             }
             "#SRC_BGA" => self.push(Kind::Bga),
+            "#SRC_GAUGECHART_1P" | "#SRC_GAUGECHART" => self.push(Kind::Graph(GraphKind::Gauge)),
+            "#SRC_SCORECHART" => self.push(Kind::Graph(GraphKind::Judge(1))),
             "#SRC_JUDGELINE" => {
                 self.cur = None;
                 if let Some(s) = src(&v, &self.sizes) {

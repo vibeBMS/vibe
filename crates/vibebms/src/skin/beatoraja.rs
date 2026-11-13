@@ -390,6 +390,24 @@ pub fn load(
                 dir: i(sl, "angle", 0) as i32,
                 range: i(sl, "range", 0) as f32,
             })
+        } else if let Some(set) = cx.find("imageset", &id) {
+            let srcs: Vec<Src> = arr(set.get("images"))
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .filter_map(|iid| cx.find("image", &iid).and_then(|im| cx.src(im)))
+                .collect();
+            (!srcs.is_empty()).then(|| Kind::ImageSet {
+                srcs,
+                id: i(set, "ref", 0) as i32,
+            })
+        } else if cx.find("gaugegraph", &id).is_some() {
+            Some(Kind::Graph(GraphKind::Gauge))
+        } else if let Some(g) = cx.find("judgegraph", &id) {
+            Some(Kind::Graph(GraphKind::Judge(i(g, "type", 0) as i32)))
+        } else if cx.find("bpmgraph", &id).is_some() {
+            Some(Kind::Graph(GraphKind::Bpm))
+        } else if cx.find("timingdistributiongraph", &id).is_some() {
+            Some(Kind::Graph(GraphKind::TimingDistribution))
         } else if let Some(g) = cx.find("graph", &id) {
             cx.src(g).map(|src| Kind::Bar {
                 src,
@@ -617,6 +635,24 @@ mod lua {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_result_skin_loads() {
+        let path = crate::scene::skinned::default_skin(SkinType::Result, false).unwrap();
+        let sk = load(&path, &HashMap::new(), &crate::skin::image_size).unwrap();
+        assert_eq!(sk.kind, SkinType::Result);
+        assert!(sk.images.iter().all(Option::is_some));
+        let graphs = sk
+            .objects
+            .iter()
+            .filter(|o| matches!(o.kind, Kind::Graph(_)))
+            .count();
+        assert_eq!(graphs, 3);
+        assert!(sk
+            .objects
+            .iter()
+            .any(|o| matches!(&o.kind, Kind::ImageSet { srcs, id: 370 } if srcs.len() == 11)));
+    }
 
     #[test]
     fn builtin_default_skins_load() {

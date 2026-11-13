@@ -726,6 +726,16 @@ impl PlayScene {
             gauge_value: gauge.value(),
             gauge_log: self.gauge_log.clone(),
             timing_log: e.timing_log.clone(),
+            judge_log: e.judge_log.clone(),
+            meta: self.chart.meta.clone(),
+            length_us: self.chart.length(),
+            bpm_log: self
+                .chart
+                .timing
+                .bpm_changes()
+                .into_iter()
+                .map(|c| (c.time, c.bpm))
+                .collect(),
             autoplay: self.req.autoplay,
             options: self.options_label.clone(),
             judge: format!(

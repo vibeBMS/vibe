@@ -523,12 +523,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ];
             // default (data skin) / classic (drawn in code) / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
-            const MODES: [(&str, Adjust); 5] = [
+            const MODES: [(&str, Adjust); 7] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
                 ("5KEYS", |c, d| cycle_skin(c, d, "5KEYS")),
                 ("14KEYS", |c, d| cycle_skin(c, d, "14KEYS")),
                 ("10KEYS", |c, d| cycle_skin(c, d, "10KEYS")),
                 ("9KEYS", |c, d| cycle_skin(c, d, "9KEYS")),
+                ("SELECT", |c, d| cycle_skin(c, d, "SELECT")),
+                ("RESULT", |c, d| cycle_skin(c, d, "RESULT")),
             ];
             for (m, f) in MODES {
                 let cur = match c.skins.get(m).map(String::as_str).unwrap_or("") {
@@ -536,7 +538,12 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     super::play_skin::CLASSIC => "CLASSIC".into(),
                     p => skin_label(p),
                 };
-                v.push(it(format!("Play skin ({m})"), cur, f));
+                let label = if m.ends_with("KEYS") {
+                    format!("Play skin ({m})")
+                } else {
+                    format!("{}{} skin", &m[..1], m[1..].to_lowercase())
+                };
+                v.push(it(label, cur, f));
             }
             v
         }
@@ -1355,7 +1362,12 @@ fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
         .iter()
         .copied()
         .find(|m| m.label() == mode)
-        .map(super::play_skin::skin_type);
+        .map(super::play_skin::skin_type)
+        .or_else(|| {
+            [crate::skin::SkinType::Select, crate::skin::SkinType::Result]
+                .into_iter()
+                .find(|t| t.config_key() == Some(mode))
+        });
     let mut opts: Vec<String> = vec![String::new(), super::play_skin::CLASSIC.into()];
     for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
         if Some(t) == want {

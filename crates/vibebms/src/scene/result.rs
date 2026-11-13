@@ -8,6 +8,10 @@ use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
+use crate::scene::result_skin::{ResultHooks, ResultState};
+use crate::scene::skinned;
+use crate::skin::render::LoadedSkin;
+use crate::skin::SkinType;
 use crate::theme::Theme;
 use crate::ui;
 use std::sync::mpsc::{channel, Receiver};
@@ -32,6 +36,11 @@ pub struct ResultData {
     pub gauge_value: f32,
     pub gauge_log: Vec<f32>,
     pub timing_log: Vec<(i64, i64)>,
+    pub judge_log: Vec<(i64, u8, i8)>,
+    pub meta: vibebms_core::chart::ChartMeta,
+    /// Chart length (us) and BPM changes (time us, bpm) for the graphs.
+    pub length_us: i64,
+    pub bpm_log: Vec<(i64, f64)>,
     pub autoplay: bool,
     pub options: String,
     pub judge: String,
@@ -40,13 +49,24 @@ pub struct ResultData {
 }
 
 pub struct ResultScene {
-    d: ResultData,
-    before: Option<BestScore>,
-    after: Option<BestScore>,
+    pub(crate) d: ResultData,
+    pub(crate) before: Option<BestScore>,
+    pub(crate) after: Option<BestScore>,
     ir_rx: Option<Receiver<String>>,
     ir_status: String,
-    created: Instant,
+    pub(crate) created: Instant,
     buttons: Vec<(Rect, usize)>,
+    pub(crate) skin: Option<LoadedSkin>,
+    skin_tried: bool,
+    /// Leaving (skin fade-out running): when it started and what follows.
+    pub(crate) leaving: Option<Instant>,
+    leave_to: Option<Leave>,
+}
+
+#[derive(Clone, Copy)]
+enum Leave {
+    Proceed,
+    Retry,
 }
 
 impl ResultScene {
@@ -120,6 +140,34 @@ impl ResultScene {
             ir_status,
             created: Instant::now(),
             buttons: Vec::new(),
+            skin: None,
+            skin_tried: false,
+            leaving: None,
+            leave_to: None,
+        }
+    }
+
+    /// Start leaving: with a skin, its fade-out runs first.
+    fn leave(&mut self, ctx: &mut Ctx, to: Leave) -> Next {
+        if self.created.elapsed() < Duration::from_millis(500) || self.leaving.is_some() {
+            return Next::Stay;
+        }
+        if matches!(to, Leave::Retry) && self.d.course.is_some() {
+            return Next::Stay;
+        }
+        let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
+        if fade > 0 {
+            self.leaving = Some(Instant::now());
+            self.leave_to = Some(to);
+            return Next::Stay;
+        }
+        self.go(ctx, to)
+    }
+
+    fn go(&mut self, ctx: &mut Ctx, to: Leave) -> Next {
+        match to {
+            Leave::Proceed => self.proceed(ctx),
+            Leave::Retry => self.retry(ctx),
         }
     }
 
@@ -128,9 +176,6 @@ impl ResultScene {
     }
 
     fn proceed(&mut self, ctx: &mut Ctx) -> Next {
-        if self.created.elapsed() < Duration::from_millis(500) {
-            return Next::Stay;
-        }
         if self.next_stage() {
             let mut c = self.d.course.clone().unwrap();
             c.index += 1;
@@ -156,14 +201,46 @@ impl ResultScene {
 }
 
 impl Scene for ResultScene {
-    fn update(&mut self, _ctx: &mut Ctx, _gfx: &mut Gfx, _now: Instant) -> Next {
+    fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if let Some(rx) = &self.ir_rx {
             if let Ok(m) = rx.try_recv() {
                 self.ir_status = m;
                 self.ir_rx = None;
             }
         }
+        if !self.skin_tried {
+            self.skin_tried = true;
+            let kind = if self.d.course.is_some() && !self.next_stage() {
+                SkinType::CourseResult
+            } else {
+                SkinType::Result
+            };
+            let skin = {
+                let st = ResultState { s: self, ctx, now };
+                let stat = |id: i32| st.static_option(id);
+                skinned::load(ctx, gfx, kind, &stat)
+            };
+            self.skin = skin;
+        }
+        if let (Some(t), Some(to)) = (self.leaving, self.leave_to) {
+            let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
+            if now.duration_since(t).as_millis() as i64 >= fade {
+                self.leave_to = None;
+                return self.go(ctx, to);
+            }
+        }
         Next::Stay
+    }
+
+    fn exit(&mut self, _ctx: &mut Ctx, gfx: &mut Gfx) {
+        if let Some(mut s) = self.skin.take() {
+            s.free(gfx);
+        }
+    }
+
+    fn realtime(&self) -> bool {
+        // skin animations need every frame
+        self.skin.is_some()
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
@@ -175,10 +252,10 @@ impl Scene for ResultScene {
                 ..
             } => {
                 if matches!(code, KeyCode::KeyR | KeyCode::F5) {
-                    return self.retry(ctx);
+                    return self.leave(ctx, Leave::Retry);
                 }
                 match nav_from_key(*code, &ctx.config.keys) {
-                    Some(Nav::Decide) | Some(Nav::Back) => return self.proceed(ctx),
+                    Some(Nav::Decide) | Some(Nav::Back) => return self.leave(ctx, Leave::Proceed),
                     _ => {}
                 }
             }
@@ -186,7 +263,7 @@ impl Scene for ResultScene {
                 id, pressed: true, ..
             } => {
                 if let Some(Nav::Decide | Nav::Back) = nav_from_pad(*id, &ctx.config.keys) {
-                    return self.proceed(ctx);
+                    return self.leave(ctx, Leave::Proceed);
                 }
             }
             InputEv::Pointer {
@@ -195,16 +272,40 @@ impl Scene for ResultScene {
                 y,
                 ..
             } => match ui::hit(&self.buttons, *x, *y) {
-                Some(0) => return self.proceed(ctx),
-                Some(1) => return self.retry(ctx),
-                _ => {}
+                Some(1) => return self.leave(ctx, Leave::Retry),
+                Some(_) => return self.leave(ctx, Leave::Proceed),
+                // a skinned screen continues on a tap anywhere
+                None if self.skin.is_some() => return self.leave(ctx, Leave::Proceed),
+                None => {}
             },
             _ => {}
         }
         Next::Stay
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
+    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        if self.skin.is_some() {
+            self.buttons.clear();
+            let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+            let st = ResultState { s: self, ctx, now };
+            let mut hooks = ResultHooks { st: &st };
+            let ms = now.saturating_duration_since(self.created).as_millis() as i64;
+            if let Some(sk) = self.skin.as_ref() {
+                sk.draw(d, view, ms, &st, &mut hooks);
+            }
+            if !self.ir_status.is_empty() {
+                let ui = ctx.ui();
+                d.text(
+                    &self.ir_status,
+                    12.0 * ui,
+                    ctx.height - 26.0 * ui,
+                    14.0 * ui,
+                    ctx.theme.accent,
+                    Align::Left,
+                );
+            }
+            return;
+        }
         let ui = ctx.ui();
         let th = ctx.theme.clone();
         let (w, h) = (ctx.width, ctx.height);

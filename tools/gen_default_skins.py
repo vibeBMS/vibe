@@ -446,6 +446,39 @@ def build_parts(fonts):
     a.add("gauge_dot", dot)
     a.add("pct", text_img(fonts, "%", "bold", 16, *gauge_c, stroke=1, pad=1))
     a.add("n_green", digit_strip(fonts, 14, 22, "bold", 19, (200, 255, 200), (70, 220, 120), stroke=1))
+    # result screen: clear lamps (beatoraja clear type order), DJ ranks, badges
+    lamps = [
+        ("NO PLAY", (200, 205, 215), (120, 125, 140)),
+        ("FAILED", (255, 170, 170), (200, 50, 70)),
+        ("ASSIST CLEAR", (235, 210, 255), (170, 110, 255)),
+        ("L-ASSIST CLEAR", (235, 210, 255), (170, 110, 255)),
+        ("EASY CLEAR", (200, 255, 210), (60, 210, 110)),
+        ("CLEAR", (200, 235, 255), (60, 160, 255)),
+        ("HARD CLEAR", (255, 220, 220), (255, 70, 90)),
+        ("EX-HARD CLEAR", (255, 250, 200), (255, 200, 40)),
+        ("FULL COMBO", (220, 255, 250), (45, 226, 199)),
+        ("PERFECT", (255, 255, 255), (255, 150, 225)),
+        ("MAX", (255, 255, 255), (255, 230, 150)),
+    ]
+    imgs = [text_img(fonts, t, "black_it", 46, a_, b_, (0, 0, 0), 3) for t, a_, b_ in lamps]
+    lw, lh = max(i.size[0] for i in imgs), max(i.size[1] for i in imgs)
+    for k, im in enumerate(imgs):
+        c = Image.new("RGBA", (lw, lh))
+        c.paste(im, (0, (lh - im.size[1]) // 2))
+        a.add(f"lamp{k}", c)
+    ranks = ["AAA", "AA", "A", "B", "C", "D", "E", "F"]
+    rimgs = [text_img(fonts, r_, "black_it", 84, (255, 250, 220), (255, 190, 60), (40, 20, 0), 4,
+                      AMBER) for r_ in ranks]
+    rw, rh = max(i.size[0] for i in rimgs), max(i.size[1] for i in rimgs)
+    for k, im in enumerate(rimgs):
+        c = Image.new("RGBA", (rw, rh))
+        c.paste(im, (rw - im.size[0], (rh - im.size[1]) // 2))
+        a.add(f"rank{k}", c)
+    a.add("newrec", text_img(fonts, "NEW RECORD", "black_it", 18, (255, 255, 255), PINK, (60, 0, 40), 2))
+    a.add("autotag", text_img(fonts, "AUTOPLAY - NOT SAVED", "bold", 14, AMBER, AMBER, (40, 30, 0), 1))
+    for name, label in (("gt_normal", "NORMAL"), ("gt_hard", "HARD"), ("gt_hazard", "HAZARD"),
+                        ("gt_easy", "EASY"), ("gt_aeasy", "ASSIST EASY"), ("gt_exhard", "EX-HARD")):
+        a.add(name, text_img(fonts, label, "bold", 13, TEXT, DIM, (0, 0, 0), 1, pad=2))
     return a
 
 
@@ -1222,6 +1255,118 @@ def port_sp(fonts, parts, mode, side):
     return sk, img
 
 
+# --- result screen ------------------------------------------------------------
+def graph_obj(sk, kind, gid, extra=None):
+    lst = sk.j.setdefault(kind, [])
+    if gid not in sk._ids:
+        sk._ids.add(gid)
+        d = {"id": gid}
+        d.update(extra or {})
+        lst.append(d)
+    return gid
+
+
+def fade_in(t0, x, y, w, h, dy=12, dur=250, **kw):
+    """Keyframes: slide up and fade in starting at t0 ms."""
+    return [
+        (x, y + dy, w, h, dict(time=0, a=0, **kw)),
+        (x, y + dy, w, h, dict(time=t0, a=0, **kw)),
+        (x, y, w, h, dict(time=t0 + dur, a=255, **kw)),
+    ]
+
+
+def result_compare(sk, img, f, x, y, w, h):
+    """NOW / BEST / DIFF table for EX score, rate, max combo and miss count."""
+    panel(img, (x, y, w, h), "SCORE", f)
+    c_now, c_best, c_diff = x + w * 55 // 100, x + w * 76 // 100, x + w - 14
+    for cx, label in ((c_now, "NOW"), (c_best, "BEST"), (c_diff, "DIFF")):
+        draw_label(img, f, cx, y + 8, label, 11, anchor="ra")
+    rows = [y + 30 + i * ((h - 38) // 4) for i in range(4)]
+    names = ["EX SCORE", "RATE", "MAX COMBO", "MISS COUNT"]
+    for ry, n in zip(rows, names):
+        draw_label(img, f, x + 14, ry + 10, n, 13, TEXT)
+    sw = sk.num("n_signed", 152, 6)[1]
+    mw = sk.num("n_mid", 75, 5)[1]
+    bw, bh = sk.num("n_big", 71, 5)[1:]
+    sk.number("n_big", 71, 5, c_now - bw * 5, rows[0] - 4)
+    sk.number("n_mid", 150, 5, c_best - mw * 5, rows[0] + 2, color=DIM)
+    sk.number("n_signed", 152, 6, c_diff - sw * 6, rows[0] + 6)
+    w_, h_ = sk.parts.items["newrec"][2:]
+    sk.put(sk.img("newrec"), 0, 0, 0, 0, op=[330, 61], keys=[
+        (x + 110, rows[0] + 28, w_, h_, dict(time=0, a=0)),
+        (x + 110, rows[0] + 28, w_, h_, dict(time=1000, a=0)),
+        (x + 110, rows[0] + 28, w_, h_, dict(time=1200, a=255)),
+        (x + 110, rows[0] + 28, w_, h_, dict(time=1700, a=255)),
+        (x + 110, rows[0] + 28, w_, h_, dict(time=1900, a=120)),
+    ], loop=1200)
+    rate_number(sk, img, f, c_now, rows[1])
+    sk.number("n_small", 183, 3, c_best - 14 * 5 - 6, rows[1] + 5, color=DIM)
+    sk.put(sk.img("white"), c_best - 14 * 2 - 5, rows[1] + 20, 3, 3, r=128, g=140, b=170)
+    sk.number("n_small", 184, 2, c_best - 14 * 2, rows[1] + 5, zeropad=True, color=DIM)
+    for ry, now, best, diff in ((rows[2], 75, 173, 175), (rows[3], 76, 176, 178)):
+        sk.number("n_mid", now, 5, c_now - mw * 5, ry)
+        sk.number("n_mid", best, 5, c_best - mw * 5, ry, color=DIM)
+        sk.number("n_signed", diff, 6, c_diff - sw * 6, ry + 4)
+
+
+def result_layout(fonts, parts):
+    W, H = 1280, 720
+    sk = Skin(7, "vibeBMS Default Result", W, H, parts)
+    sk.j.update({"input": 500, "fadeout": 400, "scene": 3600000})
+    sk.source("bg", "bg_result.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
+    img = background(W, H)
+    f = fonts
+    # left: title, clear lamp + rank, score comparison, judge table
+    header(sk, img, f, 16, 16, 616, 86)
+    panel(img, (16, 110, 616, 118), "RESULT", f)
+    lw, lh = parts.items["lamp0"][2:]
+    graph_obj(sk, "imageset", "clear", {"ref": 370, "images": [sk.img(f"lamp{k}") for k in range(11)]})
+    sk.put("clear", 0, 0, 0, 0, keys=[
+        (32 - 30, 148, lw, lh, dict(time=0, a=0)),
+        (32 - 30, 148, lw, lh, dict(time=150, a=0)),
+        (32, 148, lw, lh, dict(time=450, a=255)),
+    ])
+    rw, rh = parts.items["rank0"][2:]
+    for k in range(8):
+        sk.put(sk.img(f"rank{k}"), 0, 0, 0, 0, op=[300 + k], keys=fade_in(500, 616 - 16 - rw, 118, rw, rh))
+    w_, h_ = parts.items["autotag"][2:]
+    sk.put(sk.img("autotag"), 32, 200, w_, h_, op=[33])
+    result_compare(sk, img, f, 16, 236, 616, 190)
+    judge_panel(sk, img, f, 16, 434, 616, 226)
+    # right: gauge, judge timeline, timing distribution
+    panel(img, (648, 16, 616, 260), "GROOVE GAUGE", f)
+    for key, op, x in (("gt_normal", 118, 0), ("gt_hard", 119, 0), ("gt_hazard", 120, 0),
+                       ("gt_easy", 121, 0), ("gt_aeasy", 124, 0), ("gt_exhard", 125, 0)):
+        gw_, gh_ = parts.items[key][2:]
+        sk.put(sk.img(key), 760, 22, gw_, gh_, op=[op])
+    gauge_number(sk, 1264 - 14 - gauge_number_width(sk), 22)
+    ImageDraw.Draw(img).rectangle((662, 56, 1250, 262), fill=(6, 7, 11, 255))
+    sk.put(graph_obj(sk, "gaugegraph", "gaugegraph"), 664, 58, 584, 202)
+    panel(img, (648, 284, 616, 176), "JUDGE TIMELINE", f)
+    for k, (name, col) in enumerate((("PG", (111, 227, 255)), ("GR", (255, 211, 74)),
+                                     ("GD", (95, 220, 138)), ("BD", (181, 140, 255)),
+                                     ("PR", (255, 90, 110)))):
+        draw_label(img, f, 1000 + k * 50, 291, name, 11, col, "bold")
+    ImageDraw.Draw(img).rectangle((662, 310, 1250, 448), fill=(6, 7, 11, 255))
+    sk.put(graph_obj(sk, "judgegraph", "judgegraph", {"type": 1}), 664, 312, 584, 134)
+    panel(img, (648, 468, 616, 192), "TIMING  (FAST \u2190  \u2192 SLOW)", f)
+    ImageDraw.Draw(img).rectangle((662, 494, 1250, 648), fill=(6, 7, 11, 255))
+    sk.put(graph_obj(sk, "timingdistributiongraph", "timing"), 664, 496, 584, 150)
+    # bottom strip: chart facts and the way out
+    panel(img, (16, 668, 1248, 40))
+    draw_label(img, f, 30, 688, "LEVEL", 12, anchor="lm")
+    sk.number("n_green", 96, 2, 80, 677, color=TEXT)
+    draw_label(img, f, 130, 688, "NOTES", 12, anchor="lm")
+    sk.number("n_small", 74, 5, 180, 678)
+    draw_label(img, f, 270, 688, "BPM", 12, anchor="lm")
+    sk.number("n_small", 91, 3, 306, 678, color=(130, 190, 255))
+    draw_label(img, f, 352, 688, "-", 12, TEXT, anchor="lm")
+    sk.number("n_small", 90, 3, 362, 678, color=(255, 130, 180))
+    draw_label(img, f, 1250, 688, "START / TAP: CONTINUE    R: RETRY", 12, DIM, anchor="rm")
+    return sk, img
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fonts", help="directory with Inter Display/Inter OTF faces")
@@ -1251,6 +1396,7 @@ def main():
                  f"play{mode}_portrait{'_2p' if side else ''}.json", "bg_port.png")
     emit(*land_dp(fonts, parts, "7"), "play14.json", "bg_land_dp.png")
     emit(*land_dp(fonts, parts, "5"), "play10.json", "bg_land_dp.png")
+    emit(*result_layout(fonts, parts), "result.json", "bg_result.png")
     for name, img in bgs.items():
         img.convert("RGB").quantize(128).convert("RGB").save(OUT / name, optimize=True)
     total = sum(p.stat().st_size for p in OUT.iterdir())

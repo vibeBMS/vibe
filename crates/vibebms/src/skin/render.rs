@@ -40,16 +40,34 @@ impl Xf {
     }
 }
 
-/// Scene-specific pieces the generic renderer cannot draw itself.
+/// Scene-specific pieces the generic renderer cannot draw itself. Every
+/// method has a no-op default so a scene implements only what it shows.
+#[allow(unused_variables)]
 pub trait Hooks {
-    fn notes(&mut self, d: &mut Draw, skin: &LoadedSkin, xf: &Xf, now: i64, st: &dyn SkinState);
-    fn bga(&mut self, d: &mut Draw, rect: Rect);
-    fn ref_image(&self, id: i32) -> Option<TexId>;
-    /// (value 0..100, border, survival gauge)
+    fn notes(&mut self, d: &mut Draw, skin: &LoadedSkin, xf: &Xf, now: i64, st: &dyn SkinState) {}
+    fn bga(&mut self, d: &mut Draw, rect: Rect) {}
+    fn ref_image(&self, id: i32) -> Option<TexId> {
+        None
+    }
     /// (value, border, survival, gauge type in beatoraja order).
-    fn gauge(&self) -> (f32, f32, bool, usize);
+    fn gauge(&self) -> (f32, f32, bool, usize) {
+        (0.0, 80.0, false, 2)
+    }
     /// Current judgement for a side: (judge 0..5, combo).
-    fn judge(&self, side: usize) -> Option<(usize, u32)>;
+    fn judge(&self, side: usize) -> Option<(usize, u32)> {
+        None
+    }
+    fn graph(&mut self, d: &mut Draw, kind: GraphKind, rect: Rect, color: [f32; 4]) {}
+    /// The music select bar list.
+    fn song_list(
+        &mut self,
+        d: &mut Draw,
+        skin: &LoadedSkin,
+        xf: &Xf,
+        now: i64,
+        st: &dyn SkinState,
+    ) {
+    }
 }
 
 impl LoadedSkin {
@@ -189,6 +207,10 @@ impl LoadedSkin {
                     self.draw_judge(d, &xf, *side, now, st, hooks);
                     continue;
                 }
+                Kind::SongList => {
+                    hooks.song_list(d, self, &xf, now, st);
+                    continue;
+                }
                 _ => {}
             }
             let Some(fr) = o.dst.eval(now, st) else {
@@ -317,7 +339,14 @@ impl LoadedSkin {
                     }
                 }
                 Kind::Bga => hooks.bga(d, r),
-                Kind::Notes | Kind::Judge { .. } => {}
+                Kind::ImageSet { srcs, id } => {
+                    let i = st.number(*id).unwrap_or(0).max(0) as usize;
+                    if let Some(src) = srcs.get(i) {
+                        self.blit(d, src, now, st, r, &fr);
+                    }
+                }
+                Kind::Graph(g) => hooks.graph(d, *g, r, fr.color),
+                Kind::Notes | Kind::Judge { .. } | Kind::SongList => {}
             }
         }
     }

@@ -1,4 +1,5 @@
-//! Skin support (LR2 `.lr2skin` / CSV play skins).
+//! Skin support (LR2 `.lr2skin` / CSV and beatoraja JSON / Lua skins) for the
+//! play, music select and result screens.
 //!
 //! The loader ([`lr2`]) turns a skin into a renderer-independent model; this
 //! module evaluates the keyframe animations against a [`SkinState`] provided
@@ -12,6 +13,36 @@ pub mod render;
 
 use crate::gfx::Rect;
 use std::path::PathBuf;
+
+/// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
+pub fn load_file(
+    path: &std::path::Path,
+    skins_root: &std::path::Path,
+    user_options: &std::collections::HashMap<i32, bool>,
+    static_option: &dyn Fn(i32) -> Option<bool>,
+    image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
+) -> Result<Skin, String> {
+    let is_lr2 = path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("lr2skin") || e.eq_ignore_ascii_case("csv"))
+        .unwrap_or(false);
+    if is_lr2 {
+        lr2::load(path, skins_root, user_options, static_option, image_size)
+    } else {
+        beatoraja::load(path, user_options, image_size)
+    }
+}
+
+/// Pixel size of an image file (through the VFS).
+pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
+    crate::platform::vfs::read(p).ok().and_then(|b| {
+        image::ImageReader::new(std::io::Cursor::new(b))
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()
+    })
+}
 
 /// (type, name) of any supported skin file.
 pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
@@ -202,6 +233,15 @@ pub enum Kind {
         split: bool,
     },
     Bga,
+    /// One of several images chosen by a skin number (beatoraja `imageset`).
+    ImageSet {
+        srcs: Vec<Src>,
+        id: i32,
+    },
+    /// A graph drawn by the scene (result gauge / judge / timing graphs ...).
+    Graph(GraphKind),
+    /// The music select bar list.
+    SongList,
     /// The note field (lanes from `#DST_NOTE`).
     Notes,
     JudgeLine(Src),
@@ -215,6 +255,18 @@ pub enum Kind {
 pub struct Obj {
     pub kind: Kind,
     pub dst: Dst,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphKind {
+    /// Gauge over the course of the play (result).
+    Gauge,
+    /// beatoraja `judgegraph` type: 0 note density, 1 judgements, 2 early/late.
+    Judge(i32),
+    /// BPM over the chart.
+    Bpm,
+    /// Distribution of timing errors.
+    TimingDistribution,
 }
 
 /// Per-judgement image + combo number of a `NOWJUDGE` group.
@@ -244,6 +296,10 @@ pub enum SkinType {
     Play14,
     Play10,
     Play9,
+    Select,
+    Decide,
+    Result,
+    CourseResult,
     Other(i32),
 }
 
@@ -255,6 +311,10 @@ impl SkinType {
             2 => SkinType::Play14,
             3 => SkinType::Play10,
             4 => SkinType::Play9,
+            5 => SkinType::Select,
+            6 => SkinType::Decide,
+            7 => SkinType::Result,
+            15 => SkinType::CourseResult,
             n => SkinType::Other(n),
         }
     }
@@ -267,7 +327,18 @@ impl SkinType {
             SkinType::Play14 => Beat14K,
             SkinType::Play10 => Beat10K,
             SkinType::Play9 => Popn9K,
-            SkinType::Other(_) => return None,
+            _ => return None,
+        })
+    }
+
+    /// Key of non-play skins in `config.skins` (play skins use the mode label).
+    pub fn config_key(self) -> Option<&'static str> {
+        Some(match self {
+            SkinType::Select => "SELECT",
+            SkinType::Decide => "DECIDE",
+            SkinType::Result => "RESULT",
+            SkinType::CourseResult => "COURSE_RESULT",
+            _ => return None,
         })
     }
 }

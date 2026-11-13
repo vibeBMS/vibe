@@ -90,25 +90,13 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
         now: Instant::now(),
     };
     let stat = |id: i32| st.static_option(id);
-    let size = |p: &std::path::Path| {
-        crate::platform::vfs::read(p).ok().and_then(|b| {
-            image::ImageReader::new(std::io::Cursor::new(b))
-                .with_guessed_format()
-                .ok()?
-                .into_dimensions()
-                .ok()
-        })
-    };
-    let is_lr2 = path
-        .extension()
-        .map(|e| e.eq_ignore_ascii_case("lr2skin"))
-        .unwrap_or(false);
-    let opts = HashMap::new();
-    let loaded = if is_lr2 {
-        crate::skin::lr2::load(&path, &ctx.paths.skins, &opts, &stat, &size)
-    } else {
-        crate::skin::beatoraja::load(&path, &opts, &size)
-    };
+    let loaded = crate::skin::load_file(
+        &path,
+        &ctx.paths.skins,
+        &HashMap::new(),
+        &stat,
+        &crate::skin::image_size,
+    );
     match loaded {
         Ok(skin) if skin.kind == skin_type(scene.mode()) => Some(LoadedSkin::load(skin, gfx)),
         Ok(_) => {
