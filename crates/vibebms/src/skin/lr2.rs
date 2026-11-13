@@ -636,21 +636,48 @@ pub fn header(path: &Path) -> Option<(SkinType, String)> {
         })
 }
 
-/// All `.lr2skin` files below `dir`.
+/// Resolve a `*` wildcard in the file name to the first matching file.
+pub fn glob_path(p: &Path) -> PathBuf {
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Some((pre, post)) = name.split_once('*') else {
+        return p.to_path_buf();
+    };
+    let (pre, post) = (pre.to_lowercase(), post.to_lowercase());
+    let dir = p.parent().unwrap_or(Path::new(""));
+    let mut c: Vec<PathBuf> = vfs::read_dir(dir)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.path)
+        .filter(|c| {
+            let n = c
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            n.starts_with(&pre) && n.ends_with(&post) && n.len() >= pre.len() + post.len()
+        })
+        .collect();
+    c.sort();
+    c.into_iter().next().unwrap_or_else(|| p.to_path_buf())
+}
+
+/// Play skins below `dir`: LR2 (`.lr2skin`) and beatoraja (`.json`, `.luaskin`).
 pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if depth > 4 {
             return;
         }
         for e in vfs::read_dir(d).unwrap_or_default() {
-            if e.is_dir {
-                walk(&e.path, depth + 1, out);
-            } else if e
+            let ext = e
                 .path
                 .extension()
-                .map(|x| x.eq_ignore_ascii_case("lr2skin"))
-                .unwrap_or(false)
-            {
+                .map(|x| x.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if e.is_dir {
+                walk(&e.path, depth + 1, out);
+            } else if matches!(ext.as_str(), "lr2skin" | "json" | "luaskin") {
                 out.push(e.path);
             }
         }
@@ -660,7 +687,7 @@ pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     files.sort();
     files
         .into_iter()
-        .filter_map(|p| header(&p).map(|(t, n)| (p, t, n)))
+        .filter_map(|p| super::header(&p).map(|(t, n)| (p, t, n)))
         .collect()
 }
 

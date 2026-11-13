@@ -6,11 +6,25 @@
 //! layout, timer/option/number ids) follow LR2 as documented by beatoraja's
 //! open-source LR2 skin loader.
 
+pub mod beatoraja;
 pub mod lr2;
 pub mod render;
 
 use crate::gfx::Rect;
 use std::path::PathBuf;
+
+/// (type, name) of any supported skin file.
+pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "lr2skin" => lr2::header(path),
+        "json" | "luaskin" => beatoraja::header(path),
+        _ => None,
+    }
+}
 
 /// A source image region set (animation frames).
 #[derive(Clone, Debug, Default)]

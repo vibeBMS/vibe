@@ -66,7 +66,17 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
                 .ok()
         })
     };
-    match crate::skin::lr2::load(&path, &ctx.paths.skins, &HashMap::new(), &stat, &size) {
+    let is_lr2 = path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("lr2skin"))
+        .unwrap_or(false);
+    let opts = HashMap::new();
+    let loaded = if is_lr2 {
+        crate::skin::lr2::load(&path, &ctx.paths.skins, &opts, &stat, &size)
+    } else {
+        crate::skin::beatoraja::load(&path, &opts, &size)
+    };
+    match loaded {
         Ok(skin) if skin.kind == skin_type(scene.mode()) => Some(LoadedSkin::load(skin, gfx)),
         Ok(_) => {
             log::warn!(

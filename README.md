@@ -95,11 +95,15 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 - 키음 병렬 디코딩(WAV/OGG/MP3/FLAC, 깨진 RIFF 헤더 폴백, `a.wav`→`a.ogg` 대체 탐색)
 - 렌더러는 단일 파이프라인 배치 렌더링, 저지연 프레젠테이션(Mailbox/Immediate 우선), 프레임 제한 옵션
 
-### 스킨 (LR2)
+### 스킨 (LR2 / beatoraja)
 `skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다.
 지원: `#IMAGE`, `#SRC/#DST_IMAGE`(키프레임·가속·루프·타이머·조건·회전·가산 블렌딩), `_NUMBER`, `_TEXT`(시스템 폰트), `_BARGRAPH`,
 `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`/`_LN_*`/`_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE`/`_NOWCOMBO`, `#IF/#ELSE`, `#CUSTOMOPTION`(기본값),
-`#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨, beatoraja JSON/Lua 스킨.
+`#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨.
+
+beatoraja 플레이 스킨도 같은 메뉴에서 선택합니다: **JSON**(`.json`, 주석·trailing comma 허용, `if`/`include` 전처리, 키프레임 값 상속, y-up 좌표 변환)과
+**Lua**(`.luaskin`, 내장 Lua 5.4로 실행, `skin_config`·`main_state` 스텁 제공 — 데스크톱/모바일 전용, 웹 미지원).
+Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 평가하지 않습니다. 스킨 커스텀 옵션은 현재 기본값만 사용합니다.
 
 ### 웹 버전
 `tools/build_web.sh` → `web/`을 HTTP로 서빙. 좌하단 **📂 Open BMS folder**로 폴더를 고르면 브라우저 안에서 스캔·플레이합니다(파일은 업로드되지 않음).
@@ -121,7 +125,8 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 | Android | 🧪 `crates/vibebms-android` (cargo-apk) — 실기기 미검증 |
 | iOS/iPadOS | 🧪 빌드 가이드 + Info.plist — 실기기 미검증 |
 | LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨으로 검증 (실제 공개 스킨 호환성은 추가 검증 필요) |
-| LR2 선곡/결과 스킨, beatoraja JSON/Lua 스킨 | ⏳ 미구현 |
+| beatoraja JSON/Lua 플레이 스킨 | 🧪 정적 구조 지원(Lua 런타임 함수 미평가), 합성 스킨으로 검증 |
+| 선곡/결과 스킨, 스킨 옵션 선택 UI | ⏳ 미구현 |
 | 동영상 BGA(mpg/wmv/mp4) | ⏳ 미구현 |
 | 리플레이 저장/재생, 고스트 배틀, 타깃 스코어 | ⏳ 미구현 (엔진에 ghost 데이터는 기록됨) |
 | 특정 IR 서비스 전용 어댑터(MochaIR 등) | ⏳ 프로토콜 확인 후 추가 필요 |

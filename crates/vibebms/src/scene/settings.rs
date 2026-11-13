@@ -1336,7 +1336,7 @@ impl Scene for SettingsScene {
 
 fn skin_label(path: &str) -> String {
     let p = std::path::Path::new(path);
-    crate::skin::lr2::header(&if p.is_absolute() {
+    crate::skin::header(&if p.is_absolute() {
         p.to_path_buf()
     } else {
         std::path::PathBuf::from(path)
