@@ -866,50 +866,77 @@ def rate_number(sk, img, f, r, y, key="n_mid"):
     draw_label(img, f, r - pct + 2, y + ch - 18, "%", 14, TEXT)
 
 
-def score_panel(sk, img, f, x, y, w, h):
+SCORE_H, JUDGE_H, BPM_H = 184, 184, 92
+
+
+def score_content(sk, img, f, x, y, w, h):
     """EX score, max combo, rate and personal best (with difference)."""
-    panel(img, (x, y, w, h), "SCORE", f)
     r = x + w - 14
     big = "n_big" if w >= 260 else "n_mid"
-    step = min(42, (h - 34) // 4)
+    step = min(38, (h - 34) // 4)
     top = y + 26 + ((h - 34) - step * 4) // 2
     rows = [top + step * i for i in range(4)]
     for ry, s_ in zip(rows, ["EX SCORE", "MAX COMBO", "RATE", "BEST"]):
-        draw_label(img, f, x + 12, ry + 8, s_ if w >= 260 else s_.split()[-1], 13, TEXT)
+        draw_label(img, f, x + 12, ry + 8, s_ if w >= 250 else s_.split()[-1], 13, TEXT)
     cw, ch = sk.num(big, 71, 5)[1:]
     sk.number(big, 71, 5, r - cw * 5, rows[0] + (28 - ch) // 2)
     cw, ch = sk.num("n_mid", 75, 5)[1:]
     sk.number("n_mid", 75, 5, r - cw * 5, rows[1])
     rate_number(sk, img, f, r, rows[2])
-    cw = sk.num("n_small", 150, 5)[1]
-    sk.number("n_small", 150, 5, x + (100 if w >= 260 else 52), rows[3] + 5)
+    sk.number("n_small", 150, 5, x + (100 if w >= 250 else 52), rows[3] + 5)
     sw = sk.num("n_signed", 152, 5)[1]
     sk.number("n_signed", 152, 5, r - sw * 5, rows[3] + 5)
 
 
-def graph_panel(sk, img, f, x, y, w, h):
-    """Horizontal score graph: current rate and total progress against the
-    A / AA / AAA lines."""
-    panel(img, (x, y, w, h), "SCORE GRAPH", f)
+def graph_bar(sk, ref, angle):
+    gid = f"graph{ref}_{angle}"
+    if gid not in sk._ids:
+        sk._ids.add(gid)
+        px, py, pw, ph = sk.parts.items["white"]
+        sk.j["graph"].append({"id": gid, "src": "parts", "x": px + 4, "y": py + 4,
+                              "w": pw - 8, "h": ph - 8, "angle": angle, "type": ref})
+    return gid
+
+
+def graph_content(sk, img, f, x, y, w, h):
+    """Score graph: current rate and total progress against the A / AA / AAA
+    lines; vertical bars when there is height for them, horizontal otherwise."""
     d = ImageDraw.Draw(img)
+    draw_label(img, f, x + 12, y + 7, "SCORE GRAPH", 12)
+    bars = ((110, TEAL, "NOW"), (111, PINK, "TOTAL"))
+    if h >= 140:
+        gx, gy, gw, gh = x + 16, y + 28, w - 64, h - 50
+        for name, frac in (("A", 6 / 9), ("AA", 7 / 9), ("AAA", 8 / 9)):
+            ly = gy + gh - int(gh * frac)
+            d.line((gx, ly, gx + gw, ly), fill=(70, 80, 115, 255), width=1)
+            draw_label(img, f, gx + gw + 6, ly, name, 11, anchor="lm")
+        d.line((gx, gy + gh, gx + gw, gy + gh), fill=EDGE + (255,), width=1)
+        bw = gw // 2 - 20
+        for i, (ref, col, label) in enumerate(bars):
+            bx = gx + 10 + i * (gw // 2)
+            sk.put(graph_bar(sk, ref, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=230)
+            draw_label(img, f, bx + bw // 2, gy + gh + 4, label, 11, anchor="ma")
+        return
     gx, gw = x + 70, w - 90
-    bh = max(10, min(26, (h - 52) // 2))
+    bh = max(10, min(24, (h - 52) // 2))
     gy = y + 30 + ((h - 38) - bh * 2 - 10) // 2
     for name, frac in (("A", 6 / 9), ("AA", 7 / 9), ("AAA", 8 / 9)):
         lx = gx + int(gw * frac)
         d.line((lx, gy - 4, lx, gy + bh * 2 + 14), fill=(70, 80, 115, 255), width=1)
         draw_label(img, f, lx, y + 8, name, 11, anchor="ma")
-    d.line((gx, gy - 4, gx, gy + bh * 2 + 14), fill=EDGE + (255,), width=1)
-    for i, (ref, col, label) in enumerate(((110, TEAL, "NOW"), (111, PINK, "TOTAL"))):
+    for i, (ref, col, label) in enumerate(bars):
         by = gy + i * (bh + 10)
-        gid = f"graph{ref}"
-        if gid not in sk._ids:
-            sk._ids.add(gid)
-            px, py, pw, ph = sk.parts.items["white"]
-            sk.j["graph"].append({"id": gid, "src": "parts", "x": px + 4, "y": py + 4,
-                                  "w": pw - 8, "h": ph - 8, "angle": 0, "type": ref})
-        sk.put(gid, gx, by, gw, bh, r=col[0], g=col[1], b=col[2], a=230)
+        sk.put(graph_bar(sk, ref, 0), gx, by, gw, bh, r=col[0], g=col[1], b=col[2], a=230)
         draw_label(img, f, x + 12, by + bh // 2, label, 11, anchor="lm")
+
+
+def score_panel(sk, img, f, x, y, w, h=SCORE_H, graph_h=0):
+    """The score panel, with the score graph joined below it when graph_h > 0."""
+    panel(img, (x, y, w, h + graph_h), "SCORE", f)
+    score_content(sk, img, f, x, y, w, h)
+    if graph_h:
+        ImageDraw.Draw(img).line((x + 10, y + h, x + w - 10, y + h), fill=EDGE + (255,))
+        graph_content(sk, img, f, x, y + h, w, graph_h)
 
 
 def judge_panel(sk, img, f, x, y, w, h):
@@ -947,24 +974,34 @@ def bpm_panel(sk, img, f, x, y, w, h):
     """Current BPM large; min / max small and coloured with MIN, BPM, MAX labels.
     Wide panels put min and max beside the current value, narrow ones below it."""
     panel(img, (x, y, w, h), None, accent=AMBER)
+    big = 1.0 if w >= 300 else 0.8
     cw, ch = sk.num("n_bpm", 160, 3)[1:]
+    cw, ch = int(cw * big), int(ch * big)
     sw, sh = sk.num("n_bpm_s", 91, 3)[1:]
     cx = x + w // 2
     lx, rx = x + 14 + sw * 3 // 2, x + w - 14 - sw * 3 // 2
-    if cw * 3 + sw * 6 + 60 <= w:
+    hs_on_top = h >= 120
+    if cw * 3 + sw * 6 + 36 <= w and not hs_on_top:
         row = y + (h - ch - 18) // 2
         base = row + ch - sh - 3
         ly = row + ch + 2
     else:
-        row = y + (h - ch - sh - 18) // 2
+        row = y + 16 + (h - 16 - ch - sh - 18) // 2
         base = row + ch + 2
         ly = base + sh
-    sk.number("n_bpm", 160, 3, cx - cw * 3 // 2, row)
+    sk.number("n_bpm", 160, 3, cx - cw * 3 // 2, row, scale=big)
     sk.number("n_bpm_s", 91, 3, lx - sw * 3 // 2, base, color=(130, 190, 255))
     sk.number("n_bpm_s", 90, 3, rx - sw * 3 // 2, base, color=(255, 130, 180))
     draw_label(img, f, lx, ly, "MIN", 11, anchor="ma")
     draw_label(img, f, cx, row + ch + 2, "BPM", 12, AMBER, "bold", anchor="ma")
     draw_label(img, f, rx, ly, "MAX", 11, anchor="ma")
+    # current scroll speed (hi-speed) in the top-right corner
+    nw = sk.num("n_small", 310, 1)[1]
+    hx = x + w - 12 - nw * 3 - 6
+    sk.number("n_small", 310, 1, hx, y + 6, color=(200, 255, 200))
+    sk.put(sk.img("white"), hx + nw + 1, y + 21, 3, 3, r=200, g=255, b=200)
+    sk.number("n_small", 311, 2, hx + nw + 5, y + 6, zeropad=True, color=(200, 255, 200))
+    draw_label(img, f, hx - 6, y + 16, "HS", 11, (120, 220, 140), "bold", anchor="rm")
 
 
 TIME_H = 36
@@ -976,8 +1013,9 @@ def time_panel(sk, img, f, x, y, w, h=TIME_H):
     cw, ch = sk.num("n_mid", 163, 2)[1:]
     if h < 60:
         ty = y + (h - ch) // 2
-        draw_label(img, f, x + 12, y + h // 2, "TIME LEFT", 11, anchor="lm")
-        tx = x + 84
+        narrow = w < 300
+        draw_label(img, f, x + 12, y + h // 2, "TIME" if narrow else "TIME LEFT", 11, anchor="lm")
+        tx = x + (52 if narrow else 84)
     else:
         draw_label(img, f, x + 12, y + 8, "TIME LEFT", 11)
         tx = x + (w - cw * 4 - 10) // 2
@@ -993,25 +1031,27 @@ def time_panel(sk, img, f, x, y, w, h=TIME_H):
 
 # --- shared layout: a data column (SCORE, JUDGE, BPM, TIME) next to the note
 # field and a media column (title, BGA, score graph) beyond it ---------------
-def data_column(sk, img, f, x, y, w, h):
+def data_column(sk, img, f, x, y, w, h, with_bpm=True):
+    """SCORE (+ graph, taking the spare height), JUDGE, BPM, TIME."""
     gap = 8
-    rest = h - TIME_H - gap * 3
-    hs = rest * 36 // 100
-    hj = rest * 40 // 100
-    hb = rest - hs - hj
-    score_panel(sk, img, f, x, y, w, hs)
-    judge_panel(sk, img, f, x, y + hs + gap, w, hj)
-    bpm_panel(sk, img, f, x, y + hs + hj + gap * 2, w, hb)
+    fixed = SCORE_H + JUDGE_H + TIME_H + gap * 2 + ((BPM_H + gap) if with_bpm else 0)
+    score_panel(sk, img, f, x, y, w, SCORE_H, h - fixed)
+    jy = y + h - fixed + SCORE_H + gap
+    judge_panel(sk, img, f, x, jy, w, JUDGE_H)
+    if with_bpm:
+        bpm_panel(sk, img, f, x, jy + JUDGE_H + gap, w, BPM_H)
     time_panel(sk, img, f, x, y + h - TIME_H, w)
 
 
-def media_column(sk, img, f, x, y, w, h, graph=True):
+def media_column(sk, img, f, x, y, w, h, bpm=False):
+    """Title and BGA (the BGA frame takes the remaining height, up to 5:4);
+    with bpm=True the BPM panel sits under the BGA."""
     header(sk, img, f, x, y, w, 86)
-    side = min(w, h - 86 - 8 - (108 if graph else 0))
-    bga_frame(sk, img, x + (w - side) // 2, y + 94, side, side)
-    if graph:
-        gy = y + 94 + side + 8
-        graph_panel(sk, img, f, x, gy, w, y + h - gy)
+    rest = h - 94 - ((BPM_H + 8) if bpm else 0)
+    bh = min(rest, w * 5 // 4)
+    bga_frame(sk, img, x, y + 94, w, bh)
+    if bpm:
+        bpm_panel(sk, img, f, x, y + h - BPM_H, w, BPM_H)
 
 
 # landscape note fields share one vertical layout: lanes to y=520, keys to 630,
@@ -1055,18 +1095,20 @@ def land_sp(fonts, parts, mode, side):
         dw = W - 8 - data_x
     elif side == 0:
         fx = 40 + (400 - fw) // 2
-        data_x, dw = 468, 296
+        data_x, dw = 468, 260
         media_x, mw = data_x + dw + 8, W - 8 - (data_x + dw + 8)
     else:
         fx = W - 40 - 400 + (400 - fw) // 2
-        data_x, dw = W - 468 - 296, 296
+        data_x, dw = W - 468 - 260, 260
         media_x, mw = 8, data_x - 8 - 8
     field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=(side == 0))
     ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
     field(sk, mode, 0, side, fx, 0, LANE_H, sw, kw, KEYS_Y, KEYS_H, 0.6)
-    data_column(sk, img, f, data_x, 8, dw, 704)
-    media_column(sk, img, f, media_x, 8, mw, 704)
+    # the BPM panel goes under the BGA when the media column has room for it
+    bpm_in_media = 704 - 94 - mw * 5 // 4 >= BPM_H + 8
+    data_column(sk, img, f, data_x, 8, dw, 704, with_bpm=not bpm_in_media)
+    media_column(sk, img, f, media_x, 8, mw, 704, bpm=bpm_in_media)
     ready(sk, fx + fw // 2, 260)
     return sk, img, bgname
 
@@ -1098,16 +1140,22 @@ def land_dp(fonts, parts, mode):
         field(sk, mode, 0, 0, f1, 0, LANE_H, sw, kw, KEYS_Y, 80, 0.6, part=part)
         field(sk, mode, 1, 1, f2, 0, LANE_H, sw, kw, KEYS_Y, 80, 0.6, part=part)
     cx, cw = f1 + fw + 20, f2 - 20 - (f1 + fw + 20)
-    media_column(sk, img, f, cx, 8, cw, 86 + 8 + 236, graph=False)
-    d.rounded_rectangle((cx + 4, 104, cx + 12, 322), 3, fill=(24, 28, 42, 255))
-    progress(sk, cx + 2, 100, 226)
     half = (cw - 8) // 2
-    score_panel(sk, img, f, cx, 340, half, 184)
-    judge_panel(sk, img, f, cx + half + 8, 340, cw - half - 8, 184)
-    bpm_panel(sk, img, f, cx, 532, cw - 140, 92)
-    time_panel(sk, img, f, cx + cw - 132, 532, 132, 92)
-    gauge_block(sk, img, f, cx, GAUGE_Y, cw)
-    info_row(sk, img, f, cx, INFO_Y, cw, 28)
+    row2 = 712 - BPM_H
+    row1 = row2 - 8 - SCORE_H
+    info_y = row1 - 8 - 28
+    gauge_y = info_y - 4 - 54
+    header(sk, img, f, cx, 8, cw, 86)
+    side = gauge_y - 8 - 102
+    bga_frame(sk, img, cx + (cw - side) // 2, 102, side, side)
+    d.rounded_rectangle((cx + 4, 106, cx + 12, 98 + side), 3, fill=(24, 28, 42, 255))
+    progress(sk, cx + 2, 102, side)
+    gauge_block(sk, img, f, cx, gauge_y, cw)
+    info_row(sk, img, f, cx, info_y, cw, 28)
+    score_panel(sk, img, f, cx, row1, half, SCORE_H)
+    judge_panel(sk, img, f, cx + half + 8, row1, cw - half - 8, JUDGE_H)
+    bpm_panel(sk, img, f, cx, row2, cw - 140, BPM_H)
+    time_panel(sk, img, f, cx + cw - 132, row2, 132, BPM_H)
     ready(sk, f1 + fw // 2, 260)
     ready(sk, f2 + fw // 2, 260)
     return sk, img

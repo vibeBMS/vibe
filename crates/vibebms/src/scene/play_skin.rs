@@ -199,6 +199,29 @@ impl SceneState<'_> {
     fn engine(&self) -> Option<&vibebms_core::engine::Engine> {
         self.s.engine.as_ref()
     }
+
+    /// Scroll speed as a beatoraja-style hi-speed multiplier:
+    /// 240000 / (BPM x ms a note spends crossing the whole lane). The BPM is
+    /// the main BPM with floating hi-speed and the current one with constant.
+    pub fn hispeed(&self) -> f64 {
+        let s = self.s;
+        let p = &self.ctx.config.play;
+        let bpm = match p.hispeed_mode {
+            HiSpeedMode::Constant => s
+                .chart
+                .timing
+                .bpm_at_time(s.chart_us(self.now).max(0) as f64),
+            HiSpeedMode::Floating => s.chart.meta.main_bpm,
+        };
+        let bpm = if bpm > 0.0 { bpm } else { 130.0 };
+        let cover = if p.lane_cover || p.sudden > 0.0 {
+            p.sudden
+        } else {
+            0.0
+        };
+        let visible = (1.0 - cover - p.lift).max(0.05) as f64;
+        240_000.0 * visible / (bpm * p.duration_ms.max(1) as f64)
+    }
 }
 
 impl SkinState for SceneState<'_> {
@@ -291,7 +314,9 @@ impl SkinState for SceneState<'_> {
         let len_ms = s.chart.length() / 1000;
         let rate = |r: f64| (r * 10000.0).round() as i64;
         Some(match id {
-            10 => (p.duration_ms as i64 * 3 / 5).max(1),
+            10 => (self.hispeed() * 100.0).round() as i64,
+            310 => (self.hispeed() * 100.0).round() as i64 / 100,
+            311 => (self.hispeed() * 100.0).round() as i64 % 100,
             12 => p.judge_offset_ms as i64,
             14 => (p.sudden * 1000.0) as i64,
             312 => p.duration_ms as i64,
