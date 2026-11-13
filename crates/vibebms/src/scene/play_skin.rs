@@ -115,6 +115,24 @@ pub struct SceneState<'a> {
 }
 
 impl SceneState<'_> {
+    /// Pacemaker target: the personal best EX score (0 if never played)
+    /// and that score prorated to the notes passed so far.
+    fn target(&self) -> (i64, f64) {
+        let s = self.s;
+        let best = self
+            .ctx
+            .best(&s.req.song, s.ln_mode() as i32)
+            .map(|b| b.ex_score as i64)
+            .unwrap_or(0);
+        let now = match self.engine().map(|e| &e.score) {
+            Some(sc) if sc.total_notes > 0 => {
+                best as f64 * sc.passed as f64 / sc.total_notes as f64
+            }
+            _ => 0.0,
+        };
+        (best, now)
+    }
+
     fn ms(&self, t: Instant) -> i64 {
         let base = self.s.scene_start;
         if t >= base {
@@ -137,8 +155,9 @@ impl SceneState<'_> {
             33 => s.req.autoplay,
             34 => true,
             35..=37 => false,
-            38 => true,
-            39 => false,
+            // score graph (pacemaker) shown
+            38 => false,
+            39 => true,
             40 => !p.bga,
             41 => p.bga,
             42 => !p.gauge.is_survival(),
@@ -395,18 +414,17 @@ impl SkinState for SceneState<'_> {
             424 => sc?.slow() as i64,
             115 => rate(sc?.rate()) / 100,
             116 => rate(sc?.rate()) % 100,
-            150 | 170 => self
-                .ctx
-                .best(&s.req.song, s.ln_mode() as i32)
-                .map(|b| b.ex_score as i64)
-                .unwrap_or(0),
-            152 | 172 => {
-                sc?.ex_score() as i64
-                    - self
-                        .ctx
-                        .best(&s.req.song, s.ln_mode() as i32)
-                        .map(|b| b.ex_score as i64)
-                        .unwrap_or(0)
+            121 | 150 | 151 | 170 => self.target().0,
+            // differences to the best so far (pacemaker)
+            128 | 152 | 153 => sc?.ex_score() as i64 - self.target().1.round() as i64,
+            172 => sc?.ex_score() as i64 - self.target().0,
+            122 | 157 => {
+                let max = sc?.max_ex().max(1) as f64;
+                rate(self.target().0 as f64 / max) / 100
+            }
+            123 | 158 => {
+                let max = sc?.max_ex().max(1) as f64;
+                rate(self.target().0 as f64 / max) % 100
             }
             160 => s
                 .chart
@@ -449,6 +467,16 @@ impl SkinState for SceneState<'_> {
             102 => 1.0,
             110 => sc.map(|s| s.current_rate() as f32).unwrap_or(0.0),
             111 => sc.map(|s| s.rate() as f32).unwrap_or(0.0),
+            // best (= target) so far / overall, as a share of the maximum
+            112..=115 => {
+                let max = sc.map(|s| s.max_ex()).unwrap_or(0).max(1) as f32;
+                let (best, now) = self.target();
+                if id % 2 == 0 {
+                    now as f32 / max
+                } else {
+                    best as f32 / max
+                }
+            }
             _ => 0.0,
         }
     }

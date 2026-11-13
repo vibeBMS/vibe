@@ -735,9 +735,7 @@ impl Loader<'_> {
                     v2[4] -= h as i64;
                     v2[5] = w as i64;
                     v2[6] = h as i64;
-                    for k in 9..=11 {
-                        v2[k] = 255;
-                    }
+                    v2[9..=11].fill(255);
                     add_dst(&mut self.skin.objects[i].dst, &v2);
                 }
             }
