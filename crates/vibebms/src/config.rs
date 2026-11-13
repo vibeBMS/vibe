@@ -336,6 +336,9 @@ pub struct Config {
     pub ir: Vec<IrConfig>,
     /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
     pub skins: std::collections::BTreeMap<String, String>,
+    /// Skin custom options: skin (as in `skins`) -> option name -> chosen label.
+    pub skin_options:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 }
 
 impl Default for Config {
@@ -360,6 +363,7 @@ impl Default for Config {
                 .collect(),
             ir: vec![IrConfig::default()],
             skins: Default::default(),
+            skin_options: Default::default(),
         }
     }
 }

@@ -7,7 +7,6 @@ use crate::gfx::{Gfx, Rect, TexId};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, SkinType};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use vibebms_core::chart::NoteKind;
 use vibebms_core::gauge::GaugeType;
@@ -79,11 +78,13 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
         ctx.config.play.side == crate::config::Side::P2,
         ctx.height > ctx.width,
     );
-    let configured = ctx
+    let value = ctx
         .config
         .skins
         .get(mode.label())
-        .and_then(|v| configured_path(ctx, v));
+        .cloned()
+        .unwrap_or_default();
+    let configured = configured_path(ctx, &value);
     let st = SceneState {
         s: scene,
         ctx,
@@ -91,10 +92,11 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
     };
     let stat = |id: i32| st.static_option(id);
     for path in configured.into_iter().chain(std::iter::once(default)) {
+        let opts = ctx.skin_user_options(&value, &path);
         match crate::skin::load_file(
             &path,
             &ctx.paths.skins,
-            &HashMap::new(),
+            &opts,
             &stat,
             &crate::skin::image_size,
         ) {

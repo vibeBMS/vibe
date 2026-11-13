@@ -131,6 +131,23 @@ fn properties(sk: &Value) -> Vec<Property> {
         .collect()
 }
 
+fn to_custom((name, items, def): &Property) -> Option<CustomOption> {
+    items.first().map(|f| CustomOption {
+        name: name.clone(),
+        first_id: f.1 as i32,
+        labels: items.iter().map(|x| x.0.clone()).collect(),
+        ops: items.iter().map(|x| x.1 as i32).collect(),
+        default: *def,
+    })
+}
+
+/// The `property` list of a skin as custom options.
+pub fn custom_options(path: &Path) -> Vec<CustomOption> {
+    read_value(path, None)
+        .map(|v| properties(&v).iter().filter_map(to_custom).collect())
+        .unwrap_or_default()
+}
+
 pub fn read_value(
     path: &Path,
     skin_config: Option<&HashMap<String, i64>>,
@@ -455,16 +472,7 @@ pub fn load(
         judges: Default::default(),
         bar_lines: Vec::new(),
         songlist: None,
-        custom_options: props
-            .iter()
-            .filter_map(|(n, items, _)| {
-                items.first().map(|f| CustomOption {
-                    name: n.clone(),
-                    first_id: f.1 as i32,
-                    labels: items.iter().map(|x| x.0.clone()).collect(),
-                })
-            })
-            .collect(),
+        custom_options: props.iter().filter_map(to_custom).collect(),
         scene_ms: i(&sk, "scene", 0),
         input_ms: i(&sk, "input", 0),
         fadeout_ms: i(&sk, "fadeout", 0),

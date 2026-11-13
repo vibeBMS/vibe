@@ -70,6 +70,44 @@ enum Act {
     ResetKeys,
     RestoreDefaultTables,
     BrowseFolder,
+    /// Cycle custom option `.1` of the skin chosen for `SKIN_KEYS[.0]`.
+    SkinOption(usize, usize),
+}
+
+/// `config.skins` keys, in menu order.
+const SKIN_KEYS: [&str; 7] = [
+    "7KEYS", "5KEYS", "14KEYS", "10KEYS", "9KEYS", "SELECT", "RESULT",
+];
+
+/// Path and custom options of the skin configured for `SKIN_KEYS[slot]`.
+fn skin_options_of(ctx: &Ctx, slot: usize) -> Option<(String, Vec<crate::skin::CustomOption>)> {
+    let value = ctx.config.skins.get(SKIN_KEYS[slot])?.clone();
+    let path = super::play_skin::configured_path(ctx, &value)?;
+    Some((value, ctx.skin_custom_options(&path)))
+}
+
+fn cycle_skin_option(ctx: &mut Ctx, slot: usize, idx: usize, d: i32) {
+    let Some((value, opts)) = skin_options_of(ctx, slot) else {
+        return;
+    };
+    let Some(o) = opts.get(idx) else { return };
+    if o.labels.is_empty() {
+        return;
+    }
+    let cur = o.chosen(
+        ctx.config
+            .skin_options
+            .get(&value)
+            .and_then(|m| m.get(&o.name))
+            .map(String::as_str),
+    );
+    let n = o.labels.len() as i32;
+    let next = (cur as i32 + d).rem_euclid(n) as usize;
+    ctx.config
+        .skin_options
+        .entry(value)
+        .or_default()
+        .insert(o.name.clone(), o.labels[next].clone());
 }
 
 struct Item {
@@ -532,10 +570,10 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 ("SELECT", |c, d| cycle_skin(c, d, "SELECT")),
                 ("RESULT", |c, d| cycle_skin(c, d, "RESULT")),
             ];
-            for (m, f) in MODES {
+            for (slot, (m, f)) in MODES.into_iter().enumerate() {
                 let cur = match c.skins.get(m).map(String::as_str).unwrap_or("") {
                     "" => "DEFAULT".into(),
-                    p => skin_label(p),
+                    p => skin_label(ctx, p),
                 };
                 let label = if m.ends_with("KEYS") {
                     format!("Play skin ({m})")
@@ -543,6 +581,18 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     format!("{}{} skin", &m[..1], m[1..].to_lowercase())
                 };
                 v.push(it(label, cur, f));
+                // the skin's own options, right under it
+                if let Some((value, opts)) = skin_options_of(ctx, slot) {
+                    let chosen = c.skin_options.get(&value);
+                    for (i, o) in opts.iter().enumerate() {
+                        let k = o.chosen(chosen.and_then(|m| m.get(&o.name)).map(String::as_str));
+                        v.push(Item {
+                            label: format!("    {}", o.name),
+                            value: o.labels.get(k).cloned().unwrap_or_default(),
+                            act: Act::SkinOption(slot, i),
+                        });
+                    }
+                }
             }
             v
         }
@@ -804,6 +854,7 @@ impl SettingsScene {
         match item.act {
             Act::None => return,
             Act::Adjust(f) => f(ctx, if d == 0 { 1 } else { d }),
+            Act::SkinOption(slot, i) => cycle_skin_option(ctx, slot, i, if d == 0 { 1 } else { d }),
             Act::Text(tf) if enter || d != 0 => {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
@@ -1135,7 +1186,10 @@ impl Scene for SettingsScene {
                         .unwrap_or_default();
                     let d = if *x < r.x + r.w * 0.78 { -1 } else { 1 };
                     let list = items(ctx, self.cat);
-                    let is_adjust = matches!(list.get(i).map(|it| it.act), Some(Act::Adjust(_)));
+                    let is_adjust = matches!(
+                        list.get(i).map(|it| it.act),
+                        Some(Act::Adjust(_) | Act::SkinOption(..))
+                    );
                     let value_area = *x > r.x + r.w * 0.55;
                     if is_adjust && value_area {
                         self.activate(ctx, d, false);
@@ -1262,7 +1316,7 @@ impl Scene for SettingsScene {
             );
             let interactive = !matches!(item.act, Act::None);
             let vcol = if interactive { th.accent } else { th.text_dim };
-            let value = if matches!(item.act, Act::Adjust(_)) {
+            let value = if matches!(item.act, Act::Adjust(_) | Act::SkinOption(..)) {
                 format!("◀ {} ▶", item.value)
             } else {
                 item.value.clone()
@@ -1341,20 +1395,19 @@ impl Scene for SettingsScene {
     }
 }
 
-fn skin_label(path: &str) -> String {
-    let p = std::path::Path::new(path);
-    crate::skin::header(&if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::PathBuf::from(path)
-    })
-    .map(|h| h.1)
-    .filter(|n| !n.is_empty())
-    .unwrap_or_else(|| {
-        p.file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    })
+/// Display name of a configured skin (its header name, else the file stem).
+fn skin_label(ctx: &Ctx, value: &str) -> String {
+    let Some(p) = super::play_skin::configured_path(ctx, value) else {
+        return "DEFAULT".into();
+    };
+    crate::skin::header(&p)
+        .map(|h| h.1)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| {
+            p.file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
 }
 
 /// Cycle a skin setting: the built-in default, then matching installed skins.

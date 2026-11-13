@@ -149,6 +149,9 @@ pub struct Ctx {
     pub gpu_name: String,
     pub bg_texture: Option<TexId>,
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
+    /// Custom options read from skin files (path -> options).
+    skin_options_cache:
+        std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
 }
 
 impl Ctx {
@@ -384,6 +387,24 @@ impl Ctx {
         if done {
             self.table_rx = None;
         }
+    }
+
+    /// Custom options of a skin file (cached).
+    pub fn skin_custom_options(&self, path: &std::path::Path) -> Vec<crate::skin::CustomOption> {
+        self.skin_options_cache
+            .borrow_mut()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| crate::skin::custom_options(path))
+            .clone()
+    }
+
+    /// Option ids to pass to a skin loader for the skin configured as
+    /// `value` (a `config.skins` value) at `path`.
+    pub fn skin_user_options(&self, value: &str, path: &std::path::Path) -> HashMap<i32, bool> {
+        crate::skin::user_options(
+            &self.skin_custom_options(path),
+            self.config.skin_options.get(value),
+        )
     }
 
     pub fn best(&self, song: &Song, ln: i32) -> Option<&BestScore> {
@@ -732,6 +753,7 @@ impl App {
             gpu_name: gfx.adapter_name.clone(),
             bg_texture,
             prefetch: None,
+            skin_options_cache: Default::default(),
         };
         ctx.reload_library();
         ctx.load_cached_tables();

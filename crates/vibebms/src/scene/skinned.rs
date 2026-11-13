@@ -5,7 +5,6 @@ use crate::app::Ctx;
 use crate::gfx::Gfx;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use vibebms_core::chart::ChartMeta;
 use vibebms_core::score::DjLevel;
@@ -43,11 +42,17 @@ pub fn load(
     let accept =
         |k: SkinType| k == kind || (kind == SkinType::CourseResult && k == SkinType::Result);
     let default = default_skin(kind, ctx.height > ctx.width);
+    let value = kind
+        .config_key()
+        .and_then(|k| ctx.config.skins.get(k))
+        .cloned()
+        .unwrap_or_default();
     for path in configured_skin(ctx, kind).into_iter().chain(default) {
+        let opts = ctx.skin_user_options(&value, &path);
         match crate::skin::load_file(
             &path,
             &ctx.paths.skins,
-            &HashMap::new(),
+            &opts,
             static_option,
             &crate::skin::image_size,
         ) {

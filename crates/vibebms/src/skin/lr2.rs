@@ -322,10 +322,13 @@ impl Loader<'_> {
                 for i in 0..labels.len() as i32 {
                     self.options.entry(first + i).or_insert(i == 0);
                 }
+                let ops = (0..labels.len() as i32).map(|i| first + i).collect();
                 self.skin.custom_options.push(CustomOption {
                     name: s1.to_string(),
                     first_id: first,
                     labels,
+                    ops,
+                    default: 0,
                 });
             }
             "#CUSTOMFILE" => {
@@ -767,6 +770,38 @@ pub fn load(
         return Err(format!("{}: no drawable objects", path.display()));
     }
     Ok(l.skin)
+}
+
+/// The `#CUSTOMOPTION`s of a skin (includes and conditions are not followed).
+pub fn custom_options(path: &Path) -> Vec<CustomOption> {
+    let Ok(b) = vfs::read(path) else {
+        return Vec::new();
+    };
+    vibebms_core::encoding::decode_text(&b)
+        .lines()
+        .filter(|l| {
+            l.trim_start()
+                .to_ascii_uppercase()
+                .starts_with("#CUSTOMOPTION,")
+        })
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(',').map(str::trim).collect();
+            let first: i32 = f.get(2)?.parse().ok()?;
+            let labels: Vec<String> = f
+                .iter()
+                .skip(3)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+            Some(CustomOption {
+                name: f.get(1)?.to_string(),
+                first_id: first,
+                ops: (0..labels.len() as i32).map(|i| first + i).collect(),
+                labels,
+                default: 0,
+            })
+        })
+        .collect()
 }
 
 /// Read only the header: (type, name).

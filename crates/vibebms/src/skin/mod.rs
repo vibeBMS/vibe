@@ -385,11 +385,53 @@ impl SkinType {
     }
 }
 
+/// A skin's user option (LR2 `#CUSTOMOPTION`, beatoraja `property`).
 #[derive(Clone, Debug)]
 pub struct CustomOption {
     pub name: String,
     pub first_id: i32,
     pub labels: Vec<String>,
+    /// Option id of each choice.
+    pub ops: Vec<i32>,
+    /// Choice used when none is set.
+    pub default: usize,
+}
+
+impl CustomOption {
+    /// Index of the chosen label (else the default).
+    pub fn chosen(&self, label: Option<&str>) -> usize {
+        label
+            .and_then(|l| self.labels.iter().position(|x| x == l))
+            .unwrap_or(self.default)
+    }
+}
+
+/// The custom options of a skin file, without building the skin.
+pub fn custom_options(path: &std::path::Path) -> Vec<CustomOption> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "lr2skin" | "csv" => lr2::custom_options(path),
+        "json" | "luaskin" => beatoraja::custom_options(path),
+        _ => Vec::new(),
+    }
+}
+
+/// Option ids to enable / disable for the chosen labels (by option name).
+pub fn user_options(
+    opts: &[CustomOption],
+    chosen: Option<&std::collections::BTreeMap<String, String>>,
+) -> std::collections::HashMap<i32, bool> {
+    let mut out = std::collections::HashMap::new();
+    for o in opts {
+        let k = o.chosen(chosen.and_then(|c| c.get(&o.name)).map(String::as_str));
+        for (i, op) in o.ops.iter().enumerate() {
+            out.insert(*op, i == k);
+        }
+    }
+    out
 }
 
 #[derive(Clone, Debug)]
@@ -462,6 +504,27 @@ mod tests {
             color: [1.0; 4],
             angle: 0.0,
         }
+    }
+
+    #[test]
+    fn custom_options_map_to_op_ids() {
+        let dir = std::env::temp_dir().join(format!("vibebms-opt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("s.lr2skin");
+        std::fs::write(
+            &p,
+            "#INFORMATION,0,S,me\n#CUSTOMOPTION,Lane,900,Dark,Light,Glow\n#CUSTOMOPTION,Judge,910,A,B\n",
+        )
+        .unwrap();
+        let opts = custom_options(&p);
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0].ops, vec![900, 901, 902]);
+        let mut chosen = std::collections::BTreeMap::new();
+        chosen.insert("Lane".to_string(), "Glow".to_string());
+        let m = user_options(&opts, Some(&chosen));
+        assert_eq!((m[&900], m[&901], m[&902]), (false, false, true));
+        // unset options use their default (the first choice for LR2)
+        assert_eq!((m[&910], m[&911]), (true, false));
     }
 
     #[test]

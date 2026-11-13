@@ -131,7 +131,8 @@ LR2 `#SRC_BUTTON`(값별 프레임, 클릭 시 버튼 ID 실행, 패널 소속)�
 
 beatoraja 플레이 스킨도 같은 메뉴에서 선택합니다: **JSON**(`.json`, 주석·trailing comma 허용, `if`/`include` 전처리, 키프레임 값 상속, y-up 좌표 변환)과
 **Lua**(`.luaskin`, 내장 Lua 5.4로 실행, `skin_config`·`main_state` 스텁 제공 — 데스크톱/모바일 전용, 웹 미지원).
-Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 평가하지 않습니다. 스킨 커스텀 옵션은 현재 기본값만 사용합니다.
+Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 평가하지 않습니다. 스킨 커스텀 옵션은 `SETTINGS › DISPLAY`에서
+각 스킨 바로 아래 항목으로 고르며 `config.skin_options`에 저장됩니다.
 
 ### 웹 버전
 `tools/build_web.sh` → `web/`을 HTTP로 서빙. 좌하단 **📂 Open BMS folder**로 폴더를 고르면 브라우저 안에서 스캔·플레이합니다(파일은 업로드되지 않음).
@@ -157,7 +158,7 @@ Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 
 | beatoraja JSON/Lua 플레이 스킨 | 🧪 정적 구조 지원(Lua 런타임 함수 미평가), 합성 스킨으로 검증 |
 | 내장 기본 스킨(가로 SP 1P/2P, DP, 세로 SP) | ✅ 7/5/9/14/10키 레이아웃, 로드 테스트 + 스크린샷 확인 |
 | 선곡/결과 스킨 (LR2·beatoraja, 내장 기본 가로/세로) | 🧪 곡 목록·정보·그래프·버튼·패널 지원, 실제 공개 스킨 호환성 검증 필요 |
-| 스킨 옵션 선택 UI | ⏳ 미구현 |
+| 스킨 옵션 선택 UI | ✅ `SETTINGS › DISPLAY`에서 선택한 스킨 아래에 표시(LR2 `#CUSTOMOPTION`, beatoraja `property`) |
 | 동영상 BGA(mpg/wmv/mp4) | ⏳ 미구현 |
 | 리플레이 저장/재생, 고스트 배틀, 타깃 스코어 | ⏳ 미구현 (엔진에 ghost 데이터는 기록됨) |
 | 특정 IR 서비스 전용 어댑터(MochaIR 등) | ⏳ 프로토콜 확인 후 추가 필요 |
