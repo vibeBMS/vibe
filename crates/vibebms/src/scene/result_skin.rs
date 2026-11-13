@@ -599,6 +599,7 @@ impl Hooks for ResultHooks<'_> {
                     }
                 }
             }
+            GraphKind::TimingVisualizer(_) => {}
             GraphKind::TimingDistribution => {
                 // -range..+range ms in 1 ms bins (+ = late)
                 let range = 40i64;

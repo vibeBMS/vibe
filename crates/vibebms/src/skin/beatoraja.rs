@@ -809,6 +809,42 @@ pub fn load(
                     ..Default::default()
                 },
             ))
+        } else if let Some((g, hit)) = cx
+            .find("timingvisualizer", &id)
+            .map(|g| (g, false))
+            .or_else(|| cx.find("hiterrorvisualizer", &id).map(|g| (g, true)))
+        {
+            let c = |k: &str, d: &str| hex_color(g.get(k).and_then(Value::as_str).unwrap_or(d));
+            let mut colors = vec![
+                c("lineColor", if hit { "99CCFF80" } else { "00FF00FF" }),
+                c("centerColor", "FFFFFFFF"),
+                c("PGColor", if hit { "99CCFF80" } else { "000088FF" }),
+                c("GRColor", if hit { "F2CB3080" } else { "008800FF" }),
+                c("GDColor", if hit { "14CC8f80" } else { "888800FF" }),
+                c("BDColor", if hit { "FF1AB380" } else { "880000FF" }),
+                c("PRColor", if hit { "CC292980" } else { "000000FF" }),
+            ];
+            if hit {
+                colors.push(c("emaColor", "FF0000FF"));
+            }
+            Some(Kind::Graph(
+                GraphKind::TimingVisualizer(hit),
+                GraphStyle {
+                    colors,
+                    line_width: i(g, "lineWidth", 1).clamp(1, 4) as f32,
+                    // transparent poor band, decaying lines, colour by
+                    // judge, moving average
+                    flags: [
+                        i(g, "transparent", 0) == 1,
+                        i(g, "drawDecay", 1) == 1,
+                        hit && i(g, "colorMode", 1) == 1,
+                        hit && i(g, "emaMode", 1) != 0,
+                    ],
+                    width: i(g, "judgeWidthMillis", 150).max(1) as i32,
+                    delay: i(g, "windowLength", 30),
+                    ..Default::default()
+                },
+            ))
         } else if let Some(g) = cx.find("timingdistributiongraph", &id) {
             let c = |k: &str, d: &str| hex_color(g.get(k).and_then(Value::as_str).unwrap_or(d));
             Some(Kind::Graph(

@@ -368,6 +368,10 @@ pub enum GraphKind {
     Bpm,
     /// Distribution of timing errors.
     TimingDistribution,
+    /// Recent timing errors as ticks over the judge windows (play);
+    /// `true` = beatoraja's hit error visualizer (ticks coloured by judge,
+    /// moving average).
+    TimingVisualizer(bool),
 }
 
 /// Skin-given look of a graph; empty `colors` = the scene's own style.

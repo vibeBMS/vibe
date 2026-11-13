@@ -248,3 +248,106 @@ pub fn bpm(
         );
     }
 }
+
+/// beatoraja timing / hit error visualizer: the judge windows as bands,
+/// the latest timing errors as ticks (newest tallest when decaying).
+/// `recent`: timing errors in µs (+ = early), oldest first; `windows`:
+/// note windows (late, early) in µs, PG first. Shown with late to the right.
+#[allow(clippy::too_many_arguments)]
+pub fn timing_visualizer(
+    d: &mut Draw,
+    r: Rect,
+    recent: &[i64],
+    windows: &[(i64, i64)],
+    style: &GraphStyle,
+    color: [f32; 4],
+    hit_error: bool,
+) {
+    const SLOTS: usize = 100;
+    let col = |k: usize| {
+        let c = style.colors.get(k).copied().unwrap_or([1.0; 4]);
+        [
+            c[0] * color[0],
+            c[1] * color[1],
+            c[2] * color[2],
+            c[3] * color[3],
+        ]
+    };
+    let [transparent_poor, decay, by_judge, ema] = style.flags;
+    let center = style.width.max(1) as f32;
+    let rate = r.w / (center * 2.0 + 1.0);
+    let x_of = |ms: f32| r.x + r.w * 0.5 + ms * rate;
+    // judge bands, each only where the narrower ones are not
+    let (mut left, mut right) = (0.0f32, 0.0f32);
+    for (j, (late, early)) in windows.iter().take(5).enumerate() {
+        if j == 4 && transparent_poor {
+            break;
+        }
+        let l = (-(*early as f32) / 1000.0).clamp(-center, center);
+        let rr = (-(*late as f32) / 1000.0).clamp(-center, center);
+        let c = col(2 + j);
+        if l < left {
+            d.b.rect(Rect::new(x_of(l), r.y, (left - l) * rate, r.h), c);
+            left = l;
+        }
+        if rr > right {
+            d.b.rect(Rect::new(x_of(right), r.y, (rr - right) * rate, r.h), c);
+            right = rr;
+        }
+    }
+    // 10 ms ticks, centre line
+    let mut ms = -((center / 10.0).floor() * 10.0);
+    while ms <= center {
+        d.b.rect(
+            Rect::new(x_of(ms), r.y, 1.0, r.h),
+            [0.0, 0.0, 0.0, 0.25 * color[3]],
+        );
+        ms += 10.0;
+    }
+    d.b.rect(Rect::new(x_of(0.0), r.y, 1.0, r.h), col(1));
+    let judge_of = |diff: i64| {
+        windows
+            .iter()
+            .position(|(l, e)| diff >= *l && diff <= *e)
+            .unwrap_or(4)
+            .min(4)
+    };
+    let recent = &recent[recent.len().saturating_sub(SLOTS)..];
+    let n = recent.len();
+    let lw = style.line_width.max(1.0);
+    for (i, diff) in recent.iter().enumerate() {
+        let ms = -(*diff as f32) / 1000.0;
+        if ms.abs() > center {
+            continue;
+        }
+        // position among the last SLOTS judgements (newest = SLOTS - 1)
+        let slot = SLOTS - n + i;
+        let mut c = if hit_error && by_judge {
+            col(2 + judge_of(*diff))
+        } else {
+            col(0)
+        };
+        c[3] *= (slot + 1) as f32 / SLOTS as f32;
+        let h = if decay {
+            r.h * slot as f32 / SLOTS as f32
+        } else {
+            r.h
+        };
+        d.b.rect(
+            Rect::new(x_of(ms) - lw * 0.5, r.y + (r.h - h) * 0.5, lw, h),
+            c,
+        );
+    }
+    if hit_error && ema && n > 0 {
+        let a = 0.1f32;
+        let avg = recent
+            .iter()
+            .fold(None, |acc: Option<f32>, d| {
+                let ms = -(*d as f32) / 1000.0;
+                Some(acc.map_or(ms, |e| e + a * (ms - e)))
+            })
+            .unwrap_or(0.0)
+            .clamp(-center, center);
+        d.b.rect(Rect::new(x_of(avg) - 1.0, r.y, 2.0, r.h), col(7));
+    }
+}

@@ -529,6 +529,21 @@ impl Hooks for SceneHooks<'_> {
                     1.0,
                 );
             }
+            GraphKind::TimingVisualizer(hit) => {
+                let Some(e) = s.engine.as_ref() else {
+                    return;
+                };
+                let recent: Vec<i64> = e.timing_log.iter().map(|t| t.1).collect();
+                super::graphs::timing_visualizer(
+                    d,
+                    r,
+                    &recent,
+                    &e.windows().note,
+                    style,
+                    color,
+                    hit,
+                );
+            }
             _ => {}
         }
     }
