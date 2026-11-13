@@ -20,6 +20,7 @@ default = []
 asio = ["vibebms-audio/asio"]
 
 [dependencies]
+encoding_rs.workspace = true
 vibebms-core.workspace = true
 vibebms-tables.workspace = true
 vibebms-ir.workspace = true
@@ -34,7 +35,7 @@ pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 fontdue = "0.9"
 fontdb = "0.16"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
 web-time = "1"
 ehttp = "0.7"
 toml = "0.8"

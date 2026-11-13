@@ -87,6 +87,8 @@ impl LoadedSkin {
             .iter()
             .map(|p| p.as_ref().and_then(|p| gfx.load_image(p, false)))
             .collect();
+        // archives opened for this skin's files are not needed any more
+        crate::platform::dxa::clear_cache();
         LoadedSkin { skin, tex }
     }
 
@@ -180,7 +182,9 @@ impl LoadedSkin {
         }
     }
 
-    /// Draw a text into `r` (font size = height; see `Kind::Text` overflow).
+    /// Draw a text into `r` (font size = height; see `Kind::Text` overflow),
+    /// with an LR2 bitmap font when one is given.
+    #[allow(clippy::too_many_arguments)]
     pub fn text(
         &self,
         d: &mut Draw,
@@ -189,7 +193,12 @@ impl LoadedSkin {
         align: i32,
         overflow: i32,
         color: crate::gfx::Color,
+        font: Option<usize>,
     ) {
+        if let Some(f) = font.and_then(|i| self.skin.fonts.get(i)) {
+            self.bitmap_text(d, f, s, r, align, color);
+            return;
+        }
         let (x, al) = match align {
             1 => (r.x + r.w * 0.5, Align::Center),
             2 => (r.right(), Align::Right),
@@ -208,6 +217,44 @@ impl LoadedSkin {
             _ => {
                 d.text(s, x, r.y, size, color, al);
             }
+        }
+    }
+
+    /// LR2 bitmap text as beatoraja draws it: glyphs scaled to the rect
+    /// height, the line shrunk to the rect width if wider, aligned around
+    /// the anchor (left edge / centre / right edge of the rect).
+    fn bitmap_text(
+        &self,
+        d: &mut Draw,
+        f: &super::BitmapFont,
+        s: &str,
+        r: Rect,
+        align: i32,
+        color: crate::gfx::Color,
+    ) {
+        let glyphs: Vec<&(usize, [f32; 4])> = s.chars().filter_map(|c| f.glyphs.get(&c)).collect();
+        if glyphs.is_empty() || f.size <= 0.0 {
+            return;
+        }
+        let k = r.h / f.size;
+        let width = glyphs.iter().map(|g| g.1[2]).sum::<f32>() * k + f.margin * glyphs.len() as f32;
+        let scale = if r.w > 0.0 && r.w < width {
+            r.w / width
+        } else {
+            1.0
+        };
+        let a = align.clamp(0, 2) as f32 * 0.5;
+        let mut x = r.x + r.w * a - width * scale * a;
+        for (img, g) in glyphs {
+            let tw = g[2] * scale * k;
+            if let Some(t) = self.tex.get(*img).copied().flatten() {
+                if let Some((w, h)) = d.gfx.texture_size(t) {
+                    let (w, h) = (w as f32, h as f32);
+                    let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
+                    d.b.quad(t, Rect::new(x, r.y, tw, r.h), uv, color);
+                }
+            }
+            x += tw + f.margin * scale;
         }
     }
 
@@ -294,6 +341,27 @@ impl LoadedSkin {
     }
 
     pub fn draw(
+        &self,
+        d: &mut Draw,
+        view: Rect,
+        now: i64,
+        st: &dyn SkinState,
+        hooks: &mut dyn Hooks,
+    ) {
+        // nothing outside the skin's own screen (objects placed off-screen
+        // would show in letterbox bars)
+        let xf = Xf::fit(self.skin.width, self.skin.height, view);
+        d.b.set_base_clip(Some(xf.rect(Rect::new(
+            0.0,
+            0.0,
+            self.skin.width,
+            self.skin.height,
+        ))));
+        self.draw_scripted(d, view, now, st, hooks);
+        d.b.set_base_clip(None);
+    }
+
+    fn draw_scripted(
         &self,
         d: &mut Draw,
         view: Rect,
@@ -408,11 +476,12 @@ impl LoadedSkin {
                 }
                 Kind::Text {
                     id,
+                    font,
                     align,
                     overflow,
                 } => {
                     if let Some(s) = st.text(*id) {
-                        self.text(d, &s, r, *align, *overflow, fr.color);
+                        self.text(d, &s, r, *align, *overflow, fr.color, *font);
                     }
                 }
                 Kind::Bar { src, id, dir } => {

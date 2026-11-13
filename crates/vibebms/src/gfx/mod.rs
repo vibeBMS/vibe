@@ -112,6 +112,8 @@ pub struct Batch {
     verts: Vec<Vertex>,
     cmds: Vec<Cmd>,
     clip: Option<[u32; 4]>,
+    /// Outer clip every `set_clip` stays inside (a skin's viewport).
+    base_clip: Option<Rect>,
     blend: Blend,
 }
 
@@ -120,6 +122,7 @@ impl Batch {
         self.verts.clear();
         self.cmds.clear();
         self.clip = None;
+        self.base_clip = None;
         self.blend = Blend::Alpha;
     }
 
@@ -192,7 +195,17 @@ impl Batch {
         ]);
     }
 
+    /// Clip following draws to `r` (within the base clip); `None` = the
+    /// base clip only.
     pub fn set_clip(&mut self, r: Option<Rect>) {
+        let r = match (r, self.base_clip) {
+            (Some(r), Some(b)) => {
+                let (x0, y0) = (r.x.max(b.x), r.y.max(b.y));
+                let (x1, y1) = (r.right().min(b.right()), r.bottom().min(b.bottom()));
+                Some(Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0)))
+            }
+            (r, b) => r.or(b),
+        };
         self.clip = r.map(|r| {
             [
                 r.x.max(0.0) as u32,
@@ -201,6 +214,12 @@ impl Batch {
                 r.h.max(0.0) as u32,
             ]
         });
+    }
+
+    /// Set (or remove) the outer clip; resets the current clip to it.
+    pub fn set_base_clip(&mut self, r: Option<Rect>) {
+        self.base_clip = r;
+        self.set_clip(None);
     }
 
     pub fn quad(&mut self, tex: TexId, r: Rect, uv: [f32; 4], color: Color) {
@@ -801,7 +820,10 @@ pub fn load_rgba(path: &std::path::Path, color_key_black: bool) -> Option<(u32, 
 }
 
 pub fn load_rgba_bytes(bytes: &[u8], color_key_black: bool) -> Option<(u32, u32, Vec<u8>)> {
-    let img = match image::load_from_memory(bytes) {
+    // TGA has no signature to recognise it by
+    let img = match image::load_from_memory(bytes).or_else(|e| {
+        image::load_from_memory_with_format(bytes, image::ImageFormat::Tga).map_err(|_| e)
+    }) {
         Ok(i) => i,
         Err(e) => {
             log::debug!("image decode: {e}");

@@ -534,8 +534,10 @@ impl Hooks for SceneHooks<'_> {
                     }
                 }
             };
-            let note_h =
-                |src: &crate::skin::Src| src.frames.first().map(|f| f[3] * xf.sy).unwrap_or(4.0);
+            let note_h = |src: &crate::skin::Src| match ls.note_h {
+                Some(h) => h * xf.sy,
+                None => src.frames.first().map(|f| f[3] * xf.sy).unwrap_or(4.0),
+            };
             // HIDDEN+ hides notes above the judge line
             let bottom = judge_y + 2.0 - p.hidden * (judge_y - top);
             d.b.set_clip(Some(Rect::new(r.x, top, r.w, (bottom - top).max(0.0))));

@@ -488,11 +488,11 @@ impl Hooks for SelectHooks<'_> {
                     (xf.rect(rr), f)
                 })
             };
-            if let Some((t, align, overflow)) = sl.text.as_ref() {
+            if let Some((t, align, overflow, font)) = sl.text.as_ref() {
                 if let Some((tr, f)) = sub(t) {
                     let mut c = f.color;
                     c[3] *= fr.color[3];
-                    skin.text(d, &info.title, tr, *align, *overflow, c);
+                    skin.text(d, &info.title, tr, *align, *overflow, c, *font);
                 }
             }
             if let (Some(lv), Some(Some((font, dst)))) = (info.level, sl.level.get(info.difficulty))

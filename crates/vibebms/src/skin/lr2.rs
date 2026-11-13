@@ -6,7 +6,7 @@
 //! `_BARGRAPH`, `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`, `_LN_*`,
 //! `_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE_1P/2P`, `_NOWCOMBO_1P/2P`,
 //! `#STARTINPUT`, `#SCENETIME`, `#FADEOUT`, `#FINISHMARGIN`.
-//! Not yet: `#LR2FONT` bitmap fonts, buttons/onmouse, `_BUTTON`, charts.
+//! Not yet: onmouse, charts beyond the gauge / score chart.
 
 use super::*;
 use crate::platform::vfs;
@@ -113,11 +113,19 @@ struct Loader<'a> {
     pending_line: Option<Src>,
     /// Buttons that belong to a panel: (object, panel option id).
     panel_ops: Vec<(usize, i32)>,
+    /// `#LR2FONT` list (indexed by `#SRC_TEXT`): font in `Skin::fonts`.
+    fonts: Vec<Option<usize>>,
     depth: usize,
     conds: Vec<Cond>,
 }
 
 impl Loader<'_> {
+    fn font(&self, i: i64) -> Option<usize> {
+        usize::try_from(i)
+            .ok()
+            .and_then(|i| self.fonts.get(i).copied().flatten())
+    }
+
     fn opt(&self, id: i32) -> bool {
         let (abs, neg) = (id.abs(), id < 0);
         let v = self
@@ -253,6 +261,8 @@ impl Loader<'_> {
         if !line.starts_with('#') {
             return;
         }
+        // skins saved from spreadsheets carry stray quotes ("…,930\"")
+        let line = line.replace('"', "");
         let f: Vec<&str> = line.split(',').collect();
         let cmd = f[0].trim().to_ascii_uppercase();
         let top = self.conds_top();
@@ -445,11 +455,33 @@ impl Loader<'_> {
                     }
                 }
             }
-            "#SRC_TEXT" => self.push(Kind::Text {
-                id: v[3] as i32,
-                align: v[4] as i32,
-                overflow: 0,
-            }),
+            "#LR2FONT" => {
+                // a missing font keeps its index (`CONTINUE` placeholders)
+                let p = self.path(s1);
+                let font = load_font(&p, self.image_size).map(|(f, imgs)| {
+                    let base = self.skin.images.len();
+                    for (path, size) in imgs {
+                        self.sizes.push(size);
+                        self.skin.images.push(size.map(|_| path));
+                    }
+                    let mut f = f;
+                    for g in f.glyphs.values_mut() {
+                        g.0 += base;
+                    }
+                    self.skin.fonts.push(f);
+                    self.skin.fonts.len() - 1
+                });
+                self.fonts.push(font);
+            }
+            "#SRC_TEXT" => {
+                let font = self.font(v[2]);
+                self.push(Kind::Text {
+                    id: v[3] as i32,
+                    font,
+                    align: v[4] as i32,
+                    overflow: 0,
+                })
+            }
             "#SRC_BARGRAPH" => {
                 self.cur = None;
                 if let Some(s) = src(&v, &self.sizes) {
@@ -534,10 +566,19 @@ impl Loader<'_> {
                 }
                 add_dst(list[slot].get_or_insert_with(Dst::default), &v);
             }
+            "#SRC_BAR_TITLE" => {
+                if v[1] == 0 {
+                    let font = self.font(v[2]);
+                    let sl = self.songlist();
+                    let t = sl.text.get_or_insert_with(|| (Dst::default(), 0, 0, None));
+                    t.1 = v[4] as i32;
+                    t.3 = font;
+                }
+            }
             "#DST_BAR_TITLE" => {
                 if v[1] == 0 {
                     let sl = self.songlist();
-                    let (d, _, _) = sl.text.get_or_insert_with(|| (Dst::default(), 0, 0));
+                    let (d, ..) = sl.text.get_or_insert_with(|| (Dst::default(), 0, 0, None));
                     add_dst(d, &v);
                 }
             }
@@ -628,13 +669,16 @@ impl Loader<'_> {
                             .lanes
                             .resize(mode.lane_count(), LaneSkin::default());
                     }
+                    // x, y, w, h is the note at the judge line: the lane runs
+                    // from the top of the screen down to y + h, notes are h tall
                     if self.skin.lanes[l].rect.is_none() {
                         self.skin.lanes[l].rect = Some(Rect::new(
                             v[3] as f32,
-                            v[4] as f32,
+                            0.0,
                             v[5] as f32,
-                            v[6] as f32,
+                            (v[4] + v[6]) as f32,
                         ));
+                        self.skin.lanes[l].note_h = Some(v[6] as f32);
                     }
                     if !self
                         .skin
@@ -751,6 +795,7 @@ pub fn load(
             fadeout_ms: 0,
             finish_margin_ms: 0,
             script: None,
+            fonts: Vec::new(),
         },
         sizes: Vec::new(),
         image_size,
@@ -759,6 +804,7 @@ pub fn load(
         judge_side: 0,
         pending_line: None,
         panel_ops: Vec::new(),
+        fonts: Vec::new(),
         depth: 0,
         conds: Vec::new(),
     };
@@ -770,10 +816,95 @@ pub fn load(
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
     }
+    // text is anchored at x: its left edge, centre or right edge by align
+    let anchor = |d: &mut Dst, align: i32| {
+        let k = align.clamp(0, 2) as f32 * 0.5;
+        for key in &mut d.keys {
+            key.rect.x -= key.rect.w * k;
+        }
+    };
+    for o in &mut l.skin.objects {
+        if let Kind::Text { align, .. } = o.kind {
+            anchor(&mut o.dst, align);
+        }
+    }
+    if let Some((d, align, ..)) = l.skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
+        anchor(d, *align);
+    }
     if l.skin.objects.is_empty() {
         return Err(format!("{}: no drawable objects", path.display()));
     }
     Ok(l.skin)
+}
+
+/// Unicode characters of an LR2 font code (Shift_JIS based, as beatoraja
+/// maps them).
+fn font_chars(code: i64) -> Vec<char> {
+    if code == 288 {
+        return vec!['\u{301c}', '\u{ff5e}'];
+    }
+    let bytes: Vec<u8> = if code >= 8127 {
+        let c = (code + 49281) as u16;
+        vec![(c >> 8) as u8, c as u8]
+    } else if code >= 256 {
+        let c = (code + 32832) as u16;
+        vec![(c >> 8) as u8, c as u8]
+    } else if code >= 0 {
+        vec![code as u8]
+    } else {
+        return Vec::new();
+    };
+    let (s, _, err) = encoding_rs::SHIFT_JIS.decode(&bytes);
+    if err {
+        return Vec::new();
+    }
+    s.chars().take(1).collect()
+}
+
+/// Read an `.lr2font`: the font and its texture files (with sizes, `None`
+/// when missing). Glyph image indices are positions in that list.
+#[allow(clippy::type_complexity)]
+pub fn load_font(
+    path: &Path,
+    image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
+) -> Option<(BitmapFont, Vec<(PathBuf, Option<(u32, u32)>)>)> {
+    let bytes = vfs::read(path).ok()?;
+    let text = vibebms_core::encoding::decode_text(&bytes);
+    let dir = path.parent().unwrap_or(Path::new(""));
+    let mut font = BitmapFont::default();
+    let mut images = Vec::new();
+    let mut tex: HashMap<i64, usize> = HashMap::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split(',').map(str::trim).collect();
+        let num = |i: usize| -> i64 {
+            f.get(i)
+                .map(|s| s.replace('!', "-").replace(' ', ""))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0)
+        };
+        match f[0].to_ascii_uppercase().as_str() {
+            "#S" => font.size = num(1) as f32,
+            "#M" => font.margin = num(1) as f32,
+            "#T" => {
+                let p = dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/"));
+                let size = image_size(&p);
+                if size.is_some() {
+                    tex.insert(num(1), images.len());
+                    images.push((p, size));
+                }
+            }
+            "#R" => {
+                if let Some(&img) = tex.get(&num(2)) {
+                    let r = [num(3) as f32, num(4) as f32, num(5) as f32, num(6) as f32];
+                    for c in font_chars(num(1)) {
+                        font.glyphs.insert(c, (img, r));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (!font.glyphs.is_empty()).then_some((font, images))
 }
 
 /// The `#CUSTOMOPTION`s of a skin (includes and conditions are not followed).
@@ -891,6 +1022,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lr2_fonts() {
+        // ASCII, hiragana (two-byte range) and kanji (upper range) codes
+        assert_eq!(font_chars(65), vec!['A']);
+        assert_eq!(font_chars(0x82a0 - 32832), vec!['あ']);
+        assert_eq!(font_chars(0xe040 - 49281), vec!['漾']);
+        assert_eq!(font_chars(288).len(), 2);
+        let dir = std::env::temp_dir().join(format!("vibebms-lr2font-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("f")).unwrap();
+        std::fs::write(
+            dir.join("f/a.lr2font"),
+            "#S,20,\n#M,!2,\n#T,0,t.png\n#T,1,missing.png\n#R,65,0,0,0,10,20\n#R,66,1,0,0,10,20\n",
+        )
+        .unwrap();
+        let csv = "#LR2FONT,CONTINUE\n#LR2FONT,f/a.lr2font\n#IMAGE,x.png\n\
+#SRC_TEXT,0,1,10,1\n#DST_TEXT,0,0,100,50,80,20,0,255,255,255,255\n";
+        std::fs::write(dir.join("s.lr2skin"), csv).unwrap();
+        let size = |p: &Path| (!p.ends_with("missing.png")).then_some((64, 64));
+        let s = load(
+            &dir.join("s.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(s.fonts.len(), 1);
+        let f = &s.fonts[0];
+        assert_eq!((f.size, f.margin, f.glyphs.len()), (20.0, -2.0, 1));
+        assert!(s.images[f.glyphs[&'A'].0]
+            .as_ref()
+            .unwrap()
+            .ends_with("f/t.png"));
+        // font 1 (0 is a placeholder); centred text is anchored at x
+        assert!(matches!(
+            s.objects[0].kind,
+            Kind::Text {
+                font: Some(0),
+                align: 1,
+                ..
+            }
+        ));
+        assert_eq!(s.objects[0].dst.keys[0].rect.x, 60.0);
+    }
+
+    #[test]
     fn parses_select_bars() {
         let dir = std::env::temp_dir().join(format!("vibebms-sel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1005,5 +1182,45 @@ mod tests {
         assert!(s.objects.iter().any(|o| matches!(o.kind, Kind::Notes)));
         assert!(s.judges[0].judge[0].is_some()); // LR2 index 5 = PGREAT
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+/// Developer aid: `SKIN=<file> ROOT=<skins dir> cargo test -p vibebms
+/// dump_skin -- --ignored --nocapture` prints what a skin parses to.
+#[cfg(test)]
+mod debug_dump {
+    #[test]
+    #[ignore]
+    fn dump_skin() {
+        let p = std::path::PathBuf::from(std::env::var("SKIN").unwrap());
+        let root = std::path::PathBuf::from(std::env::var("ROOT").unwrap());
+        let s = super::load(
+            &p,
+            &root,
+            &Default::default(),
+            &|_| None,
+            &crate::skin::image_size,
+        )
+        .unwrap();
+        for (i, im) in s.images.iter().enumerate() {
+            println!("img {i}: {:?}", im);
+        }
+        for (i, l) in s.lanes.iter().enumerate() {
+            println!(
+                "lane {i}: rect {:?} note {:?}",
+                l.rect,
+                l.note.as_ref().map(|n| (n.image, n.frames.len()))
+            );
+        }
+        for o in s.objects.iter().take(400) {
+            let k = format!("{:?}", o.kind);
+            println!(
+                "{} | {:?} ops {:?} t {}",
+                &k[..k.len().min(90)],
+                o.dst.keys.first().map(|k| k.rect),
+                o.dst.ops,
+                o.dst.timer
+            );
+        }
     }
 }

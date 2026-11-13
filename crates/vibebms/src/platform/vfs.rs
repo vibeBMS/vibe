@@ -308,11 +308,17 @@ fn builtin(p: &Path) -> Option<&'static [u8]> {
     BUILTIN_FILES.get_file(rel.as_str()).map(|f| f.contents())
 }
 
-/// Read a file (built-in files first).
+/// Read a file (built-in files first; a folder may be packed as
+/// `folder.dxa`, as LR2 skins do).
 pub fn read(p: &Path) -> io::Result<Vec<u8>> {
     match builtin(p) {
         Some(b) => Ok(b.to_vec()),
-        None => imp::read(p),
+        None => imp::read(p).or_else(|e| {
+            if e.kind() != io::ErrorKind::NotFound {
+                return Err(e);
+            }
+            super::dxa::read(p, &|q| imp::read(q).ok()).ok_or(e)
+        }),
     }
 }
 

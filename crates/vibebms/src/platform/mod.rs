@@ -4,6 +4,7 @@
 //! in-memory file system fed by the browser's folder picker, runs background
 //! jobs on the event loop and uses `XMLHttpRequest` for HTTP.
 
+pub mod dxa;
 pub mod vfs;
 
 pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};

@@ -570,7 +570,7 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         for key in &mut d.keys {
             key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
         }
-        out.text = Some((d, get("align"), get("overflow")));
+        out.text = Some((d, get("align"), get("overflow"), None));
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -692,6 +692,7 @@ pub fn load(
         fadeout_ms: i(&sk, "fadeout", 0),
         finish_margin_ms: i(&sk, "finishmargin", 0),
         script: None,
+        fonts: Vec::new(),
     };
     let note = sk.get("note").and_then(obj);
     let gauge = sk.get("gauge").and_then(obj);
@@ -726,6 +727,7 @@ pub fn load(
         } else if let Some(t) = cx.find("text", &id) {
             Some(Kind::Text {
                 id: cx.value_id(t, ScriptKind::Str),
+                font: None,
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
             })

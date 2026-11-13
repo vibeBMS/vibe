@@ -131,7 +131,8 @@ BPM별 색·`lineWidth`, `timingdistributiongraph`의 `width`·판정 구간 색
 (DEFAULT → 설치된 스킨 순으로 순환).
 지원: `#IMAGE`, `#SRC/#DST_IMAGE`(키프레임·가속·루프·타이머·조건·회전·가산 블렌딩), `_NUMBER`, `_TEXT`(시스템 폰트), `_BARGRAPH`,
 `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`/`_LN_*`/`_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE`/`_NOWCOMBO`, `#IF/#ELSE`, `#CUSTOMOPTION`(기본값),
-`#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨.
+`#CUSTOMFILE`, `#INCLUDE`, `#LR2FONT` 비트맵 폰트(`.lr2font`, Shift_JIS 코드 매핑), DxLib 아카이브(`폴더.dxa`를 폴더처럼 읽음),
+TGA 이미지. 미지원: 마우스 오버.
 
 beatoraja 플레이 스킨도 같은 메뉴에서 선택합니다: **JSON**(`.json`, 주석·trailing comma 허용, `if`/`include` 전처리, 키프레임 값 상속, y-up 좌표 변환)과
 **Lua**(`.luaskin`, 내장 Lua 5.4로 실행 — 데스크톱/모바일 전용, 웹 미지원).
@@ -165,7 +166,7 @@ BPM 그래프도 그리며, 블렌드 모드는 알파·가산·감산·곱하�
 | ARM(Windows on ARM, Apple Silicon, Linux aarch64) | ✅ CI 매트릭스 |
 | Android | 🧪 `crates/vibebms-android` (cargo-apk) — 실기기 미검증 |
 | iOS/iPadOS | 🧪 빌드 가이드 + Info.plist — 실기기 미검증 |
-| LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨으로 검증 (실제 공개 스킨 호환성은 추가 검증 필요) |
+| LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨 + 공개 스킨(REMI-S+ 7K)으로 확인 |
 | beatoraja JSON/Lua 스킨 | 🧪 구조 + Lua 런타임 함수(조건·타이머·값·이벤트) 평가, 합성 스킨과 공개 Lua 스킨(GenericTheme 7K)으로 확인 |
 | 내장 기본 스킨(가로 SP 1P/2P, DP, 세로 SP) | ✅ 7/5/9/14/10키 레이아웃, 로드 테스트 + 스크린샷 확인 |
 | 선곡/결과 스킨 (LR2·beatoraja, 내장 기본 가로/세로) | 🧪 곡 목록·정보·그래프·버튼·패널 지원, beatoraja 기본 스킨(플레이/선곡/결과)으로 확인 |

@@ -13,6 +13,7 @@ pub mod render;
 pub mod script;
 
 use crate::gfx::Rect;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
@@ -37,11 +38,20 @@ pub fn load_file(
 /// Pixel size of an image file (through the VFS).
 pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     crate::platform::vfs::read(p).ok().and_then(|b| {
-        image::ImageReader::new(std::io::Cursor::new(b))
+        let r = image::ImageReader::new(std::io::Cursor::new(&b[..]))
             .with_guessed_format()
-            .ok()?
-            .into_dimensions()
-            .ok()
+            .ok()?;
+        if r.format().is_some() {
+            return r.into_dimensions().ok();
+        }
+        // TGA has no signature: trust the extension
+        let tga = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("tga"));
+        tga.then(|| {
+            image::ImageReader::with_format(std::io::Cursor::new(&b[..]), image::ImageFormat::Tga)
+                .into_dimensions()
+                .ok()
+        })
+        .flatten()
     })
 }
 
@@ -229,6 +239,8 @@ pub enum Kind {
     },
     Text {
         id: i32,
+        /// LR2 bitmap font (index into `Skin::fonts`), else the UI font.
+        font: Option<usize>,
         align: i32,
         /// Text wider than the destination: 0 overflows (LR2, beatoraja
         /// default), 1 shrinks to fit, 2 is cut off.
@@ -330,7 +342,8 @@ pub struct SongListSkin {
     pub body: Vec<Option<Src>>,
     /// Title text: (destination, align).
     /// Title text: (destination, align, overflow as in `Kind::Text`).
-    pub text: Option<(Dst, i32, i32)>,
+    /// Title: destination, align, overflow, bitmap font.
+    pub text: Option<(Dst, i32, i32, Option<usize>)>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
@@ -385,6 +398,8 @@ pub struct JudgeSkin {
 #[derive(Clone, Debug, Default)]
 pub struct LaneSkin {
     pub rect: Option<Rect>,
+    /// Drawn note height (LR2), else the source frame's.
+    pub note_h: Option<f32>,
     pub note: Option<Src>,
     pub ln_start: Option<Src>,
     pub ln_end: Option<Src>,
@@ -519,6 +534,19 @@ pub struct Skin {
     pub finish_margin_ms: i64,
     /// Script values (beatoraja Lua functions / scripts).
     pub script: Option<std::rc::Rc<script::Runtime>>,
+    /// LR2 bitmap fonts (`#LR2FONT`).
+    pub fonts: Vec<BitmapFont>,
+}
+
+/// An LR2 bitmap font: glyph images at a design height.
+#[derive(Clone, Debug, Default)]
+pub struct BitmapFont {
+    /// Design height of the glyphs (px).
+    pub size: f32,
+    /// Extra space after each glyph (px at design height; may be negative).
+    pub margin: f32,
+    /// Glyph: image (index into `Skin::images`) and its rect there.
+    pub glyphs: HashMap<char, (usize, [f32; 4])>,
 }
 
 /// Game state queried by the skin each frame.
