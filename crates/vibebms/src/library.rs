@@ -432,8 +432,8 @@ mod tests {
             passed: 2,
             ..Default::default()
         };
-        sc.add(0, true);
-        sc.add(1, true);
+        sc.add(0, 1);
+        sc.add(1, 1);
         let b = lib.record_play(&s[0].sha256, 0, &sc, ClearType::Hard);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 1));
         let worse = Score {

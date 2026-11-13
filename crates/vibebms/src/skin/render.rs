@@ -122,10 +122,10 @@ impl LoadedSkin {
         // 0-9, padding, sign; the sign goes in front of the first digit
         let signed = digits == 12;
         if signed {
-            if let Some(j) = slots.iter().position(|s| s.is_some()) {
-                if j > 0 {
-                    slots[j - 1] = Some(11);
-                }
+            // the sign goes right before the first real digit (not padding)
+            let len = value.unsigned_abs().max(1).ilog10() as usize + 1;
+            if len < keta {
+                slots[keta - len - 1] = Some(11);
             }
         }
         let blanks = slots.iter().filter(|s| s.is_none()).count() as f32;

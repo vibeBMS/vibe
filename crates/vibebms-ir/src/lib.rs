@@ -78,7 +78,8 @@ pub struct ScoreSubmission {
 
 impl ScoreSubmission {
     pub fn from_score(chart: &ChartRef, s: &Score, clear: ClearType) -> Self {
-        let c = |j: usize, late: usize| s.counts[j][late];
+        // the e*/l* fields have no "exact" bucket: count exact hits as early
+        let c = |j: usize, late: usize| s.counts[j][late] + if late == 0 { s.just[j] } else { 0 };
         ScoreSubmission {
             sha256: chart.sha256.clone(),
             md5: chart.md5.clone(),
@@ -461,9 +462,9 @@ mod tests {
             passed: 3,
             ..Default::default()
         };
-        s.add(0, true);
-        s.add(0, false);
-        s.add(4, false);
+        s.add(0, 1);
+        s.add(0, -1);
+        s.add(4, -1);
         let sub = ScoreSubmission::from_score(
             &ChartRef {
                 sha256: "x".into(),

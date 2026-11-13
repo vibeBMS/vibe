@@ -859,7 +859,7 @@ impl Engine {
         *pt = Some(diff);
         let lane = n.lane;
         let time = if tail { n.end_time } else { n.time };
-        self.score.add(judge, diff >= 0);
+        self.score.add(judge, diff);
         if judge < POOR {
             self.timing_log.push((time, diff));
         }

@@ -117,15 +117,24 @@ pub struct Score {
     /// Judgements that broke the combo (CB).
     #[serde(default)]
     pub combo_breaks: u32,
+    /// Judgements hit with zero timing error (neither FAST nor SLOW).
+    #[serde(default)]
+    pub just: [u32; 6],
 }
 
 impl Score {
-    pub fn add(&mut self, judge: usize, early: bool) {
-        self.counts[judge][usize::from(!early)] += 1;
+    /// Record a judgement; `diff` > 0 is early (FAST), < 0 late (SLOW) and
+    /// exactly 0 counts as neither.
+    pub fn add(&mut self, judge: usize, diff: i64) {
+        match diff.signum() {
+            1 => self.counts[judge][0] += 1,
+            -1 => self.counts[judge][1] += 1,
+            _ => self.just[judge] += 1,
+        }
     }
 
     pub fn count(&self, judge: usize) -> u32 {
-        self.counts[judge][0] + self.counts[judge][1]
+        self.counts[judge][0] + self.counts[judge][1] + self.just[judge]
     }
 
     pub fn fast(&self) -> u32 {
@@ -211,15 +220,17 @@ mod tests {
             passed: 2,
             ..Default::default()
         };
-        s.add(0, true);
-        s.add(1, false);
+        s.add(0, 1);
+        s.add(1, -1);
         assert_eq!(s.ex_score(), 3);
         assert_eq!(
             s.clear_type(Some(ClearType::Normal), false),
             ClearType::Perfect
         );
         s.counts[1] = [0, 0];
-        s.add(2, true);
+        s.add(2, 1);
+        s.add(0, 0);
+        assert_eq!((s.count(0), s.fast() + s.slow()), (2, 1));
         assert_eq!(
             s.clear_type(Some(ClearType::Hard), false),
             ClearType::FullCombo

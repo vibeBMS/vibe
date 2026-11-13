@@ -498,8 +498,10 @@ class Skin:
             d = {"id": iid, "src": sid, "x": 0, "y": 0, "w": -1, "h": -1}
         else:
             x, y, w, h = self.parts.items[key]
-            if key in ("white", "sep", "barline") or key.startswith("lane"):
+            if key in ("white", "sep") or key.startswith("lane"):
                 x, y, w, h = x + 4, y + 4, w - 8, h - 8
+            elif key == "barline":
+                x, y, w, h = x + 4, y + 7, w - 8, 1  # 1 px tall
             d = {"id": iid, "src": "parts", "x": x, "y": y, "w": w, "h": h}
         if divx > 1:
             d["divx"] = divx
@@ -865,49 +867,49 @@ def rate_number(sk, img, f, r, y, key="n_mid"):
 
 
 def score_panel(sk, img, f, x, y, w, h):
+    """EX score, max combo, rate and personal best (with difference)."""
     panel(img, (x, y, w, h), "SCORE", f)
     r = x + w - 14
-    big = "n_big" if w >= 300 else "n_mid"
-    step = (h - 30) // 3
-    rows = [y + 26 + step * i for i in range(3)]
-    for ry, s_ in zip(rows, ["EX SCORE", "MAX COMBO", "RATE"]):
+    big = "n_big" if w >= 260 else "n_mid"
+    step = min(42, (h - 34) // 4)
+    top = y + 26 + ((h - 34) - step * 4) // 2
+    rows = [top + step * i for i in range(4)]
+    for ry, s_ in zip(rows, ["EX SCORE", "MAX COMBO", "RATE", "BEST"]):
         draw_label(img, f, x + 12, ry + 8, s_ if w >= 260 else s_.split()[-1], 13, TEXT)
     cw, ch = sk.num(big, 71, 5)[1:]
-    sk.number(big, 71, 5, r - cw * 5, rows[0] + (24 - ch) // 2 + 4)
+    sk.number(big, 71, 5, r - cw * 5, rows[0] + (28 - ch) // 2)
     cw, ch = sk.num("n_mid", 75, 5)[1:]
     sk.number("n_mid", 75, 5, r - cw * 5, rows[1])
     rate_number(sk, img, f, r, rows[2])
-
-
-def best_panel(sk, img, f, x, y, w, h=64):
-    panel(img, (x, y, w, h), "PERSONAL BEST", f, accent=AMBER)
-    draw_label(img, f, x + 12, y + 30, "BEST", 13, TEXT)
-    sk.number("n_small", 150, 5, x + 70, y + 29)
-    draw_label(img, f, x + w // 2 + 8, y + 30, "DIFF", 13, TEXT)
-    cw = sk.num("n_signed", 152, 6)[1]
-    sk.number("n_signed", 152, 6, x + w - 14 - cw * 6, y + 29)
+    cw = sk.num("n_small", 150, 5)[1]
+    sk.number("n_small", 150, 5, x + (100 if w >= 260 else 52), rows[3] + 5)
+    sw = sk.num("n_signed", 152, 5)[1]
+    sk.number("n_signed", 152, 5, r - sw * 5, rows[3] + 5)
 
 
 def graph_panel(sk, img, f, x, y, w, h):
+    """Horizontal score graph: current rate and total progress against the
+    A / AA / AAA lines."""
     panel(img, (x, y, w, h), "SCORE GRAPH", f)
     d = ImageDraw.Draw(img)
-    gx, gy, gw, gh = x + 16, y + 28, w - 76, h - 52
-    for name, frac in (("AAA", 8 / 9), ("AA", 7 / 9), ("A", 6 / 9)):
-        ly = gy + gh - int(gh * frac)
-        d.line((gx, ly, gx + gw, ly), fill=(70, 80, 115, 255), width=1)
-        draw_label(img, f, gx + gw + 6, ly - 8, name, 12)
-    d.line((gx, gy + gh, gx + gw, gy + gh), fill=EDGE + (255,), width=1)
-    bw = gw // 2 - 24
+    gx, gw = x + 70, w - 90
+    bh = max(10, min(26, (h - 52) // 2))
+    gy = y + 30 + ((h - 38) - bh * 2 - 10) // 2
+    for name, frac in (("A", 6 / 9), ("AA", 7 / 9), ("AAA", 8 / 9)):
+        lx = gx + int(gw * frac)
+        d.line((lx, gy - 4, lx, gy + bh * 2 + 14), fill=(70, 80, 115, 255), width=1)
+        draw_label(img, f, lx, y + 8, name, 11, anchor="ma")
+    d.line((gx, gy - 4, gx, gy + bh * 2 + 14), fill=EDGE + (255,), width=1)
     for i, (ref, col, label) in enumerate(((110, TEAL, "NOW"), (111, PINK, "TOTAL"))):
-        bx = gx + 12 + i * (gw // 2)
+        by = gy + i * (bh + 10)
         gid = f"graph{ref}"
         if gid not in sk._ids:
             sk._ids.add(gid)
             px, py, pw, ph = sk.parts.items["white"]
             sk.j["graph"].append({"id": gid, "src": "parts", "x": px + 4, "y": py + 4,
-                                  "w": pw - 8, "h": ph - 8, "angle": 1, "type": ref})
-        sk.put(gid, bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=230)
-        draw_label(img, f, bx + bw // 2, gy + gh + 4, label, 11, anchor="ma")
+                                  "w": pw - 8, "h": ph - 8, "angle": 0, "type": ref})
+        sk.put(gid, gx, by, gw, bh, r=col[0], g=col[1], b=col[2], a=230)
+        draw_label(img, f, x + 12, by + bh // 2, label, 11, anchor="lm")
 
 
 def judge_panel(sk, img, f, x, y, w, h):
@@ -924,15 +926,16 @@ def judge_panel(sk, img, f, x, y, w, h):
     fast_c, slow_c = (140, 195, 255), (255, 140, 150)
     draw_label(img, f, fast_r - cw * keta // 2, y + 7, "FAST", 11, BLUE, anchor="ma")
     draw_label(img, f, slow_r - cw * keta // 2, y + 7, "SLOW", 11, RED, anchor="ma")
-    rh = (h - 40) // 6
+    rh = min(24, (h - 40) // 6)
+    top = y + 24 + ((h - 32) - rh * 6 - 4) // 2
     names = ["PERFECT", "GREAT", "GOOD", "BAD", "POOR"] if wide else ["PG", "GR", "GD", "BD", "PR"]
     for i, (name, ref) in enumerate(zip(names, (110, 111, 112, 113, 114))):
-        ry = y + 24 + i * rh
+        ry = top + i * rh
         draw_label(img, f, x + 12, ry + 2, name, 13, TEXT)
         sk.number("n_small", ref, 4, tot_r - cw * 4, ry)
         sk.number("n_small", 410 + i * 2, keta, fast_r - cw * keta, ry, color=fast_c)
         sk.number("n_small", 411 + i * 2, keta, slow_r - cw * keta, ry, color=slow_c)
-    ry = y + 24 + 5 * rh + 4
+    ry = top + 5 * rh + 4
     d.line((x + 10, ry - 3, x + w - 10, ry - 3), fill=EDGE + (255,), width=1)
     draw_label(img, f, x + 12, ry + 2, "COMBO BREAK" if wide else "CB", 13, AMBER)
     sk.number("n_small", 425, 4, tot_r - cw * 4, ry, color=(255, 220, 140))
@@ -964,95 +967,111 @@ def bpm_panel(sk, img, f, x, y, w, h):
     draw_label(img, f, rx, ly, "MAX", 11, anchor="ma")
 
 
-def time_panel(sk, img, f, x, y, w, h):
-    panel(img, (x, y, w, h), "TIME LEFT", f)
-    cw, ch = sk.num("n_big", 163, 2)[1:]
-    tw = cw * 4 + 14
-    tx = x + (w - tw) // 2
-    sk.number("n_big", 163, 2, tx, y + 26)
-    draw_label(img, f, tx + cw * 2 + 7, y + 26 + ch // 2, ":", 30, TEXT, "bold", anchor="mm")
-    sk.number("n_big", 164, 2, tx + cw * 2 + 14, y + 26, zeropad=True)
-    draw_label(img, f, x + 12, y + h - 24, "FPS", 11)
-    sk.number("n_small", 20, 4, x + 44, y + h - 26, color=DIM)
+TIME_H = 36
 
 
-# --- landscape single play: 7/5 keys at the side (2P swaps the blocks) --------
-LAND_SP = {"7": (78, 46), "5": (80, 64)}
+def time_panel(sk, img, f, x, y, w, h=TIME_H):
+    """Time left and FPS: one slim line, or two lines in a small box."""
+    panel(img, (x, y, w, h))
+    cw, ch = sk.num("n_mid", 163, 2)[1:]
+    if h < 60:
+        ty = y + (h - ch) // 2
+        draw_label(img, f, x + 12, y + h // 2, "TIME LEFT", 11, anchor="lm")
+        tx = x + 84
+    else:
+        draw_label(img, f, x + 12, y + 8, "TIME LEFT", 11)
+        tx = x + (w - cw * 4 - 10) // 2
+        ty = y + 24
+    sk.number("n_mid", 163, 2, tx, ty)
+    draw_label(img, f, tx + cw * 2 + 5, ty + ch // 2, ":", 20, TEXT, "bold", anchor="mm")
+    sk.number("n_mid", 164, 2, tx + cw * 2 + 10, ty, zeropad=True)
+    fw_ = sk.num("n_small", 20, 4)[1] * 4
+    fy = y + (h - 20) // 2 if h < 60 else y + h - 26
+    draw_label(img, f, x + w - 14 - fw_ - 6, fy + 10, "FPS", 10, anchor="rm")
+    sk.number("n_small", 20, 4, x + w - 14 - fw_, fy, color=DIM)
+
+
+# --- shared layout: a data column (SCORE, JUDGE, BPM, TIME) next to the note
+# field and a media column (title, BGA, score graph) beyond it ---------------
+def data_column(sk, img, f, x, y, w, h):
+    gap = 8
+    rest = h - TIME_H - gap * 3
+    hs = rest * 36 // 100
+    hj = rest * 40 // 100
+    hb = rest - hs - hj
+    score_panel(sk, img, f, x, y, w, hs)
+    judge_panel(sk, img, f, x, y + hs + gap, w, hj)
+    bpm_panel(sk, img, f, x, y + hs + hj + gap * 2, w, hb)
+    time_panel(sk, img, f, x, y + h - TIME_H, w)
+
+
+def media_column(sk, img, f, x, y, w, h, graph=True):
+    header(sk, img, f, x, y, w, 86)
+    side = min(w, h - 86 - 8 - (108 if graph else 0))
+    bga_frame(sk, img, x + (w - side) // 2, y + 94, side, side)
+    if graph:
+        gy = y + 94 + side + 8
+        graph_panel(sk, img, f, x, gy, w, y + h - gy)
+
+
+# landscape note fields share one vertical layout: lanes to y=520, keys to 630,
+# gauge, then the DURATION / LEVEL row
+LANE_H, KEYS_Y, KEYS_H, GAUGE_Y, INFO_Y = 520, 526, 104, 632, 690
+
+
+def field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=True):
+    d = ImageDraw.Draw(img)
+    d.rectangle((fx - 8, 0, fx + fw + 8, 720), fill=(8, 9, 14, 255))
+    px = fx - 24 if prog_left else fx + fw + 12
+    d.rounded_rectangle((px + 2, 4, px + 10, LANE_H - 4), 3, fill=(24, 28, 42, 255))
+    progress(sk, px, 0, LANE_H)
+    gauge_block(sk, img, f, fx, GAUGE_Y, fw)
+    info_row(sk, img, f, fx, INFO_Y, fw, 28)
+
+
+# --- landscape single play (7/5 keys) and 9 buttons ----------------------------
+LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 50)}
 
 
 def land_sp(fonts, parts, mode, side):
+    """7/5 keys: [field | data | media] for 1P, mirrored for 2P.
+    9 buttons: [media | field | data] with the field in the centre."""
     W, H = 1280, 720
-    kind = {"7": 0, "5": 1}[mode]
-    sk = Skin(kind, f"vibeBMS Default {mode}K{' 2P' if side else ''}", W, H, parts)
-    bgname = f"bg_land_{'2p' if side else '1p'}.png"
+    kind = {"7": 0, "5": 1, "9": 4}[mode]
+    name = f"vibeBMS Default {mode}K{' 2P' if side else ''}"
+    sk = Skin(kind, name, W, H, parts)
+    bgname = {"9": "bg_land_9.png"}.get(mode, f"bg_land_{'2p' if side else '1p'}.png")
     sk.source("bg", bgname)
-    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H, fixed=True)
-    if side:
-        sk.xmap = lambda x: x - 460 if x >= 460 else x + 820
-    img = background(W, H)
-    d = ImageDraw.Draw(img)
-    d.rectangle((32, 0, 448, H), fill=(8, 9, 14, 255))
-    d.rounded_rectangle((18, 4, 26, 536), 3, fill=(24, 28, 42, 255))
-    f = fonts
-    header(sk, img, f, 468, 8, 796, 86)
-    bga_frame(sk, img, 476, 100, 456, 456)
-    sw, kw = LAND_SP[mode]
-    kinds, _ = lane_kinds(mode)
-    fw = sw + kw * len(kinds)
-    fx = 40 + (400 - fw) // 2 + (820 if side else 0)
-    ls, _ = lanes(mode, fx, side, sw, kw)
-    note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
-    field(sk, mode, 0, side, fx, 0, 540, sw, kw, 548, 80, 0.62)
-    progress(sk, 16, 0, 540)
-    gauge_block(sk, img, f, fx - (820 if side else 0), 630, fw)
-    info_row(sk, img, f, 40, 688, 400)
-    score_panel(sk, img, f, 944, 100, 320, 140)
-    best_panel(sk, img, f, 944, 248, 320)
-    graph_panel(sk, img, f, 944, 320, 320, 236)
-    judge_panel(sk, img, f, 476, 564, 236, 150)
-    bpm_panel(sk, img, f, 720, 564, 212, 150)
-    time_panel(sk, img, f, 944, 564, 320, 150)
-    ready(sk, fx + fw // 2, 270)
-    if side:
-        out = img.copy()
-        out.paste(img.crop((460, 0, W, H)), (0, 0))
-        out.paste(img.crop((0, 0, 460, H)), (820, 0))
-        img = out
-    return sk, img, bgname
-
-
-# --- landscape 9 buttons: field in the centre ------------------------------------
-def land_9(fonts, parts):
-    W, H = 1280, 720
-    sk = Skin(4, "vibeBMS Default 9K", W, H, parts)
-    sk.source("bg", "bg_land_9.png")
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
     img = background(W, H)
     f = fonts
-    kw = 50
-    fw = kw * 9
-    fx = (W - fw) // 2
-    ImageDraw.Draw(img).rectangle((fx - 8, 0, fx + fw + 8, H), fill=(8, 9, 14, 255))
-    ImageDraw.Draw(img).rounded_rectangle((fx - 22, 4, fx - 14, 516), 3, fill=(24, 28, 42, 255))
-    ls, _ = lanes("9", fx, 0, 0, kw)
+    sw, kw = LAND_SP[mode]
+    kinds, scratch = lane_kinds(mode)
+    fw = (sw if scratch else 0) + kw * len(kinds)
+    if mode == "9":
+        fx = (W - fw) // 2
+        media_x, data_x = 8, fx + fw + 22
+        mw = fx - 32 - media_x
+        dw = W - 8 - data_x
+    elif side == 0:
+        fx = 40 + (400 - fw) // 2
+        data_x, dw = 468, 296
+        media_x, mw = data_x + dw + 8, W - 8 - (data_x + dw + 8)
+    else:
+        fx = W - 40 - 400 + (400 - fw) // 2
+        data_x, dw = W - 468 - 296, 296
+        media_x, mw = 8, data_x - 8 - 8
+    field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=(side == 0))
+    ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
-    field(sk, "9", 0, 0, fx, 0, 520, 0, kw, 526, 104, 0.6)
-    progress(sk, fx - 24, 0, 520)
-    gauge_block(sk, img, f, fx, 632, fw)
-    info_row(sk, img, f, fx, 690, fw, 28)
-    header(sk, img, f, 16, 8, 376, 86)
-    bga_frame(sk, img, 16, 100, 376, 376)
-    score_panel(sk, img, f, 16, 484, 376, 140)
-    best_panel(sk, img, f, 16, 632, 376, 80)
-    judge_panel(sk, img, f, 888, 8, 376, 150)
-    graph_panel(sk, img, f, 888, 166, 376, 310)
-    bpm_panel(sk, img, f, 888, 484, 376, 120)
-    time_panel(sk, img, f, 888, 612, 376, 100)
+    field(sk, mode, 0, side, fx, 0, LANE_H, sw, kw, KEYS_Y, KEYS_H, 0.6)
+    data_column(sk, img, f, data_x, 8, dw, 704)
+    media_column(sk, img, f, media_x, 8, mw, 704)
     ready(sk, fx + fw // 2, 260)
-    return sk, img
+    return sk, img, bgname
 
 
-# --- landscape double play --------------------------------------------------
+# --- landscape double play: [field | media + data | field] ---------------------
 LAND_DP = {"7": (62, 44), "5": (66, 60)}
 
 
@@ -1065,34 +1084,36 @@ def land_dp(fonts, parts, mode):
     img = background(W, H)
     f = fonts
     d = ImageDraw.Draw(img)
-    for x in (12, 868):
-        d.rectangle((x, 0, x + 400, H), fill=(8, 9, 14, 255))
     sw, kw = LAND_DP[mode]
     kinds, _ = lane_kinds(mode)
     fw = sw + kw * len(kinds)
-    f1 = 16 + (392 - fw) // 2
+    f1 = 20 + (384 - fw) // 2
     f2 = W - f1 - fw
+    for fx in (f1, f2):
+        d.rectangle((fx - 8, 0, fx + fw + 8, H), fill=(8, 9, 14, 255))
     l1, _ = lanes(mode, f1, 0, sw, kw)
     l2, _ = lanes(mode, f2, 1, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(l1 + l2)])
     for part in ("under", "over"):
-        field(sk, mode, 0, 0, f1, 0, 548, sw, kw, 556, 76, 0.62, part=part)
-        field(sk, mode, 1, 1, f2, 0, 548, sw, kw, 556, 76, 0.62, part=part)
-    header(sk, img, f, 420, 6, 440, 74, align=1)
-    d.rounded_rectangle((440, 92, 452, 390), 3, fill=(24, 28, 42, 255))
-    progress(sk, 440, 88, 306)
-    bga_frame(sk, img, 466, 86, 348, 310)
-    gauge_block(sk, img, f, 428, 400, 424)
-    score_panel(sk, img, f, 420, 460, 216, 118)
-    bpm_panel(sk, img, f, 644, 460, 216, 118)
-    judge_panel(sk, img, f, 420, 584, 216, 130)
-    time_panel(sk, img, f, 644, 584, 216, 130)
-    ready(sk, f1 + fw // 2, 270)
-    ready(sk, f2 + fw // 2, 270)
+        field(sk, mode, 0, 0, f1, 0, LANE_H, sw, kw, KEYS_Y, 80, 0.6, part=part)
+        field(sk, mode, 1, 1, f2, 0, LANE_H, sw, kw, KEYS_Y, 80, 0.6, part=part)
+    cx, cw = f1 + fw + 20, f2 - 20 - (f1 + fw + 20)
+    media_column(sk, img, f, cx, 8, cw, 86 + 8 + 236, graph=False)
+    d.rounded_rectangle((cx + 4, 104, cx + 12, 322), 3, fill=(24, 28, 42, 255))
+    progress(sk, cx + 2, 100, 226)
+    half = (cw - 8) // 2
+    score_panel(sk, img, f, cx, 340, half, 184)
+    judge_panel(sk, img, f, cx + half + 8, 340, cw - half - 8, 184)
+    bpm_panel(sk, img, f, cx, 532, cw - 140, 92)
+    time_panel(sk, img, f, cx + cw - 132, 532, 132, 92)
+    gauge_block(sk, img, f, cx, GAUGE_Y, cw)
+    info_row(sk, img, f, cx, INFO_Y, cw, 28)
+    ready(sk, f1 + fw // 2, 260)
+    ready(sk, f2 + fw // 2, 260)
     return sk, img
 
 
-# --- portrait single play ---------------------------------------------------
+# --- portrait single play: title, field, gauge, then SCORE | JUDGE | BPM -------
 PORT_SP = {"7": (102, 78), "5": (108, 104), "9": (0, 70)}
 
 
@@ -1110,7 +1131,7 @@ def port_sp(fonts, parts, mode, side):
     fw = (sw if scratch else 0) + kw * len(kinds)
     fx = 32 + (656 - fw) // 2
     header(sk, img, f, 8, 6, 704, 66)
-    # level and time at the right end of the header
+    # level and time at the right end of the title
     draw_label(img, f, 600, 14, "LV", 11)
     sk.number("n_green", 96, 2, 640, 12, color=TEXT)
     draw_label(img, f, 600, 44, "TIME", 11)
@@ -1127,8 +1148,8 @@ def port_sp(fonts, parts, mode, side):
     progress(sk, 10, 80, 886)
     gauge_block(sk, img, f, fx, 1058, fw)
     score_panel(sk, img, f, 24, 1118, 216, 156)
-    bpm_panel(sk, img, f, 248, 1118, 216, 156)
-    judge_panel(sk, img, f, 472, 1118, 224, 156)
+    judge_panel(sk, img, f, 248, 1118, 224, 156)
+    bpm_panel(sk, img, f, 480, 1118, 216, 156)
     ready(sk, fx + fw // 2, 500)
     return sk, img
 
@@ -1154,7 +1175,8 @@ def main():
         for side in (0, 1):
             sk, img, bg = land_sp(fonts, parts, mode, side)
             emit(sk, img, f"play{mode}{'_2p' if side else ''}.json", bg)
-    emit(*land_9(fonts, parts), "play9.json", "bg_land_9.png")
+    sk, img, bg = land_sp(fonts, parts, "9", 0)
+    emit(sk, img, "play9.json", bg)
     for mode in ("7", "5", "9"):
         for side in ((0, 1) if mode != "9" else (0,)):
             emit(*port_sp(fonts, parts, mode, side),
