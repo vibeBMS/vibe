@@ -14,7 +14,7 @@ default-members = ["crates/vibebms"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.84"
+rust-version = "1.85"
 repository = "https://github.com/eseiker/vibeBMS"
 license = "MIT OR Apache-2.0"
 
