@@ -16,11 +16,11 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         .or_else(|| app.internal_data_path())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let paths = vibebms_app::paths::Paths::at(root);
-    let event_loop = winit::event_loop::EventLoop::builder()
+    let event_loop = winit::event_loop::EventLoop::<vibebms_app::app::UserEvent>::with_user_event()
         .with_android_app(app)
         .build()
         .expect("event loop");
-    let mut a = vibebms_app::app::App::new(paths);
+    let mut a = vibebms_app::app::App::with_proxy(paths, event_loop.create_proxy());
     if let Err(e) = event_loop.run_app(&mut a) {
         log::error!("event loop: {e}");
     }
