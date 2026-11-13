@@ -543,7 +543,13 @@ impl PlayScene {
         if !ctx.touch_enabled() {
             return Vec::new();
         }
-        let ctrl_h = (h * ctx.config.touch.height).clamp(80.0, h * 0.6);
+        let t = &ctx.config.touch;
+        let share = if h > w {
+            t.portrait_height
+        } else {
+            t.landscape_height
+        };
+        let ctrl_h = (h * share).clamp(80.0, h * 0.6);
         let area = Rect::new(0.0, h - ctrl_h, w, ctrl_h);
         let dp = self.mode.is_double();
         let side2 = ctx.config.play.side == Side::P2;

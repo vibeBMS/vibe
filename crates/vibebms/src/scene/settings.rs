@@ -487,11 +487,19 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 },
             ),
             it(
-                "Controls height",
-                format!("{:.0}%", c.touch.height * 100.0),
+                "Controls height (landscape)",
+                format!("{:.0}%", c.touch.landscape_height * 100.0),
                 |c, d| {
-                    c.config.touch.height =
-                        (c.config.touch.height + d as f32 * 0.01).clamp(0.12, 0.6)
+                    let h = &mut c.config.touch.landscape_height;
+                    *h = (*h + d as f32 * 0.01).clamp(0.12, 0.6)
+                },
+            ),
+            it(
+                "Controls height (portrait)",
+                format!("{:.0}%", c.touch.portrait_height * 100.0),
+                |c, d| {
+                    let h = &mut c.config.touch.portrait_height;
+                    *h = (*h + d as f32 * 0.01).clamp(0.12, 0.6)
                 },
             ),
             it(

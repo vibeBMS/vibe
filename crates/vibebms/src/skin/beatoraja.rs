@@ -1242,8 +1242,15 @@ mod tests {
                 .ok()
         };
         for mode in PlayMode::ALL {
-            for (p2, portrait) in [(false, false), (true, false), (false, true), (true, true)] {
-                let path = default_skin(mode, p2, portrait);
+            for (p2, portrait, touch) in [
+                (false, false, false),
+                (true, false, false),
+                (false, true, false),
+                (true, true, false),
+                (false, false, true),
+                (true, false, true),
+            ] {
+                let path = default_skin(mode, p2, portrait, touch);
                 let sk = load(&path, &HashMap::new(), &size)
                     .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 assert_eq!(sk.kind.mode(), Some(mode), "{}", path.display());

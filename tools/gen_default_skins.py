@@ -814,8 +814,8 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
                ])
         sk.put(sk.img("hold", divx=4, cycle=200), cx - 40, judge_y - 40, 80, 80, timer=hold,
                blend=2, fixed=True, a=200, **t)
-    # keys / turntable
-    for x, w, k, li in lanes_out:
+    # keys / turntable (touch layouts leave them to the on-screen controls)
+    for x, w, k, li in lanes_out if keys_h > 0 else []:
         on, _, _, _ = timer_ids(mode, li, player)
         if k == "s":
             s = min(w, keys_h) - 4
@@ -1169,28 +1169,41 @@ def media_column(sk, img, f, x, y, w, h, bpm=False):
 LANE_H, KEYS_Y, KEYS_H, GAUGE_Y, INFO_Y = 520, 526, 104, 632, 690
 
 
-def field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=True):
+# with touch controls under them: a wider canvas (the space above the
+# controls on a 4:3 tablet) and only the lanes and the gauge
+TOUCH_H = 528
+TOUCH_LANE_H = TOUCH_H - 60
+
+
+def field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=True, touch=False):
+    h, lane_h = (TOUCH_H, TOUCH_LANE_H) if touch else (720, LANE_H)
     d = ImageDraw.Draw(img)
-    d.rectangle((fx - 8, 0, fx + fw + 8, 720), fill=(8, 9, 14, 255))
+    d.rectangle((fx - 8, 0, fx + fw + 8, h), fill=(8, 9, 14, 255))
     px = fx - 24 if prog_left else fx + fw + 12
-    d.rounded_rectangle((px + 2, 4, px + 10, LANE_H - 4), 3, fill=(24, 28, 42, 255))
-    progress(sk, px, 0, LANE_H)
-    gauge_block(sk, img, f, fx, GAUGE_Y, fw)
-    info_row(sk, img, f, fx, INFO_Y, fw, 28)
+    d.rounded_rectangle((px + 2, 4, px + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
+    progress(sk, px, 0, lane_h)
+    if touch:
+        gauge_block(sk, img, f, fx, lane_h + 6, fw)
+    else:
+        gauge_block(sk, img, f, fx, GAUGE_Y, fw)
+        info_row(sk, img, f, fx, INFO_Y, fw, 28)
 
 
 # --- landscape single play (7/5 keys) and 9 buttons ----------------------------
 LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 50)}
 
 
-def land_sp(fonts, parts, mode, side):
+def land_sp(fonts, parts, mode, side, touch=False):
     """7/5 keys: [field | data | media] for 1P, mirrored for 2P.
-    9 buttons: [media | field | data] with the field in the centre."""
-    W, H = 1280, 720
+    9 buttons: [media | field | data] with the field in the centre.
+    `touch`: the variant shown above on-screen controls."""
+    W, H = 1280, (TOUCH_H if touch else 720)
+    lane_h = TOUCH_LANE_H if touch else LANE_H
     kind = {"7": 0, "5": 1, "9": 4}[mode]
-    name = f"vibeBMS Default {mode}K{' 2P' if side else ''}"
+    name = f"vibeBMS Default {mode}K{' 2P' if side else ''}{' touch' if touch else ''}"
     sk = Skin(kind, name, W, H, parts)
-    bgname = {"9": "bg_land_9.png"}.get(mode, f"bg_land_{'2p' if side else '1p'}.png")
+    bgname = {"9": "bg_land_9"}.get(mode, f"bg_land_{'2p' if side else '1p'}")
+    bgname += "_touch.png" if touch else ".png"
     sk.source("bg", bgname)
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
     img = background(W, H)
@@ -1211,15 +1224,19 @@ def land_sp(fonts, parts, mode, side):
         fx = W - 40 - 400 + (400 - fw) // 2
         data_x, dw = W - 468 - 260, 260
         media_x, mw = 8, data_x - 8 - 8
-    field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=(side == 0))
+    field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=(side == 0), touch=touch)
     ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
-    field(sk, mode, 0, side, fx, 0, LANE_H, sw, kw, KEYS_Y, KEYS_H, 0.6)
+    if touch:
+        field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, lane_h, 0, 0.6)
+    else:
+        field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, KEYS_Y, KEYS_H, 0.6)
     # the BPM panel goes under the BGA when the media column has room for it
-    bpm_in_media = 704 - 94 - mw * 5 // 4 >= BPM_H + 8
-    data_column(sk, img, f, data_x, 8, dw, 704, with_bpm=not bpm_in_media)
-    media_column(sk, img, f, media_x, 8, mw, 704, bpm=bpm_in_media)
-    ready(sk, fx + fw // 2, 260)
+    col_h = H - 16
+    bpm_in_media = touch or col_h - 94 - mw * 5 // 4 >= BPM_H + 8
+    data_column(sk, img, f, data_x, 8, dw, col_h, with_bpm=not bpm_in_media)
+    media_column(sk, img, f, media_x, 8, mw, col_h, bpm=bpm_in_media)
+    ready(sk, fx + fw // 2, lane_h // 2)
     return sk, img, bgname
 
 
@@ -1629,6 +1646,10 @@ def main():
             emit(sk, img, f"play{mode}{'_2p' if side else ''}.json", bg)
     sk, img, bg = land_sp(fonts, parts, "9", 0)
     emit(sk, img, "play9.json", bg)
+    for mode in ("7", "5", "9"):
+        for side in ((0, 1) if mode != "9" else (0,)):
+            sk, img, bg = land_sp(fonts, parts, mode, side, touch=True)
+            emit(sk, img, f"play{mode}_touch{'_2p' if side else ''}.json", bg)
     for mode in ("7", "5", "9"):
         for side in ((0, 1) if mode != "9" else (0,)):
             emit(*port_sp(fonts, parts, mode, side),

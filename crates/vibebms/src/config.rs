@@ -215,8 +215,11 @@ pub enum TouchStyle {
 pub struct TouchConfig {
     pub mode: TouchMode,
     pub style: TouchStyle,
-    /// Fraction of the screen height used by the controls.
-    pub height: f32,
+    /// Fraction of the screen height used by the controls, in landscape
+    /// (the default skin's touch layout fills the rest on a 4:3 tablet) and
+    /// in portrait.
+    pub landscape_height: f32,
+    pub portrait_height: f32,
     /// Opacity of the controls.
     pub opacity: f32,
     /// The screen's diagonal in inches, for controls at their real size
@@ -233,7 +236,8 @@ impl Default for TouchConfig {
         TouchConfig {
             mode: TouchMode::Auto,
             style: TouchStyle::Iidx,
-            height: 0.32,
+            landscape_height: 0.45,
+            portrait_height: 0.32,
             opacity: 0.85,
             screen_inches: 0.0,
             allow_dp: true,

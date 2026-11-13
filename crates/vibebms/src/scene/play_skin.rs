@@ -36,8 +36,9 @@ fn lane_from_lr2(mode: PlayMode, idx: i32) -> Option<usize> {
     }
 }
 
-/// The built-in default skin for a mode, side and screen orientation.
-pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool) -> PathBuf {
+/// The built-in default skin for a mode, side and screen orientation
+/// (`touch`: the landscape variant above on-screen controls).
+pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool, touch: bool) -> PathBuf {
     let name = match mode {
         PlayMode::Beat14K => "play14".to_string(),
         PlayMode::Beat10K => "play10".to_string(),
@@ -45,7 +46,13 @@ pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool) -> PathBuf {
         m => format!(
             "play{}{}{}",
             m.keys_per_player(),
-            if portrait { "_portrait" } else { "" },
+            if portrait {
+                "_portrait"
+            } else if touch {
+                "_touch"
+            } else {
+                ""
+            },
             if p2 && m.has_scratch() { "_2p" } else { "" }
         ),
     };
@@ -77,6 +84,7 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
         mode,
         ctx.config.play.side == crate::config::Side::P2,
         ctx.height > ctx.width,
+        ctx.touch_enabled(),
     );
     let value = ctx
         .config
