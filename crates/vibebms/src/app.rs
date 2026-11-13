@@ -462,25 +462,16 @@ pub struct App {
     run: Option<Running>,
     paths: Paths,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    proxy: Option<EventLoopProxy<UserEvent>>,
+    proxy: EventLoopProxy<UserEvent>,
     creating: bool,
 }
 
 impl App {
-    pub fn new(paths: Paths) -> App {
+    pub fn new(paths: Paths, proxy: EventLoopProxy<UserEvent>) -> App {
         App {
             run: None,
             paths,
-            proxy: None,
-            creating: false,
-        }
-    }
-
-    pub fn with_proxy(paths: Paths, proxy: EventLoopProxy<UserEvent>) -> App {
-        App {
-            run: None,
-            paths,
-            proxy: Some(proxy),
+            proxy,
             creating: false,
         }
     }
@@ -498,7 +489,7 @@ pub fn run() {
     };
     event_loop.set_control_flow(ControlFlow::Poll);
     #[allow(unused_mut)]
-    let mut app = App::with_proxy(paths, event_loop.create_proxy());
+    let mut app = App::new(paths, event_loop.create_proxy());
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
@@ -863,9 +854,7 @@ impl ApplicationHandler<UserEvent> for App {
             let mode = config.display.present_mode;
             wasm_bindgen_futures::spawn_local(async move {
                 let g = Gfx::create(window.clone(), mode).await;
-                if let Some(p) = proxy {
-                    let _ = p.send_event(UserEvent::GfxReady(window, Box::new(g)));
-                }
+                let _ = proxy.send_event(UserEvent::GfxReady(window, Box::new(g)));
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
