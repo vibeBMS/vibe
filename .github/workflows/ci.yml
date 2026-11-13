@@ -128,7 +128,6 @@ jobs:
     name: build android (experimental)
     needs: test
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -137,6 +136,27 @@ jobs:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo install cargo-apk --locked
+      # release APKs must be signed: with the repository's key when its
+      # secrets hold one (base64 keystore + password), else a throwaway key
+      # (the APK installs, but cannot update one signed by another key)
+      - name: signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          ks="$RUNNER_TEMP/release.keystore"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$ks"
+            pass="$KEYSTORE_PASSWORD"
+          else
+            pass="$(openssl rand -hex 16)"
+            keytool -genkeypair -keystore "$ks" -storepass "$pass" -keypass "$pass" -alias vibebms \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=vibeBMS"
+          fi
+          echo "::add-mask::$pass"
+          echo "CARGO_APK_RELEASE_KEYSTORE=$ks" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
       - run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" cargo apk build -p vibebms-android --release
       - uses: actions/upload-artifact@v4
         with:
