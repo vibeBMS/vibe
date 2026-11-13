@@ -448,6 +448,7 @@ impl Loader<'_> {
             "#SRC_TEXT" => self.push(Kind::Text {
                 id: v[3] as i32,
                 align: v[4] as i32,
+                overflow: 0,
             }),
             "#SRC_BARGRAPH" => {
                 self.cur = None;
@@ -536,7 +537,7 @@ impl Loader<'_> {
             "#DST_BAR_TITLE" => {
                 if v[1] == 0 {
                     let sl = self.songlist();
-                    let (d, _) = sl.text.get_or_insert_with(|| (Dst::default(), 0));
+                    let (d, _, _) = sl.text.get_or_insert_with(|| (Dst::default(), 0, 0));
                     add_dst(d, &v);
                 }
             }

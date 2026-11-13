@@ -162,7 +162,76 @@ pub fn read_value(
     let text = vfs::read(path)
         .map(|b| vibebms_core::encoding::decode_text(&b))
         .map_err(|e| e.to_string())?;
-    json5::from_str::<Value>(&text).map_err(|e| format!("{}: {e}", path.display()))
+    json5::from_str::<Value>(&add_missing_commas(&text))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// beatoraja reads skins with libGDX's lenient JSON reader, which accepts
+/// values separated only by a line break; insert the missing commas so
+/// json5 accepts them too (strings and comments are left alone).
+fn add_missing_commas(text: &str) -> String {
+    let b: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len() + 64);
+    // last significant char outside strings / comments
+    let mut last: Option<char> = None;
+    let mut i = 0;
+    let ends_value = |c: char| matches!(c, '}' | ']' | '"' | '\'') || c.is_alphanumeric();
+    let starts_value =
+        |c: char| matches!(c, '{' | '[' | '"' | '\'' | '-' | '+' | '.') || c.is_alphanumeric();
+    let mut newline_since_last = false;
+    while i < b.len() {
+        let c = b[i];
+        if c == '"' || c == '\'' {
+            if newline_since_last && last.map(ends_value).unwrap_or(false) {
+                out.push(',');
+            }
+            newline_since_last = false;
+            out.push(c);
+            i += 1;
+            while i < b.len() && b[i] != c {
+                if b[i] == '\\' && i + 1 < b.len() {
+                    out.push(b[i]);
+                    i += 1;
+                }
+                out.push(b[i]);
+                i += 1;
+            }
+            if i < b.len() {
+                out.push(b[i]);
+                i += 1;
+            }
+            last = Some(c);
+            continue;
+        }
+        if c == '/' && b.get(i + 1) == Some(&'/') {
+            while i < b.len() && b[i] != '\n' {
+                out.push(b[i]);
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && b.get(i + 1) == Some(&'*') {
+            while i < b.len() && !(b[i] == '*' && b.get(i + 1) == Some(&'/')) {
+                out.push(b[i]);
+                i += 1;
+            }
+            out.push_str("*/");
+            i += 2;
+            continue;
+        }
+        if c == '\n' {
+            newline_since_last = true;
+        } else if !c.is_whitespace() {
+            if newline_since_last && starts_value(c) && last.map(ends_value).unwrap_or(false) {
+                out.push(',');
+            }
+            newline_since_last = false;
+            last = Some(c);
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
 }
 
 /// (type, name) without building the skin.
@@ -290,13 +359,13 @@ impl Ctx<'_> {
             id: i(def, "ref", 0) as i32,
             align: i(def, "align", 0) as i32,
             keta: i(def, "digit", 1).max(1) as usize,
-            // zeropadding: 1 = '0', 2 = the padding image; LR2-style 11-image
-            // fonts pad with their 11th image by default
+            // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the padding image
+            // (the 11th; '0' for fonts without one)
             pad: match i(def, "zeropadding", 0) {
                 1 => Some(0),
                 2 if digits > 10 => Some(10),
                 2 => Some(0),
-                _ => (digits > 10).then_some(10),
+                _ => None,
             },
         })
     }
@@ -365,11 +434,9 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         }
     }
     if let Some(t) = arr(sl.get("text")).first() {
-        let align = cx
-            .find("text", &id_of(t))
-            .map(|d| i(d, "align", 0) as i32)
-            .unwrap_or(0);
-        out.text = Some((rel(t), align));
+        let def = cx.find("text", &id_of(t));
+        let get = |k: &str| def.map(|d| i(d, k, 0) as i32).unwrap_or(0);
+        out.text = Some((rel(t), get("align"), get("overflow")));
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -490,6 +557,20 @@ pub fn load(
             match i(img, "ref", 0) {
                 // game-supplied image (100 stage file, 101 back bmp, 102 banner)
                 r if r > 0 && img.get("src").is_none() => Some(Kind::RefImage(r as i32)),
+                // frames split into `len` groups; the value of `ref` picks one
+                r if r > 0 => cx.src(img).map(|src| {
+                    let len = i(img, "len", 1).max(1) as usize;
+                    let per = (src.frames.len() / len).max(1);
+                    let srcs = src
+                        .frames
+                        .chunks(per)
+                        .map(|c| Src {
+                            frames: c.to_vec(),
+                            ..src.clone()
+                        })
+                        .collect();
+                    Kind::ImageSet { srcs, id: r as i32 }
+                }),
                 _ => cx.src(img).map(Kind::Image),
             }
         } else if let Some(v) = cx.find("value", &id) {
@@ -498,6 +579,7 @@ pub fn load(
             Some(Kind::Text {
                 id: i(t, "ref", 0) as i32,
                 align: i(t, "align", 0) as i32,
+                overflow: i(t, "overflow", 0) as i32,
             })
         } else if let Some(sl) = cx.find("slider", &id) {
             cx.src(sl).map(|src| Kind::Slider {
@@ -755,6 +837,18 @@ mod lua {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lenient_json_commas() {
+        let t = "{\"a\": [ {\"x\":1}\n {\"y\":\"s\"}\n ],\n \"b\": 2 // c\n , d: true\n e: 'q'\n}";
+        let v: Value = json5::from_str(&add_missing_commas(t)).unwrap();
+        assert_eq!(v["a"].as_array().unwrap().len(), 2);
+        assert_eq!(v["d"], Value::Bool(true));
+        assert_eq!(v["e"], Value::String("q".into()));
+        // already valid JSON is unchanged
+        let ok = "{\"a\": 1,\n \"b\": [1,\n 2]}";
+        assert_eq!(add_missing_commas(ok), ok);
+    }
 
     #[test]
     fn builtin_result_skin_loads() {

@@ -11,7 +11,6 @@ use super::select::{Bar, Node, SelectScene};
 use super::skinned::{ms_since, rank_index};
 use crate::app::{Ctx, Draw};
 use crate::config::HiSpeedMode;
-use crate::gfx::text::Align;
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
@@ -480,16 +479,12 @@ impl Hooks for SelectHooks<'_> {
                     (xf.rect(rr), f)
                 })
             };
-            if let Some((tr, f)) = sl.text.as_ref().and_then(|(t, _)| sub(t)) {
-                let align = sl.text.as_ref().map(|t| t.1).unwrap_or(0);
-                let (x, al) = match align {
-                    1 => (tr.x + tr.w * 0.5, Align::Center),
-                    2 => (tr.right(), Align::Right),
-                    _ => (tr.x, Align::Left),
-                };
-                let mut c = f.color;
-                c[3] *= fr.color[3];
-                d.text_fit(&info.title, x, tr.y, tr.h.max(4.0), c, al, tr.w.max(1.0));
+            if let Some((t, align, overflow)) = sl.text.as_ref() {
+                if let Some((tr, f)) = sub(t) {
+                    let mut c = f.color;
+                    c[3] *= fr.color[3];
+                    skin.text(d, &info.title, tr, *align, *overflow, c);
+                }
             }
             if let (Some(lv), Some(Some((font, dst)))) = (info.level, sl.level.get(info.difficulty))
             {

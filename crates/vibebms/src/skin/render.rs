@@ -108,6 +108,37 @@ impl LoadedSkin {
         }
     }
 
+    /// Draw a text into `r` (font size = height; see `Kind::Text` overflow).
+    pub fn text(
+        &self,
+        d: &mut Draw,
+        s: &str,
+        r: Rect,
+        align: i32,
+        overflow: i32,
+        color: crate::gfx::Color,
+    ) {
+        let (x, al) = match align {
+            1 => (r.x + r.w * 0.5, Align::Center),
+            2 => (r.right(), Align::Right),
+            _ => (r.x, Align::Left),
+        };
+        let size = r.h.max(4.0);
+        match overflow {
+            1 if r.w > 1.0 => {
+                d.text_fit(s, x, r.y, size, color, al, r.w);
+            }
+            2 if r.w > 1.0 => {
+                d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
+                d.text(s, x, r.y, size, color, al);
+                d.b.set_clip(None);
+            }
+            _ => {
+                d.text(s, x, r.y, size, color, al);
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn number(
         &self,
@@ -241,19 +272,13 @@ impl LoadedSkin {
                         self.number(d, src, *digits, *keta, *align, *pad, v, now, st, r, &fr);
                     }
                 }
-                Kind::Text { id, align } => {
+                Kind::Text {
+                    id,
+                    align,
+                    overflow,
+                } => {
                     if let Some(s) = st.text(*id) {
-                        let (x, al) = match align {
-                            1 => (r.x + r.w * 0.5, Align::Center),
-                            2 => (r.right(), Align::Right),
-                            _ => (r.x, Align::Left),
-                        };
-                        let max_w = if r.w > 1.0 {
-                            r.w.max(r.h * 4.0)
-                        } else {
-                            f32::INFINITY
-                        };
-                        d.text_fit(&s, x, r.y, r.h.max(4.0), fr.color, al, max_w);
+                        self.text(d, &s, r, *align, *overflow, fr.color);
                     }
                 }
                 Kind::Bar { src, id, dir } => {

@@ -210,6 +210,9 @@ pub enum Kind {
     Text {
         id: i32,
         align: i32,
+        /// Text wider than the destination: 0 overflows (LR2, beatoraja
+        /// default), 1 shrinks to fit, 2 is cut off.
+        overflow: i32,
     },
     Bar {
         src: Src,
@@ -292,7 +295,8 @@ pub struct SongListSkin {
     /// Bar body per bar type (`BAR_*`).
     pub body: Vec<Option<Src>>,
     /// Title text: (destination, align).
-    pub text: Option<(Dst, i32)>,
+    /// Title text: (destination, align, overflow as in `Kind::Text`).
+    pub text: Option<(Dst, i32, i32)>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
