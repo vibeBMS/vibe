@@ -203,12 +203,6 @@ impl TimingMap {
         self.segs[idx.saturating_sub(1)].bpm
     }
 
-    pub fn is_stopped_at(&self, t: i64) -> bool {
-        self.stops
-            .iter()
-            .any(|s| t >= s.time && t < s.time + s.duration)
-    }
-
     /// Scroll position for a beat (integral of the SCROLL factor).
     pub fn pos_at_beat(&self, beat: f64) -> f64 {
         let idx = self.scroll.partition_point(|s| s.beat <= beat);

@@ -268,14 +268,6 @@ impl Engine {
         self.lanes.get(lane).and_then(|l| l.processing)
     }
 
-    /// HCN currently gaining gauge on this lane.
-    pub fn hcn_active(&self, lane: usize) -> bool {
-        self.lanes
-            .get(lane)
-            .map(|l| l.passing.is_some() && l.increase)
-            .unwrap_or(false)
-    }
-
     pub fn is_auto(&self, lane: usize) -> bool {
         self.cfg.auto_lanes.get(lane).copied().unwrap_or(false)
     }
@@ -893,14 +885,6 @@ impl Engine {
             self.failed = true;
             self.events.push(EngineEvent::Failed);
         }
-    }
-
-    /// Fraction of lane key state, for key beams.
-    pub fn key_down(&self, lane: usize) -> bool {
-        self.lanes
-            .get(lane)
-            .map(|l| l.keys.iter().any(|k| *k) || l.auto_hold)
-            .unwrap_or(false)
     }
 }
 

@@ -85,7 +85,6 @@ enum Cmd {
     Volume(u64, f32),
     Stop(u64),
     StopBus(Bus),
-    StopAll,
     BusVolume(Bus, f32),
     Master(f32),
 }
@@ -128,7 +127,6 @@ impl State {
                     .for_each(|v| v.vol = vol),
                 Cmd::Stop(k) => self.voices.retain(|v| v.key != k),
                 Cmd::StopBus(b) => self.voices.retain(|v| v.bus != b),
-                Cmd::StopAll => self.voices.clear(),
                 Cmd::BusVolume(b, v) => self.bus[b as usize] = v,
                 Cmd::Master(v) => self.master = v,
             }
@@ -300,9 +298,6 @@ impl Mixer {
     }
     pub fn stop_bus(&self, bus: Bus) {
         let _ = self.tx.send(Cmd::StopBus(bus));
-    }
-    pub fn stop_all(&self) {
-        let _ = self.tx.send(Cmd::StopAll);
     }
     pub fn set_bus_volume(&self, bus: Bus, v: f32) {
         let _ = self.tx.send(Cmd::BusVolume(bus, v));

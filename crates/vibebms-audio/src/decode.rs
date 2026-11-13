@@ -29,10 +29,6 @@ impl Sample {
             (self.data[b] as f32 * S, self.data[b + 1] as f32 * S)
         }
     }
-
-    pub fn duration_us(&self, rate: u32) -> i64 {
-        self.frames as i64 * 1_000_000 / rate.max(1) as i64
-    }
 }
 
 const EXTS: [&str; 5] = ["wav", "ogg", "mp3", "flac", "opus"];

@@ -684,11 +684,6 @@ pub fn load_with(
         raw
     };
     let sk = preprocess(raw, &enabled, &dir, 0);
-    // debugging aid: the skin table as evaluated
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Ok(out) = std::env::var("VIBEBMS_DUMP_SKIN") {
-        let _ = std::fs::write(out, serde_json::to_string_pretty(&sk).unwrap_or_default());
-    }
     let w = i(&sk, "w", 1280) as f32;
     let h = i(&sk, "h", 720) as f32;
     let kind = SkinType::from_id(i(&sk, "type", -1) as i32);

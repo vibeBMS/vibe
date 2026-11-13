@@ -63,39 +63,6 @@ pub fn lift(c: crate::gfx::Color, t: f32) -> crate::gfx::Color {
     mix(c, [1.0, 1.0, 1.0, 1.0], t)
 }
 
-/// Two-line option button: small caption + value.
-pub fn option_button(
-    d: &mut Draw,
-    r: Rect,
-    caption: &str,
-    value: &str,
-    theme: &Theme,
-    ui: f32,
-) -> Rect {
-    d.b.rounded_panel(r, 7.0, lighter(theme.panel), edge(theme), 1.0);
-    let cs = (12.0 * ui).min(r.h * 0.3);
-    let vs = (17.0 * ui).min(r.h * 0.42);
-    d.text_fit(
-        caption,
-        r.x + r.w * 0.5,
-        r.y + r.h * 0.08,
-        cs,
-        theme.text_dim,
-        Align::Center,
-        r.w - 6.0,
-    );
-    d.text_fit(
-        value,
-        r.x + r.w * 0.5,
-        r.y + r.h * 0.42,
-        vs,
-        theme.text,
-        Align::Center,
-        r.w - 6.0,
-    );
-    r
-}
-
 /// A list row (settings items, menus); `selected` uses the accent.
 pub fn row(d: &mut Draw, r: Rect, theme: &Theme, selected: bool) {
     if selected {

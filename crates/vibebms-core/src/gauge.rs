@@ -97,10 +97,6 @@ impl GaugeType {
             _ => GaugeType::ExHardClass,
         }
     }
-
-    pub fn from_index(i: usize) -> GaugeType {
-        GaugeType::ALL[i.min(8)]
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -792,10 +788,6 @@ impl GrooveGauge {
 
     pub fn current_type(&self) -> GaugeType {
         self.current
-    }
-
-    pub fn selected_type(&self) -> GaugeType {
-        self.selected
     }
 
     pub fn current(&self) -> &Gauge {

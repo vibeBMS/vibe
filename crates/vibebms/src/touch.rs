@@ -282,20 +282,6 @@ impl TouchInput {
         }
     }
 
-    pub fn release_all(&mut self, time: Instant, out: &mut Vec<LaneEv>) {
-        for ((lane, sub), c) in self.held.drain() {
-            if c > 0 {
-                out.push(LaneEv {
-                    lane,
-                    sub,
-                    pressed: false,
-                    time,
-                });
-            }
-        }
-        self.ptrs.clear();
-    }
-
     pub fn draw(
         &self,
         batch: &mut Batch,

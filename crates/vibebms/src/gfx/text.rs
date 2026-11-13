@@ -179,10 +179,6 @@ impl Text {
         }
     }
 
-    pub fn has_fonts(&self) -> bool {
-        !self.fonts.is_empty()
-    }
-
     fn font_for(&mut self, c: char) -> Option<u16> {
         if let Some(f) = self.font_of.get(&c) {
             return *f;

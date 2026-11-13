@@ -51,12 +51,6 @@ impl LaneOption {
             LaneOption::SRandomEx => "S-RANDOM+",
         }
     }
-
-    /// Whether the resulting chart is no longer eligible for a normal lamp
-    /// (beatoraja treats none of these as assists).
-    pub fn is_assist(self) -> bool {
-        false
-    }
 }
 
 /// Double-play only options.

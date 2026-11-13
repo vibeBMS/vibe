@@ -42,12 +42,6 @@ impl JavaRandom {
         }
     }
 
-    pub fn next_f64(&mut self) -> f64 {
-        let hi = (self.next(26) as i64) << 27;
-        let lo = self.next(27) as i64;
-        (hi + lo) as f64 * (1.0 / (1u64 << 53) as f64)
-    }
-
     /// Fisher-Yates shuffle (same order as `Collections.shuffle(list, rnd)`).
     pub fn shuffle<T>(&mut self, v: &mut [T]) {
         for i in (1..v.len()).rev() {

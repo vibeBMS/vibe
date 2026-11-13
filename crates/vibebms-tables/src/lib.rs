@@ -12,7 +12,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
 use url::Url;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -430,21 +429,6 @@ impl DifficultyTable {
         rest.dedup();
         seen.extend(rest);
         seen
-    }
-
-    pub fn by_level(&self) -> BTreeMap<usize, (String, Vec<&TableEntry>)> {
-        let levels = self.levels();
-        let mut m = BTreeMap::new();
-        for (i, l) in levels.iter().enumerate() {
-            m.insert(
-                i,
-                (
-                    l.clone(),
-                    self.entries.iter().filter(|e| &e.level == l).collect(),
-                ),
-            );
-        }
-        m
     }
 
     /// Display label e.g. "★12".

@@ -43,14 +43,6 @@ impl Rect {
     pub fn bottom(&self) -> f32 {
         self.y + self.h
     }
-    pub fn inset(&self, d: f32) -> Rect {
-        Rect::new(
-            self.x + d,
-            self.y + d,
-            (self.w - 2.0 * d).max(0.0),
-            (self.h - 2.0 * d).max(0.0),
-        )
-    }
     pub fn center(&self) -> (f32, f32) {
         (self.x + self.w * 0.5, self.y + self.h * 0.5)
     }
@@ -357,10 +349,6 @@ impl Batch {
             );
             self.verts.extend_from_slice(&[o0, o1, i0, o1, i1, i0]);
         }
-    }
-
-    pub fn line_h(&mut self, x: f32, y: f32, w: f32, t: f32, color: Color) {
-        self.rect(Rect::new(x, y - t * 0.5, w, t), color);
     }
 }
 

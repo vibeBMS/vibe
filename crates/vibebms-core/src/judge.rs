@@ -26,8 +26,6 @@ pub const POOR: usize = 4;
 /// Empty poor / 空POOR (pressed with no note in range).
 pub const MISS: usize = 5;
 
-pub const JUDGE_NAMES: [&str; 6] = ["PGREAT", "GREAT", "GOOD", "BAD", "POOR", "POOR"];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum JudgePreset {
     #[default]
