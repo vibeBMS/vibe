@@ -822,7 +822,8 @@ impl Scene for PlayScene {
                 .collect();
             if t >= self.next_sample {
                 self.gauge_log.push(engine.gauge.value());
-                self.next_sample = t + (self.chart.length() / 120).max(250_000);
+                // every 500 ms of play time, like beatoraja
+                self.next_sample = t + 500_000;
             }
             if engine.is_finished(t - offset) && self.finished_at.is_none() {
                 self.finished_at = Some(t);

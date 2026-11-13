@@ -271,30 +271,98 @@ impl Hooks for ResultHooks<'_> {
         let a = color[3];
         match kind {
             GraphKind::Gauge => {
+                // beatoraja / IIDX style: the gauge sampled every 500 ms and
+                // shown in 2% steps as a stepped line; the background is
+                // split at the border and the line changes colour across it
                 let log = &data.gauge_log;
                 let border = match data.gauge_type {
                     GaugeType::AssistEasy | GaugeType::Easy => 60.0,
                     GaugeType::Normal => 80.0,
                     _ => 0.0,
                 };
+                let below = gauge_color(data.gauge_type, false);
+                let above = gauge_color(data.gauge_type, true);
+                let y_of = |v: f32| r.bottom() - r.h * (v / 100.0).clamp(0.0, 1.0);
+                let by = y_of(border);
                 if border > 0.0 {
-                    let by = r.bottom() - r.h * border / 100.0;
                     d.b.rect(
-                        Rect::new(r.x, by, r.w, 1.0),
-                        with_alpha(rgba(0xff5c96ff), 0.5 * a),
+                        Rect::new(r.x, by, r.w, r.bottom() - by),
+                        with_alpha(below, 0.10 * a),
                     );
+                    d.b.rect(
+                        Rect::new(r.x, r.y, r.w, by - r.y),
+                        with_alpha(above, 0.10 * a),
+                    );
+                    d.b.rect(Rect::new(r.x, by, r.w, 1.0), with_alpha(above, 0.55 * a));
+                } else {
+                    d.b.rect(r, with_alpha(below, 0.08 * a));
                 }
-                let n = ((log.len() as f32) * grow) as usize;
-                if log.len() > 1 {
-                    let bw = r.w / log.len() as f32;
-                    for (i, v) in log.iter().take(n).enumerate() {
-                        let h = r.h * (v / 100.0).clamp(0.0, 1.0);
-                        let c = gauge_color(data.gauge_type, *v >= border && border > 0.0);
+                // 25 / 50 / 75 % guides
+                for g in [25.0, 50.0, 75.0] {
+                    if (g - border).abs() > 0.1 {
                         d.b.rect(
-                            Rect::new(r.x + i as f32 * bw, r.bottom() - h, bw.max(1.0), h),
-                            with_alpha(c, 0.85 * a),
+                            Rect::new(r.x, y_of(g), r.w, 1.0),
+                            with_alpha(rgba(0xffffffff), 0.06 * a),
                         );
                     }
+                }
+                if log.is_empty() {
+                    return;
+                }
+                let q = |v: f32| (v / 2.0).floor() * 2.0;
+                let n = log.len();
+                let lw = (r.h / 100.0).clamp(1.5, 3.0);
+                let col = |v: f32| {
+                    if border > 0.0 && v >= border {
+                        above
+                    } else {
+                        below
+                    }
+                };
+                let reveal = r.x + r.w * grow;
+                let mut prev: Option<f32> = None;
+                for (i, v) in log.iter().enumerate() {
+                    let v = q(*v);
+                    let x1 = r.x + r.w * i as f32 / n as f32;
+                    let x2 = r.x + r.w * (i + 1) as f32 / n as f32;
+                    if x1 >= reveal {
+                        break;
+                    }
+                    let x2 = x2.min(reveal);
+                    let y = y_of(v);
+                    // area under the line, faint
+                    d.b.rect(
+                        Rect::new(x1, y, x2 - x1, r.bottom() - y),
+                        with_alpha(col(v), 0.18 * a),
+                    );
+                    // vertical step from the previous value, split at the border
+                    if let Some(p) = prev.filter(|p| *p != v) {
+                        let (lo, hi) = if p < v { (p, v) } else { (v, p) };
+                        let mut seg = |a0: f32, a1: f32, c| {
+                            if a1 > a0 {
+                                d.b.rect(
+                                    Rect::new(
+                                        x1 - lw * 0.5,
+                                        y_of(a1) - lw * 0.5,
+                                        lw,
+                                        y_of(a0) - y_of(a1) + lw,
+                                    ),
+                                    with_alpha(c, a),
+                                );
+                            }
+                        };
+                        if border > 0.0 && lo < border && hi > border {
+                            seg(lo, border, below);
+                            seg(border, hi, above);
+                        } else {
+                            seg(lo, hi, col(hi));
+                        }
+                    }
+                    d.b.rect(
+                        Rect::new(x1, y - lw * 0.5, x2 - x1, lw),
+                        with_alpha(col(v), a),
+                    );
+                    prev = Some(v);
                 }
             }
             GraphKind::Judge(t) => {
