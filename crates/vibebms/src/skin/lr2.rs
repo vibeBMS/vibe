@@ -750,6 +750,7 @@ pub fn load(
             input_ms: 0,
             fadeout_ms: 0,
             finish_margin_ms: 0,
+            script: None,
         },
         sizes: Vec::new(),
         image_size,
@@ -824,12 +825,20 @@ pub fn header(path: &Path) -> Option<(SkinType, String)> {
 
 /// Resolve a `*` wildcard in the file name to the first matching file.
 pub fn glob_path(p: &Path) -> PathBuf {
+    glob_paths(p)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| p.to_path_buf())
+}
+
+/// The files matching a `*` in the file name of `p` (sorted), else `p`.
+pub fn glob_paths(p: &Path) -> Vec<PathBuf> {
     let name = p
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let Some((pre, post)) = name.split_once('*') else {
-        return p.to_path_buf();
+        return vec![p.to_path_buf()];
     };
     let (pre, post) = (pre.to_lowercase(), post.to_lowercase());
     let dir = p.parent().unwrap_or(Path::new(""));
@@ -846,7 +855,7 @@ pub fn glob_path(p: &Path) -> PathBuf {
         })
         .collect();
     c.sort();
-    c.into_iter().next().unwrap_or_else(|| p.to_path_buf())
+    c
 }
 
 /// Play skins below `dir`: LR2 (`.lr2skin`) and beatoraja (`.json`, `.luaskin`).

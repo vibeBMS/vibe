@@ -301,6 +301,39 @@ impl LoadedSkin {
         st: &dyn SkinState,
         hooks: &mut dyn Hooks,
     ) {
+        match &self.skin.script {
+            Some(rt) => {
+                rt.update(st, now);
+                let st = super::script::Scripted { st, rt };
+                self.draw_objects(d, view, now, &st, hooks);
+            }
+            None => self.draw_objects(d, view, now, st, hooks),
+        }
+    }
+
+    /// A click on an object with event `act`: script events are taken
+    /// care of here (`true`); other events are the scene's.
+    pub fn click(&self, act: i32) -> bool {
+        self.skin.script.as_ref().is_some_and(|rt| rt.click(act))
+    }
+
+    /// Game events the skin's scripts asked for since the last call.
+    pub fn script_events(&self) -> Vec<i32> {
+        self.skin
+            .script
+            .as_ref()
+            .map(|rt| rt.take_events())
+            .unwrap_or_default()
+    }
+
+    fn draw_objects(
+        &self,
+        d: &mut Draw,
+        view: Rect,
+        now: i64,
+        st: &dyn SkinState,
+        hooks: &mut dyn Hooks,
+    ) {
         let xf = Xf::fit(self.skin.width, self.skin.height, view);
         for o in &self.skin.objects {
             match &o.kind {

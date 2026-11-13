@@ -861,6 +861,14 @@ impl Scene for SelectScene {
             };
             self.skin = skin;
         }
+        // events skin scripts asked for
+        let events = self.skin.as_ref().map(|s| s.script_events());
+        for ev in events.unwrap_or_default() {
+            let next = self.skin_event(ctx, ev);
+            if !matches!(next, Next::Stay) {
+                return next;
+            }
+        }
         Next::Stay
     }
 
@@ -1002,6 +1010,9 @@ impl Scene for SelectScene {
                         .rev()
                         .find(|(r, _, _)| r.contains(*x, *y))
                     {
+                        if self.skin.as_ref().is_some_and(|s| s.click(act)) {
+                            return Next::Stay; // a skin script event
+                        }
                         return self.skin_event(ctx, act);
                     }
                     self.drag = Some((*id, *y, self.scroll, false));

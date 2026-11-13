@@ -10,6 +10,7 @@
 pub mod beatoraja;
 pub mod lr2;
 pub mod render;
+pub mod script;
 
 use crate::gfx::Rect;
 use std::path::PathBuf;
@@ -513,6 +514,8 @@ pub struct Skin {
     pub input_ms: i64,
     pub fadeout_ms: i64,
     pub finish_margin_ms: i64,
+    /// Script values (beatoraja Lua functions / scripts).
+    pub script: Option<std::rc::Rc<script::Runtime>>,
 }
 
 /// Game state queried by the skin each frame.

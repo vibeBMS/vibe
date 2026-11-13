@@ -134,8 +134,13 @@ BPM별 색·`lineWidth`, `timingdistributiongraph`의 `width`·판정 구간 색
 `#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨.
 
 beatoraja 플레이 스킨도 같은 메뉴에서 선택합니다: **JSON**(`.json`, 주석·trailing comma 허용, `if`/`include` 전처리, 키프레임 값 상속, y-up 좌표 변환)과
-**Lua**(`.luaskin`, 내장 Lua 5.4로 실행, `skin_config`·`main_state` 스텁 제공 — 데스크톱/모바일 전용, 웹 미지원).
-Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 평가하지 않습니다. 스킨 커스텀 옵션은 `SETTINGS › DISPLAY`에서
+**Lua**(`.luaskin`, 내장 Lua 5.4로 실행 — 데스크톱/모바일 전용, 웹 미지원).
+Lua 함수(또는 JSON 스킨의 Lua 스크립트 문자열)로 지정된 값 — `draw`/`op` 조건, `timer`, 숫자·텍스트·이미지셋 `value`,
+슬라이더/그래프 비율, 클릭 `act`, `customTimers`/`customEvents` — 은 매 프레임 평가됩니다. beatoraja와 같은
+`main_state`(option/number/float_number/text/timer/time/set_timer/event_exec/offset 등), `timer_util`, `event_util` 모듈과
+`skin_config`(option, enabled_options, offset, file_path, get_path)를 제공하며, JSON 스킨에서는 이 함수들이 전역입니다.
+스크립트는 샌드박스에서 실행됩니다(`os`/`io`/`debug`/네이티브 모듈 없음, `require`·`dofile`은 스킨 폴더 안의 Lua 파일만).
+스킨 커스텀 옵션은 `SETTINGS › DISPLAY`에서
 각 스킨 바로 아래 항목으로 고르며 `config.skin_options`에 저장됩니다.
 
 ### 웹 버전
@@ -159,7 +164,7 @@ Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 
 | Android | 🧪 `crates/vibebms-android` (cargo-apk) — 실기기 미검증 |
 | iOS/iPadOS | 🧪 빌드 가이드 + Info.plist — 실기기 미검증 |
 | LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨으로 검증 (실제 공개 스킨 호환성은 추가 검증 필요) |
-| beatoraja JSON/Lua 플레이 스킨 | 🧪 정적 구조 지원(Lua 런타임 함수 미평가), 합성 스킨으로 검증 |
+| beatoraja JSON/Lua 스킨 | 🧪 구조 + Lua 런타임 함수(조건·타이머·값·이벤트) 평가, 합성 스킨으로 검증 (실제 공개 Lua 스킨은 미검증) |
 | 내장 기본 스킨(가로 SP 1P/2P, DP, 세로 SP) | ✅ 7/5/9/14/10키 레이아웃, 로드 테스트 + 스크린샷 확인 |
 | 선곡/결과 스킨 (LR2·beatoraja, 내장 기본 가로/세로) | 🧪 곡 목록·정보·그래프·버튼·패널 지원, beatoraja 기본 스킨(플레이/선곡/결과)으로 확인 |
 | 스킨 옵션 선택 UI | ✅ `SETTINGS › DISPLAY`에서 선택한 스킨 아래에 표시(LR2 `#CUSTOMOPTION`, beatoraja `property`) |

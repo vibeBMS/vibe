@@ -8,7 +8,7 @@ use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
-use crate::scene::result_skin::{ResultHooks, ResultState, EVENT_RETRY};
+use crate::scene::result_skin::{ResultHooks, ResultState, EVENT_CONTINUE, EVENT_RETRY};
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
@@ -233,6 +233,15 @@ impl Scene for ResultScene {
             };
             self.skin = skin;
         }
+        // events skin scripts asked for
+        let events = self.skin.as_ref().map(|s| s.script_events());
+        for ev in events.unwrap_or_default() {
+            match ev {
+                EVENT_RETRY => return self.leave(ctx, Leave::Retry),
+                EVENT_CONTINUE => return self.leave(ctx, Leave::Proceed),
+                _ => {}
+            }
+        }
         if let (Some(t), Some(to)) = (self.leaving, self.leave_to) {
             let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
             if now.duration_since(t).as_millis() as i64 >= fade {
@@ -293,6 +302,11 @@ impl Scene for ResultScene {
                     .rev()
                     .find(|(r, _)| r.contains(*x, *y))
                     .map(|c| c.1);
+                if let (Some(a), Some(sk)) = (act, self.skin.as_ref()) {
+                    if sk.click(a) {
+                        return Next::Stay; // a skin script event
+                    }
+                }
                 return match act {
                     Some(EVENT_RETRY) => self.leave(ctx, Leave::Retry),
                     _ => self.leave(ctx, Leave::Proceed),

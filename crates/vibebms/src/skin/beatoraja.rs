@@ -2,12 +2,15 @@
 //!
 //! A Lua skin is a script returning the same table a JSON skin contains, so
 //! both are turned into a `serde_json::Value` and converted by one builder.
-//! Values given as Lua functions (dynamic draw conditions / numbers) are not
-//! evaluated yet; those destinations fall back to their static settings.
+//! Values given as Lua functions (or, in JSON skins, Lua source strings) —
+//! draw conditions, timers, numbers, texts, image indices, rates, click
+//! events, `customTimers` / `customEvents` — run through [`script`].
 
+use super::script::{self, ScriptKind};
 use super::*;
 use crate::platform::vfs;
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -141,28 +144,60 @@ fn to_custom((name, items, def): &Property) -> Option<CustomOption> {
     })
 }
 
+/// The file a `filepath` customisation (`path` with a `*`) picks: the
+/// one named `def` (without extension), else the first match.
+fn filepath_choice(dir: &Path, path: &str, def: &str) -> Option<PathBuf> {
+    let all = super::lr2::glob_paths(&dir.join(path.replace('\\', "/")));
+    let stem = |p: &PathBuf| {
+        p.file_stem()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    };
+    all.iter()
+        .find(|p| !def.is_empty() && stem(p) == def.to_lowercase())
+        .or(all.first())
+        .cloned()
+}
+
+/// The source path of an image: a wildcard is resolved like the skin's
+/// `filepath` customisation with the same path would (its default).
+fn source_path(sk: &Value, dir: &Path, path: &str) -> PathBuf {
+    let def = arr(sk.get("filepath"))
+        .iter()
+        .find(|f| s(f, "path") == path)
+        .map(|f| s(f, "def"))
+        .unwrap_or("");
+    filepath_choice(dir, path, def).unwrap_or_else(|| dir.join(path.replace('\\', "/")))
+}
+
 /// The `property` list of a skin as custom options.
 pub fn custom_options(path: &Path) -> Vec<CustomOption> {
-    read_value(path, None)
+    read_value(path)
         .map(|v| properties(&v).iter().filter_map(to_custom).collect())
         .unwrap_or_default()
 }
 
-pub fn read_value(
+pub fn read_value(path: &Path) -> Result<Value, String> {
+    read_skin(path, None).map(|v| v.0)
+}
+
+/// A skin's table, with the Lua state it ran in (Lua skins).
+fn read_skin(
     path: &Path,
-    skin_config: Option<&HashMap<String, i64>>,
-) -> Result<Value, String> {
+    skin_config: Option<(&HashMap<String, i64>, &Value)>,
+) -> Result<(Value, Option<script::Script>), String> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     if ext == "luaskin" || ext == "lua" {
-        return lua::eval(path, skin_config);
+        return lua::eval(path, skin_config).map(|(v, s)| (v, Some(s)));
     }
     let text = vfs::read(path)
         .map(|b| vibebms_core::encoding::decode_text(&b))
         .map_err(|e| e.to_string())?;
     json5::from_str::<Value>(&add_missing_commas(&text))
+        .map(|v| (v, None))
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -236,7 +271,7 @@ fn add_missing_commas(text: &str) -> String {
 
 /// (type, name) without building the skin.
 pub fn header(path: &Path) -> Option<(SkinType, String)> {
-    let v = read_value(path, None).ok()?;
+    let v = read_value(path).ok()?;
     let t = v.get("type")?.as_i64()?;
     Some((SkinType::from_id(t as i32), s(&v, "name").to_string()))
 }
@@ -247,9 +282,28 @@ struct Ctx<'a> {
     images: Vec<Option<PathBuf>>,
     sizes: Vec<Option<(u32, u32)>>,
     source_index: HashMap<String, usize>,
+    scripts: RefCell<script::Builder>,
 }
 
 impl Ctx<'_> {
+    /// A field holding an id or a script (Lua function / source): the id
+    /// (synthetic for scripts).
+    fn dyn_id(&self, v: Option<&Value>, kind: ScriptKind) -> Option<i32> {
+        let v = v?;
+        match v.as_i64() {
+            Some(n) => Some(n as i32),
+            None => self.scripts.borrow_mut().register(v, kind),
+        }
+    }
+
+    /// `ref` (an id), else `value` (an id or a script).
+    fn value_id(&self, def: &Value, kind: ScriptKind) -> i32 {
+        match def.get("ref").and_then(Value::as_i64) {
+            Some(r) if r != 0 => r as i32,
+            _ => self.dyn_id(def.get("value"), kind).unwrap_or(0),
+        }
+    }
+
     fn src(&self, def: &Value) -> Option<Src> {
         let img = *self.source_index.get(&match def.get("src") {
             Some(Value::String(x)) => x.clone(),
@@ -279,7 +333,9 @@ impl Ctx<'_> {
             image: img,
             frames,
             cycle: i(def, "cycle", 0),
-            timer: i(def, "timer", 0) as i32,
+            timer: self
+                .dyn_id(def.get("timer"), ScriptKind::Timer)
+                .unwrap_or(0),
         })
     }
 
@@ -293,11 +349,13 @@ impl Ctx<'_> {
             blend: i(d, "blend", 0) as i32,
             center: i(d, "center", 0).clamp(0, 9) as usize,
             loop_ms: i(d, "loop", 0),
-            timer: i(d, "timer", 0) as i32,
+            timer: self.dyn_id(d.get("timer"), ScriptKind::Timer).unwrap_or(0),
+            // option ids, or conditions given as scripts (also `draw`)
             ops: arr(d.get("op"))
                 .iter()
-                .filter_map(Value::as_i64)
-                .map(|o| o as i32)
+                .chain(d.get("draw"))
+                .filter_map(|o| self.dyn_id(Some(o), ScriptKind::Bool))
+                .filter(|o| *o != 0)
                 .collect(),
             offsets: d
                 .get("offset")
@@ -364,7 +422,7 @@ impl Ctx<'_> {
         Some(Kind::Number {
             src,
             digits,
-            id: i(def, "ref", 0) as i32,
+            id: self.value_id(def, ScriptKind::Int),
             align: i(def, "align", 0) as i32,
             keta: i(def, "digit", 1).max(1) as usize,
             // beatoraja zeropadding: 0 = none, 1 = '0', 2 = the padding image
@@ -440,7 +498,7 @@ fn gauge_style(g: &Value) -> GraphStyle {
 /// Clickable objects: `act` (event id) and `click` (mode) of an image / imageset.
 fn obj_act(cx: &Ctx, id: &str) -> Option<(i32, i32)> {
     let def = cx.find("image", id).or_else(|| cx.find("imageset", id))?;
-    let act = def.get("act")?.as_i64()? as i32;
+    let act = cx.dyn_id(def.get("act"), ScriptKind::Event)?;
     (act != 0).then(|| (act, i(def, "click", 0) as i32))
 }
 
@@ -551,7 +609,7 @@ pub fn load(
 ) -> Result<Skin, String> {
     let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
     // pass 1: header + defaults
-    let raw = read_value(path, None)?;
+    let (raw, mut lua_state) = read_skin(path, None)?;
     let props = properties(&raw);
     let mut enabled: HashSet<i64> = HashSet::new();
     let mut by_name = HashMap::new();
@@ -572,7 +630,9 @@ pub fn load(
         .map(|e| e.eq_ignore_ascii_case("luaskin"))
         .unwrap_or(false)
     {
-        read_value(path, Some(&by_name))?
+        let (v, s) = read_skin(path, Some((&by_name, &raw)))?;
+        lua_state = s;
+        v
     } else {
         raw
     };
@@ -588,9 +648,10 @@ pub fn load(
         images: Vec::new(),
         sizes: Vec::new(),
         source_index: HashMap::new(),
+        scripts: RefCell::new(script::Builder::new(lua_state, &dir)),
     };
     for src in arr(sk.get("source")) {
-        let p = super::lr2::glob_path(&dir.join(s(src, "path").replace('\\', "/")));
+        let p = source_path(&sk, &dir, s(src, "path"));
         let size = image_size(&p);
         cx.source_index.insert(id_of(src), cx.images.len());
         cx.sizes.push(size);
@@ -615,6 +676,7 @@ pub fn load(
         input_ms: i(&sk, "input", 0),
         fadeout_ms: i(&sk, "fadeout", 0),
         finish_margin_ms: i(&sk, "finishmargin", 0),
+        script: None,
     };
     let note = sk.get("note").and_then(obj);
     let gauge = sk.get("gauge").and_then(obj);
@@ -648,14 +710,17 @@ pub fn load(
             cx.number_kind(v)
         } else if let Some(t) = cx.find("text", &id) {
             Some(Kind::Text {
-                id: i(t, "ref", 0) as i32,
+                id: cx.value_id(t, ScriptKind::Str),
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
             })
         } else if let Some(sl) = cx.find("slider", &id) {
             cx.src(sl).map(|src| Kind::Slider {
                 src,
-                id: i(sl, "type", 0) as i32,
+                id: match sl.get("value") {
+                    Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
+                    None => i(sl, "type", 0) as i32,
+                },
                 dir: i(sl, "angle", 0) as i32,
                 range: i(sl, "range", 0) as f32,
             })
@@ -671,7 +736,7 @@ pub fn load(
                 .collect();
             (!srcs.is_empty()).then(|| Kind::ImageSet {
                 srcs,
-                id: i(set, "ref", 0) as i32,
+                id: cx.value_id(set, ScriptKind::Int),
             })
         } else if let Some(g) = cx
             .find("gaugegraph", &id)
@@ -752,7 +817,10 @@ pub fn load(
         } else if let Some(g) = cx.find("graph", &id) {
             cx.src(g).map(|src| Kind::Bar {
                 src,
-                id: i(g, "type", 0) as i32,
+                id: match g.get("value") {
+                    Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
+                    None => i(g, "type", 0) as i32,
+                },
                 dir: i(g, "angle", 1) as i32,
             })
         } else if note.map(|n| id_of(n) == id).unwrap_or(false) {
@@ -898,6 +966,21 @@ pub fn load(
             skin.objects.push(Obj { kind, dst, act });
         }
     }
+    // script-driven timers and events
+    {
+        let mut b = cx.scripts.borrow_mut();
+        for t in arr(sk.get("customTimers")) {
+            if let (Some(id), Some(v)) = (t.get("id").and_then(Value::as_i64), t.get("timer")) {
+                b.custom_timer(id as i32, v);
+            }
+        }
+        for ev in arr(sk.get("customEvents")) {
+            if let Some(a) = ev.get("action") {
+                b.custom_event(a, ev.get("condition"), i(ev, "minInterval", 0));
+            }
+        }
+    }
+    skin.script = cx.scripts.into_inner().finish();
     skin.images = cx.images;
     if skin.objects.is_empty() {
         return Err(format!("{}: no drawable objects", path.display()));
@@ -908,51 +991,21 @@ pub fn load(
 #[cfg(not(target_arch = "wasm32"))]
 mod lua {
     use super::*;
-    use mlua::{Lua, LuaSerdeExt};
 
-    /// Run a `.luaskin` and return its table as JSON. `skin_config`
-    /// (option name -> selected op) is exported like beatoraja does.
-    pub fn eval(path: &Path, skin_config: Option<&HashMap<String, i64>>) -> Result<Value, String> {
+    /// Run a `.luaskin` and return its table as JSON (functions become
+    /// script markers) with the Lua state. `skin_config` (option name ->
+    /// selected op) is exported like beatoraja does.
+    pub fn eval(
+        path: &Path,
+        skin_config: Option<(&HashMap<String, i64>, &Value)>,
+    ) -> Result<(Value, script::Script), String> {
         let src = vfs::read(path).map_err(|e| e.to_string())?;
         let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
-        let lua = Lua::new();
-        let e = |e: mlua::Error| e.to_string();
+        let e = |e: mlua::Error| format!("{}: {e}", path.display());
+        let mut sc = script::Script::new(&dir, false).map_err(e)?;
+        let lua = sc.lua().clone();
         let g = lua.globals();
-        // modules: stubs for load-time evaluation + skin-relative require
-        let preload: mlua::Table = lua
-            .globals()
-            .get::<mlua::Table>("package")
-            .map_err(e)?
-            .get("preload")
-            .map_err(e)?;
-        for m in ["main_state", "timer_util", "event_util"] {
-            let t = lua.create_table().map_err(e)?;
-            let stub = lua
-                .create_function(|_, _: mlua::MultiValue| Ok(0))
-                .map_err(e)?;
-            let meta = lua.create_table().map_err(e)?;
-            meta.set(
-                "__index",
-                lua.create_function(move |_, (_, _): (mlua::Value, mlua::Value)| Ok(stub.clone()))
-                    .map_err(e)?,
-            )
-            .map_err(e)?;
-            t.set_metatable(Some(meta)).map_err(e)?;
-            preload
-                .set(
-                    m,
-                    lua.create_function(move |_, _: mlua::MultiValue| Ok(t.clone()))
-                        .map_err(e)?,
-                )
-                .map_err(e)?;
-        }
-        let pkg: mlua::Table = g.get("package").map_err(e)?;
-        pkg.set(
-            "path",
-            format!("{}/?.lua;{}/?.luaskin", dir.display(), dir.display()),
-        )
-        .map_err(e)?;
-        if let Some(opts) = skin_config {
+        if let Some((opts, header)) = skin_config {
             let cfg = lua.create_table().map_err(e)?;
             let option = lua.create_table().map_err(e)?;
             let enabled = lua.create_table().map_err(e)?;
@@ -962,10 +1015,25 @@ mod lua {
             }
             cfg.set("option", option).map_err(e)?;
             cfg.set("enabled_options", enabled).map_err(e)?;
-            cfg.set("offset", lua.create_table().map_err(e)?)
-                .map_err(e)?;
-            cfg.set("file_path", lua.create_table().map_err(e)?)
-                .map_err(e)?;
+            // custom offsets (all zero: not adjustable yet) and the files
+            // `filepath` customisations pick
+            let offsets = lua.create_table().map_err(e)?;
+            for o in arr(header.get("offset")) {
+                let t = lua.create_table().map_err(e)?;
+                for k in ["x", "y", "w", "h", "r", "a"] {
+                    t.set(k, 0).map_err(e)?;
+                }
+                offsets.set(s(o, "name"), t).map_err(e)?;
+            }
+            cfg.set("offset", offsets).map_err(e)?;
+            let files = lua.create_table().map_err(e)?;
+            for f in arr(header.get("filepath")) {
+                if let Some(p) = filepath_choice(&dir, s(f, "path"), s(f, "def")) {
+                    let name = p.file_name().map(|n| n.to_string_lossy().into_owned());
+                    files.set(s(f, "name"), name).map_err(e)?;
+                }
+            }
+            cfg.set("file_path", files).map_err(e)?;
             let d2 = dir.clone();
             cfg.set(
                 "get_path",
@@ -984,17 +1052,18 @@ mod lua {
             .set_name(path.display().to_string())
             .eval()
             .map_err(e)?;
-        let opts = mlua::serde::DeserializeOptions::new()
-            .deny_unsupported_types(false)
-            .deny_recursive_tables(false);
-        lua.from_value_with::<Value>(v, opts).map_err(e)
+        let json = sc.to_json(v).map_err(e)?;
+        Ok((json, sc))
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 mod lua {
     use super::*;
-    pub fn eval(path: &Path, _: Option<&HashMap<String, i64>>) -> Result<Value, String> {
+    pub fn eval(
+        path: &Path,
+        _: Option<&HashMap<String, i64>>,
+    ) -> Result<(Value, script::Script), String> {
         Err(format!(
             "{}: Lua skins are not supported in the web build",
             path.display()
@@ -1160,6 +1229,162 @@ mod tests {
         assert_eq!(s.objects[2].dst.ops, vec![32]);
         assert!(s.judges[0].judge[0].is_some());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    struct ScriptSt {
+        flag: bool,
+    }
+    impl SkinState for ScriptSt {
+        fn timer(&self, id: i32) -> Option<i64> {
+            (id == 41).then_some(500)
+        }
+        fn option(&self, id: i32) -> bool {
+            id == 5 && self.flag
+        }
+        fn number(&self, id: i32) -> Option<i64> {
+            (id == 71).then_some(21)
+        }
+        fn text(&self, _: i32) -> Option<String> {
+            None
+        }
+        fn rate(&self, _: i32) -> f32 {
+            0.0
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn lua_skin_scripts() {
+        use crate::skin::script::Scripted;
+        let dir = std::env::temp_dir().join(format!("vibebms-lscript-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lua = r#"
+            local main_state = require("main_state")
+            local timer_util = require("timer_util")
+            local s = { type = 0, name = "S", w = 100, h = 100 }
+            if not skin_config then return s end
+            s.source = { { id = 1, path = "a.png" } }
+            s.image = { { id = "img", src = 1, x = 0, y = 0, w = 10, h = 10, act = function() main_state.event_exec(15) end } }
+            s.value = { { id = "num", src = 1, x = 0, y = 0, w = 100, h = 10, divx = 10, digit = 3,
+                          value = function() return main_state.number(71) * 2 end } }
+            s.text = { { id = "txt", font = 0, size = 10, value = function() return "ex " .. main_state.number(71) end } }
+            local on = timer_util.timer_observe_boolean(function() return main_state.option(5) end)
+            s.destination = {
+              { id = "img", timer = on, dst = { { x = 0, y = 0, w = 10, h = 10 } } },
+              { id = "num", draw = function() return main_state.timer_is_on(41) end, dst = { { x = 0, y = 0, w = 10, h = 10 } } },
+              { id = "txt", dst = { { x = 0, y = 0, w = 10, h = 10 } } },
+            }
+            return s
+        "#;
+        std::fs::write(dir.join("play.luaskin"), lua).unwrap();
+        let sz = |_: &Path| Some((100, 20));
+        let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
+        // no way out of the sandbox
+        let escape = "return (os == nil and io == nil and package.loadlib == nil and #package.searchers == 2)";
+        std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
+        let (v, _) = read_skin(&dir.join("esc.luaskin"), None).unwrap();
+        assert_eq!(v, Value::Bool(true));
+        std::fs::remove_dir_all(&dir).ok();
+        let rt = s.script.clone().expect("scripts");
+        let (img, num, txt) = (&s.objects[0], &s.objects[1], &s.objects[2]);
+        let Kind::Number { id: num_id, .. } = num.kind else {
+            panic!("number")
+        };
+        let Kind::Text { id: txt_id, .. } = txt.kind else {
+            panic!("text")
+        };
+        let st = ScriptSt { flag: false };
+        rt.update(&st, 100);
+        let sc = Scripted { st: &st, rt: &rt };
+        assert_eq!(sc.number(num_id), Some(42));
+        assert_eq!(sc.text(txt_id).as_deref(), Some("ex 21"));
+        assert!(num.dst.ops.iter().all(|o| sc.option(*o)));
+        assert_eq!(sc.timer(img.dst.timer), None);
+        // the observed condition turns on at 300 ms: the timer starts there
+        let st = ScriptSt { flag: true };
+        rt.update(&st, 300);
+        rt.update(&st, 400);
+        let sc = Scripted { st: &st, rt: &rt };
+        assert_eq!(sc.timer(img.dst.timer), Some(300));
+        // click: the script runs on the next frame and asks for event 15
+        let (act, _) = img.act.unwrap();
+        assert!(rt.click(act));
+        rt.update(&st, 500);
+        assert_eq!(rt.take_events(), vec![15]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn lua_skin_config_files() {
+        let root = std::env::temp_dir().join(format!("vibebms-lcfg-{}", std::process::id()));
+        let dir = root.join("play");
+        std::fs::create_dir_all(dir.join("judge")).unwrap();
+        for f in ["a.png", "b.png"] {
+            std::fs::write(dir.join("judge").join(f), b"x").unwrap();
+        }
+        std::fs::write(dir.join("judge/b.lua"), "return { w = 77 }").unwrap();
+        std::fs::write(root.join("outside.txt"), "return 1").unwrap();
+        let lua = r#"
+            local header = { type = 0, name = "C", w = 100, h = 100,
+              filepath = { { name = "Judge", path = "judge/*.png", def = "b" } },
+              offset = { { name = "Lift", id = 40, x = false, y = true } } }
+            if not skin_config then return header end
+            local o = skin_config.offset["Lift"]
+            local p = string.match(skin_config.get_path("judge/" .. skin_config.file_path["Judge"]), "(.+)%.png$") .. ".lua"
+            local ok, setting = pcall(dofile, p)
+            local escaped = pcall(dofile, "../outside.txt")
+            header.source = { { id = 1, path = "judge/*.png" } }
+            header.image = { { id = "i", src = 1, x = 0, y = 0, w = -1, h = -1 } }
+            header.destination = { { id = "i", dst = { { x = o.y, y = 0, w = setting.w, h = escaped and 1 or 2 } } } }
+            return header
+        "#;
+        std::fs::write(dir.join("play.luaskin"), lua).unwrap();
+        let sz = |_: &Path| Some((10, 10));
+        let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
+        std::fs::remove_dir_all(&root).ok();
+        let r = s.objects[0].dst.keys[0].rect;
+        assert_eq!((r.x, r.w, r.h), (0.0, 77.0, 2.0));
+        // the wildcard source follows the filepath default too
+        assert!(s.images[0].as_ref().unwrap().ends_with("judge/b.png"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn json_skin_scripts() {
+        use crate::skin::script::Scripted;
+        let dir = std::env::temp_dir().join(format!("vibebms-jscript-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let json = r#"{
+            "type": 0, "name": "J", "w": 100, "h": 100,
+            "source": [{"id": 1, "path": "a.png"}],
+            "value": [{"id": "n", "src": 1, "x": 0, "y": 0, "w": 100, "h": 10, "divx": 10, "digit": 3,
+                       "value": "number(71) + 1"}],
+            "customTimers": [{"id": 10001, "timer": "timer_observe_boolean(function() return option(5) end)"}],
+            "destination": [{"id": "n", "op": [32, "option(5)"], "timer": 10001,
+                             "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]
+        }"#;
+        std::fs::write(dir.join("play.json"), json).unwrap();
+        let sz = |_: &Path| Some((100, 20));
+        let s = load(&dir.join("play.json"), &HashMap::new(), &sz).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let rt = s.script.clone().expect("scripts");
+        let o = &s.objects[0];
+        let Kind::Number { id, .. } = o.kind else {
+            panic!("number")
+        };
+        assert_eq!(o.dst.ops.len(), 2);
+        assert_eq!(o.dst.ops[0], 32);
+        let st = ScriptSt { flag: true };
+        rt.update(&st, 250);
+        let sc = Scripted { st: &st, rt: &rt };
+        assert_eq!(sc.number(id), Some(22));
+        assert!(sc.option(o.dst.ops[1]));
+        assert_eq!(sc.timer(10001), Some(250));
+        let st = ScriptSt { flag: false };
+        rt.update(&st, 300);
+        let sc = Scripted { st: &st, rt: &rt };
+        assert!(!sc.option(o.dst.ops[1]));
+        assert_eq!(sc.timer(10001), None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]

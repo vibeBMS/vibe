@@ -628,6 +628,10 @@ impl Scene for PlayScene {
     }
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
+        // no game events are run from play skin scripts yet
+        if let Some(sk) = &self.skin {
+            sk.script_events();
+        }
         if self.job.is_some() && self.prefetch.finished() {
             if let Some(job) = self.job.take() {
                 crate::platform::spawn("load", job);
