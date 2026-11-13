@@ -1,6 +1,6 @@
 # Building vibeBMS
 
-Requires Rust 1.84+ (`rustup`). Release builds use fat LTO; expect a few minutes.
+Requires Rust 1.85+ (`rustup`). Release builds use fat LTO; expect a few minutes.
 
 ```sh
 cargo build --release            # target/release/vibebms(.exe)
