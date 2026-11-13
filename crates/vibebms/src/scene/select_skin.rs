@@ -236,33 +236,37 @@ impl SkinState for SelectState<'_> {
         let p = &self.ctx.config.play;
         let song = self.song();
         let best = self.best();
-        let b = |f: fn(&BestScore) -> i64| best.map(f).unwrap_or(0);
+        // score values exist only for a selected song (0 when never played)
+        let b = |f: fn(&BestScore) -> i64| song.map(|_| best.map(f).unwrap_or(0));
         Some(match id {
             20 => self.ctx.fps as i64,
             30 => self.ctx.scores.values().map(|b| b.play_count as i64).sum(),
-            71 => b(|b| b.ex_score as i64),
+            71 => b(|b| b.ex_score as i64)?,
             72 => song.map(|s| s.notes * 2)?,
             74 => song.map(|s| s.notes)?,
-            75 => b(|b| b.max_combo as i64),
+            75 => b(|b| b.max_combo as i64)?,
             76 => b(|b| {
                 if b.min_bp == u32::MAX {
                     0
                 } else {
                     b.min_bp as i64
                 }
-            }),
-            77 => b(|b| b.play_count as i64),
-            78 => b(|b| b.clear_count as i64),
-            79 => b(|b| (b.play_count - b.clear_count) as i64),
-            80..=84 => best
-                .map(|b| b.judges[(id - 80) as usize] as i64)
-                .unwrap_or(0),
+            })?,
+            77 => b(|b| b.play_count as i64)?,
+            78 => b(|b| b.clear_count as i64)?,
+            79 => b(|b| (b.play_count - b.clear_count) as i64)?,
+            80..=84 => song.map(|_| {
+                best.map(|b| b.judges[(id - 80) as usize] as i64)
+                    .unwrap_or(0)
+            })?,
             90 => song.map(|s| s.max_bpm.round() as i64)?,
             91 => song.map(|s| s.min_bpm.round() as i64)?,
             92 => song.map(|s| s.main_bpm.round() as i64)?,
             96 => song.map(|s| s.level_num())?,
-            102 => (best.map(|b| b.rate()).unwrap_or(0.0) * 100.0).floor() as i64,
-            103 => ((best.map(|b| b.rate()).unwrap_or(0.0) * 10000.0).round() as i64) % 100,
+            102 => song.map(|_| (best.map(|b| b.rate()).unwrap_or(0.0) * 100.0).floor() as i64)?,
+            103 => song.map(|_| {
+                ((best.map(|b| b.rate()).unwrap_or(0.0) * 10000.0).round() as i64) % 100
+            })?,
             300 => match self.s.bars.get(self.s.cursor) {
                 Some(Bar::Folder { count, .. }) => *count as i64,
                 _ => self.s.bars.len() as i64,
