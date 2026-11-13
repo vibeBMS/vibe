@@ -258,12 +258,22 @@ local fns, seen = {}, {}
 local function walk(t)
   if seen[t] then return end
   seen[t] = true
+  local named, numbered = false, {}
   for k, v in pairs(t) do
     if type(v) == "function" then
       fns[#fns + 1] = v
       t[k] = mark .. #fns
     elseif type(v) == "table" then
       walk(v)
+    end
+    if type(k) == "number" then numbered[#numbered + 1] = k else named = true end
+  end
+  -- a table with names and positional entries is an object (as beatoraja
+  -- reads it), not an array: give the positional entries string keys
+  if named and #numbered > 0 then
+    for _, k in ipairs(numbered) do
+      t[tostring(k)] = t[k]
+      t[k] = nil
     end
   end
 end

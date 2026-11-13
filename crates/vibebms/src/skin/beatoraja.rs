@@ -1299,6 +1299,8 @@ mod tests {
             if not skin_config then return s end
             s.source = { { id = 1, path = "a.png" } }
             s.image = { { id = "img", src = 1, x = 0, y = 0, w = 10, h = 10, act = function() main_state.event_exec(15) end } }
+            -- a stray positional entry must not turn the table into an array
+            s.image[2] = { id = "img2", src = 1, x = 0, y = 0, w = 10, h = 10, 12345 }
             s.value = { { id = "num", src = 1, x = 0, y = 0, w = 100, h = 10, divx = 10, digit = 3,
                           value = function() return main_state.number(71) * 2 end } }
             s.text = { { id = "txt", font = 0, size = 10, value = function() return "ex " .. main_state.number(71) end } }
@@ -1313,6 +1315,13 @@ mod tests {
         std::fs::write(dir.join("play.luaskin"), lua).unwrap();
         let sz = |_: &Path| Some((100, 20));
         let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
+        let raw = read_skin(
+            &dir.join("play.luaskin"),
+            Some((&HashMap::new(), &Value::Null)),
+        )
+        .unwrap()
+        .0;
+        assert_eq!(raw["image"][1]["id"], "img2");
         // no way out of the sandbox
         let escape = "return (os == nil and io == nil and package.loadlib == nil and #package.searchers == 2)";
         std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
