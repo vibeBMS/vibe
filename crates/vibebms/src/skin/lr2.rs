@@ -111,8 +111,6 @@ struct Loader<'a> {
     sizes: Vec<Option<(u32, u32)>>,
     image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
     cur: Option<usize>,
-    lane_kind: usize,
-    judge_side: usize,
     pending_line: Option<Src>,
     /// Buttons that belong to a panel: (object, panel option id).
     panel_ops: Vec<(usize, i32)>,
@@ -276,10 +274,10 @@ impl Loader<'_> {
         let line = line.replace('"', "");
         let f: Vec<&str> = line.split(',').collect();
         let cmd = f[0].trim().to_ascii_uppercase();
-        let top = self.conds_top();
+        let skipping = self.conds.iter().any(|c| c.skip);
         match cmd.as_str() {
             "#IF" => {
-                let ok = !top.0 && self.cond(&f);
+                let ok = !skipping && self.cond(&f);
                 self.conds.push(Cond {
                     skip: !ok,
                     taken: ok,
@@ -310,7 +308,7 @@ impl Loader<'_> {
             }
             _ => {}
         }
-        if top.0 {
+        if skipping {
             return;
         }
         let v = ints(&f);
@@ -457,8 +455,6 @@ impl Loader<'_> {
                     };
                     let keta = v[13].clamp(1, 32) as usize;
                     self.skin.judges[side].combo[j] = Some((s, Dst::default(), keta));
-                    self.judge_side = side;
-                    self.lane_kind = j;
                 }
             }
             "#DST_NOWCOMBO_1P" | "#DST_NOWCOMBO_2P" => {
@@ -833,11 +829,7 @@ impl Loader<'_> {
     }
 }
 
-// condition stack lives outside `Loader` to keep the borrowck simple
 impl Loader<'_> {
-    fn conds_top(&self) -> (bool,) {
-        (self.conds.iter().any(|c| c.skip),)
-    }
     fn parent_skip(&self) -> bool {
         let n = self.conds.len();
         n > 1 && self.conds[..n - 1].iter().any(|c| c.skip)
@@ -887,8 +879,6 @@ pub fn load(
         sizes: Vec::new(),
         image_size,
         cur: None,
-        lane_kind: 0,
-        judge_side: 0,
         pending_line: None,
         panel_ops: Vec::new(),
         fonts: Vec::new(),
@@ -900,7 +890,6 @@ pub fn load(
     for line in text.lines() {
         l.line(line);
     }
-    let _ = (l.lane_kind, l.judge_side);
     // a button inside a panel is shown (and clickable) only while it is open
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);

@@ -68,6 +68,8 @@ pub(crate) enum Rank {
 
 pub struct SelectScene {
     version: u64,
+    /// Last position of each turntable axis (it scrolls the list).
+    axis_last: HashMap<u64, f32>,
     pub(crate) node: Node,
     stack: Vec<(Node, usize)>,
     pub(crate) bars: Vec<Bar>,
@@ -123,6 +125,7 @@ impl SelectScene {
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
             labels: HashMap::new(),
+            axis_last: HashMap::new(),
             preview_for: None,
             preview_rx: None,
             banner: None,
@@ -954,27 +957,24 @@ impl Scene for SelectScene {
             }
             InputEv::Axis { value, id, .. } => {
                 // turntable scrolls the list
-                thread_local!(static LAST: std::cell::RefCell<HashMap<u64, f32>> = std::cell::RefCell::new(HashMap::new()));
-                let step = LAST.with(|l| {
-                    let mut l = l.borrow_mut();
-                    let last = *l.entry(*id).or_insert(*value);
-                    let mut d = value - last;
-                    if d > 1.0 {
-                        d -= 2.0
-                    } else if d < -1.0 {
-                        d += 2.0
-                    }
-                    if d.abs() >= 0.06 {
-                        l.insert(*id, *value);
-                        if d > 0.0 {
-                            1
-                        } else {
-                            -1
-                        }
+                let l = &mut self.axis_last;
+                let last = *l.entry(*id).or_insert(*value);
+                let mut d = value - last;
+                if d > 1.0 {
+                    d -= 2.0
+                } else if d < -1.0 {
+                    d += 2.0
+                }
+                let step = if d.abs() >= 0.06 {
+                    l.insert(*id, *value);
+                    if d > 0.0 {
+                        1
                     } else {
-                        0
+                        -1
                     }
-                });
+                } else {
+                    0
+                };
                 if step != 0 && ctx.config.keys.any_axis_is_scratch {
                     self.step(ctx, step);
                 }

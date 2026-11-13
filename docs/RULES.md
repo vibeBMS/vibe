@@ -42,7 +42,8 @@ LR2 has no `#DEFEXRANK`; it is treated as a percentage of NORMAL. Empty POOR win
 
 ### IIDX (approximation)
 
-Frame based at 60 fps: PG ±16.67, GR ±33.33, GD ±116.67, BAD ±250 ms, independent of #RANK.
+Counted in frames of the 120 Hz LIGHTNING MODEL cabinet: PG ±2F, GR ±4F, GD ±14F, BAD ±30F
+(±16.67 / 33.33 / 116.67 / 250 ms), independent of #RANK. Input timing is quantised to the 120 Hz frame grid.
 **These are community-known approximations, not measured arcade values.**
 
 ## Gauges

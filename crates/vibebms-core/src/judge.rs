@@ -160,6 +160,7 @@ const FIVE: Family = Family {
     scratch: &[(-30, 30), (-60, 60), (-110, 110), (-160, 160), (-160, 500)],
     ln_end: &[(-120, 120), (-150, 150), (-200, 200), (-250, 250)],
     ln_margin: 0,
+    // GOOD narrower than GREAT: beatoraja's table has it so
     scratch_ln_end: &[(-130, 130), (-160, 160), (-110, 110), (-260, 260)],
     combo: [true, true, true, false, false, false],
     miss_one: false,

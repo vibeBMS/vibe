@@ -113,12 +113,12 @@ pub trait Scene {
     fn resumed(&mut self, _ctx: &mut Ctx) {}
     /// About to be removed: release textures/sounds.
     fn exit(&mut self, _ctx: &mut Ctx, _gfx: &mut Gfx) {}
-    /// Wants every frame redrawn ASAP (gameplay).
     /// The screen needs all of it (play): the web page hides its own
     /// buttons meanwhile.
     fn full_screen(&self) -> bool {
         false
     }
+    /// Wants every frame redrawn ASAP (gameplay).
     fn realtime(&self) -> bool {
         false
     }
@@ -280,7 +280,7 @@ impl Ctx {
             .duration_since(crate::platform::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let todo: Vec<(String, String, PathBuf)> = self
+        let todo: Vec<(String, String)> = self
             .config
             .tables
             .iter()
@@ -291,7 +291,7 @@ impl Ctx {
                         dt.source_url == t.url && now.saturating_sub(dt.fetched_at) < 86_400
                     })
             })
-            .map(|t| (t.name.clone(), t.url.clone(), self.table_cache_file(&t.url)))
+            .map(|t| (t.name.clone(), t.url.clone()))
             .collect();
         if todo.is_empty() {
             return;
@@ -299,7 +299,7 @@ impl Ctx {
         let (tx, rx) = channel();
         self.table_rx = Some(rx);
         let remaining = Arc::new(std::sync::atomic::AtomicUsize::new(todo.len()));
-        for (name, url, _) in todo {
+        for (name, url) in todo {
             let (tx, remaining) = (tx.clone(), remaining.clone());
             crate::platform::load_table(&url, move |r| {
                 let _ = tx.send(match r {
@@ -463,7 +463,8 @@ pub struct App {
     paths: Paths,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     proxy: EventLoopProxy<UserEvent>,
-    creating: bool,
+    /// The configuration while the window and renderer are being created.
+    pending: Option<Config>,
 }
 
 impl App {
@@ -472,7 +473,7 @@ impl App {
             run: None,
             paths,
             proxy,
-            creating: false,
+            pending: None,
         }
     }
 }
@@ -708,7 +709,10 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
 
 impl App {
     fn init(&mut self, window: Arc<Window>, mut gfx: Gfx) {
-        let config = Config::load(&self.paths.config_file());
+        let config = self
+            .pending
+            .take()
+            .unwrap_or_else(|| Config::load(&self.paths.config_file()));
         let text = Text::new(&[self.paths.fonts.as_path()]);
         let a = &config.audio;
         let mixer = Mixer::new(&AudioConfig {
@@ -818,7 +822,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn resumed(&mut self, el: &ActiveEventLoop) {
-        if self.run.is_some() || self.creating {
+        if self.run.is_some() || self.pending.is_some() {
             return;
         }
         let config = Config::load(&self.paths.config_file());
@@ -847,18 +851,18 @@ impl ApplicationHandler<UserEvent> for App {
                 return;
             }
         };
-        self.creating = true;
+        let mode = config.display.present_mode;
+        self.pending = Some(config);
         #[cfg(target_arch = "wasm32")]
         {
             let proxy = self.proxy.clone();
-            let mode = config.display.present_mode;
             wasm_bindgen_futures::spawn_local(async move {
                 let g = Gfx::create(window.clone(), mode).await;
                 let _ = proxy.send_event(UserEvent::GfxReady(window, Box::new(g)));
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
-        match Gfx::new(window.clone(), config.display.present_mode) {
+        match Gfx::new(window.clone(), mode) {
             Ok(g) => self.init(window, g),
             Err(e) => {
                 log::error!("graphics init failed: {e}");

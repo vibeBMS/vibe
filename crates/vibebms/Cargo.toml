@@ -18,6 +18,7 @@ path = "src/main.rs"
 [features]
 default = []
 asio = ["vibebms-audio/asio"]
+jack = ["vibebms-audio/jack"]
 
 [dependencies]
 encoding_rs.workspace = true

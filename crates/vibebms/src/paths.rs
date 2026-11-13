@@ -1,6 +1,6 @@
 //! Portable directory layout.
 //!
-//! Everything (config, song database, table cache, replays) lives
+//! Everything (config, song database, table cache) lives
 //! next to the executable so the whole install can be copied around:
 //!
 //! ```text
@@ -10,7 +10,6 @@
 //! <root>/scores/scores.json      (your records)
 //! <root>/cache/tables/*.json
 //! <root>/fonts/*.ttf|otf|ttc        (optional font overrides)
-//! <root>/replays/
 //! <root>/<any folder with BMS files> (scanned automatically)
 //! ```
 
@@ -23,14 +22,13 @@ pub struct Paths {
     pub cache: PathBuf,
     pub tables: PathBuf,
     pub fonts: PathBuf,
-    pub replays: PathBuf,
     pub scores: PathBuf,
     pub skins: PathBuf,
 }
 
 /// Directory names under the root that are never scanned for charts.
 pub const INTERNAL_DIRS: &[&str] = &[
-    "config", "cache", "fonts", "replays", "scores", "target", "skins", "crates", "docs",
+    "config", "cache", "fonts", "scores", "target", "skins", "crates", "docs",
 ];
 
 impl Paths {
@@ -55,14 +53,11 @@ impl Paths {
             cache: root.join("cache"),
             tables: root.join("cache").join("tables"),
             fonts: root.join("fonts"),
-            replays: root.join("replays"),
             scores: root.join("scores"),
             skins: root.join("skins"),
             root,
         };
-        for d in [
-            &p.config, &p.cache, &p.tables, &p.replays, &p.scores, &p.skins,
-        ] {
+        for d in [&p.config, &p.cache, &p.tables, &p.scores, &p.skins] {
             let _ = crate::platform::vfs::create_dir_all(d);
         }
         p
