@@ -70,12 +70,40 @@ pub fn with_alpha(c: Color, a: f32) -> Color {
     [c[0], c[1], c[2], c[3] * a]
 }
 
+/// How a draw combines with what is below (skin blend modes).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Blend {
+    #[default]
+    Alpha,
+    Add,
+    /// below − source
+    Subtract,
+    /// below × source
+    Multiply,
+    /// inverts what is below
+    Invert,
+}
+
+impl Blend {
+    /// LR2 / beatoraja `blend` value (1 = alpha, 2 add, 3 subtract,
+    /// 4 multiply, 9 invert).
+    pub fn from_skin(v: i32) -> Blend {
+        match v {
+            2 => Blend::Add,
+            3 => Blend::Subtract,
+            4 => Blend::Multiply,
+            9 => Blend::Invert,
+            _ => Blend::Alpha,
+        }
+    }
+}
+
 struct Cmd {
     tex: TexId,
     start: u32,
     count: u32,
     clip: Option<[u32; 4]>,
-    additive: bool,
+    blend: Blend,
 }
 
 /// Geometry for one frame.
@@ -84,7 +112,7 @@ pub struct Batch {
     verts: Vec<Vertex>,
     cmds: Vec<Cmd>,
     clip: Option<[u32; 4]>,
-    additive: bool,
+    blend: Blend,
 }
 
 impl Batch {
@@ -92,12 +120,17 @@ impl Batch {
         self.verts.clear();
         self.cmds.clear();
         self.clip = None;
-        self.additive = false;
+        self.blend = Blend::Alpha;
     }
 
     /// Additive blending for following draws (skin glow effects).
     pub fn set_additive(&mut self, on: bool) {
-        self.additive = on;
+        self.blend = if on { Blend::Add } else { Blend::Alpha };
+    }
+
+    /// Blend mode for following draws.
+    pub fn set_blend(&mut self, b: Blend) {
+        self.blend = b;
     }
 
     fn push_cmd(&mut self, tex: TexId, count: u32) {
@@ -106,7 +139,7 @@ impl Batch {
             Some(c)
                 if c.tex == tex
                     && c.clip == self.clip
-                    && c.additive == self.additive
+                    && c.blend == self.blend
                     && c.start + c.count == start =>
             {
                 c.count += count
@@ -116,7 +149,7 @@ impl Batch {
                 start,
                 count,
                 clip: self.clip,
-                additive: self.additive,
+                blend: self.blend,
             }),
         }
     }
@@ -323,8 +356,7 @@ pub struct Gfx {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
-    pipeline: wgpu::RenderPipeline,
-    pipeline_add: wgpu::RenderPipeline,
+    pipelines: [wgpu::RenderPipeline; 5],
     tex_layout: wgpu::BindGroupLayout,
     uniform_buf: wgpu::Buffer,
     uniform_bind: wgpu::BindGroup,
@@ -490,15 +522,23 @@ impl Gfx {
             cache: None,
         })
         };
-        let pipeline = make(wgpu::BlendState::ALPHA_BLENDING);
-        let pipeline_add = make(wgpu::BlendState {
+        let color = |src, dst, op| wgpu::BlendState {
             color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
+                src_factor: src,
+                dst_factor: dst,
+                operation: op,
             },
             alpha: wgpu::BlendComponent::OVER,
-        });
+        };
+        use wgpu::{BlendFactor as F, BlendOperation as O};
+        // indexed by `Blend`
+        let pipelines = [
+            make(wgpu::BlendState::ALPHA_BLENDING),
+            make(color(F::SrcAlpha, F::One, O::Add)),
+            make(color(F::SrcAlpha, F::One, O::ReverseSubtract)),
+            make(color(F::Zero, F::Src, O::Add)),
+            make(color(F::OneMinusDst, F::Zero, O::Add)),
+        ];
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("linear"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -519,8 +559,7 @@ impl Gfx {
             device,
             queue,
             config,
-            pipeline,
-            pipeline_add,
+            pipelines,
             tex_layout,
             uniform_buf,
             uniform_bind,
@@ -718,7 +757,7 @@ impl Gfx {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&self.pipelines[0]);
             pass.set_bind_group(0, &self.uniform_bind, &[]);
             pass.set_vertex_buffer(0, self.vbuf.slice(..));
             let (sw, sh) = (self.config.width, self.config.height);
@@ -739,11 +778,7 @@ impl Gfx {
                     }
                     None => pass.set_scissor_rect(0, 0, sw, sh),
                 }
-                pass.set_pipeline(if c.additive {
-                    &self.pipeline_add
-                } else {
-                    &self.pipeline
-                });
+                pass.set_pipeline(&self.pipelines[c.blend as usize]);
                 pass.set_bind_group(1, &t.bind, &[]);
                 pass.draw(c.start..c.start + c.count, 0..1);
             }

@@ -1,3 +1,4 @@
+pub mod graphs;
 pub mod play;
 pub mod play_skin;
 pub mod result;

@@ -446,6 +446,52 @@ pub struct SceneHooks<'a> {
 }
 
 impl Hooks for SceneHooks<'_> {
+    fn graph(
+        &mut self,
+        d: &mut Draw,
+        kind: crate::skin::GraphKind,
+        style: &crate::skin::GraphStyle,
+        r: Rect,
+        color: [f32; 4],
+    ) {
+        use crate::skin::GraphKind;
+        let s = self.st.s;
+        match kind {
+            GraphKind::Judge(t) => {
+                let Some(e) = s.engine.as_ref() else {
+                    return;
+                };
+                let t = t.clamp(0, 2) as usize;
+                let cols = super::graphs::columns(e.notes(), s.mode, s.chart.length());
+                // play position, once the chart runs
+                let cursor = s
+                    .ready_at
+                    .map(|_| s.chart_us(self.st.now).max(0) as f64 / 1000.0);
+                super::graphs::draw(d, r, &cols[t], t, style, color[3], 1.0, cursor);
+            }
+            GraphKind::Bpm => {
+                let log: Vec<(i64, f64)> = s
+                    .chart
+                    .timing
+                    .bpm_changes()
+                    .into_iter()
+                    .map(|c| (c.time, c.bpm))
+                    .collect();
+                super::graphs::bpm(
+                    d,
+                    r,
+                    &log,
+                    s.chart.length(),
+                    s.chart.meta.main_bpm,
+                    style,
+                    color,
+                    1.0,
+                );
+            }
+            _ => {}
+        }
+    }
+
     fn notes(&mut self, d: &mut Draw, skin: &LoadedSkin, xf: &Xf, now: i64, st: &dyn SkinState) {
         let s = self.st.s;
         let Some(engine) = s.engine.as_ref() else {
@@ -465,7 +511,7 @@ impl Hooks for SceneHooks<'_> {
             rect: Rect::default(),
             color: [1.0; 4],
             angle: 0.0,
-            additive: false,
+            blend: crate::gfx::Blend::Alpha,
             center: (0.5, 0.5),
         };
         for (lane, ls) in skin.skin.lanes.iter().enumerate() {

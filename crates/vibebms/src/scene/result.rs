@@ -36,6 +36,8 @@ pub struct ResultData {
     /// Note judge windows (late, early) in µs, PG first.
     pub windows: Vec<(i64, i64)>,
     pub judge_log: Vec<(i64, u8, i8)>,
+    /// beatoraja notes graph columns (note type / judge / FAST-SLOW).
+    pub notes_graph: [Vec<super::graphs::Column>; 3],
     pub meta: vibebms_core::chart::ChartMeta,
     /// Chart length (us) and BPM changes (time us, bpm) for the graphs.
     pub length_us: i64,

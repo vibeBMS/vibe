@@ -19,6 +19,10 @@ fn i(v: &Value, k: &str, d: i64) -> i64 {
         .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|f| f as i64)))
         .unwrap_or(d)
 }
+/// A number, integral or not (Lua skins compute fractional values).
+fn num(v: &Value) -> Option<i64> {
+    v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))
+}
 fn s<'a>(v: &'a Value, k: &str) -> &'a str {
     v.get(k).and_then(Value::as_str).unwrap_or("")
 }
@@ -290,7 +294,7 @@ impl Ctx<'_> {
     /// (synthetic for scripts).
     fn dyn_id(&self, v: Option<&Value>, kind: ScriptKind) -> Option<i32> {
         let v = v?;
-        match v.as_i64() {
+        match num(v) {
             Some(n) => Some(n as i32),
             None => self.scripts.borrow_mut().register(v, kind),
         }
@@ -298,7 +302,7 @@ impl Ctx<'_> {
 
     /// `ref` (an id), else `value` (an id or a script).
     fn value_id(&self, def: &Value, kind: ScriptKind) -> i32 {
-        match def.get("ref").and_then(Value::as_i64) {
+        match def.get("ref").and_then(num) {
             Some(r) if r != 0 => r as i32,
             _ => self.dyn_id(def.get("value"), kind).unwrap_or(0),
         }
@@ -359,32 +363,33 @@ impl Ctx<'_> {
                 .collect(),
             offsets: d
                 .get("offset")
-                .and_then(Value::as_i64)
+                .and_then(num)
                 .into_iter()
-                .chain(arr(d.get("offsets")).iter().filter_map(Value::as_i64))
+                .chain(arr(d.get("offsets")).iter().filter_map(num))
                 .map(|o| o as i32)
                 .filter(|o| *o != 0)
                 .collect(),
             ..Default::default()
         };
-        let mut prev: Option<[i64; 10]> = None;
+        // values may be fractional (computed by Lua skins)
+        let mut prev: Option<[f64; 10]> = None;
         for a in arr(d.get("dst")) {
-            let g = |k: &str, idx: usize, def: i64| {
+            let g = |k: &str, idx: usize, def: f64| {
                 a.get(k)
-                    .and_then(Value::as_i64)
+                    .and_then(Value::as_f64)
                     .unwrap_or(prev.map(|p| p[idx]).unwrap_or(def))
             };
             let cur = [
-                g("time", 0, 0),
-                g("x", 1, 0),
-                g("y", 2, 0),
-                g("w", 3, 0),
-                g("h", 4, 0),
-                g("acc", 5, 0),
-                g("a", 6, 255),
-                g("r", 7, 255),
-                g("g", 8, 255),
-                g("b", 9, 255),
+                g("time", 0, 0.0),
+                g("x", 1, 0.0),
+                g("y", 2, 0.0),
+                g("w", 3, 0.0),
+                g("h", 4, 0.0),
+                g("acc", 5, 0.0),
+                g("a", 6, 255.0),
+                g("r", 7, 255.0),
+                g("g", 8, 255.0),
+                g("b", 9, 255.0),
             ];
             let angle = a
                 .get("angle")
@@ -395,9 +400,9 @@ impl Ctx<'_> {
                 out.acc = cur[5] as i32;
             }
             let (x, y, w, h) = (cur[1] as f32, cur[2] as f32, cur[3] as f32, cur[4] as f32);
-            let c = |n: i64| n.clamp(0, 255) as f32 / 255.0;
+            let c = |n: f64| n.clamp(0.0, 255.0) as f32 / 255.0;
             out.add_key(Key {
-                time: cur[0],
+                time: cur[0] as i64,
                 rect: Rect::new(x, self.h - (y + h), w, h),
                 color: [c(cur[7]), c(cur[8]), c(cur[9]), c(cur[6])],
                 angle: -angle,
@@ -560,7 +565,12 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
     if let Some(t) = arr(sl.get("text")).first() {
         let def = cx.find("text", &id_of(t));
         let get = |k: &str| def.map(|d| i(d, k, 0) as i32).unwrap_or(0);
-        out.text = Some((rel(t), get("align"), get("overflow")));
+        let mut d = rel(t);
+        let k = get("align").clamp(0, 2) as f32 * 0.5;
+        for key in &mut d.keys {
+            key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
+        }
+        out.text = Some((d, get("align"), get("overflow")));
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -637,6 +647,11 @@ pub fn load(
         raw
     };
     let sk = preprocess(raw, &enabled, &dir, 0);
+    // debugging aid: the skin table as evaluated
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Ok(out) = std::env::var("VIBEBMS_DUMP_SKIN") {
+        let _ = std::fs::write(out, serde_json::to_string_pretty(&sk).unwrap_or_default());
+    }
     let w = i(&sk, "w", 1280) as f32;
     let h = i(&sk, "h", 720) as f32;
     let kind = SkinType::from_id(i(&sk, "type", -1) as i32);
@@ -762,7 +777,13 @@ pub fn load(
             Some(Kind::Graph(
                 GraphKind::Judge(i(g, "type", 0) as i32),
                 GraphStyle {
-                    flags: [i(g, "noGap", 0) != 0, i(g, "orderReverse", 0) != 0],
+                    flags: [
+                        i(g, "noGap", 0) != 0,
+                        i(g, "orderReverse", 0) != 0,
+                        i(g, "backTexOff", 0) == 0,
+                        i(g, "noGapX", 0) != 0,
+                    ],
+                    chips: true,
                     delay: i(g, "delay", 500),
                     ..Default::default()
                 },
@@ -801,7 +822,12 @@ pub fn load(
                         c("PRColor", "000000FF"),
                     ],
                     line_width: i(g, "lineWidth", 1) as f32,
-                    flags: [i(g, "drawAverage", 1) != 0, i(g, "drawDev", 1) != 0],
+                    flags: [
+                        i(g, "drawAverage", 1) != 0,
+                        i(g, "drawDev", 1) != 0,
+                        false,
+                        false,
+                    ],
                     width: i(g, "width", 301) as i32,
                     ..Default::default()
                 },
@@ -961,6 +987,14 @@ pub fn load(
         if kind.is_none() {
             log::debug!("{}: unsupported object {id}", path.display());
         }
+        // beatoraja anchors centred text at x and right-aligned text at x + 0
+        // (the box is x - w/2 .. x + w/2, x - w .. x)
+        if let Some(Kind::Text { align, .. }) = &kind {
+            let k = (*align).clamp(0, 2) as f32 * 0.5;
+            for key in &mut dst.keys {
+                key.rect.x -= key.rect.w * k;
+            }
+        }
         if let Some(kind) = kind {
             let act = obj_act(&cx, &id);
             skin.objects.push(Obj { kind, dst, act });
@@ -1062,7 +1096,7 @@ mod lua {
     use super::*;
     pub fn eval(
         path: &Path,
-        _: Option<&HashMap<String, i64>>,
+        _: Option<(&HashMap<String, i64>, &Value)>,
     ) -> Result<(Value, script::Script), String> {
         Err(format!(
             "{}: Lua skins are not supported in the web build",

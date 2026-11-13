@@ -121,7 +121,7 @@ pub struct Frame {
     pub rect: Rect,
     pub color: [f32; 4],
     pub angle: f32,
-    pub additive: bool,
+    pub blend: crate::gfx::Blend,
     /// Rotation centre as a fraction of the rect (y down).
     pub center: (f32, f32),
 }
@@ -207,7 +207,7 @@ impl Dst {
             rect,
             color,
             angle,
-            additive: self.blend == 2,
+            blend: crate::gfx::Blend::from_skin(self.blend),
             center: (CENTER_X[c], CENTER_Y[c]),
         })
     }
@@ -362,9 +362,12 @@ pub enum GraphKind {
 pub struct GraphStyle {
     pub colors: Vec<[f32; 4]>,
     pub line_width: f32,
-    /// judge graph: no gap between bars / stack order reversed;
-    /// timing distribution: draw average / draw deviation
-    pub flags: [bool; 2],
+    /// judge graph: no gap between chips (y), stack order reversed,
+    /// background, no gap (x); timing distribution: draw average / draw
+    /// deviation
+    pub flags: [bool; 4],
+    /// beatoraja notes graph (chips per note) rather than the scene's bars.
+    pub chips: bool,
     /// Animation (ms) until fully drawn; timing distribution: bins (width).
     pub delay: i64,
     pub width: i32,

@@ -587,6 +587,7 @@ impl PlayScene {
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
+            notes_graph: super::graphs::columns(e.notes(), self.mode, self.chart.length()),
             meta: self.chart.meta.clone(),
             length_us: self.chart.length(),
             bpm_log: self

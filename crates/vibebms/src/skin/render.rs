@@ -110,7 +110,7 @@ impl LoadedSkin {
     pub fn blit(&self, d: &mut Draw, src: &Src, now: i64, st: &dyn SkinState, r: Rect, fr: &Frame) {
         let Some(f) = src.frame(now, st) else { return };
         if let Some((t, uv)) = self.uv(d, src, f) {
-            d.b.set_additive(fr.additive);
+            d.b.set_blend(fr.blend);
             d.b.quad_rot(t, r, uv, fr.color, fr.angle, fr.center);
             d.b.set_additive(false);
         }
@@ -281,7 +281,7 @@ impl LoadedSkin {
                 continue;
             };
             if let Some((t, uv)) = self.uv(d, src, *f) {
-                d.b.set_additive(fr.additive);
+                d.b.set_blend(fr.blend);
                 d.b.quad(
                     t,
                     Rect::new(r.x + r.w * j as f32 - shift, r.y, r.w, r.h),

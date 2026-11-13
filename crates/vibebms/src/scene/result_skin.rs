@@ -457,6 +457,16 @@ impl Hooks for ResultHooks<'_> {
                     prev = Some(v);
                 }
             }
+            GraphKind::Judge(t) if style.chips => super::graphs::draw(
+                d,
+                r,
+                &data.notes_graph[t.clamp(0, 2) as usize],
+                t.clamp(0, 2) as usize,
+                style,
+                a,
+                grow,
+                None,
+            ),
             GraphKind::Judge(t) => {
                 let len = data.length_us.max(1) as f32;
                 let cols = (r.w / 4.0).max(1.0) as usize;
@@ -483,7 +493,7 @@ impl Hooks for ResultHooks<'_> {
                     .max(1) as f32;
                 let shown = ((cols as f32) * grow) as usize;
                 let bw = r.w / cols as f32;
-                let [no_gap, reverse] = style.flags;
+                let [no_gap, reverse, ..] = style.flags;
                 let gap = if no_gap { 0.0 } else { 1.0 };
                 for (i, b) in buckets.iter().take(shown).enumerate() {
                     let mut y = r.bottom();
@@ -522,74 +532,16 @@ impl Hooks for ResultHooks<'_> {
                     }
                 }
             }
-            GraphKind::Bpm => {
-                let log = &data.bpm_log;
-                let (lo, hi) = log.iter().fold((f64::MAX, f64::MIN), |(lo, hi), (_, b)| {
-                    (lo.min(*b), hi.max(*b))
-                });
-                if log.is_empty() || hi <= 0.0 {
-                    return;
-                }
-                let span = (hi - lo).max(1.0);
-                let len = data.length_us.max(1) as f32;
-                let lw = if style.line_width > 0.0 {
-                    style.line_width
-                } else {
-                    2.0
-                };
-                let reveal = r.x + r.w * grow;
-                let y_of = |b: f64| r.bottom() - lw - (r.h - 2.0 * lw) * ((b - lo) / span) as f32;
-                if !style.colors.is_empty() {
-                    // beatoraja: main / min / max / other BPM colours and
-                    // transition lines between segments
-                    for (i, (t, b)) in log.iter().enumerate() {
-                        let x0 = r.x + r.w * (*t as f32 / len).clamp(0.0, 1.0);
-                        if x0 >= reveal {
-                            break;
-                        }
-                        let x1 = log
-                            .get(i + 1)
-                            .map(|n| r.x + r.w * (n.0 as f32 / len).clamp(0.0, 1.0))
-                            .unwrap_or(r.right())
-                            .min(reveal);
-                        let k = if (b - data.meta.main_bpm).abs() < 0.01 {
-                            0
-                        } else if (b - lo).abs() < 0.01 {
-                            1
-                        } else if (b - hi).abs() < 0.01 {
-                            2
-                        } else {
-                            3
-                        };
-                        let c = skin_col(k).unwrap_or(color);
-                        d.b.rect(Rect::new(x0, y_of(*b), (x1 - x0).max(1.0), lw), c);
-                        if let Some((_, pb)) = i.checked_sub(1).map(|p| log[p]) {
-                            let (y0, y1) = (y_of(pb).min(y_of(*b)), y_of(pb).max(y_of(*b)));
-                            if let Some(tc) = skin_col(5) {
-                                d.b.rect(Rect::new(x0, y0, lw, y1 - y0 + lw), tc);
-                            }
-                        }
-                    }
-                    return;
-                }
-                for (i, (t, b)) in log.iter().enumerate() {
-                    let x0 = r.x + r.w * (*t as f32 / len).clamp(0.0, 1.0);
-                    let x1 = log
-                        .get(i + 1)
-                        .map(|n| r.x + r.w * (n.0 as f32 / len).clamp(0.0, 1.0))
-                        .unwrap_or(r.right());
-                    let y = r.bottom() - 2.0 - (r.h - 4.0) * ((b - lo) / span) as f32;
-                    let c = if (b - data.meta.main_bpm).abs() < 0.01 {
-                        0x5fdc8aff
-                    } else {
-                        0xffd34aff
-                    };
-                    d.b.rect(
-                        Rect::new(x0, y, (x1 - x0).max(1.0), 2.0),
-                        with_alpha(rgba(c), a),
-                    );
-                }
-            }
+            GraphKind::Bpm => super::graphs::bpm(
+                d,
+                r,
+                &data.bpm_log,
+                data.length_us,
+                data.meta.main_bpm,
+                style,
+                color,
+                grow,
+            ),
             GraphKind::TimingDistribution if !style.colors.is_empty() => {
                 // beatoraja: `width` 1 ms bins centred on 0 (+ = late), the
                 // judge windows as background bands, average / deviation lines
@@ -627,7 +579,7 @@ impl Hooks for ResultHooks<'_> {
                 }
                 let (avg, dev) = self.st.timing_stats();
                 let lw = style.line_width.max(1.0);
-                let [draw_avg, draw_dev] = style.flags;
+                let [draw_avg, draw_dev, ..] = style.flags;
                 let x_avg = x_of(avg + 0.5);
                 if draw_avg {
                     if let Some(c) = skin_col(1) {
