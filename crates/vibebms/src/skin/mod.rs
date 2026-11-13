@@ -425,6 +425,11 @@ pub trait SkinState {
     fn text(&self, id: i32) -> Option<String>;
     /// 0..1 for bar graphs and sliders.
     fn rate(&self, id: i32) -> f32;
+    /// Index of the image an image set / button shows (button values are
+    /// a namespace of their own; defaults to the number with that id).
+    fn button(&self, id: i32) -> Option<i64> {
+        self.number(id)
+    }
 }
 
 #[cfg(test)]

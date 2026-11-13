@@ -345,7 +345,7 @@ impl LoadedSkin {
                 }
                 Kind::Bga => hooks.bga(d, r),
                 Kind::ImageSet { srcs, id } => {
-                    let i = st.number(*id).unwrap_or(0).max(0) as usize;
+                    let i = st.button(*id).unwrap_or(0).max(0) as usize;
                     if let Some(src) = srcs.get(i) {
                         self.blit(d, src, now, st, r, &fr);
                     }

@@ -89,6 +89,10 @@ pub struct SelectScene {
     skin_tried: bool,
     /// Clickable skin objects from the last frame: (rect, event, click mode).
     skin_clicks: Vec<(Rect, i32, i32)>,
+    /// Open skin panel (1..=6) and when panels last opened / closed.
+    pub(crate) panel: usize,
+    pub(crate) panel_on: [Option<Instant>; 6],
+    pub(crate) panel_off: [Option<Instant>; 6],
 }
 
 fn lower(s: &str) -> String {
@@ -121,6 +125,9 @@ impl SelectScene {
             skin: None,
             skin_tried: false,
             skin_clicks: Vec::new(),
+            panel: 0,
+            panel_on: [None; 6],
+            panel_off: [None; 6],
         };
         s.rebuild(ctx);
         s
@@ -623,9 +630,76 @@ impl SelectScene {
         }
     }
 
-    /// A clicked skin object (beatoraja ids, or vibeBMS option ids).
+    /// Open / close a skin panel (1..=6; 0 closes the open one).
+    pub(crate) fn toggle_panel(&mut self, n: usize) {
+        let now = Instant::now();
+        if self.panel > 0 {
+            self.panel_off[self.panel - 1] = Some(now);
+        }
+        self.panel = if n == self.panel || n == 0 {
+            0
+        } else {
+            n.min(6)
+        };
+        if self.panel > 0 {
+            self.panel_on[self.panel - 1] = Some(now);
+        }
+    }
+
+    /// Does the skin have panels (objects shown only with a panel option)?
+    fn skin_has_panels(&self) -> bool {
+        self.skin
+            .as_ref()
+            .map(|s| {
+                s.skin
+                    .objects
+                    .iter()
+                    .any(|o| o.dst.ops.iter().any(|op| (21..=26).contains(op)))
+            })
+            .unwrap_or(false)
+    }
+
+    /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids).
     fn skin_event(&mut self, ctx: &mut Ctx, act: i32) -> Next {
         use super::select_skin::OPTION_EVENT;
+        let p = &mut ctx.config.play;
+        let done = match act {
+            1..=9 => {
+                self.toggle_panel(act as usize);
+                true
+            }
+            43 => {
+                let all = &vibebms_core::lane_option::LaneOption::ALL;
+                let i = all.iter().position(|o| *o == p.random_2p).unwrap_or(0);
+                p.random_2p = all[(i + 1) % all.len()];
+                true
+            }
+            54 => {
+                use vibebms_core::lane_option::DoubleOption;
+                p.dp_option = match p.dp_option {
+                    DoubleOption::Off => DoubleOption::Flip,
+                    DoubleOption::Flip => DoubleOption::Off,
+                };
+                true
+            }
+            55 => {
+                use crate::config::HiSpeedMode;
+                p.hispeed_mode = match p.hispeed_mode {
+                    HiSpeedMode::Floating => HiSpeedMode::Constant,
+                    HiSpeedMode::Constant => HiSpeedMode::Floating,
+                };
+                true
+            }
+            72 => {
+                p.bga = !p.bga;
+                true
+            }
+            _ => false,
+        };
+        if done {
+            ctx.save_config();
+            return Next::Stay;
+        }
         match act {
             15 => self.decide(ctx, false),
             16 => self.decide(ctx, true),
@@ -658,6 +732,7 @@ impl SelectScene {
                 _ => self.step(ctx, 10),
             },
             Nav::Decide => return self.decide(ctx, false),
+            Nav::Back if self.panel > 0 => self.toggle_panel(0),
             Nav::Back => {
                 if !self.back(ctx) {
                     if let Some(t) = self.quit_armed {
@@ -672,6 +747,8 @@ impl SelectScene {
             Nav::Settings => {
                 return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx)))
             }
+            // skins with panels open the option panel, others cycle RANDOM
+            Nav::Option if self.skin_has_panels() => self.toggle_panel(1),
             Nav::Option => return self.option(ctx, 0),
         }
         Next::Stay

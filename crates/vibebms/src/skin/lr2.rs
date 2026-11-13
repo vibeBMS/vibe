@@ -111,6 +111,8 @@ struct Loader<'a> {
     lane_kind: usize,
     judge_side: usize,
     pending_line: Option<Src>,
+    /// Buttons that belong to a panel: (object, panel option id).
+    panel_ops: Vec<(usize, i32)>,
     depth: usize,
     conds: Vec<Cond>,
 }
@@ -365,6 +367,30 @@ impl Loader<'_> {
                     self.push(Kind::RefImage(v[2] as i32));
                 } else if let Some(s) = src(&v, &self.sizes) {
                     self.push(Kind::Image(s));
+                }
+            }
+            "#SRC_BUTTON" => {
+                // gr,x,y,w,h,divx,divy,cycle,timer,type,click,panel: one frame
+                // per button value, clicking fires the button type
+                self.cur = None;
+                let Some(s_) = src(&v, &self.sizes) else {
+                    return;
+                };
+                let srcs = s_
+                    .frames
+                    .iter()
+                    .map(|f| Src {
+                        frames: vec![*f],
+                        cycle: 0,
+                        ..s_.clone()
+                    })
+                    .collect();
+                let id = v[11] as i32;
+                self.push(Kind::ImageSet { srcs, id });
+                let i = self.skin.objects.len() - 1;
+                self.skin.objects[i].act = Some((id, v[12] as i32));
+                if v[13] > 0 {
+                    self.panel_ops.push((i, 20 + v[13] as i32));
                 }
             }
             "#SRC_NUMBER" | "#SRC_NOWCOMBO_1P" | "#SRC_NOWCOMBO_2P" => {
@@ -725,6 +751,7 @@ pub fn load(
         lane_kind: 0,
         judge_side: 0,
         pending_line: None,
+        panel_ops: Vec::new(),
         depth: 0,
         conds: Vec::new(),
     };
@@ -732,6 +759,10 @@ pub fn load(
         l.line(line);
     }
     let _ = (l.lane_kind, l.judge_side);
+    // a button inside a panel is shown (and clickable) only while it is open
+    for (i, op) in std::mem::take(&mut l.panel_ops) {
+        l.skin.objects[i].dst.ops.push(op);
+    }
     if l.skin.objects.is_empty() {
         return Err(format!("{}: no drawable objects", path.display()));
     }
@@ -845,6 +876,35 @@ mod tests {
         assert_eq!((font.digits, font.keta), (10, 2));
         // LR2 lamp 3 (clear) is beatoraja's NORMAL (5)
         assert!(sl.lamp[5].is_some());
+    }
+
+    #[test]
+    fn parses_buttons() {
+        let dir = std::env::temp_dir().join(format!("vibebms-btn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let csv = "#INFORMATION,5,Btn,me\n#IMAGE,a.png\n\
+#SRC_BUTTON,0,0,0,0,100,40,1,4,0,0,42,0,1\n#DST_BUTTON,0,0,10,10,100,10,0,255,255,255,255,0,0,0,0,0,0,32\n\
+#SRC_BUTTON,0,0,0,40,30,10,1,1,0,0,15,0,0\n#DST_BUTTON,0,0,10,30,30,10,0,255,255,255,255\n";
+        std::fs::write(dir.join("b.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let s = load(
+            &dir.join("b.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        let Kind::ImageSet { srcs, id } = &s.objects[0].kind else {
+            panic!()
+        };
+        // one frame per button value, fired as button 42 (RANDOM)
+        assert_eq!((srcs.len(), *id), (4, 42));
+        assert_eq!(s.objects[0].act, Some((42, 0)));
+        // panel 1 adds option 21 to the destination's own conditions
+        assert_eq!(s.objects[0].dst.ops, vec![32, 21]);
+        assert_eq!(s.objects[1].act, Some((15, 0)));
+        assert!(s.objects[1].dst.ops.is_empty());
     }
 
     #[test]

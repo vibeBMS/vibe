@@ -117,7 +117,10 @@ beatoraja 숫자 ID 425로도 제공) 및 FAST/SLOW 합계를 보여줍니다.
 `#DST_BAR_TITLE`/`#SRC_BAR_LEVEL`/`#SRC_BAR_LAMP`, `#SRC_GAUGECHART`)와 beatoraja(`songlist`, `imageset`, `gaugegraph`,
 `judgegraph`, `bpmgraph`, `timingdistributiongraph`, 클릭 가능한 `act` 이미지, `ref` 이미지)를 읽습니다. 숫자·옵션·타이머 ID는
 beatoraja/LR2와 같고, vibeBMS 전용 선곡 옵션은 텍스트 `9000+i`(값) / `9100+i`(이름)와 클릭 이벤트 `9000+i`로 노출됩니다.
-선곡 옵션 패널·버튼 패널(LR2 `#SRC_BUTTON`, 패널 타이머)은 아직 지원하지 않습니다.
+LR2 `#SRC_BUTTON`(값별 프레임, 클릭 시 버튼 ID 실행, 패널 소속)과 패널(버튼 1~9로 열고 닫기, 타이머 21~26/31~36,
+옵션 21~23, Back으로 닫기, 패널이 있는 스킨은 옵션 키가 패널 1을 엽니다)을 지원합니다. 버튼 ID: 15 플레이, 16 오토,
+13/14 설정, 40 게이지, 42/43 랜덤, 54 DP 옵션, 55 HS 고정, 72 BGA, 308 LN 모드. 결과 스킨은 9500(재시도)/9501(계속),
+선곡 스킨은 9900(상위 폴더) 클릭 이벤트를 씁니다.
 
 ### 스킨 (LR2 / beatoraja)
 `skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다
@@ -153,7 +156,7 @@ Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 
 | LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨으로 검증 (실제 공개 스킨 호환성은 추가 검증 필요) |
 | beatoraja JSON/Lua 플레이 스킨 | 🧪 정적 구조 지원(Lua 런타임 함수 미평가), 합성 스킨으로 검증 |
 | 내장 기본 스킨(가로 SP 1P/2P, DP, 세로 SP) | ✅ 7/5/9/14/10키 레이아웃, 로드 테스트 + 스크린샷 확인 |
-| 선곡/결과 스킨 (LR2·beatoraja, 내장 기본 가로/세로) | 🧪 곡 목록·정보·그래프·클릭 버튼 지원, 버튼 패널·`#SRC_BUTTON` 미지원 |
+| 선곡/결과 스킨 (LR2·beatoraja, 내장 기본 가로/세로) | 🧪 곡 목록·정보·그래프·버튼·패널 지원, 실제 공개 스킨 호환성 검증 필요 |
 | 스킨 옵션 선택 UI | ⏳ 미구현 |
 | 동영상 BGA(mpg/wmv/mp4) | ⏳ 미구현 |
 | 리플레이 저장/재생, 고스트 배틀, 타깃 스코어 | ⏳ 미구현 (엔진에 ghost 데이터는 기록됨) |

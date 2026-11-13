@@ -211,6 +211,12 @@ impl SkinState for SelectState<'_> {
             0 => Some(0),
             1 => Some(s.skin.as_ref().map(|k| k.skin.input_ms).unwrap_or(0)),
             10 | 11 => Some(ms_since(s.created, s.last_move)),
+            21..=26 => s.panel_on[(id - 21) as usize]
+                .filter(|_| s.panel == (id - 20) as usize)
+                .map(|t| ms_since(s.created, t)),
+            31..=36 => s.panel_off[(id - 31) as usize]
+                .filter(|_| s.panel != (id - 30) as usize)
+                .map(|t| ms_since(s.created, t)),
             _ => None,
         }
     }
@@ -218,6 +224,7 @@ impl SkinState for SelectState<'_> {
     fn option(&self, id: i32) -> bool {
         let rank = self.song().and_then(|s| self.s.ranking.get(&s.sha256));
         let v = match id.abs() {
+            21..=26 => self.s.panel == (id.abs() - 20) as usize,
             601 => matches!(rank, Some(super::select::Rank::Loading(_))),
             602 => matches!(rank, Some(super::select::Rank::Done(_))),
             604 => matches!(rank, Some(super::select::Rank::Error)),
@@ -234,21 +241,6 @@ impl SkinState for SelectState<'_> {
         Some(match id {
             20 => self.ctx.fps as i64,
             30 => self.ctx.scores.values().map(|b| b.play_count as i64).sum(),
-            40 => match p.gauge {
-                GaugeType::AssistEasy => 0,
-                GaugeType::Easy => 1,
-                GaugeType::Normal => 2,
-                GaugeType::Hard | GaugeType::Class => 3,
-                GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass => 4,
-                GaugeType::Hazard => 5,
-            },
-            42 => random_index(p.random_1p),
-            43 => random_index(p.random_2p),
-            308 => match p.ln_mode {
-                LnType::Ln => 0,
-                LnType::Cn => 1,
-                LnType::Hcn => 2,
-            },
             71 => b(|b| b.ex_score as i64),
             72 => song.map(|s| s.notes * 2)?,
             74 => song.map(|s| s.notes)?,
@@ -285,6 +277,42 @@ impl SkinState for SelectState<'_> {
             1163 => song.map(|s| s.length_ms / 60000)?,
             1164 => song.map(|s| (s.length_ms / 1000) % 60)?,
             _ => return None,
+        })
+    }
+
+    fn button(&self, id: i32) -> Option<i64> {
+        let p = &self.ctx.config.play;
+        Some(match id {
+            40 => match p.gauge {
+                GaugeType::AssistEasy => 0,
+                GaugeType::Easy => 1,
+                GaugeType::Normal => 2,
+                GaugeType::Hard | GaugeType::Class => 3,
+                GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass => 4,
+                GaugeType::Hazard => 5,
+            },
+            42 => random_index(p.random_1p),
+            43 => random_index(p.random_2p),
+            54 => p.dp_option as i64,
+            // beatoraja HS-FIX: 0 off, 3 main BPM
+            55 => match p.hispeed_mode {
+                HiSpeedMode::Floating => 3,
+                HiSpeedMode::Constant => 0,
+            },
+            // beatoraja BGA: 0 on, 2 off
+            72 => {
+                if p.bga {
+                    0
+                } else {
+                    2
+                }
+            }
+            308 => match p.ln_mode {
+                LnType::Ln => 0,
+                LnType::Cn => 1,
+                LnType::Hcn => 2,
+            },
+            _ => return self.number(id),
         })
     }
 
