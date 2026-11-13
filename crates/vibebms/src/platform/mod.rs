@@ -5,6 +5,7 @@
 //! jobs on the event loop and uses `XMLHttpRequest` for HTTP.
 
 pub mod dxa;
+pub mod screen;
 pub mod vfs;
 
 pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};

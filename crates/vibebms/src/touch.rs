@@ -35,10 +35,6 @@ impl Zone {
     }
 }
 
-/// Millimetres per logical pixel the controls are sized for: a point on an
-/// iPad (264 ppi at 2x). Phones and most screens are denser or close.
-pub const MM_PER_POINT: f32 = 0.1924;
-
 /// The IIDX keypad in mm: key faces, the gap between neighbouring white
 /// keys, the gap between the white row and the blue row above it, and the
 /// turntable's distance to key 1.

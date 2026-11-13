@@ -219,6 +219,9 @@ pub struct TouchConfig {
     pub height: f32,
     /// Opacity of the controls.
     pub opacity: f32,
+    /// The screen's diagonal in inches, for controls at their real size
+    /// (0: guessed from the kind of device).
+    pub screen_inches: f32,
     /// Play double charts in landscape with two control sets.
     pub allow_dp: bool,
     /// Scratch sensitivity: degrees of rotation needed to register a direction change.
@@ -232,6 +235,7 @@ impl Default for TouchConfig {
             style: TouchStyle::Iidx,
             height: 0.32,
             opacity: 0.85,
+            screen_inches: 0.0,
             allow_dp: true,
             scratch_threshold_deg: 6.0,
         }

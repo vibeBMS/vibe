@@ -495,6 +495,20 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 },
             ),
             it(
+                "Screen size (keys at real size)",
+                match c.touch.screen_inches {
+                    0.0 => format!("AUTO ({:.1}\")", ctx.screen.guessed_inches(ctx.scale)),
+                    n => format!("{n:.1}\""),
+                },
+                |c, d| {
+                    const SIZES: [f32; 19] = [
+                        0.0, 5.4, 6.1, 6.7, 7.9, 8.3, 10.2, 10.9, 11.0, 12.9, 13.0, 13.3, 14.0,
+                        15.6, 17.0, 24.0, 27.0, 32.0, 43.0,
+                    ];
+                    c.config.touch.screen_inches = cyc(&SIZES, c.config.touch.screen_inches, d);
+                },
+            ),
+            it(
                 "Opacity",
                 format!("{:.0}%", c.touch.opacity * 100.0),
                 |c, d| {

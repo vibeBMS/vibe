@@ -62,4 +62,4 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 # song packs picked as .zip (iPad Safari cannot pick folders)
 zip = { version = "2", default-features = false, features = ["deflate"] }
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator"] }

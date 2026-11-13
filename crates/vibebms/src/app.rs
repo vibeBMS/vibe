@@ -147,6 +147,7 @@ pub struct Ctx {
     pub height: f32,
     /// Device pixels per logical pixel (point).
     pub scale: f32,
+    pub screen: crate::platform::screen::Screen,
     pub library_version: u64,
     pub fps: f32,
     pub want_fullscreen: Option<bool>,
@@ -182,6 +183,12 @@ impl Ctx {
             self.width.min(self.height * 16.0 / 9.0) / 1280.0
         };
         base.max(0.45) * self.config.display.ui_scale.clamp(0.5, 3.0)
+    }
+
+    /// Device pixels per millimetre (for controls with a physical size).
+    pub fn px_per_mm(&self) -> f32 {
+        self.screen
+            .px_per_mm(self.scale, self.config.touch.screen_inches)
     }
 
     pub fn portrait(&self) -> bool {
@@ -748,6 +755,18 @@ impl App {
             width: size.width as f32,
             height: size.height as f32,
             scale: window.scale_factor() as f32,
+            screen: {
+                let s = crate::platform::screen::detect(&window);
+                let scale = window.scale_factor() as f32;
+                log::info!(
+                    "screen {}x{} px, about {:.1}\" ({} points per inch, guessed)",
+                    s.size_px.0,
+                    s.size_px.1,
+                    s.guessed_inches(scale),
+                    s.points_per_inch
+                );
+                s
+            },
             library_version: 0,
             fps: 0.0,
             want_fullscreen: None,
@@ -893,6 +912,7 @@ impl ApplicationHandler<UserEvent> for App {
                 r.ctx.width = w as f32;
                 r.ctx.height = h as f32;
                 r.ctx.scale = r.window.scale_factor() as f32;
+                r.ctx.screen = crate::platform::screen::detect(&r.window);
             }
             WindowEvent::RedrawRequested => r.frame(el),
             WindowEvent::KeyboardInput { event, .. } => {
