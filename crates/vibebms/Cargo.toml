@@ -37,6 +37,7 @@ fontdue = "0.9"
 fontdb = "0.16"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
 web-time = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 ehttp = "0.7"
 toml = "0.8"
 json5 = "1"

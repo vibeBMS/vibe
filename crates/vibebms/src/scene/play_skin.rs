@@ -335,6 +335,9 @@ impl SkinState for SceneState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
+        if let Some(v) = super::skinned::clock_number(id) {
+            return Some(v);
+        }
         let s = self.s;
         let p = &self.ctx.config.play;
         let m = &s.chart.meta;

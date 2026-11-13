@@ -100,6 +100,24 @@ pub fn chart_option(m: &ChartMeta, mode: vibebms_core::PlayMode, id: i32) -> Opt
     })
 }
 
+/// Numbers every screen has: the local date and time (LR2 21-26: year,
+/// month, day, hour, minute, second).
+pub fn clock_number(id: i32) -> Option<i64> {
+    use chrono::{Datelike, Timelike};
+    if !(21..=26).contains(&id) {
+        return None;
+    }
+    let t = chrono::Local::now();
+    Some(match id {
+        21 => t.year() as i64,
+        22 => t.month() as i64,
+        23 => t.day() as i64,
+        24 => t.hour() as i64,
+        25 => t.minute() as i64,
+        _ => t.second() as i64,
+    })
+}
+
 /// LR2 lamp options 100-105 (exactly one holds: lamps LR2 lacks count as
 /// the nearest one) and beatoraja's exact 1100-1104.
 pub fn lamp_option(c: vibebms_core::score::ClearType, id: i32) -> Option<bool> {

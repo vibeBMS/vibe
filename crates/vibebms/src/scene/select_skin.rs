@@ -220,6 +220,9 @@ impl SkinState for SelectState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
+        if let Some(v) = super::skinned::clock_number(id) {
+            return Some(v);
+        }
         let p = &self.ctx.config.play;
         let song = self.song();
         let best = self.best();
