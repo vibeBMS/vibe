@@ -488,30 +488,27 @@ pub struct SceneHooks<'a> {
 }
 
 impl Hooks for SceneHooks<'_> {
-    fn graph(
-        &mut self,
-        d: &mut Draw,
-        kind: crate::skin::GraphKind,
-        style: &crate::skin::GraphStyle,
-        r: Rect,
-        color: [f32; 4],
-    ) {
-        use crate::skin::GraphKind;
+    fn graph(&mut self, d: &mut Draw, graph: &crate::skin::Graph, r: Rect, color: [f32; 4]) {
+        use crate::skin::Graph;
         let s = self.st.s;
-        match kind {
-            GraphKind::Judge(t) => {
+        let a = super::graphs::Area {
+            r,
+            color,
+            reveal: 1.0,
+        };
+        match graph {
+            Graph::Notes(g) => {
                 let Some(e) = s.engine.as_ref() else {
                     return;
                 };
-                let t = t.clamp(0, 2) as usize;
                 let cols = super::graphs::columns(e.notes(), s.mode, s.chart.length());
                 // play position, once the chart runs
                 let cursor = s
                     .ready_at
                     .map(|_| s.chart_us(self.st.now).max(0) as f64 / 1000.0);
-                super::graphs::draw(d, r, &cols[t], t, style, color[3], 1.0, cursor);
+                super::graphs::notes(d, &a, g, &cols[g.kind.min(2)], cursor);
             }
-            GraphKind::Bpm => {
+            Graph::Bpm(g) => {
                 let log: Vec<(i64, f64)> = s
                     .chart
                     .timing
@@ -519,33 +516,16 @@ impl Hooks for SceneHooks<'_> {
                     .into_iter()
                     .map(|c| (c.time, c.bpm))
                     .collect();
-                super::graphs::bpm(
-                    d,
-                    r,
-                    &log,
-                    s.chart.length(),
-                    s.chart.meta.main_bpm,
-                    style,
-                    color,
-                    1.0,
-                );
+                super::graphs::bpm(d, &a, g, &log, s.chart.length(), s.chart.meta.main_bpm);
             }
-            GraphKind::TimingVisualizer(hit) => {
+            Graph::Visualizer(g) => {
                 let Some(e) = s.engine.as_ref() else {
                     return;
                 };
                 let recent: Vec<i64> = e.timing_log.iter().map(|t| t.1).collect();
-                super::graphs::timing_visualizer(
-                    d,
-                    r,
-                    &recent,
-                    &e.windows().note,
-                    style,
-                    color,
-                    hit,
-                );
+                super::graphs::visualizer(d, &a, g, &recent, &e.windows().note);
             }
-            _ => {}
+            Graph::Gauge(_) | Graph::Timing(_) => {}
         }
     }
 

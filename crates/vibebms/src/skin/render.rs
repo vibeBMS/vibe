@@ -1,7 +1,7 @@
 //! Drawing a loaded skin.
 
-use super::*;
 use super::script::Overlay;
+use super::*;
 use crate::app::Draw;
 use crate::gfx::text::Align;
 use crate::gfx::{Gfx, TexId};
@@ -66,15 +66,7 @@ pub trait Hooks {
     fn judge(&self, side: usize) -> Option<(usize, u32)> {
         None
     }
-    fn graph(
-        &mut self,
-        d: &mut Draw,
-        kind: GraphKind,
-        style: &GraphStyle,
-        rect: Rect,
-        color: [f32; 4],
-    ) {
-    }
+    fn graph(&mut self, d: &mut Draw, graph: &Graph, rect: Rect, color: [f32; 4]) {}
     /// The music select bar list.
     fn song_list(
         &mut self,
@@ -430,7 +422,14 @@ impl LoadedSkin {
         let offsets = &self.skin.offsets;
         let rt = self.skin.script.as_deref();
         if let Some(rt) = rt {
-            rt.update(&Overlay { st, rt: None, offsets }, now);
+            rt.update(
+                &Overlay {
+                    st,
+                    rt: None,
+                    offsets,
+                },
+                now,
+            );
         }
         self.draw_objects(d, view, now, &Overlay { st, rt, offsets }, hooks);
         d.b.set_base_clip(None);
@@ -635,7 +634,7 @@ impl LoadedSkin {
                         self.blit(d, src, now, st, r, &fr);
                     }
                 }
-                Kind::Graph(g, style) => hooks.graph(d, *g, style, r, fr.color),
+                Kind::Graph(g) => hooks.graph(d, g, r, fr.color),
                 Kind::Notes | Kind::Judge { .. } | Kind::SongList => {}
             }
         }

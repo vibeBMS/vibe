@@ -138,7 +138,10 @@ impl SkinState for Overlay<'_> {
         self.st.distribution(rank)
     }
     fn offset(&self, id: i32) -> Option<[f32; 6]> {
-        self.offsets.get(&id).copied().or_else(|| self.st.offset(id))
+        self.offsets
+            .get(&id)
+            .copied()
+            .or_else(|| self.st.offset(id))
     }
 }
 

@@ -26,6 +26,18 @@ fn ints(f: &[&str]) -> [i64; 22] {
     v
 }
 
+/// Colours from fields `first..` ("RRGGBB[AA]"), `defaults` where empty.
+fn colors(f: &[&str], first: usize, defaults: &[&str]) -> Vec<[f32; 4]> {
+    defaults
+        .iter()
+        .enumerate()
+        .map(|(k, d)| {
+            let s = f.get(first + k).map(|s| s.trim()).filter(|s| !s.is_empty());
+            super::beatoraja::hex_color(s.unwrap_or(d))
+        })
+        .collect()
+}
+
 fn src(v: &[i64; 22], image_sizes: &[Option<(u32, u32)>]) -> Option<Src> {
     let img = v[2] as usize;
     let (iw, ih) = image_sizes.get(img).copied().flatten()?;
@@ -651,77 +663,52 @@ impl Loader<'_> {
                 // a second index only recolours LR2's points: one chart
                 self.cur = None;
                 if v[1] == 0 {
-                    let mut style = super::beatoraja::gauge_style(&serde_json::Value::Null);
-                    style.line_width = v[6].max(1) as f32;
-                    style.delay = (v[14] - v[13]).max(0);
-                    self.push(Kind::Graph(GraphKind::Gauge, style));
+                    self.push(Kind::Graph(Graph::Gauge(GaugeGraph {
+                        colors: Some(super::beatoraja::gauge_colors(&serde_json::Value::Null)),
+                        line_width: v[6].max(1) as f32,
+                        delay: (v[14] - v[13]).max(0),
+                    })));
                     self.chart_field = Some((v[11] as f32, v[12] as f32));
                 }
             }
             "#SRC_NOTECHART_1P" | "#SRC_NOTECHART" => {
-                let style = GraphStyle {
-                    flags: [v[18] != 0, v[17] != 0, v[16] == 0, v[19] != 0],
+                self.push(Kind::Graph(Graph::Notes(NotesGraph {
+                    kind: v[1].clamp(0, 2) as usize,
                     delay: v[15],
-                    chips: true,
-                    ..Default::default()
-                };
-                self.push(Kind::Graph(
-                    GraphKind::Judge(v[1].clamp(0, 2) as i32),
-                    style,
-                ));
+                    back: v[16] == 0,
+                    order_reverse: v[17] != 0,
+                    no_gap: v[18] != 0,
+                    no_gap_x: v[19] != 0,
+                })));
                 self.chart_field = Some((v[11] as f32, v[12] as f32));
             }
             "#SRC_BPMCHART" => {
-                let c = |i: usize, d: &str| {
-                    let s = f
-                        .get(i)
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(d);
-                    super::beatoraja::hex_color(s)
-                };
-                let style = GraphStyle {
-                    colors: vec![
-                        c(5, "00ff00"),
-                        c(6, "0000ff"),
-                        c(7, "ff0000"),
-                        c(8, "ffff00"),
-                        c(9, "ff00ff"),
-                        c(10, "7f7f7f"),
-                    ],
+                self.push(Kind::Graph(Graph::Bpm(BpmGraph {
+                    colors: colors(
+                        &f,
+                        5,
+                        &["00ff00", "0000ff", "ff0000", "ffff00", "ff00ff", "7f7f7f"],
+                    ),
                     line_width: v[4].max(1) as f32,
                     delay: v[3],
-                    ..Default::default()
-                };
-                self.push(Kind::Graph(GraphKind::Bpm, style));
+                })));
                 self.chart_field = Some((v[1] as f32, v[2] as f32));
             }
             "#SRC_TIMINGCHART_1P" => {
-                let c = |i: usize, d: &str| {
-                    let s = f
-                        .get(i)
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(d);
-                    super::beatoraja::hex_color(s)
-                };
-                let style = GraphStyle {
-                    colors: vec![
-                        c(7, "00FF00FF"),
-                        c(8, "FFFFFFFF"),
-                        c(9, "FFFFFFFF"),
-                        c(10, "000088FF"),
-                        c(11, "008800FF"),
-                        c(12, "888800FF"),
-                        c(13, "880000FF"),
-                        c(14, "000000FF"),
-                    ],
+                self.push(Kind::Graph(Graph::Timing(TimingGraph {
+                    bins: v[4].max(3),
+                    colors: Some(colors(
+                        &f,
+                        7,
+                        &[
+                            "00FF00FF", "FFFFFFFF", "FFFFFFFF", "000088FF", "008800FF", "888800FF",
+                            "880000FF", "000000FF",
+                        ],
+                    )),
                     line_width: v[6].max(1) as f32,
-                    flags: [v[15] != 0, v[16] != 0, false, false],
-                    width: v[4].max(3) as i32,
-                    ..Default::default()
-                };
-                self.push(Kind::Graph(GraphKind::TimingDistribution, style));
+                    average: v[15] != 0,
+                    deviation: v[16] != 0,
+                })));
                 self.chart_field = Some((v[4] as f32, v[5] as f32));
             }
             "#DST_GAUGECHART_1P"
@@ -739,7 +726,10 @@ impl Loader<'_> {
                     add_dst(&mut self.skin.objects[i].dst, &v2);
                 }
             }
-            "#SRC_SCORECHART" => self.push(Kind::Graph(GraphKind::Judge(1), GraphStyle::default())),
+            "#SRC_SCORECHART" => self.push(Kind::Graph(Graph::Notes(NotesGraph {
+                kind: 1,
+                ..Default::default()
+            }))),
             "#SRC_JUDGELINE" => {
                 self.cur = None;
                 if let Some(s) = src(&v, &self.sizes) {

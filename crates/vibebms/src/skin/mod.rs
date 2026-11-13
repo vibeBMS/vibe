@@ -280,8 +280,8 @@ pub enum Kind {
         srcs: Vec<Src>,
         id: i32,
     },
-    /// A graph drawn by the scene (result gauge / judge / timing graphs ...).
-    Graph(GraphKind, GraphStyle),
+    /// A graph drawn by the scene (gauge, notes, BPM, timing ...).
+    Graph(Graph),
     /// The music select bar list.
     SongList,
     /// Clear lamp (`rank` false) or DJ rank distribution of a folder as a
@@ -359,42 +359,91 @@ pub struct SongListSkin {
     pub graph: Option<(Dst, Option<Src>, bool)>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GraphKind {
-    /// Gauge over the course of the play (result).
-    Gauge,
-    /// beatoraja `judgegraph` type: 0 note density, 1 judgements, 2 early/late.
-    Judge(i32),
-    /// BPM over the chart.
-    Bpm,
-    /// Distribution of timing errors.
-    TimingDistribution,
-    /// Recent timing errors as ticks over the judge windows (play);
-    /// `true` = beatoraja's hit error visualizer (ticks coloured by judge,
-    /// moving average).
-    TimingVisualizer(bool),
+/// A graph drawn by the scene, with the look the skin asks for.
+#[derive(Clone, Debug)]
+pub enum Graph {
+    Gauge(GaugeGraph),
+    Notes(NotesGraph),
+    Bpm(BpmGraph),
+    Timing(TimingGraph),
+    Visualizer(VisualizerGraph),
 }
 
-/// Skin-given look of a graph; empty `colors` = the scene's own style.
-///
-/// * gauge: 6 sets (assist, easy, normal, hard, ex-hard, hazard) of
-///   [line above border, background above, line below, background below]
-/// * BPM: main, min, max, other BPM, stop line, transition line
-/// * timing distribution: graph, average, deviation, then the PG, GR, GD,
-///   BD, PR window bands
+impl Graph {
+    /// Milliseconds the graph takes to appear (0 = the scene's choice).
+    pub fn delay(&self) -> i64 {
+        match self {
+            Graph::Gauge(g) => g.delay,
+            Graph::Notes(g) => g.delay,
+            Graph::Bpm(g) => g.delay,
+            Graph::Timing(_) | Graph::Visualizer(_) => 0,
+        }
+    }
+}
+
+/// The gauge over the play (result).
 #[derive(Clone, Debug, Default)]
-pub struct GraphStyle {
+pub struct GaugeGraph {
+    /// Per gauge kind (assist, easy, normal, hard, ex-hard, hazard): line
+    /// above the border, background above, line below, background below.
+    /// `None`: the built-in skin's look (palette colours, filled, guides).
+    pub colors: Option<Vec<[f32; 4]>>,
+    pub line_width: f32,
+    pub delay: i64,
+}
+
+/// beatoraja's notes distribution: per second, one chip per note.
+#[derive(Clone, Debug, Default)]
+pub struct NotesGraph {
+    /// 0 note types, 1 judgements, 2 judgements with FAST / SLOW.
+    pub kind: usize,
+    pub delay: i64,
+    /// Dark background with guides.
+    pub back: bool,
+    pub order_reverse: bool,
+    pub no_gap: bool,
+    pub no_gap_x: bool,
+}
+
+/// BPM over the chart.
+#[derive(Clone, Debug, Default)]
+pub struct BpmGraph {
+    /// Main, min, max, other BPM, stop line, transition line.
     pub colors: Vec<[f32; 4]>,
     pub line_width: f32,
-    /// judge graph: no gap between chips (y), stack order reversed,
-    /// background, no gap (x); timing distribution: draw average / draw
-    /// deviation
-    pub flags: [bool; 4],
-    /// beatoraja notes graph (chips per note) rather than the scene's bars.
-    pub chips: bool,
-    /// Animation (ms) until fully drawn; timing distribution: bins (width).
     pub delay: i64,
-    pub width: i32,
+}
+
+/// Distribution of timing errors.
+#[derive(Clone, Debug, Default)]
+pub struct TimingGraph {
+    /// Width in 1 ms bins.
+    pub bins: i64,
+    /// Graph, average, deviation, then the PG .. PR window bands. `None`:
+    /// the built-in skin's look (FAST / SLOW coloured, average and spread
+    /// as text).
+    pub colors: Option<Vec<[f32; 4]>>,
+    pub line_width: f32,
+    pub average: bool,
+    pub deviation: bool,
+}
+
+/// Recent timing errors as ticks over the judge windows (play).
+#[derive(Clone, Debug, Default)]
+pub struct VisualizerGraph {
+    /// beatoraja's hit error visualizer rather than the timing visualizer.
+    pub hit_error: bool,
+    /// Half width in ms.
+    pub range_ms: f32,
+    /// Line, centre, PG .. PR bands (and the moving average).
+    pub colors: Vec<[f32; 4]>,
+    pub line_width: f32,
+    pub transparent_poor: bool,
+    pub decay: bool,
+    /// Ticks coloured by judgement.
+    pub by_judge: bool,
+    /// Moving average line.
+    pub ema: bool,
 }
 
 /// Per-judgement image + combo number of a `NOWJUDGE` group.
