@@ -64,6 +64,8 @@ struct Loaded {
     chart: Chart,
     bank: SoundBank,
     images: Vec<Option<Rgba>>,
+    /// Chart images that are videos (same indices).
+    videos: Vec<Option<PathBuf>>,
     stagefile: Option<Rgba>,
     seed: i64,
 }
@@ -88,6 +90,9 @@ pub struct PlayScene {
     pub(crate) chart: Chart,
     pub(crate) bank: SoundBank,
     pub(crate) bga_tex: Vec<Option<TexId>>,
+    /// Video BGA by chart image, and the chart time (µs) each was first shown.
+    bga_video: Vec<Option<crate::video::Video>>,
+    bga_start: Vec<Option<i64>>,
     pub(crate) engine: Option<Engine>,
     pub(crate) mapper: Option<LaneMapper>,
     pub(crate) touch: TouchInput,
@@ -202,14 +207,21 @@ impl PlayScene {
                 };
                 let read = |p: &Path| crate::platform::vfs::read(p).ok();
                 let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
-                let images = if play.bga {
+                // an image or a video (shown when ffmpeg is installed)
+                let (images, videos) = if play.bga {
+                    use crate::platform::vfs::{find_by_stem, IMAGE_EXTS};
+                    use crate::video::{is_video, VIDEO_EXTS};
                     chart
                         .images
                         .iter()
-                        .map(|f| rgba_of(&dir.join(f.replace('\\', "/")), true))
-                        .collect()
+                        .map(|f| match find_by_stem(&dir, f, IMAGE_EXTS) {
+                            Some(p) if is_video(&p) => (None, Some(p)),
+                            Some(p) => (crate::gfx::load_rgba(&p, true), None),
+                            None => (None, find_by_stem(&dir, f, VIDEO_EXTS)),
+                        })
+                        .unzip()
                 } else {
-                    Vec::new()
+                    (Vec::new(), Vec::new())
                 };
                 let stagefile = (!chart.meta.stagefile.is_empty())
                     .then(|| rgba_of(&dir.join(&chart.meta.stagefile), false))
@@ -218,6 +230,7 @@ impl PlayScene {
                     chart,
                     bank,
                     images,
+                    videos,
                     stagefile,
                     seed,
                 }))
@@ -238,6 +251,8 @@ impl PlayScene {
             chart: Chart::default(),
             bank: SoundBank::default(),
             bga_tex: Vec::new(),
+            bga_video: Vec::new(),
+            bga_start: Vec::new(),
             engine: None,
             mapper: None,
             touch: TouchInput::default(),
@@ -299,7 +314,11 @@ impl PlayScene {
         layers
             .iter()
             .filter_map(|l| {
-                self.bga[*l].and_then(|i| self.bga_tex.get(i as usize).copied().flatten())
+                let i = self.bga[*l]? as usize;
+                match self.bga_video.get(i) {
+                    Some(Some(v)) => v.texture(),
+                    _ => self.bga_tex.get(i).copied().flatten(),
+                }
             })
             .collect()
     }
@@ -317,6 +336,7 @@ impl PlayScene {
             chart,
             bank,
             images,
+            videos,
             stagefile,
             seed,
         } = *l;
@@ -397,6 +417,14 @@ impl PlayScene {
             .into_iter()
             .map(|i| i.map(|(w, h, px)| gfx.create_texture(w, h, &px)))
             .collect();
+        self.bga_video = videos
+            .iter()
+            .map(|v| {
+                v.as_deref()
+                    .and_then(|p| crate::video::Video::open(p, false))
+            })
+            .collect();
+        self.bga_start = vec![None; self.bga_video.len()];
         if let Some((w, h, px)) = stagefile {
             self.stage_tex = Some(gfx.create_texture(w, h, &px));
         }
@@ -634,6 +662,14 @@ impl Scene for PlayScene {
             sk.script_events();
             sk.load_pending(gfx);
         }
+        if !self.bga_video.is_empty() {
+            let t = self.chart_us(now);
+            for (v, s) in self.bga_video.iter_mut().zip(&self.bga_start) {
+                if let (Some(v), Some(s)) = (v, s) {
+                    v.update(gfx, (t - s) / 1000);
+                }
+            }
+        }
         if self.job.is_some() && self.prefetch.finished() {
             if let Some(job) = self.job.take() {
                 crate::platform::spawn("load", job);
@@ -744,6 +780,10 @@ impl Scene for PlayScene {
                 BgaLayer::Poor => 3,
             };
             self.bga[i] = b.image;
+            // a video plays from the first event showing it
+            if let Some(s) = b.image.and_then(|m| self.bga_start.get_mut(m as usize)) {
+                s.get_or_insert(b.time);
+            }
             self.bga_i += 1;
         }
         self.bombs
@@ -879,6 +919,9 @@ impl Scene for PlayScene {
         ctx.mixer.stop_bus(Bus::Key);
         for t in self.bga_tex.drain(..).flatten() {
             gfx.free_texture(t);
+        }
+        for mut v in self.bga_video.drain(..).flatten() {
+            v.free(gfx);
         }
         if let Some(t) = self.stage_tex.take() {
             gfx.free_texture(t);

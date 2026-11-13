@@ -825,6 +825,8 @@ pub fn load(
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
     }
+    let known = l.options.clone();
+    resolve_static_ops(&mut l.skin, &known);
     if !l.resolution_set {
         let (w, h) = guess_resolution(&l.skin);
         l.skin.width = w;

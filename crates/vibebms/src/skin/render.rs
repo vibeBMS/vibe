@@ -14,6 +14,9 @@ pub struct LoadedSkin {
     /// last `load_pending`.
     lazy: Vec<bool>,
     wanted: std::cell::RefCell<Vec<usize>>,
+    /// Images that are videos (looping from when the skin loaded).
+    videos: Vec<(usize, crate::video::Video)>,
+    loaded_at: crate::platform::Instant,
 }
 
 /// Skin → screen transform (letterboxed, aspect preserved).
@@ -96,14 +99,21 @@ impl LoadedSkin {
                 }
             }
         }
+        let mut videos = Vec::new();
         let tex = skin
             .images
             .iter()
             .zip(&lazy)
-            .map(|(p, lazy)| {
-                p.as_ref()
-                    .filter(|_| !lazy)
-                    .and_then(|p| gfx.load_image_keyed(p, key))
+            .enumerate()
+            .map(|(i, (p, lazy))| {
+                let p = p.as_ref().filter(|_| !lazy)?;
+                if crate::video::is_video(p) {
+                    if let Some(v) = crate::video::Video::open(p, true) {
+                        videos.push((i, v));
+                    }
+                    return None;
+                }
+                gfx.load_image_keyed(p, key)
             })
             .collect();
         LoadedSkin {
@@ -111,11 +121,19 @@ impl LoadedSkin {
             tex,
             lazy,
             wanted: Default::default(),
+            videos,
+            loaded_at: crate::platform::Instant::now(),
         }
     }
 
-    /// Load the font sheets drawing asked for (call once per frame).
+    /// Load the font sheets drawing asked for and advance videos (call
+    /// once per frame).
     pub fn load_pending(&mut self, gfx: &mut Gfx) {
+        let ms = self.loaded_at.elapsed().as_millis() as i64;
+        for (i, v) in &mut self.videos {
+            v.update(gfx, ms);
+            self.tex[*i] = v.texture();
+        }
         let wanted = std::mem::take(&mut *self.wanted.borrow_mut());
         let key = self.skin.trans_color;
         for i in wanted {
@@ -131,6 +149,11 @@ impl LoadedSkin {
     }
 
     pub fn free(&mut self, gfx: &mut Gfx) {
+        // video textures belong to the videos
+        for (i, mut v) in self.videos.drain(..) {
+            self.tex[i] = None;
+            v.free(gfx);
+        }
         for t in self.tex.drain(..).flatten() {
             gfx.free_texture(t);
         }

@@ -1017,6 +1017,16 @@ pub fn load(
             }
         }
     }
+    // conditions on the skin's own properties
+    let known: HashMap<i32, bool> = props
+        .iter()
+        .flat_map(|(_, items, _)| {
+            items
+                .iter()
+                .map(|(_, op)| (*op as i32, enabled.contains(op)))
+        })
+        .collect();
+    resolve_static_ops(&mut skin, &known);
     skin.script = cx.scripts.into_inner().finish();
     skin.images = cx.images;
     if skin.objects.is_empty() {

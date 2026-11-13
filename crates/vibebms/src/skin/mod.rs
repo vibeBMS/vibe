@@ -37,6 +37,9 @@ pub fn load_file(
 
 /// Pixel size of an image file (through the VFS).
 pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
+    if crate::video::is_video(p) {
+        return crate::video::size(p);
+    }
     crate::platform::vfs::read(p).ok().and_then(|b| {
         if let Some(s) = crate::gfx::dds::size(&b) {
             return Some(s);
@@ -500,6 +503,24 @@ pub fn custom_options(path: &std::path::Path) -> Vec<CustomOption> {
 }
 
 /// Option ids to enable / disable for the chosen labels (by option name).
+/// Decide draw conditions on the skin's own (custom) options when it
+/// loads: they cannot change while a screen is up, and the screens do not
+/// know them. Objects whose such conditions fail are dropped.
+pub fn resolve_static_ops(skin: &mut Skin, known: &HashMap<i32, bool>) {
+    let holds = |op: i32| known.get(&op.abs()).map(|v| *v == (op > 0));
+    skin.objects.retain_mut(|o| {
+        let mut ok = true;
+        o.dst.ops.retain(|op| match holds(*op) {
+            Some(v) => {
+                ok &= v;
+                false
+            }
+            None => true,
+        });
+        ok
+    });
+}
+
 pub fn user_options(
     opts: &[CustomOption],
     chosen: Option<&std::collections::BTreeMap<String, String>>,
