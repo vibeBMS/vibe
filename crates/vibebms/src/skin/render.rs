@@ -9,6 +9,11 @@ use crate::gfx::{Gfx, TexId};
 pub struct LoadedSkin {
     pub skin: Skin,
     pub tex: Vec<Option<TexId>>,
+    /// Bitmap font sheets load on first use (a Japanese font has hundreds):
+    /// which images are such sheets, and the ones asked for since the
+    /// last `load_pending`.
+    lazy: Vec<bool>,
+    wanted: std::cell::RefCell<Vec<usize>>,
 }
 
 /// Skin → screen transform (letterboxed, aspect preserved).
@@ -82,20 +87,53 @@ pub trait Hooks {
 
 impl LoadedSkin {
     pub fn load(skin: Skin, gfx: &mut Gfx) -> LoadedSkin {
+        let mut lazy = vec![false; skin.images.len()];
+        for f in &skin.fonts {
+            for (img, _) in f.glyphs.values() {
+                if let Some(l) = lazy.get_mut(*img) {
+                    *l = true;
+                }
+            }
+        }
         let tex = skin
             .images
             .iter()
-            .map(|p| p.as_ref().and_then(|p| gfx.load_image(p, false)))
+            .zip(&lazy)
+            .map(|(p, lazy)| {
+                p.as_ref()
+                    .filter(|_| !lazy)
+                    .and_then(|p| gfx.load_image(p, false))
+            })
             .collect();
-        // archives opened for this skin's files are not needed any more
-        crate::platform::dxa::clear_cache();
-        LoadedSkin { skin, tex }
+        LoadedSkin {
+            skin,
+            tex,
+            lazy,
+            wanted: Default::default(),
+        }
+    }
+
+    /// Load the font sheets drawing asked for (call once per frame).
+    pub fn load_pending(&mut self, gfx: &mut Gfx) {
+        let wanted = std::mem::take(&mut *self.wanted.borrow_mut());
+        for i in wanted {
+            if self.tex.get(i).is_some_and(Option::is_none) {
+                let t = self.skin.images[i]
+                    .as_ref()
+                    .and_then(|p| gfx.load_image(p, false));
+                self.tex[i] = t;
+                // a sheet that cannot load is not asked for again
+                self.lazy[i] = false;
+            }
+        }
     }
 
     pub fn free(&mut self, gfx: &mut Gfx) {
         for t in self.tex.drain(..).flatten() {
             gfx.free_texture(t);
         }
+        // archives opened for this skin's files
+        crate::platform::dxa::clear_cache();
     }
 
     fn uv(&self, d: &Draw, src: &Src, f: [f32; 4]) -> Option<(TexId, [f32; 4])> {
@@ -247,6 +285,12 @@ impl LoadedSkin {
         let mut x = r.x + r.w * a - width * scale * a;
         for (img, g) in glyphs {
             let tw = g[2] * scale * k;
+            if self.lazy.get(*img) == Some(&true) && self.tex[*img].is_none() {
+                let mut w = self.wanted.borrow_mut();
+                if !w.contains(img) {
+                    w.push(*img);
+                }
+            }
             if let Some(t) = self.tex.get(*img).copied().flatten() {
                 if let Some((w, h)) = d.gfx.texture_size(t) {
                     let (w, h) = (w as f32, h as f32);

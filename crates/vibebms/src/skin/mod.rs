@@ -38,6 +38,9 @@ pub fn load_file(
 /// Pixel size of an image file (through the VFS).
 pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     crate::platform::vfs::read(p).ok().and_then(|b| {
+        if let Some(s) = crate::gfx::dds::size(&b) {
+            return Some(s);
+        }
         let r = image::ImageReader::new(std::io::Cursor::new(&b[..]))
             .with_guessed_format()
             .ok()?;

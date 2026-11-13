@@ -115,6 +115,8 @@ struct Loader<'a> {
     panel_ops: Vec<(usize, i32)>,
     /// `#LR2FONT` list (indexed by `#SRC_TEXT`): font in `Skin::fonts`.
     fonts: Vec<Option<usize>>,
+    /// `#RESOLUTION` was given (else it is guessed from the layout).
+    resolution_set: bool,
     depth: usize,
     conds: Vec<Cond>,
 }
@@ -319,6 +321,7 @@ impl Loader<'_> {
                 ][(v[1].clamp(0, 3)) as usize];
                 self.skin.width = w;
                 self.skin.height = h;
+                self.resolution_set = true;
             }
             "#CUSTOMOPTION" => {
                 let labels: Vec<String> = f
@@ -805,6 +808,7 @@ pub fn load(
         pending_line: None,
         panel_ops: Vec::new(),
         fonts: Vec::new(),
+        resolution_set: false,
         depth: 0,
         conds: Vec::new(),
     };
@@ -815,6 +819,11 @@ pub fn load(
     // a button inside a panel is shown (and clickable) only while it is open
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
+    }
+    if !l.resolution_set {
+        let (w, h) = guess_resolution(&l.skin);
+        l.skin.width = w;
+        l.skin.height = h;
     }
     // text is anchored at x: its left edge, centre or right edge by align
     let anchor = |d: &mut Dst, align: i32| {
@@ -835,6 +844,39 @@ pub fn load(
         return Err(format!("{}: no drawable objects", path.display()));
     }
     Ok(l.skin)
+}
+
+/// Screen size of a skin without `#RESOLUTION`: HD-patched LR2 builds run
+/// skins made for 1280x720 / 1920x1080 without saying so. The smallest
+/// size holding nine in ten on-screen destinations.
+fn guess_resolution(skin: &Skin) -> (f32, f32) {
+    let mut right = Vec::new();
+    let mut bottom = Vec::new();
+    for k in skin.objects.iter().flat_map(|o| &o.dst.keys) {
+        let r = k.rect;
+        // ignore what starts off screen (slide-in animations)
+        if r.x >= 0.0 && r.y >= 0.0 && r.w > 0.0 && r.h > 0.0 {
+            right.push(r.x + r.w);
+            bottom.push(r.y + r.h);
+        }
+    }
+    for l in skin.lanes.iter().filter_map(|l| l.rect) {
+        right.push(l.right());
+        bottom.push(l.bottom());
+    }
+    if right.is_empty() {
+        return (640.0, 480.0);
+    }
+    // animations move things off screen: most, not all, must fit
+    let p90 = |v: &mut Vec<f32>| {
+        v.sort_by(f32::total_cmp);
+        v[(v.len() - 1) * 9 / 10]
+    };
+    let (r, b) = (p90(&mut right), p90(&mut bottom));
+    [(640.0, 480.0), (1280.0, 720.0), (1920.0, 1080.0)]
+        .into_iter()
+        .find(|(w, h)| r <= w + 1.0 && b <= h + 1.0)
+        .unwrap_or((3840.0, 2160.0))
 }
 
 /// Unicode characters of an LR2 font code (Shift_JIS based, as beatoraja
@@ -1202,6 +1244,7 @@ mod debug_dump {
             &crate::skin::image_size,
         )
         .unwrap();
+        println!("size {}x{}", s.width, s.height);
         for (i, im) in s.images.iter().enumerate() {
             println!("img {i}: {:?}", im);
         }

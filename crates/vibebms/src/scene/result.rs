@@ -235,6 +235,9 @@ impl Scene for ResultScene {
             };
             self.skin = skin;
         }
+        if let Some(sk) = self.skin.as_mut() {
+            sk.load_pending(gfx);
+        }
         // events skin scripts asked for
         let events = self.skin.as_ref().map(|s| s.script_events());
         for ev in events.unwrap_or_default() {
