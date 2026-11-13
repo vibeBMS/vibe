@@ -1247,11 +1247,14 @@ LAND_DP = {"7": (68, 46), "5": (70, 64)}
 DP_LANE_H, DP_KEYS_Y, DP_KEYS_H, DP_GAP = 584, 590, 70, 64
 
 
-def land_dp(fonts, parts, mode):
-    W, H = 1280, 720
+def land_dp(fonts, parts, mode, touch=False):
+    W, H = 1280, (TOUCH_H if touch else 720)
+    lane_h = TOUCH_LANE_H if touch else DP_LANE_H
     kind = {"7": 2, "5": 3}[mode]
-    sk = Skin(kind, f"vibeBMS Default {'14' if mode == '7' else '10'}K", W, H, parts)
-    sk.source("bg", "bg_land_dp.png")
+    name = f"vibeBMS Default {'14' if mode == '7' else '10'}K{' touch' if touch else ''}"
+    sk = Skin(kind, name, W, H, parts)
+    bgname = "bg_land_dp_touch.png" if touch else "bg_land_dp.png"
+    sk.source("bg", bgname)
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
     img = background(W, H)
     f = fonts
@@ -1266,35 +1269,41 @@ def land_dp(fonts, parts, mode):
     l1, _ = lanes(mode, f1, 0, sw, kw)
     l2, _ = lanes(mode, f2, 1, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(l1 + l2)])
+    # touch: no key row (the on-screen controls show the keys)
+    keys_y, keys_h = (lane_h, 0) if touch else (DP_KEYS_Y, DP_KEYS_H)
     for part in ("under", "over"):
-        field(sk, mode, 0, 0, f1, 0, DP_LANE_H, sw, kw, DP_KEYS_Y, DP_KEYS_H, 0.6, part=part)
-        field(sk, mode, 1, 1, f2, 0, DP_LANE_H, sw, kw, DP_KEYS_Y, DP_KEYS_H, 0.6, part=part)
+        field(sk, mode, 0, 0, f1, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part)
+        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part)
     # progress in the gap, gauge below it spanning both fields' inner halves
     gx = W // 2 - 6
-    d.rounded_rectangle((gx + 2, 4, gx + 10, DP_LANE_H - 4), 3, fill=(24, 28, 42, 255))
-    progress(sk, gx, 0, DP_LANE_H)
+    d.rounded_rectangle((gx + 2, 4, gx + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
+    progress(sk, gx, 0, lane_h)
     gw = 450
-    gauge_block(sk, img, f, (W - gw) // 2, DP_KEYS_Y + DP_KEYS_H + 4, gw)
+    gauge_block(sk, img, f, (W - gw) // 2, lane_h + 6 if touch else DP_KEYS_Y + DP_KEYS_H + 4, gw)
     # outer columns
     lx, rx = 8, f2 + fw + 10
     cw = f1 - 10 - lx
     gap = 8
-    bpm_h, info_h = 110, 28
-    fixed = 86 + JUDGE_H + bpm_h + info_h + gap * 4
+    # touch: no DURATION / LEVEL row, the BGA gets the room
+    bpm_h, info_h = (BPM_H, 0) if touch else (110, 28)
+    col_h = H - 16
+    fixed = 86 + JUDGE_H + bpm_h + gap * 3 + ((info_h + gap) if info_h else 0)
     header(sk, img, f, lx, 8, cw, 86)
-    bga_h = 704 - fixed
+    bga_h = col_h - fixed
     bga_frame(sk, img, lx, 8 + 86 + gap, cw, bga_h)
     y = 8 + 86 + gap + bga_h + gap
     judge_panel(sk, img, f, lx, y, cw, JUDGE_H)
     y += JUDGE_H + gap
     bpm_panel(sk, img, f, lx, y, cw, bpm_h)
     y += bpm_h + gap
-    info_row(sk, img, f, lx, y, cw, info_h)
-    score_panel(sk, img, f, rx, 8, W - 8 - rx, SCORE_H, 704 - SCORE_H - TIME_H - gap)
-    time_panel(sk, img, f, rx, 712 - TIME_H, W - 8 - rx)
-    ready(sk, f1 + fw // 2, 300)
-    ready(sk, f2 + fw // 2, 300)
-    return sk, img
+    if info_h:
+        info_row(sk, img, f, lx, y, cw, info_h)
+    score_panel(sk, img, f, rx, 8, W - 8 - rx, SCORE_H, col_h - SCORE_H - TIME_H - gap)
+    time_panel(sk, img, f, rx, H - 8 - TIME_H, W - 8 - rx)
+    ready_y = lane_h * 5 // 12 if touch else 300
+    ready(sk, f1 + fw // 2, ready_y)
+    ready(sk, f2 + fw // 2, ready_y)
+    return sk, img, bgname
 
 
 # --- portrait single play: title, field, gauge, then SCORE | JUDGE | BPM -------
@@ -1654,8 +1663,10 @@ def main():
         for side in ((0, 1) if mode != "9" else (0,)):
             emit(*port_sp(fonts, parts, mode, side),
                  f"play{mode}_portrait{'_2p' if side else ''}.json", "bg_port.png")
-    emit(*land_dp(fonts, parts, "7"), "play14.json", "bg_land_dp.png")
-    emit(*land_dp(fonts, parts, "5"), "play10.json", "bg_land_dp.png")
+    for mode, name in (("7", "play14"), ("5", "play10")):
+        for touch in (False, True):
+            sk, img, bg = land_dp(fonts, parts, mode, touch)
+            emit(sk, img, f"{name}{'_touch' if touch else ''}.json", bg)
     emit(*result_layout(fonts, parts), "result.json", "bg_result.png")
     emit(*select_layout(fonts, parts), "select.json", "bg_select.png")
     emit(*result_layout(fonts, parts, True), "result_portrait.json", "bg_result_portrait.png")

@@ -39,20 +39,24 @@ fn lane_from_lr2(mode: PlayMode, idx: i32) -> Option<usize> {
 /// The built-in default skin for a mode, side and screen orientation
 /// (`touch`: the landscape variant above on-screen controls).
 pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool, touch: bool) -> PathBuf {
+    let variant = if portrait {
+        "_portrait"
+    } else if touch {
+        "_touch"
+    } else {
+        ""
+    };
     let name = match mode {
-        PlayMode::Beat14K => "play14".to_string(),
-        PlayMode::Beat10K => "play10".to_string(),
+        // double play has one landscape layout (portrait shows it too)
+        PlayMode::Beat14K | PlayMode::Beat10K => format!(
+            "play{}{}",
+            mode.keys_per_player() * 2,
+            if touch && !portrait { "_touch" } else { "" }
+        ),
         // 9 buttons have no scratch, so one centred layout serves both sides
         m => format!(
-            "play{}{}{}",
+            "play{}{variant}{}",
             m.keys_per_player(),
-            if portrait {
-                "_portrait"
-            } else if touch {
-                "_touch"
-            } else {
-                ""
-            },
             if p2 && m.has_scratch() { "_2p" } else { "" }
         ),
     };

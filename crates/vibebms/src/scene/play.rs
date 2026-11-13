@@ -554,10 +554,12 @@ impl PlayScene {
         let dp = self.mode.is_double();
         let side2 = ctx.config.play.side == Side::P2;
         if dp && ctx.config.touch.allow_dp {
+            // the two keypads a white key's gap (12 mm) apart
+            let half = (area.w - 12.0 * ctx.px_per_mm()).max(area.w * 0.9) * 0.5;
             vec![
-                (Rect::new(area.x, area.y, area.w * 0.5, area.h), 0, false),
+                (Rect::new(area.x, area.y, half, area.h), 0, false),
                 (
-                    Rect::new(area.x + area.w * 0.5, area.y, area.w * 0.5, area.h),
+                    Rect::new(area.right() - half, area.y, half, area.h),
                     1,
                     true,
                 ),
