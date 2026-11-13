@@ -22,6 +22,8 @@ android_logger = "0.14"
 package = "io.github.vibebms"
 apk_name = "vibeBMS"
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
+# launcher icons (tools/gen_logo.py)
+resources = "res"
 
 [package.metadata.android.sdk]
 min_sdk_version = 26
@@ -29,6 +31,7 @@ target_sdk_version = 34
 
 [package.metadata.android.application]
 label = "vibeBMS"
+icon = "@mipmap/ic_launcher"
 has_code = false
 
 [package.metadata.android.application.activity]

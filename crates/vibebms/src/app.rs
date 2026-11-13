@@ -835,6 +835,10 @@ impl ApplicationHandler<UserEvent> for App {
         if config.display.fullscreen {
             attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            attrs = attrs.with_window_icon(window_icon());
+        }
         #[cfg(target_arch = "wasm32")]
         {
             use winit::platform::web::WindowAttributesExtWebSys;
@@ -1020,6 +1024,16 @@ impl ApplicationHandler<UserEvent> for App {
 /// screens (iPad, phones) put every touch in the wrong place and rendered
 /// at half resolution: there it is the canvas' CSS size times the device
 /// pixel ratio, and the canvas' drawing buffer is resized to it.
+/// The app icon (`tools/gen_logo.py`) for the window and task bar.
+#[cfg(not(target_arch = "wasm32"))]
+fn window_icon() -> Option<winit::window::Icon> {
+    let img = image::load_from_memory(include_bytes!("../assets/icon.png"))
+        .ok()?
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    winit::window::Icon::from_rgba(img.into_raw(), w, h).ok()
+}
+
 fn surface_size(window: &Window) -> (u32, u32) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -1040,4 +1054,12 @@ fn surface_size(window: &Window) -> (u32, u32) {
     }
     let s = window.inner_size();
     (s.width.max(1), s.height.max(1))
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    #[test]
+    fn window_icon_decodes() {
+        assert!(super::window_icon().is_some());
+    }
 }

@@ -1,4 +1,9 @@
-# vibeBMS
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/logo-dark.svg">
+    <img alt="vibeBMS" src="assets/logo/logo-light.svg" height="96">
+  </picture>
+</p>
 
 Lunatic Rave 2 / beatoraja를 레퍼런스로 한 크로스플랫폼 BMS 플레이어입니다.
 Rust + wgpu + cpal로 작성되어 Windows·macOS·Linux(x64/ARM)와 웹 브라우저(wasm)에서 동작하고,
@@ -108,6 +113,7 @@ crates/vibebms-android  Android 진입점
 ## 라이선스
 
 `MIT OR Apache-2.0` (LICENSE-MIT, LICENSE-APACHE). 내장 폰트 Inter는 SIL OFL 1.1 (`crates/vibebms/assets/fonts/OFL.txt`).
+로고(`assets/logo/`, `tools/gen_logo.py`로 생성)의 글자는 Inter를 도형으로 변환한 것입니다.
 
 판정·게이지 규칙은 beatoraja의 공개 소스와 LR2 커뮤니티에 공개된 판정폭을 참고해 독자적으로 구현했습니다.
 차트와 음원은 포함하지 않습니다(`tools/gen_demo.py`의 데모는 자체 생성).
