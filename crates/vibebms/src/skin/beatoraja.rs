@@ -350,7 +350,7 @@ pub fn load(
         objects: Vec::new(),
         lanes: Vec::new(),
         judges: Default::default(),
-        bar_line: None,
+        bar_lines: Vec::new(),
         custom_options: props
             .iter()
             .filter_map(|(n, items, _)| {
@@ -431,10 +431,10 @@ pub fn load(
                 ls.ln_body_active = pick("lnbodyActive", li).or_else(|| pick("lnactive", li));
                 ls.mine = pick("mine", li);
             }
-            if let Some(g) = arr(n.get("group")).first() {
+            for g in arr(n.get("group")) {
                 let gd = cx.dst(g);
                 if let Some(img) = cx.find("image", &id_of(g)).and_then(|i| cx.src(i)) {
-                    skin.bar_line = Some((img, gd));
+                    skin.bar_lines.push((img, gd));
                 }
             }
             Some(Kind::Notes)
@@ -643,6 +643,7 @@ mod tests {
                     .all(|l| l.rect.is_some() && l.note.is_some()));
                 assert!(sk.images.iter().all(Option::is_some), "{}", path.display());
                 assert!(sk.judges[0].judge.iter().all(Option::is_some));
+                assert_eq!(sk.bar_lines.len(), mode.players(), "{}", path.display());
                 if mode.is_double() {
                     assert!(sk.judges[1].judge.iter().all(Option::is_some));
                 }

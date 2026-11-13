@@ -292,7 +292,8 @@ pub struct Skin {
     /// Lane skins indexed by our lane numbering.
     pub lanes: Vec<LaneSkin>,
     pub judges: [JudgeSkin; 2],
-    pub bar_line: Option<(Src, Dst)>,
+    /// Bar (measure) lines, one per lane group (both sides in DP).
+    pub bar_lines: Vec<(Src, Dst)>,
     pub custom_options: Vec<CustomOption>,
     pub scene_ms: i64,
     pub input_ms: i64,

@@ -130,23 +130,34 @@ def text_img(fonts, s, which, size, top, bottom, outline=(0, 0, 0), stroke=3, gl
 
 def digit_strip(fonts, cw, ch, which, size, top, bottom, glyphs="0123456789", stroke=2,
                 outline=(0, 0, 0), pad_glyph=None):
-    """Fixed cells: 0-9 [, padding glyph][, minus]."""
+    """Equal cells: 0-9 [, padding glyph]. All glyphs share one baseline; the
+    font size is the largest (up to `size`) whose digits fit the cell height,
+    and the cell width follows the widest glyph so nothing is clipped (`cw` is
+    only a lower bound)."""
     cells = list(glyphs)
     if pad_glyph is not None:
         cells.append(pad_glyph)
+    while True:
+        f = fonts.get(which, size)
+        boxes = [f.getbbox(c, stroke_width=stroke) for c in "0123456789+-"]
+        top_ = min(b[1] for b in boxes[:10])
+        bot = max(b[3] for b in boxes[:10])
+        if bot - top_ <= ch - 2 or size <= 6:
+            break
+        size -= 1
+    widest = max(b[2] - b[0] for b in boxes)
+    cw = max(cw, widest + 2)
+    oy = (ch - (bot - top_)) // 2 - top_
     img = Image.new("RGBA", (cw * len(cells), ch))
-    f = fonts.get(which, size)
     for i, g in enumerate(cells):
         if g == " ":
             continue
         dim = g == "o"  # dim zero used as padding
         ch_ = "0" if dim else g
-        l, t, r, b = f.getbbox(ch_, stroke_width=stroke)
-        gw, gh = r - l, b - t
+        l, _, r, _ = f.getbbox(ch_, stroke_width=stroke)
+        ox = (cw - (r - l)) // 2 - l
         mask = Image.new("L", (cw, ch))
         smask = Image.new("L", (cw, ch))
-        ox = (cw - gw) // 2 - l
-        oy = (ch - gh) // 2 - t
         ImageDraw.Draw(mask).text((ox, oy), ch_, font=f, fill=255)
         ImageDraw.Draw(smask).text((ox, oy), ch_, font=f, fill=255, stroke_width=stroke,
                                    stroke_fill=255)
@@ -160,6 +171,15 @@ def digit_strip(fonts, cw, ch, which, size, top, bottom, glyphs="0123456789", st
         cell = Image.alpha_composite(cell, fill)
         img.paste(cell, (i * cw, 0))
     return img
+
+
+def hstack(*imgs):
+    out = Image.new("RGBA", (sum(i.size[0] for i in imgs), max(i.size[1] for i in imgs)))
+    x = 0
+    for i in imgs:
+        out.paste(i, (x, 0))
+        x += i.size[0]
+    return out
 
 
 def rounded(w, h, r, fill, outline=None, width=1):
@@ -260,6 +280,21 @@ def key_img(kind, w, h, pressed):
     return img
 
 
+def button_img(kind, size, pressed):
+    hi, lo = NOTE_COLORS[kind]
+    base = mix(hi, (255, 255, 255), 0.45) if pressed else hi
+    img = Image.new("RGBA", (size, size))
+    d = ImageDraw.Draw(img)
+    d.ellipse((0, 0, size - 1, size - 1), fill=mix(lo, BASE, 0.5) + (255,))
+    g = vgrad(size - 8, size - 8, mix(base, (255, 255, 255), 0.35), mix(base, lo, 0.4))
+    m = Image.new("L", (size - 8, size - 8))
+    ImageDraw.Draw(m).ellipse((0, 0, size - 9, size - 9), fill=255)
+    img.paste(g, (4, 5 if pressed else 3), m)
+    if pressed:
+        d.ellipse((0, 0, size - 1, size - 1), outline=(255, 255, 255, 255), width=2)
+    return img
+
+
 def turntable_img(size=128):
     img = Image.new("RGBA", (size, size))
     d = ImageDraw.Draw(img)
@@ -320,8 +355,12 @@ def build_parts(fonts):
         a.add(f"lne_{k}", note_img(k, style="end"))
         a.add(f"lnb_{k}", note_img(k, h=32, style="body"))
         a.add(f"lna_{k}", note_img(k, h=32, style="active"))
-        a.add(f"key_{k}", key_img(k, 48, 60, False))
-        a.add(f"keyp_{k}", key_img(k, 48, 60, True))
+        if k.startswith("p"):
+            a.add(f"key_{k}", button_img(k, 64, False))
+            a.add(f"keyp_{k}", button_img(k, 64, True))
+        else:
+            a.add(f"key_{k}", key_img(k, 48, 60, False))
+            a.add(f"keyp_{k}", key_img(k, 48, 60, True))
         a.add(f"lane_{k}", Image.new("RGBA", (16, 16), LANE_BG[k] + (255,)))
         a.add(f"lanea_{k}", Image.new("RGBA", (16, 16), LANE_BG[k] + (200,)))
     a.add("mine", note_img("s", style="mine"))
@@ -357,16 +396,15 @@ def build_parts(fonts):
             if lit:
                 cd.rectangle((0, 0, 5, 3), fill=mix(c, (255, 255, 255), 0.5) + (255,))
             a.add(f"g{ti}_{ci}", cell)
-    # judgements (PERFECT flashes between two frames)
-    judges = [
-        ("PERFECT", (230, 255, 255), (60, 220, 255), (0, 40, 80), TEAL),
-        ("PERFECT", (255, 255, 255), (255, 140, 220), (60, 0, 50), PINK),
-        ("GREAT", (255, 245, 170), (255, 190, 40), (70, 40, 0), AMBER),
-        ("GOOD", (190, 255, 200), (60, 210, 110), (0, 50, 20), None),
-        ("BAD", (230, 200, 255), (160, 100, 255), (30, 0, 60), None),
-        ("POOR", (255, 190, 190), (255, 70, 90), (60, 0, 10), None),
-    ]
-    imgs = [text_img(fonts, s, "black_it", 50, t, b, o, 3, g) for s, t, b, o, g in judges]
+    # judgements: PGREAT is a flashing GREAT; its combo digits flash in sync
+    PG_A = ((235, 255, 255), (70, 210, 255), (0, 40, 80), TEAL)
+    PG_B = ((255, 255, 255), (255, 150, 225), (70, 0, 55), PINK)
+    GR = ((255, 245, 170), (255, 190, 40), (70, 40, 0), AMBER)
+    GD = ((190, 255, 200), (60, 210, 110), (0, 50, 20), None)
+    judges = [("GREAT",) + PG_A, ("GREAT",) + PG_B, ("GREAT",) + GR, ("GOOD",) + GD,
+              ("BAD", (230, 200, 255), (160, 100, 255), (30, 0, 60), None),
+              ("POOR", (255, 190, 190), (255, 70, 90), (60, 0, 10), None)]
+    imgs = [text_img(fonts, s_, "black_it", 50, t, b, o, 3, g) for s_, t, b, o, g in judges]
     jw = max(i.size[0] for i in imgs)
     jh = max(i.size[1] for i in imgs)
 
@@ -375,35 +413,38 @@ def build_parts(fonts):
         c.paste(i, ((jw - i.size[0]) // 2, (jh - i.size[1]) // 2))
         return c
 
-    pg = Image.new("RGBA", (jw * 2, jh))
-    pg.paste(fit(imgs[0]), (0, 0))
-    pg.paste(fit(imgs[1]), (jw, 0))
-    a.add("j_pg", pg)
+    a.add("j_pg", hstack(fit(imgs[0]), fit(imgs[1])))
     for key, im in zip(["j_gr", "j_gd", "j_bd", "j_pr"], imgs[2:]):
         a.add(key, fit(im))
+
+    def combo(t, b, o, g):
+        return digit_strip(fonts, 36, 60, "black_it", 50, t, b, outline=o, stroke=3)
+
+    a.add("n_combo_pg", hstack(combo(*PG_A), combo(*PG_B)))
+    a.add("n_combo_gr", combo(*GR))
+    a.add("n_combo_gd", combo(*GD))
     a.add("fast", text_img(fonts, "FAST", "black_it", 20, (200, 240, 255), BLUE, (0, 20, 50), 2))
     a.add("slow", text_img(fonts, "SLOW", "black_it", 20, (255, 220, 200), RED, (50, 0, 10), 2))
     a.add("ready", text_img(fonts, "READY", "black_it", 64, (255, 255, 255), TEAL, (0, 30, 40), 4, TEAL))
     # number fonts
-    a.add("n_combo_pg", digit_strip(fonts, 36, 60, "black_it", 50, (230, 255, 255), (60, 220, 255), stroke=3))
-    a.add("n_combo_gr", digit_strip(fonts, 36, 60, "black_it", 50, (255, 245, 170), (255, 190, 40), stroke=3))
-    a.add("n_combo_gd", digit_strip(fonts, 36, 60, "black_it", 50, (190, 255, 200), (60, 210, 110), stroke=3))
     a.add("n_big", digit_strip(fonts, 26, 38, "bold", 34, (255, 255, 255), (160, 200, 255), pad_glyph="o"))
     a.add("n_mid", digit_strip(fonts, 18, 28, "bold", 24, (255, 255, 255), (180, 200, 230), pad_glyph="o"))
     a.add("n_small", digit_strip(fonts, 12, 20, "semi", 17, TEXT, (170, 180, 205), stroke=1))
-    a.add("n_small_pad", digit_strip(fonts, 12, 20, "semi", 17, TEXT, (170, 180, 205), stroke=1, pad_glyph="0"))
     # beatoraja signed numbers: 0-9, padding, sign; positive set then negative set
-    pos = digit_strip(fonts, 12, 20, "semi", 17, (200, 230, 255), (120, 180, 255), stroke=1,
-                      glyphs="0123456789 +")
-    neg = digit_strip(fonts, 12, 20, "semi", 17, (255, 210, 210), (255, 110, 120), stroke=1,
-                      glyphs="0123456789 -")
-    sgn = Image.new("RGBA", (pos.size[0] * 2, pos.size[1]))
-    sgn.paste(pos, (0, 0))
-    sgn.paste(neg, (pos.size[0], 0))
-    a.add("n_signed", sgn)
-    a.add("n_teal", digit_strip(fonts, 18, 28, "bold", 24, (220, 255, 250), TEAL))
-    a.add("n_bpm", digit_strip(fonts, 34, 50, "black_it", 44, (255, 255, 255), AMBER, stroke=2))
-    a.add("n_gauge", digit_strip(fonts, 18, 28, "bold", 24, (255, 255, 255), (255, 170, 190)))
+    a.add("n_signed", hstack(
+        digit_strip(fonts, 12, 20, "semi", 17, (200, 230, 255), (120, 180, 255), stroke=1,
+                    glyphs="0123456789 +"),
+        digit_strip(fonts, 12, 20, "semi", 17, (255, 210, 210), (255, 110, 120), stroke=1,
+                    glyphs="0123456789 -")))
+    a.add("n_bpm", digit_strip(fonts, 34, 50, "black_it", 46, (255, 255, 255), AMBER, stroke=2))
+    a.add("n_bpm_s", digit_strip(fonts, 16, 24, "bold", 21, (255, 255, 255), (215, 220, 235), stroke=1))
+    gauge_c = ((255, 255, 255), (255, 170, 190))
+    a.add("n_gauge", digit_strip(fonts, 18, 28, "bold", 26, *gauge_c))
+    a.add("n_gauge_s", digit_strip(fonts, 12, 19, "bold", 17, *gauge_c, stroke=1))
+    dot = Image.new("RGBA", (5, 5))
+    ImageDraw.Draw(dot).ellipse((0, 0, 4, 4), fill=gauge_c[1] + (255,))
+    a.add("gauge_dot", dot)
+    a.add("pct", text_img(fonts, "%", "bold", 16, *gauge_c, stroke=1, pad=1))
     a.add("n_green", digit_strip(fonts, 14, 22, "bold", 19, (200, 255, 200), (70, 220, 120), stroke=1))
     return a
 
@@ -469,9 +510,13 @@ class Skin:
         self.j["image"].append(d)
         return iid
 
+    # images per number font (11 = with padding glyph, 24 = signed, 20 = two
+    # animated sets of 10)
+    FRAMES = {"n_big": 11, "n_mid": 11, "n_signed": 24, "n_combo_pg": 20}
+
     def num(self, key, ref, digit, align=0, zeropad=False):
         x, y, w, h = self.parts.items[key]
-        n = {"n_small_pad": 11, "n_big": 11, "n_mid": 11, "n_signed": 24}.get(key, 10)
+        n = self.FRAMES.get(key, 10)
         iid = f"{key}#{ref}#{digit}#{int(zeropad)}"
         if iid not in self._ids:
             self._ids.add(iid)
@@ -479,8 +524,11 @@ class Skin:
                  "digit": digit, "ref": ref, "align": align}
             if zeropad:
                 v["zeropadding"] = 1
+            if key == "n_combo_pg":
+                v["cycle"] = 80  # same cycle as the j_pg image: flashes in sync
             self.j["value"].append(v)
-        return iid, w // n, h
+        cell = w // n
+        return iid, cell, h
 
     def text(self, ref, align=0):
         iid = f"text{ref}_{align}"
@@ -597,13 +645,23 @@ def note_def(sk, all_lanes):
 
 
 def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, keys_h,
-          judge_at, translucent=False):
+          judge_at, translucent=False, part="all"):
     """Note field, keys, beams, bombs and judgement for one player.
 
-    Returns the lanes as (x, w, kind, lane index within player)."""
+    `part` "under" draws what goes below the notes and "over" the rest, so
+    that double play can draw both "under" parts before the shared notes."""
     ls, fw = lanes(mode, fx, side, scratch_w, key_w)
     judge_y = top + lane_h
     lanes_out = [(x, w, k, i) for i, (x, w, k) in enumerate(ls)]
+    if part in ("all", "under"):
+        field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent)
+    if part in ("all", "over"):
+        field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
+                   lanes_out)
+
+
+def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent):
+    judge_y = top + lane_h
     for x, w, k, _ in lanes_out:
         sk.put(sk.img(f"lanea_{k}" if translucent else f"lane_{k}"), x, top, w, lane_h, fixed=True)
     for x, w, k, _ in sorted(lanes_out)[1:]:
@@ -624,10 +682,15 @@ def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, key
     # notes
     for x, w, k, li in lanes_out:
         sk.j["note"]["dst"].append(sk.key(x, top, w, lane_h, fixed=True))
+    sk.j["note"]["group"].append({"id": sk.img("barline"),
+                                  "dst": [sk.key(fx, top, fw, lane_h, fixed=True, time=0)]})
+
+
+def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
+               lanes_out):
+    judge_y = top + lane_h
     if player == 0:
-        sk.j["note"]["group"] = [{"id": sk.img("barline"),
-                                  "dst": [sk.key(fx, top, fw, lane_h, fixed=True, time=0)]}]
-    sk.put("notes", fx, top, fw, lane_h, fixed=True) if player == 0 else None
+        sk.put("notes", fx, top, fw, lane_h, fixed=True)
     # lane cover (SUDDEN+): slides down from above the field
     cov = f"cover{player}"
     if cov not in sk._ids:
@@ -662,7 +725,15 @@ def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, key
             ])
             sk.put(sk.img("tt_ring"), tx - 2, ty - 2, s + 4, s + 4, timer=on, blend=2, fixed=True)
             continue
-        raised = k in ("b",) or (mode == "9" and False)
+        if mode == "9":
+            # round buttons in two staggered rows (even buttons up)
+            bs = min(w + 8, keys_h * 6 // 10)
+            by = keys_y + (0 if li % 2 else keys_h - bs)
+            bx = x + (w - bs) // 2
+            sk.put(sk.img(f"key_{k}"), bx, by, bs, bs, fixed=True)
+            sk.put(sk.img(f"keyp_{k}"), bx, by, bs, bs, timer=on, fixed=True)
+            continue
+        raised = k == "b"
         kh = keys_h - 14
         ky = keys_y + (0 if raised else 14)
         sk.put(sk.img(f"key_{k}"), x + 2, ky, w - 4, kh, fixed=True)
@@ -700,7 +771,6 @@ def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, key
                    (jcx - w // 2, jtop - h - 2, w, h, {"time": 0}),
                    (jcx - w // 2, jtop - h - 2, w, h, {"time": 500}),
                ])
-    return lanes_out, fw
 
 
 def ready(sk, cx, cy):
@@ -728,275 +798,322 @@ def progress(sk, x, y, h, fixed=False):
     sk.put("prog", x, y, 12, 24, fixed=fixed)
 
 
-# --- landscape single play (1P on the left; 2P mirrors) ----------------------
-LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 44)}
+# --- panels shared by all layouts --------------------------------------------
+# Each helper draws its static part into the background image and adds the
+# dynamic objects to the skin, both in the same (1P, y-down) coordinates.
+
+def gauge_number(sk, x, y):
+    """Gauge value: big integer, small decimal and percent sign (bottom aligned)."""
+    w = sk.number("n_gauge", 107, 3, x, y)
+    sk.put(sk.img("gauge_dot"), x + w, y + 22, 5, 5)
+    sk.number("n_gauge_s", 407, 1, x + w + 6, y + 9)
+    pw, ph = sk.parts.items["pct"][2:]
+    sk.put(sk.img("pct"), x + w + 19, y + 28 - ph + 1, pw, ph)
+    return w + 19 + pw
 
 
-def bg_land_sp(fonts, side):
-    img = bg_land_1p(fonts)
-    if not side:
-        return img
-    out = img.copy()
-    out.paste(img.crop((460, 0, 1280, 720)), (0, 0))
-    out.paste(img.crop((0, 0, 460, 720)), (820, 0))
-    return out
+def gauge_row(sk, img, f, x, y, w):
+    panel(img, (x, y, w, 36))
+    gw = (w - 120) // 50 * 50
+    gauge(sk, x + 8, y + 6, gw, 24)
+    gauge_number(sk, x + w - 104, y + 3)
 
 
-def bg_land_1p(fonts):
-    W, H = 1280, 720
-    img = background(W, H)
-    flip = lambda r: r
+def info_row(sk, img, f, x, y, w):
+    panel(img, (x, y, w, 38))
+    draw_label(img, f, x + 8, y + 7, "DURATION", 12)
+    sk.number("n_green", 312, 4, x + 100, y + 8)
+    draw_label(img, f, x + w // 2 + 20, y + 7, "LEVEL", 12)
+    sk.number("n_green", 96, 2, x + w // 2 + 80, y + 8, color=TEXT)
+
+
+def header(sk, img, f, x, y, w, h, align=0):
+    panel(img, (x, y, w, h), accent=PINK)
+    tx = x + 16
+    if h >= 80:
+        sk.label_text(13, tx, y + 6, w - 32, 14, align=align, color=DIM)
+        sk.label_text(12, tx, y + 26, w - 32, 30, align=align)
+        sk.label_text(16, tx, y + 62, w - 32, 16, align=align, color=DIM)
+    else:
+        sk.label_text(12, tx, y + 8, w - 32, 28, align=align)
+        sk.label_text(16, tx, y + 42, w - 32, 16, align=align, color=DIM)
+
+
+def bga_frame(sk, img, x, y, w, h, a=255):
+    ImageDraw.Draw(img).rounded_rectangle((x, y, x + w, y + h), 6, fill=(0, 0, 0, 255),
+                                          outline=EDGE + (255,))
+    sk.j["bga"] = {"id": "bga"}
+    sk.put("bga", x + 4, y + 4, w - 8, h - 8, a=a)
+
+
+def rate_number(sk, img, f, r, y, key="n_mid"):
+    """`100.00%` right-aligned at r."""
+    cw, ch = sk.num(key, 102, 3)[1:]
+    pct = 14
+    x = r - pct - cw * 5 - 6
+    sk.number(key, 102, 3, x, y)
+    sk.put(sk.img("white"), x + cw * 3 + 1, y + ch - 7, 4, 4)
+    sk.number(key, 103, 2, x + cw * 3 + 6, y, zeropad=True)
+    draw_label(img, f, r - pct + 2, y + ch - 18, "%", 14, TEXT)
+
+
+def score_panel(sk, img, f, x, y, w, h):
+    panel(img, (x, y, w, h), "SCORE", f)
+    r = x + w - 14
+    big = "n_big" if w >= 300 else "n_mid"
+    step = (h - 30) // 3
+    rows = [y + 26 + step * i for i in range(3)]
+    for ry, s_ in zip(rows, ["EX SCORE", "MAX COMBO", "RATE"]):
+        draw_label(img, f, x + 12, ry + 8, s_ if w >= 260 else s_.split()[-1], 13, TEXT)
+    cw, ch = sk.num(big, 71, 5)[1:]
+    sk.number(big, 71, 5, r - cw * 5, rows[0] + (24 - ch) // 2 + 4)
+    cw, ch = sk.num("n_mid", 75, 5)[1:]
+    sk.number("n_mid", 75, 5, r - cw * 5, rows[1])
+    rate_number(sk, img, f, r, rows[2])
+
+
+def best_panel(sk, img, f, x, y, w, h=64):
+    panel(img, (x, y, w, h), "PERSONAL BEST", f, accent=AMBER)
+    draw_label(img, f, x + 12, y + 30, "BEST", 13, TEXT)
+    sk.number("n_small", 150, 5, x + 70, y + 29)
+    draw_label(img, f, x + w // 2 + 8, y + 30, "DIFF", 13, TEXT)
+    cw = sk.num("n_signed", 152, 6)[1]
+    sk.number("n_signed", 152, 6, x + w - 14 - cw * 6, y + 29)
+
+
+def graph_panel(sk, img, f, x, y, w, h):
+    panel(img, (x, y, w, h), "SCORE GRAPH", f)
     d = ImageDraw.Draw(img)
-    # field frame
-    fr = flip((32, 0, 416, 720))
-    d.rectangle((fr[0], 0, fr[0] + fr[2], H), fill=(8, 9, 14, 255))
-    tr = flip((14, 0, 16, 540))
-    d.rounded_rectangle((tr[0] + 4, 4, tr[0] + 12, 536), 3, fill=(24, 28, 42, 255))
-    panel(img, flip((40, 636, 400, 36)), None)
-    panel(img, flip((40, 676, 400, 38)), None)
-    draw_label(img, fonts, flip((48, 0, 60, 0))[0], 683, "DURATION", 12)
-    draw_label(img, fonts, flip((260, 0, 60, 0))[0], 683, "LEVEL", 12)
-    # header
-    panel(img, flip((468, 8, 796, 86)), None, accent=PINK)
-    # BGA frame
-    b = flip((476, 100, 456, 456))
-    d.rounded_rectangle((b[0], b[1], b[0] + b[2], b[1] + b[3]), 6, fill=(0, 0, 0, 255), outline=EDGE + (255,))
-    # score
-    c = lambda x, y, w, h: flip((x, y, w, h))
-    panel(img, c(944, 100, 320, 140), "SCORE", fonts)
-    for i, s in enumerate(["EX SCORE", "MAX COMBO", "RATE"]):
-        draw_label(img, fonts, c(956, 0, 1, 0)[0], 128 + i * 38, s, 13, TEXT)
-    draw_label(img, fonts, c(1240, 0, 1, 0)[0], 206, "%", 16, TEXT)
-    panel(img, c(944, 248, 320, 64), "PERSONAL BEST", fonts, accent=AMBER)
-    draw_label(img, fonts, c(956, 0, 1, 0)[0], 276, "BEST", 13, TEXT)
-    draw_label(img, fonts, c(1100, 0, 1, 0)[0], 276, "DIFF", 13, TEXT)
-    panel(img, c(944, 320, 320, 236), "SCORE GRAPH", fonts)
-    gx, gy, gh = c(960, 0, 200, 0)[0], 344, 200
+    gx, gy, gw, gh = x + 16, y + 28, w - 76, h - 52
     for name, frac in (("AAA", 8 / 9), ("AA", 7 / 9), ("A", 6 / 9)):
-        y = gy + gh - int(gh * frac)
-        d.line((gx, y, gx + 200, y), fill=(70, 80, 115, 255), width=1)
-        draw_label(img, fonts, gx + 206, y - 8, name, 12)
-    d.line((gx, gy + gh, gx + 200, gy + gh), fill=EDGE + (255,), width=1)
-    draw_label(img, fonts, gx + 30, gy + gh + 4, "NOW", 11)
-    draw_label(img, fonts, gx + 110, gy + gh + 4, "TOTAL", 11)
-    panel(img, c(476, 564, 236, 150), "JUDGE", fonts)
-    for i, s in enumerate(["PERFECT", "GREAT", "GOOD", "BAD", "POOR"]):
-        draw_label(img, fonts, c(488, 0, 1, 0)[0], 584 + i * 20, s, 13, TEXT)
-    draw_label(img, fonts, c(600, 0, 1, 0)[0], 584, "FAST", 12, BLUE)
-    draw_label(img, fonts, c(600, 0, 1, 0)[0], 624, "SLOW", 12, RED)
-    panel(img, c(720, 564, 212, 150), "BPM", fonts, accent=AMBER)
-    draw_label(img, fonts, c(736, 0, 1, 0)[0], 682, "MIN", 11)
-    draw_label(img, fonts, c(856, 0, 1, 0)[0], 682, "MAX", 11)
-    panel(img, c(944, 564, 320, 150), "TIME LEFT", fonts)
-    draw_label(img, fonts, c(1068, 0, 1, 0)[0], 588, ":", 30, TEXT, "bold")
-    draw_label(img, fonts, c(956, 0, 1, 0)[0], 650, "FPS", 11)
-    return img
+        ly = gy + gh - int(gh * frac)
+        d.line((gx, ly, gx + gw, ly), fill=(70, 80, 115, 255), width=1)
+        draw_label(img, f, gx + gw + 6, ly - 8, name, 12)
+    d.line((gx, gy + gh, gx + gw, gy + gh), fill=EDGE + (255,), width=1)
+    bw = gw // 2 - 24
+    for i, (ref, col, label) in enumerate(((110, TEAL, "NOW"), (111, PINK, "TOTAL"))):
+        bx = gx + 12 + i * (gw // 2)
+        gid = f"graph{ref}"
+        if gid not in sk._ids:
+            sk._ids.add(gid)
+            px, py, pw, ph = sk.parts.items["white"]
+            sk.j["graph"].append({"id": gid, "src": "parts", "x": px + 4, "y": py + 4,
+                                  "w": pw - 8, "h": ph - 8, "angle": 1, "type": ref})
+        sk.put(gid, bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=230)
+        draw_label(img, f, bx + bw // 2, gy + gh + 4, label, 11, anchor="ma")
+
+
+def judge_panel(sk, img, f, x, y, w, h):
+    panel(img, (x, y, w, h), "JUDGE", f)
+    step = min(22, (h - 30) // 5)
+    wide = w >= 230
+    nr = x + (w // 2 + 20 if wide else w - 14)
+    for i, (s_, ref) in enumerate(zip(["PERFECT", "GREAT", "GOOD", "BAD", "POOR"],
+                                      (110, 111, 112, 113, 114))):
+        ry = y + 24 + i * step
+        draw_label(img, f, x + 12, ry + 2, s_, 13, TEXT)
+        cw = sk.num("n_small", ref, 4)[1]
+        sk.number("n_small", ref, 4, nr - cw * 4, ry + 1)
+    if wide:
+        for i, (s_, ref, col) in enumerate((("FAST", 423, BLUE), ("SLOW", 424, RED))):
+            ry = y + 24 + i * step * 2
+            draw_label(img, f, x + w // 2 + 32, ry + 2, s_, 12, col)
+            cw = sk.num("n_small", ref, 4)[1]
+            sk.number("n_small", ref, 4, x + w - 14 - cw * 4, ry + 1 + step,
+                      color=mix(col, (255, 255, 255), 0.4))
+
+
+def bpm_panel(sk, img, f, x, y, w, h):
+    """Current BPM large; min / max small and coloured with MIN, BPM, MAX labels.
+    Wide panels put min and max beside the current value, narrow ones below it."""
+    panel(img, (x, y, w, h), None, accent=AMBER)
+    cw, ch = sk.num("n_bpm", 160, 3)[1:]
+    sw, sh = sk.num("n_bpm_s", 91, 3)[1:]
+    cx = x + w // 2
+    lx, rx = x + 14 + sw * 3 // 2, x + w - 14 - sw * 3 // 2
+    if cw * 3 + sw * 6 + 60 <= w:
+        row = y + (h - ch - 18) // 2
+        base = row + ch - sh - 3
+        ly = row + ch + 2
+    else:
+        row = y + (h - ch - sh - 18) // 2
+        base = row + ch + 2
+        ly = base + sh
+    sk.number("n_bpm", 160, 3, cx - cw * 3 // 2, row)
+    sk.number("n_bpm_s", 91, 3, lx - sw * 3 // 2, base, color=(130, 190, 255))
+    sk.number("n_bpm_s", 90, 3, rx - sw * 3 // 2, base, color=(255, 130, 180))
+    draw_label(img, f, lx, ly, "MIN", 11, anchor="ma")
+    draw_label(img, f, cx, row + ch + 2, "BPM", 12, AMBER, "bold", anchor="ma")
+    draw_label(img, f, rx, ly, "MAX", 11, anchor="ma")
+
+
+def time_panel(sk, img, f, x, y, w, h):
+    panel(img, (x, y, w, h), "TIME LEFT", f)
+    cw, ch = sk.num("n_big", 163, 2)[1:]
+    tw = cw * 4 + 14
+    tx = x + (w - tw) // 2
+    sk.number("n_big", 163, 2, tx, y + 26)
+    draw_label(img, f, tx + cw * 2 + 7, y + 26 + ch // 2, ":", 30, TEXT, "bold", anchor="mm")
+    sk.number("n_big", 164, 2, tx + cw * 2 + 14, y + 26, zeropad=True)
+    draw_label(img, f, x + 12, y + h - 24, "FPS", 11)
+    sk.number("n_small", 20, 4, x + 44, y + h - 26, color=DIM)
+
+
+# --- landscape single play: 7/5 keys at the side (2P swaps the blocks) --------
+LAND_SP = {"7": (78, 46), "5": (80, 64)}
 
 
 def land_sp(fonts, parts, mode, side):
-    kind = {"7": 0, "5": 1, "9": 4}[mode]
-    sk = Skin(kind, f"vibeBMS Default {mode}K{' 2P' if side else ''}", 1280, 720, parts)
-    bg = f"bg_land_{'2p' if side else '1p'}.png"
-    sk.source("bg", bg)
-    sk.put(sk.img("bg", sid="bg"), 0, 0, 1280, 720, fixed=True)
+    W, H = 1280, 720
+    kind = {"7": 0, "5": 1}[mode]
+    sk = Skin(kind, f"vibeBMS Default {mode}K{' 2P' if side else ''}", W, H, parts)
+    bgname = f"bg_land_{'2p' if side else '1p'}.png"
+    sk.source("bg", bgname)
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H, fixed=True)
     if side:
         sk.xmap = lambda x: x - 460 if x >= 460 else x + 820
-    # BGA + stage file when the chart has no BGA
-    sk.j["bga"] = {"id": "bga"}
-    sk.put("bga", 480, 104, 448, 448)
-    lanes_all = []
+    img = background(W, H)
+    d = ImageDraw.Draw(img)
+    d.rectangle((32, 0, 448, H), fill=(8, 9, 14, 255))
+    d.rounded_rectangle((18, 4, 26, 536), 3, fill=(24, 28, 42, 255))
+    f = fonts
+    header(sk, img, f, 468, 8, 796, 86)
+    bga_frame(sk, img, 476, 100, 456, 456)
     sw, kw = LAND_SP[mode]
-    kinds, scratch = lane_kinds(mode)
-    fw = (sw if scratch else 0) + kw * len(kinds)
+    kinds, _ = lane_kinds(mode)
+    fw = sw + kw * len(kinds)
     fx = 40 + (400 - fw) // 2 + (820 if side else 0)
     ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
     field(sk, mode, 0, side, fx, 0, 540, sw, kw, 548, 80, 0.62)
     progress(sk, 16, 0, 540)
-    gauge(sk, 48, 642, 300, 24)
-    sk.number("n_gauge", 107, 3, 352, 640)
-    sk.put(sk.img("white"), 406, 662, 4, 4)
-    sk.number("n_gauge", 407, 1, 412, 640)
-    sk.number("n_green", 312, 4, 140, 684)
-    sk.number("n_green", 96, 2, 320, 684, color=TEXT)
-    # header texts
-    sk.label_text(13, 484, 14, 760, 14, color=DIM)
-    sk.label_text(12, 484, 34, 760, 30)
-    sk.label_text(16, 484, 70, 760, 16, color=DIM)
-    # score panel
-    sk.number("n_big", 71, 5, 1120, 118)
-    sk.number("n_mid", 75, 5, 1150, 156)
-    sk.number("n_mid", 102, 3, 1150, 194)
-    sk.put(sk.img("white"), 1205, 216, 4, 4)
-    sk.number("n_mid", 103, 2, 1210, 194, zeropad=True)
-    sk.number("n_small", 150, 5, 1000, 274)
-    sk.number("n_signed", 152, 5, 1150, 274)
-    # graph
-    for i, (ref, col) in enumerate(((110, TEAL), (111, PINK))):
-        gid = f"graph{ref}"
-        sk._ids.add(gid)
-        x, y, w, h = parts.items["white"]
-        x, y, w, h = x + 4, y + 4, w - 8, h - 8
-        sk.j["graph"].append({"id": gid, "src": "parts", "x": x, "y": y, "w": w, "h": h,
-                              "angle": 1, "type": ref})
-        sk.put(gid, 976 + i * 80, 344, 56, 200, r=col[0], g=col[1], b=col[2], a=230)
-    # judge counts
-    for i, ref in enumerate((110, 111, 112, 113, 114)):
-        sk.number("n_small", ref, 4, 544, 582 + i * 20)
-    sk.number("n_small", 423, 4, 650, 600, color=(160, 200, 255))
-    sk.number("n_small", 424, 4, 650, 640, color=(255, 170, 170))
-    # bpm
-    sk.number("n_bpm", 160, 3, 774, 596)
-    sk.number("n_small", 91, 3, 768, 680)
-    sk.number("n_small", 90, 3, 888, 680)
-    # time
-    sk.number("n_big", 163, 2, 1012, 590)
-    sk.number("n_big", 164, 2, 1084, 590, zeropad=True)
-    sk.number("n_small", 20, 4, 990, 648, color=DIM)
+    gauge_row(sk, img, f, 40, 636, 400)
+    info_row(sk, img, f, 40, 676, 400)
+    score_panel(sk, img, f, 944, 100, 320, 140)
+    best_panel(sk, img, f, 944, 248, 320)
+    graph_panel(sk, img, f, 944, 320, 320, 236)
+    judge_panel(sk, img, f, 476, 564, 236, 150)
+    bpm_panel(sk, img, f, 720, 564, 212, 150)
+    time_panel(sk, img, f, 944, 564, 320, 150)
     ready(sk, fx + fw // 2, 270)
-    return sk, bg
+    if side:
+        out = img.copy()
+        out.paste(img.crop((460, 0, W, H)), (0, 0))
+        out.paste(img.crop((0, 0, 460, H)), (820, 0))
+        img = out
+    return sk, img, bgname
+
+
+# --- landscape 9 buttons: field in the centre ------------------------------------
+def land_9(fonts, parts):
+    W, H = 1280, 720
+    sk = Skin(4, "vibeBMS Default 9K", W, H, parts)
+    sk.source("bg", "bg_land_9.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
+    img = background(W, H)
+    f = fonts
+    kw = 50
+    fw = kw * 9
+    fx = (W - fw) // 2
+    ImageDraw.Draw(img).rectangle((fx - 8, 0, fx + fw + 8, H), fill=(8, 9, 14, 255))
+    ImageDraw.Draw(img).rounded_rectangle((fx - 22, 4, fx - 14, 516), 3, fill=(24, 28, 42, 255))
+    ls, _ = lanes("9", fx, 0, 0, kw)
+    note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
+    field(sk, "9", 0, 0, fx, 0, 520, 0, kw, 526, 104, 0.6)
+    progress(sk, fx - 24, 0, 520)
+    gauge_row(sk, img, f, fx, 638, fw)
+    info_row(sk, img, f, fx, 678, fw)
+    header(sk, img, f, 16, 8, 376, 86)
+    bga_frame(sk, img, 16, 100, 376, 376)
+    score_panel(sk, img, f, 16, 484, 376, 140)
+    best_panel(sk, img, f, 16, 632, 376, 80)
+    judge_panel(sk, img, f, 888, 8, 376, 150)
+    graph_panel(sk, img, f, 888, 166, 376, 310)
+    bpm_panel(sk, img, f, 888, 484, 376, 120)
+    time_panel(sk, img, f, 888, 612, 376, 100)
+    ready(sk, fx + fw // 2, 260)
+    return sk, img
 
 
 # --- landscape double play --------------------------------------------------
 LAND_DP = {"7": (62, 44), "5": (66, 60)}
 
 
-def bg_land_dp(fonts):
+def land_dp(fonts, parts, mode):
     W, H = 1280, 720
+    kind = {"7": 2, "5": 3}[mode]
+    sk = Skin(kind, f"vibeBMS Default {'14' if mode == '7' else '10'}K", W, H, parts)
+    sk.source("bg", "bg_land_dp.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
     img = background(W, H)
+    f = fonts
     d = ImageDraw.Draw(img)
     for x in (12, 868):
         d.rectangle((x, 0, x + 400, H), fill=(8, 9, 14, 255))
-    panel(img, (420, 6, 440, 74), None, accent=PINK)
-    d.rounded_rectangle((470, 86, 810, 396), 6, fill=(0, 0, 0, 255), outline=EDGE + (255,))
-    panel(img, (420, 404, 440, 96), "SCORE", fonts)
-    draw_label(img, fonts, 434, 428, "EX SCORE", 13, TEXT)
-    draw_label(img, fonts, 434, 462, "MAX COMBO", 13, TEXT)
-    draw_label(img, fonts, 650, 428, "RATE", 13, TEXT)
-    draw_label(img, fonts, 840, 430, "%", 14, TEXT)
-    draw_label(img, fonts, 650, 462, "BEST", 13, TEXT)
-    panel(img, (420, 508, 440, 62), "GAUGE", fonts)
-    panel(img, (420, 578, 216, 136), "JUDGE", fonts)
-    for i, s in enumerate(["PERFECT", "GREAT", "GOOD", "BAD", "POOR"]):
-        draw_label(img, fonts, 432, 598 + i * 22, s, 13, TEXT)
-    panel(img, (644, 578, 216, 136), "BPM", fonts, accent=AMBER)
-    draw_label(img, fonts, 656, 668, "MIN", 11)
-    draw_label(img, fonts, 760, 668, "MAX", 11)
-    draw_label(img, fonts, 656, 690, "TIME", 11)
-    draw_label(img, fonts, 760, 690, "LV", 11)
-    draw_label(img, fonts, 715, 688, ":", 16, TEXT)
-    return img
-
-
-def land_dp(fonts, parts, mode):
-    kind = {"7": 2, "5": 3}[mode]
-    sk = Skin(kind, f"vibeBMS Default {'14' if mode == '7' else '10'}K", 1280, 720, parts)
-    sk.source("bg", "bg_land_dp.png")
-    sk.put(sk.img("bg", sid="bg"), 0, 0, 1280, 720)
-    sk.j["bga"] = {"id": "bga"}
-    sk.put("bga", 474, 90, 332, 302)
     sw, kw = LAND_DP[mode]
     kinds, _ = lane_kinds(mode)
     fw = sw + kw * len(kinds)
     f1 = 16 + (392 - fw) // 2
-    f2 = 1280 - f1 - fw
+    f2 = W - f1 - fw
     l1, _ = lanes(mode, f1, 0, sw, kw)
     l2, _ = lanes(mode, f2, 1, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(l1 + l2)])
-    field(sk, mode, 0, 0, f1, 0, 548, sw, kw, 556, 76, 0.62)
-    field(sk, mode, 1, 1, f2, 0, 548, sw, kw, 556, 76, 0.62)
-    # the second field() call skipped the "notes" destination; one covers both
-    gauge(sk, 440, 530, 300, 24)
-    sk.number("n_gauge", 107, 3, 752, 528)
-    sk.put(sk.img("white"), 806, 550, 4, 4)
-    sk.number("n_gauge", 407, 1, 812, 528)
-    sk.label_text(12, 430, 12, 420, 28, align=1)
-    sk.label_text(16, 430, 48, 420, 16, align=1, color=DIM)
-    sk.number("n_mid", 71, 5, 540, 424)
-    sk.number("n_mid", 75, 5, 540, 458)
-    sk.number("n_mid", 102, 3, 740, 424)
-    sk.put(sk.img("white"), 795, 446, 4, 4)
-    sk.number("n_mid", 103, 2, 800, 424, zeropad=True)
-    sk.number("n_small", 150, 5, 780, 460)
-    for i, ref in enumerate((110, 111, 112, 113, 114)):
-        sk.number("n_small", ref, 5, 560, 596 + i * 22)
-    sk.number("n_bpm", 160, 3, 700, 600)
-    sk.number("n_small", 91, 3, 690, 666)
-    sk.number("n_small", 90, 3, 794, 666)
-    sk.number("n_small", 163, 1, 702, 688)
-    sk.number("n_small_pad", 164, 2, 718, 688, zeropad=True)
-    sk.number("n_small", 96, 2, 794, 688)
-    progress(sk, 446, 90, 302)
+    for part in ("under", "over"):
+        field(sk, mode, 0, 0, f1, 0, 548, sw, kw, 556, 76, 0.62, part=part)
+        field(sk, mode, 1, 1, f2, 0, 548, sw, kw, 556, 76, 0.62, part=part)
+    header(sk, img, f, 420, 6, 440, 74, align=1)
+    d.rounded_rectangle((440, 92, 452, 390), 3, fill=(24, 28, 42, 255))
+    progress(sk, 440, 88, 306)
+    bga_frame(sk, img, 466, 86, 348, 310)
+    gauge_row(sk, img, f, 420, 404, 440)
+    score_panel(sk, img, f, 420, 448, 216, 128)
+    bpm_panel(sk, img, f, 644, 448, 216, 128)
+    judge_panel(sk, img, f, 420, 584, 216, 130)
+    time_panel(sk, img, f, 644, 584, 216, 130)
     ready(sk, f1 + fw // 2, 270)
     ready(sk, f2 + fw // 2, 270)
-    return sk
+    return sk, img
 
 
 # --- portrait single play ---------------------------------------------------
 PORT_SP = {"7": (102, 78), "5": (108, 104), "9": (0, 70)}
 
 
-def bg_port(fonts):
-    W, H = 720, 1280
-    img = background(W, H)
-    d = ImageDraw.Draw(img)
-    panel(img, (8, 6, 704, 66), None, accent=PINK)
-    d.rectangle((30, 76, 690, 1090), fill=(0, 0, 0, 255))
-    d.rounded_rectangle((10, 80, 22, 996), 3, fill=(24, 28, 42, 255))
-    panel(img, (24, 1094, 672, 40), None)
-    panel(img, (24, 1140, 216, 134), "SCORE", fonts)
-    draw_label(img, fonts, 36, 1166, "EX", 13, TEXT)
-    draw_label(img, fonts, 36, 1206, "COMBO", 13, TEXT)
-    draw_label(img, fonts, 36, 1244, "RATE", 13, TEXT)
-    draw_label(img, fonts, 222, 1246, "%", 14, TEXT)
-    panel(img, (248, 1140, 216, 134), "BPM", fonts, accent=AMBER)
-    draw_label(img, fonts, 260, 1222, "MIN", 11)
-    draw_label(img, fonts, 360, 1222, "MAX", 11)
-    draw_label(img, fonts, 260, 1250, "TIME", 11)
-    draw_label(img, fonts, 325, 1247, ":", 16, TEXT)
-    draw_label(img, fonts, 648, 32, "LV", 11)
-    panel(img, (472, 1140, 224, 134), "JUDGE", fonts)
-    for i, s in enumerate(["PERFECT", "GREAT", "GOOD", "BAD", "POOR"]):
-        draw_label(img, fonts, 484, 1160 + i * 22, s, 13, TEXT)
-    return img
-
-
 def port_sp(fonts, parts, mode, side):
+    W, H = 720, 1280
     kind = {"7": 0, "5": 1, "9": 4}[mode]
-    sk = Skin(kind, f"vibeBMS Default {mode}K portrait{' 2P' if side else ''}", 720, 1280, parts)
+    sk = Skin(kind, f"vibeBMS Default {mode}K portrait{' 2P' if side else ''}", W, H, parts)
     sk.source("bg", "bg_port.png")
-    sk.put(sk.img("bg", sid="bg"), 0, 0, 720, 1280)
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
+    img = background(W, H)
+    f = fonts
+    d = ImageDraw.Draw(img)
     sw, kw = PORT_SP[mode]
     kinds, scratch = lane_kinds(mode)
     fw = (sw if scratch else 0) + kw * len(kinds)
     fx = 32 + (656 - fw) // 2
+    header(sk, img, f, 8, 6, 704, 66)
+    # level and time at the right end of the header
+    draw_label(img, f, 600, 14, "LV", 11)
+    sk.number("n_green", 96, 2, 640, 12, color=TEXT)
+    draw_label(img, f, 600, 44, "TIME", 11)
+    sk.number("n_small", 163, 1, 642, 42)
+    draw_label(img, f, 657, 41, ":", 15, TEXT)
+    sk.number("n_small", 164, 2, 662, 42, zeropad=True)
+    d.rectangle((30, 76, 690, 1090), fill=(0, 0, 0, 255))
+    d.rounded_rectangle((10, 80, 22, 996), 3, fill=(24, 28, 42, 255))
     sk.j["bga"] = {"id": "bga"}
     sk.put("bga", fx, 76, fw, 920, a=110)
     ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
     field(sk, mode, 0, side, fx, 76, 920, sw, kw, 1004, 84, 0.6, translucent=True)
     progress(sk, 10, 80, 916)
-    sk.label_text(12, 20, 12, 600, 28)
-    sk.label_text(16, 20, 46, 600, 16, color=DIM)
-    sk.number("n_green", 96, 2, 672, 30, color=TEXT)
-    gauge(sk, 36, 1102, 500, 24)
-    sk.number("n_gauge", 107, 3, 580, 1100)
-    sk.put(sk.img("white"), 634, 1122, 4, 4)
-    sk.number("n_gauge", 407, 1, 640, 1100)
-    sk.number("n_mid", 71, 5, 140, 1160)
-    sk.number("n_mid", 75, 5, 140, 1198)
-    sk.number("n_small", 102, 3, 160, 1242)
-    sk.put(sk.img("white"), 196, 1258, 3, 3)
-    sk.number("n_small_pad", 103, 2, 200, 1242, zeropad=True)
-    sk.number("n_bpm", 160, 3, 304, 1160)
-    sk.number("n_small", 91, 3, 296, 1220)
-    sk.number("n_small", 90, 3, 400, 1220)
-    sk.number("n_small", 163, 1, 312, 1248)
-    sk.number("n_small_pad", 164, 2, 328, 1248, zeropad=True)
-    for i, ref in enumerate((110, 111, 112, 113, 114)):
-        sk.number("n_small", ref, 5, 620, 1158 + i * 22)
+    gauge_row(sk, img, f, 24, 1094, 672)
+    score_panel(sk, img, f, 24, 1140, 216, 134)
+    bpm_panel(sk, img, f, 248, 1140, 216, 134)
+    judge_panel(sk, img, f, 472, 1140, 224, 134)
     ready(sk, fx + fw // 2, 500)
-    return sk
+    return sk, img
 
 
 def main():
@@ -1005,24 +1122,30 @@ def main():
     args = ap.parse_args()
     fonts = Fonts(args.fonts)
     OUT.mkdir(parents=True, exist_ok=True)
+    for old in OUT.iterdir():
+        old.unlink()
     parts = build_parts(fonts)
     sheet = parts.build()
+    sheet.save(OUT / "parts.png", optimize=True)
+    bgs = {}
 
-    def save_png(img, name):
-        img.save(OUT / name, optimize=True)
+    def emit(sk, img, json_name, bg_name):
+        sk.save(OUT / json_name)
+        bgs[bg_name] = img
 
-    save_png(sheet, "parts.png")
-    save_png(bg_land_sp(fonts, 0).convert("RGB").quantize(128).convert("RGB"), "bg_land_1p.png")
-    save_png(bg_land_sp(fonts, 1).convert("RGB").quantize(128).convert("RGB"), "bg_land_2p.png")
-    save_png(bg_land_dp(fonts).convert("RGB").quantize(128).convert("RGB"), "bg_land_dp.png")
-    save_png(bg_port(fonts).convert("RGB").quantize(128).convert("RGB"), "bg_port.png")
-    for mode in ("7", "5", "9"):
+    for mode in ("7", "5"):
         for side in (0, 1):
-            sk, _ = land_sp(fonts, parts, mode, side)
-            sk.save(OUT / f"play{mode}{'_2p' if side else ''}.json")
-            port_sp(fonts, parts, mode, side).save(OUT / f"play{mode}_portrait{'_2p' if side else ''}.json")
-    land_dp(fonts, parts, "7").save(OUT / "play14.json")
-    land_dp(fonts, parts, "5").save(OUT / "play10.json")
+            sk, img, bg = land_sp(fonts, parts, mode, side)
+            emit(sk, img, f"play{mode}{'_2p' if side else ''}.json", bg)
+    emit(*land_9(fonts, parts), "play9.json", "bg_land_9.png")
+    for mode in ("7", "5", "9"):
+        for side in ((0, 1) if mode != "9" else (0,)):
+            emit(*port_sp(fonts, parts, mode, side),
+                 f"play{mode}_portrait{'_2p' if side else ''}.json", "bg_port.png")
+    emit(*land_dp(fonts, parts, "7"), "play14.json", "bg_land_dp.png")
+    emit(*land_dp(fonts, parts, "5"), "play10.json", "bg_land_dp.png")
+    for name, img in bgs.items():
+        img.convert("RGB").quantize(128).convert("RGB").save(OUT / name, optimize=True)
     total = sum(p.stat().st_size for p in OUT.iterdir())
     print(f"wrote {OUT} ({total // 1024} KiB)")
 

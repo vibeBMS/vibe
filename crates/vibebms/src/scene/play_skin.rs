@@ -45,11 +45,12 @@ pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool) -> PathBuf {
     let name = match mode {
         PlayMode::Beat14K => "play14".to_string(),
         PlayMode::Beat10K => "play10".to_string(),
+        // 9 buttons have no scratch, so one centred layout serves both sides
         m => format!(
             "play{}{}{}",
             m.keys_per_player(),
             if portrait { "_portrait" } else { "" },
-            if p2 { "_2p" } else { "" }
+            if p2 && m.has_scratch() { "_2p" } else { "" }
         ),
     };
     PathBuf::from(crate::platform::vfs::BUILTIN)
@@ -444,12 +445,6 @@ impl Hooks for SceneHooks<'_> {
             let note_h =
                 |src: &crate::skin::Src| src.frames.first().map(|f| f[3] * xf.sy).unwrap_or(4.0);
             d.b.set_clip(Some(Rect::new(r.x, top, r.w, judge_y - top + 2.0)));
-            // bar lines
-            if let Some((ls_src, _)) = skin.skin.bar_line.as_ref() {
-                if lane == 0 {
-                    let _ = ls_src;
-                }
-            }
             let Some(list) = s.lane_notes.get(lane) else {
                 continue;
             };
@@ -513,8 +508,8 @@ impl Hooks for SceneHooks<'_> {
             }
             d.b.set_clip(None);
         }
-        // bar lines span the note field of player 1
-        if let Some((src, dst)) = skin.skin.bar_line.as_ref() {
+        // bar lines span each lane group
+        for (src, dst) in &skin.skin.bar_lines {
             if let Some(fr) = dst.eval(now, st) {
                 let field = xf.rect(fr.rect);
                 let judge_y = field.bottom() - p.lift * field.h;

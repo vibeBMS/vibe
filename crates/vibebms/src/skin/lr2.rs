@@ -463,8 +463,8 @@ impl Loader<'_> {
                 if let Some(s) = self.pending_line.take() {
                     let mut d = Dst::default();
                     add_dst(&mut d, &v);
-                    self.skin.bar_line = Some((s, d));
-                } else if let Some((_, d)) = self.skin.bar_line.as_mut() {
+                    self.skin.bar_lines.push((s, d));
+                } else if let Some((_, d)) = self.skin.bar_lines.last_mut() {
                     add_dst(d, &v);
                 }
             }
@@ -595,7 +595,7 @@ pub fn load(
             objects: Vec::new(),
             lanes: Vec::new(),
             judges: Default::default(),
-            bar_line: None,
+            bar_lines: Vec::new(),
             custom_options: Vec::new(),
             scene_ms: 0,
             input_ms: 0,
