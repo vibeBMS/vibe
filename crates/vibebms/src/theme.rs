@@ -37,10 +37,10 @@ impl Default for ThemeFile {
         ThemeFile {
             name: "default".into(),
             background: "#0b0d14".into(),
-            panel: "#161a26e6".into(),
-            accent: "#4fc3f7".into(),
-            text: "#f2f4f8".into(),
-            text_dim: "#8a93a6".into(),
+            panel: "#141824ee".into(),
+            accent: "#2de2c7".into(),
+            text: "#e2e8f5".into(),
+            text_dim: "#808caa".into(),
             lane_bg: "#05060a".into(),
             lane_line: "#2a2f3d".into(),
             judge_line: "#ff3b30".into(),
@@ -97,6 +97,21 @@ impl Theme {
     pub fn load(themes_dir: &Path, name: &str) -> Theme {
         let dir = themes_dir.join(name);
         let file = dir.join("theme.toml");
+        if name == "default" {
+            // the built-in look; its values are written out (and refreshed
+            // when they change) only as a template to copy into a new theme
+            let template = dir.join("theme.toml.example");
+            if let Ok(t) = toml::to_string_pretty(&ThemeFile::default()) {
+                if crate::platform::vfs::read_to_string(&template)
+                    .ok()
+                    .as_deref()
+                    != Some(&t)
+                {
+                    let _ = crate::platform::vfs::write(&template, t.as_bytes());
+                }
+            }
+            return Theme::from_file(&ThemeFile::default(), None);
+        }
         let tf: ThemeFile = crate::platform::vfs::read_to_string(&file)
             .ok()
             .and_then(|s| {
@@ -105,12 +120,6 @@ impl Theme {
                     .ok()
             })
             .unwrap_or_default();
-        if !crate::platform::vfs::is_file(&file) && name == "default" {
-            // write the defaults so users have a template to copy
-            if let Ok(s) = toml::to_string_pretty(&ThemeFile::default()) {
-                let _ = crate::platform::vfs::write(&file, s.as_bytes());
-            }
-        }
         Theme::from_file(&tf, crate::platform::vfs::is_dir(&dir).then_some(dir))
     }
 

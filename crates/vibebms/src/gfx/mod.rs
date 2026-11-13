@@ -225,6 +225,56 @@ impl Batch {
         ]);
     }
 
+    /// Filled rectangle with rounded corners.
+    pub fn rounded_rect(&mut self, r: Rect, radius: f32, color: Color) {
+        let rad = radius.min(r.w * 0.5).min(r.h * 0.5);
+        if rad < 0.75 || r.w <= 0.0 || r.h <= 0.0 {
+            return self.rect(r, color);
+        }
+        self.rect(Rect::new(r.x + rad, r.y, r.w - 2.0 * rad, r.h), color);
+        self.rect(Rect::new(r.x, r.y + rad, rad, r.h - 2.0 * rad), color);
+        self.rect(
+            Rect::new(r.right() - rad, r.y + rad, rad, r.h - 2.0 * rad),
+            color,
+        );
+        const SEG: usize = 6;
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let corners = [
+            (r.x + rad, r.y + rad, PI),
+            (r.right() - rad, r.y + rad, 1.5 * PI),
+            (r.right() - rad, r.bottom() - rad, 0.0),
+            (r.x + rad, r.bottom() - rad, FRAC_PI_2),
+        ];
+        self.push_cmd(ATLAS, (4 * SEG * 3) as u32);
+        let uv = [WHITE_UV[0], WHITE_UV[1]];
+        let v = |x: f32, y: f32| Vertex {
+            pos: [x, y],
+            uv,
+            color,
+        };
+        for (cx, cy, a0) in corners {
+            for i in 0..SEG {
+                let a = a0 + FRAC_PI_2 * i as f32 / SEG as f32;
+                let b = a0 + FRAC_PI_2 * (i + 1) as f32 / SEG as f32;
+                self.verts.extend_from_slice(&[
+                    v(cx, cy),
+                    v(cx + a.cos() * rad, cy + a.sin() * rad),
+                    v(cx + b.cos() * rad, cy + b.sin() * rad),
+                ]);
+            }
+        }
+    }
+
+    /// Rounded panel: `border` ring of width `t` around a `fill`.
+    pub fn rounded_panel(&mut self, r: Rect, radius: f32, fill: Color, border: Color, t: f32) {
+        self.rounded_rect(r, radius, border);
+        self.rounded_rect(
+            Rect::new(r.x + t, r.y + t, r.w - 2.0 * t, r.h - 2.0 * t),
+            (radius - t).max(0.0),
+            fill,
+        );
+    }
+
     /// Filled circle / ring approximated with a triangle fan.
     pub fn circle(
         &mut self,

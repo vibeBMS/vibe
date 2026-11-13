@@ -1156,9 +1156,17 @@ impl Scene for SettingsScene {
         let ui = ctx.ui();
         let th = ctx.theme.clone();
         let (w, h) = (ctx.width, ctx.height);
-        d.b.rect(Rect::new(0.0, 0.0, w, h), th.background);
+        d.b.gradient(
+            Rect::new(0.0, 0.0, w, h),
+            crate::ui::lift(th.background, 0.04),
+            th.background,
+        );
         let header = 48.0 * ui;
         d.b.rect(Rect::new(0.0, 0.0, w, header), th.panel);
+        d.b.rect(
+            Rect::new(0.0, header - 2.0, w, 2.0),
+            with_alpha(th.accent, 0.6),
+        );
         d.text(
             "SETTINGS",
             16.0 * ui,
@@ -1219,7 +1227,8 @@ impl Scene for SettingsScene {
             };
             ui::button(d, r, c, &th, ui * 0.95, i == self.cat);
             if i == self.cat && !self.focus_items {
-                d.b.rect_outline(r, 2.0, th.accent);
+                // keyboard focus on the categories: accent tab on the left
+                d.b.rect(Rect::new(r.x - 4.0, r.y + 6.0, 3.0, r.h - 12.0), th.accent);
             }
             self.cat_rects.push((r, i));
         }
@@ -1242,14 +1251,7 @@ impl Scene for SettingsScene {
             }
             let r = Rect::new(item_r.x + 10.0 * ui, y, item_r.w - 20.0 * ui, rh - 4.0);
             let selected = i == self.sel && self.focus_items;
-            d.b.rect(
-                r,
-                if selected {
-                    with_alpha(th.accent, 0.25)
-                } else {
-                    with_alpha(th.panel, 0.8)
-                },
-            );
+            ui::row(d, r, &th, selected);
             d.text_fit(
                 &item.label,
                 r.x + 12.0 * ui,
