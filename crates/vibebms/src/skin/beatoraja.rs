@@ -725,6 +725,9 @@ pub fn load(
         } else {
             None
         };
+        if kind.is_none() {
+            log::debug!("{}: unsupported object {id}", path.display());
+        }
         if let Some(kind) = kind {
             let act = obj_act(&cx, &id);
             skin.objects.push(Obj { kind, dst, act });
