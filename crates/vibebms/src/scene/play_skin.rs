@@ -176,6 +176,25 @@ impl SceneState<'_> {
             42 => !p.gauge.is_survival(),
             43 => p.gauge.is_survival(),
             1046 => matches!(p.gauge, GaugeType::ExHard | GaugeType::ExHardClass),
+            // the gauge in use (vibeBMS ids, as on the result screen)
+            118..=125 => {
+                let g = self
+                    .engine()
+                    .map(|e| e.gauge.current_type())
+                    .unwrap_or(p.gauge);
+                match id {
+                    118 => g == GaugeType::Normal,
+                    119 => matches!(g, GaugeType::Hard | GaugeType::Class),
+                    120 => g == GaugeType::Hazard,
+                    121 => g == GaugeType::Easy,
+                    124 => g == GaugeType::AssistEasy,
+                    125 => matches!(
+                        g,
+                        GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass
+                    ),
+                    _ => false,
+                }
+            }
             50 => true,
             51 => false,
             // the song's lamp so far (skins pick images by it at load time)
@@ -396,7 +415,8 @@ impl SkinState for SceneState<'_> {
             72 => sc?.max_ex() as i64,
             74 | 106 => sc?.total_notes as i64,
             75 | 105 => sc?.max_combo as i64,
-            76 => sc?.miss_count() as i64,
+            // so far (the result counts the notes never reached too)
+            76 => sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64,
             90 => m.max_bpm.round() as i64,
             91 => m.min_bpm.round() as i64,
             92 => m.main_bpm.round() as i64,

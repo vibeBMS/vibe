@@ -516,7 +516,46 @@ def build_parts(fonts):
     for name, label in (("gt_normal", "NORMAL"), ("gt_hard", "HARD"), ("gt_hazard", "HAZARD"),
                         ("gt_easy", "EASY"), ("gt_aeasy", "ASSIST EASY"), ("gt_exhard", "EX-HARD")):
         a.add(name, text_img(fonts, label, "bold", 13, TEXT, DIM, (0, 0, 0), 1, pad=2))
+    a.add("hs_panel", hs_panel_img(fonts))
+    knob = Image.new("RGBA", (44, 12))
+    kd = ImageDraw.Draw(knob)
+    kd.rounded_rectangle((0, 0, 43, 11), 3, fill=AMBER + (255,))
+    kd.rectangle((2, 2, 41, 4), fill=mix(AMBER, (255, 255, 255), 0.5) + (255,))
+    a.add("hs_knob", knob)
+    a.add("auto_tag", text_img(fonts, "AUTO PLAY", "bold", 13, AMBER, AMBER, (40, 30, 0), 1, pad=2))
     return a
+
+
+# the hi-speed panel (shown while START is held): a 0.5 .. 10.0 track
+HS_W, HS_H = 96, 380
+HS_TRACK = (52, 292)
+
+
+def hs_panel_img(fonts):
+    im = Image.new("RGBA", (HS_W, HS_H))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((0, 0, HS_W - 1, HS_H - 1), 8, fill=PANEL + (238,), outline=EDGE + (255,))
+    d.rounded_rectangle((0, 0, HS_W - 1, 24), 8, fill=AMBER + (255,))
+    d.rectangle((0, 14, HS_W - 1, 24), fill=AMBER + (255,))
+    d.text((HS_W // 2, 12), "HI-SPEED", font=fonts.get("bold", 12), fill=(30, 20, 0), anchor="mm")
+    t0, t1 = HS_TRACK
+    tx = 36
+    d.text((tx, t0 - 8), "10.0", font=fonts.get("semi", 12), fill=TEXT, anchor="mb")
+    d.text((tx, t1 + 6), "0.5", font=fonts.get("semi", 12), fill=TEXT, anchor="mt")
+    d.rounded_rectangle((tx - 4, t0, tx + 4, t1), 3, fill=(6, 7, 11, 255), outline=EDGE + (255,))
+    for k in range(1, 10):
+        y = t1 - (t1 - t0) * (k - 0.5) / 9.5
+        d.line((tx + 8, y, tx + (16 if k % 5 == 0 else 12), y), fill=DIM + (255,), width=1)
+    # the mode, written down the right edge
+    lab = Image.new("RGBA", (t1 - t0, 18))
+    ImageDraw.Draw(lab).text(((t1 - t0) // 2, 9), "FLOATING HI-SPEED", font=fonts.get("bold", 12),
+                             fill=DIM, anchor="mm")
+    im.alpha_composite(lab.rotate(90, expand=True), (HS_W - 26, t0))
+    # the value box (the digits are skin numbers)
+    d.rounded_rectangle((8, HS_H - 58, HS_W - 9, HS_H - 9), 5, fill=(6, 7, 11, 255),
+                        outline=AMBER + (255,))
+    d.text((HS_W // 2, HS_H - 50), "CURRENT", font=fonts.get("bold", 10), fill=AMBER, anchor="mt")
+    return im
 
 
 def draw_label(img, fonts, x, y, s, size=13, fill=DIM, which="semi", anchor="la"):
@@ -746,7 +785,7 @@ def note_def(sk, all_lanes):
 
 
 def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, keys_h,
-          judge_at, translucent=False, part="all"):
+          judge_at, translucent=False, part="all", tt=None):
     """Note field, keys, beams, bombs and judgement for one player.
 
     `part` "under" draws what goes below the notes and "over" the rest, so
@@ -758,7 +797,7 @@ def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, key
         field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent)
     if part in ("all", "over"):
         field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
-                   lanes_out)
+                   lanes_out, tt)
 
 
 def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent):
@@ -788,7 +827,7 @@ def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, transl
 
 
 def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
-               lanes_out):
+               lanes_out, tt=None):
     judge_y = top + lane_h
     if player == 0:
         sk.put("notes", fx, top, fw, lane_h, fixed=True)
@@ -818,8 +857,13 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
     for x, w, k, li in lanes_out if keys_h > 0 else []:
         on, _, _, _ = timer_ids(mode, li, player)
         if k == "s":
-            s = min(w, keys_h) - 4
-            tx, ty = x + (w - s) // 2, keys_y + (keys_h - s) // 2
+            if tt:
+                # a turntable larger than its lane (centre x, centre y, size)
+                cx_, cy_, s = tt
+                tx, ty = cx_ - s // 2, cy_ - s // 2
+            else:
+                s = min(w, keys_h) - 4
+                tx, ty = x + (w - s) // 2, keys_y + (keys_h - s) // 2
             sk.put(sk.img("tt"), 0, 0, 0, 0, center=5, fixed=True, keys=[
                 (tx, ty, s, s, {"time": 0, "angle": 0}),
                 (tx, ty, s, s, {"time": 3000, "angle": -360 if side == 0 else 360}),
@@ -1190,15 +1234,133 @@ def field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=True, touch=Fa
 
 
 # --- landscape single play (7/5 keys) and 9 buttons ----------------------------
-LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 50)}
+# Laid out the way IIDX-style skins are: the note field down one side with a
+# large turntable under its scratch lane, the gauge and a LEVEL / GAUGE /
+# HI-SPEED row below it; a centre column (status line, score, BGA, judge
+# counts, title, BPM) and a SCORE DATA column with the score graph.
+LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 44)}
+SP_LANE_H, SP_KEYS_Y, SP_KEYS_H, SP_GAUGE_Y, SP_INFO_Y = 548, 556, 76, 638, 693
+
+
+def hs_panel(sk, x, y, scale=1.0):
+    """The hi-speed panel at (x, y), shown while START is held (timer 21)."""
+    S = lambda v: int(round(v * scale))  # noqa: E731
+    sk.put(sk.img("hs_panel"), x, y, S(HS_W), S(HS_H), timer=21)
+    t0, t1 = HS_TRACK
+    kx, ky, kw, kh = sk.parts.items["hs_knob"]
+    kid = f"hs_knob{S(100)}"
+    if kid not in sk._ids:
+        sk._ids.add(kid)
+        sk.j["slider"].append({"id": kid, "src": "parts", "x": kx, "y": ky, "w": kw, "h": kh,
+                               "angle": 0, "range": S(t1 - t0), "type": 9400})
+    sk.put(kid, x + S(36) - S(kw) // 2, y + S(t1) - S(kh) // 2, S(kw), S(kh), timer=21)
+    # the value: integer . two decimals
+    cw, ch = sk.num("n_mid", 310, 2)[1:]
+    cw, ch = int(cw * scale), int(ch * scale)
+    vy = y + S(HS_H - 36)
+    vx = x + (S(HS_W) - cw * 4 - S(6)) // 2
+    sk.number("n_mid", 310, 2, vx, vy, scale=scale, timer=21)
+    sk.put(sk.img("white"), vx + cw * 2 + 1, vy + ch - S(6), S(4), S(4), timer=21, r=AMBER[0],
+           g=AMBER[1], b=AMBER[2])
+    sk.number("n_mid", 311, 2, vx + cw * 2 + S(6), vy, zeropad=True, scale=scale, timer=21)
+
+
+def info_bar(sk, img, f, x, y, w, h):
+    """LEVEL, gauge type and hi-speed under the gauge."""
+    panel(img, (x, y, w, h))
+    cy = y + h // 2
+    draw_label(img, f, x + 10, cy, "LV", 11, anchor="lm")
+    nw, nh = sk.num("n_green", 96, 2)[1:]
+    sk.number("n_green", 96, 2, x + 30, cy - nh // 2, color=TEXT)
+    gx = x + 30 + nw * 2 + 16
+    for key, op in (("gt_normal", 118), ("gt_hard", 119), ("gt_hazard", 120), ("gt_easy", 121),
+                    ("gt_aeasy", 124), ("gt_exhard", 125)):
+        gw_, gh_ = sk.parts.items[key][2:]
+        sk.put(sk.img(key), gx, cy - gh_ // 2, gw_, gh_, op=[op])
+    cw, ch = sk.num("n_small", 310, 1)[1:]
+    hx = x + w - 10 - cw * 3 - 5
+    draw_label(img, f, hx - 8, cy, "HI-SPEED" if w >= 260 else "HS", 11, anchor="rm")
+    sk.number("n_small", 310, 1, hx, cy - ch // 2, color=(200, 255, 200))
+    sk.put(sk.img("white"), hx + cw + 1, cy + ch // 2 - 5, 3, 3, r=200, g=255, b=200)
+    sk.number("n_small", 311, 2, hx + cw + 5, cy - ch // 2, zeropad=True, color=(200, 255, 200))
+
+
+def status_bar(sk, img, f, x, y, w, h=24):
+    """Judge timing offset, AUTO PLAY, FPS and the clock."""
+    panel(img, (x, y, w, h))
+    cy = y + h // 2
+    cw, ch = sk.num("n_small", 12, 3)[1:]
+    draw_label(img, f, x + 10, cy, "JUDGE", 11, anchor="lm")
+    sk.number("n_signed", 12, 3, x + 56, cy - ch // 2)
+    draw_label(img, f, x + 56 + cw * 3 + 4, cy, "ms", 11, anchor="lm")
+    aw, ah = sk.parts.items["auto_tag"][2:]
+    sk.put(sk.img("auto_tag"), x + (w - aw) // 2, cy - ah // 2, aw, ah, op=[33])
+    rx = x + w - 10
+    sk.number("n_small", 25, 2, rx - cw * 2, cy - ch // 2, zeropad=True)
+    draw_label(img, f, rx - cw * 2 - 3, cy - 1, ":", 13, TEXT, anchor="rm")
+    sk.number("n_small", 24, 2, rx - cw * 4 - 8, cy - ch // 2, zeropad=True)
+    fx_ = rx - cw * 4 - 22 - cw * 3
+    draw_label(img, f, fx_ - 6, cy, "FPS", 11, anchor="rm")
+    sk.number("n_small", 20, 3, fx_, cy - ch // 2)
+
+
+def score_boxes(sk, img, f, x, y, w, h):
+    """EX SCORE and MAX COMBO on the left, RATE and MISS on the right."""
+    hw = (w - 8) // 2
+    big = h >= 80
+    for bx, rows in ((x, (("EX SCORE", 71, "n_big" if big else "n_mid"), ("MAX COMBO", 75, "n_mid"))),
+                     (x + hw + 8, (("RATE", None, None), ("MISS", 76, "n_mid")))):
+        panel(img, (bx, y, hw, h))
+        rh = h // 2
+        for i, (label, ref, key) in enumerate(rows):
+            ry = y + i * rh
+            draw_label(img, f, bx + 10, ry + rh // 2, label, 12, TEXT, anchor="lm")
+            if ref is None:
+                ch_ = sk.num("n_mid", 102, 3)[2]
+                rate_number(sk, img, f, bx + hw - 10, ry + (rh - ch_) // 2)
+                continue
+            cw, ch_ = sk.num(key, ref, 5)[1:]
+            sk.number(key, ref, 5, bx + hw - 10 - cw * 5, ry + (rh - ch_) // 2)
+
+
+def score_data(sk, img, f, x, y, w, h):
+    """SCORE DATA: the target and the difference to it over the score graph."""
+    panel(img, (x, y, w, h), "SCORE DATA", f, accent=PINK)
+    cw, ch = sk.num("n_small", 151, 5)[1:]
+    for i, (label, ref, key) in enumerate((("TARGET", 151, "n_small"), ("DIFF", 152, "n_signed"))):
+        ry = y + 26 + i * 24
+        draw_label(img, f, x + 12, ry + 2, label, 12, TEXT)
+        sk.number(key, ref, 5, x + w - 12 - cw * 5, ry)
+    ImageDraw.Draw(img).line((x + 10, y + 78, x + w - 10, y + 78), fill=EDGE + (255,))
+    graph_content(sk, img, f, x, y + 80, w, h - 80)
+
+
+def centre_column(sk, img, f, x, w, H):
+    """Status line, score boxes, BGA, then judge counts | title + BPM."""
+    tall = H >= 700
+    status_bar(sk, img, f, x, 6, w)
+    sy, sh = 36, (92 if tall else 72)
+    score_boxes(sk, img, f, x, sy, w, sh)
+    bottom_h = 168 if tall else 150
+    by = sy + sh + 8
+    bh = H - 8 - bottom_h - 8 - by
+    bw = min(w, bh * 4 // 3)
+    bga_frame(sk, img, x + (w - bw) // 2, by, bw, bh)
+    ly = H - 8 - bottom_h
+    jw = min(250, w * 45 // 100)
+    judge_panel(sk, img, f, x, ly, jw, bottom_h)
+    rx, rw = x + jw + 8, w - jw - 8
+    bpm_h = 80 if tall else 72
+    header(sk, img, f, rx, ly, rw, bottom_h - bpm_h - 8, align=2)
+    bpm_panel(sk, img, f, rx, H - 8 - bpm_h, rw, bpm_h)
 
 
 def land_sp(fonts, parts, mode, side, touch=False):
-    """7/5 keys: [field | data | media] for 1P, mirrored for 2P.
-    9 buttons: [media | field | data] with the field in the centre.
-    `touch`: the variant shown above on-screen controls."""
+    """7/5 keys: [field | centre | score data] for 1P, mirrored for 2P.
+    9 buttons: [score data | field | centre].
+    `touch`: the variant shown above on-screen controls (no keys row)."""
     W, H = 1280, (TOUCH_H if touch else 720)
-    lane_h = TOUCH_LANE_H if touch else LANE_H
+    lane_h = TOUCH_LANE_H if touch else SP_LANE_H
     kind = {"7": 0, "5": 1, "9": 4}[mode]
     name = f"vibeBMS Default {mode}K{' 2P' if side else ''}{' touch' if touch else ''}"
     sk = Skin(kind, name, W, H, parts)
@@ -1211,31 +1373,54 @@ def land_sp(fonts, parts, mode, side, touch=False):
     sw, kw = LAND_SP[mode]
     kinds, scratch = lane_kinds(mode)
     fw = (sw if scratch else 0) + kw * len(kinds)
+    data_w = 268
     if mode == "9":
-        fx = (W - fw) // 2
-        media_x, data_x = 8, fx + fw + 22
-        mw = fx - 32 - media_x
-        dw = W - 8 - data_x
+        data_x = 8
+        fx = data_x + data_w + 36
+        cx, cw = fx + fw + 12, W - 8 - (fx + fw + 12)
     elif side == 0:
-        fx = 40 + (400 - fw) // 2
-        data_x, dw = 468, 260
-        media_x, mw = data_x + dw + 8, W - 8 - (data_x + dw + 8)
+        fx = 44
+        data_x = W - 8 - data_w
+        cx = fx + fw + 12
+        cw = data_x - 8 - cx
     else:
-        fx = W - 40 - 400 + (400 - fw) // 2
-        data_x, dw = W - 468 - 260, 260
-        media_x, mw = 8, data_x - 8 - 8
-    field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=(side == 0), touch=touch)
+        fx = W - 44 - fw
+        data_x = 8
+        cx = data_x + data_w + 8
+        cw = fx - 12 - cx
+    d = ImageDraw.Draw(img)
+    d.rectangle((fx - 8, 0, fx + fw + 8, H), fill=(8, 9, 14, 255))
+    px = fx - 24 if side == 0 or mode == "9" else fx + fw + 12
+    d.rounded_rectangle((px + 2, 4, px + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
+    progress(sk, px, 0, lane_h)
     ls, _ = lanes(mode, fx, side, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(ls)])
     if touch:
+        # the on-screen controls show the keys: lanes and gauge only
         field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, lane_h, 0, 0.6)
+        gauge_block(sk, img, f, fx, lane_h + 6, fw)
     else:
-        field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, KEYS_Y, KEYS_H, 0.6)
-    # the BPM panel goes under the BGA when the media column has room for it
-    col_h = H - 16
-    bpm_in_media = touch or col_h - 94 - mw * 5 // 4 >= BPM_H + 8
-    data_column(sk, img, f, data_x, 8, dw, col_h, with_bpm=not bpm_in_media)
-    media_column(sk, img, f, media_x, 8, mw, col_h, bpm=bpm_in_media)
+        # a turntable larger than its lane, below the judge line and
+        # reaching past the field's edge; the gauge and info row take the
+        # width beside it
+        tt = None
+        gx, gw = fx, fw
+        if scratch:
+            sx = next(x for x, w, k in ls if k == "s")
+            size = 142
+            tcx = sx + sw // 2 + (-12 if side == 0 else 12)
+            tt = (tcx, H - 6 - size // 2, size)
+            edge = size // 2 + 6
+            gx = tcx + edge if side == 0 else fx
+            gw = fx + fw - gx if side == 0 else tcx - edge - fx
+        field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, SP_KEYS_Y, SP_KEYS_H, 0.6, tt=tt)
+        gauge_block(sk, img, f, gx, SP_GAUGE_Y, gw)
+        info_bar(sk, img, f, gx, SP_INFO_Y, gw, 24)
+    # the hi-speed panel against the field, over the centre column
+    hs_x = fx + fw + 6 if (side == 0 or mode == "9") else fx - 6 - HS_W
+    centre_column(sk, img, f, cx, cw, H)
+    score_data(sk, img, f, data_x, 8, data_w, H - 16)
+    hs_panel(sk, hs_x, min(140, lane_h - HS_H - 8))
     ready(sk, fx + fw // 2, lane_h // 2)
     return sk, img, bgname
 
@@ -1271,9 +1456,16 @@ def land_dp(fonts, parts, mode, touch=False):
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(l1 + l2)])
     # touch: no key row (the on-screen controls show the keys)
     keys_y, keys_h = (lane_h, 0) if touch else (DP_KEYS_Y, DP_KEYS_H)
+    # turntables larger than their lanes at the outer corners
+    tts = [None, None]
+    if not touch:
+        size = 100
+        for i, ls_ in enumerate((l1, l2)):
+            sx = next(x for x, w, k in ls_ if k == "s")
+            tts[i] = (sx + sw // 2, H - 8 - size // 2, size)
     for part in ("under", "over"):
-        field(sk, mode, 0, 0, f1, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part)
-        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part)
+        field(sk, mode, 0, 0, f1, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[0])
+        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[1])
     # progress in the gap, gauge below it spanning both fields' inner halves
     gx = W // 2 - 6
     d.rounded_rectangle((gx + 2, 4, gx + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
@@ -1297,9 +1489,12 @@ def land_dp(fonts, parts, mode, touch=False):
     bpm_panel(sk, img, f, lx, y, cw, bpm_h)
     y += bpm_h + gap
     if info_h:
-        info_row(sk, img, f, lx, y, cw, info_h)
+        info_bar(sk, img, f, lx, y, cw, info_h)
     score_panel(sk, img, f, rx, 8, W - 8 - rx, SCORE_H, col_h - SCORE_H - TIME_H - gap)
     time_panel(sk, img, f, rx, H - 8 - TIME_H, W - 8 - rx)
+    # the hi-speed panel fits the gap between the fields
+    scale = (DP_GAP - 6) / HS_W
+    hs_panel(sk, W // 2 - int(HS_W * scale) // 2, min(120, lane_h - int(HS_H * scale) - 8), scale)
     ready_y = lane_h * 5 // 12 if touch else 300
     ready(sk, f1 + fw // 2, ready_y)
     ready(sk, f2 + fw // 2, ready_y)
