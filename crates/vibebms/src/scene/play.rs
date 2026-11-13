@@ -121,6 +121,8 @@ pub struct PlayScene {
     pub(crate) error: Option<String>,
     /// START / SELECT: the hi-speed panel.
     ctl: Control,
+    /// The skin draws the panel itself (objects on timer 21).
+    skin_panel: bool,
     pub(crate) assist: bool,
     /// Why this play is not recorded (`None`: it is).
     unranked: Option<&'static str>,
@@ -158,6 +160,9 @@ struct Control {
     scratch: Option<(i32, Instant)>,
     /// SUDDEN+ to bring back with the cover.
     stash: f32,
+    /// When the panel opened / last closed (skin timers 21 / 31).
+    opened: Option<Instant>,
+    closed: Option<Instant>,
 }
 
 impl Control {
@@ -335,6 +340,7 @@ impl PlayScene {
             seed: 0,
             error: None,
             ctl: Control::default(),
+            skin_panel: false,
             assist: false,
             unranked: None,
             options_label: String::new(),
@@ -514,6 +520,10 @@ impl PlayScene {
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
         self.skin = super::play_skin::load_play_skin(ctx, gfx, self);
+        self.skin_panel = self
+            .skin
+            .as_ref()
+            .is_some_and(|sk| sk.skin.objects.iter().any(|o| o.dst.timer == 21));
         if let Some(sk) = &self.skin {
             log::info!("skin: {}", sk.skin.name);
         }
@@ -716,6 +726,7 @@ impl PlayScene {
     fn control(&mut self, ctx: &mut Ctx, e: &LaneEv) -> bool {
         let p = &mut ctx.config.play;
         let c = &mut self.ctl;
+        let was_open = c.open();
         match e.lane {
             touch::START => {
                 c.start = e.pressed;
@@ -763,7 +774,17 @@ impl PlayScene {
             }
         }
         c.both_since = (c.start && c.select).then(|| c.both_since.unwrap_or(e.time));
+        match (was_open, c.open()) {
+            (false, true) => (c.opened, c.closed) = (Some(e.time), None),
+            (true, false) => (c.opened, c.closed) = (None, Some(e.time)),
+            _ => {}
+        }
         true
+    }
+
+    /// When the hi-speed panel opened and last closed (skin timers 21 / 31).
+    pub(crate) fn panel_timers(&self) -> (Option<Instant>, Option<Instant>) {
+        (self.ctl.opened, self.ctl.closed)
     }
 }
 
@@ -1130,62 +1151,152 @@ impl Scene for PlayScene {
 }
 
 impl PlayScene {
-    /// The hi-speed panel while START / SELECT is held.
-    fn draw_panel(&self, ctx: &Ctx, d: &mut Draw, view_h: f32, now: Instant) {
+    /// The skin's note fields on screen (one per player).
+    fn fields(&self, view: Rect) -> Vec<Rect> {
+        let Some(sk) = self.skin.as_ref() else {
+            return Vec::new();
+        };
+        let xf = crate::skin::render::Xf::fit(sk.skin.width, sk.skin.height, view);
+        let lpp = self.mode.lanes_per_player();
+        (0..self.mode.players())
+            .filter_map(|p| {
+                sk.skin.lanes[p * lpp..((p + 1) * lpp).min(sk.skin.lanes.len())]
+                    .iter()
+                    .filter_map(|l| l.rect)
+                    .map(|r| xf.rect(r))
+                    .reduce(|a, b| {
+                        let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+                        Rect::new(
+                            x,
+                            y,
+                            a.right().max(b.right()) - x,
+                            a.bottom().max(b.bottom()) - y,
+                        )
+                    })
+            })
+            .collect()
+    }
+
+    /// The hi-speed panel for skins without their own, beside the note
+    /// field (between the fields in double play), never over the lanes.
+    fn draw_panel(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant) {
         let ui = ctx.ui();
-        let p = &ctx.config.play;
-        let (w, h) = (440.0 * ui, 150.0 * ui);
-        let r = Rect::new((ctx.width - w) * 0.5, view_h * 0.12, w, h);
-        ui::panel(d, r);
-        let size = 18.0 * ui;
-        let line = |i: f32| r.y + 14.0 * ui + i * size * 1.45;
-        let x = r.x + 18.0 * ui;
-        let cover = if p.lane_cover || p.sudden > 0.0 {
-            format!("{:.0}%", p.sudden * 100.0)
-        } else {
-            "OFF".into()
+        let fields = self.fields(view);
+        let (Some(first), Some(last)) = (fields.first(), fields.last()) else {
+            return;
         };
-        let rows = [
-            format!(
-                "HI-SPEED   {} ms   (GN {})",
-                p.duration_ms,
-                p.duration_ms * 3 / 5
-            ),
-            format!("SUDDEN+  {cover}      LIFT  {:.0}%", p.lift * 100.0),
-        ];
-        for (i, row) in rows.iter().enumerate() {
-            d.text(row, x, line(i as f32), size, theme::TEXT, Align::Left);
+        // free columns: between the fields, right of them, left of them;
+        // the panel goes against the field (centred between two)
+        #[derive(Clone, Copy)]
+        enum Side {
+            Between,
+            Right,
+            Left,
         }
-        let hint = match (self.ctl.start, self.ctl.select) {
-            (true, true) => "HOLD TO QUIT".to_string(),
-            (true, false) => {
-                "WHITE: SLOWER   BLUE: FASTER   TURNTABLE: COVER   START x2: COVER ON/OFF".into()
-            }
-            _ => "WHITE: -1 ms   BLUE: +1 ms   TURNTABLE: DURATION".into(),
+        let mut spaces = Vec::new();
+        if fields.len() == 2 {
+            spaces.push((first.right(), last.x, Side::Between));
+        }
+        let right = (last.right(), view.right(), Side::Right);
+        let left = (view.x, first.x, Side::Left);
+        if first.x - view.x > view.right() - last.right() {
+            spaces.extend([left, right]);
+        } else {
+            spaces.extend([right, left]);
+        }
+        let (want, gap) = (120.0 * ui, 6.0 * ui);
+        let Some((x0, x1, side)) = spaces
+            .iter()
+            .copied()
+            .find(|(a, b, _)| b - a >= want * 0.6 + gap * 2.0)
+            .or_else(|| {
+                spaces
+                    .iter()
+                    .copied()
+                    .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
+            })
+        else {
+            return;
         };
-        d.text_fit(
-            &hint,
-            x,
-            line(2.2),
-            size * 0.72,
-            theme::TEXT_DIM,
-            Align::Left,
-            w - 36.0 * ui,
+        let w = (x1 - x0 - gap * 2.0).min(want).max(40.0 * ui);
+        let x = match side {
+            Side::Between => (x0 + x1 - w) * 0.5,
+            Side::Right => x0 + gap,
+            Side::Left => x1 - gap - w,
+        };
+        let h = (first.h * 0.7).min(340.0 * ui);
+        let r = Rect::new(x, first.y + first.h * 0.12, w, h);
+        ui::panel(d, r);
+        let p = &ctx.config.play;
+        let st = super::play_skin::SceneState { s: self, ctx, now };
+        let hs = st.hispeed() as f32;
+        let cx = r.x + w * 0.5;
+        let small = (11.0 * ui).min(w * 0.12);
+        let mut y = r.y + 10.0 * ui;
+        let line = |d: &mut Draw, s: &str, size: f32, color, y: &mut f32| {
+            d.text_fit(s, cx, *y, size, color, Align::Center, w - 8.0 * ui);
+            *y += size * 1.3;
+        };
+        line(d, "HI-SPEED", small, theme::TEXT_DIM, &mut y);
+        line(d, &format!("{hs:.2}"), small * 2.2, theme::ACCENT, &mut y);
+        line(
+            d,
+            &format!("GN {}", p.duration_ms * 3 / 5),
+            small,
+            theme::TEXT,
+            &mut y,
         );
+        // 0.5 .. 10.0 track with the current value
+        let bottom_rows = 4.0 * small * 1.3 + 10.0 * ui;
+        let (t0, t1) = (y + small * 1.4, r.bottom() - bottom_rows - small * 1.6);
+        if t1 - t0 > 20.0 * ui {
+            d.text("10.0", cx, y, small * 0.85, theme::TEXT_DIM, Align::Center);
+            d.b.rect(
+                Rect::new(cx - 2.0 * ui, t0, 4.0 * ui, t1 - t0),
+                with_alpha(theme::TEXT_DIM, 0.4),
+            );
+            let k = ((hs - 0.5) / 9.5).clamp(0.0, 1.0);
+            let my = t1 - (t1 - t0) * k;
+            d.b.rect(
+                Rect::new(cx - w * 0.3, my - 3.0 * ui, w * 0.6, 6.0 * ui),
+                theme::ACCENT,
+            );
+            d.text(
+                "0.5",
+                cx,
+                t1 + 3.0 * ui,
+                small * 0.85,
+                theme::TEXT_DIM,
+                Align::Center,
+            );
+        }
+        let mut y = r.bottom() - bottom_rows;
+        let cover = if p.lane_cover || p.sudden > 0.0 {
+            format!("SUD+ {:.0}%", p.sudden * 100.0)
+        } else {
+            "SUD+ OFF".into()
+        };
+        line(d, &cover, small, theme::TEXT, &mut y);
+        line(
+            d,
+            &format!("LIFT {:.0}%", p.lift * 100.0),
+            small,
+            theme::TEXT,
+            &mut y,
+        );
+        let hint = match (self.ctl.start, self.ctl.select) {
+            (true, true) => ["HOLD:", "QUIT"],
+            (true, false) => ["WHITE SLOW / BLUE FAST", "TURNTABLE: COVER"],
+            _ => ["WHITE -1 / BLUE +1", "TURNTABLE: DURATION"],
+        };
+        for h in hint {
+            line(d, h, small * 0.8, theme::TEXT_DIM, &mut y);
+        }
         if let Some(t) = self.ctl.both_since {
-            let k = (now.duration_since(t).as_secs_f32()).min(1.0);
+            let k = now.duration_since(t).as_secs_f32().min(1.0);
             d.b.rect(
                 Rect::new(r.x, r.bottom() - 4.0 * ui, r.w * k, 4.0 * ui),
                 theme::ACCENT,
-            );
-        } else if self.ctl.start {
-            d.text(
-                "+ SELECT (HOLD): QUIT",
-                x,
-                line(3.0),
-                size * 0.72,
-                theme::TEXT_DIM,
-                Align::Left,
             );
         }
     }
@@ -1235,8 +1346,8 @@ impl PlayScene {
                 }
             }
         }
-        if self.ctl.open() {
-            self.draw_panel(ctx, d, view_h, now);
+        if self.ctl.open() && !self.skin_panel {
+            self.draw_panel(ctx, d, view, now);
         }
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);

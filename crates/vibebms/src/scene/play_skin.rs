@@ -260,6 +260,9 @@ impl SkinState for SceneState<'_> {
         match id {
             0 => Some(0),
             1 => Some(0),
+            // the hi-speed panel (START / SELECT held) opened / closed
+            21 => s.panel_timers().0.map(|t| self.ms(t)),
+            31 => s.panel_timers().1.map(|t| self.ms(t)),
             40 => s.ready_at.map(|t| self.ms(t)),
             41 => s.ready_at.map(|_| self.ms(s.start)),
             46 | 47 | 446 | 447 => s.last_judge[(id % 2 == 1) as usize].map(|j| self.ms(j.2)),
@@ -477,6 +480,8 @@ impl SkinState for SceneState<'_> {
         match id {
             6 | 101 => prog,
             4 => self.ctx.config.play.sudden,
+            // vibeBMS: hi-speed 0.5 .. 10.0 as 0 .. 1 (the hi-speed panel)
+            HISPEED_RATE => ((self.hispeed() as f32 - 0.5) / 9.5).clamp(0.0, 1.0),
             102 => 1.0,
             110 => sc.map(|s| s.current_rate() as f32).unwrap_or(0.0),
             111 => sc.map(|s| s.rate() as f32).unwrap_or(0.0),
@@ -494,6 +499,9 @@ impl SkinState for SceneState<'_> {
         }
     }
 }
+
+/// Slider / graph value of the hi-speed position (vibeBMS).
+pub const HISPEED_RATE: i32 = 9400;
 
 pub struct SceneHooks<'a> {
     pub st: &'a SceneState<'a>,
