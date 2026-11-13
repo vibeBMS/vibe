@@ -42,6 +42,7 @@ pub fn layout(
     area: Rect,
     player: usize,
     scratch_right: bool,
+    key_width: f32,
 ) -> Vec<Zone> {
     // width units of a key and of the scratch
     let lane_width = [1.0, 1.7];
@@ -49,6 +50,25 @@ pub fn layout(
     let base = player * mode.lanes_per_player();
     let sc_lane = mode.scratch_lane(player).map(|l| l as u8);
     let gap = (area.w * 0.006).max(2.0);
+    // keys no wider than `key_width` times the controls' height: on a wide
+    // screen the controls keep to the middle of the area
+    let widest = match style {
+        TouchStyle::Keyboard => {
+            let units: f32 = (0..mode.lanes_per_player())
+                .map(|l| lane_width[usize::from(mode.is_scratch(base + l))])
+                .sum();
+            units * area.h * key_width
+        }
+        TouchStyle::Iidx => {
+            let disc = sc_lane.map_or(0.0, |_| area.h * 0.94 + gap * 2.0);
+            disc + keys.div_ceil(2) as f32 * area.h * key_width
+        }
+    };
+    let area = if area.w > widest {
+        Rect::new(area.x + (area.w - widest) * 0.5, area.y, widest, area.h)
+    } else {
+        area
+    };
     let mut zones = Vec::new();
     match style {
         TouchStyle::Keyboard => {
@@ -340,6 +360,7 @@ mod tests {
             Rect::new(0.0, 500.0, 800.0, 300.0),
             0,
             false,
+            0.5,
         );
         assert_eq!(z.len(), 8);
         let mut lanes: Vec<u8> = z.iter().map(|z| z.lane).collect();
@@ -352,8 +373,36 @@ mod tests {
             Rect::new(0.0, 0.0, 900.0, 100.0),
             0,
             false,
+            0.5,
         );
         assert_eq!(k.len(), 9);
+    }
+
+    #[test]
+    fn wide_areas_keep_keys_together() {
+        let area = Rect::new(0.0, 500.0, 2400.0, 240.0);
+        let z = layout(PlayMode::Beat7K, TouchStyle::Iidx, area, 0, false, 0.5);
+        let xs: Vec<f32> = z
+            .iter()
+            .map(|z| match z.shape {
+                Shape::Rect(r) => r.right(),
+                Shape::Circle { cx, r, .. } => cx - r,
+            })
+            .collect();
+        let width_of = |z: &Zone| match z.shape {
+            Shape::Rect(r) => r.w,
+            Shape::Circle { r, .. } => r * 2.0,
+        };
+        // keys at most half the height wide, the set centred
+        assert!(z
+            .iter()
+            .filter(|z| !z.scratch)
+            .all(|z| width_of(z) <= 120.0));
+        let (left, right) = (
+            xs.iter().cloned().fold(f32::MAX, f32::min),
+            xs.iter().cloned().fold(0.0, f32::max),
+        );
+        assert!((left - (2400.0 - right)).abs() < 20.0, "{left} {right}");
     }
 
     #[test]
@@ -361,9 +410,10 @@ mod tests {
         let zones = layout(
             PlayMode::Beat7K,
             TouchStyle::Keyboard,
-            Rect::new(0.0, 0.0, 870.0, 100.0),
+            Rect::new(0.0, 0.0, 870.0, 200.0),
             0,
             false,
+            0.5,
         );
         let mut t = TouchInput::default();
         let now = Instant::now();

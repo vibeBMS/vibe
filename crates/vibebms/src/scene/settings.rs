@@ -495,6 +495,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 },
             ),
             it(
+                "Max key width (of the height)",
+                format!("{:.0}%", c.touch.key_width * 100.0),
+                |c, d| {
+                    c.config.touch.key_width =
+                        (c.config.touch.key_width + d as f32 * 0.05).clamp(0.3, 2.0)
+                },
+            ),
+            it(
                 "Opacity",
                 format!("{:.0}%", c.touch.opacity * 100.0),
                 |c, d| {

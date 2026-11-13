@@ -576,6 +576,7 @@ impl PlayScene {
                 *area,
                 player,
                 *right,
+                ctx.config.touch.key_width,
             ));
         }
     }
