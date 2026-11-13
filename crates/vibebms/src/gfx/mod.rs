@@ -75,6 +75,7 @@ struct Cmd {
     start: u32,
     count: u32,
     clip: Option<[u32; 4]>,
+    additive: bool,
 }
 
 /// Geometry for one frame.
@@ -83,6 +84,7 @@ pub struct Batch {
     verts: Vec<Vertex>,
     cmds: Vec<Cmd>,
     clip: Option<[u32; 4]>,
+    additive: bool,
 }
 
 impl Batch {
@@ -90,6 +92,71 @@ impl Batch {
         self.verts.clear();
         self.cmds.clear();
         self.clip = None;
+        self.additive = false;
+    }
+
+    /// Additive blending for following draws (skin glow effects).
+    pub fn set_additive(&mut self, on: bool) {
+        self.additive = on;
+    }
+
+    fn push_cmd(&mut self, tex: TexId, count: u32) {
+        let start = self.verts.len() as u32;
+        match self.cmds.last_mut() {
+            Some(c)
+                if c.tex == tex
+                    && c.clip == self.clip
+                    && c.additive == self.additive
+                    && c.start + c.count == start =>
+            {
+                c.count += count
+            }
+            _ => self.cmds.push(Cmd {
+                tex,
+                start,
+                count,
+                clip: self.clip,
+                additive: self.additive,
+            }),
+        }
+    }
+
+    /// Textured quad rotated by `angle` degrees around `pivot` (fractions of the rect).
+    pub fn quad_rot(
+        &mut self,
+        tex: TexId,
+        r: Rect,
+        uv: [f32; 4],
+        color: Color,
+        angle: f32,
+        pivot: (f32, f32),
+    ) {
+        if angle == 0.0 {
+            return self.quad(tex, r, uv, color);
+        }
+        if r.w <= 0.0 || r.h <= 0.0 || color[3] <= 0.0 {
+            return;
+        }
+        self.push_cmd(tex, 6);
+        let (cx, cy) = (r.x + r.w * pivot.0, r.y + r.h * pivot.1);
+        let (sn, cs) = angle.to_radians().sin_cos();
+        let v = |x: f32, y: f32, u: f32, w: f32| {
+            let (dx, dy) = (x - cx, y - cy);
+            Vertex {
+                pos: [cx + dx * cs - dy * sn, cy + dx * sn + dy * cs],
+                uv: [u, w],
+                color,
+            }
+        };
+        let (x0, y0, x1, y1) = (r.x, r.y, r.right(), r.bottom());
+        self.verts.extend_from_slice(&[
+            v(x0, y0, uv[0], uv[1]),
+            v(x1, y0, uv[2], uv[1]),
+            v(x0, y1, uv[0], uv[3]),
+            v(x1, y0, uv[2], uv[1]),
+            v(x1, y1, uv[2], uv[3]),
+            v(x0, y1, uv[0], uv[3]),
+        ]);
     }
 
     pub fn set_clip(&mut self, r: Option<Rect>) {
@@ -107,18 +174,7 @@ impl Batch {
         if r.w <= 0.0 || r.h <= 0.0 || color[3] <= 0.0 {
             return;
         }
-        let start = self.verts.len() as u32;
-        match self.cmds.last_mut() {
-            Some(c) if c.tex == tex && c.clip == self.clip && c.start + c.count == start => {
-                c.count += 6
-            }
-            _ => self.cmds.push(Cmd {
-                tex,
-                start,
-                count: 6,
-                clip: self.clip,
-            }),
-        }
+        self.push_cmd(tex, 6);
         let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
         let v = |x, y, u, w| Vertex {
             pos: [x, y],
@@ -151,18 +207,7 @@ impl Batch {
         if r.w <= 0.0 || r.h <= 0.0 {
             return;
         }
-        let start = self.verts.len() as u32;
-        match self.cmds.last_mut() {
-            Some(c) if c.tex == ATLAS && c.clip == self.clip && c.start + c.count == start => {
-                c.count += 6
-            }
-            _ => self.cmds.push(Cmd {
-                tex: ATLAS,
-                start,
-                count: 6,
-                clip: self.clip,
-            }),
-        }
+        self.push_cmd(ATLAS, 6);
         let uv = WHITE_UV;
         let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
         let v = |x, y, c| Vertex {
@@ -190,20 +235,8 @@ impl Batch {
         color: Color,
         segments: usize,
     ) {
-        let start = self.verts.len() as u32;
         let n = segments.max(8);
-        let count = (n * 6) as u32;
-        match self.cmds.last_mut() {
-            Some(c) if c.tex == ATLAS && c.clip == self.clip && c.start + c.count == start => {
-                c.count += count
-            }
-            _ => self.cmds.push(Cmd {
-                tex: ATLAS,
-                start,
-                count,
-                clip: self.clip,
-            }),
-        }
+        self.push_cmd(ATLAS, (n * 6) as u32);
         let uv = [WHITE_UV[0], WHITE_UV[1]];
         let p = |a: f32, r: f32| Vertex {
             pos: [cx + a.cos() * r, cy + a.sin() * r],
@@ -241,6 +274,7 @@ pub struct Gfx {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    pipeline_add: wgpu::RenderPipeline,
     tex_layout: wgpu::BindGroupLayout,
     uniform_buf: wgpu::Buffer,
     uniform_bind: wgpu::BindGroup,
@@ -375,7 +409,8 @@ impl Gfx {
             bind_group_layouts: &[&uniform_layout, &tex_layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let make = |blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("2d"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -393,7 +428,7 @@ impl Gfx {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(blend),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -403,6 +438,16 @@ impl Gfx {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
+        })
+        };
+        let pipeline = make(wgpu::BlendState::ALPHA_BLENDING);
+        let pipeline_add = make(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent::OVER,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("linear"),
@@ -425,6 +470,7 @@ impl Gfx {
             queue,
             config,
             pipeline,
+            pipeline_add,
             tex_layout,
             uniform_buf,
             uniform_bind,
@@ -643,6 +689,11 @@ impl Gfx {
                     }
                     None => pass.set_scissor_rect(0, 0, sw, sh),
                 }
+                pass.set_pipeline(if c.additive {
+                    &self.pipeline_add
+                } else {
+                    &self.pipeline
+                });
                 pass.set_bind_group(1, &t.bind, &[]);
                 pass.draw(c.start..c.start + c.count, 0..1);
             }

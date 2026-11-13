@@ -95,48 +95,54 @@ struct Layout {
 }
 
 pub struct PlayScene {
-    req: PlayRequest,
+    pub(crate) req: PlayRequest,
     stage: Stage,
     /// Chart/sound loading job, started once the files are available.
-    job: Option<Box<dyn FnOnce() + Send>>,
-    prefetch: crate::platform::vfs::Prefetch,
+    pub(crate) job: Option<Box<dyn FnOnce() + Send>>,
+    pub(crate) prefetch: crate::platform::vfs::Prefetch,
     rx: Option<Receiver<Result<Box<Loaded>, String>>>,
-    progress: Arc<AtomicUsize>,
-    total_files: Arc<AtomicUsize>,
-    loading_since: Instant,
-    stage_tex: Option<TexId>,
-    chart: Chart,
-    bank: SoundBank,
-    bga_tex: Vec<Option<TexId>>,
-    engine: Option<Engine>,
-    mapper: Option<LaneMapper>,
-    touch: TouchInput,
-    zones: Vec<Zone>,
-    zones_key: (u32, u32, bool),
-    start: Instant,
-    base_frame: i64,
-    bgm_i: usize,
-    auto_i: usize,
-    bga_i: usize,
-    auto_notes: Vec<(i64, SoundId)>,
-    bga: [Option<u32>; 4],
-    poor_until: Option<Instant>,
-    last_judge: [Option<(usize, i64, Instant, u32)>; 2],
-    bombs: Vec<(u8, Instant, usize)>,
-    gauge_log: Vec<f32>,
-    next_sample: i64,
-    lane_notes: Vec<Vec<usize>>,
-    lane_cursor: Vec<usize>,
-    mode: PlayMode,
-    ln: LnType,
-    seed: i64,
-    error: Option<String>,
-    hud_rects: Vec<(Rect, usize)>,
-    assist: bool,
-    options_label: String,
-    finished_at: Option<i64>,
-    key_flash: Vec<Option<Instant>>,
-    quit: bool,
+    pub(crate) progress: Arc<AtomicUsize>,
+    pub(crate) total_files: Arc<AtomicUsize>,
+    pub(crate) loading_since: Instant,
+    pub(crate) stage_tex: Option<TexId>,
+    pub(crate) chart: Chart,
+    pub(crate) bank: SoundBank,
+    pub(crate) bga_tex: Vec<Option<TexId>>,
+    pub(crate) engine: Option<Engine>,
+    pub(crate) mapper: Option<LaneMapper>,
+    pub(crate) touch: TouchInput,
+    pub(crate) zones: Vec<Zone>,
+    pub(crate) zones_key: (u32, u32, bool),
+    pub(crate) start: Instant,
+    pub(crate) base_frame: i64,
+    pub(crate) bgm_i: usize,
+    pub(crate) auto_i: usize,
+    pub(crate) bga_i: usize,
+    pub(crate) auto_notes: Vec<(i64, SoundId)>,
+    pub(crate) bga: [Option<u32>; 4],
+    pub(crate) poor_until: Option<Instant>,
+    pub(crate) last_judge: [Option<(usize, i64, Instant, u32)>; 2],
+    pub(crate) bombs: Vec<(u8, Instant, usize)>,
+    pub(crate) gauge_log: Vec<f32>,
+    pub(crate) next_sample: i64,
+    pub(crate) lane_notes: Vec<Vec<usize>>,
+    pub(crate) lane_cursor: Vec<usize>,
+    pub(crate) mode: PlayMode,
+    pub(crate) ln: LnType,
+    pub(crate) seed: i64,
+    pub(crate) error: Option<String>,
+    pub(crate) hud_rects: Vec<(Rect, usize)>,
+    pub(crate) assist: bool,
+    pub(crate) options_label: String,
+    pub(crate) finished_at: Option<i64>,
+    pub(crate) key_flash: Vec<Option<Instant>>,
+    pub(crate) quit: bool,
+    pub(crate) scene_start: Instant,
+    pub(crate) ready_at: Option<Instant>,
+    pub(crate) finished_instant: Option<Instant>,
+    pub(crate) key_off: Vec<Option<Instant>>,
+    pub(crate) bomb_at: Vec<Option<Instant>>,
+    pub(crate) skin: Option<crate::skin::render::LoadedSkin>,
 }
 
 fn rgba_of(path: &Path, key: bool) -> Option<Rgba> {
@@ -278,11 +284,44 @@ impl PlayScene {
             options_label: String::new(),
             finished_at: None,
             key_flash: Vec::new(),
+            scene_start: Instant::now(),
+            ready_at: None,
+            finished_instant: None,
+            key_off: Vec::new(),
+            bomb_at: Vec::new(),
+            skin: None,
             quit: false,
         }
     }
 
-    fn chart_us(&self, t: Instant) -> i64 {
+    pub(crate) fn mode(&self) -> PlayMode {
+        self.mode
+    }
+
+    pub(crate) fn ln_mode(&self) -> LnType {
+        self.ln
+    }
+
+    pub(crate) fn ending_at(&self) -> Option<Instant> {
+        match self.stage {
+            Stage::Ending { since, .. } => Some(since),
+            _ => None,
+        }
+    }
+
+    /// BGA layer textures to show now (POOR layer replaces them briefly).
+    pub(crate) fn bga_textures(&self, now: Instant) -> Vec<TexId> {
+        let poor = self.poor_until.map(|u| now < u).unwrap_or(false) && self.bga[3].is_some();
+        let layers: &[usize] = if poor { &[3] } else { &[0, 1, 2] };
+        layers
+            .iter()
+            .filter_map(|l| {
+                self.bga[*l].and_then(|i| self.bga_tex.get(i as usize).copied().flatten())
+            })
+            .collect()
+    }
+
+    pub(crate) fn chart_us(&self, t: Instant) -> i64 {
         if t >= self.start {
             t.duration_since(self.start).as_micros() as i64
         } else {
@@ -355,6 +394,8 @@ impl PlayScene {
         self.lane_notes = lane_notes;
         self.lane_cursor = vec![0; lanes];
         self.key_flash = vec![None; lanes];
+        self.key_off = vec![None; lanes];
+        self.bomb_at = vec![None; lanes];
         // keysounds of auto lanes are scheduled ahead like BGM for exact timing
         self.auto_notes = chart
             .notes
@@ -396,6 +437,11 @@ impl PlayScene {
             + ctx.mixer.us_to_frames(lead.as_micros() as i64)
             + ctx.mixer.buffer_frames as i64;
         self.stage = Stage::Playing;
+        self.ready_at = Some(now);
+        self.skin = super::play_skin::load_play_skin(ctx, gfx, self);
+        if let Some(sk) = &self.skin {
+            log::info!("skin: {}", sk.skin.name);
+        }
     }
 
     fn play_sound(&self, ctx: &Ctx, sound: SoundId, at: Option<i64>, bus: Bus) {
@@ -457,6 +503,8 @@ impl PlayScene {
             if let Some(f) = self.key_flash.get_mut(ev.lane as usize) {
                 *f = Some(ev.time);
             }
+        } else if let Some(f) = self.key_off.get_mut(ev.lane as usize) {
+            *f = Some(ev.time);
         }
     }
 
@@ -768,6 +816,7 @@ impl Scene for PlayScene {
             }
             if engine.is_finished(t - offset) && self.finished_at.is_none() {
                 self.finished_at = Some(t);
+                self.finished_instant = Some(now);
             }
         }
         for ev in events {
@@ -791,6 +840,9 @@ impl Scene for PlayScene {
                     self.last_judge[player] = Some((judge, diff, now, combo));
                     if judge <= GREAT {
                         self.bombs.push((lane, now, judge));
+                        if let Some(b) = self.bomb_at.get_mut(lane as usize) {
+                            *b = Some(now);
+                        }
                     }
                     if judge >= BAD && judge != MISS {
                         self.poor_until = Some(now + Duration::from_millis(500));
@@ -940,6 +992,9 @@ impl Scene for PlayScene {
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
+        if let Some(mut sk) = self.skin.take() {
+            sk.free(gfx);
+        }
         ctx.mixer.stop_bus(Bus::Bgm);
         ctx.mixer.stop_bus(Bus::Key);
         for t in self.bga_tex.drain(..).flatten() {
@@ -1022,6 +1077,10 @@ impl Scene for PlayScene {
             return;
         }
         if self.engine.is_none() {
+            return;
+        }
+        if self.skin.is_some() {
+            self.draw_skinned(ctx, d, now);
             return;
         }
         let lay = self.layout(ctx);
@@ -1549,5 +1608,63 @@ impl PlayScene {
             ),
             th.accent,
         );
+    }
+}
+
+impl PlayScene {
+    fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        let lay = self.layout(ctx);
+        self.rebuild_zones(ctx, &lay);
+        let view_h = lay.touch.first().map(|t| t.0.y).unwrap_or(ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.width, view_h);
+        {
+            let st = super::play_skin::SceneState { s: self, ctx, now };
+            let mut hooks = super::play_skin::SceneHooks { st: &st };
+            let ms = if now >= self.scene_start {
+                now.duration_since(self.scene_start).as_millis() as i64
+            } else {
+                0
+            };
+            if let Some(sk) = self.skin.as_ref() {
+                sk.draw(d, view, ms, &st, &mut hooks);
+            }
+        }
+        if ctx.touch_enabled() {
+            let th = &ctx.theme;
+            for (area, _, _) in &lay.touch {
+                d.b.rect(*area, rgba(0x05060aff));
+            }
+            self.touch.draw(
+                d.b,
+                &self.zones,
+                ctx.config.touch.opacity,
+                th.note_white,
+                th.note_blue,
+                th.note_scratch,
+            );
+        }
+        if let Stage::Ending { since, .. } = self.stage {
+            let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
+            d.b.rect(
+                Rect::new(0.0, 0.0, ctx.width, ctx.height),
+                with_alpha(rgba(0x000000ff), a * 0.85),
+            );
+        }
+        // advance render cursors
+        let t_vis = self.chart_us(now);
+        if let Some(e) = self.engine.as_ref() {
+            let notes = e.notes();
+            for (lane, list) in self.lane_notes.iter().enumerate() {
+                let c = &mut self.lane_cursor[lane];
+                while *c < list.len() {
+                    let n = &notes[list[*c]];
+                    if n.end_time < t_vis - 1_000_000 && (n.is_done() || n.is_mine()) {
+                        *c += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
     }
 }

@@ -459,7 +459,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
         ],
         4 => {
             let themes = Theme::list(&ctx.paths.themes);
-            vec![
+            let mut v = vec![
                 it("Fullscreen (F11)", onoff(c.display.fullscreen), |c, _| {
                     c.config.display.fullscreen = !c.config.display.fullscreen;
                     c.want_fullscreen = Some(c.config.display.fullscreen);
@@ -520,7 +520,26 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     value: ctx.gpu_name.clone(),
                     act: Act::None,
                 },
-            ]
+            ];
+            // LR2 play skins found in <root>/skins
+            type Adjust = fn(&mut Ctx, i32);
+            const MODES: [(&str, Adjust); 5] = [
+                ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
+                ("5KEYS", |c, d| cycle_skin(c, d, "5KEYS")),
+                ("14KEYS", |c, d| cycle_skin(c, d, "14KEYS")),
+                ("10KEYS", |c, d| cycle_skin(c, d, "10KEYS")),
+                ("9KEYS", |c, d| cycle_skin(c, d, "9KEYS")),
+            ];
+            for (m, f) in MODES {
+                let cur = c
+                    .skins
+                    .get(m)
+                    .filter(|s| !s.is_empty())
+                    .map(|p| skin_label(p))
+                    .unwrap_or_else(|| "BUILT-IN".into());
+                v.push(it(format!("Play skin ({m})"), cur, f));
+            }
+            v
         }
         5 => vec![
             it(
@@ -1313,4 +1332,49 @@ impl Scene for SettingsScene {
             );
         }
     }
+}
+
+fn skin_label(path: &str) -> String {
+    let p = std::path::Path::new(path);
+    crate::skin::lr2::header(&if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::path::PathBuf::from(path)
+    })
+    .map(|h| h.1)
+    .filter(|n| !n.is_empty())
+    .unwrap_or_else(|| {
+        p.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    })
+}
+
+/// Cycle the play skin for a key mode through "built-in" and matching LR2 skins.
+fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
+    let want = vibebms_core::PlayMode::ALL
+        .iter()
+        .copied()
+        .find(|m| m.label() == mode)
+        .map(super::play_skin::skin_type);
+    let mut opts: Vec<String> = vec![String::new()];
+    for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
+        if Some(t) == want {
+            let rel = p
+                .strip_prefix(&c.paths.root)
+                .map(|r| r.to_path_buf())
+                .unwrap_or(p);
+            opts.push(rel.to_string_lossy().into_owned());
+        }
+    }
+    let cur = c.config.skins.get(mode).cloned().unwrap_or_default();
+    let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
+    let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
+    if opts.len() == 1 {
+        c.toast(format!(
+            "No {mode} LR2 skins in {}",
+            c.paths.skins.display()
+        ));
+    }
+    c.config.skins.insert(mode.to_string(), next);
 }

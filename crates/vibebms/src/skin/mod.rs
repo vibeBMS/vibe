@@ -7,6 +7,7 @@
 //! open-source LR2 skin loader.
 
 pub mod lr2;
+pub mod render;
 
 use crate::gfx::Rect;
 use std::path::PathBuf;

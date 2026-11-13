@@ -64,6 +64,23 @@ jobs:
           name: vibeBMS-${{ matrix.name }}
           path: dist/vibeBMS
 
+  web:
+    name: build web (wasm32)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
+      - run: ./tools/build_web.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-web
+          path: web
+
   android:
     name: build android (experimental)
     needs: test

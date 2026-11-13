@@ -46,3 +46,11 @@ visible in the Files app (`UIFileSharingEnabled`), so BMS folders can be copied 
 
 ## Test data
 `python3 tools/gen_demo.py bms/demo` writes a small self-made 7-key chart with synthesized keysounds.
+
+## Web (wasm32)
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version <wasm-bindgen version in Cargo.lock>
+./tools/build_web.sh                 # -> web/pkg
+python3 -m http.server -d web 8080   # open http://localhost:8080
+```

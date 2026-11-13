@@ -1,7 +1,7 @@
 # vibeBMS
 
 Lunatic Rave 2 / beatoraja를 레퍼런스로 한 **크로스플랫폼 네이티브 BMS 플레이어**입니다.
-Rust + wgpu(Vulkan/Metal/DX12/GL) + cpal로 작성되어 x86/ARM Windows·macOS·Linux에서 네이티브로 동작하고,
+Rust + wgpu(Vulkan/Metal/DX12/GL/WebGPU) + cpal로 작성되어 x86/ARM Windows·macOS·Linux와 **웹 브라우저(wasm)**에서 동작하고,
 iPad·Android·Surface 같은 터치 기기를 위한 화면 컨트롤러 모드를 내장하고 있습니다.
 
 - 실행하면 별도 설정창 없이 바로 선곡 화면으로 들어가며, **모든 설정은 게임 안에서** 변경합니다.
@@ -26,7 +26,9 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 ```text
 <root>/vibebms(.exe)
 <root>/config/config.toml        설정 (게임 내에서 편집, 직접 편집도 가능)
-<root>/cache/library.db          곡/스코어 DB (SQLite)
+<root>/cache/songs.json          곡 스캔 캐시 (지워도 재생성)
+<root>/scores/scores.json        플레이 기록
+<root>/skins/<스킨>/*.lr2skin     LR2 플레이 스킨
 <root>/cache/tables/*.json       난이도표 캐시
 <root>/themes/<name>/theme.toml  커스텀 테마
 <root>/fonts/*.ttf|otf|ttc       폰트 지정(선택)
@@ -66,7 +68,7 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 - MD5/SHA-256 (난이도표·IR 매칭용)
 
 ### 플레이
-- 판정 프리셋: **beatoraja**(모드별 판정폭 + #RANK/#DEFEXRANK 스케일링 규칙), **LR2**(#RANK별 판정폭), **IIDX**(프레임 기반 근사)
+- 판정 프리셋: **beatoraja**(모드별 판정폭 + #RANK/#DEFEXRANK 스케일링 규칙), **LR2**(#RANK별 판정폭), **IIDX**(라이트닝 모델 120Hz 프레임 단위: PG ±2F, GR ±4F, GD ±14F, BAD ±30F, 입력 타이밍 8.33ms 양자화)
 - 판정 알고리즘: Combo / Duration / Lowest, 커스텀 판정폭(PG/GR/GD %)
 - 게이지: ASSIST EASY, EASY, NORMAL, HARD, **EX-HARD**, HAZARD, 단위(CLASS/EX-CLASS/EXHARD-CLASS) — beatoraja/LR2/IIDX 규칙 세트
 - **GAUGE AUTO SHIFT**: CONTINUE / HARD→GROOVE / BEST CLEAR / SELECT TO UNDER (모든 게이지 병렬 계산)
@@ -93,6 +95,17 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 - 키음 병렬 디코딩(WAV/OGG/MP3/FLAC, 깨진 RIFF 헤더 폴백, `a.wav`→`a.ogg` 대체 탐색)
 - 렌더러는 단일 파이프라인 배치 렌더링, 저지연 프레젠테이션(Mailbox/Immediate 우선), 프레임 제한 옵션
 
+### 스킨 (LR2)
+`skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다.
+지원: `#IMAGE`, `#SRC/#DST_IMAGE`(키프레임·가속·루프·타이머·조건·회전·가산 블렌딩), `_NUMBER`, `_TEXT`(시스템 폰트), `_BARGRAPH`,
+`_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`/`_LN_*`/`_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE`/`_NOWCOMBO`, `#IF/#ELSE`, `#CUSTOMOPTION`(기본값),
+`#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨, beatoraja JSON/Lua 스킨.
+
+### 웹 버전
+`tools/build_web.sh` → `web/`을 HTTP로 서빙. 좌하단 **📂 Open BMS folder**로 폴더를 고르면 브라우저 안에서 스캔·플레이합니다(파일은 업로드되지 않음).
+설정·기록은 localStorage에 저장. 웹에는 시스템 폰트가 없으므로 일본어/한국어 제목을 보려면 `web/fonts/`에 CJK 폰트를 넣고 `fonts.txt`에 나열하세요.
+난이도표/IR은 해당 서버가 CORS를 허용해야 동작합니다.
+
 ### 테마
 `themes/default/theme.toml`이 첫 실행 시 생성됩니다. 폴더를 복사해 색상·레인 폭·노트 높이·배경 이미지를 바꾸고
 `SETTINGS › DISPLAY › Theme`에서 선택하세요. 테마 폴더의 `fonts/`에 폰트를 넣으면 우선 사용됩니다.
@@ -103,10 +116,12 @@ python3 tools/gen_demo.py bms/demo      # 테스트용 자작 데모 차트 생�
 |---|---|
 | 코어 엔진(파서/타이밍/판정/게이지/점수/랜덤) | ✅ 구현 + 단위 테스트 |
 | 데스크톱 앱(선곡/플레이/결과/설정/터치) | ✅ Linux에서 구동 확인, Windows 크로스 컴파일 확인, macOS는 CI 빌드 |
+| 웹(wasm, WebGPU/WebGL2) | ✅ 헤드리스 크로미움에서 폴더 선택→스캔→플레이 확인 |
 | ARM(Windows on ARM, Apple Silicon, Linux aarch64) | ✅ CI 매트릭스 |
 | Android | 🧪 `crates/vibebms-android` (cargo-apk) — 실기기 미검증 |
 | iOS/iPadOS | 🧪 빌드 가이드 + Info.plist — 실기기 미검증 |
-| LR2 / beatoraja 스킨 호환 | ⏳ 미구현 (현재는 내장 UI + theme.toml) |
+| LR2 플레이 스킨 | 🧪 주요 명령 구현, 합성 스킨으로 검증 (실제 공개 스킨 호환성은 추가 검증 필요) |
+| LR2 선곡/결과 스킨, beatoraja JSON/Lua 스킨 | ⏳ 미구현 |
 | 동영상 BGA(mpg/wmv/mp4) | ⏳ 미구현 |
 | 리플레이 저장/재생, 고스트 배틀, 타깃 스코어 | ⏳ 미구현 (엔진에 ghost 데이터는 기록됨) |
 | 특정 IR 서비스 전용 어댑터(MochaIR 등) | ⏳ 프로토콜 확인 후 추가 필요 |
@@ -124,6 +139,9 @@ crates/vibebms-audio    디코더 + 믹서
 crates/vibebms          앱 (winit + wgpu)
 crates/vibebms-android  Android 패키징
 ```
+
+## 라이선스
+`MIT OR Apache-2.0` (LICENSE-MIT, LICENSE-APACHE). 내장 폰트 Inter는 SIL OFL 1.1 (`crates/vibebms/assets/fonts/OFL.txt`).
 
 ## 크레딧
 판정·게이지 규칙은 beatoraja(exch-bms2, GPL-3.0)의 공개 소스와 LR2 커뮤니티에 공개된 판정폭을 참고해

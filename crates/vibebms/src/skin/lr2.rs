@@ -1,1 +1,723 @@
+//! LR2 skin loader (`.lr2skin` / `.csv`).
+//!
+//! Supported: `#INFORMATION`, `#RESOLUTION`, `#CUSTOMOPTION`, `#CUSTOMFILE`,
+//! `#INCLUDE`, `#IF/#ELSEIF/#ELSE/#ENDIF`, `#SETOPTION`, `#IMAGE`,
+//! `#SRC/#DST_IMAGE`, `_NUMBER`, `_TEXT` (drawn with system fonts),
+//! `_BARGRAPH`, `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`, `_LN_*`,
+//! `_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE_1P/2P`, `_NOWCOMBO_1P/2P`,
+//! `#STARTINPUT`, `#SCENETIME`, `#FADEOUT`, `#FINISHMARGIN`.
+//! Not yet: `#LR2FONT` bitmap fonts, buttons/onmouse, `_BUTTON`, charts.
 
+use super::*;
+use crate::platform::vfs;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+fn ints(f: &[&str]) -> [i64; 22] {
+    let mut v = [0i64; 22];
+    for (i, s) in f.iter().enumerate().skip(1).take(21) {
+        let t: String = s
+            .replace('!', "-")
+            .chars()
+            .filter(|c| c.is_ascii_digit() || *c == '-')
+            .collect();
+        v[i] = t.parse().unwrap_or(0);
+    }
+    v
+}
+
+fn src(v: &[i64; 22], image_sizes: &[Option<(u32, u32)>]) -> Option<Src> {
+    let img = v[2] as usize;
+    let (iw, ih) = image_sizes.get(img).copied().flatten()?;
+    let (x, y) = (v[3] as f32, v[4] as f32);
+    let w = if v[5] < 0 { iw as f32 } else { v[5] as f32 };
+    let h = if v[6] < 0 { ih as f32 } else { v[6] as f32 };
+    let dx = v[7].max(1) as usize;
+    let dy = v[8].max(1) as usize;
+    let (fw, fh) = (w / dx as f32, h / dy as f32);
+    let mut frames = Vec::with_capacity(dx * dy);
+    for j in 0..dy {
+        for i in 0..dx {
+            frames.push([x + fw * i as f32, y + fh * j as f32, fw, fh]);
+        }
+    }
+    Some(Src {
+        image: img,
+        frames,
+        cycle: v[9],
+        timer: v[10] as i32,
+    })
+}
+
+fn add_dst(dst: &mut Dst, v: &[i64; 22]) {
+    let (mut x, mut y, mut w, mut h) = (v[3] as f32, v[4] as f32, v[5] as f32, v[6] as f32);
+    if w < 0.0 {
+        x += w;
+        w = -w;
+    }
+    if h < 0.0 {
+        y += h;
+        h = -h;
+    }
+    if dst.keys.is_empty() {
+        dst.acc = v[7] as i32;
+        dst.blend = v[12] as i32;
+        dst.center = v[15].clamp(0, 9) as usize;
+        dst.loop_ms = v[16];
+        dst.timer = v[17] as i32;
+        dst.ops = [v[18], v[19], v[20]]
+            .iter()
+            .filter(|o| **o != 0)
+            .map(|o| *o as i32)
+            .collect();
+    }
+    let c = |n: i64| (n.clamp(0, 255) as f32) / 255.0;
+    dst.add_key(Key {
+        time: v[2],
+        rect: Rect::new(x, y, w, h),
+        color: [c(v[9]), c(v[10]), c(v[11]), c(v[8])],
+        angle: v[14] as f32,
+    });
+}
+
+/// Map an LR2 lane id (0 = 1P scratch, 1..9 = 1P keys, 10 = 2P scratch, ...).
+fn lane_of(mode: vibebms_core::PlayMode, id: i64) -> Option<usize> {
+    let (p, k) = ((id / 10) as usize, (id % 10) as usize);
+    if p >= mode.players() {
+        return None;
+    }
+    if k == 0 {
+        return mode.scratch_lane(p);
+    }
+    (k - 1 < mode.keys_per_player()).then(|| p * mode.lanes_per_player() + k - 1)
+}
+
+#[derive(Default)]
+struct Cond {
+    skip: bool,
+    taken: bool,
+}
+
+struct Loader<'a> {
+    root: PathBuf,
+    dir: PathBuf,
+    options: HashMap<i32, bool>,
+    static_option: &'a dyn Fn(i32) -> Option<bool>,
+    files: HashMap<String, String>,
+    skin: Skin,
+    sizes: Vec<Option<(u32, u32)>>,
+    image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
+    cur: Option<usize>,
+    lane_kind: usize,
+    judge_side: usize,
+    pending_line: Option<Src>,
+    depth: usize,
+    conds: Vec<Cond>,
+}
+
+impl Loader<'_> {
+    fn opt(&self, id: i32) -> bool {
+        let (abs, neg) = (id.abs(), id < 0);
+        let v = self
+            .options
+            .get(&abs)
+            .copied()
+            .or_else(|| (self.static_option)(abs))
+            .unwrap_or(false);
+        v != neg
+    }
+
+    fn cond(&self, f: &[&str]) -> bool {
+        f.iter().skip(1).filter(|s| !s.trim().is_empty()).all(|s| {
+            let t: String = s
+                .replace('!', "-")
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == '-')
+                .collect();
+            t.parse::<i32>().map(|o| self.opt(o)).unwrap_or(false)
+        })
+    }
+
+    /// Resolve `LR2files\Theme\...` and wildcards (`#CUSTOMFILE`).
+    fn path(&self, raw: &str) -> PathBuf {
+        let mut s = raw.trim().replace('\\', "/");
+        if let Some(i) = s.to_ascii_lowercase().find("lr2files/theme/") {
+            s = s[i + "lr2files/theme/".len()..].to_string();
+            return self.glob(&self.root.join(&s), raw);
+        }
+        let p = Path::new(&s);
+        let p = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.dir.join(p)
+        };
+        self.glob(&p, raw)
+    }
+
+    fn glob(&self, p: &Path, raw: &str) -> PathBuf {
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !name.contains('*') {
+            return p.to_path_buf();
+        }
+        let dir = p.parent().unwrap_or(Path::new(""));
+        let (pre, post) = name.split_once('*').unwrap_or((&name, ""));
+        let (pre, post) = (pre.to_lowercase(), post.to_lowercase());
+        let mut cands: Vec<PathBuf> = vfs::read_dir(dir)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.path)
+            .filter(|c| {
+                let n = c
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                n.starts_with(&pre) && n.ends_with(&post) && n.len() >= pre.len() + post.len()
+            })
+            .collect();
+        cands.sort();
+        let want = self
+            .files
+            .get(&raw.replace('\\', "/"))
+            .cloned()
+            .unwrap_or_default()
+            .to_lowercase();
+        cands
+            .iter()
+            .find(|c| {
+                !want.is_empty()
+                    && c.file_stem()
+                        .map(|s| s.to_string_lossy().to_lowercase().contains(&want))
+                        .unwrap_or(false)
+            })
+            .or(cands.first())
+            .cloned()
+            .unwrap_or_else(|| p.to_path_buf())
+    }
+
+    fn push(&mut self, kind: Kind) {
+        self.skin.objects.push(Obj {
+            kind,
+            dst: Dst::default(),
+        });
+        self.cur = Some(self.skin.objects.len() - 1);
+    }
+
+    fn mode(&self) -> vibebms_core::PlayMode {
+        self.skin
+            .kind
+            .mode()
+            .unwrap_or(vibebms_core::PlayMode::Beat7K)
+    }
+
+    fn lane_src(&mut self, v: &[i64; 22], which: usize) {
+        let mode = self.mode();
+        let Some(l) = lane_of(mode, v[1]) else { return };
+        let Some(s) = src(v, &self.sizes) else { return };
+        if self.skin.lanes.len() < mode.lane_count() {
+            self.skin
+                .lanes
+                .resize(mode.lane_count(), LaneSkin::default());
+        }
+        let ls = &mut self.skin.lanes[l];
+        let slot = match which {
+            0 => &mut ls.note,
+            1 => &mut ls.ln_start,
+            2 => &mut ls.ln_end,
+            3 => &mut ls.ln_body,
+            4 => &mut ls.ln_body_active,
+            _ => &mut ls.mine,
+        };
+        if slot.is_none() {
+            *slot = Some(s);
+        }
+    }
+
+    fn line(&mut self, raw: &str) {
+        let line = raw.trim_end_matches(['\r', '\n']);
+        if !line.starts_with('#') {
+            return;
+        }
+        let f: Vec<&str> = line.split(',').collect();
+        let cmd = f[0].trim().to_ascii_uppercase();
+        let top = self.conds_top();
+        match cmd.as_str() {
+            "#IF" => {
+                let ok = !top.0 && self.cond(&f);
+                self.conds.push(Cond {
+                    skip: !ok,
+                    taken: ok,
+                });
+                return;
+            }
+            "#ELSEIF" => {
+                if let Some(c) = self.conds.last() {
+                    let (taken, parent_skip) = (c.taken, self.parent_skip());
+                    let ok = !taken && !parent_skip && self.cond(&f);
+                    let c = self.conds.last_mut().unwrap();
+                    c.skip = !ok;
+                    c.taken |= ok;
+                }
+                return;
+            }
+            "#ELSE" => {
+                let parent_skip = self.parent_skip();
+                if let Some(c) = self.conds.last_mut() {
+                    c.skip = c.taken || parent_skip;
+                    c.taken = true;
+                }
+                return;
+            }
+            "#ENDIF" => {
+                self.conds.pop();
+                return;
+            }
+            _ => {}
+        }
+        if top.0 {
+            return;
+        }
+        let v = ints(&f);
+        let s1 = f.get(1).map(|s| s.trim()).unwrap_or("");
+        match cmd.as_str() {
+            "#INFORMATION" => {
+                self.skin.kind = SkinType::from_id(v[1] as i32);
+                self.skin.name = f.get(2).unwrap_or(&"").trim().to_string();
+                self.skin.author = f.get(3).unwrap_or(&"").trim().to_string();
+            }
+            "#RESOLUTION" => {
+                let (w, h) = [
+                    (640.0, 480.0),
+                    (1280.0, 720.0),
+                    (1920.0, 1080.0),
+                    (3840.0, 2160.0),
+                ][(v[1].clamp(0, 3)) as usize];
+                self.skin.width = w;
+                self.skin.height = h;
+            }
+            "#CUSTOMOPTION" => {
+                let labels: Vec<String> = f
+                    .iter()
+                    .skip(3)
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect();
+                let first = v[2] as i32;
+                for i in 0..labels.len() as i32 {
+                    self.options.entry(first + i).or_insert(i == 0);
+                }
+                self.skin.custom_options.push(CustomOption {
+                    name: s1.to_string(),
+                    first_id: first,
+                    labels,
+                });
+            }
+            "#CUSTOMFILE" => {
+                if let Some(p) = f.get(2) {
+                    self.files.insert(
+                        p.trim().replace('\\', "/"),
+                        f.get(3).map(|s| s.trim().to_string()).unwrap_or_default(),
+                    );
+                }
+            }
+            "#SETOPTION" => {
+                self.options.insert(v[1] as i32, v[2] >= 1);
+            }
+            "#INCLUDE" => {
+                if self.depth < 8 {
+                    let p = self.path(s1);
+                    if let Ok(b) = vfs::read(&p) {
+                        self.depth += 1;
+                        for l in vibebms_core::encoding::decode_text(&b).lines() {
+                            self.line(l);
+                        }
+                        self.depth -= 1;
+                    }
+                }
+            }
+            "#IMAGE" => {
+                let p = self.path(s1);
+                let size = (self.image_size)(&p);
+                self.sizes.push(size);
+                self.skin.images.push(size.map(|_| p));
+            }
+            "#STARTINPUT" => self.skin.input_ms = v[1],
+            "#SCENETIME" => self.skin.scene_ms = v[1],
+            "#FADEOUT" => self.skin.fadeout_ms = v[1],
+            "#FINISHMARGIN" => self.skin.finish_margin_ms = v[1],
+            "#SRC_IMAGE" => {
+                self.cur = None;
+                if v[2] >= 100 {
+                    self.push(Kind::RefImage(v[2] as i32));
+                } else if let Some(s) = src(&v, &self.sizes) {
+                    self.push(Kind::Image(s));
+                }
+            }
+            "#SRC_NUMBER" | "#SRC_NOWCOMBO_1P" | "#SRC_NOWCOMBO_2P" => {
+                self.cur = None;
+                let Some(mut s) = src(&v, &self.sizes) else {
+                    return;
+                };
+                let n = s.frames.len();
+                let digits = if n % 24 == 0 {
+                    s.frames.truncate(12);
+                    12
+                } else if n % 11 == 0 {
+                    s.frames.truncate(11);
+                    11
+                } else if n >= 10 {
+                    s.frames.truncate(10);
+                    10
+                } else {
+                    return;
+                };
+                if cmd == "#SRC_NUMBER" {
+                    self.push(Kind::Number {
+                        src: s,
+                        digits,
+                        id: v[11] as i32,
+                        align: v[12] as i32,
+                        keta: v[13].max(1) as usize,
+                        zero_pad: digits > 10,
+                    });
+                } else {
+                    let side = usize::from(cmd.ends_with("2P"));
+                    let j = if v[1] <= 5 {
+                        (5 - v[1]) as usize
+                    } else {
+                        return;
+                    };
+                    let keta = v[13].max(1) as usize;
+                    self.skin.judges[side].combo[j] = Some((s, Dst::default(), keta));
+                    self.judge_side = side;
+                    self.lane_kind = j;
+                }
+            }
+            "#DST_NOWCOMBO_1P" | "#DST_NOWCOMBO_2P" => {
+                let side = usize::from(cmd.ends_with("2P"));
+                if v[1] <= 5 {
+                    if let Some((_, d, _)) =
+                        self.skin.judges[side].combo[(5 - v[1]) as usize].as_mut()
+                    {
+                        add_dst(d, &v);
+                    }
+                }
+            }
+            "#SRC_TEXT" => self.push(Kind::Text {
+                id: v[3] as i32,
+                align: v[4] as i32,
+            }),
+            "#SRC_BARGRAPH" => {
+                self.cur = None;
+                if let Some(s) = src(&v, &self.sizes) {
+                    self.push(Kind::Bar {
+                        src: s,
+                        id: v[11] as i32 + 100,
+                        dir: v[12] as i32,
+                    });
+                }
+            }
+            "#SRC_SLIDER" => {
+                self.cur = None;
+                if let Some(s) = src(&v, &self.sizes) {
+                    self.push(Kind::Slider {
+                        src: s,
+                        id: v[13] as i32,
+                        dir: v[11] as i32,
+                        range: v[12] as f32,
+                    });
+                }
+            }
+            "#SRC_GROOVEGAUGE" => {
+                self.cur = None;
+                if let Some(s) = src(&v, &self.sizes) {
+                    let parts = if v[13] > 0 {
+                        v[13] as usize
+                    } else if self.mode() == vibebms_core::PlayMode::Popn9K {
+                        24
+                    } else {
+                        50
+                    };
+                    let (pw, ph) = (s.frames[0][2], s.frames[0][3]);
+                    self.push(Kind::Gauge {
+                        src: s,
+                        part_w: pw,
+                        part_h: ph,
+                        step: (v[11] as f32, v[12] as f32),
+                        parts,
+                    });
+                }
+            }
+            "#SRC_BGA" => self.push(Kind::Bga),
+            "#SRC_JUDGELINE" => {
+                self.cur = None;
+                if let Some(s) = src(&v, &self.sizes) {
+                    self.push(Kind::JudgeLine(s));
+                }
+            }
+            "#SRC_LINE" => self.pending_line = src(&v, &self.sizes),
+            "#DST_LINE" => {
+                if let Some(s) = self.pending_line.take() {
+                    let mut d = Dst::default();
+                    add_dst(&mut d, &v);
+                    self.skin.bar_line = Some((s, d));
+                } else if let Some((_, d)) = self.skin.bar_line.as_mut() {
+                    add_dst(d, &v);
+                }
+            }
+            "#SRC_NOTE" => self.lane_src(&v, 0),
+            "#SRC_LN_START" => self.lane_src(&v, 1),
+            "#SRC_LN_END" => self.lane_src(&v, 2),
+            "#SRC_LN_BODY" | "#SRC_LN_BODY_INACTIVE" => self.lane_src(&v, 3),
+            "#SRC_LN_BODY_ACTIVE" => self.lane_src(&v, 4),
+            "#SRC_MINE" => self.lane_src(&v, 5),
+            "#DST_NOTE" => {
+                let mode = self.mode();
+                if let Some(l) = lane_of(mode, v[1]) {
+                    if self.skin.lanes.len() < mode.lane_count() {
+                        self.skin
+                            .lanes
+                            .resize(mode.lane_count(), LaneSkin::default());
+                    }
+                    if self.skin.lanes[l].rect.is_none() {
+                        self.skin.lanes[l].rect = Some(Rect::new(
+                            v[3] as f32,
+                            v[4] as f32,
+                            v[5] as f32,
+                            v[6] as f32,
+                        ));
+                    }
+                    if !self
+                        .skin
+                        .objects
+                        .iter()
+                        .any(|o| matches!(o.kind, Kind::Notes))
+                    {
+                        self.skin.objects.push(Obj {
+                            kind: Kind::Notes,
+                            dst: Dst::default(),
+                        });
+                    }
+                }
+                self.cur = None;
+            }
+            "#SRC_NOWJUDGE_1P" | "#SRC_NOWJUDGE_2P" => {
+                self.cur = None;
+                let side = usize::from(cmd.ends_with("2P"));
+                if v[1] > 5 {
+                    return;
+                }
+                if let Some(s) = src(&v, &self.sizes) {
+                    let js = &mut self.skin.judges[side];
+                    js.judge[(5 - v[1]) as usize] = Some((s, Dst::default()));
+                    js.shift = v[11] != 1;
+                    if !self
+                        .skin
+                        .objects
+                        .iter()
+                        .any(|o| matches!(o.kind, Kind::Judge { side: s } if s == side))
+                    {
+                        self.skin.objects.push(Obj {
+                            kind: Kind::Judge { side },
+                            dst: Dst::default(),
+                        });
+                    }
+                }
+            }
+            "#DST_NOWJUDGE_1P" | "#DST_NOWJUDGE_2P" => {
+                let side = usize::from(cmd.ends_with("2P"));
+                if v[1] <= 5 {
+                    if let Some((_, d)) = self.skin.judges[side].judge[(5 - v[1]) as usize].as_mut()
+                    {
+                        add_dst(d, &v);
+                    }
+                }
+            }
+            c if c.starts_with("#DST_") => {
+                if let Some(i) = self.cur {
+                    let o = &mut self.skin.objects[i];
+                    if let Kind::Gauge { step, .. } = &o.kind {
+                        // the gauge width covers all parts; keep the per-part size
+                        let mut v2 = v;
+                        if step.0.abs() >= 1.0 {
+                            v2[5] = step.0.abs() as i64;
+                        }
+                        add_dst(&mut o.dst, &v2);
+                    } else {
+                        add_dst(&mut o.dst, &v);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// condition stack lives outside `Loader` to keep the borrowck simple
+impl Loader<'_> {
+    fn conds_top(&self) -> (bool,) {
+        (self.conds.iter().any(|c| c.skip),)
+    }
+    fn parent_skip(&self) -> bool {
+        let n = self.conds.len();
+        n > 1 && self.conds[..n - 1].iter().any(|c| c.skip)
+    }
+}
+
+/// Load an LR2 skin. `static_option` answers chart/config dependent `#IF`
+/// conditions at load time; `image_size` checks (and measures) image files.
+pub fn load(
+    path: &Path,
+    skins_root: &Path,
+    user_options: &HashMap<i32, bool>,
+    static_option: &dyn Fn(i32) -> Option<bool>,
+    image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
+) -> Result<Skin, String> {
+    let bytes = vfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = vibebms_core::encoding::decode_text(&bytes);
+    let mut l = Loader {
+        root: skins_root.to_path_buf(),
+        dir: path.parent().unwrap_or(Path::new("")).to_path_buf(),
+        options: user_options.clone(),
+        static_option,
+        files: HashMap::new(),
+        skin: Skin {
+            path: path.to_path_buf(),
+            name: String::new(),
+            author: String::new(),
+            kind: SkinType::Play7,
+            width: 640.0,
+            height: 480.0,
+            images: Vec::new(),
+            objects: Vec::new(),
+            lanes: Vec::new(),
+            judges: Default::default(),
+            bar_line: None,
+            custom_options: Vec::new(),
+            scene_ms: 0,
+            input_ms: 0,
+            fadeout_ms: 0,
+            finish_margin_ms: 0,
+        },
+        sizes: Vec::new(),
+        image_size,
+        cur: None,
+        lane_kind: 0,
+        judge_side: 0,
+        pending_line: None,
+        depth: 0,
+        conds: Vec::new(),
+    };
+    for line in text.lines() {
+        l.line(line);
+    }
+    let _ = (l.lane_kind, l.judge_side);
+    if l.skin.objects.is_empty() {
+        return Err(format!("{}: no drawable objects", path.display()));
+    }
+    Ok(l.skin)
+}
+
+/// Read only the header: (type, name).
+pub fn header(path: &Path) -> Option<(SkinType, String)> {
+    let b = vfs::read(path).ok()?;
+    let text = vibebms_core::encoding::decode_text(&b);
+    text.lines()
+        .find(|l| l.to_ascii_uppercase().starts_with("#INFORMATION"))
+        .map(|l| {
+            let f: Vec<&str> = l.split(',').collect();
+            (
+                SkinType::from_id(f.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(0)),
+                f.get(2).unwrap_or(&"").trim().to_string(),
+            )
+        })
+}
+
+/// All `.lr2skin` files below `dir`.
+pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
+    fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+        if depth > 4 {
+            return;
+        }
+        for e in vfs::read_dir(d).unwrap_or_default() {
+            if e.is_dir {
+                walk(&e.path, depth + 1, out);
+            } else if e
+                .path
+                .extension()
+                .map(|x| x.eq_ignore_ascii_case("lr2skin"))
+                .unwrap_or(false)
+            {
+                out.push(e.path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(dir, 0, &mut files);
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|p| header(&p).map(|(t, n)| (p, t, n)))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_play_skin() {
+        let dir = std::env::temp_dir().join(format!("vibebms-skin-{}", std::process::id()));
+        let theme = dir.join("MySkin");
+        std::fs::create_dir_all(&theme).unwrap();
+        let csv = "#INFORMATION,0,Test,me\n#CUSTOMOPTION,Lane,900,Dark,Light\n#IMAGE,LR2files\\Theme\\MySkin\\a.png\n#IMAGE,missing.png\n\
+#IF,901\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n#DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n#ELSE\n#SRC_IMAGE,0,0,0,0,20,20,2,1,100,0\n#DST_IMAGE,0,0,5,5,20,20,0,255,255,255,255,0,0,0,0,-1,41,32\n#DST_IMAGE,0,1000,50,5,20,20\n#ENDIF\n\
+#SRC_NUMBER,0,0,0,0,110,10,11,1,0,0,101,0,6\n#DST_NUMBER,0,0,100,100,8,10,0,255,255,255,255\n\
+#SRC_NOTE,1,0,0,0,10,4,1,1,0,0\n#SRC_NOTE,0,0,0,0,20,4,1,1,0,0\n#DST_NOTE,0,0,30,0,20,400,0,255,255,255,255\n#DST_NOTE,1,0,50,0,10,400,0,255,255,255,255\n\
+#SRC_NOWJUDGE_1P,5,0,0,0,40,10,1,1,0,0\n#DST_NOWJUDGE_1P,5,0,60,200,40,10,0,255,255,255,255,0,0,0,0,-1,46\n";
+        std::fs::write(theme.join("play.lr2skin"), csv).unwrap();
+        let size = |p: &Path| {
+            p.file_name()
+                .map(|n| n == "a.png")
+                .unwrap_or(false)
+                .then_some((128, 64))
+        };
+        let s = load(
+            &theme.join("play.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        assert_eq!(s.name, "Test");
+        assert_eq!(s.kind, SkinType::Play7);
+        assert_eq!(s.images.len(), 2);
+        assert!(s.images[1].is_none());
+        // option 900 (Dark) is the default, so the #ELSE branch is used
+        let Kind::Image(src) = &s.objects[0].kind else {
+            panic!()
+        };
+        assert_eq!(src.frames.len(), 2);
+        assert_eq!(s.objects[0].dst.keys.len(), 2);
+        assert_eq!(s.objects[0].dst.timer, 41);
+        assert_eq!(s.objects[0].dst.ops, vec![32]);
+        assert!(matches!(
+            s.objects[1].kind,
+            Kind::Number {
+                digits: 11,
+                id: 101,
+                keta: 6,
+                ..
+            }
+        ));
+        assert_eq!(s.lanes[7].rect.unwrap().w, 20.0); // scratch
+        assert!(s.lanes[0].note.is_some());
+        assert!(s.objects.iter().any(|o| matches!(o.kind, Kind::Notes)));
+        assert!(s.judges[0].judge[0].is_some()); // LR2 index 5 = PGREAT
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

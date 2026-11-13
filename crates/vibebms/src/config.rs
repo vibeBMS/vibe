@@ -334,6 +334,8 @@ pub struct Config {
     pub audio: AudioSettings,
     pub tables: Vec<TableConfig>,
     pub ir: Vec<IrConfig>,
+    /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
+    pub skins: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -357,6 +359,7 @@ impl Default for Config {
                 })
                 .collect(),
             ir: vec![IrConfig::default()],
+            skins: Default::default(),
         }
     }
 }
