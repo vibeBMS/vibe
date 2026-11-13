@@ -255,6 +255,48 @@ pub enum Kind {
 pub struct Obj {
     pub kind: Kind,
     pub dst: Dst,
+    /// Clickable: (event id, click mode) as beatoraja `act` / `click`.
+    pub act: Option<(i32, i32)>,
+}
+
+/// Bar types of the music select list (beatoraja `bar` imageset order).
+pub const BAR_SONG: usize = 0;
+pub const BAR_FOLDER: usize = 1;
+pub const BAR_TABLE: usize = 2;
+pub const BAR_GRADE: usize = 3;
+pub const BAR_NOGRADE: usize = 4;
+pub const BAR_COMMAND: usize = 5;
+pub const BAR_SEARCH: usize = 6;
+pub const BAR_NOSONG: usize = 7;
+
+/// A number font: source frames, glyph count (10/11/12), digits, align.
+#[derive(Clone, Debug)]
+pub struct NumberFont {
+    pub src: Src,
+    pub digits: usize,
+    pub keta: usize,
+    pub align: i32,
+}
+
+/// Music select bar list (beatoraja `songlist`, LR2 `#SRC_BAR_*`). The
+/// title, level and lamp destinations are relative to each bar.
+#[derive(Clone, Debug, Default)]
+pub struct SongListSkin {
+    /// Slot of the selected bar.
+    pub center: usize,
+    /// Slots that react to clicks (empty = all).
+    pub clickable: Vec<usize>,
+    /// Bar destination per slot, selected (`on`) and not (`off`).
+    pub on: Vec<Option<Dst>>,
+    pub off: Vec<Option<Dst>>,
+    /// Bar body per bar type (`BAR_*`).
+    pub body: Vec<Option<Src>>,
+    /// Title text: (destination, align).
+    pub text: Option<(Dst, i32)>,
+    /// Level number per difficulty (0..=6).
+    pub level: Vec<Option<(NumberFont, Dst)>>,
+    /// Clear lamp per clear type (beatoraja order, 0..=10).
+    pub lamp: Vec<Option<(Src, Dst)>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -365,6 +407,7 @@ pub struct Skin {
     pub judges: [JudgeSkin; 2],
     /// Bar (measure) lines, one per lane group (both sides in DP).
     pub bar_lines: Vec<(Src, Dst)>,
+    pub songlist: Option<SongListSkin>,
     pub custom_options: Vec<CustomOption>,
     pub scene_ms: i64,
     pub input_ms: i64,

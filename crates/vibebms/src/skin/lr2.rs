@@ -201,8 +201,19 @@ impl Loader<'_> {
         self.skin.objects.push(Obj {
             kind,
             dst: Dst::default(),
+            act: None,
         });
         self.cur = Some(self.skin.objects.len() - 1);
+    }
+
+    /// The bar list, added to the draw order at its first command.
+    fn songlist(&mut self) -> &mut SongListSkin {
+        if self.skin.songlist.is_none() {
+            self.skin.songlist = Some(SongListSkin::default());
+            self.push(Kind::SongList);
+            self.cur = None;
+        }
+        self.skin.songlist.as_mut().unwrap()
     }
 
     fn mode(&self) -> vibebms_core::PlayMode {
@@ -452,6 +463,107 @@ impl Loader<'_> {
                 }
             }
             "#SRC_BGA" => self.push(Kind::Bga),
+            // music select bar list
+            "#BAR_CENTER" => self.songlist().center = v[1].max(0) as usize,
+            "#BAR_AVAILABLE" => {
+                let (a, b) = (v[1].max(0) as usize, v[2].max(0) as usize);
+                self.songlist().clickable = (a.min(b)..=a.max(b)).collect();
+            }
+            "#SRC_BAR_BODY" => {
+                // LR2 bar types -> BAR_* (song, folder, custom folder, new,
+                // rival, ?, course, ...)
+                const MAP: [usize; 10] = [
+                    BAR_SONG,
+                    BAR_FOLDER,
+                    BAR_TABLE,
+                    BAR_SONG,
+                    BAR_FOLDER,
+                    BAR_COMMAND,
+                    BAR_GRADE,
+                    BAR_NOGRADE,
+                    BAR_SEARCH,
+                    BAR_NOSONG,
+                ];
+                let Some(t) = MAP.get(v[1].max(0) as usize).copied() else {
+                    return;
+                };
+                let sz = src(&v, &self.sizes);
+                let sl = self.songlist();
+                if sl.body.len() <= t {
+                    sl.body.resize(t + 1, None);
+                }
+                sl.body[t] = sz;
+            }
+            "#DST_BAR_BODY_OFF" | "#DST_BAR_BODY_ON" => {
+                let slot = v[1].max(0) as usize;
+                let on = cmd.ends_with("ON");
+                let sl = self.songlist();
+                let list = if on { &mut sl.on } else { &mut sl.off };
+                if list.len() <= slot {
+                    list.resize(slot + 1, None);
+                }
+                add_dst(list[slot].get_or_insert_with(Dst::default), &v);
+            }
+            "#DST_BAR_TITLE" => {
+                if v[1] == 0 {
+                    let sl = self.songlist();
+                    let (d, _) = sl.text.get_or_insert_with(|| (Dst::default(), 0));
+                    add_dst(d, &v);
+                }
+            }
+            "#SRC_BAR_LEVEL" => {
+                let Some(s_) = src(&v, &self.sizes) else {
+                    return;
+                };
+                let n = s_.frames.len();
+                let digits = if n % 24 == 0 {
+                    12
+                } else if n % 11 == 0 {
+                    11
+                } else {
+                    10
+                };
+                let k = v[1].clamp(0, 6) as usize;
+                let font = NumberFont {
+                    src: s_,
+                    digits,
+                    keta: v[13].max(1) as usize,
+                    align: v[12] as i32,
+                };
+                let sl = self.songlist();
+                if sl.level.len() <= k {
+                    sl.level.resize(k + 1, None);
+                }
+                sl.level[k] = Some((font, Dst::default()));
+            }
+            "#DST_BAR_LEVEL" => {
+                let k = v[1].clamp(0, 6) as usize;
+                if let Some(Some((_, d))) = self.songlist().level.get_mut(k) {
+                    add_dst(d, &v);
+                }
+            }
+            "#SRC_BAR_LAMP" => {
+                // LR2 lamps: no play, failed, easy, clear, hard, full combo, ...
+                const MAP: [usize; 8] = [0, 1, 4, 5, 6, 8, 9, 10];
+                let Some(k) = MAP.get(v[1].max(0) as usize).copied() else {
+                    return;
+                };
+                let s_ = src(&v, &self.sizes);
+                let sl = self.songlist();
+                if sl.lamp.len() <= k {
+                    sl.lamp.resize(k + 1, None);
+                }
+                sl.lamp[k] = s_.map(|s_| (s_, Dst::default()));
+            }
+            "#DST_BAR_LAMP" => {
+                const MAP: [usize; 8] = [0, 1, 4, 5, 6, 8, 9, 10];
+                let Some(k) = MAP.get(v[1].max(0) as usize).copied() else {
+                    return;
+                };
+                if let Some(Some((_, d))) = self.songlist().lamp.get_mut(k) {
+                    add_dst(d, &v);
+                }
+            }
             "#SRC_GAUGECHART_1P" | "#SRC_GAUGECHART" => self.push(Kind::Graph(GraphKind::Gauge)),
             "#SRC_SCORECHART" => self.push(Kind::Graph(GraphKind::Judge(1))),
             "#SRC_JUDGELINE" => {
@@ -501,6 +613,7 @@ impl Loader<'_> {
                         self.skin.objects.push(Obj {
                             kind: Kind::Notes,
                             dst: Dst::default(),
+                            act: None,
                         });
                     }
                 }
@@ -525,6 +638,7 @@ impl Loader<'_> {
                         self.skin.objects.push(Obj {
                             kind: Kind::Judge { side },
                             dst: Dst::default(),
+                            act: None,
                         });
                     }
                 }
@@ -598,6 +712,7 @@ pub fn load(
             lanes: Vec::new(),
             judges: Default::default(),
             bar_lines: Vec::new(),
+            songlist: None,
             custom_options: Vec::new(),
             scene_ms: 0,
             input_ms: 0,
@@ -696,6 +811,41 @@ pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_select_bars() {
+        let dir = std::env::temp_dir().join(format!("vibebms-sel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let csv = "#INFORMATION,5,Sel,me\n#IMAGE,a.png\n\
+#SRC_BAR_BODY,0,0,0,0,100,20,1,1,0,0\n#SRC_BAR_BODY,1,0,0,20,100,20,1,1,0,0\n\
+#DST_BAR_BODY_OFF,0,0,10,10,100,20,0,255,255,255,255\n#DST_BAR_BODY_OFF,1,0,10,30,100,20,0,255,255,255,255\n\
+#DST_BAR_BODY_ON,1,0,0,30,110,20,0,255,255,255,255\n#BAR_CENTER,1\n#BAR_AVAILABLE,0,1\n\
+#DST_BAR_TITLE,0,0,20,2,70,16,0,255,255,255,255\n\
+#SRC_BAR_LEVEL,2,0,0,40,100,10,10,1,0,0,0,0,2\n#DST_BAR_LEVEL,2,0,80,4,8,10,0,255,255,255,255\n\
+#SRC_BAR_LAMP,3,0,0,50,4,20,1,1,0,0\n#DST_BAR_LAMP,3,0,2,0,4,20,0,255,255,255,255\n";
+        std::fs::write(dir.join("select.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let s = load(
+            &dir.join("select.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        assert_eq!(s.kind, SkinType::Select);
+        assert!(matches!(s.objects[0].kind, Kind::SongList));
+        let sl = s.songlist.unwrap();
+        assert_eq!((sl.center, sl.clickable.clone()), (1, vec![0, 1]));
+        assert_eq!(sl.off.len(), 2);
+        assert!(sl.on[1].is_some() && sl.on[0].is_none());
+        assert!(sl.body[BAR_SONG].is_some() && sl.body[BAR_FOLDER].is_some());
+        assert!(sl.text.is_some());
+        let (font, _) = sl.level[2].as_ref().unwrap();
+        assert_eq!((font.digits, font.keta), (10, 2));
+        // LR2 lamp 3 (clear) is beatoraja's NORMAL (5)
+        assert!(sl.lamp[5].is_some());
+    }
 
     #[test]
     fn parses_play_skin() {

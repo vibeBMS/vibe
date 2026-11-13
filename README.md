@@ -111,6 +111,14 @@ beatoraja 숫자 ID 425로도 제공) 및 FAST/SLOW 합계를 보여줍니다.
 그린 오리지널입니다(특정 게임의 그래픽·로고는 사용하지 않음). 수정하려면 스크립트를 고쳐 다시 실행하면
 `crates/vibebms/assets/builtin/skins/default/`가 재생성됩니다. 코드로 그리는 예전 화면은 `Play skin` 메뉴의 `CLASSIC`.
 
+### 선곡 / 결과 스킨
+선곡과 결과 화면도 스킨으로 그립니다(`SETTINGS › DISPLAY › Select skin / Result skin`, DEFAULT → CLASSIC → 설치된 스킨).
+내장 기본 스킨은 가로·세로 버전이 있고, LR2(`#SRC_BAR_BODY`/`#DST_BAR_BODY_ON/OFF`/`#BAR_CENTER`/`#BAR_AVAILABLE`/
+`#DST_BAR_TITLE`/`#SRC_BAR_LEVEL`/`#SRC_BAR_LAMP`, `#SRC_GAUGECHART`)와 beatoraja(`songlist`, `imageset`, `gaugegraph`,
+`judgegraph`, `bpmgraph`, `timingdistributiongraph`, 클릭 가능한 `act` 이미지, `ref` 이미지)를 읽습니다. 숫자·옵션·타이머 ID는
+beatoraja/LR2와 같고, vibeBMS 전용 선곡 옵션은 텍스트 `9000+i`(값) / `9100+i`(이름)와 클릭 이벤트 `9000+i`로 노출됩니다.
+선곡 옵션 패널·버튼 패널(LR2 `#SRC_BUTTON`, 패널 타이머)은 아직 지원하지 않습니다.
+
 ### 스킨 (LR2 / beatoraja)
 `skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다
 (DEFAULT → CLASSIC → 설치된 스킨 순으로 순환).

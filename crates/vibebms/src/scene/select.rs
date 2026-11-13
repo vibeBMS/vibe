@@ -7,6 +7,10 @@ use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
+use crate::scene::select_skin::{SelectHooks, SelectState};
+use crate::scene::skinned;
+use crate::skin::render::LoadedSkin;
+use crate::skin::SkinType;
 use crate::theme::Theme;
 use crate::ui;
 use std::collections::HashMap;
@@ -26,7 +30,7 @@ use winit::keyboard::KeyCode;
 const PREVIEW_KEY: u64 = u64::MAX - 1;
 
 #[derive(Clone, Debug, PartialEq)]
-enum Node {
+pub(crate) enum Node {
     Root,
     Folder(String),
     All,
@@ -37,7 +41,7 @@ enum Node {
 }
 
 #[derive(Clone, Debug)]
-enum Bar {
+pub(crate) enum Bar {
     Folder {
         label: String,
         sub: String,
@@ -66,16 +70,16 @@ enum Rank {
 
 pub struct SelectScene {
     version: u64,
-    node: Node,
+    pub(crate) node: Node,
     stack: Vec<(Node, usize)>,
-    bars: Vec<Bar>,
-    cursor: usize,
-    scroll: f32,
-    search_edit: Option<String>,
+    pub(crate) bars: Vec<Bar>,
+    pub(crate) cursor: usize,
+    pub(crate) scroll: f32,
+    pub(crate) search_edit: Option<String>,
     bar_rects: Vec<(Rect, usize)>,
     opt_rects: Vec<(Rect, usize)>,
     drag: Option<(u64, f32, f32, bool)>,
-    last_move: Instant,
+    pub(crate) last_move: Instant,
     held_nav: Option<(Nav, Instant, Instant)>,
     md5_map: HashMap<String, usize>,
     sha_map: HashMap<String, usize>,
@@ -85,6 +89,11 @@ pub struct SelectScene {
     banner: Option<(String, Option<TexId>)>,
     ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
+    pub(crate) created: Instant,
+    pub(crate) skin: Option<LoadedSkin>,
+    skin_tried: bool,
+    /// Clickable skin objects from the last frame: (rect, event, click mode).
+    skin_clicks: Vec<(Rect, i32, i32)>,
 }
 
 fn lower(s: &str) -> String {
@@ -114,6 +123,10 @@ impl SelectScene {
             banner: None,
             ranking: HashMap::new(),
             quit_armed: None,
+            created: Instant::now(),
+            skin: None,
+            skin_tried: false,
+            skin_clicks: Vec::new(),
         };
         s.rebuild(ctx);
         s
@@ -464,7 +477,7 @@ impl SelectScene {
         Next::Stay
     }
 
-    fn option_items(ctx: &Ctx) -> Vec<(String, String)> {
+    pub(crate) fn option_items(ctx: &Ctx) -> Vec<(String, String)> {
         let p = &ctx.config.play;
         vec![
             ("RANDOM".into(), p.random_1p.label().into()),
@@ -618,6 +631,23 @@ impl SelectScene {
         }
     }
 
+    /// A clicked skin object (beatoraja ids, or vibeBMS option ids).
+    fn skin_event(&mut self, ctx: &mut Ctx, act: i32) -> Next {
+        use super::select_skin::OPTION_EVENT;
+        match act {
+            15 => self.decide(ctx, false),
+            16 => self.decide(ctx, true),
+            13 | 14 => self.option(ctx, 9),
+            42 => self.option(ctx, 0),
+            40 => self.option(ctx, 1),
+            308 => self.option(ctx, 3),
+            n if (OPTION_EVENT..OPTION_EVENT + 100).contains(&n) => {
+                self.option(ctx, (n - OPTION_EVENT) as usize)
+            }
+            _ => Next::Stay,
+        }
+    }
+
     fn handle_nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
         match nav {
             Nav::Up => self.step(ctx, -1),
@@ -696,7 +726,20 @@ impl Scene for SelectScene {
         self.update_preview(ctx);
         self.update_ranking(ctx);
         self.update_banner(ctx, gfx);
+        if !self.skin_tried {
+            self.skin_tried = true;
+            let skin = {
+                let st = SelectState { s: self, ctx, now };
+                let stat = |id: i32| st.static_option(id);
+                skinned::load(ctx, gfx, SkinType::Select, &stat)
+            };
+            self.skin = skin;
+        }
         Next::Stay
+    }
+
+    fn realtime(&self) -> bool {
+        self.skin.is_some()
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
@@ -830,6 +873,14 @@ impl Scene for SelectScene {
                     if let Some(i) = ui::hit(&self.opt_rects, *x, *y) {
                         return self.option(ctx, i);
                     }
+                    if let Some(&(_, act, _)) = self
+                        .skin_clicks
+                        .iter()
+                        .rev()
+                        .find(|(r, _, _)| r.contains(*x, *y))
+                    {
+                        return self.skin_event(ctx, act);
+                    }
                     self.drag = Some((*id, *y, self.scroll, false));
                 }
                 Phase::Move => {
@@ -889,12 +940,19 @@ impl Scene for SelectScene {
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         ctx.mixer.stop(PREVIEW_KEY);
+        if let Some(mut s) = self.skin.take() {
+            s.free(gfx);
+        }
         if let Some((_, Some(t))) = self.banner.take() {
             gfx.free_texture(t);
         }
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        if self.skin.is_some() {
+            self.draw_skinned(ctx, d, now);
+            return;
+        }
         let ui = ctx.ui();
         let th = ctx.theme.clone();
         let (w, h) = (ctx.width, ctx.height);
@@ -1026,7 +1084,50 @@ impl Scene for SelectScene {
 }
 
 impl SelectScene {
-    fn path_label(&self, ctx: &Ctx) -> String {
+    fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let (bars, clicks) = {
+            let st = SelectState { s: self, ctx, now };
+            let mut hooks = SelectHooks {
+                st: &st,
+                banner: self.banner.as_ref().and_then(|b| b.1),
+                bars: Vec::new(),
+                clicks: Vec::new(),
+            };
+            let ms = now.saturating_duration_since(self.created).as_millis() as i64;
+            if let Some(sk) = self.skin.as_ref() {
+                sk.draw(d, view, ms, &st, &mut hooks);
+            }
+            (hooks.bars, hooks.clicks)
+        };
+        self.bar_rects = bars;
+        self.skin_clicks = clicks;
+        self.opt_rects.clear();
+        // search box (typing is not part of skins)
+        if let Some(q) = &self.search_edit {
+            let ui = ctx.ui();
+            let th = &ctx.theme;
+            let r = Rect::new(
+                ctx.width * 0.25,
+                ctx.height * 0.45,
+                ctx.width * 0.5,
+                44.0 * ui,
+            );
+            d.b.rect(r, with_alpha(th.panel, 0.97));
+            d.b.rect_outline(r, 2.0, th.accent);
+            d.text_fit(
+                &format!("SEARCH: {q}_"),
+                r.x + 12.0 * ui,
+                r.y + 10.0 * ui,
+                20.0 * ui,
+                th.text,
+                Align::Left,
+                r.w - 24.0 * ui,
+            );
+        }
+    }
+
+    pub(crate) fn path_label(&self, ctx: &Ctx) -> String {
         let name = |n: &Node| -> String {
             match n {
                 Node::Root => "ROOT".into(),

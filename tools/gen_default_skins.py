@@ -476,6 +476,33 @@ def build_parts(fonts):
         a.add(f"rank{k}", c)
     a.add("newrec", text_img(fonts, "NEW RECORD", "black_it", 18, (255, 255, 255), PINK, (60, 0, 40), 2))
     a.add("autotag", text_img(fonts, "AUTOPLAY - NOT SAVED", "bold", 14, AMBER, AMBER, (40, 30, 0), 1))
+    # music select: bar bodies per bar type (beatoraja order), cursor, lamp, buttons
+    bar_accents = [TEAL, AMBER, (90, 220, 120), PINK, (150, 110, 130), BLUE, (170, 120, 255),
+                   (110, 115, 130)]
+    for k, acc in enumerate(bar_accents):
+        bw, bh = 560, 44
+        b = Image.new("RGBA", (bw, bh))
+        g = vgrad(bw - 2, bh - 2, (34, 40, 58), (22, 26, 38))
+        m = Image.new("L", (bw - 2, bh - 2))
+        ImageDraw.Draw(m).rounded_rectangle((0, 0, bw - 3, bh - 3), 6, fill=255)
+        b.paste(g, (1, 1), m)
+        bd = ImageDraw.Draw(b)
+        bd.rounded_rectangle((0, 0, bw - 1, bh - 1), 7, outline=EDGE + (255,))
+        bd.rounded_rectangle((6, 6, 11, bh - 7), 2, fill=acc + (255,))
+        if k in (1, 2, 5, 6):  # folders: a small chevron
+            bd.polygon([(bw - 26, 16), (bw - 18, 22), (bw - 26, 28)], fill=acc + (255,))
+        a.add(f"bar{k}", b)
+    cur = Image.new("RGBA", (580, 52))
+    ImageDraw.Draw(cur).rounded_rectangle((2, 2, 577, 49), 9, outline=TEAL + (255,), width=2)
+    a.add("barcursor", cur.filter(ImageFilter.GaussianBlur(0.6)))
+    a.add("lampcell", rounded(10, 32, 3, (255, 255, 255, 255)))
+    a.add("optbtn", rounded(124, 62, 8, PANEL_HI + (255,), EDGE + (255,)))
+    for name, label, col in (("lbl_ln", "LN", TEAL), ("lbl_rand", "RANDOM", PINK),
+                             ("lbl_bpm", "BPM CHANGE", AMBER), ("lbl_bga", "BGA", BLUE)):
+        im = text_img(fonts, label, "bold", 13, (255, 255, 255), (255, 255, 255), (0, 0, 0), 0, pad=6)
+        bg = rounded(im.size[0] + 8, 22, 5, col + (255,))
+        bg.alpha_composite(im, (4, (22 - im.size[1]) // 2))
+        a.add(name, bg)
     for name, label in (("gt_normal", "NORMAL"), ("gt_hard", "HARD"), ("gt_hazard", "HAZARD"),
                         ("gt_easy", "EASY"), ("gt_aeasy", "ASSIST EASY"), ("gt_exhard", "EX-HARD")):
         a.add(name, text_img(fonts, label, "bold", 13, TEXT, DIM, (0, 0, 0), 1, pad=2))
@@ -517,6 +544,9 @@ class Skin:
         }
         # x remapping for layouts that move whole blocks (2P side)
         self.xmap = None
+        # region relayout (portrait from a landscape design): list of
+        # ((x, y, w, h) source rect, (x, y) target) -- see relayout()
+        self.regions = None
         self._ids = set()
 
     def source(self, sid, path):
@@ -582,8 +612,25 @@ class Skin:
         k.update(kw)
         return k
 
+    def shift_of(self, x, y):
+        """Translation of the region containing (x, y); None = dropped."""
+        if self.regions is None:
+            return (0, 0)
+        for (sx, sy, sw, sh), (tx, ty) in self.regions:
+            if sx <= x < sx + sw and sy <= y < sy + sh:
+                return (tx - sx, ty - sy)
+        return None
+
     def put(self, iid, x, y, w, h, timer=0, loop=0, op=None, blend=0, center=0, keys=None,
             fixed=False, **kw):
+        if not fixed and self.regions is not None:
+            px, py = (keys[-1][0], keys[-1][1]) if keys else (x, y)
+            t = self.shift_of(px, py)
+            if t is None:
+                return None
+            if keys:
+                keys = [(k[0] + t[0], k[1] + t[1]) + tuple(k[2:]) for k in keys]
+            x, y = x + t[0], y + t[1]
         d = {"id": iid}
         if timer:
             d["timer"] = timer
@@ -1256,6 +1303,30 @@ def port_sp(fonts, parts, mode, side):
 
 
 # --- result screen ------------------------------------------------------------
+def relayout(sk, regions):
+    """Move whole regions of a landscape design (portrait variants)."""
+    sk.regions = regions
+
+
+def compose(img, regions, w, h):
+    out = background(w, h)
+    for (sx, sy, sw, sh), (tx, ty) in regions:
+        out.paste(img.crop((sx, sy, sx + sw, sy + sh)), (tx, ty))
+    return out
+
+
+RESULT_PORTRAIT = [
+    ((16, 16, 616, 644), (52, 16)),     # title, result, score, judge
+    ((648, 16, 616, 260), (52, 668)),   # gauge graph
+    ((648, 468, 616, 192), (52, 936)),  # timing distribution
+]
+
+SELECT_PORTRAIT = [
+    ((16, 16, 660, 334), (30, 16)),     # title, stage file, chart facts
+    ((16, 358, 660, 140), (30, 358)),   # personal best
+    ((16, 506, 660, 154), (30, 1062)),  # options
+    ((16, 668, 660, 40), (30, 1224)),   # path
+]
 def graph_obj(sk, kind, gid, extra=None):
     lst = sk.j.setdefault(kind, [])
     if gid not in sk._ids:
@@ -1309,12 +1380,14 @@ def result_compare(sk, img, f, x, y, w, h):
         sk.number("n_signed", diff, 6, c_diff - sw * 6, ry + 4)
 
 
-def result_layout(fonts, parts):
+def result_layout(fonts, parts, portrait=False):
     W, H = 1280, 720
-    sk = Skin(7, "vibeBMS Default Result", W, H, parts)
+    sk = Skin(7, "vibeBMS Default Result", *((720, 1280) if portrait else (W, H)), parts)
+    if portrait:
+        relayout(sk, RESULT_PORTRAIT)
     sk.j.update({"input": 500, "fadeout": 400, "scene": 3600000})
-    sk.source("bg", "bg_result.png")
-    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
+    sk.source("bg", f"bg_result{'_portrait' if portrait else ''}.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, sk.w, sk.h, fixed=True)
     img = background(W, H)
     f = fonts
     # left: title, clear lamp + rank, score comparison, judge table
@@ -1364,6 +1437,138 @@ def result_layout(fonts, parts):
     draw_label(img, f, 352, 688, "-", 12, TEXT, anchor="lm")
     sk.number("n_small", 90, 3, 362, 678, color=(255, 130, 180))
     draw_label(img, f, 1250, 688, "START / TAP: CONTINUE    R: RETRY", 12, DIM, anchor="rm")
+    if portrait:
+        img = compose(img, RESULT_PORTRAIT, 720, 1280)
+    return sk, img
+
+
+# --- music select ---------------------------------------------------------------
+DIFF_COLORS = [(170, 175, 190), (90, 220, 120), (90, 170, 255), (255, 210, 80), (255, 90, 110),
+               (190, 120, 255), (200, 200, 200)]
+LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (70, 210, 120),
+               (60, 160, 255), (255, 80, 92), (255, 210, 60), (45, 226, 199), (255, 180, 230),
+               (255, 255, 255)]
+
+
+def select_layout(fonts, parts, portrait=False):
+    W, H = 1280, 720
+    sk = Skin(5, "vibeBMS Default Select", *((720, 1280) if portrait else (W, H)), parts)
+    if portrait:
+        relayout(sk, SELECT_PORTRAIT)
+    sk.j.update({"input": 300, "scene": 3600000, "fadeout": 0})
+    sk.source("bg", f"bg_select{'_portrait' if portrait else ''}.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, sk.w, sk.h, fixed=True)
+    img = background(W, H)
+    f = fonts
+    d = ImageDraw.Draw(img)
+    # --- song list (right) ---
+    if portrait:
+        slots, center, bh, gap = 12, 5, 44, 46
+        lx, lw = 58, 632
+        cy = 510 + center * gap
+    else:
+        slots, center, bh, gap = 17, 8, 44, 46
+        lx, lw = 704, 560
+        cy = H // 2 - bh // 2
+    off, on = [], []
+    for k in range(slots):
+        y = cy + (k - center) * gap
+        off.append({"id": "bar", "dst": [sk.key(lx, y, lw, bh, fixed=True, time=0, r=190, g=195,
+                                                b=210)]})
+        on.append({"id": "bar", "dst": [sk.key(lx - 28, y, lw + 28, bh, fixed=True, time=0)]})
+    graph_obj(sk, "imageset", "bar", {"images": [sk.img(f"bar{k}") for k in range(8)]})
+    sk.j["text"].append({"id": "bartext", "ref": 0, "align": 0})
+    # sub-destinations: y-up offsets from the bar's bottom
+    rel = lambda x, y, w, h, **kw: dict(time=0, x=x, y=bh - (y + h), w=w, h=h, **kw)
+    level = []
+    for k, col in enumerate(DIFF_COLORS):
+        iid, cw, ch = sk.num("n_mid", 96, 2)
+        level.append({"id": iid, "dst": [rel(lw - 28 - 2 * cw, 8, cw, ch, r=col[0], g=col[1],
+                                                 b=col[2])]})
+    lamp = []
+    for k, col in enumerate(LAMP_COLORS):
+        lamp.append({"id": sk.img("lampcell"), "dst": [rel(18, 6, 8, 32, r=col[0], g=col[1],
+                                                           b=col[2])]})
+    sk.j["songlist"] = {
+        "id": "songlist", "center": center, "clickable": list(range(slots)),
+        "listoff": off, "liston": on,
+        "text": [{"id": "bartext", "dst": [rel(36, 11, lw - 120, 22)]}],
+        "level": level, "lamp": lamp,
+    }
+    sk.put("songlist", 0, 0, sk.w, sk.h, fixed=True)
+    cw_, ch_ = parts.items["barcursor"][2:]
+    sk.put(sk.img("barcursor"), 0, 0, 0, 0, blend=2, loop=0, fixed=True, keys=[
+        (lx - 28 - 10, cy - 4, lw + 28 + 20, bh + 8, dict(time=0, a=255)),
+        (lx - 28 - 10, cy - 4, lw + 28 + 20, bh + 8, dict(time=600, a=140)),
+        (lx - 28 - 10, cy - 4, lw + 28 + 20, bh + 8, dict(time=1200, a=255)),
+    ])
+    # --- left: selected chart ---
+    header(sk, img, f, 16, 16, 660, 86)
+    # stage file / banner (4:3)
+    d.rounded_rectangle((16, 110, 336, 350), 6, fill=(0, 0, 0, 255), outline=EDGE + (255,))
+    sk.j["image"].append({"id": "stagefile", "ref": 100})
+    sk._ids.add("stagefile")
+    sk.put("stagefile", 20, 114, 312, 234, op=[191])
+    sk.j["image"].append({"id": "banner", "ref": 102})
+    sk._ids.add("banner")
+    sk.put("banner", 20, 114, 312, 234, op=[190, 193])
+    # chart facts
+    panel(img, (344, 110, 332, 240), "CHART", f)
+    draw_label(img, f, 358, 146, "LEVEL", 13, TEXT)
+    for k, col in enumerate(DIFF_COLORS[:6]):
+        sk.number("n_big", 96, 2, 600, 134, color=col, op=[150 + k])
+    draw_label(img, f, 358, 190, "BPM", 13, TEXT)
+    sk.number("n_mid", 91, 3, 470, 180, color=(130, 190, 255))
+    draw_label(img, f, 534, 190, "-", 14, TEXT)
+    sk.number("n_mid", 90, 3, 548, 180, color=(255, 130, 180), op=[177])
+    draw_label(img, f, 358, 228, "NOTES", 13, TEXT)
+    sk.number("n_mid", 74, 5, 556, 218)
+    draw_label(img, f, 358, 266, "LENGTH", 13, TEXT)
+    sk.number("n_mid", 1163, 2, 566, 256)
+    draw_label(img, f, 612, 266, ":", 16, TEXT, "bold", anchor="ma")
+    sk.number("n_mid", 1164, 2, 620, 256, zeropad=True)
+    lx2 = 358
+    for key, op in (("lbl_ln", 173), ("lbl_rand", 179), ("lbl_bpm", 177), ("lbl_bga", 171)):
+        w_, h_ = parts.items[key][2:]
+        sk.put(sk.img(key), lx2, 310, w_, h_, op=[op, 2])
+        lx2 += w_ + 6
+    # personal best
+    panel(img, (16, 358, 660, 140), "PERSONAL BEST", f, accent=AMBER)
+    graph_obj(sk, "imageset", "clear", {"ref": 370, "images": [sk.img(f"lamp{k}") for k in range(11)]})
+    lw_, lh_ = parts.items["lamp0"][2:]
+    sk.put("clear", 26, 380, lw_ * 2 // 3, lh_ * 2 // 3, op=[2])
+    rw, rh = parts.items["rank0"][2:]
+    for k in range(8):
+        sk.put(sk.img(f"rank{k}"), 676 - 16 - rw // 2, 362, rw // 2, rh // 2, op=[320 + k])
+    for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 200), ("MISS", 350), ("COMBO", 470))):
+        draw_label(img, f, x, 448, label, 11)
+    sk.number("n_mid", 71, 5, 30, 462, op=[2])
+    sk.number("n_mid", 102, 3, 200, 462, op=[2])
+    sk.put(sk.img("white"), 200 + 21 * 3 + 1, 484, 4, 4, op=[2])
+    sk.number("n_mid", 103, 2, 200 + 21 * 3 + 6, 462, zeropad=True, op=[2])
+    sk.number("n_mid", 76, 4, 350, 462, op=[2])
+    sk.number("n_mid", 75, 5, 470, 462, op=[2])
+    draw_label(img, f, 590, 448, "PLAYS", 11)
+    sk.number("n_small", 77, 4, 590, 466, op=[2])
+    # options: clickable buttons (vibeBMS option ids 9000 + i)
+    panel(img, (16, 506, 660, 154), "OPTIONS", f)
+    for i in range(10):
+        bx, by = 26 + (i % 5) * 130, 530 + (i // 5) * 64
+        bid = f"optbtn{i}"
+        if bid not in sk._ids:
+            sk._ids.add(bid)
+            x_, y_, w_, h_ = parts.items["optbtn"]
+            sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
+                                  "act": 9000 + i})
+        sk.put(bid, bx, by, 124, 60)
+        sk.label_text(9100 + i, bx + 6, by + 8, 112, 12, align=1, color=DIM)
+        sk.label_text(9000 + i, bx + 6, by + 28, 112, 20, align=1)
+    # footer
+    panel(img, (16, 668, 660, 40))
+    sk.label_text(1000, 30, 678, 420, 18, color=DIM)
+    draw_label(img, f, 664, 688, "F10 / : SEARCH    F5 AUTOPLAY", 11, DIM, anchor="rm")
+    if portrait:
+        img = compose(img, SELECT_PORTRAIT, 720, 1280)
     return sk, img
 
 
@@ -1397,6 +1602,9 @@ def main():
     emit(*land_dp(fonts, parts, "7"), "play14.json", "bg_land_dp.png")
     emit(*land_dp(fonts, parts, "5"), "play10.json", "bg_land_dp.png")
     emit(*result_layout(fonts, parts), "result.json", "bg_result.png")
+    emit(*select_layout(fonts, parts), "select.json", "bg_select.png")
+    emit(*result_layout(fonts, parts, True), "result_portrait.json", "bg_result_portrait.png")
+    emit(*select_layout(fonts, parts, True), "select_portrait.json", "bg_select_portrait.png")
     for name, img in bgs.items():
         img.convert("RGB").quantize(128).convert("RGB").save(OUT / name, optimize=True)
     total = sum(p.stat().st_size for p in OUT.iterdir())

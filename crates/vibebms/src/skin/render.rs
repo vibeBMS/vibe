@@ -68,6 +68,8 @@ pub trait Hooks {
         st: &dyn SkinState,
     ) {
     }
+    /// A clickable object was drawn at `rect` (screen space).
+    fn clickable(&mut self, rect: Rect, act: i32, click: i32) {}
 }
 
 impl LoadedSkin {
@@ -107,7 +109,7 @@ impl LoadedSkin {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn number(
+    pub fn number(
         &self,
         d: &mut Draw,
         src: &Src,
@@ -217,6 +219,9 @@ impl LoadedSkin {
                 continue;
             };
             let r = xf.rect(fr.rect);
+            if let Some((act, click)) = o.act {
+                hooks.clickable(r, act, click);
+            }
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => self.blit(d, src, now, st, r, &fr),
                 Kind::RefImage(id) => {

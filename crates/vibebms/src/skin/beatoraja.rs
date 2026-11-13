@@ -285,6 +285,109 @@ impl Ctx<'_> {
     }
 }
 
+/// Clickable objects: `act` (event id) and `click` (mode) of an image / imageset.
+fn obj_act(cx: &Ctx, id: &str) -> Option<(i32, i32)> {
+    let def = cx.find("image", id).or_else(|| cx.find("imageset", id))?;
+    let act = def.get("act")?.as_i64()? as i32;
+    (act != 0).then(|| (act, i(def, "click", 0) as i32))
+}
+
+/// Parse a beatoraja `songlist`. Sub-destinations are relative to the bar
+/// (y-up offsets from its bottom); convert them to y-down offsets.
+fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
+    let mut out = SongListSkin {
+        center: i(sl, "center", 0).max(0) as usize,
+        clickable: arr(sl.get("clickable"))
+            .iter()
+            .filter_map(Value::as_i64)
+            .map(|n| n.max(0) as usize)
+            .collect(),
+        ..Default::default()
+    };
+    let slots = |key: &str| -> Vec<Option<Dst>> {
+        arr(sl.get(key))
+            .iter()
+            .map(|d| {
+                let d = cx.dst(d);
+                (!d.keys.is_empty()).then_some(d)
+            })
+            .collect()
+    };
+    out.on = slots("liston");
+    out.off = slots("listoff");
+    let bar_h = out
+        .off
+        .iter()
+        .chain(out.on.iter())
+        .flatten()
+        .next()
+        .and_then(|d| d.keys.first())
+        .map(|k| k.rect.h)
+        .unwrap_or(0.0);
+    let rel = |d: &Value| {
+        let mut d = cx.dst(d);
+        for k in &mut d.keys {
+            k.rect.y = k.rect.y - h + bar_h;
+        }
+        d
+    };
+    // bar bodies: an imageset (one image per bar type) or a single image
+    if let Some(first) = arr(sl.get("listoff"))
+        .first()
+        .or(arr(sl.get("liston")).first())
+    {
+        let bid = id_of(first);
+        if let Some(set) = cx.find("imageset", &bid) {
+            out.body = arr(set.get("images"))
+                .iter()
+                .filter_map(|x| x.as_str())
+                .map(|iid| cx.find("image", iid).and_then(|im| cx.src(im)))
+                .collect();
+        } else if let Some(src) = cx.find("image", &bid).and_then(|im| cx.src(im)) {
+            out.body = vec![Some(src); 8];
+        }
+    }
+    if let Some(t) = arr(sl.get("text")).first() {
+        let align = cx
+            .find("text", &id_of(t))
+            .map(|d| i(d, "align", 0) as i32)
+            .unwrap_or(0);
+        out.text = Some((rel(t), align));
+    }
+    out.level = arr(sl.get("level"))
+        .iter()
+        .map(|d| {
+            let v = cx.find("value", &id_of(d))?;
+            match cx.number_kind(v)? {
+                Kind::Number {
+                    src,
+                    digits,
+                    keta,
+                    align,
+                    ..
+                } => Some((
+                    NumberFont {
+                        src,
+                        digits,
+                        keta,
+                        align,
+                    },
+                    rel(d),
+                )),
+                _ => None,
+            }
+        })
+        .collect();
+    out.lamp = arr(sl.get("lamp"))
+        .iter()
+        .map(|d| {
+            let src = cx.find("image", &id_of(d)).and_then(|im| cx.src(im))?;
+            Some((src, rel(d)))
+        })
+        .collect();
+    out
+}
+
 /// Build a play skin from a beatoraja JSON/Lua skin.
 pub fn load(
     path: &Path,
@@ -351,6 +454,7 @@ pub fn load(
         lanes: Vec::new(),
         judges: Default::default(),
         bar_lines: Vec::new(),
+        songlist: None,
         custom_options: props
             .iter()
             .filter_map(|(n, items, _)| {
@@ -375,7 +479,11 @@ pub fn load(
         let id = id_of(d);
         let dst = cx.dst(d);
         let kind = if let Some(img) = cx.find("image", &id) {
-            cx.src(img).map(Kind::Image)
+            match i(img, "ref", 0) {
+                // game-supplied image (100 stage file, 101 back bmp, 102 banner)
+                r if r > 0 && img.get("src").is_none() => Some(Kind::RefImage(r as i32)),
+                _ => cx.src(img).map(Kind::Image),
+            }
         } else if let Some(v) = cx.find("value", &id) {
             cx.number_kind(v)
         } else if let Some(t) = cx.find("text", &id) {
@@ -488,6 +596,9 @@ pub fn load(
                     split: true,
                 }
             })
+        } else if let Some(sl) = sk.get("songlist").filter(|n| id_of(n) == id) {
+            skin.songlist = Some(songlist(&cx, sl, h));
+            Some(Kind::SongList)
         } else if bga.map(|b| id_of(b) == id).unwrap_or(false) {
             Some(Kind::Bga)
         } else if let Some(j) = arr(sk.get("judge")).iter().find(|x| id_of(x) == id) {
@@ -525,7 +636,8 @@ pub fn load(
             None
         };
         if let Some(kind) = kind {
-            skin.objects.push(Obj { kind, dst });
+            let act = obj_act(&cx, &id);
+            skin.objects.push(Obj { kind, dst, act });
         }
     }
     skin.images = cx.images;
@@ -652,6 +764,23 @@ mod tests {
             .objects
             .iter()
             .any(|o| matches!(&o.kind, Kind::ImageSet { srcs, id: 370 } if srcs.len() == 11)));
+    }
+
+    #[test]
+    fn builtin_select_skins_load() {
+        for portrait in [false, true] {
+            let path = crate::scene::skinned::default_skin(SkinType::Select, portrait).unwrap();
+            let sk = load(&path, &HashMap::new(), &crate::skin::image_size).unwrap();
+            assert_eq!(sk.kind, SkinType::Select);
+            let sl = sk.songlist.as_ref().expect("songlist");
+            assert!(sl.off.len() > 10 && sl.off.len() == sl.on.len());
+            assert_eq!(sl.body.iter().flatten().count(), 8);
+            assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
+            // option buttons are clickable
+            assert_eq!(sk.objects.iter().filter(|o| o.act.is_some()).count(), 10);
+            let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();
+            assert!(load(&path, &HashMap::new(), &crate::skin::image_size).is_ok());
+        }
     }
 
     #[test]
