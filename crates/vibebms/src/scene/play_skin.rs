@@ -37,9 +37,6 @@ fn lane_from_lr2(mode: PlayMode, idx: i32) -> Option<usize> {
     }
 }
 
-/// `config.skins` value selecting the play view drawn in code.
-pub const CLASSIC: &str = "classic";
-
 /// The built-in default skin for a mode, side and screen orientation.
 pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool) -> PathBuf {
     let name = match mode {
@@ -58,60 +55,55 @@ pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool) -> PathBuf {
         .join(name + ".json")
 }
 
-/// Load the configured skin for this chart's mode (the built-in default
-/// unless another one is chosen); `None` = classic view.
+/// Resolve a `config.skins` value: empty = the built-in default; anything
+/// else is a skin file relative to the data root (or absolute).
+pub fn configured_path(ctx: &Ctx, value: &str) -> Option<PathBuf> {
+    // "classic" was the removed code-drawn view: use the default
+    if value.is_empty() || value == "classic" {
+        return None;
+    }
+    let p = PathBuf::from(value);
+    Some(if p.is_absolute() {
+        p
+    } else {
+        ctx.paths.root.join(p)
+    })
+}
+
+/// Load the configured skin for this chart's mode, falling back to the
+/// built-in default when it is missing, broken or of another type.
 pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<LoadedSkin> {
     let mode = scene.mode();
-    let rel = ctx
+    let default = default_skin(
+        mode,
+        ctx.config.play.side == crate::config::Side::P2,
+        ctx.height > ctx.width,
+    );
+    let configured = ctx
         .config
         .skins
         .get(mode.label())
-        .map(String::as_str)
-        .unwrap_or("");
-    let path = match rel {
-        CLASSIC => return None,
-        "" => default_skin(
-            mode,
-            ctx.config.play.side == crate::config::Side::P2,
-            ctx.height > ctx.width,
-        ),
-        rel => {
-            let p = PathBuf::from(rel);
-            if p.is_absolute() {
-                p
-            } else {
-                ctx.paths.root.join(p)
-            }
-        }
-    };
+        .and_then(|v| configured_path(ctx, v));
     let st = SceneState {
         s: scene,
         ctx,
         now: Instant::now(),
     };
     let stat = |id: i32| st.static_option(id);
-    let loaded = crate::skin::load_file(
-        &path,
-        &ctx.paths.skins,
-        &HashMap::new(),
-        &stat,
-        &crate::skin::image_size,
-    );
-    match loaded {
-        Ok(skin) if skin.kind == skin_type(scene.mode()) => Some(LoadedSkin::load(skin, gfx)),
-        Ok(_) => {
-            log::warn!(
-                "{}: skin type does not match {}",
-                path.display(),
-                scene.mode().label()
-            );
-            None
-        }
-        Err(e) => {
-            log::warn!("skin: {e}");
-            None
+    for path in configured.into_iter().chain(std::iter::once(default)) {
+        match crate::skin::load_file(
+            &path,
+            &ctx.paths.skins,
+            &HashMap::new(),
+            &stat,
+            &crate::skin::image_size,
+        ) {
+            Ok(skin) if skin.kind == skin_type(mode) => return Some(LoadedSkin::load(skin, gfx)),
+            Ok(_) => log::warn!("{}: not a {} skin", path.display(), mode.label()),
+            Err(e) => log::warn!("skin: {e}"),
         }
     }
+    None
 }
 
 pub struct SceneState<'a> {

@@ -4,7 +4,8 @@
 //! 40 gauge, 308 LN mode, 15 play, 16 autoplay, 13 key config), plus
 //! vibeBMS ids for its own select options: text `9000 + i` is the value and
 //! `9100 + i` the name of option `i`, and a clickable object with event
-//! `9000 + i` cycles it (see `SelectScene::option`).
+//! `9000 + i` cycles it (see `SelectScene::option`); event 9900 leaves the
+//! current folder.
 
 use super::select::{Bar, Node, SelectScene};
 use super::skinned::{ms_since, rank_index};
@@ -25,6 +26,8 @@ use vibebms_core::{LnType, PlayMode};
 pub const OPTION_TEXT: i32 = 9000;
 pub const OPTION_NAME: i32 = 9100;
 pub const OPTION_EVENT: i32 = 9000;
+/// Click event: leave the current folder.
+pub const EVENT_BACK: i32 = 9900;
 
 pub struct SelectState<'a> {
     pub s: &'a SelectScene,
@@ -45,6 +48,14 @@ impl SelectState<'_> {
     pub fn song(&self) -> Option<&Song> {
         match self.s.bars.get(self.s.cursor) {
             Some(Bar::Song(i)) => self.ctx.songs.get(*i),
+            _ => None,
+        }
+    }
+
+    /// IR ranking of the selected chart, once loaded.
+    fn ranking(&self) -> Option<&[vibebms_ir::IrScore]> {
+        match self.s.ranking.get(&self.song()?.sha256)? {
+            super::select::Rank::Done(v) => Some(v),
             _ => None,
         }
     }
@@ -205,7 +216,13 @@ impl SkinState for SelectState<'_> {
     }
 
     fn option(&self, id: i32) -> bool {
-        let v = self.static_option(id.abs()).unwrap_or(false);
+        let rank = self.song().and_then(|s| self.s.ranking.get(&s.sha256));
+        let v = match id.abs() {
+            601 => matches!(rank, Some(super::select::Rank::Loading(_))),
+            602 => matches!(rank, Some(super::select::Rank::Done(_))),
+            604 => matches!(rank, Some(super::select::Rank::Error)),
+            n => self.static_option(n).unwrap_or(false),
+        };
         v != (id < 0)
     }
 
@@ -262,6 +279,9 @@ impl SkinState for SelectState<'_> {
             312 => p.duration_ms as i64,
             313 => p.duration_ms as i64 * 3 / 5,
             370 => best.map(|b| b.clear as i64).unwrap_or(0),
+            180 => self.ranking()?.len() as i64,
+            380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,
+            390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
             1163 => song.map(|s| s.length_ms / 60000)?,
             1164 => song.map(|s| (s.length_ms / 1000) % 60)?,
             _ => return None,
@@ -279,8 +299,16 @@ impl SkinState for SelectState<'_> {
                 Some(s) => s.title.clone(),
                 None => self.bar(self.s.cursor)?.title,
             },
-            11 => song?.subtitle.clone(),
+            11 => match self.s.bars.get(self.s.cursor)? {
+                Bar::Folder { sub, .. } => sub.clone(),
+                _ => song?.subtitle.clone(),
+            },
+            120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
             13 => song?.genre.clone(),
+            14 | 16 if song.is_none() => match self.s.bars.get(self.s.cursor)? {
+                Bar::Missing { artist, .. } => artist.clone(),
+                _ => return None,
+            },
             14 => song?.artist.clone(),
             15 => song?.subartist.clone(),
             16 => {

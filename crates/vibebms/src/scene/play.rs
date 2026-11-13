@@ -1,9 +1,9 @@
 //! Gameplay: loading, audio scheduling, judging, rendering, touch controls.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::config::{HiSpeedMode, Side};
+use crate::config::Side;
 use crate::gfx::text::Align;
-use crate::gfx::{rgba, with_alpha, Color, Gfx, Rect, TexId};
+use crate::gfx::{rgba, with_alpha, Gfx, Rect, TexId};
 use crate::input::{InputEv, LaneEv, LaneMapper, Phase};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
@@ -15,10 +15,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions, SoundBank};
-use vibebms_core::chart::{BgaLayer, Chart, NoteKind, SoundId, NO_SOUND};
+use vibebms_core::chart::{BgaLayer, Chart, SoundId, NO_SOUND};
 use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent};
-use vibebms_core::gauge::{GaugeType, GrooveGauge};
-use vibebms_core::judge::{judge_rules, BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+use vibebms_core::gauge::GrooveGauge;
+use vibebms_core::judge::{judge_rules, BAD, GREAT, MISS};
 use vibebms_core::lane_option::{self, DoubleOption, LaneOption};
 use vibebms_core::score::{ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -72,26 +72,6 @@ enum Stage {
     Loading,
     Playing,
     Ending { since: Instant, failed: bool },
-}
-
-struct LaneGeom {
-    lane: usize,
-    x: f32,
-    w: f32,
-}
-
-struct Field {
-    player: usize,
-    rect: Rect,
-    lanes: Vec<LaneGeom>,
-    judge_y: f32,
-    gauge: Rect,
-}
-
-struct Layout {
-    fields: Vec<Field>,
-    touch: Vec<(Rect, usize, bool)>,
-    side: Option<Rect>,
 }
 
 pub struct PlayScene {
@@ -508,142 +488,38 @@ impl PlayScene {
         }
     }
 
-    fn layout(&self, ctx: &Ctx) -> Layout {
+    /// Screen areas of the touch controls: (rect, player, scratch on the right).
+    fn touch_areas(&self, ctx: &Ctx) -> Vec<(Rect, usize, bool)> {
         let (w, h) = (ctx.width, ctx.height);
-        let ui = ctx.ui();
-        let touch_on = ctx.touch_enabled();
-        let ctrl_h = if touch_on {
-            (h * ctx.config.touch.height).clamp(80.0, h * 0.6)
-        } else {
-            0.0
-        };
-        let play_h = h - ctrl_h;
+        if !ctx.touch_enabled() {
+            return Vec::new();
+        }
+        let ctrl_h = (h * ctx.config.touch.height).clamp(80.0, h * 0.6);
+        let area = Rect::new(0.0, h - ctrl_h, w, ctrl_h);
         let dp = self.mode.is_double();
-        let portrait = ctx.portrait();
         let side2 = ctx.config.play.side == Side::P2;
-        let gauge_h = 26.0 * ui;
-        let lw = ctx.theme.lane_width;
-        let mut fields = Vec::new();
-        let mut rects: Vec<(Rect, usize)> = Vec::new();
-        let margin = 16.0 * ui;
-        if dp {
-            let fw = if portrait {
-                w * 0.49
-            } else {
-                (w * 0.36).min(play_h * 0.85)
-            };
-            rects.push((
-                Rect::new(if portrait { w * 0.005 } else { margin }, 0.0, fw, play_h),
-                0,
-            ));
-            rects.push((
-                Rect::new(
-                    w - fw - if portrait { w * 0.005 } else { margin },
-                    0.0,
-                    fw,
-                    play_h,
-                ),
-                1,
-            ));
-        } else {
-            let fw = if portrait {
-                w * 0.96
-            } else {
-                (w * 0.34).min(play_h * 0.8).max(w * 0.25)
-            };
-            let x = if portrait {
-                (w - fw) * 0.5
-            } else if side2 {
-                w - fw - margin
-            } else {
-                margin
-            };
-            rects.push((Rect::new(x, 0.0, fw, play_h), 0));
-        }
-        for (r, player) in rects {
-            let scratch_right = if dp { player == 1 } else { side2 };
-            let order = self.mode.display_order(player, scratch_right);
-            let units: f32 = order
-                .iter()
-                .map(|l| {
-                    if self.mode.is_scratch(*l) {
-                        lw[1]
-                    } else {
-                        lw[0]
-                    }
-                })
-                .sum();
-            let mut x = r.x;
-            let mut lanes = Vec::new();
-            for l in order {
-                let lwid =
-                    r.w * if self.mode.is_scratch(l) {
-                        lw[1]
-                    } else {
-                        lw[0]
-                    } / units;
-                lanes.push(LaneGeom {
-                    lane: l,
-                    x,
-                    w: lwid,
-                });
-                x += lwid;
-            }
-            let base = r.bottom() - gauge_h;
-            let lane_len = base - r.y;
-            let judge_y = base - ctx.config.play.lift * lane_len;
-            fields.push(Field {
-                player,
-                rect: Rect::new(r.x, r.y, r.w, base - r.y),
-                lanes,
-                judge_y,
-                gauge: Rect::new(r.x, base + 4.0 * ui, r.w, gauge_h - 8.0 * ui),
-            });
-        }
-        let mut touch = Vec::new();
-        if touch_on {
-            let area = Rect::new(0.0, play_h, w, ctrl_h);
-            if dp && ctx.config.touch.allow_dp {
-                touch.push((Rect::new(area.x, area.y, area.w * 0.5, area.h), 0, false));
-                touch.push((
+        if dp && ctx.config.touch.allow_dp {
+            vec![
+                (Rect::new(area.x, area.y, area.w * 0.5, area.h), 0, false),
+                (
                     Rect::new(area.x + area.w * 0.5, area.y, area.w * 0.5, area.h),
                     1,
                     true,
-                ));
-            } else {
-                touch.push((area, 0, if dp { false } else { side2 }));
-            }
-        }
-        let side = if portrait {
-            None
-        } else if dp {
-            let l = fields[0].rect.right() + margin;
-            let r = fields[1].rect.x - margin;
-            (r - l > 80.0).then(|| Rect::new(l, 8.0 * ui, r - l, play_h - 16.0 * ui))
+                ),
+            ]
         } else {
-            let f = &fields[0].rect;
-            let (l, r) = if side2 {
-                (margin, f.x - margin)
-            } else {
-                (f.right() + margin, w - margin)
-            };
-            (r - l > 80.0).then(|| Rect::new(l, 8.0 * ui, r - l, play_h - 16.0 * ui))
-        };
-        Layout {
-            fields,
-            touch,
-            side,
+            vec![(area, 0, !dp && side2)]
         }
     }
 
-    fn rebuild_zones(&mut self, ctx: &Ctx, lay: &Layout) {
+    fn rebuild_zones(&mut self, ctx: &Ctx, areas: &[(Rect, usize, bool)]) {
         let key = (ctx.width as u32, ctx.height as u32, ctx.touch_enabled());
         if key == self.zones_key && !self.zones.is_empty() {
             return;
         }
         self.zones_key = key;
         self.zones.clear();
-        for (area, player, right) in &lay.touch {
+        for (area, player, right) in areas {
             let player = (*player).min(self.mode.players() - 1);
             self.zones.extend(touch::layout(
                 self.mode,
@@ -653,27 +529,6 @@ impl PlayScene {
                 *right,
                 ctx.theme.lane_width,
             ));
-        }
-    }
-
-    fn note_color(&self, ctx: &Ctx, lane: usize) -> Color {
-        let th = &ctx.theme;
-        if self.mode.is_scratch(lane) {
-            return th.note_scratch;
-        }
-        let k = lane % self.mode.lanes_per_player();
-        if self.mode == PlayMode::Popn9K {
-            return rgba(
-                [
-                    0xe8ecf2ff, 0xffd84aff, 0x4fe36bff, 0x4fa3ffff, 0xff5a5aff, 0x4fa3ffff,
-                    0x4fe36bff, 0xffd84aff, 0xe8ecf2ff,
-                ][k.min(8)],
-            );
-        }
-        if k % 2 == 1 {
-            th.note_blue
-        } else {
-            th.note_white
         }
     }
 
@@ -1090,543 +945,15 @@ impl Scene for PlayScene {
         if self.engine.is_none() {
             return;
         }
-        if self.skin.is_some() {
-            self.draw_skinned(ctx, d, now);
-            return;
-        }
-        let lay = self.layout(ctx);
-        self.rebuild_zones(ctx, &lay);
-        let Some(engine) = self.engine.as_ref() else {
-            return;
-        };
-        let t_vis = self.chart_us(now) + ctx.config.play.visual_offset_ms as i64 * 1000;
-        let p = &ctx.config.play;
-        let cur_pos = self.chart.timing.pos_at_time(t_vis as f64);
-        let main_bpm = if self.chart.meta.main_bpm > 0.0 {
-            self.chart.meta.main_bpm
-        } else {
-            130.0
-        };
-        let notes = engine.notes();
-
-        // BGA / side panel
-        if let Some(side) = lay.side {
-            let bga_r = Rect::new(side.x, side.y, side.w, (side.w * 0.75).min(side.h * 0.62));
-            d.b.rect(bga_r, rgba(0x000000ff));
-            if p.bga {
-                let poor =
-                    self.poor_until.map(|u| now < u).unwrap_or(false) && self.bga[3].is_some();
-                let layers: &[usize] = if poor { &[3] } else { &[0, 1, 2] };
-                for &l in layers {
-                    if let Some(Some(tex)) = self.bga[l].and_then(|i| self.bga_tex.get(i as usize))
-                    {
-                        d.image_fit(*tex, bga_r, 1.0);
-                    }
-                }
-            }
-            if !p.bga || self.bga.iter().all(|b| b.is_none()) {
-                if let Some(t) = self.stage_tex {
-                    d.image_fit(t, bga_r, 0.6);
-                }
-            }
-            self.draw_info(
-                ctx,
-                d,
-                Rect::new(
-                    side.x,
-                    bga_r.bottom() + 10.0 * ui,
-                    side.w,
-                    side.bottom() - bga_r.bottom() - 10.0 * ui,
-                ),
-                engine,
-                t_vis,
-            );
-        }
-
-        let note_h = (ctx.height * th.note_height).max(6.0);
-        let dur_us = p.duration_ms as f64 * 1000.0;
-        let mut flash = Vec::new();
-        for f in &lay.fields {
-            let lane_len = f.judge_y - f.rect.y;
-            let cover_top = f.rect.y
-                + if p.lane_cover || p.sudden > 0.0 {
-                    p.sudden * lane_len
-                } else {
-                    0.0
-                };
-            let visible = (f.judge_y - cover_top).max(1.0);
-            let ppb = visible as f64 / (dur_us / 1_000_000.0 * main_bpm / 60.0);
-            let y_of = |pos: f64, time: i64| -> f32 {
-                match p.hispeed_mode {
-                    HiSpeedMode::Floating => f.judge_y - ((pos - cur_pos) * ppb) as f32,
-                    HiSpeedMode::Constant => {
-                        f.judge_y - ((time - t_vis) as f64 / dur_us * visible as f64) as f32
-                    }
-                }
-            };
-            // lanes
-            d.b.rect(f.rect, th.lane_bg);
-            for lg in &f.lanes {
-                d.b.rect(Rect::new(lg.x, f.rect.y, 1.0, f.rect.h), th.lane_line);
-                let pressed = engine.key_down(lg.lane) || self.touch.is_pressed(lg.lane as u8);
-                if pressed {
-                    d.b.gradient(
-                        Rect::new(
-                            lg.x,
-                            f.rect.y + lane_len * 0.35,
-                            lg.w,
-                            f.judge_y - f.rect.y - lane_len * 0.35,
-                        ),
-                        with_alpha(th.key_beam, 0.0),
-                        with_alpha(th.key_beam, 0.35),
-                    );
-                }
-                if self.mode.is_scratch(lg.lane) {
-                    d.b.rect(
-                        Rect::new(lg.x, f.rect.y, lg.w, f.rect.h),
-                        with_alpha(th.note_scratch, 0.04),
-                    );
-                }
-            }
-            d.b.rect(
-                Rect::new(f.rect.right() - 1.0, f.rect.y, 1.0, f.rect.h),
-                th.lane_line,
-            );
-            d.b.set_clip(Some(Rect::new(f.rect.x, f.rect.y, f.rect.w, f.rect.h)));
-            // bar lines
-            for bl in &self.chart.bar_lines {
-                let y = y_of(bl.pos, bl.time);
-                if y < f.rect.y - 2.0 {
-                    if bl.time > t_vis {
-                        break;
-                    }
-                    continue;
-                }
-                if y <= f.judge_y {
-                    d.b.rect(
-                        Rect::new(f.rect.x, y - 0.5, f.rect.w, 1.0),
-                        with_alpha(th.text_dim, 0.45),
-                    );
-                }
-            }
-            // notes
-            for lg in &f.lanes {
-                let lane = lg.lane;
-                let col = self.note_color(ctx, lane);
-                let list = &self.lane_notes[lane];
-                let cursor = self.lane_cursor[lane];
-                let mut k = cursor;
-                while k < list.len() {
-                    let n = &notes[list[k]];
-                    k += 1;
-                    let cn = &self.chart.notes[n.chart_index];
-                    let y = y_of(cn.pos, n.time);
-                    if n.time > t_vis + 2_000_000 && y < f.rect.y - lane_len {
-                        break;
-                    }
-                    let nx = lg.x + 1.0;
-                    let nw = lg.w - 2.0;
-                    match &cn.kind {
-                        NoteKind::Long {
-                            end_pos, end_time, ..
-                        } => {
-                            if n.is_done() {
-                                continue;
-                            }
-                            let holding = engine.holding(lane) == Some(list[k - 1]);
-                            let ye = y_of(*end_pos, *end_time);
-                            let yh = if holding {
-                                y.max(f.judge_y).min(f.judge_y)
-                            } else {
-                                y
-                            };
-                            if ye > f.judge_y + note_h && !holding && n.state != 0 {
-                                continue;
-                            }
-                            let missed = n.state > 4;
-                            let body_a = if holding {
-                                th.ln_body_alpha + 0.3
-                            } else if missed {
-                                0.25
-                            } else {
-                                th.ln_body_alpha
-                            };
-                            let hcn = engine.hcn_active(lane);
-                            let bc = if hcn { rgba(0x7fffd4ff) } else { col };
-                            d.b.rect(
-                                Rect::new(nx + nw * 0.12, ye, nw * 0.76, (yh - ye).max(0.0)),
-                                with_alpha(bc, body_a.min(1.0)),
-                            );
-                            d.b.rect(
-                                Rect::new(nx, ye - note_h, nw, note_h),
-                                with_alpha(col, if missed { 0.4 } else { 1.0 }),
-                            );
-                            d.b.rect(
-                                Rect::new(nx, yh - note_h, nw, note_h),
-                                with_alpha(col, if missed { 0.4 } else { 1.0 }),
-                            );
-                        }
-                        NoteKind::Mine { .. } => {
-                            if y > f.judge_y + note_h || y < f.rect.y {
-                                continue;
-                            }
-                            d.b.rect(
-                                Rect::new(nx + nw * 0.2, y - note_h, nw * 0.6, note_h),
-                                th.note_mine,
-                            );
-                        }
-                        _ => {
-                            if n.is_done() || y < f.rect.y - note_h || y > f.rect.bottom() + note_h
-                            {
-                                continue;
-                            }
-                            d.b.rect(Rect::new(nx, y - note_h, nw, note_h), col);
-                        }
-                    }
-                }
-            }
-            d.b.set_clip(None);
-            // lane covers
-            if p.lane_cover || p.sudden > 0.0 {
-                let r = Rect::new(f.rect.x, f.rect.y, f.rect.w, cover_top - f.rect.y);
-                d.b.rect(r, rgba(0x1a1d26ff));
-                let gn = format!("GN {}  {}ms", p.duration_ms * 3 / 5, p.duration_ms);
-                d.text(
-                    &gn,
-                    f.rect.x + f.rect.w * 0.5,
-                    (cover_top - 24.0 * ui).max(f.rect.y),
-                    16.0 * ui,
-                    rgba(0x6fff6fff),
-                    Align::Center,
-                );
-            }
-            if p.hidden > 0.0 {
-                let top = f.judge_y - p.hidden * lane_len;
-                d.b.rect(
-                    Rect::new(f.rect.x, top, f.rect.w, f.judge_y - top),
-                    rgba(0x1a1d26ff),
-                );
-            }
-            if p.lift > 0.0 {
-                d.b.rect(
-                    Rect::new(f.rect.x, f.judge_y, f.rect.w, f.rect.bottom() - f.judge_y),
-                    rgba(0x101218ff),
-                );
-            }
-            // judge line + bombs
-            d.b.rect(
-                Rect::new(f.rect.x, f.judge_y - 2.0, f.rect.w, 4.0),
-                th.judge_line,
-            );
-            for (lane, t, j) in &self.bombs {
-                if let Some(lg) = f.lanes.iter().find(|l| l.lane == *lane as usize) {
-                    let a = 1.0 - now.duration_since(*t).as_secs_f32() / 0.25;
-                    let c = if *j == 9 {
-                        th.note_mine
-                    } else if *j == PGREAT {
-                        rgba(0xfff3a0ff)
-                    } else {
-                        rgba(0xa0e8ffff)
-                    };
-                    let hgt = lane_len * 0.22 * (0.6 + 0.4 * a);
-                    d.b.gradient(
-                        Rect::new(lg.x, f.judge_y - hgt, lg.w, hgt),
-                        with_alpha(c, 0.0),
-                        with_alpha(c, a * 0.7),
-                    );
-                    let s = lg.w * (0.6 + 0.8 * (1.0 - a));
-                    d.b.circle(
-                        lg.x + lg.w * 0.5,
-                        f.judge_y,
-                        s * 0.5,
-                        s * 0.38,
-                        with_alpha(c, a),
-                        24,
-                    );
-                }
-            }
-            for lg in &f.lanes {
-                if let Some(Some(t)) = self.key_flash.get(lg.lane) {
-                    let a = 1.0 - now.duration_since(*t).as_secs_f32() / 0.12;
-                    if a > 0.0 {
-                        flash.push((Rect::new(lg.x, f.judge_y - 3.0, lg.w, 6.0), a));
-                    }
-                }
-            }
-            // judge text
-            if let Some((j, diff, t, combo)) = self.last_judge[f.player.min(1)] {
-                let age = now.duration_since(t).as_secs_f32();
-                if age < 0.6 {
-                    let (label, c) = match j {
-                        PGREAT => (
-                            "GREAT",
-                            if (now.elapsed().as_millis() / 50) % 2 == 0 {
-                                rgba(0xfffbd0ff)
-                            } else {
-                                rgba(0x9ff6ffff)
-                            },
-                        ),
-                        GREAT => ("GREAT", rgba(0xffe14dff)),
-                        GOOD => ("GOOD", rgba(0xffe14dff)),
-                        BAD => ("BAD", rgba(0xff6b6bff)),
-                        POOR | MISS => ("POOR", rgba(0xff6b6bff)),
-                        _ => ("", th.text),
-                    };
-                    let jy = f.rect.y + lane_len * 0.62;
-                    let text = if j <= GOOD && combo > 0 {
-                        format!("{label} {combo}")
-                    } else {
-                        label.to_string()
-                    };
-                    d.text_shadow(
-                        &text,
-                        f.rect.x + f.rect.w * 0.5,
-                        jy,
-                        30.0 * ui,
-                        c,
-                        Align::Center,
-                    );
-                    if p.show_fast_slow && (GREAT..=BAD).contains(&j) {
-                        let (fs, fc) = if diff > 0 {
-                            ("FAST", rgba(0x4fc3f7ff))
-                        } else {
-                            ("SLOW", rgba(0xff8a65ff))
-                        };
-                        d.text_shadow(
-                            &format!("{fs} {:+.1}ms", -(diff as f64) / 1000.0),
-                            f.rect.x + f.rect.w * 0.5,
-                            jy - 26.0 * ui,
-                            16.0 * ui,
-                            fc,
-                            Align::Center,
-                        );
-                    }
-                }
-            }
-            // gauge
-            let g = engine.gauge.current();
-            let gt = g.ty;
-            let segs = 50;
-            let sw = f.gauge.w / segs as f32;
-            let filled = (g.value() / 2.0).floor() as i32;
-            for s in 0..segs {
-                let on = s < filled;
-                let border = g.elem.border;
-                let c = match gt {
-                    GaugeType::Hard | GaugeType::ExClass | GaugeType::Class => rgba(0xff4040ff),
-                    GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::Hazard => {
-                        rgba(0xffd23fff)
-                    }
-                    GaugeType::AssistEasy | GaugeType::Easy => {
-                        if (s as f32 + 1.0) * 2.0 > border {
-                            rgba(0xff4040ff)
-                        } else {
-                            rgba(0xb070ffff)
-                        }
-                    }
-                    GaugeType::Normal => {
-                        if (s as f32 + 1.0) * 2.0 > border {
-                            rgba(0xff4040ff)
-                        } else {
-                            rgba(0x3fa0ffff)
-                        }
-                    }
-                };
-                d.b.rect(
-                    Rect::new(
-                        f.gauge.x + s as f32 * sw + 0.5,
-                        f.gauge.y,
-                        sw - 1.0,
-                        f.gauge.h,
-                    ),
-                    with_alpha(c, if on { 1.0 } else { 0.18 }),
-                );
-            }
-            d.text_shadow(
-                &format!("{} {:.1}%", gt.label(), g.value()),
-                f.gauge.right(),
-                f.gauge.y - 18.0 * ui,
-                14.0 * ui,
-                th.text,
-                Align::Right,
-            );
-        }
-        for (r, a) in flash {
-            d.b.rect(r, with_alpha(th.key_beam, a));
-        }
-        // touch controls
-        if ctx.touch_enabled() {
-            for (area, _, _) in &lay.touch {
-                d.b.rect(*area, rgba(0x05060aff));
-            }
-            self.touch.draw(
-                d.b,
-                &self.zones,
-                ctx.config.touch.opacity,
-                th.note_white,
-                th.note_blue,
-                th.note_scratch,
-            );
-        }
-        // HUD buttons (touch friendly)
-        self.hud_rects.clear();
-        let bw = 54.0 * ui;
-        let bh = 34.0 * ui;
-        let labels = ["HS−", "HS+", "SUD−", "SUD+", "×"];
-        let base_x = if let Some(s) = lay.side {
-            s.right() - bw * labels.len() as f32
-        } else {
-            ctx.width - bw * labels.len() as f32 - 8.0
-        };
-        for (i, l) in labels.iter().enumerate() {
-            let r = Rect::new(base_x + i as f32 * bw, 6.0 * ui, bw - 4.0, bh);
-            if ctx.touch_enabled() || lay.side.is_some() {
-                ui::button(d, r, l, &th, ui * 0.9, false);
-                self.hud_rects.push((r, i));
-            }
-        }
-        // fades
-        match self.stage {
-            Stage::Ending { since, failed } => {
-                let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
-                d.b.rect(
-                    Rect::new(0.0, 0.0, ctx.width, ctx.height),
-                    with_alpha(rgba(0x000000ff), a * 0.85),
-                );
-                let msg = if failed {
-                    "FAILED"
-                } else if engine.score.count(BAD) + engine.score.count(POOR) == 0 {
-                    "FULL COMBO"
-                } else {
-                    "CLEAR"
-                };
-                let c = if failed { rgba(0xff5050ff) } else { th.accent };
-                d.text_shadow(
-                    msg,
-                    ctx.width * 0.5,
-                    ctx.height * 0.42,
-                    48.0 * ui,
-                    with_alpha(c, a.max(0.3)),
-                    Align::Center,
-                );
-            }
-            _ => {
-                if t_vis < 0 {
-                    let a = (-t_vis as f32 / 1_500_000.0).min(1.0);
-                    d.text_shadow(
-                        &self.chart.meta.title,
-                        ctx.width * 0.5,
-                        ctx.height * 0.3,
-                        28.0 * ui,
-                        with_alpha(th.text, a),
-                        Align::Center,
-                    );
-                }
-            }
-        }
-        // advance render cursors (notes long gone)
-        for (lane, list) in self.lane_notes.iter().enumerate() {
-            let c = &mut self.lane_cursor[lane];
-            while *c < list.len() {
-                let n = &notes[list[*c]];
-                if n.end_time < t_vis - 1_000_000 && (n.is_done() || n.is_mine()) {
-                    *c += 1;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-}
-
-impl PlayScene {
-    fn draw_info(&self, ctx: &Ctx, d: &mut Draw, r: Rect, e: &Engine, t: i64) {
-        let ui = ctx.ui();
-        let th = &ctx.theme;
-        if r.h < 40.0 {
-            return;
-        }
-        ui::panel(d, r, th);
-        let x = r.x + 12.0 * ui;
-        let mut y = r.y + 10.0 * ui;
-        let mw = r.w - 24.0 * ui;
-        let m = &self.chart.meta;
-        d.text_fit(
-            &format!("{} {}", m.title, m.subtitle),
-            x,
-            y,
-            20.0 * ui,
-            th.text,
-            Align::Left,
-            mw,
-        );
-        y += 26.0 * ui;
-        d.text_fit(&m.artist, x, y, 15.0 * ui, th.text_dim, Align::Left, mw);
-        y += 24.0 * ui;
-        let bpm = self.chart.timing.bpm_at_time(t.max(0) as f64);
-        let s = &e.score;
-        let len = self.chart.length().max(1);
-        let lines = [
-            format!(
-                "{}  LV {}  BPM {:.0}  {}",
-                self.mode.label(),
-                m.level,
-                bpm,
-                self.options_label
-            ),
-            format!(
-                "EX SCORE {}   {:.2}%   {}",
-                s.ex_score(),
-                s.current_rate() * 100.0,
-                vibebms_core::score::DjLevel::from_rate(s.ex_score(), s.passed * 2).label()
-            ),
-            format!(
-                "PG {}  GR {}  GD {}  BD {}  PR {}",
-                s.count(PGREAT),
-                s.count(GREAT),
-                s.count(GOOD),
-                s.count(BAD),
-                s.count(POOR) + s.count(MISS)
-            ),
-            format!(
-                "COMBO {} / MAX {}   FAST {} SLOW {}",
-                e.combo(),
-                s.max_combo,
-                s.fast(),
-                s.slow()
-            ),
-            format!(
-                "OFFSET {:+}ms   {}",
-                ctx.config.play.judge_offset_ms,
-                if self.req.autoplay { "AUTOPLAY" } else { "" }
-            ),
-        ];
-        for l in &lines {
-            if y + 20.0 * ui > r.bottom() {
-                break;
-            }
-            d.text_fit(l, x, y, 16.0 * ui, th.text, Align::Left, mw);
-            y += 22.0 * ui;
-        }
-        let pr = Rect::new(x, r.bottom() - 10.0 * ui, mw, 4.0 * ui);
-        d.b.rect(pr, with_alpha(th.text_dim, 0.3));
-        d.b.rect(
-            Rect::new(
-                pr.x,
-                pr.y,
-                pr.w * (t.max(0) as f32 / len as f32).min(1.0),
-                pr.h,
-            ),
-            th.accent,
-        );
+        self.draw_skinned(ctx, d, now);
     }
 }
 
 impl PlayScene {
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let lay = self.layout(ctx);
-        self.rebuild_zones(ctx, &lay);
-        let view_h = lay.touch.first().map(|t| t.0.y).unwrap_or(ctx.height);
+        let areas = self.touch_areas(ctx);
+        self.rebuild_zones(ctx, &areas);
+        let view_h = areas.first().map(|t| t.0.y).unwrap_or(ctx.height);
         let view = Rect::new(0.0, 0.0, ctx.width, view_h);
         {
             let st = super::play_skin::SceneState { s: self, ctx, now };
@@ -1642,7 +969,7 @@ impl PlayScene {
         }
         if ctx.touch_enabled() {
             let th = &ctx.theme;
-            for (area, _, _) in &lay.touch {
+            for (area, _, _) in &areas {
                 d.b.rect(*area, rgba(0x05060aff));
             }
             self.touch.draw(
@@ -1653,6 +980,20 @@ impl PlayScene {
                 th.note_blue,
                 th.note_scratch,
             );
+        }
+        // touch HUD: hi-speed, lane cover and quit buttons
+        self.hud_rects.clear();
+        if ctx.touch_enabled() {
+            let ui = ctx.ui();
+            let th = ctx.theme.clone();
+            let (bw, bh) = (54.0 * ui, 34.0 * ui);
+            let labels = ["HS−", "HS+", "SUD−", "SUD+", "×"];
+            let x0 = ctx.width - bw * labels.len() as f32 - 8.0;
+            for (i, l) in labels.iter().enumerate() {
+                let r = Rect::new(x0 + i as f32 * bw, 6.0 * ui, bw - 4.0, bh);
+                ui::button(d, r, l, &th, ui * 0.9, false);
+                self.hud_rects.push((r, i));
+            }
         }
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);

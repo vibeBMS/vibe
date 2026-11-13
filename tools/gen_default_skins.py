@@ -497,6 +497,16 @@ def build_parts(fonts):
     a.add("barcursor", cur.filter(ImageFilter.GaussianBlur(0.6)))
     a.add("lampcell", rounded(10, 32, 3, (255, 255, 255, 255)))
     a.add("optbtn", rounded(124, 62, 8, PANEL_HI + (255,), EDGE + (255,)))
+
+    def label_button(text, w, h, accent):
+        b = rounded(w, h, 7, PANEL_HI + (255,), accent + (255,))
+        im = text_img(fonts, text, "bold", 14, TEXT, TEXT, (0, 0, 0), 0, pad=2)
+        b.alpha_composite(im, ((w - im.size[0]) // 2, (h - im.size[1]) // 2))
+        return b
+
+    a.add("btn_retry", label_button("RETRY", 120, 30, PINK))
+    a.add("btn_continue", label_button("CONTINUE", 140, 30, TEAL))
+    a.add("btn_back", label_button("\u25c0 BACK", 84, 28, EDGE))
     for name, label, col in (("lbl_ln", "LN", TEAL), ("lbl_rand", "RANDOM", PINK),
                              ("lbl_bpm", "BPM CHANGE", AMBER), ("lbl_bga", "BGA", BLUE)):
         im = text_img(fonts, label, "bold", 13, (255, 255, 255), (255, 255, 255), (0, 0, 0), 0, pad=6)
@@ -1436,7 +1446,15 @@ def result_layout(fonts, parts, portrait=False):
     sk.number("n_small", 91, 3, 306, 678, color=(130, 190, 255))
     draw_label(img, f, 352, 688, "-", 12, TEXT, anchor="lm")
     sk.number("n_small", 90, 3, 362, 678, color=(255, 130, 180))
-    draw_label(img, f, 1250, 688, "START / TAP: CONTINUE    R: RETRY", 12, DIM, anchor="rm")
+    for key, act, x in (("btn_retry", 9500, 1250 - 140 - 8 - 120), ("btn_continue", 9501, 1250 - 140)):
+        bw_, bh_ = parts.items[key][2:]
+        bid = key + "_act"
+        if bid not in sk._ids:
+            sk._ids.add(bid)
+            x_, y_, w_, h_ = parts.items[key]
+            sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
+                                  "act": act})
+        sk.put(bid, x, 673, bw_, bh_)
     if portrait:
         img = compose(img, RESULT_PORTRAIT, 720, 1280)
     return sk, img
@@ -1565,7 +1583,14 @@ def select_layout(fonts, parts, portrait=False):
         sk.label_text(9000 + i, bx + 6, by + 28, 112, 20, align=1)
     # footer
     panel(img, (16, 668, 660, 40))
-    sk.label_text(1000, 30, 678, 420, 18, color=DIM)
+    bw_, bh_ = parts.items["btn_back"][2:]
+    if "back_act" not in sk._ids:
+        sk._ids.add("back_act")
+        x_, y_, w_, h_ = parts.items["btn_back"]
+        sk.j["image"].append({"id": "back_act", "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
+                              "act": 9900})
+    sk.put("back_act", 22, 674, bw_, bh_)
+    sk.label_text(1000, 116, 678, 340, 18, color=DIM)
     draw_label(img, f, 664, 688, "F10 / : SEARCH    F5 AUTOPLAY", 11, DIM, anchor="rm")
     if portrait:
         img = compose(img, SELECT_PORTRAIT, 720, 1280)

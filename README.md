@@ -109,10 +109,10 @@ beatoraja 숫자 ID 425로도 제공) 및 FAST/SLOW 합계를 보여줍니다.
 `1P/2P` 설정에 따라 필드 위치가 자동으로 바뀝니다. 노트 필드+턴테이블/건반+게이지, BGA, 점수/그래프/판정 카운트/BPM 등
 장르의 일반적인 배치 관례만 따랐고, 아트는 모두 `tools/gen_default_skins.py`가 도형·그라디언트·Inter 폰트(OFL)로 절차적으로
 그린 오리지널입니다(특정 게임의 그래픽·로고는 사용하지 않음). 수정하려면 스크립트를 고쳐 다시 실행하면
-`crates/vibebms/assets/builtin/skins/default/`가 재생성됩니다. 코드로 그리는 예전 화면은 `Play skin` 메뉴의 `CLASSIC`.
+`crates/vibebms/assets/builtin/skins/default/`가 재생성됩니다. 선택한 스킨을 읽지 못하면 내장 기본 스킨을 씁니다.
 
 ### 선곡 / 결과 스킨
-선곡과 결과 화면도 스킨으로 그립니다(`SETTINGS › DISPLAY › Select skin / Result skin`, DEFAULT → CLASSIC → 설치된 스킨).
+선곡과 결과 화면도 스킨으로 그립니다(`SETTINGS › DISPLAY › Select skin / Result skin`, DEFAULT → 설치된 스킨).
 내장 기본 스킨은 가로·세로 버전이 있고, LR2(`#SRC_BAR_BODY`/`#DST_BAR_BODY_ON/OFF`/`#BAR_CENTER`/`#BAR_AVAILABLE`/
 `#DST_BAR_TITLE`/`#SRC_BAR_LEVEL`/`#SRC_BAR_LAMP`, `#SRC_GAUGECHART`)와 beatoraja(`songlist`, `imageset`, `gaugegraph`,
 `judgegraph`, `bpmgraph`, `timingdistributiongraph`, 클릭 가능한 `act` 이미지, `ref` 이미지)를 읽습니다. 숫자·옵션·타이머 ID는
@@ -121,7 +121,7 @@ beatoraja/LR2와 같고, vibeBMS 전용 선곡 옵션은 텍스트 `9000+i`(값)
 
 ### 스킨 (LR2 / beatoraja)
 `skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다
-(DEFAULT → CLASSIC → 설치된 스킨 순으로 순환).
+(DEFAULT → 설치된 스킨 순으로 순환).
 지원: `#IMAGE`, `#SRC/#DST_IMAGE`(키프레임·가속·루프·타이머·조건·회전·가산 블렌딩), `_NUMBER`, `_TEXT`(시스템 폰트), `_BARGRAPH`,
 `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`/`_LN_*`/`_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE`/`_NOWCOMBO`, `#IF/#ELSE`, `#CUSTOMOPTION`(기본값),
 `#CUSTOMFILE`, `#INCLUDE`. 미지원: `#LR2FONT` 비트맵 폰트, 버튼/마우스 오버, 선곡/결과 스킨.
@@ -137,7 +137,7 @@ Lua 함수로 지정된 동적 값(draw 조건, 계산된 숫자 등)은 아직 
 
 ### 테마
 `default` 테마는 내장 값(기본 스킨과 같은 팔레트)을 쓰며, 그 값이 `themes/default/theme.toml.example`로 기록됩니다.
-새 폴더(`themes/<이름>/theme.toml`)에 복사해 색상·레인 폭·노트 높이·배경 이미지를 바꾸고
+새 폴더(`themes/<이름>/theme.toml`)에 복사해 메뉴 색상·터치 버튼 폭·배경 이미지를 바꾸고(게임 화면은 스킨이 그립니다)
 `SETTINGS › DISPLAY › Theme`에서 선택하세요. 테마 폴더의 `fonts/`에 폰트를 넣으면 우선 사용됩니다.
 
 ## 구현 현황

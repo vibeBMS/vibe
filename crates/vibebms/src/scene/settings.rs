@@ -521,7 +521,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     act: Act::None,
                 },
             ];
-            // default (data skin) / classic (drawn in code) / skins in <root>/skins
+            // built-in default skin / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
             const MODES: [(&str, Adjust); 7] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
@@ -535,7 +535,6 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             for (m, f) in MODES {
                 let cur = match c.skins.get(m).map(String::as_str).unwrap_or("") {
                     "" => "DEFAULT".into(),
-                    super::play_skin::CLASSIC => "CLASSIC".into(),
                     p => skin_label(p),
                 };
                 let label = if m.ends_with("KEYS") {
@@ -1358,7 +1357,7 @@ fn skin_label(path: &str) -> String {
     })
 }
 
-/// Cycle the play skin for a key mode: default, classic, then matching skins.
+/// Cycle a skin setting: the built-in default, then matching installed skins.
 fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
     let want = vibebms_core::PlayMode::ALL
         .iter()
@@ -1370,7 +1369,7 @@ fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
                 .into_iter()
                 .find(|t| t.config_key() == Some(mode))
         });
-    let mut opts: Vec<String> = vec![String::new(), super::play_skin::CLASSIC.into()];
+    let mut opts: Vec<String> = vec![String::new()];
     for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
         if Some(t) == want {
             let rel = p
@@ -1383,7 +1382,7 @@ fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
     let cur = c.config.skins.get(mode).cloned().unwrap_or_default();
     let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
     let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
-    if opts.len() == 2 {
+    if opts.len() == 1 {
         c.toast(format!(
             "Put more {mode} skins in {}",
             c.paths.skins.display()

@@ -777,7 +777,8 @@ mod tests {
             assert_eq!(sl.body.iter().flatten().count(), 8);
             assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
             // option buttons are clickable
-            assert_eq!(sk.objects.iter().filter(|o| o.act.is_some()).count(), 10);
+            // option buttons and the folder back button are clickable
+            assert_eq!(sk.objects.iter().filter(|o| o.act.is_some()).count(), 11);
             let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();
             assert!(load(&path, &HashMap::new(), &crate::skin::image_size).is_ok());
         }

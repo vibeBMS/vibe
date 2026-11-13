@@ -16,20 +16,13 @@ pub struct ThemeFile {
     pub accent: String,
     pub text: String,
     pub text_dim: String,
-    pub lane_bg: String,
-    pub lane_line: String,
-    pub judge_line: String,
     pub note_white: String,
     pub note_blue: String,
     pub note_scratch: String,
-    pub note_mine: String,
-    pub ln_body_alpha: f32,
-    pub key_beam: String,
     /// Optional background image for menus (relative to the theme folder).
     pub background_image: String,
-    /// Lane width units: [key, scratch].
+    /// Touch control width units: [key, scratch].
     pub lane_width: [f32; 2],
-    pub note_height: f32,
 }
 
 impl Default for ThemeFile {
@@ -41,18 +34,11 @@ impl Default for ThemeFile {
             accent: "#2de2c7".into(),
             text: "#e2e8f5".into(),
             text_dim: "#808caa".into(),
-            lane_bg: "#05060a".into(),
-            lane_line: "#2a2f3d".into(),
-            judge_line: "#ff3b30".into(),
             note_white: "#e8ecf2".into(),
             note_blue: "#3f8cff".into(),
             note_scratch: "#ff4d5e".into(),
-            note_mine: "#b02020".into(),
-            ln_body_alpha: 0.55,
-            key_beam: "#4fc3f7".into(),
             background_image: String::new(),
             lane_width: [1.0, 1.7],
-            note_height: 0.018,
         }
     }
 }
@@ -65,18 +51,11 @@ pub struct Theme {
     pub accent: Color,
     pub text: Color,
     pub text_dim: Color,
-    pub lane_bg: Color,
-    pub lane_line: Color,
-    pub judge_line: Color,
     pub note_white: Color,
     pub note_blue: Color,
     pub note_scratch: Color,
-    pub note_mine: Color,
-    pub ln_body_alpha: f32,
-    pub key_beam: Color,
     pub background_image: Option<PathBuf>,
     pub lane_width: [f32; 2],
-    pub note_height: f32,
 }
 
 fn parse_color(s: &str, fallback: &str) -> Color {
@@ -132,19 +111,12 @@ impl Theme {
             accent: c(&t.accent, &d.accent),
             text: c(&t.text, &d.text),
             text_dim: c(&t.text_dim, &d.text_dim),
-            lane_bg: c(&t.lane_bg, &d.lane_bg),
-            lane_line: c(&t.lane_line, &d.lane_line),
-            judge_line: c(&t.judge_line, &d.judge_line),
             note_white: c(&t.note_white, &d.note_white),
             note_blue: c(&t.note_blue, &d.note_blue),
             note_scratch: c(&t.note_scratch, &d.note_scratch),
-            note_mine: c(&t.note_mine, &d.note_mine),
-            ln_body_alpha: t.ln_body_alpha.clamp(0.0, 1.0),
-            key_beam: c(&t.key_beam, &d.key_beam),
             background_image: (!t.background_image.is_empty())
                 .then(|| dir.clone().unwrap_or_default().join(&t.background_image)),
             lane_width: [t.lane_width[0].max(0.2), t.lane_width[1].max(0.2)],
-            note_height: t.note_height.clamp(0.002, 0.1),
             dir,
         }
     }

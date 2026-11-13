@@ -2,7 +2,7 @@
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::gfx::text::Align;
-use crate::gfx::{rgba, with_alpha, Color, Gfx, Rect, TexId};
+use crate::gfx::{with_alpha, Gfx, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
@@ -11,18 +11,15 @@ use crate::scene::select_skin::{SelectHooks, SelectState};
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
-use crate::theme::Theme;
 use crate::ui;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions, Sample};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::LaneOption;
-use vibebms_core::score::ClearType;
 use vibebms_core::LnType;
 use vibebms_ir::IrScore;
 use winit::keyboard::KeyCode;
@@ -47,7 +44,6 @@ pub(crate) enum Bar {
         sub: String,
         node: Node,
         count: usize,
-        color: Color,
     },
     Song(usize),
     Missing {
@@ -62,10 +58,10 @@ pub(crate) enum Bar {
     },
 }
 
-enum Rank {
+pub(crate) enum Rank {
     Loading(Receiver<Result<Vec<IrScore>, String>>),
     Done(Vec<IrScore>),
-    Error(String),
+    Error,
 }
 
 pub struct SelectScene {
@@ -77,7 +73,6 @@ pub struct SelectScene {
     pub(crate) scroll: f32,
     pub(crate) search_edit: Option<String>,
     bar_rects: Vec<(Rect, usize)>,
-    opt_rects: Vec<(Rect, usize)>,
     drag: Option<(u64, f32, f32, bool)>,
     pub(crate) last_move: Instant,
     held_nav: Option<(Nav, Instant, Instant)>,
@@ -87,7 +82,7 @@ pub struct SelectScene {
     preview_for: Option<String>,
     preview_rx: Option<Receiver<Option<Arc<Sample>>>>,
     banner: Option<(String, Option<TexId>)>,
-    ranking: HashMap<String, Rank>,
+    pub(crate) ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
     pub(crate) created: Instant,
     pub(crate) skin: Option<LoadedSkin>,
@@ -111,7 +106,6 @@ impl SelectScene {
             scroll: 0.0,
             search_edit: None,
             bar_rects: Vec::new(),
-            opt_rects: Vec::new(),
             drag: None,
             last_move: Instant::now(),
             held_nav: None,
@@ -201,7 +195,6 @@ impl SelectScene {
                     sub: String::new(),
                     node: Node::All,
                     count: songs.len(),
-                    color: rgba(0x4fc3f7ff),
                 }];
                 let mut folders: Vec<(String, usize)> = Vec::new();
                 let mut idx: HashMap<&str, usize> = HashMap::new();
@@ -225,7 +218,6 @@ impl SelectScene {
                         sub: f.clone(),
                         node: Node::Folder(f),
                         count: n,
-                        color: rgba(0xe0c060ff),
                     });
                 }
                 for (i, t) in ctx.tables.iter().enumerate() {
@@ -234,7 +226,6 @@ impl SelectScene {
                         sub: format!("{} levels", t.levels().len()),
                         node: Node::Table(i),
                         count: t.entries.len(),
-                        color: rgba(0x9be564ff),
                     });
                     if !t.header.courses.is_empty() {
                         bars.push(Bar::Folder {
@@ -242,7 +233,6 @@ impl SelectScene {
                             sub: String::new(),
                             node: Node::Courses(i),
                             count: t.header.courses.len(),
-                            color: rgba(0xff8a65ff),
                         });
                     }
                 }
@@ -287,7 +277,6 @@ impl SelectScene {
                             sub: format!("{have}/{}", entries.len()),
                             node: Node::Level(*t, l),
                             count: entries.len(),
-                            color: rgba(0x9be564ff),
                         }
                     })
                     .collect()
@@ -557,7 +546,10 @@ impl SelectScene {
                 if let Ok(res) = rx.try_recv() {
                     *r = match res {
                         Ok(v) => Rank::Done(v),
-                        Err(e) => Rank::Error(e),
+                        Err(e) => {
+                            log::warn!("IR ranking: {e}");
+                            Rank::Error
+                        }
                     };
                 }
             }
@@ -641,6 +633,10 @@ impl SelectScene {
             42 => self.option(ctx, 0),
             40 => self.option(ctx, 1),
             308 => self.option(ctx, 3),
+            super::select_skin::EVENT_BACK => {
+                self.back(ctx);
+                Next::Stay
+            }
             n if (OPTION_EVENT..OPTION_EVENT + 100).contains(&n) => {
                 self.option(ctx, (n - OPTION_EVENT) as usize)
             }
@@ -687,10 +683,6 @@ pub fn resolve_image(p: &Path) -> Option<std::path::PathBuf> {
     let dir = p.parent()?;
     let name = p.file_name()?.to_string_lossy();
     crate::platform::vfs::find_by_stem(dir, &name, crate::platform::vfs::IMAGE_EXTS)
-}
-
-fn lamp_name(c: ClearType) -> &'static str {
-    c.label()
 }
 
 impl Scene for SelectScene {
@@ -870,9 +862,6 @@ impl Scene for SelectScene {
                 id, phase, x, y, ..
             } => match phase {
                 Phase::Down => {
-                    if let Some(i) = ui::hit(&self.opt_rects, *x, *y) {
-                        return self.option(ctx, i);
-                    }
                     if let Some(&(_, act, _)) = self
                         .skin_clicks
                         .iter()
@@ -912,8 +901,6 @@ impl Scene for SelectScene {
                                 }
                                 self.cursor = i;
                                 self.moved(ctx);
-                            } else if self.header_back_hit(ctx, *x, *y) {
-                                self.back(ctx);
                             }
                         }
                     }
@@ -949,137 +936,7 @@ impl Scene for SelectScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        if self.skin.is_some() {
-            self.draw_skinned(ctx, d, now);
-            return;
-        }
-        let ui = ctx.ui();
-        let th = ctx.theme.clone();
-        let (w, h) = (ctx.width, ctx.height);
-        if let Some(bg) = ctx.bg_texture {
-            d.image_cover(bg, Rect::new(0.0, 0.0, w, h), 0.35);
-        }
-        let header_h = 44.0 * ui;
-        let opt_h = if ctx.portrait() {
-            2.0 * 58.0 * ui
-        } else {
-            62.0 * ui
-        };
-        // header
-        d.b.rect(Rect::new(0.0, 0.0, w, header_h), with_alpha(th.panel, 1.0));
-        d.text(
-            "vibeBMS",
-            14.0 * ui,
-            9.0 * ui,
-            22.0 * ui,
-            th.accent,
-            Align::Left,
-        );
-        let path = self.path_label(ctx);
-        d.text_fit(
-            &path,
-            130.0 * ui,
-            12.0 * ui,
-            17.0 * ui,
-            th.text,
-            Align::Left,
-            w * 0.5,
-        );
-        if !self.stack.is_empty() {
-            d.text(
-                "◀ BACK",
-                w * 0.5 + 150.0 * ui,
-                12.0 * ui,
-                16.0 * ui,
-                th.text_dim,
-                Align::Left,
-            );
-        }
-        let status = if let Some(s) = &ctx.scan {
-            format!(
-                "Scanning… {} found, {}/{} parsed",
-                s.found.load(Ordering::Relaxed),
-                s.parsed.load(Ordering::Relaxed),
-                s.to_parse.load(Ordering::Relaxed)
-            )
-        } else if ctx.table_rx.is_some() {
-            "Updating tables…".to_string()
-        } else {
-            format!("{} charts", ctx.songs.len())
-        };
-        d.text(
-            &status,
-            w - 12.0 * ui,
-            13.0 * ui,
-            15.0 * ui,
-            th.text_dim,
-            Align::Right,
-        );
-
-        let body = Rect::new(0.0, header_h, w, h - header_h - opt_h);
-        let (info_r, list_r) = if ctx.portrait() {
-            let ih = body.h * 0.36;
-            (
-                Rect::new(0.0, body.y, w, ih),
-                Rect::new(0.0, body.y + ih, w, body.h - ih),
-            )
-        } else {
-            let iw = w * 0.4;
-            (
-                Rect::new(0.0, body.y, iw, body.h),
-                Rect::new(iw, body.y, w - iw, body.h),
-            )
-        };
-        self.draw_info(ctx, d, info_r.inset(10.0 * ui), &th, ui);
-        self.draw_list(ctx, d, list_r, &th, ui);
-
-        // options bar
-        self.opt_rects.clear();
-        let items = Self::option_items(ctx);
-        let rows = if ctx.portrait() { 2 } else { 1 };
-        let per_row = items.len().div_ceil(rows);
-        let bw = w / per_row as f32;
-        let bh = opt_h / rows as f32;
-        for (i, (cap, val)) in items.iter().enumerate() {
-            let (row, col) = (i / per_row, i % per_row);
-            let r = Rect::new(
-                col as f32 * bw + 3.0,
-                h - opt_h + row as f32 * bh + 3.0,
-                bw - 6.0,
-                bh - 6.0,
-            );
-            ui::option_button(d, r, cap, val, &th, ui);
-            self.opt_rects.push((r, i));
-        }
-        if let Some(q) = &self.search_edit {
-            let r = Rect::new(w * 0.2, h * 0.4, w * 0.6, 56.0 * ui);
-            ui::panel(d, r, &th);
-            let caret = if (now.elapsed().as_millis() / 500) % 2 == 0 {
-                "_"
-            } else {
-                " "
-            };
-            d.text(
-                &format!("Search: {q}{caret}"),
-                r.x + 16.0 * ui,
-                r.y + 16.0 * ui,
-                22.0 * ui,
-                th.text,
-                Align::Left,
-            );
-        }
-        if ctx.songs.is_empty() && ctx.scan.is_none() {
-            let msg = format!("No BMS found. Put BMS folders next to the executable ({}) or drop a folder onto this window.", ctx.paths.root.display());
-            d.text_fit(
-                &msg,
-                w * 0.5,
-                h * 0.5,
-                18.0 * ui,
-                th.text,
-                Align::Center,
-                w * 0.9,
-            );
-        }
+        self.draw_skinned(ctx, d, now);
     }
 }
 
@@ -1102,7 +959,6 @@ impl SelectScene {
         };
         self.bar_rects = bars;
         self.skin_clicks = clicks;
-        self.opt_rects.clear();
         // search box (typing is not part of skins)
         if let Some(q) = &self.search_edit {
             let ui = ctx.ui();
@@ -1149,463 +1005,4 @@ impl SelectScene {
         parts.push(name(&self.node));
         parts.join(" › ")
     }
-
-    fn header_back_hit(&self, ctx: &Ctx, x: f32, y: f32) -> bool {
-        let ui = ctx.ui();
-        !self.stack.is_empty()
-            && y < 44.0 * ui
-            && x > ctx.width * 0.5 + 140.0 * ui
-            && x < ctx.width * 0.5 + 260.0 * ui
-    }
-
-    fn draw_list(&mut self, ctx: &Ctx, d: &mut Draw, r: Rect, th: &Theme, ui: f32) {
-        self.bar_rects.clear();
-        let bh = 46.0 * ui;
-        let center_y = r.y + r.h * 0.42;
-        let visible = (r.h / bh).ceil() as i32 + 2;
-        d.b.set_clip(Some(r));
-        let first = (self.scroll - visible as f32 * 0.5).floor() as i32;
-        for k in first..first + visible + 1 {
-            if k < 0 || k as usize >= self.bars.len() {
-                continue;
-            }
-            let i = k as usize;
-            let y = center_y + (k as f32 - self.scroll) * bh;
-            if y + bh < r.y || y > r.bottom() {
-                continue;
-            }
-            let selected = i == self.cursor;
-            let indent = if selected { 0.0 } else { 24.0 * ui };
-            let br = Rect::new(
-                r.x + 12.0 * ui + indent,
-                y + 2.0,
-                r.w - 24.0 * ui - indent,
-                bh - 4.0,
-            );
-            self.bar_rects.push((br, i));
-            let bg = if selected {
-                with_alpha(th.accent, 0.3)
-            } else {
-                with_alpha(th.panel, 0.92)
-            };
-            d.b.rect(br, bg);
-            if selected {
-                d.b.rect_outline(br, 2.0, th.accent);
-            }
-            let ts = 19.0 * ui;
-            let ty = br.y + (br.h - ts) * 0.5 - 2.0 * ui;
-            match &self.bars[i] {
-                Bar::Folder {
-                    label,
-                    sub,
-                    count,
-                    color,
-                    ..
-                } => {
-                    d.b.rect(Rect::new(br.x, br.y, 6.0 * ui, br.h), *color);
-                    d.text_fit(
-                        &format!("▸ {label}"),
-                        br.x + 16.0 * ui,
-                        ty,
-                        ts,
-                        th.text,
-                        Align::Left,
-                        br.w * 0.7,
-                    );
-                    let info = if matches!(
-                        &self.bars[i],
-                        Bar::Folder {
-                            node: Node::Level(..),
-                            ..
-                        }
-                    ) {
-                        sub.clone()
-                    } else {
-                        format!("{count}")
-                    };
-                    d.text(
-                        &info,
-                        br.right() - 12.0 * ui,
-                        ty + 2.0 * ui,
-                        15.0 * ui,
-                        th.text_dim,
-                        Align::Right,
-                    );
-                }
-                Bar::Song(si) => {
-                    let s = &ctx.songs[*si];
-                    let lamp = ctx
-                        .best(s, ctx.config.play.ln_mode as i32)
-                        .map(|b| b.clear)
-                        .unwrap_or(ClearType::NoPlay);
-                    d.b.rect(Rect::new(br.x, br.y, 8.0 * ui, br.h), Theme::lamp(lamp));
-                    let lv_col = difficulty_color(s.difficulty);
-                    let lvr = Rect::new(
-                        br.x + 14.0 * ui,
-                        br.y + 6.0 * ui,
-                        44.0 * ui,
-                        br.h - 12.0 * ui,
-                    );
-                    d.b.rect(lvr, with_alpha(lv_col, 0.25));
-                    d.text_fit(
-                        &s.level,
-                        lvr.x + lvr.w * 0.5,
-                        lvr.y + (lvr.h - 16.0 * ui) * 0.5,
-                        16.0 * ui,
-                        lv_col,
-                        Align::Center,
-                        lvr.w - 4.0,
-                    );
-                    let tag = match s.mode.as_str() {
-                        "7KEYS" => "",
-                        m => m,
-                    };
-                    let right = if tag.is_empty() {
-                        0.0
-                    } else {
-                        d.measure(tag, 13.0 * ui) + 16.0 * ui
-                    };
-                    d.text_fit(
-                        &s.full_title(),
-                        br.x + 66.0 * ui,
-                        ty,
-                        ts,
-                        th.text,
-                        Align::Left,
-                        br.w - 80.0 * ui - right,
-                    );
-                    if !tag.is_empty() {
-                        d.text(
-                            tag,
-                            br.right() - 10.0 * ui,
-                            ty + 3.0 * ui,
-                            13.0 * ui,
-                            th.accent,
-                            Align::Right,
-                        );
-                    }
-                }
-                Bar::Missing { title, level, .. } => {
-                    d.b.rect(Rect::new(br.x, br.y, 8.0 * ui, br.h), rgba(0x303030ff));
-                    d.text(
-                        level,
-                        br.x + 18.0 * ui,
-                        ty + 2.0 * ui,
-                        14.0 * ui,
-                        th.text_dim,
-                        Align::Left,
-                    );
-                    d.text_fit(
-                        title,
-                        br.x + 76.0 * ui,
-                        ty,
-                        ts,
-                        with_alpha(th.text_dim, 0.8),
-                        Align::Left,
-                        br.w - 90.0 * ui,
-                    );
-                }
-                Bar::Course { table, course } => {
-                    let name = ctx
-                        .tables
-                        .get(*table)
-                        .and_then(|t| t.header.courses.get(*course))
-                        .map(|c| c.name.clone())
-                        .unwrap_or_default();
-                    d.b.rect(Rect::new(br.x, br.y, 8.0 * ui, br.h), rgba(0xff8a65ff));
-                    d.text_fit(
-                        &format!("◆ {name}"),
-                        br.x + 18.0 * ui,
-                        ty,
-                        ts,
-                        th.text,
-                        Align::Left,
-                        br.w - 30.0 * ui,
-                    );
-                }
-            }
-        }
-        d.b.set_clip(None);
-        if !self.bars.is_empty() {
-            // scrollbar
-            let frac = self.cursor as f32 / (self.bars.len().max(2) - 1) as f32;
-            let sb = Rect::new(
-                r.right() - 5.0 * ui,
-                r.y + frac * (r.h - 40.0 * ui),
-                4.0 * ui,
-                40.0 * ui,
-            );
-            d.b.rect(sb, with_alpha(th.accent, 0.6));
-        }
-    }
-
-    fn draw_info(&mut self, ctx: &Ctx, d: &mut Draw, r: Rect, th: &Theme, ui: f32) {
-        ui::panel(d, r, th);
-        let x = r.x + 14.0 * ui;
-        let mut y = r.y + 12.0 * ui;
-        let maxw = r.w - 28.0 * ui;
-        match self.bars.get(self.cursor) {
-            Some(Bar::Song(i)) => {
-                let s = &ctx.songs[*i];
-                let img_h = (r.h * 0.34).min(r.w * 0.45);
-                if let Some((_, Some(t))) = &self.banner {
-                    d.image_fit(*t, Rect::new(x, y, maxw, img_h), 1.0);
-                    y += img_h + 8.0 * ui;
-                }
-                if !s.genre.is_empty() {
-                    d.text_fit(&s.genre, x, y, 14.0 * ui, th.text_dim, Align::Left, maxw);
-                    y += 20.0 * ui;
-                }
-                d.text_fit(&s.title, x, y, 26.0 * ui, th.text, Align::Left, maxw);
-                y += 32.0 * ui;
-                if !s.subtitle.is_empty() {
-                    d.text_fit(&s.subtitle, x, y, 16.0 * ui, th.text, Align::Left, maxw);
-                    y += 22.0 * ui;
-                }
-                let artist = if s.subartist.is_empty() {
-                    s.artist.clone()
-                } else {
-                    format!("{} / {}", s.artist, s.subartist)
-                };
-                d.text_fit(&artist, x, y, 16.0 * ui, th.text_dim, Align::Left, maxw);
-                y += 28.0 * ui;
-                let bpm = if (s.max_bpm - s.min_bpm).abs() < 0.01 {
-                    format!("{:.0}", s.main_bpm)
-                } else {
-                    format!("{:.0}-{:.0} ({:.0})", s.min_bpm, s.max_bpm, s.main_bpm)
-                };
-                let flags: Vec<&str> = [
-                    (s.has_ln, "LN"),
-                    (s.has_mine, "MINE"),
-                    (s.has_random, "RANDOM"),
-                    (s.has_stop, "STOP"),
-                    (s.has_bga, "BGA"),
-                ]
-                .iter()
-                .filter(|f| f.0)
-                .map(|f| f.1)
-                .collect();
-                let lines = [
-                    format!("{}  LEVEL {}  BPM {}", s.mode, s.level, bpm),
-                    format!(
-                        "NOTES {}  TOTAL {:.0}  {}:{:02}",
-                        s.notes,
-                        s.total,
-                        s.length_ms / 60000,
-                        (s.length_ms / 1000) % 60
-                    ),
-                    flags.join("  "),
-                ];
-                for l in lines.iter().filter(|l| !l.is_empty()) {
-                    d.text_fit(l, x, y, 15.0 * ui, th.text, Align::Left, maxw);
-                    y += 21.0 * ui;
-                }
-                if let Some(labels) = self.labels.get(i) {
-                    d.text_fit(
-                        &labels.join("  "),
-                        x,
-                        y,
-                        15.0 * ui,
-                        rgba(0x9be564ff),
-                        Align::Left,
-                        maxw,
-                    );
-                    y += 21.0 * ui;
-                }
-                y += 6.0 * ui;
-                if let Some(b) = ctx.best(s, ctx.config.play.ln_mode as i32) {
-                    d.b.rect(Rect::new(x, y, 6.0 * ui, 46.0 * ui), Theme::lamp(b.clear));
-                    d.text(
-                        lamp_name(b.clear),
-                        x + 14.0 * ui,
-                        y,
-                        17.0 * ui,
-                        Theme::lamp(b.clear),
-                        Align::Left,
-                    );
-                    let dj = vibebms_core::score::DjLevel::from_rate(b.ex_score, b.notes * 2);
-                    d.text(
-                        &format!(
-                            "EX {}  {:.2}%  {}   BP {}   PLAY {}",
-                            b.ex_score,
-                            b.rate() * 100.0,
-                            dj.label(),
-                            if b.min_bp == u32::MAX { 0 } else { b.min_bp },
-                            b.play_count
-                        ),
-                        x + 14.0 * ui,
-                        y + 23.0 * ui,
-                        15.0 * ui,
-                        th.text,
-                        Align::Left,
-                    );
-                    y += 56.0 * ui;
-                } else {
-                    d.text("NO PLAY", x, y, 16.0 * ui, th.text_dim, Align::Left);
-                    y += 28.0 * ui;
-                }
-                // IR ranking
-                if y < r.bottom() - 40.0 * ui {
-                    match self.ranking.get(&s.sha256) {
-                        Some(Rank::Done(v)) => {
-                            let name = ctx
-                                .config
-                                .ir
-                                .iter()
-                                .find(|c| c.enabled)
-                                .map(|c| c.name.clone())
-                                .unwrap_or_default();
-                            d.text(
-                                &format!("{name} RANKING ({})", v.len()),
-                                x,
-                                y,
-                                14.0 * ui,
-                                th.accent,
-                                Align::Left,
-                            );
-                            y += 20.0 * ui;
-                            for e in v
-                                .iter()
-                                .take(((r.bottom() - y) / (18.0 * ui)).max(0.0) as usize)
-                            {
-                                d.b.rect(
-                                    Rect::new(x, y + 3.0 * ui, 4.0 * ui, 12.0 * ui),
-                                    Theme::lamp(e.clear),
-                                );
-                                d.text_fit(
-                                    &format!("{:>3}. {}", e.rank, e.player),
-                                    x + 10.0 * ui,
-                                    y,
-                                    14.0 * ui,
-                                    th.text,
-                                    Align::Left,
-                                    maxw * 0.6,
-                                );
-                                d.text(
-                                    &format!("{}  BP{}", e.ex_score, e.min_bp),
-                                    r.right() - 14.0 * ui,
-                                    y,
-                                    14.0 * ui,
-                                    th.text_dim,
-                                    Align::Right,
-                                );
-                                y += 18.0 * ui;
-                            }
-                        }
-                        Some(Rank::Loading(_)) => {
-                            d.text("IR: loading…", x, y, 14.0 * ui, th.text_dim, Align::Left);
-                        }
-                        Some(Rank::Error(e)) => {
-                            d.text_fit(
-                                &format!("IR: {e}"),
-                                x,
-                                y,
-                                13.0 * ui,
-                                th.text_dim,
-                                Align::Left,
-                                maxw,
-                            );
-                        }
-                        None => {}
-                    }
-                }
-            }
-            Some(Bar::Folder {
-                label, sub, count, ..
-            }) => {
-                d.text_fit(label, x, y, 26.0 * ui, th.text, Align::Left, maxw);
-                y += 34.0 * ui;
-                d.text_fit(sub, x, y, 15.0 * ui, th.text_dim, Align::Left, maxw);
-                y += 24.0 * ui;
-                d.text(
-                    &format!("{count} items"),
-                    x,
-                    y,
-                    16.0 * ui,
-                    th.text,
-                    Align::Left,
-                );
-            }
-            Some(Bar::Missing {
-                title,
-                artist,
-                level,
-                url,
-            }) => {
-                d.text(level, x, y, 18.0 * ui, rgba(0x9be564ff), Align::Left);
-                y += 28.0 * ui;
-                d.text_fit(title, x, y, 24.0 * ui, th.text, Align::Left, maxw);
-                y += 32.0 * ui;
-                d.text_fit(artist, x, y, 16.0 * ui, th.text_dim, Align::Left, maxw);
-                y += 30.0 * ui;
-                d.text(
-                    "NOT INSTALLED",
-                    x,
-                    y,
-                    16.0 * ui,
-                    rgba(0xff6b6bff),
-                    Align::Left,
-                );
-                y += 24.0 * ui;
-                d.text_fit(url, x, y, 13.0 * ui, th.text_dim, Align::Left, maxw);
-            }
-            Some(Bar::Course { table, course }) => {
-                if let Some(c) = ctx
-                    .tables
-                    .get(*table)
-                    .and_then(|t| t.header.courses.get(*course))
-                {
-                    d.text_fit(&c.name, x, y, 26.0 * ui, th.text, Align::Left, maxw);
-                    y += 36.0 * ui;
-                    let n = c.md5.len().max(c.sha256.len());
-                    for k in 0..n {
-                        let md5 = c.md5.get(k).map(|s| s.to_lowercase()).unwrap_or_default();
-                        let sha = c
-                            .sha256
-                            .get(k)
-                            .map(|s| s.to_lowercase())
-                            .unwrap_or_default();
-                        let (t, col) = match self.find(&md5, &sha) {
-                            Some(i) => (ctx.songs[i].full_title(), th.text),
-                            None => ("(not installed)".to_string(), rgba(0xff6b6bff)),
-                        };
-                        d.text_fit(
-                            &format!("{}. {t}", k + 1),
-                            x,
-                            y,
-                            16.0 * ui,
-                            col,
-                            Align::Left,
-                            maxw,
-                        );
-                        y += 22.0 * ui;
-                    }
-                    if !c.constraint.is_empty() {
-                        y += 6.0 * ui;
-                        d.text_fit(
-                            &c.constraint.join(", "),
-                            x,
-                            y,
-                            14.0 * ui,
-                            th.text_dim,
-                            Align::Left,
-                            maxw,
-                        );
-                    }
-                }
-            }
-            None => {}
-        }
-    }
-}
-
-fn difficulty_color(d: i32) -> Color {
-    rgba(match d {
-        1 => 0x66dd66ff,
-        2 => 0x55aaffff,
-        3 => 0xffcc33ff,
-        4 => 0xff5555ff,
-        5 => 0xcc66ffff,
-        _ => 0xbbbbbbff,
-    })
 }

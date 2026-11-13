@@ -11,6 +11,10 @@ use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::*;
 use vibebms_core::score::{ClearType, DjLevel};
 
+/// Click events of result skins (vibeBMS ids): retry the chart / continue.
+pub const EVENT_RETRY: i32 = 9500;
+pub const EVENT_CONTINUE: i32 = 9501;
+
 /// Timer 151 (result graph end) fires this long after the scene starts.
 pub const GRAPH_MS: i64 = 1000;
 
@@ -244,6 +248,8 @@ impl SkinState for ResultState<'_> {
 
 pub struct ResultHooks<'a> {
     pub st: &'a ResultState<'a>,
+    /// Clickable objects drawn: (rect, event).
+    pub clicks: Vec<(Rect, i32)>,
 }
 
 const JUDGE_COLORS: [u32; 6] = [
@@ -263,6 +269,10 @@ fn gauge_color(t: GaugeType, above: bool) -> Color {
 }
 
 impl Hooks for ResultHooks<'_> {
+    fn clickable(&mut self, rect: Rect, act: i32, _click: i32) {
+        self.clicks.push((rect, act));
+    }
+
     fn graph(&mut self, d: &mut Draw, kind: GraphKind, r: Rect, color: [f32; 4]) {
         let s = self.st.s;
         let data = &s.d;

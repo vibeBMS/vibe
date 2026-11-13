@@ -1,7 +1,6 @@
 //! Shared pieces of the skinned (non-play) scenes: which skin to use, loading
 //! it, and skin values common to several screens.
 
-use super::play_skin::CLASSIC;
 use crate::app::Ctx;
 use crate::gfx::Gfx;
 use crate::skin::render::LoadedSkin;
@@ -26,67 +25,43 @@ pub fn default_skin(kind: SkinType, portrait: bool) -> Option<PathBuf> {
     Some(dir.join(format!("{name}.json")))
 }
 
-/// The configured skin for a screen; `None` = the code-drawn ("classic") view.
-pub fn skin_path(ctx: &Ctx, kind: SkinType) -> Option<PathBuf> {
-    let key = kind.config_key()?;
-    match ctx.config.skins.get(key).map(String::as_str).unwrap_or("") {
-        CLASSIC => None,
-        "" => default_skin(kind, ctx.height > ctx.width),
-        rel => {
-            let p = PathBuf::from(rel);
-            Some(if p.is_absolute() {
-                p
-            } else {
-                ctx.paths.root.join(p)
-            })
-        }
-    }
+/// The configured skin for a screen (`None` = the built-in default).
+pub fn configured_skin(ctx: &Ctx, kind: SkinType) -> Option<PathBuf> {
+    let v = ctx.config.skins.get(kind.config_key()?)?;
+    super::play_skin::configured_path(ctx, v)
 }
 
-/// Load the skin for a screen. `static_option` answers options at load time
-/// (LR2 `#IF`). A course result accepts a result skin.
+/// Load the skin for a screen: the configured one, else the built-in
+/// default. `static_option` answers options at load time (LR2 `#IF`). A
+/// course result accepts a result skin.
 pub fn load(
     ctx: &Ctx,
     gfx: &mut Gfx,
     kind: SkinType,
     static_option: &dyn Fn(i32) -> Option<bool>,
 ) -> Option<LoadedSkin> {
-    let path = skin_path(ctx, kind)?;
     let accept =
         |k: SkinType| k == kind || (kind == SkinType::CourseResult && k == SkinType::Result);
-    let try_load = |p: &PathBuf| {
-        crate::skin::load_file(
-            p,
+    let default = default_skin(kind, ctx.height > ctx.width);
+    for path in configured_skin(ctx, kind).into_iter().chain(default) {
+        match crate::skin::load_file(
+            &path,
             &ctx.paths.skins,
             &HashMap::new(),
             static_option,
             &crate::skin::image_size,
-        )
-    };
-    let mut res = try_load(&path);
-    if res.is_err() {
-        // a broken user skin falls back to the built-in default
-        if let Some(def) = default_skin(kind, ctx.height > ctx.width).filter(|d| *d != path) {
-            log::warn!("skin: {}", res.as_ref().err().unwrap());
-            res = try_load(&def);
-        }
-    }
-    match res {
-        Ok(skin) if accept(skin.kind) => Some(LoadedSkin::load(skin, gfx)),
-        Ok(skin) => {
-            log::warn!(
+        ) {
+            Ok(skin) if accept(skin.kind) => return Some(LoadedSkin::load(skin, gfx)),
+            Ok(skin) => log::warn!(
                 "{}: not a {:?} skin ({:?})",
                 path.display(),
                 kind,
                 skin.kind
-            );
-            None
-        }
-        Err(e) => {
-            log::warn!("skin: {e}");
-            None
+            ),
+            Err(e) => log::warn!("skin: {e}"),
         }
     }
+    None
 }
 
 /// Chart options shared by select / result (LR2 / beatoraja ids).
