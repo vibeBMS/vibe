@@ -655,6 +655,9 @@ impl Scene for PlayScene {
     fn realtime(&self) -> bool {
         true
     }
+    fn full_screen(&self) -> bool {
+        true
+    }
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         // no game events are run from play skin scripts yet

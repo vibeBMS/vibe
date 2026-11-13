@@ -68,6 +68,12 @@ jobs:
     name: build web (wasm32)
     needs: test
     runs-on: ubuntu-latest
+    # pushes publish the build to the gh-pages branch (GitHub Pages)
+    permissions:
+      contents: write
+    concurrency:
+      group: web-pages
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -76,10 +82,44 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       - run: ./tools/build_web.sh
+      - name: demo song (the page's "Demo song" button)
+        run: |
+          python3 tools/gen_demo.py "$RUNNER_TEMP/demo/vibeBMS demo"
+          (cd "$RUNNER_TEMP/demo" && zip -qr "$GITHUB_WORKSPACE/web/demo.zip" "vibeBMS demo")
       - uses: actions/upload-artifact@v4
         with:
           name: vibeBMS-web
           path: web
+      # default branch -> the site root, other branches -> preview/<branch>/
+      - name: where to publish
+        if: github.event_name == 'push'
+        id: dest
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "${{ github.event.repository.default_branch }}" ]; then
+            dir=""
+          else
+            dir="preview/$(echo "${GITHUB_REF_NAME}" | tr -c 'A-Za-z0-9._\n-' '-')"
+          fi
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          echo "url=https://${owner}.github.io/${repo}/${dir:+$dir/}" >> "$GITHUB_OUTPUT"
+      - name: publish to gh-pages
+        if: github.event_name == 'push'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          keep_files: true
+          commit_message: "web build ${{ github.sha }} (${{ github.ref_name }})"
+      - name: link
+        if: github.event_name == 'push'
+        run: |
+          echo "### Web build" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.dest.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "(needs GitHub Pages: Settings > Pages > Deploy from a branch > gh-pages / root)" >> "$GITHUB_STEP_SUMMARY"
 
   android:
     name: build android (experimental)

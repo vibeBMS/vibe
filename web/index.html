@@ -2,25 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="theme-color" content="#0b0d14" />
   <title>vibeBMS</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0b0d14; overflow: hidden; touch-action: none; }
-    canvas { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
-    #open { position: fixed; left: 12px; bottom: 12px; z-index: 10; font: 14px system-ui, sans-serif;
-            color: #f2f4f8; background: #161a26e6; border: 1px solid #4fc3f7; border-radius: 6px;
-            padding: 8px 12px; cursor: pointer; }
-    #open input { display: none; }
+    html, body { margin: 0; height: 100%; background: #0b0d14; overflow: hidden; touch-action: none;
+                 overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+                 -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+    /* dvh: the visible height on iPad / iPhone Safari (vh includes the toolbars) */
+    canvas { display: block; width: 100vw !important; height: 100vh !important; height: 100dvh !important;
+             outline: none; touch-action: none; }
+    #bar { position: fixed; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom));
+           z-index: 10; display: flex; gap: 6px; font: 14px system-ui, sans-serif; }
+    #bar label, #bar button { color: #f2f4f8; background: #161a26e6; border: 1px solid #4fc3f7; border-radius: 6px;
+           padding: 8px 12px; cursor: pointer; font: inherit; }
+    #bar input { display: none; }
+    #bar[data-playing] { display: none; }
+    #bar #hide { border-color: #555c70; padding: 8px 10px; }
+    #msg { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 11; color: #f2f4f8;
+           font: 15px system-ui, sans-serif; background: #161a26f0; border: 1px solid #4fc3f7; border-radius: 8px;
+           padding: 14px 18px; display: none; max-width: 80vw; text-align: center; }
   </style>
 </head>
 <body>
-  <!-- folder picker: files are mounted under /vibebms/bms/ inside the app -->
-  <label id="open">📂 Open BMS folder
-    <input id="bms-input" type="file" webkitdirectory directory multiple />
-  </label>
+  <!-- song pickers: files are mounted under /vibebms/bms/ inside the app -->
+  <div id="bar">
+    <label>📂 Folder<input id="bms-input" type="file" webkitdirectory directory multiple /></label>
+    <label>📦 Files / .zip<input id="bms-files" type="file" multiple /></label>
+    <button id="demo" hidden>▶ Demo song</button>
+    <button id="hide" title="hide">✕</button>
+  </div>
+  <div id="msg"></div>
+  <script>
+    // iOS / Safari keep Web Audio suspended until resumed inside a user
+    // gesture: remember every audio context and resume them on touch / key.
+    (() => {
+      const ctxs = [];
+      for (const k of ["AudioContext", "webkitAudioContext"]) {
+        const C = window[k];
+        if (!C) continue;
+        window[k] = class extends C {
+          constructor(...a) { super(...a); ctxs.push(this); }
+        };
+      }
+      const unlock = () => { for (const c of ctxs) if (c.state !== "running") c.resume(); };
+      for (const e of ["touchend", "pointerup", "mousedown", "keydown"])
+        window.addEventListener(e, unlock, { capture: true, passive: true });
+      // no pinch / double-tap zoom on iOS (it ignores user-scalable=no)
+      for (const e of ["gesturestart", "gesturechange", "dblclick"])
+        document.addEventListener(e, (ev) => ev.preventDefault(), { passive: false });
+    })();
+  </script>
   <script type="module">
-    import init from "./pkg/vibebms_web.js";
-    init();
+    import init, { mountZip } from "./pkg/vibebms_web.js";
+    const msg = document.getElementById("msg");
+    const say = (t, ms) => { msg.textContent = t; msg.style.display = t ? "block" : "none";
+                             if (ms) setTimeout(() => (msg.style.display = "none"), ms); };
+    document.getElementById("hide").onclick = () => (document.getElementById("bar").style.display = "none");
+    say("Loading…");
+    await init();
+    say("");
+    // a demo song shipped next to the page (CI builds one)
+    const demo = document.getElementById("demo");
+    fetch("demo.zip", { method: "HEAD" }).then((r) => { if (r.ok) demo.hidden = false; }).catch(() => {});
+    demo.onclick = async () => {
+      say("Loading demo…");
+      try {
+        const buf = new Uint8Array(await (await fetch("demo.zip")).arrayBuffer());
+        const n = mountZip("vibeBMS demo.zip", buf);
+        say(n ? "Demo added to the song list" : "Could not open the demo", 2000);
+      } catch (e) {
+        say("Could not load the demo: " + e, 4000);
+      }
+    };
   </script>
 </body>
 </html>

@@ -114,6 +114,11 @@ pub trait Scene {
     /// About to be removed: release textures/sounds.
     fn exit(&mut self, _ctx: &mut Ctx, _gfx: &mut Gfx) {}
     /// Wants every frame redrawn ASAP (gameplay).
+    /// The screen needs all of it (play): the web page hides its own
+    /// buttons meanwhile.
+    fn full_screen(&self) -> bool {
+        false
+    }
     fn realtime(&self) -> bool {
         false
     }
@@ -611,6 +616,8 @@ impl Running {
         }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
+        #[cfg(target_arch = "wasm32")]
+        crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
         if let Some(fs) = self.ctx.want_fullscreen.take() {
             self.window
                 .set_fullscreen(fs.then_some(Fullscreen::Borderless(None)));
@@ -744,7 +751,12 @@ impl App {
             max_voices: 512,
         });
         let lib = Some(Library::open(&self.paths.cache, &self.paths.scores));
-        let size = window.inner_size();
+        let size = {
+            let (width, height) = surface_size(&window);
+            // the renderer started from winit's idea of the size
+            gfx.resize(width, height);
+            winit::dpi::PhysicalSize::new(width, height)
+        };
         let bg_texture = theme
             .background_image
             .clone()
@@ -903,9 +915,11 @@ impl ApplicationHandler<UserEvent> for App {
                 el.exit();
             }
             WindowEvent::Resized(s) => {
-                r.gfx.resize(s.width, s.height);
-                r.ctx.width = s.width as f32;
-                r.ctx.height = s.height as f32;
+                let (w, h) = surface_size(&r.window);
+                let _ = s;
+                r.gfx.resize(w, h);
+                r.ctx.width = w as f32;
+                r.ctx.height = h as f32;
             }
             WindowEvent::RedrawRequested => r.frame(el),
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1034,4 +1048,31 @@ impl ApplicationHandler<UserEvent> for App {
             r.ctx.save_config();
         }
     }
+}
+
+/// Size to render at, in device pixels (as pointer positions are). On the
+/// web winit can report the canvas size in CSS pixels, which on high-DPI
+/// screens (iPad, phones) put every touch in the wrong place and rendered
+/// at half resolution: there it is the canvas' CSS size times the device
+/// pixel ratio, and the canvas' drawing buffer is resized to it.
+fn surface_size(window: &Window) -> (u32, u32) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::WindowExtWebSys;
+        if let (Some(canvas), Some(win)) = (window.canvas(), web_sys::window()) {
+            let r = canvas.get_bounding_client_rect();
+            let dpr = win.device_pixel_ratio();
+            let (w, h) = ((r.width() * dpr).round(), (r.height() * dpr).round());
+            if w >= 1.0 && h >= 1.0 {
+                let (w, h) = (w as u32, h as u32);
+                if canvas.width() != w || canvas.height() != h {
+                    canvas.set_width(w);
+                    canvas.set_height(h);
+                }
+                return (w, h);
+            }
+        }
+    }
+    let s = window.inner_size();
+    (s.width.max(1), s.height.max(1))
 }

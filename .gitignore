@@ -9,3 +9,4 @@
 *.db-journal
 .DS_Store
 /web/pkg/
+/web/demo.zip

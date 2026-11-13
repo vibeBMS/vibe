@@ -241,16 +241,22 @@ mod imp {
     }
 
     /// Mount files chosen with `<input type=file webkitdirectory>` below `<root>/bms/`.
-    pub fn add_files(root: &Path, files: &web_sys::FileList) {
+    /// Mount picked files under `<root>/bms/` (by their path in a picked
+    /// folder, else under `<root>/bms/<sub>/`). Zip files are skipped:
+    /// see `add_zip`.
+    pub fn add_files(root: &Path, files: &web_sys::FileList, sub: &str) {
         FS.with(|fs| {
             let mut fs = fs.borrow_mut();
             for i in 0..files.length() {
                 let Some(f) = files.get(i) else { continue };
+                if f.name().to_lowercase().ends_with(".zip") {
+                    continue;
+                }
                 let rel = js_sys::Reflect::get(&f, &JsValue::from_str("webkitRelativePath"))
                     .ok()
                     .and_then(|v| v.as_string())
                     .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| f.name());
+                    .unwrap_or_else(|| format!("{sub}/{}", f.name()));
                 let path = root.join("bms").join(rel);
                 let size = f.size() as i64;
                 let mtime = (f.last_modified() / 1000.0) as i64;
@@ -265,6 +271,59 @@ mod imp {
             }
             fs.added = true;
         });
+    }
+
+    /// Unpack a zip (a song pack) under `<root>/bms/<zip name>/`; entry
+    /// names in Shift_JIS / EUC-KR are decoded. Returns the files added.
+    pub fn add_zip(root: &Path, name: &str, bytes: Vec<u8>) -> usize {
+        use std::io::Read;
+        let mut z = match zip::ZipArchive::new(std::io::Cursor::new(bytes)) {
+            Ok(z) => z,
+            Err(e) => {
+                log::warn!("{name}: {e}");
+                return 0;
+            }
+        };
+        let stem = Path::new(name)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "zip".into());
+        let base = root.join("bms").join(stem);
+        let mut n = 0;
+        FS.with(|fs| {
+            let mut fs = fs.borrow_mut();
+            for i in 0..z.len() {
+                let Ok(mut f) = z.by_index(i) else { continue };
+                if f.is_dir() {
+                    continue;
+                }
+                let entry = crate::platform::vfs::decode_name(f.name_raw());
+                // no way out of the pack's folder
+                let rel: PathBuf = entry
+                    .split(['/', '\\'])
+                    .filter(|c| !c.is_empty() && *c != "." && *c != "..")
+                    .collect();
+                if rel.as_os_str().is_empty() {
+                    continue;
+                }
+                let mut buf = Vec::with_capacity(f.size() as usize);
+                if f.read_to_end(&mut buf).is_err() {
+                    continue;
+                }
+                let size = buf.len() as i64;
+                fs.files.insert(
+                    base.join(rel),
+                    Node {
+                        data: Data::Bytes(Rc::new(buf)),
+                        size,
+                        mtime: 0,
+                    },
+                );
+                n += 1;
+            }
+            fs.added = true;
+        });
+        n
     }
 
     /// Read the given lazily-mounted files into memory.
@@ -306,6 +365,12 @@ fn builtin(p: &Path) -> Option<&'static [u8]> {
     let rel = p.strip_prefix(BUILTIN).ok()?;
     let rel = rel.to_string_lossy().replace('\\', "/");
     BUILTIN_FILES.get_file(rel.as_str()).map(|f| f.contents())
+}
+
+/// A file name from an archive: UTF-8, else Shift_JIS / EUC-KR as BMS
+/// packs use.
+pub fn decode_name(raw: &[u8]) -> String {
+    vibebms_core::encoding::decode_text(raw)
 }
 
 /// Read a file (built-in files first; a folder may be packed as

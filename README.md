@@ -148,7 +148,12 @@ BPM 그래프도 그리며, 블렌드 모드는 알파·가산·감산·곱하�
 각 스킨 바로 아래 항목으로 고르며 `config.skin_options`에 저장됩니다.
 
 ### 웹 버전
-`tools/build_web.sh` → `web/`을 HTTP로 서빙. 좌하단 **📂 Open BMS folder**로 폴더를 고르면 브라우저 안에서 스캔·플레이합니다(파일은 업로드되지 않음).
+`tools/build_web.sh` → `web/`을 HTTP로 서빙. 좌하단 버튼으로 곡을 넣으면 브라우저 안에서 스캔·플레이합니다(파일은 업로드되지 않음):
+**📂 Folder**(폴더 선택), **📦 Files / .zip**(여러 파일이나 곡 팩 zip — 폴더를 고를 수 없는 iPad Safari용, Shift_JIS 파일명 지원),
+**▶ Demo song**(페이지 옆 `demo.zip`, CI가 생성). 플레이 중에는 버튼이 숨겨집니다. 고해상도(Retina) 화면에서도 기기 픽셀로 렌더링하고,
+iOS의 오디오 잠금은 첫 터치에 해제합니다. CI는 push마다 웹 빌드를 `gh-pages` 브랜치에 올립니다(기본 브랜치 → 사이트 루트,
+다른 브랜치 → `preview/<브랜치>/`). GitHub Pages를 켜면(Settings › Pages › Deploy from a branch › `gh-pages` / root)
+`https://<owner>.github.io/<repo>/` 링크로 바로 열 수 있고, 실행 요약(Summary)에 링크가 표시됩니다.
 설정·기록은 localStorage에 저장. 웹에는 시스템 폰트가 없으므로 일본어/한국어 제목을 보려면 `web/fonts/`에 CJK 폰트를 넣고 `fonts.txt`에 나열하세요.
 난이도표/IR은 해당 서버가 CORS를 허용해야 동작합니다.
 
