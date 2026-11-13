@@ -117,24 +117,27 @@ pub fn layout(
             let whites = keys.div_ceil(2) as f32;
             let pitch = (ARCADE_KEY_W + ARCADE_KEY_GAP) * u;
             let keypad = whites * pitch - ARCADE_KEY_GAP * u;
+            // the turntable: all of it when there is room; else the keys
+            // keep their width and the turntable goes partly off the edge
+            // of the screen (scratching still turns around its centre),
+            // down to a quarter of it showing; past that the keys get narrower
             let r = area.h * 0.47;
-            let disc = sc_lane.map_or(0.0, |_| r * 2.0 + ARCADE_DISC_GAP * u);
-            // too narrow (portrait, one side of double play): the same
-            // keypad, narrower
-            let fits = area.w >= disc + keypad;
-            let area = if fits {
-                centred(area, disc + keypad)
+            let disc_gap = sc_lane.map_or(0.0, |_| ARCADE_DISC_GAP * u);
+            let (whole, least) = sc_lane.map_or((0.0, 0.0), |_| (r * 2.0, r * 0.5));
+            let (area, shown, pitch) = if area.w >= whole + disc_gap + keypad {
+                (centred(area, whole + disc_gap + keypad), whole, pitch)
+            } else if area.w >= least + disc_gap + keypad {
+                (area, area.w - disc_gap - keypad, pitch)
             } else {
-                area
+                let keys_w = area.w - least - disc_gap;
+                let pitch = keys_w / (whites - ARCADE_KEY_GAP / (ARCADE_KEY_W + ARCADE_KEY_GAP));
+                (area, least, pitch)
             };
-            let mut keys_area = area;
             if let Some(sc) = sc_lane {
-                let r = if fits { r } else { r.min(area.w * 0.2) };
-                let d = if fits { disc } else { r * 2.0 + gap * 2.0 };
                 let cx = if scratch_right {
-                    area.right() - r
+                    area.right() - shown + r
                 } else {
-                    area.x + r
+                    area.x + shown - r
                 };
                 zones.push(Zone {
                     shape: Shape::Circle {
@@ -146,18 +149,14 @@ pub fn layout(
                     scratch: true,
                     black: false,
                 });
-                keys_area = Rect::new(
-                    if scratch_right { area.x } else { area.x + d },
-                    area.y,
-                    area.w - d,
-                    area.h,
-                );
             }
-            let pitch = if fits {
-                pitch
-            } else {
-                keys_area.w / (whites - ARCADE_KEY_GAP / (ARCADE_KEY_W + ARCADE_KEY_GAP))
-            };
+            let used = shown + disc_gap;
+            let keys_area = Rect::new(
+                if scratch_right { area.x } else { area.x + used },
+                area.y,
+                area.w - used,
+                area.h,
+            );
             let kw = pitch * ARCADE_KEY_W / (ARCADE_KEY_W + ARCADE_KEY_GAP);
             for k in 0..keys {
                 let black = k % 2 == 1;
@@ -433,6 +432,22 @@ mod tests {
             xs.iter().cloned().fold(0.0, f32::max),
         );
         assert!((left - (2400.0 - right)).abs() < 20.0, "{left} {right}");
+    }
+
+    #[test]
+    fn narrow_areas_push_the_turntable_off_the_edge() {
+        // 850 px: the keys (608 px at 4 px/mm) keep their width and only
+        // part of the turntable shows
+        let area = Rect::new(0.0, 0.0, 850.0, 400.0);
+        let z = layout(PlayMode::Beat7K, TouchStyle::Iidx, area, 0, false, 4.0);
+        let Shape::Circle { cx, r, .. } = z[0].shape else {
+            panic!("turntable first");
+        };
+        assert!(cx - r < 0.0 && cx + r > 0.5 * r);
+        assert!(z[1..].iter().all(|z| match z.shape {
+            Shape::Rect(k) => (k.w - 116.0).abs() < 0.5 && k.right() <= 850.5,
+            _ => false,
+        }));
     }
 
     #[test]
