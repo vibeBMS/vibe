@@ -10,7 +10,7 @@ the SVGs need no font.
     python3 tools/gen_logo.py [--fonts DIR]   # DIR holds Inter-ExtraBold.otf, Inter-SemiBold.otf
 
 Writes assets/logo/ (SVGs and PNG icons), the web page's icons, the window
-icon and the Android launcher icons.
+icon, the Android launcher icons and the iOS home screen icons.
 """
 
 import argparse
@@ -145,6 +145,11 @@ def main():
     res = os.path.join(ROOT, "crates", "vibebms-android", "res")
     for dpi, n in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
         png(rounded, os.path.join(res, f"mipmap-{dpi}", "ic_launcher.png"), n)
+    # iOS home screen (full-bleed: iOS rounds it; named as Info.plist lists them)
+    square = icon(radius=0)
+    for name, n in (("AppIcon60x60@2x", 120), ("AppIcon60x60@3x", 180),
+                    ("AppIcon76x76@2x", 152), ("AppIcon83.5x83.5@2x", 167)):
+        png(square, os.path.join(ROOT, "platform", "ios", f"{name}.png"), n)
     print("wrote", out)
 
 

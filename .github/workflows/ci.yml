@@ -124,6 +124,36 @@ jobs:
           echo "${{ steps.dest.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "(needs GitHub Pages: Settings > Pages > Deploy from a branch > gh-pages / root)" >> "$GITHUB_STEP_SUMMARY"
 
+  # an unsigned .ipa: install it by signing it with your own Apple ID
+  # (AltStore, Sideloadly) or a developer certificate
+  ios:
+    name: build iOS (unsigned, experimental)
+    needs: test
+    runs-on: macos-latest
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: aarch64-apple-ios
+      - run: cargo build --release -p vibebms --target aarch64-apple-ios
+      - name: package
+        run: |
+          app=Payload/vibeBMS.app
+          mkdir -p "$app"
+          cp target/aarch64-apple-ios/release/vibebms "$app/"
+          cp platform/ios/Info.plist platform/ios/*.png "$app/"
+          zip -qr vibeBMS-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-ios-unsigned
+          path: vibeBMS-unsigned.ipa
+
   android:
     name: build android (experimental)
     needs: test

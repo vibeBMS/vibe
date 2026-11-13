@@ -37,11 +37,14 @@ Touch controls turn on automatically.
 ## iOS / iPadOS (experimental)
 ```sh
 rustup target add aarch64-apple-ios
-cargo build --release -p vibebms --target aarch64-apple-ios
-mkdir -p vibeBMS.app && cp target/aarch64-apple-ios/release/vibebms vibeBMS.app/ && cp platform/ios/Info.plist vibeBMS.app/
-codesign -s "<your identity>" --entitlements <entitlements> vibeBMS.app
+IPHONEOS_DEPLOYMENT_TARGET=14.0 cargo build --release -p vibebms --target aarch64-apple-ios
+mkdir -p Payload/vibeBMS.app
+cp target/aarch64-apple-ios/release/vibebms platform/ios/Info.plist platform/ios/*.png Payload/vibeBMS.app/
+zip -qr vibeBMS-unsigned.ipa Payload
 ```
-Install with Xcode (Devices window) or `ios-deploy`. The app's `Documents` folder is the data root and is
+CI builds the same unsigned `.ipa` (artifact `vibeBMS-ios-unsigned`). To install it, sign it with your
+own Apple ID (AltStore, Sideloadly; a free Apple ID's signature lasts 7 days) or a developer certificate
+(`codesign`, then Xcode's Devices window or `ios-deploy`). The app's `Documents` folder is the data root and is
 visible in the Files app (`UIFileSharingEnabled`), so BMS folders can be copied in.
 
 ## Test data
