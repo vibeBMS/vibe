@@ -426,7 +426,15 @@ impl LoadedSkin {
             self.skin.width,
             self.skin.height,
         ))));
-        self.draw_scripted(d, view, now, st, hooks);
+        if self.skin.offsets.is_empty() {
+            self.draw_scripted(d, view, now, st, hooks);
+        } else {
+            let st = WithOffsets {
+                st,
+                offsets: &self.skin.offsets,
+            };
+            self.draw_scripted(d, view, now, &st, hooks);
+        }
         d.b.set_base_clip(None);
     }
 
@@ -700,5 +708,41 @@ impl LoadedSkin {
             }
         }
         self.blit(d, src, now, st, jr, &fr);
+    }
+}
+
+/// A scene's state with the skin's user offsets (beatoraja `offset`).
+struct WithOffsets<'a> {
+    st: &'a dyn SkinState,
+    offsets: &'a std::collections::HashMap<i32, [f32; 6]>,
+}
+
+impl SkinState for WithOffsets<'_> {
+    fn timer(&self, id: i32) -> Option<i64> {
+        self.st.timer(id)
+    }
+    fn option(&self, id: i32) -> bool {
+        self.st.option(id)
+    }
+    fn number(&self, id: i32) -> Option<i64> {
+        self.st.number(id)
+    }
+    fn text(&self, id: i32) -> Option<String> {
+        self.st.text(id)
+    }
+    fn rate(&self, id: i32) -> f32 {
+        self.st.rate(id)
+    }
+    fn button(&self, id: i32) -> Option<i64> {
+        self.st.button(id)
+    }
+    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+        self.st.distribution(rank)
+    }
+    fn offset(&self, id: i32) -> Option<[f32; 6]> {
+        self.offsets
+            .get(&id)
+            .copied()
+            .or_else(|| self.st.offset(id))
     }
 }

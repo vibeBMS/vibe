@@ -21,6 +21,7 @@ pub fn load_file(
     path: &std::path::Path,
     skins_root: &std::path::Path,
     user_options: &std::collections::HashMap<i32, bool>,
+    offsets: &HashMap<String, [i32; 6]>,
     static_option: &dyn Fn(i32) -> Option<bool>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
@@ -31,7 +32,7 @@ pub fn load_file(
     if is_lr2 {
         lr2::load(path, skins_root, user_options, static_option, image_size)
     } else {
-        beatoraja::load(path, user_options, image_size)
+        beatoraja::load_with(path, user_options, offsets, image_size)
     }
 }
 
@@ -472,6 +473,31 @@ impl SkinType {
     }
 }
 
+/// A position adjustment a skin offers (beatoraja `offset`): objects
+/// referring to `id` move by the user's values.
+#[derive(Clone, Debug)]
+pub struct CustomOffset {
+    pub name: String,
+    pub id: i32,
+    /// Which of x, y, w, h, angle, alpha the user may change.
+    pub fields: [bool; 6],
+}
+
+/// Names of the offset fields, as in `CustomOffset::fields`.
+pub const OFFSET_FIELDS: [&str; 6] = ["X", "Y", "W", "H", "ANGLE", "ALPHA"];
+
+/// The adjustable offsets of a skin file.
+pub fn custom_offsets(path: &std::path::Path) -> Vec<CustomOffset> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "json" | "luaskin" => beatoraja::custom_offsets(path),
+        _ => Vec::new(),
+    }
+}
+
 /// A skin's user option (LR2 `#CUSTOMOPTION`, beatoraja `property`).
 #[derive(Clone, Debug)]
 pub struct CustomOption {
@@ -506,7 +532,6 @@ pub fn custom_options(path: &std::path::Path) -> Vec<CustomOption> {
     }
 }
 
-/// Option ids to enable / disable for the chosen labels (by option name).
 /// Decide draw conditions on the skin's own (custom) options when it
 /// loads: they cannot change while a screen is up, and the screens do not
 /// know them. Objects whose such conditions fail are dropped.
@@ -525,6 +550,7 @@ pub fn resolve_static_ops(skin: &mut Skin, known: &HashMap<i32, bool>) {
     });
 }
 
+/// Option ids to enable / disable for the chosen labels (by option name).
 pub fn user_options(
     opts: &[CustomOption],
     chosen: Option<&std::collections::BTreeMap<String, String>>,
@@ -567,6 +593,8 @@ pub struct Skin {
     /// LR2 `#TRANSCOLOR`: this colour is transparent in images without
     /// an alpha channel.
     pub trans_color: Option<[u8; 3]>,
+    /// User values of the skin's offsets (x, y, w, h, angle, alpha) by id.
+    pub offsets: HashMap<i32, [f32; 6]>,
 }
 
 /// An LR2 bitmap font: glyph images at a design height.

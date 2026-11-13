@@ -898,6 +898,7 @@ pub fn load(
             script: None,
             fonts: Vec::new(),
             trans_color: None,
+            offsets: HashMap::new(),
         },
         sizes: Vec::new(),
         image_size,

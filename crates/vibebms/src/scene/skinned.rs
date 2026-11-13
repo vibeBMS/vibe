@@ -53,6 +53,7 @@ pub fn load(
             &path,
             &ctx.paths.skins,
             &opts,
+            &ctx.skin_user_offsets(&value),
             static_option,
             &crate::skin::image_size,
         ) {

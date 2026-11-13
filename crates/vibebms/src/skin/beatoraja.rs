@@ -174,6 +174,24 @@ fn source_path(sk: &Value, dir: &Path, path: &str) -> PathBuf {
     filepath_choice(dir, path, def).unwrap_or_else(|| dir.join(path.replace('\\', "/")))
 }
 
+fn offsets_of(sk: &Value) -> Vec<CustomOffset> {
+    let b = |o: &Value, k: &str| o.get(k).and_then(Value::as_bool).unwrap_or(false);
+    arr(sk.get("offset"))
+        .iter()
+        .map(|o| CustomOffset {
+            name: s(o, "name").to_string(),
+            id: i(o, "id", 0) as i32,
+            fields: ["x", "y", "w", "h", "r", "a"].map(|k| b(o, k)),
+        })
+        .filter(|o| o.id != 0 && o.fields.iter().any(|f| *f))
+        .collect()
+}
+
+/// The `offset` list of a skin: positions the user may adjust.
+pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
+    read_value(path).map(|v| offsets_of(&v)).unwrap_or_default()
+}
+
 /// The `property` list of a skin as custom options.
 pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     read_value(path)
@@ -188,7 +206,7 @@ pub fn read_value(path: &Path) -> Result<Value, String> {
 /// A skin's table, with the Lua state it ran in (Lua skins).
 fn read_skin(
     path: &Path,
-    skin_config: Option<(&HashMap<String, i64>, &Value)>,
+    skin_config: Option<(&HashMap<String, i64>, &Value, &HashMap<String, [i32; 6]>)>,
 ) -> Result<(Value, Option<script::Script>), String> {
     let ext = path
         .extension()
@@ -611,10 +629,21 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
     out
 }
 
-/// Build a play skin from a beatoraja JSON/Lua skin.
+/// Build a skin from a beatoraja JSON/Lua skin (no offsets adjusted).
 pub fn load(
     path: &Path,
     user_options: &HashMap<i32, bool>,
+    image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
+) -> Result<Skin, String> {
+    load_with(path, user_options, &HashMap::new(), image_size)
+}
+
+/// Build a skin from a beatoraja JSON/Lua skin; `offsets` are the user's
+/// values (x, y, w, h, angle, alpha) by offset name.
+pub fn load_with(
+    path: &Path,
+    user_options: &HashMap<i32, bool>,
+    offsets: &HashMap<String, [i32; 6]>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
     let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
@@ -640,7 +669,7 @@ pub fn load(
         .map(|e| e.eq_ignore_ascii_case("luaskin"))
         .unwrap_or(false)
     {
-        let (v, s) = read_skin(path, Some((&by_name, &raw)))?;
+        let (v, s) = read_skin(path, Some((&by_name, &raw, offsets)))?;
         lua_state = s;
         v
     } else {
@@ -694,6 +723,7 @@ pub fn load(
         script: None,
         fonts: Vec::new(),
         trans_color: None,
+        offsets: HashMap::new(),
     };
     let note = sk.get("note").and_then(obj);
     let gauge = sk.get("gauge").and_then(obj);
@@ -1064,6 +1094,10 @@ pub fn load(
         .collect();
     resolve_static_ops(&mut skin, &known);
     skin.script = cx.scripts.into_inner().finish();
+    for o in offsets_of(&sk) {
+        let v = offsets.get(&o.name).copied().unwrap_or_default();
+        skin.offsets.insert(o.id, v.map(|x| x as f32));
+    }
     skin.images = cx.images;
     if skin.objects.is_empty() {
         return Err(format!("{}: no drawable objects", path.display()));
@@ -1080,7 +1114,7 @@ mod lua {
     /// selected op) is exported like beatoraja does.
     pub fn eval(
         path: &Path,
-        skin_config: Option<(&HashMap<String, i64>, &Value)>,
+        skin_config: Option<(&HashMap<String, i64>, &Value, &HashMap<String, [i32; 6]>)>,
     ) -> Result<(Value, script::Script), String> {
         let src = vfs::read(path).map_err(|e| e.to_string())?;
         let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
@@ -1088,7 +1122,7 @@ mod lua {
         let mut sc = script::Script::new(&dir, false).map_err(e)?;
         let lua = sc.lua().clone();
         let g = lua.globals();
-        if let Some((opts, header)) = skin_config {
+        if let Some((opts, header, user_offsets)) = skin_config {
             let cfg = lua.create_table().map_err(e)?;
             let option = lua.create_table().map_err(e)?;
             let enabled = lua.create_table().map_err(e)?;
@@ -1098,13 +1132,14 @@ mod lua {
             }
             cfg.set("option", option).map_err(e)?;
             cfg.set("enabled_options", enabled).map_err(e)?;
-            // custom offsets (all zero: not adjustable yet) and the files
-            // `filepath` customisations pick
+            // custom offsets (the user's values) and the files `filepath`
+            // customisations pick
             let offsets = lua.create_table().map_err(e)?;
             for o in arr(header.get("offset")) {
                 let t = lua.create_table().map_err(e)?;
-                for k in ["x", "y", "w", "h", "r", "a"] {
-                    t.set(k, 0).map_err(e)?;
+                let v = user_offsets.get(s(o, "name")).copied().unwrap_or_default();
+                for (k, x) in ["x", "y", "w", "h", "r", "a"].iter().zip(v) {
+                    t.set(*k, x).map_err(e)?;
                 }
                 offsets.set(s(o, "name"), t).map_err(e)?;
             }
@@ -1145,7 +1180,7 @@ mod lua {
     use super::*;
     pub fn eval(
         path: &Path,
-        _: Option<(&HashMap<String, i64>, &Value)>,
+        _: Option<(&HashMap<String, i64>, &Value, &HashMap<String, [i32; 6]>)>,
     ) -> Result<(Value, script::Script), String> {
         Err(format!(
             "{}: Lua skins are not supported in the web build",
@@ -1366,7 +1401,7 @@ mod tests {
         let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
         let raw = read_skin(
             &dir.join("play.luaskin"),
-            Some((&HashMap::new(), &Value::Null)),
+            Some((&HashMap::new(), &Value::Null, &HashMap::new())),
         )
         .unwrap()
         .0;
@@ -1433,9 +1468,16 @@ mod tests {
         std::fs::write(dir.join("play.luaskin"), lua).unwrap();
         let sz = |_: &Path| Some((10, 10));
         let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
-        std::fs::remove_dir_all(&root).ok();
         let r = s.objects[0].dst.keys[0].rect;
         assert_eq!((r.x, r.w, r.h), (0.0, 77.0, 2.0));
+        // the user's offset values reach the script and the skin
+        let mut offs = HashMap::new();
+        offs.insert("Lift".to_string(), [0, 7, 0, 0, 0, 0]);
+        let s2 = load_with(&dir.join("play.luaskin"), &HashMap::new(), &offs, &sz).unwrap();
+        assert_eq!(s2.objects[0].dst.keys[0].rect.x, 7.0);
+        assert_eq!(s2.offsets[&40], [0.0, 7.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(custom_offsets(&dir.join("play.luaskin")).len(), 1);
+        std::fs::remove_dir_all(&root).ok();
         // the wildcard source follows the filepath default too
         assert!(s.images[0].as_ref().unwrap().ends_with("judge/b.png"));
     }

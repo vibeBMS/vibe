@@ -143,6 +143,7 @@ Lua 함수(또는 JSON 스킨의 Lua 스크립트 문자열)로 지정된 값 �
 플레이 중 노트 분포 그래프(`judgegraph`, beatoraja처럼 1초 단위 칩 — 노트 종류/판정/FAST·SLOW, 현재 위치 커서)와
 BPM 그래프도 그리며, 블렌드 모드는 알파·가산·감산·곱하기·반전(1/2/3/4/9)을 지원합니다.
 스크립트는 샌드박스에서 실행됩니다(`os`/`io`/`debug`/네이티브 모듈 없음, `require`·`dofile`은 스킨 폴더 안의 Lua 파일만).
+스킨이 정의한 위치 조정(beatoraja `offset`: X/Y/W/H/각도/알파)도 같은 곳에서 바꿀 수 있습니다(`config.skin_offsets`).
 스킨 커스텀 옵션은 `SETTINGS › DISPLAY`에서
 각 스킨 바로 아래 항목으로 고르며 `config.skin_options`에 저장됩니다.
 

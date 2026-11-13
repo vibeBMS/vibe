@@ -97,6 +97,7 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
             &path,
             &ctx.paths.skins,
             &opts,
+            &ctx.skin_user_offsets(&value),
             &stat,
             &crate::skin::image_size,
         ) {

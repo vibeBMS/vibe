@@ -339,6 +339,9 @@ pub struct Config {
     /// Skin custom options: skin (as in `skins`) -> option name -> chosen label.
     pub skin_options:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    /// Skin offsets: skin -> offset name -> x, y, w, h, angle, alpha.
+    pub skin_offsets:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, [i32; 6]>>,
 }
 
 impl Default for Config {
@@ -364,6 +367,7 @@ impl Default for Config {
             ir: vec![IrConfig::default()],
             skins: Default::default(),
             skin_options: Default::default(),
+            skin_offsets: Default::default(),
         }
     }
 }

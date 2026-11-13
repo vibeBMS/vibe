@@ -152,6 +152,8 @@ pub struct Ctx {
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
+    skin_offsets_cache:
+        std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
 }
 
 impl Ctx {
@@ -396,6 +398,23 @@ impl Ctx {
             .entry(path.to_path_buf())
             .or_insert_with(|| crate::skin::custom_options(path))
             .clone()
+    }
+
+    pub fn skin_custom_offsets(&self, path: &std::path::Path) -> Vec<crate::skin::CustomOffset> {
+        self.skin_offsets_cache
+            .borrow_mut()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| crate::skin::custom_offsets(path))
+            .clone()
+    }
+
+    /// The user's offset values for the skin configured as `value`.
+    pub fn skin_user_offsets(&self, value: &str) -> HashMap<String, [i32; 6]> {
+        self.config
+            .skin_offsets
+            .get(value)
+            .map(|m| m.iter().map(|(k, v)| (k.clone(), *v)).collect())
+            .unwrap_or_default()
     }
 
     /// Option ids to pass to a skin loader for the skin configured as
@@ -754,6 +773,7 @@ impl App {
             bg_texture,
             prefetch: None,
             skin_options_cache: Default::default(),
+            skin_offsets_cache: Default::default(),
         };
         ctx.reload_library();
         ctx.load_cached_tables();

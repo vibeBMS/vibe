@@ -72,6 +72,8 @@ enum Act {
     BrowseFolder,
     /// Cycle custom option `.1` of the skin chosen for `SKIN_KEYS[.0]`.
     SkinOption(usize, usize),
+    /// Adjust field `.2` (x, y, w, h, angle, alpha) of offset `.1` of that skin.
+    SkinOffset(usize, usize, usize),
 }
 
 /// `config.skins` keys, in menu order.
@@ -108,6 +110,33 @@ fn cycle_skin_option(ctx: &mut Ctx, slot: usize, idx: usize, d: i32) {
         .entry(value)
         .or_default()
         .insert(o.name.clone(), o.labels[next].clone());
+}
+
+/// Path and adjustable offsets of the skin configured for `SKIN_KEYS[slot]`.
+fn skin_offsets_of(ctx: &Ctx, slot: usize) -> Option<(String, Vec<crate::skin::CustomOffset>)> {
+    let value = ctx.config.skins.get(SKIN_KEYS[slot])?.clone();
+    let path = super::play_skin::configured_path(ctx, &value)?;
+    Some((value, ctx.skin_custom_offsets(&path)))
+}
+
+fn adjust_skin_offset(ctx: &mut Ctx, slot: usize, idx: usize, field: usize, d: i32) {
+    let Some((value, offs)) = skin_offsets_of(ctx, slot) else {
+        return;
+    };
+    let Some(o) = offs.get(idx) else { return };
+    let v = ctx
+        .config
+        .skin_offsets
+        .entry(value)
+        .or_default()
+        .entry(o.name.clone())
+        .or_default();
+    // alpha in 0..255 steps of 5, angle in degrees, the rest in pixels
+    let step = if field == 5 { 5 } else { 1 };
+    v[field] = (v[field] + d * step).clamp(-2000, 2000);
+    if field == 5 {
+        v[5] = v[5].clamp(-255, 255);
+    }
 }
 
 struct Item {
@@ -593,6 +622,29 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                         });
                     }
                 }
+                // and its position adjustments (beatoraja offsets)
+                if let Some((value, offs)) = skin_offsets_of(ctx, slot) {
+                    let set = c.skin_offsets.get(&value);
+                    for (i, o) in offs.iter().enumerate() {
+                        let cur = set
+                            .and_then(|m| m.get(&o.name))
+                            .copied()
+                            .unwrap_or_default();
+                        for (f, on) in o.fields.iter().enumerate() {
+                            if *on {
+                                v.push(Item {
+                                    label: format!(
+                                        "    {} {}",
+                                        o.name,
+                                        crate::skin::OFFSET_FIELDS[f]
+                                    ),
+                                    value: cur[f].to_string(),
+                                    act: Act::SkinOffset(slot, i, f),
+                                });
+                            }
+                        }
+                    }
+                }
             }
             v
         }
@@ -855,6 +907,9 @@ impl SettingsScene {
             Act::None => return,
             Act::Adjust(f) => f(ctx, if d == 0 { 1 } else { d }),
             Act::SkinOption(slot, i) => cycle_skin_option(ctx, slot, i, if d == 0 { 1 } else { d }),
+            Act::SkinOffset(slot, i, f) => {
+                adjust_skin_offset(ctx, slot, i, f, if d == 0 { 1 } else { d })
+            }
             Act::Text(tf) if enter || d != 0 => {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
@@ -1188,7 +1243,7 @@ impl Scene for SettingsScene {
                     let list = items(ctx, self.cat);
                     let is_adjust = matches!(
                         list.get(i).map(|it| it.act),
-                        Some(Act::Adjust(_) | Act::SkinOption(..))
+                        Some(Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..))
                     );
                     let value_area = *x > r.x + r.w * 0.55;
                     if is_adjust && value_area {
@@ -1316,7 +1371,10 @@ impl Scene for SettingsScene {
             );
             let interactive = !matches!(item.act, Act::None);
             let vcol = if interactive { th.accent } else { th.text_dim };
-            let value = if matches!(item.act, Act::Adjust(_) | Act::SkinOption(..)) {
+            let value = if matches!(
+                item.act,
+                Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..)
+            ) {
                 format!("◀ {} ▶", item.value)
             } else {
                 item.value.clone()
