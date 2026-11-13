@@ -470,6 +470,11 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             }
         })
         .collect();
+    if let Some(g) = sl.get("graph").filter(|g| g.is_object()) {
+        if let Some(def) = cx.find("graph", &id_of(g)) {
+            out.graph = Some((rel(g), cx.src(def), i(def, "type", -1) == -2));
+        }
+    }
     out.lamp = arr(sl.get("lamp"))
         .iter()
         .map(|d| {
@@ -618,6 +623,14 @@ pub fn load(
             Some(Kind::Graph(GraphKind::Bpm))
         } else if cx.find("timingdistributiongraph", &id).is_some() {
             Some(Kind::Graph(GraphKind::TimingDistribution))
+        } else if let Some(g) = cx
+            .find("graph", &id)
+            .filter(|g| matches!(i(g, "type", 0), -1 | -2))
+        {
+            Some(Kind::Distribution {
+                src: cx.src(g),
+                rank: i(g, "type", 0) == -2,
+            })
         } else if let Some(g) = cx.find("graph", &id) {
             cx.src(g).map(|src| Kind::Bar {
                 src,

@@ -279,6 +279,11 @@ impl SkinState for SelectState<'_> {
         })
     }
 
+    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+        let (l, r) = self.s.folder_distribution(self.ctx, self.s.cursor)?;
+        Some(if rank { r.to_vec() } else { l.to_vec() })
+    }
+
     fn button(&self, id: i32) -> Option<i64> {
         let p = &self.ctx.config.play;
         Some(match id {
@@ -502,6 +507,14 @@ impl Hooks for SelectHooks<'_> {
                         lr,
                         &f,
                     );
+                }
+            }
+            if let Some((dst, gsrc, rank)) = sl.graph.as_ref() {
+                if let Some((l, r)) = self.st.s.folder_distribution(self.st.ctx, idx) {
+                    if let Some((gr, f)) = sub(dst) {
+                        let counts: &[u32] = if *rank { &r } else { &l };
+                        skin.distribution(d, gsrc.as_ref(), counts, *rank, now, st, gr, &f);
+                    }
                 }
             }
             if let Some(Some((src, dst))) = info.lamp.and_then(|c| sl.lamp.get(c as usize)) {

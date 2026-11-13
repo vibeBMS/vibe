@@ -264,6 +264,13 @@ pub enum Kind {
     Graph(GraphKind),
     /// The music select bar list.
     SongList,
+    /// Clear lamp (`rank` false) or DJ rank distribution of a folder as a
+    /// horizontal stacked bar (beatoraja graph type -1 / -2); `src` frames
+    /// are the segment images per lamp.
+    Distribution {
+        src: Option<Src>,
+        rank: bool,
+    },
     /// beatoraja hidden / lift cover: an image clipped above `line` (y down,
     /// skin pixels; the line rises with LIFT when `link_lift`).
     Cover {
@@ -327,6 +334,8 @@ pub struct SongListSkin {
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
     pub lamp: Vec<Option<(Src, Dst)>>,
+    /// Lamp / rank distribution on folder bars.
+    pub graph: Option<(Dst, Option<Src>, bool)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -501,6 +510,12 @@ pub trait SkinState {
     /// a namespace of their own; defaults to the number with that id).
     fn button(&self, id: i32) -> Option<i64> {
         self.number(id)
+    }
+    /// Clear lamp counts (by clear type, 11) or DJ rank counts (AAA..F,
+    /// then no play) of the selected folder.
+    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+        let _ = rank;
+        None
     }
     /// beatoraja offset (x, y, w, h, angle, alpha) in skin pixels, y up.
     fn offset(&self, id: i32) -> Option<[f32; 6]> {

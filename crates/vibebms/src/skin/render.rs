@@ -108,6 +108,70 @@ impl LoadedSkin {
         }
     }
 
+    /// A stacked bar of lamp counts (best lamps first, as beatoraja draws
+    /// them) or rank counts (AAA first).
+    #[allow(clippy::too_many_arguments)]
+    pub fn distribution(
+        &self,
+        d: &mut Draw,
+        src: Option<&Src>,
+        counts: &[u32],
+        rank: bool,
+        now: i64,
+        st: &dyn SkinState,
+        r: Rect,
+        fr: &Frame,
+    ) {
+        let total: u32 = counts.iter().sum();
+        if total == 0 {
+            return;
+        }
+        let order: Vec<usize> = if rank {
+            (0..counts.len()).collect()
+        } else {
+            (0..counts.len()).rev().collect()
+        };
+        // animated image sets: one row of segment images per animation frame
+        let set = src
+            .filter(|s| s.cycle > 0 && s.frames.len() >= 22)
+            .map(|s| {
+                let sets = s.frames.len() / 11;
+                let t = if s.timer > 0 {
+                    st.timer(s.timer).map(|t0| now - t0).unwrap_or(0)
+                } else {
+                    now
+                };
+                ((t.max(0) * sets as i64 / s.cycle) % sets as i64) as usize
+            })
+            .unwrap_or(0);
+        const RANK_COLORS: [u32; 9] = [
+            0xffd34aff, 0xe6e6f0ff, 0xd29a5aff, 0x5fdc8aff, 0x4fa8ffff, 0xb58cffff, 0xff8a65ff,
+            0xff5a6eff, 0x40444fff,
+        ];
+        let mut x = r.x;
+        for k in order {
+            let w = r.w * counts[k] as f32 / total as f32;
+            if w <= 0.0 {
+                continue;
+            }
+            let seg = Rect::new(x, r.y, w, r.h);
+            match src {
+                Some(s) if !rank => {
+                    if let Some(f) = s.frames.get(set * 11 + k).or(s.frames.get(k)) {
+                        if let Some((t, uv)) = self.uv(d, s, *f) {
+                            d.b.quad(t, seg, uv, fr.color);
+                        }
+                    }
+                }
+                _ => {
+                    let c = crate::gfx::rgba(RANK_COLORS[k.min(8)]);
+                    d.b.rect(seg, [c[0], c[1], c[2], c[3] * fr.color[3]]);
+                }
+            }
+            x += w;
+        }
+    }
+
     /// Draw a text into `r` (font size = height; see `Kind::Text` overflow).
     pub fn text(
         &self,
@@ -255,6 +319,11 @@ impl LoadedSkin {
             }
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => self.blit(d, src, now, st, r, &fr),
+                Kind::Distribution { src, rank } => {
+                    if let Some(counts) = st.distribution(*rank) {
+                        self.distribution(d, src.as_ref(), &counts, *rank, now, st, r, &fr);
+                    }
+                }
                 // beatoraja's plain black / white
                 Kind::RefImage(110) => d.b.rect(r, [0.0, 0.0, 0.0, fr.color[3]]),
                 Kind::RefImage(111) => d.b.rect(r, fr.color),

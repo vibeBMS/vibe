@@ -20,6 +20,7 @@ use vibebms_audio::{Bus, PlayOptions, Sample};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::LaneOption;
+use vibebms_core::score::DjLevel;
 use vibebms_core::LnType;
 use vibebms_ir::IrScore;
 use winit::keyboard::KeyCode;
@@ -93,7 +94,12 @@ pub struct SelectScene {
     pub(crate) panel: usize,
     pub(crate) panel_on: [Option<Instant>; 6],
     pub(crate) panel_off: [Option<Instant>; 6],
+    /// Lamp / rank counts per folder (bar key), computed when first shown.
+    dist_cache: std::cell::RefCell<HashMap<String, Distribution>>,
 }
+
+/// Clear lamp counts (by clear type) and DJ rank counts (AAA..F, no play).
+pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 
 fn lower(s: &str) -> String {
     s.to_lowercase()
@@ -128,6 +134,7 @@ impl SelectScene {
             panel: 0,
             panel_on: [None; 6],
             panel_off: [None; 6],
+            dist_cache: Default::default(),
         };
         s.rebuild(ctx);
         s
@@ -135,6 +142,7 @@ impl SelectScene {
 
     fn rebuild(&mut self, ctx: &Ctx) {
         self.version = ctx.library_version;
+        self.dist_cache.borrow_mut().clear();
         self.md5_map.clear();
         self.sha_map.clear();
         for (i, s) in ctx.songs.iter().enumerate() {
@@ -630,6 +638,55 @@ impl SelectScene {
         }
     }
 
+    /// Lamp / rank distribution of the folder at bar `i` (cached).
+    pub(crate) fn folder_distribution(&self, ctx: &Ctx, i: usize) -> Option<Distribution> {
+        let bar = self.bars.get(i)?;
+        let Bar::Folder { node, .. } = bar else {
+            return None;
+        };
+        let key = self.bar_key(ctx, bar);
+        if let Some(d) = self.dist_cache.borrow().get(&key) {
+            return Some(*d);
+        }
+        let mut lamps = [0u32; 11];
+        let mut ranks = [0u32; 9];
+        let ln = ctx.config.play.ln_mode as i32;
+        let mut count = |bars: &[Bar]| {
+            for b in bars {
+                if let Bar::Song(k) = b {
+                    let Some(song) = ctx.songs.get(*k) else {
+                        continue;
+                    };
+                    match ctx.best(song, ln) {
+                        Some(best) => {
+                            lamps[(best.clear as usize).min(10)] += 1;
+                            let r = super::skinned::rank_index(DjLevel::from_rate(
+                                best.ex_score,
+                                best.notes * 2,
+                            ));
+                            ranks[r.clamp(0, 7) as usize] += 1;
+                        }
+                        None => {
+                            lamps[0] += 1;
+                            ranks[8] += 1;
+                        }
+                    }
+                }
+            }
+        };
+        let bars = self.build(ctx, node);
+        count(&bars);
+        // tables: count their level folders too
+        for b in &bars {
+            if let Bar::Folder { node, .. } = b {
+                count(&self.build(ctx, node));
+            }
+        }
+        let d = (lamps, ranks);
+        self.dist_cache.borrow_mut().insert(key, d);
+        Some(d)
+    }
+
     /// Open / close a skin panel (1..=6; 0 closes the open one).
     pub(crate) fn toggle_panel(&mut self, n: usize) {
         let now = Instant::now();
@@ -998,6 +1055,8 @@ impl Scene for SelectScene {
     }
 
     fn resumed(&mut self, ctx: &mut Ctx) {
+        // scores may have changed
+        self.dist_cache.borrow_mut().clear();
         self.rebuild(ctx);
         self.moved(ctx);
     }
