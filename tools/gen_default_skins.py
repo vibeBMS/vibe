@@ -1428,17 +1428,17 @@ def result_layout(fonts, parts, portrait=False):
         sk.put(sk.img(key), 760, 22, gw_, gh_, op=[op])
     gauge_number(sk, 1264 - 14 - gauge_number_width(sk), 22)
     ImageDraw.Draw(img).rectangle((662, 56, 1250, 262), fill=(6, 7, 11, 255))
-    sk.put(graph_obj(sk, "gaugegraph", "gaugegraph"), 664, 58, 584, 202)
+    sk.put(graph_obj(sk, "gaugegraph", "gaugegraph", {"style": "vibebms"}), 664, 58, 584, 202)
     panel(img, (648, 284, 616, 176), "JUDGE TIMELINE", f)
     for k, (name, col) in enumerate((("PG", (111, 227, 255)), ("GR", (255, 211, 74)),
                                      ("GD", (95, 220, 138)), ("BD", (181, 140, 255)),
                                      ("PR", (255, 90, 110)))):
         draw_label(img, f, 1000 + k * 50, 291, name, 11, col, "bold")
     ImageDraw.Draw(img).rectangle((662, 310, 1250, 448), fill=(6, 7, 11, 255))
-    sk.put(graph_obj(sk, "judgegraph", "judgegraph", {"type": 1}), 664, 312, 584, 134)
+    sk.put(graph_obj(sk, "judgegraph", "judgegraph", {"type": 1, "style": "vibebms"}), 664, 312, 584, 134)
     panel(img, (648, 468, 616, 192), "TIMING  (FAST \u2190  \u2192 SLOW)", f)
     ImageDraw.Draw(img).rectangle((662, 494, 1250, 648), fill=(6, 7, 11, 255))
-    sk.put(graph_obj(sk, "timingdistributiongraph", "timing"), 664, 496, 584, 150)
+    sk.put(graph_obj(sk, "timingdistributiongraph", "timing", {"style": "vibebms"}), 664, 496, 584, 150)
     # bottom strip: chart facts and the way out
     panel(img, (16, 668, 1248, 40))
     draw_label(img, f, 30, 688, "LEVEL", 12, anchor="lm")

@@ -33,6 +33,8 @@ pub struct ResultData {
     pub gauge_value: f32,
     pub gauge_log: Vec<f32>,
     pub timing_log: Vec<(i64, i64)>,
+    /// Note judge windows (late, early) in µs, PG first.
+    pub windows: Vec<(i64, i64)>,
     pub judge_log: Vec<(i64, u8, i8)>,
     pub meta: vibebms_core::chart::ChartMeta,
     /// Chart length (us) and BPM changes (time us, bpm) for the graphs.

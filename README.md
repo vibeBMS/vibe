@@ -121,6 +121,10 @@ LR2 `#SRC_BUTTON`(값별 프레임, 클릭 시 버튼 ID 실행, 패널 소속)�
 옵션 21~23, Back으로 닫기, 패널이 있는 스킨은 옵션 키가 패널 1을 엽니다)을 지원합니다. 버튼 ID: 15 플레이, 16 오토,
 13/14 설정, 40 게이지, 42/43 랜덤, 54 DP 옵션, 55 HS 고정, 72 BGA, 308 LN 모드. 결과 스킨은 9500(재시도)/9501(계속),
 선곡 스킨은 9900(상위 폴더) 클릭 이벤트를 씁니다.
+beatoraja 그래프의 색·선 속성(`gaugegraph`의 `color` 24색 목록 또는 `*BGColor`/`*LineColor`, `bpmgraph`의
+BPM별 색·`lineWidth`, `timingdistributiongraph`의 `width`·판정 구간 색·`drawAverage`/`drawDev`, `judgegraph`의
+`noGap`/`orderReverse`, `delay`)을 따릅니다. 그래프 객체에 `"style": "vibebms"`를 주면 vibeBMS 자체 그래프 모양
+(FAST/SLOW 색, AVG/SD 표시 등)으로 그립니다 — 내장 기본 스킨이 이 방식입니다.
 
 ### 스킨 (LR2 / beatoraja)
 `skins/` 아래에 LR2 스킨 폴더를 넣고(`LR2files\Theme\…` 경로는 `skins/` 기준으로 해석) `SETTINGS › DISPLAY › Play skin (7KEYS 등)`에서 선택합니다

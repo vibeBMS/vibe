@@ -57,7 +57,15 @@ pub trait Hooks {
     fn judge(&self, side: usize) -> Option<(usize, u32)> {
         None
     }
-    fn graph(&mut self, d: &mut Draw, kind: GraphKind, rect: Rect, color: [f32; 4]) {}
+    fn graph(
+        &mut self,
+        d: &mut Draw,
+        kind: GraphKind,
+        style: &GraphStyle,
+        rect: Rect,
+        color: [f32; 4],
+    ) {
+    }
     /// The music select bar list.
     fn song_list(
         &mut self,
@@ -468,7 +476,7 @@ impl LoadedSkin {
                         self.blit(d, src, now, st, r, &fr);
                     }
                 }
-                Kind::Graph(g) => hooks.graph(d, *g, r, fr.color),
+                Kind::Graph(g, style) => hooks.graph(d, *g, style, r, fr.color),
                 Kind::Notes | Kind::Judge { .. } | Kind::SongList => {}
             }
         }

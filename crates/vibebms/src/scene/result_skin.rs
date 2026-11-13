@@ -6,7 +6,7 @@ use crate::app::{Ctx, Draw};
 use crate::gfx::{rgba, with_alpha, Color, Rect};
 use crate::platform::Instant;
 use crate::skin::render::Hooks;
-use crate::skin::{GraphKind, SkinState};
+use crate::skin::{GraphKind, GraphStyle, SkinState};
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::*;
 use vibebms_core::score::{ClearType, DjLevel};
@@ -256,6 +256,11 @@ const JUDGE_COLORS: [u32; 6] = [
     0x6fe3ffff, 0xffd34aff, 0x5fdc8aff, 0xb58cffff, 0xff5a6eff, 0x80303aff,
 ];
 
+/// A skin colour times the object's colour / alpha.
+fn tint(c: [f32; 4], by: [f32; 4]) -> Color {
+    [c[0] * by[0], c[1] * by[1], c[2] * by[2], c[3] * by[3]]
+}
+
 fn gauge_color(t: GaugeType, above: bool) -> Color {
     rgba(match t {
         GaugeType::Hard | GaugeType::Class => 0xff5060ff,
@@ -280,13 +285,83 @@ impl Hooks for ResultHooks<'_> {
         self.clicks.push((rect, act));
     }
 
-    fn graph(&mut self, d: &mut Draw, kind: GraphKind, r: Rect, color: [f32; 4]) {
+    fn graph(
+        &mut self,
+        d: &mut Draw,
+        kind: GraphKind,
+        style: &GraphStyle,
+        r: Rect,
+        color: [f32; 4],
+    ) {
         let s = self.st.s;
         let data = &s.d;
-        // graphs grow in during the first second
-        let grow = (ms_since(s.created, self.st.now) as f32 / GRAPH_MS as f32).clamp(0.0, 1.0);
+        // graphs grow in (the skin's delay, else during the first second)
+        let dur = if style.delay > 0 {
+            style.delay
+        } else {
+            GRAPH_MS
+        };
+        let grow = (ms_since(s.created, self.st.now) as f32 / dur as f32).clamp(0.0, 1.0);
         let a = color[3];
+        let skin_col = |k: usize| style.colors.get(k).map(|c| tint(*c, color));
         match kind {
+            GraphKind::Gauge if style.colors.len() >= 24 => {
+                // beatoraja: background split at the border, a stepped line
+                // whose colour changes across it
+                let k = [0, 1, 2, 3, 4, 5, 3, 4, 5, 3][(data.gauge_type as usize).min(9)];
+                let c = &style.colors[k * 4..k * 4 + 4];
+                let (line_hi, bg_hi, line_lo, bg_lo) = (
+                    tint(c[0], color),
+                    tint(c[1], color),
+                    tint(c[2], color),
+                    tint(c[3], color),
+                );
+                let border = match data.gauge_type {
+                    GaugeType::AssistEasy | GaugeType::Easy => 60.0,
+                    GaugeType::Normal => 80.0,
+                    _ => 0.0,
+                };
+                let y_of = |v: f32| r.bottom() - r.h * (v / 100.0).clamp(0.0, 1.0);
+                let by = y_of(border);
+                d.b.rect(Rect::new(r.x, r.y, r.w, by - r.y), bg_hi);
+                if border > 0.0 {
+                    d.b.rect(Rect::new(r.x, by, r.w, r.bottom() - by), bg_lo);
+                }
+                let log = &data.gauge_log;
+                if log.is_empty() {
+                    return;
+                }
+                let lw = style.line_width.max(1.0);
+                let q = |v: f32| (v / 2.0).floor() * 2.0;
+                let col = |v: f32| if v >= border { line_hi } else { line_lo };
+                let n = log.len();
+                let reveal = r.x + r.w * grow;
+                let mut prev: Option<f32> = None;
+                for (i, v) in log.iter().enumerate() {
+                    let v = q(*v);
+                    let x1 = r.x + r.w * i as f32 / n as f32;
+                    if x1 >= reveal {
+                        break;
+                    }
+                    let x2 = (r.x + r.w * (i + 1) as f32 / n as f32).min(reveal);
+                    if let Some(p) = prev.filter(|p| *p != v) {
+                        let (lo, hi) = if p < v { (p, v) } else { (v, p) };
+                        let mut seg = |a0: f32, a1: f32, c: Color| {
+                            if a1 > a0 {
+                                d.b.rect(Rect::new(x1, y_of(a1), lw, y_of(a0) - y_of(a1) + lw), c);
+                            }
+                        };
+                        if border > 0.0 && lo < border && hi > border {
+                            seg(lo, border, line_lo);
+                            seg(border, hi, line_hi);
+                        } else {
+                            seg(lo, hi, col(hi));
+                        }
+                    }
+                    d.b.rect(Rect::new(x1, y_of(v), x2 - x1, lw), col(v));
+                    prev = Some(v);
+                }
+            }
             GraphKind::Gauge => {
                 // beatoraja / IIDX style: the gauge sampled every 500 ms and
                 // shown in 2% steps as a stepped line; the background is
@@ -408,6 +483,8 @@ impl Hooks for ResultHooks<'_> {
                     .max(1) as f32;
                 let shown = ((cols as f32) * grow) as usize;
                 let bw = r.w / cols as f32;
+                let [no_gap, reverse] = style.flags;
+                let gap = if no_gap { 0.0 } else { 1.0 };
                 for (i, b) in buckets.iter().take(shown).enumerate() {
                     let mut y = r.bottom();
                     let order: &[(usize, u32)] = match t {
@@ -429,11 +506,15 @@ impl Hooks for ResultHooks<'_> {
                             (5, JUDGE_COLORS[5]),
                         ],
                     };
-                    for (k, c) in order {
+                    let mut order = order.to_vec();
+                    if reverse {
+                        order.reverse();
+                    }
+                    for (k, c) in &order {
                         let h = r.h * b[*k] as f32 / max;
                         if h > 0.0 {
                             d.b.rect(
-                                Rect::new(r.x + i as f32 * bw, y - h, (bw - 1.0).max(1.0), h),
+                                Rect::new(r.x + i as f32 * bw, y - h, (bw - gap).max(1.0), h),
                                 with_alpha(rgba(*c), a),
                             );
                             y -= h;
@@ -451,6 +532,46 @@ impl Hooks for ResultHooks<'_> {
                 }
                 let span = (hi - lo).max(1.0);
                 let len = data.length_us.max(1) as f32;
+                let lw = if style.line_width > 0.0 {
+                    style.line_width
+                } else {
+                    2.0
+                };
+                let reveal = r.x + r.w * grow;
+                let y_of = |b: f64| r.bottom() - lw - (r.h - 2.0 * lw) * ((b - lo) / span) as f32;
+                if !style.colors.is_empty() {
+                    // beatoraja: main / min / max / other BPM colours and
+                    // transition lines between segments
+                    for (i, (t, b)) in log.iter().enumerate() {
+                        let x0 = r.x + r.w * (*t as f32 / len).clamp(0.0, 1.0);
+                        if x0 >= reveal {
+                            break;
+                        }
+                        let x1 = log
+                            .get(i + 1)
+                            .map(|n| r.x + r.w * (n.0 as f32 / len).clamp(0.0, 1.0))
+                            .unwrap_or(r.right())
+                            .min(reveal);
+                        let k = if (b - data.meta.main_bpm).abs() < 0.01 {
+                            0
+                        } else if (b - lo).abs() < 0.01 {
+                            1
+                        } else if (b - hi).abs() < 0.01 {
+                            2
+                        } else {
+                            3
+                        };
+                        let c = skin_col(k).unwrap_or(color);
+                        d.b.rect(Rect::new(x0, y_of(*b), (x1 - x0).max(1.0), lw), c);
+                        if let Some((_, pb)) = i.checked_sub(1).map(|p| log[p]) {
+                            let (y0, y1) = (y_of(pb).min(y_of(*b)), y_of(pb).max(y_of(*b)));
+                            if let Some(tc) = skin_col(5) {
+                                d.b.rect(Rect::new(x0, y0, lw, y1 - y0 + lw), tc);
+                            }
+                        }
+                    }
+                    return;
+                }
                 for (i, (t, b)) in log.iter().enumerate() {
                     let x0 = r.x + r.w * (*t as f32 / len).clamp(0.0, 1.0);
                     let x1 = log
@@ -467,6 +588,60 @@ impl Hooks for ResultHooks<'_> {
                         Rect::new(x0, y, (x1 - x0).max(1.0), 2.0),
                         with_alpha(rgba(c), a),
                     );
+                }
+            }
+            GraphKind::TimingDistribution if !style.colors.is_empty() => {
+                // beatoraja: `width` 1 ms bins centred on 0 (+ = late), the
+                // judge windows as background bands, average / deviation lines
+                let bins = style.width.max(3) as i64;
+                let range = bins / 2;
+                let bw = r.w / bins as f32;
+                let x_of = |ms: f64| r.x + r.w * 0.5 + ms as f32 * bw;
+                for (j, (late, early)) in data.windows.iter().enumerate().rev() {
+                    if let Some(c) = skin_col(3 + j.min(4)) {
+                        // timing_log: + = early; shown with + = late
+                        let x0 = x_of(-(*early as f64) / 1000.0).max(r.x);
+                        let x1 = x_of(-(*late as f64) / 1000.0 + 1.0).min(r.right());
+                        if x1 > x0 {
+                            d.b.rect(Rect::new(x0, r.y, x1 - x0, r.h), c);
+                        }
+                    }
+                }
+                let mut hist = vec![0u32; bins as usize];
+                for (_, diff) in &data.timing_log {
+                    let ms = (-diff as f64 / 1000.0).round() as i64;
+                    if (-range..=range).contains(&ms) {
+                        hist[(ms + range) as usize] += 1;
+                    }
+                }
+                let max = hist.iter().copied().max().unwrap_or(1).max(1) as f32;
+                let gc = skin_col(0).unwrap_or(color);
+                for (i, c) in hist.iter().enumerate() {
+                    let h = r.h * (*c as f32 / max) * grow;
+                    if h > 0.0 {
+                        d.b.rect(
+                            Rect::new(r.x + i as f32 * bw, r.bottom() - h, bw.max(1.0), h),
+                            gc,
+                        );
+                    }
+                }
+                let (avg, dev) = self.st.timing_stats();
+                let lw = style.line_width.max(1.0);
+                let [draw_avg, draw_dev] = style.flags;
+                let x_avg = x_of(avg + 0.5);
+                if draw_avg {
+                    if let Some(c) = skin_col(1) {
+                        d.b.rect(Rect::new(x_avg - lw * 0.5, r.y, lw, r.h), c);
+                    }
+                }
+                if draw_dev {
+                    if let Some(c) = skin_col(2) {
+                        for x in [x_of(avg - dev + 0.5), x_of(avg + dev + 0.5)] {
+                            if x >= r.x && x <= r.right() {
+                                d.b.rect(Rect::new(x - lw * 0.5, r.y, lw, r.h), c);
+                            }
+                        }
+                    }
                 }
             }
             GraphKind::TimingDistribution => {

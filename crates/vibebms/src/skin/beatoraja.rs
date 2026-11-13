@@ -379,6 +379,64 @@ impl Ctx<'_> {
     }
 }
 
+/// "RRGGBB" / "RRGGBBAA" (beatoraja colours).
+fn hex_color(s: &str) -> [f32; 4] {
+    let s = s.trim_start_matches('#');
+    let b = |k: usize| {
+        u8::from_str_radix(s.get(k..k + 2).unwrap_or("ff"), 16).unwrap_or(255) as f32 / 255.0
+    };
+    [b(0), b(2), b(4), if s.len() >= 8 { b(6) } else { 1.0 }]
+}
+
+/// beatoraja gaugegraph colours: a `color` list (4 per gauge kind) or the
+/// named fields with beatoraja's defaults.
+fn gauge_style(g: &Value) -> GraphStyle {
+    let list: Vec<[f32; 4]> = arr(g.get("color"))
+        .iter()
+        .filter_map(Value::as_str)
+        .map(hex_color)
+        .collect();
+    let colors = if list.len() >= 24 {
+        list[..24].to_vec()
+    } else {
+        let c = |k: &str, d: &str| hex_color(g.get(k).and_then(Value::as_str).unwrap_or(d));
+        let border_line = c("borderlineColor", "ff0000");
+        let border_bg = c("borderColor", "440000");
+        let line = [
+            c("assistClearLineColor", "ff00ff"),
+            c("assistAndEasyFailLineColor", "00ffff"),
+            c("grooveFailLineColor", "00ff00"),
+            c("grooveClearAndHardLineColor", "ff0000"),
+            c("exHardLineColor", "ffff00"),
+            c("hazardLineColor", "cccccc"),
+        ];
+        let bg = [
+            c("assistClearBGColor", "440044"),
+            c("assistAndEasyFailBGColor", "004444"),
+            c("grooveFailBGColor", "004400"),
+            c("grooveClearAndHardBGColor", "440000"),
+            c("exHardBGColor", "444400"),
+            c("hazardBGColor", "444444"),
+        ];
+        (0..6)
+            .flat_map(|k| {
+                if k < 3 {
+                    [border_line, border_bg, line[k], bg[k]]
+                } else {
+                    // survival gauges: everything is "above the border"
+                    [line[k], bg[k], line[k], bg[k]]
+                }
+            })
+            .collect()
+    };
+    GraphStyle {
+        colors,
+        line_width: i(g, "lineWidth", 2) as f32,
+        delay: i(g, "delay", 1500),
+        ..Default::default()
+    }
+}
+
 /// Clickable objects: `act` (event id) and `click` (mode) of an image / imageset.
 fn obj_act(cx: &Ctx, id: &str) -> Option<(i32, i32)> {
     let def = cx.find("image", id).or_else(|| cx.find("imageset", id))?;
@@ -615,14 +673,74 @@ pub fn load(
                 srcs,
                 id: i(set, "ref", 0) as i32,
             })
-        } else if cx.find("gaugegraph", &id).is_some() {
-            Some(Kind::Graph(GraphKind::Gauge))
+        } else if let Some(g) = cx
+            .find("gaugegraph", &id)
+            .or_else(|| cx.find("judgegraph", &id))
+            .or_else(|| cx.find("bpmgraph", &id))
+            .or_else(|| cx.find("timingdistributiongraph", &id))
+            .filter(|g| g.get("style").and_then(Value::as_str) == Some("vibebms"))
+        {
+            // vibeBMS extension: the player's own graph look
+            let kind = if cx.find("gaugegraph", &id).is_some() {
+                GraphKind::Gauge
+            } else if cx.find("judgegraph", &id).is_some() {
+                GraphKind::Judge(i(g, "type", 0) as i32)
+            } else if cx.find("bpmgraph", &id).is_some() {
+                GraphKind::Bpm
+            } else {
+                GraphKind::TimingDistribution
+            };
+            Some(Kind::Graph(kind, GraphStyle::default()))
+        } else if let Some(g) = cx.find("gaugegraph", &id) {
+            Some(Kind::Graph(GraphKind::Gauge, gauge_style(g)))
         } else if let Some(g) = cx.find("judgegraph", &id) {
-            Some(Kind::Graph(GraphKind::Judge(i(g, "type", 0) as i32)))
-        } else if cx.find("bpmgraph", &id).is_some() {
-            Some(Kind::Graph(GraphKind::Bpm))
-        } else if cx.find("timingdistributiongraph", &id).is_some() {
-            Some(Kind::Graph(GraphKind::TimingDistribution))
+            Some(Kind::Graph(
+                GraphKind::Judge(i(g, "type", 0) as i32),
+                GraphStyle {
+                    flags: [i(g, "noGap", 0) != 0, i(g, "orderReverse", 0) != 0],
+                    delay: i(g, "delay", 500),
+                    ..Default::default()
+                },
+            ))
+        } else if let Some(g) = cx.find("bpmgraph", &id) {
+            let c = |k: &str, d: &str| hex_color(g.get(k).and_then(Value::as_str).unwrap_or(d));
+            Some(Kind::Graph(
+                GraphKind::Bpm,
+                GraphStyle {
+                    colors: vec![
+                        c("mainBPMColor", "00ff00"),
+                        c("minBPMColor", "0000ff"),
+                        c("maxBPMColor", "ff0000"),
+                        c("otherBPMColor", "ffff00"),
+                        c("stopLineColor", "ff00ff"),
+                        c("transitionLineColor", "7f7f7f"),
+                    ],
+                    line_width: i(g, "lineWidth", 2) as f32,
+                    delay: i(g, "delay", 0),
+                    ..Default::default()
+                },
+            ))
+        } else if let Some(g) = cx.find("timingdistributiongraph", &id) {
+            let c = |k: &str, d: &str| hex_color(g.get(k).and_then(Value::as_str).unwrap_or(d));
+            Some(Kind::Graph(
+                GraphKind::TimingDistribution,
+                GraphStyle {
+                    colors: vec![
+                        c("graphColor", "00FF00FF"),
+                        c("averageColor", "FFFFFFFF"),
+                        c("devColor", "FFFFFFFF"),
+                        c("PGColor", "000088FF"),
+                        c("GRColor", "008800FF"),
+                        c("GDColor", "888800FF"),
+                        c("BDColor", "880000FF"),
+                        c("PRColor", "000000FF"),
+                    ],
+                    line_width: i(g, "lineWidth", 1) as f32,
+                    flags: [i(g, "drawAverage", 1) != 0, i(g, "drawDev", 1) != 0],
+                    width: i(g, "width", 301) as i32,
+                    ..Default::default()
+                },
+            ))
         } else if let Some(g) = cx
             .find("graph", &id)
             .filter(|g| matches!(i(g, "type", 0), -1 | -2))
@@ -909,13 +1027,31 @@ mod tests {
         let graphs = sk
             .objects
             .iter()
-            .filter(|o| matches!(o.kind, Kind::Graph(_)))
+            .filter(|o| matches!(&o.kind, Kind::Graph(_, s) if s.colors.is_empty()))
             .count();
+        // our own skin asks for the player's graph look
         assert_eq!(graphs, 3);
         assert!(sk
             .objects
             .iter()
             .any(|o| matches!(&o.kind, Kind::ImageSet { srcs, id: 370 } if srcs.len() == 11)));
+    }
+
+    #[test]
+    fn graph_colors() {
+        let g: Value =
+            json5::from_str(r#"{"id": "g", "lineWidth": 3, "exHardBGColor": "102030"}"#).unwrap();
+        let s = gauge_style(&g);
+        assert_eq!(s.colors.len(), 24);
+        assert_eq!(s.line_width, 3.0);
+        // normal gauge: line above the border red, below green (defaults)
+        assert_eq!(s.colors[8], [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(s.colors[10], [0.0, 1.0, 0.0, 1.0]);
+        assert_eq!(s.colors[4 * 4 + 1], hex_color("102030"));
+        let list: Vec<String> = (0..24).map(|k| format!("{:02x}000080", k)).collect();
+        let g = serde_json::json!({ "color": list });
+        let s = gauge_style(&g);
+        assert_eq!(s.colors[5], [5.0 / 255.0, 0.0, 0.0, 128.0 / 255.0]);
     }
 
     #[test]

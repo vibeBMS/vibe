@@ -323,7 +323,7 @@ impl Engine {
         self.finish_time(now);
     }
 
-    fn windows(&self) -> &JudgeWindows {
+    pub fn windows(&self) -> &JudgeWindows {
         &self.cfg.rules.windows
     }
 

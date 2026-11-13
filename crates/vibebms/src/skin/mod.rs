@@ -261,7 +261,7 @@ pub enum Kind {
         id: i32,
     },
     /// A graph drawn by the scene (result gauge / judge / timing graphs ...).
-    Graph(GraphKind),
+    Graph(GraphKind, GraphStyle),
     /// The music select bar list.
     SongList,
     /// Clear lamp (`rank` false) or DJ rank distribution of a folder as a
@@ -348,6 +348,25 @@ pub enum GraphKind {
     Bpm,
     /// Distribution of timing errors.
     TimingDistribution,
+}
+
+/// Skin-given look of a graph; empty `colors` = the scene's own style.
+///
+/// * gauge: 6 sets (assist, easy, normal, hard, ex-hard, hazard) of
+///   [line above border, background above, line below, background below]
+/// * BPM: main, min, max, other BPM, stop line, transition line
+/// * timing distribution: graph, average, deviation, then the PG, GR, GD,
+///   BD, PR window bands
+#[derive(Clone, Debug, Default)]
+pub struct GraphStyle {
+    pub colors: Vec<[f32; 4]>,
+    pub line_width: f32,
+    /// judge graph: no gap between bars / stack order reversed;
+    /// timing distribution: draw average / draw deviation
+    pub flags: [bool; 2],
+    /// Animation (ms) until fully drawn; timing distribution: bins (width).
+    pub delay: i64,
+    pub width: i32,
 }
 
 /// Per-judgement image + combo number of a `NOWJUDGE` group.
