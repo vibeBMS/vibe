@@ -672,7 +672,13 @@ class Skin:
         return cw * digit
 
     def label_text(self, ref, x, y, w, size, align=0, color=TEXT):
-        self.put(self.text(ref, align), x, y, w, size, r=color[0], g=color[1], b=color[2])
+        """Text in the box x..x+w: beatoraja anchors centred text at x and
+        right-aligned text at its end, so the anchor moves to the box's
+        centre / right edge."""
+        d = self.put(self.text(ref, align), x, y, w, size, r=color[0], g=color[1], b=color[2])
+        if d and align:
+            for k in d["dst"]:
+                k["x"] += k["w"] * align // 2
 
     def save(self, path):
         with open(path, "w") as f:

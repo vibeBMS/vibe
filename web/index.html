@@ -15,10 +15,11 @@
     /* dvh: the visible height on iPad / iPhone Safari (vh includes the toolbars) */
     canvas { display: block; width: 100vw !important; height: 100vh !important; height: 100dvh !important;
              outline: none; touch-action: none; }
-    #bar { position: fixed; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom));
-           z-index: 10; display: flex; gap: 6px; font: 14px system-ui, sans-serif; }
-    #bar label, #bar button { color: #f2f4f8; background: #161a26e6; border: 1px solid #4fc3f7; border-radius: 6px;
-           padding: 8px 12px; cursor: pointer; font: inherit; }
+    /* bottom right: the select screen only shows key hints there */
+    #bar { position: fixed; right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom));
+           z-index: 10; display: flex; gap: 6px; font: 13px system-ui, sans-serif; }
+    #bar label, #bar button { color: #f2f4f8; background: #161a26f2; border: 1px solid #4fc3f7; border-radius: 6px;
+           padding: 6px 10px; cursor: pointer; font: inherit; }
     #bar input { display: none; }
     #bar[data-playing] { display: none; }
     #bar #hide { border-color: #555c70; padding: 8px 10px; }

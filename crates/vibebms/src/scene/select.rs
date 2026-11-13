@@ -496,7 +496,7 @@ impl SelectScene {
                 "AUTOPLAY".into(),
                 if p.autoplay { "ON" } else { "OFF" }.into(),
             ),
-            ("SETTINGS".into(), "⚙".into()),
+            ("SETTINGS".into(), "OPEN".into()),
         ]
     }
 
