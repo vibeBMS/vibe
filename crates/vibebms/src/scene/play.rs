@@ -1402,7 +1402,7 @@ impl Scene for PlayScene {
         self.hud_rects.clear();
         let bw = 54.0 * ui;
         let bh = 34.0 * ui;
-        let labels = ["HS−", "HS+", "SUD−", "SUD+", "✕"];
+        let labels = ["HS−", "HS+", "SUD−", "SUD+", "×"];
         let base_x = if let Some(s) = lay.side {
             s.right() - bw * labels.len() as f32
         } else {

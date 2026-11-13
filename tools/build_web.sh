@@ -4,7 +4,7 @@
 #   cargo install wasm-bindgen-cli --version <same as wasm-bindgen in Cargo.lock>
 # Then serve the web/ folder over HTTP, e.g. `python3 -m http.server -d web 8080`.
 set -e
-PROFILE=${PROFILE:-release}
+PROFILE=${PROFILE:-web}
 cargo build -p vibebms-web --target wasm32-unknown-unknown --profile "$PROFILE"
 DIR=$PROFILE; [ "$PROFILE" = dev ] && DIR=debug
 wasm-bindgen --target web --no-typescript --out-dir web/pkg "target/wasm32-unknown-unknown/$DIR/vibebms_web.wasm"

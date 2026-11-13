@@ -8,6 +8,7 @@ pub mod library;
 pub mod paths;
 pub mod platform;
 pub mod scene;
+pub mod skin;
 pub mod theme;
 pub mod touch;
 pub mod ui;

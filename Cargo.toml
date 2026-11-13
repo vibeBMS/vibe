@@ -29,7 +29,6 @@ log = "0.4"
 md-5 = "0.10"
 sha2 = "0.10"
 encoding_rs = "0.8"
-ureq = { version = "2.12", default-features = false, features = ["tls", "gzip", "json"] }
 
 
 [profile.release]
@@ -41,3 +40,9 @@ strip = true
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# Web build (tools/build_web.sh): keep the wasm target-features section.
+[profile.web]
+inherits = "release"
+strip = false
+lto = "thin"

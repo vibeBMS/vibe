@@ -120,7 +120,7 @@ pub trait Scene {
 }
 
 pub enum TableMsg {
-    Loaded(DifficultyTable),
+    Loaded(Box<DifficultyTable>),
     Failed(String, String),
     Done,
 }
@@ -291,28 +291,19 @@ impl Ctx {
         }
         let (tx, rx) = channel();
         self.table_rx = Some(rx);
-        crate::platform::spawn("tables", move || {
-            let f = crate::platform::Http;
-            for (name, url, cache) in todo {
-                match vibebms_tables::fetch_table_with_fallback(&f, &url) {
-                    Ok(t) => {
-                        if let Ok(j) = serde_json::to_vec(&t) {
-                            let _ = crate::platform::vfs::write(&cache, &j);
-                        }
-                        let _ = tx.send(TableMsg::Loaded(t));
-                    }
-                    Err(e) => {
-                        let _ = tx.send(TableMsg::Failed(name, e.to_string()));
-                    }
+        let remaining = Arc::new(std::sync::atomic::AtomicUsize::new(todo.len()));
+        for (name, url, _) in todo {
+            let (tx, remaining) = (tx.clone(), remaining.clone());
+            crate::platform::load_table(&url, move |r| {
+                let _ = tx.send(match r {
+                    Ok(t) => TableMsg::Loaded(Box::new(t)),
+                    Err(e) => TableMsg::Failed(name, e),
+                });
+                if remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
+                    let _ = tx.send(TableMsg::Done);
                 }
-            }
-            let _ = tx.send(TableMsg::Done);
-        });
-    }
-
-    /// HTTP transport for IR clients.
-    pub fn http(&self) -> vibebms_ir::Http {
-        Arc::new(crate::platform::Http)
+            });
+        }
     }
 
     pub fn poll_jobs(&mut self) {
@@ -356,6 +347,11 @@ impl Ctx {
         for m in msgs {
             match m {
                 TableMsg::Loaded(t) => {
+                    let t = *t;
+                    if let Ok(j) = serde_json::to_vec(&t) {
+                        let _ =
+                            crate::platform::vfs::write(&self.table_cache_file(&t.source_url), &j);
+                    }
                     self.toast(format!(
                         "Table updated: {} ({} charts)",
                         t.header.name,
@@ -406,6 +402,8 @@ struct Running {
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
     gilrs: Option<gilrs::Gilrs>,
     last_touch: Option<Instant>,
+    /// Fonts downloaded in the background (web build).
+    font_rx: Option<Receiver<Vec<u8>>>,
     mouse_down: bool,
     cursor: (f32, f32),
     frame_count: u32,
@@ -566,6 +564,11 @@ impl Running {
 
     fn frame(&mut self, el: &ActiveEventLoop) {
         let now = Instant::now();
+        if let Some(rx) = &self.font_rx {
+            while let Ok(f) = rx.try_recv() {
+                self.text.add_font(f);
+            }
+        }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
         if let Some(fs) = self.ctx.want_fullscreen.take() {
@@ -615,6 +618,30 @@ impl Running {
             self.fps_since = now;
         }
     }
+}
+
+/// Web build: fonts listed in `fonts/fonts.txt` next to index.html.
+fn web_fonts() -> Option<Receiver<Vec<u8>>> {
+    if !crate::platform::IS_WEB {
+        return None;
+    }
+    let (tx, rx) = channel();
+    crate::platform::http_get("fonts/fonts.txt", move |r| {
+        let Ok(list) = r else { return };
+        for name in String::from_utf8_lossy(&list)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        {
+            let tx = tx.clone();
+            crate::platform::http_get(&format!("fonts/{name}"), move |r| {
+                if let Ok(b) = r {
+                    let _ = tx.send(b);
+                }
+            });
+        }
+    });
+    Some(rx)
 }
 
 fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
@@ -750,6 +777,7 @@ impl App {
                 .map_err(|e| log::warn!("gamepads unavailable: {e}"))
                 .ok(),
             last_touch: None,
+            font_rx: web_fonts(),
             mouse_down: false,
             cursor: (0.0, 0.0),
             frame_count: 0,

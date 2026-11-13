@@ -572,14 +572,18 @@ impl SelectScene {
         };
         let (tx, rx) = channel();
         self.ranking.insert(song.sha256.clone(), Rank::Loading(rx));
-        let http = ctx.http();
-        crate::platform::spawn("ir-ranking", move || {
-            let r = match vibebms_ir::create_client(&cfg, http) {
-                Some(c) => c.ranking(&chart).map_err(|e| e.to_string()),
-                None => Err("IR disabled".into()),
-            };
-            let _ = tx.send(r);
-        });
+        let Some(client) = vibebms_ir::create_client(&cfg) else {
+            return;
+        };
+        match client.ranking_request(&chart) {
+            Ok(req) => crate::platform::ir_send(req, move |body| {
+                let r = body.and_then(|b| client.parse_ranking(&b).map_err(|e| e.to_string()));
+                let _ = tx.send(r);
+            }),
+            Err(e) => {
+                let _ = tx.send(Err(e.to_string()));
+            }
+        }
     }
 
     fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {

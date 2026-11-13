@@ -133,16 +133,43 @@ impl std::error::Error for IrError {}
 
 pub type IrResult<T> = Result<T, IrError>;
 
+/// An HTTP request an [`IrClient`] wants sent. The application performs it
+/// with its own HTTP stack (native or browser) and feeds the body back.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HttpRequest {
+    pub method: &'static str,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl HttpRequest {
+    fn get(url: String) -> Self {
+        HttpRequest {
+            method: "GET",
+            url,
+            headers: Vec::new(),
+            body: Vec::new(),
+        }
+    }
+}
+
+/// HTTP-free IR client: builds requests and parses responses.
 pub trait IrClient: Send + Sync {
     fn name(&self) -> &str;
     fn can_submit(&self) -> bool {
         false
     }
-    fn login(&mut self, _user: &str, _password: &str) -> IrResult<()> {
+    fn ranking_request(&self, chart: &ChartRef) -> IrResult<HttpRequest>;
+    fn parse_ranking(&self, body: &[u8]) -> IrResult<Vec<IrScore>>;
+    fn submit_request(&self, _score: &ScoreSubmission) -> IrResult<HttpRequest> {
         Err(IrError::Unsupported)
     }
-    fn ranking(&self, chart: &ChartRef) -> IrResult<Vec<IrScore>>;
-    fn submit(&self, _score: &ScoreSubmission) -> IrResult<()> {
+    fn login_request(&self, _user: &str, _password: &str) -> IrResult<HttpRequest> {
+        Err(IrError::Unsupported)
+    }
+    /// Returns the API token from a login response.
+    fn parse_login(&self, _body: &[u8]) -> IrResult<String> {
         Err(IrError::Unsupported)
     }
     /// Web page for a chart, if the IR has one.
@@ -180,27 +207,13 @@ impl Default for IrConfig {
     }
 }
 
-/// Blocking HTTP transport supplied by the application (ureq natively,
-/// XMLHttpRequest on the web).
-pub trait HttpClient: Send + Sync {
-    fn request(
-        &self,
-        method: &str,
-        url: &str,
-        headers: &[(&str, &str)],
-        body: Option<&[u8]>,
-    ) -> Result<Vec<u8>, String>;
-}
-
-pub type Http = std::sync::Arc<dyn HttpClient>;
-
-pub fn create_client(cfg: &IrConfig, http: Http) -> Option<Box<dyn IrClient>> {
+pub fn create_client(cfg: &IrConfig) -> Option<Box<dyn IrClient>> {
     if !cfg.enabled {
         return None;
     }
     match cfg.kind.as_str() {
-        "lr2ir" => Some(Box::new(Lr2Ir::new(&cfg.url, http))),
-        "json" => Some(Box::new(JsonIr::new(&cfg.name, &cfg.url, &cfg.token, http))),
+        "lr2ir" => Some(Box::new(Lr2Ir::new(&cfg.url))),
+        "json" => Some(Box::new(JsonIr::new(&cfg.name, &cfg.url, &cfg.token))),
         _ => None,
     }
 }
@@ -222,15 +235,13 @@ pub const LR2IR_BASE: &str = "http://www.dream-pro.info/~lavalse/LR2IR";
 
 pub struct Lr2Ir {
     base: String,
-    http: Http,
 }
 
 impl Lr2Ir {
-    pub fn new(base: &str, http: Http) -> Self {
+    pub fn new(base: &str) -> Self {
         let base = if base.is_empty() { LR2IR_BASE } else { base };
         Lr2Ir {
             base: base.trim_end_matches('/').to_string(),
-            http,
         }
     }
 }
@@ -290,20 +301,18 @@ impl IrClient for Lr2Ir {
         "LR2IR"
     }
 
-    fn ranking(&self, chart: &ChartRef) -> IrResult<Vec<IrScore>> {
+    fn ranking_request(&self, chart: &ChartRef) -> IrResult<HttpRequest> {
         if chart.md5.is_empty() {
             return Err(IrError::Unsupported); // LR2IR is keyed by MD5 (no bmson)
         }
-        let url = format!(
+        Ok(HttpRequest::get(format!(
             "{}/2/getrankingxml.cgi?id=1&songmd5={}&lastupdate=",
             self.base, chart.md5
-        );
-        let body = self
-            .http
-            .request("GET", &url, &[], None)
-            .map_err(IrError::Http)?;
-        let text = encoding_rs::SHIFT_JIS.decode(&body).0;
-        Ok(parse_lr2ir_ranking(&text))
+        )))
+    }
+
+    fn parse_ranking(&self, body: &[u8]) -> IrResult<Vec<IrScore>> {
+        Ok(parse_lr2ir_ranking(&encoding_rs::SHIFT_JIS.decode(body).0))
     }
 
     fn chart_url(&self, chart: &ChartRef) -> Option<String> {
@@ -319,41 +328,41 @@ pub struct JsonIr {
     name: String,
     base: String,
     token: String,
-    http: Http,
 }
 
 impl JsonIr {
-    pub fn new(name: &str, base: &str, token: &str, http: Http) -> Self {
+    pub fn new(name: &str, base: &str, token: &str) -> Self {
         JsonIr {
             name: name.to_string(),
             base: base.trim_end_matches('/').to_string(),
             token: token.to_string(),
-            http,
         }
     }
 
-    pub fn token(&self) -> &str {
-        &self.token
-    }
-
-    fn call(&self, method: &str, url: &str, body: Option<&[u8]>) -> IrResult<Vec<u8>> {
-        let auth = format!("Bearer {}", self.token);
-        let mut headers = vec![("Accept", "application/json")];
+    fn req(&self, method: &'static str, path: String, body: Option<Vec<u8>>) -> HttpRequest {
+        let mut headers = vec![("Accept".to_string(), "application/json".to_string())];
         if body.is_some() {
-            headers.push(("Content-Type", "application/json"));
+            headers.push(("Content-Type".into(), "application/json".into()));
         }
         if !self.token.is_empty() {
-            headers.push(("Authorization", auth.as_str()));
+            headers.push(("Authorization".into(), format!("Bearer {}", self.token)));
         }
-        self.http
-            .request(method, url, &headers, body)
-            .map_err(IrError::Http)
+        HttpRequest {
+            method,
+            url: format!("{}{path}", self.base),
+            headers,
+            body: body.unwrap_or_default(),
+        }
     }
 }
 
 #[derive(Deserialize)]
 struct LoginResponse {
     token: String,
+}
+
+fn fmt_err(e: serde_json::Error) -> IrError {
+    IrError::Format(e.to_string())
 }
 
 impl IrClient for JsonIr {
@@ -365,35 +374,44 @@ impl IrClient for JsonIr {
         !self.token.is_empty()
     }
 
-    fn login(&mut self, user: &str, password: &str) -> IrResult<()> {
-        let body = serde_json::to_vec(&serde_json::json!({ "user": user, "password": password }))
-            .map_err(|e| IrError::Format(e.to_string()))?;
-        let resp = self.call("POST", &format!("{}/login", self.base), Some(&body))?;
-        let r: LoginResponse =
-            serde_json::from_slice(&resp).map_err(|e| IrError::Format(e.to_string()))?;
-        self.token = r.token;
-        Ok(())
+    fn ranking_request(&self, chart: &ChartRef) -> IrResult<HttpRequest> {
+        Ok(self.req(
+            "GET",
+            format!(
+                "/ranking?sha256={}&md5={}&lntype={}",
+                enc(&chart.sha256),
+                enc(&chart.md5),
+                enc(&chart.ln_type)
+            ),
+            None,
+        ))
     }
 
-    fn ranking(&self, chart: &ChartRef) -> IrResult<Vec<IrScore>> {
-        let url = format!(
-            "{}/ranking?sha256={}&md5={}&lntype={}",
-            self.base,
-            enc(&chart.sha256),
-            enc(&chart.md5),
-            enc(&chart.ln_type)
-        );
-        let resp = self.call("GET", &url, None)?;
-        serde_json::from_slice(&resp).map_err(|e| IrError::Format(e.to_string()))
+    fn parse_ranking(&self, body: &[u8]) -> IrResult<Vec<IrScore>> {
+        serde_json::from_slice(body).map_err(fmt_err)
     }
 
-    fn submit(&self, score: &ScoreSubmission) -> IrResult<()> {
+    fn submit_request(&self, score: &ScoreSubmission) -> IrResult<HttpRequest> {
         if self.token.is_empty() {
             return Err(IrError::NotLoggedIn);
         }
-        let body = serde_json::to_vec(score).map_err(|e| IrError::Format(e.to_string()))?;
-        self.call("POST", &format!("{}/scores", self.base), Some(&body))?;
-        Ok(())
+        Ok(self.req(
+            "POST",
+            "/scores".into(),
+            Some(serde_json::to_vec(score).map_err(fmt_err)?),
+        ))
+    }
+
+    fn login_request(&self, user: &str, password: &str) -> IrResult<HttpRequest> {
+        let body = serde_json::to_vec(&serde_json::json!({ "user": user, "password": password }))
+            .map_err(fmt_err)?;
+        Ok(self.req("POST", "/login".into(), Some(body)))
+    }
+
+    fn parse_login(&self, body: &[u8]) -> IrResult<String> {
+        Ok(serde_json::from_slice::<LoginResponse>(body)
+            .map_err(fmt_err)?
+            .token)
     }
 }
 
@@ -413,6 +431,27 @@ mod tests {
         assert_eq!(r[0].ex_score, 950);
         assert_eq!(r[0].clear, ClearType::FullCombo);
         assert_eq!(r[1].rank, 2);
+    }
+
+    #[test]
+    fn json_ir_requests() {
+        let ir = JsonIr::new("x", "https://ir.example/api/", "tok");
+        let r = ir
+            .ranking_request(&ChartRef {
+                sha256: "ab".into(),
+                ln_type: "LN".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(
+            r.url,
+            "https://ir.example/api/ranking?sha256=ab&md5=&lntype=LN"
+        );
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Authorization" && v == "Bearer tok"));
+        assert_eq!(ir.parse_login(br#"{"token":"t2"}"#).unwrap(), "t2");
     }
 
     #[test]

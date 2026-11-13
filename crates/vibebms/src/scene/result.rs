@@ -92,18 +92,24 @@ impl ResultScene {
                 let (tx, rx) = channel();
                 ir_rx = Some(rx);
                 ir_status = format!("{}: sending…", cfg.name);
-                let http = ctx.http();
-                crate::platform::spawn("ir-submit", move || {
-                    let msg = match vibebms_ir::create_client(&cfg, http) {
-                        Some(c) if c.can_submit() => match c.submit(&sub) {
-                            Ok(()) => format!("{}: submitted", cfg.name),
-                            Err(e) => format!("{}: {e}", cfg.name),
-                        },
-                        Some(_) => format!("{}: score submission not supported", cfg.name),
-                        None => String::new(),
-                    };
-                    let _ = tx.send(msg);
-                });
+                let name = cfg.name.clone();
+                match vibebms_ir::create_client(&cfg)
+                    .map(|c| (c.can_submit(), c.submit_request(&sub)))
+                {
+                    Some((true, Ok(req))) => crate::platform::ir_send(req, move |r| {
+                        let _ = tx.send(match r {
+                            Ok(_) => format!("{name}: submitted"),
+                            Err(e) => format!("{name}: {e}"),
+                        });
+                    }),
+                    Some((_, Err(e))) => {
+                        let _ = tx.send(format!("{name}: {e}"));
+                    }
+                    Some((false, _)) => {
+                        let _ = tx.send(format!("{name}: score submission not supported"));
+                    }
+                    None => {}
+                }
             }
         }
         ResultScene {

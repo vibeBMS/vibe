@@ -69,6 +69,7 @@ enum Act {
     RefreshTables,
     ResetKeys,
     RestoreDefaultTables,
+    BrowseFolder,
 }
 
 struct Item {
@@ -597,8 +598,15 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             for (i, d) in c.bms_dirs.iter().enumerate() {
                 v.push(Item {
                     label: format!("Folder: {d}"),
-                    value: "remove ✕".into(),
+                    value: "remove ×".into(),
                     act: Act::RemoveFolder(i),
+                });
+            }
+            if cfg!(any(windows, target_os = "macos", target_os = "linux")) {
+                v.push(Item {
+                    label: "Browse for a BMS folder…".into(),
+                    value: "📂".into(),
+                    act: Act::BrowseFolder,
                 });
             }
             v.push(Item {
@@ -632,7 +640,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 });
                 v.push(Item {
                     label: format!("    {}", t.url),
-                    value: "remove ✕".into(),
+                    value: "remove ×".into(),
                     act: Act::RemoveTable(i),
                 });
             }
@@ -825,6 +833,16 @@ impl SettingsScene {
                 }
             }
             Act::Rescan => ctx.start_scan(),
+            Act::BrowseFolder => {
+                #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                if let Some(p) = rfd::FileDialog::new().set_title("BMS folder").pick_folder() {
+                    let s = p.to_string_lossy().into_owned();
+                    if !ctx.config.bms_dirs.contains(&s) {
+                        ctx.config.bms_dirs.push(s);
+                        ctx.start_scan();
+                    }
+                }
+            }
             Act::RefreshTables => ctx.refresh_tables(true),
             Act::ResetKeys => ctx.config.keys = KeyConfig::default(),
             Act::RestoreDefaultTables => {

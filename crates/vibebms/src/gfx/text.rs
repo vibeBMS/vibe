@@ -105,24 +105,6 @@ impl Text {
                 }
             }
         }
-        // web build: fonts served next to index.html, listed in fonts/fonts.txt
-        #[cfg(target_arch = "wasm32")]
-        if let Ok(list) = crate::platform::Http.request("GET", "fonts/fonts.txt", &[], None) {
-            for name in String::from_utf8_lossy(&list)
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            {
-                if let Ok(data) =
-                    crate::platform::Http.request("GET", &format!("fonts/{name}"), &[], None)
-                {
-                    match fontdue::Font::from_bytes(data, settings(0)) {
-                        Ok(f) => fonts.push(f),
-                        Err(e) => log::warn!("font {name}: {e}"),
-                    }
-                }
-            }
-        }
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
         let mut used = std::collections::HashSet::new();
@@ -177,6 +159,23 @@ impl Text {
             cy: 0,
             shelf_h: 8,
             generation: 0,
+        }
+    }
+
+    /// Add a fallback font at runtime (e.g. downloaded by the web build).
+    pub fn add_font(&mut self, data: Vec<u8>) {
+        match fontdue::Font::from_bytes(
+            data,
+            fontdue::FontSettings {
+                scale: 32.0,
+                ..Default::default()
+            },
+        ) {
+            Ok(f) => {
+                self.fonts.push(f);
+                self.font_of.retain(|_, v| v.is_some()); // retry glyphs that were missing
+            }
+            Err(e) => log::warn!("font: {e}"),
         }
     }
 

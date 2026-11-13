@@ -280,95 +280,119 @@ pub const MIRRORS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Fetch a table, falling back to a known mirror on failure.
-pub fn fetch_table_with_fallback(
-    fetcher: &dyn Fetcher,
-    url: &str,
-) -> Result<DifficultyTable, TableError> {
-    match fetch_table(fetcher, url) {
-        Ok(t) => Ok(t),
-        Err(e) => match MIRRORS.iter().find(|(u, _)| *u == url) {
-            Some((_, mirror)) => {
-                log::info!("{url} failed ({e}); trying mirror {mirror}");
-                let mut t = fetch_table(fetcher, mirror)?;
-                t.source_url = url.to_string();
-                Ok(t)
+/// Next action of a [`TableLoader`].
+#[derive(Debug)]
+pub enum Step {
+    /// Fetch this URL and pass the body to [`TableLoader::feed`].
+    Get(String),
+    Done(Box<DifficultyTable>),
+}
+
+#[derive(Debug)]
+enum Stage {
+    Page(String),
+    Header(String),
+    Data(TableHeader),
+}
+
+/// HTTP-free table loading state machine (page → header.json → data.json),
+/// so any HTTP client (native or browser) can drive it.
+#[derive(Debug)]
+pub struct TableLoader {
+    source: String,
+    stage: Stage,
+    mirror_used: bool,
+}
+
+impl TableLoader {
+    /// Returns the loader and the first URL to fetch.
+    pub fn new(url: &str) -> (TableLoader, String) {
+        (
+            TableLoader {
+                source: url.to_string(),
+                stage: Stage::Page(url.to_string()),
+                mirror_used: false,
+            },
+            url.to_string(),
+        )
+    }
+
+    pub fn feed(&mut self, body: Result<Vec<u8>, String>) -> Result<Step, TableError> {
+        match self.advance(body) {
+            Ok(s) => Ok(s),
+            Err(e) => match MIRRORS
+                .iter()
+                .find(|(u, _)| *u == self.source)
+                .filter(|_| !self.mirror_used)
+            {
+                Some((_, mirror)) => {
+                    log::info!("{} failed ({e}); trying mirror {mirror}", self.source);
+                    self.mirror_used = true;
+                    self.stage = Stage::Page(mirror.to_string());
+                    Ok(Step::Get(mirror.to_string()))
+                }
+                None => Err(e),
+            },
+        }
+    }
+
+    fn advance(&mut self, body: Result<Vec<u8>, String>) -> Result<Step, TableError> {
+        let text = decode_body(&body.map_err(TableError::Http)?);
+        let json = |t: &str| serde_json::from_str::<Value>(t.trim_start_matches('\u{feff}'));
+        match std::mem::replace(&mut self.stage, Stage::Page(String::new())) {
+            Stage::Page(url) => {
+                if text.trim_start().starts_with('{') {
+                    self.stage = Stage::Header(url);
+                    return self.advance(Ok(text.into_bytes()));
+                }
+                let meta = find_bmstable_meta(&text).ok_or_else(|| {
+                    TableError::Format("no <meta name=\"bmstable\"> found".into())
+                })?;
+                let hu = join(&url, &meta)?;
+                self.stage = Stage::Header(hu.clone());
+                Ok(Step::Get(hu))
             }
-            None => Err(e),
-        },
+            Stage::Header(url) => {
+                let header = parse_header(
+                    &json(&text).map_err(|e| TableError::Format(format!("header: {e}")))?,
+                )?;
+                let du = join(&url, &header.data_url)?;
+                self.stage = Stage::Data(header);
+                Ok(Step::Get(du))
+            }
+            Stage::Data(header) => {
+                let entries = parse_data(
+                    &json(&text).map_err(|e| TableError::Format(format!("data: {e}")))?,
+                )?;
+                let fetched_at = web_time::SystemTime::now()
+                    .duration_since(web_time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                Ok(Step::Done(Box::new(DifficultyTable {
+                    source_url: self.source.clone(),
+                    header,
+                    entries,
+                    fetched_at,
+                })))
+            }
+        }
     }
 }
 
-/// Abstraction over HTTP so the logic can be unit-tested.
+/// Blocking HTTP GET, for [`fetch_table`].
 pub trait Fetcher {
-    fn get(&self, url: &str) -> Result<String, TableError>;
+    fn get(&self, url: &str) -> Result<Vec<u8>, String>;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub struct UreqFetcher {
-    agent: ureq::Agent,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Default for UreqFetcher {
-    fn default() -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(30))
-            .user_agent(concat!("vibeBMS/", env!("CARGO_PKG_VERSION")))
-            .build();
-        UreqFetcher { agent }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Fetcher for UreqFetcher {
-    fn get(&self, url: &str) -> Result<String, TableError> {
-        let resp = self
-            .agent
-            .get(url)
-            .call()
-            .map_err(|e| TableError::Http(e.to_string()))?;
-        let mut buf = Vec::new();
-        use std::io::Read;
-        resp.into_reader()
-            .take(64 << 20)
-            .read_to_end(&mut buf)
-            .map_err(|e| TableError::Http(e.to_string()))?;
-        Ok(decode_body(&buf))
-    }
-}
-
-/// Fetch and parse a table from its page or header URL.
+/// Load a table synchronously with a blocking fetcher (tests, tools).
 pub fn fetch_table(fetcher: &dyn Fetcher, url: &str) -> Result<DifficultyTable, TableError> {
-    let first = fetcher.get(url)?;
-    let trimmed = first.trim_start();
-    let (header_url, header_text) = if trimmed.starts_with('{') {
-        (url.to_string(), first.clone())
-    } else {
-        let meta = find_bmstable_meta(&first)
-            .ok_or_else(|| TableError::Format("no <meta name=\"bmstable\"> found".into()))?;
-        let hu = join(url, &meta)?;
-        let text = fetcher.get(&hu)?;
-        (hu, text)
-    };
-    let hv: Value = serde_json::from_str(header_text.trim_start_matches('\u{feff}'))
-        .map_err(|e| TableError::Format(format!("header: {e}")))?;
-    let header = parse_header(&hv)?;
-    let data_url = join(&header_url, &header.data_url)?;
-    let dt = fetcher.get(&data_url)?;
-    let dv: Value = serde_json::from_str(dt.trim_start_matches('\u{feff}'))
-        .map_err(|e| TableError::Format(format!("data: {e}")))?;
-    let entries = parse_data(&dv)?;
-    let fetched_at = web_time::SystemTime::now()
-        .duration_since(web_time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    Ok(DifficultyTable {
-        source_url: url.to_string(),
-        header,
-        entries,
-        fetched_at,
-    })
+    let (mut loader, mut next) = TableLoader::new(url);
+    loop {
+        match loader.feed(fetcher.get(&next))? {
+            Step::Get(u) => next = u,
+            Step::Done(t) => return Ok(*t),
+        }
+    }
 }
 
 /// Compare levels naturally ("2" < "10", "10" < "10+", numbers before text).
@@ -436,11 +460,11 @@ mod tests {
 
     struct Mock(HashMap<String, String>);
     impl Fetcher for Mock {
-        fn get(&self, url: &str) -> Result<String, TableError> {
+        fn get(&self, url: &str) -> Result<Vec<u8>, String> {
             self.0
                 .get(url)
-                .cloned()
-                .ok_or_else(|| TableError::Http(format!("404 {url}")))
+                .map(|s| s.clone().into_bytes())
+                .ok_or_else(|| format!("404 {url}"))
         }
     }
 

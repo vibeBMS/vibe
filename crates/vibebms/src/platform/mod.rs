@@ -69,93 +69,63 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, f: F) {
     }
 }
 
-/// Blocking HTTP used by tables and IR (from background jobs).
-pub struct Http;
-
-impl Http {
-    pub fn request(
-        &self,
-        method: &str,
-        url: &str,
-        headers: &[(&str, &str)],
-        body: Option<&[u8]>,
-    ) -> Result<Vec<u8>, String> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use std::io::Read;
-            let agent = ureq::AgentBuilder::new()
-                .timeout(crate::platform::Duration::from_secs(30))
-                .user_agent(concat!("vibeBMS/", env!("CARGO_PKG_VERSION")))
-                .build();
-            let mut req = agent.request(method, url);
-            for (k, v) in headers {
-                req = req.set(k, v);
-            }
-            let resp = match body {
-                Some(b) => req.send_bytes(b),
-                None => req.call(),
-            }
-            .map_err(|e| e.to_string())?;
-            let mut buf = Vec::new();
-            resp.into_reader()
-                .take(64 << 20)
-                .read_to_end(&mut buf)
-                .map_err(|e| e.to_string())?;
-            Ok(buf)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            web_xhr(method, url, headers, body)
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_xhr(
+/// Asynchronous HTTP (ehttp: ureq natively, `fetch` in browsers). `on_done`
+/// runs on a worker thread natively and on the event loop on the web.
+pub fn http(
     method: &str,
     url: &str,
-    headers: &[(&str, &str)],
-    body: Option<&[u8]>,
-) -> Result<Vec<u8>, String> {
-    let e = |e: wasm_bindgen::JsValue| format!("{e:?}");
-    let xhr = web_sys::XmlHttpRequest::new().map_err(e)?;
-    // synchronous XHR: deprecated but the only blocking option on the main thread.
-    xhr.open_with_async(method, url, false).map_err(e)?;
-    // binary-safe text: decode as latin1 so bytes round-trip
-    xhr.override_mime_type("text/plain; charset=x-user-defined")
-        .map_err(e)?;
+    headers: &[(String, String)],
+    body: Vec<u8>,
+    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+) {
+    let mut req = ehttp::Request::get(url);
+    req.method = match method {
+        "POST" => ehttp::Method::POST,
+        "PUT" => ehttp::Method::PUT,
+        "DELETE" => ehttp::Method::DELETE,
+        _ => ehttp::Method::GET,
+    };
+    req.body = body;
     for (k, v) in headers {
-        xhr.set_request_header(k, v).map_err(e)?;
+        req.headers.insert(k, v);
     }
-    match body {
-        Some(b) => xhr.send_with_opt_u8_array(Some(b)).map_err(e)?,
-        None => xhr.send().map_err(e)?,
-    }
-    let status = xhr.status().map_err(e)?;
-    if !(200..300).contains(&status) {
-        return Err(format!("HTTP {status} {url}"));
-    }
-    let text = xhr.response_text().map_err(e)?.unwrap_or_default();
-    Ok(text.chars().map(|c| (c as u32 & 0xff) as u8).collect())
+    ehttp::fetch(req, move |r| {
+        on_done(match r {
+            Ok(r) if r.ok => Ok(r.bytes),
+            Ok(r) => Err(format!("HTTP {} {}", r.status, r.url)),
+            Err(e) => Err(e),
+        })
+    });
 }
 
-impl vibebms_tables::Fetcher for Http {
-    fn get(&self, url: &str) -> Result<String, vibebms_tables::TableError> {
-        let b = self
-            .request("GET", url, &[], None)
-            .map_err(vibebms_tables::TableError::Http)?;
-        Ok(vibebms_tables::decode_body(&b))
-    }
+pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
+    http("GET", url, &[], Vec::new(), on_done)
 }
 
-impl vibebms_ir::HttpClient for Http {
-    fn request(
-        &self,
-        method: &str,
-        url: &str,
-        headers: &[(&str, &str)],
-        body: Option<&[u8]>,
-    ) -> Result<Vec<u8>, String> {
-        Http::request(self, method, url, headers, body)
+/// Send a request built by an IR client.
+pub fn ir_send(
+    req: vibebms_ir::HttpRequest,
+    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+) {
+    http(req.method, &req.url, &req.headers, req.body, on_done)
+}
+
+/// Load a difficulty table (page → header → data, with mirror fallback).
+pub fn load_table(
+    url: &str,
+    on_done: impl FnOnce(Result<vibebms_tables::DifficultyTable, String>) + Send + 'static,
+) {
+    fn drive(
+        mut loader: vibebms_tables::TableLoader,
+        url: String,
+        on_done: Box<dyn FnOnce(Result<vibebms_tables::DifficultyTable, String>) + Send>,
+    ) {
+        http_get(&url, move |body| match loader.feed(body) {
+            Ok(vibebms_tables::Step::Get(next)) => drive(loader, next, on_done),
+            Ok(vibebms_tables::Step::Done(t)) => on_done(Ok(*t)),
+            Err(e) => on_done(Err(e.to_string())),
+        });
     }
+    let (loader, first) = vibebms_tables::TableLoader::new(url);
+    drive(loader, first, Box::new(on_done));
 }
