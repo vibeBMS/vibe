@@ -219,9 +219,6 @@ pub struct TouchConfig {
     pub height: f32,
     /// Opacity of the controls.
     pub opacity: f32,
-    /// Widest a key gets, as a fraction of the controls' height (wide
-    /// landscape screens would otherwise spread the keys far apart).
-    pub key_width: f32,
     /// Play double charts in landscape with two control sets.
     pub allow_dp: bool,
     /// Scratch sensitivity: degrees of rotation needed to register a direction change.
@@ -235,7 +232,6 @@ impl Default for TouchConfig {
             style: TouchStyle::Iidx,
             height: 0.32,
             opacity: 0.85,
-            key_width: 0.5,
             allow_dp: true,
             scratch_threshold_deg: 6.0,
         }
