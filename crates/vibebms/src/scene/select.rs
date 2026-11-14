@@ -364,7 +364,7 @@ impl SelectScene {
                             level: String::new(),
                             url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
                             url_diff: String::new(),
-                            archive: (!w.files.is_empty()).then_some((*e, w.num)),
+                            archive: ctx.archives.can_download(*e, w.num).then_some((*e, w.num)),
                         });
                     } else {
                         bars.extend(sorted(mine));
@@ -1071,15 +1071,17 @@ impl Scene for SelectScene {
                 self.step(ctx, if nav == Nav::Up { -1 } else { 1 });
             }
         }
+        // the list wraps around: scroll the short way to the cursor
+        let n = self.bars.len().max(1) as f32;
         let target = self.cursor as f32;
-        let diff = target - self.scroll;
-        if diff.abs() > self.bars.len() as f32 * 0.5 {
-            self.scroll = target; // wrapped around
+        let mut diff = (target - self.scroll).rem_euclid(n);
+        if diff > n * 0.5 {
+            diff -= n;
+        }
+        if diff.abs() < 0.01 {
+            self.scroll = target;
         } else {
-            self.scroll += diff * 0.3;
-            if diff.abs() < 0.01 {
-                self.scroll = target;
-            }
+            self.scroll = (self.scroll + diff * 0.3).rem_euclid(n);
         }
         self.update_preview(ctx);
         self.update_ranking(ctx);
