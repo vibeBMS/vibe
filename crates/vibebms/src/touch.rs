@@ -28,16 +28,58 @@ pub struct Zone {
     pub scratch: bool,
     /// Even-numbered keys (blue on IIDX).
     pub black: bool,
+    /// The button's own colour (pop'n buttons).
+    pub color: Option<crate::gfx::Color>,
 }
 
 impl Zone {
     fn hit(&self, x: f32, y: f32) -> bool {
+        self.distance(x, y) <= 0.0
+    }
+
+    /// How far (x, y) is outside the zone (0 inside).
+    fn distance(&self, x: f32, y: f32) -> f32 {
         match self.shape {
-            Shape::Rect(r) => r.contains(x, y),
-            Shape::Circle { cx, cy, r } => (x - cx).powi(2) + (y - cy).powi(2) <= r * r,
+            Shape::Rect(r) => {
+                let dx = (r.x - x).max(x - r.right()).max(0.0);
+                let dy = (r.y - y).max(y - r.bottom()).max(0.0);
+                dx.hypot(dy)
+            }
+            Shape::Circle { cx, cy, r } => ((x - cx).hypot(y - cy) - r).max(0.0),
+        }
+    }
+
+    /// How far outside a key a touch still counts for it (when no key is
+    /// closer): half the key's size.
+    fn reach(&self) -> f32 {
+        match self.shape {
+            Shape::Rect(r) => r.w.min(r.h) * 0.5,
+            Shape::Circle { r, .. } => r * 0.5,
         }
     }
 }
+
+/// The zone a new touch at (x, y) presses: the one under it, else the
+/// nearest key within its reach. Touchscreens give no feel for the gaps
+/// between keys, so a finger landing in one still plays the key next to it.
+fn pick(zones: &[Zone], x: f32, y: f32) -> Option<usize> {
+    zones.iter().position(|z| z.hit(x, y)).or_else(|| {
+        zones
+            .iter()
+            .enumerate()
+            .filter(|(_, z)| !z.scratch && z.lane < START)
+            .map(|(i, z)| (i, z.distance(x, y), z.reach()))
+            .filter(|(_, d, reach)| d <= reach)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, ..)| i)
+    })
+}
+
+/// pop'n music button colours, buttons 1..9.
+const POPN_COLORS: [u32; 9] = [
+    0xe8ecf2ff, 0xffd23cff, 0x46dc82ff, 0x3f8cffff, 0xff4d5eff, 0x3f8cffff, 0x46dc82ff, 0xffd23cff,
+    0xe8ecf2ff,
+];
 
 /// The IIDX keypad in mm: key faces, the gap between neighbouring white
 /// keys, the gap between the white row and the blue row above it, and the
@@ -107,8 +149,34 @@ pub fn layout(
                     lane: l as u8,
                     scratch: sc,
                     black: !sc && k % 2 == 1,
+                    color: None,
                 });
                 x += w;
+            }
+        }
+        TouchStyle::Iidx if mode == PlayMode::Popn9K => {
+            // the pop'n music panel: round buttons, 1 3 5 7 9 below and
+            // 2 4 6 8 above between them, as wide as the area allows
+            let h = area.h * 0.94;
+            // neighbours (half a pitch across, `rise` up) stay apart
+            let d = (area.w / 6.8).min(h / 1.82).min(60.0 * px_per_mm);
+            let pitch = d / 0.7;
+            let rise = d * 0.82;
+            let x0 = area.x + (area.w - pitch * 4.0 - d) * 0.5 + d * 0.5;
+            let y0 = area.y + (area.h - d - rise) * 0.5 + rise + d * 0.5;
+            for k in 0..keys {
+                let up = k % 2 == 1;
+                zones.push(Zone {
+                    shape: Shape::Circle {
+                        cx: x0 + k as f32 * pitch * 0.5,
+                        cy: if up { y0 - rise } else { y0 },
+                        r: d * 0.5,
+                    },
+                    lane: (base + k) as u8,
+                    scratch: false,
+                    black: up,
+                    color: Some(crate::gfx::rgba(POPN_COLORS[k.min(8)])),
+                });
             }
         }
         TouchStyle::Iidx => {
@@ -152,6 +220,7 @@ pub fn layout(
                     lane: sc,
                     scratch: true,
                     black: false,
+                    color: None,
                 });
             }
             let used = shown + disc_gap;
@@ -173,6 +242,7 @@ pub fn layout(
                     lane: (base + k) as u8,
                     scratch: false,
                     black,
+                    color: None,
                 });
             }
         }
@@ -193,6 +263,7 @@ pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32, right: bool) ->
         lane,
         scratch: false,
         black: false,
+        color: None,
     };
     let margin = 2.5 * mm;
     let shown = (screen.h * aspect).min(screen.w);
@@ -282,7 +353,7 @@ impl TouchInput {
     ) -> bool {
         match phase {
             Phase::Down => {
-                let Some(zi) = zones.iter().position(|z| z.hit(x, y)) else {
+                let Some(zi) = pick(zones, x, y) else {
                     return false;
                 };
                 let z = zones[zi];
@@ -384,7 +455,9 @@ impl TouchInput {
         use crate::theme::{NOTE_BLUE, NOTE_SCRATCH, NOTE_WHITE};
         for z in zones {
             let pressed = self.is_pressed(z.lane);
-            let base = if z.scratch {
+            let base = if let Some(c) = z.color {
+                c
+            } else if z.scratch {
                 NOTE_SCRATCH
             } else if z.black {
                 NOTE_BLUE
@@ -397,6 +470,10 @@ impl TouchInput {
                 Shape::Rect(r) => {
                     batch.rect(r, fill);
                     batch.rect_outline(r, 2.0, edge);
+                }
+                Shape::Circle { cx, cy, r } if !z.scratch => {
+                    batch.circle(cx, cy, r, 0.0, fill, 48);
+                    batch.circle(cx, cy, r, r - 3.0, edge, 48);
                 }
                 Shape::Circle { cx, cy, r } => {
                     batch.circle(cx, cy, r, 0.0, fill, 64);
@@ -526,6 +603,44 @@ mod tests {
                 Shape::Rect(k) => (k.w - 116.0).abs() < 0.5 && k.right() <= 850.5,
                 _ => false,
             }));
+    }
+
+    #[test]
+    fn touches_between_keys_play_the_nearest() {
+        let area = Rect::new(0.0, 0.0, 1200.0, 400.0);
+        let z = layout(PlayMode::Beat7K, TouchStyle::Iidx, area, 0, false, 4.0);
+        let key = |lane: u8| match z.iter().find(|z| z.lane == lane).unwrap().shape {
+            Shape::Rect(r) => r,
+            _ => panic!(),
+        };
+        // lanes 0 and 2 are keys 1 and 3 (white): in the gap between them,
+        // closer to 3; just below key 1; far from every key
+        let (k1, k3) = (key(0), key(2));
+        assert_eq!(z[pick(&z, k3.x - 10.0, k3.y + 10.0).unwrap()].lane, 2);
+        assert_eq!(z[pick(&z, k1.x + 5.0, k1.bottom() + 8.0).unwrap()].lane, 0);
+        assert!(pick(&z, k1.x, k1.bottom() + 200.0).is_none());
+    }
+
+    #[test]
+    fn popn_buttons_zigzag_across_the_width() {
+        let area = Rect::new(0.0, 0.0, 1000.0, 300.0);
+        let z = layout(PlayMode::Popn9K, TouchStyle::Iidx, area, 0, false, 4.0);
+        assert_eq!(z.len(), 9);
+        let c: Vec<(f32, f32, f32)> = z
+            .iter()
+            .map(|z| match z.shape {
+                Shape::Circle { cx, cy, r } => (cx, cy, r),
+                _ => panic!("round buttons"),
+            })
+            .collect();
+        for (k, w) in c.windows(2).enumerate() {
+            assert!(w[1].0 > w[0].0);
+            // even buttons (2, 4, ...) above their neighbours
+            assert_eq!(w[1].1 < w[0].1, k % 2 == 0);
+        }
+        assert!(c
+            .iter()
+            .all(|(x, y, r)| x - r >= 0.0 && x + r <= 1000.0 && y - r >= 0.0 && y + r <= 300.0));
     }
 
     #[test]
