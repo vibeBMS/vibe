@@ -620,22 +620,22 @@ PANEL1 = [  # title, keys, group, values, accent
     ("TARGET", "TURNTABLE", 5, ["BEST", "RANK A", "RANK AA", "RANK AAA", "MAX-", "MAX"], AMBER),
 ]
 ONOFF = ["OFF", "ON"]
-PANEL2 = [  # key, name, group, values
-    ("1", "AUTO SCRATCH", 9, ONOFF),
+PANEL2 = [  # key, name, group, values (beatoraja's assist panel)
+    ("1", "EXPAND JUDGE", 15, ONOFF),
     ("2", "CONSTANT", 10, ONOFF),
-    ("3", "LN MODE", 6, ["LN", "CN", "HCN"]),
+    ("3", "JUDGE AREA", 16, ONOFF),
     ("4", "LEGACY NOTE", 11, ONOFF),
-    ("5", "JUDGE", 7, ["beatoraja", "LR2", "IIDX"]),
-    ("6", "LANE COVER", 12, ONOFF),
+    ("5", "MARK NOTE", 17, ONOFF),
+    ("6", "BPM GUIDE", 18, ONOFF),
     ("7", "NO MINE", 13, ONOFF),
 ]
 PANEL3 = [  # key, name, group (None: a number row), values
     ("1", "BGA", 14, ["OFF", "ON"]),
-    ("2", "GAUGE AUTO SHIFT", 8, ["OFF", "CONTINUE", "HARD→GROOVE", "BEST CLEAR",
+    ("2", "GAUGE AUTO SHIFT", 8, ["OFF", "CONTINUE", "HARD\u2192GROOVE", "BEST CLEAR",
                                   "SELECT TO UNDER"]),
-    ("4 / 6", "HI-SPEED  − / +", None, None),
-    ("5 / 7", "JUDGE TIMING  − / +", None, None),
-    ("TT", "HI-SPEED  ±0.01", None, None),
+    ("3", "TIMING AUTO ADJUST", 19, ONOFF),
+    ("4 / 6", "GREEN NUMBER  \u2212 / +", None, None),
+    ("5 / 7", "JUDGE TIMING  \u2212 / +", None, None),
 ]
 OPT_W, OPT_HEAD, OPT_ROW = 196, 60, 26
 LIST_W, LIST_ROW = 460, 40
@@ -717,8 +717,8 @@ def option_panels(sk, portrait):
     hx += 7
     hx += sk.number("n_mid", 311, 2, hx, hy, zeropad=True, op=[21], fixed=True) + 24
     gw = items["ov_gn"][2]
-    sk.put(sk.img("ov_gn"), hx, hy + 4, gw, items["ov_gn"][3], op=[21, 5], fixed=True)
-    sk.number("n_green", 313, 4, hx + gw + 8, hy + 2, op=[21, 5], fixed=True)
+    sk.put(sk.img("ov_gn"), hx, hy + 4, gw, items["ov_gn"][3], op=[21], fixed=True)
+    sk.number("n_green", 313, 4, hx + gw + 8, hy + 2, op=[21], fixed=True)
     row_h = 0
     for i, (_t, _k, g, values, accent) in enumerate(PANEL1):
         cx = x0 + (i % per_row) * (OPT_W + gap)
@@ -763,9 +763,9 @@ def option_panels(sk, portrait):
                 x += sk.number("n_mid", 311, 2, x, cy - 13, zeropad=True, op=[20 + n],
                                fixed=True, scale=0.9) + 16
                 gw = items["ov_gn"][2]
-                sk.put(sk.img("ov_gn"), x, cy - 9, gw, items["ov_gn"][3], op=[20 + n, 5],
+                sk.put(sk.img("ov_gn"), x, cy - 9, gw, items["ov_gn"][3], op=[20 + n],
                        fixed=True)
-                sk.number("n_green", 313, 4, x + gw + 6, cy - 11, op=[20 + n, 5], fixed=True)
+                sk.number("n_green", 313, 4, x + gw + 6, cy - 11, op=[20 + n], fixed=True)
 
 
 # ---------------------------------------------------------------- skin json

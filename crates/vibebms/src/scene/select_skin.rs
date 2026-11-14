@@ -218,7 +218,7 @@ impl SkinState for SelectState<'_> {
         let rank = self.song().and_then(|s| self.s.ranking.get(&s.sha256));
         let v = match id.abs() {
             21..=26 => self.s.panel == (id.abs() - 20) as usize,
-            n @ 1500..=1739 => {
+            n @ 1500..=1819 => {
                 super::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
             601 => matches!(rank, Some(super::select::Rank::Loading(_))),
@@ -272,8 +272,12 @@ impl SkinState for SelectState<'_> {
                 Some(Bar::Folder { count, .. }) => *count as i64,
                 _ => self.s.bars.len() as i64,
             },
-            312 => song.map(|s| p.duration_ms(&Bpms::of_song(s)).round() as i64)?,
-            313 => song.map(|s| p.green(&Bpms::of_song(s)))?,
+            // the selected chart's, else at 150 BPM (beatoraja shows the
+            // setting on folders too)
+            312 => p
+                .duration_ms(&song.map_or(Bpms::flat(150.0), Bpms::of_song))
+                .round() as i64,
+            313 => p.green(&song.map_or(Bpms::flat(150.0), Bpms::of_song)),
             10 | 310 | 311 => {
                 let b = song.map_or(Bpms::flat(150.0), Bpms::of_song);
                 let hs = (p.hispeed_at(&b) * 100.0).round() as i64;
@@ -323,9 +327,22 @@ impl SkinState for SelectState<'_> {
                 }
             }
             // beatoraja assist buttons vibeBMS has (0 off, 1 on)
+            301 => p.expand_judge as i64,
             302 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
+            303 => p.judge_area as i64,
             304 => p.legacy_note as i64,
+            305 => p.mark_notes as i64,
+            306 => p.bpm_guide as i64,
             307 => p.no_mine as i64,
+            75 => p.timing_auto_adjust as i64,
+            330 => p.lane_cover as i64,
+            331 => (p.lift > 0.0) as i64,
+            332 => (p.hidden > 0.0) as i64,
+            340 => p.judge_algorithm as i64,
+            351 => p.no_mine as i64,
+            352 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
+            353 => p.legacy_note as i64,
+            78 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
             // vibeBMS: the options its panels show that beatoraja has not
             1401 => p.auto_scratch as i64,
             1402 => p.lane_cover as i64,

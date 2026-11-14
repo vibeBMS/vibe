@@ -49,10 +49,12 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 | 9키(PMS) | `A S D F G H J K L` |
 | 선곡 | ↑↓ 이동, Enter 결정, Backspace 뒤로, `/` 검색, F2~F9 옵션, F12 재스캔 |
 | 플레이 | ↑↓ 하이스피드, PgUp/PgDn SUDDEN+, ←→ 판정 오프셋, Esc 종료 |
-| 선곡 중 START(`Q`) / SELECT(`W`) 누른 채로 | 플레이 옵션 패널 (beatoraja 키 배치) — START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, 턴테이블 TARGET / SELECT: 1 AUTO SCRATCH, 2 CONSTANT, 3 LN MODE, 4 LEGACY NOTE, 5 JUDGE, 6 LANE COVER, 7 NO MINE / 둘 다: 1 BGA, 2 GAUGE AUTO SHIFT, 4·6 하이스피드 −/+, 5·7 판정 타이밍 −/+, 턴테이블 하이스피드 ±0.01 |
+| 선곡 중 START(`Q`) / SELECT(`W`) 누른 채로 | 플레이 옵션 패널 (beatoraja와 같은 키 배치) — START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, 턴테이블 TARGET / SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE / 둘 다(또는 숫자 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 판정 타이밍 자동 조정, 4·6 녹숫 −/+ (누르고 있으면 반복), 5·7 판정 타이밍 −/+ / 숫자 3: LN 모드 |
 | 플레이 중 START(`Q`) / SELECT(`W`) | beatoraja와 같은 조작 패널: START+흰 건반 하이스피드 −0.25 / 파란 건반 +0.25, START+턴테이블 레인 커버(커버가 없으면 LIFT), START 두 번 커버 켜기/끄기, SELECT+건반·턴테이블 하이스피드 ±0.01, START+SELECT 1초 종료 |
 | 공통 | F1/Tab 설정, F11 전체화면 |
 
+- beatoraja의 보조 옵션: EXPAND JUDGE(판정 폭 확대, 설정에서 PG/GR/GD 비율), JUDGE AREA(판정선 위에 판정 범위 표시), MARK NOTE(일찍 친 노트를 회색으로 판정선까지 표시), BPM GUIDE(BPM 변화·정지 표시), 판정 타이밍 자동 조정.
+  beatoraja와 같이 100 %보다 넓은 EXPAND JUDGE는 ASSIST EASY, BPM이 바뀌는 곡의 BPM GUIDE는 LIGHT ASSIST EASY이며 기록이 저장되지 않습니다.
 - 하이스피드: 배속을 설정하고(0.25 단위), 녹숫(노트가 보이는 시간)은 배속·BPM·레인 커버로 정해집니다.
   HS-FIX(START BPM / MAX BPM / MAIN BPM / MIN BPM)를 켜면 반대로 녹숫이 고정되고 곡마다 그 BPM에 맞춰 배속이 바뀝니다.
 - 컨트롤러(IIDX 전용 컨트롤러 포함)는 `SETTINGS › KEY CONFIG`에서 버튼을 눌러 등록합니다. 아날로그 턴테이블도 지원합니다.

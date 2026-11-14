@@ -19,9 +19,9 @@ use vibebms_audio::{Bus, PlayOptions, SoundBank};
 use vibebms_core::chart::{BgaLayer, Chart, SoundId, NO_SOUND};
 use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent};
 use vibebms_core::gauge::GrooveGauge;
-use vibebms_core::judge::{judge_rules, BAD, GREAT, MISS};
+use vibebms_core::judge::{judge_rules, BAD, GOOD, GREAT, MISS};
 use vibebms_core::lane_option::{self, DoubleOption, LaneOption};
-use vibebms_core::score::{ClearType, Score};
+use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
 
@@ -123,7 +123,7 @@ pub struct PlayScene {
     ctl: Control,
     /// The skin draws the panel itself (objects on timer 21).
     skin_panel: bool,
-    pub(crate) assist: bool,
+    pub(crate) assist: Assist,
     /// Why this play is not recorded (`None`: it is).
     unranked: Option<&'static str>,
     pub(crate) options_label: String,
@@ -337,7 +337,7 @@ impl PlayScene {
             error: None,
             ctl: Control::default(),
             skin_panel: false,
-            assist: false,
+            assist: Assist::None,
             unranked: None,
             options_label: String::new(),
             finished_at: None,
@@ -406,8 +406,13 @@ impl PlayScene {
         self.mode = chart.mode();
         let p = &ctx.config.play;
         let course = self.req.course.as_ref();
+        // beatoraja: windows wider than standard and a BPM guide on a chart
+        // that changes BPM are assists, and their scores are not kept
+        let wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
+        let guided = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
         self.unranked = altered
-            .or(p.custom_judge.map(|_| "CUSTOM JUDGE"))
+            .or(wide_judge.then_some("EXPAND JUDGE"))
+            .or(guided.then_some("BPM GUIDE"))
             .or(course.map(|_| "COURSE"));
         // LN mode: course constraints may force one
         if let Some(c) = course {
@@ -425,7 +430,12 @@ impl PlayScene {
         } else {
             p.gauge_preset
         };
-        let rules = judge_rules(p.judge_preset, fam, chart.meta.judge_rank, p.custom_judge);
+        let rules = judge_rules(
+            p.judge_preset,
+            fam,
+            chart.meta.judge_rank,
+            p.expand_judge.then_some(p.judge_rates),
+        );
         let total = chart.total(self.ln);
         let notes = chart.total_judgements(self.ln);
         let gauge_type = if course.is_some() {
@@ -446,7 +456,13 @@ impl PlayScene {
         let auto_lanes: Vec<bool> = (0..lanes)
             .map(|l| self.req.autoplay || (p.auto_scratch && self.mode.is_scratch(l)))
             .collect();
-        self.assist = p.auto_scratch || p.legacy_note;
+        self.assist = if p.auto_scratch || p.legacy_note || wide_judge {
+            Assist::Full
+        } else if guided {
+            Assist::Light
+        } else {
+            Assist::None
+        };
         let cfg = EngineConfig {
             rules,
             default_ln: self.ln,
@@ -740,7 +756,7 @@ impl PlayScene {
                 .collect(),
             autoplay: self.req.autoplay,
             unranked: self.unranked,
-            assist: self.assist,
+            assist: self.assist != Assist::None,
             options: self.options_label.clone(),
             judge: format!(
                 "{} / {}",
@@ -935,6 +951,17 @@ impl Scene for PlayScene {
                 } => {
                     let player = self.mode.player_of_lane(lane as usize).min(1);
                     self.last_judge[player] = Some((judge, diff, now, combo));
+                    // beatoraja timing auto adjust: PG..GOOD within 150 ms
+                    // move the timing a ms per 30 ms off (diff > 0: early)
+                    let p = &mut ctx.config.play;
+                    if p.timing_auto_adjust
+                        && !auto.get(lane as usize).copied().unwrap_or(true)
+                        && judge <= GOOD
+                        && diff.abs() <= 150_000
+                    {
+                        let d = (diff + if diff >= 0 { 15_000 } else { -15_000 }) / 30_000;
+                        p.judge_offset_ms = (p.judge_offset_ms - d as i32).clamp(-500, 500);
+                    }
                     if let Some(j) = self.lane_judge.get_mut(lane as usize) {
                         *j = Some(judge);
                     }

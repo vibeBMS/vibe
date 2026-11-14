@@ -2,6 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Options that help the player (beatoraja assist levels): the lamp is
+/// LIGHT ASSIST EASY or ASSIST EASY whatever the gauge.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Assist {
+    #[default]
+    None,
+    Light,
+    Full,
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
@@ -181,12 +191,14 @@ impl Score {
 
     /// Lamp given the gauge outcome. `gauge_clear` is the lamp of the
     /// qualified gauge, or `None` when failed.
-    pub fn clear_type(&self, gauge_clear: Option<ClearType>, assist: bool) -> ClearType {
+    pub fn clear_type(&self, gauge_clear: Option<ClearType>, assist: Assist) -> ClearType {
         let Some(gc) = gauge_clear else {
             return ClearType::Failed;
         };
-        if assist {
-            return ClearType::AssistEasy;
+        match assist {
+            Assist::Full => return ClearType::AssistEasy,
+            Assist::Light => return ClearType::LightAssistEasy,
+            Assist::None => {}
         }
         let all = self.passed >= self.total_notes && self.total_notes > 0;
         if all && self.count(3) + self.count(4) == 0 {
@@ -224,7 +236,7 @@ mod tests {
         s.add(1, -1);
         assert_eq!(s.ex_score(), 3);
         assert_eq!(
-            s.clear_type(Some(ClearType::Normal), false),
+            s.clear_type(Some(ClearType::Normal), Assist::None),
             ClearType::Perfect
         );
         s.counts[1] = [0, 0];
@@ -232,13 +244,17 @@ mod tests {
         s.add(0, 0);
         assert_eq!((s.count(0), s.fast() + s.slow()), (2, 1));
         assert_eq!(
-            s.clear_type(Some(ClearType::Hard), false),
+            s.clear_type(Some(ClearType::Hard), Assist::None),
             ClearType::FullCombo
         );
-        assert_eq!(s.clear_type(None, false), ClearType::Failed);
+        assert_eq!(s.clear_type(None, Assist::None), ClearType::Failed);
         assert_eq!(
-            s.clear_type(Some(ClearType::Hard), true),
+            s.clear_type(Some(ClearType::Hard), Assist::Full),
             ClearType::AssistEasy
+        );
+        assert_eq!(
+            s.clear_type(Some(ClearType::Hard), Assist::Light),
+            ClearType::LightAssistEasy
         );
     }
 }

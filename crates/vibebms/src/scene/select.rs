@@ -104,6 +104,10 @@ pub struct SelectScene {
     /// START / SELECT held: the option panels (see `option_panel`).
     start_held: bool,
     select_held: bool,
+    /// Number key 5 held: the detail panel, as START + SELECT.
+    num5_held: bool,
+    /// A held panel key that repeats: (key, next step, steps so far).
+    panel_repeat: Option<(usize, Instant, u32)>,
     /// Lamp / rank counts per folder (bar key), computed when first shown.
     dist_cache: std::cell::RefCell<HashMap<String, Distribution>>,
 }
@@ -147,6 +151,8 @@ impl SelectScene {
             panel_off: [None; 6],
             start_held: false,
             select_held: false,
+            num5_held: false,
+            panel_repeat: None,
             dist_cache: Default::default(),
         };
         s.rebuild(ctx);
@@ -766,10 +772,22 @@ impl SelectScene {
                 p.random_2p = all[(i + 1) % all.len()];
                 true
             }
-            // DP OPTION and HS-FIX: as keys 4 and 5 of the START panel
-            54 | 55 => {
+            // beatoraja option buttons: as the panel keys that change them
+            40 | 54 | 55 | 301..=307 | 75 | 78 => {
                 let b = Bpms::flat(150.0);
-                super::option_panel::key(p, 1, if act == 54 { 3 } else { 4 }, &b);
+                let (panel, key) = match act {
+                    40 => (1, 2),
+                    54 => (1, 3),
+                    55 => (1, 4),
+                    75 => (3, 2),
+                    78 => (3, 1),
+                    n => (2, (n - 301) as usize),
+                };
+                super::option_panel::key(p, panel, key, &b);
+                true
+            }
+            77 => {
+                super::option_panel::turn(p, 1, -1, &Bpms::flat(150.0));
                 true
             }
             72 => {
@@ -808,14 +826,27 @@ impl SelectScene {
         if let Some(v) = select {
             self.select_held = v;
         }
-        let want = super::option_panel::panel_of(self.start_held, self.select_held);
+        let want = if self.num5_held {
+            3
+        } else {
+            super::option_panel::panel_of(self.start_held, self.select_held)
+        };
         if want != self.panel {
             self.toggle_panel(want);
+            self.panel_repeat = None;
         }
     }
 
     fn holding(&self) -> bool {
-        self.start_held || self.select_held
+        self.start_held || self.select_held || self.num5_held
+    }
+
+    /// A held panel key let go: stop its repeat.
+    fn panel_release(&mut self, ctx: &mut Ctx, k: usize) {
+        if self.panel_repeat.is_some_and(|r| r.0 == k) {
+            self.panel_repeat = None;
+            ctx.save_config();
+        }
     }
 
     /// A key (0..=6) or turntable step (7 up, 8 down) with a panel held.
@@ -829,6 +860,10 @@ impl SelectScene {
             7 | 8 => option_panel::turn(p, self.panel, if k == 7 { 1 } else { -1 }, &b),
             _ => option_panel::key(p, self.panel, k, &b),
         };
+        if option_panel::repeats(self.panel, k) {
+            // beatoraja: repeat after 300 ms, every 50 ms
+            self.panel_repeat = Some((k, Instant::now() + Duration::from_millis(300), 0));
+        }
         if let Some(msg) = said {
             // the skin shows the change on its panel; without one, a toast
             if !self.skin_has_panels() {
@@ -905,6 +940,20 @@ impl Scene for SelectScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if self.version != ctx.library_version {
             self.rebuild(ctx);
+        }
+        // a held green number key (panel 3): 1 ms steps, 10 ms after 50
+        if let Some((k, next, n)) = self.panel_repeat {
+            if now >= next && self.holding() {
+                let b = self
+                    .selected_song(ctx)
+                    .map_or(Bpms::flat(150.0), |(_, s)| Bpms::of_song(s));
+                let step = if n > 50 { 10.0 } else { 1.0 };
+                let msg = super::option_panel::repeat(&mut ctx.config.play, k, step, &b);
+                if !self.skin_has_panels() {
+                    ctx.toast(msg);
+                }
+                self.panel_repeat = Some((k, now + Duration::from_millis(50), n + 1));
+            }
         }
         // key repeat for held navigation
         if let Some((nav, since, last)) = self.held_nav {
@@ -1010,10 +1059,19 @@ impl Scene for SelectScene {
                     }
                     return Next::Stay;
                 }
+                if *code == KeyCode::Digit5 || *code == KeyCode::Numpad5 {
+                    if !*repeat {
+                        self.num5_held = *pressed;
+                        self.hold(None, None);
+                    }
+                    return Next::Stay;
+                }
                 if self.holding() {
-                    if *pressed && !*repeat {
-                        if let Some(k) = panel_key(keys, |l| l.keys.contains(code)) {
+                    if let Some(k) = panel_key(keys, |l| l.keys.contains(code)) {
+                        if *pressed && !*repeat {
                             self.panel_input(ctx, k);
+                        } else if !*pressed {
+                            self.panel_release(ctx, k);
                         }
                     }
                     return Next::Stay;
@@ -1030,6 +1088,8 @@ impl Scene for SelectScene {
                     return Next::Stay; // own repeat handling
                 }
                 match code {
+                    // beatoraja number keys: 3 LN mode
+                    KeyCode::Digit3 | KeyCode::Numpad3 => return self.option(ctx, 3),
                     KeyCode::F2 => return self.option(ctx, 0),
                     KeyCode::F3 => return self.option(ctx, 1),
                     KeyCode::F4 => return self.option(ctx, 3),
@@ -1073,9 +1133,11 @@ impl Scene for SelectScene {
                     return Next::Stay;
                 }
                 if self.holding() {
-                    if *pressed {
-                        if let Some(k) = panel_key(keys, |l| l.pad.contains(id)) {
+                    if let Some(k) = panel_key(keys, |l| l.pad.contains(id)) {
+                        if *pressed {
                             self.panel_input(ctx, k);
+                        } else {
+                            self.panel_release(ctx, k);
                         }
                     }
                     return Next::Stay;

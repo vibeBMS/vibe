@@ -607,6 +607,42 @@ impl Hooks for SceneHooks<'_> {
             blend: crate::gfx::Blend::Alpha,
             center: (0.5, 0.5),
         };
+        // MARK NOTE: notes hit early fall on, greyed
+        let marked = crate::skin::Frame {
+            color: [0.45, 0.45, 0.5, 0.7],
+            ..ident
+        };
+        // BPM GUIDE: where each player's lanes span and the line's y, per
+        // BPM change / stop (time, label, colour)
+        let mut guide_span: [Option<(f32, f32)>; 2] = [None, None];
+        let mut guide_y: Vec<(usize, f32, String, [f32; 4])> = Vec::new();
+        let guides: Vec<(i64, String, [f32; 4])> = if p.bpm_guide {
+            let mut g: Vec<(i64, String, [f32; 4])> = s
+                .chart
+                .timing
+                .bpm_changes()
+                .iter()
+                .skip(1)
+                .map(|c| {
+                    (
+                        c.time,
+                        format!("BPM {}", c.bpm.round() as i64),
+                        [0.25, 0.85, 0.3, 1.0],
+                    )
+                })
+                .collect();
+            g.extend(s.chart.timing.stops.iter().map(|st| {
+                (
+                    st.time,
+                    format!("STOP {}ms", st.duration / 1000),
+                    [0.85, 0.85, 0.2, 1.0],
+                )
+            }));
+            g.retain(|(t, _, _)| *t >= t_vis && *t < t_vis + 10_000_000);
+            g
+        } else {
+            Vec::new()
+        };
         for (lane, ls) in skin.skin.lanes.iter().enumerate() {
             let Some(lr) = ls.rect else { continue };
             let r = xf.rect(lr);
@@ -634,6 +670,46 @@ impl Hooks for SceneHooks<'_> {
             // HIDDEN+ hides notes above the judge line
             let bottom = judge_y + 2.0 - p.hidden * (judge_y - top);
             d.b.set_clip(Some(Rect::new(r.x, top, r.w, (bottom - top).max(0.0))));
+            let at = |t: i64| y_of(s.chart.timing.pos_at_time(t as f64), t);
+            // JUDGE AREA: each judgement's early window as a band above the
+            // line (beatoraja's colours: PG blue .. POOR red)
+            if p.judge_area {
+                const COLORS: [[f32; 4]; 5] = [
+                    [0.0, 0.0, 1.0, 0.125],
+                    [0.0, 1.0, 0.0, 0.125],
+                    [1.0, 1.0, 0.0, 0.125],
+                    [1.0, 0.5, 0.0, 0.125],
+                    [1.0, 0.0, 0.0, 0.125],
+                ];
+                let w = engine.windows();
+                let win = if s.mode.is_scratch(lane) {
+                    &w.scratch
+                } else {
+                    &w.note
+                };
+                let mut lo = judge_y;
+                for (k, (_, early)) in win.iter().enumerate().take(COLORS.len()) {
+                    let hi = at(t_vis + early).max(top);
+                    if hi < lo {
+                        d.b.rect(Rect::new(r.x, hi, r.w, lo - hi), COLORS[k]);
+                        lo = hi;
+                    }
+                }
+            }
+            if !guides.is_empty() {
+                let pl = s.mode.player_of_lane(lane).min(1);
+                let span = guide_span[pl].get_or_insert((r.x, r.right()));
+                span.0 = span.0.min(r.x);
+                span.1 = span.1.max(r.right());
+                if guide_y.iter().all(|g| g.0 != pl) {
+                    for (t, label, c) in &guides {
+                        let y = at(*t);
+                        if y >= top && y <= judge_y {
+                            guide_y.push((pl, y, label.clone(), *c));
+                        }
+                    }
+                }
+            }
             let Some(list) = s.lane_notes.get(lane) else {
                 continue;
             };
@@ -685,17 +761,33 @@ impl Hooks for SceneHooks<'_> {
                         }
                     }
                     _ => {
-                        if n.is_done() {
+                        let mark = n.is_done() && p.mark_notes && n.time > t_vis;
+                        if n.is_done() && !mark {
                             continue;
                         }
                         if let Some(src) = ls.note.as_ref() {
                             let h = note_h(src);
-                            skin.blit(d, src, now, st, Rect::new(r.x, y - h, r.w, h), &ident);
+                            let fr = if mark { &marked } else { &ident };
+                            skin.blit(d, src, now, st, Rect::new(r.x, y - h, r.w, h), fr);
                         }
                     }
                 }
             }
             d.b.set_clip(None);
+        }
+        for (pl, y, label, c) in &guide_y {
+            if let Some((x0, x1)) = guide_span[*pl] {
+                d.b.rect(Rect::new(x0, *y - 1.0, x1 - x0, 2.0), *c);
+                let size = (14.0 * xf.sy).max(10.0);
+                d.text(
+                    label,
+                    (x0 + x1) * 0.5,
+                    *y - size - 4.0,
+                    size,
+                    *c,
+                    crate::gfx::text::Align::Center,
+                );
+            }
         }
         // bar lines span each lane group
         for (src, dst) in &skin.skin.bar_lines {

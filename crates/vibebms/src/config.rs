@@ -201,8 +201,21 @@ pub struct PlayConfig {
     pub visual_offset_ms: i32,
     pub bga: bool,
     pub show_fast_slow: bool,
-    /// Custom judge window rate (PG, GR, GD) in percent; `None` = default.
-    pub custom_judge: Option<[i64; 3]>,
+    /// EXPAND JUDGE (beatoraja custom judge): the judge windows scaled by
+    /// `judge_rates` (PG, GR, GD in percent). Wider than 100 % is an assist
+    /// (ASSIST EASY, the score is not saved).
+    pub expand_judge: bool,
+    pub judge_rates: [i64; 3],
+    /// JUDGE AREA: the judge windows drawn above the judge line.
+    pub judge_area: bool,
+    /// MARK NOTE: a note hit early keeps falling to the line, marked.
+    pub mark_notes: bool,
+    /// BPM GUIDE: BPM changes and stops shown on the lanes (on a chart with
+    /// BPM changes an assist: LIGHT ASSIST EASY, the score is not saved).
+    pub bpm_guide: bool,
+    /// Move the judge timing toward where you hit (beatoraja notes display
+    /// timing auto adjust).
+    pub timing_auto_adjust: bool,
     /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
     pub hran_threshold_bpm: u32,
     /// The score the pacemaker and the result compare against.
@@ -281,6 +294,20 @@ impl PlayConfig {
         }
     }
 
+    /// Change the green number (the duration at the basis BPM) by `d` ms:
+    /// beatoraja's duration keys. With HS-FIX this is the kept duration,
+    /// otherwise the hi-speed that gives it.
+    pub fn add_duration(&mut self, d: f64, b: &Bpms) {
+        let vis = self.visible(true) as f64;
+        let min = 240_000.0 * vis / (self.basis(b) * HISPEED_MAX as f64);
+        let max = 240_000.0 * vis / (self.basis(b) * HISPEED_MIN as f64);
+        let dur = (self.duration_ms(b) + d).clamp(min, max).max(1.0);
+        if self.hs_fix != HsFix::Off {
+            self.fixed_duration_ms = dur as f32;
+        }
+        self.hispeed = (240_000.0 * vis / (self.basis(b) * dur)) as f32;
+    }
+
     /// Change HS-FIX, keeping the speed the chart `b` plays at.
     pub fn set_hs_fix(&mut self, fix: HsFix, b: &Bpms) {
         let hs = self.hispeed_at(b);
@@ -327,7 +354,12 @@ impl Default for PlayConfig {
             visual_offset_ms: 0,
             bga: true,
             show_fast_slow: true,
-            custom_judge: None,
+            expand_judge: false,
+            judge_rates: [400, 400, 100],
+            judge_area: false,
+            mark_notes: false,
+            bpm_guide: false,
+            timing_auto_adjust: false,
             hran_threshold_bpm: 120,
             target: Target::Best,
         }
@@ -647,6 +679,13 @@ fn migrate(v: &mut toml::Value) {
     let Some(play) = v.get_mut("play").and_then(|p| p.as_table_mut()) else {
         return;
     };
+    // custom_judge = [pg, gr, gd] became expand_judge + judge_rates
+    if let Some(rates) = play.remove("custom_judge") {
+        if rates.as_array().is_some_and(|a| a.len() == 3) {
+            play.insert("expand_judge".into(), toml::Value::Boolean(true));
+            play.insert("judge_rates".into(), rates);
+        }
+    }
     if play.contains_key("hispeed") {
         return;
     }
@@ -689,6 +728,16 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn custom_judge_becomes_expand_judge() {
+        let mut v: toml::Value =
+            toml::from_str("[play]\ncustom_judge = [200, 150, 100]\n").unwrap();
+        migrate(&mut v);
+        let c: Config = v.try_into().unwrap();
+        assert!(c.play.expand_judge);
+        assert_eq!(c.play.judge_rates, [200, 150, 100]);
     }
 
     #[test]

@@ -366,49 +366,34 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     )
                 },
             ),
+            it("EXPAND JUDGE", onoff(p.expand_judge), |c, _| {
+                c.config.play.expand_judge = !c.config.play.expand_judge
+            }),
+            it("  PGREAT window %", p.judge_rates[0].to_string(), |c, d| {
+                let j = &mut c.config.play.judge_rates[0];
+                *j = (*j + d as i64 * 5).clamp(10, 400)
+            }),
+            it("  GREAT window %", p.judge_rates[1].to_string(), |c, d| {
+                let j = &mut c.config.play.judge_rates[1];
+                *j = (*j + d as i64 * 5).clamp(10, 400)
+            }),
+            it("  GOOD window %", p.judge_rates[2].to_string(), |c, d| {
+                let j = &mut c.config.play.judge_rates[2];
+                *j = (*j + d as i64 * 5).clamp(10, 400)
+            }),
+            it("JUDGE AREA", onoff(p.judge_area), |c, _| {
+                c.config.play.judge_area = !c.config.play.judge_area
+            }),
+            it("MARK NOTE", onoff(p.mark_notes), |c, _| {
+                c.config.play.mark_notes = !c.config.play.mark_notes
+            }),
+            it("BPM GUIDE", onoff(p.bpm_guide), |c, _| {
+                c.config.play.bpm_guide = !c.config.play.bpm_guide
+            }),
             it(
-                "Custom judge windows",
-                onoff(p.custom_judge.is_some()),
-                |c, _| {
-                    c.config.play.custom_judge = if c.config.play.custom_judge.is_some() {
-                        None
-                    } else {
-                        Some([100, 100, 100])
-                    }
-                },
-            ),
-            it(
-                "  PGREAT window %",
-                p.custom_judge
-                    .map(|j| j[0].to_string())
-                    .unwrap_or("—".into()),
-                |c, d| {
-                    if let Some(j) = c.config.play.custom_judge.as_mut() {
-                        j[0] = (j[0] + d as i64 * 5).clamp(10, 400)
-                    }
-                },
-            ),
-            it(
-                "  GREAT window %",
-                p.custom_judge
-                    .map(|j| j[1].to_string())
-                    .unwrap_or("—".into()),
-                |c, d| {
-                    if let Some(j) = c.config.play.custom_judge.as_mut() {
-                        j[1] = (j[1] + d as i64 * 5).clamp(10, 400)
-                    }
-                },
-            ),
-            it(
-                "  GOOD window %",
-                p.custom_judge
-                    .map(|j| j[2].to_string())
-                    .unwrap_or("—".into()),
-                |c, d| {
-                    if let Some(j) = c.config.play.custom_judge.as_mut() {
-                        j[2] = (j[2] + d as i64 * 5).clamp(10, 400)
-                    }
-                },
+                "Judge timing auto adjust",
+                onoff(p.timing_auto_adjust),
+                |c, _| c.config.play.timing_auto_adjust = !c.config.play.timing_auto_adjust,
             ),
         ],
         2 => {
