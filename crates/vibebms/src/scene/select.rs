@@ -40,6 +40,9 @@ pub(crate) enum Node {
     Search(String),
     /// A mirrored event (`ctx.archives.events[i]`).
     Archive(usize),
+    /// The open folder's own bar, first in its list: choosing it closes
+    /// the folder (as in IIDX and LR2).
+    Close(Box<Node>),
 }
 
 #[derive(Clone, Debug)]
@@ -183,7 +186,7 @@ impl SelectScene {
             }
         }
         let key = self.current_key(ctx);
-        self.bars = self.build(ctx, &self.node.clone());
+        self.bars = self.listing(ctx, &self.node.clone());
         // keep the cursor on the same item if possible
         self.cursor = key
             .and_then(|k| self.bars.iter().position(|b| self.bar_key(ctx, b) == k))
@@ -227,6 +230,7 @@ impl SelectScene {
             v.into_iter().map(Bar::Song).collect()
         };
         match node {
+            Node::Close(_) => Vec::new(),
             Node::Root => {
                 let mut bars = vec![Bar::Folder {
                     label: "ALL SONGS".into(),
@@ -404,8 +408,26 @@ impl SelectScene {
         }
     }
 
+    /// The bars of `node` as the list shows them: below the root, the
+    /// folder's own bar first (choosing it closes the folder).
+    fn listing(&self, ctx: &Ctx, node: &Node) -> Vec<Bar> {
+        let mut bars = self.build(ctx, node);
+        if *node != Node::Root && !bars.is_empty() {
+            bars.insert(
+                0,
+                Bar::Folder {
+                    label: self.node_name(ctx, node),
+                    sub: "close".into(),
+                    node: Node::Close(Box::new(node.clone())),
+                    count: bars.len(),
+                },
+            );
+        }
+        bars
+    }
+
     fn enter(&mut self, ctx: &mut Ctx, node: Node) {
-        let bars = self.build(ctx, &node);
+        let bars = self.listing(ctx, &node);
         if bars.is_empty() {
             ctx.toast("Empty folder");
             return;
@@ -413,15 +435,16 @@ impl SelectScene {
         self.stack.push((self.node.clone(), self.cursor));
         self.node = node;
         self.bars = bars;
-        self.cursor = 0;
-        self.scroll = 0.0;
+        // the first entry, after the folder's own bar
+        self.cursor = usize::from(self.bars.len() > 1);
+        self.scroll = self.cursor as f32;
         self.moved(ctx);
     }
 
     fn back(&mut self, ctx: &mut Ctx) -> bool {
         if let Some((n, c)) = self.stack.pop() {
             self.node = n;
-            self.bars = self.build(ctx, &self.node.clone());
+            self.bars = self.listing(ctx, &self.node.clone());
             self.cursor = c.min(self.bars.len().saturating_sub(1));
             self.scroll = self.cursor as f32;
             self.moved(ctx);
@@ -457,6 +480,13 @@ impl SelectScene {
 
     fn decide(&mut self, ctx: &mut Ctx, autoplay: bool) -> Next {
         match self.bars.get(self.cursor).cloned() {
+            Some(Bar::Folder {
+                node: Node::Close(_),
+                ..
+            }) => {
+                self.back(ctx);
+                Next::Stay
+            }
             Some(Bar::Folder { node, .. }) => {
                 self.enter(ctx, node);
                 Next::Stay
@@ -751,6 +781,10 @@ impl SelectScene {
         let bar = self.bars.get(i)?;
         let Bar::Folder { node, .. } = bar else {
             return None;
+        };
+        let node = match node {
+            Node::Close(inner) => inner.as_ref(),
+            n => n,
         };
         let key = self.bar_key(ctx, bar);
         if let Some(d) = self.dist_cache.borrow().get(&key) {
@@ -1276,9 +1310,11 @@ impl Scene for SelectScene {
                                 *moved = true;
                             }
                             if *moved && !self.bars.is_empty() {
-                                let s = (*ss - dy / bh).clamp(0.0, (self.bars.len() - 1) as f32);
+                                // the list wraps around, as with the keys
+                                let n = self.bars.len() as f32;
+                                let s = (*ss - dy / bh).rem_euclid(n);
                                 self.scroll = s;
-                                let c = s.round() as usize;
+                                let c = (s.round() as usize) % self.bars.len();
                                 if c != self.cursor {
                                     self.cursor = c;
                                     self.moved(ctx);
@@ -1379,8 +1415,9 @@ impl SelectScene {
         }
     }
 
-    pub(crate) fn path_label(&self, ctx: &Ctx) -> String {
-        let name = |n: &Node| -> String {
+    /// The name of a folder, as the path shows it.
+    fn node_name(&self, ctx: &Ctx, n: &Node) -> String {
+        {
             match n {
                 Node::Root => "ROOT".into(),
                 Node::All => "ALL SONGS".into(),
@@ -1401,10 +1438,18 @@ impl SelectScene {
                     .get(*e)
                     .map(|e| e.label().to_string())
                     .unwrap_or_default(),
+                Node::Close(inner) => self.node_name(ctx, inner),
             }
-        };
-        let mut parts: Vec<String> = self.stack.iter().map(|(n, _)| name(n)).collect();
-        parts.push(name(&self.node));
+        }
+    }
+
+    pub(crate) fn path_label(&self, ctx: &Ctx) -> String {
+        let mut parts: Vec<String> = self
+            .stack
+            .iter()
+            .map(|(n, _)| self.node_name(ctx, n))
+            .collect();
+        parts.push(self.node_name(ctx, &self.node));
         parts.join(" › ")
     }
 }
