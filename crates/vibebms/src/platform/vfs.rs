@@ -32,6 +32,10 @@ mod imp {
     pub fn create_dir_all(p: &Path) -> io::Result<()> {
         std::fs::create_dir_all(p)
     }
+    /// Move a file; false when `to` exists or the move fails.
+    pub fn rename(from: &Path, to: &Path) -> bool {
+        !to.exists() && std::fs::rename(from, to).is_ok()
+    }
     pub fn read_dir(p: &Path) -> io::Result<Vec<Entry>> {
         Ok(std::fs::read_dir(p)?
             .flatten()

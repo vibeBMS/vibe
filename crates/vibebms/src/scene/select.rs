@@ -420,6 +420,11 @@ impl SelectScene {
                     .into_iter()
                     .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
                     .collect();
+                if crate::app::IN_APP_BROWSER && !pages.is_empty() {
+                    ctx.toast(format!("Download {title} in the browser window"));
+                    ctx.browse = Some(pages.iter().map(|u| u.to_string()).collect());
+                    return Next::Stay;
+                }
                 let opened = pages
                     .iter()
                     .filter(|u| crate::platform::open_url(u))

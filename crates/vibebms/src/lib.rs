@@ -1,8 +1,15 @@
 //! vibeBMS application: window, renderer, input, scenes.
 
 pub mod app;
+#[cfg(all(
+    feature = "browser",
+    any(windows, target_os = "macos", target_os = "linux")
+))]
+pub mod browser;
 pub mod config;
 pub mod gfx;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod import;
 pub mod input;
 pub mod library;
 pub mod paths;

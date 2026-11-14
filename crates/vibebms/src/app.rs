@@ -131,6 +131,12 @@ pub enum TableMsg {
 }
 
 /// Shared state available to every scene.
+/// Songs are downloaded in an in-app browser window (desktop).
+pub const IN_APP_BROWSER: bool = cfg!(all(
+    feature = "browser",
+    any(windows, target_os = "macos", target_os = "linux")
+));
+
 pub struct Ctx {
     pub paths: Paths,
     pub config: Config,
@@ -154,6 +160,8 @@ pub struct Ctx {
     pub want_present_mode: bool,
     pub gpu_name: String,
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
+    /// Download pages to show in the in-app browser (song, then chart).
+    pub browse: Option<Vec<String>>,
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
@@ -202,6 +210,15 @@ impl Ctx {
             TouchMode::Auto => {
                 cfg!(any(target_os = "android", target_os = "ios")) || self.touch_seen
             }
+        }
+    }
+
+    /// Make sure `dir` (under the root) is scanned.
+    pub fn ensure_scanned(&mut self, dir: &str) {
+        let p = self.paths.root.join(dir);
+        if !self.scan_roots().iter().any(|r| p.starts_with(r)) {
+            self.config.bms_dirs.push(dir.to_string());
+            self.save_config();
         }
     }
 
@@ -465,6 +482,11 @@ struct Running {
     frame_count: u32,
     fps_since: Instant,
     next_frame: Instant,
+    #[cfg(all(
+        feature = "browser",
+        any(windows, target_os = "macos", target_os = "linux")
+    ))]
+    downloads: crate::browser::Downloads,
 }
 
 pub enum UserEvent {
@@ -778,6 +800,7 @@ impl App {
             want_present_mode: false,
             gpu_name: gfx.adapter_name.clone(),
             prefetch: None,
+            browse: None,
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
         };
@@ -831,6 +854,11 @@ impl App {
             frame_count: 0,
             fps_since: now,
             next_frame: now,
+            #[cfg(all(
+                feature = "browser",
+                any(windows, target_os = "macos", target_os = "linux")
+            ))]
+            downloads: Default::default(),
         });
     }
 }
@@ -902,8 +930,16 @@ impl ApplicationHandler<UserEvent> for App {
         }
     }
 
-    fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         let Some(r) = self.run.as_mut() else { return };
+        #[cfg(all(
+            feature = "browser",
+            any(windows, target_os = "macos", target_os = "linux")
+        ))]
+        if r.downloads.window_event(id, &event) {
+            return;
+        }
+        let _ = id;
         let now = Instant::now();
         match event {
             WindowEvent::CloseRequested => {
@@ -1023,6 +1059,16 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(r) = self.run.as_mut() else { return };
+        #[cfg(all(
+            feature = "browser",
+            any(windows, target_os = "macos", target_os = "linux")
+        ))]
+        {
+            if let Some(pages) = r.ctx.browse.take() {
+                r.downloads.browse(el, &mut r.ctx, pages);
+            }
+            r.downloads.poll(&mut r.ctx);
+        }
         let realtime = r.scenes.last().map(|s| s.realtime()).unwrap_or(false);
         let fps = r.ctx.config.display.max_fps;
         let now = Instant::now();

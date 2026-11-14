@@ -10,8 +10,10 @@ cargo test --workspace           # engine/parser/gauge/etc. tests
 Copy the executable anywhere; it keeps all its data next to itself.
 
 ## Linux
-Packages: `libasound2-dev libudev-dev` (Debian/Ubuntu) and a Vulkan or GL driver.
+Packages: `libasound2-dev libudev-dev libwebkit2gtk-4.1-dev` (Debian/Ubuntu) and a Vulkan or GL driver.
 Runtime also loads `libxkbcommon-x11` (X11) or Wayland libraries.
+WebKitGTK is for the in-app browser that downloads songs; without it, build with
+`--no-default-features` (download pages then open in the system browser).
 Optional JACK output: `cargo build --release --features jack` (needs `libjack-dev`).
 
 ## Windows (x64 / ARM64)

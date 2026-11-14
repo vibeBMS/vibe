@@ -1,5 +1,5 @@
-//! Where a chart file added on its own belongs (web build: a 差分 chart
-//! picked without its song's folder). A chart goes to a song folder only
+//! Where a chart file added on its own belongs (a 差分 chart picked or
+//! downloaded without its song's folder). A chart goes to a song folder only
 //! when that folder holds every sound the chart uses *and* one of its
 //! charts has the same title and artist: numbered sound names (`01.wav`,
 //! `02.wav`, ...) are common, so the file names alone prove nothing. When
@@ -130,6 +130,120 @@ pub fn place(chart: &ChartInfo, own: &FolderInfo, folders: &[FolderInfo]) -> Pla
         (n, _) if n > 1 => Placement::Ask(same.iter().map(|f| f.dir.clone()).collect()),
         _ => Placement::Ask(complete.iter().map(|f| f.dir.clone()).collect()),
     }
+}
+
+/// Where a chart file in the library belongs, with labels for asking.
+#[derive(Debug, PartialEq)]
+pub enum Located {
+    /// Its sounds are beside it.
+    Here,
+    /// No folder has its sounds (yet).
+    NoSong,
+    Move(PathBuf),
+    /// Candidate folders, each with a label naming its song.
+    Ask(Vec<(PathBuf, String)>),
+}
+
+const CHART_EXTS: [&str; 5] = ["bms", "bme", "bml", "pms", "bmson"];
+
+pub fn is_chart(p: &std::path::Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| CHART_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn file_name(p: &std::path::Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Every folder below `dir` with its file names.
+pub fn folders(dir: &std::path::Path) -> std::collections::BTreeMap<PathBuf, Vec<String>> {
+    fn walk(
+        dir: &std::path::Path,
+        depth: usize,
+        out: &mut std::collections::BTreeMap<PathBuf, Vec<String>>,
+    ) {
+        for e in crate::platform::vfs::read_dir(dir).unwrap_or_default() {
+            if e.is_dir {
+                if depth < 8 {
+                    walk(&e.path, depth + 1, out);
+                }
+            } else {
+                out.entry(dir.to_path_buf())
+                    .or_default()
+                    .push(file_name(&e.path));
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, 0, &mut out);
+    out
+}
+
+/// The title, artist and sounds of a chart file.
+pub fn chart_info(path: &std::path::Path) -> Option<ChartInfo> {
+    let bytes = crate::platform::vfs::read(path).ok()?;
+    let c = vibebms_core::load_chart_bytes(path, &bytes, &Default::default()).ok()?;
+    Some(ChartInfo {
+        title: c.meta.title,
+        artist: c.meta.artist,
+        sounds: c.sound_files,
+    })
+}
+
+/// Where `chart` belongs among the folders below `library` (see [`place`]).
+pub fn locate(chart: &std::path::Path, library: &std::path::Path) -> Option<Located> {
+    let info = chart_info(chart)?;
+    let here = chart.parent()?.to_path_buf();
+    let all = folders(library);
+    let own = FolderInfo {
+        dir: here.clone(),
+        files: crate::platform::vfs::read_dir(&here)
+            .unwrap_or_default()
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| file_name(&e.path))
+            .collect(),
+        charts: Vec::new(),
+    };
+    if covers(&own.files, &info.sounds) {
+        return Some(Located::Here);
+    }
+    // only folders with every sound are candidates: read their charts
+    let candidates: Vec<FolderInfo> = all
+        .into_iter()
+        .filter(|(d, files)| *d != here && covers(files, &info.sounds))
+        .map(|(dir, files)| FolderInfo {
+            charts: files
+                .iter()
+                .map(|n| dir.join(n))
+                .filter(|p| is_chart(p))
+                .filter_map(|p| chart_info(&p))
+                .collect(),
+            dir,
+            files,
+        })
+        .collect();
+    Some(match place(&info, &own, &candidates) {
+        Placement::Move(d) => Located::Move(d),
+        Placement::Stay => Located::NoSong,
+        Placement::Ask(dirs) => Located::Ask(
+            dirs.into_iter()
+                .map(|d| {
+                    let song = candidates
+                        .iter()
+                        .find(|f| f.dir == d)
+                        .and_then(|f| f.charts.first())
+                        .map(|c| format!("{} — {}", c.title, c.artist))
+                        .unwrap_or_default();
+                    let label = format!("{song}  ({})", file_name(&d));
+                    (d, label)
+                })
+                .collect(),
+        ),
+    })
 }
 
 #[cfg(test)]

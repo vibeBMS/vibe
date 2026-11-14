@@ -28,7 +28,15 @@ pub struct Paths {
 
 /// Directory names under the root that are never scanned for charts.
 pub const INTERNAL_DIRS: &[&str] = &[
-    "config", "cache", "fonts", "scores", "target", "skins", "crates", "docs",
+    "config",
+    "cache",
+    "fonts",
+    "scores",
+    "target",
+    "skins",
+    "crates",
+    "docs",
+    "downloads",
 ];
 
 impl Paths {

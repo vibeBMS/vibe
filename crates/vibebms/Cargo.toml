@@ -16,7 +16,10 @@ name = "vibebms"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["browser"]
+# the in-app browser that downloads songs (desktop; on Linux it needs
+# WebKitGTK: libwebkit2gtk-4.1-dev)
+browser = ["dep:wry", "dep:gtk"]
 asio = ["vibebms-audio/asio"]
 jack = ["vibebms-audio/jack"]
 
@@ -41,6 +44,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 ehttp = "0.7"
 toml = "0.8"
 json5 = "1"
+# song packs (.zip; the web build's picked packs, downloaded songs)
+zip = { version = "2", default-features = false, features = ["deflate"] }
 # download pages of charts a difficulty table lists but the library lacks
 webbrowser = "1"
 
@@ -48,11 +53,17 @@ webbrowser = "1"
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
 ehttp = { version = "0.7", features = ["platform-verifier"] }
 rfd = "0.18"
+wry = { version = "0.57", optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 gilrs = "0.11"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", optional = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# downloaded songs packed as .7z
+sevenz-rust2 = { version = "0.25", default-features = false, features = ["util", "bzip2", "ppmd"] }
 pollster = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 # beatoraja Lua skins (Lua is compiled from source)
@@ -62,6 +73,4 @@ mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-# song packs picked as .zip (iPad Safari cannot pick folders)
-zip = { version = "2", default-features = false, features = ["deflate"] }
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator"] }
