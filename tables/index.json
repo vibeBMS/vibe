@@ -1,0 +1,6 @@
+{
+ "http://www.ribbit.xyz/bms/tables/insane.html": "tables/0/header.json",
+ "http://www.ribbit.xyz/bms/tables/normal.html": "tables/1/header.json",
+ "https://stellabms.xyz/sl/table.html": "tables/2/header.json",
+ "https://stellabms.xyz/st/table.html": "tables/3/header.json"
+}
