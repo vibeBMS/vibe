@@ -852,6 +852,7 @@ pub fn load_with(
             })
         } else if let Some(sl) = cx.find("slider", &id) {
             cx.src(sl).map(|src| Kind::Slider {
+                minmax: None,
                 src,
                 id: match sl.get("value") {
                     Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
@@ -886,6 +887,7 @@ pub fn load_with(
             })
         } else if let Some(g) = cx.find("graph", &id) {
             cx.src(g).map(|src| Kind::Bar {
+                minmax: None,
                 src,
                 id: match g.get("value") {
                     Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),

@@ -728,13 +728,41 @@ impl Hooks for SceneHooks<'_> {
                             continue;
                         }
                         let holding = engine.holding(lane) == Some(ni);
-                        let ye = y_of(*end_pos, *end_time);
-                        let yh = if holding { judge_y } else { y };
-                        let body = if holding {
-                            ls.ln_body_active.as_ref().or(ls.ln_body.as_ref())
-                        } else {
-                            ls.ln_body.as_ref()
+                        // hell charge notes: their own images (else the LN
+                        // ones); passing the line, held or not (damage)
+                        let hcn = n.is_hcn();
+                        let passing = engine
+                            .hcn_passing(lane)
+                            .filter(|(p, _)| hcn && *p == ni)
+                            .map(|(_, held)| held);
+                        let pick = |h: &Option<crate::skin::Src>, l: &Option<crate::skin::Src>| {
+                            if hcn && h.is_some() {
+                                h.clone()
+                            } else {
+                                l.clone()
+                            }
                         };
+                        let ye = y_of(*end_pos, *end_time);
+                        let yh = if holding || passing.is_some() {
+                            judge_y
+                        } else {
+                            y
+                        };
+                        let inactive = pick(&ls.hcn_body, &ls.ln_body);
+                        let active = pick(&ls.hcn_body_active, &ls.ln_body_active);
+                        let body = match passing {
+                            Some(false) => ls.hcn_damage.clone().or(inactive),
+                            Some(true) if engine.hcn_damaged(ni) => {
+                                ls.hcn_reactive.clone().or(active).or(inactive)
+                            }
+                            _ if holding || passing.is_some() => active.or(inactive),
+                            _ => inactive,
+                        };
+                        let body = body.as_ref();
+                        let (ln_end, ln_start) = (
+                            pick(&ls.hcn_end, &ls.ln_end),
+                            pick(&ls.hcn_start, &ls.ln_start),
+                        );
                         if let Some(b) = body {
                             skin.blit(
                                 d,
@@ -745,11 +773,11 @@ impl Hooks for SceneHooks<'_> {
                                 &ident,
                             );
                         }
-                        if let Some(e) = ls.ln_end.as_ref().or(ls.note.as_ref()) {
+                        if let Some(e) = ln_end.as_ref().or(ls.note.as_ref()) {
                             let h = note_h(e);
                             skin.blit(d, e, now, st, Rect::new(r.x, ye - h, r.w, h), &ident);
                         }
-                        if let Some(h0) = ls.ln_start.as_ref().or(ls.note.as_ref()) {
+                        if let Some(h0) = ln_start.as_ref().or(ls.note.as_ref()) {
                             let h = note_h(h0);
                             skin.blit(d, h0, now, st, Rect::new(r.x, yh - h, r.w, h), &ident);
                         }

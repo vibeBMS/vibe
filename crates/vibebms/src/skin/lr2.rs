@@ -52,6 +52,20 @@ fn src(v: &[i64; 22], image_sizes: &[Option<(u32, u32)>]) -> Option<Src> {
     })
 }
 
+/// beatoraja offset ids after an LR2 destination's 21 fields.
+fn line_offsets(f: &[&str]) -> Vec<i32> {
+    f.iter()
+        .skip(21)
+        .filter_map(|s| {
+            let t: String = s
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == '-')
+                .collect();
+            t.parse().ok()
+        })
+        .collect()
+}
+
 fn add_dst(dst: &mut Dst, v: &[i64; 22]) {
     let (mut x, mut y, mut w, mut h) = (v[3] as f32, v[4] as f32, v[5] as f32, v[6] as f32);
     if w < 0.0 {
@@ -114,6 +128,10 @@ struct Loader<'a> {
     pending_line: Option<Src>,
     /// beatoraja `#IMAGESET` images, chosen from by `#SRC_IMAGESET`.
     imagesets: Vec<Option<Src>>,
+    /// beatoraja `#STRETCH` for the images that follow.
+    stretch: i32,
+    /// User values of `#CUSTOMOFFSET`s, by name.
+    user_offsets: HashMap<String, [i32; 6]>,
     /// Buttons that belong to a panel: (object, panel option id).
     panel_ops: Vec<(usize, i32)>,
     /// `#LR2FONT` list (indexed by `#SRC_TEXT`): font in `Skin::fonts`.
@@ -260,7 +278,13 @@ impl Loader<'_> {
             2 => &mut ls.ln_end,
             3 => &mut ls.ln_body,
             4 => &mut ls.ln_body_active,
-            _ => &mut ls.mine,
+            5 => &mut ls.mine,
+            6 => &mut ls.hcn_start,
+            7 => &mut ls.hcn_end,
+            8 => &mut ls.hcn_body,
+            9 => &mut ls.hcn_body_active,
+            10 => &mut ls.hcn_damage,
+            _ => &mut ls.hcn_reactive,
         };
         if slot.is_none() {
             *slot = Some(s);
@@ -526,6 +550,32 @@ impl Loader<'_> {
                         src: s,
                         id: v[11] as i32 + 100,
                         dir: v[12] as i32,
+                        minmax: None,
+                    });
+                }
+            }
+            "#SRC_SLIDER_REFNUMBER" => {
+                // ...,muki,range,number,disable,min,max
+                self.cur = None;
+                if let Some(s) = src(&v, &self.sizes) {
+                    self.push(Kind::Slider {
+                        src: s,
+                        id: v[13] as i32,
+                        dir: v[11] as i32,
+                        range: v[12] as f32,
+                        minmax: Some((v[15] as f32, v[16] as f32)),
+                    });
+                }
+            }
+            "#SRC_BARGRAPH_REFNUMBER" => {
+                // ...,number,muki,min,max
+                self.cur = None;
+                if let Some(s) = src(&v, &self.sizes) {
+                    self.push(Kind::Bar {
+                        src: s,
+                        id: v[11] as i32,
+                        dir: v[12] as i32,
+                        minmax: Some((v[13] as f32, v[14] as f32)),
                     });
                 }
             }
@@ -537,10 +587,12 @@ impl Loader<'_> {
                         id: v[13] as i32,
                         dir: v[11] as i32,
                         range: v[12] as f32,
+                        minmax: None,
                     });
                 }
             }
-            "#SRC_GROOVEGAUGE" => {
+            // _EX: beatoraja's 8 images (EX gauges second), same layout
+            "#SRC_GROOVEGAUGE" | "#SRC_GROOVEGAUGE_EX" => {
                 self.cur = None;
                 if let Some(s) = src(&v, &self.sizes) {
                     let parts = if v[13] > 0 {
@@ -710,6 +762,28 @@ impl Loader<'_> {
                 })));
                 self.chart_field = Some((v[1] as f32, v[2] as f32));
             }
+            // beatoraja timing visualizer: w,h,judge width (ms),line width,
+            // line / centre / PG..PR colours,transparent POOR,decay
+            "#SRC_TIMING_1P" => {
+                self.push(Kind::Graph(Graph::Visualizer(VisualizerGraph {
+                    hit_error: false,
+                    range_ms: v[6].max(1) as f32,
+                    colors: colors(
+                        &f,
+                        8,
+                        &[
+                            "00FF00FF", "FFFFFFFF", "000088FF", "008800FF", "888800FF", "880000FF",
+                            "000000FF",
+                        ],
+                    ),
+                    line_width: v[7].clamp(1, 4) as f32,
+                    transparent_poor: v[15] == 1,
+                    decay: v[16] == 1,
+                    by_judge: false,
+                    ema: false,
+                })));
+                self.chart_field = Some((v[4] as f32, v[5] as f32));
+            }
             "#SRC_TIMINGCHART_1P" => {
                 self.push(Kind::Graph(Graph::Timing(TimingGraph {
                     bins: v[4].max(3),
@@ -732,14 +806,19 @@ impl Loader<'_> {
             | "#DST_NOTECHART_1P"
             | "#DST_NOTECHART"
             | "#DST_BPMCHART"
-            | "#DST_TIMINGCHART_1P" => {
+            | "#DST_TIMINGCHART_1P"
+            | "#DST_TIMING_1P" => {
                 if let (Some(i), Some((w, h))) = (self.cur, self.chart_field) {
                     let mut v2 = v;
                     v2[4] -= h as i64;
                     v2[5] = w as i64;
                     v2[6] = h as i64;
                     v2[9..=11].fill(255);
-                    add_dst(&mut self.skin.objects[i].dst, &v2);
+                    let d = &mut self.skin.objects[i].dst;
+                    if d.keys.is_empty() {
+                        d.offsets.extend(line_offsets(&f));
+                    }
+                    add_dst(d, &v2);
                 }
             }
             "#SRC_SCORECHART" => self.push(Kind::Graph(Graph::Notes(NotesGraph {
@@ -768,6 +847,36 @@ impl Loader<'_> {
             "#SRC_LN_BODY" | "#SRC_LN_BODY_INACTIVE" => self.lane_src(&v, 3),
             "#SRC_LN_BODY_ACTIVE" => self.lane_src(&v, 4),
             "#SRC_MINE" => self.lane_src(&v, 5),
+            "#SRC_HCN_START" => self.lane_src(&v, 6),
+            "#SRC_HCN_END" => self.lane_src(&v, 7),
+            "#SRC_HCN_BODY" => {
+                self.lane_src(&v, 8);
+                self.lane_src(&v, 9);
+            }
+            "#SRC_HCN_BODY_INACTIVE" => self.lane_src(&v, 8),
+            "#SRC_HCN_BODY_ACTIVE" => self.lane_src(&v, 9),
+            "#SRC_HCN_DAMAGE" => self.lane_src(&v, 10),
+            "#SRC_HCN_REACTIVE" => self.lane_src(&v, 11),
+            // beatoraja: the hidden cover and the LIFT cover, drawn above a
+            // disappear line (,..,line,line follows LIFT)
+            "#SRC_HIDDEN" | "#SRC_LIFT" => {
+                self.cur = None;
+                if let Some(src) = src(&v, &self.sizes) {
+                    let given = |i: usize| f.get(i).is_some_and(|x| !x.trim().is_empty());
+                    self.push(Kind::Cover {
+                        src,
+                        line: (given(11) && v[11] > 0).then_some(v[11] as f32),
+                        link_lift: !given(12) || v[12] != 0,
+                    });
+                }
+            }
+            "#STRETCH" => self.stretch = v[1] as i32,
+            "#CUSTOMOFFSET" => {
+                if let Ok(id) = f.get(2).unwrap_or(&"").trim().parse::<i32>() {
+                    let v = self.user_offsets.get(s1).copied().unwrap_or_default();
+                    self.skin.offsets.insert(id, v.map(|x| x as f32));
+                }
+            }
             "#DST_NOTE" => {
                 let mode = self.mode();
                 if let Some(l) = lane_of(mode, v[1]) {
@@ -837,6 +946,18 @@ impl Loader<'_> {
             }
             c if c.starts_with("#DST_") => {
                 if let Some(i) = self.cur {
+                    let first = self.skin.objects[i].dst.keys.is_empty();
+                    if first {
+                        // beatoraja offsets: built-in ones, then 21.. of the line
+                        let d = &mut self.skin.objects[i].dst;
+                        d.stretch = self.stretch;
+                        match c {
+                            "#DST_HIDDEN" => d.offsets.extend([OFFSET_LIFT, OFFSET_HIDDEN_COVER]),
+                            "#DST_LIFT" => d.offsets.push(OFFSET_LIFT),
+                            _ => {}
+                        }
+                        d.offsets.extend(line_offsets(&f));
+                    }
                     let o = &mut self.skin.objects[i];
                     if let Kind::Gauge { step, .. } = &o.kind {
                         // the gauge width covers all parts; keep the per-part size
@@ -871,6 +992,25 @@ pub fn load(
     path: &Path,
     skins_root: &Path,
     user_options: &HashMap<i32, bool>,
+    static_option: &dyn Fn(i32) -> Option<bool>,
+    image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
+) -> Result<Skin, String> {
+    load_with_offsets(
+        path,
+        skins_root,
+        user_options,
+        &HashMap::new(),
+        static_option,
+        image_size,
+    )
+}
+
+/// [`load`] with the user's `#CUSTOMOFFSET` values (by name).
+pub fn load_with_offsets(
+    path: &Path,
+    skins_root: &Path,
+    user_options: &HashMap<i32, bool>,
+    user_offsets: &HashMap<String, [i32; 6]>,
     static_option: &dyn Fn(i32) -> Option<bool>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
@@ -910,6 +1050,8 @@ pub fn load(
         cur: None,
         pending_line: None,
         imagesets: Vec::new(),
+        stretch: 0,
+        user_offsets: user_offsets.clone(),
         panel_ops: Vec::new(),
         fonts: Vec::new(),
         resolution_set: false,
@@ -1056,6 +1198,41 @@ pub fn load_font(
 }
 
 /// The `#CUSTOMOPTION`s of a skin (includes and conditions are not followed).
+/// beatoraja `#CUSTOMOFFSET,name,id,x,y,w,h,angle,alpha` (1 = adjustable)
+/// of an LR2 skin header.
+pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
+    let Ok(b) = vfs::read(path) else {
+        return Vec::new();
+    };
+    vibebms_core::encoding::decode_text(&b)
+        .lines()
+        .filter(|l| {
+            l.trim_start()
+                .to_ascii_uppercase()
+                .starts_with("#CUSTOMOFFSET,")
+        })
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(',').map(str::trim).collect();
+            let id: i32 = f.get(2)?.parse().ok()?;
+            let mut fields = [true; 6];
+            for (k, b) in fields.iter_mut().enumerate() {
+                if let Some(Ok(n)) = f
+                    .get(3 + k)
+                    .filter(|x| !x.is_empty())
+                    .map(|x| x.parse::<i32>())
+                {
+                    *b = n > 0;
+                }
+            }
+            Some(CustomOffset {
+                name: f.get(1)?.to_string(),
+                id,
+                fields,
+            })
+        })
+        .collect()
+}
+
 pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     let Ok(b) = vfs::read(path) else {
         return Vec::new();
@@ -1307,6 +1484,49 @@ mod tests {
             panic!("{:?}", s.objects[1].kind)
         };
         assert_eq!((srcs.len(), *id, srcs[1].timer), (2, 42, 21));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn beatoraja_extensions() {
+        let dir = std::env::temp_dir().join(format!("vibebms-ext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let csv = "#INFORMATION,0,Ext,me\n#CUSTOMOFFSET,Judge,50,1,1,0,0,0,0\n#IMAGE,a.png\n\
+#STRETCH,1\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n\
+#DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255,0,0,0,0,0,0,0,0,0,50\n#STRETCH,0\n\
+#SRC_HIDDEN,0,0,0,0,10,10,1,1,0,0,300,0\n#DST_HIDDEN,0,0,0,0,10,10,0,255,255,255,255\n\
+#SRC_BARGRAPH_REFNUMBER,0,0,0,0,10,10,1,1,0,0,160,1,0,99\n#DST_BARGRAPH_REFNUMBER,0,0,0,0,10,10,0,255,255,255,255\n";
+        std::fs::write(dir.join("e.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let offsets = HashMap::from([("Judge".to_string(), [3, -4, 0, 0, 0, 0])]);
+        let s = load_with_offsets(
+            &dir.join("e.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &offsets,
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        assert_eq!(s.objects[0].dst.stretch, 1);
+        assert_eq!(s.objects[0].dst.offsets, vec![50]);
+        assert_eq!(s.offsets.get(&50).map(|o| (o[0], o[1])), Some((3.0, -4.0)));
+        let Kind::Cover {
+            line, link_lift, ..
+        } = &s.objects[1].kind
+        else {
+            panic!("{:?}", s.objects[1].kind)
+        };
+        assert_eq!((*line, *link_lift), (Some(300.0), false));
+        assert_eq!(s.objects[1].dst.stretch, 0);
+        assert_eq!(
+            s.objects[1].dst.offsets,
+            vec![OFFSET_LIFT, OFFSET_HIDDEN_COVER]
+        );
+        let Kind::Bar { id, minmax, .. } = &s.objects[2].kind else {
+            panic!("{:?}", s.objects[2].kind)
+        };
+        assert_eq!((*id, *minmax), (160, Some((0.0, 99.0))));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

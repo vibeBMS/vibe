@@ -20,6 +20,45 @@ pub struct LoadedSkin {
     loaded_at: crate::platform::Instant,
 }
 
+/// 0..1 of a bar or slider: a rate, or a number within `minmax`.
+fn value(st: &dyn SkinState, id: i32, minmax: Option<(f32, f32)>) -> f32 {
+    match minmax {
+        Some((lo, hi)) if hi != lo => {
+            let n = st.number(id).unwrap_or(lo as i64) as f32;
+            ((n - lo) / (hi - lo)).clamp(0.0, 1.0)
+        }
+        Some(_) => 0.0,
+        None => st.rate(id).clamp(0.0, 1.0),
+    }
+}
+
+/// Where an image of `w` x `h` goes in `r` under beatoraja stretch type
+/// `mode`, and whether it is cut off at `r`.
+pub fn stretched(mode: i32, r: Rect, w: f32, h: f32) -> (Rect, bool) {
+    if w <= 0.0 || h <= 0.0 {
+        return (r, false);
+    }
+    let (fx, fy) = (r.w / w, r.h / h);
+    let (scale, trim) = match mode {
+        1 => (fx.min(fy), false),
+        2 => (fx.max(fy), false),
+        3 => (fx.max(fy), true),
+        4 => (fx, false),
+        5 => (fx, true),
+        6 => (fy, false),
+        7 => (fy, true),
+        8 => (fx.min(fy).min(1.0), false),
+        9 => (1.0, false),
+        10 => (1.0, true),
+        _ => return (r, false),
+    };
+    let (sw, sh) = (w * scale, h * scale);
+    (
+        Rect::new(r.x + (r.w - sw) * 0.5, r.y + (r.h - sh) * 0.5, sw, sh),
+        trim,
+    )
+}
+
 /// Skin → screen transform (letterboxed, aspect preserved).
 #[derive(Clone, Copy, Debug)]
 pub struct Xf {
@@ -483,7 +522,22 @@ impl LoadedSkin {
                 hooks.clickable(r, act, click);
             }
             match &o.kind {
-                Kind::Image(src) | Kind::JudgeLine(src) => self.blit(d, src, now, st, r, &fr),
+                Kind::Image(src) | Kind::JudgeLine(src) => {
+                    let size = src.frames.first().map(|f| (f[2] * xf.sx, f[3] * xf.sy));
+                    match size.filter(|_| o.dst.stretch != 0) {
+                        Some((w, h)) => {
+                            let (rr, trim) = stretched(o.dst.stretch, r, w, h);
+                            if trim {
+                                d.b.set_clip(Some(r));
+                            }
+                            self.blit(d, src, now, st, rr, &fr);
+                            if trim {
+                                d.b.set_clip(None);
+                            }
+                        }
+                        None => self.blit(d, src, now, st, r, &fr),
+                    }
+                }
                 Kind::Distribution { src, rank } => {
                     if let Some(counts) = st.distribution(*rank) {
                         self.distribution(d, src.as_ref(), &counts, *rank, now, st, r, &fr);
@@ -540,8 +594,13 @@ impl LoadedSkin {
                         self.text(d, &s, r, *align, *overflow, fr.color, *font);
                     }
                 }
-                Kind::Bar { src, id, dir } => {
-                    let v = st.rate(*id).clamp(0.0, 1.0);
+                Kind::Bar {
+                    src,
+                    id,
+                    dir,
+                    minmax,
+                } => {
+                    let v = value(st, *id, *minmax);
                     let Some(f) = src.frame(now, st) else {
                         continue;
                     };
@@ -566,8 +625,9 @@ impl LoadedSkin {
                     id,
                     dir,
                     range,
+                    minmax,
                 } => {
-                    let off = st.rate(*id).clamp(0.0, 1.0) * range;
+                    let off = value(st, *id, *minmax) * range;
                     let (dx, dy) = match dir {
                         0 => (0.0, -off),
                         1 => (off, 0.0),

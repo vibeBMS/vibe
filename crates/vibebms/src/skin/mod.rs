@@ -30,7 +30,14 @@ pub fn load_file(
         .map(|e| e.eq_ignore_ascii_case("lr2skin") || e.eq_ignore_ascii_case("csv"))
         .unwrap_or(false);
     if is_lr2 {
-        lr2::load(path, skins_root, user_options, static_option, image_size)
+        lr2::load_with_offsets(
+            path,
+            skins_root,
+            user_options,
+            offsets,
+            static_option,
+            image_size,
+        )
     } else {
         beatoraja::load_with(path, user_options, offsets, image_size)
     }
@@ -150,6 +157,9 @@ pub struct Dst {
     pub ops: Vec<i32>,
     /// beatoraja offsets added from game state (`SkinState::offset`).
     pub offsets: Vec<i32>,
+    /// How an image fits the destination (beatoraja `stretch`, LR2
+    /// `#STRETCH`): 0 stretches, 1 fits inside keeping the aspect ratio...
+    pub stretch: i32,
 }
 
 /// beatoraja offset ids.
@@ -282,12 +292,17 @@ pub enum Kind {
         src: Src,
         id: i32,
         dir: i32,
+        /// `id` is a number scaled from this range (beatoraja
+        /// `#SRC_BARGRAPH_REFNUMBER`), not a 0..1 rate.
+        minmax: Option<(f32, f32)>,
     },
     Slider {
         src: Src,
         id: i32,
         dir: i32,
         range: f32,
+        /// As for `Bar` (`#SRC_SLIDER_REFNUMBER`).
+        minmax: Option<(f32, f32)>,
     },
     Gauge {
         src: Src,
@@ -494,6 +509,14 @@ pub struct LaneSkin {
     pub ln_body: Option<Src>,
     pub ln_body_active: Option<Src>,
     pub mine: Option<Src>,
+    /// Hell charge notes (beatoraja `#SRC_HCN_*`); LN images when absent.
+    pub hcn_start: Option<Src>,
+    pub hcn_end: Option<Src>,
+    pub hcn_body: Option<Src>,
+    pub hcn_body_active: Option<Src>,
+    /// Body while released mid-note, and held again after that.
+    pub hcn_damage: Option<Src>,
+    pub hcn_reactive: Option<Src>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -571,6 +594,7 @@ pub fn custom_offsets(path: &std::path::Path) -> Vec<CustomOffset> {
         .unwrap_or_default();
     match ext.as_str() {
         "json" | "luaskin" => beatoraja::custom_offsets(path),
+        "lr2skin" => lr2::custom_offsets(path),
         _ => Vec::new(),
     }
 }

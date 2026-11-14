@@ -90,6 +90,11 @@ pub struct PlayNote {
 }
 
 impl PlayNote {
+    /// A hell charge note (its LN type after the chart and the player's).
+    pub fn is_hcn(&self) -> bool {
+        matches!(self.kind, PKind::Long(LnType::Hcn))
+    }
+
     pub fn is_long(&self) -> bool {
         matches!(self.kind, PKind::Long(_))
     }
@@ -165,6 +170,8 @@ pub struct Engine {
     /// Judgement in order of resolution (ghost data).
     pub ghost: Vec<u8>,
     last_time: i64,
+    /// Hell charge notes released while passing the line.
+    hcn_released: std::collections::HashSet<usize>,
 }
 
 impl Engine {
@@ -244,6 +251,7 @@ impl Engine {
             judge_log: Vec::new(),
             ghost: Vec::new(),
             last_time,
+            hcn_released: Default::default(),
         }
     }
 
@@ -261,6 +269,20 @@ impl Engine {
 
     pub fn rules(&self) -> &JudgeRules {
         &self.cfg.rules
+    }
+
+    /// The hell charge note passing the judge line on a lane, and whether
+    /// it is held there (released, its gauge drains).
+    pub fn hcn_passing(&self, lane: usize) -> Option<(usize, bool)> {
+        let l = self.lanes.get(lane)?;
+        let p = l.passing?;
+        Some((p, l.keys.iter().any(|k| *k) || self.is_auto(lane)))
+    }
+
+    /// A hell charge note that was released while passing the line (it
+    /// is drawn "reactive" when held again).
+    pub fn hcn_damaged(&self, i: usize) -> bool {
+        self.hcn_released.contains(&i)
     }
 
     /// Index (into [`Engine::notes`]) of the long note currently held on a lane.
@@ -436,6 +458,9 @@ impl Engine {
                 continue;
             }
             let snd = self.notes[p].sound;
+            if !self.lanes[lane].increase {
+                self.hcn_released.insert(p);
+            }
             if self.lanes[lane].increase {
                 self.lanes[lane].passing_count += dt;
                 while self.lanes[lane].passing_count > HCN_TICK {
