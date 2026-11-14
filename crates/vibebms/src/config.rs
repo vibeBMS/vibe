@@ -706,8 +706,16 @@ impl Config {
 }
 
 /// Older configurations stored the duration (ms) instead of the hi-speed:
-/// keep the speed it gave at 150 BPM.
+/// keep the speed it gave at 150 BPM. The mirror's one event (BOF22)
+/// became its list of events.
 fn migrate(v: &mut toml::Value) {
+    if let Some(a) = v.get_mut("archives").and_then(|a| a.as_array_mut()) {
+        for u in a.iter_mut() {
+            if u.as_str() == Some(crate::archive::OLD_DEFAULT) {
+                *u = toml::Value::String(crate::archive::CATALOG.into());
+            }
+        }
+    }
     let Some(play) = v.get_mut("play").and_then(|p| p.as_table_mut()) else {
         return;
     };
@@ -760,6 +768,21 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn the_mirror_becomes_its_list_of_events() {
+        let mut v: toml::Value = toml::from_str(&format!(
+            "archives = [\"{}\", \"https://x/e/index.json\"]\n",
+            crate::archive::OLD_DEFAULT
+        ))
+        .unwrap();
+        migrate(&mut v);
+        let c: Config = v.try_into().unwrap();
+        assert_eq!(
+            c.archives,
+            [crate::archive::CATALOG, "https://x/e/index.json"]
+        );
     }
 
     #[test]

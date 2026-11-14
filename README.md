@@ -78,8 +78,9 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
   데스크톱은 앱 안의 브라우저 창으로 열어, 받은 zip/7z/rar를 `bms/`에 풀고 이어서 차분 페이지를 보여주며,
   받은 차분 채보는 원곡 폴더에 넣습니다(같은 제목·아티스트에 필요한 음원이 다 있는 폴더, 애매하면 폴더를 묻습니다).
   다운로드 원본은 `downloads/`에 받습니다. Android·iOS도 앱 안의 브라우저를 쓰고(게임 화면 위에 열림), 웹은 시스템 브라우저로 엽니다.
-- **이벤트 미러**: [vibeBMS/bms](https://github.com/vibeBMS/bms)에 원본 그대로 보관된 BMS 이벤트 작품(BOF22)이 선곡 화면에 폴더로 나옵니다.
-  설치되지 않은 작품을 고르면 미러에서 바로 받아 `bms/BOF22/`에 풉니다(설정의 `archives`에 다른 이벤트 색인을 추가할 수 있음).
+- **이벤트 미러**: [vibeBMS/bms](https://github.com/vibeBMS/bms)의 BOF 이벤트(BOF22~BOF2006)가 선곡 화면에 이벤트별 폴더로 나옵니다.
+  원본 그대로 미러된 이벤트(BOF22, BOF21, BOF:TT, BOF:XVII, BOF:XVI)는 설치되지 않은 작품을 고르면 미러에서 바로 받아 `bms/<이벤트>/`에 풀고,
+  나머지는 작가의 다운로드 페이지를 엽니다(설정의 `archives`에 다른 이벤트 목록이나 색인을 추가할 수 있음).
 - **IR**: JSON 프로토콜([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md))로 랭킹 조회와 점수 전송.
 - **오디오**: 저지연 출력(ASIO/JACK 기능 플래그), 샘플 단위 키음 스케줄링, WAV/OGG/MP3/FLAC.
 

@@ -263,8 +263,8 @@ impl SelectScene {
                         continue;
                     }
                     bars.push(Bar::Folder {
-                        label: ev.name.clone(),
-                        sub: "mirror".into(),
+                        label: ev.label().to_string(),
+                        sub: if ev.mirrored { "mirror" } else { "links" }.into(),
                         node: Node::Archive(i),
                         count: ev.works.len(),
                     });
@@ -1399,7 +1399,7 @@ impl SelectScene {
                     .archives
                     .events
                     .get(*e)
-                    .map(|e| e.name.clone())
+                    .map(|e| e.label().to_string())
                     .unwrap_or_default(),
             }
         };

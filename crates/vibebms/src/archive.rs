@@ -1,16 +1,25 @@
 //! Mirrored BMS event entries (github.com/vibeBMS/bms): each event's release
-//! has an `index.json` listing its works and the archives that hold them.
-//! The music select shows an event as a folder; a work not in the library
-//! downloads from the mirror and unpacks into `bms/<EVENT>/` on choosing it.
+//! has an `index.json` listing its works and the archives that hold them
+//! (or, for an event that is not mirrored, the authors' download links).
+//! `events.json` in that repository lists the events. The music select
+//! shows an event as a folder; a work not in the library downloads from the
+//! mirror and unpacks into `bms/<EVENT>/` on choosing it, or opens its
+//! author's download page.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-/// Mirrors read unless the configuration names others.
-pub const DEFAULT_INDEXES: &[&str] =
-    &["https://github.com/vibeBMS/BMS/releases/download/bof22/index.json"];
+/// The mirror's list of events.
+pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
+
+/// Mirrors read unless the configuration names others: a list of events
+/// (`…/events.json`) or one event's `index.json`.
+pub const DEFAULT_INDEXES: &[&str] = &[CATALOG];
+
+/// The default before the list of events (BOF22 alone).
+pub const OLD_DEFAULT: &str = "https://github.com/vibeBMS/BMS/releases/download/bof22/index.json";
 
 /// Re-read an index after this long (s).
 const REFRESH_S: u64 = 86_400;
@@ -44,10 +53,51 @@ pub struct Work {
 #[serde(default)]
 pub struct Event {
     pub url: String,
-    /// "BOF22", from the release tag in the URL.
+    /// "BOF22", from the release tag in the URL: the folder it installs to.
     pub name: String,
+    /// The name to show ("BOF:TT"), else `name`.
+    pub label: String,
+    /// "THE BMS OF FIGHTERS : TT - …"
+    pub title: String,
+    /// The archives are mirrored (else the works link to their authors).
+    pub mirrored: bool,
     pub works: Vec<Work>,
     pub fetched_at: u64,
+}
+
+impl Event {
+    pub fn label(&self) -> &str {
+        if self.label.is_empty() {
+            &self.name
+        } else {
+            &self.label
+        }
+    }
+}
+
+/// An event in `events.json`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogEntry {
+    pub tag: String,
+    pub name: String,
+    pub title: String,
+    pub mirror: bool,
+    pub index: String,
+}
+
+/// A list of events (`events.json`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Catalog {
+    pub url: String,
+    pub events: Vec<CatalogEntry>,
+    pub fetched_at: u64,
+}
+
+/// Whether a configured URL is a list of events.
+pub fn is_catalog(url: &str) -> bool {
+    url.trim_end_matches('/').ends_with("events.json")
 }
 
 /// The event name of an index URL (`.../download/bof22/index.json`).
@@ -60,6 +110,7 @@ pub fn event_name(url: &str) -> String {
 }
 
 enum Msg {
+    Catalog(String, Result<Vec<CatalogEntry>, String>),
     Index(String, Result<Vec<Work>, String>),
     Status(String),
     /// A work finished: (event, number, its folder relative to the data root).
@@ -68,6 +119,9 @@ enum Msg {
 
 #[derive(Default)]
 pub struct Archives {
+    /// The configured URLs, in order.
+    sources: Vec<String>,
+    catalogs: Vec<Catalog>,
     pub events: Vec<Event>,
     /// "EVENT/num" -> the work's folder, relative to the data root.
     pub installed: HashMap<String, PathBuf>,
@@ -100,23 +154,75 @@ impl Archives {
 
     /// The cached indexes of `urls` and the record of installed works.
     pub fn load(paths: &crate::paths::Paths, urls: &[String]) -> Archives {
-        let mut a = Archives::default();
-        for u in urls {
-            let ev = crate::platform::vfs::read(&Self::cache_file(paths, u))
+        let mut a = Archives {
+            sources: urls.to_vec(),
+            ..Default::default()
+        };
+        for u in urls.iter().filter(|u| is_catalog(u)) {
+            let c = crate::platform::vfs::read(&Self::cache_file(paths, u))
                 .ok()
-                .and_then(|b| serde_json::from_slice::<Event>(&b).ok())
-                .unwrap_or_else(|| Event {
+                .and_then(|b| serde_json::from_slice::<Catalog>(&b).ok())
+                .unwrap_or_else(|| Catalog {
                     url: u.clone(),
-                    name: event_name(u),
                     ..Default::default()
                 });
-            a.events.push(ev);
+            a.catalogs.push(c);
         }
+        a.rebuild(paths);
         a.installed = crate::platform::vfs::read(&Self::dir(paths).join("installed.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
         a
+    }
+
+    /// The events of the configured URLs in order: each catalog's, then
+    /// single indexes (their works from the cache).
+    fn rebuild(&mut self, paths: &crate::paths::Paths) {
+        let mut old = std::mem::take(&mut self.events);
+        let mut wanted: Vec<Event> = Vec::new();
+        for u in &self.sources {
+            if is_catalog(u) {
+                let Some(c) = self.catalogs.iter().find(|c| &c.url == u) else {
+                    continue;
+                };
+                for e in c.events.iter().filter(|e| !e.index.is_empty()) {
+                    wanted.push(Event {
+                        url: e.index.clone(),
+                        name: e.tag.to_uppercase(),
+                        label: e.name.clone(),
+                        title: e.title.clone(),
+                        mirrored: e.mirror,
+                        ..Default::default()
+                    });
+                }
+            } else {
+                wanted.push(Event {
+                    url: u.clone(),
+                    name: event_name(u),
+                    mirrored: true,
+                    ..Default::default()
+                });
+            }
+        }
+        for w in wanted {
+            if self.events.iter().any(|e| e.url == w.url) {
+                continue;
+            }
+            // the works: from the last run, else from the cache
+            let cached = match old.iter().position(|e| e.url == w.url) {
+                Some(i) => Some(old.swap_remove(i)),
+                None => crate::platform::vfs::read(&Self::cache_file(paths, &w.url))
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<Event>(&b).ok()),
+            };
+            let (works, fetched_at) = cached.map(|c| (c.works, c.fetched_at)).unwrap_or_default();
+            self.events.push(Event {
+                works,
+                fetched_at,
+                ..w
+            });
+        }
     }
 
     fn channel(&mut self) -> Sender<Msg> {
@@ -128,9 +234,26 @@ impl Archives {
         self.tx.clone().expect("channel")
     }
 
-    /// Fetch the indexes older than a day (all with `force`).
+    /// Fetch the lists of events and the indexes older than a day (all
+    /// with `force`).
     pub fn refresh(&mut self, force: bool) {
         let now = now_s();
+        let lists: Vec<String> = self
+            .catalogs
+            .iter()
+            .filter(|c| force || now.saturating_sub(c.fetched_at) >= REFRESH_S)
+            .map(|c| c.url.clone())
+            .collect();
+        for url in lists {
+            let tx = self.channel();
+            let u = url.clone();
+            crate::platform::http_get(&url, move |r| {
+                let r = r.and_then(|b| {
+                    serde_json::from_slice::<Vec<CatalogEntry>>(&b).map_err(|e| e.to_string())
+                });
+                let _ = tx.send(Msg::Catalog(u, r));
+            });
+        }
         let todo: Vec<String> = self
             .events
             .iter()
@@ -203,8 +326,21 @@ impl Archives {
             .map(|rx| rx.try_iter().collect())
             .unwrap_or_default();
         let (mut toasts, mut rescan, mut changed) = (Vec::new(), false, false);
+        let mut new_events = false;
         for m in msgs {
             match m {
+                Msg::Catalog(url, Ok(entries)) => {
+                    if let Some(c) = self.catalogs.iter_mut().find(|c| c.url == url) {
+                        c.events = entries;
+                        c.fetched_at = now_s();
+                        if let Ok(j) = serde_json::to_vec(c) {
+                            let _ = crate::platform::vfs::create_dir_all(&Self::dir(paths));
+                            let _ = crate::platform::vfs::write(&Self::cache_file(paths, &url), &j);
+                        }
+                        new_events = true;
+                    }
+                }
+                Msg::Catalog(url, Err(e)) => log::warn!("archive events {url}: {e}"),
                 Msg::Index(url, Ok(works)) => {
                     if let Some(ev) = self.events.iter_mut().find(|e| e.url == url) {
                         ev.works = works;
@@ -239,6 +375,12 @@ impl Archives {
                     }
                 }
             }
+        }
+        if new_events {
+            self.rebuild(paths);
+            // the events new in the list
+            self.refresh(false);
+            changed = true;
         }
         (toasts, rescan, changed)
     }
@@ -366,6 +508,39 @@ mod tests {
         );
         assert_eq!(safe_name("a/b:c.zip"), "a_b_c.zip");
         assert_eq!(safe_name(".."), "download");
+    }
+
+    #[test]
+    fn reads_the_events() {
+        let j = r#"[{"tag": "boftt", "name": "BOF:TT", "title": "T", "venue": 146,
+            "mirror": true, "index": "https://x/boftt/index.json"},
+            {"tag": "bofnt", "name": "BOF:NT", "title": "N", "venue": 142,
+            "mirror": false, "index": "https://x/bofnt/index.json"}]"#;
+        let mut a = Archives {
+            sources: vec![CATALOG.into(), "https://y/download/bof22/index.json".into()],
+            catalogs: vec![Catalog {
+                url: CATALOG.into(),
+                events: serde_json::from_str(j).unwrap(),
+                fetched_at: 1,
+            }],
+            ..Default::default()
+        };
+        let paths = crate::paths::Paths::at(std::env::temp_dir().join("vibebms-archive-test"));
+        a.rebuild(&paths);
+        let names: Vec<(&str, &str, bool)> = a
+            .events
+            .iter()
+            .map(|e| (e.name.as_str(), e.label(), e.mirrored))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("BOFTT", "BOF:TT", true),
+                ("BOFNT", "BOF:NT", false),
+                ("BOF22", "BOF22", true)
+            ]
+        );
+        assert!(is_catalog(CATALOG) && !is_catalog(OLD_DEFAULT));
     }
 
     #[test]
