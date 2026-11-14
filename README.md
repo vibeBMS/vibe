@@ -70,7 +70,7 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 - **단위/코스**, 클리어 램프, EX 스코어, FAST/SLOW, 게이지·타이밍 그래프, 타깃 스코어(최고 기록 / 랭크 A~AAA / MAX-·MAX).
 - **난이도표**: bmstable 형식. 발광/통상 난이도표, Satellite, Stella가 기본 등록되어 있습니다.
   표에는 있지만 설치되지 않은 곡도 흐리게 보이고, 고르면 원곡의 다운로드 페이지를 엽니다.
-  데스크톱은 앱 안의 브라우저 창으로 열어, 받은 zip/7z를 `bms/`에 풀고 이어서 차분 페이지를 보여주며,
+  데스크톱은 앱 안의 브라우저 창으로 열어, 받은 zip/7z/rar를 `bms/`에 풀고 이어서 차분 페이지를 보여주며,
   받은 차분 채보는 원곡 폴더에 넣습니다(같은 제목·아티스트에 필요한 음원이 다 있는 폴더, 애매하면 폴더를 묻습니다).
   다운로드 원본은 `downloads/`에 받습니다. 웹·모바일은 시스템 브라우저로 엽니다.
 - **IR**: JSON 프로토콜([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md))로 랭킹 조회와 점수 전송.
@@ -125,6 +125,9 @@ crates/vibebms-android  Android 진입점
 
 `MIT OR Apache-2.0` (LICENSE-MIT, LICENSE-APACHE). 내장 폰트 Inter는 SIL OFL 1.1 (`crates/vibebms/assets/fonts/OFL.txt`).
 로고(`assets/logo/`, `tools/gen_logo.py`로 생성)의 글자는 Inter를 도형으로 변환한 것입니다.
+다운로드한 `.rar`는 [unrar-rs](https://github.com/scryer-media/rarpar/tree/main/crates/unrar-rs)(Apache-2.0, UnRAR 라이선스 제한 포함)로 풉니다. 이 크레이트의 RAR 엔진은 UnRAR 소스를 바탕으로 하며, 그 조항은 다음과 같습니다.
+
+> UnRAR source code may be used in any software to handle RAR archives without limitations free of charge, but cannot be used to develop RAR (WinRAR) compatible archiver and to re-create RAR compression algorithm, which is proprietary. Distribution of modified UnRAR source code in separate form or as a part of other software is permitted, provided that full text of this paragraph, starting from "UnRAR source code" words, is included in license, or in documentation if license is not available, and in source code comments of resulting package.
 
 판정·게이지 규칙은 beatoraja의 공개 소스와 LR2 커뮤니티에 공개된 판정폭을 참고해 독자적으로 구현했습니다.
 차트와 음원은 포함하지 않습니다(`tools/gen_demo.py`의 데모는 자체 생성).

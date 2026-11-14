@@ -1,4 +1,4 @@
-//! Songs the in-app browser downloaded: archives (.zip, .7z) are unpacked
+//! Songs the in-app browser downloaded: archives (.zip, .7z, .rar) are unpacked
 //! into the library, a chart on its own goes into its song's folder (see
 //! `placement`).
 
@@ -107,21 +107,86 @@ fn un7z(file: &Path, dest: &Path) -> Result<usize, String> {
     err.map_or(Ok(n), Err)
 }
 
+/// A writer that fails past `left` bytes (an archive member larger than it
+/// claims).
+struct Capped<W> {
+    w: W,
+    left: u64,
+}
+
+impl<W: std::io::Write> std::io::Write for Capped<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.len() as u64 > self.left {
+            return Err(std::io::Error::other(format!(
+                "larger than {} MB unpacked",
+                BUDGET >> 20
+            )));
+        }
+        let n = self.w.write(buf)?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.w.flush()
+    }
+}
+
+fn unrar(file: &Path, dest: &Path) -> Result<usize, String> {
+    let f = std::fs::File::open(file).map_err(|e| e.to_string())?;
+    let mut a = unrar_rs::RarArchive::open(f).map_err(|e| e.to_string())?;
+    let mut budget = BUDGET;
+    let mut n = 0;
+    for i in 0..a.len() {
+        let Some(info) = a.member_info(i) else {
+            continue;
+        };
+        if info.is_directory {
+            continue;
+        }
+        // the name as stored (made safe here, as for the other formats)
+        let name = info.raw_name.clone();
+        let Some(rel) = safe_rel(&name) else { continue };
+        let path = dest.join(&rel);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        let out = std::fs::File::create(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut w = Capped {
+            w: std::io::BufWriter::new(out),
+            left: budget,
+        };
+        let r = a
+            .by_index(i)
+            .and_then(|e| e.copy_to(&mut w))
+            .map_err(|e| format!("{name}: {e}"));
+        match r {
+            Ok(k) => budget -= k,
+            Err(e) => {
+                drop(w);
+                let _ = std::fs::remove_file(&path);
+                return Err(e);
+            }
+        }
+        n += 1;
+    }
+    Ok(n)
+}
+
 /// Bring a downloaded `file` into `library` (`<root>/bms`). Archives are
 /// unpacked into a folder named after them and removed.
 pub fn import(file: &Path, library: &Path) -> Result<Imported, String> {
     let e = ext(file);
-    if e == "zip" || e == "7z" {
+    if e == "zip" || e == "7z" || e == "rar" {
         let stem = file
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "download".into());
         let dest = library.join(stem);
         std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-        let n = if e == "zip" {
-            unzip(file, &dest)?
-        } else {
-            un7z(file, &dest)?
+        let n = match e.as_str() {
+            "zip" => unzip(file, &dest)?,
+            "7z" => un7z(file, &dest)?,
+            _ => unrar(file, &dest)?,
         };
         let _ = std::fs::remove_file(file);
         return Ok(Imported::Unpacked(dest, n));
