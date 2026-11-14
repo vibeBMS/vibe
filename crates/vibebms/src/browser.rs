@@ -1,5 +1,6 @@
-//! The in-app browser (desktop): a window with the system web view for a
-//! chart's download page. What the page downloads goes to
+//! The in-app browser (desktop, iOS): the system web view for a chart's
+//! download page, in a window of its own (on iOS over the game, with Back
+//! and Close buttons the page gets). What the page downloads goes to
 //! `<root>/downloads/` without asking and is brought into the library
 //! (`import`): archives are unpacked, a 差分 chart goes into its song's
 //! folder. After a song arrives the browser moves on to the next page given
@@ -21,10 +22,13 @@ enum Event {
     Started(String),
     Finished(PathBuf),
     Failed(String),
+    /// The page's Close button (iOS).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    Closed,
 }
 
 struct Window {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "ios")))]
     window: winit::window::Window,
     #[cfg(target_os = "linux")]
     window: gtk::Window,
@@ -78,12 +82,43 @@ fn download_name(url: &str, suggested: &Path) -> String {
         .replace(['/', '\\', ':'], "_")
 }
 
+/// iOS: the web view covers the game and has no window frame, so every page
+/// gets Back and Close buttons along the bottom.
+#[cfg(target_os = "ios")]
+const BUTTONS_JS: &str = r#"(function () {
+  if (window.top !== window) return;
+  function add() {
+    if (document.getElementById("__vibebms_bar")) return;
+    var bar = document.createElement("div");
+    bar.id = "__vibebms_bar";
+    bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;display:flex;" +
+      "gap:8px;justify-content:flex-end;padding:8px calc(8px + env(safe-area-inset-right)) " +
+      "calc(8px + env(safe-area-inset-bottom)) 8px;background:rgba(20,24,36,.92);" +
+      "font:600 15px -apple-system,sans-serif";
+    function button(text, f) {
+      var b = document.createElement("button");
+      b.textContent = text;
+      b.style.cssText = "color:#e2e8f5;background:#2a3044;border:1px solid #343e5c;" +
+        "border-radius:8px;padding:8px 14px;font:inherit";
+      b.onclick = f;
+      bar.appendChild(b);
+    }
+    button("◀ Back", function () { history.back(); });
+    button("Close", function () { window.ipc.postMessage("close"); });
+    document.documentElement.appendChild(bar);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", add);
+  else add();
+})();"#;
+
 fn builder<'a>(url: &str, downloads: PathBuf, tx: Sender<Event>) -> WebViewBuilder<'a> {
     // where each download went (macOS does not report it when done)
     let paths: Rc<RefCell<HashMap<String, PathBuf>>> = Rc::default();
     let (p1, p2) = (paths.clone(), paths);
     let tx2 = tx.clone();
-    WebViewBuilder::new()
+    #[cfg(target_os = "ios")]
+    let tx3 = tx.clone();
+    let b = WebViewBuilder::new()
         .with_url(url)
         .with_download_started_handler(move |url, path| {
             let name = download_name(&url, path);
@@ -101,12 +136,41 @@ fn builder<'a>(url: &str, downloads: PathBuf, tx: Sender<Event>) -> WebViewBuild
                 (true, Some(p)) => Event::Finished(p),
                 _ => Event::Failed(url),
             });
-        })
+        });
+    #[cfg(target_os = "ios")]
+    let b = b
+        .with_initialization_script(BUTTONS_JS)
+        .with_ipc_handler(move |req| {
+            if req.body() == "close" {
+                let _ = tx3.send(Event::Closed);
+            }
+        });
+    b
 }
 
 impl Window {
-    #[cfg(not(target_os = "linux"))]
-    fn open(el: &ActiveEventLoop, url: &str, downloads: PathBuf) -> Result<Window, String> {
+    /// iOS: over the game window (UIKit has no second window to give it).
+    #[cfg(target_os = "ios")]
+    fn open(
+        _el: &ActiveEventLoop,
+        game: &winit::window::Window,
+        url: &str,
+        downloads: PathBuf,
+    ) -> Result<Window, String> {
+        let (tx, rx) = channel();
+        let webview = builder(url, downloads, tx)
+            .build(game)
+            .map_err(|e| e.to_string())?;
+        Ok(Window { webview, rx })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "ios")))]
+    fn open(
+        el: &ActiveEventLoop,
+        _game: &winit::window::Window,
+        url: &str,
+        downloads: PathBuf,
+    ) -> Result<Window, String> {
         let attrs = winit::window::Window::default_attributes()
             .with_title("vibeBMS — download")
             .with_inner_size(winit::dpi::LogicalSize::new(1100.0, 800.0));
@@ -125,7 +189,12 @@ impl Window {
     /// Linux: a GTK window (the web view is WebKitGTK; this works on X11
     /// and Wayland alike), its events run from `pump`.
     #[cfg(target_os = "linux")]
-    fn open(_el: &ActiveEventLoop, url: &str, downloads: PathBuf) -> Result<Window, String> {
+    fn open(
+        _el: &ActiveEventLoop,
+        _game: &winit::window::Window,
+        url: &str,
+        downloads: PathBuf,
+    ) -> Result<Window, String> {
         use gtk::prelude::*;
         use wry::WebViewBuilderExtUnix;
         if !gtk::is_initialized_main_thread() {
@@ -156,14 +225,14 @@ impl Window {
     }
 
     fn id(&self) -> Option<WindowId> {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "ios")))]
         return Some(self.window.id());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "ios"))]
         None
     }
 
     fn raise(&self) {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "ios")))]
         self.window.focus_window();
         #[cfg(target_os = "linux")]
         {
@@ -202,7 +271,13 @@ impl Drop for Window {
 impl Downloads {
     /// Show `pages` one after another: the first now, the next after a
     /// download from it has arrived.
-    pub fn browse(&mut self, el: &ActiveEventLoop, ctx: &mut Ctx, pages: Vec<String>) {
+    pub fn browse(
+        &mut self,
+        el: &ActiveEventLoop,
+        game: &winit::window::Window,
+        ctx: &mut Ctx,
+        pages: Vec<String>,
+    ) {
         let mut pages: VecDeque<String> = pages.into();
         let Some(first) = pages.pop_front() else {
             return;
@@ -213,7 +288,7 @@ impl Downloads {
             w.raise();
             return;
         }
-        match Window::open(el, &first, ctx.paths.root.join("downloads")) {
+        match Window::open(el, game, &first, ctx.paths.root.join("downloads")) {
             Ok(w) => self.window = Some(w),
             Err(e) => {
                 // no web view (e.g. WebKitGTK missing): the system browser
@@ -252,6 +327,7 @@ impl Downloads {
     /// imports that are done.
     pub fn poll(&mut self, ctx: &mut Ctx) {
         let mut finished = Vec::new();
+        let mut closed = false;
         if let Some(w) = &self.window {
             if !w.pump() {
                 self.window = None;
@@ -263,8 +339,12 @@ impl Downloads {
                     Event::Started(name) => ctx.toast(format!("Downloading {name}…")),
                     Event::Failed(url) => ctx.toast(format!("Download failed: {url}")),
                     Event::Finished(p) => finished.push(p),
+                    Event::Closed => closed = true,
                 }
             }
+        }
+        if closed {
+            self.window = None;
         }
         let library = ctx.paths.root.join("bms");
         for file in finished {
@@ -295,6 +375,14 @@ impl Downloads {
             }
         }
         let mut rescan = done.rescan;
+        #[cfg(target_os = "ios")]
+        if let Some((chart, _)) = done.ask {
+            ctx.toast(format!(
+                "{}: several songs could be it; it stays in downloads",
+                import::file_name(&chart)
+            ));
+        }
+        #[cfg(not(target_os = "ios"))]
         if let Some((chart, folders)) = done.ask {
             // several songs could be it: let the user pick the folder
             let name = import::file_name(&chart);

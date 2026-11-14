@@ -165,6 +165,66 @@ jobs:
           name: vibeBMS-ios-unsigned
           path: vibeBMS-unsigned.ipa
 
+  # the app in the iOS simulator: it starts, and its download browser saves
+  # and unpacks a zip; screenshots and the log are uploaded
+  ios-simulator:
+    name: iOS simulator (smoke test)
+    needs: test
+    runs-on: macos-latest
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: aarch64-apple-ios-sim
+      - run: cargo build --release -p vibebms --target aarch64-apple-ios-sim
+      - name: app bundle
+        run: |
+          app="$RUNNER_TEMP/vibeBMS.app"
+          mkdir -p "$app"
+          cp target/aarch64-apple-ios-sim/release/vibebms "$app/"
+          cp platform/ios/Info.plist platform/ios/*.png "$app/"
+          plutil -replace CFBundleSupportedPlatforms -json '["iPhoneSimulator"]' "$app/Info.plist"
+          codesign --force --sign - "$app"
+          echo "APP=$app" >> "$GITHUB_ENV"
+      - name: run in the simulator
+        run: |
+          runtime=$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.isAvailable and .platform == "iOS")] | last | .identifier')
+          dtype=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.productFamily == "iPad")] | last | .identifier')
+          echo "runtime $runtime, device $dtype"
+          udid=$(xcrun simctl create vibe "$dtype" "$runtime")
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$APP"
+          mkdir -p sim
+          # 1: it starts and shows the music select
+          xcrun simctl launch --stderr="$PWD/sim/start.log" "$udid" io.github.vibebms
+          sleep 45
+          xcrun simctl io "$udid" screenshot sim/1-start.png
+          xcrun simctl terminate "$udid" io.github.vibebms || true
+          sleep 2
+          # 2: the download browser on a zip (this repository's)
+          SIMCTL_CHILD_VIBEBMS_TEST_BROWSE="https://codeload.github.com/${{ github.repository }}/zip/${{ github.sha }}" \
+            xcrun simctl launch --stderr="$PWD/sim/browse.log" "$udid" io.github.vibebms
+          sleep 25
+          xcrun simctl io "$udid" screenshot sim/2-browser.png
+          sleep 50
+          xcrun simctl io "$udid" screenshot sim/3-after.png
+          xcrun simctl terminate "$udid" io.github.vibebms || true
+          grep -E "Library:|Downloading|Added|failed|panicked|error" sim/start.log sim/browse.log || true
+          grep -q "Library:" sim/start.log || { echo "::error::the app did not start"; exit 1; }
+          grep -q "Added " sim/browse.log || echo "::warning::the browser did not download and unpack the zip"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-ios-simulator
+          path: sim
+
   android:
     name: build android (experimental)
     needs: test

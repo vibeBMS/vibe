@@ -3,7 +3,7 @@
 pub mod app;
 #[cfg(all(
     feature = "browser",
-    any(windows, target_os = "macos", target_os = "linux")
+    any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
 ))]
 pub mod browser;
 #[cfg(target_os = "android")]

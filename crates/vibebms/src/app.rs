@@ -131,12 +131,17 @@ pub enum TableMsg {
 }
 
 /// Shared state available to every scene.
-/// Songs are downloaded in an in-app browser (desktop, Android).
+/// Songs are downloaded in an in-app browser (desktop, Android, iOS).
 pub const IN_APP_BROWSER: bool = cfg!(any(
     target_os = "android",
     all(
         feature = "browser",
-        any(windows, target_os = "macos", target_os = "linux")
+        any(
+            windows,
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "ios"
+        )
     )
 ));
 
@@ -489,7 +494,7 @@ struct Running {
         target_os = "android",
         all(
             feature = "browser",
-            any(windows, target_os = "macos", target_os = "linux")
+            any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
         )
     ))]
     downloads: crate::browser::Downloads,
@@ -814,6 +819,11 @@ impl App {
         ctx.load_cached_tables();
         ctx.start_scan();
         ctx.refresh_tables(false);
+        // tests: open the download browser on this page at start
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
+            ctx.browse = Some(vec![url]);
+        }
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
@@ -862,7 +872,7 @@ impl App {
                 target_os = "android",
                 all(
                     feature = "browser",
-                    any(windows, target_os = "macos", target_os = "linux")
+                    any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
                 )
             ))]
             downloads: Default::default(),
@@ -943,7 +953,7 @@ impl ApplicationHandler<UserEvent> for App {
             target_os = "android",
             all(
                 feature = "browser",
-                any(windows, target_os = "macos", target_os = "linux")
+                any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
             )
         ))]
         if r.downloads.window_event(id, &event) {
@@ -1073,12 +1083,12 @@ impl ApplicationHandler<UserEvent> for App {
             target_os = "android",
             all(
                 feature = "browser",
-                any(windows, target_os = "macos", target_os = "linux")
+                any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
             )
         ))]
         {
             if let Some(pages) = r.ctx.browse.take() {
-                r.downloads.browse(el, &mut r.ctx, pages);
+                r.downloads.browse(el, &r.window, &mut r.ctx, pages);
             }
             r.downloads.poll(&mut r.ctx);
         }

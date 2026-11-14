@@ -103,7 +103,13 @@ fn events() -> Vec<String> {
 impl Downloads {
     /// Show `pages` one after another: the first now, the next after a
     /// download from it has arrived.
-    pub fn browse(&mut self, _el: &ActiveEventLoop, ctx: &mut Ctx, pages: Vec<String>) {
+    pub fn browse(
+        &mut self,
+        _el: &ActiveEventLoop,
+        _game: &winit::window::Window,
+        ctx: &mut Ctx,
+        pages: Vec<String>,
+    ) {
         let mut pages: VecDeque<String> = pages.into();
         let Some(first) = pages.pop_front() else {
             return;
