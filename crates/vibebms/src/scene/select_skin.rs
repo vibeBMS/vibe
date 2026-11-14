@@ -349,6 +349,17 @@ impl SkinState for SelectState<'_> {
             1403 => crate::scene::option_panel::index_of(&JudgePreset::ALL, p.judge_preset),
             1404 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
             1405 => crate::scene::option_panel::index_of(&crate::config::Target::ALL, p.target),
+            // TARGET as LR2 skins for beatoraja draw it (LITONE5): A- .. AAA+,
+            // MAX, NEXT (an older list, without MAX-)
+            77 => {
+                use crate::config::Target;
+                match p.target {
+                    Target::RateMaxMinus | Target::Max => 9,
+                    Target::RankNext => 10,
+                    Target::Best => 11,
+                    t => crate::scene::option_panel::index_of(&Target::ALL, t),
+                }
+            }
             308 => match p.ln_mode {
                 LnType::Ln => 0,
                 LnType::Cn => 1,

@@ -617,7 +617,9 @@ PANEL1 = [  # title, keys, group, values, accent
     ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE"], RED),
     ("HS-FIX", "5", 3, ["OFF", "START BPM", "MAX BPM", "MAIN BPM", "MIN BPM"], (180, 120, 255)),
     ("RANDOM 2P", "6 ▲   7 ▼", 4, RANDOM_LABELS, TEAL),
-    ("TARGET", "TURNTABLE", 5, ["BEST", "RANK A", "RANK AA", "RANK AAA", "MAX-", "MAX"], AMBER),
+    ("TARGET", "TURNTABLE", 5, ["RANK A-", "RANK A", "RANK A+", "RANK AA-", "RANK AA", "RANK AA+",
+                                "RANK AAA-", "RANK AAA", "RANK AAA+", "RANK MAX-", "MAX",
+                                "NEXT RANK", "BEST"], AMBER),
 ]
 ONOFF = ["OFF", "ON"]
 PANEL2 = [  # key, name, group, values (beatoraja's assist panel)

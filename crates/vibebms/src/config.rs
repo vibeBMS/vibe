@@ -114,51 +114,77 @@ fn valid(bpm: f64) -> f64 {
     }
 }
 
-/// Target score: the personal best or a fixed share of the maximum.
+/// Target score: beatoraja's targets (a share of the maximum in 27ths, MAX,
+/// the next rank above the best) and the personal best.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Target {
+    RateAMinus,
+    #[serde(alias = "RankA")]
+    RateA,
+    RateAPlus,
+    RateAAMinus,
+    #[serde(alias = "RankAA")]
+    RateAA,
+    RateAAPlus,
+    RateAAAMinus,
+    #[serde(alias = "RankAAA")]
+    RateAAA,
+    RateAAAPlus,
+    #[serde(alias = "MaxMinus")]
+    RateMaxMinus,
+    Max,
+    /// The next DJ level step (in 27ths) above the best score.
+    RankNext,
     #[default]
     Best,
-    RankA,
-    RankAA,
-    RankAAA,
-    MaxMinus,
-    Max,
 }
 
 impl Target {
-    pub const ALL: [Target; 6] = [
-        Target::Best,
-        Target::RankA,
-        Target::RankAA,
-        Target::RankAAA,
-        Target::MaxMinus,
+    /// beatoraja's default target list order (skins index it), then BEST.
+    pub const ALL: [Target; 13] = [
+        Target::RateAMinus,
+        Target::RateA,
+        Target::RateAPlus,
+        Target::RateAAMinus,
+        Target::RateAA,
+        Target::RateAAPlus,
+        Target::RateAAAMinus,
+        Target::RateAAA,
+        Target::RateAAAPlus,
+        Target::RateMaxMinus,
         Target::Max,
+        Target::RankNext,
+        Target::Best,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            Target::Best => "BEST",
-            Target::RankA => "RANK A",
-            Target::RankAA => "RANK AA",
-            Target::RankAAA => "RANK AAA",
-            Target::MaxMinus => "MAX-",
+            Target::RateAMinus => "RANK A-",
+            Target::RateA => "RANK A",
+            Target::RateAPlus => "RANK A+",
+            Target::RateAAMinus => "RANK AA-",
+            Target::RateAA => "RANK AA",
+            Target::RateAAPlus => "RANK AA+",
+            Target::RateAAAMinus => "RANK AAA-",
+            Target::RateAAA => "RANK AAA",
+            Target::RateAAAPlus => "RANK AAA+",
+            Target::RateMaxMinus => "RANK MAX-",
             Target::Max => "MAX",
+            Target::RankNext => "NEXT RANK",
+            Target::Best => "BEST",
         }
     }
 
-    /// The target EX score for a chart with `max_ex`, given the personal best.
+    /// The target EX score for a chart with `max_ex` and personal best `best`.
     pub fn score(self, max_ex: u32, best: u32) -> u32 {
-        let n = match self {
-            Target::Best => return best,
-            Target::RankA => 6,
-            Target::RankAA => 7,
-            Target::RankAAA => 8,
-            Target::MaxMinus => 17,
-            Target::Max => return max_ex,
-        };
-        let d = if n == 17 { 18 } else { 9 };
-        (max_ex as u64 * n).div_ceil(d) as u32
+        let at = |n: u64| (max_ex as u64 * n).div_ceil(27) as u32;
+        match self {
+            Target::Best => best,
+            Target::Max => max_ex,
+            // the first step from 15/27 up that the best has not reached
+            Target::RankNext => (15..27).map(at).find(|t| best < *t).unwrap_or(max_ex),
+            t => at(17 + Target::ALL.iter().position(|x| *x == t).unwrap_or(0) as u64),
+        }
     }
 }
 
@@ -734,6 +760,20 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn targets_as_beatoraja() {
+        // 1000 notes: max 2000
+        assert_eq!(Target::RateA.score(2000, 0), 1334); // ceil(2000 * 18 / 27)
+        assert_eq!(Target::RateAMinus.score(2000, 0), 1260);
+        assert_eq!(Target::RateMaxMinus.score(2000, 0), 1926);
+        assert_eq!(Target::RankNext.score(2000, 1334), 1408); // A -> A+
+        assert_eq!(Target::RankNext.score(2000, 1999), 2000);
+        assert_eq!(Target::Best.score(2000, 1500), 1500);
+        // older names still load
+        let c: Config = toml::from_str("[play]\ntarget = \"RankAA\"\n").unwrap();
+        assert_eq!(c.play.target, Target::RateAA);
     }
 
     #[test]
