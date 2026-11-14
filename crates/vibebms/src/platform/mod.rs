@@ -139,6 +139,40 @@ pub fn load_table(
             Err(e) => on_done(Err(e.to_string())),
         });
     }
-    let (loader, first) = vibebms_tables::TableLoader::new(url);
-    drive(loader, first, Box::new(on_done));
+    let on_done: Box<dyn FnOnce(Result<vibebms_tables::DifficultyTable, String>) + Send> =
+        Box::new(on_done);
+    // web: table servers send no CORS headers, so the page reads the copies
+    // CI puts next to it (`tables/index.json`: table URL -> header copy)
+    #[cfg(target_arch = "wasm32")]
+    {
+        let url = url.to_string();
+        http_get("tables/index.json", move |r| {
+            let copy = r
+                .ok()
+                .and_then(|b| {
+                    serde_json::from_slice::<std::collections::HashMap<String, String>>(&b).ok()
+                })
+                .and_then(|m| m.get(&url).cloned())
+                .and_then(|rel| {
+                    let href = web_sys::window()?.location().href().ok()?;
+                    let base = &href[..href.rfind('/')? + 1];
+                    Some(format!("{base}{rel}"))
+                });
+            match copy {
+                Some(first) => {
+                    let loader = vibebms_tables::TableLoader::starting_at(&url, &first);
+                    drive(loader, first, on_done)
+                }
+                None => {
+                    let (loader, first) = vibebms_tables::TableLoader::new(&url);
+                    drive(loader, first, on_done)
+                }
+            }
+        });
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (loader, first) = vibebms_tables::TableLoader::new(url);
+        drive(loader, first, on_done);
+    }
 }

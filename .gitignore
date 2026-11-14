@@ -12,3 +12,5 @@
 /web/pkg/
 /web/demo.zip
 __pycache__/
+/web/tables/
+/web/fonts/*.otf

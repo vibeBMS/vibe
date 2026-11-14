@@ -102,8 +102,9 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
   GitHub Pages(Settings › Pages › `gh-pages` / root)를 켜면 바로 열 수 있습니다.
 - 차분 채보만 따로 넣으면(📦) 같은 제목·아티스트에 필요한 음원이 모두 있는 원곡 폴더로 들어갑니다. 정할 수 없으면 어느 곡인지 묻습니다.
   넣은 곡은 브라우저 메모리에만 있어 새로고침하면 다시 넣어야 합니다(기록은 남습니다).
-- 웹에는 시스템 폰트가 없으므로 일본어/한국어 제목을 보려면 `web/fonts/`에 CJK 폰트를 넣고 `fonts.txt`에 나열하세요.
-- 난이도표와 IR은 해당 서버가 CORS를 허용해야 동작합니다.
+- 웹에는 시스템 폰트가 없어서 CI가 Noto Sans CJK(JP/KR, SIL OFL)를 `web/fonts/`에 넣습니다. 직접 빌드할 때는 CJK 폰트를 넣고 `fonts.txt`에 나열하세요.
+- 난이도표 서버는 CORS를 허용하지 않아서, CI가 빌드할 때 기본 난이도표 사본을 `web/tables/`에 함께 올립니다
+  (`tools/snapshot_tables.py`). 직접 추가한 난이도표와 IR은 해당 서버가 CORS를 허용해야 동작합니다.
 
 ## 구조
 

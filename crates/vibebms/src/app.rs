@@ -807,9 +807,7 @@ impl App {
         ctx.reload_library();
         ctx.load_cached_tables();
         ctx.start_scan();
-        if !crate::platform::IS_WEB {
-            ctx.refresh_tables(false);
-        }
+        ctx.refresh_tables(false);
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];

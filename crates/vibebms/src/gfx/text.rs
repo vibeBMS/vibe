@@ -173,7 +173,9 @@ impl Text {
         ) {
             Ok(f) => {
                 self.fonts.push(f);
-                self.font_of.retain(|_, v| v.is_some()); // retry glyphs that were missing
+                // glyphs drawn with a stand-in so far: draw them again
+                self.font_of.retain(|_, v| v.is_some());
+                self.reset_atlas();
             }
             Err(e) => log::warn!("font: {e}"),
         }

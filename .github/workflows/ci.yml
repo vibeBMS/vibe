@@ -85,6 +85,17 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       - run: ./tools/build_web.sh
+      # table servers send no CORS headers: the page reads copies next to it
+      - name: difficulty tables
+        run: python3 tools/snapshot_tables.py web || echo "::warning::no table could be copied"
+      # the web build has no system fonts: Japanese / Korean titles need these
+      - name: CJK fonts (Noto Sans CJK, SIL OFL 1.1)
+        run: |
+          base=https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans
+          curl -fsSL -o web/fonts/NotoSansJP-Regular.otf "$base/SubsetOTF/JP/NotoSansJP-Regular.otf"
+          curl -fsSL -o web/fonts/NotoSansKR-Regular.otf "$base/SubsetOTF/KR/NotoSansKR-Regular.otf"
+          curl -fsSL -o web/fonts/NotoSansCJK-LICENSE.txt "$base/LICENSE"
+          printf "NotoSansJP-Regular.otf\nNotoSansKR-Regular.otf\n" >> web/fonts/fonts.txt
       - name: demo song (the page's "Demo song" button)
         run: |
           python3 tools/gen_demo.py "$RUNNER_TEMP/demo/vibeBMS demo"

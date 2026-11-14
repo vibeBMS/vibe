@@ -316,6 +316,17 @@ impl TableLoader {
         )
     }
 
+    /// A loader for the table at `source` that reads a copy of it at
+    /// `first` (its page or header; relative links resolve against it).
+    pub fn starting_at(source: &str, first: &str) -> TableLoader {
+        TableLoader {
+            source: source.to_string(),
+            stage: Stage::Page(first.to_string()),
+            // the copy is the fallback already
+            mirror_used: true,
+        }
+    }
+
     pub fn feed(&mut self, body: Result<Vec<u8>, String>) -> Result<Step, TableError> {
         match self.advance(body) {
             Ok(s) => Ok(s),
