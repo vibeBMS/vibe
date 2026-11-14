@@ -100,7 +100,7 @@ pub struct PlayScene {
     pub(crate) mapper: Option<LaneMapper>,
     pub(crate) touch: TouchInput,
     pub(crate) zones: Vec<Zone>,
-    pub(crate) zones_key: (u32, u32, bool),
+    pub(crate) zones_key: (u32, u32, bool, bool),
     pub(crate) start: Instant,
     pub(crate) base_frame: i64,
     pub(crate) bgm_i: usize,
@@ -320,7 +320,7 @@ impl PlayScene {
             mapper: None,
             touch: TouchInput::default(),
             zones: Vec::new(),
-            zones_key: (0, 0, false),
+            zones_key: (0, 0, false, false),
             start: Instant::now(),
             base_frame: 0,
             bgm_i: 0,
@@ -625,8 +625,38 @@ impl PlayScene {
         }
     }
 
+    /// Where the play skin goes (above the touch controls) and, with touch
+    /// controls, the START / SELECT buttons beside it.
+    fn play_view(
+        &self,
+        ctx: &Ctx,
+        areas: &[(Rect, usize, bool)],
+    ) -> (Rect, Option<[touch::Zone; 2]>) {
+        let screen = Rect::new(
+            0.0,
+            0.0,
+            ctx.width,
+            areas.first().map(|t| t.0.y).unwrap_or(ctx.height),
+        );
+        if areas.is_empty() {
+            return (screen, None);
+        }
+        let aspect = self
+            .skin
+            .as_ref()
+            .map(|s| s.skin.width / s.skin.height.max(1.0))
+            .unwrap_or(16.0 / 9.0);
+        let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm());
+        (view, Some(buttons))
+    }
+
     fn rebuild_zones(&mut self, ctx: &Ctx, areas: &[(Rect, usize, bool)]) {
-        let key = (ctx.width as u32, ctx.height as u32, ctx.touch_enabled());
+        let key = (
+            ctx.width as u32,
+            ctx.height as u32,
+            ctx.touch_enabled(),
+            self.skin.is_some(),
+        );
         if key == self.zones_key && !self.zones.is_empty() {
             return;
         }
@@ -642,6 +672,9 @@ impl PlayScene {
                 *right,
                 ctx.px_per_mm(),
             ));
+        }
+        if let (_, Some(buttons)) = self.play_view(ctx, areas) {
+            self.zones.extend(buttons);
         }
     }
 
@@ -1304,8 +1337,7 @@ impl PlayScene {
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let areas = self.touch_areas(ctx);
         self.rebuild_zones(ctx, &areas);
-        let view_h = areas.first().map(|t| t.0.y).unwrap_or(ctx.height);
-        let view = Rect::new(0.0, 0.0, ctx.width, view_h);
+        let (view, _) = self.play_view(ctx, &areas);
         {
             let st = super::play_skin::SceneState { s: self, ctx, now };
             let mut hooks = super::play_skin::SceneHooks { st: &st };

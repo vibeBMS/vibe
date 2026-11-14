@@ -469,11 +469,6 @@ def build_parts(fonts):
     for k, (t, a_, b_) in enumerate(lamps):
         a.add(f"lamp_s{k}", text_img(fonts, t, "bold", 15, a_, b_, (0, 0, 0), 0, pad=2))
     ranks = ["AAA", "AA", "A", "B", "C", "D", "E", "F"]
-    for k, r_ in enumerate(ranks):
-        cell = rounded(42, 18, 4, AMBER + (255,))
-        ImageDraw.Draw(cell).text((21, 9), r_, font=fonts.get("bold", 11), fill=(30, 20, 0),
-                                  anchor="mm")
-        a.add(f"rk_cell{k}", cell)
     rimgs = [text_img(fonts, r_, "black_it", 84, (255, 250, 220), (255, 190, 60), (40, 20, 0), 4,
                       AMBER) for r_ in ranks]
     rw, rh = max(i.size[0] for i in rimgs), max(i.size[1] for i in rimgs)
@@ -654,17 +649,18 @@ class Skin:
     # animated sets of 10)
     FRAMES = {"n_big": 11, "n_mid": 11, "n_signed": 24, "n_combo_pg": 20}
 
-    def num(self, key, ref, digit, align=0, zeropad=False):
+    def num(self, key, ref, digit, align=0, zeropad=False, blank=False):
+        """`blank`: no dim padding zeros (fonts that have them)."""
         x, y, w, h = self.parts.items[key]
         n = self.FRAMES.get(key, 10)
-        iid = f"{key}#{ref}#{digit}#{int(zeropad)}"
+        iid = f"{key}#{ref}#{digit}#{int(zeropad)}{'b' if blank else ''}"
         if iid not in self._ids:
             self._ids.add(iid)
             v = {"id": iid, "src": "parts", "x": x, "y": y, "w": w, "h": h, "divx": n,
                  "digit": digit, "ref": ref, "align": align}
             if zeropad:
                 v["zeropadding"] = 1
-            elif n == 11:
+            elif n == 11 and not blank:
                 v["zeropadding"] = 2  # dim zeros from the padding image
             if key == "n_combo_pg":
                 v["cycle"] = 80  # same cycle as the j_pg image: flashes in sync
@@ -727,8 +723,9 @@ class Skin:
         self.j["destination"].append(d)
         return d
 
-    def number(self, key, ref, digit, x, y, align=0, zeropad=False, color=None, scale=1.0, **kw):
-        iid, cw, ch = self.num(key, ref, digit, align, zeropad)
+    def number(self, key, ref, digit, x, y, align=0, zeropad=False, color=None, scale=1.0,
+               blank=False, **kw):
+        iid, cw, ch = self.num(key, ref, digit, align, zeropad, blank)
         cw, ch = int(cw * scale), int(ch * scale)
         extra = {}
         if color:
@@ -1204,15 +1201,16 @@ def hs_panel(sk, x, y, scale=1.0):
         sk.j["slider"].append({"id": kid, "src": "parts", "x": kx, "y": ky, "w": kw, "h": kh,
                                "angle": 0, "range": S(t1 - t0), "type": 9400})
     sk.put(kid, x + S(36) - S(kw) // 2, y + S(t1) - S(kh) // 2, S(kw), S(kh), timer=21)
-    # the value: integer . two decimals
+    # the value: integer (no leading zero) . two decimals, inside the box
+    vs = scale * 0.85
     cw, ch = sk.num("n_mid", 310, 2)[1:]
-    cw, ch = int(cw * scale), int(ch * scale)
-    vy = y + S(HS_H - 36)
+    cw, ch = int(cw * vs), int(ch * vs)
+    vy = y + S(HS_H - 32)
     vx = x + (S(HS_W) - cw * 4 - S(6)) // 2
-    sk.number("n_mid", 310, 2, vx, vy, scale=scale, timer=21)
+    sk.number("n_mid", 310, 2, vx, vy, scale=vs, timer=21, blank=True)
     sk.put(sk.img("white"), vx + cw * 2 + 1, vy + ch - S(6), S(4), S(4), timer=21, r=AMBER[0],
            g=AMBER[1], b=AMBER[2])
-    sk.number("n_mid", 311, 2, vx + cw * 2 + S(6), vy, zeropad=True, scale=scale, timer=21)
+    sk.number("n_mid", 311, 2, vx + cw * 2 + S(6), vy, zeropad=True, scale=vs, timer=21)
 
 
 def info_bar(sk, img, f, x, y, w, h):
@@ -1628,9 +1626,6 @@ def fade_in(t0, x, y, w, h, dy=12, dur=250, **kw):
     ]
 
 
-RANKS = ["AAA", "AA", "A", "B", "C", "D", "E", "F"]
-
-
 def res_header(sk, img, f, w):
     """The RESULT strip across the top: AUTO PLAY and the clock."""
     d = ImageDraw.Draw(img)
@@ -1671,23 +1666,14 @@ def res_clear(sk, img, f, x, y, w, h):
 
 
 def res_scores(sk, img, f, x, y, w, h):
-    """The DJ level ladder; before > now (difference) for EX score, rate,
-    miss count and max combo; the target."""
-    panel(img, (x, y, w, h))
+    """Before > now (difference) for EX score, rate, miss count and max
+    combo; the target."""
+    panel(img, (x, y, w, h), "SCORE", f)
     d = ImageDraw.Draw(img)
-    draw_label(img, f, x + 12, y + 16, "DJ LEVEL", 11, anchor="lm")
-    cw_ = (w - 100) // 8
-    for i, r_ in enumerate(reversed(RANKS)):
-        cx = x + 88 + i * cw_
-        d.rounded_rectangle((cx, y + 8, cx + cw_ - 4, y + 25), 4, fill=(32, 38, 56, 255))
-        d.text((cx + (cw_ - 4) // 2, y + 17), r_, font=f.get("bold", 11), fill=(86, 96, 126),
-               anchor="mm")
-        k = RANKS.index(r_)
-        sk.put(sk.img(f"rk_cell{k}"), cx, y + 8, cw_ - 4, 17, op=[300 + k])
     rows = [("EX SCORE", 150, 71, 152), ("SCORE RATE", None, None, None),
             ("MISS COUNT", 176, 76, 178), ("MAX COMBO", 173, 75, 175), ("TARGET", None, 151, 153)]
-    top = y + 34
-    rh = (h - 40) // len(rows)
+    top = y + 26
+    rh = (h - 32) // len(rows)
     mw, mh = sk.num("n_mid", 71, 5)[1:]
     sw, sh = sk.num("n_small", 150, 5)[1:]
     gw, gh = sk.num("n_signed", 152, 6)[1:]

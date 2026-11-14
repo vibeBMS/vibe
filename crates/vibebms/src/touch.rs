@@ -86,19 +86,6 @@ pub fn layout(
     let mut zones = Vec::new();
     match style {
         TouchStyle::Keyboard => {
-            // START and SELECT in a band above the keys
-            let band = area.h * 0.16;
-            for (i, lane) in [START, SELECT].into_iter().enumerate() {
-                let w = area.w * 0.2;
-                let x = if i == 0 { area.x } else { area.right() - w };
-                zones.push(Zone {
-                    shape: Shape::Rect(Rect::new(x + gap * 0.5, area.y, w - gap, band - gap)),
-                    lane,
-                    scratch: false,
-                    black: false,
-                });
-            }
-            let area = Rect::new(area.x, area.y + band, area.w, area.h - band);
             let order = mode.display_order(player, scratch_right);
             let units: f32 = order
                 .iter()
@@ -176,23 +163,6 @@ pub fn layout(
             );
             let kw = pitch * ARCADE_KEY_W / (ARCADE_KEY_W + ARCADE_KEY_GAP);
             let top = area.y + (area.h - kh * 2.0 - row_gap) * 0.5;
-            // START above key 1 and SELECT above the last key, beside the
-            // blue keys (where the keypad has room)
-            let cell = pitch * 0.5 - (pitch - kw) * 0.35;
-            for (lane, x) in [
-                (START, keys_area.x),
-                (
-                    SELECT,
-                    keys_area.x + (keys - 1) as f32 * pitch * 0.5 + kw - cell,
-                ),
-            ] {
-                zones.push(Zone {
-                    shape: Shape::Rect(Rect::new(x, top, cell, kh * 0.6)),
-                    lane,
-                    scratch: false,
-                    black: false,
-                });
-            }
             for k in 0..keys {
                 let black = k % 2 == 1;
                 let x =
@@ -208,6 +178,53 @@ pub fn layout(
         }
     }
     zones
+}
+
+/// START and SELECT away from the keys: in the letterbox beside the play
+/// screen (landscape) or a band under it (portrait). `screen` is the space
+/// above the controls and `aspect` the play skin's width / height. Returns
+/// the rect left for the play screen and the two buttons. Where the
+/// letterbox is too narrow the play screen gives up the room.
+pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32) -> (Rect, [Zone; 2]) {
+    let mm = px_per_mm;
+    let button = |lane, r| Zone {
+        shape: Shape::Rect(r),
+        lane,
+        scratch: false,
+        black: false,
+    };
+    let margin = 2.0 * mm;
+    if screen.w > screen.h {
+        let shown = (screen.h * aspect).min(screen.w);
+        let strip = ((screen.w - shown) * 0.5)
+            .max(18.0 * mm)
+            .min(screen.w * 0.15);
+        let view = Rect::new(screen.x + strip, screen.y, screen.w - strip * 2.0, screen.h);
+        let w = (strip - margin * 2.0).min(20.0 * mm);
+        let h = (w * 1.4).min(screen.h * 0.5);
+        let y = screen.y + (screen.h - h) * 0.5;
+        let at = |x: f32| Rect::new(x + (strip - w) * 0.5, y, w, h);
+        (
+            view,
+            [
+                button(START, at(screen.x)),
+                button(SELECT, at(screen.right() - strip)),
+            ],
+        )
+    } else {
+        let band = (12.0 * mm).min(screen.h * 0.12);
+        let view = Rect::new(screen.x, screen.y, screen.w, screen.h - band);
+        let w = (24.0 * mm).min(screen.w * 0.3);
+        let y = view.bottom() + margin * 0.5;
+        let h = band - margin;
+        (
+            view,
+            [
+                button(START, Rect::new(screen.x + margin, y, w, h)),
+                button(SELECT, Rect::new(screen.right() - margin - w, y, w, h)),
+            ],
+        )
+    }
 }
 
 struct Ptr {
@@ -425,12 +442,10 @@ mod tests {
             false,
             4.0,
         );
-        // the lanes, START and SELECT
-        assert_eq!(z.len(), 10);
+        assert_eq!(z.len(), 8);
         let mut lanes: Vec<u8> = z.iter().map(|z| z.lane).collect();
         lanes.sort();
-        assert_eq!(lanes[..8], (0..8).collect::<Vec<u8>>());
-        assert_eq!(lanes[8..], [START, SELECT]);
+        assert_eq!(lanes, (0..8).collect::<Vec<u8>>());
         assert!(z[0].scratch);
         let k = layout(
             PlayMode::Popn9K,
@@ -440,7 +455,31 @@ mod tests {
             false,
             4.0,
         );
-        assert_eq!(k.len(), 11);
+        assert_eq!(k.len(), 9);
+    }
+
+    #[test]
+    fn system_buttons_sit_beside_the_play_screen() {
+        // a phone in landscape: a wide letterbox, the play screen keeps its size
+        let screen = Rect::new(0.0, 0.0, 2000.0, 500.0);
+        let (view, [start, select]) = system_buttons(screen, 1280.0 / 528.0, 6.0);
+        let shown = 500.0 * 1280.0 / 528.0;
+        assert!(view.w >= shown, "{view:?}");
+        let (Shape::Rect(a), Shape::Rect(b)) = (start.shape, select.shape) else {
+            panic!()
+        };
+        assert!(a.right() <= view.x && b.x >= view.right());
+        // a tablet: no letterbox, the play screen narrows for the buttons
+        let screen = Rect::new(0.0, 0.0, 1280.0, 528.0);
+        let (view, _) = system_buttons(screen, 1280.0 / 528.0, 6.0);
+        assert!((view.x - 108.0).abs() < 0.5 && (view.right() - (1280.0 - 108.0)).abs() < 0.5);
+        // portrait: a band under the play screen
+        let screen = Rect::new(0.0, 0.0, 700.0, 900.0);
+        let (view, [start, _]) = system_buttons(screen, 720.0 / 1280.0, 6.0);
+        let Shape::Rect(a) = start.shape else {
+            panic!()
+        };
+        assert!(view.h < 900.0 && a.y >= view.bottom());
     }
 
     #[test]
@@ -512,7 +551,6 @@ mod tests {
         assert_eq!(out[2].lane, 1);
         out.clear();
         // scratch: swipe down then up => press, then release+press (BSS)
-        // (below the START / SELECT band)
         t.pointer(&zones, 2, Phase::Down, 50.0, 60.0, now, 6.0, &mut out);
         t.pointer(&zones, 2, Phase::Move, 50.0, 90.0, now, 6.0, &mut out);
         t.pointer(&zones, 2, Phase::Move, 50.0, 60.0, now, 6.0, &mut out);
