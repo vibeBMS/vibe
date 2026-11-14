@@ -69,6 +69,7 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 - **BGA**: 이미지 BGA(레이어, POOR), 동영상 BGA(데스크톱, 설치된 `ffmpeg` 사용 — `VIBEBMS_FFMPEG`로 경로 지정).
 - **단위/코스**, 클리어 램프, EX 스코어, FAST/SLOW, 게이지·타이밍 그래프, 타깃 스코어(최고 기록 / 랭크 A~AAA / MAX-·MAX).
 - **난이도표**: bmstable 형식. 발광/통상 난이도표, Satellite, Stella가 기본 등록되어 있습니다.
+  표에는 있지만 설치되지 않은 곡도 흐리게 보이고, 고르면 원곡(차분이면 차분도) 다운로드 페이지를 브라우저로 엽니다.
 - **IR**: JSON 프로토콜([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md))로 랭킹 조회와 점수 전송.
 - **오디오**: 저지연 출력(ASIO/JACK 기능 플래그), 샘플 단위 키음 스케줄링, WAV/OGG/MP3/FLAC.
 

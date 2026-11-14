@@ -476,6 +476,10 @@ def build_parts(fonts):
         c = Image.new("RGBA", (rw, rh))
         c.paste(im, (rw - im.size[0], (rh - im.size[1]) // 2))
         a.add(f"rank{k}", c)
+    a.add("nosong", text_img(fonts, "NOT INSTALLED", "black_it", 30, (255, 240, 200), AMBER,
+                             (40, 25, 0), 2))
+    a.add("nosong_hint", text_img(fonts, "ENTER: open the download page (song, and the chart if separate)",
+                                  "semi", 15, TEXT, DIM, (0, 0, 0), 0, pad=2))
     a.add("newrec", text_img(fonts, "NEW RECORD", "black_it", 18, (255, 255, 255), PINK, (60, 0, 40), 2))
     a.add("autotag", text_img(fonts, "AUTOPLAY - NOT SAVED", "bold", 14, AMBER, AMBER, (40, 30, 0), 1))
     # music select: bar bodies per bar type (beatoraja order), cursor, lamp, buttons
@@ -1964,20 +1968,24 @@ def select_layout(fonts, parts, portrait=False):
     panel(img, (16, 358, 660, 140), "PERSONAL BEST", f, accent=AMBER)
     graph_obj(sk, "imageset", "clear", {"ref": 370, "images": [sk.img(f"lamp{k}") for k in range(11)]})
     lw_, lh_ = parts.items["lamp0"][2:]
-    sk.put("clear", 26, 380, lw_ * 2 // 3, lh_ * 2 // 3, op=[2])
+    sk.put("clear", 26, 380, lw_ * 2 // 3, lh_ * 2 // 3, op=[5])
     rw, rh = parts.items["rank0"][2:]
     for k in range(8):
         sk.put(sk.img(f"rank{k}"), 676 - 16 - rw // 2, 362, rw // 2, rh // 2, op=[320 + k])
     for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 200), ("MISS", 350), ("COMBO", 470))):
         draw_label(img, f, x, 448, label, 11)
-    sk.number("n_mid", 71, 5, 30, 462, op=[2])
-    sk.number("n_mid", 102, 3, 200, 462, op=[2])
-    sk.put(sk.img("white"), 200 + 21 * 3 + 1, 484, 4, 4, op=[2])
-    sk.number("n_mid", 103, 2, 200 + 21 * 3 + 6, 462, zeropad=True, op=[2])
-    sk.number("n_mid", 76, 4, 350, 462, op=[2])
-    sk.number("n_mid", 75, 5, 470, 462, op=[2])
+    sk.number("n_mid", 71, 5, 30, 462, op=[5])
+    sk.number("n_mid", 102, 3, 200, 462, op=[5])
+    sk.put(sk.img("white"), 200 + 21 * 3 + 1, 484, 4, 4, op=[5])
+    sk.number("n_mid", 103, 2, 200 + 21 * 3 + 6, 462, zeropad=True, op=[5])
+    sk.number("n_mid", 76, 4, 350, 462, op=[5])
+    sk.number("n_mid", 75, 5, 470, 462, op=[5])
     draw_label(img, f, 590, 448, "PLAYS", 11)
-    sk.number("n_small", 77, 4, 590, 466, op=[2])
+    sk.number("n_small", 77, 4, 590, 466, op=[5])
+    # a chart the table lists that is not installed
+    for key, y_ in (("nosong", 378), ("nosong_hint", 420)):
+        w_, h_ = parts.items[key][2:]
+        sk.put(sk.img(key), 30, y_, w_, h_, op=[2, -5])
     # options: clickable buttons (vibeBMS option ids 9000 + i)
     panel(img, (16, 506, 660, 154), "OPTIONS", f)
     for i in range(10):

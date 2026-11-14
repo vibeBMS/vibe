@@ -41,6 +41,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 ehttp = "0.7"
 toml = "0.8"
 json5 = "1"
+# download pages of charts a difficulty table lists but the library lacks
+webbrowser = "1"
 
 # Desktop: trust the OS certificate store (corporate proxies, custom CAs).
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]

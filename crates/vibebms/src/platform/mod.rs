@@ -20,6 +20,17 @@ pub fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Open `url` in the system browser (a new tab on the web).
+pub fn open_url(url: &str) -> bool {
+    match webbrowser::open(url) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("open {url}: {e}");
+            false
+        }
+    }
+}
+
 /// Run `f` in the background (a thread natively, the next event-loop tick on the web).
 pub fn spawn<F: FnOnce() + Send + 'static>(name: &str, f: F) {
     #[cfg(not(target_arch = "wasm32"))]

@@ -95,7 +95,13 @@ impl SelectState<'_> {
             Bar::Missing { title, level, .. } => BarInfo {
                 kind: BAR_NOSONG,
                 title: title.clone(),
-                level: level.trim().parse::<f64>().ok().map(|v| v as i64),
+                // the table's level ("★12" -> 12)
+                level: level
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse()
+                    .ok(),
                 difficulty: 0,
                 lamp: None,
             },
@@ -482,6 +488,10 @@ impl Hooks for SelectHooks<'_> {
                 if let Some((tr, f)) = sub(t) {
                     let mut c = f.color;
                     c[3] *= fr.color[3];
+                    // not installed: dimmed
+                    if info.kind == BAR_NOSONG {
+                        c[3] *= 0.45;
+                    }
                     skin.text(d, &info.title, tr, *align, *overflow, c, *font);
                 }
             }

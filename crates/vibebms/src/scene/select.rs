@@ -52,7 +52,10 @@ pub(crate) enum Bar {
         title: String,
         artist: String,
         level: String,
+        /// Download pages: the song, and the chart when it is a separate
+        /// (差分) chart for that song.
         url: String,
+        url_diff: String,
     },
     Course {
         table: usize,
@@ -315,6 +318,7 @@ impl SelectScene {
                             artist: e.artist.clone(),
                             level: table.label(&e.level),
                             url: e.url.clone(),
+                            url_diff: e.url_diff.clone(),
                         },
                     })
                     .collect()
@@ -404,12 +408,30 @@ impl SelectScene {
                     },
                 )))
             }
-            Some(Bar::Missing { url, title, .. }) => {
-                if url.is_empty() {
-                    ctx.toast(format!("Not installed: {title}"));
-                } else {
-                    ctx.toast(format!("Not installed: {title} — {url}"));
-                }
+            Some(Bar::Missing {
+                url,
+                url_diff,
+                title,
+                ..
+            }) => {
+                // the song's page, then the separate chart's (the chart goes
+                // into the song's folder)
+                let pages: Vec<&str> = [url.as_str(), url_diff.as_str()]
+                    .into_iter()
+                    .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+                    .collect();
+                let opened = pages
+                    .iter()
+                    .filter(|u| crate::platform::open_url(u))
+                    .count();
+                ctx.toast(match (pages.len(), opened) {
+                    (0, _) => format!("Not installed: {title} (no download link)"),
+                    (_, 0) => format!("Not installed: {title} — {}", pages.join("  ")),
+                    (1, _) => format!("Opened the download page of {title}"),
+                    _ => format!(
+                        "Opened the download pages of {title}: put the chart into the song's folder"
+                    ),
+                });
                 Next::Stay
             }
             Some(Bar::Course { table, course }) => {
