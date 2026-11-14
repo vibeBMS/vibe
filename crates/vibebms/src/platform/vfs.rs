@@ -498,7 +498,7 @@ pub fn find_by_stem(dir: &Path, name: &str, exts: &[&str]) -> Option<PathBuf> {
 }
 
 pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac"];
-pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif"];
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "cim"];
 
 /// Background read of lazily mounted files (web). Natively it completes immediately.
 pub struct Prefetch {

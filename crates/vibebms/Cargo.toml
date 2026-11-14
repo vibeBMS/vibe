@@ -46,6 +46,7 @@ toml = "0.8"
 json5 = "1"
 # song packs (.zip; the web build's picked packs, downloaded songs)
 zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
 # download pages of charts a difficulty table lists but the library lacks
 webbrowser = "1"
 

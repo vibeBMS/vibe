@@ -1,6 +1,7 @@
 //! Minimal, fast 2D renderer on wgpu: one textured-quad pipeline, batched by
 //! texture. Works on Vulkan / Metal / DX12 / GL(ES).
 
+pub mod cim;
 pub mod dds;
 pub mod text;
 
@@ -865,6 +866,9 @@ pub fn load_rgba(path: &std::path::Path, color_key_black: bool) -> Option<(u32, 
 pub fn load_rgba_bytes(bytes: &[u8], color_key_black: bool) -> Option<(u32, u32, Vec<u8>)> {
     if bytes.starts_with(b"DDS ") {
         return dds::decode(bytes);
+    }
+    if let Some(img) = cim::decode(bytes) {
+        return Some(img);
     }
     // TGA has no signature to recognise it by
     let img = match image::load_from_memory(bytes).or_else(|e| {

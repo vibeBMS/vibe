@@ -4936,6 +4936,7 @@ dependencies = [
  "ehttp",
  "encoding_rs",
  "env_logger",
+ "flate2",
  "fontdb",
  "fontdue",
  "gilrs",

@@ -112,6 +112,8 @@ struct Loader<'a> {
     image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
     cur: Option<usize>,
     pending_line: Option<Src>,
+    /// beatoraja `#IMAGESET` images, chosen from by `#SRC_IMAGESET`.
+    imagesets: Vec<Option<Src>>,
     /// Buttons that belong to a panel: (object, panel option id).
     panel_ops: Vec<(usize, i32)>,
     /// `#LR2FONT` list (indexed by `#SRC_TEXT`): font in `Skin::fonts`.
@@ -394,6 +396,29 @@ impl Loader<'_> {
                     self.push(Kind::RefImage(v[2] as i32));
                 } else if let Some(s) = src(&v, &self.sizes) {
                     self.push(Kind::Image(s));
+                }
+            }
+            // beatoraja: a list of images, and an object showing the one a
+            // skin value picks (`#SRC_IMAGESET,cycle,timer,value,n,set...`)
+            "#IMAGESET" => self.imagesets.push(src(&v, &self.sizes)),
+            "#SRC_IMAGESET" => {
+                self.cur = None;
+                let n = v[4].clamp(0, 16) as usize;
+                let mut srcs: Vec<Src> = (0..n)
+                    .map_while(|i| {
+                        let k = usize::try_from(*v.get(5 + i)?).ok()?;
+                        self.imagesets.get(k).cloned().flatten()
+                    })
+                    .collect();
+                for s in &mut srcs {
+                    s.cycle = v[1];
+                    s.timer = v[2] as i32;
+                }
+                if !srcs.is_empty() {
+                    self.push(Kind::ImageSet {
+                        srcs,
+                        id: v[3] as i32,
+                    });
                 }
             }
             "#SRC_BUTTON" => {
@@ -825,6 +850,9 @@ impl Loader<'_> {
                     }
                 }
             }
+            // an object vibeBMS does not draw (#SRC_ONMOUSE hover images,
+            // ...): its #DST lines must not move the object before it
+            c if c.starts_with("#SRC_") => self.cur = None,
             _ => {}
         }
     }
@@ -881,6 +909,7 @@ pub fn load(
         image_size,
         cur: None,
         pending_line: None,
+        imagesets: Vec::new(),
         panel_ops: Vec::new(),
         fonts: Vec::new(),
         resolution_set: false,
@@ -1248,6 +1277,37 @@ mod tests {
         assert_eq!(s.objects[0].dst.ops, vec![32, 21]);
         assert_eq!(s.objects[1].act, Some((15, 0)));
         assert!(s.objects[1].dst.ops.is_empty());
+    }
+
+    #[test]
+    fn unknown_objects_keep_their_destinations() {
+        let dir = std::env::temp_dir().join(format!("vibebms-onm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // a hover image (not drawn) after an image: its keys are its own;
+        // beatoraja image sets pick by a value (here 42, RANDOM)
+        let csv = "#INFORMATION,5,Hover,me\n#IMAGE,a.png\n\
+#SRC_IMAGE,0,0,0,0,23,32,1,1,0,0\n#DST_IMAGE,0,0,10,10,23,32,0,255,255,255,255\n\
+#SRC_ONMOUSE,0,0,0,0,258,67,1,1,0,0,2,0,0,129,67\n\
+#DST_ONMOUSE,0,500,544,148,258,67,0,200,255,255,255\n\
+#IMAGESET,0,0,0,0,10,10,1,1\n#IMAGESET,0,0,10,0,10,10,1,1\n\
+#SRC_IMAGESET,0,21,42,2,0,1\n#DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n";
+        std::fs::write(dir.join("h.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let s = load(
+            &dir.join("h.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        assert_eq!(s.objects[0].dst.keys.len(), 1);
+        assert_eq!(s.objects[0].dst.keys[0].rect.w, 23.0);
+        let Kind::ImageSet { srcs, id } = &s.objects[1].kind else {
+            panic!("{:?}", s.objects[1].kind)
+        };
+        assert_eq!((srcs.len(), *id, srcs[1].timer), (2, 42, 21));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
