@@ -712,7 +712,7 @@ impl LoadedSkin {
         let Some((j, combo)) = hooks.judge(side) else {
             return;
         };
-        let js = &self.skin.judges[side.min(1)];
+        let js = &self.skin.judges[side.min(2)];
         let Some((src, dst)) = js.judge[j.min(5)].as_ref() else {
             return;
         };

@@ -5,8 +5,15 @@
 //! `#SRC/#DST_IMAGE`, `_NUMBER`, `_TEXT` (drawn with system fonts),
 //! `_BARGRAPH`, `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`, `_LN_*`,
 //! `_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE_1P/2P`, `_NOWCOMBO_1P/2P`,
-//! `#STARTINPUT`, `#SCENETIME`, `#FADEOUT`, `#FINISHMARGIN`.
-//! Not yet: onmouse, charts beyond the gauge / score chart.
+//! `#STARTINPUT`, `#SCENETIME`, `#FADEOUT`, `#FINISHMARGIN`, `#PLAYSTART`,
+//! `#CLOSE`, and the note / BPM / timing charts.
+//!
+//! beatoraja's additions: `#IMAGESET`, `.cim` images, `_HCN_*`, `_HIDDEN`,
+//! `_LIFT`, `_TIMING_1P`, `_GROOVEGAUGE_EX`, `_SLIDER_REFNUMBER`,
+//! `_BARGRAPH_REFNUMBER`, `_NOWJUDGE_3P` / `_NOWCOMBO_3P` (PMS),
+//! `#DST_NOTE2`, `#DST_NOTE_EXPANSION_RATE`, `#JUDGETIMER`, `#STRETCH`,
+//! `#CUSTOMOFFSET` and destination offsets (fields 21 on).
+//! Not yet: onmouse (skipped), `#LOADSTART` / `#LOADEND`.
 
 use super::*;
 use crate::platform::vfs;
@@ -50,6 +57,16 @@ fn src(v: &[i64; 22], image_sizes: &[Option<(u32, u32)>]) -> Option<Src> {
         cycle: v[9],
         timer: v[10] as i32,
     })
+}
+
+/// The judge display of a `_1P` / `_2P` / `_3P` command (beatoraja's
+/// third one is the PMS middle region).
+fn judge_side(cmd: &str) -> usize {
+    if cmd.ends_with("3P") {
+        2
+    } else {
+        usize::from(cmd.ends_with("2P"))
+    }
 }
 
 /// beatoraja offset ids after an LR2 destination's 21 fields.
@@ -469,7 +486,7 @@ impl Loader<'_> {
                     self.panel_ops.push((i, 20 + v[13] as i32));
                 }
             }
-            "#SRC_NUMBER" | "#SRC_NOWCOMBO_1P" | "#SRC_NOWCOMBO_2P" => {
+            "#SRC_NUMBER" | "#SRC_NOWCOMBO_1P" | "#SRC_NOWCOMBO_2P" | "#SRC_NOWCOMBO_3P" => {
                 self.cur = None;
                 let Some(mut s) = src(&v, &self.sizes) else {
                     return;
@@ -496,7 +513,7 @@ impl Loader<'_> {
                         pad: (digits > 10).then_some(10),
                     });
                 } else {
-                    let side = usize::from(cmd.ends_with("2P"));
+                    let side = judge_side(&cmd);
                     let j = if v[1] <= 5 {
                         (5 - v[1]) as usize
                     } else {
@@ -506,8 +523,8 @@ impl Loader<'_> {
                     self.skin.judges[side].combo[j] = Some((s, Dst::default(), keta));
                 }
             }
-            "#DST_NOWCOMBO_1P" | "#DST_NOWCOMBO_2P" => {
-                let side = usize::from(cmd.ends_with("2P"));
+            "#DST_NOWCOMBO_1P" | "#DST_NOWCOMBO_2P" | "#DST_NOWCOMBO_3P" => {
+                let side = judge_side(&cmd);
                 if v[1] <= 5 {
                     if let Some((_, d, _)) =
                         self.skin.judges[side].combo[(5 - v[1]) as usize].as_mut()
@@ -871,6 +888,14 @@ impl Loader<'_> {
                 }
             }
             "#STRETCH" => self.stretch = v[1] as i32,
+            "#PLAYSTART" => self.skin.play_start_ms = Some(v[1].clamp(0, 10_000)),
+            "#CLOSE" => self.skin.close_ms = Some(v[1].clamp(0, 10_000)),
+            "#JUDGETIMER" => self.skin.judge_timer = Some(v[1].clamp(0, 3) as usize),
+            "#DST_NOTE2" => self.skin.note_fall_y = Some(v[1] as f32),
+            "#DST_NOTE_EXPANSION_RATE" => {
+                self.skin.note_expansion =
+                    Some((v[1] as f32, v[2] as f32)).filter(|&(w, h)| w != 100.0 || h != 100.0)
+            }
             "#CUSTOMOFFSET" => {
                 if let Ok(id) = f.get(2).unwrap_or(&"").trim().parse::<i32>() {
                     let v = self.user_offsets.get(s1).copied().unwrap_or_default();
@@ -911,9 +936,9 @@ impl Loader<'_> {
                 }
                 self.cur = None;
             }
-            "#SRC_NOWJUDGE_1P" | "#SRC_NOWJUDGE_2P" => {
+            "#SRC_NOWJUDGE_1P" | "#SRC_NOWJUDGE_2P" | "#SRC_NOWJUDGE_3P" => {
                 self.cur = None;
-                let side = usize::from(cmd.ends_with("2P"));
+                let side = judge_side(&cmd);
                 if v[1] > 5 {
                     return;
                 }
@@ -935,8 +960,8 @@ impl Loader<'_> {
                     }
                 }
             }
-            "#DST_NOWJUDGE_1P" | "#DST_NOWJUDGE_2P" => {
-                let side = usize::from(cmd.ends_with("2P"));
+            "#DST_NOWJUDGE_1P" | "#DST_NOWJUDGE_2P" | "#DST_NOWJUDGE_3P" => {
+                let side = judge_side(&cmd);
                 if v[1] <= 5 {
                     if let Some((_, d)) = self.skin.judges[side].judge[(5 - v[1]) as usize].as_mut()
                     {
@@ -1039,6 +1064,11 @@ pub fn load_with_offsets(
             scene_ms: 0,
             input_ms: 0,
             fadeout_ms: 0,
+            note_expansion: None,
+            note_fall_y: None,
+            judge_timer: None,
+            play_start_ms: None,
+            close_ms: None,
             finish_margin_ms: 0,
             script: None,
             fonts: Vec::new(),
@@ -1495,7 +1525,9 @@ mod tests {
 #STRETCH,1\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n\
 #DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255,0,0,0,0,0,0,0,0,0,50\n#STRETCH,0\n\
 #SRC_HIDDEN,0,0,0,0,10,10,1,1,0,0,300,0\n#DST_HIDDEN,0,0,0,0,10,10,0,255,255,255,255\n\
-#SRC_BARGRAPH_REFNUMBER,0,0,0,0,10,10,1,1,0,0,160,1,0,99\n#DST_BARGRAPH_REFNUMBER,0,0,0,0,10,10,0,255,255,255,255\n";
+#SRC_BARGRAPH_REFNUMBER,0,0,0,0,10,10,1,1,0,0,160,1,0,99\n#DST_BARGRAPH_REFNUMBER,0,0,0,0,10,10,0,255,255,255,255\n\
+#DST_NOTE_EXPANSION_RATE,115,112\n#DST_NOTE2,919\n#JUDGETIMER,2\n#PLAYSTART,2000\n#CLOSE,3000\n\
+#SRC_NOWJUDGE_3P,5,0,0,0,10,10,1,1,0,0\n#DST_NOWJUDGE_3P,5,0,0,0,10,10,0,255,255,255,255\n";
         std::fs::write(dir.join("e.lr2skin"), csv).unwrap();
         let size = |_: &Path| Some((128, 64));
         let offsets = HashMap::from([("Judge".to_string(), [3, -4, 0, 0, 0, 0])]);
@@ -1527,6 +1559,12 @@ mod tests {
             panic!("{:?}", s.objects[2].kind)
         };
         assert_eq!((*id, *minmax), (160, Some((0.0, 99.0))));
+        assert_eq!(s.note_expansion, Some((115.0, 112.0)));
+        assert_eq!(
+            (s.note_fall_y, s.judge_timer, s.play_start_ms, s.close_ms),
+            (Some(919.0), Some(2), Some(2000), Some(3000))
+        );
+        assert!(s.judges[2].judge[0].is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

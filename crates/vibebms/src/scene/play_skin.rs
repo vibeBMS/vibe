@@ -282,7 +282,9 @@ impl SkinState for SceneState<'_> {
             31 => s.panel_timers().1.map(|t| self.ms(t)),
             40 => s.ready_at.map(|t| self.ms(t)),
             41 => s.ready_at.map(|_| self.ms(s.start)),
+            // judge / combo 1P, 2P, 3P (the PMS middle region)
             46 | 47 | 446 | 447 => s.last_judge[(id % 2 == 1) as usize].map(|j| self.ms(j.2)),
+            247 | 448 => s.last_judge[2].map(|j| self.ms(j.2)),
             2 | 3 => s.ending_at().map(|t| self.ms(t)),
             44 => self
                 .engine()
@@ -592,6 +594,11 @@ impl Hooks for SceneHooks<'_> {
         let p = &self.st.ctx.config.play;
         let t_vis = s.chart_us(self.st.now) + p.visual_offset_ms as i64 * 1000;
         let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
+        let pulse = note_pulse(skin.skin.note_expansion, &s.chart.timing, t_vis);
+        let fall_y = skin
+            .skin
+            .note_fall_y
+            .map(|y| xf.rect(Rect::new(0.0, y, 0.0, 0.0)).y);
         let main_bpm = if s.chart.meta.main_bpm > 0.0 {
             s.chart.meta.main_bpm
         } else {
@@ -669,7 +676,14 @@ impl Hooks for SceneHooks<'_> {
             };
             // HIDDEN+ hides notes above the judge line
             let bottom = judge_y + 2.0 - p.hidden * (judge_y - top);
-            d.b.set_clip(Some(Rect::new(r.x, top, r.w, (bottom - top).max(0.0))));
+            // (wide enough for pulsing notes)
+            let grow = r.w * (pulse.0 - 1.0).max(0.0) * 0.5;
+            d.b.set_clip(Some(Rect::new(
+                r.x - grow,
+                top,
+                r.w + 2.0 * grow,
+                (bottom - top).max(0.0),
+            )));
             let at = |t: i64| y_of(s.chart.timing.pos_at_time(t as f64), t);
             // JUDGE AREA: each judgement's early window as a band above the
             // line (beatoraja's colours: PG blue .. POOR red)
@@ -713,7 +727,30 @@ impl Hooks for SceneHooks<'_> {
             let Some(list) = s.lane_notes.get(lane) else {
                 continue;
             };
-            for &ni in &list[s.lane_cursor.get(lane).copied().unwrap_or(0)..] {
+            let cursor = s
+                .lane_cursor
+                .get(lane)
+                .copied()
+                .unwrap_or(0)
+                .min(list.len());
+            // PMS (#DST_NOTE2): missed notes, unjudged or POOR, fall
+            let mut falling: Vec<usize> = Vec::new();
+            if fall_y.is_some() {
+                falling.extend(
+                    list[..cursor]
+                        .iter()
+                        .rev()
+                        .copied()
+                        .take_while(|&ni| notes[ni].time > t_vis - FALL_US)
+                        .filter(|&ni| {
+                            let n = &notes[ni];
+                            !n.is_long()
+                                && !n.is_mine()
+                                && (n.state == 0 || n.state as usize > POOR)
+                        }),
+                );
+            }
+            for &ni in &list[cursor..] {
                 let n = &notes[ni];
                 let cn = &s.chart.notes[n.chart_index];
                 let y = y_of(cn.pos, n.time);
@@ -789,6 +826,13 @@ impl Hooks for SceneHooks<'_> {
                         }
                     }
                     _ => {
+                        if fall_y.is_some()
+                            && n.time < t_vis
+                            && (n.state == 0 || n.state as usize > POOR)
+                        {
+                            falling.push(ni);
+                            continue;
+                        }
                         let mark = n.is_done() && p.mark_notes && n.time > t_vis;
                         if n.is_done() && !mark {
                             continue;
@@ -796,12 +840,33 @@ impl Hooks for SceneHooks<'_> {
                         if let Some(src) = ls.note.as_ref() {
                             let h = note_h(src);
                             let fr = if mark { &marked } else { &ident };
-                            skin.blit(d, src, now, st, Rect::new(r.x, y - h, r.w, h), fr);
+                            let (w2, h2) = (r.w * pulse.0, h * pulse.1);
+                            let nr =
+                                Rect::new(r.x - (w2 - r.w) * 0.5, y - h - (h2 - h) * 0.5, w2, h2);
+                            skin.blit(d, src, now, st, nr, fr);
                         }
                     }
                 }
             }
             d.b.set_clip(None);
+            // they wait at the line through the late BAD window, then fall
+            // at the scroll speed until they pass the skin's vanishing point
+            if let (Some(vanish), Some(src)) = (fall_y, ls.note.as_ref()) {
+                let bad = engine
+                    .windows()
+                    .note
+                    .get(BAD)
+                    .map(|w| -w.0)
+                    .unwrap_or(0)
+                    .max(0);
+                let h = note_h(src);
+                for ni in falling {
+                    let y = at(notes[ni].time + bad).max(judge_y);
+                    if y <= vanish {
+                        skin.blit(d, src, now, st, Rect::new(r.x, y - h, r.w, h), &ident);
+                    }
+                }
+            }
         }
         for (pl, y, label, c) in &guide_y {
             if let Some((x0, x1)) = guide_span[*pl] {
@@ -878,6 +943,35 @@ impl Hooks for SceneHooks<'_> {
     }
 
     fn judge(&self, side: usize) -> Option<(usize, u32)> {
-        self.st.s.last_judge[side.min(1)].map(|j| (j.0, j.3))
+        self.st.s.last_judge[side.min(2)].map(|j| (j.0, j.3))
     }
+}
+
+/// How long missed notes are followed as they fall (µs).
+const FALL_US: i64 = 5_000_000;
+
+/// beatoraja's PMS note pulse: the size scale of the notes `t` µs into the
+/// chart, growing to the skin's rate over 9 ms from each beat and back over
+/// 150 ms.
+fn note_pulse(
+    rate: Option<(f32, f32)>,
+    tm: &vibebms_core::timing::TimingMap,
+    t: i64,
+) -> (f32, f32) {
+    const GROW_MS: f64 = 9.0;
+    const SHRINK_MS: f64 = 150.0;
+    let Some((w, h)) = rate else {
+        return (1.0, 1.0);
+    };
+    let t = t as f64;
+    let since = (t - tm.time_at_beat(tm.beat_at_time(t).floor()) as f64) / 1000.0;
+    let k = if since < GROW_MS {
+        since / GROW_MS
+    } else if since <= GROW_MS + SHRINK_MS {
+        (SHRINK_MS - (since - GROW_MS)) / SHRINK_MS
+    } else {
+        0.0
+    }
+    .max(0.0) as f32;
+    (1.0 + (w / 100.0 - 1.0) * k, 1.0 + (h / 100.0 - 1.0) * k)
 }

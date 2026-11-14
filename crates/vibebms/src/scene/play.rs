@@ -109,7 +109,8 @@ pub struct PlayScene {
     pub(crate) auto_notes: Vec<(i64, SoundId)>,
     pub(crate) bga: [Option<u32>; 4],
     pub(crate) poor_until: Option<Instant>,
-    pub(crate) last_judge: [Option<(usize, i64, Instant, u32)>; 2],
+    /// The last judge of each judge region (`judge_region`).
+    pub(crate) last_judge: [Option<(usize, i64, Instant, u32)>; 3],
     pub(crate) bombs: Vec<(u8, Instant, usize)>,
     pub(crate) gauge_log: Vec<f32>,
     pub(crate) next_sample: i64,
@@ -325,7 +326,7 @@ impl PlayScene {
             auto_notes: Vec::new(),
             bga: [None; 4],
             poor_until: None,
-            last_judge: [None, None],
+            last_judge: [None; 3],
             bombs: Vec::new(),
             gauge_log: Vec::new(),
             next_sample: 0,
@@ -355,6 +356,21 @@ impl PlayScene {
 
     pub(crate) fn mode(&self) -> PlayMode {
         self.mode
+    }
+
+    /// beatoraja judge regions: one per player, or for a PMS skin with a
+    /// third judge display, three (keys 1-3, 4-6 and 7-9).
+    fn judge_region(&self, lane: usize) -> usize {
+        let three = self.mode == PlayMode::Popn9K
+            && self
+                .skin
+                .as_ref()
+                .is_some_and(|s| s.skin.judges[2].judge.iter().any(Option::is_some));
+        if three {
+            (lane / 3).min(2)
+        } else {
+            self.mode.player_of_lane(lane).min(1)
+        }
     }
 
     pub(crate) fn ln_mode(&self) -> LnType {
@@ -522,8 +538,11 @@ impl PlayScene {
         self.options_label = opts.join(" / ");
         self.chart = chart;
         self.bank = bank;
-        // start: 1.5 s lead-in so the first notes scroll in
-        let lead = Duration::from_millis(1500);
+        self.skin = super::play_skin::load_play_skin(ctx, gfx, self);
+        // start: a lead-in so the first notes scroll in (the skin's
+        // #PLAYSTART, else 1.5 s)
+        let lead_ms = self.skin.as_ref().and_then(|s| s.skin.play_start_ms);
+        let lead = Duration::from_millis(lead_ms.unwrap_or(1500) as u64);
         let now = Instant::now();
         self.start = now + lead;
         self.base_frame = ctx.mixer.current_frame() as i64
@@ -531,7 +550,6 @@ impl PlayScene {
             + ctx.mixer.buffer_frames as i64;
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
-        self.skin = super::play_skin::load_play_skin(ctx, gfx, self);
         self.skin_panel = self
             .skin
             .as_ref()
@@ -892,7 +910,14 @@ impl Scene for PlayScene {
             Stage::Loading => return Next::Stay,
             Stage::Ending { since, failed } => {
                 if now.duration_since(since)
-                    > Duration::from_millis(if failed { 1500 } else { 1200 })
+                    > Duration::from_millis(if failed {
+                        self.skin
+                            .as_ref()
+                            .and_then(|s| s.skin.close_ms)
+                            .unwrap_or(1500) as u64
+                    } else {
+                        1200
+                    })
                 {
                     ctx.mixer.stop_bus(Bus::Bgm);
                     ctx.mixer.stop_bus(Bus::Key);
@@ -949,8 +974,8 @@ impl Scene for PlayScene {
                     combo,
                     ..
                 } => {
-                    let player = self.mode.player_of_lane(lane as usize).min(1);
-                    self.last_judge[player] = Some((judge, diff, now, combo));
+                    let region = self.judge_region(lane as usize);
+                    self.last_judge[region] = Some((judge, diff, now, combo));
                     // beatoraja timing auto adjust: PG..GOOD within 150 ms
                     // move the timing a ms per 30 ms off (diff > 0: early)
                     let p = &mut ctx.config.play;
@@ -967,6 +992,14 @@ impl Scene for PlayScene {
                     }
                     if judge <= GREAT {
                         self.bombs.push((lane, now, judge));
+                    }
+                    // the skin's bomb timers (#JUDGETIMER: up to which judge)
+                    let bomb_upto = self
+                        .skin
+                        .as_ref()
+                        .and_then(|s| s.skin.judge_timer)
+                        .unwrap_or(GREAT);
+                    if judge <= bomb_upto {
                         if let Some(b) = self.bomb_at.get_mut(lane as usize) {
                             *b = Some(now);
                         }

@@ -678,7 +678,7 @@ pub struct Skin {
     pub objects: Vec<Obj>,
     /// Lane skins indexed by our lane numbering.
     pub lanes: Vec<LaneSkin>,
-    pub judges: [JudgeSkin; 2],
+    pub judges: [JudgeSkin; 3],
     /// Bar (measure) lines, one per lane group (both sides in DP).
     pub bar_lines: Vec<(Src, Dst)>,
     pub songlist: Option<SongListSkin>,
@@ -686,6 +686,19 @@ pub struct Skin {
     pub scene_ms: i64,
     pub input_ms: i64,
     pub fadeout_ms: i64,
+    /// beatoraja `#DST_NOTE_EXPANSION_RATE` (PMS): notes grow to w, h % on
+    /// each beat and shrink back.
+    pub note_expansion: Option<(f32, f32)>,
+    /// beatoraja `#DST_NOTE2` (PMS): missed notes fall below the judge line
+    /// and vanish at this y.
+    pub note_fall_y: Option<f32>,
+    /// beatoraja `#JUDGETIMER`: the worst judge that starts the bomb timers
+    /// (else GREAT).
+    pub judge_timer: Option<usize>,
+    /// LR2 `#PLAYSTART`: ms from ready to the chart's start (else 1500).
+    pub play_start_ms: Option<i64>,
+    /// LR2 `#CLOSE`: ms the failed scene runs (else 1500).
+    pub close_ms: Option<i64>,
     pub finish_margin_ms: i64,
     /// Script values (beatoraja Lua functions / scripts).
     pub script: Option<std::rc::Rc<script::Runtime>>,

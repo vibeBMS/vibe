@@ -807,6 +807,11 @@ pub fn load_with(
         scene_ms: i(&sk, "scene", 0),
         input_ms: i(&sk, "input", 0),
         fadeout_ms: i(&sk, "fadeout", 0),
+        note_expansion: None,
+        note_fall_y: None,
+        judge_timer: None,
+        play_start_ms: None,
+        close_ms: None,
         finish_margin_ms: i(&sk, "finishmargin", 0),
         script: None,
         fonts: Vec::new(),
@@ -997,7 +1002,7 @@ pub fn load_with(
         } else if bga.map(|b| id_of(b) == id).unwrap_or(false) {
             Some(Kind::Bga)
         } else if let Some(j) = arr(sk.get("judge")).iter().find(|x| id_of(x) == id) {
-            let side = i(j, "index", 0).clamp(0, 1) as usize;
+            let side = i(j, "index", 0).clamp(0, 2) as usize;
             let js = &mut skin.judges[side];
             js.shift = j.get("shift").and_then(Value::as_bool).unwrap_or(true);
             for (k, im) in arr(j.get("images")).iter().enumerate().take(6) {
