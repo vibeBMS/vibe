@@ -109,6 +109,8 @@ pub fn event_name(url: &str) -> String {
         .to_uppercase()
 }
 
+// the web build does not download (Status, Done)
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Msg {
     Catalog(String, Result<Vec<CatalogEntry>, String>),
     Index(String, Result<Vec<Work>, String>),
@@ -312,9 +314,30 @@ impl Archives {
         ))
     }
 
+    /// On the web: the browser downloads the mirror's files, to be added
+    /// with "Files / .zip" (the page cannot unpack into the library alone).
     #[cfg(target_arch = "wasm32")]
-    pub fn download(&mut self, _root: &Path, _ev: usize, _num: u32) -> Result<String, String> {
-        Err("downloads need the desktop or mobile app".into())
+    pub fn download(&mut self, _root: &Path, ev: usize, num: u32) -> Result<String, String> {
+        let work = self
+            .events
+            .get(ev)
+            .and_then(|e| e.works.iter().find(|w| w.num == num))
+            .ok_or("no such work")?;
+        if work.files.is_empty() {
+            return Err("not mirrored: download it from its page".into());
+        }
+        let opened = work
+            .files
+            .iter()
+            .filter(|f| crate::platform::open_url(&f.url))
+            .count();
+        if opened == 0 {
+            return Err("the browser blocked the download".into());
+        }
+        Ok(format!(
+            "Downloading {}: add it with Files / .zip when it is saved",
+            work.title
+        ))
     }
 
     /// Messages since the last frame: (toasts, the library changed, the
@@ -387,6 +410,7 @@ impl Archives {
 }
 
 /// `name` made safe as a single file name.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn safe_name(name: &str) -> String {
     let s: String = name
         .chars()
