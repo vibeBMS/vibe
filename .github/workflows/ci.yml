@@ -186,8 +186,10 @@ jobs:
           echo "APP=$app" >> "$GITHUB_ENV"
       - name: run in the simulator
         run: |
-          runtime=$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.isAvailable and .platform == "iOS")] | last | .identifier')
-          dtype=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.productFamily == "iPad")] | last | .identifier')
+          # the newest iOS runtime and an iPad it supports
+          rt=$(xcrun simctl list runtimes -j | jq '[.runtimes[] | select(.isAvailable and .platform == "iOS")] | last')
+          runtime=$(echo "$rt" | jq -r .identifier)
+          dtype=$(echo "$rt" | jq -r '[.supportedDeviceTypes[] | select(.productFamily == "iPad")] | last | .identifier')
           echo "runtime $runtime, device $dtype"
           udid=$(xcrun simctl create vibe "$dtype" "$runtime")
           xcrun simctl boot "$udid"
