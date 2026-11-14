@@ -50,21 +50,13 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release -p vibebms --target ${{ matrix.target }}
-      - name: package
-        shell: bash
-        run: |
-          mkdir -p dist/vibeBMS
-          cp README.md dist/vibeBMS/
-          cp -r docs dist/vibeBMS/
-          if [ -f target/${{ matrix.target }}/release/vibebms.exe ]; then
-            cp target/${{ matrix.target }}/release/vibebms.exe dist/vibeBMS/
-          else
-            cp target/${{ matrix.target }}/release/vibebms dist/vibeBMS/
-          fi
+      # the executable alone (the downloads job links it in the run summary)
       - uses: actions/upload-artifact@v4
         with:
           name: vibeBMS-${{ matrix.name }}
-          path: dist/vibeBMS
+          path: |
+            target/${{ matrix.target }}/release/vibebms
+            target/${{ matrix.target }}/release/vibebms.exe
 
   web:
     name: build web (wasm32)
@@ -281,3 +273,31 @@ jobs:
         with:
           name: vibeBMS-android
           path: vibeBMS.apk
+
+  # links to the executables in the run summary, once the builds are done
+  downloads:
+    name: downloads
+    needs: [build, android, ios]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "### Downloads"
+            echo
+            echo "| build | |"
+            echo "|---|---|"
+            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
+              --jq '.artifacts[] | select(.name | test("^vibeBMS-(linux|windows|macos|android|ios-unsigned)")) | "\(.name)\t\(.id)\t\(.size_in_bytes)"' |
+              sort | while IFS=$'\t' read -r name id size; do
+                echo "| ${name#vibeBMS-} | [download]($RUN/artifacts/$id) ($((size / 1048576)) MB) |"
+              done
+            echo
+            echo "Linux / macOS: \`chmod +x vibebms\` after unzipping; on macOS also \`xattr -d com.apple.quarantine vibebms\`."
+          } >> "$GITHUB_STEP_SUMMARY"
