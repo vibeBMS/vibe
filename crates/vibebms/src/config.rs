@@ -602,6 +602,8 @@ pub struct Config {
     pub display: DisplayConfig,
     pub audio: AudioSettings,
     pub tables: Vec<TableConfig>,
+    /// Indexes of mirrored event entries (shown as folders; see `archive`).
+    pub archives: Vec<String>,
     /// Internet ranking server (an older `ir` list is ignored).
     pub ir_server: IrConfig,
     /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
@@ -632,6 +634,10 @@ impl Default for Config {
                     url: u.to_string(),
                     enabled: true,
                 })
+                .collect(),
+            archives: crate::archive::DEFAULT_INDEXES
+                .iter()
+                .map(|s| s.to_string())
                 .collect(),
             ir_server: IrConfig::default(),
             skins: Default::default(),

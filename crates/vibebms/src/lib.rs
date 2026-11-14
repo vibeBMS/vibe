@@ -1,6 +1,7 @@
 //! vibeBMS application: window, renderer, input, scenes.
 
 pub mod app;
+pub mod archive;
 #[cfg(all(
     feature = "browser",
     any(windows, target_os = "macos", target_os = "linux", target_os = "ios")

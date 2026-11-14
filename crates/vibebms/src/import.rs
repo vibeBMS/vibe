@@ -208,6 +208,23 @@ pub fn import(file: &Path, library: &Path) -> Result<Imported, String> {
     })
 }
 
+/// Put `file` (published as `name`) into folder `dest`: an archive is
+/// unpacked there, anything else (an add-on chart or movie) is moved in.
+/// Returns the number of files written.
+pub fn unpack_into(file: &Path, name: &str, dest: &Path) -> Result<usize, String> {
+    std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    match ext(Path::new(name)).as_str() {
+        "zip" => unzip(file, dest),
+        "7z" => un7z(file, dest),
+        "rar" => unrar(file, dest),
+        _ => {
+            let to = dest.join(safe_rel(name).unwrap_or_else(|| PathBuf::from("download")));
+            std::fs::copy(file, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+            Ok(1)
+        }
+    }
+}
+
 pub fn file_name(p: &Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().into_owned())

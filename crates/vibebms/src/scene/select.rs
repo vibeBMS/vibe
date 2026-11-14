@@ -38,6 +38,8 @@ pub(crate) enum Node {
     Level(usize, String),
     Courses(usize),
     Search(String),
+    /// A mirrored event (`ctx.archives.events[i]`).
+    Archive(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +59,8 @@ pub(crate) enum Bar {
         /// (差分) chart for that song.
         url: String,
         url_diff: String,
+        /// A mirrored work: (event, work number) to download directly.
+        archive: Option<(usize, u32)>,
     },
     Course {
         table: usize,
@@ -254,6 +258,17 @@ impl SelectScene {
                         count: n,
                     });
                 }
+                for (i, ev) in ctx.archives.events.iter().enumerate() {
+                    if ev.works.is_empty() {
+                        continue;
+                    }
+                    bars.push(Bar::Folder {
+                        label: ev.name.clone(),
+                        sub: "mirror".into(),
+                        node: Node::Archive(i),
+                        count: ev.works.len(),
+                    });
+                }
                 for (i, t) in ctx.tables.iter().enumerate() {
                     bars.push(Bar::Folder {
                         label: t.header.name.clone(),
@@ -315,6 +330,44 @@ impl SelectScene {
                     })
                     .collect()
             }
+            Node::Archive(e) => {
+                let Some(ev) = ctx.archives.events.get(*e) else {
+                    return Vec::new();
+                };
+                let root = &ctx.paths.root;
+                let mut bars = Vec::new();
+                for w in &ev.works {
+                    // the folder it was downloaded to, else a chart with its
+                    // title and artist
+                    let mine: Vec<usize> = match ctx.archives.installed_dir(&ev.name, w.num) {
+                        Some(dir) => {
+                            let dir = root.join(dir);
+                            (0..songs.len())
+                                .filter(|i| Path::new(&songs[*i].path).starts_with(&dir))
+                                .collect()
+                        }
+                        None => (0..songs.len())
+                            .filter(|i| {
+                                crate::placement::same_title(&songs[*i].title, &w.title)
+                                    && crate::placement::same_artist(&songs[*i].artist, &w.artist)
+                            })
+                            .collect(),
+                    };
+                    if mine.is_empty() {
+                        bars.push(Bar::Missing {
+                            title: w.title.clone(),
+                            artist: w.artist.clone(),
+                            level: String::new(),
+                            url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
+                            url_diff: String::new(),
+                            archive: (!w.files.is_empty()).then_some((*e, w.num)),
+                        });
+                    } else {
+                        bars.extend(sorted(mine));
+                    }
+                }
+                bars
+            }
             Node::Level(t, l) => {
                 let Some(table) = ctx.tables.get(*t) else {
                     return Vec::new();
@@ -331,6 +384,7 @@ impl SelectScene {
                             level: table.label(&e.level),
                             url: e.url.clone(),
                             url_diff: e.url_diff.clone(),
+                            archive: None,
                         },
                     })
                     .collect()
@@ -419,6 +473,19 @@ impl SelectScene {
                         course: None,
                     },
                 )))
+            }
+            Some(Bar::Missing {
+                archive: Some((e, num)),
+                title,
+                ..
+            }) => {
+                let root = ctx.paths.root.clone();
+                let msg = match ctx.archives.download(&root, e, num) {
+                    Ok(m) => m,
+                    Err(why) => format!("{title}: {why}"),
+                };
+                ctx.toast(msg);
+                Next::Stay
             }
             Some(Bar::Missing {
                 url,
@@ -1328,6 +1395,12 @@ impl SelectScene {
                     .unwrap_or_default(),
                 Node::Level(t, l) => ctx.tables.get(*t).map(|t| t.label(l)).unwrap_or_default(),
                 Node::Search(q) => format!("SEARCH \"{q}\""),
+                Node::Archive(e) => ctx
+                    .archives
+                    .events
+                    .get(*e)
+                    .map(|e| e.name.clone())
+                    .unwrap_or_default(),
             }
         };
         let mut parts: Vec<String> = self.stack.iter().map(|(n, _)| name(n)).collect();

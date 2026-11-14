@@ -478,7 +478,7 @@ def build_parts(fonts):
         a.add(f"rank{k}", c)
     a.add("nosong", text_img(fonts, "NOT INSTALLED", "black_it", 30, (255, 240, 200), AMBER,
                              (40, 25, 0), 2))
-    a.add("nosong_hint", text_img(fonts, "ENTER: open the download page (song, and the chart if separate)",
+    a.add("nosong_hint", text_img(fonts, "ENTER: download it (from a mirror, or its download page)",
                                   "semi", 15, TEXT, DIM, (0, 0, 0), 0, pad=2))
     a.add("newrec", text_img(fonts, "NEW RECORD", "black_it", 18, (255, 255, 255), PINK, (60, 0, 40), 2))
     a.add("autotag", text_img(fonts, "AUTOPLAY - NOT SAVED", "bold", 14, AMBER, AMBER, (40, 30, 0), 1))

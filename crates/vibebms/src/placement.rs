@@ -65,7 +65,7 @@ fn strip_brackets(name: &str) -> String {
 
 /// Titles match when one starts with the other once tags are gone
 /// ("Arcadia -★1-" and "Arcadia"); the shorter needs three characters.
-fn same_title(a: &str, b: &str) -> bool {
+pub fn same_title(a: &str, b: &str) -> bool {
     let (a, b) = (strip_brackets(a), strip_brackets(b));
     let (short, long) = if a.chars().count() <= b.chars().count() {
         (a, b)
@@ -76,7 +76,7 @@ fn same_title(a: &str, b: &str) -> bool {
 }
 
 /// Artists match without the chart maker's part ("artist / obj: someone").
-fn same_artist(a: &str, b: &str) -> bool {
+pub fn same_artist(a: &str, b: &str) -> bool {
     let clean = |s: &str| {
         let s = s.to_lowercase();
         let cut = ["/", "obj", "差分", "譜面"]

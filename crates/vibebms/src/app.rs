@@ -170,6 +170,8 @@ pub struct Ctx {
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
     /// Download pages to show in the in-app browser (song, then chart).
     pub browse: Option<Vec<String>>,
+    /// Mirrored event entries (`archive`).
+    pub archives: crate::archive::Archives,
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
@@ -348,6 +350,18 @@ impl Ctx {
     }
 
     pub fn poll_jobs(&mut self) {
+        let (toasts, rescan, changed) = self.archives.poll(&self.paths);
+        for t in toasts {
+            self.toast(t);
+        }
+        if changed {
+            self.library_version += 1;
+        }
+        if rescan {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.ensure_scanned("bms");
+            self.start_scan();
+        }
         // web: newly picked files -> read the chart files, then scan
         if crate::platform::vfs::take_added() {
             let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
@@ -812,6 +826,7 @@ impl App {
             gpu_name: gfx.adapter_name.clone(),
             prefetch: None,
             browse: None,
+            archives: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
         };
@@ -819,6 +834,8 @@ impl App {
         ctx.load_cached_tables();
         ctx.start_scan();
         ctx.refresh_tables(false);
+        ctx.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
+        ctx.archives.refresh(false);
         // tests: open the download browser on this page at start
         #[cfg(not(target_arch = "wasm32"))]
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
