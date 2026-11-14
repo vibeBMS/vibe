@@ -171,11 +171,11 @@ impl Control {
     }
 
     /// One turntable step in `dir` (START: cover, SELECT: hi-speed).
-    fn turn(&self, p: &mut PlayConfig, dir: i32) {
+    fn turn(&self, p: &mut PlayConfig, dir: i32, bpm: f64) {
         if self.start {
             adjust_cover(p, dir as f32 * 0.005);
         } else {
-            p.add_hispeed(dir as f32 * 0.01);
+            p.add_hispeed(dir as f32 * 0.01, bpm);
         }
     }
 }
@@ -756,6 +756,7 @@ impl PlayScene {
     /// START / SELECT and what they do to the keys: `true` when the event
     /// was taken (it does not reach the judge).
     fn control(&mut self, ctx: &mut Ctx, e: &LaneEv) -> bool {
+        let bpm = self.chart.meta.main_bpm;
         let p = &mut ctx.config.play;
         let c = &mut self.ctl;
         let was_open = c.open();
@@ -791,14 +792,14 @@ impl PlayScene {
             }
             lane if self.mode.is_scratch(lane as usize) => {
                 let dir = if e.sub == 0 { -1 } else { 1 };
-                c.turn(p, dir);
+                c.turn(p, dir, bpm);
                 c.scratch = Some((dir, e.time));
             }
             lane => {
                 let blue = lane as usize % self.mode.lanes_per_player() % 2 == 1;
                 // START: 0.25 steps, SELECT: 0.01; white slower, black faster
                 let step = if c.start { HISPEED_STEP } else { 0.01 };
-                p.add_hispeed(if blue { step } else { -step });
+                p.add_hispeed(if blue { step } else { -step }, bpm);
             }
         }
         c.both_since = (c.start && c.select).then(|| c.both_since.unwrap_or(e.time));
@@ -828,7 +829,8 @@ impl Scene for PlayScene {
         // the turntable keeps turning the panel's value while held
         if let Some((dir, last)) = self.ctl.scratch.filter(|_| self.ctl.open()) {
             if now.duration_since(last) >= Duration::from_millis(50) {
-                self.ctl.turn(&mut ctx.config.play, dir);
+                self.ctl
+                    .turn(&mut ctx.config.play, dir, self.chart.meta.main_bpm);
                 self.ctl.scratch = Some((dir, now));
             }
         }
@@ -1032,8 +1034,14 @@ impl Scene for PlayScene {
                             }
                             self.quit = true;
                         }
-                        KeyCode::ArrowUp => ctx.config.play.add_hispeed(HISPEED_STEP),
-                        KeyCode::ArrowDown => ctx.config.play.add_hispeed(-HISPEED_STEP),
+                        KeyCode::ArrowUp => ctx
+                            .config
+                            .play
+                            .add_hispeed(HISPEED_STEP, self.chart.meta.main_bpm),
+                        KeyCode::ArrowDown => ctx
+                            .config
+                            .play
+                            .add_hispeed(-HISPEED_STEP, self.chart.meta.main_bpm),
                         KeyCode::PageUp => adjust_cover(&mut ctx.config.play, 0.02),
                         KeyCode::PageDown => adjust_cover(&mut ctx.config.play, -0.02),
                         KeyCode::ArrowLeft => ctx.config.play.judge_offset_ms -= 1,

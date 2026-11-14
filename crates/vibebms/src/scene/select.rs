@@ -485,6 +485,7 @@ impl SelectScene {
     }
 
     fn option(&mut self, ctx: &mut Ctx, i: usize) -> Next {
+        let bpm = self.selected_song(ctx).map_or(150.0, |(_, s)| s.main_bpm);
         let p = &mut ctx.config.play;
         fn cycle<T: Copy + PartialEq>(all: &[T], v: T) -> T {
             let i = all.iter().position(|x| *x == v).unwrap_or(0);
@@ -495,8 +496,8 @@ impl SelectScene {
             1 => p.gauge = cycle(&GaugeType::SELECTABLE, p.gauge),
             2 => p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift),
             3 => p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode),
-            4 => p.add_hispeed(-crate::config::HISPEED_STEP),
-            5 => p.add_hispeed(crate::config::HISPEED_STEP),
+            4 => p.add_hispeed(-crate::config::HISPEED_STEP, bpm),
+            5 => p.add_hispeed(crate::config::HISPEED_STEP, bpm),
             6 => {
                 p.side = match p.side {
                     crate::config::Side::P1 => crate::config::Side::P2,
@@ -521,11 +522,17 @@ impl SelectScene {
             ("GAUGE".into(), p.gauge.label().into()),
             ("AUTO SHIFT".into(), p.gauge_auto_shift.label().into()),
             ("LN MODE".into(), format!("{:?}", p.ln_mode).to_uppercase()),
-            ("HI-SPEED −".into(), format!("{:.2}", p.hispeed)),
+            (
+                "HI-SPEED −".into(),
+                format!("{:.2}", p.hispeed_at(bpm.unwrap_or(150.0))),
+            ),
             (
                 "HI-SPEED +".into(),
-                bpm.map(|b| format!("GN {}", p.green(b)))
-                    .unwrap_or_else(|| format!("{:.2}", p.hispeed)),
+                match (bpm, p.fix_green) {
+                    (_, true) => format!("GN {} FIX", p.green(bpm.unwrap_or(150.0))),
+                    (Some(b), false) => format!("GN {}", p.green(b)),
+                    (None, false) => format!("{:.2}", p.hispeed),
+                },
             ),
             ("SIDE".into(), format!("{:?}", p.side)),
             ("JUDGE".into(), p.judge_preset.label().into()),

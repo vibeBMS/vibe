@@ -269,9 +269,14 @@ impl SkinState for SelectState<'_> {
             },
             312 => song.map(|s| p.duration_ms(s.main_bpm).round() as i64)?,
             313 => song.map(|s| p.green(s.main_bpm))?,
-            310 => (p.hispeed * 100.0).round() as i64 / 100,
-            311 => (p.hispeed * 100.0).round() as i64 % 100,
-            10 => (p.hispeed * 100.0).round() as i64,
+            10 | 310 | 311 => {
+                let hs = (p.hispeed_at(song.map_or(150.0, |s| s.main_bpm)) * 100.0).round() as i64;
+                match id {
+                    310 => hs / 100,
+                    311 => hs % 100,
+                    _ => hs,
+                }
+            }
             370 => best.map(|b| b.clear as i64).unwrap_or(0),
             180 => self.ranking()?.len() as i64,
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,

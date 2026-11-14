@@ -259,13 +259,21 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ),
             it(
                 "Hi-speed",
-                format!("{:.2}  (GN {} at 150 BPM)", p.hispeed, p.green(150.0)),
+                format!(
+                    "{:.2}  (GN {} at 150 BPM)",
+                    p.hispeed_at(150.0),
+                    p.green(150.0)
+                ),
                 |c, d| {
                     c.config
                         .play
-                        .add_hispeed(d as f32 * crate::config::HISPEED_STEP)
+                        .add_hispeed(d as f32 * crate::config::HISPEED_STEP, 150.0)
                 },
             ),
+            it("Fix green number", onoff(p.fix_green), |c, _| {
+                let on = !c.config.play.fix_green;
+                c.config.play.set_fix_green(on, 150.0)
+            }),
             it("Lane cover", onoff(p.lane_cover), |c, _| {
                 c.config.play.lane_cover = !c.config.play.lane_cover
             }),

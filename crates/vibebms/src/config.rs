@@ -103,6 +103,11 @@ pub struct PlayConfig {
     /// chart's main BPM. The time a note is visible (the green number)
     /// follows from it, the BPM and the lane cover.
     pub hispeed: f32,
+    /// Keep the green number instead (IIDX floating hi-speed / beatoraja
+    /// FIX): the hi-speed follows each chart's main BPM and the lane cover
+    /// so that notes stay visible for `fixed_duration_ms`.
+    pub fix_green: bool,
+    pub fixed_duration_ms: f32,
     pub sudden: f32,
     pub hidden: f32,
     pub lift: f32,
@@ -140,6 +145,17 @@ impl PlayConfig {
         (1.0 - cover - self.lift).max(0.05)
     }
 
+    /// The hi-speed a chart of main BPM `bpm` plays at: the setting, or
+    /// with the green number fixed what keeps it.
+    pub fn hispeed_at(&self, bpm: f64) -> f32 {
+        if !self.fix_green {
+            return self.hispeed;
+        }
+        let bpm = if bpm > 0.0 { bpm } else { 130.0 };
+        (240_000.0 * self.visible(true) as f64 / (bpm * self.fixed_duration_ms.max(1.0) as f64))
+            as f32
+    }
+
     /// How long (ms) a note is visible at `bpm`: the lane holds
     /// 4 / hi-speed beats.
     pub fn duration_ms(&self, bpm: f64) -> f64 {
@@ -148,7 +164,7 @@ impl PlayConfig {
 
     pub fn duration_ms_with(&self, bpm: f64, with_cover: bool) -> f64 {
         let bpm = if bpm > 0.0 { bpm } else { 130.0 };
-        240_000.0 * self.visible(with_cover) as f64 / (bpm * self.hispeed.max(0.01) as f64)
+        240_000.0 * self.visible(with_cover) as f64 / (bpm * self.hispeed_at(bpm).max(0.01) as f64)
     }
 
     /// The green number (beatoraja: the duration x 0.6).
@@ -156,10 +172,27 @@ impl PlayConfig {
         (self.duration_ms(bpm) * 0.6).round() as i64
     }
 
-    pub fn add_hispeed(&mut self, d: f32) {
-        // keep to the 0.01 grid
-        self.hispeed = ((self.hispeed + d) * 100.0).round() / 100.0;
-        self.hispeed = self.hispeed.clamp(HISPEED_MIN, HISPEED_MAX);
+    /// Change the hi-speed by `d` for a chart of main BPM `bpm`; with the
+    /// green number fixed this sets the new green number.
+    pub fn add_hispeed(&mut self, d: f32, bpm: f64) {
+        let hs =
+            (((self.hispeed_at(bpm) + d) * 100.0).round() / 100.0).clamp(HISPEED_MIN, HISPEED_MAX);
+        self.hispeed = hs;
+        if self.fix_green {
+            let bpm = if bpm > 0.0 { bpm } else { 130.0 };
+            self.fixed_duration_ms =
+                (240_000.0 * self.visible(true) as f64 / (bpm * hs as f64)) as f32;
+        }
+    }
+
+    /// Turn the fixed green number on or off, keeping the speed at `bpm`.
+    pub fn set_fix_green(&mut self, on: bool, bpm: f64) {
+        if on && !self.fix_green {
+            self.fixed_duration_ms = self.duration_ms(bpm) as f32;
+        } else if !on && self.fix_green {
+            self.hispeed = (self.hispeed_at(bpm) / HISPEED_STEP).round().max(1.0) * HISPEED_STEP;
+        }
+        self.fix_green = on;
     }
 }
 
@@ -183,6 +216,8 @@ impl Default for PlayConfig {
             autoplay: false,
             hispeed_mode: HiSpeedMode::Floating,
             hispeed: 2.5,
+            fix_green: false,
+            fixed_duration_ms: 600.0,
             sudden: 0.0,
             hidden: 0.0,
             lift: 0.0,
@@ -553,5 +588,28 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(150.0) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn fixed_green_number() {
+        let mut p = PlayConfig {
+            hispeed: 2.0,
+            ..Default::default()
+        };
+        // 240000 / (150 x 2) = 800 ms at 150 BPM
+        p.set_fix_green(true, 150.0);
+        assert!((p.fixed_duration_ms - 800.0).abs() < 0.5);
+        // a 300 BPM chart plays at hi-speed 1.0, same green number
+        assert!((p.hispeed_at(300.0) - 1.0).abs() < 1e-4);
+        assert_eq!(p.green(300.0), p.green(150.0));
+        // SUDDEN+ keeps the green number: the hi-speed drops
+        p.lane_cover = true;
+        p.sudden = 0.5;
+        assert_eq!(p.green(150.0), 480);
+        assert!((p.hispeed_at(150.0) - 1.0).abs() < 1e-4);
+        // hi-speed +0.25 at 150 BPM sets a new green number
+        p.add_hispeed(0.25, 150.0);
+        assert!((p.hispeed_at(150.0) - 1.25).abs() < 1e-3);
+        assert!((p.duration_ms(150.0) - 640.0).abs() < 0.5);
     }
 }

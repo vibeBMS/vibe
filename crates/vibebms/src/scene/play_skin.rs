@@ -255,9 +255,9 @@ impl SceneState<'_> {
         self.s.engine.as_ref()
     }
 
-    /// The hi-speed (the setting).
+    /// The hi-speed (the setting, or what keeps a fixed green number).
     pub fn hispeed(&self) -> f64 {
-        self.ctx.config.play.hispeed as f64
+        self.ctx.config.play.hispeed_at(self.main_bpm()) as f64
     }
 
     /// The chart's main BPM (what the hi-speed scales).
