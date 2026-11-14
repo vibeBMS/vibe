@@ -286,60 +286,28 @@ impl Downloads {
     }
 
     fn imported(&mut self, ctx: &mut Ctx, r: ImportResult) {
-        let name = |p: &Path| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        };
-        let mut rescan = true;
-        match r {
-            Err(e) => {
-                ctx.toast(format!("Could not unpack the download: {e}"));
-                rescan = false;
+        let done = import::report(ctx, r);
+        // on to the separate chart's page
+        if done.song_arrived {
+            if let (Some(url), Some(w)) = (self.next.pop_front(), &self.window) {
+                let _ = w.webview.load_url(&url);
+                ctx.toast("Now the chart: download it from this page");
             }
-            Ok(Imported::Unpacked(dir, n)) => {
-                ctx.toast(format!("Added {} ({n} files)", name(&dir)));
-                let waiting = import::place_waiting(
-                    &ctx.paths.root.join("downloads"),
-                    &ctx.paths.root.join("bms"),
-                );
-                for p in waiting {
-                    ctx.toast(format!("{} → its song", name(&p)));
+        }
+        let mut rescan = done.rescan;
+        if let Some((chart, folders)) = done.ask {
+            // several songs could be it: let the user pick the folder
+            let name = import::file_name(&chart);
+            let mut dialog =
+                rfd::FileDialog::new().set_title(format!("Which song folder is {name} for?"));
+            if let Some((d, _)) = folders.first() {
+                dialog = dialog.set_directory(d);
+            }
+            if let Some(dir) = dialog.pick_folder() {
+                if crate::platform::vfs::rename(&chart, &dir.join(&name)) {
+                    ctx.toast(format!("{name} → {}", import::file_name(&dir)));
+                    rescan = true;
                 }
-                // on to the separate chart's page
-                if let (Some(url), Some(w)) = (self.next.pop_front(), &self.window) {
-                    let _ = w.webview.load_url(&url);
-                    ctx.toast("Now the chart: download it from this page");
-                }
-            }
-            Ok(Imported::Placed(p)) => {
-                ctx.toast(format!("{} → {}", name(&p), name(p.parent().unwrap_or(&p))));
-            }
-            Ok(Imported::Waiting(p)) => {
-                ctx.toast(format!("{}: download its song too", name(&p)));
-                rescan = false;
-            }
-            Ok(Imported::Ask(chart, folders)) => {
-                // several songs could be it: let the user pick the folder
-                let start = folders.first().map(|(d, _)| d.clone());
-                let mut dialog = rfd::FileDialog::new()
-                    .set_title(format!("Which song folder is {} for?", name(&chart)));
-                if let Some(d) = start {
-                    dialog = dialog.set_directory(d);
-                }
-                match dialog.pick_folder() {
-                    Some(dir) => {
-                        let to = dir.join(name(&chart));
-                        if crate::platform::vfs::rename(&chart, &to) {
-                            ctx.toast(format!("{} → {}", name(&chart), name(&dir)));
-                        }
-                    }
-                    None => rescan = false,
-                }
-            }
-            Ok(Imported::Other(p)) => {
-                ctx.toast(format!("{} is not a song (kept in downloads)", name(&p)));
-                rescan = false;
             }
         }
         if rescan {

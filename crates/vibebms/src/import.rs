@@ -208,6 +208,66 @@ pub fn import(file: &Path, library: &Path) -> Result<Imported, String> {
     })
 }
 
+pub fn file_name(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// What a finished import means for the browser.
+pub struct Report {
+    /// The library changed.
+    pub rescan: bool,
+    /// A song arrived (time for the separate chart's page).
+    pub song_arrived: bool,
+    /// A chart that could belong to several songs, and their folders.
+    pub ask: Option<(PathBuf, Vec<(PathBuf, String)>)>,
+}
+
+/// Tell the user how an import went; charts waiting for this song go into
+/// its folder.
+pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report {
+    let mut out = Report {
+        rescan: true,
+        song_arrived: false,
+        ask: None,
+    };
+    match r {
+        Err(e) => {
+            ctx.toast(format!("Could not unpack the download: {e}"));
+            out.rescan = false;
+        }
+        Ok(Imported::Unpacked(dir, n)) => {
+            ctx.toast(format!("Added {} ({n} files)", file_name(&dir)));
+            let root = &ctx.paths.root;
+            for p in place_waiting(&root.join("downloads"), &root.join("bms")) {
+                ctx.toast(format!("{} → its song", file_name(&p)));
+            }
+            out.song_arrived = true;
+        }
+        Ok(Imported::Placed(p)) => {
+            let dir = p.parent().map(file_name).unwrap_or_default();
+            ctx.toast(format!("{} → {dir}", file_name(&p)));
+        }
+        Ok(Imported::Waiting(p)) => {
+            ctx.toast(format!("{}: download its song too", file_name(&p)));
+            out.rescan = false;
+        }
+        Ok(Imported::Ask(chart, folders)) => {
+            out.rescan = false;
+            out.ask = Some((chart, folders));
+        }
+        Ok(Imported::Other(p)) => {
+            ctx.toast(format!(
+                "{} is not a song (kept in downloads)",
+                file_name(&p)
+            ));
+            out.rescan = false;
+        }
+    }
+    out
+}
+
 /// Charts waiting in `downloads` (their song came later): place those that
 /// now have a folder.
 pub fn place_waiting(downloads: &Path, library: &Path) -> Vec<PathBuf> {

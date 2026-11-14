@@ -142,7 +142,7 @@ def main():
     # window icon
     png(rounded, os.path.join(ROOT, "crates", "vibebms", "assets", "icon.png"), 128)
     # Android launcher
-    res = os.path.join(ROOT, "crates", "vibebms-android", "res")
+    res = os.path.join(ROOT, "platform", "android", "app", "src", "main", "res")
     for dpi, n in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
         png(rounded, os.path.join(res, f"mipmap-{dpi}", "ic_launcher.png"), n)
     # iOS home screen (full-bleed: iOS rounds it; named as Info.plist lists them)

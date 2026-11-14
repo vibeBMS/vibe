@@ -14,3 +14,8 @@
 __pycache__/
 /web/tables/
 /web/fonts/*.otf
+/platform/android/app/jniLibs/
+/platform/android/app/build/
+/platform/android/build/
+/platform/android/.gradle/
+/platform/android/local.properties

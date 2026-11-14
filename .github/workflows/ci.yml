@@ -176,7 +176,18 @@ jobs:
           toolchain: stable
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo install cargo-apk --locked
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: cargo install cargo-ndk --locked
+      # the Rust library into the Gradle project, then the APK
+      - run: >-
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          cargo ndk -t arm64-v8a -t x86_64 -o platform/android/app/jniLibs
+          build --release -p vibebms-android
+      # cargo-ndk copies every cdylib it built; only ours is loaded
+      - run: find platform/android/app/jniLibs -name '*.so' ! -name libvibebms_android.so -delete
       # release APKs must be signed: with the repository's key when its
       # secrets hold one (base64 keystore + password), else a throwaway key
       # (the APK installs, but cannot update one signed by another key)
@@ -196,10 +207,17 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=vibeBMS"
           fi
           echo "::add-mask::$pass"
-          echo "CARGO_APK_RELEASE_KEYSTORE=$ks" >> "$GITHUB_ENV"
-          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
-      - run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" cargo apk build -p vibebms-android --release
+          # the key's alias (a keystore made for cargo-apk has one key)
+          alias="$(keytool -list -keystore "$ks" -storepass "$pass" | grep -m1 PrivateKeyEntry | cut -d, -f1)"
+          echo "VIBEBMS_KEYSTORE=$ks" >> "$GITHUB_ENV"
+          echo "VIBEBMS_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
+          echo "VIBEBMS_KEY_ALIAS=$alias" >> "$GITHUB_ENV"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - run: gradle -p platform/android --no-daemon assembleRelease
+      - run: cp platform/android/app/build/outputs/apk/release/app-release.apk vibeBMS.apk
       - uses: actions/upload-artifact@v4
         with:
           name: vibeBMS-android
-          path: target/release/apk/*.apk
+          path: vibeBMS.apk

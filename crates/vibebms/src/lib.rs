@@ -6,6 +6,9 @@ pub mod app;
     any(windows, target_os = "macos", target_os = "linux")
 ))]
 pub mod browser;
+#[cfg(target_os = "android")]
+#[path = "browser_android.rs"]
+pub mod browser;
 pub mod config;
 pub mod gfx;
 #[cfg(not(target_arch = "wasm32"))]

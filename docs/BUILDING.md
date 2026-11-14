@@ -27,14 +27,20 @@ Universal binary: build both and `lipo -create -output vibebms a/vibebms b/vibeb
 Put the binary in a folder next to your BMS; inside an `.app` bundle the data root is the folder that contains the `.app`.
 
 ## Android (experimental)
+The APK is a Gradle project (`platform/android`) around the Rust library, which
+`cargo-ndk` builds into it. Needs the Android SDK (platform 34) with the NDK, and JDK 17+.
 ```sh
-cargo install cargo-apk
+cargo install cargo-ndk
 rustup target add aarch64-linux-android x86_64-linux-android
-export ANDROID_HOME=... ANDROID_NDK_ROOT=...
-cargo apk build -p vibebms-android --release
+export ANDROID_HOME=... ANDROID_NDK_HOME=...
+cargo ndk -t arm64-v8a -t x86_64 -o platform/android/app/jniLibs build --release -p vibebms-android
+gradle -p platform/android assembleRelease    # Gradle 8.9+; or open platform/android in Android Studio
 ```
+The release APK is signed with `VIBEBMS_KEYSTORE` / `VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS`
+when set, else with the debug key. Output: `platform/android/app/build/outputs/apk/release/`.
 Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over USB).
-Touch controls turn on automatically.
+Touch controls turn on automatically. Songs a difficulty table lists can be downloaded in the
+app's browser (`Browser.java`), as on the desktop.
 
 ## iOS / iPadOS (experimental)
 ```sh

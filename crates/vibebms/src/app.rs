@@ -131,10 +131,13 @@ pub enum TableMsg {
 }
 
 /// Shared state available to every scene.
-/// Songs are downloaded in an in-app browser window (desktop).
-pub const IN_APP_BROWSER: bool = cfg!(all(
-    feature = "browser",
-    any(windows, target_os = "macos", target_os = "linux")
+/// Songs are downloaded in an in-app browser (desktop, Android).
+pub const IN_APP_BROWSER: bool = cfg!(any(
+    target_os = "android",
+    all(
+        feature = "browser",
+        any(windows, target_os = "macos", target_os = "linux")
+    )
 ));
 
 pub struct Ctx {
@@ -482,9 +485,12 @@ struct Running {
     frame_count: u32,
     fps_since: Instant,
     next_frame: Instant,
-    #[cfg(all(
-        feature = "browser",
-        any(windows, target_os = "macos", target_os = "linux")
+    #[cfg(any(
+        target_os = "android",
+        all(
+            feature = "browser",
+            any(windows, target_os = "macos", target_os = "linux")
+        )
     ))]
     downloads: crate::browser::Downloads,
 }
@@ -852,9 +858,12 @@ impl App {
             frame_count: 0,
             fps_since: now,
             next_frame: now,
-            #[cfg(all(
-                feature = "browser",
-                any(windows, target_os = "macos", target_os = "linux")
+            #[cfg(any(
+                target_os = "android",
+                all(
+                    feature = "browser",
+                    any(windows, target_os = "macos", target_os = "linux")
+                )
             ))]
             downloads: Default::default(),
         });
@@ -930,9 +939,12 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         let Some(r) = self.run.as_mut() else { return };
-        #[cfg(all(
-            feature = "browser",
-            any(windows, target_os = "macos", target_os = "linux")
+        #[cfg(any(
+            target_os = "android",
+            all(
+                feature = "browser",
+                any(windows, target_os = "macos", target_os = "linux")
+            )
         ))]
         if r.downloads.window_event(id, &event) {
             return;
@@ -1057,9 +1069,12 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(r) = self.run.as_mut() else { return };
-        #[cfg(all(
-            feature = "browser",
-            any(windows, target_os = "macos", target_os = "linux")
+        #[cfg(any(
+            target_os = "android",
+            all(
+                feature = "browser",
+                any(windows, target_os = "macos", target_os = "linux")
+            )
         ))]
         {
             if let Some(pages) = r.ctx.browse.take() {
