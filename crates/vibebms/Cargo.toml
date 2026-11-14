@@ -71,6 +71,8 @@ ndk-context = "0.1"
 gtk = { version = "0.18", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# MEGA downloads are AES-128-CTR encrypted
+aes = "0.9"
 # downloaded songs packed as .7z
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["util", "bzip2", "ppmd"] }
 # downloaded songs packed as .rar (Apache-2.0 with the UnRAR license

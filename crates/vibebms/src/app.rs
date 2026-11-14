@@ -350,9 +350,19 @@ impl Ctx {
     }
 
     pub fn poll_jobs(&mut self) {
-        let (toasts, rescan, changed) = self.archives.poll(&self.paths);
+        let (toasts, rescan, changed, pages) = self.archives.poll(&self.paths);
         for t in toasts {
             self.toast(t);
+        }
+        // a work's link that needs a person on its page
+        if !pages.is_empty() {
+            if IN_APP_BROWSER {
+                self.browse = Some(pages);
+            } else {
+                for p in &pages {
+                    crate::platform::open_url(p);
+                }
+            }
         }
         if changed {
             self.library_version += 1;

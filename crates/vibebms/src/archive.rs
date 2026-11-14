@@ -113,6 +113,26 @@ pub fn event_name(url: &str) -> String {
         .to_uppercase()
 }
 
+/// Why a work did not arrive.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+enum Fail {
+    /// Its author's link is a page to use in a browser.
+    Page(String),
+    Msg(String),
+}
+
+impl From<String> for Fail {
+    fn from(e: String) -> Fail {
+        Fail::Msg(e)
+    }
+}
+
+impl From<&str> for Fail {
+    fn from(e: &str) -> Fail {
+        Fail::Msg(e.into())
+    }
+}
+
 // the web build does not download (Status, Done)
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Msg {
@@ -120,7 +140,7 @@ enum Msg {
     Index(String, Result<Vec<Work>, String>),
     Status(String),
     /// A work finished: (event, number, its folder relative to the data root).
-    Done(String, u32, Result<(PathBuf, usize), String>),
+    Done(String, u32, Result<(PathBuf, usize), Fail>),
 }
 
 #[derive(Default)]
@@ -292,8 +312,8 @@ impl Archives {
     }
 
     /// What the app itself downloads for a work: its mirrored files, else
-    /// its author's link when that is an archive the app can fetch with no
-    /// page in between (not on the web: those hosts send no CORS headers).
+    /// its author's link (`hosts::fetch`; a page then opens in the browser).
+    /// Not on the web: those hosts send no CORS headers.
     fn files_of(&self, event: &Event, work: &Work) -> Option<Vec<File>> {
         if !work.files.is_empty() {
             return Some(work.files.clone());
@@ -302,7 +322,10 @@ impl Archives {
         {
             return None;
         }
-        let url = direct_url(work.links.first()?)?;
+        let url = work.links.first()?.clone();
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return None;
+        }
         Some(vec![File {
             name: safe_name(&work.title),
             url,
@@ -384,14 +407,16 @@ impl Archives {
     }
 
     /// Messages since the last frame: (toasts, the library changed, the
-    /// indexes changed).
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> (Vec<String>, bool, bool) {
+    /// indexes changed, pages to open in the browser).
+    #[allow(clippy::type_complexity)]
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> (Vec<String>, bool, bool, Vec<String>) {
         let msgs: Vec<Msg> = self
             .rx
             .as_ref()
             .map(|rx| rx.try_iter().collect())
             .unwrap_or_default();
         let (mut toasts, mut rescan, mut changed) = (Vec::new(), false, false);
+        let mut pages = Vec::new();
         let mut new_events = false;
         for m in msgs {
             match m {
@@ -438,15 +463,22 @@ impl Archives {
                             rescan = true;
                             changed = true;
                         }
+                        // the author's link is a page: open it
+                        Err(Fail::Page(url)) => {
+                            toasts.push("No direct download: opening its page".into());
+                            pages.push(url);
+                            self.direct_failed.insert(k);
+                            changed = true;
+                        }
                         // the author's link: its page next time
-                        Err(e) if direct => {
+                        Err(Fail::Msg(e)) if direct => {
                             toasts.push(format!(
                                 "Download failed ({e}): choose it again to open its page"
                             ));
                             self.direct_failed.insert(k);
                             changed = true;
                         }
-                        Err(e) => toasts.push(format!("Download failed: {e}")),
+                        Err(Fail::Msg(e)) => toasts.push(format!("Download failed: {e}")),
                     }
                 }
             }
@@ -457,7 +489,7 @@ impl Archives {
             self.refresh(false);
             changed = true;
         }
-        (toasts, rescan, changed)
+        (toasts, rescan, changed, pages)
     }
 }
 
@@ -482,54 +514,6 @@ fn safe_name(name: &str) -> String {
     }
 }
 
-/// Stream `url` into `out`.
-#[cfg(not(target_arch = "wasm32"))]
-fn download_to(url: &str, out: &Path) -> Result<(), String> {
-    use std::io::Write;
-    use std::ops::ControlFlow;
-    use std::sync::{Arc, Mutex};
-    let file = std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    // the file being written, then how the download ended
-    type State = (
-        Option<std::io::BufWriter<std::fs::File>>,
-        Option<Result<(), String>>,
-    );
-    let state: Arc<Mutex<State>> =
-        Arc::new(Mutex::new((Some(std::io::BufWriter::new(file)), None)));
-    let st = state.clone();
-    ehttp::streaming::fetch_streaming_blocking(
-        ehttp::Request::get(url),
-        Box::new(move |part| {
-            let mut g = st.lock().expect("download state");
-            match part {
-                Err(e) => {
-                    g.1 = Some(Err(e));
-                    ControlFlow::Break(())
-                }
-                Ok(ehttp::streaming::Part::Response(r)) if !r.ok => {
-                    g.1 = Some(Err(format!("HTTP {}", r.status)));
-                    ControlFlow::Break(())
-                }
-                Ok(ehttp::streaming::Part::Response(_)) => ControlFlow::Continue(()),
-                Ok(ehttp::streaming::Part::Chunk(c)) if c.is_empty() => {
-                    let r = g.0.take().map(|mut w| w.flush()).transpose();
-                    g.1 = Some(r.map(|_| ()).map_err(|e| e.to_string()));
-                    ControlFlow::Break(())
-                }
-                Ok(ehttp::streaming::Part::Chunk(c)) => {
-                    if let Some(Err(e)) = g.0.as_mut().map(|w| w.write_all(&c)) {
-                        g.1 = Some(Err(e.to_string()));
-                        return ControlFlow::Break(());
-                    }
-                    ControlFlow::Continue(())
-                }
-            }
-        }),
-    );
-    let r = state.lock().expect("download state").1.take();
-    r.unwrap_or_else(|| Err("the download ended early".into()))
-}
-
 /// Download a work's files and unpack them into `bms/<event>/<archive>`
 /// (add-ons into the same folder). Returns that folder (relative to the
 /// data root) and the number of files written.
@@ -539,7 +523,7 @@ fn fetch_work(
     event: &str,
     files: &[File],
     tx: &Sender<Msg>,
-) -> Result<(PathBuf, usize), String> {
+) -> Result<(PathBuf, usize), Fail> {
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
     let main = files.first().ok_or("no files")?;
@@ -565,92 +549,23 @@ fn fetch_work(
         if i > 0 {
             let _ = tx.send(Msg::Status(format!("Downloading {name}…")));
         }
-        download_to(&f.url, &tmp)?;
-        // an author's link names no file: the archive's own bytes tell
-        let name = match (f.original.is_empty(), sniff(&tmp)) {
-            (true, Some(ext)) => format!("{name}.{ext}"),
-            (true, None) => {
-                let _ = std::fs::remove_file(&tmp);
-                return Err("the link gave no archive (a page?)".into());
+        let name = if f.original.is_empty() {
+            // an author's link: the host's way to the archive, which names
+            // no file (its own bytes tell the format)
+            use crate::hosts::{fetch, sniff, Fetch};
+            match fetch(&f.url, &tmp) {
+                Ok(()) => format!("{name}.{}", sniff(&tmp).unwrap_or("zip")),
+                Err(Fetch::Page) => return Err(Fail::Page(f.url.clone())),
+                Err(Fetch::Failed(e)) => return Err(Fail::Msg(e)),
             }
-            _ => name,
+        } else {
+            crate::hosts::download_to(&f.url, &tmp)?;
+            name
         };
         n += crate::import::unpack_into(&tmp, &name, &dest)?;
         let _ = std::fs::remove_file(&tmp);
     }
     Ok((rel, n))
-}
-
-/// The archive format of a file from its first bytes.
-#[cfg(not(target_arch = "wasm32"))]
-fn sniff(p: &Path) -> Option<&'static str> {
-    use std::io::Read;
-    let mut head = [0u8; 8];
-    let n = std::fs::File::open(p).ok()?.read(&mut head).ok()?;
-    let h = &head[..n];
-    if h.starts_with(b"PK\x03\x04") || h.starts_with(b"PK\x05\x06") {
-        Some("zip")
-    } else if h.starts_with(b"Rar!\x1a\x07") {
-        Some("rar")
-    } else if h.starts_with(b"7z\xbc\xaf\x27\x1c") {
-        Some("7z")
-    } else {
-        None
-    }
-}
-
-/// An author's link the app downloads itself: an archive's own URL, a
-/// Google Drive file or a Dropbox file (not folders, nor pages that need a
-/// click).
-pub fn direct_url(link: &str) -> Option<String> {
-    let u = link.trim();
-    if !(u.starts_with("https://") || u.starts_with("http://")) {
-        return None;
-    }
-    let lower = u.to_ascii_lowercase();
-    let host = lower.split('/').nth(2).unwrap_or("");
-    let path = lower.split(['?', '#']).next().unwrap_or("");
-    if host.ends_with("drive.google.com") || host == "docs.google.com" {
-        if lower.contains("/folders/") {
-            return None;
-        }
-        let id = drive_id(u)?;
-        return Some(format!(
-            "https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t"
-        ));
-    }
-    if host.ends_with("dropbox.com") {
-        if lower.contains("/scl/fo/") || lower.contains("/sh/") {
-            return None;
-        }
-        let base = u.replace("dl=0", "dl=1");
-        return Some(if base.contains("dl=1") {
-            base
-        } else if base.contains('?') {
-            format!("{base}&dl=1")
-        } else {
-            format!("{base}?dl=1")
-        });
-    }
-    [".zip", ".rar", ".7z"]
-        .iter()
-        .any(|e| path.ends_with(e))
-        .then(|| u.to_string())
-}
-
-/// The file id of a Google Drive link (`/file/d/ID/…`, `?id=ID`).
-fn drive_id(u: &str) -> Option<String> {
-    let id = if let Some(i) = u.find("/d/") {
-        &u[i + 3..]
-    } else {
-        let i = u.find("id=")?;
-        &u[i + 3..]
-    };
-    let id: String = id
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect();
-    (!id.is_empty()).then_some(id)
 }
 
 #[cfg(test)]
@@ -665,24 +580,6 @@ mod tests {
         );
         assert_eq!(safe_name("a/b:c.zip"), "a_b_c.zip");
         assert_eq!(safe_name(".."), "download");
-    }
-
-    #[test]
-    fn direct_links() {
-        assert_eq!(
-            direct_url("https://drive.google.com/file/d/1AbC-d_9/view?usp=sharing").as_deref(),
-            Some("https://drive.usercontent.google.com/download?id=1AbC-d_9&export=download&confirm=t")
-        );
-        assert!(direct_url("https://drive.google.com/open?id=XYZ").is_some());
-        assert!(direct_url("https://drive.google.com/drive/folders/XYZ").is_none());
-        assert_eq!(
-            direct_url("https://www.dropbox.com/scl/fi/a/b.zip?rlkey=k&dl=0").as_deref(),
-            Some("https://www.dropbox.com/scl/fi/a/b.zip?rlkey=k&dl=1")
-        );
-        assert!(direct_url("https://www.dropbox.com/scl/fo/a/b?rlkey=k").is_none());
-        assert!(direct_url("http://example.com/song_ogg.ZIP").is_some());
-        assert!(direct_url("https://1drv.ms/u/c/abc").is_none());
-        assert!(direct_url("http://example.com/bms.html").is_none());
     }
 
     #[test]
