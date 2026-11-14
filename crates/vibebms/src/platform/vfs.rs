@@ -240,6 +240,28 @@ mod imp {
         FS.with(|fs| std::mem::take(&mut fs.borrow_mut().added))
     }
 
+    /// Have the library rescan (files were moved).
+    pub fn mark_added() {
+        FS.with(|fs| fs.borrow_mut().added = true);
+    }
+
+    /// Move a mounted file; false when `to` exists or `from` does not.
+    pub fn rename(from: &Path, to: &Path) -> bool {
+        FS.with(|fs| {
+            let mut fs = fs.borrow_mut();
+            if fs.files.contains_key(to) {
+                return false;
+            }
+            match fs.files.remove(from) {
+                Some(n) => {
+                    fs.files.insert(to.to_path_buf(), n);
+                    true
+                }
+                None => false,
+            }
+        })
+    }
+
     /// Mount files chosen with `<input type=file webkitdirectory>` below `<root>/bms/`.
     /// Mount picked files under `<root>/bms/` (by their path in a picked
     /// folder, else under `<root>/bms/<sub>/`). Zip files are skipped:

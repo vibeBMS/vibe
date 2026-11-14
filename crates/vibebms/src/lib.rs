@@ -6,6 +6,7 @@ pub mod gfx;
 pub mod input;
 pub mod library;
 pub mod paths;
+pub mod placement;
 pub mod platform;
 pub mod scene;
 pub mod skin;

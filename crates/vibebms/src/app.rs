@@ -340,6 +340,11 @@ impl Ctx {
             .unwrap_or(false)
         {
             self.prefetch = None;
+            // charts picked without their song's folder go into it
+            #[cfg(target_arch = "wasm32")]
+            for m in crate::web::place_picked_charts(&self.paths.root) {
+                self.toast(m);
+            }
             self.start_scan();
         }
         if let Some(s) = &self.scan {
