@@ -180,12 +180,14 @@ pub fn layout(
     zones
 }
 
-/// START and SELECT away from the keys: in the letterbox beside the play
-/// screen (landscape) or a band under it (portrait). `screen` is the space
-/// above the controls and `aspect` the play skin's width / height. Returns
-/// the rect left for the play screen and the two buttons. Where the
-/// letterbox is too narrow the play screen gives up the room.
-pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32) -> (Rect, [Zone; 2]) {
+/// START above SELECT, two square buttons away from the keys as on the
+/// arcade panel: in the letterbox beside the play screen on the `right`
+/// (or left) side, or side by side in a band under it in portrait.
+/// `screen` is the space above the controls and `aspect` the play skin's
+/// width / height. Returns the rect left for the play screen and the two
+/// buttons. The play screen moves aside to leave all of the letterbox on
+/// the buttons' side, and gives up room where that is still too narrow.
+pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32, right: bool) -> (Rect, [Zone; 2]) {
     let mm = px_per_mm;
     let button = |lane, r| Zone {
         shape: Shape::Rect(r),
@@ -193,35 +195,46 @@ pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32) -> (Rect, [Zone
         scratch: false,
         black: false,
     };
-    let margin = 2.0 * mm;
+    let margin = 2.5 * mm;
+    let largest = 22.0 * mm;
     if screen.w > screen.h {
         let shown = (screen.h * aspect).min(screen.w);
-        let strip = ((screen.w - shown) * 0.5)
-            .max(18.0 * mm)
-            .min(screen.w * 0.15);
-        let view = Rect::new(screen.x + strip, screen.y, screen.w - strip * 2.0, screen.h);
-        let w = (strip - margin * 2.0).min(20.0 * mm);
-        let h = (w * 1.4).min(screen.h * 0.5);
-        let y = screen.y + (screen.h - h) * 0.5;
-        let at = |x: f32| Rect::new(x + (strip - w) * 0.5, y, w, h);
+        let strip = (screen.w - shown)
+            .max(18.0 * mm + margin * 2.0)
+            .min(screen.w * 0.2);
+        let view = Rect::new(
+            if right { screen.x } else { screen.x + strip },
+            screen.y,
+            screen.w - strip,
+            screen.h,
+        );
+        let b = (strip - margin * 2.0)
+            .min(largest)
+            .min((screen.h - margin * 3.0) * 0.5);
+        let x = if right { view.right() } else { screen.x } + (strip - b) * 0.5;
+        let y = screen.y + (screen.h - b * 2.0 - margin) * 0.5;
         (
             view,
             [
-                button(START, at(screen.x)),
-                button(SELECT, at(screen.right() - strip)),
+                button(START, Rect::new(x, y, b, b)),
+                button(SELECT, Rect::new(x, y + b + margin, b, b)),
             ],
         )
     } else {
-        let band = (12.0 * mm).min(screen.h * 0.12);
+        let b = (16.0 * mm).min(screen.h * 0.12);
+        let band = b + margin * 2.0;
         let view = Rect::new(screen.x, screen.y, screen.w, screen.h - band);
-        let w = (24.0 * mm).min(screen.w * 0.3);
-        let y = view.bottom() + margin * 0.5;
-        let h = band - margin;
+        let y = view.bottom() + margin;
+        let x = if right {
+            screen.right() - margin - b * 2.0 - margin
+        } else {
+            screen.x + margin
+        };
         (
             view,
             [
-                button(START, Rect::new(screen.x + margin, y, w, h)),
-                button(SELECT, Rect::new(screen.right() - margin - w, y, w, h)),
+                button(START, Rect::new(x, y, b, b)),
+                button(SELECT, Rect::new(x + b + margin, y, b, b)),
             ],
         )
     }
@@ -389,12 +402,10 @@ impl TouchInput {
     }
 
     pub fn draw(&self, batch: &mut Batch, zones: &[Zone], opacity: f32) {
-        use crate::theme::{ACCENT, NOTE_BLUE, NOTE_SCRATCH, NOTE_WHITE};
+        use crate::theme::{NOTE_BLUE, NOTE_SCRATCH, NOTE_WHITE};
         for z in zones {
             let pressed = self.is_pressed(z.lane);
-            let base = if z.lane >= START {
-                ACCENT
-            } else if z.scratch {
+            let base = if z.scratch {
                 NOTE_SCRATCH
             } else if z.black {
                 NOTE_BLUE
@@ -460,26 +471,32 @@ mod tests {
 
     #[test]
     fn system_buttons_sit_beside_the_play_screen() {
-        // a phone in landscape: a wide letterbox, the play screen keeps its size
+        let rect = |z: &Zone| match z.shape {
+            Shape::Rect(r) => r,
+            _ => panic!("square buttons"),
+        };
+        // a phone in landscape: the play screen keeps its size at the left,
+        // START over SELECT in the letterbox on the right
         let screen = Rect::new(0.0, 0.0, 2000.0, 500.0);
-        let (view, [start, select]) = system_buttons(screen, 1280.0 / 528.0, 6.0);
+        let (view, [start, select]) = system_buttons(screen, 1280.0 / 528.0, 6.0, true);
         let shown = 500.0 * 1280.0 / 528.0;
-        assert!(view.w >= shown, "{view:?}");
-        let (Shape::Rect(a), Shape::Rect(b)) = (start.shape, select.shape) else {
-            panic!()
-        };
-        assert!(a.right() <= view.x && b.x >= view.right());
-        // a tablet: no letterbox, the play screen narrows for the buttons
+        assert!(view.x == 0.0 && view.w >= shown, "{view:?}");
+        let (a, b) = (rect(&start), rect(&select));
+        assert!(a.x >= view.right() && (a.x - b.x).abs() < 0.1 && b.y > a.bottom());
+        assert!((a.w - a.h).abs() < 0.1 && (a.w - 22.0 * 6.0).abs() < 0.1);
+        // a tablet: no letterbox, the play screen gives up one strip (2P: left)
         let screen = Rect::new(0.0, 0.0, 1280.0, 528.0);
-        let (view, _) = system_buttons(screen, 1280.0 / 528.0, 6.0);
-        assert!((view.x - 108.0).abs() < 0.5 && (view.right() - (1280.0 - 108.0)).abs() < 0.5);
-        // portrait: a band under the play screen
+        let (view, [start, _]) = system_buttons(screen, 1280.0 / 528.0, 6.0, false);
+        assert!(
+            (view.x - 138.0).abs() < 0.5 && view.right() == 1280.0,
+            "{view:?}"
+        );
+        assert!(rect(&start).right() <= view.x);
+        // portrait: side by side in a band under the play screen
         let screen = Rect::new(0.0, 0.0, 700.0, 900.0);
-        let (view, [start, _]) = system_buttons(screen, 720.0 / 1280.0, 6.0);
-        let Shape::Rect(a) = start.shape else {
-            panic!()
-        };
-        assert!(view.h < 900.0 && a.y >= view.bottom());
+        let (view, [start, select]) = system_buttons(screen, 720.0 / 1280.0, 6.0, true);
+        let (a, b) = (rect(&start), rect(&select));
+        assert!(view.h < 900.0 && a.y >= view.bottom() && b.x > a.right());
     }
 
     #[test]
