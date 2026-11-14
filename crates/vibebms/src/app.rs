@@ -898,12 +898,16 @@ impl ApplicationHandler<UserEvent> for App {
             return;
         }
         let config = Config::load(&self.paths.config_file());
-        let mut attrs = Window::default_attributes()
-            .with_title("vibeBMS")
-            .with_inner_size(winit::dpi::LogicalSize::new(
+        let mut attrs = Window::default_attributes().with_title("vibeBMS");
+        // a phone or tablet window fills the screen (a size given here
+        // would be used as is, and the screen would show part of it)
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(
                 config.display.width.max(320),
                 config.display.height.max(240),
             ));
+        }
         if config.display.fullscreen {
             attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
         }
