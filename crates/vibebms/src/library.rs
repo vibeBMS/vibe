@@ -31,6 +31,8 @@ pub struct Song {
     pub min_bpm: f64,
     pub max_bpm: f64,
     pub main_bpm: f64,
+    /// 0 in libraries scanned before it was stored (then the main BPM).
+    pub start_bpm: f64,
     pub notes: i64,
     pub length_ms: i64,
     pub total: f64,
@@ -297,6 +299,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         min_bpm: m.min_bpm,
         max_bpm: m.max_bpm,
         main_bpm: m.main_bpm,
+        start_bpm: m.initial_bpm,
         notes: c.note_count() as i64,
         length_ms: c.length() / 1000,
         total: c.total(vibebms_core::LnType::Ln),

@@ -1,6 +1,7 @@
 //! Song select: folders, difficulty tables, courses, search, options.
 
 use crate::app::{Ctx, Draw, Next, Scene};
+use crate::config::{Bpms, HsFix};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
@@ -100,6 +101,9 @@ pub struct SelectScene {
     pub(crate) panel: usize,
     pub(crate) panel_on: [Option<Instant>; 6],
     pub(crate) panel_off: [Option<Instant>; 6],
+    /// START / SELECT held: the option panels (see `option_panel`).
+    start_held: bool,
+    select_held: bool,
     /// Lamp / rank counts per folder (bar key), computed when first shown.
     dist_cache: std::cell::RefCell<HashMap<String, Distribution>>,
 }
@@ -141,6 +145,8 @@ impl SelectScene {
             panel: 0,
             panel_on: [None; 6],
             panel_off: [None; 6],
+            start_held: false,
+            select_held: false,
             dist_cache: Default::default(),
         };
         s.rebuild(ctx);
@@ -485,7 +491,9 @@ impl SelectScene {
     }
 
     fn option(&mut self, ctx: &mut Ctx, i: usize) -> Next {
-        let bpm = self.selected_song(ctx).map_or(150.0, |(_, s)| s.main_bpm);
+        let bpm = &self
+            .selected_song(ctx)
+            .map_or(Bpms::flat(150.0), |(_, s)| Bpms::of_song(s));
         let p = &mut ctx.config.play;
         fn cycle<T: Copy + PartialEq>(all: &[T], v: T) -> T {
             let i = all.iter().position(|x| *x == v).unwrap_or(0);
@@ -515,7 +523,7 @@ impl SelectScene {
 
     /// The option panel; `bpm` is the selected chart's main BPM (for its
     /// green number).
-    pub(crate) fn option_items(ctx: &Ctx, bpm: Option<f64>) -> Vec<(String, String)> {
+    pub(crate) fn option_items(ctx: &Ctx, bpm: Option<Bpms>) -> Vec<(String, String)> {
         let p = &ctx.config.play;
         vec![
             ("RANDOM".into(), p.random_1p.label().into()),
@@ -524,14 +532,16 @@ impl SelectScene {
             ("LN MODE".into(), format!("{:?}", p.ln_mode).to_uppercase()),
             (
                 "HI-SPEED −".into(),
-                format!("{:.2}", p.hispeed_at(bpm.unwrap_or(150.0))),
+                format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(Bpms::flat(150.0)))),
             ),
             (
                 "HI-SPEED +".into(),
-                match (bpm, p.fix_green) {
-                    (_, true) => format!("GN {} FIX", p.green(bpm.unwrap_or(150.0))),
-                    (Some(b), false) => format!("GN {}", p.green(b)),
-                    (None, false) => format!("{:.2}", p.hispeed),
+                match (bpm, p.hs_fix) {
+                    (b, fix) if fix != HsFix::Off => {
+                        format!("GN {} FIX", p.green(&b.unwrap_or(Bpms::flat(150.0))))
+                    }
+                    (Some(b), _) => format!("GN {}", p.green(&b)),
+                    (None, _) => format!("{:.2}", p.hispeed),
                 },
             ),
             ("SIDE".into(), format!("{:?}", p.side)),
@@ -756,20 +766,10 @@ impl SelectScene {
                 p.random_2p = all[(i + 1) % all.len()];
                 true
             }
-            54 => {
-                use vibebms_core::lane_option::DoubleOption;
-                p.dp_option = match p.dp_option {
-                    DoubleOption::Off => DoubleOption::Flip,
-                    DoubleOption::Flip => DoubleOption::Off,
-                };
-                true
-            }
-            55 => {
-                use crate::config::HiSpeedMode;
-                p.hispeed_mode = match p.hispeed_mode {
-                    HiSpeedMode::Floating => HiSpeedMode::Constant,
-                    HiSpeedMode::Constant => HiSpeedMode::Floating,
-                };
+            // DP OPTION and HS-FIX: as keys 4 and 5 of the START panel
+            54 | 55 => {
+                let b = Bpms::flat(150.0);
+                super::option_panel::key(p, 1, if act == 54 { 3 } else { 4 }, &b);
                 true
             }
             72 => {
@@ -797,6 +797,44 @@ impl SelectScene {
                 self.option(ctx, (n - OPTION_EVENT) as usize)
             }
             _ => Next::Stay,
+        }
+    }
+
+    /// START / SELECT pressed or released: open the panel they hold.
+    fn hold(&mut self, start: Option<bool>, select: Option<bool>) {
+        if let Some(v) = start {
+            self.start_held = v;
+        }
+        if let Some(v) = select {
+            self.select_held = v;
+        }
+        let want = super::option_panel::panel_of(self.start_held, self.select_held);
+        if want != self.panel {
+            self.toggle_panel(want);
+        }
+    }
+
+    fn holding(&self) -> bool {
+        self.start_held || self.select_held
+    }
+
+    /// A key (0..=6) or turntable step (7 up, 8 down) with a panel held.
+    fn panel_input(&mut self, ctx: &mut Ctx, k: usize) {
+        use super::option_panel;
+        let b = self
+            .selected_song(ctx)
+            .map_or(Bpms::flat(150.0), |(_, s)| Bpms::of_song(s));
+        let p = &mut ctx.config.play;
+        let said = match k {
+            7 | 8 => option_panel::turn(p, self.panel, if k == 7 { 1 } else { -1 }, &b),
+            _ => option_panel::key(p, self.panel, k, &b),
+        };
+        if let Some(msg) = said {
+            // the skin shows the change on its panel; without one, a toast
+            if !self.skin_has_panels() {
+                ctx.toast(msg);
+            }
+            ctx.save_config();
         }
     }
 
@@ -835,6 +873,25 @@ impl SelectScene {
         }
         Next::Stay
     }
+}
+
+/// Which panel input a key is: 1P keys 1..7 (0..=6), turntable up (7) or
+/// down (8).
+fn panel_key(
+    keys: &crate::config::KeyConfig,
+    has: impl Fn(&crate::config::LaneKeys) -> bool,
+) -> Option<usize> {
+    let p = &keys.p1;
+    if let Some(i) = p.keys.iter().take(7).position(&has) {
+        return Some(i);
+    }
+    if has(&p.scratch_up) {
+        return Some(7);
+    }
+    if has(&p.scratch_down) {
+        return Some(8);
+    }
+    None
 }
 
 /// Resolve an image path, trying common extension substitutions.
@@ -942,6 +999,25 @@ impl Scene for SelectScene {
                 repeat,
                 ..
             } => {
+                let keys = &ctx.config.keys;
+                let (is_start, is_select) = (
+                    keys.start.keys.contains(code),
+                    keys.select.keys.contains(code),
+                );
+                if is_start || is_select {
+                    if !*repeat {
+                        self.hold(is_start.then_some(*pressed), is_select.then_some(*pressed));
+                    }
+                    return Next::Stay;
+                }
+                if self.holding() {
+                    if *pressed && !*repeat {
+                        if let Some(k) = panel_key(keys, |l| l.keys.contains(code)) {
+                            self.panel_input(ctx, k);
+                        }
+                    }
+                    return Next::Stay;
+                }
                 if !*pressed {
                     if let Some((nav, _, _)) = self.held_nav {
                         if nav_from_key(*code, &ctx.config.keys) == Some(nav) {
@@ -988,9 +1064,25 @@ impl Scene for SelectScene {
                     return self.handle_nav(ctx, nav);
                 }
             }
-            InputEv::Pad {
-                id, pressed: true, ..
-            } => {
+            InputEv::Pad { id, pressed, .. } => {
+                let keys = &ctx.config.keys;
+                let (is_start, is_select) =
+                    (keys.start.pad.contains(id), keys.select.pad.contains(id));
+                if is_start || is_select {
+                    self.hold(is_start.then_some(*pressed), is_select.then_some(*pressed));
+                    return Next::Stay;
+                }
+                if self.holding() {
+                    if *pressed {
+                        if let Some(k) = panel_key(keys, |l| l.pad.contains(id)) {
+                            self.panel_input(ctx, k);
+                        }
+                    }
+                    return Next::Stay;
+                }
+                if !*pressed {
+                    return Next::Stay;
+                }
                 if let Some(nav) = nav_from_pad(*id, &ctx.config.keys) {
                     return self.handle_nav(ctx, nav);
                 }
@@ -1016,7 +1108,11 @@ impl Scene for SelectScene {
                     0
                 };
                 if step != 0 && ctx.config.keys.any_axis_is_scratch {
-                    self.step(ctx, step);
+                    if self.holding() {
+                        self.panel_input(ctx, if step < 0 { 7 } else { 8 });
+                    } else {
+                        self.step(ctx, step);
+                    }
                 }
             }
             InputEv::Wheel { dy } => {

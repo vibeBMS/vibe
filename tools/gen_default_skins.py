@@ -503,6 +503,7 @@ def build_parts(fonts):
     a.add("barcursor", cur.filter(ImageFilter.GaussianBlur(0.6)))
     a.add("lampcell", rounded(10, 32, 3, (255, 255, 255, 255)))
     a.add("optbtn", rounded(124, 62, 8, PANEL_HI + (255,), EDGE + (255,)))
+    option_parts(a, fonts)
 
     def label_button(text, w, h, accent):
         b = rounded(w, h, 7, PANEL_HI + (255,), accent + (255,))
@@ -602,6 +603,169 @@ def background(w, h):
     for x in range(-h, w, 28):
         d.line((x, h, x + h, 0), fill=(18, 21, 32, 255), width=1)
     return img
+
+
+# ---------------------------------------------------------------- option panels
+# Held START / SELECT on the select screen open beatoraja's panels 1 / 2 / 3
+# (crates/vibebms/src/scene/option_panel.rs has the keys). A column's
+# current value is lit by skin option 1500 + 16 x group + value.
+RANDOM_LABELS = ["OFF", "MIRROR", "RANDOM", "R-RANDOM", "S-RANDOM", "SPIRAL", "H-RANDOM",
+                 "ALL-SCR", "RANDOM+", "S-RANDOM+"]
+PANEL1 = [  # title, keys, group, values, accent
+    ("RANDOM", "1 ▼   2 ▲", 0, RANDOM_LABELS, TEAL),
+    ("GAUGE", "3", 1, ["ASSIST EASY", "EASY", "NORMAL", "HARD", "EX-HARD", "HAZARD"], (120, 230, 90)),
+    ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE"], RED),
+    ("HS-FIX", "5", 3, ["OFF", "START BPM", "MAX BPM", "MAIN BPM", "MIN BPM"], (180, 120, 255)),
+    ("RANDOM 2P", "6 ▲   7 ▼", 4, RANDOM_LABELS, TEAL),
+    ("TARGET", "TURNTABLE", 5, ["BEST", "RANK A", "RANK AA", "RANK AAA", "MAX-", "MAX"], AMBER),
+]
+ONOFF = ["OFF", "ON"]
+PANEL2 = [  # key, name, group, values
+    ("1", "AUTO SCRATCH", 9, ONOFF),
+    ("2", "CONSTANT", 10, ONOFF),
+    ("3", "LN MODE", 6, ["LN", "CN", "HCN"]),
+    ("4", "LEGACY NOTE", 11, ONOFF),
+    ("5", "JUDGE", 7, ["beatoraja", "LR2", "IIDX"]),
+    ("6", "LANE COVER", 12, ONOFF),
+    ("7", "NO MINE", 13, ONOFF),
+]
+PANEL3 = [  # key, name, group (None: a number row), values
+    ("1", "BGA", 14, ["OFF", "ON"]),
+    ("2", "GAUGE AUTO SHIFT", 8, ["OFF", "CONTINUE", "HARD→GROOVE", "BEST CLEAR",
+                                  "SELECT TO UNDER"]),
+    ("4 / 6", "HI-SPEED  − / +", None, None),
+    ("5 / 7", "JUDGE TIMING  − / +", None, None),
+    ("TT", "HI-SPEED  ±0.01", None, None),
+]
+OPT_W, OPT_HEAD, OPT_ROW = 196, 60, 26
+LIST_W, LIST_ROW = 460, 40
+
+
+def opt_card(fonts, title, keys, values, accent):
+    h = OPT_HEAD + len(values) * OPT_ROW + 10
+    img = rounded(OPT_W, h, 9, PANEL + (245,), accent + (255,), 2)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((2, 2, OPT_W - 3, 26), 7, fill=mix(PANEL, accent, 0.35) + (255,))
+    d.text((OPT_W // 2, 14), title, font=fonts.get("bold", 15), fill=TEXT + (255,), anchor="mm")
+    d.text((OPT_W // 2, 42), keys, font=fonts.get("semi", 12), fill=accent + (255,), anchor="mm")
+    for k, v in enumerate(values):
+        y = OPT_HEAD + k * OPT_ROW + OPT_ROW // 2
+        d.text((OPT_W // 2, y), v, font=fonts.get("semi", 14), fill=DIM + (255,), anchor="mm")
+    return img
+
+
+def opt_list(fonts, title, rows, accent):
+    h = 44 + len(rows) * LIST_ROW + 10
+    img = rounded(LIST_W, h, 9, PANEL + (245,), accent + (255,), 2)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((2, 2, LIST_W - 3, 30), 7, fill=mix(PANEL, accent, 0.35) + (255,))
+    d.text((LIST_W // 2, 16), title, font=fonts.get("bold", 15), fill=TEXT + (255,), anchor="mm")
+    for k, (key, name, *_rest) in enumerate(rows):
+        y = 44 + k * LIST_ROW + LIST_ROW // 2
+        d.rounded_rectangle((12, y - 13, 70, y + 13), 6, fill=PANEL_HI + (255,),
+                            outline=accent + (255,))
+        d.text((41, y), key, font=fonts.get("bold", 13), fill=TEXT + (255,), anchor="mm")
+        d.text((84, y), name, font=fonts.get("semi", 15), fill=TEXT + (255,), anchor="lm")
+    return img
+
+
+def option_parts(a, fonts):
+    for title, keys, g, values, accent in PANEL1:
+        a.add(f"opt_card{g}", opt_card(fonts, title, keys, values, accent))
+    a.add("opt_list2", opt_list(fonts, "ASSIST OPTION  (SELECT)", PANEL2, (180, 120, 255)))
+    a.add("opt_list3", opt_list(fonts, "DETAIL OPTION  (START + SELECT)", PANEL3, AMBER))
+    hi = Image.new("RGBA", (OPT_W - 16, OPT_ROW - 2))
+    ImageDraw.Draw(hi).rounded_rectangle((0, 0, OPT_W - 17, OPT_ROW - 3), 6,
+                                         fill=(255, 255, 255, 120))
+    a.add("opt_hi", hi)
+    seen = set()
+    for _k, _n, g, values in PANEL2 + PANEL3:
+        for v in values or []:
+            if v not in seen:
+                seen.add(v)
+                a.add(f"ov_{v}", text_img(fonts, v, "bold", 15, TEXT, TEXT, (0, 0, 0), 0, pad=2))
+    a.add("ov_x", text_img(fonts, "x", "semi", 14, DIM, DIM, (0, 0, 0), 0, pad=2))
+    a.add("ov_gn", text_img(fonts, "GN", "semi", 14, (70, 220, 120), (70, 220, 120), (0, 0, 0), 0,
+                            pad=2))
+    a.add("ov_ms", text_img(fonts, "ms", "semi", 14, DIM, DIM, (0, 0, 0), 0, pad=2))
+    a.add("ov_title1", text_img(fonts, "PLAY OPTION  (hold START)", "bold", 20, TEXT, TEXT,
+                                (0, 0, 0), 0, pad=2))
+    a.add("ov_hs", text_img(fonts, "HI-SPEED", "semi", 14, DIM, DIM, (0, 0, 0), 0, pad=2))
+
+
+def option_panels(sk, portrait):
+    """The three panels over the whole select screen (fixed positions)."""
+    W, H = sk.w, sk.h
+    items = sk.parts.items
+    for n in (1, 2, 3):
+        sk.put(sk.img("white"), 0, 0, W, H, op=[20 + n], fixed=True, r=0, g=0, b=0, a=185)
+    # --- panel 1: one card per column, a row (landscape) or 3 x 2 (portrait)
+    gap = 8 if not portrait else 12
+    per_row = 6 if not portrait else 3
+    x0 = (W - per_row * OPT_W - (per_row - 1) * gap) // 2
+    y0 = 128 if not portrait else 190
+    tw, th = items["ov_title1"][2:]
+    sk.put(sk.img("ov_title1"), (W - tw) // 2, y0 - 84, tw, th, op=[21], fixed=True)
+    # hi-speed and green number of the selected chart
+    hy = y0 - 44
+    hw = items["ov_hs"][2]
+    hx = W // 2 - 150
+    sk.put(sk.img("ov_hs"), hx, hy + 4, hw, items["ov_hs"][3], op=[21], fixed=True)
+    hx += hw + 10
+    hx += sk.number("n_mid", 310, 2, hx, hy, op=[21], fixed=True, blank=True)
+    sk.put(sk.img("white"), hx + 1, hy + 22, 4, 4, op=[21], fixed=True)
+    hx += 7
+    hx += sk.number("n_mid", 311, 2, hx, hy, zeropad=True, op=[21], fixed=True) + 24
+    gw = items["ov_gn"][2]
+    sk.put(sk.img("ov_gn"), hx, hy + 4, gw, items["ov_gn"][3], op=[21, 5], fixed=True)
+    sk.number("n_green", 313, 4, hx + gw + 8, hy + 2, op=[21, 5], fixed=True)
+    row_h = 0
+    for i, (_t, _k, g, values, accent) in enumerate(PANEL1):
+        cx = x0 + (i % per_row) * (OPT_W + gap)
+        if i % per_row == 0 and i:
+            y0 += row_h + 16
+            row_h = 0
+        cw, ch = items[f"opt_card{g}"][2:]
+        row_h = max(row_h, ch)
+        sk.put(sk.img(f"opt_card{g}"), cx, y0, cw, ch, op=[21], fixed=True)
+        for v in range(len(values)):
+            sk.put(sk.img("opt_hi"), cx + 8, y0 + OPT_HEAD + v * OPT_ROW + 1, OPT_W - 16,
+                   OPT_ROW - 2, op=[21, 1500 + 16 * g + v], blend=2, fixed=True,
+                   r=accent[0], g=accent[1], b=accent[2])
+    # --- panels 2 and 3: a list of keys, each with its value on the right
+    for n, rows in ((2, PANEL2), (3, PANEL3)):
+        lw, lh = items[f"opt_list{n}"][2:]
+        lx, ly = (W - lw) // 2, (H - lh) // 2 - (40 if not portrait else 120)
+        sk.put(sk.img(f"opt_list{n}"), lx, ly, lw, lh, op=[20 + n], fixed=True)
+        right = lx + lw - 18
+        for k, (_key, name, g, values) in enumerate(rows):
+            cy = ly + 44 + k * LIST_ROW + LIST_ROW // 2
+            if g is not None:
+                for v, label in enumerate(values):
+                    w_, h_ = items[f"ov_{label}"][2:]
+                    color = TEAL if label == "ON" else TEXT
+                    sk.put(sk.img(f"ov_{label}"), right - w_, cy - h_ // 2, w_, h_,
+                           op=[20 + n, 1500 + 16 * g + v], fixed=True,
+                           r=color[0], g=color[1], b=color[2])
+            elif "TIMING" in name:
+                mw = items["ov_ms"][2]
+                sk.put(sk.img("ov_ms"), right - mw, cy - 9, mw, items["ov_ms"][3],
+                       op=[20 + n], fixed=True)
+                sk.number("n_signed", 12, 4, right - mw - 6 - 4 * 15, cy - 11, op=[20 + n],
+                          fixed=True, scale=0.8)
+            else:
+                # x.xx (GN n) at the right
+                x = right - 200
+                x += sk.number("n_mid", 310, 2, x, cy - 13, op=[20 + n], fixed=True, scale=0.9,
+                               blank=True)
+                sk.put(sk.img("white"), x + 1, cy + 7, 4, 4, op=[20 + n], fixed=True)
+                x += 7
+                x += sk.number("n_mid", 311, 2, x, cy - 13, zeropad=True, op=[20 + n],
+                               fixed=True, scale=0.9) + 16
+                gw = items["ov_gn"][2]
+                sk.put(sk.img("ov_gn"), x, cy - 9, gw, items["ov_gn"][3], op=[20 + n, 5],
+                       fixed=True)
+                sk.number("n_green", 313, 4, x + gw + 6, cy - 11, op=[20 + n, 5], fixed=True)
 
 
 # ---------------------------------------------------------------- skin json
@@ -2012,6 +2176,7 @@ def select_layout(fonts, parts, portrait=False):
     draw_label(img, f, 664, 688, "F10 / : SEARCH    F5 AUTOPLAY", 11, DIM, anchor="rm")
     if portrait:
         img = compose(img, SELECT_PORTRAIT, 720, 1280)
+    option_panels(sk, portrait)
     return sk, img
 
 

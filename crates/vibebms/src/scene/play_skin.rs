@@ -257,12 +257,11 @@ impl SceneState<'_> {
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
     pub fn hispeed(&self) -> f64 {
-        self.ctx.config.play.hispeed_at(self.main_bpm()) as f64
+        self.ctx.config.play.hispeed_at(&self.bpms()) as f64
     }
 
-    /// The chart's main BPM (what the hi-speed scales).
-    pub fn main_bpm(&self) -> f64 {
-        self.s.chart.meta.main_bpm
+    pub fn bpms(&self) -> crate::config::Bpms {
+        crate::config::Bpms::of_meta(&self.s.chart.meta)
     }
 }
 
@@ -405,11 +404,11 @@ impl SkinState for SceneState<'_> {
             311 => (self.hispeed() * 100.0).round() as i64 % 100,
             12 => p.judge_offset_ms as i64,
             14 => (p.sudden * 1000.0) as i64,
-            312 => p.duration_ms(self.main_bpm()).round() as i64,
-            313 => p.green(self.main_bpm()),
+            312 => p.duration_ms(&self.bpms()).round() as i64,
+            313 => p.green(&self.bpms()),
             // duration / green number with the lane cover on / off
             1312..=1315 => {
-                let d = p.duration_ms_with(self.main_bpm(), id < 1314);
+                let d = p.duration_ms_with(&self.bpms(), id < 1314);
                 (if id % 2 == 0 { d } else { d * 0.6 }).round() as i64
             }
             314 => (p.lift * 1000.0) as i64,
@@ -598,7 +597,8 @@ impl Hooks for SceneHooks<'_> {
         } else {
             130.0
         };
-        let dur_us = p.duration_ms(main_bpm) * 1000.0;
+        let bpms = crate::config::Bpms::of_meta(&s.chart.meta);
+        let dur_us = p.duration_at(&bpms, main_bpm, true) * 1000.0;
         let notes = engine.notes();
         let ident = crate::skin::Frame {
             rect: Rect::default(),

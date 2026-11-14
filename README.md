@@ -49,9 +49,12 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 | 9키(PMS) | `A S D F G H J K L` |
 | 선곡 | ↑↓ 이동, Enter 결정, Backspace 뒤로, `/` 검색, F2~F9 옵션, F12 재스캔 |
 | 플레이 | ↑↓ 하이스피드, PgUp/PgDn SUDDEN+, ←→ 판정 오프셋, Esc 종료 |
-| 플레이 중 START(`Q`) / SELECT(`W`) | beatoraja와 같은 조작 패널: START+흰 건반 느리게 / 파란 건반 빠르게, START+턴테이블 레인 커버(커버가 없으면 LIFT), START 두 번 커버 켜기/끄기, SELECT+건반·턴테이블 표시 시간 미세 조정, START+SELECT 1초 종료 |
+| 선곡 중 START(`Q`) / SELECT(`W`) 누른 채로 | 플레이 옵션 패널 (beatoraja 키 배치) — START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, 턴테이블 TARGET / SELECT: 1 AUTO SCRATCH, 2 CONSTANT, 3 LN MODE, 4 LEGACY NOTE, 5 JUDGE, 6 LANE COVER, 7 NO MINE / 둘 다: 1 BGA, 2 GAUGE AUTO SHIFT, 4·6 하이스피드 −/+, 5·7 판정 타이밍 −/+, 턴테이블 하이스피드 ±0.01 |
+| 플레이 중 START(`Q`) / SELECT(`W`) | beatoraja와 같은 조작 패널: START+흰 건반 하이스피드 −0.25 / 파란 건반 +0.25, START+턴테이블 레인 커버(커버가 없으면 LIFT), START 두 번 커버 켜기/끄기, SELECT+건반·턴테이블 하이스피드 ±0.01, START+SELECT 1초 종료 |
 | 공통 | F1/Tab 설정, F11 전체화면 |
 
+- 하이스피드: 배속을 설정하고(0.25 단위), 녹숫(노트가 보이는 시간)은 배속·BPM·레인 커버로 정해집니다.
+  HS-FIX(START BPM / MAX BPM / MAIN BPM / MIN BPM)를 켜면 반대로 녹숫이 고정되고 곡마다 그 BPM에 맞춰 배속이 바뀝니다.
 - 컨트롤러(IIDX 전용 컨트롤러 포함)는 `SETTINGS › KEY CONFIG`에서 버튼을 눌러 등록합니다. 아날로그 턴테이블도 지원합니다.
 - 터치 모드(`SETTINGS › TOUCH`): IIDX 배열(턴테이블 + 2단 건반, PMS는 팝픈 배열의 둥근 버튼) 또는 한 줄 건반, 세로/가로 SP와 가로 DP, 멀티터치·슬라이드.
   건반 사이 빈 곳을 눌러도 가장 가까운 건반으로 들어갑니다.

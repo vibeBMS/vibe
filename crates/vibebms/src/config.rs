@@ -31,6 +31,89 @@ pub enum HiSpeedMode {
     Constant,
 }
 
+/// Which BPM a fixed green number is kept at (beatoraja HS-FIX order).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum HsFix {
+    /// The hi-speed is the setting.
+    #[default]
+    Off,
+    Start,
+    Max,
+    Main,
+    Min,
+}
+
+impl HsFix {
+    pub const ALL: [HsFix; 5] = [
+        HsFix::Off,
+        HsFix::Start,
+        HsFix::Max,
+        HsFix::Main,
+        HsFix::Min,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HsFix::Off => "OFF",
+            HsFix::Start => "START BPM",
+            HsFix::Max => "MAX BPM",
+            HsFix::Main => "MAIN BPM",
+            HsFix::Min => "MIN BPM",
+        }
+    }
+}
+
+/// A chart's BPMs, for hi-speed and green numbers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bpms {
+    pub start: f64,
+    pub min: f64,
+    pub max: f64,
+    pub main: f64,
+}
+
+impl Bpms {
+    /// One BPM for all (a chart without changes, or a reference).
+    pub fn flat(bpm: f64) -> Bpms {
+        Bpms {
+            start: bpm,
+            min: bpm,
+            max: bpm,
+            main: bpm,
+        }
+    }
+
+    pub fn of_meta(m: &vibebms_core::ChartMeta) -> Bpms {
+        Bpms {
+            start: m.initial_bpm,
+            min: m.min_bpm,
+            max: m.max_bpm,
+            main: m.main_bpm,
+        }
+    }
+
+    pub fn of_song(s: &crate::library::Song) -> Bpms {
+        Bpms {
+            start: if s.start_bpm > 0.0 {
+                s.start_bpm
+            } else {
+                s.main_bpm
+            },
+            min: s.min_bpm,
+            max: s.max_bpm,
+            main: s.main_bpm,
+        }
+    }
+}
+
+fn valid(bpm: f64) -> f64 {
+    if bpm > 0.0 && bpm.is_finite() {
+        bpm
+    } else {
+        130.0
+    }
+}
+
 /// Target score: the personal best or a fixed share of the maximum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Target {
@@ -103,10 +186,10 @@ pub struct PlayConfig {
     /// chart's main BPM. The time a note is visible (the green number)
     /// follows from it, the BPM and the lane cover.
     pub hispeed: f32,
-    /// Keep the green number instead (IIDX floating hi-speed / beatoraja
-    /// FIX): the hi-speed follows each chart's main BPM and the lane cover
-    /// so that notes stay visible for `fixed_duration_ms`.
-    pub fix_green: bool,
+    /// Keep the green number instead (IIDX floating hi-speed, beatoraja /
+    /// LR2 HS-FIX): the hi-speed follows each chart's BPM of this kind and
+    /// the lane cover so that notes stay visible for `fixed_duration_ms`.
+    pub hs_fix: HsFix,
     pub fixed_duration_ms: f32,
     pub sudden: f32,
     pub hidden: f32,
@@ -145,54 +228,72 @@ impl PlayConfig {
         (1.0 - cover - self.lift).max(0.05)
     }
 
-    /// The hi-speed a chart of main BPM `bpm` plays at: the setting, or
-    /// with the green number fixed what keeps it.
-    pub fn hispeed_at(&self, bpm: f64) -> f32 {
-        if !self.fix_green {
+    /// The BPM the green number is shown (and with HS-FIX kept) at.
+    pub fn basis(&self, b: &Bpms) -> f64 {
+        valid(match self.hs_fix {
+            HsFix::Off | HsFix::Main => b.main,
+            HsFix::Start => b.start,
+            HsFix::Max => b.max,
+            HsFix::Min => b.min,
+        })
+    }
+
+    /// The hi-speed a chart plays at: the setting, or with HS-FIX what
+    /// keeps the green number.
+    pub fn hispeed_at(&self, b: &Bpms) -> f32 {
+        if self.hs_fix == HsFix::Off {
             return self.hispeed;
         }
-        let bpm = if bpm > 0.0 { bpm } else { 130.0 };
-        (240_000.0 * self.visible(true) as f64 / (bpm * self.fixed_duration_ms.max(1.0) as f64))
-            as f32
+        (240_000.0 * self.visible(true) as f64
+            / (self.basis(b) * self.fixed_duration_ms.max(1.0) as f64)) as f32
     }
 
-    /// How long (ms) a note is visible at `bpm`: the lane holds
-    /// 4 / hi-speed beats.
-    pub fn duration_ms(&self, bpm: f64) -> f64 {
-        self.duration_ms_with(bpm, true)
+    /// How long (ms) a note is visible at `bpm` with the chart's hi-speed:
+    /// the lane holds 4 / hi-speed beats.
+    pub fn duration_at(&self, b: &Bpms, bpm: f64, with_cover: bool) -> f64 {
+        240_000.0 * self.visible(with_cover) as f64
+            / (valid(bpm) * self.hispeed_at(b).max(0.01) as f64)
     }
 
-    pub fn duration_ms_with(&self, bpm: f64, with_cover: bool) -> f64 {
-        let bpm = if bpm > 0.0 { bpm } else { 130.0 };
-        240_000.0 * self.visible(with_cover) as f64 / (bpm * self.hispeed_at(bpm).max(0.01) as f64)
+    /// The duration at the basis BPM (the one the green number is about).
+    pub fn duration_ms(&self, b: &Bpms) -> f64 {
+        self.duration_at(b, self.basis(b), true)
+    }
+
+    pub fn duration_ms_with(&self, b: &Bpms, with_cover: bool) -> f64 {
+        self.duration_at(b, self.basis(b), with_cover)
     }
 
     /// The green number (beatoraja: the duration x 0.6).
-    pub fn green(&self, bpm: f64) -> i64 {
-        (self.duration_ms(bpm) * 0.6).round() as i64
+    pub fn green(&self, b: &Bpms) -> i64 {
+        (self.duration_ms(b) * 0.6).round() as i64
     }
 
-    /// Change the hi-speed by `d` for a chart of main BPM `bpm`; with the
-    /// green number fixed this sets the new green number.
-    pub fn add_hispeed(&mut self, d: f32, bpm: f64) {
+    /// Change the hi-speed by `d` for a chart; with HS-FIX this sets the new
+    /// green number.
+    pub fn add_hispeed(&mut self, d: f32, b: &Bpms) {
         let hs =
-            (((self.hispeed_at(bpm) + d) * 100.0).round() / 100.0).clamp(HISPEED_MIN, HISPEED_MAX);
+            (((self.hispeed_at(b) + d) * 100.0).round() / 100.0).clamp(HISPEED_MIN, HISPEED_MAX);
         self.hispeed = hs;
-        if self.fix_green {
-            let bpm = if bpm > 0.0 { bpm } else { 130.0 };
+        if self.hs_fix != HsFix::Off {
             self.fixed_duration_ms =
-                (240_000.0 * self.visible(true) as f64 / (bpm * hs as f64)) as f32;
+                (240_000.0 * self.visible(true) as f64 / (self.basis(b) * hs as f64)) as f32;
         }
     }
 
-    /// Turn the fixed green number on or off, keeping the speed at `bpm`.
-    pub fn set_fix_green(&mut self, on: bool, bpm: f64) {
-        if on && !self.fix_green {
-            self.fixed_duration_ms = self.duration_ms(bpm) as f32;
-        } else if !on && self.fix_green {
-            self.hispeed = (self.hispeed_at(bpm) / HISPEED_STEP).round().max(1.0) * HISPEED_STEP;
+    /// Change HS-FIX, keeping the speed the chart `b` plays at.
+    pub fn set_hs_fix(&mut self, fix: HsFix, b: &Bpms) {
+        let hs = self.hispeed_at(b);
+        if fix == HsFix::Off {
+            if self.hs_fix != HsFix::Off {
+                self.hispeed = (hs / HISPEED_STEP).round().max(1.0) * HISPEED_STEP;
+            }
+            self.hs_fix = fix;
+        } else {
+            self.hs_fix = fix;
+            self.fixed_duration_ms =
+                (240_000.0 * self.visible(true) as f64 / (self.basis(b) * hs as f64)) as f32;
         }
-        self.fix_green = on;
     }
 }
 
@@ -216,7 +317,7 @@ impl Default for PlayConfig {
             autoplay: false,
             hispeed_mode: HiSpeedMode::Floating,
             hispeed: 2.5,
-            fix_green: false,
+            hs_fix: HsFix::Off,
             fixed_duration_ms: 600.0,
             sudden: 0.0,
             hidden: 0.0,
@@ -586,7 +687,7 @@ mod tests {
         let p: Config = v.try_into().unwrap();
         // 400 ms at 150 BPM is hi-speed 4.0
         assert_eq!(p.play.hispeed, 4.0);
-        assert!((p.play.duration_ms(150.0) - 400.0).abs() < 0.5);
+        assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
     }
 
@@ -596,20 +697,34 @@ mod tests {
             hispeed: 2.0,
             ..Default::default()
         };
+        let at150 = Bpms::flat(150.0);
         // 240000 / (150 x 2) = 800 ms at 150 BPM
-        p.set_fix_green(true, 150.0);
+        p.set_hs_fix(HsFix::Main, &at150);
         assert!((p.fixed_duration_ms - 800.0).abs() < 0.5);
         // a 300 BPM chart plays at hi-speed 1.0, same green number
-        assert!((p.hispeed_at(300.0) - 1.0).abs() < 1e-4);
-        assert_eq!(p.green(300.0), p.green(150.0));
+        let at300 = Bpms::flat(300.0);
+        assert!((p.hispeed_at(&at300) - 1.0).abs() < 1e-4);
+        assert_eq!(p.green(&at300), p.green(&at150));
         // SUDDEN+ keeps the green number: the hi-speed drops
         p.lane_cover = true;
         p.sudden = 0.5;
-        assert_eq!(p.green(150.0), 480);
-        assert!((p.hispeed_at(150.0) - 1.0).abs() < 1e-4);
+        assert_eq!(p.green(&at150), 480);
+        assert!((p.hispeed_at(&at150) - 1.0).abs() < 1e-4);
         // hi-speed +0.25 at 150 BPM sets a new green number
-        p.add_hispeed(0.25, 150.0);
-        assert!((p.hispeed_at(150.0) - 1.25).abs() < 1e-3);
-        assert!((p.duration_ms(150.0) - 640.0).abs() < 0.5);
+        p.add_hispeed(0.25, &at150);
+        assert!((p.hispeed_at(&at150) - 1.25).abs() < 1e-3);
+        assert!((p.duration_ms(&at150) - 640.0).abs() < 0.5);
+        // MAX BPM: a 100..200 chart keeps the green number at 200
+        let b = Bpms {
+            start: 100.0,
+            min: 100.0,
+            max: 200.0,
+            main: 100.0,
+        };
+        p.hs_fix = HsFix::Max;
+        assert!((p.hispeed_at(&b) - 1.25 * 150.0 / 200.0).abs() < 1e-3);
+        // back to OFF keeps the speed, on the 0.25 grid
+        p.set_hs_fix(HsFix::Off, &at150);
+        assert_eq!(p.hispeed, 1.25);
     }
 }

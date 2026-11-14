@@ -193,7 +193,12 @@ impl SkinState for ResultState<'_> {
             178 => sc.miss_count() as i64 - before.map(bp).unwrap_or(0),
             122 | 157 | 183 => split2(before.map(|b| b.rate()).unwrap_or(0.0) * 100.0).0,
             123 | 158 | 184 => split2(before.map(|b| b.rate()).unwrap_or(0.0) * 100.0).1,
-            312 => self.ctx.config.play.duration_ms(d.meta.main_bpm).round() as i64,
+            312 => self
+                .ctx
+                .config
+                .play
+                .duration_ms(&crate::config::Bpms::of_meta(&d.meta))
+                .round() as i64,
             370 => d.clear as i64,
             371 => before.map(|b| b.clear as i64).unwrap_or(0),
             374 => split2(avg).0,

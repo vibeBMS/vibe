@@ -10,13 +10,14 @@
 use super::select::{Bar, Node, SelectScene};
 use super::skinned::{ms_since, rank_index};
 use crate::app::{Ctx, Draw};
-use crate::config::HiSpeedMode;
+use crate::config::{Bpms, HiSpeedMode};
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::*;
-use vibebms_core::gauge::GaugeType;
+use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
+use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::LaneOption;
 use vibebms_core::score::{ClearType, DjLevel};
 use vibebms_core::{LnType, PlayMode};
@@ -217,6 +218,9 @@ impl SkinState for SelectState<'_> {
         let rank = self.song().and_then(|s| self.s.ranking.get(&s.sha256));
         let v = match id.abs() {
             21..=26 => self.s.panel == (id.abs() - 20) as usize,
+            n @ 1500..=1739 => {
+                super::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
+            }
             601 => matches!(rank, Some(super::select::Rank::Loading(_))),
             602 => matches!(rank, Some(super::select::Rank::Done(_))),
             604 => matches!(rank, Some(super::select::Rank::Error)),
@@ -236,6 +240,7 @@ impl SkinState for SelectState<'_> {
         let b = |f: fn(&BestScore) -> i64| song.map(|_| best.map(f).unwrap_or(0));
         Some(match id {
             20 => self.ctx.fps as i64,
+            12 => p.judge_offset_ms as i64,
             30 => self.ctx.scores.values().map(|b| b.play_count as i64).sum(),
             71 => b(|b| b.ex_score as i64)?,
             72 => song.map(|s| s.notes * 2)?,
@@ -267,10 +272,11 @@ impl SkinState for SelectState<'_> {
                 Some(Bar::Folder { count, .. }) => *count as i64,
                 _ => self.s.bars.len() as i64,
             },
-            312 => song.map(|s| p.duration_ms(s.main_bpm).round() as i64)?,
-            313 => song.map(|s| p.green(s.main_bpm))?,
+            312 => song.map(|s| p.duration_ms(&Bpms::of_song(s)).round() as i64)?,
+            313 => song.map(|s| p.green(&Bpms::of_song(s)))?,
             10 | 310 | 311 => {
-                let hs = (p.hispeed_at(song.map_or(150.0, |s| s.main_bpm)) * 100.0).round() as i64;
+                let b = song.map_or(Bpms::flat(150.0), Bpms::of_song);
+                let hs = (p.hispeed_at(&b) * 100.0).round() as i64;
                 match id {
                     310 => hs / 100,
                     311 => hs % 100,
@@ -305,12 +311,9 @@ impl SkinState for SelectState<'_> {
             },
             42 => random_index(p.random_1p),
             43 => random_index(p.random_2p),
-            54 => p.dp_option as i64,
-            // beatoraja HS-FIX: 0 off, 3 main BPM
-            55 => match p.hispeed_mode {
-                HiSpeedMode::Floating => 3,
-                HiSpeedMode::Constant => 0,
-            },
+            54 => super::option_panel::dp_index(p),
+            // beatoraja HS-FIX: off, start, max, main, min BPM
+            55 => p.hs_fix as i64,
             // beatoraja BGA: 0 on, 2 off
             72 => {
                 if p.bga {
@@ -319,6 +322,16 @@ impl SkinState for SelectState<'_> {
                     2
                 }
             }
+            // beatoraja assist buttons vibeBMS has (0 off, 1 on)
+            302 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
+            304 => p.legacy_note as i64,
+            307 => p.no_mine as i64,
+            // vibeBMS: the options its panels show that beatoraja has not
+            1401 => p.auto_scratch as i64,
+            1402 => p.lane_cover as i64,
+            1403 => crate::scene::option_panel::index_of(&JudgePreset::ALL, p.judge_preset),
+            1404 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
+            1405 => crate::scene::option_panel::index_of(&crate::config::Target::ALL, p.target),
             308 => match p.ln_mode {
                 LnType::Ln => 0,
                 LnType::Cn => 1,
@@ -330,7 +343,7 @@ impl SkinState for SelectState<'_> {
 
     fn text(&self, id: i32) -> Option<String> {
         let song = self.song();
-        let opts = SelectScene::option_items(self.ctx, song.map(|s| s.main_bpm));
+        let opts = SelectScene::option_items(self.ctx, song.map(Bpms::of_song));
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
             // folders and courses show their name as the title

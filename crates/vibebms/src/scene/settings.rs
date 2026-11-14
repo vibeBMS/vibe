@@ -5,7 +5,8 @@
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{
-    HiSpeedMode, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, Target, TouchMode, TouchStyle,
+    Bpms, HiSpeedMode, HsFix, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, Target,
+    TouchMode, TouchStyle,
 };
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
@@ -261,19 +262,23 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 "Hi-speed",
                 format!(
                     "{:.2}  (GN {} at 150 BPM)",
-                    p.hispeed_at(150.0),
-                    p.green(150.0)
+                    p.hispeed_at(&Bpms::flat(150.0)),
+                    p.green(&Bpms::flat(150.0))
                 ),
                 |c, d| {
                     c.config
                         .play
-                        .add_hispeed(d as f32 * crate::config::HISPEED_STEP, 150.0)
+                        .add_hispeed(d as f32 * crate::config::HISPEED_STEP, &Bpms::flat(150.0))
                 },
             ),
-            it("Fix green number", onoff(p.fix_green), |c, _| {
-                let on = !c.config.play.fix_green;
-                c.config.play.set_fix_green(on, 150.0)
-            }),
+            it(
+                "HS-FIX (keep the green number)",
+                p.hs_fix.label().to_string(),
+                |c, d| {
+                    let f = cyc(&HsFix::ALL, c.config.play.hs_fix, d);
+                    c.config.play.set_hs_fix(f, &Bpms::flat(150.0))
+                },
+            ),
             it("Lane cover", onoff(p.lane_cover), |c, _| {
                 c.config.play.lane_cover = !c.config.play.lane_cover
             }),

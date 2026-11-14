@@ -1,7 +1,7 @@
 //! Gameplay: loading, audio scheduling, judging, rendering, touch controls.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::config::{PlayConfig, Side, HISPEED_STEP};
+use crate::config::{Bpms, PlayConfig, Side, HISPEED_STEP};
 use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Gfx, Rect, TexId};
 use crate::input::{InputEv, LaneEv, LaneMapper};
@@ -171,7 +171,7 @@ impl Control {
     }
 
     /// One turntable step in `dir` (START: cover, SELECT: hi-speed).
-    fn turn(&self, p: &mut PlayConfig, dir: i32, bpm: f64) {
+    fn turn(&self, p: &mut PlayConfig, dir: i32, bpm: &Bpms) {
         if self.start {
             adjust_cover(p, dir as f32 * 0.005);
         } else {
@@ -756,7 +756,7 @@ impl PlayScene {
     /// START / SELECT and what they do to the keys: `true` when the event
     /// was taken (it does not reach the judge).
     fn control(&mut self, ctx: &mut Ctx, e: &LaneEv) -> bool {
-        let bpm = self.chart.meta.main_bpm;
+        let bpm = &Bpms::of_meta(&self.chart.meta);
         let p = &mut ctx.config.play;
         let c = &mut self.ctl;
         let was_open = c.open();
@@ -830,7 +830,7 @@ impl Scene for PlayScene {
         if let Some((dir, last)) = self.ctl.scratch.filter(|_| self.ctl.open()) {
             if now.duration_since(last) >= Duration::from_millis(50) {
                 self.ctl
-                    .turn(&mut ctx.config.play, dir, self.chart.meta.main_bpm);
+                    .turn(&mut ctx.config.play, dir, &Bpms::of_meta(&self.chart.meta));
                 self.ctl.scratch = Some((dir, now));
             }
         }
@@ -1037,11 +1037,11 @@ impl Scene for PlayScene {
                         KeyCode::ArrowUp => ctx
                             .config
                             .play
-                            .add_hispeed(HISPEED_STEP, self.chart.meta.main_bpm),
+                            .add_hispeed(HISPEED_STEP, &Bpms::of_meta(&self.chart.meta)),
                         KeyCode::ArrowDown => ctx
                             .config
                             .play
-                            .add_hispeed(-HISPEED_STEP, self.chart.meta.main_bpm),
+                            .add_hispeed(-HISPEED_STEP, &Bpms::of_meta(&self.chart.meta)),
                         KeyCode::PageUp => adjust_cover(&mut ctx.config.play, 0.02),
                         KeyCode::PageDown => adjust_cover(&mut ctx.config.play, -0.02),
                         KeyCode::ArrowLeft => ctx.config.play.judge_offset_ms -= 1,
@@ -1277,7 +1277,7 @@ impl PlayScene {
         line(d, &format!("{hs:.2}"), small * 2.2, theme::ACCENT, &mut y);
         line(
             d,
-            &format!("GN {}", p.green(st.main_bpm())),
+            &format!("GN {}", p.green(&st.bpms())),
             small,
             theme::TEXT,
             &mut y,
