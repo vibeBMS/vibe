@@ -24,6 +24,10 @@ pub const OLD_DEFAULT: &str = "https://github.com/vibeBMS/BMS/releases/download/
 /// Re-read an index after this long (s).
 const REFRESH_S: u64 = 86_400;
 
+/// Re-read a list of events after this long (s): it is small, and the
+/// URLs of the indexes in it may change.
+const CATALOG_REFRESH_S: u64 = 600;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct File {
@@ -243,7 +247,7 @@ impl Archives {
         let lists: Vec<String> = self
             .catalogs
             .iter()
-            .filter(|c| force || now.saturating_sub(c.fetched_at) >= REFRESH_S)
+            .filter(|c| force || now.saturating_sub(c.fetched_at) >= CATALOG_REFRESH_S)
             .map(|c| c.url.clone())
             .collect();
         for url in lists {
