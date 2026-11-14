@@ -428,6 +428,9 @@ pub struct NotesGraph {
     pub order_reverse: bool,
     pub no_gap: bool,
     pub no_gap_x: bool,
+    /// The built-in skin's look: with FAST / SLOW, FAST up and SLOW down
+    /// per section.
+    pub built_in: bool,
 }
 
 /// BPM over the chart.

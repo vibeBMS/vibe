@@ -133,6 +133,12 @@ impl SkinState for ResultState<'_> {
         let after = self.s.after.as_ref();
         let ex = sc.ex_score() as i64;
         let best = self.best_ex() as i64;
+        let target = self
+            .ctx
+            .config
+            .play
+            .target
+            .score(sc.max_ex(), self.best_ex()) as i64;
         let rate = split2(sc.rate() * 100.0);
         let m = &d.meta;
         let (avg, dev) = graphs::timing_stats(&d.timing_log);
@@ -176,8 +182,10 @@ impl SkinState for ResultState<'_> {
             425 => sc.combo_breaks as i64,
             426 => (sc.count(POOR) + sc.count(MISS)) as i64,
             427 => (sc.count(BAD) + sc.count(POOR) + sc.count(MISS)) as i64,
-            121 | 150 | 151 | 170 => best,
-            108 | 128 | 152 | 153 | 172 => ex - best,
+            150 | 170 => best,
+            121 | 151 => target,
+            108 | 152 | 172 => ex - best,
+            128 | 153 => ex - target,
             154 => self.diff_next_rank(),
             173 => before.map(|b| b.max_combo as i64).unwrap_or(0),
             175 => sc.max_combo as i64 - before.map(|b| b.max_combo as i64).unwrap_or(0),

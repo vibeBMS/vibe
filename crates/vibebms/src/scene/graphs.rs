@@ -218,6 +218,9 @@ pub fn columns(notes: &[PlayNote], mode: PlayMode, length_us: i64) -> [Vec<Colum
 /// A notes graph (beatoraja's): one column per second, one 5×5 chip per
 /// note; `cursor_ms` is the play position.
 pub fn notes(d: &mut Draw, a: &Area, g: &NotesGraph, cols: &[Column], cursor_ms: Option<f64>) {
+    if g.built_in && g.kind == 2 {
+        return fast_slow(d, a, cols);
+    }
     let r = a.r;
     let alpha = a.color[3];
     let palette = PALETTE[g.kind.min(2)];
@@ -276,6 +279,46 @@ pub fn notes(d: &mut Draw, a: &Area, g: &NotesGraph, cols: &[Column], cursor_ms:
             d.b.rect(Rect::new(x, r.y, 3.0 * sx, r.h), [1.0, 1.0, 1.0, alpha]);
         }
     }
+}
+
+/// FAST (up) and SLOW (down) counts per section, PGREAT not counted; the
+/// sections are whole seconds, at least 6 px wide.
+fn fast_slow(d: &mut Draw, a: &Area, cols: &[Column]) {
+    let r = a.r;
+    let per = ((cols.len() as f32 * 6.0 / r.w).ceil() as usize).max(1);
+    let bins: Vec<(u32, u32)> = cols
+        .chunks(per)
+        .map(|c| {
+            c.iter().fold((0, 0), |(f, s), col| {
+                (
+                    f + col[2..6].iter().sum::<u32>(),
+                    s + col[6..10].iter().sum::<u32>(),
+                )
+            })
+        })
+        .collect();
+    let max = bins
+        .iter()
+        .map(|(f, s)| (*f).max(*s))
+        .max()
+        .unwrap_or(0)
+        .max(4) as f32;
+    let mid = r.y + r.h / 2.0;
+    let bw = r.w / bins.len().max(1) as f32;
+    let shown = ((bins.len() as f32 * a.reveal).ceil() as usize).min(bins.len());
+    let (fast, slow) = (
+        a.fade(rgba(0x3f8cffff), 0.85),
+        a.fade(rgba(0xff4d5eff), 0.85),
+    );
+    for (i, (f, s)) in bins.iter().take(shown).enumerate() {
+        let x = r.x + i as f32 * bw;
+        let w = (bw - 1.0).max(1.0);
+        let hf = r.h / 2.0 * *f as f32 / max;
+        let hs = r.h / 2.0 * *s as f32 / max;
+        d.b.rect(Rect::new(x, mid - hf, w, hf), fast);
+        d.b.rect(Rect::new(x, mid, w, hs), slow);
+    }
+    d.b.rect(Rect::new(r.x, mid - 0.5, r.w, 1.0), a.fade([1.0; 4], 0.4));
 }
 
 /// BPM over the chart: a line per BPM segment coloured main / min / max /

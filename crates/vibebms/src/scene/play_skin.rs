@@ -130,20 +130,32 @@ pub struct SceneState<'a> {
 impl SceneState<'_> {
     /// Pacemaker target: the personal best EX score (0 if never played)
     /// and that score prorated to the notes passed so far.
-    fn target(&self) -> (i64, f64) {
+    /// The personal best and the target score (EX), and the share of the
+    /// notes judged so far (the pacemakers run at that share of them).
+    fn pace(&self) -> (i64, i64, f64) {
         let s = self.s;
         let best = self
             .ctx
             .best(&s.req.song, s.ln_mode() as i32)
-            .map(|b| b.ex_score as i64)
+            .map(|b| b.ex_score)
             .unwrap_or(0);
-        let now = match self.engine().map(|e| &e.score) {
-            Some(sc) if sc.total_notes > 0 => {
-                best as f64 * sc.passed as f64 / sc.total_notes as f64
-            }
-            _ => 0.0,
+        let Some(sc) = self.engine().map(|e| &e.score) else {
+            return (best as i64, 0, 0.0);
         };
-        (best, now)
+        let target = self.ctx.config.play.target.score(sc.max_ex(), best);
+        let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
+        (best as i64, target as i64, done)
+    }
+
+    /// EX score minus the next DJ level's border at the notes judged so far.
+    fn diff_next_rank(&self) -> Option<i64> {
+        let sc = &self.engine()?.score;
+        let max = sc.passed as i64 * 2;
+        let ex = sc.ex_score() as i64;
+        (2..=9)
+            .map(|k| (max * k + 8) / 9)
+            .find(|t| *t > ex)
+            .map(|t| ex - t)
     }
 
     fn ms(&self, t: Instant) -> i64 {
@@ -408,6 +420,20 @@ impl SkinState for SceneState<'_> {
             14 => (p.sudden * 1000.0) as i64,
             312 => p.duration_ms as i64,
             313 => p.duration_ms as i64 * 3 / 5,
+            // duration with the lane cover on / off (the setting is with it)
+            1312..=1315 => {
+                let cover = if p.lane_cover || p.sudden > 0.0 {
+                    p.sudden
+                } else {
+                    0.0
+                };
+                let d = if id < 1314 {
+                    p.duration_ms as f32
+                } else {
+                    p.duration_ms as f32 * (1.0 - p.lift) / (1.0 - cover - p.lift).max(0.05)
+                };
+                (if id % 2 == 0 { d } else { d * 0.6 }).round() as i64
+            }
             314 => (p.lift * 1000.0) as i64,
             315 => (p.hidden * 1000.0) as i64,
             20 => self.ctx.fps as i64,
@@ -450,18 +476,28 @@ impl SkinState for SceneState<'_> {
             424 => sc?.slow() as i64,
             115 => rate(sc?.rate()) / 100,
             116 => rate(sc?.rate()) % 100,
-            121 | 150 | 151 | 170 => self.target().0,
-            // differences to the best so far (pacemaker)
-            128 | 152 | 153 => sc?.ex_score() as i64 - self.target().1.round() as i64,
-            172 => sc?.ex_score() as i64 - self.target().0,
+            150 | 170 => self.pace().0,
+            121 | 151 => self.pace().1,
+            // differences to the pacemakers (best / target at this point)
+            152 | 172 => {
+                let (best, _, done) = self.pace();
+                sc?.ex_score() as i64 - (best as f64 * done).round() as i64
+            }
+            128 | 153 => {
+                let (_, target, done) = self.pace();
+                sc?.ex_score() as i64 - (target as f64 * done).round() as i64
+            }
+            154 => self.diff_next_rank()?,
             122 | 157 => {
                 let max = sc?.max_ex().max(1) as f64;
-                rate(self.target().0 as f64 / max) / 100
+                rate(self.pace().1 as f64 / max) / 100
             }
             123 | 158 => {
                 let max = sc?.max_ex().max(1) as f64;
-                rate(self.target().0 as f64 / max) % 100
+                rate(self.pace().1 as f64 / max) % 100
             }
+            // timing of the last judgement (ms, + = early as in beatoraja)
+            525 | 526 => s.last_judge[(id - 525) as usize]?.1 / 1000,
             160 => s
                 .chart
                 .timing
@@ -505,14 +541,16 @@ impl SkinState for SceneState<'_> {
             102 => 1.0,
             110 => sc.map(|s| s.current_rate() as f32).unwrap_or(0.0),
             111 => sc.map(|s| s.rate() as f32).unwrap_or(0.0),
-            // best (= target) so far / overall, as a share of the maximum
+            // best (112, 113) and target (114, 115) so far / overall, as a
+            // share of the maximum
             112..=115 => {
                 let max = sc.map(|s| s.max_ex()).unwrap_or(0).max(1) as f32;
-                let (best, now) = self.target();
+                let (best, target, done) = self.pace();
+                let v = if id < 114 { best } else { target } as f32;
                 if id % 2 == 0 {
-                    now as f32 / max
+                    v * done as f32 / max
                 } else {
-                    best as f32 / max
+                    v / max
                 }
             }
             _ => 0.0,

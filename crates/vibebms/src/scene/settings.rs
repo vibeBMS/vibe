@@ -5,7 +5,7 @@
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{
-    HiSpeedMode, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, TouchMode, TouchStyle,
+    HiSpeedMode, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, Target, TouchMode, TouchStyle,
 };
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
@@ -307,6 +307,9 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             }),
             it("BGA", onoff(p.bga), |c, _| {
                 c.config.play.bga = !c.config.play.bga
+            }),
+            it("Target score", p.target.label(), |c, d| {
+                c.config.play.target = cyc(&Target::ALL, c.config.play.target, d)
             }),
             it("FAST/SLOW display", onoff(p.show_fast_slow), |c, _| {
                 c.config.play.show_fast_slow = !c.config.play.show_fast_slow

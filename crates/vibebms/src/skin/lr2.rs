@@ -669,6 +669,7 @@ impl Loader<'_> {
                     order_reverse: v[17] != 0,
                     no_gap: v[18] != 0,
                     no_gap_x: v[19] != 0,
+                    built_in: false,
                 })));
                 self.chart_field = Some((v[11] as f32, v[12] as f32));
             }

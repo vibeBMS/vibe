@@ -523,7 +523,26 @@ def build_parts(fonts):
     kd.rectangle((2, 2, 41, 4), fill=mix(AMBER, (255, 255, 255), 0.5) + (255,))
     a.add("hs_knob", knob)
     a.add("auto_tag", text_img(fonts, "AUTO PLAY", "bold", 13, AMBER, AMBER, (40, 30, 0), 1, pad=2))
+    # difficulty badges (beatoraja difficulty 1..5)
+    for k, name in enumerate(("BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE"), 1):
+        col = DIFF_COLORS[k]
+        im = text_img(fonts, name, "bold", 13, (255, 255, 255), (255, 255, 255), (0, 0, 0), 0, pad=2)
+        bg = rounded(108, 22, 4, col + (255,))
+        bg.alpha_composite(im, ((108 - im.size[0]) // 2, (22 - im.size[1]) // 2))
+        a.add(f"diff{k}", bg)
+    # small rank names for "NEXT <rank>", right aligned in a common width
+    rs = [text_img(fonts, r_, "bold", 14, AMBER, AMBER, (0, 0, 0), 0, pad=1)
+          for r_ in ("MAX", "AAA", "AA", "A", "B", "C", "D", "E")]
+    rw_ = max(i.size[0] for i in rs)
+    for k, im in enumerate(rs):
+        c = Image.new("RGBA", (rw_, im.size[1]))
+        c.paste(im, (rw_ - im.size[0], 0))
+        a.add(f"rk_s{k}", c)
     return a
+
+
+DIFF_COLORS = [(170, 175, 190), (90, 220, 120), (90, 170, 255), (255, 210, 80), (255, 90, 110),
+               (190, 120, 255), (200, 200, 200)]
 
 
 # the hi-speed panel (shown while START is held): a 0.5 .. 10.0 track
@@ -839,6 +858,16 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
         sk.j["slider"].append({"id": cov, "src": "parts", "x": x, "y": y, "w": w, "h": h,
                                "angle": 2, "range": lane_h, "type": 4})
     sk.put(cov, fx, top - lane_h, fw, lane_h, op=[271], fixed=True)
+    # white (cover, 1/1000) and green numbers on the cover's lower edge
+    cw, ch = sk.num("n_small", 14, 4)[1:]
+    gw_ = sk.num("n_green", 313, 4)[1] * 4
+    ny = top - ch - 10
+    mid = fx + fw // 2
+    for d in (sk.put(sk.num("n_small", 14, 4)[0], mid - 8 - cw * 4, ny, cw, ch, op=[271],
+                     fixed=True),
+              sk.put(sk.num("n_green", 313, 4)[0], mid + 8, ny - 1, gw_ // 4, 22, op=[271],
+                     fixed=True)):
+        d["offset"] = 4
     # judge line
     sk.put(sk.img("judgeline"), fx, judge_y - 4, fw, 8, fixed=True)
     # bombs + hold glow
@@ -908,13 +937,22 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
     sk.j["judge"].append({"id": jid, "index": player, "images": imgs, "numbers": nums,
                           "shift": True})
     sk.put(jid, jcx - jw // 2, jtop, jw, jh, fixed=True)
-    # FAST / SLOW above the judgement (not on PERFECT)
+    # timing (ms, + = early) and FAST / SLOW (not on PERFECT) above the judgement
+    iid, cw, ch = sk.num("n_signed", 525 + player, 4)
+    fw_ = sk.parts.items["fast"][2]
+    x0 = jcx - (cw * 4 + 6 + fw_) // 2
+    sk.put(iid, 0, 0, 0, 0, timer=timer, loop=-1, fixed=True, keys=[
+        (x0, jtop - ch - 4, cw, ch, {"time": 0}),
+        (x0, jtop - ch - 4, cw, ch, {"time": 500}),
+    ])
     for key, op in (("fast", 1242), ("slow", 1243)):
         x, y, w, h = sk.parts.items[key]
-        sk.put(sk.img(key), jcx - w // 2, jtop - h - 2, w, h, timer=timer, loop=-1, op=[op, -241],
+        fx_ = x0 + cw * 4 + 6
+        fy = jtop - 4 - (ch + h) // 2
+        sk.put(sk.img(key), 0, 0, 0, 0, timer=timer, loop=-1, op=[op, -241],
                fixed=True, keys=[
-                   (jcx - w // 2, jtop - h - 2, w, h, {"time": 0}),
-                   (jcx - w // 2, jtop - h - 2, w, h, {"time": 500}),
+                   (fx_, fy, w, h, {"time": 0}),
+                   (fx_, fy, w, h, {"time": 500}),
                ])
 
 
@@ -959,31 +997,6 @@ def gauge_number(sk, x, y):
 
 def gauge_number_width(sk):
     return sk.num("n_gauge", 107, 3)[1] * 3 + 19 + sk.parts.items["pct"][2]
-
-
-def gauge_block(sk, img, f, x, y, w):
-    """Gauge across the full width `w`, its value above the right end (54 px)."""
-    draw_label(img, f, x + 2, y + 12, "GROOVE GAUGE", 11)
-    gauge_number(sk, x + w - gauge_number_width(sk), y)
-    ImageDraw.Draw(img).rounded_rectangle((x - 2, y + 28, x + w + 1, y + 53), 4,
-                                          fill=(6, 7, 11, 255), outline=EDGE + (255,))
-    gauge(sk, x, y + 30, w, 22)
-
-
-def info_row(sk, img, f, x, y, w, h=30):
-    panel(img, (x, y, w, h))
-    ty = y + (h - 22) // 2
-    cw = sk.num("n_green", 312, 4)[1]
-    if w >= 300:
-        draw_label(img, f, x + 10, ty + 4, "DURATION", 12)
-        sk.number("n_green", 312, 4, x + 100, ty)
-        draw_label(img, f, x + w // 2 + 20, ty + 4, "LEVEL", 12)
-        sk.number("n_green", 96, 2, x + w // 2 + 80, ty, color=TEXT)
-    else:
-        draw_label(img, f, x + 10, ty + 4, "DUR", 12)
-        sk.number("n_green", 312, 4, x + 42, ty)
-        sk.number("n_green", 96, 2, x + w - 10 - cw * 2, ty, color=TEXT)
-        draw_label(img, f, x + w - 14 - cw * 2, ty + 4, "LV", 12, anchor="ra")
 
 
 def header(sk, img, f, x, y, w, h, align=0):
@@ -1155,91 +1168,21 @@ def bpm_panel(sk, img, f, x, y, w, h):
     draw_label(img, f, hx - 6, y + 16, "HS", 11, (120, 220, 140), "bold", anchor="rm")
 
 
-TIME_H = 36
-
-
-def time_panel(sk, img, f, x, y, w, h=TIME_H):
-    """Time left and FPS: one slim line, or two lines in a small box."""
-    panel(img, (x, y, w, h))
-    narrow = w < 240
-    tkey = "n_small" if narrow else "n_mid"
-    cw, ch = sk.num(tkey, 163, 2)[1:]
-    if h < 60:
-        ty = y + (h - ch) // 2
-        draw_label(img, f, x + 12, y + h // 2, "TIME" if w < 300 else "TIME LEFT", 11, anchor="lm")
-        tx = x + (40 if narrow else 52 if w < 300 else 84)
-    else:
-        draw_label(img, f, x + 12, y + 8, "TIME LEFT", 11)
-        tx = x + (w - cw * 4 - 10) // 2
-        ty = y + 24
-    sk.number(tkey, 163, 2, tx, ty)
-    draw_label(img, f, tx + cw * 2 + 5, ty + ch // 2, ":", 14 if narrow else 20, TEXT, "bold",
-               anchor="mm")
-    sk.number(tkey, 164, 2, tx + cw * 2 + 10, ty, zeropad=True)
-    fk = 3 if narrow else 4
-    fw_ = sk.num("n_small", 20, fk)[1] * fk
-    fy = y + (h - 20) // 2 if h < 60 else y + h - 26
-    draw_label(img, f, x + w - 14 - fw_ - 6, fy + 10, "FPS", 10, anchor="rm")
-    sk.number("n_small", 20, fk, x + w - 14 - fw_, fy, color=DIM)
-
-
-# --- shared layout: a data column (SCORE, JUDGE, BPM, TIME) next to the note
-# field and a media column (title, BGA, score graph) beyond it ---------------
-def data_column(sk, img, f, x, y, w, h, with_bpm=True):
-    """SCORE (+ graph, taking the spare height), JUDGE, BPM, TIME."""
-    gap = 8
-    fixed = SCORE_H + JUDGE_H + TIME_H + gap * 2 + ((BPM_H + gap) if with_bpm else 0)
-    score_panel(sk, img, f, x, y, w, SCORE_H, h - fixed)
-    jy = y + h - fixed + SCORE_H + gap
-    judge_panel(sk, img, f, x, jy, w, JUDGE_H)
-    if with_bpm:
-        bpm_panel(sk, img, f, x, jy + JUDGE_H + gap, w, BPM_H)
-    time_panel(sk, img, f, x, y + h - TIME_H, w)
-
-
-def media_column(sk, img, f, x, y, w, h, bpm=False):
-    """Title and BGA (the BGA frame takes the remaining height, up to 5:4);
-    with bpm=True the BPM panel sits under the BGA."""
-    header(sk, img, f, x, y, w, 86)
-    rest = h - 94 - ((BPM_H + 8) if bpm else 0)
-    bh = min(rest, w * 5 // 4)
-    bga_frame(sk, img, x, y + 94, w, bh)
-    if bpm:
-        bpm_panel(sk, img, f, x, y + h - BPM_H, w, BPM_H)
-
-
-# landscape note fields share one vertical layout: lanes to y=520, keys to 630,
-# gauge, then the DURATION / LEVEL row
-LANE_H, KEYS_Y, KEYS_H, GAUGE_Y, INFO_Y = 520, 526, 104, 632, 690
-
-
 # with touch controls under them: a wider canvas (the space above the
 # controls on a 4:3 tablet) and only the lanes and the gauge
 TOUCH_H = 528
 TOUCH_LANE_H = TOUCH_H - 60
 
 
-def field_block(sk, img, f, mode, fx, fw, side, sw, kw, prog_left=True, touch=False):
-    h, lane_h = (TOUCH_H, TOUCH_LANE_H) if touch else (720, LANE_H)
-    d = ImageDraw.Draw(img)
-    d.rectangle((fx - 8, 0, fx + fw + 8, h), fill=(8, 9, 14, 255))
-    px = fx - 24 if prog_left else fx + fw + 12
-    d.rounded_rectangle((px + 2, 4, px + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
-    progress(sk, px, 0, lane_h)
-    if touch:
-        gauge_block(sk, img, f, fx, lane_h + 6, fw)
-    else:
-        gauge_block(sk, img, f, fx, GAUGE_Y, fw)
-        info_row(sk, img, f, fx, INFO_Y, fw, 28)
-
-
 # --- landscape single play (7/5 keys) and 9 buttons ----------------------------
-# Laid out the way IIDX-style skins are: the note field down one side with a
-# large turntable under its scratch lane, the gauge and a LEVEL / GAUGE /
-# HI-SPEED row below it; a centre column (status line, score, BGA, judge
-# counts, title, BPM) and a SCORE DATA column with the score graph.
+# The note field down one side with a large turntable under its scratch
+# lane, the gauge and a LEVEL / GAUGE / HI-SPEED row beside it; beyond it a
+# title bar, a large BGA with the judge, BPM and status panels under it, and
+# the score graph with the score rows at the outer edge.
 LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 44)}
-SP_LANE_H, SP_KEYS_Y, SP_KEYS_H, SP_GAUGE_Y, SP_INFO_Y = 548, 556, 76, 638, 693
+SP_FX = 60
+SP_LANE_H, SP_KEYS_Y, SP_KEYS_H, SP_GAUGE_Y, SP_INFO_Y = 540, 546, 72, 616, 690
+GAUGE_BAR = 32
 
 
 def hs_panel(sk, x, y, scale=1.0):
@@ -1285,80 +1228,146 @@ def info_bar(sk, img, f, x, y, w, h):
     sk.number("n_small", 311, 2, hx + cw + 5, cy - ch // 2, zeropad=True, color=(200, 255, 200))
 
 
-def status_bar(sk, img, f, x, y, w, h=24):
-    """Judge timing offset, AUTO PLAY, FPS and the clock."""
-    panel(img, (x, y, w, h))
-    cy = y + h // 2
-    cw, ch = sk.num("n_small", 12, 3)[1:]
-    draw_label(img, f, x + 10, cy, "JUDGE", 11, anchor="lm")
-    sk.number("n_signed", 12, 3, x + 56, cy - ch // 2)
-    draw_label(img, f, x + 56 + cw * 3 + 4, cy, "ms", 11, anchor="lm")
+def gauge_block(sk, img, f, x, y, w, bar=22):
+    """Gauge across the full width `w`, its value above the right end."""
+    draw_label(img, f, x + 2, y + 12, "GROOVE GAUGE", 11)
+    gauge_number(sk, x + w - gauge_number_width(sk), y)
+    ImageDraw.Draw(img).rounded_rectangle((x - 2, y + 28, x + w + 1, y + 31 + bar), 4,
+                                          fill=(6, 7, 11, 255), outline=EDGE + (255,))
+    gauge(sk, x, y + 30, w, bar)
+
+
+def title_bar(sk, img, f, x, y, w, h=56):
+    """AUTO PLAY, title and artist, difficulty and level, time left."""
+    panel(img, (x, y, w, h), accent=PINK)
     aw, ah = sk.parts.items["auto_tag"][2:]
-    sk.put(sk.img("auto_tag"), x + (w - aw) // 2, cy - ah // 2, aw, ah, op=[33])
-    rx = x + w - 10
-    sk.number("n_small", 25, 2, rx - cw * 2, cy - ch // 2, zeropad=True)
-    draw_label(img, f, rx - cw * 2 - 3, cy - 1, ":", 13, TEXT, anchor="rm")
-    sk.number("n_small", 24, 2, rx - cw * 4 - 8, cy - ch // 2, zeropad=True)
-    fx_ = rx - cw * 4 - 22 - cw * 3
-    draw_label(img, f, fx_ - 6, cy, "FPS", 11, anchor="rm")
-    sk.number("n_small", 20, 3, fx_, cy - ch // 2)
+    sk.put(sk.img("auto_tag"), x + 14, y + (h - ah) // 2, aw, ah, op=[33])
+    right = 250
+    tx, tw = x + 24 + aw, w - 24 - aw - right - 12
+    sk.label_text(12, tx, y + 6, tw, 26, align=1)
+    sk.label_text(16, tx, y + 34, tw, 15, align=1, color=DIM)
+    rx = x + w - right
+    for k in range(1, 6):
+        bw, bh = sk.parts.items[f"diff{k}"][2:]
+        sk.put(sk.img(f"diff{k}"), rx, y + 8, bw, bh, op=[150 + k])
+    draw_label(img, f, rx + 8, y + 42, "LV", 11, anchor="lm")
+    nw, nh = sk.num("n_green", 96, 2)[1:]
+    sk.number("n_green", 96, 2, rx + 28, y + 42 - nh // 2, color=TEXT)
+    draw_label(img, f, x + w - 14, y + 8, "TIME LEFT", 11, anchor="ra")
+    cw, ch = sk.num("n_mid", 163, 2)[1:]
+    t0 = x + w - 14 - cw * 4 - 10
+    sk.number("n_mid", 163, 2, t0, y + 24)
+    draw_label(img, f, t0 + cw * 2 + 5, y + 24 + ch // 2, ":", 20, TEXT, "bold", anchor="mm")
+    sk.number("n_mid", 164, 2, t0 + cw * 2 + 10, y + 24, zeropad=True)
 
 
-def score_boxes(sk, img, f, x, y, w, h):
-    """EX SCORE and MAX COMBO on the left, RATE and MISS on the right."""
-    hw = (w - 8) // 2
-    big = h >= 80
-    for bx, rows in ((x, (("EX SCORE", 71, "n_big" if big else "n_mid"), ("MAX COMBO", 75, "n_mid"))),
-                     (x + hw + 8, (("RATE", None, None), ("MISS", 76, "n_mid")))):
-        panel(img, (bx, y, hw, h))
-        rh = h // 2
-        for i, (label, ref, key) in enumerate(rows):
-            ry = y + i * rh
-            draw_label(img, f, bx + 10, ry + rh // 2, label, 12, TEXT, anchor="lm")
-            if ref is None:
-                ch_ = sk.num("n_mid", 102, 3)[2]
-                rate_number(sk, img, f, bx + hw - 10, ry + (rh - ch_) // 2)
-                continue
-            cw, ch_ = sk.num(key, ref, 5)[1:]
-            sk.number(key, ref, 5, bx + hw - 10 - cw * 5, ry + (rh - ch_) // 2)
+def status_panel(sk, img, f, x, y, w, h):
+    """Last judgement timing, green / white number, judge offset, FPS (as many
+    rows as fit)."""
+    panel(img, (x, y, w, h))
+    cw, ch = sk.num("n_small", 20, 4)[1:]
+    gw = sk.num("n_green", 313, 4)[1]
+    r = x + w - 14
+
+    def timing(ry):
+        sk.number("n_signed", 525, 4, r - 22 - cw * 4, ry)
+        draw_label(img, f, r, ry + ch // 2, "ms", 11, anchor="rm")
+
+    def green(ry):
+        sk.number("n_green", 313, 4, r - gw * 4, ry - 1)
+        sk.number("n_small", 14, 4, r - gw * 4 - 18 - cw * 4, ry)
+
+    def offset(ry):
+        sk.number("n_signed", 12, 4, r - 22 - cw * 4, ry)
+        draw_label(img, f, r, ry + ch // 2, "ms", 11, anchor="rm")
+
+    def fps(ry):
+        sk.number("n_small", 20, 4, r - cw * 4, ry, color=DIM)
+
+    wide = w >= 260
+    rows = [("TIMING", timing), ("WHITE / GREEN" if wide else "W / GN", green),
+            ("JUDGE OFFSET" if wide else "OFFSET", offset), ("FPS", fps)]
+    n = max(1, min(len(rows), (h - 12) // 26))
+    rh = (h - 12) // n
+    for i, (label, fn) in enumerate(rows[:n]):
+        ry = y + 6 + i * rh + (rh - ch) // 2
+        if i:
+            ImageDraw.Draw(img).line((x + 10, y + 6 + i * rh, x + w - 10, y + 6 + i * rh),
+                                     fill=(35, 42, 62, 255))
+        draw_label(img, f, x + 12, ry + ch // 2, label, 11, anchor="lm")
+        fn(ry)
 
 
-def score_data(sk, img, f, x, y, w, h):
-    """SCORE DATA: the target and the difference to it over the score graph."""
-    panel(img, (x, y, w, h), "SCORE DATA", f, accent=PINK)
-    cw, ch = sk.num("n_small", 151, 5)[1:]
-    for i, (label, ref, key) in enumerate((("TARGET", 151, "n_small"), ("DIFF", 152, "n_signed"))):
-        ry = y + 26 + i * 24
-        draw_label(img, f, x + 12, ry + 2, label, 12, TEXT)
-        sk.number(key, ref, 5, x + w - 12 - cw * 5, ry)
-    ImageDraw.Draw(img).line((x + 10, y + 78, x + w - 10, y + 78), fill=EDGE + (255,))
-    graph_content(sk, img, f, x, y + 80, w, h - 80)
+def pace_graph(sk, img, f, x, y, w, h):
+    """Score graph: NOW, BEST and TARGET bars (faint: the whole chart) against
+    the A / AA / AAA / MAX lines, and the difference to the next rank."""
+    panel(img, (x, y, w, h), "SCORE GRAPH", f, accent=PINK)
+    sw = sk.num("n_signed", 154, 5)[1]
+    nx = x + w - 12 - sw * 5
+    sk.number("n_signed", 154, 5, nx, y + 26)
+    draw_label(img, f, x + 12, y + 29, "NEXT", 11)
+    for k in range(8):
+        rw, rh = sk.parts.items[f"rk_s{k}"][2:]
+        # current rank AAA (op 200) -> next MAX, AA -> AAA, ...
+        sk.put(sk.img(f"rk_s{k}"), x + 50, y + 28, rw, rh, op=[200 + k])
+    d = ImageDraw.Draw(img)
+    gx, gy, gw, gh = x + 12, y + 60, w - 46, h - 60 - 26
+    for name, frac in (("A", 6 / 9), ("AA", 7 / 9), ("AAA", 8 / 9), ("MAX", 1.0)):
+        ly = gy + gh - int(gh * frac)
+        d.line((gx, ly, gx + gw, ly), fill=(60, 70, 102, 255), width=1)
+        draw_label(img, f, gx + gw + 4, ly, name, 10, anchor="lm")
+    d.line((gx, gy + gh, gx + gw, gy + gh), fill=EDGE + (255,), width=1)
+    bars = ((111, None, BLUE, "NOW"), (112, 113, (70, 220, 130), "BEST"),
+            (114, 115, RED, "TARGET"))
+    gap = 10
+    bw = (gw - gap * 4) // 3
+    for i, (now, total, col, label) in enumerate(bars):
+        bx = gx + gap + i * (bw + gap)
+        if total:
+            sk.put(graph_bar(sk, total, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=60)
+        sk.put(graph_bar(sk, now, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=230)
+        draw_label(img, f, bx + bw // 2, gy + gh + 6, label, 10, anchor="ma")
 
 
-def centre_column(sk, img, f, x, w, H):
-    """Status line, score boxes, BGA, then judge counts | title + BPM."""
-    tall = H >= 700
-    status_bar(sk, img, f, x, 6, w)
-    sy, sh = 36, (92 if tall else 72)
-    score_boxes(sk, img, f, x, sy, w, sh)
-    bottom_h = 168 if tall else 150
-    by = sy + sh + 8
-    bh = H - 8 - bottom_h - 8 - by
-    bw = min(w, bh * 4 // 3)
-    bga_frame(sk, img, x + (w - bw) // 2, by, bw, bh)
-    ly = H - 8 - bottom_h
-    jw = min(250, w * 45 // 100)
-    judge_panel(sk, img, f, x, ly, jw, bottom_h)
-    rx, rw = x + jw + 8, w - jw - 8
-    bpm_h = 80 if tall else 72
-    header(sk, img, f, rx, ly, rw, bottom_h - bpm_h - 8, align=2)
-    bpm_panel(sk, img, f, rx, H - 8 - bpm_h, rw, bpm_h)
+def pace_rows(sk, img, f, x, y, w, rh=44, gap=6):
+    """NOW / BEST / TARGET EX scores, with the differences to the pacemakers."""
+    d = ImageDraw.Draw(img)
+    cw, ch = sk.num("n_mid", 71, 5)[1:]
+    sw, sh = sk.num("n_signed", 152, 5)[1:]
+    rows = (("NOW SCORE", 71, None, BLUE), ("BEST SCORE", 150, 152, (70, 220, 130)),
+            ("TARGET", 151, 153, RED))
+    for i, (label, ref, diff, col) in enumerate(rows):
+        ry = y + i * (rh + gap)
+        d.rounded_rectangle((x, ry, x + w - 1, ry + rh - 1), 6, fill=mix(PANEL, col, 0.14) + (240,),
+                            outline=mix(EDGE, col, 0.5) + (255,))
+        d.rounded_rectangle((x + 1, ry + 8, x + 4, ry + rh - 9), 1, fill=col + (255,))
+        draw_label(img, f, x + 12, ry + 8, label, 11, TEXT, "bold")
+        sk.number("n_mid", ref, 5, x + w - 10 - cw * 5, ry + (rh - ch) // 2)
+        if diff:
+            sk.number("n_signed", diff, 5, x + 12, ry + rh - sh - 4)
+
+
+def combo_box(sk, img, f, x, y, w, h):
+    """MAX COMBO, MISS and the score rate."""
+    panel(img, (x, y, w, h))
+    rows = [("MAX COMBO" if w >= 200 else "COMBO", 75), ("MISS", 76), ("RATE", None)]
+    n = max(1, min(3, (h - 10) // 24))
+    rh = (h - 10) // n
+    key = "n_mid" if w >= 200 else "n_small"
+    cw, ch = sk.num(key, 75, 5)[1:]
+    for i, (label, ref) in enumerate(rows[:n]):
+        ry = y + 5 + i * rh + (rh - ch) // 2
+        draw_label(img, f, x + 12, ry + ch // 2, label, 11, anchor="lm")
+        if ref is None:
+            rate_number(sk, img, f, x + w - 10, ry, key)
+        else:
+            sk.number(key, ref, 5, x + w - 10 - cw * 5, ry)
 
 
 def land_sp(fonts, parts, mode, side, touch=False):
-    """7/5 keys: [field | centre | score data] for 1P, mirrored for 2P.
-    9 buttons: [score data | field | centre].
-    `touch`: the variant shown above on-screen controls (no keys row)."""
+    """7/5 keys and 9 buttons: [field | title, BGA, panels | score graph] for
+    1P, mirrored for 2P. `touch`: the variant shown above on-screen controls
+    (no keys row)."""
     W, H = 1280, (TOUCH_H if touch else 720)
     lane_h = TOUCH_LANE_H if touch else SP_LANE_H
     kind = {"7": 0, "5": 1, "9": 4}[mode]
@@ -1373,24 +1382,11 @@ def land_sp(fonts, parts, mode, side, touch=False):
     sw, kw = LAND_SP[mode]
     kinds, scratch = lane_kinds(mode)
     fw = (sw if scratch else 0) + kw * len(kinds)
-    data_w = 268
-    if mode == "9":
-        data_x = 8
-        fx = data_x + data_w + 36
-        cx, cw = fx + fw + 12, W - 8 - (fx + fw + 12)
-    elif side == 0:
-        fx = 44
-        data_x = W - 8 - data_w
-        cx = fx + fw + 12
-        cw = data_x - 8 - cx
-    else:
-        fx = W - 44 - fw
-        data_x = 8
-        cx = data_x + data_w + 8
-        cw = fx - 12 - cx
+    fx = SP_FX if side == 0 else W - SP_FX - fw
     d = ImageDraw.Draw(img)
     d.rectangle((fx - 8, 0, fx + fw + 8, H), fill=(8, 9, 14, 255))
-    px = fx - 24 if side == 0 or mode == "9" else fx + fw + 12
+    # progress between the field and the panels
+    px = fx + fw + 12 if side == 0 else fx - 24
     d.rounded_rectangle((px + 2, 4, px + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
     progress(sk, px, 0, lane_h)
     ls, _ = lanes(mode, fx, side, sw, kw)
@@ -1398,38 +1394,79 @@ def land_sp(fonts, parts, mode, side, touch=False):
     if touch:
         # the on-screen controls show the keys: lanes and gauge only
         field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, lane_h, 0, 0.6)
-        gauge_block(sk, img, f, fx, lane_h + 6, fw)
+        gauge_block(sk, img, f, fx, lane_h + 4, fw, GAUGE_BAR - 8)
     else:
-        # a turntable larger than its lane, below the judge line and
-        # reaching past the field's edge; the gauge and info row take the
-        # width beside it
+        # a turntable larger than its lane at the outer corner; the gauge and
+        # the info row take the width beside it
         tt = None
         gx, gw = fx, fw
         if scratch:
-            sx = next(x for x, w, k in ls if k == "s")
-            size = 142
-            tcx = sx + sw // 2 + (-12 if side == 0 else 12)
-            tt = (tcx, H - 6 - size // 2, size)
-            edge = size // 2 + 6
+            size = 140
+            tcx = fx + 12 if side == 0 else fx + fw - 12
+            tt = (tcx, H - 8 - size // 2, size)
+            edge = size // 2 + 10
             gx = tcx + edge if side == 0 else fx
             gw = fx + fw - gx if side == 0 else tcx - edge - fx
         field(sk, mode, 0, side, fx, 0, lane_h, sw, kw, SP_KEYS_Y, SP_KEYS_H, 0.6, tt=tt)
-        gauge_block(sk, img, f, gx, SP_GAUGE_Y, gw)
+        gauge_block(sk, img, f, gx, SP_GAUGE_Y, gw, GAUGE_BAR)
         info_bar(sk, img, f, gx, SP_INFO_Y, gw, 24)
-    # the hi-speed panel against the field, over the centre column
-    hs_x = fx + fw + 6 if (side == 0 or mode == "9") else fx - 6 - HS_W
-    centre_column(sk, img, f, cx, cw, H)
-    score_data(sk, img, f, data_x, 8, data_w, H - 16)
-    hs_panel(sk, hs_x, min(140, lane_h - HS_H - 8))
+    # panels: [centre | graph] beyond the field (mirrored for 2P)
+    cw_all = W - 8 - (fx + fw + 36) if side == 0 else fx - 36 - 8
+    x0 = fx + fw + 36 if side == 0 else 8
+    gw_ = 224
+    cw = cw_all - gw_ - 8
+    cx = x0 if side == 0 else x0 + gw_ + 8
+    rx = x0 + cw + 8 if side == 0 else x0
+    title_bar(sk, img, f, x0, 6, cw_all)
+    top = 70
+    bottom_h = 226 if not touch else 150
+    by = H - 8 - bottom_h
+    bh = by - 8 - top
+    bw = min(cw, bh * 4 // 3)
+    bga_frame(sk, img, cx + (cw - bw) // 2, top, bw, bh)
+    jw = min(264, cw * 48 // 100)
+    judge_panel(sk, img, f, cx, by, jw, bottom_h)
+    sx, sw_ = cx + jw + 8, cw - jw - 8
+    bpm_h = 104 if not touch else 84
+    bpm_panel(sk, img, f, sx, by, sw_, bpm_h)
+    status_panel(sk, img, f, sx, by + bpm_h + 8, sw_, bottom_h - bpm_h - 8)
+    rows_h = 3 * 44 + 2 * 6
+    box_h = 82 if not touch else 58
+    graph_h = H - 8 - box_h - 8 - rows_h - 8 - top
+    pace_graph(sk, img, f, rx, top, gw_, graph_h)
+    pace_rows(sk, img, f, rx, top + graph_h + 8, gw_)
+    combo_box(sk, img, f, rx, H - 8 - box_h, gw_, box_h)
+    # the hi-speed panel against the field, over the BGA
+    hs_x = fx + fw + 28 if side == 0 else fx - 28 - HS_W
+    hs_panel(sk, hs_x, min(120, lane_h - HS_H - 8))
     ready(sk, fx + fw // 2, lane_h // 2)
     return sk, img, bgname
 
 
-# --- landscape double play: the two fields close together around a narrow
-# gap (easier to read both), [title, BGA, judge, BPM] on the left and
-# [score + graph, time] on the right, the gauge under the gap ---------------
-LAND_DP = {"7": (68, 46), "5": (70, 64)}
-DP_LANE_H, DP_KEYS_Y, DP_KEYS_H, DP_GAP = 584, 590, 70, 64
+# --- landscape double play: the two fields around a gap that holds the
+# hi-speed panel, turntables at the outer corners and the gauge between
+# them; [title, BGA, judge, status] on the left and [time, score graph,
+# scores] on the right, BPM and MAX COMBO in the bottom corners --------------
+LAND_DP = {"7": (52, 42), "5": (60, 57)}
+DP_LANE_H, DP_KEYS_Y, DP_KEYS_H, DP_GAP = 540, 546, 64, 100
+DP_COL = 220
+
+
+def time_box(sk, img, f, x, y, w, h):
+    """Difficulty and level, time left."""
+    panel(img, (x, y, w, h))
+    for k in range(1, 6):
+        bw, bh = sk.parts.items[f"diff{k}"][2:]
+        sk.put(sk.img(f"diff{k}"), x + 10, y + 7, bw, bh, op=[150 + k])
+    nw, nh = sk.num("n_green", 96, 2)[1:]
+    draw_label(img, f, x + 12, y + h - 13, "LV", 11, anchor="lm")
+    sk.number("n_green", 96, 2, x + 32, y + h - 13 - nh // 2, color=TEXT)
+    draw_label(img, f, x + w - 12, y + 7, "TIME LEFT", 10, anchor="ra")
+    cw, ch = sk.num("n_mid", 163, 2)[1:]
+    t0 = x + w - 12 - cw * 4 - 10
+    sk.number("n_mid", 163, 2, t0, y + h - ch - 5)
+    draw_label(img, f, t0 + cw * 2 + 5, y + h - 5 - ch // 2, ":", 20, TEXT, "bold", anchor="mm")
+    sk.number("n_mid", 164, 2, t0 + cw * 2 + 10, y + h - ch - 5, zeropad=True)
 
 
 def land_dp(fonts, parts, mode, touch=False):
@@ -1449,8 +1486,7 @@ def land_dp(fonts, parts, mode, touch=False):
     fw = sw + kw * len(kinds)
     f1 = (W - fw * 2 - DP_GAP) // 2
     f2 = f1 + fw + DP_GAP
-    for fx in (f1, f2):
-        d.rectangle((fx - 8, 0, fx + fw + 8, H), fill=(8, 9, 14, 255))
+    d.rectangle((f1 - 8, 0, f2 + fw + 8, H), fill=(8, 9, 14, 255))
     l1, _ = lanes(mode, f1, 0, sw, kw)
     l2, _ = lanes(mode, f2, 1, sw, kw)
     note_def(sk, [(x, w, k, i) for i, (x, w, k) in enumerate(l1 + l2)])
@@ -1458,42 +1494,47 @@ def land_dp(fonts, parts, mode, touch=False):
     keys_y, keys_h = (lane_h, 0) if touch else (DP_KEYS_Y, DP_KEYS_H)
     # turntables larger than their lanes at the outer corners
     tts = [None, None]
+    size = 120
     if not touch:
-        size = 100
-        for i, ls_ in enumerate((l1, l2)):
-            sx = next(x for x, w, k in ls_ if k == "s")
-            tts[i] = (sx + sw // 2, H - 8 - size // 2, size)
+        tts = [(f1 + 20, H - 8 - size // 2, size), (f2 + fw - 20, H - 8 - size // 2, size)]
     for part in ("under", "over"):
         field(sk, mode, 0, 0, f1, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[0])
         field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[1])
-    # progress in the gap, gauge below it spanning both fields' inner halves
+    # progress in the gap
     gx = W // 2 - 6
     d.rounded_rectangle((gx + 2, 4, gx + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
     progress(sk, gx, 0, lane_h)
-    gw = 450
-    gauge_block(sk, img, f, (W - gw) // 2, lane_h + 6 if touch else DP_KEYS_Y + DP_KEYS_H + 4, gw)
-    # outer columns
-    lx, rx = 8, f2 + fw + 10
-    cw = f1 - 10 - lx
-    gap = 8
-    # touch: no DURATION / LEVEL row, the BGA gets the room
-    bpm_h, info_h = (BPM_H, 0) if touch else (110, 28)
-    col_h = H - 16
-    fixed = 86 + JUDGE_H + bpm_h + gap * 3 + ((info_h + gap) if info_h else 0)
-    header(sk, img, f, lx, 8, cw, 86)
-    bga_h = col_h - fixed
-    bga_frame(sk, img, lx, 8 + 86 + gap, cw, bga_h)
-    y = 8 + 86 + gap + bga_h + gap
-    judge_panel(sk, img, f, lx, y, cw, JUDGE_H)
-    y += JUDGE_H + gap
-    bpm_panel(sk, img, f, lx, y, cw, bpm_h)
-    y += bpm_h + gap
-    if info_h:
-        info_bar(sk, img, f, lx, y, cw, info_h)
-    score_panel(sk, img, f, rx, 8, W - 8 - rx, SCORE_H, col_h - SCORE_H - TIME_H - gap)
-    time_panel(sk, img, f, rx, H - 8 - TIME_H, W - 8 - rx)
-    # the hi-speed panel fits the gap between the fields
-    scale = (DP_GAP - 6) / HS_W
+    # the gauge between the turntables, LEVEL / gauge type / HI-SPEED under it
+    if touch:
+        gauge_block(sk, img, f, f1, lane_h + 4, f2 + fw - f1, GAUGE_BAR - 8)
+    else:
+        gx0 = tts[0][0] + size // 2 + 10
+        gx1 = tts[1][0] - size // 2 - 10
+        gauge_block(sk, img, f, gx0, DP_KEYS_Y + DP_KEYS_H + 6, gx1 - gx0, GAUGE_BAR)
+        info_bar(sk, img, f, gx0, H - 8 - 24, gx1 - gx0, 24)
+    # outer columns (above the turntables)
+    lx, rx = 8, W - 8 - DP_COL
+    col_b = lane_h + (52 if touch else 44)
+    header(sk, img, f, lx, 8, DP_COL, 86)
+    bh = DP_COL * 3 // 4
+    bga_frame(sk, img, lx, 102, DP_COL, bh)
+    jy = 102 + bh + 8
+    if touch:
+        judge_panel(sk, img, f, lx, jy, DP_COL, col_b - jy)
+    else:
+        judge_panel(sk, img, f, lx, jy, DP_COL, 200)
+        status_panel(sk, img, f, lx, jy + 208, DP_COL, col_b - jy - 208)
+    time_box(sk, img, f, rx, 8, DP_COL, 54)
+    rows_h = 3 * 44 + 2 * 6
+    pace_graph(sk, img, f, rx, 70, DP_COL, col_b - rows_h - 8 - 70)
+    pace_rows(sk, img, f, rx, col_b - rows_h, DP_COL)
+    if not touch:
+        # bottom corners, beside the turntables
+        cw_ = tts[0][0] - size // 2 - 8 - lx
+        bpm_panel(sk, img, f, lx, col_b + 8, cw_, H - 8 - col_b - 8)
+        combo_box(sk, img, f, W - 8 - cw_, col_b + 8, cw_, H - 8 - col_b - 8)
+    # the hi-speed panel in the gap between the fields
+    scale = min(1.0, (DP_GAP - 4) / HS_W)
     hs_panel(sk, W // 2 - int(HS_W * scale) // 2, min(120, lane_h - int(HS_H * scale) - 8), scale)
     ready_y = lane_h * 5 // 12 if touch else 300
     ready(sk, f1 + fw // 2, ready_y)
@@ -1691,8 +1732,6 @@ def result_layout(fonts, parts, portrait=False):
 
 
 # --- music select ---------------------------------------------------------------
-DIFF_COLORS = [(170, 175, 190), (90, 220, 120), (90, 170, 255), (255, 210, 80), (255, 90, 110),
-               (190, 120, 255), (200, 200, 200)]
 LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (70, 210, 120),
                (60, 160, 255), (255, 80, 92), (255, 210, 60), (45, 226, 199), (255, 180, 230),
                (255, 255, 255)]

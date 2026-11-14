@@ -537,6 +537,7 @@ fn graph(cx: &Ctx, id: &str) -> Option<Graph> {
             order_reverse: i(g, "orderReverse", 0) != 0,
             no_gap: i(g, "noGap", 0) != 0,
             no_gap_x: i(g, "noGapX", 0) != 0,
+            built_in: built_in(g),
         }));
     }
     if let Some(g) = cx.find("bpmgraph", id) {

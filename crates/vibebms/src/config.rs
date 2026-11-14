@@ -30,6 +30,54 @@ pub enum HiSpeedMode {
     Constant,
 }
 
+/// Target score: the personal best or a fixed share of the maximum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Target {
+    #[default]
+    Best,
+    RankA,
+    RankAA,
+    RankAAA,
+    MaxMinus,
+    Max,
+}
+
+impl Target {
+    pub const ALL: [Target; 6] = [
+        Target::Best,
+        Target::RankA,
+        Target::RankAA,
+        Target::RankAAA,
+        Target::MaxMinus,
+        Target::Max,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Target::Best => "BEST",
+            Target::RankA => "RANK A",
+            Target::RankAA => "RANK AA",
+            Target::RankAAA => "RANK AAA",
+            Target::MaxMinus => "MAX-",
+            Target::Max => "MAX",
+        }
+    }
+
+    /// The target EX score for a chart with `max_ex`, given the personal best.
+    pub fn score(self, max_ex: u32, best: u32) -> u32 {
+        let n = match self {
+            Target::Best => return best,
+            Target::RankA => 6,
+            Target::RankAA => 7,
+            Target::RankAAA => 8,
+            Target::MaxMinus => 17,
+            Target::Max => return max_ex,
+        };
+        let d = if n == 17 { 18 } else { 9 };
+        (max_ex as u64 * n).div_ceil(d) as u32
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct PlayConfig {
@@ -66,7 +114,8 @@ pub struct PlayConfig {
     pub custom_judge: Option<[i64; 3]>,
     /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
     pub hran_threshold_bpm: u32,
-    pub target_rate: f32,
+    /// The score the pacemaker and the result compare against.
+    pub target: Target,
 }
 
 impl Default for PlayConfig {
@@ -99,7 +148,7 @@ impl Default for PlayConfig {
             show_fast_slow: true,
             custom_judge: None,
             hran_threshold_bpm: 120,
-            target_rate: 0.0,
+            target: Target::Best,
         }
     }
 }
