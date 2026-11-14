@@ -646,8 +646,9 @@ impl PlayScene {
             .as_ref()
             .map(|s| s.skin.width / s.skin.height.max(1.0))
             .unwrap_or(16.0 / 9.0);
-        // beside the keys' side of the cabinet panel: right of 1P, left of 2P
-        let right = self.mode.is_double() || ctx.config.play.side != Side::P2;
+        // on the scratch side, which moves the note field towards the middle:
+        // left for 1P and double play, right for 2P
+        let right = !self.mode.is_double() && ctx.config.play.side == Side::P2;
         let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm(), right);
         (view, Some(buttons))
     }

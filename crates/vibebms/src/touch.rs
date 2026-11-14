@@ -180,13 +180,12 @@ pub fn layout(
     zones
 }
 
-/// START above SELECT, two square buttons away from the keys as on the
-/// arcade panel: in the letterbox beside the play screen on the `right`
-/// (or left) side, or side by side in a band under it in portrait.
-/// `screen` is the space above the controls and `aspect` the play skin's
-/// width / height. Returns the rect left for the play screen and the two
-/// buttons. The play screen moves aside to leave all of the letterbox on
-/// the buttons' side, and gives up room where that is still too narrow.
+/// START above SELECT, two square buttons 1.5 buttons apart, away from the
+/// keys: in the letterbox beside the play screen, on the `right` (or left)
+/// side. `screen` is the space above the controls and `aspect` the play
+/// skin's width / height. Returns the rect left for the play screen and the
+/// two buttons. The play screen moves aside to leave all of the letterbox
+/// on the buttons' side, and gives up room where that is still too narrow.
 pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32, right: bool) -> (Rect, [Zone; 2]) {
     let mm = px_per_mm;
     let button = |lane, r| Zone {
@@ -196,48 +195,28 @@ pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32, right: bool) ->
         black: false,
     };
     let margin = 2.5 * mm;
-    let largest = 22.0 * mm;
-    if screen.w > screen.h {
-        let shown = (screen.h * aspect).min(screen.w);
-        let strip = (screen.w - shown)
-            .max(18.0 * mm + margin * 2.0)
-            .min(screen.w * 0.2);
-        let view = Rect::new(
-            if right { screen.x } else { screen.x + strip },
-            screen.y,
-            screen.w - strip,
-            screen.h,
-        );
-        let b = (strip - margin * 2.0)
-            .min(largest)
-            .min((screen.h - margin * 3.0) * 0.5);
-        let x = if right { view.right() } else { screen.x } + (strip - b) * 0.5;
-        let y = screen.y + (screen.h - b * 2.0 - margin) * 0.5;
-        (
-            view,
-            [
-                button(START, Rect::new(x, y, b, b)),
-                button(SELECT, Rect::new(x, y + b + margin, b, b)),
-            ],
-        )
-    } else {
-        let b = (16.0 * mm).min(screen.h * 0.12);
-        let band = b + margin * 2.0;
-        let view = Rect::new(screen.x, screen.y, screen.w, screen.h - band);
-        let y = view.bottom() + margin;
-        let x = if right {
-            screen.right() - margin - b * 2.0 - margin
-        } else {
-            screen.x + margin
-        };
-        (
-            view,
-            [
-                button(START, Rect::new(x, y, b, b)),
-                button(SELECT, Rect::new(x + b + margin, y, b, b)),
-            ],
-        )
-    }
+    let shown = (screen.h * aspect).min(screen.w);
+    let strip = (screen.w - shown)
+        .max(18.0 * mm + margin * 2.0)
+        .min(screen.w * 0.2);
+    let view = Rect::new(
+        if right { screen.x } else { screen.x + strip },
+        screen.y,
+        screen.w - strip,
+        screen.h,
+    );
+    let b = (strip - margin * 2.0)
+        .min(22.0 * mm)
+        .min((screen.h - margin * 2.0) / 3.5);
+    let x = if right { view.right() } else { screen.x } + (strip - b) * 0.5;
+    let y = screen.y + (screen.h - b * 3.5) * 0.5;
+    (
+        view,
+        [
+            button(START, Rect::new(x, y, b, b)),
+            button(SELECT, Rect::new(x, y + b * 2.5, b, b)),
+        ],
+    )
 }
 
 struct Ptr {
@@ -492,11 +471,13 @@ mod tests {
             "{view:?}"
         );
         assert!(rect(&start).right() <= view.x);
-        // portrait: side by side in a band under the play screen
+        // portrait: the letterbox beside it as well
         let screen = Rect::new(0.0, 0.0, 700.0, 900.0);
         let (view, [start, select]) = system_buttons(screen, 720.0 / 1280.0, 6.0, true);
         let (a, b) = (rect(&start), rect(&select));
-        assert!(view.h < 900.0 && a.y >= view.bottom() && b.x > a.right());
+        assert!(
+            view.h == 900.0 && a.x >= view.right() && (b.y - a.bottom() - a.h * 1.5).abs() < 0.1
+        );
     }
 
     #[test]
