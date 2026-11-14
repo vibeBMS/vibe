@@ -466,7 +466,14 @@ def build_parts(fonts):
         c = Image.new("RGBA", (lw, lh))
         c.paste(im, (0, (lh - im.size[1]) // 2))
         a.add(f"lamp{k}", c)
+    for k, (t, a_, b_) in enumerate(lamps):
+        a.add(f"lamp_s{k}", text_img(fonts, t, "bold", 15, a_, b_, (0, 0, 0), 0, pad=2))
     ranks = ["AAA", "AA", "A", "B", "C", "D", "E", "F"]
+    for k, r_ in enumerate(ranks):
+        cell = rounded(42, 18, 4, AMBER + (255,))
+        ImageDraw.Draw(cell).text((21, 9), r_, font=fonts.get("bold", 11), fill=(30, 20, 0),
+                                  anchor="mm")
+        a.add(f"rk_cell{k}", cell)
     rimgs = [text_img(fonts, r_, "black_it", 84, (255, 250, 220), (255, 190, 60), (40, 20, 0), 4,
                       AMBER) for r_ in ranks]
     rw, rh = max(i.size[0] for i in rimgs), max(i.size[1] for i in rimgs)
@@ -1596,12 +1603,6 @@ def compose(img, regions, w, h):
     return out
 
 
-RESULT_PORTRAIT = [
-    ((16, 16, 616, 644), (52, 16)),     # title, result, score, judge
-    ((648, 16, 616, 260), (52, 668)),   # gauge graph
-    ((648, 468, 616, 192), (52, 936)),  # timing distribution
-]
-
 SELECT_PORTRAIT = [
     ((16, 16, 660, 334), (30, 16)),     # title, stage file, chart facts
     ((16, 358, 660, 140), (30, 358)),   # personal best
@@ -1627,107 +1628,261 @@ def fade_in(t0, x, y, w, h, dy=12, dur=250, **kw):
     ]
 
 
-def result_compare(sk, img, f, x, y, w, h):
-    """NOW / BEST / DIFF table for EX score, rate, max combo and miss count."""
-    panel(img, (x, y, w, h), "SCORE", f)
-    c_now, c_best, c_diff = x + w * 55 // 100, x + w * 76 // 100, x + w - 14
-    for cx, label in ((c_now, "NOW"), (c_best, "BEST"), (c_diff, "DIFF")):
-        draw_label(img, f, cx, y + 8, label, 11, anchor="ra")
-    rows = [y + 30 + i * ((h - 38) // 4) for i in range(4)]
-    names = ["EX SCORE", "RATE", "MAX COMBO", "MISS COUNT"]
-    for ry, n in zip(rows, names):
-        draw_label(img, f, x + 14, ry + 10, n, 13, TEXT)
-    sw = sk.num("n_signed", 152, 6)[1]
-    mw = sk.num("n_mid", 75, 5)[1]
-    bw, bh = sk.num("n_big", 71, 5)[1:]
-    sk.number("n_big", 71, 5, c_now - bw * 5, rows[0] - 4)
-    sk.number("n_mid", 150, 5, c_best - mw * 5, rows[0] + 2, color=DIM)
-    sk.number("n_signed", 152, 6, c_diff - sw * 6, rows[0] + 6)
-    w_, h_ = sk.parts.items["newrec"][2:]
-    sk.put(sk.img("newrec"), 0, 0, 0, 0, op=[330, 61], keys=[
-        (x + 110, rows[0] + 28, w_, h_, dict(time=0, a=0)),
-        (x + 110, rows[0] + 28, w_, h_, dict(time=1000, a=0)),
-        (x + 110, rows[0] + 28, w_, h_, dict(time=1200, a=255)),
-        (x + 110, rows[0] + 28, w_, h_, dict(time=1700, a=255)),
-        (x + 110, rows[0] + 28, w_, h_, dict(time=1900, a=120)),
-    ], loop=1200)
-    rate_number(sk, img, f, c_now, rows[1])
-    sk.number("n_small", 183, 3, c_best - 14 * 5 - 6, rows[1] + 5, color=DIM)
-    sk.put(sk.img("white"), c_best - 14 * 2 - 5, rows[1] + 20, 3, 3, r=128, g=140, b=170)
-    sk.number("n_small", 184, 2, c_best - 14 * 2, rows[1] + 5, zeropad=True, color=DIM)
-    for ry, now, best, diff in ((rows[2], 75, 173, 175), (rows[3], 76, 176, 178)):
-        sk.number("n_mid", now, 5, c_now - mw * 5, ry)
-        sk.number("n_mid", best, 5, c_best - mw * 5, ry, color=DIM)
-        sk.number("n_signed", diff, 6, c_diff - sw * 6, ry + 4)
+RANKS = ["AAA", "AA", "A", "B", "C", "D", "E", "F"]
 
 
-def result_layout(fonts, parts, portrait=False):
-    W, H = 1280, 720
-    sk = Skin(7, "vibeBMS Default Result", *((720, 1280) if portrait else (W, H)), parts)
-    if portrait:
-        relayout(sk, RESULT_PORTRAIT)
-    sk.j.update({"input": 500, "fadeout": 400, "scene": 3600000})
-    sk.source("bg", f"bg_result{'_portrait' if portrait else ''}.png")
-    sk.put(sk.img("bg", sid="bg"), 0, 0, sk.w, sk.h, fixed=True)
-    img = background(W, H)
-    f = fonts
-    # left: title, clear lamp + rank, score comparison, judge table
-    header(sk, img, f, 16, 16, 616, 86)
-    panel(img, (16, 110, 616, 118), "RESULT", f)
-    lw, lh = parts.items["lamp0"][2:]
+def res_header(sk, img, f, w):
+    """The RESULT strip across the top: AUTO PLAY and the clock."""
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, 0, w, 43), fill=(18, 21, 32, 255))
+    d.line((0, 43, w, 43), fill=EDGE + (255,))
+    d.text((16, 22), "RESULT", font=f.get("black_it", 22), fill=TEXT, anchor="lm")
+    aw, ah = sk.parts.items["auto_tag"][2:]
+    sk.put(sk.img("auto_tag"), 130, 22 - ah // 2, aw, ah, op=[33])
+    cw, ch = sk.num("n_small", 24, 2)[1:]
+    r = w - 16
+    sk.number("n_small", 25, 2, r - cw * 2, 22 - ch // 2, zeropad=True)
+    draw_label(img, f, r - cw * 2 - 4, 21, ":", 14, TEXT, anchor="rm")
+    sk.number("n_small", 24, 2, r - cw * 4 - 8, 22 - ch // 2, zeropad=True)
+
+
+def res_clear(sk, img, f, x, y, w, h):
+    """Clear type (and the one before), DJ level."""
+    panel(img, (x, y, w, h), "CLEAR TYPE", f, accent=RED)
+    lw, lh = sk.parts.items["lamp0"][2:]
+    lw, lh = lw * 4 // 5, lh * 4 // 5
     graph_obj(sk, "imageset", "clear", {"ref": 370, "images": [sk.img(f"lamp{k}") for k in range(11)]})
     sk.put("clear", 0, 0, 0, 0, keys=[
-        (32 - 30, 148, lw, lh, dict(time=0, a=0)),
-        (32 - 30, 148, lw, lh, dict(time=150, a=0)),
-        (32, 148, lw, lh, dict(time=450, a=255)),
-    ])
-    rw, rh = parts.items["rank0"][2:]
+        (x + 4, y + 24, lw, lh, dict(time=0, a=0)),
+        (x + 4, y + 24, lw, lh, dict(time=150, a=0)),
+        (x + 12, y + 24, lw, lh, dict(time=450, a=255)),
+    ], loop=450)
+    sw, sh = sk.parts.items["lamp_s0"][2:]
+    graph_obj(sk, "imageset", "clear_before",
+              {"ref": 371, "images": [sk.img(f"lamp_s{k}") for k in range(11)]})
+    draw_label(img, f, x + 14, y + h - 22, "BEFORE", 11, anchor="lm")
+    sk.put("clear_before", x + 66, y + h - 22 - sh // 2, sw, sh)
+    draw_label(img, f, x + w - 14, y + 7, "DJ LEVEL", 12, anchor="ra")
+    rw, rh = sk.parts.items["rank0"][2:]
+    rw, rh = rw * 17 // 20, rh * 17 // 20
     for k in range(8):
-        sk.put(sk.img(f"rank{k}"), 0, 0, 0, 0, op=[300 + k], keys=fade_in(500, 616 - 16 - rw, 118, rw, rh))
-    w_, h_ = parts.items["autotag"][2:]
-    sk.put(sk.img("autotag"), 32, 200, w_, h_, op=[33])
-    result_compare(sk, img, f, 16, 236, 616, 190)
-    judge_panel(sk, img, f, 16, 434, 616, 226)
-    # right: gauge, judge timeline, timing distribution
-    panel(img, (648, 16, 616, 260), "GROOVE GAUGE", f)
-    for key, op, x in (("gt_normal", 118, 0), ("gt_hard", 119, 0), ("gt_hazard", 120, 0),
-                       ("gt_easy", 121, 0), ("gt_aeasy", 124, 0), ("gt_exhard", 125, 0)):
-        gw_, gh_ = parts.items[key][2:]
-        sk.put(sk.img(key), 760, 22, gw_, gh_, op=[op])
-    gauge_number(sk, 1264 - 14 - gauge_number_width(sk), 22)
-    ImageDraw.Draw(img).rectangle((662, 56, 1250, 262), fill=(6, 7, 11, 255))
-    sk.put(graph_obj(sk, "gaugegraph", "gaugegraph", {"style": "vibebms"}), 664, 58, 584, 202)
-    panel(img, (648, 284, 616, 176), "JUDGE TIMELINE", f)
-    for k, (name, col) in enumerate((("PG", (0, 136, 255)), ("GR", (0, 255, 136)),
-                                     ("GD", (255, 255, 0)), ("BD", (255, 136, 0)),
-                                     ("PR", (255, 0, 0)))):
-        draw_label(img, f, 1000 + k * 50, 291, name, 11, col, "bold")
-    ImageDraw.Draw(img).rectangle((662, 310, 1250, 448), fill=(6, 7, 11, 255))
-    sk.put(graph_obj(sk, "judgegraph", "judgegraph", {"type": 1, "backTexOff": 1}), 664, 312, 584, 134)
-    panel(img, (648, 468, 616, 192), "TIMING  (FAST \u2190  \u2192 SLOW)", f)
-    ImageDraw.Draw(img).rectangle((662, 494, 1250, 648), fill=(6, 7, 11, 255))
-    sk.put(graph_obj(sk, "timingdistributiongraph", "timing", {"style": "vibebms"}), 664, 496, 584, 150)
-    # bottom strip: chart facts and the way out
-    panel(img, (16, 668, 1248, 40))
-    draw_label(img, f, 30, 688, "LEVEL", 12, anchor="lm")
-    sk.number("n_green", 96, 2, 80, 677, color=TEXT)
-    draw_label(img, f, 130, 688, "NOTES", 12, anchor="lm")
-    sk.number("n_small", 74, 5, 180, 678)
-    draw_label(img, f, 270, 688, "BPM", 12, anchor="lm")
-    sk.number("n_small", 91, 3, 306, 678, color=(130, 190, 255))
-    draw_label(img, f, 352, 688, "-", 12, TEXT, anchor="lm")
-    sk.number("n_small", 90, 3, 362, 678, color=(255, 130, 180))
-    for key, act, x in (("btn_retry", 9500, 1250 - 140 - 8 - 120), ("btn_continue", 9501, 1250 - 140)):
-        bw_, bh_ = parts.items[key][2:]
+        sk.put(sk.img(f"rank{k}"), 0, 0, 0, 0, op=[300 + k],
+               keys=fade_in(500, x + w - 8 - rw, y + h - 6 - rh, rw, rh), loop=750)
+
+
+def res_scores(sk, img, f, x, y, w, h):
+    """The DJ level ladder; before > now (difference) for EX score, rate,
+    miss count and max combo; the target."""
+    panel(img, (x, y, w, h))
+    d = ImageDraw.Draw(img)
+    draw_label(img, f, x + 12, y + 16, "DJ LEVEL", 11, anchor="lm")
+    cw_ = (w - 100) // 8
+    for i, r_ in enumerate(reversed(RANKS)):
+        cx = x + 88 + i * cw_
+        d.rounded_rectangle((cx, y + 8, cx + cw_ - 4, y + 25), 4, fill=(32, 38, 56, 255))
+        d.text((cx + (cw_ - 4) // 2, y + 17), r_, font=f.get("bold", 11), fill=(86, 96, 126),
+               anchor="mm")
+        k = RANKS.index(r_)
+        sk.put(sk.img(f"rk_cell{k}"), cx, y + 8, cw_ - 4, 17, op=[300 + k])
+    rows = [("EX SCORE", 150, 71, 152), ("SCORE RATE", None, None, None),
+            ("MISS COUNT", 176, 76, 178), ("MAX COMBO", 173, 75, 175), ("TARGET", None, 151, 153)]
+    top = y + 34
+    rh = (h - 40) // len(rows)
+    mw, mh = sk.num("n_mid", 71, 5)[1:]
+    sw, sh = sk.num("n_small", 150, 5)[1:]
+    gw, gh = sk.num("n_signed", 152, 6)[1:]
+    c_before = x + w * 40 // 100
+    c_now = x + w * 76 // 100
+    c_diff = x + w - 12
+    for i, (label, before, now, diff) in enumerate(rows):
+        ry = top + i * rh
+        if i:
+            d.line((x + 10, ry, x + w - 10, ry), fill=(35, 42, 62, 255))
+        cy = ry + rh // 2
+        draw_label(img, f, x + 12, cy, label, 11, anchor="lm")
+        if before:
+            sk.number("n_small", before, 5, c_before - sw * 5, cy - sh // 2, color=DIM)
+        if before or label == "SCORE RATE":
+            d.polygon([(c_before + 9, cy - 4), (c_before + 15, cy), (c_before + 9, cy + 4)],
+                      fill=DIM + (255,))
+        if label == "SCORE RATE":
+            sk.number("n_small", 183, 3, c_before - sw * 5 - 2, cy - sh // 2, color=DIM)
+            sk.put(sk.img("white"), c_before - sw * 2 - 4, cy + sh // 2 - 5, 3, 3, r=DIM[0],
+                   g=DIM[1], b=DIM[2])
+            sk.number("n_small", 184, 2, c_before - sw * 2, cy - sh // 2, zeropad=True, color=DIM)
+            rate_number(sk, img, f, c_now + 14, cy - mh // 2)
+            continue
+        sk.number("n_mid", now, 5, c_now - mw * 5, cy - mh // 2)
+        sk.number("n_signed", diff, 6, c_diff - gw * 6, cy - gh // 2)
+    w_, h_ = sk.parts.items["newrec"][2:]
+    ny = top + rh // 2 - h_ // 2
+    sk.put(sk.img("newrec"), 0, 0, 0, 0, op=[330, 61], keys=[
+        (x + 96, ny, w_, h_, dict(time=0, a=0)),
+        (x + 96, ny, w_, h_, dict(time=1000, a=0)),
+        (x + 96, ny, w_, h_, dict(time=1200, a=255)),
+        (x + 96, ny, w_, h_, dict(time=1700, a=255)),
+        (x + 96, ny, w_, h_, dict(time=1900, a=120)),
+    ], loop=1200)
+
+
+def res_timing(sk, img, f, x, y, w, h):
+    """Average and spread of the timing, FAST / SLOW totals."""
+    panel(img, (x, y, w, h))
+    cw, ch = sk.num("n_small", 374, 3)[1:]
+    gw = sk.num("n_signed", 374, 4)[1]
+    r = x + w - 14
+    rows = ("AVG TIMING", "STD DEV", "FAST / SLOW")
+    rh = (h - 12) // 3
+    for i, label in enumerate(rows):
+        cy = y + 6 + i * rh + rh // 2
+        if i:
+            ImageDraw.Draw(img).line((x + 10, y + 6 + i * rh, x + w - 10, y + 6 + i * rh),
+                                     fill=(35, 42, 62, 255))
+        draw_label(img, f, x + 12, cy, label, 11, anchor="lm")
+        if i < 2:
+            ref = 374 if i == 0 else 376
+            draw_label(img, f, r, cy, "ms", 11, anchor="rm")
+            dx = r - 22 - cw * 2
+            sk.number("n_small", ref + 1, 2, dx, cy - ch // 2, zeropad=True)
+            sk.put(sk.img("white"), dx - 5, cy + ch // 2 - 5, 3, 3)
+            if i == 0:
+                sk.number("n_signed", ref, 4, dx - 7 - gw * 4, cy - ch // 2)
+            else:
+                sk.number("n_small", ref, 3, dx - 7 - cw * 3, cy - ch // 2)
+        else:
+            sk.number("n_small", 424, 5, r - cw * 5, cy - ch // 2, color=(255, 140, 150))
+            draw_label(img, f, r - cw * 5 - 6, cy, "/", 12, DIM, anchor="rm")
+            sk.number("n_small", 423, 5, r - cw * 5 - 16 - cw * 5, cy - ch // 2,
+                      color=(140, 195, 255))
+
+
+def res_info(sk, img, f, x, y, w, h, stage=True):
+    """Stage file (when there is room), difficulty, title, chart facts, the
+    play count and the RETRY / CONTINUE buttons."""
+    d = ImageDraw.Draw(img)
+    if stage:
+        sh = w * 3 // 4
+        # original art behind the stage file (charts without one)
+        art = Image.new("RGBA", (w, sh), (14, 16, 28, 255))
+        ad = ImageDraw.Draw(art)
+        for i, (cx, cy, col) in enumerate(((0.3, 0.3, PINK), (0.75, 0.65, TEAL))):
+            for r_ in range(int(w * 0.45), 0, -6):
+                a_ = int(70 * (1 - r_ / (w * 0.45)))
+                ad.ellipse((cx * w - r_, cy * sh - r_, cx * w + r_, cy * sh + r_),
+                           fill=mix((14, 16, 28), col, a_ / 255) + (255,))
+        for r_ in range(40, w, 50):
+            ad.ellipse((w // 2 - r_, sh // 2 - r_, w // 2 + r_, sh // 2 + r_),
+                       outline=(40, 44, 62, 255))
+        m = Image.new("L", (w, sh))
+        ImageDraw.Draw(m).rounded_rectangle((0, 0, w - 1, sh - 1), 8, fill=255)
+        img.paste(art, (x, y), m)
+        d.rounded_rectangle((x, y, x + w - 1, y + sh - 1), 8, outline=EDGE + (255,))
+        sk.j["image"].append({"id": "stagefile", "ref": 100})
+        sk._ids.add("stagefile")
+        sk.put("stagefile", x + 2, y + 2, w - 4, sh - 4, op=[191])
+        y, h = y + sh + 8, h - sh - 8
+    panel(img, (x, y, w, h), accent=PINK)
+    for k in range(1, 6):
+        bw, bh = sk.parts.items[f"diff{k}"][2:]
+        sk.put(sk.img(f"diff{k}"), x + 14, y + 14, bw, bh, op=[150 + k])
+    draw_label(img, f, x + 134, y + 25, "LV", 11, anchor="lm")
+    nw, nh = sk.num("n_green", 96, 2)[1:]
+    sk.number("n_green", 96, 2, x + 154, y + 25 - nh // 2, color=TEXT)
+    sk.label_text(13, x + 200, y + 16, w - 214, 16, align=2, color=DIM)
+    sk.label_text(12, x + 14, y + 44, w - 28, 28)
+    sk.label_text(16, x + 14, y + 78, w - 28, 16, color=DIM)
+    ly = y + 104
+    d.line((x + 14, ly, x + w - 14, ly), fill=EDGE + (255,))
+    cw, ch = sk.num("n_small", 74, 5)[1:]
+    facts = [("NOTES", lambda fx, fy: sk.number("n_small", 74, 5, fx, fy)),
+             ("BPM", None), ("PLAY", lambda fx, fy: sk.number("n_small", 77, 5, fx, fy)),
+             ("CLEAR", lambda fx, fy: sk.number("n_small", 78, 5, fx, fy))]
+    for i, (label, fn) in enumerate(facts):
+        fx = x + 14 + (i % 2) * (w // 2)
+        fy = ly + 10 + (i // 2) * 26
+        draw_label(img, f, fx, fy + ch // 2, label, 11, anchor="lm")
+        if fn:
+            fn(fx + 60, fy)
+        else:
+            sk.number("n_small", 91, 3, fx + 60, fy, color=(130, 190, 255))
+            draw_label(img, f, fx + 60 + cw * 3 + 6, fy + ch // 2, "-", 12, TEXT, anchor="mm")
+            sk.number("n_small", 90, 3, fx + 72 + cw * 3, fy, color=(255, 130, 180))
+    res_buttons(sk, x + w - 14, y + h - 44)
+
+
+def res_buttons(sk, r, y):
+    """RETRY and CONTINUE ending at r."""
+    for key, act, dx in (("btn_retry", 9500, 140 + 8 + 120), ("btn_continue", 9501, 140)):
+        bw_, bh_ = sk.parts.items[key][2:]
         bid = key + "_act"
         if bid not in sk._ids:
             sk._ids.add(bid)
-            x_, y_, w_, h_ = parts.items[key]
+            x_, y_, w_, h_ = sk.parts.items[key]
             sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
                                   "act": act})
-        sk.put(bid, x, 673, bw_, bh_)
+        sk.put(bid, r - dx, y, bw_, bh_)
+
+
+def res_graphs(sk, img, f, x, y, w, h):
+    """Gauge, FAST / SLOW per section and the timing distribution."""
+    panel(img, (x, y, w, h), "GRAPH DATA", f)
+    d = ImageDraw.Draw(img)
+    gx, gw = x + 12, w - 24
+    parts_h = h - 32 - 3 * 30
+    gh = [parts_h * 36 // 100, parts_h * 28 // 100]
+    gh.append(parts_h - gh[0] - gh[1])
+    ty = y + 30
+    # gauge
+    draw_label(img, f, gx, ty + 10, "GROOVE GAUGE", 11, anchor="lm")
+    for key, op in (("gt_normal", 118), ("gt_hard", 119), ("gt_hazard", 120), ("gt_easy", 121),
+                    ("gt_aeasy", 124), ("gt_exhard", 125)):
+        gw_, gh_ = sk.parts.items[key][2:]
+        sk.put(sk.img(key), gx + 104, ty + 10 - gh_ // 2, gw_, gh_, op=[op])
+    gauge_number(sk, gx + gw - gauge_number_width(sk), ty - 4)
+    ty += 30
+    d.rectangle((gx, ty, gx + gw, ty + gh[0]), fill=(6, 7, 11, 255))
+    sk.put(graph_obj(sk, "gaugegraph", "gaugegraph", {"style": "vibebms"}), gx + 2, ty + 2,
+           gw - 4, gh[0] - 4)
+    ty += gh[0] + 4
+    # FAST / SLOW per section
+    draw_label(img, f, gx, ty + 13, "FAST", 11, BLUE, "bold", anchor="lm")
+    draw_label(img, f, gx + 38, ty + 13, "/", 11, DIM, anchor="lm")
+    draw_label(img, f, gx + 48, ty + 13, "SLOW", 11, RED, "bold", anchor="lm")
+    ty += 26
+    d.rectangle((gx, ty, gx + gw, ty + gh[1]), fill=(6, 7, 11, 255))
+    sk.put(graph_obj(sk, "judgegraph", "fsgraph", {"type": 2, "style": "vibebms"}), gx + 2,
+           ty + 2, gw - 4, gh[1] - 4)
+    ty += gh[1] + 4
+    draw_label(img, f, gx, ty + 13, "TIMING  (FAST \u2190  \u2192 SLOW)", 11, anchor="lm")
+    ty += 26
+    d.rectangle((gx, ty, gx + gw, ty + gh[2]), fill=(6, 7, 11, 255))
+    sk.put(graph_obj(sk, "timingdistributiongraph", "timing", {"style": "vibebms"}), gx + 2,
+           ty + 2, gw - 4, gh[2] - 4)
+
+
+def result_layout(fonts, parts, portrait=False):
+    W, H = (720, 1280) if portrait else (1280, 720)
+    sk = Skin(7, "vibeBMS Default Result", W, H, parts)
+    sk.j.update({"input": 500, "fadeout": 400, "scene": 3600000})
+    sk.source("bg", f"bg_result{'_portrait' if portrait else ''}.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H, fixed=True)
+    img = background(W, H)
+    f = fonts
+    res_header(sk, img, f, W)
     if portrait:
-        img = compose(img, RESULT_PORTRAIT, 720, 1280)
+        res_info(sk, img, f, 8, 52, 704, 224, stage=False)
+        res_clear(sk, img, f, 8, 284, 704, 140)
+        res_scores(sk, img, f, 8, 432, 704, 200)
+        judge_panel(sk, img, f, 8, 640, 400, 190)
+        res_timing(sk, img, f, 416, 640, 296, 190)
+        res_graphs(sk, img, f, 8, 838, 704, 434)
+    else:
+        res_clear(sk, img, f, 12, 56, 404, 150)
+        res_scores(sk, img, f, 12, 214, 404, 196)
+        judge_panel(sk, img, f, 12, 418, 404, 182)
+        res_timing(sk, img, f, 12, 608, 404, 100)
+        res_info(sk, img, f, 428, 56, 424, 652)
+        res_graphs(sk, img, f, 864, 56, 404, 652)
     return sk, img
 
 
