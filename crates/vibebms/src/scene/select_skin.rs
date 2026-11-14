@@ -267,8 +267,11 @@ impl SkinState for SelectState<'_> {
                 Some(Bar::Folder { count, .. }) => *count as i64,
                 _ => self.s.bars.len() as i64,
             },
-            312 => p.duration_ms as i64,
-            313 => p.duration_ms as i64 * 3 / 5,
+            312 => song.map(|s| p.duration_ms(s.main_bpm).round() as i64)?,
+            313 => song.map(|s| p.green(s.main_bpm))?,
+            310 => (p.hispeed * 100.0).round() as i64 / 100,
+            311 => (p.hispeed * 100.0).round() as i64 % 100,
+            10 => (p.hispeed * 100.0).round() as i64,
             370 => best.map(|b| b.clear as i64).unwrap_or(0),
             180 => self.ranking()?.len() as i64,
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,
@@ -322,7 +325,7 @@ impl SkinState for SelectState<'_> {
 
     fn text(&self, id: i32) -> Option<String> {
         let song = self.song();
-        let opts = SelectScene::option_items(self.ctx);
+        let opts = SelectScene::option_items(self.ctx, song.map(|s| s.main_bpm));
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
             // folders and courses show their name as the title

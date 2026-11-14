@@ -1,7 +1,7 @@
 //! Gameplay: loading, audio scheduling, judging, rendering, touch controls.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::config::{PlayConfig, Side};
+use crate::config::{PlayConfig, Side, HISPEED_STEP};
 use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Gfx, Rect, TexId};
 use crate::input::{InputEv, LaneEv, LaneMapper};
@@ -146,9 +146,9 @@ fn rgba_of(path: &Path, key: bool) -> Option<Rgba> {
 }
 
 /// beatoraja's controls while playing: with START held the white keys
-/// lower the hi-speed and the blue keys raise it, the turntable moves the
-/// lane cover (LIFT when no cover is shown); with SELECT held the keys and
-/// turntable change the duration finely. START twice shows / hides the
+/// lower the hi-speed and the blue keys raise it (0.25 steps), the
+/// turntable moves the lane cover (LIFT when no cover is shown); with
+/// SELECT held the keys and turntable change the hi-speed by 0.01. START twice shows / hides the
 /// cover; START and SELECT held for a second end the play.
 #[derive(Default)]
 struct Control {
@@ -170,18 +170,14 @@ impl Control {
         self.start || self.select
     }
 
-    /// One turntable step in `dir` (START: cover, SELECT: duration).
+    /// One turntable step in `dir` (START: cover, SELECT: hi-speed).
     fn turn(&self, p: &mut PlayConfig, dir: i32) {
         if self.start {
             adjust_cover(p, dir as f32 * 0.005);
         } else {
-            adjust_duration(p, dir * 2);
+            p.add_hispeed(dir as f32 * 0.01);
         }
     }
-}
-
-fn adjust_duration(p: &mut PlayConfig, d: i32) {
-    p.duration_ms = (p.duration_ms as i32 + d).clamp(100, 5000) as u32;
 }
 
 /// The lane cover when it shows (or there is no LIFT), else the LIFT.
@@ -800,13 +796,9 @@ impl PlayScene {
             }
             lane => {
                 let blue = lane as usize % self.mode.lanes_per_player() % 2 == 1;
-                let d = match (c.start, blue) {
-                    (true, false) => 25,
-                    (true, true) => -25,
-                    (false, false) => -1,
-                    (false, true) => 1,
-                };
-                adjust_duration(p, d);
+                // START: 0.25 steps, SELECT: 0.01; white slower, black faster
+                let step = if c.start { HISPEED_STEP } else { 0.01 };
+                p.add_hispeed(if blue { step } else { -step });
             }
         }
         c.both_since = (c.start && c.select).then(|| c.both_since.unwrap_or(e.time));
@@ -1040,8 +1032,8 @@ impl Scene for PlayScene {
                             }
                             self.quit = true;
                         }
-                        KeyCode::ArrowUp => adjust_duration(&mut ctx.config.play, 25),
-                        KeyCode::ArrowDown => adjust_duration(&mut ctx.config.play, -25),
+                        KeyCode::ArrowUp => ctx.config.play.add_hispeed(HISPEED_STEP),
+                        KeyCode::ArrowDown => ctx.config.play.add_hispeed(-HISPEED_STEP),
                         KeyCode::PageUp => adjust_cover(&mut ctx.config.play, 0.02),
                         KeyCode::PageDown => adjust_cover(&mut ctx.config.play, -0.02),
                         KeyCode::ArrowLeft => ctx.config.play.judge_offset_ms -= 1,
@@ -1277,7 +1269,7 @@ impl PlayScene {
         line(d, &format!("{hs:.2}"), small * 2.2, theme::ACCENT, &mut y);
         line(
             d,
-            &format!("GN {}", p.duration_ms * 3 / 5),
+            &format!("GN {}", p.green(st.main_bpm())),
             small,
             theme::TEXT,
             &mut y,
@@ -1322,8 +1314,8 @@ impl PlayScene {
         );
         let hint = match (self.ctl.start, self.ctl.select) {
             (true, true) => ["HOLD:", "QUIT"],
-            (true, false) => ["WHITE SLOW / BLUE FAST", "TURNTABLE: COVER"],
-            _ => ["WHITE -1 / BLUE +1", "TURNTABLE: DURATION"],
+            (true, false) => ["WHITE -0.25 / BLUE +0.25", "TURNTABLE: COVER"],
+            _ => ["WHITE -0.01 / BLUE +0.01", "TURNTABLE: HI-SPEED"],
         };
         for h in hint {
             line(d, h, small * 0.8, theme::TEXT_DIM, &mut y);

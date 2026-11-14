@@ -255,27 +255,14 @@ impl SceneState<'_> {
         self.s.engine.as_ref()
     }
 
-    /// Scroll speed as a beatoraja-style hi-speed multiplier:
-    /// 240000 / (BPM x ms a note spends crossing the whole lane). The BPM is
-    /// the main BPM with floating hi-speed and the current one with constant.
+    /// The hi-speed (the setting).
     pub fn hispeed(&self) -> f64 {
-        let s = self.s;
-        let p = &self.ctx.config.play;
-        let bpm = match p.hispeed_mode {
-            HiSpeedMode::Constant => s
-                .chart
-                .timing
-                .bpm_at_time(s.chart_us(self.now).max(0) as f64),
-            HiSpeedMode::Floating => s.chart.meta.main_bpm,
-        };
-        let bpm = if bpm > 0.0 { bpm } else { 130.0 };
-        let cover = if p.lane_cover || p.sudden > 0.0 {
-            p.sudden
-        } else {
-            0.0
-        };
-        let visible = (1.0 - cover - p.lift).max(0.05) as f64;
-        240_000.0 * visible / (bpm * p.duration_ms.max(1) as f64)
+        self.ctx.config.play.hispeed as f64
+    }
+
+    /// The chart's main BPM (what the hi-speed scales).
+    pub fn main_bpm(&self) -> f64 {
+        self.s.chart.meta.main_bpm
     }
 }
 
@@ -418,20 +405,11 @@ impl SkinState for SceneState<'_> {
             311 => (self.hispeed() * 100.0).round() as i64 % 100,
             12 => p.judge_offset_ms as i64,
             14 => (p.sudden * 1000.0) as i64,
-            312 => p.duration_ms as i64,
-            313 => p.duration_ms as i64 * 3 / 5,
-            // duration with the lane cover on / off (the setting is with it)
+            312 => p.duration_ms(self.main_bpm()).round() as i64,
+            313 => p.green(self.main_bpm()),
+            // duration / green number with the lane cover on / off
             1312..=1315 => {
-                let cover = if p.lane_cover || p.sudden > 0.0 {
-                    p.sudden
-                } else {
-                    0.0
-                };
-                let d = if id < 1314 {
-                    p.duration_ms as f32
-                } else {
-                    p.duration_ms as f32 * (1.0 - p.lift) / (1.0 - cover - p.lift).max(0.05)
-                };
+                let d = p.duration_ms_with(self.main_bpm(), id < 1314);
                 (if id % 2 == 0 { d } else { d * 0.6 }).round() as i64
             }
             314 => (p.lift * 1000.0) as i64,
@@ -620,7 +598,7 @@ impl Hooks for SceneHooks<'_> {
         } else {
             130.0
         };
-        let dur_us = p.duration_ms as f64 * 1000.0;
+        let dur_us = p.duration_ms(main_bpm) * 1000.0;
         let notes = engine.notes();
         let ident = crate::skin::Frame {
             rect: Rect::default(),

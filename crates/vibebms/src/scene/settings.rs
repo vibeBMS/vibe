@@ -258,11 +258,12 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 },
             ),
             it(
-                "Duration (ms) / green number",
-                format!("{}  (GN {})", p.duration_ms, p.duration_ms * 3 / 5),
+                "Hi-speed",
+                format!("{:.2}  (GN {} at 150 BPM)", p.hispeed, p.green(150.0)),
                 |c, d| {
-                    c.config.play.duration_ms =
-                        (c.config.play.duration_ms as i32 + d * 10).clamp(100, 5000) as u32
+                    c.config
+                        .play
+                        .add_hispeed(d as f32 * crate::config::HISPEED_STEP)
                 },
             ),
             it("Lane cover", onoff(p.lane_cover), |c, _| {

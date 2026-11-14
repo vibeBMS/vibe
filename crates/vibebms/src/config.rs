@@ -23,10 +23,11 @@ pub enum Side {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HiSpeedMode {
-    /// Green number fixed at the chart's main BPM (beatoraja "main BPM" floating).
+    /// The hi-speed applies to the main BPM; notes speed up and slow down
+    /// with the chart's BPM changes and stop at its stops.
     #[default]
     Floating,
-    /// Notes move at constant speed regardless of BPM changes/stops.
+    /// Notes keep the main-BPM speed through BPM changes and stops.
     Constant,
 }
 
@@ -98,8 +99,10 @@ pub struct PlayConfig {
     pub no_mine: bool,
     pub autoplay: bool,
     pub hispeed_mode: HiSpeedMode,
-    /// Visible duration of a note (ms) from lane top (below SUDDEN+) to the judge line.
-    pub duration_ms: u32,
+    /// Scroll speed: at 1.0 the lane shows one measure (4 beats) of the
+    /// chart's main BPM. The time a note is visible (the green number)
+    /// follows from it, the BPM and the lane cover.
+    pub hispeed: f32,
     pub sudden: f32,
     pub hidden: f32,
     pub lift: f32,
@@ -116,6 +119,48 @@ pub struct PlayConfig {
     pub hran_threshold_bpm: u32,
     /// The score the pacemaker and the result compare against.
     pub target: Target,
+}
+
+/// Hi-speed limits and steps (as in LR2 / beatoraja).
+pub const HISPEED_MIN: f32 = 0.25;
+pub const HISPEED_MAX: f32 = 20.0;
+pub const HISPEED_STEP: f32 = 0.25;
+/// The BPM a duration from an old configuration is read at.
+const LEGACY_BPM: f64 = 150.0;
+
+impl PlayConfig {
+    /// Share of the lane notes are visible in (below the lane cover, above
+    /// the LIFT).
+    pub fn visible(&self, with_cover: bool) -> f32 {
+        let cover = if with_cover && (self.lane_cover || self.sudden > 0.0) {
+            self.sudden
+        } else {
+            0.0
+        };
+        (1.0 - cover - self.lift).max(0.05)
+    }
+
+    /// How long (ms) a note is visible at `bpm`: the lane holds
+    /// 4 / hi-speed beats.
+    pub fn duration_ms(&self, bpm: f64) -> f64 {
+        self.duration_ms_with(bpm, true)
+    }
+
+    pub fn duration_ms_with(&self, bpm: f64, with_cover: bool) -> f64 {
+        let bpm = if bpm > 0.0 { bpm } else { 130.0 };
+        240_000.0 * self.visible(with_cover) as f64 / (bpm * self.hispeed.max(0.01) as f64)
+    }
+
+    /// The green number (beatoraja: the duration x 0.6).
+    pub fn green(&self, bpm: f64) -> i64 {
+        (self.duration_ms(bpm) * 0.6).round() as i64
+    }
+
+    pub fn add_hispeed(&mut self, d: f32) {
+        // keep to the 0.01 grid
+        self.hispeed = ((self.hispeed + d) * 100.0).round() / 100.0;
+        self.hispeed = self.hispeed.clamp(HISPEED_MIN, HISPEED_MAX);
+    }
 }
 
 impl Default for PlayConfig {
@@ -137,7 +182,7 @@ impl Default for PlayConfig {
             no_mine: false,
             autoplay: false,
             hispeed_mode: HiSpeedMode::Floating,
-            duration_ms: 600,
+            hispeed: 2.5,
             sudden: 0.0,
             hidden: 0.0,
             lift: 0.0,
@@ -431,7 +476,10 @@ impl Default for Config {
 impl Config {
     pub fn load(path: &std::path::Path) -> Config {
         match crate::platform::vfs::read_to_string(path) {
-            Ok(s) => match toml::from_str(&s) {
+            Ok(s) => match toml::from_str::<toml::Value>(&s).and_then(|mut v| {
+                migrate(&mut v);
+                v.try_into::<Config>()
+            }) {
                 Ok(c) => c,
                 Err(e) => {
                     log::error!("config parse error ({e}); backing up and using defaults");
@@ -457,6 +505,36 @@ impl Config {
     }
 }
 
+/// Older configurations stored the duration (ms) instead of the hi-speed:
+/// keep the speed it gave at 150 BPM.
+fn migrate(v: &mut toml::Value) {
+    let Some(play) = v.get_mut("play").and_then(|p| p.as_table_mut()) else {
+        return;
+    };
+    if play.contains_key("hispeed") {
+        return;
+    }
+    let Some(ms) = play.remove("duration_ms").and_then(|d| d.as_integer()) else {
+        return;
+    };
+    let f = |k: &str| play.get(k).and_then(|x| x.as_float()).unwrap_or(0.0);
+    let cover = if play
+        .get("lane_cover")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+        || f("sudden") > 0.0
+    {
+        f("sudden")
+    } else {
+        0.0
+    };
+    let visible = (1.0 - cover - f("lift")).max(0.05);
+    let hs = 240_000.0 * visible / (LEGACY_BPM * ms.max(1) as f64);
+    let hs = ((hs / HISPEED_STEP as f64).round() * HISPEED_STEP as f64)
+        .clamp(HISPEED_MIN as f64, HISPEED_MAX as f64);
+    play.insert("hispeed".into(), toml::Value::Float(hs));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,8 +546,12 @@ mod tests {
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
         // partial files fill in defaults
-        let p: Config = toml::from_str("[play]\nduration_ms = 400\n").unwrap();
-        assert_eq!(p.play.duration_ms, 400);
+        let mut v: toml::Value = toml::from_str("[play]\nduration_ms = 400\n").unwrap();
+        migrate(&mut v);
+        let p: Config = v.try_into().unwrap();
+        // 400 ms at 150 BPM is hi-speed 4.0
+        assert_eq!(p.play.hispeed, 4.0);
+        assert!((p.play.duration_ms(150.0) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
     }
 }

@@ -495,8 +495,8 @@ impl SelectScene {
             1 => p.gauge = cycle(&GaugeType::SELECTABLE, p.gauge),
             2 => p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift),
             3 => p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode),
-            4 => p.duration_ms = p.duration_ms.saturating_sub(25).max(100),
-            5 => p.duration_ms = (p.duration_ms + 25).min(5000),
+            4 => p.add_hispeed(-crate::config::HISPEED_STEP),
+            5 => p.add_hispeed(crate::config::HISPEED_STEP),
             6 => {
                 p.side = match p.side {
                     crate::config::Side::P1 => crate::config::Side::P2,
@@ -512,15 +512,21 @@ impl SelectScene {
         Next::Stay
     }
 
-    pub(crate) fn option_items(ctx: &Ctx) -> Vec<(String, String)> {
+    /// The option panel; `bpm` is the selected chart's main BPM (for its
+    /// green number).
+    pub(crate) fn option_items(ctx: &Ctx, bpm: Option<f64>) -> Vec<(String, String)> {
         let p = &ctx.config.play;
         vec![
             ("RANDOM".into(), p.random_1p.label().into()),
             ("GAUGE".into(), p.gauge.label().into()),
             ("AUTO SHIFT".into(), p.gauge_auto_shift.label().into()),
             ("LN MODE".into(), format!("{:?}", p.ln_mode).to_uppercase()),
-            ("DURATION −".into(), format!("{}", p.duration_ms)),
-            ("DURATION +".into(), format!("GN {}", p.duration_ms * 3 / 5)),
+            ("HI-SPEED −".into(), format!("{:.2}", p.hispeed)),
+            (
+                "HI-SPEED +".into(),
+                bpm.map(|b| format!("GN {}", p.green(b)))
+                    .unwrap_or_else(|| format!("{:.2}", p.hispeed)),
+            ),
             ("SIDE".into(), format!("{:?}", p.side)),
             ("JUDGE".into(), p.judge_preset.label().into()),
             (
