@@ -842,8 +842,9 @@ class Skin:
         iid = f"text{ref}_{align}"
         if iid not in self._ids:
             self._ids.add(iid)
-            # shrink to the destination width (beatoraja's default overflows)
-            self.j["text"].append({"id": iid, "ref": ref, "align": align, "overflow": 1})
+            # vibeBMS overflow 3: a long text is cut off and, while it is
+            # the current one, scrolls (beatoraja's default overflows)
+            self.j["text"].append({"id": iid, "ref": ref, "align": align, "overflow": 3})
         return iid
 
     def key(self, x, y, w, h, **kw):
@@ -2075,7 +2076,8 @@ def select_layout(fonts, parts, portrait=False):
                                                 b=210)]})
         on.append({"id": "bar", "dst": [sk.key(lx - 28, y, lw + 28, bh, fixed=True, time=0)]})
     graph_obj(sk, "imageset", "bar", {"images": [sk.img(f"bar{k}") for k in range(8)]})
-    sk.j["text"].append({"id": "bartext", "ref": 0, "align": 0, "overflow": 1})
+    # long titles: cut off, the selected one scrolls
+    sk.j["text"].append({"id": "bartext", "ref": 0, "align": 0, "overflow": 3})
     # sub-destinations: y-up offsets from the bar's bottom
     rel = lambda x, y, w, h, **kw: dict(time=0, x=x, y=bh - (y + h), w=w, h=h, **kw)
     level = []

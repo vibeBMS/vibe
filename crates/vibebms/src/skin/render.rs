@@ -278,7 +278,9 @@ impl LoadedSkin {
     }
 
     /// Draw a text into `r` (font size = height; see `Kind::Text` overflow),
-    /// with an LR2 bitmap font when one is given.
+    /// with an LR2 bitmap font when one is given. `shown_ms`: how long the
+    /// text has been the current one, for a marquee (overflow 3; `None`
+    /// keeps it still).
     #[allow(clippy::too_many_arguments)]
     pub fn text(
         &self,
@@ -289,6 +291,7 @@ impl LoadedSkin {
         overflow: i32,
         color: crate::gfx::Color,
         font: Option<usize>,
+        shown_ms: Option<i64>,
     ) {
         if let Some(f) = font.and_then(|i| self.skin.fonts.get(i)) {
             self.bitmap_text(d, f, s, r, align, color);
@@ -307,6 +310,19 @@ impl LoadedSkin {
             2 if r.w > 1.0 => {
                 d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
                 d.text(s, x, r.y, size, color, al);
+                d.b.set_clip(None);
+            }
+            // vibeBMS: a long text shows its start, cut off; while it is
+            // the current one it scrolls to its end and back (a marquee)
+            3 if r.w > 1.0 => {
+                let w = d.measure(s, size);
+                if w <= r.w {
+                    d.text(s, x, r.y, size, color, al);
+                    return;
+                }
+                let off = shown_ms.map_or(0.0, |t| marquee_offset(t, w - r.w, size));
+                d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
+                d.text(s, r.x - off, r.y, size, color, Align::Left);
                 d.b.set_clip(None);
             }
             _ => {
@@ -591,7 +607,9 @@ impl LoadedSkin {
                     overflow,
                 } => {
                     if let Some(s) = st.text(*id) {
-                        self.text(d, &s, r, *align, *overflow, fr.color, *font);
+                        // texts follow the selection (timer 11), else the scene
+                        let shown = now - st.timer(11).unwrap_or(0);
+                        self.text(d, &s, r, *align, *overflow, fr.color, *font, Some(shown));
                     }
                 }
                 Kind::Bar {
@@ -747,5 +765,19 @@ impl LoadedSkin {
             }
         }
         self.blit(d, src, now, st, jr, &fr);
+    }
+}
+
+/// How far a marquee has scrolled (px) `t` ms after it started: it waits,
+/// scrolls `travel` px, waits at the end, and starts again.
+pub fn marquee_offset(t: i64, travel: f32, size: f32) -> f32 {
+    const WAIT_MS: f32 = 1200.0;
+    let speed = (size * 2.5).max(40.0); // px/s
+    let scroll_ms = travel / speed * 1000.0;
+    let t = t.max(0) as f32 % (WAIT_MS * 2.0 + scroll_ms);
+    if t < WAIT_MS {
+        0.0
+    } else {
+        ((t - WAIT_MS) / 1000.0 * speed).min(travel)
     }
 }

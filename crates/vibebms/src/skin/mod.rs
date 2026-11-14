@@ -285,7 +285,8 @@ pub enum Kind {
         font: Option<usize>,
         align: i32,
         /// Text wider than the destination: 0 overflows (LR2, beatoraja
-        /// default), 1 shrinks to fit, 2 is cut off.
+        /// default), 1 shrinks to fit, 2 is cut off, 3 (vibeBMS) is cut
+        /// off and scrolls while it is the current one (a marquee).
         overflow: i32,
     },
     Bar {
