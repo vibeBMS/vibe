@@ -73,10 +73,11 @@ impl SongFetch {
     /// Download `title` from `url` (the song) and `url_diff` (its separate
     /// chart). False when neither is a link.
     pub fn start(&mut self, root: &Path, title: &str, url: &str, url_diff: &str) -> bool {
-        let links: Vec<String> = [url, url_diff]
+        // (link, it is the separate chart's)
+        let links: Vec<(String, bool)> = [(url, false), (url_diff, true)]
             .into_iter()
-            .filter(|u| is_link(u))
-            .map(str::to_string)
+            .filter(|(u, _)| is_link(u))
+            .map(|(u, d)| (u.to_string(), d))
             .collect();
         if links.is_empty() || self.is_busy(title) {
             return false;
@@ -93,7 +94,7 @@ impl SongFetch {
         crate::platform::spawn("song", move || {
             let done: Vec<Done> = links
                 .iter()
-                .flat_map(|l| native(&root, &title, l))
+                .flat_map(|(l, diff)| native(&root, &title, l, *diff))
                 .collect();
             let _ = tx.send((title, done));
         });
@@ -119,10 +120,48 @@ impl SongFetch {
     }
 }
 
+/// The charts in a separate chart's unpacked archive `dir` into their
+/// songs' folders, each with the files beside it there (extra sounds, a
+/// BGA) unless the song has them already.
+fn place_charts(dir: &Path, library: &Path) -> Vec<Done> {
+    use crate::platform::vfs;
+    let mut out = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        let entries = vfs::read_dir(&d).unwrap_or_default();
+        todo.extend(entries.iter().filter(|e| e.is_dir).map(|e| e.path.clone()));
+        let files: Vec<&PathBuf> = entries
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| &e.path)
+            .collect();
+        let mut song_dir = None;
+        for chart in files.iter().filter(|p| crate::placement::is_chart(p)) {
+            match crate::placement::locate(chart, library) {
+                Some(crate::placement::Located::Move(to)) => {
+                    let at = to.join(chart.file_name().unwrap_or_default());
+                    if vfs::rename(chart, &at) {
+                        out.push(Done::Placed(at));
+                        song_dir = Some(to);
+                    }
+                }
+                _ => out.push(Done::Waiting((*chart).clone())),
+            }
+        }
+        if let Some(to) = song_dir {
+            for f in files.iter().filter(|p| !crate::placement::is_chart(p)) {
+                let _ = vfs::rename(f, &to.join(f.file_name().unwrap_or_default()));
+            }
+        }
+    }
+    out
+}
+
 /// The app: a link into `downloads`, then `import` (unpack an archive, or
-/// put a chart into its song's folder).
+/// put a chart into its song's folder; a separate chart's archive goes to
+/// its song's folder too).
 #[cfg(not(target_arch = "wasm32"))]
-fn native(root: &Path, title: &str, link: &str) -> Vec<Done> {
+fn native(root: &Path, title: &str, link: &str, diff: bool) -> Vec<Done> {
     use crate::import::{self, Imported};
     let downloads = root.join("downloads");
     let library = root.join("bms");
@@ -158,6 +197,18 @@ fn native(root: &Path, title: &str, link: &str) -> Vec<Done> {
             }
         }
     };
+    if diff && !chart_link(link) {
+        let dir = downloads.join(format!(".diff-{}", crate::archive::safe_name(title)));
+        let name = crate::import::file_name(&file);
+        let r = import::unpack_into(&file, &name, &dir);
+        let _ = std::fs::remove_file(&file);
+        let out = match r {
+            Ok(_) => place_charts(&dir, &library),
+            Err(e) => vec![Done::Failed(e)],
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        return out;
+    }
     let mut out = vec![match import::import(&file, &library) {
         Ok(Imported::Unpacked(dir, n)) => Done::Added(dir, n),
         Ok(Imported::Placed(p)) => Done::Placed(p),
@@ -182,7 +233,7 @@ fn native(root: &Path, title: &str, link: &str) -> Vec<Done> {
 fn web(
     root: PathBuf,
     title: String,
-    mut links: Vec<String>,
+    mut links: Vec<(String, bool)>,
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
@@ -191,7 +242,7 @@ fn web(
     if links.is_empty() {
         return finish(done);
     }
-    let link = links.remove(0);
+    let (link, diff) = links.remove(0);
     if chart_link(&link) {
         let name = chart_name(&link);
         crate::platform::http_get(&via_proxy(&link), move |r| {
@@ -219,18 +270,26 @@ fn web(
     }
     let (r, step) = crate::hosts::Resolver::new(&link);
     web_step(r, step, link, move |r| {
-        done.push(match r {
+        match r {
+            // a separate chart's archive: its charts into their songs' folders
+            Ok(bytes) if diff => {
+                let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
+                let stem = crate::archive::safe_name(&title);
+                let tmp = root.join("downloads").join(".diff");
+                vfs::add_archive_at(&tmp, &format!("{stem}.{ext}"), bytes);
+                done.extend(place_charts(&tmp.join(&stem), &root.join("bms")));
+            }
             Ok(bytes) => {
                 let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
                 let stem = crate::archive::safe_name(&title);
-                match vfs::add_zip(&root, &format!("{stem}.{ext}"), bytes) {
+                done.push(match vfs::add_zip(&root, &format!("{stem}.{ext}"), bytes) {
                     0 => Done::Failed("the archive holds nothing".into()),
                     n => Done::Added(root.join("bms").join(&stem), n),
-                }
+                });
             }
-            Err(Fail::Page(url)) => Done::Page(url),
-            Err(Fail::Msg(e)) => Done::Failed(e),
-        });
+            Err(Fail::Page(url)) => done.push(Done::Page(url)),
+            Err(Fail::Msg(e)) => done.push(Done::Failed(e)),
+        }
         web(root, title, links, done, finish)
     });
 }
@@ -248,7 +307,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         for var in ["VIBEBMS_SONG", "VIBEBMS_DIFF"] {
             if let Ok(link) = std::env::var(var) {
-                println!("{var}: {:?}", native(&root, "Test Song", &link));
+                println!(
+                    "{var}: {:?}",
+                    native(&root, "Test Song", &link, var == "VIBEBMS_DIFF")
+                );
             }
         }
     }
