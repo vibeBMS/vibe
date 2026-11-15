@@ -664,8 +664,13 @@ impl LoadedSkin {
                 } => {
                     let (value, border, survival, ty) = hooks.gauge();
                     let n = *parts as f32;
-                    let lit = (value / 100.0 * n).floor() as usize;
                     let per = 100.0 / n;
+                    let mut lit = (value / 100.0 * n).floor() as usize;
+                    if !survival && value > 0.0 && value >= border {
+                        // at the border the first cell above it lights, so a
+                        // gauge that clears shows red (80% on NORMAL)
+                        lit = lit.max((border / per).floor() as usize + 1);
+                    }
                     let groups = src.frames.len() / 4;
                     // one 4-image group per gauge type (beatoraja order), or
                     // groove + survival, or a single group
