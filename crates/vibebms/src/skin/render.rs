@@ -665,12 +665,14 @@ impl LoadedSkin {
                     let (value, border, survival, ty) = hooks.gauge();
                     let n = *parts as f32;
                     let per = 100.0 / n;
-                    let mut lit = (value / 100.0 * n).floor() as usize;
-                    if !survival && value > 0.0 && value >= border {
-                        // at the border the first cell above it lights, so a
-                        // gauge that clears shows red (80% on NORMAL)
-                        lit = lit.max((border / per).floor() as usize + 1);
-                    }
+                    // as beatoraja: whole cells, at least one while alive,
+                    // and the cell ending on the border is already red (a
+                    // NORMAL gauge at 80% shows red)
+                    let lit = if value > 0.0 {
+                        ((value / per) as usize).max(1)
+                    } else {
+                        0
+                    };
                     let groups = src.frames.len() / 4;
                     // one 4-image group per gauge type (beatoraja order), or
                     // groove + survival, or a single group
@@ -683,7 +685,7 @@ impl LoadedSkin {
                     };
                     let pw = if *split { fr.rect.w / n } else { fr.rect.w };
                     for i in 0..*parts {
-                        let above = survival || (i as f32 + 1.0) * per > border;
+                        let above = survival || (i as f32 + 1.0) * per >= border;
                         let idx = match (i < lit, above) {
                             (true, true) => 0,
                             (true, false) => 1,
