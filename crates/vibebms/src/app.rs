@@ -634,7 +634,11 @@ pub fn run() {
             return;
         }
     };
-    event_loop.set_control_flow(ControlFlow::Poll);
+    event_loop.set_control_flow(if crate::platform::IS_WEB {
+        ControlFlow::Wait
+    } else {
+        ControlFlow::Poll
+    });
     #[allow(unused_mut)]
     let mut app = App::new(paths, event_loop.create_proxy());
     #[cfg(target_arch = "wasm32")]
@@ -1219,6 +1223,13 @@ impl ApplicationHandler<UserEvent> for App {
                 r.window.request_redraw();
             }
             el.set_control_flow(ControlFlow::WaitUntil(r.next_frame));
+        } else if crate::platform::IS_WEB {
+            // the browser paces the redraws (requestAnimationFrame); Poll
+            // there makes winit post a task again and again between frames
+            // (Firefox: ~34000 a second, each with an AbortController), which
+            // takes the main thread and leaves garbage for second-long GCs
+            el.set_control_flow(ControlFlow::Wait);
+            r.window.request_redraw();
         } else {
             el.set_control_flow(ControlFlow::Poll);
             r.window.request_redraw();
