@@ -140,6 +140,8 @@ fn builder<'a>(url: &str, downloads: PathBuf, tx: Sender<Event>) -> WebViewBuild
     #[cfg(target_os = "ios")]
     let b = b
         .with_initialization_script(BUTTONS_JS)
+        // a OneDrive share downloads without a press
+        .with_initialization_script(bmseeker::hosts::PRESS_DOWNLOAD_JS)
         .with_ipc_handler(move |req| {
             if req.body() == "close" {
                 let _ = tx3.send(Event::Closed);

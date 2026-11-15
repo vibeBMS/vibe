@@ -37,11 +37,15 @@ public final class Browser {
 
     private Browser() {}
 
-    /** Show {@code url}, opening the browser if needed; downloads go to {@code dir}. */
-    public static void open(final Activity activity, final String url, final String dir) {
+    /**
+     * Show {@code url}, opening the browser if needed; downloads go to {@code dir}.
+     * {@code script} runs on every page once it has loaded.
+     */
+    public static void open(final Activity activity, final String url, final String dir,
+            final String script) {
         activity.runOnUiThread(() -> {
             if (dialog == null) {
-                build(activity, dir);
+                build(activity, dir, script);
             }
             web.loadUrl(url);
             dialog.show();
@@ -53,7 +57,7 @@ public final class Browser {
         return EVENTS.poll();
     }
 
-    private static void build(final Activity activity, final String dir) {
+    private static void build(final Activity activity, final String dir, final String script) {
         dialog = new Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -91,6 +95,7 @@ public final class Browser {
             @Override
             public void onPageFinished(WebView view, String url) {
                 title.setText(view.getTitle() != null ? view.getTitle() : url);
+                view.evaluateJavascript(script, null);
             }
         });
         web.setDownloadListener((url, userAgent, disposition, mime, length) ->

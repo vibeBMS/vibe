@@ -67,14 +67,17 @@ fn open(url: &str, dir: &std::path::Path) -> Result<(), String> {
         let class = browser_class(env, activity)?;
         let url = env.new_string(url)?;
         let dir = env.new_string(dir.to_string_lossy())?;
+        // run on each page (a OneDrive share downloads without a press)
+        let script = env.new_string(bmseeker::hosts::PRESS_DOWNLOAD_JS)?;
         env.call_static_method(
             class,
             "open",
-            "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)V",
+            "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
             &[
                 JValue::Object(activity),
                 JValue::Object(&url),
                 JValue::Object(&dir),
+                JValue::Object(&script),
             ],
         )?;
         Ok(())

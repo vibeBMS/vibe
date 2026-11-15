@@ -87,6 +87,33 @@ pub struct Want {
     pub artist: String,
 }
 
+/// For a browser showing a [`Fetch::Page`]: on a OneDrive share (a file,
+/// or a folder, which comes as a zip) it presses the page's Download button
+/// once, as a person would. OneDrive has no download URL to fetch without a
+/// browser any more (its API wants an app's token; its pages are built by
+/// script). Run it on every page load (wry: `with_initialization_script`;
+/// Android: `evaluateJavascript` when the page has finished).
+pub const PRESS_DOWNLOAD_JS: &str = r#"(function () {
+  if (window.top !== window || window.__bmseekerPressed) return;
+  if (!/(^|\.)(onedrive\.live\.com|1drv\.ms|sharepoint\.com)$/i.test(location.hostname)) return;
+  var name = /^\s*(download|ダウンロード|다운로드|下载|下載)\s*$/i;
+  var tries = 0;
+  var timer = setInterval(function () {
+    if (++tries > 120) return clearInterval(timer);
+    var all = document.querySelectorAll('button, [role="button"], [role="menuitem"]');
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i];
+      var label = b.getAttribute("aria-label") || b.textContent || "";
+      if (name.test(label) && !b.disabled && b.offsetParent !== null) {
+        window.__bmseekerPressed = true;
+        clearInterval(timer);
+        b.click();
+        return;
+      }
+    }
+  }, 500);
+})();"#;
+
 /// Hosts whose links always need a browser.
 const PAGES: &[&str] = &[
     "1drv.ms",
