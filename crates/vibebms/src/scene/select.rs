@@ -59,6 +59,9 @@ pub(crate) enum Bar {
         artist: String,
         /// The chart's (for its other links).
         md5: String,
+        /// More links for the song, after `url` (an event work's other
+        /// links, then its page).
+        more: Vec<String>,
         level: String,
         /// Download pages: the song, and the chart when it is a separate
         /// (差分) chart for that song.
@@ -364,6 +367,7 @@ impl SelectScene {
                             title: w.title.clone(),
                             artist: w.artist.clone(),
                             md5: String::new(),
+                            more: w.links.iter().skip(1).chain([&w.page]).cloned().collect(),
                             level: String::new(),
                             url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
                             url_diff: String::new(),
@@ -389,6 +393,7 @@ impl SelectScene {
                             title: e.title.clone(),
                             artist: e.artist.clone(),
                             md5: e.md5.clone(),
+                            more: Vec::new(),
                             level: table.label(&e.level),
                             url: e.url.clone(),
                             url_diff: e.url_diff.clone(),
@@ -527,6 +532,7 @@ impl SelectScene {
                 title,
                 artist,
                 md5,
+                more,
                 ..
             }) => {
                 // straight from the links (as the event mirror's works)
@@ -542,10 +548,13 @@ impl SelectScene {
                     url_diff: url_diff.clone(),
                     ..Default::default()
                 };
-                let links = vec![
-                    (ctx.links.links.song_links(&e), false),
-                    (ctx.links.links.chart_links(&e), true),
-                ];
+                let mut song = ctx.links.links.song_links(&e);
+                for u in more {
+                    if !song.contains(&u) {
+                        song.push(u);
+                    }
+                }
+                let links = vec![(song, false), (ctx.links.links.chart_links(&e), true)];
                 if ctx.song_fetch.start(&root, &title, &artist, &md5, links) {
                     ctx.toast(format!("Downloading {title}…"));
                     return Next::Stay;

@@ -152,10 +152,6 @@ pub struct Archives {
     pub installed: HashMap<String, PathBuf>,
     /// Works downloading now ("EVENT/num").
     pub busy: Vec<String>,
-    /// Works downloading from their author's link (not the mirror).
-    direct: std::collections::HashSet<String>,
-    /// Works whose author's link gave no archive: they open their page.
-    direct_failed: std::collections::HashSet<String>,
     tx: Option<Sender<Msg>>,
     rx: Option<Receiver<Msg>>,
 }
@@ -310,26 +306,10 @@ impl Archives {
         self.busy.contains(&key(event, num))
     }
 
-    /// What the app itself downloads for a work: its mirrored files, else
-    /// its author's link (`hosts::fetch`; a page then opens in the browser).
-    /// Not on the web: those hosts send no CORS headers.
-    fn files_of(&self, event: &Event, work: &Work) -> Option<Vec<File>> {
-        if !work.files.is_empty() {
-            return Some(work.files.clone());
-        }
-        if self.direct_failed.contains(&key(&event.name, work.num)) {
-            return None;
-        }
-        let url = work.links.first()?.clone();
-        if !(url.starts_with("https://") || url.starts_with("http://")) {
-            return None;
-        }
-        Some(vec![File {
-            name: safe_name(&work.title),
-            url,
-            size: 0,
-            original: String::new(),
-        }])
+    /// A work's mirrored files (a work that is not mirrored is downloaded
+    /// from its author's links as a table's song is: `songfetch`).
+    fn files_of(&self, _event: &Event, work: &Work) -> Option<Vec<File>> {
+        (!work.files.is_empty()).then(|| work.files.clone())
     }
 
     /// Whether choosing work `num` of event `ev` downloads it in the app
@@ -359,9 +339,6 @@ impl Archives {
         let k = key(&event.name, num);
         if self.busy.contains(&k) {
             return Err("already downloading".into());
-        }
-        if work.files.is_empty() {
-            self.direct.insert(k.clone());
         }
         self.busy.push(k);
         let (name, title) = (event.name.clone(), work.title.clone());
@@ -431,7 +408,6 @@ impl Archives {
                 Msg::Done(event, num, r) => {
                     let k = key(&event, num);
                     self.busy.retain(|b| *b != k);
-                    let direct = self.direct.remove(&k);
                     match r {
                         Ok((dir, n)) => {
                             toasts.push(format!("Added {} ({n} files)", dir.display()));
@@ -446,20 +422,9 @@ impl Archives {
                             rescan = true;
                             changed = true;
                         }
-                        // the author's link is a page: open it
                         Err(Fail::Page(url)) => {
                             toasts.push("No direct download: opening its page".into());
                             pages.push(url);
-                            self.direct_failed.insert(k);
-                            changed = true;
-                        }
-                        // the author's link: its page next time
-                        Err(Fail::Msg(e)) if direct => {
-                            toasts.push(format!(
-                                "Download failed ({e}): choose it again to open its page"
-                            ));
-                            self.direct_failed.insert(k);
-                            changed = true;
                         }
                         Err(Fail::Msg(e)) => toasts.push(format!("Download failed: {e}")),
                     }
