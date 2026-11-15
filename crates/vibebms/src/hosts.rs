@@ -3,13 +3,20 @@
 //! Drive files and folders, Dropbox files and folders, MediaFire, MEGA, and
 //! any server that answers with the archive itself. What needs a person on
 //! a page (OneDrive, uploaders, a quota page) is [`Fetch::Page`].
+//!
+//! The web build reaches only hosts that allow other pages to read them
+//! (CORS): Google Drive files, Dropbox files and MEGA ([`web_source`]).
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Write};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
+#[cfg(not(target_arch = "wasm32"))]
 const UA: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Why a link gave no archive.
 #[derive(Debug)]
 pub enum Fetch {
@@ -19,12 +26,14 @@ pub enum Fetch {
     Failed(String),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl From<String> for Fetch {
     fn from(e: String) -> Fetch {
         Fetch::Failed(e)
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Download the archive `link` leads to into `out`.
 pub fn fetch(link: &str, out: &Path) -> Result<(), Fetch> {
     let u = link.trim();
@@ -62,6 +71,7 @@ pub fn fetch(link: &str, out: &Path) -> Result<(), Fetch> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Hosts whose links always need a browser.
 const PAGES: &[&str] = &[
     "1drv.ms",
@@ -74,20 +84,12 @@ const PAGES: &[&str] = &[
     "box.com",
 ];
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The archive format of a file from its first bytes.
 pub fn sniff(p: &Path) -> Option<&'static str> {
     let mut head = [0u8; 8];
     let n = std::fs::File::open(p).ok()?.read(&mut head).ok()?;
-    let h = &head[..n];
-    if h.starts_with(b"PK\x03\x04") || h.starts_with(b"PK\x05\x06") {
-        Some("zip")
-    } else if h.starts_with(b"Rar!\x1a\x07") {
-        Some("rar")
-    } else if h.starts_with(b"7z\xbc\xaf\x27\x1c") {
-        Some("7z")
-    } else {
-        None
-    }
+    sniff_bytes(&head[..n])
 }
 
 /// The file or folder id of a Google Drive link (`/file/d/ID`,
@@ -107,6 +109,7 @@ fn drive_file_url(id: &str) -> String {
     format!("https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t")
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The archive to take from a shared Drive folder (as `fetch.py`
 /// `pick_file`: ogg over wav, full over BGA-only and patches).
 fn drive_folder_file(id: &str) -> Result<String, Fetch> {
@@ -124,6 +127,7 @@ fn drive_folder_file(id: &str) -> Result<String, Fetch> {
     Ok(drive_file_url(best))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// (name, file id) of the files in an `embeddedfolderview` page.
 fn folder_entries(page: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -138,11 +142,13 @@ fn folder_entries(page: &str) -> Vec<(String, String)> {
     out
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn archive_name(n: &str) -> bool {
     let n = n.to_ascii_lowercase();
     [".zip", ".rar", ".7z"].iter().any(|e| n.ends_with(e))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The best of (name, id): ogg over wav, full over BGA-only and patches,
 /// the first of equals.
 fn pick_file<'a>(files: impl Iterator<Item = (&'a str, &'a str)>) -> Option<&'a str> {
@@ -193,6 +199,7 @@ fn dropbox_url(u: &str) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The download button's link on a MediaFire page.
 fn mediafire_url(u: &str) -> Result<String, Fetch> {
     let page = get_text(u)?;
@@ -201,34 +208,16 @@ fn mediafire_url(u: &str) -> Result<String, Fetch> {
     Ok(unescape(link))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// A MEGA file: its URL from the API, then AES-128-CTR decrypted with the
 /// key in the link (`mega.nz/file/H#K`, `mega.nz/#!H!K`).
 fn mega(u: &str, out: &Path) -> Result<(), Fetch> {
-    if u.contains("/folder/") || u.contains("#F!") {
-        return Err(Fetch::Page);
-    }
-    let (handle, key) = if let Some(i) = u.find("/file/") {
-        let rest = &u[i + 6..];
-        let (h, k) = rest.split_once('#').ok_or(Fetch::Page)?;
-        (h.to_string(), k.to_string())
-    } else if let Some(i) = u.find("#!") {
-        let (h, k) = u[i + 2..].split_once('!').ok_or(Fetch::Page)?;
-        (h.to_string(), k.to_string())
-    } else {
-        return Err(Fetch::Page);
-    };
-    let key = b64url(&key).filter(|k| k.len() == 32).ok_or(Fetch::Page)?;
-    let body = format!(r#"[{{"a":"g","g":1,"p":"{handle}"}}]"#);
-    let mut req = ehttp::Request::post("https://g.api.mega.co.nz/cs?id=0", body.into_bytes());
+    let (handle, key) = mega_link(u).ok_or(Fetch::Page)?;
+    let mut req = ehttp::Request::post(MEGA_API, mega_request(&handle));
     req.headers.insert("Content-Type", "application/json");
     let r = ehttp::fetch_blocking(&req).map_err(Fetch::Failed)?;
-    let v: serde_json::Value =
-        serde_json::from_slice(&r.bytes).map_err(|e| Fetch::Failed(format!("MEGA: {e}")))?;
-    let g = v
-        .get(0)
-        .and_then(|f| f.get("g"))
-        .and_then(|g| g.as_str())
-        .ok_or_else(|| Fetch::Failed(format!("MEGA refused ({v})")))?;
+    let g = mega_answer(&r.bytes)?;
+    let g = g.as_str();
     let enc = out.with_extension("mega");
     download_to(g, &enc)?;
     let r = mega_decrypt(&enc, out, &key);
@@ -240,19 +229,9 @@ fn mega(u: &str, out: &Path) -> Result<(), Fetch> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn mega_decrypt(from: &Path, to: &Path, k: &[u8]) -> Result<(), String> {
-    use aes::cipher::{BlockCipherEncrypt, KeyInit};
-    let mut key = [0u8; 16];
-    for i in 0..16 {
-        key[i] = k[i] ^ k[i + 16];
-    }
-    let aes = aes::Aes128::new(&key.into());
-    // the counter starts at the key's nonce (bytes 16..24), then 0
-    let mut ctr = u128::from_be_bytes({
-        let mut b = [0u8; 16];
-        b[..8].copy_from_slice(&k[16..24]);
-        b
-    });
+    let mut c = MegaCipher::new(k);
     let mut src = std::io::BufReader::new(std::fs::File::open(from).map_err(|e| e.to_string())?);
     let mut dst = std::io::BufWriter::new(std::fs::File::create(to).map_err(|e| e.to_string())?);
     let mut buf = vec![0u8; 1 << 16];
@@ -261,19 +240,13 @@ fn mega_decrypt(from: &Path, to: &Path, k: &[u8]) -> Result<(), String> {
         if n == 0 {
             break;
         }
-        for chunk in buf[..n].chunks_mut(16) {
-            let mut block = ctr.to_be_bytes().into();
-            aes.encrypt_block(&mut block);
-            for (b, s) in chunk.iter_mut().zip(block.iter()) {
-                *b ^= s;
-            }
-            ctr = ctr.wrapping_add(1);
-        }
+        c.apply(&mut buf[..n]);
         dst.write_all(&buf[..n]).map_err(|e| e.to_string())?;
     }
     dst.flush().map_err(|e| e.to_string())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Fill `buf` (short only at the end), so chunks stay on 16-byte blocks.
 fn read_full(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
     let mut n = 0;
@@ -310,12 +283,14 @@ fn b64url(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
     let i = s.find(a)? + a.len();
     let j = s[i..].find(b)? + i;
     Some(&s[i..j])
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn unescape(s: &str) -> String {
     s.replace("&amp;", "&")
         .replace("&#39;", "'")
@@ -324,6 +299,7 @@ fn unescape(s: &str) -> String {
         .replace("&gt;", ">")
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_text(url: &str) -> Result<String, Fetch> {
     let mut req = ehttp::Request::get(url);
     req.headers.insert("User-Agent", UA);
@@ -334,6 +310,7 @@ fn get_text(url: &str) -> Result<String, Fetch> {
     Ok(String::from_utf8_lossy(&r.bytes).into_owned())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Stream `url` into `out`.
 pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
     use std::ops::ControlFlow;
@@ -383,6 +360,128 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
     );
     let r = state.lock().expect("download state").1.take();
     r.unwrap_or_else(|| Err("the download ended early".into()))
+}
+
+/// MEGA's AES-128-CTR with the 32-byte key of a file link.
+pub struct MegaCipher {
+    aes: aes::Aes128,
+    ctr: u128,
+}
+
+impl MegaCipher {
+    pub fn new(k: &[u8]) -> MegaCipher {
+        use aes::cipher::KeyInit;
+        let mut key = [0u8; 16];
+        for i in 0..16 {
+            key[i] = k[i] ^ k[i + 16];
+        }
+        // the counter starts at the key's nonce (bytes 16..24), then 0
+        let mut nonce = [0u8; 16];
+        nonce[..8].copy_from_slice(&k[16..24]);
+        MegaCipher {
+            aes: aes::Aes128::new(&key.into()),
+            ctr: u128::from_be_bytes(nonce),
+        }
+    }
+
+    /// Decrypt the next part of the file (whole 16-byte blocks but at the
+    /// end).
+    pub fn apply(&mut self, data: &mut [u8]) {
+        use aes::cipher::BlockCipherEncrypt;
+        for chunk in data.chunks_mut(16) {
+            let mut block = self.ctr.to_be_bytes().into();
+            self.aes.encrypt_block(&mut block);
+            for (b, s) in chunk.iter_mut().zip(block.iter()) {
+                *b ^= s;
+            }
+            self.ctr = self.ctr.wrapping_add(1);
+        }
+    }
+}
+
+/// A MEGA file link: (handle, 32-byte key).
+pub fn mega_link(u: &str) -> Option<(String, Vec<u8>)> {
+    if u.contains("/folder/") || u.contains("#F!") {
+        return None;
+    }
+    let (h, k) = if let Some(i) = u.find("/file/") {
+        u[i + 6..].split_once('#')?
+    } else {
+        u[u.find("#!")? + 2..].split_once('!')?
+    };
+    let key = b64url(k).filter(|k| k.len() == 32)?;
+    Some((h.to_string(), key))
+}
+
+/// The MEGA API request for a file's download URL.
+pub const MEGA_API: &str = "https://g.api.mega.co.nz/cs?id=0";
+
+pub fn mega_request(handle: &str) -> Vec<u8> {
+    format!(r#"[{{"a":"g","g":1,"p":"{handle}"}}]"#).into_bytes()
+}
+
+/// The download URL in the MEGA API's answer.
+pub fn mega_answer(body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value = serde_json::from_slice(body).map_err(|e| format!("MEGA: {e}"))?;
+    v.get(0)
+        .and_then(|f| f.get("g"))
+        .and_then(|g| g.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("MEGA refused ({v})"))
+}
+
+/// Where the web build can get a link's archive.
+pub enum Web {
+    Url(String),
+    /// A MEGA file: the API, then its encrypted bytes.
+    Mega {
+        handle: String,
+        key: Vec<u8>,
+    },
+}
+
+/// A link the web build can download (its host allows other pages to read
+/// it): a Google Drive file, a Dropbox file, a MEGA file.
+pub fn web_source(link: &str) -> Option<Web> {
+    let u = link.trim();
+    let lower = u.to_ascii_lowercase();
+    if !lower.starts_with("https://") && !lower.starts_with("http://") {
+        return None;
+    }
+    let host = lower.split('/').nth(2).unwrap_or("");
+    if host.ends_with("drive.google.com") || host == "docs.google.com" {
+        if lower.contains("/folders/") {
+            return None;
+        }
+        return drive_id(u).map(|id| Web::Url(drive_file_url(&id)));
+    }
+    if host.ends_with("dropbox.com") || host.ends_with("dropboxusercontent.com") {
+        if lower.contains("/scl/fo/") || lower.contains("/sh/") {
+            return None;
+        }
+        // www.dropbox.com redirects without CORS headers; this host has them
+        let path = &u[u.find(host).map(|i| i + host.len())?..];
+        return Some(Web::Url(dropbox_url(&format!(
+            "https://dl.dropboxusercontent.com{path}"
+        ))));
+    }
+    if host == "mega.nz" || host == "mega.co.nz" {
+        return mega_link(u).map(|(handle, key)| Web::Mega { handle, key });
+    }
+    None
+}
+
+/// The archive format of a file's first bytes.
+pub fn sniff_bytes(h: &[u8]) -> Option<&'static str> {
+    if h.starts_with(b"PK\x03\x04") || h.starts_with(b"PK\x05\x06") {
+        Some("zip")
+    } else if h.starts_with(b"Rar!\x1a\x07") {
+        Some("rar")
+    } else if h.starts_with(b"7z\xbc\xaf\x27\x1c") {
+        Some("7z")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -439,6 +538,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn web_sources() {
+        let url = |l: &str| match web_source(l) {
+            Some(Web::Url(u)) => u,
+            _ => String::new(),
+        };
+        assert_eq!(
+            url("https://www.dropbox.com/scl/fi/a/b.zip?rlkey=k&dl=0"),
+            "https://dl.dropboxusercontent.com/scl/fi/a/b.zip?rlkey=k&dl=1"
+        );
+        assert!(web_source("https://www.dropbox.com/scl/fo/a/b?rlkey=k").is_none());
+        assert!(url("https://drive.google.com/file/d/X/view").contains("id=X"));
+        assert!(web_source("https://drive.google.com/drive/folders/X").is_none());
+        assert!(matches!(
+            web_source("https://mega.nz/file/bzQy3bYS#Og0LBoWkfbKwxUceGvzLHDl2exyI0l1DiQ3XNw79zMw"),
+            Some(Web::Mega { .. })
+        ));
+        assert!(web_source("https://www.mediafire.com/file/x/y.zip/file").is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn mega_ctr() {
         // AES-128 of a zero key and zero counter block, xored with zeros

@@ -338,10 +338,18 @@ impl Archives {
     /// (else its page opens).
     pub fn can_download(&self, ev: usize, num: u32) -> bool {
         self.events.get(ev).is_some_and(|e| {
-            e.works
-                .iter()
-                .find(|w| w.num == num)
-                .is_some_and(|w| self.files_of(e, w).is_some())
+            e.works.iter().find(|w| w.num == num).is_some_and(|w| {
+                if cfg!(target_arch = "wasm32") {
+                    // the web: the mirror's files, or an author's link it can read
+                    !w.files.is_empty()
+                        || !self.direct_failed.contains(&key(&e.name, w.num))
+                            && w.links
+                                .first()
+                                .is_some_and(|l| crate::hosts::web_source(l).is_some())
+                } else {
+                    self.files_of(e, w).is_some()
+                }
+            })
         })
     }
 
@@ -380,17 +388,53 @@ impl Archives {
         })
     }
 
-    /// On the web: the browser downloads the mirror's files, to be added
-    /// with "Files / .zip" (the page cannot unpack into the library alone).
+    /// On the web: a work's author's link on a host that lets pages read it
+    /// (`hosts::web_source`) downloads into the library (zips: the web
+    /// build unpacks nothing else); the mirror's files (GitHub sends no
+    /// CORS headers) and other links open in the browser, the files to be
+    /// added with "Files / .zip".
     #[cfg(target_arch = "wasm32")]
-    pub fn download(&mut self, _root: &Path, ev: usize, num: u32) -> Result<String, String> {
-        let work = self
-            .events
-            .get(ev)
-            .and_then(|e| e.works.iter().find(|w| w.num == num))
+    pub fn download(&mut self, root: &Path, ev: usize, num: u32) -> Result<String, String> {
+        let event = self.events.get(ev).ok_or("no such event")?;
+        let work = event
+            .works
+            .iter()
+            .find(|w| w.num == num)
             .ok_or("no such work")?;
         if work.files.is_empty() {
-            return Err("not mirrored: download it from its page".into());
+            let link = work.links.first().cloned().unwrap_or_default();
+            let src = crate::hosts::web_source(&link).ok_or("open its page")?;
+            let k = key(&event.name, num);
+            if self.busy.contains(&k) {
+                return Err("already downloading".into());
+            }
+            self.busy.push(k.clone());
+            self.direct.insert(k);
+            let (name, title) = (event.name.clone(), work.title.clone());
+            let dir = PathBuf::from("bms").join(&name);
+            let stem = safe_name(&title);
+            let (tx, root) = (self.channel(), root.to_path_buf());
+            web_fetch(src, move |r| {
+                let r = match r {
+                    Ok(bytes) => match crate::hosts::sniff_bytes(&bytes) {
+                        Some("zip") => {
+                            match crate::platform::vfs::add_zip_at(
+                                &root.join(&dir),
+                                &format!("{stem}.zip"),
+                                bytes,
+                            ) {
+                                0 => Err(Fail::Msg("the zip holds nothing".into())),
+                                n => Ok((dir.join(&stem), n)),
+                            }
+                        }
+                        // rar / 7z, or a page
+                        _ => Err(Fail::Page(link)),
+                    },
+                    Err(e) => Err(Fail::Msg(e)),
+                };
+                let _ = tx.send(Msg::Done(name, num, r));
+            });
+            return Ok(format!("Downloading {title}…"));
         }
         let opened = work
             .files
@@ -511,6 +555,30 @@ fn safe_name(name: &str) -> String {
         "download".into()
     } else {
         s
+    }
+}
+
+/// The bytes of a web source (a MEGA file decrypted).
+#[cfg(target_arch = "wasm32")]
+fn web_fetch(src: crate::hosts::Web, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
+    use crate::hosts::{mega_answer, mega_request, MegaCipher, Web, MEGA_API};
+    match src {
+        Web::Url(u) => crate::platform::http_get(&u, done),
+        Web::Mega { handle, key } => crate::platform::http(
+            "POST",
+            MEGA_API,
+            &[("Content-Type".into(), "application/json".into())],
+            mega_request(&handle),
+            move |r| match r.and_then(|b| mega_answer(&b)) {
+                Ok(g) => crate::platform::http_get(&g, move |r| {
+                    done(r.map(|mut b| {
+                        MegaCipher::new(&key).apply(&mut b);
+                        b
+                    }))
+                }),
+                Err(e) => done(Err(e)),
+            },
+        ),
     }
 }
 

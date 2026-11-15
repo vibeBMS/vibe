@@ -47,6 +47,8 @@ json5 = "1"
 # song packs (.zip; the web build's picked packs, downloaded songs)
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
+# MEGA downloads are AES-128-CTR encrypted
+aes = "0.9"
 # download pages of charts a difficulty table lists but the library lacks
 webbrowser = "1"
 
@@ -71,8 +73,6 @@ ndk-context = "0.1"
 gtk = { version = "0.18", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# MEGA downloads are AES-128-CTR encrypted
-aes = "0.9"
 # downloaded songs packed as .7z
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["util", "bzip2", "ppmd"] }
 # downloaded songs packed as .rar (Apache-2.0 with the UnRAR license

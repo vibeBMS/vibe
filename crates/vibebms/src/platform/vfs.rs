@@ -302,6 +302,11 @@ mod imp {
     /// Unpack a zip (a song pack) under `<root>/bms/<zip name>/`; entry
     /// names in Shift_JIS / EUC-KR are decoded. Returns the files added.
     pub fn add_zip(root: &Path, name: &str, bytes: Vec<u8>) -> usize {
+        add_zip_at(&root.join("bms"), name, bytes)
+    }
+
+    /// Unpack a zip under `<dir>/<zip name>/`.
+    pub fn add_zip_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
         use std::io::Read;
         let mut z = match zip::ZipArchive::new(std::io::Cursor::new(bytes)) {
             Ok(z) => z,
@@ -314,7 +319,7 @@ mod imp {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "zip".into());
-        let base = root.join("bms").join(stem);
+        let base = dir.join(stem);
         let mut n = 0;
         // what a pack may unpack to (a zip can claim, or expand to, anything)
         let mut budget: u64 = 2 << 30;

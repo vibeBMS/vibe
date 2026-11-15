@@ -12,7 +12,6 @@ pub mod browser;
 pub mod browser;
 pub mod config;
 pub mod gfx;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod hosts;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod import;
