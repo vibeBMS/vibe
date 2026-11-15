@@ -393,11 +393,18 @@ impl Gfx {
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
     ) -> Result<Gfx, String> {
-        let instance = wgpu::util::new_instance_with_webgpu_detection(&wgpu::InstanceDescriptor {
+        let desc = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
-        })
-        .await;
+        };
+        let instance = if web_gl_only() {
+            wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::GL,
+                ..desc
+            })
+        } else {
+            wgpu::util::new_instance_with_webgpu_detection(&desc).await
+        };
         let surface = instance
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
@@ -890,6 +897,32 @@ pub fn load_rgba_bytes(bytes: &[u8], color_key_black: bool) -> Option<(u32, u32,
     }
     let (w, h) = rgba.dimensions();
     Some((w, h, rgba.into_raw()))
+}
+
+/// In a browser: draw with WebGL2 even where WebGPU is offered. Firefox's
+/// WebGPU stalls the page now and then (the picture and, as the page feeds
+/// the mixer, the sound), so Firefox uses WebGL2 unless the page's address
+/// says `?gpu=webgpu`; `?gpu=webgl` asks for WebGL2 anywhere.
+fn web_gl_only() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(w) = web_sys::window() else {
+            return false;
+        };
+        let search = w.location().search().unwrap_or_default();
+        if search.contains("gpu=webgpu") {
+            return false;
+        }
+        if search.contains("gpu=webgl") {
+            return true;
+        }
+        w.navigator()
+            .user_agent()
+            .map(|ua| ua.contains("Firefox/"))
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    false
 }
 
 fn choose_present_mode(
