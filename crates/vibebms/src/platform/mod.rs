@@ -116,7 +116,8 @@ pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send 
 }
 
 /// [`http_get`] that reports the bytes coming in to `progress` (a song's
-/// download on the web).
+/// download on the web), and ends when it is cancelled or no data comes for
+/// `bmseeker::hosts`' stall time (60 s).
 #[cfg(target_arch = "wasm32")]
 pub fn http_get_progress(
     url: &str,
@@ -126,49 +127,99 @@ pub fn http_get_progress(
     use ehttp::streaming::Part;
     use std::ops::ControlFlow;
     use std::sync::{Arc, Mutex};
-    // (the body so far, and `on_done` until it is called)
+    use wasm_bindgen::JsCast;
     type Done = Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>;
-    let state: Arc<Mutex<(Vec<u8>, Option<Done>)>> =
-        Arc::new(Mutex::new((Vec::new(), Some(Box::new(on_done)))));
-    let finish = move |st: &Arc<Mutex<(Vec<u8>, Option<Done>)>>, r: Result<(), String>| {
+    // (the body so far, `on_done` until it is called, when data last came)
+    struct St {
+        body: Vec<u8>,
+        done: Option<Done>,
+        last: f64,
+        watch: Option<i32>,
+    }
+    let now = || js_sys::Date::now();
+    let state = Arc::new(Mutex::new(St {
+        body: Vec::new(),
+        done: Some(Box::new(on_done)),
+        last: now(),
+        watch: None,
+    }));
+    let finish = |st: &Arc<Mutex<St>>, r: Result<(), String>| {
         let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
-        let body = std::mem::take(&mut g.0);
-        if let Some(f) = g.1.take() {
+        let body = std::mem::take(&mut g.body);
+        if let (Some(id), Some(w)) = (g.watch.take(), web_sys::window()) {
+            w.clear_interval_with_handle(id);
+        }
+        if let Some(f) = g.done.take() {
             drop(g);
             f(r.map(|_| body));
         }
     };
+    // a watch: cancelled, or nothing for a while
+    {
+        let (st, p) = (state.clone(), progress.clone());
+        let tick = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+            let stalled = {
+                let g = st.lock().unwrap_or_else(|e| e.into_inner());
+                now() - g.last > bmseeker::hosts::STALL_MS as f64
+            };
+            if p.as_ref().is_some_and(|p| p.cancelled()) {
+                finish(&st, Err(bmseeker::progress::CANCELLED.into()));
+            } else if stalled {
+                let s = bmseeker::hosts::STALL_MS / 1000;
+                finish(&st, Err(format!("no data for {s} s")));
+            }
+        });
+        if let Some(w) = web_sys::window() {
+            if let Ok(id) = w.set_interval_with_callback_and_timeout_and_arguments_0(
+                tick.as_ref().unchecked_ref(),
+                500,
+            ) {
+                state.lock().unwrap_or_else(|e| e.into_inner()).watch = Some(id);
+            }
+        }
+        // (cleared by `finish`; the closure stays for the page's life)
+        tick.forget();
+    }
     ehttp::streaming::fetch(
         ehttp::Request::get(url),
-        Box::new(move |part| match part {
-            Err(e) => {
-                finish(&state, Err(e));
-                ControlFlow::Break(())
+        Box::new(move |part| {
+            let over = state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .done
+                .is_none();
+            if over {
+                return ControlFlow::Break(());
             }
-            Ok(Part::Response(r)) if !r.ok => {
-                finish(&state, Err(format!("HTTP {} {}", r.status, r.url)));
-                ControlFlow::Break(())
-            }
-            Ok(Part::Response(r)) => {
-                if let Some(p) = &progress {
-                    p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
+            match part {
+                Err(e) => {
+                    finish(&state, Err(e));
+                    ControlFlow::Break(())
                 }
-                ControlFlow::Continue(())
-            }
-            Ok(Part::Chunk(c)) if c.is_empty() => {
-                finish(&state, Ok(()));
-                ControlFlow::Break(())
-            }
-            Ok(Part::Chunk(c)) => {
-                if let Some(p) = &progress {
-                    p.add(c.len() as u64);
+                Ok(Part::Response(r)) if !r.ok => {
+                    finish(&state, Err(format!("HTTP {} {}", r.status, r.url)));
+                    ControlFlow::Break(())
                 }
-                state
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .0
-                    .extend_from_slice(&c);
-                ControlFlow::Continue(())
+                Ok(Part::Response(r)) => {
+                    if let Some(p) = &progress {
+                        p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
+                    }
+                    state.lock().unwrap_or_else(|e| e.into_inner()).last = now();
+                    ControlFlow::Continue(())
+                }
+                Ok(Part::Chunk(c)) if c.is_empty() => {
+                    finish(&state, Ok(()));
+                    ControlFlow::Break(())
+                }
+                Ok(Part::Chunk(c)) => {
+                    if let Some(p) = &progress {
+                        p.add(c.len() as u64);
+                    }
+                    let mut g = state.lock().unwrap_or_else(|e| e.into_inner());
+                    g.body.extend_from_slice(&c);
+                    g.last = now();
+                    ControlFlow::Continue(())
+                }
             }
         }),
     );

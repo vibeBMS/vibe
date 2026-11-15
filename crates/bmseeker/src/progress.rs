@@ -4,7 +4,7 @@
 //! ([`scope`]), so the functions that download need no extra argument.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,7 +35,11 @@ pub struct Progress {
     got: AtomicU64,
     /// 0: not known
     total: AtomicU64,
+    cancelled: AtomicBool,
 }
+
+/// What a cancelled download fails with.
+pub const CANCELLED: &str = "cancelled";
 
 impl Progress {
     pub fn new() -> Arc<Progress> {
@@ -55,6 +59,15 @@ impl Progress {
         self.got.store(0, Ordering::Relaxed);
         self.total.store(total.unwrap_or(0), Ordering::Relaxed);
         self.set_stage(Stage::Downloading);
+    }
+
+    /// Ask the download to stop (it fails with [`CANCELLED`]).
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    pub fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
     }
 
     pub fn add(&self, n: u64) {

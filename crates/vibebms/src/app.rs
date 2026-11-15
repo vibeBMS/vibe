@@ -424,6 +424,8 @@ impl Ctx {
                         self.toast(format!("{title}: no direct download, opening its page"));
                         pages.push(url);
                     }
+                    // (cancelled: said when it was)
+                    Done::Failed(e) if e == bmseeker::progress::CANCELLED => {}
                     Done::Failed(e) => self.toast(format!("{title}: download failed ({e})")),
                 }
             }

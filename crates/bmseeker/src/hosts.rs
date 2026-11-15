@@ -968,70 +968,79 @@ fn read_full(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(n)
 }
 
-/// Stream `url` into `out`.
+/// How long a download may go without data before it is given up (ms).
+pub const STALL_MS: u64 = 60_000;
+
+#[cfg(not(target_arch = "wasm32"))]
+const STALL: std::time::Duration = std::time::Duration::from_millis(STALL_MS);
+
+/// Stream `url` into `out`. No limit on the whole (an archive from a slow
+/// host can take an hour), but it ends when no data comes for [`STALL`],
+/// or when the thread's progress is cancelled.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
+    use ehttp::streaming::Part;
     use std::ops::ControlFlow;
-    use std::sync::{Arc, Mutex};
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    use std::time::{Duration, Instant};
     let file = std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    // the file being written, then how the download ended
-    type State = (
-        Option<std::io::BufWriter<std::fs::File>>,
-        Option<Result<(), String>>,
-    );
-    let state: Arc<Mutex<State>> =
-        Arc::new(Mutex::new((Some(std::io::BufWriter::new(file)), None)));
-    let st = state.clone();
-    // (the thread's progress: the callback may run elsewhere)
+    let mut w = std::io::BufWriter::new(file);
     let progress = crate::progress::current();
     let mut req = ehttp::Request::get(url);
-    // no limit: ehttp's timeout is for the whole body, and a large archive
-    // from a slow host can take an hour
     req.timeout = None;
     // Dropbox answers a browser with its page instead of the file
     if !url.contains("dropbox") {
         req.headers.insert("User-Agent", UA);
     }
-    ehttp::streaming::fetch_streaming_blocking(
+    // the request on its own thread; its parts come here. Once this returns
+    // the channel is closed and it stops at its next part.
+    let (tx, rx) = channel::<Result<Part, String>>();
+    ehttp::streaming::fetch(
         req,
         Box::new(move |part| {
-            let mut g = st.lock().expect("download state");
-            match part {
-                Err(e) => {
-                    g.1 = Some(Err(e));
-                    ControlFlow::Break(())
-                }
-                Ok(ehttp::streaming::Part::Response(r)) if !r.ok => {
-                    g.1 = Some(Err(format!("HTTP {}", r.status)));
-                    ControlFlow::Break(())
-                }
-                Ok(ehttp::streaming::Part::Response(r)) => {
-                    if let Some(p) = &progress {
-                        let len = r.headers.get("content-length").and_then(|l| l.parse().ok());
-                        p.start_file(len);
-                    }
-                    ControlFlow::Continue(())
-                }
-                Ok(ehttp::streaming::Part::Chunk(c)) if c.is_empty() => {
-                    let r = g.0.take().map(|mut w| w.flush()).transpose();
-                    g.1 = Some(r.map(|_| ()).map_err(|e| e.to_string()));
-                    ControlFlow::Break(())
-                }
-                Ok(ehttp::streaming::Part::Chunk(c)) => {
-                    if let Some(p) = &progress {
-                        p.add(c.len() as u64);
-                    }
-                    if let Some(Err(e)) = g.0.as_mut().map(|w| w.write_all(&c)) {
-                        g.1 = Some(Err(e.to_string()));
-                        return ControlFlow::Break(());
-                    }
-                    ControlFlow::Continue(())
-                }
+            let end = match &part {
+                Err(_) => true,
+                Ok(Part::Chunk(c)) => c.is_empty(),
+                Ok(Part::Response(_)) => false,
+            };
+            if tx.send(part).is_err() || end {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
             }
         }),
     );
-    let r = state.lock().expect("download state").1.take();
-    r.unwrap_or_else(|| Err("the download ended early".into()))
+    let mut last = Instant::now();
+    loop {
+        if progress.as_ref().is_some_and(|p| p.cancelled()) {
+            return Err(crate::progress::CANCELLED.into());
+        }
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(Err(e)) => return Err(e),
+            Ok(Ok(Part::Response(r))) if !r.ok => return Err(format!("HTTP {}", r.status)),
+            Ok(Ok(Part::Response(r))) => {
+                if let Some(p) = &progress {
+                    p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
+                }
+                last = Instant::now();
+            }
+            Ok(Ok(Part::Chunk(c))) if c.is_empty() => {
+                return w.flush().map_err(|e| e.to_string());
+            }
+            Ok(Ok(Part::Chunk(c))) => {
+                if let Some(p) = &progress {
+                    p.add(c.len() as u64);
+                }
+                w.write_all(&c).map_err(|e| e.to_string())?;
+                last = Instant::now();
+            }
+            Err(RecvTimeoutError::Timeout) if last.elapsed() > STALL => {
+                return Err(format!("no data for {} s", STALL.as_secs()));
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return Err("the download ended early".into()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1335,5 +1344,36 @@ mod tests {
         assert_eq!(out.len(), 20);
         assert_eq!(&out[..4], &[0x66, 0xe9, 0x4b, 0xd4]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A server that sends a little and then nothing: cancelling ends it.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_stalled_download_cancels() {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut c, _) = l.accept().unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = c.read(&mut buf);
+            let _ = c.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\nPK");
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        });
+        let p = crate::progress::Progress::new();
+        let p2 = p.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            p2.cancel();
+        });
+        let out = std::env::temp_dir().join(format!("bmseeker-stall-{}", std::process::id()));
+        let t = std::time::Instant::now();
+        let r = crate::progress::scope(Some(p.clone()), || {
+            download_to(&format!("http://{addr}/a.zip"), &out)
+        });
+        assert_eq!(r, Err(crate::progress::CANCELLED.to_string()));
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(p.bytes(), (2, Some(1_000_000)));
+        let _ = std::fs::remove_file(out);
     }
 }

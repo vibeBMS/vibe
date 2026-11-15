@@ -43,6 +43,17 @@ impl SongFetch {
             .map(|(_, p)| p)
     }
 
+    /// Stop `title`'s download (true if it was downloading). Its outcome
+    /// still comes (a failure, cancelled), when it has stopped.
+    pub fn cancel(&mut self, title: &str) -> bool {
+        let Some(i) = self.busy.iter().position(|(t, _)| t == title) else {
+            return false;
+        };
+        let (_, p) = self.busy.remove(i);
+        p.cancel();
+        true
+    }
+
     /// The library has been read again: the songs added are in it.
     pub fn scanned(&mut self) {
         self.adding.clear();
@@ -190,6 +201,10 @@ fn web(
         return finish(done);
     }
     let title = want.title.clone();
+    if progress.cancelled() {
+        done.push(Done::Failed(bmseeker::progress::CANCELLED.into()));
+        return finish(done);
+    }
     let mut g = groups.remove(0);
     // its links tried: BMS SEARCH's next, else the end
     if g.links.is_empty() {

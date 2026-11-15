@@ -541,8 +541,13 @@ impl SelectScene {
                 ..
             }) => {
                 // straight from the links (as the event mirror's works)
+                // chosen again while it downloads: cancelled
+                if ctx.song_fetch.cancel(&title) {
+                    ctx.toast(format!("{title}: cancelled"));
+                    return Next::Stay;
+                }
                 if ctx.song_fetch.is_busy(&title) {
-                    ctx.toast(format!("{title}: already downloading"));
+                    ctx.toast(format!("{title}: being added to the library"));
                     return Next::Stay;
                 }
                 let root = ctx.paths.root.clone();
@@ -563,7 +568,7 @@ impl SelectScene {
                 let mut links = vec![(song, false), (ctx.links.links.chart_links(&e), true)];
                 links.extend(addons.into_iter().map(|a| (vec![a], true)));
                 if ctx.song_fetch.start(&root, &title, &artist, &md5, links) {
-                    ctx.toast(format!("Downloading {title}…"));
+                    ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
                     return Next::Stay;
                 }
                 // the song's page, then the separate chart's (the chart goes

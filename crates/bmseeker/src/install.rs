@@ -243,14 +243,21 @@ pub fn links(
     diff: bool,
     md5: Option<&str>,
 ) -> Vec<Done> {
+    let cancelled = || crate::progress::current().is_some_and(|p| p.cancelled());
     let mut tries = Tries::default();
     for l in links {
+        if cancelled() {
+            return vec![Done::Failed(crate::progress::CANCELLED.into())];
+        }
         if let Some(done) = tries.record(link(downloads, library, want, l, diff)) {
             return done;
         }
     }
-    if let Some(md5) = md5.filter(|_| !diff) {
+    if let Some(md5) = md5.filter(|_| !diff && !cancelled()) {
         for l in crate::bmssearch::lookup(md5, want) {
+            if cancelled() {
+                return vec![Done::Failed(crate::progress::CANCELLED.into())];
+            }
             if links.contains(&l) {
                 continue;
             }
