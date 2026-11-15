@@ -985,8 +985,9 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
     // (the thread's progress: the callback may run elsewhere)
     let progress = crate::progress::current();
     let mut req = ehttp::Request::get(url);
-    // (ehttp's 30 s is for the whole body: an archive takes longer)
-    req.timeout = Some(std::time::Duration::from_secs(30 * 60));
+    // no limit: ehttp's timeout is for the whole body, and a large archive
+    // from a slow host can take an hour
+    req.timeout = None;
     // Dropbox answers a browser with its page instead of the file
     if !url.contains("dropbox") {
         req.headers.insert("User-Agent", UA);
