@@ -545,9 +545,8 @@ impl PlayScene {
         let lead = Duration::from_millis(lead_ms.unwrap_or(1500) as u64);
         let now = Instant::now();
         self.start = now + lead;
-        self.base_frame = ctx.mixer.current_frame() as i64
-            + ctx.mixer.us_to_frames(lead.as_micros() as i64)
-            + ctx.mixer.buffer_frames as i64;
+        // the song starts when the frame heard at `self.start` plays
+        self.base_frame = ctx.mixer.frame_heard_in(lead.as_micros() as i64);
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
         self.skin_panel = self

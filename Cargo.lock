@@ -5700,8 +5700,11 @@ name = "vibebms-audio"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "js-sys",
  "log",
  "symphonia",
+ "wasm-bindgen",
+ "web-sys",
  "web-time",
 ]
 

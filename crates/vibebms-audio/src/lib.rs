@@ -7,6 +7,8 @@
 
 pub mod decode;
 pub mod mixer;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 pub use decode::{decode_bytes, decode_file, Sample, SoundBank};
 pub use mixer::{AudioConfig, Bus, Mixer, PlayOptions};

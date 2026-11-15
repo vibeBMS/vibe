@@ -89,13 +89,13 @@ enum Cmd {
     Master(f32),
 }
 
-struct State {
+pub(crate) struct State {
     rx: Receiver<Cmd>,
     voices: Vec<Voice>,
     frame: u64,
     bus: [f32; 3],
     master: f32,
-    mix: Vec<f32>,
+    pub(crate) mix: Vec<f32>,
     max_voices: usize,
     shared_frame: Arc<AtomicU64>,
 }
@@ -134,7 +134,7 @@ impl State {
     }
 
     /// Render `frames` stereo frames into `self.mix`.
-    fn render(&mut self, frames: usize) {
+    pub(crate) fn render(&mut self, frames: usize) {
         self.handle();
         if self.mix.len() < frames * 2 {
             self.mix.resize(frames * 2, 0.0);
@@ -183,7 +183,7 @@ impl State {
 }
 
 #[inline]
-fn soft_clip(x: f32) -> f32 {
+pub(crate) fn soft_clip(x: f32) -> f32 {
     // transparent below ~0.8, smooth limiting above
     if x.abs() <= 0.8 {
         x
@@ -204,6 +204,9 @@ pub struct Mixer {
     /// Null output (no device): frames advance with wall-clock time.
     null_start: Option<Instant>,
     null_state: Option<std::sync::Mutex<State>>,
+    /// The web build's output (its own clock of what is heard).
+    #[cfg(target_arch = "wasm32")]
+    web: Option<crate::web::WebOut>,
 }
 
 impl Mixer {
@@ -220,6 +223,27 @@ impl Mixer {
             max_voices: cfg.max_voices.max(16),
             shared_frame: frame.clone(),
         };
+        #[cfg(target_arch = "wasm32")]
+        let state = match crate::web::WebOut::open(state) {
+            Ok(w) => {
+                log::info!("audio: web worklet {} Hz", w.rate);
+                return Mixer {
+                    tx,
+                    frame,
+                    sample_rate: w.rate,
+                    buffer_frames: (w.rate / 100).max(256),
+                    device_name: "web".into(),
+                    _stream: None,
+                    null_start: None,
+                    null_state: None,
+                    web: Some(w),
+                };
+            }
+            Err((e, st)) => {
+                log::warn!("audio worklet unavailable ({e}); using cpal");
+                *st
+            }
+        };
         match open_stream(cfg, state) {
             Ok((stream, rate, buf, name)) => {
                 log::info!("audio: {name} {rate} Hz, buffer {buf} frames");
@@ -232,6 +256,8 @@ impl Mixer {
                     _stream: Some(stream),
                     null_start: None,
                     null_state: None,
+                    #[cfg(target_arch = "wasm32")]
+                    web: None,
                 }
             }
             Err((e, state)) => {
@@ -245,6 +271,8 @@ impl Mixer {
                     _stream: None,
                     null_start: Some(Instant::now()),
                     null_state: Some(std::sync::Mutex::new(*state)),
+                    #[cfg(target_arch = "wasm32")]
+                    web: None,
                 }
             }
         }
@@ -266,6 +294,17 @@ impl Mixer {
 
     pub fn us_to_frames(&self, us: i64) -> i64 {
         us * self.sample_rate as i64 / 1_000_000
+    }
+
+    /// The mixer frame that will be heard `us` from now (where to schedule a
+    /// sound to be heard then). The web output knows what is heard; else
+    /// the frames mixed are taken to be a buffer ahead of it.
+    pub fn frame_heard_in(&self, us: i64) -> i64 {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(f) = self.web.as_ref().and_then(|w| w.heard_frame()) {
+            return f as i64 + self.us_to_frames(us);
+        }
+        self.current_frame() as i64 + self.us_to_frames(us) + self.buffer_frames as i64
     }
 
     /// Output latency estimate in µs (one buffer).
@@ -304,6 +343,10 @@ impl Mixer {
     }
     /// Browsers start audio suspended until a user gesture; call on input.
     pub fn resume(&self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            w.resume();
+        }
         if let Some(s) = &self._stream {
             let _ = s.play();
         }
@@ -410,7 +453,7 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
     Ok((stream, rate, buf, name))
 }
 
-fn st_dummy() -> State {
+pub(crate) fn st_dummy() -> State {
     let (_tx, rx) = channel();
     State {
         rx,
