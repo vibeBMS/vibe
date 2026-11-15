@@ -89,13 +89,13 @@ enum Cmd {
     Master(f32),
 }
 
-pub(crate) struct State {
+struct State {
     rx: Receiver<Cmd>,
     voices: Vec<Voice>,
     frame: u64,
     bus: [f32; 3],
     master: f32,
-    pub(crate) mix: Vec<f32>,
+    mix: Vec<f32>,
     max_voices: usize,
     shared_frame: Arc<AtomicU64>,
 }
@@ -134,7 +134,7 @@ impl State {
     }
 
     /// Render `frames` stereo frames into `self.mix`.
-    pub(crate) fn render(&mut self, frames: usize) {
+    fn render(&mut self, frames: usize) {
         self.handle();
         if self.mix.len() < frames * 2 {
             self.mix.resize(frames * 2, 0.0);
@@ -183,7 +183,7 @@ impl State {
 }
 
 #[inline]
-pub(crate) fn soft_clip(x: f32) -> f32 {
+fn soft_clip(x: f32) -> f32 {
     // transparent below ~0.8, smooth limiting above
     if x.abs() <= 0.8 {
         x
@@ -223,15 +223,20 @@ impl Mixer {
             max_voices: cfg.max_voices.max(16),
             shared_frame: frame.clone(),
         };
+        // the web: the mixer in an AudioWorklet (cpal where there is none)
         #[cfg(target_arch = "wasm32")]
-        let state = match crate::web::WebOut::open(state) {
+        match crate::web::WebOut::open(cfg.max_voices.max(16)) {
             Ok(w) => {
                 log::info!("audio: web worklet {} Hz", w.rate);
+                w.set_bus_volume(Bus::Key, cfg.key_volume);
+                w.set_bus_volume(Bus::Bgm, cfg.bgm_volume);
+                w.set_bus_volume(Bus::System, cfg.system_volume);
+                w.set_master(cfg.master);
                 return Mixer {
                     tx,
                     frame,
                     sample_rate: w.rate,
-                    buffer_frames: (w.rate / 100).max(256),
+                    buffer_frames: 128,
                     device_name: "web".into(),
                     _stream: None,
                     null_start: None,
@@ -239,11 +244,8 @@ impl Mixer {
                     web: Some(w),
                 };
             }
-            Err((e, st)) => {
-                log::warn!("audio worklet unavailable ({e}); using cpal");
-                *st
-            }
-        };
+            Err(e) => log::warn!("audio worklet unavailable ({e}); using cpal"),
+        }
         match open_stream(cfg, state) {
             Ok((stream, rate, buf, name)) => {
                 log::info!("audio: {name} {rate} Hz, buffer {buf} frames");
@@ -280,6 +282,10 @@ impl Mixer {
 
     /// Frames rendered so far (the mixer clock).
     pub fn current_frame(&self) -> u64 {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.current_frame();
+        }
         if let (Some(start), Some(st)) = (self.null_start, &self.null_state) {
             let target = (start.elapsed().as_secs_f64() * self.sample_rate as f64) as u64;
             let mut s = st.lock().unwrap();
@@ -313,6 +319,10 @@ impl Mixer {
     }
 
     pub fn play(&self, sample: &Arc<Sample>, o: PlayOptions) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.play(sample, &o);
+        }
         let end = o.end.unwrap_or(sample.frames).min(sample.frames);
         let start = o.offset.min(end);
         let _ = self.tx.send(Cmd::Play(Voice {
@@ -330,15 +340,31 @@ impl Mixer {
     }
 
     pub fn set_volume(&self, key: u64, vol: f32) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.set_volume(key, vol);
+        }
         let _ = self.tx.send(Cmd::Volume(key, vol));
     }
     pub fn stop(&self, key: u64) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.stop(key);
+        }
         let _ = self.tx.send(Cmd::Stop(key));
     }
     pub fn stop_bus(&self, bus: Bus) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.stop_bus(bus);
+        }
         let _ = self.tx.send(Cmd::StopBus(bus));
     }
     pub fn set_bus_volume(&self, bus: Bus, v: f32) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.set_bus_volume(bus, v);
+        }
         let _ = self.tx.send(Cmd::BusVolume(bus, v));
     }
     /// Browsers start audio suspended until a user gesture; call on input.
@@ -353,6 +379,10 @@ impl Mixer {
     }
 
     pub fn set_master(&self, v: f32) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = &self.web {
+            return w.set_master(v);
+        }
         let _ = self.tx.send(Cmd::Master(v));
     }
 }
@@ -453,7 +483,7 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
     Ok((stream, rate, buf, name))
 }
 
-pub(crate) fn st_dummy() -> State {
+fn st_dummy() -> State {
     let (_tx, rx) = channel();
     State {
         rx,
