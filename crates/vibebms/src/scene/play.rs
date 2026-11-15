@@ -581,6 +581,18 @@ impl PlayScene {
         );
     }
 
+    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, auto: &[bool]) {
+        match ev {
+            EngineEvent::Sound { sound, lane } => {
+                if !auto.get(lane as usize).copied().unwrap_or(false) {
+                    self.play_sound(ctx, sound, None, Bus::Key);
+                }
+            }
+            EngineEvent::Volume { sound, volume } => ctx.mixer.set_volume(sound as u64 + 1, volume),
+            _ => {}
+        }
+    }
+
     fn schedule_audio(&mut self, ctx: &Ctx, t: i64) {
         let horizon = t + 200_000;
         while let Some(b) = self.chart.bgm.get(self.bgm_i) {
@@ -958,13 +970,8 @@ impl Scene for PlayScene {
         }
         for ev in events {
             match ev {
-                EngineEvent::Sound { sound, lane } => {
-                    if !auto.get(lane as usize).copied().unwrap_or(false) {
-                        self.play_sound(ctx, sound, None, Bus::Key);
-                    }
-                }
-                EngineEvent::Volume { sound, volume } => {
-                    ctx.mixer.set_volume(sound as u64 + 1, volume)
+                EngineEvent::Sound { .. } | EngineEvent::Volume { .. } => {
+                    self.sound_event(ctx, ev, &auto)
                 }
                 EngineEvent::Judge {
                     lane,
@@ -1140,12 +1147,31 @@ impl Scene for PlayScene {
             }
             _ => {}
         }
+        let mut fed = false;
         for e in lane_evs {
             if !matches!(self.stage, Stage::Loading) && self.control(ctx, &e) {
                 continue;
             }
             if matches!(self.stage, Stage::Playing) {
                 self.feed(e, offset);
+                fed = true;
+            }
+        }
+        if fed {
+            // judge now and start the keys' sounds without waiting for the
+            // next frame; the rest of the events wait for it
+            let t = self.chart_us(Instant::now());
+            let (sounds, auto) = match self.engine.as_mut() {
+                Some(e) => {
+                    e.update(t - offset);
+                    let auto: Vec<bool> =
+                        (0..self.mode.lane_count()).map(|l| e.is_auto(l)).collect();
+                    (e.take_sounds(), auto)
+                }
+                None => (Vec::new(), Vec::new()),
+            };
+            for ev in sounds {
+                self.sound_event(ctx, ev, &auto);
             }
         }
         Next::Stay

@@ -309,6 +309,17 @@ impl Engine {
         self.events.drain(..)
     }
 
+    /// Takes the sound events (`Sound`, `Volume`) out, in order, leaving
+    /// the others for `drain_events`: a key's sound can start as soon as
+    /// its input is judged, before the next frame.
+    pub fn take_sounds(&mut self) -> Vec<EngineEvent> {
+        let (sounds, rest) = std::mem::take(&mut self.events)
+            .into_iter()
+            .partition(|e| matches!(e, EngineEvent::Sound { .. } | EngineEvent::Volume { .. }));
+        self.events = rest;
+        sounds
+    }
+
     /// Advance the engine to chart time `now` (µs).
     pub fn update(&mut self, now: i64) {
         if self.prev_time == i64::MIN / 4 {
