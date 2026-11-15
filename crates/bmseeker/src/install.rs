@@ -125,6 +125,7 @@ pub fn link(
         return vec![Done::Failed(e.to_string())];
     }
     let file = if chart_link(link) {
+        crate::progress::stage(crate::progress::Stage::Finding);
         let file = downloads.join(chart_name(link));
         if let Err(e) = crate::hosts::download_to(link, &file) {
             return vec![Done::Failed(e)];
@@ -155,6 +156,7 @@ pub fn link(
             }
         }
     };
+    crate::progress::stage(crate::progress::Stage::Unpacking);
     if diff && !chart_link(link) {
         let dir = downloads.join(format!(".diff-{}", safe_name(title)));
         let name = import::file_name(&file);

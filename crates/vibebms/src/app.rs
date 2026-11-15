@@ -155,6 +155,8 @@ pub struct Ctx {
     pub mixer: Mixer,
     pub scan: Option<Arc<ScanProgress>>,
     pub table_rx: Option<Receiver<TableMsg>>,
+    /// Scan again once the running scan ends (files came in during it).
+    scan_again: bool,
     pub toasts: Vec<(String, Instant)>,
     pub touch_seen: bool,
     pub width: f32,
@@ -262,6 +264,8 @@ impl Ctx {
             .map(|s| !s.done.load(Ordering::Acquire))
             .unwrap_or(false)
         {
+            // it may have passed what just came in: again after it
+            self.scan_again = true;
             return;
         }
         let progress = Arc::new(ScanProgress::default());
@@ -447,6 +451,12 @@ impl Ctx {
                 }
                 let n = self.songs.len();
                 self.toast(format!("Library: {n} charts"));
+                if std::mem::take(&mut self.scan_again) {
+                    self.start_scan();
+                } else {
+                    // what was downloaded before it started is in now
+                    self.song_fetch.scanned();
+                }
             }
         }
         if self.links.poll() {
@@ -863,6 +873,7 @@ impl App {
             mixer,
             scan: None,
             table_rx: None,
+            scan_again: false,
             toasts: Vec::new(),
             touch_seen: false,
             width: size.width as f32,

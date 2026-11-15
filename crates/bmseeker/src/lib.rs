@@ -26,6 +26,7 @@ pub mod import;
 pub mod install;
 pub mod links;
 pub mod placement;
+pub mod progress;
 pub mod table;
 pub mod unpack;
 

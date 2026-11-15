@@ -880,6 +880,7 @@ pub fn fetch(link: &str, out: &Path) -> Result<(), Fetch> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn fetch_for(link: &str, want: Option<Want>, out: &Path) -> Result<(), Fetch> {
     let (mut r, mut step) = Resolver::find(link, want);
+    crate::progress::stage(crate::progress::Stage::Finding);
     loop {
         step = match step {
             Step::Get(url) => {
@@ -981,6 +982,8 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
     let state: Arc<Mutex<State>> =
         Arc::new(Mutex::new((Some(std::io::BufWriter::new(file)), None)));
     let st = state.clone();
+    // (the thread's progress: the callback may run elsewhere)
+    let progress = crate::progress::current();
     let mut req = ehttp::Request::get(url);
     // Dropbox answers a browser with its page instead of the file
     if !url.contains("dropbox") {
@@ -999,13 +1002,22 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
                     g.1 = Some(Err(format!("HTTP {}", r.status)));
                     ControlFlow::Break(())
                 }
-                Ok(ehttp::streaming::Part::Response(_)) => ControlFlow::Continue(()),
+                Ok(ehttp::streaming::Part::Response(r)) => {
+                    if let Some(p) = &progress {
+                        let len = r.headers.get("content-length").and_then(|l| l.parse().ok());
+                        p.start_file(len);
+                    }
+                    ControlFlow::Continue(())
+                }
                 Ok(ehttp::streaming::Part::Chunk(c)) if c.is_empty() => {
                     let r = g.0.take().map(|mut w| w.flush()).transpose();
                     g.1 = Some(r.map(|_| ()).map_err(|e| e.to_string()));
                     ControlFlow::Break(())
                 }
                 Ok(ehttp::streaming::Part::Chunk(c)) => {
+                    if let Some(p) = &progress {
+                        p.add(c.len() as u64);
+                    }
                     if let Some(Err(e)) = g.0.as_mut().map(|w| w.write_all(&c)) {
                         g.1 = Some(Err(e.to_string()));
                         return ControlFlow::Break(());

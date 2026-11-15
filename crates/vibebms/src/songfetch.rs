@@ -3,10 +3,12 @@
 //! web through the vibeBMS proxy, unpacked / placed in memory. A link that
 //! leads to a page instead opens it in the browser.
 
+use bmseeker::progress::{Progress, Stage};
 use std::path::Path;
 #[cfg(target_arch = "wasm32")]
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
 pub use bmseeker::install::Done;
 #[cfg(target_arch = "wasm32")]
@@ -16,7 +18,10 @@ use bmseeker::install::{chart_link, chart_name, place_charts};
 pub struct SongFetch {
     tx: Option<Sender<(String, Vec<Done>)>>,
     rx: Option<Receiver<(String, Vec<Done>)>>,
-    busy: Vec<String>,
+    /// The songs downloading, and how far each has got.
+    busy: Vec<(String, Arc<Progress>)>,
+    /// Songs in the library, until the library has been read again.
+    adding: Vec<(String, Arc<Progress>)>,
 }
 
 fn is_link(u: &str) -> bool {
@@ -24,8 +29,23 @@ fn is_link(u: &str) -> bool {
 }
 
 impl SongFetch {
+    /// Downloading, or in the library but not read yet.
     pub fn is_busy(&self, title: &str) -> bool {
-        self.busy.iter().any(|t| t == title)
+        self.progress(title).is_some()
+    }
+
+    /// How far `title`'s download has got (while [`Self::is_busy`]).
+    pub fn progress(&self, title: &str) -> Option<&Arc<Progress>> {
+        self.busy
+            .iter()
+            .chain(&self.adding)
+            .find(|(t, _)| t == title)
+            .map(|(_, p)| p)
+    }
+
+    /// The library has been read again: the songs added are in it.
+    pub fn scanned(&mut self) {
+        self.adding.clear();
     }
 
     /// Download `title` from `links`: the song's, then its separate
@@ -55,7 +75,8 @@ impl SongFetch {
             self.rx = Some(rx);
         }
         let tx = self.tx.clone().expect("channel");
-        self.busy.push(title.to_string());
+        let progress = Progress::new();
+        self.busy.push((title.to_string(), progress.clone()));
         let want = crate::hosts::Want {
             title: title.to_string(),
             artist: artist.to_string(),
@@ -63,19 +84,22 @@ impl SongFetch {
         let (root, title) = (root.to_path_buf(), title.to_string());
         #[cfg(not(target_arch = "wasm32"))]
         crate::platform::spawn("song", move || {
-            let done: Vec<Done> = links
-                .iter()
-                .flat_map(|(ls, diff)| {
-                    bmseeker::install::links(
-                        &root.join("downloads"),
-                        &root.join("bms"),
-                        &want,
-                        ls,
-                        *diff,
-                        md5.as_deref(),
-                    )
-                })
-                .collect();
+            progress.set_stage(Stage::Finding);
+            let done: Vec<Done> = bmseeker::progress::scope(Some(progress), || {
+                links
+                    .iter()
+                    .flat_map(|(ls, diff)| {
+                        bmseeker::install::links(
+                            &root.join("downloads"),
+                            &root.join("bms"),
+                            &want,
+                            ls,
+                            *diff,
+                            md5.as_deref(),
+                        )
+                    })
+                    .collect()
+            });
             let _ = tx.send((title, done));
         });
         #[cfg(target_arch = "wasm32")]
@@ -90,7 +114,7 @@ impl SongFetch {
                     md5: md5.clone().filter(|_| !diff),
                 })
                 .collect();
-            web(root, want, groups, Vec::new(), move |done| {
+            web(root, want, progress, groups, Vec::new(), move |done| {
                 let _ = tx.send((title, done));
             });
         }
@@ -105,8 +129,15 @@ impl SongFetch {
             .as_ref()
             .map(|rx| rx.try_iter().collect())
             .unwrap_or_default();
-        for (t, _) in &done {
-            self.busy.retain(|b| b != t);
+        for (t, d) in &done {
+            if let Some(i) = self.busy.iter().position(|(b, _)| b == t) {
+                let (title, p) = self.busy.remove(i);
+                // in the library: until it is read again
+                if bmseeker::install::got(d) {
+                    p.set_stage(Stage::Adding);
+                    self.adding.push((title, p));
+                }
+            }
         }
         done
     }
@@ -147,6 +178,7 @@ fn lookup(
 fn web(
     root: PathBuf,
     want: crate::hosts::Want,
+    progress: Arc<Progress>,
     mut groups: Vec<Group>,
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
@@ -164,15 +196,16 @@ fn web(
         match g.md5.take() {
             Some(md5) => {
                 let (l, step) = bmseeker::bmssearch::Lookup::new(&md5, &want);
+                progress.set_stage(Stage::Finding);
                 lookup(l, step, move |found| {
                     g.links = found.into_iter().filter(|l| !g.tried.contains(l)).collect();
                     groups.insert(0, g);
-                    web(root, want, groups, done, finish)
+                    web(root, want, progress, groups, done, finish)
                 });
             }
             None => {
                 done.extend(g.tries.end());
-                web(root, want, groups, done, finish)
+                web(root, want, progress, groups, done, finish)
             }
         }
         return;
@@ -190,7 +223,9 @@ fn web(
     };
     if chart_link(&link) {
         let name = chart_name(&link);
-        crate::platform::http_get(&via_proxy(&link), move |r| {
+        progress.set_stage(Stage::Finding);
+        let p = Some(progress.clone());
+        crate::platform::http_get_progress(&via_proxy(&link), p, move |r| {
             let got = match r {
                 Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
                     let at = root.join("downloads").join(&name);
@@ -208,12 +243,13 @@ fn web(
                 _ => Done::Page(link),
             };
             let (groups, done) = next(vec![got], groups, done);
-            web(root, want, groups, done, finish)
+            web(root, want, progress, groups, done, finish)
         });
         return;
     }
     let (r, step) = crate::hosts::Resolver::find(&link, (!diff).then(|| want.clone()));
-    web_step(r, step, link, move |r| {
+    web_step(r, step, link, Some(progress.clone()), move |r| {
+        progress.set_stage(Stage::Unpacking);
         let got = match r {
             // a separate chart's archive: its charts into their songs' folders
             Ok(bytes) if diff => {
@@ -235,6 +271,6 @@ fn web(
             Err(Fail::Msg(e)) => vec![Done::Failed(e)],
         };
         let (groups, done) = next(got, groups, done);
-        web(root, want, groups, done, finish)
+        web(root, want, progress, groups, done, finish)
     });
 }

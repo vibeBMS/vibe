@@ -537,7 +537,7 @@ fn web_fetch_files(
     if !mirrored {
         // an author's link: the host's way to its archive
         let (r, step) = crate::hosts::Resolver::new(&link);
-        web_step(r, step, link, next);
+        web_step(r, step, link, None, next);
     } else {
         // a mirror file; the proxy down, the browser downloads it itself
         let url = link;
@@ -549,19 +549,24 @@ fn web_fetch_files(
     }
 }
 
-/// Make a resolver's requests through the proxy until its archive arrives.
+/// Make a resolver's requests through the proxy until its archive arrives
+/// (reporting to `progress`, if any).
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn web_step(
     mut r: crate::hosts::Resolver,
     step: crate::hosts::Step,
     link: String,
+    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
 ) {
     use crate::hosts::{Fetch, MegaCipher, Step};
+    if let (Some(p), Step::Get(_) | Step::Post(..)) = (&progress, &step) {
+        p.set_stage(bmseeker::progress::Stage::Finding);
+    }
     match step {
         Step::Get(u) => crate::platform::http_get(&crate::hosts::via_proxy(&u), move |a| {
             let s = r.feed(a);
-            web_step(r, s, link, done)
+            web_step(r, s, link, progress, done)
         }),
         Step::Post(u, body) => crate::platform::http(
             "POST",
@@ -570,11 +575,12 @@ pub(crate) fn web_step(
             body,
             move |a| {
                 let s = r.feed(a);
-                web_step(r, s, link, done)
+                web_step(r, s, link, progress, done)
             },
         ),
         Step::File { url, mega_key } => {
-            crate::platform::http_get(&crate::hosts::via_proxy(&url), move |a| {
+            let via = crate::hosts::via_proxy(&url);
+            crate::platform::http_get_progress(&via, progress, move |a| {
                 done(match a {
                     Ok(mut b) => {
                         if let Some(k) = mega_key {

@@ -11,6 +11,7 @@ use super::select::{Bar, Node, SelectScene};
 use super::skinned::{ms_since, rank_index};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode};
+use crate::gfx::text::Align;
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
@@ -438,6 +439,44 @@ pub struct SelectHooks<'a> {
     pub clicks: Vec<(Rect, i32, i32)>,
 }
 
+/// A download's progress over its song's bar `r`: a strip along its bottom
+/// (filled by the share in, or a moving segment while that is not known)
+/// and a line saying where it is ("12.3 / 40.0 MB", "Unpacking…").
+fn download_progress(d: &mut Draw, r: Rect, p: &bmseeker::progress::Progress, now: i64) {
+    use bmseeker::progress::Stage;
+    let h = (r.h * 0.14).clamp(3.0, 8.0);
+    let strip = Rect::new(r.x, r.bottom() - h, r.w, h);
+    d.b.rect(strip, [0.0, 0.0, 0.0, 0.55]);
+    let fill = [0.35, 0.75, 1.0, 0.95];
+    match (p.stage(), p.fraction()) {
+        (Stage::Downloading, Some(f)) => d.b.rect(Rect::new(r.x, strip.y, r.w * f, h), fill),
+        (Stage::Adding, _) => d.b.rect(strip, [0.45, 0.85, 0.5, 0.95]),
+        // not known: a segment going across
+        _ => {
+            let w = r.w * 0.25;
+            let t = (now.rem_euclid(1600) as f32) / 1600.0;
+            let x = r.x - w + (r.w + w) * t;
+            let (a, b) = (x.max(r.x), (x + w).min(r.right()));
+            if b > a {
+                d.b.rect(Rect::new(a, strip.y, b - a, h), fill);
+            }
+        }
+    }
+    let size = (r.h * 0.32).clamp(10.0, 18.0);
+    // (left of the level number at the bar's right end)
+    let (x, y) = (r.right() - r.h * 1.9, strip.y - size * 1.2);
+    let label = p.label();
+    d.text(
+        &label,
+        x + 1.0,
+        y + 1.0,
+        size,
+        [0.0, 0.0, 0.0, 0.8],
+        Align::Right,
+    );
+    d.text(&label, x, y, size, [0.92, 0.96, 1.0, 1.0], Align::Right);
+}
+
 fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
     let l = |x: f32, y: f32| x + (y - x) * t;
     Rect::new(l(a.x, b.x), l(a.y, b.y), l(a.w, b.w), l(a.h, b.h))
@@ -575,6 +614,12 @@ impl Hooks for SelectHooks<'_> {
             if let Some(Some((src, dst))) = info.lamp.and_then(|c| sl.lamp.get(c as usize)) {
                 if let Some((lr, f)) = sub(dst) {
                     skin.blit(d, src, now, st, lr, &f);
+                }
+            }
+            // a table song downloading: how far it has got, over its bar
+            if let Some(Bar::Missing { title, .. }) = s.bars.get(idx) {
+                if let Some(p) = self.st.ctx.song_fetch.progress(title) {
+                    download_progress(d, sr, p, now);
                 }
             }
         }

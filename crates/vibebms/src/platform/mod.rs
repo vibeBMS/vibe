@@ -115,6 +115,65 @@ pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send 
     http("GET", url, &[], Vec::new(), on_done)
 }
 
+/// [`http_get`] that reports the bytes coming in to `progress` (a song's
+/// download on the web).
+#[cfg(target_arch = "wasm32")]
+pub fn http_get_progress(
+    url: &str,
+    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
+    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+) {
+    use ehttp::streaming::Part;
+    use std::ops::ControlFlow;
+    use std::sync::{Arc, Mutex};
+    // (the body so far, and `on_done` until it is called)
+    type Done = Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>;
+    let state: Arc<Mutex<(Vec<u8>, Option<Done>)>> =
+        Arc::new(Mutex::new((Vec::new(), Some(Box::new(on_done)))));
+    let finish = move |st: &Arc<Mutex<(Vec<u8>, Option<Done>)>>, r: Result<(), String>| {
+        let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
+        let body = std::mem::take(&mut g.0);
+        if let Some(f) = g.1.take() {
+            drop(g);
+            f(r.map(|_| body));
+        }
+    };
+    ehttp::streaming::fetch(
+        ehttp::Request::get(url),
+        Box::new(move |part| match part {
+            Err(e) => {
+                finish(&state, Err(e));
+                ControlFlow::Break(())
+            }
+            Ok(Part::Response(r)) if !r.ok => {
+                finish(&state, Err(format!("HTTP {} {}", r.status, r.url)));
+                ControlFlow::Break(())
+            }
+            Ok(Part::Response(r)) => {
+                if let Some(p) = &progress {
+                    p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
+                }
+                ControlFlow::Continue(())
+            }
+            Ok(Part::Chunk(c)) if c.is_empty() => {
+                finish(&state, Ok(()));
+                ControlFlow::Break(())
+            }
+            Ok(Part::Chunk(c)) => {
+                if let Some(p) = &progress {
+                    p.add(c.len() as u64);
+                }
+                state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0
+                    .extend_from_slice(&c);
+                ControlFlow::Continue(())
+            }
+        }),
+    );
+}
+
 /// Send a request built by an IR client.
 pub fn ir_send(
     req: vibebms_ir::HttpRequest,
