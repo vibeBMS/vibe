@@ -299,72 +299,45 @@ mod imp {
         });
     }
 
-    /// Unpack a zip (a song pack) under `<root>/bms/<zip name>/`; entry
-    /// names in Shift_JIS / EUC-KR are decoded. Returns the files added.
+    /// Unpack an archive (a song pack: .zip, .7z, .rar) under
+    /// `<root>/bms/<archive name>/`. Returns the files added.
     pub fn add_zip(root: &Path, name: &str, bytes: Vec<u8>) -> usize {
-        add_zip_at(&root.join("bms"), name, bytes)
+        add_archive_at(&root.join("bms"), name, bytes)
     }
 
-    /// Unpack a zip under `<dir>/<zip name>/`.
-    pub fn add_zip_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
-        use std::io::Read;
-        let mut z = match zip::ZipArchive::new(std::io::Cursor::new(bytes)) {
-            Ok(z) => z,
-            Err(e) => {
-                log::warn!("{name}: {e}");
-                return 0;
-            }
-        };
+    /// Unpack an archive under `<dir>/<archive name>/` (zip entry names in
+    /// Shift_JIS / EUC-KR decoded).
+    pub fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
         let stem = Path::new(name)
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "zip".into());
+            .unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
-        let mut n = 0;
-        // what a pack may unpack to (a zip can claim, or expand to, anything)
-        let mut budget: u64 = 2 << 30;
+        match crate::unpack::unpack_bytes(bytes, |rel, data| put_bytes(&base.join(rel), data)) {
+            Ok(n) => n,
+            Err(e) => {
+                log::warn!("{name}: {e}");
+                0
+            }
+        }
+    }
+
+    /// A file held in memory only (song files: not saved with the
+    /// settings, as `write` does).
+    pub fn put_bytes(p: &Path, data: Vec<u8>) {
         FS.with(|fs| {
             let mut fs = fs.borrow_mut();
-            for i in 0..z.len() {
-                let Ok(mut f) = z.by_index(i) else { continue };
-                if f.is_dir() {
-                    continue;
-                }
-                let entry = crate::platform::vfs::decode_name(f.name_raw());
-                // no way out of the pack's folder
-                let rel: PathBuf = entry
-                    .split(['/', '\\'])
-                    .filter(|c| !c.is_empty() && *c != "." && *c != "..")
-                    .collect();
-                if rel.as_os_str().is_empty() {
-                    continue;
-                }
-                let mut buf = Vec::with_capacity(f.size().min(budget) as usize);
-                if (&mut f).take(budget + 1).read_to_end(&mut buf).is_err() {
-                    continue;
-                }
-                if buf.len() as u64 > budget {
-                    log::warn!(
-                        "{name}: larger than {} MB unpacked; stopped",
-                        (2u64 << 30) >> 20
-                    );
-                    break;
-                }
-                budget -= buf.len() as u64;
-                let size = buf.len() as i64;
-                fs.files.insert(
-                    base.join(rel),
-                    Node {
-                        data: Data::Bytes(Rc::new(buf)),
-                        size,
-                        mtime: 0,
-                    },
-                );
-                n += 1;
-            }
+            let size = data.len() as i64;
+            fs.files.insert(
+                p.to_path_buf(),
+                Node {
+                    data: Data::Bytes(Rc::new(data)),
+                    size,
+                    mtime: 0,
+                },
+            );
             fs.added = true;
         });
-        n
     }
 
     /// Read the given lazily-mounted files into memory.

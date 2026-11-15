@@ -16,7 +16,7 @@ thread_local! {
 
 /// Hook up the pickers of `web/index.html`:
 /// `<input id="bms-input" webkitdirectory>` (a folder) and
-/// `<input id="bms-files" multiple>` (files and `.zip` song packs; iPad
+/// `<input id="bms-files" multiple>` (files and .zip / .7z / .rar song packs; iPad
 /// Safari cannot pick folders).
 pub fn install_file_input(root: PathBuf) {
     ROOT.with(|r| *r.borrow_mut() = Some(root.clone()));
@@ -39,7 +39,8 @@ pub fn install_file_input(root: PathBuf) {
                 crate::platform::vfs::add_files(&root, &files, "picked");
                 for i in 0..files.length() {
                     if let Some(f) = files.get(i) {
-                        if f.name().to_lowercase().ends_with(".zip") {
+                        let name = f.name().to_lowercase();
+                        if [".zip", ".7z", ".rar"].iter().any(|e| name.ends_with(e)) {
                             mount_zip_file(f);
                         }
                     }
@@ -51,7 +52,7 @@ pub fn install_file_input(root: PathBuf) {
     }
 }
 
-/// Read a picked zip and unpack it.
+/// Read a picked song pack (.zip / .7z / .rar) and unpack it.
 fn mount_zip_file(f: web_sys::File) {
     wasm_bindgen_futures::spawn_local(async move {
         let name = f.name();
@@ -65,8 +66,9 @@ fn mount_zip_file(f: web_sys::File) {
     });
 }
 
-/// Unpack a song pack zip into the library (the page's demo button calls
-/// this with a downloaded zip). Returns the number of files added.
+/// Unpack a song pack (.zip / .7z / .rar) into the library (the page's demo
+/// button calls this with a downloaded zip). Returns the number of files
+/// added.
 #[wasm_bindgen(js_name = mountZip)]
 pub fn mount_zip(name: &str, data: &[u8]) -> usize {
     let Some(root) = ROOT.with(|r| r.borrow().clone()) else {

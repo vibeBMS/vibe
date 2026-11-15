@@ -45,3 +45,8 @@ opt-level = 2
 inherits = "release"
 strip = false
 lto = "thin"
+
+# unrar-rs with one function made to build for the web (wasm32 has no libc
+# mktime): see third_party/unrar-rs/VIBEBMS.md
+[patch.crates-io]
+unrar-rs = { path = "third_party/unrar-rs" }

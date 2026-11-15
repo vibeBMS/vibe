@@ -389,8 +389,7 @@ impl Archives {
     }
 
     /// On the web: a work's author's link on a host that lets pages read it
-    /// (`hosts::web_source`) downloads into the library (zips: the web
-    /// build unpacks nothing else); the mirror's files (GitHub sends no
+    /// (`hosts::web_source`) downloads into the library; the mirror's files (GitHub sends no
     /// CORS headers) and other links open in the browser, the files to be
     /// added with "Files / .zip".
     #[cfg(target_arch = "wasm32")]
@@ -417,18 +416,18 @@ impl Archives {
             web_fetch(src, move |r| {
                 let r = match r {
                     Ok(bytes) => match crate::hosts::sniff_bytes(&bytes) {
-                        Some("zip") => {
-                            match crate::platform::vfs::add_zip_at(
+                        Some(ext) => {
+                            match crate::platform::vfs::add_archive_at(
                                 &root.join(&dir),
-                                &format!("{stem}.zip"),
+                                &format!("{stem}.{ext}"),
                                 bytes,
                             ) {
-                                0 => Err(Fail::Msg("the zip holds nothing".into())),
+                                0 => Err(Fail::Msg("the archive holds nothing".into())),
                                 n => Ok((dir.join(&stem), n)),
                             }
                         }
-                        // rar / 7z, or a page
-                        _ => Err(Fail::Page(link)),
+                        // a page
+                        None => Err(Fail::Page(link)),
                     },
                     Err(e) => Err(Fail::Msg(e)),
                 };
