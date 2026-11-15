@@ -899,27 +899,14 @@ pub fn load_rgba_bytes(bytes: &[u8], color_key_black: bool) -> Option<(u32, u32,
     Some((w, h, rgba.into_raw()))
 }
 
-/// In a browser: draw with WebGL2 even where WebGPU is offered. Firefox's
-/// WebGPU stalls the page now and then (the picture and, as the page feeds
-/// the mixer, the sound), so Firefox uses WebGL2 unless the page's address
-/// says `?gpu=webgpu`; `?gpu=webgl` asks for WebGL2 anywhere.
+/// In a browser: draw with WebGL2 even where WebGPU is offered, when the
+/// page's address says `?gpu=webgl` (to compare the two).
 fn web_gl_only() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
-        let Some(w) = web_sys::window() else {
-            return false;
-        };
-        let search = w.location().search().unwrap_or_default();
-        if search.contains("gpu=webgpu") {
-            return false;
-        }
-        if search.contains("gpu=webgl") {
-            return true;
-        }
-        w.navigator()
-            .user_agent()
-            .map(|ua| ua.contains("Firefox/"))
-            .unwrap_or(false)
+        web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .is_some_and(|q| q.contains("gpu=webgl"))
     }
     #[cfg(not(target_arch = "wasm32"))]
     false
