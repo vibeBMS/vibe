@@ -101,6 +101,14 @@ pub fn start(tx: Sender<Msg>, ctx: eframe::egui::Context) -> Sender<Job> {
                     let mut done = Vec::new();
                     let md5 = lookup.then_some(entry.md5.as_str());
                     for (links, diff) in [(song, false), (chart, true)] {
+                        // the song brought the chart: no separate chart to get
+                        let has = |d: &[Done]| {
+                            bmseeker::install::added(d)
+                                .any(|dir| bmseeker::install::holds_chart(&Disk, dir, &entry.md5))
+                        };
+                        if diff && has(&done) {
+                            break;
+                        }
                         if !links.is_empty() || (!diff && md5.is_some()) {
                             done.extend(bmseeker::install::links(
                                 &downloads, &library, &want, &links, diff, md5,

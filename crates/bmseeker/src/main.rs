@@ -190,13 +190,29 @@ mod cli {
                         // the table's links, then the others known for the chart
                         // (and BMS SEARCH's for the song, unless --own-links)
                         let md5 = (!a.has("--own-links")).then_some(e.md5.as_str());
+                        let mut song = Vec::new();
                         for (ls, diff) in
                             [(links.song_links(e), false), (links.chart_links(e), true)]
                         {
+                            // the song brought the chart: no separate chart to get
+                            let has = install::added(&song)
+                                .any(|dir| install::holds_chart(&Disk, dir, &e.md5));
+                            if diff && has {
+                                break;
+                            }
                             if !ls.is_empty() || (!diff && md5.is_some()) {
                                 let downloads = library.join(DOWNLOADS);
                                 let done =
                                     install::links(&downloads, &library, &want, &ls, diff, md5);
+                                if !diff {
+                                    song = done
+                                        .iter()
+                                        .filter_map(|d| match d {
+                                            Done::Added(p, n) => Some(Done::Added(p.clone(), *n)),
+                                            _ => None,
+                                        })
+                                        .collect();
+                                }
                                 report(&e.title, done);
                             }
                         }

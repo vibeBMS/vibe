@@ -24,6 +24,14 @@ pub struct SongFetch {
     adding: Vec<(String, Arc<Progress>)>,
 }
 
+/// Whether a song just added (`done`) holds the chart `md5`.
+fn has_chart(done: &[Done], md5: Option<&str>) -> bool {
+    md5.is_some_and(|m| {
+        bmseeker::install::added(done)
+            .any(|dir| bmseeker::install::holds_chart(&crate::placement::Vfs, dir, m))
+    })
+}
+
 fn is_link(u: &str) -> bool {
     u.starts_with("https://") || u.starts_with("http://")
 }
@@ -97,19 +105,22 @@ impl SongFetch {
         crate::platform::spawn("song", move || {
             progress.set_stage(Stage::Finding);
             let done: Vec<Done> = bmseeker::progress::scope(Some(progress), || {
-                links
-                    .iter()
-                    .flat_map(|(ls, diff)| {
-                        bmseeker::install::links(
-                            &root.join("downloads"),
-                            &root.join("bms"),
-                            &want,
-                            ls,
-                            *diff,
-                            md5.as_deref(),
-                        )
-                    })
-                    .collect()
+                let mut done = Vec::new();
+                for (ls, diff) in &links {
+                    // the song brought the chart: no separate chart to get
+                    if *diff && has_chart(&done, md5.as_deref()) {
+                        break;
+                    }
+                    done.extend(bmseeker::install::links(
+                        &root.join("downloads"),
+                        &root.join("bms"),
+                        &want,
+                        ls,
+                        *diff,
+                        md5.as_deref(),
+                    ));
+                }
+                done
             });
             let _ = tx.send((title, done));
         });
@@ -123,6 +134,7 @@ impl SongFetch {
                     tries: Default::default(),
                     tried: Vec::new(),
                     md5: md5.clone().filter(|_| !diff),
+                    chart: md5.clone().filter(|_| diff),
                 })
                 .collect();
             web(root, want, progress, groups, Vec::new(), move |done| {
@@ -164,6 +176,8 @@ struct Group {
     tries: bmseeker::install::Tries,
     tried: Vec<String>,
     md5: Option<String>,
+    /// A separate chart's: its MD5 (not needed when the song holds it).
+    chart: Option<String>,
 }
 
 /// BMS SEARCH's links (its API sends CORS headers: no proxy).
@@ -206,6 +220,10 @@ fn web(
         return finish(done);
     }
     let mut g = groups.remove(0);
+    // the song brought the chart: no separate chart to get
+    if g.diff && g.tried.is_empty() && has_chart(&done, g.chart.as_deref()) {
+        return web(root, want, progress, groups, done, finish);
+    }
     // its links tried: BMS SEARCH's next, else the end
     if g.links.is_empty() {
         match g.md5.take() {

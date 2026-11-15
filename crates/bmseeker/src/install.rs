@@ -187,6 +187,39 @@ pub fn link(
     out
 }
 
+/// Whether the folder `dir` (a song just added) holds the chart `md5`
+/// already: its separate chart's links need no trying then (a table may
+/// give the song's page as one).
+pub fn holds_chart(fs: &dyn Fs, dir: &Path, md5: &str) -> bool {
+    let md5 = md5.trim().to_ascii_lowercase();
+    if md5.len() != 32 {
+        return false;
+    }
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for e in fs.read_dir(&d).unwrap_or_default() {
+            if e.is_dir {
+                todo.push(e.path);
+            } else if crate::placement::is_chart(&e.path)
+                && fs
+                    .read(&e.path)
+                    .is_ok_and(|b| vibebms_core::bms::md5_hex(&b) == md5)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The folders a song's outcome added.
+pub fn added(done: &[Done]) -> impl Iterator<Item = &Path> {
+    done.iter().filter_map(|d| match d {
+        Done::Added(dir, _) => Some(dir.as_path()),
+        _ => None,
+    })
+}
+
 /// Whether a link's outcome brought the song (or its chart) in.
 pub fn got(done: &[Done]) -> bool {
     done.iter()
