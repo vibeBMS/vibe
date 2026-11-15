@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/vibebms-core",
-    "crates/vibebms-tables",
+    "crates/bmseeker",
     "crates/vibebms-ir",
     "crates/vibebms-audio",
     "crates/vibebms",
@@ -20,7 +20,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 vibebms-core = { path = "crates/vibebms-core" }
-vibebms-tables = { path = "crates/vibebms-tables" }
+bmseeker = { path = "crates/bmseeker" }
 vibebms-ir = { path = "crates/vibebms-ir" }
 vibebms-audio = { path = "crates/vibebms-audio" }
 serde = { version = "1", features = ["derive"] }

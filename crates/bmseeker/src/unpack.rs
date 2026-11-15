@@ -1,5 +1,5 @@
-//! Unpacking an archive held in memory (.zip, .7z, .rar), for the web build,
-//! whose downloads never touch a disk: each member is handed over as a
+//! Unpacking an archive held in memory (.zip, .7z, .rar), for a library
+//! that is not on a disk (the vibeBMS web build's): each member is handed over as a
 //! relative path (made safe) and its bytes.
 
 use std::io::{Cursor, Read};
@@ -47,7 +47,7 @@ pub fn unpack_bytes(
                     continue;
                 }
                 // names in Shift_JIS / EUC-KR as BMS packs often have
-                let name = crate::platform::vfs::decode_name(e.name_raw());
+                let name = crate::decode_name(e.name_raw());
                 let Some(rel) = safe_rel(&name) else { continue };
                 take(rel, &mut e, &mut budget)?;
                 n += 1;

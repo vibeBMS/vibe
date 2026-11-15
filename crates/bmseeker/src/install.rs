@@ -1,0 +1,231 @@
+//! A difficulty table's song from its links into the library: the song's
+//! archive (through [`hosts`](crate::hosts)) is unpacked there, its separate
+//! chart (差分) goes into the song's folder ([`placement`](crate::placement)).
+//! A link that leads to a page instead is [`Done::Page`], for a browser.
+
+use crate::fs::Fs;
+use std::path::{Path, PathBuf};
+
+/// What became of one link.
+#[derive(Debug)]
+pub enum Done {
+    /// Unpacked into this folder (files written).
+    Added(PathBuf, usize),
+    /// A chart put into its song's folder.
+    Placed(PathBuf),
+    /// A chart whose song is not in the library yet.
+    Waiting(PathBuf),
+    /// A page to open in a browser.
+    Page(String),
+    Failed(String),
+}
+
+/// A link to a chart file of its own (`….bms` and the like).
+pub fn chart_link(u: &str) -> bool {
+    let path = u.split(['?', '#']).next().unwrap_or("");
+    crate::placement::is_chart(Path::new(path))
+}
+
+/// The chart's file name in its link.
+pub fn chart_name(u: &str) -> String {
+    let path = u.split(['?', '#']).next().unwrap_or("");
+    let name = path.rsplit('/').next().unwrap_or("chart.bms");
+    safe_name(&percent_decode(name))
+}
+
+/// `name` as one file name (no path, nothing a file system refuses).
+pub fn safe_name(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let s = s.trim().trim_matches('.').to_string();
+    if s.is_empty() {
+        "download".into()
+    } else {
+        s
+    }
+}
+
+/// `%28` and the like in a URL's file name.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The charts in a separate chart's unpacked archive `dir` into their
+/// songs' folders, each with the files beside it there (extra sounds, a
+/// BGA) unless the song has them already.
+pub fn place_charts(fs: &dyn Fs, dir: &Path, library: &Path) -> Vec<Done> {
+    let mut out = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        let entries = fs.read_dir(&d).unwrap_or_default();
+        todo.extend(entries.iter().filter(|e| e.is_dir).map(|e| e.path.clone()));
+        let files: Vec<&PathBuf> = entries
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| &e.path)
+            .collect();
+        let mut song_dir = None;
+        for chart in files.iter().filter(|p| crate::placement::is_chart(p)) {
+            match crate::placement::locate(fs, chart, library) {
+                Some(crate::placement::Located::Move(to)) => {
+                    let at = to.join(chart.file_name().unwrap_or_default());
+                    if fs.rename(chart, &at) {
+                        out.push(Done::Placed(at));
+                        song_dir = Some(to);
+                    }
+                }
+                _ => out.push(Done::Waiting((*chart).clone())),
+            }
+        }
+        if let Some(to) = song_dir {
+            for f in files.iter().filter(|p| !crate::placement::is_chart(p)) {
+                let _ = fs.rename(f, &to.join(f.file_name().unwrap_or_default()));
+            }
+        }
+    }
+    out
+}
+
+/// One of a song's links (`diff`: its separate chart's) on a disk: into
+/// `downloads`, then into `library` (an archive unpacked, a chart into its
+/// song's folder; a separate chart's archive into its song's folder too).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn link(
+    downloads: &Path,
+    library: &Path,
+    want: &crate::hosts::Want,
+    link: &str,
+    diff: bool,
+) -> Vec<Done> {
+    use crate::fs::Disk;
+    use crate::import::{self, Imported};
+    let title = want.title.as_str();
+    if let Err(e) = std::fs::create_dir_all(downloads) {
+        return vec![Done::Failed(e.to_string())];
+    }
+    let file = if chart_link(link) {
+        let file = downloads.join(chart_name(link));
+        if let Err(e) = crate::hosts::download_to(link, &file) {
+            return vec![Done::Failed(e)];
+        }
+        // a page where a chart was expected
+        if std::fs::read(&file).is_ok_and(|b| b.trim_ascii_start().starts_with(b"<")) {
+            let _ = std::fs::remove_file(&file);
+            return vec![Done::Page(link.to_string())];
+        }
+        file
+    } else {
+        let tmp = downloads.join(format!(".song-{}", safe_name(title)));
+        // the song's own link may be a pack of many songs: its archive
+        let want = (!diff).then(|| want.clone());
+        match crate::hosts::fetch_for(link, want, &tmp) {
+            Ok(()) => {
+                let ext = crate::hosts::sniff(&tmp).unwrap_or("zip");
+                let file = downloads.join(format!("{}.{ext}", safe_name(title)));
+                if std::fs::rename(&tmp, &file).is_err() {
+                    return vec![Done::Failed("could not keep the download".into())];
+                }
+                file
+            }
+            Err(crate::hosts::Fetch::Page) => return vec![Done::Page(link.to_string())],
+            Err(crate::hosts::Fetch::Failed(e)) => {
+                let _ = std::fs::remove_file(&tmp);
+                return vec![Done::Failed(e)];
+            }
+        }
+    };
+    if diff && !chart_link(link) {
+        let dir = downloads.join(format!(".diff-{}", safe_name(title)));
+        let name = import::file_name(&file);
+        let r = import::unpack_into(&file, &name, &dir);
+        let _ = std::fs::remove_file(&file);
+        let out = match r {
+            Ok(_) => place_charts(&Disk, &dir, library),
+            Err(e) => vec![Done::Failed(e)],
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        return out;
+    }
+    let mut out = vec![match import::import(&Disk, &file, library) {
+        Ok(Imported::Unpacked(dir, n)) => Done::Added(dir, n),
+        Ok(Imported::Placed(p)) => Done::Placed(p),
+        Ok(Imported::Waiting(p)) | Ok(Imported::Ask(p, _)) => Done::Waiting(p),
+        Ok(Imported::Other(p)) => Done::Failed(format!("{} is not a song", p.display())),
+        Err(e) => Done::Failed(e),
+    }];
+    // charts that waited for this song
+    if matches!(out[0], Done::Added(..)) {
+        out.extend(
+            import::place_waiting(&Disk, downloads, library)
+                .into_iter()
+                .map(Done::Placed),
+        );
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `BMSEEKER_SONG=URL BMSEEKER_DIFF=URL [BMSEEKER_TITLE=… BMSEEKER_ARTIST=…]
+    /// cargo test -p bmseeker song_links -- --ignored`
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "network"]
+    fn song_links() {
+        let root = std::env::temp_dir().join("bmseeker-install");
+        let _ = std::fs::remove_dir_all(&root);
+        let want = crate::hosts::Want {
+            title: std::env::var("BMSEEKER_TITLE").unwrap_or("Test Song".into()),
+            artist: std::env::var("BMSEEKER_ARTIST").unwrap_or_default(),
+        };
+        for var in ["BMSEEKER_SONG", "BMSEEKER_DIFF"] {
+            if let Ok(l) = std::env::var(var) {
+                let done = link(
+                    &root.join("downloads"),
+                    &root.join("bms"),
+                    &want,
+                    &l,
+                    var == "BMSEEKER_DIFF",
+                );
+                println!("{var}: {done:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn chart_links() {
+        assert!(chart_link("http://x.org/up/song_7A.bme"));
+        assert!(chart_link("https://x.org/a/b.bms?dl=1"));
+        assert!(!chart_link("https://x.org/a/song.zip"));
+        assert!(!chart_link("https://drive.google.com/file/d/X/view"));
+        assert_eq!(
+            chart_name("https://x.org/a/b%20c%28M%29.bms?dl=1"),
+            "b c(M).bms"
+        );
+        assert_eq!(percent_decode("a%2"), "a%2");
+        assert_eq!(safe_name("a/b: c?"), "a_b_ c_");
+    }
+}

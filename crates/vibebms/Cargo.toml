@@ -26,7 +26,7 @@ jack = ["vibebms-audio/jack"]
 [dependencies]
 encoding_rs.workspace = true
 vibebms-core.workspace = true
-vibebms-tables.workspace = true
+bmseeker.workspace = true
 vibebms-ir.workspace = true
 vibebms-audio.workspace = true
 serde.workspace = true
@@ -44,16 +44,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 ehttp = { version = "0.7", features = ["streaming"] }
 toml = "0.8"
 json5 = "1"
-# song packs (.zip; the web build's picked packs, downloaded songs)
-zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
-# MEGA downloads are AES-128-CTR encrypted
-aes = "0.9"
-# downloaded songs packed as .7z
-sevenz-rust2 = { version = "0.25", default-features = false, features = ["bzip2", "ppmd"] }
-# downloaded songs packed as .rar (Apache-2.0 with the UnRAR license
-# restriction: see README)
-unrar-rs = { version = "0.16", default-features = false, features = ["crypto-rust"] }
 # download pages of charts a difficulty table lists but the library lacks
 webbrowser = "1"
 

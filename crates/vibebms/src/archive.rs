@@ -476,25 +476,7 @@ impl Archives {
     }
 }
 
-/// `name` made safe as a single file name.
-pub(crate) fn safe_name(name: &str) -> String {
-    let s: String = name
-        .chars()
-        .map(|c| {
-            if "/\\:*?\"<>|".contains(c) || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() {
-        "download".into()
-    } else {
-        s
-    }
-}
+pub(crate) use bmseeker::install::safe_name;
 
 /// The folder a work unpacks into: its main archive's name.
 fn work_stem(files: &[File]) -> String {

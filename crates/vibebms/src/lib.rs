@@ -26,7 +26,6 @@ pub mod songfetch;
 pub mod theme;
 pub mod touch;
 pub mod ui;
-pub mod unpack;
 pub mod video;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

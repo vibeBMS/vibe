@@ -653,7 +653,7 @@ impl Default for Config {
             touch: TouchConfig::default(),
             display: DisplayConfig::default(),
             audio: AudioSettings::default(),
-            tables: vibebms_tables::DEFAULT_TABLES
+            tables: bmseeker::table::DEFAULT_TABLES
                 .iter()
                 .map(|(n, u)| TableConfig {
                     name: n.to_string(),
@@ -715,7 +715,7 @@ fn migrate(v: &mut toml::Value) {
             let Some(url) = t.get_mut("url") else {
                 continue;
             };
-            if let Some((_, new)) = vibebms_tables::MOVED
+            if let Some((_, new)) = bmseeker::table::MOVED
                 .iter()
                 .find(|(old, _)| url.as_str() == Some(*old))
             {
@@ -792,7 +792,7 @@ mod tests {
         .unwrap();
         migrate(&mut v);
         let c: Config = v.try_into().unwrap();
-        assert_eq!(c.tables[0].url, vibebms_tables::INSANE);
+        assert_eq!(c.tables[0].url, bmseeker::table::INSANE);
     }
 
     #[test]

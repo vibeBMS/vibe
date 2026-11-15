@@ -406,6 +406,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bmseeker"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "ehttp",
+ "encoding_rs",
+ "log",
+ "md-5",
+ "serde",
+ "serde_json",
+ "sevenz-rust2",
+ "sha2 0.10.9",
+ "unrar-rs",
+ "url",
+ "vibebms-core",
+ "web-time",
+ "zip",
+]
+
+[[package]]
 name = "bstr"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4940,7 +4960,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vibebms"
 version = "0.1.0"
 dependencies = [
- "aes",
+ "bmseeker",
  "bytemuck",
  "chrono",
  "ehttp",
@@ -4963,13 +4983,10 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
- "sevenz-rust2",
  "toml",
- "unrar-rs",
  "vibebms-audio",
  "vibebms-core",
  "vibebms-ir",
- "vibebms-tables",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -4978,7 +4995,6 @@ dependencies = [
  "wgpu",
  "winit",
  "wry",
- "zip",
 ]
 
 [[package]]
@@ -5020,19 +5036,6 @@ dependencies = [
  "serde",
  "serde_json",
  "vibebms-core",
- "web-time",
-]
-
-[[package]]
-name = "vibebms-tables"
-version = "0.1.0"
-dependencies = [
- "ehttp",
- "encoding_rs",
- "log",
- "serde",
- "serde_json",
- "url",
  "web-time",
 ]
 

@@ -923,7 +923,7 @@ impl SettingsScene {
             Act::RefreshTables => ctx.refresh_tables(true),
             Act::ResetKeys => ctx.config.keys = KeyConfig::default(),
             Act::RestoreDefaultTables => {
-                for (n, u) in vibebms_tables::DEFAULT_TABLES {
+                for (n, u) in bmseeker::table::DEFAULT_TABLES {
                     if !ctx.config.tables.iter().any(|t| t.url == *u) {
                         ctx.config.tables.push(TableConfig {
                             name: n.to_string(),

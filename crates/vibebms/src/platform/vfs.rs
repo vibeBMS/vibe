@@ -313,7 +313,7 @@ mod imp {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
-        match crate::unpack::unpack_bytes(bytes, |rel, data| put_bytes(&base.join(rel), data)) {
+        match bmseeker::unpack::unpack_bytes(bytes, |rel, data| put_bytes(&base.join(rel), data)) {
             Ok(n) => n,
             Err(e) => {
                 log::warn!("{name}: {e}");
