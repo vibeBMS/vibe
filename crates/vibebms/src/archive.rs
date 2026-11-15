@@ -388,10 +388,10 @@ impl Archives {
         })
     }
 
-    /// On the web: a work's author's link on a host that lets pages read it
-    /// (`hosts::web_source`) downloads into the library; the mirror's files (GitHub sends no
-    /// CORS headers) and other links open in the browser, the files to be
-    /// added with "Files / .zip".
+    /// On the web: the mirror's files (through the CORS proxy) and a
+    /// work's author's link on a host that lets pages read it
+    /// (`hosts::web_source`) download into the library; other links open
+    /// in the browser.
     #[cfg(target_arch = "wasm32")]
     pub fn download(&mut self, root: &Path, ev: usize, num: u32) -> Result<String, String> {
         let event = self.events.get(ev).ok_or("no such event")?;
@@ -435,17 +435,34 @@ impl Archives {
             });
             return Ok(format!("Downloading {title}…"));
         }
-        let opened = work
-            .files
-            .iter()
-            .filter(|f| crate::platform::open_url(&f.url))
-            .count();
-        if opened == 0 {
-            return Err("the browser blocked the download".into());
+        // the mirror's files, through the CORS proxy
+        let k = key(&event.name, num);
+        if self.busy.contains(&k) {
+            return Err("already downloading".into());
         }
+        self.busy.push(k);
+        let files = work.files.clone();
+        let size: u64 = files.iter().map(|f| f.size).sum();
+        let main = files.first().map(|f| {
+            if f.original.is_empty() {
+                f.name.clone()
+            } else {
+                f.original.clone()
+            }
+        });
+        let stem = Path::new(&safe_name(&main.unwrap_or_default()))
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "work".into());
+        let dir = root.join("bms").join(&event.name);
+        let rel = PathBuf::from("bms").join(&event.name).join(&stem);
+        let (name, title, tx) = (event.name.clone(), work.title.clone(), self.channel());
+        web_fetch_files(files, 0, 0, dir, stem, move |r| {
+            let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
+        });
         Ok(format!(
-            "Downloading {}: add it with Files / .zip when it is saved",
-            work.title
+            "Downloading {title} ({} MB)…",
+            (size + (1 << 19)) >> 20
         ))
     }
 
@@ -555,6 +572,65 @@ fn safe_name(name: &str) -> String {
     } else {
         s
     }
+}
+
+/// The proxy that serves the mirror's release files to web pages (GitHub's
+/// release downloads carry no CORS headers): vibeBMS/bms `proxy/worker.js`.
+#[cfg(target_arch = "wasm32")]
+const WEB_PROXY: &str = "https://mirror.vibebms.workers.dev/";
+
+/// A mirror file's URL as the web build reads it.
+#[cfg(target_arch = "wasm32")]
+fn proxied(url: &str) -> String {
+    const RELEASES: &str = "https://github.com/vibeBMS/BMS/releases/download/";
+    match url.strip_prefix(RELEASES) {
+        Some(rest) => format!("{WEB_PROXY}{rest}"),
+        None => url.to_string(),
+    }
+}
+
+/// Download and unpack a work's files one after another into
+/// `<dir>/<stem>/` (add-ons too); `done` gets the number of files.
+#[cfg(target_arch = "wasm32")]
+fn web_fetch_files(
+    files: Vec<File>,
+    i: usize,
+    n: usize,
+    dir: PathBuf,
+    stem: String,
+    done: impl FnOnce(Result<usize, Fail>) + Send + 'static,
+) {
+    let Some(f) = files.get(i).cloned() else {
+        return done(if n > 0 {
+            Ok(n)
+        } else {
+            Err(Fail::Msg("the archives hold nothing".into()))
+        });
+    };
+    crate::platform::http_get(&proxied(&f.url), move |r| match r {
+        // the proxy down: the browser downloads the file itself
+        Err(_) if i == 0 => done(Err(Fail::Page(f.url.clone()))),
+        Err(e) => done(Err(Fail::Msg(e))),
+        Ok(bytes) => {
+            let got = match crate::hosts::sniff_bytes(&bytes) {
+                // into the main archive's folder
+                Some(ext) => {
+                    crate::platform::vfs::add_archive_at(&dir, &format!("{stem}.{ext}"), bytes)
+                }
+                // a file on its own (a BGA movie)
+                None => {
+                    let name = if f.original.is_empty() {
+                        &f.name
+                    } else {
+                        &f.original
+                    };
+                    crate::platform::vfs::put_bytes(&dir.join(&stem).join(safe_name(name)), bytes);
+                    1
+                }
+            };
+            web_fetch_files(files, i + 1, n + got, dir, stem, done)
+        }
+    });
 }
 
 /// The bytes of a web source (a MEGA file decrypted).

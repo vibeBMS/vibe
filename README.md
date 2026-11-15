@@ -83,7 +83,8 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
   나머지는 작가의 링크에서 앱이 바로 받아 풉니다(Google Drive 파일·폴더, Dropbox 파일·폴더, MediaFire, MEGA, 압축 파일을 그대로 주는 서버).
   OneDrive·업로더처럼 페이지에서 눌러야 하는 곳이거나 압축 파일 대신 페이지가 오면 그 페이지를 엽니다
   (웹 버전은 다른 페이지의 읽기를 허용하는(CORS) Dropbox 파일·MEGA만 바로 받아 풀고(zip·7z·rar), 나머지는 페이지를 엽니다.
-  Google Drive와 GitHub 릴리스(미러)는 브라우저의 교차 출처 요청을 막습니다)
+  Google Drive는 브라우저의 교차 출처 요청을 막습니다. 미러 파일은 CORS가 없는 GitHub 릴리스 대신 `mirror.vibebms.workers.dev`
+  프록시(vibeBMS/bms `proxy/worker.js`)를 거쳐 받습니다)
   (설정의 `archives`에 다른 이벤트 목록이나 색인을 추가할 수 있음).
 - **IR**: JSON 프로토콜([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md))로 랭킹 조회와 점수 전송.
 - **오디오**: 저지연 출력(ASIO/JACK 기능 플래그), 샘플 단위 키음 스케줄링, WAV/OGG/MP3/FLAC.
