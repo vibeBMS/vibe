@@ -133,9 +133,9 @@ pub fn place_picked_charts(root: &Path) -> Vec<String> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match placement::locate(&path, &bms) {
+        match placement::locate_loose(&path, &bms) {
             Some(Located::Move(dir)) => {
-                if vfs::rename(&path, &dir.join(&name)) {
+                if placement::bring(&path, &dir).is_some() {
                     out.push(format!(
                         "{name} → {}",
                         dir.file_name().unwrap_or_default().to_string_lossy()
@@ -235,8 +235,7 @@ fn show_next_dialog() {
         let shade2 = shade.clone();
         let cb = Closure::<dyn FnMut()>::new(move || {
             if let Some(dir) = &dir {
-                let to = dir.join(chart.file_name().unwrap_or_default());
-                if vfs::rename(&chart, &to) {
+                if crate::placement::bring(&chart, dir).is_some() {
                     vfs::mark_added();
                 }
             }

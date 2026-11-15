@@ -394,7 +394,7 @@ impl Downloads {
                 dialog = dialog.set_directory(d);
             }
             if let Some(dir) = dialog.pick_folder() {
-                if crate::platform::vfs::rename(&chart, &dir.join(&name)) {
+                if crate::placement::bring(&chart, &dir).is_some() {
                     ctx.toast(format!("{name} → {}", import::file_name(&dir)));
                     rescan = true;
                 }

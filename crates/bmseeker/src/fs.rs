@@ -16,6 +16,10 @@ pub trait Fs: Sync {
     fn read_dir(&self, p: &Path) -> io::Result<Vec<Entry>>;
     /// Move a file; false when `to` exists or the move fails.
     fn rename(&self, from: &Path, to: &Path) -> bool;
+    /// A file's (modification time in seconds, size); None: no such file.
+    fn stamp(&self, p: &Path) -> Option<(i64, u64)>;
+    /// Delete a file; false when it could not be.
+    fn remove(&self, p: &Path) -> bool;
 }
 
 /// `std::fs`.
@@ -42,5 +46,19 @@ impl Fs for Disk {
 
     fn rename(&self, from: &Path, to: &Path) -> bool {
         !to.exists() && std::fs::rename(from, to).is_ok()
+    }
+
+    fn stamp(&self, p: &Path) -> Option<(i64, u64)> {
+        let m = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
+        let t = m
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs() as i64);
+        Some((t, m.len()))
+    }
+
+    fn remove(&self, p: &Path) -> bool {
+        std::fs::remove_file(p).is_ok()
     }
 }

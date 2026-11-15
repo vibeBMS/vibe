@@ -189,23 +189,52 @@ pub fn import(fs: &dyn Fs, file: &Path, library: &Path) -> Result<Imported, Stri
             _ => unrar(file, &dest)?,
         };
         let _ = std::fs::remove_file(file);
+        let n = n + unpack_nested(&dest)?;
         return Ok(Imported::Unpacked(dest, n));
     }
     if !placement::is_chart(file) {
         return Ok(Imported::Other(file.to_path_buf()));
     }
-    Ok(match placement::locate(fs, file, library) {
-        Some(Located::Move(dir)) => {
-            let to = dir.join(file.file_name().unwrap_or_default());
-            if fs.rename(file, &to) {
-                Imported::Placed(to)
-            } else {
-                Imported::Waiting(file.to_path_buf())
-            }
-        }
+    Ok(match placement::locate_loose(fs, file, library) {
+        Some(Located::Move(dir)) => match placement::bring(fs, file, &dir) {
+            Some(to) => Imported::Placed(to),
+            None => Imported::Waiting(file.to_path_buf()),
+        },
         Some(Located::Ask(c)) => Imported::Ask(file.to_path_buf(), c),
         _ => Imported::Waiting(file.to_path_buf()),
     })
+}
+
+/// Archives inside an unpacked archive that holds no chart of its own (a
+/// shared folder downloaded as a zip of the song's archives): each unpacked
+/// into a folder of its name beside it, then removed. Returns the number of
+/// files written.
+fn unpack_nested(dest: &Path) -> Result<usize, String> {
+    let mut archives = Vec::new();
+    let mut todo = vec![dest.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                todo.push(p);
+            } else if placement::is_chart(&p) {
+                return Ok(0);
+            } else if matches!(ext(&p).as_str(), "zip" | "7z" | "rar") {
+                archives.push(p);
+            }
+        }
+    }
+    let mut n = 0;
+    for a in archives {
+        let stem = a
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "download".into());
+        let into = a.with_file_name(stem);
+        n += unpack_into(&a, &file_name(&a), &into)?;
+        let _ = std::fs::remove_file(&a);
+    }
+    Ok(n)
 }
 
 /// Put `file` (published as `name`) into folder `dest`: an archive is
@@ -238,11 +267,8 @@ pub fn place_waiting(fs: &dyn Fs, downloads: &Path, library: &Path) -> Vec<PathB
         .unwrap_or_default()
         .into_iter()
         .filter(|e| !e.is_dir && placement::is_chart(&e.path))
-        .filter_map(|e| match placement::locate(fs, &e.path, library) {
-            Some(Located::Move(dir)) => {
-                let to = dir.join(e.path.file_name().unwrap_or_default());
-                fs.rename(&e.path, &to).then_some(to)
-            }
+        .filter_map(|e| match placement::locate_loose(fs, &e.path, library) {
+            Some(Located::Move(dir)) => placement::bring(fs, &e.path, &dir),
             _ => None,
         })
         .collect()
@@ -301,6 +327,40 @@ mod tests {
             place_waiting(&Disk, &downloads, &library),
             vec![dest.join("Song/song_insane.bme")]
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unpacks_archives_in_an_archive() {
+        let root = tmp("nested");
+        let library = root.join("bms");
+        std::fs::create_dir_all(&library).unwrap();
+        let zip = |entries: &[(&str, &[u8])]| {
+            let mut out = std::io::Cursor::new(Vec::new());
+            let mut z = zip::ZipWriter::new(&mut out);
+            for (name, data) in entries {
+                z.start_file(*name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                z.write_all(data).unwrap();
+            }
+            z.finish().unwrap();
+            out.into_inner()
+        };
+        // a shared folder as a zip: the song's archive and a readme
+        let inner = zip(&[("Song/song.bms", CHART.as_bytes()), ("Song/01.ogg", b"ogg")]);
+        let pack = root.join("Folder.zip");
+        std::fs::write(
+            &pack,
+            zip(&[("Song_ogg.zip", &inner), ("readme.txt", b"hi")]),
+        )
+        .unwrap();
+        let dest = library.join("Folder");
+        assert_eq!(
+            import(&Disk, &pack, &library).unwrap(),
+            Imported::Unpacked(dest.clone(), 4)
+        );
+        assert!(dest.join("Song_ogg/Song/song.bms").is_file());
+        assert!(!dest.join("Song_ogg.zip").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

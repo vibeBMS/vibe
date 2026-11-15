@@ -1,13 +1,15 @@
 //! Where a chart file added on its own belongs (a 差分 chart picked or
-//! downloaded without its song's folder). A chart goes to a song folder only
-//! when that folder holds every sound the chart uses *and* one of its
-//! charts has the same title and artist: numbered sound names (`01.wav`,
-//! `02.wav`, ...) are common, so the file names alone prove nothing. When
-//! that leaves no single folder the user is asked.
+//! downloaded without its song's folder), as BeMusicSeeker estimates an
+//! install destination. A folder is a candidate when, with the files the
+//! chart came with, it holds the sounds the chart uses ([`Rules`]: 99% of
+//! them); the chart goes there without asking only when one of its charts
+//! is the same song (title and artist): numbered sound names (`01.wav`,
+//! `02.wav`, ...) are common, so the file names alone prove nothing. Else
+//! the user picks among the best candidates.
 
 use crate::fs::Fs;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// What placement needs from a chart.
 #[derive(Clone, Debug, Default)]
@@ -107,36 +109,102 @@ pub fn covers(files: &[String], sounds: &[String]) -> bool {
     sounds.iter().all(|s| have.contains(&stem(s)))
 }
 
-fn has_all(folder: &FolderInfo, sounds: &[String]) -> bool {
-    covers(&folder.files, sounds)
+/// How a chart's folder is chosen.
+#[derive(Clone, Copy, Debug)]
+pub struct Rules {
+    /// The share of a chart's sounds a folder must hold, with the files the
+    /// chart came with, to be its song's folder.
+    pub min_coverage: f32,
 }
 
-/// Where `chart`, now in `own`, belongs among `folders`.
-pub fn place(chart: &ChartInfo, own: &FolderInfo, folders: &[FolderInfo]) -> Placement {
-    if chart.sounds.is_empty() || has_all(own, &chart.sounds) {
-        return Placement::Stay;
+impl Default for Rules {
+    fn default() -> Rules {
+        Rules { min_coverage: 0.99 }
     }
-    let complete: Vec<&FolderInfo> = folders
+}
+
+/// A folder a chart may belong in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Candidate {
+    pub dir: PathBuf,
+    /// The share of the chart's sounds there, with the files it came with.
+    pub coverage: f32,
+    /// How many of them the folder holds itself.
+    pub own: usize,
+    /// One of the folder's charts has the same title and artist.
+    pub same_song: bool,
+}
+
+/// The folders among `folders` for `chart`, which came with the files
+/// `bundled`: those holding (with them) at least one of its sounds, the best
+/// first (the same song, then more of its sounds, then more of them in the
+/// folder itself).
+pub fn rank(chart: &ChartInfo, bundled: &[String], folders: &[FolderInfo]) -> Vec<Candidate> {
+    let sounds: HashSet<String> = chart.sounds.iter().map(|s| stem(s)).collect();
+    if sounds.is_empty() {
+        return Vec::new();
+    }
+    let brought: HashSet<String> = bundled.iter().map(|f| stem(f)).collect();
+    let mut out: Vec<Candidate> = folders
         .iter()
-        .filter(|f| f.dir != own.dir && has_all(f, &chart.sounds))
-        .collect();
-    let same: Vec<&FolderInfo> = complete
-        .iter()
-        .copied()
-        .filter(|f| {
-            f.charts.iter().any(|c| {
-                same_title(&c.title, &chart.title) && same_artist(&c.artist, &chart.artist)
+        .filter_map(|f| {
+            let have: HashSet<String> = f.files.iter().map(|n| stem(n)).collect();
+            let own = sounds.iter().filter(|s| have.contains(*s)).count();
+            if own == 0 {
+                return None;
+            }
+            let all = sounds
+                .iter()
+                .filter(|s| have.contains(*s) || brought.contains(*s))
+                .count();
+            Some(Candidate {
+                dir: f.dir.clone(),
+                coverage: all as f32 / sounds.len() as f32,
+                own,
+                same_song: f.charts.iter().any(|c| {
+                    same_title(&c.title, &chart.title) && same_artist(&c.artist, &chart.artist)
+                }),
             })
         })
         .collect();
-    match (same.len(), complete.len()) {
+    out.sort_by(|a, b| {
+        (b.same_song, b.coverage, b.own)
+            .partial_cmp(&(a.same_song, a.coverage, a.own))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
+}
+
+/// What [`rank`]'s candidates mean: the one folder that is the same song
+/// and holds the chart's sounds; else the folders that hold them (the user
+/// picks, at most 3); else none yet.
+pub fn decide(candidates: &[Candidate], rules: Rules) -> Placement {
+    let enough: Vec<&Candidate> = candidates
+        .iter()
+        .filter(|c| c.coverage >= rules.min_coverage)
+        .collect();
+    let same: Vec<&Candidate> = enough.iter().copied().filter(|c| c.same_song).collect();
+    let dirs = |c: &[&Candidate]| c.iter().take(3).map(|c| c.dir.clone()).collect();
+    match (same.len(), enough.len()) {
         (1, _) => Placement::Move(same[0].dir.clone()),
         (_, 0) => Placement::Stay,
-        // the same song in several folders: ask among those; else among
-        // every folder that has the sounds
-        (n, _) if n > 1 => Placement::Ask(same.iter().map(|f| f.dir.clone()).collect()),
-        _ => Placement::Ask(complete.iter().map(|f| f.dir.clone()).collect()),
+        (n, _) if n > 1 => Placement::Ask(dirs(&same)),
+        _ => Placement::Ask(dirs(&enough)),
     }
+}
+
+/// Where `chart`, now in `own` (with the files it came with), belongs among
+/// `folders` (by the default [`Rules`]).
+pub fn place(chart: &ChartInfo, own: &FolderInfo, folders: &[FolderInfo]) -> Placement {
+    if chart.sounds.is_empty() || covers(&own.files, &chart.sounds) {
+        return Placement::Stay;
+    }
+    let others: Vec<FolderInfo> = folders
+        .iter()
+        .filter(|f| f.dir != own.dir)
+        .cloned()
+        .collect();
+    decide(&rank(chart, &own.files, &others), Rules::default())
 }
 
 /// Where a chart file in the library belongs, with labels for asking.
@@ -204,58 +272,138 @@ pub fn chart_info(fs: &dyn Fs, path: &std::path::Path) -> Option<ChartInfo> {
     })
 }
 
-/// Where `chart` belongs among the folders below `library` (see [`place`]).
-pub fn locate(fs: &dyn Fs, chart: &std::path::Path, library: &std::path::Path) -> Option<Located> {
+/// Where `chart` belongs among the folders below `library` (see [`place`]),
+/// the files beside it having come with it.
+pub fn locate(fs: &dyn Fs, chart: &Path, library: &Path) -> Option<Located> {
+    locate_with(fs, chart, library, true, Rules::default()).map(|(l, _)| l)
+}
+
+/// [`locate`] for a chart that came on its own, into a folder of downloads
+/// (the files beside it are not its).
+pub fn locate_loose(fs: &dyn Fs, chart: &Path, library: &Path) -> Option<Located> {
+    locate_with(fs, chart, library, false, Rules::default()).map(|(l, _)| l)
+}
+
+/// [`locate`] (`siblings`: the files beside the chart came with it) by
+/// `rules`, with the candidates (for a person to look at).
+pub fn locate_with(
+    fs: &dyn Fs,
+    chart: &Path,
+    library: &Path,
+    siblings: bool,
+    rules: Rules,
+) -> Option<(Located, Vec<(Candidate, String)>)> {
     let info = chart_info(fs, chart)?;
     let here = chart.parent()?.to_path_buf();
-    let all = folders(fs, library);
-    let own = FolderInfo {
-        dir: here.clone(),
-        files: fs
-            .read_dir(&here)
+    let bundled: Vec<String> = if siblings {
+        fs.read_dir(&here)
             .unwrap_or_default()
             .iter()
             .filter(|e| !e.is_dir)
             .map(|e| file_name(&e.path))
-            .collect(),
-        charts: Vec::new(),
+            .collect()
+    } else {
+        Vec::new()
     };
-    if covers(&own.files, &info.sounds) {
-        return Some(Located::Here);
+    if covers(&bundled, &info.sounds) {
+        return Some((Located::Here, Vec::new()));
     }
-    // only folders with every sound are candidates: read their charts
-    let candidates: Vec<FolderInfo> = all
+    // the folders with any of its sounds; their charts read for the best
+    let sounds: HashSet<String> = info.sounds.iter().map(|s| stem(s)).collect();
+    let near: Vec<FolderInfo> = folders(fs, library)
         .into_iter()
-        .filter(|(d, files)| *d != here && covers(files, &info.sounds))
+        .filter(|(d, files)| *d != here && files.iter().any(|f| sounds.contains(&stem(f))))
         .map(|(dir, files)| FolderInfo {
-            charts: files
+            dir,
+            files,
+            charts: Vec::new(),
+        })
+        .collect();
+    let rough = rank(&info, &bundled, &near);
+    let keep: Vec<FolderInfo> = rough
+        .iter()
+        .enumerate()
+        .filter(|(i, c)| c.coverage >= rules.min_coverage || *i < 3)
+        .filter_map(|(_, c)| near.iter().find(|f| f.dir == c.dir))
+        .map(|f| FolderInfo {
+            charts: f
+                .files
                 .iter()
-                .map(|n| dir.join(n))
+                .map(|n| f.dir.join(n))
                 .filter(|p| is_chart(p))
                 .filter_map(|p| chart_info(fs, &p))
                 .collect(),
-            dir,
-            files,
+            ..f.clone()
         })
         .collect();
-    Some(match place(&info, &own, &candidates) {
+    let ranked = rank(&info, &bundled, &keep);
+    let song = |d: &Path| {
+        let s = keep
+            .iter()
+            .find(|f| f.dir == d)
+            .and_then(|f| f.charts.first())
+            .map(|c| format!("{} — {}", c.title, c.artist))
+            .unwrap_or_default();
+        format!("{s}  ({})", file_name(d))
+    };
+    let located = match decide(&ranked, rules) {
         Placement::Move(d) => Located::Move(d),
         Placement::Stay => Located::NoSong,
         Placement::Ask(dirs) => Located::Ask(
             dirs.into_iter()
                 .map(|d| {
-                    let song = candidates
-                        .iter()
-                        .find(|f| f.dir == d)
-                        .and_then(|f| f.charts.first())
-                        .map(|c| format!("{} — {}", c.title, c.artist))
-                        .unwrap_or_default();
-                    let label = format!("{song}  ({})", file_name(&d));
+                    let label = song(&d);
                     (d, label)
                 })
                 .collect(),
         ),
-    })
+    };
+    let listed = ranked
+        .into_iter()
+        .map(|c| {
+            let label = song(&c.dir);
+            (c, label)
+        })
+        .collect();
+    Some((located, listed))
+}
+
+/// Move `file` into the folder `dir` (a chart, or a file it came with), as
+/// BeMusicSeeker's smart overwrite: a file of the same name there stays
+/// unless `file` is newer (by more than 2 seconds), and `file` goes; a
+/// chart of the same name never overwrites (it comes in as `name_.bms`;
+/// the same chart again just goes). Returns where it is now (None: it was
+/// not needed, or could not move).
+pub fn bring(fs: &dyn Fs, file: &Path, dir: &Path) -> Option<PathBuf> {
+    let name = file_name(file);
+    let mut to = dir.join(&name);
+    if is_chart(file) {
+        let same = |a: &Path, b: &Path| fs.read(a).ok().is_some_and(|x| fs.read(b).ok() == Some(x));
+        if fs.stamp(&to).is_some() && same(file, &to) {
+            fs.remove(file);
+            return Some(to);
+        }
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((s, e)) => (s.to_string(), format!(".{e}")),
+            None => (name.clone(), String::new()),
+        };
+        let mut n = 1;
+        while fs.stamp(&to).is_some() {
+            to = dir.join(format!("{stem}{}{ext}", "_".repeat(n)));
+            n += 1;
+        }
+        return fs.rename(file, &to).then_some(to);
+    }
+    match (fs.stamp(file), fs.stamp(&to)) {
+        (_, None) => fs.rename(file, &to).then_some(to),
+        (Some((new, _)), Some((old, _))) if new > old + 2 => {
+            (fs.remove(&to) && fs.rename(file, &to)).then_some(to)
+        }
+        _ => {
+            fs.remove(file);
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -328,5 +476,88 @@ mod tests {
         let own = folder("picked", &["kick.wav", "song.bme"], vec![c.clone()]);
         let other = folder("S", &["kick.wav"], vec![chart("Song", "artist", &[])]);
         assert_eq!(place(&c, &own, &[other]), Placement::Stay);
+    }
+
+    #[test]
+    fn sounds_it_came_with_count() {
+        // the 差分 brings its extra sound; the song folder has the rest
+        let diff = chart(
+            "Song B [EX]",
+            "beta / obj: x",
+            &["01.wav", "02.wav", "extra.wav"],
+        );
+        let own = folder("pkg", &["b_ex.bme", "extra.ogg"], vec![diff.clone()]);
+        let b = folder(
+            "B",
+            &["01.ogg", "02.ogg", "b.bms"],
+            vec![chart("Song B", "beta", &[])],
+        );
+        assert_eq!(
+            place(&diff, &own, std::slice::from_ref(&b)),
+            Placement::Move("B".into())
+        );
+        // without it, 2 of 3: not enough
+        let bare = folder("pkg", &["b_ex.bme"], vec![diff.clone()]);
+        assert_eq!(
+            place(&diff, &bare, std::slice::from_ref(&b)),
+            Placement::Stay
+        );
+        // a lower bar takes it
+        let r = rank(&diff, &[], &[b]);
+        assert_eq!(r[0].own, 2);
+        assert!((r[0].coverage - 2.0 / 3.0).abs() < 1e-6);
+        assert_eq!(
+            decide(&r, Rules { min_coverage: 0.6 }),
+            Placement::Move("B".into())
+        );
+    }
+
+    #[test]
+    fn smart_overwrite() {
+        use crate::fs::Disk;
+        let d = std::env::temp_dir().join(format!("bmseeker-bring-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let (pkg, song) = (d.join("pkg"), d.join("song"));
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::create_dir_all(&song).unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        let put = |p: &Path, body: &str, older: bool| {
+            std::fs::write(p, body).unwrap();
+            if older {
+                std::fs::File::options()
+                    .write(true)
+                    .open(p)
+                    .unwrap()
+                    .set_modified(old)
+                    .unwrap();
+            }
+        };
+        // newer: overwrites; older: the song's stays
+        put(&song.join("a.ogg"), "old", true);
+        put(&pkg.join("a.ogg"), "new", false);
+        put(&song.join("b.ogg"), "keep", false);
+        put(&pkg.join("b.ogg"), "stale", true);
+        assert_eq!(
+            bring(&Disk, &pkg.join("a.ogg"), &song),
+            Some(song.join("a.ogg"))
+        );
+        assert_eq!(std::fs::read_to_string(song.join("a.ogg")).unwrap(), "new");
+        assert_eq!(bring(&Disk, &pkg.join("b.ogg"), &song), None);
+        assert_eq!(std::fs::read_to_string(song.join("b.ogg")).unwrap(), "keep");
+        assert!(!pkg.join("b.ogg").exists());
+        // a chart: never over another, the same one just goes
+        put(&song.join("x.bms"), "#TITLE A", false);
+        put(&pkg.join("x.bms"), "#TITLE B", false);
+        assert_eq!(
+            bring(&Disk, &pkg.join("x.bms"), &song),
+            Some(song.join("x_.bms"))
+        );
+        put(&pkg.join("x.bms"), "#TITLE A", false);
+        assert_eq!(
+            bring(&Disk, &pkg.join("x.bms"), &song),
+            Some(song.join("x.bms"))
+        );
+        assert!(!pkg.join("x.bms").exists());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -13,6 +13,10 @@
 //!                                                 a song (or its separate
 //!                                                 chart) into the library
 //! bmseeker import <file> <library>                a downloaded file into it
+//! bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
+//!                                                 a chart's song folder: the
+//!                                                 candidates, or move it there
+//! bmseeker pending <library>                      charts waiting for their song
 //! ```
 
 #[cfg(target_arch = "wasm32")]
@@ -33,6 +37,7 @@ mod cli {
     use bmseeker::hosts::{self, Fetch, Want};
     use bmseeker::install::{self, Done};
     use bmseeker::links::{self, Links};
+    use bmseeker::placement::{self, Rules};
     use bmseeker::table::{self, DifficultyTable, TableEntry};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -42,7 +47,9 @@ mod cli {
   bmseeker missing <table URL> <library> [-l LEVEL] [--get] [--own-links]
   bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
   bmseeker install <link> <library> [--diff] [-t TITLE] [-a ARTIST]
-  bmseeker import <file> <library>";
+  bmseeker import <file> <library>
+  bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
+  bmseeker pending <library>";
 
     /// The arguments: positional ones, and the value of each `-x VALUE` /
     /// `--flag`.
@@ -90,7 +97,7 @@ mod cli {
     }
 
     pub fn run(args: &[String]) -> Result<(), String> {
-        let a = Args::parse(args, &["-l", "-t", "-a"]);
+        let a = Args::parse(args, &["-l", "-t", "-a", "--to", "--min"]);
         match a.pos.first().copied() {
             Some("table") => {
                 let t = load(a.need(0)?)?;
@@ -175,12 +182,71 @@ mod cli {
                 println!("{r:?}");
                 Ok(())
             }
+            Some("place") => {
+                let (chart, library) = (Path::new(a.need(0)?), Path::new(a.need(1)?));
+                if let Some(dir) = a.get("--to") {
+                    return match placement::bring(&Disk, chart, Path::new(dir)) {
+                        Some(at) => {
+                            println!("{}", at.display());
+                            Ok(())
+                        }
+                        None => Err(format!("{} stays where it is", chart.display())),
+                    };
+                }
+                let mut rules = Rules::default();
+                if let Some(m) = a.get("--min").and_then(|m| m.parse::<f32>().ok()) {
+                    rules.min_coverage = m / 100.0;
+                }
+                let siblings = !chart.parent().is_some_and(|p| p.ends_with(DOWNLOADS));
+                let (located, candidates) =
+                    placement::locate_with(&Disk, chart, library, siblings, rules)
+                        .ok_or_else(|| format!("{}: not a chart", chart.display()))?;
+                println!("{located:?}");
+                for (c, label) in candidates.iter().take(10) {
+                    println!(
+                        "  {:>5.1}% {} {label}",
+                        c.coverage * 100.0,
+                        if c.same_song {
+                            "same song "
+                        } else {
+                            "          "
+                        },
+                    );
+                }
+                Ok(())
+            }
+            Some("pending") => {
+                let library = PathBuf::from(a.need(0)?);
+                let waiting = library.join(DOWNLOADS);
+                let charts: Vec<PathBuf> = std::fs::read_dir(&waiting)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| placement::is_chart(p))
+                    .collect();
+                for c in &charts {
+                    let (located, best) =
+                        placement::locate_with(&Disk, c, &library, false, Rules::default())
+                            .unwrap_or((placement::Located::NoSong, Vec::new()));
+                    let best = best
+                        .first()
+                        .map(|(c, l)| format!("  best: {:.1}% {l}", c.coverage * 100.0))
+                        .unwrap_or_default();
+                    println!("{}  {located:?}{best}", c.display());
+                }
+                eprintln!("{} charts waiting", charts.len());
+                Ok(())
+            }
             _ => Err(USAGE.into()),
         }
     }
 
+    /// Where downloads wait in a library (charts until their song comes).
+    const DOWNLOADS: &str = ".bmseeker";
+
     fn install(library: &Path, want: &Want, link: &str, diff: bool) -> Vec<Done> {
-        install::link(&library.join(".bmseeker"), library, want, link, diff)
+        install::link(&library.join(DOWNLOADS), library, want, link, diff)
     }
 
     fn report(title: &str, done: Vec<Done>) {
@@ -236,9 +302,10 @@ mod cli {
         while let Some(d) = todo.pop() {
             for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
                 let p = e.path();
-                if p.is_dir() {
+                // (not the charts waiting in `DOWNLOADS`)
+                if p.is_dir() && !p.ends_with(DOWNLOADS) {
                     todo.push(p);
-                } else if bmseeker::placement::is_chart(&p) {
+                } else if p.is_file() && bmseeker::placement::is_chart(&p) {
                     if let Ok(b) = std::fs::read(&p) {
                         let hex =
                             |h: &[u8]| h.iter().map(|x| format!("{x:02x}")).collect::<String>();

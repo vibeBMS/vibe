@@ -23,6 +23,16 @@ impl bmseeker::fs::Fs for Vfs {
     fn rename(&self, from: &Path, to: &Path) -> bool {
         crate::platform::vfs::rename(from, to)
     }
+    fn stamp(&self, p: &Path) -> Option<(i64, u64)> {
+        use crate::platform::vfs;
+        vfs::is_file(p).then(|| {
+            let (t, n) = vfs::stamp(p);
+            (t, n as u64)
+        })
+    }
+    fn remove(&self, p: &Path) -> bool {
+        crate::platform::vfs::remove_file(p).is_ok()
+    }
 }
 
 pub fn chart_info(path: &Path) -> Option<ChartInfo> {
@@ -31,4 +41,14 @@ pub fn chart_info(path: &Path) -> Option<ChartInfo> {
 
 pub fn locate(chart: &Path, library: &Path) -> Option<Located> {
     bmseeker::placement::locate(&Vfs, chart, library)
+}
+
+/// A chart that came on its own (the files beside it are not its).
+pub fn locate_loose(chart: &Path, library: &Path) -> Option<Located> {
+    bmseeker::placement::locate_loose(&Vfs, chart, library)
+}
+
+/// Move `file` into `dir` (smart overwrite: `bmseeker::placement::bring`).
+pub fn bring(file: &Path, dir: &Path) -> Option<std::path::PathBuf> {
+    bmseeker::placement::bring(&Vfs, file, dir)
 }

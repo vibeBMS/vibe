@@ -73,7 +73,7 @@ fn percent_decode(s: &str) -> String {
 
 /// The charts in a separate chart's unpacked archive `dir` into their
 /// songs' folders, each with the files beside it there (extra sounds, a
-/// BGA) unless the song has them already.
+/// BGA; one the song has already stays unless this one is newer).
 pub fn place_charts(fs: &dyn Fs, dir: &Path, library: &Path) -> Vec<Done> {
     let mut out = Vec::new();
     let mut todo = vec![dir.to_path_buf()];
@@ -89,8 +89,7 @@ pub fn place_charts(fs: &dyn Fs, dir: &Path, library: &Path) -> Vec<Done> {
         for chart in files.iter().filter(|p| crate::placement::is_chart(p)) {
             match crate::placement::locate(fs, chart, library) {
                 Some(crate::placement::Located::Move(to)) => {
-                    let at = to.join(chart.file_name().unwrap_or_default());
-                    if fs.rename(chart, &at) {
+                    if let Some(at) = crate::placement::bring(fs, chart, &to) {
                         out.push(Done::Placed(at));
                         song_dir = Some(to);
                     }
@@ -98,9 +97,10 @@ pub fn place_charts(fs: &dyn Fs, dir: &Path, library: &Path) -> Vec<Done> {
                 _ => out.push(Done::Waiting((*chart).clone())),
             }
         }
+        // the files it came with (smart overwrite)
         if let Some(to) = song_dir {
             for f in files.iter().filter(|p| !crate::placement::is_chart(p)) {
-                let _ = fs.rename(f, &to.join(f.file_name().unwrap_or_default()));
+                crate::placement::bring(fs, f, &to);
             }
         }
     }

@@ -123,13 +123,11 @@ fn web(
                 Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
                     let at = root.join("downloads").join(&name);
                     vfs::put_bytes(&at, b);
-                    match crate::placement::locate(&at, &root.join("bms")) {
+                    match crate::placement::locate_loose(&at, &root.join("bms")) {
                         Some(crate::placement::Located::Move(dir)) => {
-                            let to = dir.join(&name);
-                            if vfs::rename(&at, &to) {
-                                Done::Placed(to)
-                            } else {
-                                Done::Waiting(at)
+                            match crate::placement::bring(&at, &dir) {
+                                Some(to) => Done::Placed(to),
+                                None => Done::Waiting(at),
                             }
                         }
                         _ => Done::Waiting(at),
