@@ -711,7 +711,7 @@ fn fold(s: &str) -> String {
 
 /// A pack file's artist (`by`) is the table's `artist`: one holds the other,
 /// without the chart maker's part ("artist / obj: someone") and spaces.
-fn pack_artist(by: &str, artist: &str) -> bool {
+pub(crate) fn pack_artist(by: &str, artist: &str) -> bool {
     let squash = |s: &str| -> String {
         s.to_lowercase()
             .chars()

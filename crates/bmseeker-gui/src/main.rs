@@ -232,6 +232,7 @@ impl App {
             entry: Box::new(e.clone()),
             song,
             chart,
+            lookup: self.config.fill_links,
         });
     }
 
@@ -534,7 +535,7 @@ impl App {
         if ui
             .checkbox(
                 &mut self.config.fill_links,
-                "Look up a chart's other links by its MD5 (in the other tables, the Stella uploader's list) when its own is missing, dead or does not download",
+                "Look up a chart's other links by its MD5 (in the other tables, the Stella uploader's list, BMS SEARCH) when its own is missing, dead or does not download",
             )
             .changed()
         {

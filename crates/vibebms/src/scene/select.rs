@@ -537,7 +537,7 @@ impl SelectScene {
                 let root = ctx.paths.root.clone();
                 // its own links, then the others known for the chart
                 let e = bmseeker::table::TableEntry {
-                    md5,
+                    md5: md5.clone(),
                     url: url.clone(),
                     url_diff: url_diff.clone(),
                     ..Default::default()
@@ -546,7 +546,7 @@ impl SelectScene {
                     (ctx.links.links.song_links(&e), false),
                     (ctx.links.links.chart_links(&e), true),
                 ];
-                if ctx.song_fetch.start(&root, &title, &artist, links) {
+                if ctx.song_fetch.start(&root, &title, &artist, &md5, links) {
                     ctx.toast(format!("Downloading {title}…"));
                     return Next::Stay;
                 }

@@ -8,6 +8,7 @@
 //! - [`placement`]: which song's folder a chart of its own (差分) belongs in;
 //! - [`install`]: a table's song from its links into the library;
 //! - [`links`]: links for a table's songs whose own are missing or dead;
+//! - [`bmssearch`]: a chart's work and its links from BMS SEARCH;
 //! - [`export`]: a table as LR2 custom folders or a beatoraja table cache.
 //!
 //! The parts that touch files take an [`fs::Fs`], so a player can keep its
@@ -15,6 +16,7 @@
 //! memory). The network parts are sans-IO steps ([`hosts::Resolver`],
 //! [`table::TableLoader`]) with blocking drivers for native builds.
 
+pub mod bmssearch;
 pub mod export;
 pub mod fs;
 pub mod hosts;

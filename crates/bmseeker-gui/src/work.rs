@@ -25,6 +25,8 @@ pub enum Job {
         entry: Box<TableEntry>,
         song: Vec<String>,
         chart: Vec<String>,
+        /// Then BMS SEARCH's links for the song.
+        lookup: bool,
     },
     ExportLr2(Vec<DifficultyTable>, PathBuf),
     ExportBmt(Vec<DifficultyTable>, PathBuf),
@@ -89,6 +91,7 @@ pub fn start(tx: Sender<Msg>, ctx: eframe::egui::Context) -> Sender<Job> {
                     entry,
                     song,
                     chart,
+                    lookup,
                 } => {
                     let want = bmseeker::hosts::Want {
                         title: entry.title.clone(),
@@ -96,10 +99,11 @@ pub fn start(tx: Sender<Msg>, ctx: eframe::egui::Context) -> Sender<Job> {
                     };
                     let downloads = library.join(DOWNLOADS);
                     let mut done = Vec::new();
+                    let md5 = lookup.then_some(entry.md5.as_str());
                     for (links, diff) in [(song, false), (chart, true)] {
-                        if !links.is_empty() {
+                        if !links.is_empty() || (!diff && md5.is_some()) {
                             done.extend(bmseeker::install::links(
-                                &downloads, &library, &want, &links, diff,
+                                &downloads, &library, &want, &links, diff, md5,
                             ));
                         }
                     }

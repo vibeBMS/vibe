@@ -30,18 +30,21 @@ impl SongFetch {
 
     /// Download `title` from `links`: the song's, then its separate
     /// chart's (each its own first, then the others known for the chart, tried
-    /// in turn until one downloads). False when there is no link.
+    /// in turn until one downloads; for the song, then the links BMS SEARCH
+    /// knows for the chart `md5`). False when there is nothing to try.
     pub fn start(
         &mut self,
         root: &Path,
         title: &str,
         artist: &str,
+        md5: &str,
         links: Vec<(Vec<String>, bool)>,
     ) -> bool {
+        let md5 = (md5.len() == 32).then(|| md5.to_string());
         let links: Vec<(Vec<String>, bool)> = links
             .into_iter()
             .map(|(ls, d)| (ls.into_iter().filter(|u| is_link(u)).collect::<Vec<_>>(), d))
-            .filter(|(ls, _)| !ls.is_empty())
+            .filter(|(ls, d)| !ls.is_empty() || (!d && md5.is_some()))
             .collect();
         if links.is_empty() || self.is_busy(title) {
             return false;
@@ -69,6 +72,7 @@ impl SongFetch {
                         &want,
                         ls,
                         *diff,
+                        md5.as_deref(),
                     )
                 })
                 .collect();
@@ -78,7 +82,13 @@ impl SongFetch {
         {
             let groups = links
                 .into_iter()
-                .map(|(ls, diff)| (ls, diff, Default::default()))
+                .map(|(links, diff)| Group {
+                    links,
+                    diff,
+                    tries: Default::default(),
+                    tried: Vec::new(),
+                    md5: md5.clone().filter(|_| !diff),
+                })
                 .collect();
             web(root, want, groups, Vec::new(), move |done| {
                 let _ = tx.send((title, done));
@@ -102,10 +112,33 @@ impl SongFetch {
     }
 }
 
-/// The web build's links: (the same file's links to try in turn, they are
-/// the separate chart's, what the tried ones came to).
+/// The web build's links for one file: those to try in turn, it is the
+/// separate chart, what the tried ones came to (and which they were), and
+/// the chart's MD5 to ask BMS SEARCH with once they are tried.
 #[cfg(target_arch = "wasm32")]
-type Group = (Vec<String>, bool, bmseeker::install::Tries);
+struct Group {
+    links: Vec<String>,
+    diff: bool,
+    tries: bmseeker::install::Tries,
+    tried: Vec<String>,
+    md5: Option<String>,
+}
+
+/// BMS SEARCH's links (its API sends CORS headers: no proxy).
+#[cfg(target_arch = "wasm32")]
+fn lookup(
+    mut l: bmseeker::bmssearch::Lookup,
+    step: bmseeker::bmssearch::Step,
+    done: impl FnOnce(Vec<String>) + Send + 'static,
+) {
+    match step {
+        bmseeker::bmssearch::Step::Get(url) => crate::platform::http_get(&url, move |r| {
+            let next = l.feed(r);
+            lookup(l, next, done)
+        }),
+        bmseeker::bmssearch::Step::Done(links) => done(links),
+    }
+}
 
 /// The web build: the links one after another through the vibeBMS proxy,
 /// unpacked / placed in memory; a file's next link tried when one does not
@@ -115,7 +148,7 @@ fn web(
     root: PathBuf,
     want: crate::hosts::Want,
     mut groups: Vec<Group>,
-    done: Vec<Done>,
+    mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
     use crate::archive::{web_step, Fail};
@@ -125,17 +158,33 @@ fn web(
         return finish(done);
     }
     let title = want.title.clone();
-    let (mut links, diff, tries) = groups.remove(0);
-    let link = links.remove(0);
-    // this link's outcome: the file in, or the next link, or the end
-    let next = move |got: Vec<Done>,
-                     mut tries: bmseeker::install::Tries,
-                     mut groups: Vec<Group>,
-                     mut done: Vec<Done>| {
-        match tries.record(got) {
+    let mut g = groups.remove(0);
+    // its links tried: BMS SEARCH's next, else the end
+    if g.links.is_empty() {
+        match g.md5.take() {
+            Some(md5) => {
+                let (l, step) = bmseeker::bmssearch::Lookup::new(&md5, &want);
+                lookup(l, step, move |found| {
+                    g.links = found.into_iter().filter(|l| !g.tried.contains(l)).collect();
+                    groups.insert(0, g);
+                    web(root, want, groups, done, finish)
+                });
+            }
+            None => {
+                done.extend(g.tries.end());
+                web(root, want, groups, done, finish)
+            }
+        }
+        return;
+    }
+    let link = g.links.remove(0);
+    g.tried.push(link.clone());
+    let diff = g.diff;
+    // this link's outcome: the file in, or the group again (its next link)
+    let next = move |got: Vec<Done>, mut groups: Vec<Group>, mut done: Vec<Done>| {
+        match g.tries.record(got) {
             Some(got) => done.extend(got),
-            None if !links.is_empty() => groups.insert(0, (links, diff, tries)),
-            None => done.extend(tries.end()),
+            None => groups.insert(0, g),
         }
         (groups, done)
     };
@@ -158,7 +207,7 @@ fn web(
                 }
                 _ => Done::Page(link),
             };
-            let (groups, done) = next(vec![got], tries, groups, done);
+            let (groups, done) = next(vec![got], groups, done);
             web(root, want, groups, done, finish)
         });
         return;
@@ -185,7 +234,7 @@ fn web(
             Err(Fail::Page(url)) => vec![Done::Page(url)],
             Err(Fail::Msg(e)) => vec![Done::Failed(e)],
         };
-        let (groups, done) = next(got, tries, groups, done);
+        let (groups, done) = next(got, groups, done);
         web(root, want, groups, done, finish)
     });
 }

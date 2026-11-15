@@ -230,7 +230,8 @@ impl Tries {
 
 /// [`link`] for each of `links` (the same file's, the table's own first:
 /// [`Links::song_links`](crate::links::Links::song_links)) until one brings
-/// it in.
+/// it in; then, for a song with the chart `md5`, the links BMS SEARCH knows
+/// for it ([`bmssearch`](crate::bmssearch)).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn links(
     downloads: &Path,
@@ -238,11 +239,22 @@ pub fn links(
     want: &crate::hosts::Want,
     links: &[String],
     diff: bool,
+    md5: Option<&str>,
 ) -> Vec<Done> {
     let mut tries = Tries::default();
     for l in links {
         if let Some(done) = tries.record(link(downloads, library, want, l, diff)) {
             return done;
+        }
+    }
+    if let Some(md5) = md5.filter(|_| !diff) {
+        for l in crate::bmssearch::lookup(md5, want) {
+            if links.contains(&l) {
+                continue;
+            }
+            if let Some(done) = tries.record(link(downloads, library, want, &l, diff)) {
+                return done;
+            }
         }
     }
     tries.end()

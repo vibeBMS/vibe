@@ -9,7 +9,7 @@ bmseeker table <난이도표 URL>                        레벨별 채보 수
 bmseeker missing <난이도표 URL> <라이브러리> [-l 레벨] [--get]
                                                      라이브러리에 없는 곡 (--get: 받기)
 bmseeker fetch <링크> <파일> [-t 제목] [-a 아티스트]   링크가 가리키는 아카이브 받기
-bmseeker install <링크>... <라이브러리> [--diff] [-t 제목] [-a 아티스트]
+bmseeker install <링크>... <라이브러리> [--diff] [-t 제목] [-a 아티스트] [--md5 MD5]
                                                      곡(또는 차분)을 라이브러리에 (링크를 차례로)
 bmseeker import <파일> <라이브러리>                   받아 둔 파일을 라이브러리에
 bmseeker place <채보> <라이브러리> [--to 폴더] [--min 퍼센트]
@@ -22,8 +22,9 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 
 `missing`과 `export`는 채보의 다른 링크를 MD5로 찾습니다: 링크가 비었거나 죽었으면 채우고, 받아지지
 않으면(페이지, OneDrive 등) 다음 링크를 차례로 시도합니다. 찾는 곳은 그 난이도표, `--also <URL>`로 준
-다른 난이도표, Stella 업로더 목록, `--links <파일 또는 URL>`로 준 TSV(`md5`, `url_diff`, `url`)입니다.
-`--own-links`: 난이도표의 링크만.
+다른 난이도표, Stella 업로더 목록, `--links <파일 또는 URL>`로 준 TSV(`md5`, `url_diff`, `url`), 그리고 곡을
+받을 때 마지막으로 [BMS SEARCH](https://bmssearch.net) API(채보 → 작품 → 작가가 올린 다운로드 링크, 작품에 묶이지 않은
+차분은 제목·아티스트로 작품 검색)입니다. `--own-links`: 난이도표의 링크만.
 
 `cargo run -p bmseeker -- missing https://stellabms.xyz/sl/table.html ~/bms -l 0`
 
@@ -50,6 +51,7 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 | `placement` | 차분 채보가 어느 곡 폴더에 속하는지: 함께 온 파일까지 쳐서 쓰는 음원의 99% 이상 + 같은 곡(제목·아티스트), 아니면 후보 3개; 같은 이름 파일은 스마트 덮어쓰기 |
 | `install` | 난이도표의 곡 하나: 본체 링크와 차분 링크를 받아 라이브러리에 |
 | `links` | 채보 MD5로 다른 링크 찾기 (등록한 난이도표들, Stella 업로더 목록): 빈·죽은 링크 채우기, 안 받아지면 차례로 시도 |
+| `bmssearch` | BMS SEARCH API로 채보의 작품과 그 다운로드 링크 찾기 (그래도 안 받아질 때) |
 | `export` | 난이도표를 LR2 커스텀 폴더(`.lr2folder`)나 beatoraja 캐시(`.bmt`)로 |
 | `fs` | 파일 접근 (`Disk`, 또는 플레이어가 라이브러리를 두는 곳) |
 

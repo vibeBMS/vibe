@@ -7,7 +7,7 @@
 //!                                                 (--get: download them)
 //! bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
 //!                                                 the archive a link leads to
-//! bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST]
+//! bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
 //!                                                 a song (or its separate
 //!                                                 chart) into the library, the
 //!                                                 links tried in turn
@@ -25,8 +25,9 @@
 //!
 //! `missing` and `export` look a chart's other links up by its MD5 (where
 //! its own is missing, dead, or does not download): in the table, the
-//! tables `--also <URL>` names, the Stella uploader's list, and TSV lists
-//! `--links <file or URL>` names (`md5`, `url_diff`, `url`); `--own-links`:
+//! tables `--also <URL>` names, the Stella uploader's list, TSV lists
+//! `--links <file or URL>` names (`md5`, `url_diff`, `url`), and last (for a
+//! song, when downloading; `install --md5` too) BMS SEARCH; `--own-links`:
 //! the table's links only.
 
 #[cfg(target_arch = "wasm32")]
@@ -57,7 +58,7 @@ mod cli {
   bmseeker table <table URL>
   bmseeker missing <table URL> <library> [-l LEVEL] [--get]
   bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
-  bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST]
+  bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
   bmseeker pending <library>
@@ -121,7 +122,9 @@ mod cli {
     pub fn run(args: &[String]) -> Result<(), String> {
         let a = Args::parse(
             args,
-            &["-l", "-t", "-a", "--to", "--min", "--also", "--links"],
+            &[
+                "-l", "-t", "-a", "--to", "--min", "--also", "--links", "--md5",
+            ],
         );
         match a.pos.first().copied() {
             Some("table") => {
@@ -171,12 +174,15 @@ mod cli {
                             artist: e.artist.clone(),
                         };
                         // the table's links, then the others known for the chart
+                        // (and BMS SEARCH's for the song, unless --own-links)
+                        let md5 = (!a.has("--own-links")).then_some(e.md5.as_str());
                         for (ls, diff) in
                             [(links.song_links(e), false), (links.chart_links(e), true)]
                         {
-                            if !ls.is_empty() {
+                            if !ls.is_empty() || (!diff && md5.is_some()) {
                                 let downloads = library.join(DOWNLOADS);
-                                let done = install::links(&downloads, &library, &want, &ls, diff);
+                                let done =
+                                    install::links(&downloads, &library, &want, &ls, diff, md5);
                                 report(&e.title, done);
                             }
                         }
@@ -198,13 +204,19 @@ mod cli {
             Some("install") => {
                 // <link>... <library>: the links tried in turn
                 let (library, links) = match a.pos.split_last() {
-                    Some((lib, rest)) if rest.len() >= 2 => (PathBuf::from(lib), &rest[1..]),
+                    Some((lib, rest))
+                        if rest.len() >= 2 || (a.has("--md5") && !rest.is_empty()) =>
+                    {
+                        (PathBuf::from(lib), &rest[1..])
+                    }
                     _ => return Err(USAGE.into()),
                 };
                 let links: Vec<String> = links.iter().map(|l| l.to_string()).collect();
                 let want = a.want();
                 let downloads = library.join(DOWNLOADS);
-                let done = install::links(&downloads, &library, &want, &links, a.has("--diff"));
+                let md5 = a.get("--md5");
+                let done =
+                    install::links(&downloads, &library, &want, &links, a.has("--diff"), md5);
                 report(&want.title, done);
                 Ok(())
             }
