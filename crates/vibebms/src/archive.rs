@@ -114,7 +114,6 @@ pub fn event_name(url: &str) -> String {
 }
 
 /// Why a work did not arrive.
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Fail {
     /// Its author's link is a page to use in a browser.
     Page(String),
@@ -133,7 +132,7 @@ impl From<&str> for Fail {
     }
 }
 
-// the web build does not download (Status, Done)
+// the web build tells no progress (Status)
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Msg {
     Catalog(String, Result<Vec<CatalogEntry>, String>),
@@ -318,8 +317,7 @@ impl Archives {
         if !work.files.is_empty() {
             return Some(work.files.clone());
         }
-        if cfg!(target_arch = "wasm32") || self.direct_failed.contains(&key(&event.name, work.num))
-        {
+        if self.direct_failed.contains(&key(&event.name, work.num)) {
             return None;
         }
         let url = work.links.first()?.clone();
@@ -338,23 +336,16 @@ impl Archives {
     /// (else its page opens).
     pub fn can_download(&self, ev: usize, num: u32) -> bool {
         self.events.get(ev).is_some_and(|e| {
-            e.works.iter().find(|w| w.num == num).is_some_and(|w| {
-                if cfg!(target_arch = "wasm32") {
-                    // the web: the mirror's files, or an author's link it can read
-                    !w.files.is_empty()
-                        || !self.direct_failed.contains(&key(&e.name, w.num))
-                            && w.links
-                                .first()
-                                .is_some_and(|l| crate::hosts::web_source(l).is_some())
-                } else {
-                    self.files_of(e, w).is_some()
-                }
-            })
+            e.works
+                .iter()
+                .find(|w| w.num == num)
+                .is_some_and(|w| self.files_of(e, w).is_some())
         })
     }
 
-    /// Download work `num` of event `ev` and unpack it into the library.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Download work `num` of event `ev` and unpack it into the library:
+    /// the app on a thread, to disk; the web build through the vibeBMS
+    /// proxy, in memory.
     pub fn download(&mut self, root: &Path, ev: usize, num: u32) -> Result<String, String> {
         let event = self.events.get(ev).ok_or("no such event")?;
         let work = event
@@ -377,93 +368,25 @@ impl Archives {
         let size: u64 = files.iter().map(|f| f.size).sum();
         let tx = self.channel();
         let root = root.to_path_buf();
+        #[cfg(not(target_arch = "wasm32"))]
         crate::platform::spawn("archive", move || {
             let r = fetch_work(&root, &name, &files, &tx);
             let _ = tx.send(Msg::Done(name, num, r));
         });
+        #[cfg(target_arch = "wasm32")]
+        {
+            let stem = work_stem(&files);
+            let rel = PathBuf::from("bms").join(&name).join(&stem);
+            let dir = root.join("bms").join(&name);
+            web_fetch_files(files, 0, 0, dir, stem, move |r| {
+                let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
+            });
+        }
         Ok(if size > 0 {
             format!("Downloading {title} ({} MB)…", (size + (1 << 19)) >> 20)
         } else {
             format!("Downloading {title}…")
         })
-    }
-
-    /// On the web: the mirror's files (through the CORS proxy) and a
-    /// work's author's link on a host that lets pages read it
-    /// (`hosts::web_source`) download into the library; other links open
-    /// in the browser.
-    #[cfg(target_arch = "wasm32")]
-    pub fn download(&mut self, root: &Path, ev: usize, num: u32) -> Result<String, String> {
-        let event = self.events.get(ev).ok_or("no such event")?;
-        let work = event
-            .works
-            .iter()
-            .find(|w| w.num == num)
-            .ok_or("no such work")?;
-        if work.files.is_empty() {
-            let link = work.links.first().cloned().unwrap_or_default();
-            let src = crate::hosts::web_source(&link).ok_or("open its page")?;
-            let k = key(&event.name, num);
-            if self.busy.contains(&k) {
-                return Err("already downloading".into());
-            }
-            self.busy.push(k.clone());
-            self.direct.insert(k);
-            let (name, title) = (event.name.clone(), work.title.clone());
-            let dir = PathBuf::from("bms").join(&name);
-            let stem = safe_name(&title);
-            let (tx, root) = (self.channel(), root.to_path_buf());
-            web_fetch(src, move |r| {
-                let r = match r {
-                    Ok(bytes) => match crate::hosts::sniff_bytes(&bytes) {
-                        Some(ext) => {
-                            match crate::platform::vfs::add_archive_at(
-                                &root.join(&dir),
-                                &format!("{stem}.{ext}"),
-                                bytes,
-                            ) {
-                                0 => Err(Fail::Msg("the archive holds nothing".into())),
-                                n => Ok((dir.join(&stem), n)),
-                            }
-                        }
-                        // a page
-                        None => Err(Fail::Page(link)),
-                    },
-                    Err(e) => Err(Fail::Msg(e)),
-                };
-                let _ = tx.send(Msg::Done(name, num, r));
-            });
-            return Ok(format!("Downloading {title}…"));
-        }
-        // the mirror's files, through the CORS proxy
-        let k = key(&event.name, num);
-        if self.busy.contains(&k) {
-            return Err("already downloading".into());
-        }
-        self.busy.push(k);
-        let files = work.files.clone();
-        let size: u64 = files.iter().map(|f| f.size).sum();
-        let main = files.first().map(|f| {
-            if f.original.is_empty() {
-                f.name.clone()
-            } else {
-                f.original.clone()
-            }
-        });
-        let stem = Path::new(&safe_name(&main.unwrap_or_default()))
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "work".into());
-        let dir = root.join("bms").join(&event.name);
-        let rel = PathBuf::from("bms").join(&event.name).join(&stem);
-        let (name, title, tx) = (event.name.clone(), work.title.clone(), self.channel());
-        web_fetch_files(files, 0, 0, dir, stem, move |r| {
-            let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
-        });
-        Ok(format!(
-            "Downloading {title} ({} MB)…",
-            (size + (1 << 19)) >> 20
-        ))
     }
 
     /// Messages since the last frame: (toasts, the library changed, the
@@ -554,7 +477,6 @@ impl Archives {
 }
 
 /// `name` made safe as a single file name.
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn safe_name(name: &str) -> String {
     let s: String = name
         .chars()
@@ -574,19 +496,29 @@ fn safe_name(name: &str) -> String {
     }
 }
 
-/// The proxy that serves the mirror's release files to web pages (GitHub's
-/// release downloads carry no CORS headers): vibeBMS/bms `proxy/worker.js`.
-#[cfg(target_arch = "wasm32")]
-const WEB_PROXY: &str = "https://mirror.vibebms.workers.dev/";
+/// The folder a work unpacks into: its main archive's name.
+fn work_stem(files: &[File]) -> String {
+    let main = files.first().map(|f| {
+        if f.original.is_empty() {
+            &f.name
+        } else {
+            &f.original
+        }
+    });
+    Path::new(&safe_name(main.map(String::as_str).unwrap_or("")))
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "work".into())
+}
 
-/// A mirror file's URL as the web build reads it.
+/// The CORS proxy the web build reaches every download host through (none
+/// sends CORS headers): vibeBMS/proxy `worker.js`.
 #[cfg(target_arch = "wasm32")]
-fn proxied(url: &str) -> String {
-    const RELEASES: &str = "https://github.com/vibeBMS/BMS/releases/download/";
-    match url.strip_prefix(RELEASES) {
-        Some(rest) => format!("{WEB_PROXY}{rest}"),
-        None => url.to_string(),
-    }
+const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
+
+#[cfg(target_arch = "wasm32")]
+fn via_proxy(url: &str) -> String {
+    format!("{WEB_PROXY}?url={}", crate::hosts::url_encode(url))
 }
 
 /// Download and unpack a work's files one after another into
@@ -607,10 +539,9 @@ fn web_fetch_files(
             Err(Fail::Msg("the archives hold nothing".into()))
         });
     };
-    crate::platform::http_get(&proxied(&f.url), move |r| match r {
-        // the proxy down: the browser downloads the file itself
-        Err(_) if i == 0 => done(Err(Fail::Page(f.url.clone()))),
-        Err(e) => done(Err(Fail::Msg(e))),
+    let (link, mirrored) = (f.url.clone(), !f.original.is_empty());
+    let next = move |r: Result<Vec<u8>, Fail>| match r {
+        Err(e) => done(Err(e)),
         Ok(bytes) => {
             let got = match crate::hosts::sniff_bytes(&bytes) {
                 // into the main archive's folder
@@ -630,30 +561,64 @@ fn web_fetch_files(
             };
             web_fetch_files(files, i + 1, n + got, dir, stem, done)
         }
-    });
+    };
+    if !mirrored {
+        // an author's link: the host's way to its archive
+        let (r, step) = crate::hosts::Resolver::new(&link);
+        web_step(r, step, link, next);
+    } else {
+        // a mirror file; the proxy down, the browser downloads it itself
+        let url = link;
+        crate::platform::http_get(&via_proxy(&url), move |r| match r {
+            Ok(b) => next(Ok(b)),
+            Err(_) if i == 0 => next(Err(Fail::Page(url))),
+            Err(e) => next(Err(Fail::Msg(e))),
+        });
+    }
 }
 
-/// The bytes of a web source (a MEGA file decrypted).
+/// Make a resolver's requests through the proxy until its archive arrives.
 #[cfg(target_arch = "wasm32")]
-fn web_fetch(src: crate::hosts::Web, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
-    use crate::hosts::{mega_answer, mega_request, MegaCipher, Web, MEGA_API};
-    match src {
-        Web::Url(u) => crate::platform::http_get(&u, done),
-        Web::Mega { handle, key } => crate::platform::http(
+fn web_step(
+    mut r: crate::hosts::Resolver,
+    step: crate::hosts::Step,
+    link: String,
+    done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
+) {
+    use crate::hosts::{Fetch, MegaCipher, Step};
+    match step {
+        Step::Get(u) => crate::platform::http_get(&via_proxy(&u), move |a| {
+            let s = r.feed(a);
+            web_step(r, s, link, done)
+        }),
+        Step::Post(u, body) => crate::platform::http(
             "POST",
-            MEGA_API,
+            &via_proxy(&u),
             &[("Content-Type".into(), "application/json".into())],
-            mega_request(&handle),
-            move |r| match r.and_then(|b| mega_answer(&b)) {
-                Ok(g) => crate::platform::http_get(&g, move |r| {
-                    done(r.map(|mut b| {
-                        MegaCipher::new(&key).apply(&mut b);
-                        b
-                    }))
-                }),
-                Err(e) => done(Err(e)),
+            body,
+            move |a| {
+                let s = r.feed(a);
+                web_step(r, s, link, done)
             },
         ),
+        Step::File { url, mega_key } => crate::platform::http_get(&via_proxy(&url), move |a| {
+            done(match a {
+                Ok(mut b) => {
+                    if let Some(k) = mega_key {
+                        MegaCipher::new(&k).apply(&mut b);
+                    }
+                    if crate::hosts::sniff_bytes(&b).is_some() {
+                        Ok(b)
+                    } else {
+                        Err(Fail::Page(link))
+                    }
+                }
+                // the proxy passes archives only: a page (or a refusal)
+                Err(_) => Err(Fail::Page(link)),
+            })
+        }),
+        Step::Fail(Fetch::Page) => done(Err(Fail::Page(link))),
+        Step::Fail(Fetch::Failed(e)) => done(Err(Fail::Msg(e))),
     }
 }
 
@@ -669,16 +634,10 @@ fn fetch_work(
 ) -> Result<(PathBuf, usize), Fail> {
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
-    let main = files.first().ok_or("no files")?;
-    let original = if main.original.is_empty() {
-        &main.name
-    } else {
-        &main.original
-    };
-    let stem = Path::new(&safe_name(original))
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "work".into());
+    if files.is_empty() {
+        return Err("no files".into());
+    }
+    let stem = work_stem(files);
     let rel = PathBuf::from("bms").join(event).join(&stem);
     let dest = root.join(&rel);
     let mut n = 0;
