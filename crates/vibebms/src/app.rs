@@ -172,6 +172,8 @@ pub struct Ctx {
     pub browse: Option<Vec<String>>,
     /// Mirrored event entries (`archive`).
     pub archives: crate::archive::Archives,
+    /// Difficulty-table songs downloading.
+    pub song_fetch: crate::songfetch::SongFetch,
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
@@ -350,9 +352,37 @@ impl Ctx {
     }
 
     pub fn poll_jobs(&mut self) {
-        let (toasts, rescan, changed, pages) = self.archives.poll(&self.paths);
+        let (toasts, mut rescan, changed, mut pages) = self.archives.poll(&self.paths);
         for t in toasts {
             self.toast(t);
+        }
+        // difficulty-table songs
+        for (title, done) in self.song_fetch.poll() {
+            use crate::songfetch::Done;
+            for d in done {
+                let name = |p: &std::path::Path| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                };
+                match d {
+                    Done::Added(dir, n) => {
+                        self.toast(format!("Added {} ({n} files)", name(&dir)));
+                        rescan = true;
+                    }
+                    Done::Placed(p) => {
+                        let dir = p.parent().map(name).unwrap_or_default();
+                        self.toast(format!("{} → {dir}", name(&p)));
+                        rescan = true;
+                    }
+                    Done::Waiting(p) => self.toast(format!("{}: download its song too", name(&p))),
+                    Done::Page(url) => {
+                        self.toast(format!("{title}: no direct download, opening its page"));
+                        pages.push(url);
+                    }
+                    Done::Failed(e) => self.toast(format!("{title}: download failed ({e})")),
+                }
+            }
         }
         // a work's link that needs a person on its page
         if !pages.is_empty() {
@@ -837,6 +867,7 @@ impl App {
             prefetch: None,
             browse: None,
             archives: Default::default(),
+            song_fetch: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
         };

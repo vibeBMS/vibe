@@ -22,6 +22,7 @@ pub mod placement;
 pub mod platform;
 pub mod scene;
 pub mod skin;
+pub mod songfetch;
 pub mod theme;
 pub mod touch;
 pub mod ui;

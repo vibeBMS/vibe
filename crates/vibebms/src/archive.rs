@@ -114,7 +114,7 @@ pub fn event_name(url: &str) -> String {
 }
 
 /// Why a work did not arrive.
-enum Fail {
+pub(crate) enum Fail {
     /// Its author's link is a page to use in a browser.
     Page(String),
     Msg(String),
@@ -477,7 +477,7 @@ impl Archives {
 }
 
 /// `name` made safe as a single file name.
-fn safe_name(name: &str) -> String {
+pub(crate) fn safe_name(name: &str) -> String {
     let s: String = name
         .chars()
         .map(|c| {
@@ -517,7 +517,7 @@ fn work_stem(files: &[File]) -> String {
 const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
 
 #[cfg(target_arch = "wasm32")]
-fn via_proxy(url: &str) -> String {
+pub(crate) fn via_proxy(url: &str) -> String {
     format!("{WEB_PROXY}?url={}", crate::hosts::url_encode(url))
 }
 
@@ -579,7 +579,7 @@ fn web_fetch_files(
 
 /// Make a resolver's requests through the proxy until its archive arrives.
 #[cfg(target_arch = "wasm32")]
-fn web_step(
+pub(crate) fn web_step(
     mut r: crate::hosts::Resolver,
     step: crate::hosts::Step,
     link: String,

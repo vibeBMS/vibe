@@ -61,11 +61,15 @@ impl PartialEq for Fetch {
 pub struct Resolver {
     link: String,
     wait: Wait,
+    /// Pages followed to another link (an event venue's work page).
+    hops: u8,
 }
 
 /// What the last [`Step::Get`] / [`Step::Post`] was for.
 enum Wait {
     Nothing,
+    /// A manbow event venue's work page: its download links.
+    Venue,
     DriveFolder,
     MediaFire,
     Mega(Vec<u8>),
@@ -89,6 +93,7 @@ impl Resolver {
         let mut r = Resolver {
             link: link.trim().to_string(),
             wait: Wait::Nothing,
+            hops: 0,
         };
         let step = r.first();
         (r, step)
@@ -120,6 +125,11 @@ impl Resolver {
         if host.ends_with("dropbox.com") {
             return file(dropbox_url(&u));
         }
+        // a difficulty table's link to the work's page on an event venue
+        if host == "manbow.nothing.sh" && lower.contains("action=more_def") && self.hops < 2 {
+            self.wait = Wait::Venue;
+            return Step::Get(u);
+        }
         if host.ends_with("mediafire.com") {
             if lower.contains("/folder/") {
                 return Step::Fail(Fetch::Page);
@@ -148,6 +158,18 @@ impl Resolver {
         };
         match std::mem::replace(&mut self.wait, Wait::Nothing) {
             Wait::Nothing => Step::Fail(Fetch::Failed("nothing asked".into())),
+            // on to the work's own download link
+            Wait::Venue => {
+                let page = vibebms_core::encoding::decode_text(&body);
+                match pick_link(&venue_links(&page)) {
+                    Some(next) => {
+                        self.link = next;
+                        self.hops += 1;
+                        self.first()
+                    }
+                    None => Step::Fail(Fetch::Page),
+                }
+            }
             Wait::DriveFolder => {
                 let page = String::from_utf8_lossy(&body);
                 let files = folder_entries(&page);
@@ -187,6 +209,117 @@ impl Resolver {
             },
         }
     }
+}
+
+/// (label, URL) of the download links on a manbow work page (its
+/// "Download" box): a link's label is the text before it.
+fn venue_links(page: &str) -> Vec<(String, String)> {
+    let Some(at) = page.find("<h3>Download</h3>") else {
+        return Vec::new();
+    };
+    let block = &page[at + "<h3>Download</h3>".len()..];
+    let block = &block[..block.find("</blockquote>").unwrap_or(block.len())];
+    let mut out = Vec::new();
+    let mut label = String::new();
+    let mut rest = block;
+    while let Some(i) = rest.find("href=\"") {
+        // the last line of text before the link (lines end at <br>)
+        let before = &rest[..i];
+        let lower = before.to_ascii_lowercase();
+        let mut cuts: Vec<usize> = lower.match_indices("<br").map(|(k, _)| k).collect();
+        cuts.insert(0, 0);
+        cuts.push(before.len());
+        let text = cuts
+            .windows(2)
+            .rev()
+            .map(|w| {
+                strip_tags(&before[w[0]..w[1]])
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .find(|t| !t.is_empty())
+            .unwrap_or_default();
+        if !text.is_empty() {
+            label = text;
+        }
+        let Some(url) = between(&rest[i..], "href=\"", "\"") else {
+            break;
+        };
+        let url = unescape(url);
+        if url.starts_with("http") {
+            out.push((label.clone(), url));
+        }
+        rest = &rest[i + 6..];
+        rest = &rest[rest
+            .find("</a>")
+            .or_else(|| rest.find("</A>"))
+            .map_or(0, |k| k + 4)..];
+    }
+    out
+}
+
+fn strip_tags(s: &str) -> String {
+    let mut out = String::new();
+    let mut tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => tag = true,
+            '>' => tag = false,
+            c if !tag => out.push(c),
+            _ => {}
+        }
+    }
+    unescape(&out)
+}
+
+/// The main archive among a work's links (as the mirror's
+/// `scrape_manbow.py` picks): high quality over low, ogg over wav, full
+/// packages over BGA-only archives and patches, the first of equals.
+fn pick_link(links: &[(String, String)]) -> Option<String> {
+    let score = |label: &str, url: &str| {
+        let t = format!("{label} {url}").to_lowercase();
+        let has = |ws: &[&str]| ws.iter().any(|w| t.contains(w));
+        let mut s = 0;
+        if has(&["hq", "高画質", "高品質", "high quality"]) {
+            s += 6;
+        }
+        if has(&["lq", "低画質", "低品質", "low quality"]) {
+            s -= 6;
+        }
+        if has(&["ogg"]) {
+            s += 4;
+        }
+        if has(&["wav", "flac"]) {
+            s -= 4;
+        }
+        if has(&[
+            "bga only",
+            "only bga",
+            "bga単体",
+            "bgaのみ",
+            "差分",
+            "patch",
+            "追加",
+        ]) {
+            s -= 8;
+        }
+        if has(&["mirror", "ミラー", "予備", "backup"]) {
+            s -= 1;
+        }
+        if has(&["/folders/", "/scl/fo/", "/folder/"]) {
+            s -= 3;
+        }
+        s
+    };
+    let mut best: Option<(i32, &str)> = None;
+    for (label, url) in links {
+        let s = score(label, url);
+        if best.is_none_or(|(b, _)| s > b) {
+            best = Some((s, url));
+        }
+    }
+    best.map(|(_, u)| u.to_string())
 }
 
 /// The file or folder id of a Google Drive link (`/file/d/ID`,
@@ -620,6 +753,28 @@ mod tests {
                 assert_eq!(url, "https://gfs.example/dl/x");
                 assert_eq!(mega_key.map(|k| k.len()), Some(32));
             }
+            s => panic!("{s:?}"),
+        }
+    }
+
+    #[test]
+    fn venue_pages() {
+        let page = r#"<h3>Download</h3></div><blockquote><p style="x">wav<br><a href="https://drive.google.com/file/d/W/view">https://drive.google.com/file/d/W/view</A><br>ogg<br><a href="https://drive.google.com/file/d/O/view">https://drive.google.com/file/d/O/view</A></p><footer>Total</footer></blockquote>"#;
+        let links = venue_links(page);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].0, "wav");
+        assert_eq!(links[1].0, "ogg");
+        assert_eq!(
+            pick_link(&links).as_deref(),
+            Some("https://drive.google.com/file/d/O/view")
+        );
+        // the venue page, then the ogg archive on Drive
+        let (mut r, s) = Resolver::new(
+            "https://manbow.nothing.sh/event/event.cgi?action=More_def&num=94&event=146",
+        );
+        assert!(matches!(s, Step::Get(_)));
+        match r.feed(Ok(page.as_bytes().to_vec())) {
+            Step::File { url, .. } => assert!(url.contains("id=O")),
             s => panic!("{s:?}"),
         }
     }

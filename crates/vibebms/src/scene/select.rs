@@ -523,6 +523,16 @@ impl SelectScene {
                 title,
                 ..
             }) => {
+                // straight from the links (as the event mirror's works)
+                if ctx.song_fetch.is_busy(&title) {
+                    ctx.toast(format!("{title}: already downloading"));
+                    return Next::Stay;
+                }
+                let root = ctx.paths.root.clone();
+                if ctx.song_fetch.start(&root, &title, &url, &url_diff) {
+                    ctx.toast(format!("Downloading {title}…"));
+                    return Next::Stay;
+                }
                 // the song's page, then the separate chart's (the chart goes
                 // into the song's folder)
                 let pages: Vec<&str> = [url.as_str(), url_diff.as_str()]
