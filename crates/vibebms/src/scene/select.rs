@@ -62,6 +62,8 @@ pub(crate) enum Bar {
         /// More links for the song, after `url` (an event work's other
         /// links, then its page).
         more: Vec<String>,
+        /// Links of add-ons (差分) for the song: into its folder after it.
+        addons: Vec<String>,
         level: String,
         /// Download pages: the song, and the chart when it is a separate
         /// (差分) chart for that song.
@@ -368,6 +370,7 @@ impl SelectScene {
                             artist: w.artist.clone(),
                             md5: String::new(),
                             more: w.links.iter().skip(1).chain([&w.page]).cloned().collect(),
+                            addons: w.addons.clone(),
                             level: String::new(),
                             url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
                             url_diff: String::new(),
@@ -394,6 +397,7 @@ impl SelectScene {
                             artist: e.artist.clone(),
                             md5: e.md5.clone(),
                             more: Vec::new(),
+                            addons: Vec::new(),
                             level: table.label(&e.level),
                             url: e.url.clone(),
                             url_diff: e.url_diff.clone(),
@@ -533,6 +537,7 @@ impl SelectScene {
                 artist,
                 md5,
                 more,
+                addons,
                 ..
             }) => {
                 // straight from the links (as the event mirror's works)
@@ -554,7 +559,9 @@ impl SelectScene {
                         song.push(u);
                     }
                 }
-                let links = vec![(song, false), (ctx.links.links.chart_links(&e), true)];
+                // its separate chart's links, then add-ons each
+                let mut links = vec![(song, false), (ctx.links.links.chart_links(&e), true)];
+                links.extend(addons.into_iter().map(|a| (vec![a], true)));
                 if ctx.song_fetch.start(&root, &title, &artist, &md5, links) {
                     ctx.toast(format!("Downloading {title}…"));
                     return Next::Stay;

@@ -49,8 +49,13 @@ pub struct Work {
     pub page: String,
     /// The main archive first, then add-ons.
     pub files: Vec<File>,
-    /// Original download pages (works the mirror could not copy).
+    /// The authors' download links (works the mirror could not copy), in
+    /// the order to try them (the index puts those found to bring the song
+    /// first).
     pub links: Vec<String>,
+    /// Links found to hold add-ons for the song (charts without their
+    /// sounds: 差分), to put into its folder.
+    pub addons: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
