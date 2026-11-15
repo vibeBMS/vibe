@@ -379,6 +379,17 @@ pub trait Fetcher {
     fn get(&self, url: &str) -> Result<Vec<u8>, String>;
 }
 
+/// Blocking GETs over the network.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Net;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Fetcher for Net {
+    fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+        crate::hosts::get(url)
+    }
+}
+
 /// Load a table synchronously with a blocking fetcher (tests, tools).
 pub fn fetch_table(fetcher: &dyn Fetcher, url: &str) -> Result<DifficultyTable, TableError> {
     let (mut loader, mut next) = TableLoader::new(url);

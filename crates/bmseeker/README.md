@@ -24,12 +24,25 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 
 `cargo run -p bmseeker -- missing https://stellabms.xyz/sl/table.html ~/bms -l 0`
 
+## 창 (`bmseeker-gui`)
+
+`cargo run --release -p bmseeker-gui`: 같은 일을 창으로 합니다(egui).
+
+- **Tables**: 난이도표·레벨별로 가진 채보 수, 레벨의 채보 목록(가짐/없음, 곡·차분 링크), 하나씩 또는
+  레벨의 없는 곡 전부 받기. 받은 뒤 라이브러리를 다시 읽어 바로 반영합니다.
+- **Waiting**: 곡보다 먼저 받은 차분과 들어갈 수 있는 폴더 후보(음원 충족률, 같은 곡 여부), 골라서 옮기기.
+- **Settings**: BMS 폴더, 난이도표 목록, 링크 보완, LR2 커스텀 폴더·beatoraja table 폴더로 내보내기.
+
+설정과 라이브러리 해시 캐시는 사용자 설정 폴더의 `bmseeker/`(Windows `%APPDATA%`, macOS
+`~/Library/Application Support`, 그 밖 `~/.config`)에 둡니다. 받은 파일은 BMS 폴더의 `.bmseeker/`에서
+곡을 기다립니다(명령줄 도구와 같은 곳).
+
 ## 모듈
 
 | 모듈 | 하는 일 |
 | --- | --- |
 | `table` | bmstable 형식 난이도표 (HTML의 `<meta name="bmstable">` → header → data) |
-| `hosts` | 링크 → 아카이브: 직링크, Google Drive 파일·폴더, Dropbox, MediaFire, MEGA 파일·폴더(합본 안에서 제목·아티스트로 찾기), manbow 이벤트 작품 페이지 |
+| `hosts` | 링크 → 아카이브: 직링크, Google Drive 파일·폴더, Dropbox, MediaFire, MEGA 파일·폴더(합본 안에서 제목·아티스트로 찾기), manbow·BMS SEARCH(venue.bmssearch.net) 이벤트 작품 페이지. OneDrive는 브라우저에서 `PRESS_DOWNLOAD_JS`로 |
 | `unpack` / `import` | .zip / .7z / .rar 풀기 (Shift_JIS·EUC-KR 이름, 경로 탈출·압축 폭탄 방지) |
 | `placement` | 차분 채보가 어느 곡 폴더에 속하는지: 함께 온 파일까지 쳐서 쓰는 음원의 99% 이상 + 같은 곡(제목·아티스트), 아니면 후보 3개; 같은 이름 파일은 스마트 덮어쓰기 |
 | `install` | 난이도표의 곡 하나: 본체 링크와 차분 링크를 받아 라이브러리에 |

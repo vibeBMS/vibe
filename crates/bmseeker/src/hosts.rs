@@ -71,6 +71,8 @@ enum Wait {
     Nothing,
     /// A manbow event venue's work page: its download links.
     Venue,
+    /// A BMS SEARCH venue work's manifest (JSON): its download links.
+    Manifest,
     DriveFolder,
     MediaFire,
     Mega(Vec<u8>),
@@ -175,6 +177,19 @@ impl Resolver {
             self.wait = Wait::Venue;
             return Step::Get(u);
         }
+        // a work on a BMS SEARCH event venue: its manifest lists the links
+        if host == "venue.bmssearch.net" && self.hops < 2 {
+            let path = u
+                .split(['?', '#'])
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('/');
+            // https://venue.bmssearch.net/<event>/<work>
+            if path.split('/').filter(|p| !p.is_empty()).count() >= 4 {
+                self.wait = Wait::Manifest;
+                return Step::Get(format!("{path}/manifest"));
+            }
+        }
         if host.ends_with("mediafire.com") {
             if lower.contains("/folder/") {
                 return Step::Fail(Fetch::Page);
@@ -215,6 +230,29 @@ impl Resolver {
             Wait::Venue => {
                 let page = vibebms_core::encoding::decode_text(&body);
                 match pick_link(&venue_links(&page)) {
+                    Some(next) => {
+                        self.link = next;
+                        self.hops += 1;
+                        self.first()
+                    }
+                    None => Step::Fail(Fetch::Page),
+                }
+            }
+            Wait::Manifest => {
+                let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+                let s = |r: &serde_json::Value, k: &str| {
+                    r.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
+                };
+                let links: Vec<(String, String)> = v
+                    .get("resources")
+                    .and_then(|r| r.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter(|r| s(r, "type") != "additional")
+                    .map(|r| (s(r, "name"), s(r, "url")))
+                    .filter(|(_, u)| u.starts_with("http"))
+                    .collect();
+                match pick_link(&links) {
                     Some(next) => {
                         self.link = next;
                         self.hops += 1;
@@ -876,6 +914,12 @@ pub fn fetch_for(link: &str, want: Option<Want>, out: &Path) -> Result<(), Fetch
     }
 }
 
+/// A page or file, in memory (a table, a list): a blocking GET.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn get(url: &str) -> Result<Vec<u8>, String> {
+    answer(ehttp::fetch_blocking(&ehttp::Request::get(url)))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn answer(r: Result<ehttp::Response, String>) -> Result<Vec<u8>, String> {
     match r {
@@ -1185,6 +1229,30 @@ mod tests {
         assert_eq!(
             pick_mega(&files, Some("B"), None).map(|f| f.handle.as_str()),
             Some("B")
+        );
+    }
+
+    #[test]
+    fn bmssearch_venue() {
+        let (mut r, s) = Resolver::new("https://venue.bmssearch.net/bmsshuin3/75");
+        assert_eq!(
+            s,
+            Step::Get("https://venue.bmssearch.net/bmsshuin3/75/manifest".into())
+        );
+        let manifest = r#"{"version":1,"resources":[
+            {"url":"https://drive.google.com/file/d/W/view","type":"core","name":"wav版"},
+            {"url":"https://drive.google.com/file/d/O/view","type":"core","name":"ogg版"}]}"#;
+        match r.feed(Ok(manifest.as_bytes().to_vec())) {
+            Step::File { url, .. } => assert!(url.contains("id=O"), "{url}"),
+            s => panic!("{s:?}"),
+        }
+        // the venue's list of works is a page
+        assert_eq!(
+            Resolver::new("https://venue.bmssearch.net/bmsshuin3").1,
+            Step::File {
+                url: "https://venue.bmssearch.net/bmsshuin3".into(),
+                mega_key: None
+            }
         );
     }
 

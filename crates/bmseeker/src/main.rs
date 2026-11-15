@@ -297,26 +297,9 @@ mod cli {
         }
     }
 
-    struct Blocking;
-
-    impl table::Fetcher for Blocking {
-        fn get(&self, url: &str) -> Result<Vec<u8>, String> {
-            let r = ehttp::fetch_blocking(&ehttp::Request::get(url))?;
-            if r.ok {
-                Ok(r.bytes)
-            } else {
-                Err(format!("HTTP {}", r.status))
-            }
-        }
-    }
-
     /// The lists of links by MD5 (those that load).
     fn links() -> Links {
-        let get = |url: &str| {
-            table::Fetcher::get(&Blocking, url)
-                .map_err(|e| eprintln!("{url}: {e}"))
-                .ok()
-        };
+        let get = |url: &str| hosts::get(url).map_err(|e| eprintln!("{url}: {e}")).ok();
         let tsv = get(links::MD5_URL_TSV)
             .map(|b| Links::from_tsv(&String::from_utf8_lossy(&b)))
             .unwrap_or_default();
@@ -338,7 +321,7 @@ mod cli {
     }
 
     fn load(url: &str) -> Result<DifficultyTable, String> {
-        table::fetch_table(&Blocking, url).map_err(|e| e.to_string())
+        table::fetch_table(&table::Net, url).map_err(|e| e.to_string())
     }
 
     /// The MD5 and SHA-256 (hex) of every chart below `dir`.
