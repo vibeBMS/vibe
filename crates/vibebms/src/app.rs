@@ -257,7 +257,35 @@ impl Ctx {
         roots
     }
 
+    /// A scan that has ended: its songs into the list (always before another
+    /// starts, or the songs it found would be lost: the next one finds no
+    /// change). `again`: start the scan asked for meanwhile.
+    fn finish_scan(&mut self, again: bool) {
+        let Some(s) = &self.scan else { return };
+        if !s.done.load(Ordering::Acquire) {
+            return;
+        }
+        let changed = s.changed.load(Ordering::Acquire);
+        self.scan = None;
+        if changed || self.songs.is_empty() {
+            self.reload_library();
+        }
+        let n = self.songs.len();
+        self.toast(format!("Library: {n} charts"));
+        if !again {
+            return;
+        }
+        if std::mem::take(&mut self.scan_again) {
+            self.start_scan();
+        } else {
+            // what was downloaded before it started is in now
+            self.song_fetch.scanned();
+        }
+    }
+
     pub fn start_scan(&mut self) {
+        self.finish_scan(false);
+        self.scan_again = false;
         if self
             .scan
             .as_ref()
@@ -442,23 +470,7 @@ impl Ctx {
             }
             self.start_scan();
         }
-        if let Some(s) = &self.scan {
-            if s.done.load(Ordering::Acquire) {
-                let changed = s.changed.load(Ordering::Acquire);
-                self.scan = None;
-                if changed || self.songs.is_empty() {
-                    self.reload_library();
-                }
-                let n = self.songs.len();
-                self.toast(format!("Library: {n} charts"));
-                if std::mem::take(&mut self.scan_again) {
-                    self.start_scan();
-                } else {
-                    // what was downloaded before it started is in now
-                    self.song_fetch.scanned();
-                }
-            }
-        }
+        self.finish_scan(true);
         if self.links.poll() {
             self.fill_links();
         }
