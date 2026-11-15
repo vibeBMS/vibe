@@ -6,7 +6,8 @@
 //!   (Google Drive, Dropbox, MediaFire, MEGA, event venues, ...);
 //! - [`unpack`] / [`import`]: archives (.zip, .7z, .rar) into the library;
 //! - [`placement`]: which song's folder a chart of its own (差分) belongs in;
-//! - [`install`]: a table's song from its links into the library.
+//! - [`install`]: a table's song from its links into the library;
+//! - [`links`]: links for a table's songs whose own are missing or dead.
 //!
 //! The parts that touch files take an [`fs::Fs`], so a player can keep its
 //! library somewhere other than a disk (the vibeBMS web build keeps it in
@@ -19,6 +20,7 @@ pub mod hosts;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod import;
 pub mod install;
+pub mod links;
 pub mod placement;
 pub mod table;
 pub mod unpack;

@@ -174,6 +174,8 @@ pub struct Ctx {
     pub archives: crate::archive::Archives,
     /// Difficulty-table songs downloading.
     pub song_fetch: crate::songfetch::SongFetch,
+    /// Links for table songs whose own are missing or dead.
+    pub links: crate::links::LinkLists,
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
@@ -306,6 +308,9 @@ impl Ctx {
                 self.tables.push(dt);
             }
         }
+        for t in &mut self.tables {
+            self.links.links.fill(&mut t.entries);
+        }
         self.library_version += 1;
     }
 
@@ -437,6 +442,12 @@ impl Ctx {
                 self.toast(format!("Library: {n} charts"));
             }
         }
+        if self.links.poll() {
+            for t in &mut self.tables {
+                self.links.links.fill(&mut t.entries);
+            }
+            self.library_version += 1;
+        }
         let mut done = false;
         let mut msgs = Vec::new();
         if let Some(rx) = &self.table_rx {
@@ -447,11 +458,13 @@ impl Ctx {
         for m in msgs {
             match m {
                 TableMsg::Loaded(t) => {
-                    let t = *t;
+                    let mut t = *t;
                     if let Ok(j) = serde_json::to_vec(&t) {
                         let _ =
                             crate::platform::vfs::write(&self.table_cache_file(&t.source_url), &j);
                     }
+                    // (cached as the table has them)
+                    self.links.links.fill(&mut t.entries);
                     self.toast(format!(
                         "Table updated: {} ({} charts)",
                         t.header.name,
@@ -868,6 +881,7 @@ impl App {
             browse: None,
             archives: Default::default(),
             song_fetch: Default::default(),
+            links: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
         };
@@ -875,6 +889,7 @@ impl App {
         ctx.load_cached_tables();
         ctx.start_scan();
         ctx.refresh_tables(false);
+        ctx.links.start(&ctx.paths.cache);
         ctx.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
         ctx.archives.refresh(false);
         // tests: open the download browser on this page at start

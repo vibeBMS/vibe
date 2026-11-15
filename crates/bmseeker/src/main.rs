@@ -2,9 +2,11 @@
 //!
 //! ```text
 //! bmseeker table <table URL>                      the table's levels
-//! bmseeker missing <table URL> <library> [-l LEVEL] [--get]
+//! bmseeker missing <table URL> <library> [-l LEVEL] [--get] [--own-links]
 //!                                                 its songs the library lacks
-//!                                                 (--get: download them)
+//!                                                 (--get: download them; links
+//!                                                 missing or dead filled by MD5
+//!                                                 unless --own-links)
 //! bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
 //!                                                 the archive a link leads to
 //! bmseeker install <link> <library> [--diff] [-t TITLE] [-a ARTIST]
@@ -30,13 +32,14 @@ mod cli {
     use bmseeker::fs::Disk;
     use bmseeker::hosts::{self, Fetch, Want};
     use bmseeker::install::{self, Done};
+    use bmseeker::links::{self, Links};
     use bmseeker::table::{self, DifficultyTable, TableEntry};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
 
     const USAGE: &str = "usage:
   bmseeker table <table URL>
-  bmseeker missing <table URL> <library> [-l LEVEL] [--get]
+  bmseeker missing <table URL> <library> [-l LEVEL] [--get] [--own-links]
   bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
   bmseeker install <link> <library> [--diff] [-t TITLE] [-a ARTIST]
   bmseeker import <file> <library>";
@@ -104,7 +107,12 @@ mod cli {
                 Ok(())
             }
             Some("missing") => {
-                let t = load(a.need(0)?)?;
+                let mut t = load(a.need(0)?)?;
+                if !a.has("--own-links") {
+                    let links = links();
+                    let n = links.fill(&mut t.entries);
+                    eprintln!("{n} charts' links filled from {} known", links.len());
+                }
                 let library = PathBuf::from(a.need(1)?);
                 let have = scan(&library);
                 let level = a.get("-l");
@@ -198,6 +206,22 @@ mod cli {
                 Err(format!("HTTP {}", r.status))
             }
         }
+    }
+
+    /// The lists of links by MD5 (those that load).
+    fn links() -> Links {
+        let get = |url: &str| {
+            table::Fetcher::get(&Blocking, url)
+                .map_err(|e| eprintln!("{url}: {e}"))
+                .ok()
+        };
+        let tsv = get(links::MD5_URL_TSV)
+            .map(|b| Links::from_tsv(&String::from_utf8_lossy(&b)))
+            .unwrap_or_default();
+        let stella = get(links::STELLA_UPLOADS)
+            .map(|b| Links::from_stella(&b))
+            .unwrap_or_default();
+        tsv.and(stella)
     }
 
     fn load(url: &str) -> Result<DifficultyTable, String> {
