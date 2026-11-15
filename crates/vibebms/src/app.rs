@@ -641,6 +641,7 @@ pub fn run() {
     {
         use winit::platform::web::EventLoopExtWebSys;
         crate::web::install_file_input(app.paths.root.clone());
+        crate::web::install_input_stamps();
         event_loop.spawn_app(app);
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -1070,6 +1071,10 @@ impl ApplicationHandler<UserEvent> for App {
             return;
         }
         let _ = id;
+        // (the web: when the browser got the event, not when this runs)
+        #[cfg(target_arch = "wasm32")]
+        let now = crate::web::input_time();
+        #[cfg(not(target_arch = "wasm32"))]
         let now = Instant::now();
         match event {
             WindowEvent::CloseRequested => {

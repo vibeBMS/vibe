@@ -251,3 +251,58 @@ fn show_next_dialog() {
     let _ = body.append_child(&shade);
     DIALOG.with(|d| d.set(true));
 }
+
+thread_local! {
+    /// The browser's time of the input event being handled (ms, as
+    /// `performance.now()`), set before the app sees it.
+    static INPUT_STAMP: std::cell::Cell<f64> = const { std::cell::Cell::new(-1.0) };
+}
+
+/// Note the browser's own time of each input event (its `timeStamp`), in a
+/// capture listener that runs before the app's: the app takes it as the
+/// event's time ([`input_time`]), not when its handler ran, which on a busy
+/// page (an iPad drawing a chart) is a frame or more later.
+pub fn install_input_stamps() {
+    let Some(w) = web_sys::window() else { return };
+    let note = Closure::<dyn FnMut(web_sys::Event)>::new(|e: web_sys::Event| {
+        INPUT_STAMP.with(|s| s.set(e.time_stamp()));
+    });
+    let opts = web_sys::AddEventListenerOptions::new();
+    opts.set_capture(true);
+    opts.set_passive(true);
+    for kind in [
+        "keydown",
+        "keyup",
+        "pointerdown",
+        "pointerup",
+        "pointermove",
+        "touchstart",
+        "touchend",
+        "touchmove",
+        "mousedown",
+        "mouseup",
+    ] {
+        let _ = w.add_event_listener_with_callback_and_add_event_listener_options(
+            kind,
+            note.as_ref().unchecked_ref(),
+            &opts,
+        );
+    }
+    note.forget();
+}
+
+/// When the input event being handled happened: its browser time, if it
+/// was noted just now; else now.
+pub fn input_time() -> crate::platform::Instant {
+    let now = crate::platform::Instant::now();
+    let stamp = INPUT_STAMP.with(|s| s.replace(-1.0));
+    let perf = web_sys::window()
+        .and_then(|w| w.performance())
+        .map(|p| p.now());
+    match perf.map(|p| p - stamp) {
+        Some(lag) if stamp >= 0.0 && (0.0..250.0).contains(&lag) => now
+            .checked_sub(crate::platform::Duration::from_secs_f64(lag / 1000.0))
+            .unwrap_or(now),
+        _ => now,
+    }
+}
