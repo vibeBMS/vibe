@@ -412,6 +412,7 @@ dependencies = [
  "aes",
  "ehttp",
  "encoding_rs",
+ "flate2",
  "log",
  "md-5",
  "serde",

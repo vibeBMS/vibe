@@ -7,13 +7,15 @@
 //! - [`unpack`] / [`import`]: archives (.zip, .7z, .rar) into the library;
 //! - [`placement`]: which song's folder a chart of its own (差分) belongs in;
 //! - [`install`]: a table's song from its links into the library;
-//! - [`links`]: links for a table's songs whose own are missing or dead.
+//! - [`links`]: links for a table's songs whose own are missing or dead;
+//! - [`export`]: a table as LR2 custom folders or a beatoraja table cache.
 //!
 //! The parts that touch files take an [`fs::Fs`], so a player can keep its
 //! library somewhere other than a disk (the vibeBMS web build keeps it in
 //! memory). The network parts are sans-IO steps ([`hosts::Resolver`],
 //! [`table::TableLoader`]) with blocking drivers for native builds.
 
+pub mod export;
 pub mod fs;
 pub mod hosts;
 // archives from a disk (a web page has none)

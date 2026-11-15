@@ -32,6 +32,8 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = ["bzip2"
 unrar-rs = { version = "0.16", default-features = false, features = ["crypto-rust"] }
 # MEGA files are AES-128-CTR encrypted
 aes = "0.9"
+# beatoraja table caches (.bmt) are gzip
+flate2 = "1"
 
 # Desktop: trust the OS certificate store (corporate proxies, custom CAs).
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]

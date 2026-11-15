@@ -17,6 +17,11 @@
 //!                                                 a chart's song folder: the
 //!                                                 candidates, or move it there
 //! bmseeker pending <library>                      charts waiting for their song
+//! bmseeker export lr2 <table URL> <folder> [--own-links]
+//!                                                 the table as LR2 custom
+//!                                                 folders (add <folder> to LR2)
+//! bmseeker export bmt <table URL> <beatoraja table folder> [--own-links]
+//!                                                 the table as beatoraja's cache
 //! ```
 
 #[cfg(target_arch = "wasm32")]
@@ -33,6 +38,7 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod cli {
+    use bmseeker::export;
     use bmseeker::fs::Disk;
     use bmseeker::hosts::{self, Fetch, Want};
     use bmseeker::install::{self, Done};
@@ -49,7 +55,9 @@ mod cli {
   bmseeker install <link> <library> [--diff] [-t TITLE] [-a ARTIST]
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
-  bmseeker pending <library>";
+  bmseeker pending <library>
+  bmseeker export lr2 <table URL> <folder> [--own-links]
+  bmseeker export bmt <table URL> <beatoraja table folder> [--own-links]";
 
     /// The arguments: positional ones, and the value of each `-x VALUE` /
     /// `--flag`.
@@ -114,12 +122,7 @@ mod cli {
                 Ok(())
             }
             Some("missing") => {
-                let mut t = load(a.need(0)?)?;
-                if !a.has("--own-links") {
-                    let links = links();
-                    let n = links.fill(&mut t.entries);
-                    eprintln!("{n} charts' links filled from {} known", links.len());
-                }
+                let t = load_filled(a.need(0)?, a.has("--own-links"))?;
                 let library = PathBuf::from(a.need(1)?);
                 let have = scan(&library);
                 let level = a.get("-l");
@@ -238,6 +241,39 @@ mod cli {
                 eprintln!("{} charts waiting", charts.len());
                 Ok(())
             }
+            Some("export") => {
+                let (kind, out) = (a.need(0)?, PathBuf::from(a.need(2)?));
+                let t = load_filled(a.need(1)?, a.has("--own-links"))?;
+                let write = |p: &Path, b: &[u8]| {
+                    if let Some(d) = p.parent() {
+                        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+                    }
+                    std::fs::write(p, b).map_err(|e| format!("{}: {e}", p.display()))
+                };
+                match kind {
+                    "lr2" => {
+                        let dir = out.join(install::safe_name(&t.header.name));
+                        // the levels a table no longer has go
+                        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                            if e.path().extension().is_some_and(|x| x == "lr2folder") {
+                                let _ = std::fs::remove_file(e.path());
+                            }
+                        }
+                        let folders = export::lr2_folders(&t);
+                        for (name, text) in &folders {
+                            write(&dir.join(name), text)?;
+                        }
+                        println!("{}: {} folders", dir.display(), folders.len());
+                    }
+                    "bmt" => {
+                        let file = out.join(export::bmt_file_name(&t.source_url));
+                        write(&file, &export::beatoraja_bmt(&t))?;
+                        println!("{}", file.display());
+                    }
+                    _ => return Err(USAGE.into()),
+                }
+                Ok(())
+            }
             _ => Err(USAGE.into()),
         }
     }
@@ -288,6 +324,17 @@ mod cli {
             .map(|b| Links::from_stella(&b))
             .unwrap_or_default();
         tsv.and(stella)
+    }
+
+    /// A table, its missing or dead links filled unless `own`.
+    fn load_filled(url: &str, own: bool) -> Result<DifficultyTable, String> {
+        let mut t = load(url)?;
+        if !own {
+            let links = links();
+            let n = links.fill(&mut t.entries);
+            eprintln!("{n} charts' links filled from {} known", links.len());
+        }
+        Ok(t)
     }
 
     fn load(url: &str) -> Result<DifficultyTable, String> {
