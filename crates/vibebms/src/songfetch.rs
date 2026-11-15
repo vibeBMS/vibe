@@ -72,10 +72,18 @@ impl SongFetch {
 
     /// Download `title` from `url` (the song) and `url_diff` (its separate
     /// chart). False when neither is a link.
-    pub fn start(&mut self, root: &Path, title: &str, url: &str, url_diff: &str) -> bool {
+    pub fn start(
+        &mut self,
+        root: &Path,
+        title: &str,
+        artist: &str,
+        url: &str,
+        url_diff: &str,
+    ) -> bool {
         // (link, it is the separate chart's)
         let links: Vec<(String, bool)> = [(url, false), (url_diff, true)]
             .into_iter()
+            .map(|(u, d)| (u.trim(), d))
             .filter(|(u, _)| is_link(u))
             .map(|(u, d)| (u.to_string(), d))
             .collect();
@@ -89,17 +97,21 @@ impl SongFetch {
         }
         let tx = self.tx.clone().expect("channel");
         self.busy.push(title.to_string());
+        let want = crate::hosts::Want {
+            title: title.to_string(),
+            artist: artist.to_string(),
+        };
         let (root, title) = (root.to_path_buf(), title.to_string());
         #[cfg(not(target_arch = "wasm32"))]
         crate::platform::spawn("song", move || {
             let done: Vec<Done> = links
                 .iter()
-                .flat_map(|(l, diff)| native(&root, &title, l, *diff))
+                .flat_map(|(l, diff)| native(&root, &want, l, *diff))
                 .collect();
             let _ = tx.send((title, done));
         });
         #[cfg(target_arch = "wasm32")]
-        web(root, title.clone(), links, Vec::new(), move |done| {
+        web(root, want, links, Vec::new(), move |done| {
             let _ = tx.send((title, done));
         });
         true
@@ -161,8 +173,9 @@ fn place_charts(dir: &Path, library: &Path) -> Vec<Done> {
 /// put a chart into its song's folder; a separate chart's archive goes to
 /// its song's folder too).
 #[cfg(not(target_arch = "wasm32"))]
-fn native(root: &Path, title: &str, link: &str, diff: bool) -> Vec<Done> {
+fn native(root: &Path, want: &crate::hosts::Want, link: &str, diff: bool) -> Vec<Done> {
     use crate::import::{self, Imported};
+    let title = want.title.as_str();
     let downloads = root.join("downloads");
     let library = root.join("bms");
     if let Err(e) = std::fs::create_dir_all(&downloads) {
@@ -181,7 +194,9 @@ fn native(root: &Path, title: &str, link: &str, diff: bool) -> Vec<Done> {
         file
     } else {
         let tmp = downloads.join(format!(".song-{}", crate::archive::safe_name(title)));
-        match crate::hosts::fetch(link, &tmp) {
+        // the song's own link may be a pack of many songs: its archive
+        let want = (!diff).then(|| want.clone());
+        match crate::hosts::fetch_for(link, want, &tmp) {
             Ok(()) => {
                 let ext = crate::hosts::sniff(&tmp).unwrap_or("zip");
                 let file = downloads.join(format!("{}.{ext}", crate::archive::safe_name(title)));
@@ -232,7 +247,7 @@ fn native(root: &Path, title: &str, link: &str, diff: bool) -> Vec<Done> {
 #[cfg(target_arch = "wasm32")]
 fn web(
     root: PathBuf,
-    title: String,
+    want: crate::hosts::Want,
     mut links: Vec<(String, bool)>,
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
@@ -243,6 +258,7 @@ fn web(
     if links.is_empty() {
         return finish(done);
     }
+    let title = want.title.clone();
     let (link, diff) = links.remove(0);
     if chart_link(&link) {
         let name = chart_name(&link);
@@ -265,11 +281,11 @@ fn web(
                 }
                 _ => Done::Page(link),
             });
-            web(root, title, links, done, finish)
+            web(root, want, links, done, finish)
         });
         return;
     }
-    let (r, step) = crate::hosts::Resolver::new(&link);
+    let (r, step) = crate::hosts::Resolver::find(&link, (!diff).then(|| want.clone()));
     web_step(r, step, link, move |r| {
         match r {
             // a separate chart's archive: its charts into their songs' folders
@@ -291,7 +307,7 @@ fn web(
             Err(Fail::Page(url)) => done.push(Done::Page(url)),
             Err(Fail::Msg(e)) => done.push(Done::Failed(e)),
         }
-        web(root, title, links, done, finish)
+        web(root, want, links, done, finish)
     });
 }
 
@@ -299,7 +315,7 @@ fn web(
 mod tests {
     use super::*;
 
-    /// `VIBEBMS_SONG=URL VIBEBMS_DIFF=URL cargo test -p vibebms song_links -- --ignored`
+    /// `VIBEBMS_SONG=URL VIBEBMS_DIFF=URL [VIBEBMS_TITLE=… VIBEBMS_ARTIST=…] cargo test -p vibebms song_links -- --ignored`
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     #[ignore = "network"]
@@ -310,7 +326,15 @@ mod tests {
             if let Ok(link) = std::env::var(var) {
                 println!(
                     "{var}: {:?}",
-                    native(&root, "Test Song", &link, var == "VIBEBMS_DIFF")
+                    native(
+                        &root,
+                        &crate::hosts::Want {
+                            title: std::env::var("VIBEBMS_TITLE").unwrap_or("Test Song".into()),
+                            artist: std::env::var("VIBEBMS_ARTIST").unwrap_or_default(),
+                        },
+                        &link,
+                        var == "VIBEBMS_DIFF"
+                    )
                 );
             }
         }

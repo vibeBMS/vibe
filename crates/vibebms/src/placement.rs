@@ -75,6 +75,12 @@ pub fn same_title(a: &str, b: &str) -> bool {
     short.chars().count() >= 3 && long.starts_with(&short)
 }
 
+/// The same title, but for its brackets ("Song [ANOTHER]" is "Song").
+pub fn same_name(a: &str, b: &str) -> bool {
+    let a = strip_brackets(a);
+    !a.is_empty() && a == strip_brackets(b)
+}
+
 /// Artists match without the chart maker's part ("artist / obj: someone").
 pub fn same_artist(a: &str, b: &str) -> bool {
     let clean = |s: &str| {

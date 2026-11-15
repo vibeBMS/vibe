@@ -521,6 +521,7 @@ impl SelectScene {
                 url,
                 url_diff,
                 title,
+                artist,
                 ..
             }) => {
                 // straight from the links (as the event mirror's works)
@@ -529,7 +530,10 @@ impl SelectScene {
                     return Next::Stay;
                 }
                 let root = ctx.paths.root.clone();
-                if ctx.song_fetch.start(&root, &title, &url, &url_diff) {
+                if ctx
+                    .song_fetch
+                    .start(&root, &title, &artist, &url, &url_diff)
+                {
                     ctx.toast(format!("Downloading {title}…"));
                     return Next::Stay;
                 }
