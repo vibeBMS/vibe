@@ -545,8 +545,10 @@ impl PlayScene {
         let lead = Duration::from_millis(lead_ms.unwrap_or(1500) as u64);
         let now = Instant::now();
         self.start = now + lead;
-        // the song starts when the frame heard at `self.start` plays
-        self.base_frame = ctx.mixer.frame_heard_in(lead.as_micros() as i64);
+        // the song's sounds start where a key pressed at `self.start` would
+        // start its sound: keysounds and the song stay together (both heard
+        // the output latency later; the judge offset is for that)
+        self.base_frame = ctx.mixer.frame_in(lead.as_micros() as i64);
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
         self.skin_panel = self

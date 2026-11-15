@@ -302,19 +302,22 @@ impl Mixer {
         us * self.sample_rate as i64 / 1_000_000
     }
 
-    /// The mixer frame that will be heard `us` from now (where to schedule a
-    /// sound to be heard then). The web output knows what is heard; else
-    /// the frames mixed are taken to be a buffer ahead of it.
-    pub fn frame_heard_in(&self, us: i64) -> i64 {
-        #[cfg(target_arch = "wasm32")]
-        if let Some(f) = self.web.as_ref().and_then(|w| w.heard_frame()) {
-            return f as i64 + self.us_to_frames(us);
-        }
-        self.current_frame() as i64 + self.us_to_frames(us) + self.buffer_frames as i64
+    /// The mixer frame a sound played `us` from now starts on: where to
+    /// schedule a chart's sounds so they meet the keysounds of keys pressed
+    /// on time (which start when played). Both are heard the output latency
+    /// later.
+    pub fn frame_in(&self, us: i64) -> i64 {
+        self.current_frame() as i64 + self.us_to_frames(us)
     }
 
-    /// Output latency estimate in µs (one buffer).
+    /// Output latency estimate in µs: on the web what the browser reports
+    /// (the worklet's frames to the speaker), else one buffer.
     pub fn latency_us(&self) -> i64 {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(h) = self.web.as_ref().and_then(|w| w.heard_frame()) {
+            let ahead = self.current_frame() as f64 - h;
+            return (ahead.max(0.0) * 1_000_000.0 / self.sample_rate.max(1) as f64) as i64;
+        }
         self.buffer_frames as i64 * 1_000_000 / self.sample_rate.max(1) as i64
     }
 
