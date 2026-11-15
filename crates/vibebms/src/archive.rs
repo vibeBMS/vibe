@@ -511,16 +511,6 @@ fn work_stem(files: &[File]) -> String {
         .unwrap_or_else(|| "work".into())
 }
 
-/// The CORS proxy the web build reaches every download host through (none
-/// sends CORS headers): vibeBMS/proxy `worker.js`.
-#[cfg(target_arch = "wasm32")]
-const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn via_proxy(url: &str) -> String {
-    format!("{WEB_PROXY}?url={}", crate::hosts::url_encode(url))
-}
-
 /// Download and unpack a work's files one after another into
 /// `<dir>/<stem>/` (add-ons too); `done` gets the number of files.
 #[cfg(target_arch = "wasm32")]
@@ -569,7 +559,7 @@ fn web_fetch_files(
     } else {
         // a mirror file; the proxy down, the browser downloads it itself
         let url = link;
-        crate::platform::http_get(&via_proxy(&url), move |r| match r {
+        crate::platform::http_get(&crate::hosts::via_proxy(&url), move |r| match r {
             Ok(b) => next(Ok(b)),
             Err(_) if i == 0 => next(Err(Fail::Page(url))),
             Err(e) => next(Err(Fail::Msg(e))),
@@ -587,13 +577,13 @@ pub(crate) fn web_step(
 ) {
     use crate::hosts::{Fetch, MegaCipher, Step};
     match step {
-        Step::Get(u) => crate::platform::http_get(&via_proxy(&u), move |a| {
+        Step::Get(u) => crate::platform::http_get(&crate::hosts::via_proxy(&u), move |a| {
             let s = r.feed(a);
             web_step(r, s, link, done)
         }),
         Step::Post(u, body) => crate::platform::http(
             "POST",
-            &via_proxy(&u),
+            &crate::hosts::via_proxy(&u),
             &[("Content-Type".into(), "application/json".into())],
             body,
             move |a| {
@@ -601,22 +591,24 @@ pub(crate) fn web_step(
                 web_step(r, s, link, done)
             },
         ),
-        Step::File { url, mega_key } => crate::platform::http_get(&via_proxy(&url), move |a| {
-            done(match a {
-                Ok(mut b) => {
-                    if let Some(k) = mega_key {
-                        MegaCipher::new(&k).apply(&mut b);
+        Step::File { url, mega_key } => {
+            crate::platform::http_get(&crate::hosts::via_proxy(&url), move |a| {
+                done(match a {
+                    Ok(mut b) => {
+                        if let Some(k) = mega_key {
+                            MegaCipher::new(&k).apply(&mut b);
+                        }
+                        if crate::hosts::sniff_bytes(&b).is_some() {
+                            Ok(b)
+                        } else {
+                            Err(Fail::Page(link))
+                        }
                     }
-                    if crate::hosts::sniff_bytes(&b).is_some() {
-                        Ok(b)
-                    } else {
-                        Err(Fail::Page(link))
-                    }
-                }
-                // the proxy passes archives only: a page (or a refusal)
-                Err(_) => Err(Fail::Page(link)),
+                    // the proxy passes archives only: a page (or a refusal)
+                    Err(_) => Err(Fail::Page(link)),
+                })
             })
-        }),
+        }
         Step::Fail(Fetch::Page) => done(Err(Fail::Page(link))),
         Step::Fail(Fetch::Failed(e)) => done(Err(Fail::Msg(e))),
     }

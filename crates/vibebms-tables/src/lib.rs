@@ -82,14 +82,9 @@ impl std::error::Error for TableError {}
 
 /// Well-known tables offered by default.
 pub const DEFAULT_TABLES: &[(&str, &str)] = &[
-    (
-        "発狂BMS難易度表 (★)",
-        "http://www.ribbit.xyz/bms/tables/insane.html",
-    ),
-    (
-        "通常難易度表 (☆)",
-        "http://www.ribbit.xyz/bms/tables/normal.html",
-    ),
+    // ribbit.xyz is gone; darksabun.club keeps their copies
+    ("発狂BMS難易度表 (★)", INSANE),
+    ("通常難易度表 (☆)", NORMAL),
     ("Satellite (sl)", "https://stellabms.xyz/sl/table.html"),
     ("Stella (st)", "https://stellabms.xyz/st/table.html"),
 ];
@@ -266,18 +261,19 @@ pub fn decode_body(bytes: &[u8]) -> String {
     }
 }
 
-/// Known mirrors used when the primary host is unreachable
-/// (ribbit.xyz is frequently down).
-pub const MIRRORS: &[(&str, &str)] = &[
-    (
-        "http://www.ribbit.xyz/bms/tables/insane.html",
-        "https://darksabun.club/table/archive/insane1/",
-    ),
-    (
-        "http://www.ribbit.xyz/bms/tables/normal.html",
-        "https://darksabun.club/table/archive/normal1/",
-    ),
+/// The 発狂 / 通常 tables (ribbit.xyz's, kept by darksabun.club).
+pub const INSANE: &str = "https://darksabun.club/table/archive/insane1/";
+pub const NORMAL: &str = "https://darksabun.club/table/archive/normal1/";
+
+/// Tables that moved: the old address, read from the new one (ribbit.xyz
+/// is gone).
+pub const MOVED: &[(&str, &str)] = &[
+    ("http://www.ribbit.xyz/bms/tables/insane.html", INSANE),
+    ("http://www.ribbit.xyz/bms/tables/normal.html", NORMAL),
 ];
+
+/// Known mirrors used when the primary host is unreachable.
+pub const MIRRORS: &[(&str, &str)] = MOVED;
 
 /// Next action of a [`TableLoader`].
 #[derive(Debug)]
@@ -314,17 +310,6 @@ impl TableLoader {
             },
             url.to_string(),
         )
-    }
-
-    /// A loader for the table at `source` that reads a copy of it at
-    /// `first` (its page or header; relative links resolve against it).
-    pub fn starting_at(source: &str, first: &str) -> TableLoader {
-        TableLoader {
-            source: source.to_string(),
-            stage: Stage::Page(first.to_string()),
-            // the copy is the fallback already
-            mirror_used: true,
-        }
     }
 
     pub fn feed(&mut self, body: Result<Vec<u8>, String>) -> Result<Step, TableError> {

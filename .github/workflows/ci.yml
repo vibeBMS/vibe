@@ -78,8 +78,6 @@ jobs:
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       - run: ./tools/build_web.sh
       # table servers send no CORS headers: the page reads copies next to it
-      - name: difficulty tables
-        run: python3 tools/snapshot_tables.py web || echo "::warning::no table could be copied"
       # the web build has no system fonts: Japanese / Korean titles need these
       - name: CJK fonts (Noto Sans CJK, SIL OFL 1.1)
         run: |

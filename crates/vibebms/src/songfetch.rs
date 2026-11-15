@@ -237,7 +237,8 @@ fn web(
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
-    use crate::archive::{via_proxy, web_step, Fail};
+    use crate::archive::{web_step, Fail};
+    use crate::hosts::via_proxy;
     use crate::platform::vfs;
     if links.is_empty() {
         return finish(done);

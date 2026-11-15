@@ -707,8 +707,22 @@ impl Config {
 
 /// Older configurations stored the duration (ms) instead of the hi-speed:
 /// keep the speed it gave at 150 BPM. The mirror's one event (BOF22)
-/// became its list of events.
+/// became its list of events. Tables that moved are read from their new
+/// address.
 fn migrate(v: &mut toml::Value) {
+    if let Some(tables) = v.get_mut("tables").and_then(|t| t.as_array_mut()) {
+        for t in tables.iter_mut() {
+            let Some(url) = t.get_mut("url") else {
+                continue;
+            };
+            if let Some((_, new)) = vibebms_tables::MOVED
+                .iter()
+                .find(|(old, _)| url.as_str() == Some(*old))
+            {
+                *url = toml::Value::String(new.to_string());
+            }
+        }
+    }
     if let Some(a) = v.get_mut("archives").and_then(|a| a.as_array_mut()) {
         for u in a.iter_mut() {
             if u.as_str() == Some(crate::archive::OLD_DEFAULT) {
@@ -768,6 +782,17 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn moved_tables() {
+        let mut v: toml::Value = toml::from_str(
+            "[[tables]]\nname = \"x\"\nurl = \"http://www.ribbit.xyz/bms/tables/insane.html\"\nenabled = true\n",
+        )
+        .unwrap();
+        migrate(&mut v);
+        let c: Config = v.try_into().unwrap();
+        assert_eq!(c.tables[0].url, vibebms_tables::INSANE);
     }
 
     #[test]
