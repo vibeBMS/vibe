@@ -57,6 +57,8 @@ pub(crate) enum Bar {
     Missing {
         title: String,
         artist: String,
+        /// The chart's (for its other links).
+        md5: String,
         level: String,
         /// Download pages: the song, and the chart when it is a separate
         /// (差分) chart for that song.
@@ -361,6 +363,7 @@ impl SelectScene {
                         bars.push(Bar::Missing {
                             title: w.title.clone(),
                             artist: w.artist.clone(),
+                            md5: String::new(),
                             level: String::new(),
                             url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
                             url_diff: String::new(),
@@ -385,6 +388,7 @@ impl SelectScene {
                         None => Bar::Missing {
                             title: e.title.clone(),
                             artist: e.artist.clone(),
+                            md5: e.md5.clone(),
                             level: table.label(&e.level),
                             url: e.url.clone(),
                             url_diff: e.url_diff.clone(),
@@ -522,6 +526,7 @@ impl SelectScene {
                 url_diff,
                 title,
                 artist,
+                md5,
                 ..
             }) => {
                 // straight from the links (as the event mirror's works)
@@ -530,10 +535,18 @@ impl SelectScene {
                     return Next::Stay;
                 }
                 let root = ctx.paths.root.clone();
-                if ctx
-                    .song_fetch
-                    .start(&root, &title, &artist, &url, &url_diff)
-                {
+                // its own links, then the others known for the chart
+                let e = bmseeker::table::TableEntry {
+                    md5,
+                    url: url.clone(),
+                    url_diff: url_diff.clone(),
+                    ..Default::default()
+                };
+                let links = vec![
+                    (ctx.links.links.song_links(&e), false),
+                    (ctx.links.links.chart_links(&e), true),
+                ];
+                if ctx.song_fetch.start(&root, &title, &artist, links) {
                     ctx.toast(format!("Downloading {title}…"));
                     return Next::Stay;
                 }

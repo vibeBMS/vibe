@@ -2,27 +2,32 @@
 //!
 //! ```text
 //! bmseeker table <table URL>                      the table's levels
-//! bmseeker missing <table URL> <library> [-l LEVEL] [--get] [--own-links]
+//! bmseeker missing <table URL> <library> [-l LEVEL] [--get]
 //!                                                 its songs the library lacks
-//!                                                 (--get: download them; links
-//!                                                 missing or dead filled by MD5
-//!                                                 unless --own-links)
+//!                                                 (--get: download them)
 //! bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
 //!                                                 the archive a link leads to
-//! bmseeker install <link> <library> [--diff] [-t TITLE] [-a ARTIST]
+//! bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST]
 //!                                                 a song (or its separate
-//!                                                 chart) into the library
+//!                                                 chart) into the library, the
+//!                                                 links tried in turn
 //! bmseeker import <file> <library>                a downloaded file into it
 //! bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
 //!                                                 a chart's song folder: the
 //!                                                 candidates, or move it there
 //! bmseeker pending <library>                      charts waiting for their song
-//! bmseeker export lr2 <table URL> <folder> [--own-links]
+//! bmseeker export lr2 <table URL> <folder>
 //!                                                 the table as LR2 custom
 //!                                                 folders (add <folder> to LR2)
-//! bmseeker export bmt <table URL> <beatoraja table folder> [--own-links]
+//! bmseeker export bmt <table URL> <beatoraja table folder>
 //!                                                 the table as beatoraja's cache
 //! ```
+//!
+//! `missing` and `export` look a chart's other links up by its MD5 (where
+//! its own is missing, dead, or does not download): in the table, the
+//! tables `--also <URL>` names, the Stella uploader's list, and TSV lists
+//! `--links <file or URL>` names (`md5`, `url_diff`, `url`); `--own-links`:
+//! the table's links only.
 
 #[cfg(target_arch = "wasm32")]
 fn main() {}
@@ -50,14 +55,15 @@ mod cli {
 
     const USAGE: &str = "usage:
   bmseeker table <table URL>
-  bmseeker missing <table URL> <library> [-l LEVEL] [--get] [--own-links]
+  bmseeker missing <table URL> <library> [-l LEVEL] [--get]
   bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
-  bmseeker install <link> <library> [--diff] [-t TITLE] [-a ARTIST]
+  bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST]
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
   bmseeker pending <library>
-  bmseeker export lr2 <table URL> <folder> [--own-links]
-  bmseeker export bmt <table URL> <beatoraja table folder> [--own-links]";
+  bmseeker export lr2 <table URL> <folder>
+  bmseeker export bmt <table URL> <beatoraja table folder>
+(missing / export: [--also TABLE_URL]... [--links TSV]... [--own-links])";
 
     /// The arguments: positional ones, and the value of each `-x VALUE` /
     /// `--flag`.
@@ -80,6 +86,14 @@ mod cli {
                 }
             }
             Args { pos, opts }
+        }
+        /// Every value of `-x VALUE` given more than once.
+        fn all(&self, name: &str) -> Vec<&'a str> {
+            self.opts
+                .iter()
+                .filter(|(n, _)| *n == name)
+                .filter_map(|(_, v)| *v)
+                .collect()
         }
         fn get(&self, name: &str) -> Option<&'a str> {
             self.opts
@@ -105,7 +119,10 @@ mod cli {
     }
 
     pub fn run(args: &[String]) -> Result<(), String> {
-        let a = Args::parse(args, &["-l", "-t", "-a", "--to", "--min"]);
+        let a = Args::parse(
+            args,
+            &["-l", "-t", "-a", "--to", "--min", "--also", "--links"],
+        );
         match a.pos.first().copied() {
             Some("table") => {
                 let t = load(a.need(0)?)?;
@@ -122,7 +139,7 @@ mod cli {
                 Ok(())
             }
             Some("missing") => {
-                let t = load_filled(a.need(0)?, a.has("--own-links"))?;
+                let (t, links) = load_filled(a.need(0)?, &a)?;
                 let library = PathBuf::from(a.need(1)?);
                 let have = scan(&library);
                 let level = a.get("-l");
@@ -153,9 +170,14 @@ mod cli {
                             title: e.title.clone(),
                             artist: e.artist.clone(),
                         };
-                        for (l, diff) in [(e.url.trim(), false), (e.url_diff.trim(), true)] {
-                            if l.starts_with("http") {
-                                report(&e.title, install(&library, &want, l, diff));
+                        // the table's links, then the others known for the chart
+                        for (ls, diff) in
+                            [(links.song_links(e), false), (links.chart_links(e), true)]
+                        {
+                            if !ls.is_empty() {
+                                let downloads = library.join(DOWNLOADS);
+                                let done = install::links(&downloads, &library, &want, &ls, diff);
+                                report(&e.title, done);
                             }
                         }
                     }
@@ -174,9 +196,16 @@ mod cli {
                 }
             }
             Some("install") => {
-                let (link, library) = (a.need(0)?, PathBuf::from(a.need(1)?));
+                // <link>... <library>: the links tried in turn
+                let (library, links) = match a.pos.split_last() {
+                    Some((lib, rest)) if rest.len() >= 2 => (PathBuf::from(lib), &rest[1..]),
+                    _ => return Err(USAGE.into()),
+                };
+                let links: Vec<String> = links.iter().map(|l| l.to_string()).collect();
                 let want = a.want();
-                report(&want.title, install(&library, &want, link, a.has("--diff")));
+                let downloads = library.join(DOWNLOADS);
+                let done = install::links(&downloads, &library, &want, &links, a.has("--diff"));
+                report(&want.title, done);
                 Ok(())
             }
             Some("import") => {
@@ -243,7 +272,7 @@ mod cli {
             }
             Some("export") => {
                 let (kind, out) = (a.need(0)?, PathBuf::from(a.need(2)?));
-                let t = load_filled(a.need(1)?, a.has("--own-links"))?;
+                let (t, _) = load_filled(a.need(1)?, &a)?;
                 let write = |p: &Path, b: &[u8]| {
                     if let Some(d) = p.parent() {
                         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
@@ -281,10 +310,6 @@ mod cli {
     /// Where downloads wait in a library (charts until their song comes).
     const DOWNLOADS: &str = ".bmseeker";
 
-    fn install(library: &Path, want: &Want, link: &str, diff: bool) -> Vec<Done> {
-        install::link(&library.join(DOWNLOADS), library, want, link, diff)
-    }
-
     fn report(title: &str, done: Vec<Done>) {
         for d in done {
             match d {
@@ -297,27 +322,50 @@ mod cli {
         }
     }
 
-    /// The lists of links by MD5 (those that load).
-    fn links() -> Links {
-        let get = |url: &str| hosts::get(url).map_err(|e| eprintln!("{url}: {e}")).ok();
-        let tsv = get(links::MD5_URL_TSV)
-            .map(|b| Links::from_tsv(&String::from_utf8_lossy(&b)))
-            .unwrap_or_default();
-        let stella = get(links::STELLA_UPLOADS)
-            .map(|b| Links::from_stella(&b))
-            .unwrap_or_default();
-        tsv.and(stella)
+    /// Other links by MD5: the tables `--also` names, the Stella uploader's
+    /// list, and the TSV lists `--links` names (a file or URL each).
+    fn links(t: &DifficultyTable, a: &Args) -> Links {
+        let get = |url: &str| {
+            if url.starts_with("http") {
+                hosts::get(url)
+            } else {
+                std::fs::read(url).map_err(|e| e.to_string())
+            }
+            .map_err(|e| eprintln!("{url}: {e}"))
+            .ok()
+        };
+        let mut out = Links::from_tables([t]);
+        for url in a.all("--also") {
+            match load(url) {
+                Ok(other) => out = out.and(Links::from_tables([&other])),
+                Err(e) => eprintln!("{url}: {e}"),
+            }
+        }
+        if let Some(b) = get(links::STELLA_UPLOADS) {
+            out = out.and(Links::from_stella(&b));
+        }
+        for list in a.all("--links") {
+            if let Some(b) = get(list) {
+                out = out.and(Links::from_tsv(&String::from_utf8_lossy(&b)));
+            }
+        }
+        out
     }
 
-    /// A table, its missing or dead links filled unless `own`.
-    fn load_filled(url: &str, own: bool) -> Result<DifficultyTable, String> {
+    /// A table and the other links known for its charts (none with
+    /// `--own-links`); its missing or dead links filled.
+    fn load_filled(url: &str, a: &Args) -> Result<(DifficultyTable, Links), String> {
         let mut t = load(url)?;
-        if !own {
-            let links = links();
-            let n = links.fill(&mut t.entries);
-            eprintln!("{n} charts' links filled from {} known", links.len());
+        if a.has("--own-links") {
+            return Ok((t, Links::default()));
         }
-        Ok(t)
+        let links = links(&t, a);
+        let n = links.fill(&mut t.entries);
+        eprintln!(
+            "{n} charts' links filled; links known for {} charts",
+            links.len()
+        );
+        Ok((t, links))
     }
 
     fn load(url: &str) -> Result<DifficultyTable, String> {

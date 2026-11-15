@@ -28,22 +28,20 @@ impl SongFetch {
         self.busy.iter().any(|t| t == title)
     }
 
-    /// Download `title` from `url` (the song) and `url_diff` (its separate
-    /// chart). False when neither is a link.
+    /// Download `title` from `links`: the song's, then its separate
+    /// chart's (each its own first, then the others known for the chart, tried
+    /// in turn until one downloads). False when there is no link.
     pub fn start(
         &mut self,
         root: &Path,
         title: &str,
         artist: &str,
-        url: &str,
-        url_diff: &str,
+        links: Vec<(Vec<String>, bool)>,
     ) -> bool {
-        // (link, it is the separate chart's)
-        let links: Vec<(String, bool)> = [(url, false), (url_diff, true)]
+        let links: Vec<(Vec<String>, bool)> = links
             .into_iter()
-            .map(|(u, d)| (u.trim(), d))
-            .filter(|(u, _)| is_link(u))
-            .map(|(u, d)| (u.to_string(), d))
+            .map(|(ls, d)| (ls.into_iter().filter(|u| is_link(u)).collect::<Vec<_>>(), d))
+            .filter(|(ls, _)| !ls.is_empty())
             .collect();
         if links.is_empty() || self.is_busy(title) {
             return false;
@@ -64,12 +62,12 @@ impl SongFetch {
         crate::platform::spawn("song", move || {
             let done: Vec<Done> = links
                 .iter()
-                .flat_map(|(l, diff)| {
-                    bmseeker::install::link(
+                .flat_map(|(ls, diff)| {
+                    bmseeker::install::links(
                         &root.join("downloads"),
                         &root.join("bms"),
                         &want,
-                        l,
+                        ls,
                         *diff,
                     )
                 })
@@ -77,9 +75,15 @@ impl SongFetch {
             let _ = tx.send((title, done));
         });
         #[cfg(target_arch = "wasm32")]
-        web(root, want, links, Vec::new(), move |done| {
-            let _ = tx.send((title, done));
-        });
+        {
+            let groups = links
+                .into_iter()
+                .map(|(ls, diff)| (ls, diff, Default::default()))
+                .collect();
+            web(root, want, groups, Vec::new(), move |done| {
+                let _ = tx.send((title, done));
+            });
+        }
         true
     }
 
@@ -98,28 +102,47 @@ impl SongFetch {
     }
 }
 
+/// The web build's links: (the same file's links to try in turn, they are
+/// the separate chart's, what the tried ones came to).
+#[cfg(target_arch = "wasm32")]
+type Group = (Vec<String>, bool, bmseeker::install::Tries);
+
 /// The web build: the links one after another through the vibeBMS proxy,
-/// unpacked / placed in memory.
+/// unpacked / placed in memory; a file's next link tried when one does not
+/// download.
 #[cfg(target_arch = "wasm32")]
 fn web(
     root: PathBuf,
     want: crate::hosts::Want,
-    mut links: Vec<(String, bool)>,
-    mut done: Vec<Done>,
+    mut groups: Vec<Group>,
+    done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
     use crate::archive::{web_step, Fail};
     use crate::hosts::via_proxy;
     use crate::platform::vfs;
-    if links.is_empty() {
+    if groups.is_empty() {
         return finish(done);
     }
     let title = want.title.clone();
-    let (link, diff) = links.remove(0);
+    let (mut links, diff, tries) = groups.remove(0);
+    let link = links.remove(0);
+    // this link's outcome: the file in, or the next link, or the end
+    let next = move |got: Vec<Done>,
+                     mut tries: bmseeker::install::Tries,
+                     mut groups: Vec<Group>,
+                     mut done: Vec<Done>| {
+        match tries.record(got) {
+            Some(got) => done.extend(got),
+            None if !links.is_empty() => groups.insert(0, (links, diff, tries)),
+            None => done.extend(tries.end()),
+        }
+        (groups, done)
+    };
     if chart_link(&link) {
         let name = chart_name(&link);
         crate::platform::http_get(&via_proxy(&link), move |r| {
-            done.push(match r {
+            let got = match r {
                 Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
                     let at = root.join("downloads").join(&name);
                     vfs::put_bytes(&at, b);
@@ -134,37 +157,35 @@ fn web(
                     }
                 }
                 _ => Done::Page(link),
-            });
-            web(root, want, links, done, finish)
+            };
+            let (groups, done) = next(vec![got], tries, groups, done);
+            web(root, want, groups, done, finish)
         });
         return;
     }
     let (r, step) = crate::hosts::Resolver::find(&link, (!diff).then(|| want.clone()));
     web_step(r, step, link, move |r| {
-        match r {
+        let got = match r {
             // a separate chart's archive: its charts into their songs' folders
             Ok(bytes) if diff => {
                 let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
                 let stem = crate::archive::safe_name(&title);
                 let tmp = root.join("downloads").join(".diff");
                 vfs::add_archive_at(&tmp, &format!("{stem}.{ext}"), bytes);
-                done.extend(place_charts(
-                    &crate::placement::Vfs,
-                    &tmp.join(&stem),
-                    &root.join("bms"),
-                ));
+                place_charts(&crate::placement::Vfs, &tmp.join(&stem), &root.join("bms"))
             }
             Ok(bytes) => {
                 let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
                 let stem = crate::archive::safe_name(&title);
-                done.push(match vfs::add_zip(&root, &format!("{stem}.{ext}"), bytes) {
+                vec![match vfs::add_zip(&root, &format!("{stem}.{ext}"), bytes) {
                     0 => Done::Failed("the archive holds nothing".into()),
                     n => Done::Added(root.join("bms").join(&stem), n),
-                });
+                }]
             }
-            Err(Fail::Page(url)) => done.push(Done::Page(url)),
-            Err(Fail::Msg(e)) => done.push(Done::Failed(e)),
-        }
-        web(root, want, links, done, finish)
+            Err(Fail::Page(url)) => vec![Done::Page(url)],
+            Err(Fail::Msg(e)) => vec![Done::Failed(e)],
+        };
+        let (groups, done) = next(got, tries, groups, done);
+        web(root, want, groups, done, finish)
     });
 }

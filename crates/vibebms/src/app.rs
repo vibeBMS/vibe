@@ -297,6 +297,16 @@ impl Ctx {
         self.paths.tables.join(format!("{h}.json"))
     }
 
+    /// The tables' missing or dead links filled from the other links known
+    /// for their charts (the other tables', the Stella uploader's).
+    pub fn fill_links(&mut self) {
+        self.links.rebuild(&self.tables);
+        for t in &mut self.tables {
+            self.links.links.fill(&mut t.entries);
+        }
+        self.library_version += 1;
+    }
+
     pub fn load_cached_tables(&mut self) {
         self.tables.clear();
         for t in self.config.tables.iter().filter(|t| t.enabled) {
@@ -308,10 +318,7 @@ impl Ctx {
                 self.tables.push(dt);
             }
         }
-        for t in &mut self.tables {
-            self.links.links.fill(&mut t.entries);
-        }
-        self.library_version += 1;
+        self.fill_links();
     }
 
     /// Fetch tables in the background. `force` refetches even fresh caches.
@@ -443,12 +450,10 @@ impl Ctx {
             }
         }
         if self.links.poll() {
-            for t in &mut self.tables {
-                self.links.links.fill(&mut t.entries);
-            }
-            self.library_version += 1;
+            self.fill_links();
         }
         let mut done = false;
+        let mut loaded = false;
         let mut msgs = Vec::new();
         if let Some(rx) = &self.table_rx {
             while let Ok(m) = rx.try_recv() {
@@ -458,13 +463,13 @@ impl Ctx {
         for m in msgs {
             match m {
                 TableMsg::Loaded(t) => {
-                    let mut t = *t;
+                    let t = *t;
+                    loaded = true;
                     if let Ok(j) = serde_json::to_vec(&t) {
                         let _ =
                             crate::platform::vfs::write(&self.table_cache_file(&t.source_url), &j);
                     }
-                    // (cached as the table has them)
-                    self.links.links.fill(&mut t.entries);
+                    // (cached as the table has them; filled below)
                     self.toast(format!(
                         "Table updated: {} ({} charts)",
                         t.header.name,
@@ -493,6 +498,9 @@ impl Ctx {
                 TableMsg::Failed(n, e) => self.toast(format!("Table {n}: {e}")),
                 TableMsg::Done => done = true,
             }
+        }
+        if loaded {
+            self.fill_links();
         }
         if done {
             self.table_rx = None;

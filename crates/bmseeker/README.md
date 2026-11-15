@@ -9,8 +9,8 @@ bmseeker table <난이도표 URL>                        레벨별 채보 수
 bmseeker missing <난이도표 URL> <라이브러리> [-l 레벨] [--get]
                                                      라이브러리에 없는 곡 (--get: 받기)
 bmseeker fetch <링크> <파일> [-t 제목] [-a 아티스트]   링크가 가리키는 아카이브 받기
-bmseeker install <링크> <라이브러리> [--diff] [-t 제목] [-a 아티스트]
-                                                     곡(또는 차분)을 라이브러리에
+bmseeker install <링크>... <라이브러리> [--diff] [-t 제목] [-a 아티스트]
+                                                     곡(또는 차분)을 라이브러리에 (링크를 차례로)
 bmseeker import <파일> <라이브러리>                   받아 둔 파일을 라이브러리에
 bmseeker place <채보> <라이브러리> [--to 폴더] [--min 퍼센트]
                                                      차분이 들어갈 곡 폴더 후보 (또는 옮기기)
@@ -20,7 +20,10 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
                                                      beatoraja 난이도표 캐시
 ```
 
-`missing`과 `export`는 비었거나 죽은 링크를 MD5로 채웁니다(`--own-links`: 난이도표 그대로).
+`missing`과 `export`는 채보의 다른 링크를 MD5로 찾습니다: 링크가 비었거나 죽었으면 채우고, 받아지지
+않으면(페이지, OneDrive 등) 다음 링크를 차례로 시도합니다. 찾는 곳은 그 난이도표, `--also <URL>`로 준
+다른 난이도표, Stella 업로더 목록, `--links <파일 또는 URL>`로 준 TSV(`md5`, `url_diff`, `url`)입니다.
+`--own-links`: 난이도표의 링크만.
 
 `cargo run -p bmseeker -- missing https://stellabms.xyz/sl/table.html ~/bms -l 0`
 
@@ -31,7 +34,7 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 - **Tables**: 난이도표·레벨별로 가진 채보 수, 레벨의 채보 목록(가짐/없음, 곡·차분 링크), 하나씩 또는
   레벨의 없는 곡 전부 받기. 받은 뒤 라이브러리를 다시 읽어 바로 반영합니다.
 - **Waiting**: 곡보다 먼저 받은 차분과 들어갈 수 있는 폴더 후보(음원 충족률, 같은 곡 여부), 골라서 옮기기.
-- **Settings**: BMS 폴더, 난이도표 목록, 링크 보완, LR2 커스텀 폴더·beatoraja table 폴더로 내보내기.
+- **Settings**: BMS 폴더, 난이도표 목록, MD5로 다른 링크 찾기(등록한 난이도표들·Stella 업로더), LR2 커스텀 폴더·beatoraja table 폴더로 내보내기.
 
 설정과 라이브러리 해시 캐시는 사용자 설정 폴더의 `bmseeker/`(Windows `%APPDATA%`, macOS
 `~/Library/Application Support`, 그 밖 `~/.config`)에 둡니다. 받은 파일은 BMS 폴더의 `.bmseeker/`에서
@@ -46,7 +49,7 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 | `unpack` / `import` | .zip / .7z / .rar 풀기 (Shift_JIS·EUC-KR 이름, 경로 탈출·압축 폭탄 방지) |
 | `placement` | 차분 채보가 어느 곡 폴더에 속하는지: 함께 온 파일까지 쳐서 쓰는 음원의 99% 이상 + 같은 곡(제목·아티스트), 아니면 후보 3개; 같은 이름 파일은 스마트 덮어쓰기 |
 | `install` | 난이도표의 곡 하나: 본체 링크와 차분 링크를 받아 라이브러리에 |
-| `links` | 비었거나 죽은 링크를 차트 MD5로 채우기 (BeMusicSeeker 비공식 포크의 MD5-URL 표, Stella 업로더 목록) |
+| `links` | 채보 MD5로 다른 링크 찾기 (등록한 난이도표들, Stella 업로더 목록): 빈·죽은 링크 채우기, 안 받아지면 차례로 시도 |
 | `export` | 난이도표를 LR2 커스텀 폴더(`.lr2folder`)나 beatoraja 캐시(`.bmt`)로 |
 | `fs` | 파일 접근 (`Disk`, 또는 플레이어가 라이브러리를 두는 곳) |
 
@@ -57,7 +60,7 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 
 설치 폴더 추정·스마트 덮어쓰기·링크 보완·내보내기의 규칙은
 [BeMusicSeeker](https://github.com/Neeted/bemusicseeker-unofficial-fork)(rib_2_bit 원작, Neeted 비공식 포크, MIT)의
-동작을 따라 Rust로 새로 구현했습니다. 링크 보완은 그 포크가 공개한 MD5-URL 표를 실행 중에 받아 씁니다.
+동작을 따라 Rust로 새로 구현했습니다.
 
 ## 라이선스
 

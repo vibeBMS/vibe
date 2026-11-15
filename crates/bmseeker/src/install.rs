@@ -185,6 +185,69 @@ pub fn link(
     out
 }
 
+/// Whether a link's outcome brought the song (or its chart) in.
+pub fn got(done: &[Done]) -> bool {
+    done.iter()
+        .any(|d| matches!(d, Done::Added(..) | Done::Placed(_) | Done::Waiting(_)))
+}
+
+/// What trying one link after another came to: the first that brought it
+/// in; else the first page among them (to open in a browser); else the last
+/// failure.
+#[derive(Default)]
+pub struct Tries {
+    page: Option<String>,
+    failed: Option<String>,
+}
+
+impl Tries {
+    /// A link's outcome: Some(it) once one brought the file in.
+    pub fn record(&mut self, done: Vec<Done>) -> Option<Vec<Done>> {
+        if got(&done) {
+            return Some(done);
+        }
+        for d in done {
+            match d {
+                Done::Page(u) => {
+                    self.page.get_or_insert(u);
+                }
+                Done::Failed(e) => self.failed = Some(e),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// When no link brought it in.
+    pub fn end(self) -> Vec<Done> {
+        vec![match (self.page, self.failed) {
+            (Some(p), _) => Done::Page(p),
+            (None, Some(e)) => Done::Failed(e),
+            (None, None) => Done::Failed("no link".into()),
+        }]
+    }
+}
+
+/// [`link`] for each of `links` (the same file's, the table's own first:
+/// [`Links::song_links`](crate::links::Links::song_links)) until one brings
+/// it in.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn links(
+    downloads: &Path,
+    library: &Path,
+    want: &crate::hosts::Want,
+    links: &[String],
+    diff: bool,
+) -> Vec<Done> {
+    let mut tries = Tries::default();
+    for l in links {
+        if let Some(done) = tries.record(link(downloads, library, want, l, diff)) {
+            return done;
+        }
+    }
+    tries.end()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +290,21 @@ mod tests {
         );
         assert_eq!(percent_decode("a%2"), "a%2");
         assert_eq!(safe_name("a/b: c?"), "a_b_ c_");
+    }
+
+    #[test]
+    fn tries_in_order() {
+        let mut t = Tries::default();
+        assert!(t.record(vec![Done::Failed("404".into())]).is_none());
+        assert!(t
+            .record(vec![Done::Page("https://1drv.ms/x".into())])
+            .is_none());
+        assert!(t
+            .record(vec![Done::Page("https://later/".into())])
+            .is_none());
+        assert!(matches!(&t.end()[..], [Done::Page(p)] if p == "https://1drv.ms/x"));
+        let mut t = Tries::default();
+        assert!(t.record(vec![Done::Failed("404".into())]).is_none());
+        assert!(t.record(vec![Done::Added("a".into(), 3)]).is_some());
     }
 }

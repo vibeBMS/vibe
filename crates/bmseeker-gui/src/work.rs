@@ -19,9 +19,12 @@ pub enum Job {
     Scan(PathBuf),
     /// The charts waiting in the library's downloads.
     Waiting(PathBuf),
+    /// A song: its links, then its separate chart's (each to try in turn).
     Install {
         library: PathBuf,
-        entry: TableEntry,
+        entry: Box<TableEntry>,
+        song: Vec<String>,
+        chart: Vec<String>,
     },
     ExportLr2(Vec<DifficultyTable>, PathBuf),
     ExportBmt(Vec<DifficultyTable>, PathBuf),
@@ -65,41 +68,45 @@ pub fn start(tx: Sender<Msg>, ctx: eframe::egui::Context) -> Sender<Job> {
         for job in rx {
             match job {
                 Job::Links => {
-                    let list = |url: &str, parse: fn(&[u8]) -> Links| {
-                        get(url).map(|b| parse(&b)).unwrap_or_else(|e| {
-                            send(Msg::Log(format!("{url}: {e}")));
+                    let links = get(bmseeker::links::STELLA_UPLOADS)
+                        .map(|b| Links::from_stella(&b))
+                        .unwrap_or_else(|e| {
+                            send(Msg::Log(format!(
+                                "{}: {e}",
+                                bmseeker::links::STELLA_UPLOADS
+                            )));
                             Links::default()
-                        })
-                    };
-                    let tsv = list(bmseeker::links::MD5_URL_TSV, |b| {
-                        Links::from_tsv(&String::from_utf8_lossy(b))
-                    });
-                    let stella = list(bmseeker::links::STELLA_UPLOADS, Links::from_stella);
-                    send(Msg::Links(tsv.and(stella)));
+                        });
+                    send(Msg::Links(links));
                 }
                 Job::Scan(library) => {
                     let (owned, n) = crate::scan::scan(&library);
                     send(Msg::Scanned(owned, n));
                 }
                 Job::Waiting(library) => send(Msg::Waiting(waiting(&library))),
-                Job::Install { library, entry } => {
+                Job::Install {
+                    library,
+                    entry,
+                    song,
+                    chart,
+                } => {
                     let want = bmseeker::hosts::Want {
                         title: entry.title.clone(),
                         artist: entry.artist.clone(),
                     };
                     let downloads = library.join(DOWNLOADS);
                     let mut done = Vec::new();
-                    for (link, diff) in [(entry.url.trim(), false), (entry.url_diff.trim(), true)] {
-                        if link.starts_with("http") {
-                            done.extend(bmseeker::install::link(
-                                &downloads, &library, &want, link, diff,
+                    for (links, diff) in [(song, false), (chart, true)] {
+                        if !links.is_empty() {
+                            done.extend(bmseeker::install::links(
+                                &downloads, &library, &want, &links, diff,
                             ));
                         }
                     }
                     if done.is_empty() {
                         done.push(Done::Failed("no link".into()));
                     }
-                    send(Msg::Installed(entry.title, done));
+                    send(Msg::Installed(entry.title.clone(), done));
                 }
                 Job::ExportLr2(tables, out) => {
                     for t in &tables {

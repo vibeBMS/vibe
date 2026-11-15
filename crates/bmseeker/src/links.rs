@@ -1,21 +1,16 @@
-//! Links for a table's songs whose own are missing or dead, by the chart's
-//! MD5, from lists people keep (as BeMusicSeeker's unofficial fork fills its
-//! playlists' URL1 / URL2):
+//! Other links for a table's songs, by the chart's MD5: where a table's
+//! own link is missing, dead, or does not download (a page, a host that
+//! needs a browser), the same chart may have a link elsewhere: in another
+//! table the player reads (発狂BMS and Satellite list some of the same
+//! charts), or in the Stella uploader's list ([`STELLA_UPLOADS`]).
 //!
-//! - [`MD5_URL_TSV`]: `md5 <TAB> url_diff <TAB> url` rows (the fork's map,
-//!   with mirrors of the dead 差分 uploaders);
-//! - [`STELLA_UPLOADS`]: the charts sent to the Stella uploader, with their
-//!   song's and chart's links.
-//!
-//! A link is filled only where the table has none, or one on a host known to
-//! be gone ([`is_dead`]); the first list to name an MD5 wins.
+//! [`Links::fill`] fills a link only where the table has none, or one on a
+//! host known to be gone ([`is_dead`]); [`Links::song_links`] /
+//! [`Links::chart_links`] give every link known for a chart, the table's own
+//! first, to try one after another.
 
-use crate::table::TableEntry;
+use crate::table::{DifficultyTable, TableEntry};
 use std::collections::HashMap;
-
-/// The fork's MD5 → links map.
-pub const MD5_URL_TSV: &str =
-    "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/bms-md5-url-map.tsv";
 
 /// The Stella uploader's charts, with their links.
 pub const STELLA_UPLOADS: &str = "https://stellabms.xyz/score_upload_full.json";
@@ -40,13 +35,15 @@ fn md5_key(s: &str) -> Option<String> {
     (s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit())).then(|| s.to_ascii_lowercase())
 }
 
-/// MD5 → (the song's link, the chart's link).
+/// MD5 → the (song's link, chart's link) pairs known for it, in the order
+/// the sources were given.
 #[derive(Clone, Debug, Default)]
 pub struct Links {
-    map: HashMap<String, (String, String)>,
+    map: HashMap<String, Vec<(String, String)>>,
 }
 
 impl Links {
+    /// How many charts have links.
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -64,14 +61,29 @@ impl Links {
                 String::new()
             }
         };
-        let (url, url_diff) = (keep(url), keep(url_diff));
-        if url.is_empty() && url_diff.is_empty() {
+        let pair = (keep(url), keep(url_diff));
+        if pair.0.is_empty() && pair.1.is_empty() {
             return;
         }
-        self.map.entry(k).or_insert((url, url_diff));
+        let known = self.map.entry(k).or_default();
+        if !known.contains(&pair) {
+            known.push(pair);
+        }
     }
 
-    /// [`MD5_URL_TSV`]'s format (a header row, then `md5`, `url_diff`, `url`).
+    /// The links the tables give their charts.
+    pub fn from_tables<'a>(tables: impl IntoIterator<Item = &'a DifficultyTable>) -> Links {
+        let mut out = Links::default();
+        for t in tables {
+            for e in &t.entries {
+                out.add(&e.md5, &e.url, &e.url_diff);
+            }
+        }
+        out
+    }
+
+    /// A list of `md5 <TAB> url_diff <TAB> url` rows after a header row
+    /// (one a player keeps, or trusts).
     pub fn from_tsv(text: &str) -> Links {
         let mut out = Links::default();
         for line in text.lines().skip(1) {
@@ -97,24 +109,63 @@ impl Links {
         out
     }
 
-    /// Both, `self` first where both name an MD5.
+    /// Both, `self`'s links first.
     pub fn and(mut self, other: Links) -> Links {
         for (k, v) in other.map {
-            self.map.entry(k).or_insert(v);
+            let known = self.map.entry(k).or_default();
+            for pair in v {
+                if !known.contains(&pair) {
+                    known.push(pair);
+                }
+            }
         }
         self
     }
 
+    fn known(&self, md5: &str) -> &[(String, String)] {
+        md5_key(md5)
+            .and_then(|k| self.map.get(&k))
+            .map_or(&[], |v| v.as_slice())
+    }
+
+    /// `own` (if usable), then the other links in `pick` of the chart's pairs.
+    fn all(&self, own: &str, md5: &str, pick: fn(&(String, String)) -> &String) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let own = own.trim();
+        if usable(own) {
+            out.push(own.to_string());
+        }
+        for p in self.known(md5) {
+            let u = pick(p);
+            if !u.is_empty() && !out.contains(u) {
+                out.push(u.clone());
+            }
+        }
+        out
+    }
+
+    /// Every link known for `e`'s song, its own first.
+    pub fn song_links(&self, e: &TableEntry) -> Vec<String> {
+        self.all(&e.url, &e.md5, |p| &p.0)
+    }
+
+    /// Every link known for `e`'s separate chart, its own first.
+    pub fn chart_links(&self, e: &TableEntry) -> Vec<String> {
+        self.all(&e.url_diff, &e.md5, |p| &p.1)
+    }
+
     /// `e`'s links, filled where missing or dead: (url, url_diff).
     pub fn of(&self, e: &TableEntry) -> (String, String) {
-        let found = md5_key(&e.md5).and_then(|k| self.map.get(&k));
-        let pick = |own: &str, other: Option<&String>| match other {
-            Some(o) if !o.is_empty() && !usable(own) => o.clone(),
-            _ => own.to_string(),
+        let pick = |own: &str, other: Vec<String>| {
+            if usable(own) {
+                own.to_string()
+            } else {
+                other.into_iter().next().unwrap_or_else(|| own.to_string())
+            }
         };
         (
-            pick(&e.url, found.map(|f| &f.0)),
-            pick(&e.url_diff, found.map(|f| &f.1)),
+            pick(&e.url, self.song_links(e)),
+            pick(&e.url_diff, self.chart_links(e)),
         )
     }
 
@@ -147,6 +198,7 @@ mod tests {
             {"md5":"0123456789abcdef0123456789abcdef","url":"https://s.example/song.zip","url_diff":"https://stellabms.xyz/upload/1"}]"#;
         let links = Links::from_tsv(tsv).and(Links::from_stella(stella));
         assert_eq!(links.len(), 3);
+        assert_eq!(links.known("997C5D2E1756D22793B287FE72A9B184").len(), 2);
         let entry = |md5: &str, url: &str, url_diff: &str| TableEntry {
             md5: md5.into(),
             url: url.into(),

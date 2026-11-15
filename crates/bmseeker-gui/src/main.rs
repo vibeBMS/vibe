@@ -111,7 +111,9 @@ struct Waiting {
 struct App {
     config: Config,
     tables: Vec<DifficultyTable>,
+    /// Every link known by MD5: the tables', then the Stella uploader's.
     links: bmseeker::links::Links,
+    stella: bmseeker::links::Links,
     /// MD5s and SHA-256s of the library's charts.
     owned: HashSet<String>,
     scanning: bool,
@@ -139,6 +141,7 @@ impl App {
             config: Config::load(),
             tables: Vec::new(),
             links: Default::default(),
+            stella: Default::default(),
             owned: HashSet::new(),
             scanning: false,
             selected: None,
@@ -176,6 +179,18 @@ impl App {
         }
     }
 
+    /// Every link known again (the tables', the list's), and the tables'
+    /// missing or dead ones filled from them.
+    fn fill_links(&mut self) {
+        if !self.config.fill_links {
+            return;
+        }
+        self.links = bmseeker::links::Links::from_tables(&self.tables).and(self.stella.clone());
+        for t in &mut self.tables {
+            self.links.fill(&mut t.entries);
+        }
+    }
+
     fn reload_tables(&mut self) {
         self.tables.clear();
         for url in self.config.tables.clone() {
@@ -202,31 +217,41 @@ impl App {
             return;
         }
         self.busy.insert(e.title.clone());
+        // its own links, then the others known for the chart
+        let (song, chart) = if self.config.fill_links {
+            (self.links.song_links(e), self.links.chart_links(e))
+        } else {
+            let own = |u: &str| u.trim().starts_with("http").then(|| u.trim().to_string());
+            (
+                own(&e.url).into_iter().collect(),
+                own(&e.url_diff).into_iter().collect(),
+            )
+        };
         self.send(Job::Install {
             library: self.config.library.clone(),
-            entry: e.clone(),
+            entry: Box::new(e.clone()),
+            song,
+            chart,
         });
     }
 
     fn poll(&mut self) {
         while let Ok(m) = self.rx.try_recv() {
             match m {
-                Msg::Table(url, Ok(mut t)) => {
-                    self.links.fill(&mut t.entries);
+                Msg::Table(url, Ok(t)) => {
                     self.say(format!("{}: {} charts", t.header.name, t.entries.len()));
                     self.tables.retain(|o| o.source_url != url);
                     self.tables.push(t);
                     let order = &self.config.tables;
                     self.tables
                         .sort_by_key(|t| order.iter().position(|u| *u == t.source_url));
+                    self.fill_links();
                 }
                 Msg::Table(url, Err(e)) => self.say(format!("{url}: {e}")),
                 Msg::Links(links) => {
-                    for t in &mut self.tables {
-                        links.fill(&mut t.entries);
-                    }
-                    self.say(format!("links known for {} charts", links.len()));
-                    self.links = links;
+                    self.say(format!("Stella uploader: links for {} charts", links.len()));
+                    self.stella = links;
+                    self.fill_links();
                 }
                 Msg::Scanned(owned, n) => {
                     self.say(format!("library: {n} charts"));
@@ -509,7 +534,7 @@ impl App {
         if ui
             .checkbox(
                 &mut self.config.fill_links,
-                "Fill missing or dead links by the chart's MD5",
+                "Look up a chart's other links by its MD5 (in the other tables, the Stella uploader's list) when its own is missing, dead or does not download",
             )
             .changed()
         {
