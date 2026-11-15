@@ -82,7 +82,8 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
   원본 그대로 미러된 이벤트(BOF22, BOF21, BOF:TT, BOF:XVII, BOF:XVI)는 설치되지 않은 작품을 고르면 미러에서 바로 받아 `bms/<이벤트>/`에 풀고,
   나머지는 작가의 링크에서 앱이 바로 받아 풉니다(Google Drive 파일·폴더, Dropbox 파일·폴더, MediaFire, MEGA, 압축 파일을 그대로 주는 서버).
   OneDrive·업로더처럼 페이지에서 눌러야 하는 곳이거나 압축 파일 대신 페이지가 오면 그 페이지를 엽니다
-  (웹 버전은 다른 페이지의 읽기를 허용하는(CORS) Google Drive 파일·Dropbox 파일·MEGA의 zip만 바로 받고, 나머지는 페이지를 엽니다)
+  (웹 버전은 다른 페이지의 읽기를 허용하는(CORS) Dropbox 파일·MEGA의 zip만 바로 받고, 나머지는 페이지를 엽니다.
+  Google Drive는 브라우저의 교차 출처 요청을 막습니다)
   (설정의 `archives`에 다른 이벤트 목록이나 색인을 추가할 수 있음).
 - **IR**: JSON 프로토콜([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md))로 랭킹 조회와 점수 전송.
 - **오디오**: 저지연 출력(ASIO/JACK 기능 플래그), 샘플 단위 키음 스케줄링, WAV/OGG/MP3/FLAC.

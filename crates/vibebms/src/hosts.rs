@@ -4,8 +4,9 @@
 //! any server that answers with the archive itself. What needs a person on
 //! a page (OneDrive, uploaders, a quota page) is [`Fetch::Page`].
 //!
-//! The web build reaches only hosts that allow other pages to read them
-//! (CORS): Google Drive files, Dropbox files and MEGA ([`web_source`]).
+//! The web build reaches only hosts that let other pages read them (CORS):
+//! Dropbox files and MEGA ([`web_source`]). Google Drive answers a
+//! browser's cross-site request with 403, whatever its headers say.
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Write};
@@ -92,6 +93,7 @@ pub fn sniff(p: &Path) -> Option<&'static str> {
     sniff_bytes(&head[..n])
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The file or folder id of a Google Drive link (`/file/d/ID`,
 /// `/folders/ID`, `?id=ID`).
 pub fn drive_id(u: &str) -> Option<String> {
@@ -105,6 +107,7 @@ pub fn drive_id(u: &str) -> Option<String> {
     (!id.is_empty()).then_some(id)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn drive_file_url(id: &str) -> String {
     format!("https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t")
 }
@@ -417,7 +420,8 @@ pub fn mega_link(u: &str) -> Option<(String, Vec<u8>)> {
 pub const MEGA_API: &str = "https://g.api.mega.co.nz/cs?id=0";
 
 pub fn mega_request(handle: &str) -> Vec<u8> {
-    format!(r#"[{{"a":"g","g":1,"p":"{handle}"}}]"#).into_bytes()
+    // ssl: an https URL (a page served over https may not read http)
+    format!(r#"[{{"a":"g","g":1,"ssl":1,"p":"{handle}"}}]"#).into_bytes()
 }
 
 /// The download URL in the MEGA API's answer.
@@ -440,8 +444,8 @@ pub enum Web {
     },
 }
 
-/// A link the web build can download (its host allows other pages to read
-/// it): a Google Drive file, a Dropbox file, a MEGA file.
+/// A link the web build can download (its host lets other pages read it):
+/// a Dropbox file, a MEGA file.
 pub fn web_source(link: &str) -> Option<Web> {
     let u = link.trim();
     let lower = u.to_ascii_lowercase();
@@ -449,18 +453,12 @@ pub fn web_source(link: &str) -> Option<Web> {
         return None;
     }
     let host = lower.split('/').nth(2).unwrap_or("");
-    if host.ends_with("drive.google.com") || host == "docs.google.com" {
-        if lower.contains("/folders/") {
-            return None;
-        }
-        return drive_id(u).map(|id| Web::Url(drive_file_url(&id)));
-    }
     if host.ends_with("dropbox.com") || host.ends_with("dropboxusercontent.com") {
         if lower.contains("/scl/fo/") || lower.contains("/sh/") {
             return None;
         }
         // www.dropbox.com redirects without CORS headers; this host has them
-        let path = &u[u.find(host).map(|i| i + host.len())?..];
+        let path = &u[lower.find(host).map(|i| i + host.len())?..];
         return Some(Web::Url(dropbox_url(&format!(
             "https://dl.dropboxusercontent.com{path}"
         ))));
@@ -549,8 +547,8 @@ mod tests {
             "https://dl.dropboxusercontent.com/scl/fi/a/b.zip?rlkey=k&dl=1"
         );
         assert!(web_source("https://www.dropbox.com/scl/fo/a/b?rlkey=k").is_none());
-        assert!(url("https://drive.google.com/file/d/X/view").contains("id=X"));
-        assert!(web_source("https://drive.google.com/drive/folders/X").is_none());
+        // Drive refuses browsers' cross-site requests
+        assert!(web_source("https://drive.google.com/file/d/X/view").is_none());
         assert!(matches!(
             web_source("https://mega.nz/file/bzQy3bYS#Og0LBoWkfbKwxUceGvzLHDl2exyI0l1DiQ3XNw79zMw"),
             Some(Web::Mega { .. })
