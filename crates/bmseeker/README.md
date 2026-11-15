@@ -15,6 +15,8 @@ bmseeker import <파일> <라이브러리>                   받아 둔 파일�
 bmseeker place <채보> <라이브러리> [--to 폴더] [--min 퍼센트]
                                                      차분이 들어갈 곡 폴더 후보 (또는 옮기기)
 bmseeker pending <라이브러리>                         곡을 기다리는 차분
+bmseeker check-links <works.json> <links.json> [--days N] [--minutes M]
+                                                     작품 링크마다 받아 보고 무엇인지 기록 (본체 / 애드온 / 미디어, 죽은 링크)
 bmseeker export lr2 <난이도표 URL> <폴더>             LR2 커스텀 폴더 (그 폴더를 LR2에 추가)
 bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
                                                      beatoraja 난이도표 캐시
@@ -52,6 +54,7 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 | `install` | 난이도표의 곡 하나: 본체 링크와 차분 링크를 받아 라이브러리에 |
 | `links` | 채보 MD5로 다른 링크 찾기 (등록한 난이도표들, Stella 업로더 목록): 빈·죽은 링크 채우기, 안 받아지면 차례로 시도 |
 | `bmssearch` | BMS SEARCH API로 채보의 작품과 그 다운로드 링크 찾기 (그래도 안 받아질 때) |
+| `probe` | 링크를 받아 풀어 보고 분류: 받아짐/페이지/없음(404·410)/오류, 본체(채보 음원의 90% 이상이 안에)·애드온(차분)·미디어(채보 없음) |
 | `export` | 난이도표를 LR2 커스텀 폴더(`.lr2folder`)나 beatoraja 캐시(`.bmt`)로 |
 | `fs` | 파일 접근 (`Disk`, 또는 플레이어가 라이브러리를 두는 곳) |
 

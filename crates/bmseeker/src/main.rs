@@ -16,6 +16,10 @@
 //!                                                 a chart's song folder: the
 //!                                                 candidates, or move it there
 //! bmseeker pending <library>                      charts waiting for their song
+//! bmseeker check-links <works.json> <links.json> [--days N] [--minutes M]
+//!                                                 what each work's links give
+//!                                                 (an event index's: main /
+//!                                                 add-on / media, gone…)
 //! bmseeker export lr2 <table URL> <folder>
 //!                                                 the table as LR2 custom
 //!                                                 folders (add <folder> to LR2)
@@ -62,6 +66,7 @@ mod cli {
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
   bmseeker pending <library>
+  bmseeker check-links <works.json> <links.json> [--days N] [--minutes M]
   bmseeker export lr2 <table URL> <folder>
   bmseeker export bmt <table URL> <beatoraja table folder>
 (missing / export: [--also TABLE_URL]... [--links TSV]... [--own-links])";
@@ -123,7 +128,16 @@ mod cli {
         let a = Args::parse(
             args,
             &[
-                "-l", "-t", "-a", "--to", "--min", "--also", "--links", "--md5",
+                "-l",
+                "-t",
+                "-a",
+                "--to",
+                "--min",
+                "--also",
+                "--links",
+                "--md5",
+                "--days",
+                "--minutes",
             ],
         );
         match a.pos.first().copied() {
@@ -315,8 +329,118 @@ mod cli {
                 }
                 Ok(())
             }
+            Some("check-links") => check_links(
+                Path::new(a.need(0)?),
+                Path::new(a.need(1)?),
+                a.get("--days").and_then(|d| d.parse().ok()).unwrap_or(30),
+                a.get("--minutes").and_then(|m| m.parse().ok()),
+            ),
             _ => Err(USAGE.into()),
         }
+    }
+
+    /// A link's check, and when (Unix seconds).
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct Dated {
+        #[serde(flatten)]
+        checked: bmseeker::probe::Checked,
+        at: u64,
+    }
+
+    /// Check the links of the works in `works` (an event's works.json:
+    /// `title`, `artist`, `links` of URLs or `{url}`) into `out` (URL →
+    /// what it gave, and when), skipping those checked within `days` (a
+    /// failure that may pass: within a day). Saved after each, so a run cut
+    /// short (`minutes`) goes on from there next time.
+    fn check_links(
+        works: &Path,
+        out: &Path,
+        days: u64,
+        minutes: Option<u64>,
+    ) -> Result<(), String> {
+        use bmseeker::probe::State;
+        use std::collections::BTreeMap;
+        let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+        let works: Vec<serde_json::Value> =
+            serde_json::from_slice(&read(works)?).map_err(|e| e.to_string())?;
+        let mut done: BTreeMap<String, Dated> = std::fs::read(out)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let now = || {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        };
+        let start = now();
+        let save = |done: &BTreeMap<String, Dated>| -> Result<(), String> {
+            let j = serde_json::to_vec_pretty(done).map_err(|e| e.to_string())?;
+            let tmp = out.with_extension("json~");
+            std::fs::write(&tmp, j).map_err(|e| e.to_string())?;
+            std::fs::rename(&tmp, out).map_err(|e| e.to_string())
+        };
+        let tmp = std::env::temp_dir().join(format!("bmseeker-check-{}", std::process::id()));
+        let s = |w: &serde_json::Value, k: &str| {
+            w.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string()
+        };
+        let (mut checked, mut skipped) = (0, 0);
+        for w in &works {
+            let want = Want {
+                title: s(w, "title"),
+                artist: s(w, "artist"),
+            };
+            let links: Vec<String> = w
+                .get("links")
+                .and_then(|l| l.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|l| l.as_str().or_else(|| l.get("url").and_then(|u| u.as_str())))
+                .map(|u| u.trim().to_string())
+                .filter(|u| u.starts_with("http"))
+                .collect();
+            for url in links {
+                let fresh = done.get(&url).is_some_and(|d| {
+                    let age = now().saturating_sub(d.at);
+                    let keep = if d.checked.state == State::Error {
+                        1
+                    } else {
+                        days
+                    };
+                    age < keep * 86_400
+                });
+                if fresh {
+                    skipped += 1;
+                    continue;
+                }
+                if minutes.is_some_and(|m| now() - start > m * 60) {
+                    save(&done)?;
+                    eprintln!("time is up: {checked} checked, {skipped} fresh; run again to go on");
+                    return Ok(());
+                }
+                let c = bmseeker::probe::probe(&url, Some(want.clone()), &tmp);
+                eprintln!(
+                    "{} | {:?} {:?} {} MB {} charts {} | {url}",
+                    want.title,
+                    c.state,
+                    c.kind,
+                    c.size >> 20,
+                    c.charts,
+                    c.error
+                );
+                done.insert(
+                    url,
+                    Dated {
+                        checked: c,
+                        at: now(),
+                    },
+                );
+                save(&done)?;
+                checked += 1;
+            }
+        }
+        save(&done)?;
+        eprintln!("{checked} checked, {skipped} fresh");
+        Ok(())
     }
 
     /// Where downloads wait in a library (charts until their song comes).

@@ -26,6 +26,9 @@ pub mod import;
 pub mod install;
 pub mod links;
 pub mod placement;
+// downloads and unpacks to a disk
+#[cfg(not(target_arch = "wasm32"))]
+pub mod probe;
 pub mod progress;
 pub mod table;
 pub mod unpack;

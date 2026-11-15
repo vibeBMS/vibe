@@ -103,6 +103,17 @@ pub fn same_artist(a: &str, b: &str) -> bool {
     long.starts_with(&short)
 }
 
+/// The share of `sounds` that `files` hold (by name, any extension); 1 when
+/// there are none.
+pub fn coverage(files: &[String], sounds: &[String]) -> f32 {
+    if sounds.is_empty() {
+        return 1.0;
+    }
+    let have: HashSet<String> = files.iter().map(|f| stem(f)).collect();
+    let n = sounds.iter().filter(|s| have.contains(&stem(s))).count();
+    n as f32 / sounds.len() as f32
+}
+
 /// Whether `files` hold every one of `sounds` (by name, any extension).
 pub fn covers(files: &[String], sounds: &[String]) -> bool {
     let have: HashSet<String> = files.iter().map(|f| stem(f)).collect();
