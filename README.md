@@ -125,12 +125,13 @@ python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차�
 ```text
 crates/vibebms-core     파서, 타이밍, 판정, 게이지, 점수 (플랫폼 의존성 없음)
 crates/vibebms-audio    디코더 + 믹서
-crates/bmseeker         난이도표, 곡 다운로드·압축 해제·차분 배치 (라이브러리 + CLI)
 crates/vibebms-ir       IR 클라이언트
 crates/vibebms          앱 (winit + wgpu, 스킨, 화면)
 crates/vibebms-web      웹 진입점
 crates/vibebms-android  Android 진입점
 ```
+
+난이도표, 곡 다운로드·압축 해제·차분 배치는 [BMSeeker](https://github.com/vibeBMS/BMSeeker)(라이브러리 + CLI)를 씁니다.
 
 ## 미구현
 
