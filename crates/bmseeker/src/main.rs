@@ -218,15 +218,16 @@ mod cli {
                             }
                             if !ls.is_empty() || (!diff && md5.is_some()) {
                                 let downloads = library.join(DOWNLOADS);
-                                let done = install::links(
-                                    &downloads,
-                                    &library,
-                                    &want,
-                                    &ls,
+                                let q = bmseeker::sources::Query {
+                                    md5: md5.unwrap_or_default().to_string(),
+                                    want: want.clone(),
                                     diff,
-                                    md5,
-                                    &hosts::Context::default(),
-                                );
+                                };
+                                let cx = hosts::Context::default();
+                                let sources =
+                                    bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
+                                let done =
+                                    install::links(&downloads, &library, &q, &ls, &sources, &cx);
                                 if !diff {
                                     song = done
                                         .iter()
@@ -278,15 +279,14 @@ mod cli {
                 let want = a.want();
                 let downloads = library.join(DOWNLOADS);
                 let md5 = a.get("--md5");
-                let done = install::links(
-                    &downloads,
-                    &library,
-                    &want,
-                    &links,
-                    a.has("--diff"),
-                    md5,
-                    &hosts::Context::default(),
-                );
+                let q = bmseeker::sources::Query {
+                    md5: md5.unwrap_or_default().to_string(),
+                    want: want.clone(),
+                    diff: a.has("--diff"),
+                };
+                let cx = hosts::Context::default();
+                let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
+                let done = install::links(&downloads, &library, &q, &links, &sources, &cx);
                 report(&want.title, done);
                 Ok(())
             }

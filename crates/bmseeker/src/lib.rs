@@ -9,6 +9,7 @@
 //! - [`install`]: a table's song from its links into the library;
 //! - [`links`]: links for a table's songs whose own are missing or dead;
 //! - [`bmssearch`]: a chart's work and its links from BMS SEARCH;
+//! - [`sources`]: where else a song's links are looked for, in order;
 //! - [`export`]: a table as LR2 custom folders or a beatoraja table cache.
 //!
 //! The parts that touch files take an [`fs::Fs`], so a player can keep its
@@ -36,6 +37,7 @@ pub mod placement;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod probe;
 pub mod progress;
+pub mod sources;
 pub mod table;
 pub mod unpack;
 

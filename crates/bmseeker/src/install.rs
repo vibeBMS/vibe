@@ -264,41 +264,47 @@ impl Tries {
     }
 }
 
-/// [`link`] for each of `links` (the same file's, the table's own first:
-/// [`Links::song_links`](crate::links::Links::song_links)) until one brings
-/// it in; then, for a song with the chart `md5`, the links BMS SEARCH knows
-/// for it ([`bmssearch`](crate::bmssearch)).
+/// [`link`] for each of `own` (the file's own links, in order) until one
+/// brings it in; then the links each of `sources` knows for `q` (asked one
+/// after another, only while nothing has come in).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn links(
     downloads: &Path,
     library: &Path,
-    want: &crate::hosts::Want,
-    links: &[String],
-    diff: bool,
-    md5: Option<&str>,
+    q: &crate::sources::Query,
+    own: &[String],
+    sources: &crate::sources::Sources,
     cx: &crate::hosts::Context,
 ) -> Vec<Done> {
     let cancelled = || crate::progress::current().is_some_and(|p| p.cancelled());
     let mut tries = Tries::default();
-    for l in links {
-        if cancelled() {
-            return vec![Done::Failed(crate::progress::CANCELLED.into())];
-        }
-        if let Some(done) = tries.record(link(downloads, library, want, l, diff, cx)) {
-            return done;
-        }
-    }
-    if let Some(md5) = md5.filter(|_| !diff && !cancelled()) {
-        for l in crate::bmssearch::lookup(md5, want, &cx.config) {
+    let mut tried: Vec<String> = Vec::new();
+    let mut try_all = |links: Vec<String>, tries: &mut Tries| -> Option<Vec<Done>> {
+        for l in links {
             if cancelled() {
-                return vec![Done::Failed(crate::progress::CANCELLED.into())];
+                return Some(vec![Done::Failed(crate::progress::CANCELLED.into())]);
             }
-            if links.contains(&l) {
+            if tried.contains(&l) {
                 continue;
             }
-            if let Some(done) = tries.record(link(downloads, library, want, &l, diff, cx)) {
-                return done;
+            tried.push(l.clone());
+            if let Some(done) = tries.record(link(downloads, library, &q.want, &l, q.diff, cx)) {
+                return Some(done);
             }
+        }
+        None
+    };
+    if let Some(done) = try_all(own.to_vec(), &mut tries) {
+        return done;
+    }
+    let http = crate::net::Client::new(&cx.config);
+    for source in sources.iter() {
+        if cancelled() {
+            break;
+        }
+        let found = crate::net::run(&mut source.find(q), &http);
+        if let Some(done) = try_all(found, &mut tries) {
+            return done;
         }
     }
     tries.end()

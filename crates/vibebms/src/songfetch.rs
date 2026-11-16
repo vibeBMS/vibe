@@ -111,14 +111,21 @@ impl SongFetch {
                     if *diff && has_chart(&done, md5.as_deref()) {
                         break;
                     }
+                    // the lists' links are in `ls` already: BMS SEARCH after
+                    let cx = crate::hosts::context();
+                    let q = bmseeker::sources::Query {
+                        md5: md5.clone().unwrap_or_default(),
+                        want: want.clone(),
+                        diff: *diff,
+                    };
+                    let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
                     done.extend(bmseeker::install::links(
                         &root.join("downloads"),
                         &root.join("bms"),
-                        &want,
+                        &q,
                         ls,
-                        *diff,
-                        md5.as_deref(),
-                        crate::hosts::context(),
+                        &sources,
+                        cx,
                     ));
                 }
                 done
@@ -213,12 +220,22 @@ fn web(
     if g.links.is_empty() {
         match g.md5.take() {
             Some(md5) => {
-                let api = &crate::hosts::context().config.bmssearch_api;
-                let l = bmseeker::bmssearch::Lookup::new(&md5, &want, api);
+                // the lists' links are in the group already: BMS SEARCH's
+                let cx = crate::hosts::context();
+                let q = bmseeker::sources::Query {
+                    md5,
+                    want: want.clone(),
+                    diff: g.diff,
+                };
+                let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
                 progress.set_stage(Stage::Finding);
-                // its API sends CORS headers: no proxy
-                crate::platform::run_task(l, false, move |found| {
-                    g.links = found.into_iter().filter(|l| !g.tried.contains(l)).collect();
+                // BMS SEARCH's API sends CORS headers: no proxy
+                crate::platform::run_task(sources.find_all(&q), false, move |found| {
+                    g.links = found
+                        .into_iter()
+                        .map(|(_, l)| l)
+                        .filter(|l| !g.tried.contains(l))
+                        .collect();
                     groups.insert(0, g);
                     web(root, want, progress, groups, done, finish)
                 });
