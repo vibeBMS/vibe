@@ -274,6 +274,63 @@ jobs:
           name: vibeBMS-android
           path: vibeBMS.apk
 
+  # the "nightly" prerelease: the default branch's latest builds, each file
+  # as it is (no zip but the web build's). A build that failed keeps its
+  # previous file; the notes say which files this commit brought.
+  nightly:
+    name: nightly release
+    needs: [build, android, ios, web]
+    if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    # a newer push's release wins over an older one still uploading
+    concurrency:
+      group: nightly-release
+      cancel-in-progress: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vibeBMS-*
+          path: art
+      - name: files
+        run: |
+          mkdir out
+          for t in linux-x64 linux-arm64 macos-arm64 macos-x64; do
+            [ -f "art/vibeBMS-$t/vibebms" ] && cp "art/vibeBMS-$t/vibebms" "out/vibebms-$t"
+          done
+          for t in windows-x64 windows-arm64; do
+            [ -f "art/vibeBMS-$t/vibebms.exe" ] && cp "art/vibeBMS-$t/vibebms.exe" "out/vibebms-$t.exe"
+          done
+          [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
+          [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
+          [ -d art/vibeBMS-web ] && (cd art/vibeBMS-web && zip -qr ../../out/vibeBMS-web.zip .)
+          ls -l out
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          # the tag follows the latest commit
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$SHA" -F force=true >/dev/null \
+            || gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$SHA" >/dev/null
+          notes="$(
+            echo "The latest build of \`${GITHUB_REF_NAME}\`: ${SHA:0:7} ($(date -u '+%Y-%m-%d %H:%M UTC'))."
+            echo
+            echo "Files from this commit: $(cd out && ls | sed 's/^/`/; s/$/`/' | paste -sd ' ')"
+            echo
+            echo "- Linux / macOS: \`chmod +x vibebms-*\`; on macOS also \`xattr -d com.apple.quarantine vibebms-*\`."
+            echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
+            echo "- Web: unzip and serve the folder over HTTP(S), or use https://vibebms.github.io/vibe/."
+          )"
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --prerelease --title "Nightly" --notes "$notes" --target "$SHA"
+          else
+            gh release create nightly --prerelease --title "Nightly" --notes "$notes" --target "$SHA"
+          fi
+          gh release upload nightly out/* --clobber
+
   # links to the executables in the run summary, once the builds are done
   downloads:
     name: downloads

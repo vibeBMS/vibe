@@ -22,6 +22,10 @@ agent (Claude Code); a person set the direction and checked the results by playi
 
 ## Quick start
 
+Builds of the latest commit, for every platform, are on the
+[Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease: the executables, the Android `.apk` and
+the unsigned iOS `.ipa` as they are, the web build as a zip. Or build it yourself:
+
 ```sh
 cargo run --release                                  # song select
 cargo run --release -- path/to/song.bme --autoplay   # play a chart directly
