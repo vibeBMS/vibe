@@ -63,12 +63,8 @@ pub fn workers() -> usize {
 /// Call `f(i)` for `i in 0..n`, in parallel natively.
 pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, f: F) {
     let w = workers().min(n.max(1));
-    if w <= 1 {
-        (0..n).for_each(f);
-        return;
-    }
     #[cfg(not(target_arch = "wasm32"))]
-    {
+    if w > 1 {
         let next = std::sync::atomic::AtomicUsize::new(0);
         std::thread::scope(|s| {
             for _ in 0..w {
@@ -81,7 +77,11 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, f: F) {
                 });
             }
         });
+        return;
     }
+    // one worker (always on the web)
+    let _ = w;
+    (0..n).for_each(f);
 }
 
 /// Asynchronous HTTP (ehttp: ureq natively, `fetch` in browsers). `on_done`

@@ -24,6 +24,27 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  # lint the code other targets compile (cfg'd out on Linux) in minutes,
+  # before the release builds; iOS needs a Mac: its build job covers it
+  cross-check:
+    name: cross-check (wasm32, android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown,aarch64-linux-android
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: cross-check
+      - run: cargo clippy -p vibebms -p vibebms-web --lib --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo install cargo-ndk --locked
+      - run: >-
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          cargo ndk -t arm64-v8a clippy -p vibebms -p vibebms-android -- -D warnings
+
   build:
     name: build ${{ matrix.name }}
     needs: test
