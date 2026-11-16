@@ -280,6 +280,19 @@ pub fn nav_from_key(code: KeyCode, cfg: &KeyConfig) -> Option<Nav> {
     None
 }
 
+/// As [`nav_from_pad`], with buttons bound to the turntable moving up /
+/// down (the screens whose rows a controller walks).
+pub fn nav_from_pad_rows(id: u64, cfg: &KeyConfig) -> Option<Nav> {
+    let p = &cfg.p1;
+    if p.scratch_up.pad.contains(&id) {
+        return Some(Nav::Up);
+    }
+    if p.scratch_down.pad.contains(&id) {
+        return Some(Nav::Down);
+    }
+    nav_from_pad(id, cfg)
+}
+
 pub fn nav_from_pad(id: u64, cfg: &KeyConfig) -> Option<Nav> {
     let in_lk = |lk: &LaneKeys| lk.pad.contains(&id);
     let p = &cfg.p1;

@@ -22,7 +22,7 @@ use super::skinned::{self, ms_since};
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, SkinType};
@@ -545,7 +545,7 @@ impl Scene for KeyConfigScene {
             InputEv::Pad {
                 id, pressed: true, ..
             } => {
-                if let Some(n) = nav_from_pad(*id, &ctx.config.keys) {
+                if let Some(n) = nav_from_pad_rows(*id, &ctx.config.keys) {
                     return self.nav(ctx, n);
                 }
             }
