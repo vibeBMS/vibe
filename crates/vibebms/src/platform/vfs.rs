@@ -318,11 +318,20 @@ mod imp {
         super::super::opfs::remove(dir);
     }
 
-    /// The folders right below `dir`: (folder, bytes, files), the largest
-    /// first.
-    pub fn folder_sizes(dir: &Path) -> Vec<(PathBuf, u64, usize)> {
+    /// A folder right below the library: its size and when it was last
+    /// written.
+    pub struct Kept {
+        pub dir: PathBuf,
+        pub bytes: u64,
+        pub files: usize,
+        /// The newest of its files' times (s; 0: not known).
+        pub newest: i64,
+    }
+
+    /// The folders right below `dir`, the largest first.
+    pub fn folder_sizes(dir: &Path) -> Vec<Kept> {
         FS.with(|fs| {
-            let mut by: BTreeMap<PathBuf, (u64, usize)> = BTreeMap::new();
+            let mut by: BTreeMap<PathBuf, Kept> = BTreeMap::new();
             for (k, n) in fs.borrow().files.iter() {
                 let Ok(rest) = k.strip_prefix(dir) else {
                     continue;
@@ -331,12 +340,19 @@ mod imp {
                 let (Some(first), Some(_)) = (c.next(), c.next()) else {
                     continue;
                 };
-                let e = by.entry(dir.join(first.as_os_str())).or_default();
-                e.0 += n.size.max(0) as u64;
-                e.1 += 1;
+                let d = dir.join(first.as_os_str());
+                let e = by.entry(d.clone()).or_insert(Kept {
+                    dir: d,
+                    bytes: 0,
+                    files: 0,
+                    newest: 0,
+                });
+                e.bytes += n.size.max(0) as u64;
+                e.files += 1;
+                e.newest = e.newest.max(n.mtime);
             }
-            let mut out: Vec<_> = by.into_iter().map(|(p, (b, n))| (p, b, n)).collect();
-            out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            let mut out: Vec<Kept> = by.into_values().collect();
+            out.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.dir.cmp(&b.dir)));
             out
         })
     }

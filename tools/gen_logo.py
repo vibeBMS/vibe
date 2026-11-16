@@ -139,6 +139,9 @@ def main():
     # web page: favicon, and a full-bleed square for iOS (which rounds it)
     write(os.path.join(ROOT, "web", "icon.svg"), rounded)
     png(icon(radius=0), os.path.join(ROOT, "web", "apple-touch-icon.png"), 180)
+    # the web app manifest's icons (web/manifest.webmanifest)
+    for n in (192, 512):
+        png(icon(radius=0), os.path.join(ROOT, "web", f"icon-{n}.png"), n)
     # window icon
     png(rounded, os.path.join(ROOT, "crates", "vibebms", "assets", "icon.png"), 128)
     # Android launcher

@@ -86,6 +86,9 @@ pub(crate) enum Rank {
 
 pub struct SelectScene {
     version: u64,
+    /// Web: the kept song folder a first Delete press asked about.
+    #[cfg(target_arch = "wasm32")]
+    delete_armed: Option<std::path::PathBuf>,
     /// Last position of each turntable axis (it scrolls the list).
     axis_last: HashMap<u64, f32>,
     pub(crate) node: Node,
@@ -143,6 +146,8 @@ impl SelectScene {
             cursor: 0,
             scroll: 0.0,
             search_edit: None,
+            #[cfg(target_arch = "wasm32")]
+            delete_armed: None,
             bar_rects: Vec::new(),
             drag: None,
             last_move: Instant::now(),
@@ -482,6 +487,33 @@ impl SelectScene {
         let n = self.bars.len() as i32;
         self.cursor = ((self.cursor as i32 + d).rem_euclid(n)) as usize;
         self.moved(ctx);
+    }
+
+    /// Web: delete the chosen song's folder kept in the browser, on a
+    /// second press of Delete.
+    #[cfg(target_arch = "wasm32")]
+    fn delete_kept(&mut self, ctx: &mut Ctx) {
+        let bms = ctx.paths.root.join("bms");
+        let Some(dir) = self.selected_song(ctx).and_then(|(_, s)| {
+            let rest = Path::new(&s.path).strip_prefix(&bms).ok()?;
+            Some(bms.join(rest.components().next()?.as_os_str()))
+        }) else {
+            return;
+        };
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if self.delete_armed.as_ref() != Some(&dir) {
+            ctx.toast(format!(
+                "Press Delete again to delete {name} from this browser"
+            ));
+            self.delete_armed = Some(dir);
+            return;
+        }
+        self.delete_armed = None;
+        crate::platform::vfs::remove_dir(&dir);
+        ctx.toast(format!("Deleted {name}"));
     }
 
     fn selected_song<'a>(&self, ctx: &'a Ctx) -> Option<(usize, &'a Song)> {
@@ -1265,6 +1297,11 @@ impl Scene for SelectScene {
                     KeyCode::F7 => return self.option(ctx, 4),
                     KeyCode::F8 => return self.option(ctx, 5),
                     KeyCode::F9 => return self.option(ctx, 7),
+                    #[cfg(target_arch = "wasm32")]
+                    KeyCode::Delete => {
+                        self.delete_kept(ctx);
+                        return Next::Stay;
+                    }
                     KeyCode::F12 => {
                         ctx.start_scan();
                         ctx.refresh_tables(true);
