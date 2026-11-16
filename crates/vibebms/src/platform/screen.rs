@@ -48,6 +48,19 @@ fn apple(short_pt: f32, scale: f32) -> f32 {
     }
 }
 
+/// The size the game draws at: the window's own. On iOS winit's inner size
+/// is the safe area (without the home indicator's strip), while the view,
+/// its Metal layer and the touches' coordinates are the whole window: drawn
+/// at the safe area's size, the picture would be stretched over it and
+/// touches would land off what they point at.
+pub fn drawable_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
+    if cfg!(target_os = "ios") {
+        window.outer_size()
+    } else {
+        window.inner_size()
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn detect(window: &Window) -> Screen {
     let scale = window.scale_factor() as f32;

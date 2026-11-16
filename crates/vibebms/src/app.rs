@@ -1345,7 +1345,7 @@ fn surface_size(window: &Window) -> (u32, u32) {
             }
         }
     }
-    let s = window.inner_size();
+    let s = crate::platform::screen::drawable_size(window);
     (s.width.max(1), s.height.max(1))
 }
 

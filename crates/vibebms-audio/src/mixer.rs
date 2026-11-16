@@ -393,6 +393,8 @@ impl Mixer {
 type OpenOk = (cpal::Stream, u32, u32, String);
 
 fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<State>)> {
+    #[cfg(target_os = "ios")]
+    crate::ios::activate(cfg.buffer_frames);
     let host = cpal::default_host();
     let Some(device) = host.default_output_device() else {
         return Err(("no output device".into(), Box::new(state)));

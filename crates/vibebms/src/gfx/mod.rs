@@ -440,7 +440,7 @@ impl Gfx {
             .copied()
             .find(|f| !f.is_srgb())
             .unwrap_or(caps.formats[0]);
-        let size = window.inner_size();
+        let size = crate::platform::screen::drawable_size(&window);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,

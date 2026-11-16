@@ -6,6 +6,8 @@
 //!   sample-accurate scheduling (BGM is queued ahead with exact start frames).
 
 pub mod decode;
+#[cfg(target_os = "ios")]
+mod ios;
 pub mod mixer;
 #[cfg(target_arch = "wasm32")]
 mod web;
