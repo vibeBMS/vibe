@@ -44,12 +44,13 @@ async function run(id, op, path, data) {
     const fh = await (await dir(parts, true)).getFileHandle(name, { create: true });
     const buf = data instanceof Blob ? await data.arrayBuffer() : data;
     const h = await fh.createSyncAccessHandle();
+    // (older WebKit made truncate / flush / close asynchronous: awaited)
     try {
-      h.truncate(0);
+      await h.truncate(0);
       h.write(new Uint8Array(buf), { at: 0 });
-      h.flush();
+      await h.flush();
     } finally {
-      h.close();
+      await h.close();
     }
     return await fh.getFile();
   }
@@ -86,7 +87,7 @@ pub struct Status {
     pub quota: f64,
     /// The browser keeps it even when short of space.
     pub persisted: bool,
-    /// Files waiting to be written.
+    /// Files waiting to be written (queued or being written).
     pub pending: usize,
 }
 
@@ -123,17 +124,43 @@ fn send(op: &str, rel: &str, data: JsValue, transfer: Option<&JsValue>, done: Do
             WAITING.with(|m| m.borrow_mut().remove(&id));
             return false;
         }
-        bump(1);
         true
     })
 }
 
+thread_local! {
+    /// Files written since the storage was last idle (said when it is).
+    static SAVED: Cell<usize> = const { Cell::new(0) };
+}
+
 fn bump(d: isize) {
-    STATUS.with(|s| {
+    let left = STATUS.with(|s| {
         let mut v = s.get();
         v.pending = (v.pending as isize + d).max(0) as usize;
         s.set(v);
+        v.pending
     });
+    if d < 0 {
+        SAVED.with(|n| n.set(n.get() + 1));
+        // a batch of writes done: safe to leave the page now
+        if left == 0 && SAVED.with(|n| n.replace(0)) >= 20 {
+            note("Songs saved in this browser".into());
+        }
+    }
+}
+
+/// Leaving the page (closing, reloading) while songs are still being
+/// written asks first: what was not written yet is lost.
+fn guard_unload() {
+    let Some(w) = web_sys::window() else { return };
+    let cb = Closure::<dyn FnMut(web_sys::Event)>::new(|e: web_sys::Event| {
+        if STATUS.with(|s| s.get().pending) > 0 {
+            e.prevent_default();
+            let _ = js_sys::Reflect::set(&e, &"returnValue".into(), &"".into());
+        }
+    });
+    let _ = w.add_event_listener_with_callback("beforeunload", cb.as_ref().unchecked_ref());
+    cb.forget();
 }
 
 fn note(m: String) {
@@ -201,7 +228,6 @@ pub fn start(
         let id = a.get(0).as_f64().unwrap_or(0.0) as u32;
         let ok = a.get(1).as_bool().unwrap_or(false);
         let v = a.get(2);
-        bump(-1);
         if let Some(f) = WAITING.with(|m| m.borrow_mut().remove(&id)) {
             f(if ok {
                 Ok(v)
@@ -211,6 +237,7 @@ pub fn start(
         }
     });
     worker.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
+    guard_unload();
     on_msg.forget();
     WORKER_H.with(|w| *w.borrow_mut() = Some(worker));
     // each kept folder listed, one after another; then `done`
@@ -264,47 +291,90 @@ fn list_all(
 
 /// Keep `p` (below `<root>/bms`): its bytes written; `written` gets the
 /// stored file (the bytes in memory can go then).
-pub fn save(p: &Path, data: &[u8], written: impl FnOnce(web_sys::File) + 'static) {
+pub fn save(p: &Path, data: &std::rc::Rc<Vec<u8>>, written: impl FnOnce(web_sys::File) + 'static) {
     let Some(rel) = kept(p) else { return };
-    let arr = js_sys::Uint8Array::from(data);
-    let buf: JsValue = arr.buffer().into();
-    write(rel, buf.clone(), Some(buf), Box::new(written));
+    queue(rel, Payload::Bytes(data.clone()), Box::new(written));
 }
 
 /// Keep `p` from a file the player picked (read by the worker).
 pub fn save_file(p: &Path, file: &web_sys::File, written: impl FnOnce(web_sys::File) + 'static) {
     let Some(rel) = kept(p) else { return };
-    write(rel, file.clone().into(), None, Box::new(written));
+    queue(rel, Payload::File(file.clone()), Box::new(written));
 }
 
-fn write(
-    rel: String,
-    data: JsValue,
-    transfer: Option<JsValue>,
-    written: Box<dyn FnOnce(web_sys::File)>,
-) {
-    let what = rel.clone();
-    send(
-        "write",
-        &rel,
-        data,
-        transfer.as_ref(),
-        Box::new(move |r| match r {
-            Ok(f) => {
-                if let Ok(f) = f.dyn_into::<web_sys::File>() {
-                    written(f);
-                }
+/// What a write writes: bytes (copied for the worker only when it is
+/// sent), or a file the worker reads.
+enum Payload {
+    Bytes(std::rc::Rc<Vec<u8>>),
+    File(web_sys::File),
+}
+
+type Write = (String, Payload, Box<dyn FnOnce(web_sys::File)>);
+
+/// Writes in the worker at once, at most: a song of hundreds of files is
+/// not handed over (copied) all at once.
+const IN_FLIGHT: usize = 4;
+
+thread_local! {
+    static QUEUE: RefCell<std::collections::VecDeque<Write>> =
+        const { RefCell::new(std::collections::VecDeque::new()) };
+    static FLYING: Cell<usize> = const { Cell::new(0) };
+}
+
+fn queue(rel: String, data: Payload, written: Box<dyn FnOnce(web_sys::File)>) {
+    QUEUE.with(|q| q.borrow_mut().push_back((rel, data, written)));
+    bump(1);
+    pump();
+}
+
+/// Send the next writes while there is room.
+fn pump() {
+    while FLYING.with(|f| f.get()) < IN_FLIGHT {
+        let Some((rel, data, written)) = QUEUE.with(|q| q.borrow_mut().pop_front()) else {
+            return;
+        };
+        FLYING.with(|f| f.set(f.get() + 1));
+        let (js, transfer): (JsValue, Option<JsValue>) = match data {
+            Payload::Bytes(b) => {
+                let buf: JsValue = js_sys::Uint8Array::from(&b[..]).buffer().into();
+                (buf.clone(), Some(buf))
             }
-            Err(e) => {
-                log::warn!("library: {what}: {e}");
-                if e.starts_with("QuotaExceededError") {
-                    note("No room to keep the song: free some in Settings › LIBRARY".into());
-                } else {
-                    note(format!("Could not keep {what}: {e}"));
+            Payload::File(f) => (f.into(), None),
+        };
+        let what = rel.clone();
+        let sent = send(
+            "write",
+            &rel,
+            js,
+            transfer.as_ref(),
+            Box::new(move |r| {
+                FLYING.with(|f| f.set(f.get().saturating_sub(1)));
+                bump(-1);
+                match r {
+                    Ok(f) => {
+                        if let Ok(f) = f.dyn_into::<web_sys::File>() {
+                            written(f);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("library: {what}: {e}");
+                        if e.starts_with("QuotaExceededError") {
+                            note(
+                                "No room to keep the song: free some in Settings › LIBRARY".into(),
+                            );
+                        } else {
+                            note(format!("Could not keep {what}: {e}"));
+                        }
+                    }
                 }
-            }
-        }),
-    );
+                pump();
+            }),
+        );
+        if !sent {
+            FLYING.with(|f| f.set(f.get().saturating_sub(1)));
+            bump(-1);
+        }
+    }
 }
 
 /// Forget `p` (a file or a folder below `<root>/bms`).
