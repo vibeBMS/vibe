@@ -76,7 +76,11 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
+      # third parties' mirrors on by default: the repository variable
+      # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions > Variables)
       - run: ./tools/build_web.sh
+        env:
+          VIBEBMS_THIRD_PARTY: ${{ vars.WEB_THIRD_PARTY }}
       # table servers send no CORS headers: the page reads copies next to it
       # the web build has no system fonts: Japanese / Korean titles need these
       - name: CJK fonts (Noto Sans CJK, SIL OFL 1.1)

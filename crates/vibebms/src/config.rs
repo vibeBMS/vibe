@@ -614,6 +614,14 @@ impl Default for TableConfig {
     }
 }
 
+/// Whether third parties' mirrors are on by default: a build made with
+/// `VIBEBMS_THIRD_PARTY=1` (the web build's CI, from a repository
+/// variable) turns them on for those who have not chosen.
+const THIRD_PARTY_DEFAULT: bool = match option_env!("VIBEBMS_THIRD_PARTY") {
+    Some(v) => matches!(v.as_bytes(), b"1" | b"true"),
+    None => false,
+};
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -669,7 +677,7 @@ impl Default for Config {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-            third_party_mirrors: false,
+            third_party_mirrors: THIRD_PARTY_DEFAULT,
             ir_server: IrConfig::default(),
             skins: Default::default(),
             skin_options: Default::default(),
