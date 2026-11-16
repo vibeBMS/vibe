@@ -313,6 +313,15 @@ impl LoadedSkin {
         font: Option<usize>,
         shown_ms: Option<i64>,
     ) {
+        // lines one under the other (beatoraja's fonts: 1.2 sizes apart)
+        if s.contains('\n') {
+            for (i, line) in s.split('\n').enumerate() {
+                let y = r.y + r.h * 1.2 * i as f32;
+                let lr = Rect::new(r.x, y, r.w, r.h);
+                self.text(d, line, lr, align, overflow, color, font, shown_ms);
+            }
+            return;
+        }
         if let Some(f) = font.and_then(|i| self.skin.fonts.get(i)) {
             self.bitmap_text(d, f, s, r, align, color);
             return;
@@ -638,8 +647,9 @@ impl LoadedSkin {
                     font,
                     align,
                     overflow,
+                    constant,
                 } => {
-                    if let Some(s) = st.text(*id) {
+                    if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
                         let shown = now - st.timer(11).unwrap_or(0);
                         self.text(d, &s, r, *align, *overflow, fr.color, *font, Some(shown));

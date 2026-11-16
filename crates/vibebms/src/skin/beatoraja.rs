@@ -1037,6 +1037,11 @@ pub fn load_with(
                 font: None,
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
+                constant: t.get("constantText").and_then(|c| {
+                    c.as_str()
+                        .map(String::from)
+                        .or_else(|| num(c).map(|n| n.to_string()))
+                }),
             })
         } else if let Some(sl) = cx.find("slider", &id) {
             cx.src(sl).map(|src| Kind::Slider {
@@ -1651,6 +1656,22 @@ mod tests {
         assert_eq!(s.objects[2].dst.ops, vec![32]);
         assert!(s.judges[0].judge[0].is_some());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn constant_texts() {
+        let dir = std::env::temp_dir().join(format!("vibebms-ctext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+            "text": [{"id": "t", "constantText": "A\nB", "ref": 10}],
+            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+        std::fs::write(dir.join("r.json"), json).unwrap();
+        let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let Kind::Text { constant, .. } = &s.objects[0].kind else {
+            panic!()
+        };
+        assert_eq!(constant.as_deref(), Some("A\nB"));
     }
 
     struct ScriptSt {

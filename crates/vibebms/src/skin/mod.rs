@@ -299,6 +299,8 @@ pub enum Kind {
         /// default), 1 shrinks to fit, 2 is cut off, 3 (vibeBMS) is cut
         /// off and scrolls while it is the current one (a marquee).
         overflow: i32,
+        /// A fixed text (beatoraja `constantText`) instead of text `id`.
+        constant: Option<String>,
     },
     Bar {
         src: Src,
