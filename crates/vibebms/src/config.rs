@@ -516,8 +516,9 @@ impl TouchStyle {
 /// Where the START / SELECT touch buttons go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TouchSide {
-    /// Beside the play screen on the scratch side: left for 1P and double
-    /// play, right for 2P.
+    /// Beside the play screen on the turntable's side: a custom layout's
+    /// turntables when they are all on one half of the screen, else left for
+    /// 1P and double play, right for 2P.
     #[default]
     Auto,
     Left,

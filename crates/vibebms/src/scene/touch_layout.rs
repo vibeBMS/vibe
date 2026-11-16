@@ -182,7 +182,7 @@ impl TouchLayoutScene {
             .entry((self.mode, ctx.portrait()))
             .or_insert_with(|| super::play_skin::aspect(ctx, mode));
         let screen = Rect::new(0.0, 0.0, ctx.width, Self::area(ctx).y);
-        let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx));
+        let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx), ctx.portrait());
         touch::system_buttons(screen, aspect, ctx.px_per_mm(), right)
     }
 
@@ -540,25 +540,14 @@ impl Scene for TouchLayoutScene {
                 }
                 _ => {}
             },
+            // a touch editor: a controller only leaves it
             InputEv::Pad {
                 id, pressed: true, ..
-            } => {
-                let keys = &ctx.config.keys;
-                match keys.p1.keys.iter().position(|k| k.pad.contains(id)) {
-                    Some(0) => self.step_layout(ctx, 1),
-                    Some(1) => self.step_mode(1),
-                    Some(2) => self.step_height(ctx, -1),
-                    Some(3) => self.step_side(ctx, 1),
-                    Some(4) => self.step_height(ctx, 1),
-                    Some(5) => self.flip(ctx),
-                    Some(6) => self.reset(ctx),
-                    _ => match nav_from_pad(*id, keys) {
-                        Some(Nav::Option) => return self.save(ctx),
-                        Some(Nav::Settings) => return self.cancel(ctx),
-                        _ => {}
-                    },
-                }
-            }
+            } => match nav_from_pad(*id, &ctx.config.keys) {
+                Some(Nav::Option) => return self.save(ctx),
+                Some(Nav::Settings) => return self.cancel(ctx),
+                _ => {}
+            },
             InputEv::Pointer {
                 id, phase, x, y, ..
             } => match phase {

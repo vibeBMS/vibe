@@ -75,8 +75,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   turntable changes sides; custom layouts are otherwise used as placed, whatever the play side), and sets the height of
   the controls (drag their top edge). Portrait or landscape SP and landscape DP, multi-touch and sliding. A touch
   between keys plays the nearest one. Keys are sized like an arcade's (the screen size is guessed from the device and
-  can be set), and the START / SELECT buttons in the letterbox beside the play screen (on the scratch side: left for
-  1P and DP, right for 2P; or the side chosen) open the panels above. A key whose release the browser never delivers
+  can be set), and the START / SELECT buttons in the letterbox beside the play screen (on the turntable's side: a
+  custom layout's turntable, else left for 1P and DP, right for 2P; or the side chosen) open the panels above. A key whose release the browser never delivers
   (an iPad's home bar dragged with a key held) is let go once no finger is on the screen.
 
 ## Features

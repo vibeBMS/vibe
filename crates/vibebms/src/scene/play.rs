@@ -746,7 +746,7 @@ impl PlayScene {
             .map(|s| s.skin.width / s.skin.height.max(1.0))
             .unwrap_or(16.0 / 9.0);
         let side2 = ctx.config.play.side == Side::P2;
-        let right = touch::system_right(&ctx.config.touch, self.mode, side2);
+        let right = touch::system_right(&ctx.config.touch, self.mode, side2, ctx.portrait());
         let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm(), right);
         (view, Some(buttons))
     }

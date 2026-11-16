@@ -469,12 +469,33 @@ pub fn flip(l: &mut TouchLayout) {
 /// Whether START / SELECT go on the right of the screen: the side chosen,
 /// else the scratch side, which moves the note field towards the middle
 /// (left for 1P and double play, right for 2P).
-pub fn system_right(cfg: &TouchConfig, mode: PlayMode, side2: bool) -> bool {
+pub fn system_right(cfg: &TouchConfig, mode: PlayMode, side2: bool, portrait: bool) -> bool {
     match cfg.start_select_side {
-        TouchSide::Auto => !mode.is_double() && side2,
+        // a custom layout's turntables all on one half: that side
+        TouchSide::Auto => match scratch_half(cfg, mode, portrait) {
+            Some(right) => right,
+            None => !mode.is_double() && side2,
+        },
         TouchSide::Left => false,
         TouchSide::Right => true,
     }
+}
+
+/// Which half of the screen a custom layout's turntables are on (true:
+/// right), when they are all on the same half.
+fn scratch_half(cfg: &TouchConfig, mode: PlayMode, portrait: bool) -> Option<bool> {
+    let layout = custom_layout(cfg, mode, portrait)?;
+    let lanes: Vec<u8> = (0..mode.players())
+        .filter_map(|p| mode.scratch_lane(p).map(|l| l as u8))
+        .collect();
+    let halves: Vec<bool> = layout
+        .buttons
+        .iter()
+        .filter(|b| lanes.contains(&b.lane))
+        .map(|b| b.x + b.w * 0.5 > 0.5)
+        .collect();
+    let first = *halves.first()?;
+    halves.iter().all(|&h| h == first).then_some(first)
 }
 
 /// START above SELECT, two square buttons 1.5 buttons apart, away from the
@@ -1171,14 +1192,41 @@ mod tests {
     fn start_select_side() {
         let mut cfg = TouchConfig::default();
         // auto: the scratch side, left for double play
-        assert!(!system_right(&cfg, PlayMode::Beat7K, false));
-        assert!(system_right(&cfg, PlayMode::Beat7K, true));
-        assert!(!system_right(&cfg, PlayMode::Beat14K, true));
+        assert!(!system_right(&cfg, PlayMode::Beat7K, false, false));
+        assert!(system_right(&cfg, PlayMode::Beat7K, true, false));
+        assert!(!system_right(&cfg, PlayMode::Beat14K, true, false));
+        // auto with a custom layout: the turntable's side, whichever player
+        let button = |lane, x| crate::config::TouchButton {
+            lane,
+            x,
+            y: 0.0,
+            w: 0.2,
+            h: 1.0,
+            round: true,
+        };
+        let sc = PlayMode::Beat7K.scratch_lane(0).unwrap() as u8;
+        cfg.style = TouchStyle::Custom;
+        cfg.layouts.insert(
+            slot(PlayMode::Beat7K, false),
+            TouchLayout {
+                buttons: vec![button(sc, 0.75), button(0, 0.1)],
+            },
+        );
+        assert!(system_right(&cfg, PlayMode::Beat7K, false, false));
+        cfg.layouts
+            .get_mut(&slot(PlayMode::Beat7K, false))
+            .unwrap()
+            .buttons[0]
+            .x = 0.05;
+        assert!(!system_right(&cfg, PlayMode::Beat7K, true, false));
+        // not this orientation's: the player's side
+        assert!(system_right(&cfg, PlayMode::Beat7K, true, true));
+        cfg.style = TouchStyle::Iidx;
         cfg.start_select_side = TouchSide::Left;
-        assert!(!system_right(&cfg, PlayMode::Beat7K, true));
+        assert!(!system_right(&cfg, PlayMode::Beat7K, true, false));
         cfg.start_select_side = TouchSide::Right;
-        assert!(system_right(&cfg, PlayMode::Beat7K, false));
-        assert!(system_right(&cfg, PlayMode::Beat14K, false));
+        assert!(system_right(&cfg, PlayMode::Beat7K, false, false));
+        assert!(system_right(&cfg, PlayMode::Beat14K, false, false));
         // the buttons on that side of the play screen
         let screen = Rect::new(0.0, 0.0, 2000.0, 500.0);
         let (view, [start, _]) = system_buttons(screen, 1280.0 / 528.0, 6.0, true);
