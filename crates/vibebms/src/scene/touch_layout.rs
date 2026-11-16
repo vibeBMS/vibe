@@ -682,8 +682,8 @@ impl Scene for TouchLayoutScene {
         let side = format!("◀ START/SELECT {} ▶", t.start_select_side.label());
         let layout = format!("◀ {} ▶", Self::layout_label(ctx));
         let mode_label = format!("◀ {} ▶", mode.label());
-        // two rows, three on narrow screens
-        let rows: Vec<Vec<(Tool, f32, &str)>> = if tw >= 520.0 * ui {
+        // two rows, three on narrow screens (phones in portrait)
+        let rows: Vec<Vec<(Tool, f32, &str)>> = if tw >= (520.0 * ui).max(90.0 * mm) {
             vec![
                 vec![
                     (Tool::Mode, 0.23, &mode_label),
