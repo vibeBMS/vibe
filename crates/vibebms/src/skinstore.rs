@@ -652,7 +652,7 @@ fn fetch_and_install(
             match fetch(url, None, &tmp, context()) {
                 Ok(()) => {}
                 Err(Fetch::Page) => return Err(Fail::Page(url.clone())),
-                Err(Fetch::Failed(m)) => return Err(Fail::Msg(m)),
+                Err(Fetch::Failed(m)) => return Err(m.into()),
             }
         }
         bmseeker::progress::stage(bmseeker::progress::Stage::Unpacking);

@@ -408,7 +408,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0"
-source = "git+https://github.com/vibeBMS/BMSeeker#90b5d509558af17305f0990807fdc35318756ea0"
+source = "git+https://github.com/vibeBMS/BMSeeker#abe37f16290c1067611ce28f4ab2505a6c264e9a"
 dependencies = [
  "aes",
  "ehttp",
@@ -4527,7 +4527,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
