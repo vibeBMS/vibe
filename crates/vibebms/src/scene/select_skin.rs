@@ -245,7 +245,15 @@ impl SkinState for SelectState<'_> {
         Some(match id {
             20 => self.ctx.fps as i64,
             12 => p.judge_offset_ms as i64,
+            // the player's plays, clears and fails over all charts
             30 => self.ctx.scores.values().map(|b| b.play_count as i64).sum(),
+            31 => self.ctx.scores.values().map(|b| b.clear_count as i64).sum(),
+            32 => self
+                .ctx
+                .scores
+                .values()
+                .map(|b| (b.play_count - b.clear_count) as i64)
+                .sum(),
             71 => b(|b| b.ex_score as i64)?,
             72 => song.map(|s| s.notes * 2)?,
             74 => song.map(|s| s.notes)?,

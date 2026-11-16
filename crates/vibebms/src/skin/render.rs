@@ -214,9 +214,21 @@ impl LoadedSkin {
     /// Draw one source frame into a screen rect.
     pub fn blit(&self, d: &mut Draw, src: &Src, now: i64, st: &dyn SkinState, r: Rect, fr: &Frame) {
         let Some(f) = src.frame(now, st) else { return };
-        if let Some((t, uv)) = self.uv(d, src, f) {
+        if let Some((t, mut uv)) = self.uv(d, src, f) {
+            // a negative width / height mirrors the image (beatoraja)
+            let (mut r, mut center) = (r, fr.center);
+            if r.w < 0.0 {
+                r = Rect::new(r.x + r.w, r.y, -r.w, r.h);
+                uv.swap(0, 2);
+                center.0 = 1.0 - center.0;
+            }
+            if r.h < 0.0 {
+                r = Rect::new(r.x, r.y + r.h, r.w, -r.h);
+                uv.swap(1, 3);
+                center.1 = 1.0 - center.1;
+            }
             d.b.set_blend(fr.blend);
-            d.b.quad_rot(t, r, uv, fr.color, fr.angle, fr.center);
+            d.b.quad_rot(t, r, uv, fr.color, fr.angle, center);
             d.b.set_additive(false);
         }
     }
