@@ -439,6 +439,8 @@ impl SkinState for SceneState<'_> {
                 1240 => e.gauge.current().is_qualified(),
                 // the lane cover / hi-speed is being changed
                 270 => self.s.panel_open(),
+                // a judgement of the kind has happened
+                2241..=2246 => sc.count((abs - 2241) as usize) > 0,
                 241..=246 => lj.map(|j| j.0 == (abs - 241) as usize).unwrap_or(false),
                 1242 => lj.map(|j| j.1 > 0).unwrap_or(false),
                 1243 => lj.map(|j| j.1 < 0).unwrap_or(false),
