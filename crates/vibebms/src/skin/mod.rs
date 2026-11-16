@@ -168,6 +168,9 @@ pub struct Dst {
     /// How an image fits the destination (beatoraja `stretch`, LR2
     /// `#STRETCH`): 0 stretches, 1 fits inside keeping the aspect ratio...
     pub stretch: i32,
+    /// Drawn only while the mouse is over this rect (relative to the
+    /// destination, y down; LR2 `#SRC_ONMOUSE`, beatoraja `mouseRect`).
+    pub hover: Option<Rect>,
 }
 
 /// beatoraja offset ids.

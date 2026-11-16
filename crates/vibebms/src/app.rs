@@ -1187,8 +1187,10 @@ impl ApplicationHandler<UserEvent> for App {
                     },
                 );
             }
+            WindowEvent::CursorLeft { .. } => crate::input::set_pointer(None),
             WindowEvent::CursorMoved { position, .. } => {
                 r.cursor = (position.x as f32, position.y as f32);
+                crate::input::set_pointer(Some(r.cursor));
                 let recent_touch = r
                     .last_touch
                     .map(|t| now.duration_since(t) < Duration::from_millis(600))

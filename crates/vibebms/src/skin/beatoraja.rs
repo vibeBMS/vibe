@@ -587,6 +587,12 @@ impl Ctx<'_> {
             });
             prev = Some(cur);
         }
+        // shown while the mouse is over this part (y up from the bottom)
+        if let (Some(m), Some(k)) = (d.get("mouseRect"), out.keys.first()) {
+            let (w, h) = (i(m, "w", 0) as f32, i(m, "h", 0) as f32);
+            let y = k.rect.h - i(m, "y", 0) as f32 - h;
+            out.hover = Some(Rect::new(i(m, "x", 0) as f32, y, w, h));
+        }
         out
     }
 

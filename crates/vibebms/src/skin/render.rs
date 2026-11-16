@@ -554,6 +554,17 @@ impl LoadedSkin {
                 continue;
             };
             let r = xf.rect(fr.rect);
+            if let Some(h) = o.dst.hover {
+                let area = Rect::new(
+                    r.x + h.x * xf.sx,
+                    r.y + h.y * xf.sy,
+                    h.w * xf.sx,
+                    h.h * xf.sy,
+                );
+                if !crate::input::pointer().is_some_and(|(x, y)| area.contains(x, y)) {
+                    continue;
+                }
+            }
             if let Some((act, click)) = o.act {
                 hooks.clickable(r, act, click);
             }

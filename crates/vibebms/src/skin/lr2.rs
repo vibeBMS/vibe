@@ -13,7 +13,8 @@
 //! `_BARGRAPH_REFNUMBER`, `_NOWJUDGE_3P` / `_NOWCOMBO_3P` (PMS),
 //! `#DST_NOTE2`, `#DST_NOTE_EXPANSION_RATE`, `#JUDGETIMER`, `#STRETCH`,
 //! `#CUSTOMOFFSET` and destination offsets (fields 21 on).
-//! Not yet: onmouse (skipped), `#LOADSTART` / `#LOADEND`.
+//! `#SRC_ONMOUSE` images show while the mouse is over them.
+//! Not yet: `#LOADSTART` / `#LOADEND`.
 
 use super::*;
 use crate::platform::vfs;
@@ -477,6 +478,24 @@ impl Loader<'_> {
                         srcs,
                         id: v[3] as i32,
                     });
+                }
+            }
+            // an image shown while the mouse is over part of it:
+            // ...,panel,x2,y2,w2,h2 (relative to the destination)
+            "#SRC_ONMOUSE" => {
+                self.cur = None;
+                if let Some(s_) = src(&v, &self.sizes) {
+                    self.push(Kind::Image(s_));
+                    let i = self.skin.objects.len() - 1;
+                    self.skin.objects[i].dst.hover = Some(Rect::new(
+                        v[12] as f32,
+                        v[13] as f32,
+                        v[14] as f32,
+                        v[15] as f32,
+                    ));
+                    if v[11] > 0 {
+                        self.panel_ops.push((i, 20 + v[11] as i32));
+                    }
                 }
             }
             "#SRC_BUTTON" => {
@@ -1582,11 +1601,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_objects_keep_their_destinations() {
+    fn hover_images_and_image_sets() {
         let dir = std::env::temp_dir().join(format!("vibebms-onm-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        // a hover image (not drawn) after an image: its keys are its own;
-        // beatoraja image sets pick by a value (here 42, RANDOM)
+        // a hover image after an image: its keys are its own, it shows
+        // over its hover area (in panel 2); beatoraja image sets pick by a
+        // value (here 42, RANDOM)
         let csv = "#INFORMATION,5,Hover,me\n#IMAGE,a.png\n\
 #SRC_IMAGE,0,0,0,0,23,32,1,1,0,0\n#DST_IMAGE,0,0,10,10,23,32,0,255,255,255,255\n\
 #SRC_ONMOUSE,0,0,0,0,258,67,1,1,0,0,2,0,0,129,67\n\
@@ -1605,8 +1625,11 @@ mod tests {
         .unwrap();
         assert_eq!(s.objects[0].dst.keys.len(), 1);
         assert_eq!(s.objects[0].dst.keys[0].rect.w, 23.0);
-        let Kind::ImageSet { srcs, id } = &s.objects[1].kind else {
-            panic!("{:?}", s.objects[1].kind)
+        let hover = &s.objects[1].dst;
+        assert_eq!(hover.hover, Some(Rect::new(0.0, 0.0, 129.0, 67.0)));
+        assert_eq!((hover.keys[0].rect.x, hover.ops.clone()), (544.0, vec![22]));
+        let Kind::ImageSet { srcs, id } = &s.objects[2].kind else {
+            panic!("{:?}", s.objects[2].kind)
         };
         assert_eq!((srcs.len(), *id, srcs[1].timer), (2, 42, 21));
         let _ = std::fs::remove_dir_all(&dir);
