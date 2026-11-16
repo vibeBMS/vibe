@@ -867,6 +867,7 @@ impl App {
             .pending
             .take()
             .unwrap_or_else(|| Config::load(&self.paths.config_file()));
+        crate::hosts::set_third_party(config.third_party_mirrors);
         let text = Text::new(&[self.paths.fonts.as_path()]);
         let a = &config.audio;
         let mixer = Mixer::new(&AudioConfig {

@@ -786,6 +786,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 value: "↻".into(),
                 act: Act::RefreshTables,
             });
+            v.push(it(
+                "Third-party mirrors (darksabun, hexlataia, kyouko archive)",
+                onoff(c.third_party_mirrors),
+                |c, _| {
+                    c.config.third_party_mirrors = !c.config.third_party_mirrors;
+                    crate::hosts::set_third_party(c.config.third_party_mirrors);
+                },
+            ));
             v.push(Item {
                 label: "Restore default tables".into(),
                 value: "↵".into(),

@@ -7,10 +7,30 @@ pub use bmseeker::hosts::*;
 /// tables through (none sends CORS headers): vibeBMS/proxy `worker.js`.
 pub const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
 
-/// What the app resolves links with: bmseeker's default settings and hosts.
+static THIRD_PARTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether third parties' copies are used (the "Third-party mirrors"
+/// setting: bmseeker's `third_party`).
+pub fn set_third_party(on: bool) {
+    THIRD_PARTY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// What the app resolves links with: bmseeker's default settings and hosts
+/// (third parties' copies too, when [`set_third_party`]).
 pub fn context() -> &'static Context {
-    static CX: std::sync::LazyLock<Context> = std::sync::LazyLock::new(Context::default);
-    &CX
+    use std::sync::LazyLock;
+    static OWN: LazyLock<Context> = LazyLock::new(|| Context::new(Default::default()));
+    static ALL: LazyLock<Context> = LazyLock::new(|| {
+        Context::new(bmseeker::config::Config {
+            third_party: true,
+            ..Default::default()
+        })
+    });
+    if THIRD_PARTY.load(std::sync::atomic::Ordering::Relaxed) {
+        &ALL
+    } else {
+        &OWN
+    }
 }
 
 /// `url` as the web build fetches it.

@@ -630,6 +630,10 @@ pub struct Config {
     pub tables: Vec<TableConfig>,
     /// Indexes of mirrored event entries (shown as folders; see `archive`).
     pub archives: Vec<String>,
+    /// Downloads may use third parties' copies: other people's mirrors of
+    /// dead sites and uploaders, the community archive (bmseeker's
+    /// `third_party`).
+    pub third_party_mirrors: bool,
     /// Internet ranking server (an older `ir` list is ignored).
     pub ir_server: IrConfig,
     /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
@@ -665,6 +669,7 @@ impl Default for Config {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            third_party_mirrors: false,
             ir_server: IrConfig::default(),
             skins: Default::default(),
             skin_options: Default::default(),
