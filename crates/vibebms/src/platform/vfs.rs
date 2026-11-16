@@ -389,22 +389,24 @@ mod imp {
         });
     }
 
-    /// Unpack an archive (a song pack: .zip, .7z, .rar) under
+    /// Unpack an archive (a song pack: .zip, .7z, .rar, .lzh) under
     /// `<root>/bms/<archive name>/`. Returns the files added.
     pub fn add_zip(root: &Path, name: &str, bytes: Vec<u8>) -> usize {
         add_archive_at(&root.join("bms"), name, bytes)
     }
 
-    /// Unpack an archive under `<dir>/<archive name>/` (zip entry names in
-    /// Shift_JIS / EUC-KR decoded).
+    /// Unpack an archive under `<dir>/<archive name>/` (entry names in
+    /// Shift_JIS / EUC-KR decoded; archives in one holding no chart
+    /// unpacked too).
     pub fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
+        use bmseeker::unpack::{unpack, Blob, BUDGET};
         let stem = Path::new(name)
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
-        match bmseeker::unpack::unpack_bytes(bytes, |rel, data| put_bytes(&base.join(rel), data)) {
-            Ok(n) => n,
+        match unpack(Blob::Bytes(bytes), &crate::placement::Vfs, &base, BUDGET) {
+            Ok(m) => m.len(),
             Err(e) => {
                 log::warn!("{name}: {e}");
                 0

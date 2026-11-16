@@ -98,7 +98,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   and plain archive servers work; the web build goes through the vibeBMS proxy). When the song is in the library
   already, only the chart is fetched, and a message says when none of its links works.
   Links that cannot be downloaded directly (OneDrive, uploaders, deleted files) open their download page: on the
-  desktop in a browser window in the app, whose downloaded zip/7z/rar is unpacked into `bms/` before the chart's page
+  desktop in a browser window in the app, whose downloaded zip/7z/rar/lzh is unpacked into `bms/` before the chart's page
   opens; a downloaded chart goes into its song's folder (the folder with the same title and artist that holds every
   sound it needs; when unsure, the app asks). Downloads are kept in `downloads/`. Android and iOS use the in-app
   browser too (over the game screen); the web build opens the system browser.
