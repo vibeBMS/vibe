@@ -995,6 +995,9 @@ pub struct SettingsScene {
     learning: Option<(Slot, Instant)>,
     cat_rects: Vec<(Rect, usize)>,
     item_rects: Vec<(Rect, usize)>,
+    /// Where each row's value is drawn (left, right): a tap left of its
+    /// middle lowers it, right of it raises it.
+    value_spans: Vec<(f32, f32)>,
     scroll: f32,
     axis_seen: std::collections::HashMap<u64, f32>,
     back_rect: Rect,
@@ -1010,6 +1013,7 @@ impl SettingsScene {
             learning: None,
             cat_rects: Vec::new(),
             item_rects: Vec::new(),
+            value_spans: Vec::new(),
             scroll: 0.0,
             axis_seen: Default::default(),
             back_rect: Rect::default(),
@@ -1383,7 +1387,14 @@ impl Scene for SettingsScene {
                         .find(|(_, k)| *k == i)
                         .map(|(r, _)| *r)
                         .unwrap_or_default();
-                    let d = if *x < r.x + r.w * 0.78 { -1 } else { 1 };
+                    // the value's middle (it is drawn at the row's right)
+                    let mid = self
+                        .item_rects
+                        .iter()
+                        .position(|(_, k)| *k == i)
+                        .and_then(|p| self.value_spans.get(p))
+                        .map_or(r.x + r.w * 0.78, |(a, b)| (a + b) * 0.5);
+                    let d = if *x < mid { -1 } else { 1 };
                     let list = items(ctx, self.cat);
                     let is_adjust = matches!(
                         list.get(i).map(|it| it.act),
@@ -1496,6 +1507,7 @@ impl Scene for SettingsScene {
             self.scroll = sel_y;
         }
         self.item_rects.clear();
+        self.value_spans.clear();
         d.b.set_clip(Some(item_r));
         for (i, item) in list.iter().enumerate() {
             let y = item_r.y + 8.0 * ui + i as f32 * rh - self.scroll;
@@ -1528,9 +1540,10 @@ impl Scene for SettingsScene {
             } else {
                 item.value.clone()
             };
-            d.text_fit(
+            let right = r.right() - 12.0 * ui;
+            let drawn = d.text_fit(
                 &value,
-                r.right() - 12.0 * ui,
+                right,
                 r.y + (r.h - 17.0 * ui) * 0.5,
                 17.0 * ui,
                 vcol,
@@ -1538,6 +1551,7 @@ impl Scene for SettingsScene {
                 r.w * 0.42,
             );
             self.item_rects.push((r, i));
+            self.value_spans.push((right - drawn, right));
         }
         d.b.set_clip(None);
         // modal: text edit / key learning
