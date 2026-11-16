@@ -269,7 +269,8 @@ impl Mixer {
                     frame,
                     sample_rate: 44100,
                     buffer_frames: 512,
-                    device_name: "none".into(),
+                    // the settings' Output row shows why
+                    device_name: format!("none ({e})"),
                     _stream: None,
                     null_start: Some(Instant::now()),
                     null_state: Some(std::sync::Mutex::new(*state)),
@@ -409,7 +410,7 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
     let mut buf_range = None;
     if let Ok(cfgs) = device.supported_output_configs() {
         for c in cfgs {
-            if c.sample_format() != fmt || c.channels() != def.channels() {
+            if c.sample_format() != fmt || (c.channels() != def.channels() && def.channels() != 0) {
                 continue;
             }
             if cfg.sample_rate != 0
@@ -423,8 +424,22 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
             }
         }
     }
+    // iOS: cpal reads the output unit's format before it runs, which may
+    // say 0 Hz / 0 channels; the unit converts from whatever it is given
+    if rate == 0 {
+        rate = if cfg.sample_rate != 0 {
+            cfg.sample_rate
+        } else {
+            48_000
+        };
+    }
+    let channels = if def.channels() == 0 {
+        2
+    } else {
+        def.channels()
+    };
     let mut config = cpal::StreamConfig {
-        channels: def.channels(),
+        channels,
         sample_rate: cpal::SampleRate(rate),
         buffer_size: cpal::BufferSize::Default,
     };
