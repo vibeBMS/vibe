@@ -417,6 +417,11 @@ impl Ctx {
                         self.toast(format!("Added {} ({n} files)", name(&dir)));
                         rescan = true;
                     }
+                    // (files its folder lacked may have come in)
+                    Done::Owned(dir) => {
+                        self.toast(format!("{title}: already installed ({})", name(&dir)));
+                        rescan = true;
+                    }
                     Done::Placed(p) => {
                         let dir = p.parent().map(name).unwrap_or_default();
                         self.toast(format!("{} → {dir}", name(&p)));
@@ -433,6 +438,7 @@ impl Ctx {
                         "{title}: the song is in the library, but none of this chart's links works"
                     )),
                     Done::Failed(e) => self.toast(format!("{title}: download failed ({e})")),
+                    other => log::warn!("{title}: {other:?}"),
                 }
             }
         }

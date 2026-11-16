@@ -62,6 +62,9 @@ impl bmseeker::fs::Store for Vfs {
     fn open(&self, p: &Path) -> std::io::Result<Box<dyn bmseeker::fs::ReadSeek + Send>> {
         bmseeker::fs::Store::open(&bmseeker::fs::Disk, p)
     }
+    fn create_dir_all(&self, p: &Path) {
+        let _ = crate::platform::vfs::create_dir_all(p);
+    }
 }
 
 /// A file being written in a web page.
