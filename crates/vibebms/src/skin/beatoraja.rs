@@ -99,7 +99,13 @@ fn preprocess(v: Value, en: &HashSet<i64>, dir: &Path, depth: usize) -> Value {
                 if is_branch {
                     if test(item.get("if"), en) {
                         if let Some(vs) = item.get("values").and_then(Value::as_array) {
-                            out.extend(vs.iter().cloned().map(|x| preprocess(x, en, dir, depth)));
+                            // the values are items of this array: branches
+                            // among them are resolved the same way
+                            if let Value::Array(vs) =
+                                preprocess(Value::Array(vs.clone()), en, dir, depth)
+                            {
+                                out.extend(vs);
+                            }
                         } else if let Some(v) = item.get("value") {
                             out.push(preprocess(v.clone(), en, dir, depth));
                         }
@@ -1427,6 +1433,21 @@ mod tests {
             vec!["one.png".to_string(), "two.png".into()]
         );
         assert!(opts[1].ops.is_empty());
+    }
+
+    #[test]
+    fn nested_branches() {
+        let v = serde_json::json!([
+            {"if": [1], "values": [
+                {"id": "a"},
+                {"if": [2], "values": [{"id": "b"}, {"if": [-3], "values": [{"id": "c"}]}]},
+                {"if": [3], "values": [{"id": "d"}]}
+            ]}
+        ]);
+        let en: HashSet<i64> = [1, 2].into();
+        let out = preprocess(v, &en, Path::new(""), 0);
+        let ids: Vec<&str> = out.as_array().unwrap().iter().map(|x| s(x, "id")).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
     }
 
     #[test]

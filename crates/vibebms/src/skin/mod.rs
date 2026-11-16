@@ -734,6 +734,73 @@ pub struct Skin {
     pub offsets: HashMap<i32, [f32; 6]>,
 }
 
+impl Skin {
+    /// Which images something of the skin draws from (a skin may list
+    /// more: for options not chosen, or never used).
+    pub fn used_images(&self) -> Vec<bool> {
+        let mut used = vec![false; self.images.len()];
+        let mut mark = |s: &Src| {
+            if let Some(u) = used.get_mut(s.image) {
+                *u = true;
+            }
+        };
+        for o in &self.objects {
+            match &o.kind {
+                Kind::Image(s)
+                | Kind::JudgeLine(s)
+                | Kind::Number { src: s, .. }
+                | Kind::Bar { src: s, .. }
+                | Kind::Slider { src: s, .. }
+                | Kind::Gauge { src: s, .. }
+                | Kind::Cover { src: s, .. }
+                | Kind::Distribution { src: Some(s), .. } => mark(s),
+                Kind::ImageSet { srcs, .. } => srcs.iter().for_each(&mut mark),
+                _ => {}
+            }
+        }
+        for l in &self.lanes {
+            [
+                &l.note,
+                &l.ln_start,
+                &l.ln_end,
+                &l.ln_body,
+                &l.ln_body_active,
+                &l.mine,
+                &l.hcn_start,
+                &l.hcn_end,
+                &l.hcn_body,
+                &l.hcn_body_active,
+                &l.hcn_damage,
+                &l.hcn_reactive,
+            ]
+            .into_iter()
+            .flatten()
+            .for_each(&mut mark);
+        }
+        for j in &self.judges {
+            j.judge.iter().flatten().for_each(|(s, _)| mark(s));
+            j.combo.iter().flatten().for_each(|(s, ..)| mark(s));
+        }
+        self.bar_lines.iter().for_each(|(s, _)| mark(s));
+        if let Some(sl) = &self.songlist {
+            sl.body.iter().flatten().for_each(&mut mark);
+            sl.level.iter().flatten().for_each(|(f, _)| mark(&f.src));
+            sl.lamp.iter().flatten().for_each(|(s, _)| mark(s));
+            if let Some((_, Some(s), _)) = &sl.graph {
+                mark(s);
+            }
+        }
+        for f in &self.fonts {
+            for (img, _) in f.glyphs.values() {
+                if let Some(u) = used.get_mut(*img) {
+                    *u = true;
+                }
+            }
+        }
+        used
+    }
+}
+
 /// An LR2 bitmap font: glyph images at a design height.
 #[derive(Clone, Debug, Default)]
 pub struct BitmapFont {

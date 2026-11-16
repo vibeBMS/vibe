@@ -132,20 +132,25 @@ impl LoadedSkin {
             }
         }
         let mut videos = Vec::new();
+        // only what is drawn, and an image several sources name once
+        let used = skin.used_images();
+        let mut loaded: HashMap<&PathBuf, Option<TexId>> = HashMap::new();
         let tex = skin
             .images
             .iter()
             .zip(&lazy)
             .enumerate()
             .map(|(i, (p, lazy))| {
-                let p = p.as_ref().filter(|_| !lazy)?;
+                let p = p.as_ref().filter(|_| !lazy && used[i])?;
                 if crate::video::is_video(p) {
                     if let Some(v) = crate::video::Video::open(p, true) {
                         videos.push((i, v));
                     }
                     return None;
                 }
-                gfx.load_image_keyed(p, key)
+                *loaded
+                    .entry(p)
+                    .or_insert_with(|| gfx.load_image_keyed(p, key))
             })
             .collect();
         LoadedSkin {
@@ -186,7 +191,10 @@ impl LoadedSkin {
             self.tex[i] = None;
             v.free(gfx);
         }
-        for t in self.tex.drain(..).flatten() {
+        let mut ids: Vec<TexId> = self.tex.drain(..).flatten().collect();
+        ids.sort_unstable();
+        ids.dedup();
+        for t in ids {
             gfx.free_texture(t);
         }
         // archives opened for this skin's files
