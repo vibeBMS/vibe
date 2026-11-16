@@ -592,6 +592,9 @@ struct Running {
     frame_count: u32,
     fps_since: Instant,
     next_frame: Instant,
+    /// A redraw asked for and not drawn yet (the web: asking again would
+    /// wake the event loop again at once, and it would spin).
+    redraw_pending: bool,
     #[cfg(any(
         target_os = "android",
         all(
@@ -658,6 +661,12 @@ pub fn run() {
 }
 
 impl Running {
+    /// Ask for a frame (on the web, once until it is drawn).
+    fn redraw(&mut self) {
+        self.redraw_pending = crate::platform::IS_WEB;
+        self.window.request_redraw();
+    }
+
     fn dispatch(&mut self, el: &ActiveEventLoop, ev: InputEv) {
         // browsers only start audio after a user gesture
         if crate::platform::IS_WEB
@@ -983,6 +992,7 @@ impl App {
             frame_count: 0,
             fps_since: now,
             next_frame: now,
+            redraw_pending: false,
             #[cfg(any(
                 target_os = "android",
                 all(
@@ -1098,7 +1108,10 @@ impl ApplicationHandler<UserEvent> for App {
                 r.ctx.scale = r.window.scale_factor() as f32;
                 r.ctx.screen = crate::platform::screen::detect(&r.window);
             }
-            WindowEvent::RedrawRequested => r.frame(el),
+            WindowEvent::RedrawRequested => {
+                r.redraw_pending = false;
+                r.frame(el)
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else {
                     return;
@@ -1222,18 +1235,21 @@ impl ApplicationHandler<UserEvent> for App {
             // menus: cap at the display rate (or 120) to save power; play: user cap
             let cap = if fps > 0 { fps } else { 120 };
             let interval = Duration::from_secs_f64(1.0 / cap as f64);
-            if now >= r.next_frame {
+            if now >= r.next_frame && !r.redraw_pending {
                 r.next_frame = (r.next_frame + interval).max(now);
-                r.window.request_redraw();
+                r.redraw()
             }
             el.set_control_flow(ControlFlow::WaitUntil(r.next_frame));
         } else if crate::platform::IS_WEB {
             // the browser paces the redraws (requestAnimationFrame); Poll
             // there makes winit post a task again and again between frames
             // (Firefox: ~34000 a second, each with an AbortController), which
-            // takes the main thread and leaves garbage for second-long GCs
+            // takes the main thread and leaves garbage for second-long GCs.
+            // A redraw asked for wakes the loop at once too: ask once a frame.
             el.set_control_flow(ControlFlow::Wait);
-            r.window.request_redraw();
+            if !r.redraw_pending {
+                r.redraw();
+            }
         } else {
             el.set_control_flow(ControlFlow::Poll);
             r.window.request_redraw();
