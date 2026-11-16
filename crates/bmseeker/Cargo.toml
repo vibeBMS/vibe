@@ -11,12 +11,21 @@ repository.workspace = true
 name = "bmseeker"
 path = "src/lib.rs"
 
+# the command-line tool: `cargo install bmseeker --features cli`
+[[bin]]
+name = "bmseeker"
+required-features = ["cli"]
+
+[features]
+cli = ["dep:clap"]
+
 [dependencies]
 vibebms-core.workspace = true
 serde.workspace = true
 # works.json keeps its keys in order
 serde_json = { workspace = true, features = ["preserve_order"] }
 regex = "1"
+clap = { version = "4", features = ["derive"], optional = true }
 log.workspace = true
 encoding_rs.workspace = true
 md-5.workspace = true

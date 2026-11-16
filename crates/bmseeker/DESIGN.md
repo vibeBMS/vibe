@@ -14,7 +14,7 @@ bmseeker (lib)      sans-IO core: tasks that ask for requests and are fed the an
   sources           Source strategies: a song (md5 / title / artist) -> links
   event             manbow events: works and checks as JSON Lines records
   table, unpack, import, placement, install, export, probe (as now)
-bmseeker-cli        clap, noun-verb commands, --json (JSON Lines), `serve`
+  bin/bmseeker      the CLI (feature `cli`: clap): noun-verb commands, --json, `serve`
 gui/ (Go, MyGo)     embeds the CLI; with a CLI command it is the CLI
 ```
 

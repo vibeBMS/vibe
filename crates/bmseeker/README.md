@@ -49,7 +49,7 @@ check  {"url","state":"archive|chart|page|gone|error","kind"?,"format"?,"size","
 `user_agent`, `mirror_catalog`(BMS 이벤트 미러 목록, 비우면 안 씀), `manbow`, `bmssearch_api`, `stella_list`,
 `mega_api`, `sources`, `tables`, `downloads`(라이브러리 안 대기 폴더), `min_coverage`.
 
-`cargo run -p bmseeker-cli -- table missing https://stellabms.xyz/sl/table.html -L ~/bms -l 0`
+`cargo run -p bmseeker --features cli -- table missing https://stellabms.xyz/sl/table.html -L ~/bms -l 0` (설치: `cargo install --path crates/bmseeker --features cli`)
 
 ## 창
 
