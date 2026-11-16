@@ -5,7 +5,7 @@
 //! edited in `scene::touch_layout`. Fingers can slide between keys, and
 //! circling the turntable reverses scratch direction (back-spin scratch).
 
-use crate::config::{TouchButton, TouchConfig, TouchLayout, TouchStyle};
+use crate::config::{TouchButton, TouchConfig, TouchLayout, TouchSide, TouchStyle};
 use crate::gfx::{with_alpha, Batch, Rect};
 use crate::input::{LaneEv, Phase};
 use crate::platform::Instant;
@@ -261,14 +261,31 @@ pub fn layout(
     zones
 }
 
-/// The strip at the bottom of a `w` x `h` screen the controls take.
-pub fn controls_area(w: f32, h: f32, cfg: &TouchConfig) -> Rect {
-    let share = if h > w {
+/// The range of the controls' share of the screen height.
+pub const CONTROLS_HEIGHT: (f32, f32) = (0.12, 0.6);
+
+/// The setting of `controls_share`.
+pub fn controls_share_mut(cfg: &mut TouchConfig, portrait: bool) -> &mut f32 {
+    if portrait {
+        &mut cfg.portrait_height
+    } else {
+        &mut cfg.landscape_height
+    }
+}
+
+/// The controls' share of the screen height in this orientation.
+pub fn controls_share(cfg: &TouchConfig, portrait: bool) -> f32 {
+    if portrait {
         cfg.portrait_height
     } else {
         cfg.landscape_height
-    };
-    let ctrl_h = (h * share).max(80.0).min(h * 0.6);
+    }
+}
+
+/// The strip at the bottom of a `w` x `h` screen the controls take.
+pub fn controls_area(w: f32, h: f32, cfg: &TouchConfig) -> Rect {
+    let share = controls_share(cfg, h > w);
+    let ctrl_h = (h * share).max(80.0).min(h * CONTROLS_HEIGHT.1);
     Rect::new(0.0, h - ctrl_h, w, ctrl_h)
 }
 
@@ -367,10 +384,13 @@ pub fn button_rect(b: &TouchButton, area: Rect) -> Rect {
     )
 }
 
-/// Set a custom button's rectangle from one on the screen (in steps of
-/// 1/10000 of the area, which keep the config file short).
+/// In steps of 1/10000 of the area, which keep the config file short.
+fn q(v: f32) -> f32 {
+    (v * 10_000.0).round() / 10_000.0
+}
+
+/// Set a custom button's rectangle from one on the screen.
 pub fn set_button_rect(b: &mut TouchButton, r: Rect, area: Rect) {
-    let q = |v: f32| (v * 10_000.0).round() / 10_000.0;
     b.x = q((r.x - area.x) / area.w);
     b.y = q((r.y - area.y) / area.h);
     b.w = q(r.w / area.w);
@@ -435,6 +455,25 @@ pub fn to_layout(zones: &[Zone], area: Rect) -> TouchLayout {
                 b
             })
             .collect(),
+    }
+}
+
+/// A custom layout mirrored left to right: each button keeps its lane, so
+/// the turntable goes to the other side.
+pub fn flip(l: &mut TouchLayout) {
+    for b in &mut l.buttons {
+        b.x = q(1.0 - b.x - b.w);
+    }
+}
+
+/// Whether START / SELECT go on the right of the screen: the side chosen,
+/// else the scratch side, which moves the note field towards the middle
+/// (left for 1P and double play, right for 2P).
+pub fn system_right(cfg: &TouchConfig, mode: PlayMode, side2: bool) -> bool {
+    match cfg.start_select_side {
+        TouchSide::Auto => !mode.is_double() && side2,
+        TouchSide::Left => false,
+        TouchSide::Right => true,
     }
 }
 
@@ -1081,6 +1120,71 @@ mod tests {
         let now = Instant::now();
         assert!(t.pointer(&z, 1, Phase::Down, 900.0, 450.0, now, 6.0, &mut out));
         assert_eq!((out[0].lane, out[0].pressed), (2, true));
+    }
+
+    #[test]
+    fn flipping_mirrors_the_layout() {
+        let area = Rect::new(0.0, 500.0, 2340.0, 580.0);
+        let cfg = TouchConfig::default();
+        for mode in PlayMode::ALL {
+            for style in [TouchStyle::Iidx, TouchStyle::Keyboard] {
+                let l = to_layout(&preset_zones(mode, style, area, &cfg, false, 5.0), area);
+                let mut f = l.clone();
+                flip(&mut f);
+                // each button mirrored about the middle, with its lane
+                for (a, b) in l.buttons.iter().zip(&f.buttons) {
+                    assert_eq!(
+                        (a.lane, a.y, a.w, a.h, a.round),
+                        (b.lane, b.y, b.w, b.h, b.round)
+                    );
+                    assert!((a.x + a.w * 0.5 - (1.0 - b.x - b.w * 0.5)).abs() < 1e-4);
+                }
+                // twice: back as it was
+                flip(&mut f);
+                for (a, b) in l.buttons.iter().zip(&f.buttons) {
+                    assert!((a.x - b.x).abs() < 1e-6, "{mode:?} {a:?} {b:?}");
+                }
+            }
+        }
+        // BM 1P: the turntable goes from the left of the keys to the right
+        let l = to_layout(
+            &preset_zones(PlayMode::Beat7K, TouchStyle::Iidx, area, &cfg, false, 5.0),
+            area,
+        );
+        let mut f = l.clone();
+        flip(&mut f);
+        let z = custom_zones(PlayMode::Beat7K, &f, area);
+        let disc = z.iter().find(|z| z.scratch).unwrap().bounds();
+        let keys: Vec<Rect> = z
+            .iter()
+            .filter(|z| !z.scratch)
+            .map(|z| z.bounds())
+            .collect();
+        assert_eq!(keys.len(), 7);
+        assert!(keys.iter().all(|k| k.right() < disc.x));
+        // key 1 next to it
+        let k1 = z.iter().find(|z| z.lane == 0).unwrap().bounds();
+        assert!(keys.iter().all(|k| k.x <= k1.x));
+    }
+
+    #[test]
+    fn start_select_side() {
+        let mut cfg = TouchConfig::default();
+        // auto: the scratch side, left for double play
+        assert!(!system_right(&cfg, PlayMode::Beat7K, false));
+        assert!(system_right(&cfg, PlayMode::Beat7K, true));
+        assert!(!system_right(&cfg, PlayMode::Beat14K, true));
+        cfg.start_select_side = TouchSide::Left;
+        assert!(!system_right(&cfg, PlayMode::Beat7K, true));
+        cfg.start_select_side = TouchSide::Right;
+        assert!(system_right(&cfg, PlayMode::Beat7K, false));
+        assert!(system_right(&cfg, PlayMode::Beat14K, false));
+        // the buttons on that side of the play screen
+        let screen = Rect::new(0.0, 0.0, 2000.0, 500.0);
+        let (view, [start, _]) = system_buttons(screen, 1280.0 / 528.0, 6.0, true);
+        assert!(start.bounds().x >= view.right());
+        let (view, [start, _]) = system_buttons(screen, 1280.0 / 528.0, 6.0, false);
+        assert!(start.bounds().right() <= view.x);
     }
 
     #[test]

@@ -745,9 +745,8 @@ impl PlayScene {
             .as_ref()
             .map(|s| s.skin.width / s.skin.height.max(1.0))
             .unwrap_or(16.0 / 9.0);
-        // on the scratch side, which moves the note field towards the middle:
-        // left for 1P and double play, right for 2P
-        let right = !self.mode.is_double() && ctx.config.play.side == Side::P2;
+        let side2 = ctx.config.play.side == Side::P2;
+        let right = touch::system_right(&ctx.config.touch, self.mode, side2);
         let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm(), right);
         (view, Some(buttons))
     }

@@ -300,6 +300,12 @@ fn add_missing_commas(text: &str) -> String {
 }
 
 /// (type, name) without building the skin.
+/// A JSON skin's size (w, h), without loading it.
+pub fn size(path: &Path) -> Option<(f32, f32)> {
+    let v = read_value(path).ok()?;
+    Some((i(&v, "w", 1280) as f32, i(&v, "h", 720) as f32))
+}
+
 pub fn header(path: &Path) -> Option<(SkinType, String)> {
     let v = read_value(path).ok()?;
     let t = v.get("type")?.as_i64()?;
