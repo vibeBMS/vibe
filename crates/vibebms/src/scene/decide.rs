@@ -149,6 +149,9 @@ impl SkinState for DecideState<'_> {
         if let Some(v) = skinned::clock_number(id) {
             return Some(v);
         }
+        if let Some(v) = skinned::player_number(self.ctx, id) {
+            return Some(v);
+        }
         let song = self.s.song()?;
         let p = &self.ctx.config.play;
         let best = self.best();

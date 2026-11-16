@@ -59,6 +59,13 @@ pub struct ResultData {
     pub replay: Option<crate::replay::Replay>,
 }
 
+/// Whether a play goes into the records and the player's totals: not
+/// autoplay, not a replay or another unranked play. (A play quit before
+/// any key reached the judge has no result.)
+fn recorded(autoplay: bool, unranked: Option<&str>) -> bool {
+    !autoplay && unranked.is_none()
+}
+
 pub struct ResultScene {
     pub(crate) d: ResultData,
     pub(crate) before: Option<BestScore>,
@@ -99,9 +106,12 @@ impl ResultScene {
         }
         if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
             ir_status = format!("{why}: not saved");
-        } else if !d.autoplay {
+        } else if recorded(d.autoplay, d.unranked) {
             if let Some(lib) = ctx.lib.as_mut() {
-                let b = lib.record_play(&song.sha256, ln, &d.score, d.clear);
+                // played up to the last judgement (as beatoraja counts it)
+                let last_us = d.judge_log.iter().map(|j| j.0).max().unwrap_or(0);
+                let play_ms = last_us.max(0) as u64 / 1000;
+                let b = lib.record_play(&song.sha256, ln, &d.score, d.clear, play_ms);
                 ctx.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
             }
@@ -390,5 +400,18 @@ impl Scene for ResultScene {
                 Align::Left,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_own_ranked_plays_count() {
+        assert!(recorded(false, None));
+        assert!(!recorded(true, None));
+        assert!(!recorded(false, Some("REPLAY")));
+        assert!(!recorded(true, Some("COURSE")));
     }
 }

@@ -477,6 +477,9 @@ impl SkinState for SceneState<'_> {
         if let Some(v) = super::skinned::clock_number(id) {
             return Some(v);
         }
+        if let Some(v) = super::skinned::player_number(self.ctx, id) {
+            return Some(v);
+        }
         let s = self.s;
         let p = &self.ctx.config.play;
         let m = &s.chart.meta;

@@ -37,6 +37,7 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 ```text
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
 <root>/scores/scores.json      play records
+<root>/scores/player.json      totals over all plays (judgements, time played)
 <root>/cache/                  song scan and difficulty table caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
 <root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
@@ -139,6 +140,9 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported. Text outline and shadow are
   drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the text in half its colour
   at the offset), distance-field `.fnt` fonts (font `type` 1 / 2) the outline, shadow colour and softness too.
+- Player totals for skins (numbers 17-19, 30-37, 333): plays and clears are summed over the charts' records;
+  judgements and time played are counted after every recorded play (not autoplay or replays). Judgements from
+  before vibeBMS kept them count each chart's best play only; time played starts at zero.
 - **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS` lists the skins in
   [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
   downloads, unpacks and installs one into `skins/` from its author's own link (Google Drive, Dropbox, MEGA, GitHub,
