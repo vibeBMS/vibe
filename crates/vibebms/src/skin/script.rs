@@ -353,7 +353,7 @@ return fns
             .call::<()>(())?;
             let vb = lua.create_table()?;
             defaults(&lua, &vb, 0)?;
-            // `require` and `dofile` read Lua files of the skin's theme
+            // `require`, `dofile` and `loadfile` read Lua files of the skin's theme
             // folder (the parent of the skin file's folder) only
             let root = crate::platform::vfs::normalize(dir.parent().unwrap_or(dir));
             let inside = move |p: &Path| {
@@ -397,6 +397,24 @@ return fns
             searchers.raw_set(1, preload)?;
             searchers.raw_set(2, searcher)?;
             pkg.set("searchers", searchers)?;
+            // `loadfile` too (the base library's would read any path and
+            // take compiled bytecode, which Lua does not verify)
+            let base = dir.to_path_buf();
+            let within = inside.clone();
+            lua.globals().set(
+                "loadfile",
+                lua.create_function(move |lua, p: String| {
+                    let Some(path) = within(&base.join(p.replace('\\', "/"))) else {
+                        return Ok((LV::Nil, Some(format!("loadfile: {p} is outside the skin"))));
+                    };
+                    let src = crate::platform::vfs::read(&path)
+                        .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                    match text_chunk(lua, &src, &path).into_function() {
+                        Ok(f) => Ok((LV::Function(f), None)),
+                        Err(e) => Ok((LV::Nil, Some(e.to_string()))),
+                    }
+                })?,
+            )?;
             let base = dir.to_path_buf();
             lua.globals().set(
                 "dofile",

@@ -1398,7 +1398,9 @@ mod tests {
                 and not pcall(require, "io") and not pcall(require, "os")
                 and load("\27Lua", "b", "b") == nil
             package.path = "/etc/?"
-            return ok and not pcall(require, "passwd") and not pcall(dofile, "../../x.lua")"#;
+            return ok and not pcall(require, "passwd") and not pcall(dofile, "../../x.lua")
+                and loadfile("/etc/passwd") == nil and loadfile("../../x.lua") == nil
+                and loadfile("play.luaskin") ~= nil"#;
         std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
         let (v, _) = read_skin(&dir.join("esc.luaskin"), None).unwrap();
         assert_eq!(v, Value::Bool(true));
