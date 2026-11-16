@@ -493,9 +493,69 @@ pub enum TouchMode {
 pub enum TouchStyle {
     /// A row of equally sized keys (keyboard-like).
     Keyboard,
-    /// Turntable + 7 buttons in two rows like an IIDX controller.
+    /// The BM preset: turntable + 7 buttons in two rows like a beatmania
+    /// controller.
     #[default]
     Iidx,
+    /// The player's own layouts (`TouchConfig::layouts`).
+    Custom,
+}
+
+impl TouchStyle {
+    pub const ALL: [TouchStyle; 3] = [TouchStyle::Iidx, TouchStyle::Keyboard, TouchStyle::Custom];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TouchStyle::Keyboard => "KEYBOARD",
+            TouchStyle::Iidx => "BM",
+            TouchStyle::Custom => "CUSTOM",
+        }
+    }
+}
+
+/// Where the START / SELECT touch buttons go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TouchSide {
+    /// Beside the play screen on the turntable's side: a custom layout's
+    /// turntables when they are all on one half of the screen, else left for
+    /// 1P and double play, right for 2P.
+    #[default]
+    Auto,
+    Left,
+    Right,
+}
+
+impl TouchSide {
+    pub const ALL: [TouchSide; 3] = [TouchSide::Auto, TouchSide::Left, TouchSide::Right];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TouchSide::Auto => "AUTO",
+            TouchSide::Left => "LEFT",
+            TouchSide::Right => "RIGHT",
+        }
+    }
+}
+
+/// A touch button: its lane, and its rectangle as fractions of the
+/// controls area (the strip below the play screen; may reach past it).
+/// A round button is the circle inside the rectangle.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TouchButton {
+    pub lane: u8,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    #[serde(default)]
+    pub round: bool,
+}
+
+/// The buttons of one key mode and orientation.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct TouchLayout {
+    pub buttons: Vec<TouchButton>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -517,6 +577,13 @@ pub struct TouchConfig {
     pub allow_dp: bool,
     /// Scratch sensitivity: degrees of rotation needed to register a direction change.
     pub scratch_threshold_deg: f32,
+    /// The side of the screen START / SELECT go on.
+    pub start_select_side: TouchSide,
+    /// The preset a custom layout starts from, and what Custom shows for
+    /// modes not edited.
+    pub custom_from: TouchStyle,
+    /// Edited layouts by key mode and orientation ("7KEYS landscape").
+    pub layouts: std::collections::BTreeMap<String, TouchLayout>,
 }
 
 impl Default for TouchConfig {
@@ -530,6 +597,9 @@ impl Default for TouchConfig {
             screen_inches: 0.0,
             allow_dp: true,
             scratch_threshold_deg: 6.0,
+            start_select_side: TouchSide::Auto,
+            custom_from: TouchStyle::Iidx,
+            layouts: Default::default(),
         }
     }
 }
@@ -795,6 +865,54 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn touch_layouts_roundtrip() {
+        let mut c = Config::default();
+        c.touch.style = TouchStyle::Custom;
+        c.touch.custom_from = TouchStyle::Keyboard;
+        c.touch.start_select_side = TouchSide::Right;
+        c.touch.layouts.insert(
+            "7KEYS landscape".into(),
+            TouchLayout {
+                buttons: vec![
+                    TouchButton {
+                        lane: 7,
+                        x: -0.05,
+                        y: 0.0,
+                        w: 0.25,
+                        h: 1.0,
+                        round: true,
+                    },
+                    TouchButton {
+                        lane: 0,
+                        x: 0.3,
+                        y: 0.55,
+                        w: 0.08,
+                        h: 0.4,
+                        round: false,
+                    },
+                ],
+            },
+        );
+        let s = toml::to_string_pretty(&c).unwrap();
+        let d: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c, d);
+        // a configuration from before custom layouts: its style stays
+        let old: Config =
+            toml::from_str("[touch]\nmode = \"On\"\nstyle = \"Keyboard\"\nopacity = 0.5\n")
+                .unwrap();
+        assert_eq!(old.touch.style, TouchStyle::Keyboard);
+        assert_eq!(old.touch.custom_from, TouchStyle::Iidx);
+        assert!(old.touch.layouts.is_empty());
+        assert_eq!(old.touch.start_select_side, TouchSide::Auto);
+        let old: Config = toml::from_str("[touch]\nstyle = \"Iidx\"\n").unwrap();
+        assert_eq!(old.touch, TouchConfig::default());
+        // a button without `round` is square
+        let b: TouchButton =
+            toml::from_str("lane = 1\nx = 0.1\ny = 0.2\nw = 0.1\nh = 0.5\n").unwrap();
+        assert!(!b.round);
     }
 
     #[test]

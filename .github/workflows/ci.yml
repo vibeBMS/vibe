@@ -24,6 +24,27 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  # lint the code other targets compile (cfg'd out on Linux) in minutes,
+  # before the release builds; iOS needs a Mac: its build job covers it
+  cross-check:
+    name: cross-check (wasm32, android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown,aarch64-linux-android
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: cross-check
+      - run: cargo clippy -p vibebms -p vibebms-web --lib --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo install cargo-ndk --locked
+      - run: >-
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          cargo ndk -t arm64-v8a clippy -p vibebms -p vibebms-android -- -D warnings
+
   build:
     name: build ${{ matrix.name }}
     needs: test
@@ -273,6 +294,73 @@ jobs:
         with:
           name: vibeBMS-android
           path: vibeBMS.apk
+
+  # the "nightly" prerelease: the default branch's latest builds, each file
+  # as it is (no zip but the web build's). A build that failed keeps its
+  # previous file; the notes say which files this commit brought.
+  nightly:
+    name: nightly release
+    needs: [build, android, ios, web]
+    if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    # a newer push's release wins over an older one still uploading
+    concurrency:
+      group: nightly-release
+      cancel-in-progress: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vibeBMS-*
+          path: art
+      - name: files
+        run: |
+          mkdir out
+          for t in linux-x64 linux-arm64 macos-arm64 macos-x64; do
+            [ -f "art/vibeBMS-$t/vibebms" ] && cp "art/vibeBMS-$t/vibebms" "out/vibebms-$t"
+          done
+          for t in windows-x64 windows-arm64; do
+            [ -f "art/vibeBMS-$t/vibebms.exe" ] && cp "art/vibeBMS-$t/vibebms.exe" "out/vibebms-$t.exe"
+          done
+          [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
+          [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
+          [ -d art/vibeBMS-web ] && (cd art/vibeBMS-web && zip -qr ../../out/vibeBMS-web.zip .)
+          ls -l out
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          # only the branch's head is published: a newer push has its own run,
+          # and GitHub lets this token point the tag only at a branch's head
+          head() { gh api "repos/$GH_REPO/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha; }
+          if [ "$(head)" != "$SHA" ]; then
+            echo "$GITHUB_REF_NAME has moved on from ${SHA:0:7}; its own run publishes it"
+            exit 0
+          fi
+          # the tag follows the latest commit
+          if ! gh api -X PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$SHA" -F force=true >/dev/null \
+            && ! gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$SHA" >/dev/null; then
+            [ "$(head)" != "$SHA" ] && { echo "$GITHUB_REF_NAME moved on meanwhile"; exit 0; }
+            exit 1
+          fi
+          notes="$(
+            echo "The latest build of \`${GITHUB_REF_NAME}\`: ${SHA:0:7} ($(date -u '+%Y-%m-%d %H:%M UTC'))."
+            echo
+            echo "Files from this commit: $(cd out && ls | sed 's/^/`/; s/$/`/' | paste -sd ' ')"
+            echo
+            echo "- Linux / macOS: \`chmod +x vibebms-*\`; on macOS also \`xattr -d com.apple.quarantine vibebms-*\`."
+            echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
+            echo "- Web: unzip and serve the folder over HTTP(S), or use https://vibebms.github.io/vibe/."
+          )"
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --prerelease --title "Nightly" --notes "$notes" --target "$SHA"
+          else
+            gh release create nightly --prerelease --title "Nightly" --notes "$notes" --target "$SHA"
+          fi
+          gh release upload nightly out/* --clobber
 
   # links to the executables in the run summary, once the builds are done
   downloads:

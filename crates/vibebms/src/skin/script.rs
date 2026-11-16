@@ -581,7 +581,7 @@ return fns
             lua.load(COMPAT).set_name("vibebms compat").call::<()>(())?;
             let vb = lua.create_table()?;
             defaults(&lua, &vb, 0)?;
-            // `require`, `dofile` and `io` read files of the skin's theme
+            // `require`, `dofile`, `loadfile` and `io` read files of the skin's theme
             // folder (the parent of the skin file's folder) only
             let root = crate::platform::vfs::normalize(dir.parent().unwrap_or(dir));
             let base = dir.to_path_buf();
@@ -621,6 +621,23 @@ return fns
             searchers.raw_set(1, preload)?;
             searchers.raw_set(2, searcher)?;
             pkg.set("searchers", searchers)?;
+            // `loadfile` too (the base library's would read any path and
+            // take compiled bytecode, which Lua does not verify)
+            let f = find.clone();
+            lua.globals().set(
+                "loadfile",
+                lua.create_function(move |lua, p: String| {
+                    let Some(path) = f(&p, true) else {
+                        return Ok((LV::Nil, Some(format!("loadfile: no skin file {p}"))));
+                    };
+                    let src = crate::platform::vfs::read(&path)
+                        .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                    match text_chunk(lua, &src, &path).into_function() {
+                        Ok(f) => Ok((LV::Function(f), None)),
+                        Err(e) => Ok((LV::Nil, Some(e.to_string()))),
+                    }
+                })?,
+            )?;
             let f = find.clone();
             lua.globals().set(
                 "dofile",

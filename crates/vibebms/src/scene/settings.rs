@@ -2,15 +2,17 @@
 //!
 //! Keyboard: ↑↓ select, ←→ change, Enter activate, Esc back.
 //! Mouse/touch: tap a category, tap the left/right half of a value to change it.
+//! Controller: the turntable selects, white keys decide / raise, blue keys
+//! lower / go back, SELECT leaves.
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{
     Bpms, HiSpeedMode, HsFix, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, Target,
-    TouchMode, TouchStyle,
+    TouchMode, TouchSide, TouchStyle,
 };
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
-use crate::input::{InputEv, Phase};
+use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::theme;
 use crate::ui;
@@ -22,7 +24,7 @@ use vibebms_core::lane_option::{DoubleOption, LaneOption};
 use vibebms_core::LnType;
 use winit::keyboard::KeyCode;
 
-const CATEGORIES: [&str; 9] = [
+const CATEGORIES: [&str; 10] = [
     "PLAY",
     "JUDGE & GAUGE",
     "KEY CONFIG",
@@ -32,7 +34,11 @@ const CATEGORIES: [&str; 9] = [
     "LIBRARY",
     "TABLES",
     "IR",
+    "SKINS",
 ];
+
+/// The skin catalog's page.
+const SKINS_CAT: usize = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TextField {
@@ -68,6 +74,8 @@ enum Act {
     Rescan,
     RefreshTables,
     ResetKeys,
+    /// Open the touch layout editor.
+    EditTouchLayout,
     RestoreDefaultTables,
     BrowseFolder,
     /// Cycle custom option `.1` of the skin chosen for `SKIN_KEYS[.0]`.
@@ -81,6 +89,15 @@ enum Act {
     /// on a second press.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     DeleteKept(usize),
+    /// Read the skin catalog again.
+    SkinCatalog,
+    /// Install catalog skin `.0` (an installed one again on a second
+    /// press; a downloading one: cancel).
+    SkinGet(usize),
+    /// Open catalog skin `.0`'s page.
+    SkinPage(usize),
+    /// Delete catalog skin `.0`, on a second press.
+    SkinDelete(usize),
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -301,6 +318,20 @@ fn it(label: impl Into<String>, value: impl Into<String>, f: fn(&mut Ctx, i32)) 
 fn cyc<T: Copy + PartialEq>(all: &[T], v: T, d: i32) -> T {
     let i = all.iter().position(|x| *x == v).unwrap_or(0) as i32;
     all[(i + d).rem_euclid(all.len() as i32) as usize]
+}
+
+fn touch_style_label(s: TouchStyle) -> &'static str {
+    match s {
+        TouchStyle::Iidx => "BM (turntable + 7)",
+        s => s.label(),
+    }
+}
+
+fn start_select_label(s: TouchSide) -> &'static str {
+    match s {
+        TouchSide::Auto => "AUTO (scratch side)",
+        s => s.label(),
+    }
 }
 
 fn onoff(b: bool) -> &'static str {
@@ -601,6 +632,11 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 |c, _| c.config.keys.any_axis_is_scratch = !c.config.keys.any_axis_is_scratch,
             ));
             v.push(Item {
+                label: "Touch controller layout".into(),
+                value: format!("{}  edit ↵", touch_style_label(c.touch.style)),
+                act: Act::EditTouchLayout,
+            });
+            v.push(Item {
                 label: "Reset key config".into(),
                 value: "↵".into(),
                 act: Act::ResetKeys,
@@ -619,26 +655,21 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     )
                 },
             ),
-            it(
-                "Layout",
-                match c.touch.style {
-                    TouchStyle::Iidx => "IIDX (turntable + 7)",
-                    TouchStyle::Keyboard => "KEYBOARD",
-                },
-                |c, d| {
-                    c.config.touch.style = cyc(
-                        &[TouchStyle::Iidx, TouchStyle::Keyboard],
-                        c.config.touch.style,
-                        d,
-                    )
-                },
-            ),
+            it("Layout", touch_style_label(c.touch.style), |c, d| {
+                c.config.touch.style = cyc(&TouchStyle::ALL, c.config.touch.style, d)
+            }),
+            Item {
+                label: "Edit the touch layout".into(),
+                value: "↵".into(),
+                act: Act::EditTouchLayout,
+            },
             it(
                 "Controls height (landscape)",
                 format!("{:.0}%", c.touch.landscape_height * 100.0),
                 |c, d| {
                     let h = &mut c.config.touch.landscape_height;
-                    *h = (*h + d as f32 * 0.01).clamp(0.12, 0.6)
+                    let (lo, hi) = crate::touch::CONTROLS_HEIGHT;
+                    *h = (*h + d as f32 * 0.01).clamp(lo, hi)
                 },
             ),
             it(
@@ -646,7 +677,8 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 format!("{:.0}%", c.touch.portrait_height * 100.0),
                 |c, d| {
                     let h = &mut c.config.touch.portrait_height;
-                    *h = (*h + d as f32 * 0.01).clamp(0.12, 0.6)
+                    let (lo, hi) = crate::touch::CONTROLS_HEIGHT;
+                    *h = (*h + d as f32 * 0.01).clamp(lo, hi)
                 },
             ),
             it(
@@ -669,6 +701,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 |c, d| {
                     c.config.touch.opacity =
                         (c.config.touch.opacity + d as f32 * 0.05).clamp(0.1, 1.0)
+                },
+            ),
+            it(
+                "START / SELECT side",
+                start_select_label(c.touch.start_select_side),
+                |c, d| {
+                    let s = &mut c.config.touch.start_select_side;
+                    *s = cyc(&TouchSide::ALL, *s, d)
                 },
             ),
             it(
@@ -983,7 +1023,184 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 },
             ]
         }
+        SKINS_CAT => skin_items(ctx),
         _ => Vec::new(),
+    }
+}
+
+/// `n` bytes as MB for people.
+fn mb(n: u64) -> String {
+    format!("{} MB", (n + (1 << 19)) >> 20)
+}
+
+/// The skin catalog: each skin, what it is, and what can be done with it.
+fn skin_items(ctx: &Ctx) -> Vec<Item> {
+    let store = &ctx.skin_store;
+    let mut v = vec![Item {
+        label: format!(
+            "Skin catalog: {} skins, installed into {}",
+            store.catalog.skins.len(),
+            ctx.paths.skins.display()
+        ),
+        value: if store.is_fetching() {
+            "reading…".into()
+        } else {
+            "update ↻".into()
+        },
+        act: Act::SkinCatalog,
+    }];
+    if crate::platform::IS_WEB {
+        v.push(Item {
+            label: "In the browser: no Lua skins, none over 400 MB".into(),
+            value: String::new(),
+            act: Act::None,
+        });
+    }
+    let armed = store.armed.as_ref();
+    for (i, e) in store.catalog.skins.iter().enumerate() {
+        use crate::skinstore::State;
+        let state = store.state(&ctx.paths.skins, e);
+        let size = if e.size > 0 {
+            format!(" ({})", mb(e.size))
+        } else {
+            String::new()
+        };
+        let value = match &state {
+            State::Busy(p) => format!("{}  cancel ×", p.label()),
+            State::Installed { update: true } => format!("update ↓{size}"),
+            State::Installed { .. } if armed == Some(&(e.id.clone(), false)) => {
+                "press again to reinstall".into()
+            }
+            State::Installed { .. } => "installed ✓".into(),
+            State::Absent => match e.web_refusal().filter(|_| crate::platform::IS_WEB) {
+                Some(_) => "desktop app only".into(),
+                None => format!("install ↓{size}"),
+            },
+        };
+        v.push(Item {
+            label: format!(
+                "{}{}  by {}",
+                e.name,
+                if e.version.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", e.version)
+                },
+                e.author
+            ),
+            value,
+            act: Act::SkinGet(i),
+        });
+        let kind = if e.kind == "lr2" {
+            "LR2"
+        } else if e.lua {
+            "beatoraja Lua"
+        } else {
+            "beatoraja"
+        };
+        let mut info = format!("    {kind} · {}", e.scenes_label());
+        if !e.resolution.is_empty() {
+            info.push_str(&format!(" · {}", e.resolution));
+        }
+        v.push(Item {
+            label: info,
+            value: "page ↗".into(),
+            act: Act::SkinPage(i),
+        });
+        // the author's terms, on a line of their own (they can be long)
+        if !e.license.is_empty() {
+            v.push(Item {
+                label: format!("    Terms: {}", e.license),
+                value: String::new(),
+                act: Act::None,
+            });
+        }
+        if matches!(state, State::Installed { .. }) {
+            v.push(Item {
+                label: format!("    skins/{}", e.folder()),
+                value: if armed == Some(&(e.id.clone(), true)) {
+                    "press again to delete".into()
+                } else {
+                    "delete ×".into()
+                },
+                act: Act::SkinDelete(i),
+            });
+        }
+    }
+    v
+}
+
+/// What the skins page does with `act` (a delete or reinstall waits for a
+/// second press on the same row).
+fn skin_act(ctx: &mut Ctx, act: Act) {
+    use crate::skinstore::State;
+    let arm = |ctx: &mut Ctx, id: &str, delete: bool| {
+        let want = Some((id.to_string(), delete));
+        if ctx.skin_store.armed == want {
+            ctx.skin_store.armed = None;
+            true
+        } else {
+            ctx.skin_store.armed = want;
+            false
+        }
+    };
+    if !matches!(act, Act::SkinGet(_) | Act::SkinDelete(_)) {
+        ctx.skin_store.armed = None;
+    }
+    let entry = |ctx: &Ctx, i: usize| ctx.skin_store.catalog.skins.get(i).cloned();
+    match act {
+        Act::SkinCatalog => ctx.skin_store.refresh(true),
+        Act::SkinPage(i) => {
+            if let Some(e) = entry(ctx, i) {
+                crate::platform::open_url(&e.homepage);
+            }
+        }
+        Act::SkinGet(i) => {
+            let Some(e) = entry(ctx, i) else { return };
+            match ctx.skin_store.state(&ctx.paths.skins, &e) {
+                State::Busy(_) => {
+                    ctx.skin_store.cancel(&e.id);
+                    return;
+                }
+                State::Installed { update: false } if !arm(ctx, &e.id, false) => return,
+                _ => ctx.skin_store.armed = None,
+            }
+            let r = ctx.skin_store.install(&ctx.paths, i);
+            ctx.toast(r.unwrap_or_else(|e| e));
+        }
+        Act::SkinDelete(i) => {
+            let Some(e) = entry(ctx, i) else { return };
+            if !arm(ctx, &e.id, true) {
+                return;
+            }
+            match ctx.skin_store.delete(&ctx.paths, i) {
+                Ok(folders) => {
+                    // skins chosen from those folders: back to the default
+                    let rel = ctx
+                        .paths
+                        .skins
+                        .strip_prefix(&ctx.paths.root)
+                        .map(std::path::Path::to_path_buf)
+                        .unwrap_or_else(|_| ctx.paths.skins.clone());
+                    let gone: Vec<std::path::PathBuf> = folders
+                        .iter()
+                        .flat_map(|f| [rel.join(f), ctx.paths.skins.join(f)])
+                        .collect();
+                    for v in ctx.config.skins.values_mut() {
+                        if gone
+                            .iter()
+                            .any(|g| std::path::Path::new(v.as_str()).starts_with(g))
+                        {
+                            v.clear();
+                        }
+                    }
+                    ctx.skins_changed();
+                    ctx.toast(format!("Deleted {}", e.name));
+                }
+                Err(m) => ctx.toast(m),
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1000,7 +1217,11 @@ pub struct SettingsScene {
     value_spans: Vec<(f32, f32)>,
     scroll: f32,
     axis_seen: std::collections::HashMap<u64, f32>,
+    /// Turntable positions last seen (it moves the selection).
+    axis_last: std::collections::HashMap<u64, f32>,
     back_rect: Rect,
+    /// The touch layout editor was asked for.
+    open_editor: bool,
 }
 
 impl SettingsScene {
@@ -1016,7 +1237,9 @@ impl SettingsScene {
             value_spans: Vec::new(),
             scroll: 0.0,
             axis_seen: Default::default(),
+            axis_last: Default::default(),
             back_rect: Rect::default(),
+            open_editor: false,
         }
     }
 
@@ -1030,8 +1253,17 @@ impl SettingsScene {
         if !matches!(item.act, Act::DeleteKept(_)) {
             ARMED.with(|a| a.set(None));
         }
+        if !matches!(item.act, Act::SkinGet(_) | Act::SkinDelete(_)) {
+            ctx.skin_store.armed = None;
+        }
         match item.act {
             Act::None => return,
+            Act::SkinCatalog | Act::SkinGet(_) | Act::SkinPage(_) | Act::SkinDelete(_) => {
+                skin_act(ctx, item.act);
+                if !matches!(item.act, Act::SkinDelete(_)) {
+                    return;
+                }
+            }
             Act::KeepSongs => {
                 #[cfg(target_arch = "wasm32")]
                 crate::platform::opfs::request_persist();
@@ -1127,6 +1359,10 @@ impl SettingsScene {
             }
             Act::RefreshTables => ctx.refresh_tables(true),
             Act::ResetKeys => ctx.config.keys = KeyConfig::default(),
+            Act::EditTouchLayout => {
+                self.open_editor = true;
+                return;
+            }
             Act::RestoreDefaultTables => {
                 for (n, u) in bmseeker::table::DEFAULT_TABLES {
                     if !ctx.config.tables.iter().any(|t| t.url == *u) {
@@ -1142,6 +1378,47 @@ impl SettingsScene {
             }
         }
         ctx.save_config();
+    }
+
+    /// Move the selection by `d` rows (or categories, when they have the
+    /// focus).
+    fn step(&mut self, ctx: &Ctx, d: i32) {
+        if self.focus_items {
+            let n = items(ctx, self.cat).len().max(1) as i32;
+            self.sel = (self.sel as i32 + d).rem_euclid(n) as usize;
+        } else {
+            let n = CATEGORIES.len() as i32;
+            self.cat = (self.cat as i32 + d).rem_euclid(n) as usize;
+            self.sel = 0;
+        }
+    }
+
+    /// A controller (or the keys bound to the lanes), as on the music
+    /// select: the turntable moves, a white key decides (raises a value),
+    /// a blue key lowers a value or goes back to the categories, START
+    /// goes back to them too, SELECT leaves.
+    fn nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
+        let adjust = || {
+            matches!(
+                items(ctx, self.cat).get(self.sel).map(|it| it.act),
+                Some(Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..))
+            )
+        };
+        match nav {
+            Nav::Up => self.step(ctx, -1),
+            Nav::Down => self.step(ctx, 1),
+            Nav::Decide if !self.focus_items => self.focus_items = true,
+            Nav::Decide if adjust() => self.activate(ctx, 1, false),
+            Nav::Decide => self.activate(ctx, 0, true),
+            Nav::Close if self.focus_items && adjust() => self.activate(ctx, -1, false),
+            Nav::Close | Nav::Option => self.focus_items = false,
+            Nav::Back if self.focus_items => self.focus_items = false,
+            Nav::Back | Nav::Settings => {
+                ctx.save_config();
+                return Next::Pop;
+            }
+        }
+        Next::Stay
     }
 
     fn commit_text(&mut self, ctx: &mut Ctx, tf: TextField, s: String) {
@@ -1215,6 +1492,20 @@ impl Scene for SettingsScene {
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        let next = self.input_inner(ctx, ev);
+        if std::mem::take(&mut self.open_editor) {
+            return Next::Push(Box::new(super::touch_layout::TouchLayoutScene::new(ctx)));
+        }
+        next
+    }
+
+    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        self.draw_inner(ctx, d, now)
+    }
+}
+
+impl SettingsScene {
+    fn input_inner(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         // key learning
         if self.learning.is_some() {
             match ev {
@@ -1358,8 +1649,35 @@ impl Scene for SettingsScene {
                     self.cat = (self.cat + 1) % CATEGORIES.len();
                     self.sel = 0;
                 }
-                _ => {}
+                // keys bound to the lanes (a controller seen as a keyboard)
+                other => {
+                    if let Some(nav) = nav_from_key(*other, &ctx.config.keys) {
+                        return self.nav(ctx, nav);
+                    }
+                }
             },
+            InputEv::Pad {
+                id, pressed: true, ..
+            } => {
+                if let Some(nav) = nav_from_pad(*id, &ctx.config.keys) {
+                    return self.nav(ctx, nav);
+                }
+            }
+            InputEv::Axis { id, value, .. } if ctx.config.keys.any_axis_is_scratch => {
+                // the turntable moves the selection (a step per 0.06 turned)
+                let last = *self.axis_last.entry(*id).or_insert(*value);
+                let mut d = value - last;
+                if d > 1.0 {
+                    d -= 2.0
+                } else if d < -1.0 {
+                    d += 2.0
+                }
+                if d.abs() >= 0.06 {
+                    self.axis_last.insert(*id, *value);
+                    let nav = if d > 0.0 { Nav::Down } else { Nav::Up };
+                    return self.nav(ctx, nav);
+                }
+            }
             InputEv::Wheel { dy } => {
                 self.scroll = (self.scroll - dy * 40.0).max(0.0);
             }
@@ -1415,7 +1733,7 @@ impl Scene for SettingsScene {
         Next::Stay
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let ui = ctx.ui();
         let (w, h) = (ctx.width, ctx.height);
         d.b.gradient(

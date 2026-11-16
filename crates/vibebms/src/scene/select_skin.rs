@@ -110,9 +110,7 @@ impl SelectState<'_> {
             },
             Bar::Course { table, course } => BarInfo {
                 kind: BAR_GRADE,
-                title: ctx
-                    .tables
-                    .get(*table)
+                title: super::select::table(ctx, table)
                     .and_then(|t| t.header.courses.get(*course))
                     .map(|c| c.name.clone())
                     .unwrap_or_default(),
@@ -333,7 +331,7 @@ impl SkinState for SelectState<'_> {
             // the table being browsed, else the selected chart's
             1001..=1003 => match &self.s.node {
                 Node::Level(t, l) => {
-                    let t = self.ctx.tables.get(*t)?;
+                    let t = super::select::table(self.ctx, t)?;
                     match id {
                         1001 => t.header.name.clone(),
                         1002 => t.label(l),
@@ -341,7 +339,7 @@ impl SkinState for SelectState<'_> {
                     }
                 }
                 Node::Table(t) | Node::Courses(t) if id != 1002 => {
-                    self.ctx.tables.get(*t)?.header.name.clone()
+                    super::select::table(self.ctx, t)?.header.name.clone()
                 }
                 _ => {
                     let s = song?;
@@ -558,8 +556,8 @@ impl Hooks for SelectHooks<'_> {
                 }
             }
             // a table song downloading: how far it has got, over its bar
-            if let Some(Bar::Missing { title, .. }) = s.bars.get(idx) {
-                if let Some(p) = self.st.ctx.song_fetch.progress(title) {
+            if let Some(Bar::Missing { title, artist, .. }) = s.bars.get(idx) {
+                if let Some(p) = self.st.ctx.song_fetch.progress(title, artist) {
                     download_progress(d, sr, p, now);
                 }
             }

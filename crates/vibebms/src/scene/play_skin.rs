@@ -80,6 +80,28 @@ pub fn configured_path(ctx: &Ctx, value: &str) -> Option<PathBuf> {
     })
 }
 
+/// The play skin's width / height as far as it is known without loading
+/// it (the touch layout editor): a JSON skin's own (the default skins
+/// are), else 16:9.
+pub fn aspect(ctx: &Ctx, mode: PlayMode) -> f32 {
+    let value = ctx
+        .config
+        .skins
+        .get(mode.label())
+        .cloned()
+        .unwrap_or_default();
+    let path = configured_path(ctx, &value).unwrap_or_else(|| {
+        let p2 = ctx.config.play.side == crate::config::Side::P2;
+        default_skin(mode, p2, ctx.portrait(), true)
+    });
+    let json = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    json.then(|| crate::skin::beatoraja::size(&path))
+        .flatten()
+        .map_or(16.0 / 9.0, |(w, h)| w / h.max(1.0))
+}
+
 /// Load the configured skin for this chart's mode, falling back to the
 /// built-in default when it is missing, broken or of another type.
 pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<LoadedSkin> {

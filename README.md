@@ -22,6 +22,10 @@ agent (Claude Code); a person set the direction and checked the results by playi
 
 ## Quick start
 
+Builds of the latest commit, for every platform, are on the
+[Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease: the executables, the Android `.apk` and
+the unsigned iOS `.ipa` as they are, the web build as a zip. Or build it yourself:
+
 ```sh
 cargo run --release                                  # song select
 cargo run --release -- path/to/song.bme --autoplay   # play a chart directly
@@ -65,12 +69,15 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   stays and the multiplier follows each chart's BPM.
 - Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
   turntables work.
-- Touch (`SETTINGS › TOUCH`): an IIDX layout (turntable and two rows of keys; round pop'n buttons for PMS) or a single
-  row of keys, portrait or landscape SP and landscape DP, multi-touch and sliding. A touch between keys plays the
-  nearest one. Keys are sized like an arcade's (the screen size is guessed from the device and can be set), and the
-  START / SELECT buttons in the letterbox beside the play screen (left for 1P and DP, right for 2P) open the panels
-  above. A key whose release the browser never delivers (an iPad's home bar dragged with a key held) is let go
-  once no finger is on the screen.
+- Touch (`SETTINGS › TOUCH`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
+  of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
+  them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
+  turntable changes sides; custom layouts are otherwise used as placed, whatever the play side), and sets the height of
+  the controls (drag their top edge). Portrait or landscape SP and landscape DP, multi-touch and sliding. A touch
+  between keys plays the nearest one. Keys are sized like an arcade's (the screen size is guessed from the device and
+  can be set), and the START / SELECT buttons in the letterbox beside the play screen (on the turntable's side: a
+  custom layout's turntable, else left for 1P and DP, right for 2P; or the side chosen) open the panels above. A key whose release the browser never delivers
+  (an iPad's home bar dragged with a key held) is let go once no finger is on the screen.
 
 ## Features
 
@@ -130,6 +137,12 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
   events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported.
+- **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS` lists the skins in
+  [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
+  downloads, unpacks and installs one into `skins/` from its author's own link (Google Drive, Dropbox, MEGA, GitHub,
+  plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
+  homepage and the terms its author states. The web build keeps them in the browser's storage, but cannot run Lua
+  skins and does not unpack skins over 400 MB.
 - A skin's custom options and offsets appear under it in `SETTINGS › DISPLAY`.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900

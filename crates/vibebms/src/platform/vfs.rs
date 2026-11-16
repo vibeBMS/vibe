@@ -81,6 +81,10 @@ mod imp {
     pub fn take_added() -> bool {
         false
     }
+    /// Remove the folder `dir` and everything below it.
+    pub fn remove_dir(dir: &Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
