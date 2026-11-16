@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/vibebms-core",
     "crates/bmseeker",
-    "crates/bmseeker-gui",
     "crates/vibebms-ir",
     "crates/vibebms-audio",
     "crates/vibebms",

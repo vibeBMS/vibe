@@ -66,7 +66,7 @@ mod cli {
     use bmseeker::fs::Disk;
     use bmseeker::hosts::{self, Fetch, Want};
     use bmseeker::install::{self, Done};
-    use bmseeker::links::{self, Links};
+    use bmseeker::links::Links;
     use bmseeker::placement::{self, Rules};
     use bmseeker::table::{self, DifficultyTable, TableEntry};
     use std::collections::HashSet;
@@ -218,8 +218,15 @@ mod cli {
                             }
                             if !ls.is_empty() || (!diff && md5.is_some()) {
                                 let downloads = library.join(DOWNLOADS);
-                                let done =
-                                    install::links(&downloads, &library, &want, &ls, diff, md5);
+                                let done = install::links(
+                                    &downloads,
+                                    &library,
+                                    &want,
+                                    &ls,
+                                    diff,
+                                    md5,
+                                    &hosts::Context::default(),
+                                );
                                 if !diff {
                                     song = done
                                         .iter()
@@ -248,7 +255,11 @@ mod cli {
                 fetch(links, out, &a)
             }
             Some("lookup") => {
-                for l in bmseeker::bmssearch::lookup(a.get("--md5").unwrap_or(""), &a.want()) {
+                for l in bmseeker::bmssearch::lookup(
+                    a.get("--md5").unwrap_or(""),
+                    &a.want(),
+                    &Default::default(),
+                ) {
                     println!("{l}");
                 }
                 Ok(())
@@ -267,8 +278,15 @@ mod cli {
                 let want = a.want();
                 let downloads = library.join(DOWNLOADS);
                 let md5 = a.get("--md5");
-                let done =
-                    install::links(&downloads, &library, &want, &links, a.has("--diff"), md5);
+                let done = install::links(
+                    &downloads,
+                    &library,
+                    &want,
+                    &links,
+                    a.has("--diff"),
+                    md5,
+                    &hosts::Context::default(),
+                );
                 report(&want.title, done);
                 Ok(())
             }
@@ -414,7 +432,13 @@ mod cli {
                 return None;
             }
             tried.push(link.to_string());
-            match hosts::fetch_named(link, Some(want.clone()), &tmp, a.has("--any")) {
+            match hosts::fetch_named(
+                link,
+                Some(want.clone()),
+                &tmp,
+                a.has("--any"),
+                &hosts::Context::default(),
+            ) {
                 Ok(name) => Some((link.to_string(), name)),
                 Err(Fetch::Page) => {
                     errors.push(format!("{link}: a page, not a file"));
@@ -429,7 +453,11 @@ mod cli {
         };
         let mut got = links.iter().find_map(|l| try_link(l, &mut errors));
         if got.is_none() && (a.has("--search") || a.has("--md5")) {
-            let found = bmseeker::bmssearch::lookup(a.get("--md5").unwrap_or(""), &want);
+            let found = bmseeker::bmssearch::lookup(
+                a.get("--md5").unwrap_or(""),
+                &want,
+                &Default::default(),
+            );
             if found.is_empty() {
                 errors.push("BMS SEARCH: nothing for the song".into());
             }
@@ -474,11 +502,13 @@ mod cli {
     fn manbow_works(event: u32, dir: &Path) -> Result<(), String> {
         use bmseeker::manbow;
         use serde_json::{json, Map, Value};
-        let page = |u: &str| hosts::get(u).map(|b| manbow::decode(&b));
+        let page = |u: &str| bmseeker::net::get(u).map(|b| manbow::decode(&b));
+        let base = bmseeker::config::Config::default().manbow;
         let works = manbow::works(
+            &base,
             event,
-            &page(&manbow::url_list_url(event))?,
-            &page(&manbow::work_list_url(event))?,
+            &page(&manbow::url_list_url(&base, event))?,
+            &page(&manbow::work_list_url(&base, event))?,
         );
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let overrides: Map<String, Value> = std::fs::read(dir.join("overrides.json"))
@@ -598,7 +628,12 @@ mod cli {
                     eprintln!("time is up: {checked} checked, {skipped} fresh; run again to go on");
                     return Ok(());
                 }
-                let c = bmseeker::probe::probe(&url, Some(want.clone()), &tmp);
+                let c = bmseeker::probe::probe(
+                    &url,
+                    Some(want.clone()),
+                    &tmp,
+                    &hosts::Context::default(),
+                );
                 eprintln!(
                     "{} | {:?} {:?} {} MB {} charts {} | {url}",
                     want.title,
@@ -644,7 +679,7 @@ mod cli {
     fn links(t: &DifficultyTable, a: &Args) -> Links {
         let get = |url: &str| {
             if url.starts_with("http") {
-                hosts::get(url)
+                bmseeker::net::get(url)
             } else {
                 std::fs::read(url).map_err(|e| e.to_string())
             }
@@ -658,7 +693,7 @@ mod cli {
                 Err(e) => eprintln!("{url}: {e}"),
             }
         }
-        if let Some(b) = get(links::STELLA_UPLOADS) {
+        if let Some(b) = get(&bmseeker::config::Config::default().stella_list) {
             out = out.and(Links::from_stella(&b));
         }
         for list in a.all("--links") {
@@ -686,7 +721,8 @@ mod cli {
     }
 
     fn load(url: &str) -> Result<DifficultyTable, String> {
-        table::fetch_table(&table::Net, url).map_err(|e| e.to_string())
+        table::fetch_table(&bmseeker::net::Client::new(&Default::default()), url)
+            .map_err(|e| e.to_string())
     }
 
     /// The MD5 and SHA-256 (hex) of every chart below `dir`.

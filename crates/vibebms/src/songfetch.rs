@@ -118,6 +118,7 @@ impl SongFetch {
                         ls,
                         *diff,
                         md5.as_deref(),
+                        crate::hosts::context(),
                     ));
                 }
                 done
@@ -180,22 +181,6 @@ struct Group {
     chart: Option<String>,
 }
 
-/// BMS SEARCH's links (its API sends CORS headers: no proxy).
-#[cfg(target_arch = "wasm32")]
-fn lookup(
-    mut l: bmseeker::bmssearch::Lookup,
-    step: bmseeker::bmssearch::Step,
-    done: impl FnOnce(Vec<String>) + Send + 'static,
-) {
-    match step {
-        bmseeker::bmssearch::Step::Get(url) => crate::platform::http_get(&url, move |r| {
-            let next = l.feed(r);
-            lookup(l, next, done)
-        }),
-        bmseeker::bmssearch::Step::Done(links) => done(links),
-    }
-}
-
 /// The web build: the links one after another through the vibeBMS proxy,
 /// unpacked / placed in memory; a file's next link tried when one does not
 /// download.
@@ -208,7 +193,7 @@ fn web(
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
-    use crate::archive::{web_step, Fail};
+    use crate::archive::{web_fetch, Fail};
     use crate::hosts::via_proxy;
     use crate::platform::vfs;
     if groups.is_empty() {
@@ -228,9 +213,11 @@ fn web(
     if g.links.is_empty() {
         match g.md5.take() {
             Some(md5) => {
-                let (l, step) = bmseeker::bmssearch::Lookup::new(&md5, &want);
+                let api = &crate::hosts::context().config.bmssearch_api;
+                let l = bmseeker::bmssearch::Lookup::new(&md5, &want, api);
                 progress.set_stage(Stage::Finding);
-                lookup(l, step, move |found| {
+                // its API sends CORS headers: no proxy
+                crate::platform::run_task(l, false, move |found| {
                     g.links = found.into_iter().filter(|l| !g.tried.contains(l)).collect();
                     groups.insert(0, g);
                     web(root, want, progress, groups, done, finish)
@@ -280,8 +267,8 @@ fn web(
         });
         return;
     }
-    let (r, step) = crate::hosts::Resolver::find(&link, (!diff).then(|| want.clone()));
-    web_step(r, step, link, Some(progress.clone()), move |r| {
+    let want_song = (!diff).then(|| want.clone());
+    web_fetch(link, want_song, Some(progress.clone()), move |r| {
         progress.set_stage(Stage::Unpacking);
         let got = match r {
             // a separate chart's archive: its charts into their songs' folders

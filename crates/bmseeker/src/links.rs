@@ -2,7 +2,9 @@
 //! own link is missing, dead, or does not download (a page, a host that
 //! needs a browser), the same chart may have a link elsewhere: in another
 //! table the player reads (発狂BMS and Satellite list some of the same
-//! charts), or in the Stella uploader's list ([`STELLA_UPLOADS`]).
+//! charts), or in the Stella uploader's list ([`Config::stella_list`]).
+//!
+//! [`Config::stella_list`]: crate::config::Config::stella_list
 //!
 //! [`Links::fill`] fills a link only where the table has none, or one on a
 //! host known to be gone ([`is_dead`]); [`Links::song_links`] /
@@ -11,9 +13,6 @@
 
 use crate::table::{DifficultyTable, TableEntry};
 use std::collections::HashMap;
-
-/// The Stella uploader's charts, with their links.
-pub const STELLA_UPLOADS: &str = "https://stellabms.xyz/score_upload_full.json";
 
 /// Hosts that are gone (their links are filled as if empty).
 const DEAD: &[&str] = &["gnqg.rosx.net", "absolute.pv.land.to"];
@@ -96,7 +95,7 @@ impl Links {
         out
     }
 
-    /// [`STELLA_UPLOADS`]'s format (an array of `{md5, url, url_diff, ...}`).
+    /// The Stella uploader's list's format (an array of `{md5, url, url_diff, ...}`).
     pub fn from_stella(json: &[u8]) -> Links {
         let mut out = Links::default();
         let rows: Vec<serde_json::Value> = serde_json::from_slice(json).unwrap_or_default();

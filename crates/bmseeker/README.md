@@ -36,18 +36,9 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 
 `cargo run -p bmseeker -- missing https://stellabms.xyz/sl/table.html ~/bms -l 0`
 
-## 창 (`bmseeker-gui`)
+## 창
 
-`cargo run --release -p bmseeker-gui`: 같은 일을 창으로 합니다(egui).
-
-- **Tables**: 난이도표·레벨별로 가진 채보 수, 레벨의 채보 목록(가짐/없음, 곡·차분 링크), 하나씩 또는
-  레벨의 없는 곡 전부 받기. 받은 뒤 라이브러리를 다시 읽어 바로 반영합니다.
-- **Waiting**: 곡보다 먼저 받은 차분과 들어갈 수 있는 폴더 후보(음원 충족률, 같은 곡 여부), 골라서 옮기기.
-- **Settings**: BMS 폴더, 난이도표 목록, MD5로 다른 링크 찾기(등록한 난이도표들·Stella 업로더), LR2 커스텀 폴더·beatoraja table 폴더로 내보내기.
-
-설정과 라이브러리 해시 캐시는 사용자 설정 폴더의 `bmseeker/`(Windows `%APPDATA%`, macOS
-`~/Library/Application Support`, 그 밖 `~/.config`)에 둡니다. 받은 파일은 BMS 폴더의 `.bmseeker/`에서
-곡을 기다립니다(명령줄 도구와 같은 곳).
+egui로 만든 창(`bmseeker-gui`)은 내렸습니다. CLI를 품는 Go(MyGo) GUI로 다시 만듭니다 ([DESIGN.md](DESIGN.md)).
 
 ## 모듈
 
@@ -65,8 +56,10 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 | `export` | 난이도표를 LR2 커스텀 폴더(`.lr2folder`)나 beatoraja 캐시(`.bmt`)로 |
 | `fs` | 파일 접근 (`Disk`, 또는 플레이어가 라이브러리를 두는 곳) |
 
-네트워크 부분은 IO 없는 단계 기계(`hosts::Resolver`, `table::TableLoader`)라, 블로킹으로도
-(네이티브의 `hosts::fetch`) 브라우저 비동기로도(vibeBMS 웹 빌드) 같은 로직을 돌립니다.
+네트워크를 읽는 것은 모두 `net::Task`(요청을 내놓고 응답을 받는 IO 없는 작업)입니다:
+`hosts::Resolver`(링크를 `Host` 전략들로), `table::TableLoader`, `bmssearch::Lookup`. 네이티브는
+`net::run`으로 블로킹, 브라우저(vibeBMS 웹 빌드)는 비동기로 같은 작업을 돌립니다. 읽는 곳(API, 미러,
+목록)과 사용자 에이전트는 모두 `config::Config`에 있습니다. 앞으로의 구조는 [DESIGN.md](DESIGN.md).
 
 ## 출처
 

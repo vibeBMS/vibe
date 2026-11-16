@@ -233,27 +233,58 @@ pub fn ir_send(
     http(req.method, &req.url, &req.headers, req.body, on_done)
 }
 
+/// Run a bmseeker task: its requests made here, one after another
+/// (`proxy`: on the web through the vibeBMS proxy, for hosts that send no
+/// CORS headers), then `on_done` with its result.
+pub fn run_task<T>(task: T, proxy: bool, on_done: impl FnOnce(T::Output) + Send + 'static)
+where
+    T: bmseeker::net::Task + 'static,
+    T::Output: Send + 'static,
+{
+    use bmseeker::net::{Next, Request};
+    type Done<O> = Box<dyn FnOnce(O) + Send>;
+    fn step<T>(mut task: T, next: Next<T::Output>, proxy: bool, on_done: Done<T::Output>)
+    where
+        T: bmseeker::net::Task + 'static,
+        T::Output: Send + 'static,
+    {
+        let url = |u: &str| {
+            if proxy && IS_WEB {
+                crate::hosts::via_proxy(u)
+            } else {
+                u.to_string()
+            }
+        };
+        match next {
+            Next::Done(out) => on_done(out),
+            Next::Ask(Request::Get(u)) => http_get(&url(&u), move |a| {
+                let next = task.feed(a);
+                step(task, next, proxy, on_done)
+            }),
+            Next::Ask(Request::Post { url: u, body }) => http(
+                "POST",
+                &url(&u),
+                &[("Content-Type".into(), "application/json".into())],
+                body,
+                move |a| {
+                    let next = task.feed(a);
+                    step(task, next, proxy, on_done)
+                },
+            ),
+        }
+    }
+    let mut task = task;
+    let next = task.start();
+    step(task, next, proxy, Box::new(on_done));
+}
+
 /// Load a difficulty table (page → header → data, with mirror fallback).
 pub fn load_table(
     url: &str,
     on_done: impl FnOnce(Result<bmseeker::table::DifficultyTable, String>) + Send + 'static,
 ) {
-    fn drive(
-        mut loader: bmseeker::table::TableLoader,
-        url: String,
-        on_done: Box<dyn FnOnce(Result<bmseeker::table::DifficultyTable, String>) + Send>,
-    ) {
-        // web: table servers send no CORS headers; the vibeBMS proxy does
-        #[cfg(target_arch = "wasm32")]
-        let url = crate::hosts::via_proxy(&url);
-        http_get(&url, move |body| match loader.feed(body) {
-            Ok(bmseeker::table::Step::Get(next)) => drive(loader, next, on_done),
-            Ok(bmseeker::table::Step::Done(t)) => on_done(Ok(*t)),
-            Err(e) => on_done(Err(e.to_string())),
-        });
-    }
-    let on_done: Box<dyn FnOnce(Result<bmseeker::table::DifficultyTable, String>) + Send> =
-        Box::new(on_done);
-    let (loader, first) = bmseeker::table::TableLoader::new(url);
-    drive(loader, first, on_done);
+    // web: table servers send no CORS headers; the vibeBMS proxy does
+    run_task(bmseeker::table::TableLoader::new(url), true, move |r| {
+        on_done(r.map_err(|e| e.to_string()))
+    });
 }

@@ -4,25 +4,23 @@
 //! chart is not tied to a work (most 差分 charts), the work is searched by
 //! title and artist.
 //!
-//! [`Lookup`] is sans-IO like [`hosts::Resolver`](crate::hosts::Resolver):
-//! it asks for GETs (`api.bmssearch.net` sends CORS headers, so a web page
-//! makes them itself) and ends with the links; [`lookup`] makes them
+//! [`Lookup`] is a [`Task`] (`api.bmssearch.net` sends CORS headers, so a
+//! web page asks it itself) that ends with the links; [`lookup`] runs it
 //! natively.
 
 use crate::hosts::Want;
+use crate::net::{Answer, Next, Request, Task};
 use serde_json::Value;
 
-pub const API: &str = "https://api.bmssearch.net/v1";
+type Step = Next<Vec<String>>;
 
-#[derive(Debug, PartialEq)]
-pub enum Step {
-    /// Read this and [`Lookup::feed`] the answer back.
-    Get(String),
-    /// The links found (maybe none).
-    Done(Vec<String>),
+fn get(url: String) -> Step {
+    Next::Ask(Request::Get(url))
 }
 
 pub struct Lookup {
+    api: String,
+    md5: String,
     want: Want,
     wait: Wait,
 }
@@ -74,39 +72,51 @@ fn base_title(t: &str) -> String {
     t[..cut].trim().to_string()
 }
 
-fn url_encode(s: &str) -> String {
-    crate::hosts::url_encode(s)
-}
+use crate::net::url_encode;
 
 impl Lookup {
-    /// Start from the chart `md5` (of the song `want`).
-    pub fn new(md5: &str, want: &Want) -> (Lookup, Step) {
-        let md5 = md5.trim().to_ascii_lowercase();
-        let mut l = Lookup {
+    /// From the chart `md5` (of the song `want`; without an MD5, the song
+    /// by its title), asking the API at `api` ([`Config::bmssearch_api`]).
+    ///
+    /// [`Config::bmssearch_api`]: crate::config::Config::bmssearch_api
+    pub fn new(md5: &str, want: &Want, api: &str) -> Lookup {
+        Lookup {
+            api: api.trim_end_matches('/').to_string(),
+            md5: md5.trim().to_ascii_lowercase(),
             want: want.clone(),
             wait: Wait::Pattern,
-        };
-        let step = if md5.len() == 32 && md5.bytes().all(|b| b.is_ascii_hexdigit()) {
-            Step::Get(format!("{API}/patterns/{md5}"))
-        } else {
-            let (t, a) = (want.title.clone(), want.artist.clone());
-            l.search(&t, &a)
-        };
-        (l, step)
+        }
     }
 
     fn search(&mut self, title: &str, artist: &str) -> Step {
         let t = base_title(title);
         if t.chars().count() < 2 {
-            return Step::Done(Vec::new());
+            return Next::Done(Vec::new());
         }
-        let step = Step::Get(format!("{API}/bmses/search?title={}", url_encode(&t)));
+        let step = get(format!(
+            "{}/bmses/search?title={}",
+            self.api,
+            url_encode(&t)
+        ));
         self.wait = Wait::Search(t, artist.to_string());
         step
     }
+}
 
-    /// The answer to the last [`Step::Get`].
-    pub fn feed(&mut self, answer: Result<Vec<u8>, String>) -> Step {
+impl Task for Lookup {
+    type Output = Vec<String>;
+
+    fn start(&mut self) -> Step {
+        self.wait = Wait::Pattern;
+        if self.md5.len() == 32 && self.md5.bytes().all(|b| b.is_ascii_hexdigit()) {
+            get(format!("{}/patterns/{}", self.api, self.md5))
+        } else {
+            let (t, a) = (self.want.title.clone(), self.want.artist.clone());
+            self.search(&t, &a)
+        }
+    }
+
+    fn feed(&mut self, answer: Answer) -> Step {
         let v: Option<Value> = answer.ok().and_then(|b| serde_json::from_slice(&b).ok());
         match std::mem::replace(&mut self.wait, Wait::Bms) {
             Wait::Pattern => {
@@ -117,7 +127,7 @@ impl Lookup {
                     .and_then(|i| i.as_str());
                 if let Some(id) = id {
                     self.wait = Wait::Bms;
-                    return Step::Get(format!("{API}/bmses/{}", url_encode(id)));
+                    return get(format!("{}/bmses/{}", self.api, url_encode(id)));
                 }
                 // not tied to a work: search by its title (BMS SEARCH's, as
                 // the chart has it, else the table's)
@@ -132,7 +142,7 @@ impl Lookup {
                 let artist = s("artist").unwrap_or_else(|| self.want.artist.clone());
                 self.search(&title, &artist)
             }
-            Wait::Bms => Step::Done(v.as_ref().map(work_links).unwrap_or_default()),
+            Wait::Bms => Next::Done(v.as_ref().map(work_links).unwrap_or_default()),
             Wait::Search(title, artist) => {
                 let works: Vec<Value> = match v {
                     Some(Value::Array(a)) => a,
@@ -166,27 +176,30 @@ impl Lookup {
                         }
                     }
                 }
-                Step::Done(out)
+                Next::Done(out)
             }
         }
     }
 }
 
-/// [`Lookup`] made natively (blocking).
+/// [`Lookup`] run natively (blocking).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn lookup(md5: &str, want: &Want) -> Vec<String> {
-    let (mut l, mut step) = Lookup::new(md5, want);
-    loop {
-        match step {
-            Step::Get(url) => step = l.feed(crate::hosts::get(&url)),
-            Step::Done(links) => return links,
-        }
-    }
+pub fn lookup(md5: &str, want: &Want, config: &crate::config::Config) -> Vec<String> {
+    let mut l = Lookup::new(md5, want, &config.bmssearch_api);
+    crate::net::run(&mut l, &crate::net::Client::new(config))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const API: &str = "https://api.bmssearch.net/v1";
+
+    fn start(md5: &str, w: Want) -> (Lookup, Step) {
+        let mut l = Lookup::new(md5, &w, API);
+        let s = l.start();
+        (l, s)
+    }
 
     fn want(t: &str, a: &str) -> Want {
         Want {
@@ -208,20 +221,20 @@ mod tests {
 
     #[test]
     fn a_tied_chart() {
-        let (mut l, s) = Lookup::new("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", &want("Song [X]", "a"));
+        let (mut l, s) = start("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", want("Song [X]", "a"));
         assert_eq!(
             s,
-            Step::Get(format!("{API}/patterns/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+            get(format!("{API}/patterns/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
         );
         let s = l.feed(Ok(
             br#"{"bms":{"id":"W1","title":"Song"},"title":"Song"}"#.to_vec()
         ));
-        assert_eq!(s, Step::Get(format!("{API}/bmses/W1")));
+        assert_eq!(s, get(format!("{API}/bmses/W1")));
         let bms = br#"{"downloads":[{"url":"https://dl.example/song.zip"}],
             "relatedLinks":[{"url":"https://twitter.com/x"},{"url":"http://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"}]}"#;
         assert_eq!(
             l.feed(Ok(bms.to_vec())),
-            Step::Done(vec![
+            Next::Done(vec![
                 "https://dl.example/song.zip".into(),
                 "http://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1".into()
             ])
@@ -230,28 +243,28 @@ mod tests {
 
     #[test]
     fn an_untied_chart_by_its_title() {
-        let (mut l, _) = Lookup::new("0123456789abcdef0123456789abcdef", &want("x", "y"));
+        let (mut l, _) = start("0123456789abcdef0123456789abcdef", want("x", "y"));
         let s = l.feed(Ok(br#"{"title":"$trange Attraktor","artist":"schwarzekugel / You might not need Scratch"}"#.to_vec()));
         assert_eq!(
             s,
-            Step::Get(format!("{API}/bmses/search?title=%24trange%20Attraktor"))
+            get(format!("{API}/bmses/search?title=%24trange%20Attraktor"))
         );
         let found = br#"[{"title":"$trange Attraktor","artist":"schwarzekugel","downloads":[{"url":"https://d/s.zip"}]},
             {"title":"$trange Attraktor II","artist":"other","downloads":[{"url":"https://d/2.zip"}]}]"#;
         assert_eq!(
             l.feed(Ok(found.to_vec())),
-            Step::Done(vec!["https://d/s.zip".into()])
+            Next::Done(vec!["https://d/s.zip".into()])
         );
         // unknown chart: the table's title
-        let (mut l, _) = Lookup::new(
+        let (mut l, _) = start(
             "0123456789abcdef0123456789abcdef",
-            &want("Beatrice [ANOTHER]", "xi"),
+            want("Beatrice [ANOTHER]", "xi"),
         );
         assert_eq!(
             l.feed(Err("HTTP 404".into())),
-            Step::Get(format!("{API}/bmses/search?title=Beatrice"))
+            get(format!("{API}/bmses/search?title=Beatrice"))
         );
-        assert_eq!(l.feed(Ok(b"[]".to_vec())), Step::Done(Vec::new()));
+        assert_eq!(l.feed(Ok(b"[]".to_vec())), Next::Done(Vec::new()));
     }
 
     /// `BMSEEKER_MD5=… BMSEEKER_TITLE=… cargo test -p bmseeker bmssearch_live -- --ignored`
@@ -264,6 +277,6 @@ mod tests {
             &std::env::var("BMSEEKER_TITLE").unwrap_or_default(),
             &std::env::var("BMSEEKER_ARTIST").unwrap_or_default(),
         );
-        println!("{:?}", lookup(&md5, &w));
+        println!("{:?}", lookup(&md5, &w, &crate::config::Config::default()));
     }
 }

@@ -124,7 +124,7 @@ pub fn classify(dir: &Path) -> (Kind, usize, String) {
 
 /// What `link` gives now (the song `want`'s, if it is a pack of many);
 /// files go through `tmp`, which is emptied after.
-pub fn probe(link: &str, want: Option<Want>, tmp: &Path) -> Checked {
+pub fn probe(link: &str, want: Option<Want>, tmp: &Path, cx: &crate::hosts::Context) -> Checked {
     let _ = std::fs::remove_dir_all(tmp);
     if let Err(e) = std::fs::create_dir_all(tmp) {
         return Checked::state(State::Error, e.to_string());
@@ -143,7 +143,7 @@ pub fn probe(link: &str, want: Option<Want>, tmp: &Path) -> Checked {
                 }
             })
     } else {
-        crate::hosts::fetch_for(link, want, &file)
+        crate::hosts::fetch(link, want, &file, cx)
     };
     let out = match r {
         Err(Fetch::Page) => Checked::state(State::Page, String::new()),

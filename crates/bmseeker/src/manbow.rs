@@ -12,8 +12,6 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-pub const BASE: &str = "https://manbow.nothing.sh/event/event.cgi";
-
 fn re(p: &str) -> Regex {
     Regex::new(&format!("(?i){p}")).expect("a valid pattern")
 }
@@ -682,13 +680,13 @@ pub struct Work {
 }
 
 /// The event's URL list (every work and its links).
-pub fn url_list_url(event: u32) -> String {
-    format!("{BASE}?action=URLList&event={event}&start=0&end=9999")
+pub fn url_list_url(base: &str, event: u32) -> String {
+    format!("{base}?action=URLList&event={event}&start=0&end=9999")
 }
 
 /// The event's work list (each work's kind).
-pub fn work_list_url(event: u32) -> String {
-    format!("{BASE}?action=List_def&event={event}")
+pub fn work_list_url(base: &str, event: u32) -> String {
+    format!("{base}?action=List_def&event={event}")
 }
 
 /// A manbow page's text (Shift_JIS).
@@ -696,8 +694,9 @@ pub fn decode(page: &[u8]) -> String {
     encoding_rs::SHIFT_JIS.decode(page).0.into_owned()
 }
 
-/// The works of event `event` from its URL list and work list.
-pub fn works(event: u32, url_list: &str, work_list: &str) -> Vec<Work> {
+/// The works of event `event` from its URL list and work list (`base`:
+/// the venue's `event.cgi`, [`Config::manbow`](crate::config::Config::manbow)).
+pub fn works(base: &str, event: u32, url_list: &str, work_list: &str) -> Vec<Work> {
     static KIND: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"No\.(\d+) / (\w+)").expect("pattern"));
     static ROW: LazyLock<Regex> =
@@ -733,7 +732,7 @@ pub fn works(event: u32, url_list: &str, work_list: &str) -> Vec<Work> {
             team: text(tds[2]),
             kind: kinds.get(&num).cloned().unwrap_or_default(),
             size_kb: SIZE.captures(&text(tds[4])).and_then(|c| c[1].parse().ok()),
-            page: format!("{BASE}?action=More_def&num={num}&event={event}"),
+            page: format!("{base}?action=More_def&num={num}&event={event}"),
             pick: pick(&links),
             links,
         });

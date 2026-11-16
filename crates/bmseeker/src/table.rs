@@ -10,6 +10,7 @@
 //!    `level_order` and `course`,
 //! 3. a data JSON: an array of entries with `md5` / `sha256` and `level`.
 
+use crate::net::{Answer, Http, Next, Request, Task};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -277,8 +278,7 @@ pub const MIRRORS: &[(&str, &str)] = MOVED;
 
 /// Next action of a [`TableLoader`].
 #[derive(Debug)]
-pub enum Step {
-    /// Fetch this URL and pass the body to [`TableLoader::feed`].
+enum Step {
     Get(String),
     Done(Box<DifficultyTable>),
 }
@@ -290,8 +290,8 @@ enum Stage {
     Data(TableHeader),
 }
 
-/// HTTP-free table loading state machine (page → header.json → data.json),
-/// so any HTTP client (native or browser) can drive it.
+/// A table loaded (page → header.json → data.json) as a [`Task`], so any
+/// HTTP client (native or browser) can run it.
 #[derive(Debug)]
 pub struct TableLoader {
     source: String,
@@ -300,19 +300,15 @@ pub struct TableLoader {
 }
 
 impl TableLoader {
-    /// Returns the loader and the first URL to fetch.
-    pub fn new(url: &str) -> (TableLoader, String) {
-        (
-            TableLoader {
-                source: url.to_string(),
-                stage: Stage::Page(url.to_string()),
-                mirror_used: false,
-            },
-            url.to_string(),
-        )
+    pub fn new(url: &str) -> TableLoader {
+        TableLoader {
+            source: url.to_string(),
+            stage: Stage::Page(url.to_string()),
+            mirror_used: false,
+        }
     }
 
-    pub fn feed(&mut self, body: Result<Vec<u8>, String>) -> Result<Step, TableError> {
+    fn step(&mut self, body: Result<Vec<u8>, String>) -> Result<Step, TableError> {
         match self.advance(body) {
             Ok(s) => Ok(s),
             Err(e) => match MIRRORS
@@ -374,31 +370,27 @@ impl TableLoader {
     }
 }
 
-/// Blocking HTTP GET, for [`fetch_table`].
-pub trait Fetcher {
-    fn get(&self, url: &str) -> Result<Vec<u8>, String>;
-}
+impl Task for TableLoader {
+    type Output = Result<DifficultyTable, TableError>;
 
-/// Blocking GETs over the network.
-#[cfg(not(target_arch = "wasm32"))]
-pub struct Net;
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Fetcher for Net {
-    fn get(&self, url: &str) -> Result<Vec<u8>, String> {
-        crate::hosts::get(url)
+    fn start(&mut self) -> Next<Self::Output> {
+        self.stage = Stage::Page(self.source.clone());
+        self.mirror_used = false;
+        Next::Ask(Request::Get(self.source.clone()))
     }
-}
 
-/// Load a table synchronously with a blocking fetcher (tests, tools).
-pub fn fetch_table(fetcher: &dyn Fetcher, url: &str) -> Result<DifficultyTable, TableError> {
-    let (mut loader, mut next) = TableLoader::new(url);
-    loop {
-        match loader.feed(fetcher.get(&next))? {
-            Step::Get(u) => next = u,
-            Step::Done(t) => return Ok(*t),
+    fn feed(&mut self, answer: Answer) -> Next<Self::Output> {
+        match self.step(answer) {
+            Ok(Step::Get(u)) => Next::Ask(Request::Get(u)),
+            Ok(Step::Done(t)) => Next::Done(Ok(*t)),
+            Err(e) => Next::Done(Err(e)),
         }
     }
+}
+
+/// Load a table, blocking on `http` (tools, tests).
+pub fn fetch_table(http: &dyn Http, url: &str) -> Result<DifficultyTable, TableError> {
+    crate::net::run(&mut TableLoader::new(url), http)
 }
 
 /// Compare levels naturally ("2" < "10", "10" < "10+", numbers before text).
@@ -450,8 +442,9 @@ mod tests {
     use std::collections::HashMap;
 
     struct Mock(HashMap<String, String>);
-    impl Fetcher for Mock {
-        fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+    impl Http for Mock {
+        fn send(&self, r: &Request) -> Answer {
+            let url = r.url();
             self.0
                 .get(url)
                 .map(|s| s.clone().into_bytes())

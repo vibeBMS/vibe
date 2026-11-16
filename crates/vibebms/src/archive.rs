@@ -506,8 +506,7 @@ fn web_fetch_files(
     };
     if !mirrored {
         // an author's link: the host's way to its archive
-        let (r, step) = crate::hosts::Resolver::new(&link);
-        web_step(r, step, link, None, next);
+        web_fetch(link, None, None, next);
     } else {
         // a mirror file; the proxy down, the browser downloads it itself
         let url = link;
@@ -519,41 +518,27 @@ fn web_fetch_files(
     }
 }
 
-/// Make a resolver's requests through the proxy until its archive arrives
-/// (reporting to `progress`, if any).
+/// The archive `link` leads to (for the song `want`), its requests and the
+/// file itself through the proxy (reporting to `progress`, if any).
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn web_step(
-    mut r: crate::hosts::Resolver,
-    step: crate::hosts::Step,
+pub(crate) fn web_fetch(
     link: String,
+    want: Option<crate::hosts::Want>,
     progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
 ) {
-    use crate::hosts::{Fetch, MegaCipher, Step};
-    if let (Some(p), Step::Get(_) | Step::Post(..)) = (&progress, &step) {
+    use crate::hosts::{Fetch, MegaCipher, Resolver};
+    if let Some(p) = &progress {
         p.set_stage(bmseeker::progress::Stage::Finding);
     }
-    match step {
-        Step::Get(u) => crate::platform::http_get(&crate::hosts::via_proxy(&u), move |a| {
-            let s = r.feed(a);
-            web_step(r, s, link, progress, done)
-        }),
-        Step::Post(u, body) => crate::platform::http(
-            "POST",
-            &crate::hosts::via_proxy(&u),
-            &[("Content-Type".into(), "application/json".into())],
-            body,
-            move |a| {
-                let s = r.feed(a);
-                web_step(r, s, link, progress, done)
-            },
-        ),
-        Step::File { url, mega_key } => {
-            let via = crate::hosts::via_proxy(&url);
+    let r = Resolver::new(&link, want, crate::hosts::context());
+    crate::platform::run_task(r, true, move |target| match target {
+        Ok(t) => {
+            let via = crate::hosts::via_proxy(&t.url);
             crate::platform::http_get_progress(&via, progress, move |a| {
                 done(match a {
                     Ok(mut b) => {
-                        if let Some(k) = mega_key {
+                        if let Some(k) = t.mega_key {
                             MegaCipher::new(&k).apply(&mut b);
                         }
                         if crate::hosts::sniff_bytes(&b).is_some() {
@@ -567,9 +552,9 @@ pub(crate) fn web_step(
                 })
             })
         }
-        Step::Fail(Fetch::Page) => done(Err(Fail::Page(link))),
-        Step::Fail(Fetch::Failed(e)) => done(Err(Fail::Msg(e))),
-    }
+        Err(Fetch::Page) => done(Err(Fail::Page(link))),
+        Err(Fetch::Failed(e)) => done(Err(Fail::Msg(e))),
+    });
 }
 
 /// Download a work's files and unpack them into `bms/<event>/<archive>`
@@ -604,8 +589,8 @@ fn fetch_work(
         let name = if f.original.is_empty() {
             // an author's link: the host's way to the archive, which names
             // no file (its own bytes tell the format)
-            use crate::hosts::{fetch, sniff, Fetch};
-            match fetch(&f.url, &tmp) {
+            use crate::hosts::{context, fetch, sniff, Fetch};
+            match fetch(&f.url, None, &tmp, context()) {
                 Ok(()) => format!("{name}.{}", sniff(&tmp).unwrap_or("zip")),
                 Err(Fetch::Page) => return Err(Fail::Page(f.url.clone())),
                 Err(Fetch::Failed(e)) => return Err(Fail::Msg(e)),

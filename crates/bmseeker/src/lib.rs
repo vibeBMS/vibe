@@ -13,10 +13,14 @@
 //!
 //! The parts that touch files take an [`fs::Fs`], so a player can keep its
 //! library somewhere other than a disk (the vibeBMS web build keeps it in
-//! memory). The network parts are sans-IO steps ([`hosts::Resolver`],
-//! [`table::TableLoader`]) with blocking drivers for native builds.
+//! memory). Whatever reads the network is a [`net::Task`] (it asks for
+//! requests and is fed the answers): [`hosts::Resolver`] (a link through
+//! its [`hosts::Host`] strategies), [`table::TableLoader`],
+//! [`bmssearch::Lookup`]; [`net::run`] runs one natively. Every place read
+//! from is in [`config::Config`].
 
 pub mod bmssearch;
+pub mod config;
 pub mod export;
 pub mod fs;
 pub mod hosts;
@@ -26,6 +30,7 @@ pub mod import;
 pub mod install;
 pub mod links;
 pub mod manbow;
+pub mod net;
 pub mod placement;
 // downloads and unpacks to a disk
 #[cfg(not(target_arch = "wasm32"))]

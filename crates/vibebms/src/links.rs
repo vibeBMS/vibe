@@ -4,7 +4,7 @@
 //! cache a day old at most). They fill missing or dead links, and are tried
 //! in turn when a song's own link does not download.
 
-use bmseeker::links::{Links, STELLA_UPLOADS};
+use bmseeker::links::Links;
 use bmseeker::table::DifficultyTable;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -72,11 +72,12 @@ fn load(file: PathBuf, deliver: impl FnOnce(Links) + Send + 'static) {
             }
         }
     }
+    let list = crate::hosts::context().config.stella_list.clone();
     // web: stellabms.xyz sends no CORS headers
     #[cfg(target_arch = "wasm32")]
-    let url = crate::hosts::via_proxy(STELLA_UPLOADS);
+    let url = crate::hosts::via_proxy(&list);
     #[cfg(not(target_arch = "wasm32"))]
-    let url = STELLA_UPLOADS.to_string();
+    let url = list.clone();
     crate::platform::http_get(&url, move |r| match r {
         Ok(b) => {
             #[cfg(not(target_arch = "wasm32"))]
@@ -84,7 +85,7 @@ fn load(file: PathBuf, deliver: impl FnOnce(Links) + Send + 'static) {
             deliver(Links::from_stella(&b))
         }
         Err(e) => {
-            log::warn!("{STELLA_UPLOADS}: {e}");
+            log::warn!("{list}: {e}");
             deliver(
                 vfs::read(&file)
                     .map(|b| Links::from_stella(&b))

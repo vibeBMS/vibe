@@ -117,6 +117,7 @@ pub fn link(
     want: &crate::hosts::Want,
     link: &str,
     diff: bool,
+    cx: &crate::hosts::Context,
 ) -> Vec<Done> {
     use crate::fs::Disk;
     use crate::import::{self, Imported};
@@ -140,7 +141,7 @@ pub fn link(
         let tmp = downloads.join(format!(".song-{}", safe_name(title)));
         // the song's own link may be a pack of many songs: its archive
         let want = (!diff).then(|| want.clone());
-        match crate::hosts::fetch_for(link, want, &tmp) {
+        match crate::hosts::fetch(link, want, &tmp, cx) {
             Ok(()) => {
                 let ext = crate::hosts::sniff(&tmp).unwrap_or("zip");
                 let file = downloads.join(format!("{}.{ext}", safe_name(title)));
@@ -275,6 +276,7 @@ pub fn links(
     links: &[String],
     diff: bool,
     md5: Option<&str>,
+    cx: &crate::hosts::Context,
 ) -> Vec<Done> {
     let cancelled = || crate::progress::current().is_some_and(|p| p.cancelled());
     let mut tries = Tries::default();
@@ -282,19 +284,19 @@ pub fn links(
         if cancelled() {
             return vec![Done::Failed(crate::progress::CANCELLED.into())];
         }
-        if let Some(done) = tries.record(link(downloads, library, want, l, diff)) {
+        if let Some(done) = tries.record(link(downloads, library, want, l, diff, cx)) {
             return done;
         }
     }
     if let Some(md5) = md5.filter(|_| !diff && !cancelled()) {
-        for l in crate::bmssearch::lookup(md5, want) {
+        for l in crate::bmssearch::lookup(md5, want, &cx.config) {
             if cancelled() {
                 return vec![Done::Failed(crate::progress::CANCELLED.into())];
             }
             if links.contains(&l) {
                 continue;
             }
-            if let Some(done) = tries.record(link(downloads, library, want, &l, diff)) {
+            if let Some(done) = tries.record(link(downloads, library, want, &l, diff, cx)) {
                 return done;
             }
         }
@@ -326,6 +328,7 @@ mod tests {
                     &want,
                     &l,
                     var == "BMSEEKER_DIFF",
+                    &crate::hosts::Context::default(),
                 );
                 println!("{var}: {done:?}");
             }
