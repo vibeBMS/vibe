@@ -1,14 +1,17 @@
 //! Touch layout editor (KEY CONFIG / TOUCH): the touch buttons over the
-//! screen as play shows them. Drag a button to move it; drag its corners,
-//! or pinch it, to resize it. Editing a preset copies it into the custom
-//! layout of the key mode and orientation shown.
+//! screen as play shows them, with START / SELECT. Drag a button to move
+//! it; drag its corners, or pinch it, to resize it; drag the top edge of
+//! the controls to change their height. Editing a preset (flipping it
+//! too) copies it into the custom layout of the key mode and orientation
+//! shown.
 //!
-//! Keyboard: ←→ layout, ↑↓ key mode, R reset, Enter save, Esc cancel.
-//! Controller: white keys layout, blue keys key mode, START save,
-//! SELECT cancel.
+//! Keyboard: ←→ layout, ↑↓ key mode, +/- controls height, F flip,
+//! S START/SELECT side, R reset, Enter save, Esc cancel.
+//! Controller: key 1 layout, 2 key mode, 3/5 controls lower/higher,
+//! 4 START/SELECT side, 6 flip, 7 reset, START save, SELECT cancel.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::config::{Side, TouchConfig, TouchStyle};
+use crate::config::{Side, TouchConfig, TouchSide, TouchStyle};
 use crate::gfx::text::Align;
 use crate::gfx::{rgba, with_alpha, Gfx, Rect};
 use crate::input::{nav_from_pad, InputEv, Nav, Phase};
@@ -33,6 +36,9 @@ const MODES: [PlayMode; 5] = [
 enum Tool {
     Mode,
     Layout,
+    Height,
+    Side,
+    Flip,
     Reset,
     Cancel,
     Save,
@@ -65,6 +71,8 @@ enum Grab {
         mid0: (f32, f32),
         orig: Rect,
     },
+    /// The top edge of the controls: their height.
+    Strip { id: u64 },
 }
 
 pub struct TouchLayoutScene {
@@ -75,6 +83,8 @@ pub struct TouchLayoutScene {
     ptrs: HashMap<u64, (f32, f32)>,
     grab: Option<Grab>,
     tools: Vec<(Rect, Tool)>,
+    /// The play skin's aspect by key mode and orientation.
+    aspects: HashMap<(usize, bool), f32>,
 }
 
 /// The smallest button: about a fingertip.
@@ -136,6 +146,7 @@ impl TouchLayoutScene {
             ptrs: HashMap::new(),
             grab: None,
             tools: Vec::new(),
+            aspects: HashMap::new(),
         }
     }
 
@@ -161,6 +172,26 @@ impl TouchLayoutScene {
             ctx.portrait(),
             ctx.px_per_mm(),
         )
+    }
+
+    /// The play screen and START / SELECT beside it, as play places them.
+    fn system(&mut self, ctx: &Ctx) -> (Rect, [Zone; 2]) {
+        let mode = self.mode();
+        let aspect = *self
+            .aspects
+            .entry((self.mode, ctx.portrait()))
+            .or_insert_with(|| super::play_skin::aspect(ctx, mode));
+        let screen = Rect::new(0.0, 0.0, ctx.width, Self::area(ctx).y);
+        let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx));
+        touch::system_buttons(screen, aspect, ctx.px_per_mm(), right)
+    }
+
+    /// Where a touch takes the top edge of the controls: a finger's width
+    /// around it, mostly above (keys may start right at it).
+    fn edge(ctx: &Ctx) -> Rect {
+        let y = Self::area(ctx).y;
+        let mm = ctx.px_per_mm();
+        Rect::new(0.0, y - 5.0 * mm, ctx.width, 6.5 * mm)
     }
 
     fn custom(&self, ctx: &Ctx) -> bool {
@@ -230,6 +261,37 @@ impl TouchLayoutScene {
         ]
     }
 
+    /// The controls' share of the screen height, in steps of 1%.
+    fn set_height(&mut self, ctx: &mut Ctx, share: f32) {
+        let (lo, hi) = touch::CONTROLS_HEIGHT;
+        let portrait = ctx.portrait();
+        let h = touch::controls_share_mut(&mut ctx.config.touch, portrait);
+        *h = ((share * 100.0).round() / 100.0).clamp(lo, hi);
+    }
+
+    fn step_height(&mut self, ctx: &mut Ctx, d: i32) {
+        let h = touch::controls_share(&ctx.config.touch, ctx.portrait());
+        self.set_height(ctx, h + d as f32 * 0.01);
+        self.grab = None;
+    }
+
+    fn step_side(&mut self, ctx: &mut Ctx, d: i32) {
+        let s = &mut ctx.config.touch.start_select_side;
+        let all = TouchSide::ALL;
+        let i = all.iter().position(|x| x == s).unwrap_or(0) as i32;
+        *s = all[(i + d).rem_euclid(all.len() as i32) as usize];
+    }
+
+    /// Mirror the layout shown left to right.
+    fn flip(&mut self, ctx: &mut Ctx) {
+        self.make_custom(ctx);
+        let slot = touch::slot(self.mode(), ctx.portrait());
+        if let Some(l) = ctx.config.touch.layouts.get_mut(&slot) {
+            touch::flip(l);
+        }
+        self.grab = None;
+    }
+
     fn step_mode(&mut self, d: i32) {
         let n = MODES.len() as i32;
         self.mode = (self.mode as i32 + d).rem_euclid(n) as usize;
@@ -281,6 +343,9 @@ impl TouchLayoutScene {
         match tool {
             Tool::Mode => self.step_mode(d),
             Tool::Layout => self.step_layout(ctx, d),
+            Tool::Height => self.step_height(ctx, d),
+            Tool::Side => self.step_side(ctx, d),
+            Tool::Flip => self.flip(ctx),
             Tool::Reset => self.reset(ctx),
             Tool::Cancel => return self.cancel(ctx),
             Tool::Save => return self.save(ctx),
@@ -326,7 +391,12 @@ impl TouchLayoutScene {
             }
         }
         let zones = self.zones(ctx);
-        match touch::pick(&zones, x, y) {
+        let hit = zones.iter().rposition(|z| z.hit(x, y));
+        if hit.is_none() && Self::edge(ctx).contains(x, y) {
+            self.grab = Some(Grab::Strip { id });
+            return Next::Stay;
+        }
+        match hit.or_else(|| touch::pick(&zones, x, y)) {
             Some(i) => {
                 let z = zones[i];
                 self.sel = Some(z.lane);
@@ -396,6 +466,10 @@ impl TouchLayoutScene {
                 };
                 self.set_rect(ctx, lane, pinched(orig, d0, mid0, pa, pb));
             }
+            Grab::Strip { id: g } if g == id => {
+                let h = ctx.height;
+                self.set_height(ctx, (h - y) / h.max(1.0));
+            }
             _ => {}
         }
     }
@@ -417,7 +491,9 @@ impl TouchLayoutScene {
                     _ => None,
                 };
             }
-            Some(Grab::Move { id: g, .. } | Grab::Resize { id: g, .. }) if g == id => {
+            Some(Grab::Move { id: g, .. } | Grab::Resize { id: g, .. } | Grab::Strip { id: g })
+                if g == id =>
+            {
                 self.grab = None
             }
             _ => {}
@@ -456,17 +532,33 @@ impl Scene for TouchLayoutScene {
                 KeyCode::ArrowUp => self.step_mode(-1),
                 KeyCode::ArrowDown => self.step_mode(1),
                 KeyCode::KeyR => self.reset(ctx),
+                KeyCode::KeyF => self.flip(ctx),
+                KeyCode::KeyS => self.step_side(ctx, 1),
+                KeyCode::Equal | KeyCode::NumpadAdd | KeyCode::PageUp => self.step_height(ctx, 1),
+                KeyCode::Minus | KeyCode::NumpadSubtract | KeyCode::PageDown => {
+                    self.step_height(ctx, -1)
+                }
                 _ => {}
             },
             InputEv::Pad {
                 id, pressed: true, ..
-            } => match nav_from_pad(*id, &ctx.config.keys) {
-                Some(Nav::Decide) => self.step_layout(ctx, 1),
-                Some(Nav::Close) => self.step_mode(1),
-                Some(Nav::Option) => return self.save(ctx),
-                Some(Nav::Settings) => return self.cancel(ctx),
-                _ => {}
-            },
+            } => {
+                let keys = &ctx.config.keys;
+                match keys.p1.keys.iter().position(|k| k.pad.contains(id)) {
+                    Some(0) => self.step_layout(ctx, 1),
+                    Some(1) => self.step_mode(1),
+                    Some(2) => self.step_height(ctx, -1),
+                    Some(3) => self.step_side(ctx, 1),
+                    Some(4) => self.step_height(ctx, 1),
+                    Some(5) => self.flip(ctx),
+                    Some(6) => self.reset(ctx),
+                    _ => match nav_from_pad(*id, keys) {
+                        Some(Nav::Option) => return self.save(ctx),
+                        Some(Nav::Settings) => return self.cancel(ctx),
+                        _ => {}
+                    },
+                }
+            }
             InputEv::Pointer {
                 id, phase, x, y, ..
             } => match phase {
@@ -485,11 +577,12 @@ impl Scene for TouchLayoutScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
         let ui = ctx.ui();
+        let mm = ctx.px_per_mm();
         let (w, h) = (ctx.width, ctx.height);
         let area = Self::area(ctx);
         d.b.rect(Rect::new(0.0, 0.0, w, h), theme::BACKGROUND);
-        // where the play screen goes
-        let view = Rect::new(0.0, 0.0, w, area.y);
+        // where the play screen goes, START / SELECT beside it
+        let (view, system) = self.system(ctx);
         d.b.gradient(
             view,
             ui::lift(theme::BACKGROUND, 0.06),
@@ -497,21 +590,59 @@ impl Scene for TouchLayoutScene {
         );
         d.text(
             "PLAY SCREEN",
-            w * 0.5,
-            (view.h - 20.0 * ui) * 0.5 + 30.0 * ui,
+            view.x + view.w * 0.5,
+            view.y + (view.h - 20.0 * ui) * 0.5 + 30.0 * ui,
             20.0 * ui,
             with_alpha(theme::TEXT_DIM, 0.5),
             Align::Center,
         );
+        let opacity = ctx.config.touch.opacity;
+        TouchInput::default().draw(d.b, &system, opacity);
+        for (z, label) in system.iter().zip(["START", "SELECT"]) {
+            let r = z.bounds();
+            let size = (r.w * 0.22).min(14.0 * ui);
+            d.text_fit(
+                label,
+                r.x + r.w * 0.5,
+                r.y + (r.h - size) * 0.5,
+                size,
+                theme::TEXT,
+                Align::Center,
+                r.w * 0.9,
+            );
+        }
         let side2 = Self::side2(ctx);
-        for (a, _, _) in
-            touch::player_areas(self.mode(), area, &ctx.config.touch, side2, ctx.px_per_mm())
-        {
+        for (a, _, _) in touch::player_areas(self.mode(), area, &ctx.config.touch, side2, mm) {
             d.b.rect(a, rgba(0x05060aff));
+        }
+        // the top edge of the controls, with a grip to drag
+        let dragging = matches!(self.grab, Some(Grab::Strip { .. }));
+        let edge = if dragging {
+            theme::ACCENT
+        } else {
+            with_alpha(theme::TEXT_DIM, 0.6)
+        };
+        d.b.rect(Rect::new(0.0, area.y - 1.0, w, 2.0), edge);
+        let (gw, gh) = (16.0 * mm, 2.5 * mm);
+        d.b.rect(
+            Rect::new((w - gw) * 0.5, area.y - gh - 1.5 * mm, gw, gh),
+            edge,
+        );
+        if dragging {
+            let share = touch::controls_share(&ctx.config.touch, ctx.portrait());
+            let size = 16.0 * ui;
+            d.text(
+                &format!("CONTROLS {:.0}%", share * 100.0),
+                w * 0.5,
+                area.y - gh - 3.0 * mm - size * 1.2,
+                size,
+                theme::ACCENT,
+                Align::Center,
+            );
         }
         // the buttons, drawn as in play
         let zones = self.zones(ctx);
-        TouchInput::default().draw(d.b, &zones, ctx.config.touch.opacity);
+        TouchInput::default().draw(d.b, &zones, opacity);
         let mode = self.mode();
         for z in &zones {
             let r = z.bounds();
@@ -537,38 +668,63 @@ impl Scene for TouchLayoutScene {
                 d.b.rect(hr, theme::ACCENT);
             }
         }
-        // the toolbar
+        // the toolbar, over the play screen (START / SELECT stay in view),
         // finger-sized on phones
-        let bh = (40.0 * ui).max(8.0 * ctx.px_per_mm()).min(h * 0.1);
+        let bh = (40.0 * ui).max(8.0 * mm).min(h * 0.1);
         let gap = 8.0 * ui;
-        let tw = (w - 16.0 * ui).min(780.0 * ui);
-        let x0 = (w - tw) * 0.5;
+        let tw = (view.w - 16.0 * ui).min(780.0 * ui);
+        let x0 = view.x + (view.w - tw) * 0.5;
         let y0 = 8.0 * ui;
         let custom = self.custom(ctx);
-        let parts: [(Tool, f32, String, bool); 5] = [
-            (Tool::Mode, 0.23, format!("◀ {} ▶", mode.label()), false),
-            (
-                Tool::Layout,
-                0.23,
-                format!("◀ {} ▶", Self::layout_label(ctx)),
-                false,
-            ),
-            (Tool::Reset, 0.16, "RESET".into(), false),
-            (Tool::Cancel, 0.18, "CANCEL".into(), false),
-            (Tool::Save, 0.20, "SAVE".into(), true),
-        ];
-        let inner = tw - gap * (parts.len() - 1) as f32;
-        let mut x = x0;
+        let t = &ctx.config.touch;
+        let share = touch::controls_share(t, ctx.portrait());
+        let height = format!("◀ CONTROLS {:.0}% ▶", share * 100.0);
+        let side = format!("◀ START/SELECT {} ▶", t.start_select_side.label());
+        let layout = format!("◀ {} ▶", Self::layout_label(ctx));
+        let mode_label = format!("◀ {} ▶", mode.label());
+        // two rows, three on narrow screens
+        let rows: Vec<Vec<(Tool, f32, &str)>> = if tw >= 520.0 * ui {
+            vec![
+                vec![
+                    (Tool::Mode, 0.23, &mode_label),
+                    (Tool::Layout, 0.23, &layout),
+                    (Tool::Reset, 0.16, "RESET"),
+                    (Tool::Cancel, 0.18, "CANCEL"),
+                    (Tool::Save, 0.20, "SAVE"),
+                ],
+                vec![
+                    (Tool::Height, 0.36, &height),
+                    (Tool::Side, 0.40, &side),
+                    (Tool::Flip, 0.24, "FLIP"),
+                ],
+            ]
+        } else {
+            vec![
+                vec![(Tool::Mode, 0.5, &mode_label), (Tool::Layout, 0.5, &layout)],
+                vec![(Tool::Height, 0.45, &height), (Tool::Side, 0.55, &side)],
+                vec![
+                    (Tool::Flip, 0.22, "FLIP"),
+                    (Tool::Reset, 0.24, "RESET"),
+                    (Tool::Cancel, 0.27, "CANCEL"),
+                    (Tool::Save, 0.27, "SAVE"),
+                ],
+            ]
+        };
         self.tools.clear();
-        for (tool, share, label, active) in parts {
-            let r = Rect::new(x, y0, inner * share, bh);
-            let dim = tool == Tool::Reset && !custom;
-            ui::button(d, r, &label, ui, active);
-            if dim {
-                d.b.rect(r, with_alpha(theme::BACKGROUND, 0.5));
+        let mut y = y0;
+        for row in &rows {
+            let inner = tw - gap * (row.len() - 1) as f32;
+            let mut x = x0;
+            for &(tool, share, label) in row {
+                let r = Rect::new(x, y, inner * share, bh);
+                ui::button(d, r, label, ui, tool == Tool::Save);
+                if tool == Tool::Reset && !custom {
+                    d.b.rect(r, with_alpha(theme::BACKGROUND, 0.5));
+                }
+                self.tools.push((r, tool));
+                x += r.w + gap;
             }
-            self.tools.push((r, tool));
-            x += r.w + gap;
+            y += bh + gap;
         }
         let orient = if ctx.portrait() {
             "PORTRAIT"
@@ -584,24 +740,28 @@ impl Scene for TouchLayoutScene {
             )
         };
         let small = 14.0 * ui;
-        d.text_fit(
-            &state,
-            w * 0.5,
-            y0 + bh + 8.0 * ui,
-            small,
-            theme::TEXT,
-            Align::Center,
-            w - 16.0 * ui,
-        );
-        d.text_fit(
-            "Drag a button to move it · drag its corners or pinch it to resize",
-            w * 0.5,
-            y0 + bh + 10.0 * ui + small * 1.4,
-            small,
-            theme::TEXT_DIM,
-            Align::Center,
-            w - 16.0 * ui,
-        );
+        let lines = [
+            (state.as_str(), theme::TEXT),
+            (
+                "Drag a button to move it · drag its corners or pinch it to resize",
+                theme::TEXT_DIM,
+            ),
+            (
+                "Drag the line above the controls to change their height",
+                theme::TEXT_DIM,
+            ),
+        ];
+        for (i, (text, color)) in lines.into_iter().enumerate() {
+            d.text_fit(
+                text,
+                view.x + view.w * 0.5,
+                y + i as f32 * small * 1.4,
+                small,
+                color,
+                Align::Center,
+                view.w - 16.0 * ui,
+            );
+        }
     }
 }
 

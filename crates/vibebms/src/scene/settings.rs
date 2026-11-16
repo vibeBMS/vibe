@@ -6,7 +6,7 @@
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{
     Bpms, HiSpeedMode, HsFix, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, Target,
-    TouchMode, TouchStyle,
+    TouchMode, TouchSide, TouchStyle,
 };
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
@@ -308,6 +308,13 @@ fn cyc<T: Copy + PartialEq>(all: &[T], v: T, d: i32) -> T {
 fn touch_style_label(s: TouchStyle) -> &'static str {
     match s {
         TouchStyle::Iidx => "BM (turntable + 7)",
+        s => s.label(),
+    }
+}
+
+fn start_select_label(s: TouchSide) -> &'static str {
+    match s {
+        TouchSide::Auto => "AUTO (scratch side)",
         s => s.label(),
     }
 }
@@ -646,7 +653,8 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 format!("{:.0}%", c.touch.landscape_height * 100.0),
                 |c, d| {
                     let h = &mut c.config.touch.landscape_height;
-                    *h = (*h + d as f32 * 0.01).clamp(0.12, 0.6)
+                    let (lo, hi) = crate::touch::CONTROLS_HEIGHT;
+                    *h = (*h + d as f32 * 0.01).clamp(lo, hi)
                 },
             ),
             it(
@@ -654,7 +662,8 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 format!("{:.0}%", c.touch.portrait_height * 100.0),
                 |c, d| {
                     let h = &mut c.config.touch.portrait_height;
-                    *h = (*h + d as f32 * 0.01).clamp(0.12, 0.6)
+                    let (lo, hi) = crate::touch::CONTROLS_HEIGHT;
+                    *h = (*h + d as f32 * 0.01).clamp(lo, hi)
                 },
             ),
             it(
@@ -677,6 +686,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 |c, d| {
                     c.config.touch.opacity =
                         (c.config.touch.opacity + d as f32 * 0.05).clamp(0.1, 1.0)
+                },
+            ),
+            it(
+                "START / SELECT side",
+                start_select_label(c.touch.start_select_side),
+                |c, d| {
+                    let s = &mut c.config.touch.start_select_side;
+                    *s = cyc(&TouchSide::ALL, *s, d)
                 },
             ),
             it(

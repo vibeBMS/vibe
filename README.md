@@ -67,11 +67,13 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   turntables work.
 - Touch (`SETTINGS › TOUCH`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
-  them, drag their corners or pinch them) for each key mode and orientation. Portrait or landscape SP and landscape
-  DP, multi-touch and sliding. A touch between keys plays the nearest one. Keys are sized like an arcade's (the screen
-  size is guessed from the device and can be set), and the START / SELECT buttons in the letterbox beside the play
-  screen (left for 1P and DP, right for 2P) open the panels above. A key whose release the browser never delivers (an
-  iPad's home bar dragged with a key held) is let go once no finger is on the screen.
+  them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
+  turntable changes sides; custom layouts are otherwise used as placed, whatever the play side), and sets the height of
+  the controls (drag their top edge). Portrait or landscape SP and landscape DP, multi-touch and sliding. A touch
+  between keys plays the nearest one. Keys are sized like an arcade's (the screen size is guessed from the device and
+  can be set), and the START / SELECT buttons in the letterbox beside the play screen (on the scratch side: left for
+  1P and DP, right for 2P; or the side chosen) open the panels above. A key whose release the browser never delivers
+  (an iPad's home bar dragged with a key held) is let go once no finger is on the screen.
 
 ## Features
 
