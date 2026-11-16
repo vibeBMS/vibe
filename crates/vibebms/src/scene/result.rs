@@ -8,7 +8,9 @@ use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
-use crate::scene::result_skin::{ResultHooks, ResultState, EVENT_CONTINUE, EVENT_RETRY};
+use crate::scene::result_skin::{
+    ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY,
+};
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
@@ -53,6 +55,8 @@ pub struct ResultData {
     pub judge: String,
     pub seed: i64,
     pub course: Option<CourseRun>,
+    /// The play's replay (a play of its own, not one watched).
+    pub replay: Option<crate::replay::Replay>,
 }
 
 pub struct ResultScene {
@@ -87,6 +91,12 @@ impl ResultScene {
         let mut after = None;
         let mut ir_rx = None;
         let mut ir_status = String::new();
+        // every play of its own keeps its replay as the chart's latest
+        if let Some(r) = d.replay.as_ref() {
+            if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Last) {
+                log::warn!("replay: {e}");
+            }
+        }
         if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
             ir_status = format!("{why}: not saved");
         } else if !d.autoplay {
@@ -94,6 +104,18 @@ impl ResultScene {
                 let b = lib.record_play(&song.sha256, ln, &d.score, d.clear);
                 ctx.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
+            }
+            // a new best EX score: its replay is the chart's best (MY BEST's
+            // ghost)
+            let best_before = before.as_ref().map_or(0, |b| b.ex_score);
+            if let Some(r) = d
+                .replay
+                .as_ref()
+                .filter(|_| d.score.ex_score() > best_before)
+            {
+                if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Best) {
+                    log::warn!("replay: {e}");
+                }
             }
             let cfg = &ctx.config.ir_server;
             let send = cfg.auto_submit && !d.assist;
@@ -185,10 +207,28 @@ impl ResultScene {
                     song,
                     autoplay: self.d.autoplay,
                     course: Some(c),
+                    replay: None,
                 },
             )));
         }
         Next::Pop
+    }
+
+    /// Watch this play again (its replay).
+    fn watch(&mut self, ctx: &mut Ctx) -> Next {
+        let Some(r) = self.d.replay.clone() else {
+            ctx.toast("No replay of this play".to_string());
+            return Next::Stay;
+        };
+        Next::Replace(Box::new(PlayScene::new(
+            ctx,
+            PlayRequest {
+                replay: Some(std::sync::Arc::new(r)),
+                course: None,
+                autoplay: false,
+                ..self.d.request.clone()
+            },
+        )))
     }
 
     fn retry(&mut self, ctx: &mut Ctx) -> Next {
@@ -238,6 +278,7 @@ impl Scene for ResultScene {
             match ev {
                 EVENT_RETRY => return self.leave(ctx, Leave::Retry),
                 EVENT_CONTINUE => return self.leave(ctx, Leave::Proceed),
+                EVENT_REPLAY => return self.watch(ctx),
                 _ => {}
             }
         }
@@ -276,6 +317,9 @@ impl Scene for ResultScene {
                 if matches!(code, KeyCode::KeyR | KeyCode::F5) {
                     return self.leave(ctx, Leave::Retry);
                 }
+                if *code == KeyCode::KeyP {
+                    return self.watch(ctx);
+                }
                 if let Some(Nav::Decide | Nav::Back | Nav::Close) =
                     nav_from_key(*code, &ctx.config.keys)
                 {
@@ -311,6 +355,7 @@ impl Scene for ResultScene {
                 }
                 return match act {
                     Some(EVENT_RETRY) => self.leave(ctx, Leave::Retry),
+                    Some(EVENT_REPLAY) => self.watch(ctx),
                     _ => self.leave(ctx, Leave::Proceed),
                 };
             }

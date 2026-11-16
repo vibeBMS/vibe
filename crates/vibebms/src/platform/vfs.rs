@@ -431,6 +431,27 @@ mod imp {
         });
     }
 
+    /// A file of the player's own (a replay): held in memory and kept in
+    /// the browser's storage, the library not read again for it.
+    pub fn store(p: &Path, data: Vec<u8>) {
+        let data = Data::Bytes(Rc::new(data));
+        keep(p, &data);
+        FS.with(|fs| {
+            let size = match &data {
+                Data::Bytes(b) => b.len() as i64,
+                Data::File(f) => f.size() as i64,
+            };
+            fs.borrow_mut().files.insert(
+                p.to_path_buf(),
+                Node {
+                    data,
+                    size,
+                    mtime: 0,
+                },
+            );
+        });
+    }
+
     /// Read the given lazily-mounted files into memory.
     pub fn prefetch(paths: Vec<PathBuf>, progress: Rc<std::cell::Cell<usize>>) {
         wasm_bindgen_futures::spawn_local(async move {

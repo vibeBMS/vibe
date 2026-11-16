@@ -516,6 +516,36 @@ impl SelectScene {
         ctx.toast(format!("Deleted {name}"));
     }
 
+    /// Watch the chosen chart's replay: its best play's, else its latest.
+    fn watch_replay(&mut self, ctx: &mut Ctx) -> Next {
+        let Some((_, song)) = self.selected_song(ctx) else {
+            return Next::Stay;
+        };
+        let song = song.clone();
+        let ln = if song.has_ln {
+            ctx.config.play.ln_mode as i32
+        } else {
+            0
+        };
+        let load = |slot| crate::replay::Replay::load(&ctx.paths.root, &song.sha256, ln, slot);
+        let Some(r) = load(crate::replay::Slot::Best).or_else(|| load(crate::replay::Slot::Last))
+        else {
+            ctx.toast(format!("No replay of {}", song.title));
+            return Next::Stay;
+        };
+        ctx.mixer.stop(PREVIEW_KEY);
+        self.preview_for = None;
+        Next::Push(Box::new(PlayScene::new(
+            ctx,
+            PlayRequest {
+                song,
+                autoplay: false,
+                course: None,
+                replay: Some(std::sync::Arc::new(r)),
+            },
+        )))
+    }
+
     fn selected_song<'a>(&self, ctx: &'a Ctx) -> Option<(usize, &'a Song)> {
         match self.bars.get(self.cursor) {
             Some(Bar::Song(i)) => ctx.songs.get(*i).map(|s| (*i, s)),
@@ -546,6 +576,7 @@ impl SelectScene {
                         song,
                         autoplay: autoplay || ctx.config.play.autoplay,
                         course: None,
+                        replay: None,
                     },
                 )))
             }
@@ -682,6 +713,7 @@ impl SelectScene {
                         song: first,
                         autoplay: autoplay || ctx.config.play.autoplay,
                         course: Some(run),
+                        replay: None,
                     },
                 )))
             }
@@ -1008,6 +1040,7 @@ impl SelectScene {
                 self.back(ctx);
                 Next::Stay
             }
+            super::select_skin::EVENT_REPLAY => self.watch_replay(ctx),
             n if (OPTION_EVENT..OPTION_EVENT + 100).contains(&n) => {
                 self.option(ctx, (n - OPTION_EVENT) as usize)
             }
@@ -1297,6 +1330,7 @@ impl Scene for SelectScene {
                         self.delete_kept(ctx);
                         return Next::Stay;
                     }
+                    KeyCode::KeyP => return self.watch_replay(ctx),
                     KeyCode::F12 => {
                         ctx.start_scan();
                         ctx.refresh_tables(true);

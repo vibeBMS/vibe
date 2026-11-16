@@ -29,6 +29,9 @@ pub const OPTION_NAME: i32 = 9100;
 pub const OPTION_EVENT: i32 = 9000;
 /// Click event: leave the current folder.
 pub const EVENT_BACK: i32 = 9900;
+/// vibeBMS: watch the chosen chart's replay (its best play's, else its
+/// latest).
+pub const EVENT_REPLAY: i32 = 9901;
 
 pub struct SelectState<'a> {
     pub s: &'a SelectScene,

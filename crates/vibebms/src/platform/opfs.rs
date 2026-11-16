@@ -94,8 +94,9 @@ thread_local! {
     static WORKER_H: RefCell<Option<web_sys::Worker>> = const { RefCell::new(None) };
     static NEXT: Cell<u32> = const { Cell::new(1) };
     static WAITING: RefCell<HashMap<u32, Done>> = RefCell::new(HashMap::new());
-    /// `<root>/bms`: what below it is kept.
-    static BMS: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    /// The folders kept, and their names in the storage: `<root>/bms`
+    /// (songs) and `<root>/scores/replays`.
+    static KEPT: RefCell<Vec<(PathBuf, &'static str)>> = const { RefCell::new(Vec::new()) };
     static STATUS: Cell<Status> = Cell::new(Status::default());
     /// Messages for the player (a write failed: the storage is full, ...).
     static NOTES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -144,13 +145,18 @@ pub fn take_notes() -> Vec<String> {
     NOTES.with(|n| std::mem::take(&mut *n.borrow_mut()))
 }
 
-/// The path below `<root>/bms` of `p`, if it is kept.
+/// `p`'s path in the storage, if it is kept.
 fn kept(p: &Path) -> Option<String> {
-    BMS.with(|b| {
-        let b = b.borrow();
-        let rel = p.strip_prefix(b.as_ref()?).ok()?;
-        let s = rel.to_string_lossy().replace('\\', "/");
-        (!s.is_empty()).then(|| format!("bms/{s}"))
+    KEPT.with(|k| {
+        k.borrow().iter().find_map(|(dir, name)| {
+            let rel = p.strip_prefix(dir).ok()?;
+            let s = rel.to_string_lossy().replace('\\', "/");
+            Some(if s.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name}/{s}")
+            })
+        })
     })
 }
 
@@ -158,11 +164,14 @@ fn kept(p: &Path) -> Option<String> {
 /// (`mount` for each), then `done`.
 pub fn start(
     root: &Path,
-    mut mount: impl FnMut(PathBuf, web_sys::File) + 'static,
+    mount: impl FnMut(PathBuf, web_sys::File) + 'static,
     done: impl FnOnce(usize) + 'static,
 ) {
-    let bms = root.join("bms");
-    BMS.with(|b| *b.borrow_mut() = Some(bms.clone()));
+    let kept_dirs = vec![
+        (root.join("bms"), "bms"),
+        (crate::replay::dir(root), "replays"),
+    ];
+    KEPT.with(|k| *k.borrow_mut() = kept_dirs.clone());
     let has_opfs = web_sys::window()
         .map(|w| w.navigator())
         .and_then(|n| js_sys::Reflect::get(&n, &"storage".into()).ok())
@@ -204,13 +213,29 @@ pub fn start(
     worker.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
     on_msg.forget();
     WORKER_H.with(|w| *w.borrow_mut() = Some(worker));
+    // each kept folder listed, one after another; then `done`
+    let mount = std::rc::Rc::new(RefCell::new(mount));
+    list_all(kept_dirs, mount, 0, Box::new(done));
+}
+
+fn list_all(
+    mut dirs: Vec<(PathBuf, &'static str)>,
+    mount: std::rc::Rc<RefCell<dyn FnMut(PathBuf, web_sys::File)>>,
+    n: usize,
+    done: Box<dyn FnOnce(usize)>,
+) {
+    if dirs.is_empty() {
+        refresh_status();
+        return done(n);
+    }
+    let (dir, name) = dirs.remove(0);
     send(
         "list",
-        "bms",
+        name,
         JsValue::NULL,
         None,
         Box::new(move |r| {
-            let mut n = 0;
+            let mut n = n;
             match r {
                 Ok(v) => {
                     STATUS.with(|s| {
@@ -226,14 +251,13 @@ pub fn start(
                         ) else {
                             continue;
                         };
-                        mount(bms.join(rel), file);
+                        (mount.borrow_mut())(dir.join(rel), file);
                         n += 1;
                     }
                 }
                 Err(e) => log::warn!("library: {e}"),
             }
-            refresh_status();
-            done(n);
+            list_all(dirs, mount, n, done)
         }),
     );
 }

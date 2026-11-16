@@ -17,6 +17,18 @@ use serde::{Deserialize, Serialize};
 /// HCN gauge tick interval (µs).
 const HCN_TICK: i64 = 200_000;
 
+/// What drove an engine: its inputs and the times it was advanced to, in
+/// order. The same ops into an engine made the same way (chart, seed,
+/// rules) judge the same: a replay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Op {
+    /// `update(time)`.
+    Update(i64),
+    /// `input`: time, lane, key, pressed.
+    Input(i64, u8, u8, bool),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputEvent {
     /// Chart time in µs.
@@ -172,6 +184,8 @@ pub struct Engine {
     last_time: i64,
     /// Hell charge notes released while passing the line.
     hcn_released: std::collections::HashSet<usize>,
+    /// The ops so far, when recording ([`Engine::record`]).
+    recorded: Option<Vec<Op>>,
 }
 
 impl Engine {
@@ -250,6 +264,7 @@ impl Engine {
             timing_log: Vec::new(),
             judge_log: Vec::new(),
             ghost: Vec::new(),
+            recorded: None,
             last_time,
             hcn_released: Default::default(),
         }
@@ -300,8 +315,34 @@ impl Engine {
     }
 
     pub fn input(&mut self, ev: InputEvent) {
+        if let Some(r) = self.recorded.as_mut() {
+            r.push(Op::Input(ev.time, ev.lane, ev.key, ev.pressed));
+        }
         if (ev.lane as usize) < self.lanes.len() && !self.is_auto(ev.lane as usize) {
             self.queue.push(ev);
+        }
+    }
+
+    /// Keep the ops from now on (for a replay).
+    pub fn record(&mut self) {
+        self.recorded.get_or_insert_with(Vec::new);
+    }
+
+    /// The ops recorded so far.
+    pub fn recorded(&self) -> &[Op] {
+        self.recorded.as_deref().unwrap_or(&[])
+    }
+
+    /// Run `op` (from a replay).
+    pub fn apply(&mut self, op: Op) {
+        match op {
+            Op::Update(t) => self.update(t),
+            Op::Input(time, lane, key, pressed) => self.input(InputEvent {
+                time,
+                lane,
+                key,
+                pressed,
+            }),
         }
     }
 
@@ -343,6 +384,9 @@ impl Engine {
 
     /// Advance the engine to chart time `now` (µs).
     pub fn update(&mut self, now: i64) {
+        if let Some(r) = self.recorded.as_mut() {
+            r.push(Op::Update(now));
+        }
         if self.prev_time == i64::MIN / 4 {
             self.prev_time = now.min(0) - 1;
         }
@@ -1202,5 +1246,29 @@ mod tests {
         release(&mut e, 0, first + 20_000);
         press(&mut e, 0, first + 100_000 + 5_000);
         assert_eq!(judges(&mut e), vec![PGREAT, PGREAT]);
+    }
+
+    #[test]
+    fn replays_judge_the_same() {
+        let (_, mut e) = engine(FOUR, LnType::Ln, false);
+        e.record();
+        e.update(1_000_000);
+        press(&mut e, 0, 2_000_000 + 10_000);
+        e.update(2_020_000);
+        // a late input: stamped before the last update
+        press(&mut e, 0, 2_500_000 - 50_000);
+        e.update(2_480_000);
+        release(&mut e, 0, 2_490_000);
+        e.update(3_100_000);
+        e.update(5_000_000);
+        let ops = e.recorded().to_vec();
+        let (_, mut r) = engine(FOUR, LnType::Ln, false);
+        for op in ops {
+            r.apply(op);
+        }
+        assert_eq!(r.ghost, e.ghost);
+        assert_eq!(r.judge_log, e.judge_log);
+        assert_eq!(r.score.ex_score(), e.score.ex_score());
+        assert!(!e.ghost.is_empty());
     }
 }

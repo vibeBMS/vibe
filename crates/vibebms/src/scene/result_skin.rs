@@ -15,6 +15,8 @@ use vibebms_core::score::{ClearType, DjLevel};
 /// Click events of result skins (vibeBMS ids): retry the chart / continue.
 pub const EVENT_RETRY: i32 = 9500;
 pub const EVENT_CONTINUE: i32 = 9501;
+/// vibeBMS: watch this play again (its replay).
+pub const EVENT_REPLAY: i32 = 9502;
 
 /// Timer 151 (result graph end) fires this long after the scene starts.
 pub const GRAPH_MS: i64 = 1000;
@@ -130,7 +132,8 @@ impl SkinState for ResultState<'_> {
         let d = &self.s.d;
         let sc = &d.score;
         let before = self.s.before.as_ref();
-        let after = self.s.after.as_ref();
+        // a play not recorded: the chart's record as it stands
+        let after = self.s.after.as_ref().or(self.s.before.as_ref());
         let ex = sc.ex_score() as i64;
         let best = self.best_ex() as i64;
         let target = self

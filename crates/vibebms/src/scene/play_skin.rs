@@ -121,6 +121,16 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
     None
 }
 
+/// The pacemakers' EX scores: over the chart, and at the notes judged so
+/// far.
+#[derive(Default)]
+struct Pace {
+    best: i64,
+    target: i64,
+    best_now: i64,
+    target_now: i64,
+}
+
 pub struct SceneState<'a> {
     pub s: &'a PlayScene,
     pub ctx: &'a Ctx,
@@ -128,23 +138,41 @@ pub struct SceneState<'a> {
 }
 
 impl SceneState<'_> {
-    /// Pacemaker target: the personal best EX score (0 if never played)
-    /// and that score prorated to the notes passed so far.
-    /// The personal best and the target score (EX), and the share of the
-    /// notes judged so far (the pacemakers run at that share of them).
-    fn pace(&self) -> (i64, i64, f64) {
+    /// The pacemakers: the personal best and the target EX scores, over
+    /// the chart and at the notes judged so far. The best play's ghost (its
+    /// replay's judgements in order) gives the best at the same note; else
+    /// it, as the other targets, runs at the share of the notes judged.
+    fn pace(&self) -> Pace {
         let s = self.s;
         let best = self
             .ctx
             .best(&s.req.song, s.ln_mode() as i32)
             .map(|b| b.ex_score)
-            .unwrap_or(0);
+            .unwrap_or(0) as i64;
         let Some(sc) = self.engine().map(|e| &e.score) else {
-            return (best as i64, 0, 0.0);
+            return Pace {
+                best,
+                ..Pace::default()
+            };
         };
-        let target = self.ctx.config.play.target.score(sc.max_ex(), best);
+        let target = self.ctx.config.play.target.score(sc.max_ex(), best as u32) as i64;
         let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
-        (best as i64, target as i64, done)
+        let at = |v: i64| (v as f64 * done).round() as i64;
+        let best_now = match &s.best_ghost {
+            Some(g) => crate::replay::ex_of(&g[..(sc.passed as usize).min(g.len())]) as i64,
+            None => at(best),
+        };
+        let target_now = if self.ctx.config.play.target == crate::config::Target::Best {
+            best_now
+        } else {
+            at(target)
+        };
+        Pace {
+            best,
+            target,
+            best_now,
+            target_now,
+        }
     }
 
     /// EX score minus the next DJ level's border at the notes judged so far.
@@ -455,25 +483,19 @@ impl SkinState for SceneState<'_> {
             424 => sc?.slow() as i64,
             115 => rate(sc?.rate()) / 100,
             116 => rate(sc?.rate()) % 100,
-            150 | 170 => self.pace().0,
-            121 | 151 => self.pace().1,
+            150 | 170 => self.pace().best,
+            121 | 151 => self.pace().target,
             // differences to the pacemakers (best / target at this point)
-            152 | 172 => {
-                let (best, _, done) = self.pace();
-                sc?.ex_score() as i64 - (best as f64 * done).round() as i64
-            }
-            128 | 153 => {
-                let (_, target, done) = self.pace();
-                sc?.ex_score() as i64 - (target as f64 * done).round() as i64
-            }
+            152 | 172 => sc?.ex_score() as i64 - self.pace().best_now,
+            128 | 153 => sc?.ex_score() as i64 - self.pace().target_now,
             154 => self.diff_next_rank()?,
             122 | 157 => {
                 let max = sc?.max_ex().max(1) as f64;
-                rate(self.pace().1 as f64 / max) / 100
+                rate(self.pace().target as f64 / max) / 100
             }
             123 | 158 => {
                 let max = sc?.max_ex().max(1) as f64;
-                rate(self.pace().1 as f64 / max) % 100
+                rate(self.pace().target as f64 / max) % 100
             }
             // timing of the last judgement (ms, + = early as in beatoraja)
             525 | 526 => s.last_judge[(id - 525) as usize]?.1 / 1000,
@@ -524,13 +546,14 @@ impl SkinState for SceneState<'_> {
             // share of the maximum
             112..=115 => {
                 let max = sc.map(|s| s.max_ex()).unwrap_or(0).max(1) as f32;
-                let (best, target, done) = self.pace();
-                let v = if id < 114 { best } else { target } as f32;
-                if id % 2 == 0 {
-                    v * done as f32 / max
-                } else {
-                    v / max
-                }
+                let p = self.pace();
+                (match id {
+                    112 => p.best_now,
+                    113 => p.best,
+                    114 => p.target_now,
+                    _ => p.target,
+                }) as f32
+                    / max
             }
             _ => 0.0,
         }

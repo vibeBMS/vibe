@@ -21,6 +21,7 @@ pub mod links;
 pub mod paths;
 pub mod placement;
 pub mod platform;
+pub mod replay;
 pub mod scene;
 pub mod skin;
 pub mod songfetch;

@@ -7,6 +7,7 @@ use crate::gfx::{rgba, with_alpha, Gfx, Rect, TexId};
 use crate::input::{InputEv, LaneEv, LaneMapper};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
+use crate::replay::Replay;
 use crate::scene::result::{ResultData, ResultScene};
 use crate::theme;
 use crate::touch::{self, TouchInput, Zone};
@@ -17,7 +18,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions, SoundBank};
 use vibebms_core::chart::{BgaLayer, Chart, SoundId, NO_SOUND};
-use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent};
+use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent, Op};
 use vibebms_core::gauge::GrooveGauge;
 use vibebms_core::judge::{judge_rules, GOOD, GREAT};
 use vibebms_core::lane_option::{self, DoubleOption, LaneOption};
@@ -57,6 +58,9 @@ pub struct PlayRequest {
     pub song: Song,
     pub autoplay: bool,
     pub course: Option<CourseRun>,
+    /// Watch this replay (its options and seed make the chart and the rules;
+    /// the keys do nothing but START / SELECT).
+    pub replay: Option<Arc<Replay>>,
 }
 
 type Rgba = (u32, u32, Vec<u8>);
@@ -120,6 +124,11 @@ pub struct PlayScene {
     pub(crate) ln: LnType,
     pub(crate) seed: i64,
     pub(crate) error: Option<String>,
+    /// The replay's next op (watching one).
+    replay_at: usize,
+    /// The best play's judgements in order (its replay), the pacemaker for
+    /// MY BEST at the same note.
+    pub(crate) best_ghost: Option<Vec<u8>>,
     /// START / SELECT: the hi-speed panel.
     ctl: Control,
     /// The skin draws the panel itself (objects on timer 21).
@@ -196,7 +205,13 @@ impl PlayScene {
         let total_files = Arc::new(AtomicUsize::new(0));
         let (tx, rx) = channel();
         let path = PathBuf::from(&req.song.path);
-        let play = ctx.config.play.clone();
+        // watching a replay: its options make the chart
+        let play = req
+            .replay
+            .as_ref()
+            .map_or_else(|| ctx.config.play.clone(), |r| r.play.clone());
+        let replay_seed = req.replay.as_ref().map(|r| r.seed);
+        let play_ln = play.ln_mode;
         let rate = ctx.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
         let course_mirror = req
@@ -208,10 +223,12 @@ impl PlayScene {
         let song_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let job = move || {
             let r = (|| -> Result<Box<Loaded>, String> {
-                let seed = crate::platform::SystemTime::now()
-                    .duration_since(crate::platform::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(1);
+                let seed = replay_seed.unwrap_or_else(|| {
+                    crate::platform::SystemTime::now()
+                        .duration_since(crate::platform::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(1)
+                });
                 let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
                 let mut chart = vibebms_core::load_chart_bytes(
                     &path,
@@ -333,9 +350,11 @@ impl PlayScene {
             lane_notes: Vec::new(),
             lane_cursor: Vec::new(),
             mode,
-            ln: ctx.config.play.ln_mode,
+            ln: play_ln,
             seed: 0,
             error: None,
+            replay_at: 0,
+            best_ghost: None,
             ctl: Control::default(),
             skin_panel: false,
             assist: Assist::None,
@@ -420,7 +439,8 @@ impl PlayScene {
         } = *l;
         self.seed = seed;
         self.mode = chart.mode();
-        let p = &ctx.config.play;
+        let replay_play = self.req.replay.as_ref().map(|r| r.play.clone());
+        let p = replay_play.as_ref().unwrap_or(&ctx.config.play);
         let course = self.req.course.as_ref();
         // beatoraja: windows wider than standard and a BPM guide on a chart
         // that changes BPM are assists, and their scores are not kept
@@ -429,7 +449,8 @@ impl PlayScene {
         self.unranked = altered
             .or(wide_judge.then_some("EXPAND JUDGE"))
             .or(guided.then_some("BPM GUIDE"))
-            .or(course.map(|_| "COURSE"));
+            .or(course.map(|_| "COURSE"))
+            .or(self.req.replay.as_ref().map(|_| "REPLAY"));
         // LN mode: course constraints may force one
         if let Some(c) = course {
             if c.has("ln") {
@@ -486,7 +507,26 @@ impl PlayScene {
             auto_lanes: auto_lanes.clone(),
             scratch_release_ends_bss: true,
         };
-        let engine = Engine::new(&chart, cfg, gauge);
+        let mut engine = Engine::new(&chart, cfg, gauge);
+        // a play of its own (not a course stage): kept as a replay
+        if self.req.replay.is_none() && !self.req.autoplay && course.is_none() {
+            engine.record();
+        }
+        // the best play's ghost: MY BEST's pacemaker at the same note
+        if self.req.replay.is_none() {
+            let ln = if chart.meta.has_long {
+                self.ln as i32
+            } else {
+                0
+            };
+            self.best_ghost = crate::replay::Replay::load(
+                &ctx.paths.root,
+                &self.req.song.sha256,
+                ln,
+                crate::replay::Slot::Best,
+            )
+            .map(|r| r.ghost);
+        }
         let mut lane_notes = vec![Vec::new(); lanes];
         for (i, n) in engine.notes().iter().enumerate() {
             lane_notes[n.lane as usize].push(i);
@@ -617,7 +657,40 @@ impl PlayScene {
         }
     }
 
+    /// Watching a replay: its ops up to chart time `t` into the judge (an
+    /// input waits in the judge for the update after it), the keys it
+    /// presses lit.
+    fn run_replay(&mut self, t: i64, now: Instant) {
+        let Some(r) = self.req.replay.clone() else {
+            return;
+        };
+        let Some(e) = self.engine.as_mut() else {
+            return;
+        };
+        while let Some(op) = r.ops.get(self.replay_at) {
+            match *op {
+                Op::Update(u) if u > t => break,
+                Op::Input(_, lane, _, pressed) => {
+                    let lit = if pressed {
+                        &mut self.key_flash
+                    } else {
+                        &mut self.key_off
+                    };
+                    if let Some(f) = lit.get_mut(lane as usize) {
+                        *f = Some(now);
+                    }
+                }
+                Op::Update(_) => {}
+            }
+            e.apply(*op);
+            self.replay_at += 1;
+        }
+    }
+
     fn feed(&mut self, ev: LaneEv, offset: i64) {
+        if self.req.replay.is_some() {
+            return;
+        }
         let t = self.chart_us(ev.time) - offset;
         if let Some(e) = self.engine.as_mut() {
             e.input(InputEvent {
@@ -754,6 +827,7 @@ impl PlayScene {
         let data = ResultData {
             request: PlayRequest {
                 course: None,
+                replay: None,
                 ..self.req.clone()
             },
             title: self.chart.meta.title.clone(),
@@ -796,6 +870,24 @@ impl PlayScene {
             ),
             seed: self.seed,
             course,
+            replay: (!e.recorded().is_empty()).then(|| Replay {
+                version: crate::replay::VERSION,
+                sha256: self.req.song.sha256.clone(),
+                md5: self.req.song.md5.clone(),
+                title: self.chart.meta.title.clone(),
+                ln: if self.chart.meta.has_long {
+                    self.ln as i32
+                } else {
+                    0
+                },
+                date: crate::platform::unix_now() as i64,
+                seed: self.seed,
+                play: ctx.config.play.clone(),
+                ex_score: e.score.ex_score(),
+                clear: clear.label().to_string(),
+                ghost: e.ghost.clone(),
+                ops: e.recorded().to_vec(),
+            }),
         };
         Next::Replace(Box::new(ResultScene::new(ctx, data)))
     }
@@ -940,7 +1032,12 @@ impl Scene for PlayScene {
             }
             Stage::Playing => {}
         }
-        let offset = ctx.config.play.judge_offset_ms as i64 * 1000;
+        // a replay's times have the judge offset in them
+        let offset = if self.req.replay.is_some() {
+            0
+        } else {
+            ctx.config.play.judge_offset_ms as i64 * 1000
+        };
         let t = self.chart_us(now);
         // release turntables that stopped
         let mut evs = Vec::new();
@@ -954,8 +1051,13 @@ impl Scene for PlayScene {
         let mut failed = false;
         let mut events: Vec<EngineEvent> = Vec::new();
         let mut auto: Vec<bool> = Vec::new();
+        if self.req.replay.is_some() {
+            self.run_replay(t, now);
+        }
         if let Some(engine) = self.engine.as_mut() {
-            engine.update(t - offset);
+            if self.req.replay.is_none() {
+                engine.update(t - offset);
+            }
             events = engine.drain_events().collect();
             auto = (0..self.mode.lane_count())
                 .map(|l| engine.is_auto(l))
@@ -1178,7 +1280,7 @@ impl Scene for PlayScene {
                 fed = true;
             }
         }
-        if fed {
+        if fed && self.req.replay.is_none() {
             // judge now and start the keys' sounds without waiting for the
             // next frame; the rest of the events wait for it
             let t = self.chart_us(Instant::now());

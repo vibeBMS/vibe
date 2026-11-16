@@ -659,11 +659,14 @@ pub fn run() {
         crate::web::install_touch_watch();
         // the songs kept in the browser: mounted, then read as picked ones
         // (the first scan waits for them)
-        crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, |n| {
+        let replays = crate::replay::dir(&app.paths.root);
+        crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, move |n| {
             if n > 0 {
                 log::info!("library: {n} files kept in the browser");
             }
             crate::platform::vfs::mark_added();
+            // the replays are small: read now, ready when a play wants one
+            let _ = crate::platform::vfs::Prefetch::dirs(&[replays]);
         });
         event_loop.spawn_app(app);
     }
@@ -984,6 +987,7 @@ impl App {
                         song,
                         autoplay,
                         course: None,
+                        replay: None,
                     };
                     scenes.push(Box::new(crate::scene::play::PlayScene::new(&mut ctx, req)));
                 }

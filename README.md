@@ -47,10 +47,11 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 1P 7 keys | `Z S X D C F V`, scratch `LShift` / `LCtrl` |
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
+| Results | R / F5 retry, P watch this play again |
 | Anywhere | F1 / Tab settings, F11 full screen |
 
 Entering a folder puts the cursor on the folder's own row; deciding on it closes the folder (as in LR2).
@@ -106,6 +107,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   headers, so it downloads through the vibeBMS proxy `proxy.vibebms.workers.dev`, which passes on archives only,
   and unpacks them in memory (zip, 7z, rar). Other event lists or indexes can be added in the settings
   (`archives`).
+- **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
+  judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
+  it judges exactly the same. Each chart keeps its latest play's and its best EX score's (`scores/replays/`; in the
+  web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
+  else its latest); a replay is not recorded. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
+  score at the same note, not the best score spread evenly over the chart.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
 - **Audio**: low-latency output (ASIO/JACK feature flags), keysounds scheduled to the sample, WAV/OGG/MP3/FLAC.
 
@@ -125,7 +132,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported.
 - A skin's custom options and offsets appear under it in `SETTINGS › DISPLAY`.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
-  `9000+i`; result events 9500 (retry) and 9501 (continue); song select event 9900 (parent folder). A graph with
+  `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
+  (parent folder) and 9901 (watch the chart's replay). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
   using timer 21, the app draws a hi-speed panel beside the lanes.
@@ -169,7 +177,7 @@ Difficulty tables, song downloads, unpacking and placing separate charts come fr
 
 ## Not implemented yet
 
-Replay playback, ghost battles, adapters for particular IR services (such as MochaIR).
+Adapters for particular IR services (such as MochaIR).
 
 ## License
 
