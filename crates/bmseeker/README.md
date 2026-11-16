@@ -8,7 +8,10 @@ vibeBMS가 쓰는 라이브러리이자, 게임 없이 쓰는 명령줄 도구�
 bmseeker table <난이도표 URL>                        레벨별 채보 수
 bmseeker missing <난이도표 URL> <라이브러리> [-l 레벨] [--get]
                                                      라이브러리에 없는 곡 (--get: 받기)
-bmseeker fetch <링크> <파일> [-t 제목] [-a 아티스트]   링크가 가리키는 아카이브 받기
+bmseeker fetch <링크>... <파일 또는 폴더> [-t 제목] [-a 아티스트] [--md5 MD5] [--search] [--any] [--json]
+                                                     링크를 차례로 시도해 아카이브 받기 (폴더면 원래 파일 이름으로;
+                                                     --search / --md5: 다 실패하면 BMS SEARCH의 링크도;
+                                                     --any: 페이지가 아닌 단일 파일(채보, 동영상)도; --json: 결과를 JSON 한 줄로)
 bmseeker install <링크>... <라이브러리> [--diff] [-t 제목] [-a 아티스트] [--md5 MD5]
                                                      곡(또는 차분)을 라이브러리에 (링크를 차례로)
 bmseeker import <파일> <라이브러리>                   받아 둔 파일을 라이브러리에

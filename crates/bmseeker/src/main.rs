@@ -5,8 +5,13 @@
 //! bmseeker missing <table URL> <library> [-l LEVEL] [--get]
 //!                                                 its songs the library lacks
 //!                                                 (--get: download them)
-//! bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
-//!                                                 the archive a link leads to
+//! bmseeker fetch <link>... <file or folder> [-t TITLE] [-a ARTIST]
+//!         [--md5 MD5] [--search] [--any] [--json]
+//!                                                 the archive the links lead
+//!                                                 to, tried in turn (then BMS
+//!                                                 SEARCH's for the song with
+//!                                                 --search / --md5); into a
+//!                                                 folder under its own name
 //! bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
 //!                                                 a song (or its separate
 //!                                                 chart) into the library, the
@@ -61,7 +66,7 @@ mod cli {
     const USAGE: &str = "usage:
   bmseeker table <table URL>
   bmseeker missing <table URL> <library> [-l LEVEL] [--get]
-  bmseeker fetch <link> <file> [-t TITLE] [-a ARTIST]
+  bmseeker fetch <link>... <file or folder> [-t TITLE] [-a ARTIST] [--md5 MD5] [--search] [--any] [--json]
   bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
@@ -221,15 +226,15 @@ mod cli {
                 Ok(())
             }
             Some("fetch") => {
-                let (link, out) = (a.need(0)?, Path::new(a.need(1)?));
-                match hosts::fetch_for(link, Some(a.want()), out) {
-                    Ok(()) => {
-                        println!("{} ({})", out.display(), hosts::sniff(out).unwrap_or("?"));
-                        Ok(())
+                let (out, links) = match a.pos.split_last() {
+                    Some((out, rest))
+                        if rest.len() >= 2 || (rest.len() == 1 && a.has("--search")) =>
+                    {
+                        (Path::new(*out), &rest[1..])
                     }
-                    Err(Fetch::Page) => Err(format!("{link} is a page: download it in a browser")),
-                    Err(Fetch::Failed(e)) => Err(e),
-                }
+                    _ => return Err(USAGE.into()),
+                };
+                fetch(links, out, &a)
             }
             Some("install") => {
                 // <link>... <library>: the links tried in turn
@@ -368,6 +373,74 @@ mod cli {
     /// what it gave, and when), skipping those checked within `days` (a
     /// failure that may pass: within a day). Saved after each, so a run cut
     /// short (`minutes`) goes on from there next time.
+    /// `fetch`: the first of the links (then BMS SEARCH's) that gives an
+    /// archive (`--any`: or a file that is not a page), into `out` (a
+    /// folder: under the file's own name).
+    fn fetch(links: &[&str], out: &Path, a: &Args) -> Result<(), String> {
+        let want = a.want();
+        let into_dir = out.is_dir();
+        let tmp = if into_dir {
+            out.join(format!(".bmseeker-{}", std::process::id()))
+        } else {
+            out.to_path_buf()
+        };
+        let mut errors = Vec::new();
+        let mut tried: Vec<String> = Vec::new();
+        let mut try_link = |link: &str, errors: &mut Vec<String>| -> Option<(String, String)> {
+            if tried.iter().any(|t| t == link) {
+                return None;
+            }
+            tried.push(link.to_string());
+            match hosts::fetch_named(link, Some(want.clone()), &tmp, a.has("--any")) {
+                Ok(name) => Some((link.to_string(), name)),
+                Err(Fetch::Page) => {
+                    errors.push(format!("{link}: a page, not a file"));
+                    None
+                }
+                Err(Fetch::Failed(e)) => {
+                    errors.push(format!("{link}: {e}"));
+                    None
+                }
+            }
+        };
+        let mut got = links.iter().find_map(|l| try_link(l, &mut errors));
+        if got.is_none() && (a.has("--search") || a.has("--md5")) {
+            let found = bmseeker::bmssearch::lookup(a.get("--md5").unwrap_or(""), &want);
+            if found.is_empty() {
+                errors.push("BMS SEARCH: nothing for the song".into());
+            }
+            got = found.iter().find_map(|l| try_link(l, &mut errors));
+        }
+        let json = a.has("--json");
+        let Some((link, name)) = got else {
+            let _ = std::fs::remove_file(&tmp);
+            if json {
+                println!("{}", serde_json::json!({ "errors": errors }));
+            }
+            return Err(errors.join("\n"));
+        };
+        let file = if into_dir {
+            let f = out.join(&name);
+            std::fs::rename(&tmp, &f).map_err(|e| format!("{}: {e}", f.display()))?;
+            f
+        } else {
+            tmp
+        };
+        let format = hosts::sniff(&file).unwrap_or("file");
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "file": file, "name": name, "format": format,
+                    "link": link, "errors": errors,
+                })
+            );
+        } else {
+            println!("{} ({format}, from {link})", file.display());
+        }
+        Ok(())
+    }
+
     fn check_links(
         works: &Path,
         out: &Path,

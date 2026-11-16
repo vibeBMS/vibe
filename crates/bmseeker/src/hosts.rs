@@ -64,6 +64,8 @@ pub struct Resolver {
     wait: Wait,
     /// Pages followed to another link (an event venue's work page).
     hops: u8,
+    /// The file's name, where a folder listing or MEGA tells it.
+    name: Option<String>,
 }
 
 /// What the last [`Step::Get`] / [`Step::Post`] was for.
@@ -141,6 +143,7 @@ impl Resolver {
             want,
             wait: Wait::Nothing,
             hops: 0,
+            name: None,
         };
         let step = r.first();
         (r, step)
@@ -268,12 +271,15 @@ impl Resolver {
                     files
                         .iter()
                         .filter(|(name, _)| archive_name(name))
-                        .map(|(n, i)| (n.as_str(), i.as_str())),
+                        .map(|(n, i)| (n.as_str(), (n, i))),
                 ) {
-                    Some(id) => Step::File {
-                        url: drive_file_url(id),
-                        mega_key: None,
-                    },
+                    Some((name, id)) => {
+                        self.name = Some(name.clone());
+                        Step::File {
+                            url: drive_file_url(id),
+                            mega_key: None,
+                        }
+                    }
                     None => Step::Fail(Fetch::Page),
                 }
             }
@@ -292,10 +298,15 @@ impl Resolver {
                 }
             }
             Wait::Mega(key) => match mega_answer(&body) {
-                Ok(url) => Step::File {
-                    url,
-                    mega_key: Some(key),
-                },
+                Ok(url) => {
+                    if self.name.is_none() {
+                        self.name = mega_file_name(&body, &key);
+                    }
+                    Step::File {
+                        url,
+                        mega_key: Some(key),
+                    }
+                }
                 Err(e) => Step::Fail(Fetch::Failed(e)),
             },
             // the folder's archive, then its download URL
@@ -309,6 +320,7 @@ impl Resolver {
                     return Step::Fail(Fetch::Page);
                 };
                 self.wait = Wait::Mega(f.key.clone());
+                self.name = Some(f.name.clone());
                 Step::Post(
                     format!("{MEGA_API}&n={handle}"),
                     format!(r#"[{{"a":"g","g":1,"ssl":1,"n":"{}"}}]"#, f.handle).into_bytes(),
@@ -617,18 +629,6 @@ fn mega_nodes(body: &[u8], key: &[u8]) -> Result<Vec<MegaFile>, String> {
             b.copy_from_slice(&block);
         }
     };
-    // CBC with a zero IV (a node's attributes)
-    let cbc = |k: &[u8], data: &mut [u8]| {
-        let mut prev = [0u8; 16];
-        for b in data.chunks_exact_mut(16) {
-            let c: [u8; 16] = (&*b).try_into().expect("16");
-            ecb(k, b);
-            for (x, p) in b.iter_mut().zip(prev) {
-                *x ^= p;
-            }
-            prev = c;
-        }
-    };
     let field = |n: &serde_json::Value, f: &str| {
         n.get(f).and_then(|x| x.as_str()).unwrap_or("").to_string()
     };
@@ -648,13 +648,8 @@ fn mega_nodes(body: &[u8], key: &[u8]) -> Result<Vec<MegaFile>, String> {
         let found = s("k").split('/').find_map(|part| {
             let mut k = b64url(part.split_once(':')?.1).filter(|k| k.len() == 32)?;
             ecb(key, &mut k);
-            let ak: Vec<u8> = (0..16).map(|i| k[i] ^ k[i + 16]).collect();
-            let mut a = attr.clone();
-            cbc(&ak, &mut a);
-            let json = a.strip_prefix(b"MEGA")?;
-            let end = json.iter().rposition(|&b| b == b'}')? + 1;
-            let v: serde_json::Value = serde_json::from_slice(&json[..end]).ok()?;
-            Some((k, v.get("n")?.as_str()?.to_string()))
+            let name = mega_attr_name(&attr, &k)?;
+            Some((k, name))
         });
         if let Some((key, name)) = found {
             let mut under = Vec::new();
@@ -800,6 +795,37 @@ pub fn mega_answer(body: &[u8]) -> Result<String, String> {
         .ok_or_else(|| format!("MEGA refused ({v})"))
 }
 
+/// The name in a MEGA node's attributes (`attr`, encrypted with the
+/// node's 32-byte key `k`).
+fn mega_attr_name(attr: &[u8], k: &[u8]) -> Option<String> {
+    use aes::cipher::{BlockCipherDecrypt, KeyInit};
+    let ak: Vec<u8> = (0..16).map(|i| k[i] ^ k[i + 16]).collect();
+    let aes = aes::Aes128::new_from_slice(&ak).ok()?;
+    // CBC with a zero IV
+    let mut a = attr.to_vec();
+    let mut prev = [0u8; 16];
+    for b in a.chunks_exact_mut(16) {
+        let c: [u8; 16] = (&*b).try_into().ok()?;
+        let mut block = c.into();
+        aes.decrypt_block(&mut block);
+        for ((x, d), p) in b.iter_mut().zip(block.iter()).zip(prev) {
+            *x = d ^ p;
+        }
+        prev = c;
+    }
+    let json = a.strip_prefix(b"MEGA")?;
+    let end = json.iter().rposition(|&b| b == b'}')? + 1;
+    let v: serde_json::Value = serde_json::from_slice(&json[..end]).ok()?;
+    Some(v.get("n")?.as_str()?.to_string())
+}
+
+/// The file's name in a MEGA `"a":"g"` answer (its `at` attributes).
+fn mega_file_name(body: &[u8], key: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let at = b64url(v.get(0)?.get("at")?.as_str()?)?;
+    (key.len() == 32).then(|| mega_attr_name(&at, key))?
+}
+
 /// The archive format of a file's first bytes.
 pub fn sniff_bytes(h: &[u8]) -> Option<&'static str> {
     if h.starts_with(b"PK\x03\x04") || h.starts_with(b"PK\x05\x06") {
@@ -879,6 +905,15 @@ pub fn fetch(link: &str, out: &Path) -> Result<(), Fetch> {
 /// [`fetch`] for the song `want` (a folder link: its archive).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn fetch_for(link: &str, want: Option<Want>, out: &Path) -> Result<(), Fetch> {
+    fetch_named(link, want, out, false).map(|_| ())
+}
+
+/// [`fetch_for`], and the file's name where it came from (the folder's
+/// listing, MEGA, the server, the link). With `any`, a file that is not an
+/// archive is kept too if it is not a page: a chart or a movie posted on
+/// its own (an event's add-on).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn fetch_named(link: &str, want: Option<Want>, out: &Path, any: bool) -> Result<String, Fetch> {
     let (mut r, mut step) = Resolver::find(link, want);
     crate::progress::stage(crate::progress::Stage::Finding);
     loop {
@@ -894,25 +929,109 @@ pub fn fetch_for(link: &str, want: Option<Want>, out: &Path) -> Result<(), Fetch
                 r.feed(answer(ehttp::fetch_blocking(&req)))
             }
             Step::File { url, mega_key } => {
-                match mega_key {
-                    None => download_to(&url, out)?,
+                let served = match mega_key {
+                    None => download(&url, out)?,
                     Some(key) => {
                         let enc = out.with_extension("mega");
-                        download_to(&url, &enc)?;
+                        download(&url, &enc)?;
                         let d = mega_decrypt(&enc, out, &key);
                         let _ = std::fs::remove_file(&enc);
                         d?;
+                        None
                     }
-                }
-                if sniff(out).is_none() {
+                };
+                let name = r
+                    .name
+                    .take()
+                    .or(served)
+                    .or_else(|| url_file_name(&url))
+                    .unwrap_or_else(|| "download".into());
+                let page = || {
+                    let mut head = [0u8; 512];
+                    let n = std::fs::File::open(out)
+                        .and_then(|mut f| f.read(&mut head))
+                        .unwrap_or(0);
+                    n == 0 || head[..n].trim_ascii_start().starts_with(b"<")
+                };
+                if sniff(out).is_none() && !(any && !page()) {
                     let _ = std::fs::remove_file(out);
                     return Err(Fetch::Page);
                 }
-                return Ok(());
+                return Ok(name);
             }
             Step::Fail(f) => return Err(f),
         }
     }
+}
+
+/// The file name in a `Content-Disposition` header (`filename*=UTF-8''…`
+/// or `filename="…"`; UTF-8 sent as Latin-1 read back as UTF-8).
+#[cfg(not(target_arch = "wasm32"))]
+fn disposition_name(h: &str) -> Option<String> {
+    let lower = h.to_ascii_lowercase();
+    let value = |key: &str| {
+        let at = lower.find(key)? + key.len();
+        let v = h[at..].split(';').next()?.trim().trim_matches('"');
+        (!v.is_empty()).then(|| v.to_string())
+    };
+    let name = if let Some(v) = value("filename*=") {
+        let v = v
+            .split_once("''")
+            .map_or(v.as_str(), |(_, n)| n)
+            .to_string();
+        percent_decode(&v)
+    } else {
+        let v = value("filename=")?;
+        let latin1: Option<Vec<u8>> = v.chars().map(|c| u8::try_from(c as u32).ok()).collect();
+        latin1.and_then(|b| String::from_utf8(b).ok()).unwrap_or(v)
+    };
+    safe_file_name(&name)
+}
+
+/// The last part of a URL's path, decoded.
+#[cfg(not(target_arch = "wasm32"))]
+fn url_file_name(url: &str) -> Option<String> {
+    let path = url.split(['?', '#']).next()?.trim_end_matches('/');
+    let last = path.rsplit('/').next()?;
+    if path.matches('/').count() < 3 {
+        return None; // just the host
+    }
+    safe_file_name(&percent_decode(last))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// A name safe for a file: no path or reserved characters.
+#[cfg(not(target_arch = "wasm32"))]
+fn safe_file_name(n: &str) -> Option<String> {
+    let n: String = n
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let n = n.trim().trim_matches('.').to_string();
+    (!n.is_empty()).then_some(n)
 }
 
 /// A page or file, in memory (a table, a list): a blocking GET.
@@ -979,6 +1098,13 @@ const STALL: std::time::Duration = std::time::Duration::from_millis(STALL_MS);
 /// or when the thread's progress is cancelled.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
+    download(url, out).map(|_| ())
+}
+
+/// [`download_to`], and the file name the server gives
+/// (`Content-Disposition`), if any.
+#[cfg(not(target_arch = "wasm32"))]
+fn download(url: &str, out: &Path) -> Result<Option<String>, String> {
     use ehttp::streaming::Part;
     use std::ops::ControlFlow;
     use std::sync::mpsc::{channel, RecvTimeoutError};
@@ -1011,6 +1137,7 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
         }),
     );
     let mut last = Instant::now();
+    let mut name = None;
     loop {
         if progress.as_ref().is_some_and(|p| p.cancelled()) {
             return Err(crate::progress::CANCELLED.into());
@@ -1019,13 +1146,17 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
             Ok(Err(e)) => return Err(e),
             Ok(Ok(Part::Response(r))) if !r.ok => return Err(format!("HTTP {}", r.status)),
             Ok(Ok(Part::Response(r))) => {
+                name = r
+                    .headers
+                    .get("content-disposition")
+                    .and_then(disposition_name);
                 if let Some(p) = &progress {
                     p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
                 }
                 last = Instant::now();
             }
             Ok(Ok(Part::Chunk(c))) if c.is_empty() => {
-                return w.flush().map_err(|e| e.to_string());
+                return w.flush().map(|_| name).map_err(|e| e.to_string());
             }
             Ok(Ok(Part::Chunk(c))) => {
                 if let Some(p) = &progress {
@@ -1046,6 +1177,31 @@ pub fn download_to(url: &str, out: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_names() {
+        assert_eq!(
+            disposition_name("attachment; filename=\"a b.zip\"").as_deref(),
+            Some("a b.zip")
+        );
+        assert_eq!(
+            disposition_name("attachment; filename=\"x.zip\"; filename*=UTF-8''%E6%9B%B2.zip")
+                .as_deref(),
+            Some("曲.zip")
+        );
+        // UTF-8 bytes sent as Latin-1
+        let latin1: String = "曲.rar".bytes().map(|b| b as char).collect();
+        assert_eq!(
+            disposition_name(&format!("attachment; filename=\"{latin1}\"")).as_deref(),
+            Some("曲.rar")
+        );
+        assert_eq!(
+            url_file_name("https://h.example/d/%E6%9B%B2%20x.7z?dl=1").as_deref(),
+            Some("曲 x.7z")
+        );
+        assert_eq!(url_file_name("https://h.example/"), None);
+        assert_eq!(safe_file_name("../a/b.zip").as_deref(), Some("_a_b.zip"));
+    }
 
     #[test]
     fn links() {
