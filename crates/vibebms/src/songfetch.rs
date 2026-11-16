@@ -327,14 +327,16 @@ fn web(
         return;
     }
     let want_song = (!diff).then(|| want.clone());
+    let song = want_song.clone();
     web_fetch(link, want_song, Some(progress.clone()), move |r| {
         progress.set_stage(Stage::Unpacking);
         let got = match r {
-            // found by name: only if it holds the chart
+            // found by name: only if it holds the chart (a song: or its
+            // charts are that song's, its chart a separate one)
             Ok(bytes)
-                if check
-                    .as_ref()
-                    .is_some_and(|m| !bmseeker::install::archive_holds_chart(bytes.clone(), m)) =>
+                if check.as_ref().is_some_and(|m| {
+                    !bmseeker::install::archive_holds_chart(bytes.clone(), m, song.as_ref())
+                }) =>
             {
                 vec![Done::Failed(bmseeker::install::NOT_THE_CHART.into())]
             }
