@@ -132,20 +132,25 @@ impl LoadedSkin {
             }
         }
         let mut videos = Vec::new();
+        // only what is drawn, and an image several sources name once
+        let used = skin.used_images();
+        let mut loaded: HashMap<&PathBuf, Option<TexId>> = HashMap::new();
         let tex = skin
             .images
             .iter()
             .zip(&lazy)
             .enumerate()
             .map(|(i, (p, lazy))| {
-                let p = p.as_ref().filter(|_| !lazy)?;
+                let p = p.as_ref().filter(|_| !lazy && used[i])?;
                 if crate::video::is_video(p) {
                     if let Some(v) = crate::video::Video::open(p, true) {
                         videos.push((i, v));
                     }
                     return None;
                 }
-                gfx.load_image_keyed(p, key)
+                *loaded
+                    .entry(p)
+                    .or_insert_with(|| gfx.load_image_keyed(p, key))
             })
             .collect();
         LoadedSkin {
@@ -186,7 +191,10 @@ impl LoadedSkin {
             self.tex[i] = None;
             v.free(gfx);
         }
-        for t in self.tex.drain(..).flatten() {
+        let mut ids: Vec<TexId> = self.tex.drain(..).flatten().collect();
+        ids.sort_unstable();
+        ids.dedup();
+        for t in ids {
             gfx.free_texture(t);
         }
         // archives opened for this skin's files
@@ -206,9 +214,21 @@ impl LoadedSkin {
     /// Draw one source frame into a screen rect.
     pub fn blit(&self, d: &mut Draw, src: &Src, now: i64, st: &dyn SkinState, r: Rect, fr: &Frame) {
         let Some(f) = src.frame(now, st) else { return };
-        if let Some((t, uv)) = self.uv(d, src, f) {
+        if let Some((t, mut uv)) = self.uv(d, src, f) {
+            // a negative width / height mirrors the image (beatoraja)
+            let (mut r, mut center) = (r, fr.center);
+            if r.w < 0.0 {
+                r = Rect::new(r.x + r.w, r.y, -r.w, r.h);
+                uv.swap(0, 2);
+                center.0 = 1.0 - center.0;
+            }
+            if r.h < 0.0 {
+                r = Rect::new(r.x, r.y + r.h, r.w, -r.h);
+                uv.swap(1, 3);
+                center.1 = 1.0 - center.1;
+            }
             d.b.set_blend(fr.blend);
-            d.b.quad_rot(t, r, uv, fr.color, fr.angle, fr.center);
+            d.b.quad_rot(t, r, uv, fr.color, fr.angle, center);
             d.b.set_additive(false);
         }
     }
@@ -293,6 +313,15 @@ impl LoadedSkin {
         font: Option<usize>,
         shown_ms: Option<i64>,
     ) {
+        // lines one under the other (beatoraja's fonts: 1.2 sizes apart)
+        if s.contains('\n') {
+            for (i, line) in s.split('\n').enumerate() {
+                let y = r.y + r.h * 1.2 * i as f32;
+                let lr = Rect::new(r.x, y, r.w, r.h);
+                self.text(d, line, lr, align, overflow, color, font, shown_ms);
+            }
+            return;
+        }
         if let Some(f) = font.and_then(|i| self.skin.fonts.get(i)) {
             self.bitmap_text(d, f, s, r, align, color);
             return;
@@ -343,11 +372,17 @@ impl LoadedSkin {
         align: i32,
         color: crate::gfx::Color,
     ) {
-        let glyphs: Vec<&(usize, [f32; 4])> = s.chars().filter_map(|c| f.glyphs.get(&c)).collect();
+        let chars: Vec<char> = s.chars().filter(|c| f.glyphs.contains_key(c)).collect();
+        let glyphs: Vec<&(usize, [f32; 4])> =
+            chars.iter().filter_map(|c| f.glyphs.get(c)).collect();
         if glyphs.is_empty() || f.size <= 0.0 {
             return;
         }
         let k = r.h / f.size;
+        if !f.metrics.is_empty() {
+            self.bmfont_text(d, f, &chars, r, align, color);
+            return;
+        }
         let width = glyphs.iter().map(|g| g.1[2]).sum::<f32>() * k + f.margin * glyphs.len() as f32;
         let scale = if r.w > 0.0 && r.w < width {
             r.w / width
@@ -372,6 +407,54 @@ impl LoadedSkin {
                 }
             }
             x += tw + f.margin * scale;
+        }
+    }
+
+    /// A BMFont text: glyphs placed by their offsets and advances, scaled
+    /// so a line fills the rect's height.
+    fn bmfont_text(
+        &self,
+        d: &mut Draw,
+        f: &super::BitmapFont,
+        chars: &[char],
+        r: Rect,
+        align: i32,
+        color: crate::gfx::Color,
+    ) {
+        let k = r.h / f.size;
+        let adv = |c: &char| f.metrics.get(c).map(|m| m[2]).unwrap_or(0.0);
+        let width = chars.iter().map(adv).sum::<f32>() * k;
+        let scale = if r.w > 0.0 && r.w < width {
+            r.w / width
+        } else {
+            1.0
+        };
+        let a = align.clamp(0, 2) as f32 * 0.5;
+        let mut x = r.x + r.w * a - width * scale * a;
+        for c in chars {
+            let (Some((img, g)), Some(m)) = (f.glyphs.get(c), f.metrics.get(c)) else {
+                continue;
+            };
+            if self.lazy.get(*img) == Some(&true) && self.tex[*img].is_none() {
+                let mut w = self.wanted.borrow_mut();
+                if !w.contains(img) {
+                    w.push(*img);
+                }
+            }
+            if let Some(t) = self.tex.get(*img).copied().flatten() {
+                if let Some((w, h)) = d.gfx.texture_size(t) {
+                    let (w, h) = (w as f32, h as f32);
+                    let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
+                    let gr = Rect::new(
+                        x + m[0] * k * scale,
+                        r.y + m[1] * k,
+                        g[2] * k * scale,
+                        g[3] * k,
+                    );
+                    d.b.quad(t, gr, uv, color);
+                }
+            }
+            x += m[2] * k * scale;
         }
     }
 
@@ -534,8 +617,21 @@ impl LoadedSkin {
                 continue;
             };
             let r = xf.rect(fr.rect);
+            // where it is on screen (a mirrored image has a negative size)
+            let area = Rect::new(r.x.min(r.x + r.w), r.y.min(r.y + r.h), r.w.abs(), r.h.abs());
+            if let Some(h) = o.dst.hover {
+                let over = Rect::new(
+                    area.x + h.x * xf.sx,
+                    area.y + h.y * xf.sy,
+                    h.w * xf.sx,
+                    h.h * xf.sy,
+                );
+                if !crate::input::pointer().is_some_and(|(x, y)| over.contains(x, y)) {
+                    continue;
+                }
+            }
             if let Some((act, click)) = o.act {
-                hooks.clickable(r, act, click);
+                hooks.clickable(area, act, click);
             }
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => {
@@ -605,11 +701,16 @@ impl LoadedSkin {
                     font,
                     align,
                     overflow,
+                    constant,
+                    face,
                 } => {
-                    if let Some(s) = st.text(*id) {
+                    if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
                         let shown = now - st.timer(11).unwrap_or(0);
+                        let f = face.as_deref().and_then(|p| d.text.face(p));
+                        d.text.set_face(f.unwrap_or(0));
                         self.text(d, &s, r, *align, *overflow, fr.color, *font, Some(shown));
+                        d.text.set_face(0);
                     }
                 }
                 Kind::Bar {

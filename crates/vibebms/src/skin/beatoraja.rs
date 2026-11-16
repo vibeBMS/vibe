@@ -99,7 +99,13 @@ fn preprocess(v: Value, en: &HashSet<i64>, dir: &Path, depth: usize) -> Value {
                 if is_branch {
                     if test(item.get("if"), en) {
                         if let Some(vs) = item.get("values").and_then(Value::as_array) {
-                            out.extend(vs.iter().cloned().map(|x| preprocess(x, en, dir, depth)));
+                            // the values are items of this array: branches
+                            // among them are resolved the same way
+                            if let Value::Array(vs) =
+                                preprocess(Value::Array(vs.clone()), en, dir, depth)
+                            {
+                                out.extend(vs);
+                            }
                         } else if let Some(v) = item.get("value") {
                             out.push(preprocess(v.clone(), en, dir, depth));
                         }
@@ -148,30 +154,162 @@ fn to_custom((name, items, def): &Property) -> Option<CustomOption> {
     })
 }
 
-/// The file a `filepath` customisation (`path` with a `*`) picks: the
-/// one named `def` (without extension), else the first match.
-fn filepath_choice(dir: &Path, path: &str, def: &str) -> Option<PathBuf> {
-    let all = super::lr2::glob_paths(&dir.join(path.replace('\\', "/")));
-    let stem = |p: &PathBuf| {
-        p.file_stem()
-            .map(|n| n.to_string_lossy().to_lowercase())
+/// Read a BMFont text font (`.fnt`): the font and its page image files
+/// (glyph image indices are page ids).
+fn load_bmfont(path: &Path) -> Option<(BitmapFont, Vec<PathBuf>)> {
+    let bytes = vfs::read(path).ok()?;
+    let text = vibebms_core::encoding::decode_text(&bytes);
+    let dir = path.parent().unwrap_or(Path::new(""));
+    let mut font = BitmapFont::default();
+    let mut pages: Vec<PathBuf> = Vec::new();
+    let (mut size, mut line_h) = (0.0f32, 0.0f32);
+    for line in text.lines() {
+        let line = line.trim_start_matches('\u{feff}');
+        let (tag, rest) = line.split_once(' ').unwrap_or((line, ""));
+        // key=value pairs; values may be quoted
+        let mut kv: HashMap<&str, String> = HashMap::new();
+        let mut rest = rest.trim();
+        while let Some((k, v)) = rest.split_once('=') {
+            let (val, after) = match v.strip_prefix('"') {
+                Some(q) => q.split_once('"').unwrap_or((q, "")),
+                None => v.split_once(' ').unwrap_or((v, "")),
+            };
+            kv.insert(k.trim(), val.to_string());
+            rest = after.trim();
+        }
+        let n = |k: &str| kv.get(k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+        match tag {
+            "info" => size = n("size").abs(),
+            "common" => line_h = n("lineHeight"),
+            "page" => {
+                let id = n("id") as usize;
+                if id < 64 {
+                    if pages.len() <= id {
+                        pages.resize(id + 1, PathBuf::new());
+                    }
+                    let file = kv.get("file").cloned().unwrap_or_default();
+                    pages[id] = vfs::resolve_case(&dir.join(file.replace('\\', "/")));
+                }
+            }
+            "char" => {
+                let Some(c) = char::from_u32(n("id") as u32) else {
+                    continue;
+                };
+                let page = n("page") as usize;
+                if page < pages.len() {
+                    font.glyphs
+                        .insert(c, (page, [n("x"), n("y"), n("width"), n("height")]));
+                    font.metrics
+                        .insert(c, [n("xoffset"), n("yoffset"), n("xadvance")]);
+                }
+            }
+            _ => {}
+        }
+    }
+    font.size = if line_h > 0.0 { line_h } else { size };
+    (!font.glyphs.is_empty() && font.size > 0.0).then_some((font, pages))
+}
+
+/// A `filepath` customisation: name, path (with a `*`), default file.
+struct FilePath {
+    name: String,
+    path: String,
+    def: String,
+}
+
+fn filepaths(sk: &Value) -> Vec<FilePath> {
+    arr(sk.get("filepath"))
+        .iter()
+        .map(|f| FilePath {
+            name: s(f, "name").to_string(),
+            path: s(f, "path").replace('\\', "/"),
+            def: s(f, "def").to_string(),
+        })
+        .filter(|f| f.path.contains('*'))
+        .collect()
+}
+
+/// The files a `filepath` offers (names, sorted): `*|n|` marks one of
+/// several choices over the same folder.
+fn filepath_files(dir: &Path, path: &str) -> Vec<String> {
+    let pattern = match (path.find('|'), path.rfind('|')) {
+        (Some(a), Some(b)) => format!("{}{}", &path[..a], &path[b + 1..]),
+        _ => path.to_string(),
+    };
+    super::lr2::glob_paths(&vfs::resolve_case(&dir.join(pattern)))
+        .iter()
+        .filter(|p| !p.to_string_lossy().contains('*'))
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect()
+}
+
+/// The file chosen for a `filepath`: the user's, else the default (a name
+/// with or without its extension), else the first.
+fn filepath_chosen(dir: &Path, f: &FilePath, files: &HashMap<String, String>) -> Option<String> {
+    let all = filepath_files(dir, &f.path);
+    let stem = |n: &str| {
+        Path::new(n)
+            .file_stem()
+            .map(|x| x.to_string_lossy().to_lowercase())
             .unwrap_or_default()
     };
+    let want = files.get(&f.name).unwrap_or(&f.def).to_lowercase();
     all.iter()
-        .find(|p| !def.is_empty() && stem(p) == def.to_lowercase())
+        .find(|n| n.to_lowercase() == want)
+        .or_else(|| all.iter().find(|n| !want.is_empty() && stem(n) == want))
         .or(all.first())
         .cloned()
 }
 
-/// The source path of an image: a wildcard is resolved like the skin's
-/// `filepath` customisation with the same path would (its default).
-fn source_path(sk: &Value, dir: &Path, path: &str) -> PathBuf {
-    let def = arr(sk.get("filepath"))
-        .iter()
-        .find(|f| s(f, "path") == path)
-        .map(|f| s(f, "def"))
-        .unwrap_or("");
-    filepath_choice(dir, path, def).unwrap_or_else(|| dir.join(path.replace('\\', "/")))
+/// A file a skin names, as beatoraja's `SkinLoader.getPath` finds it: a
+/// `filepath` whose path starts it puts the chosen file in place of its
+/// `*`; another `*` picks one of the matching files at random.
+fn skin_path(dir: &Path, fps: &[FilePath], files: &HashMap<String, String>, path: &str) -> PathBuf {
+    let path = path.replace('\\', "/");
+    for f in fps {
+        let Some(foot) = path.strip_prefix(f.path.as_str()) else {
+            continue;
+        };
+        let Some(name) = filepath_chosen(dir, f, files) else {
+            continue;
+        };
+        let key = &f.path;
+        let wild = key.rfind('*').unwrap_or(key.len());
+        let base = key[..wild].rfind('/').map(|i| i + 1).unwrap_or(0);
+        // old skins' defaults hold only what follows the `*`
+        let lead = &key[base..wild];
+        let end = if name.to_lowercase().starts_with(&lead.to_lowercase()) {
+            base
+        } else {
+            wild
+        };
+        return vfs::resolve_case(&dir.join(format!("{}{name}{foot}", &key[..end])));
+    }
+    let Some(star) = path.rfind('*') else {
+        return vfs::resolve_case(&dir.join(&path));
+    };
+    let ext = match (path.find('|'), path.rfind('|')) {
+        (Some(a), Some(b)) if a > star => format!("{}{}", &path[star + 1..a], &path[b + 1..]),
+        _ => path[star + 1..].to_string(),
+    }
+    .to_lowercase();
+    let folder = vfs::resolve_case(&dir.join(&path[..path[..star].rfind('/').unwrap_or(0)]));
+    let mut all: Vec<PathBuf> = vfs::read_dir(&folder)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.path)
+        .filter(|p| p.to_string_lossy().to_lowercase().ends_with(&ext))
+        .collect();
+    all.sort();
+    if all.is_empty() {
+        return dir.join(&path);
+    }
+    let pick = crate::platform::SystemTime::now()
+        .duration_since(crate::platform::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0)
+        % all.len();
+    all.swap_remove(pick)
 }
 
 fn offsets_of(sk: &Value) -> Vec<CustomOffset> {
@@ -192,48 +330,110 @@ pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
     read_value(path).map(|v| offsets_of(&v)).unwrap_or_default()
 }
 
-/// The `property` list of a skin as custom options.
+/// The `property` list of a skin as custom options, then its `filepath`
+/// choices.
 pub fn custom_options(path: &Path) -> Vec<CustomOption> {
-    read_value(path)
-        .map(|v| properties(&v).iter().filter_map(to_custom).collect())
-        .unwrap_or_default()
+    let Ok(v) = read_value(path) else {
+        return Vec::new();
+    };
+    let dir = path.parent().unwrap_or(Path::new(""));
+    let mut out: Vec<CustomOption> = properties(&v).iter().filter_map(to_custom).collect();
+    for f in filepaths(&v) {
+        let labels = filepath_files(dir, &f.path);
+        let chosen = filepath_chosen(dir, &f, &HashMap::new());
+        if labels.len() > 1 {
+            out.push(CustomOption {
+                default: labels
+                    .iter()
+                    .position(|l| Some(l) == chosen.as_ref())
+                    .unwrap_or(0),
+                name: f.name,
+                first_id: 0,
+                labels,
+                ops: Vec::new(),
+            });
+        }
+    }
+    out
 }
 
 pub fn read_value(path: &Path) -> Result<Value, String> {
-    read_skin(path, None).map(|v| v.0)
+    read_skin(path, None, None).map(|v| v.0)
 }
 
 /// What a Lua skin's `skin_config` is made from: chosen option per
-/// property name, the skin's header, the user's offsets by name.
+/// property name, the skin's header, the user's offsets by name, the
+/// user's files by `filepath` name.
 type SkinConfig<'a> = (
     &'a HashMap<String, i64>,
     &'a Value,
     &'a HashMap<String, [i32; 6]>,
+    &'a HashMap<String, String>,
 );
 
 /// A skin's table, with the Lua state it ran in (Lua skins).
 fn read_skin(
     path: &Path,
     skin_config: Option<SkinConfig<'_>>,
+    state: Option<&dyn SkinState>,
 ) -> Result<(Value, Option<script::Script>), String> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     if ext == "luaskin" || ext == "lua" {
-        return lua::eval(path, skin_config).map(|(v, s)| (v, Some(s)));
+        return lua::eval(path, skin_config, state).map(|(v, s)| (v, Some(s)));
     }
     let text = vfs::read(path)
         .map(|b| vibebms_core::encoding::decode_text(&b))
         .map_err(|e| e.to_string())?;
-    json5::from_str::<Value>(&add_missing_commas(&text))
+    let text = add_missing_commas(&text);
+    json5::from_str::<Value>(&text)
+        .or_else(|e| json5::from_str::<Value>(&merge_double_braces(&text)).map_err(|_| e))
         .map(|v| (v, None))
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// beatoraja's own play5.json has `"value": {{...}},`, one brace too many
+/// that libGDX's lenient reader gets past: read `{{` as `{`.
+fn merge_double_braces(text: &str) -> String {
+    let b: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let mut quote = None;
+    while i < b.len() {
+        let c = b[i];
+        out.push(c);
+        i += 1;
+        match quote {
+            Some(_) if c == '\\' => {
+                if let Some(n) = b.get(i) {
+                    out.push(*n);
+                    i += 1;
+                }
+            }
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '"' || c == '\'' => quote = Some(c),
+            None if c == '{' => {
+                let mut j = i;
+                while j < b.len() && b[j].is_whitespace() {
+                    j += 1;
+                }
+                if b.get(j) == Some(&'{') {
+                    i = j + 1;
+                }
+            }
+            None => {}
+        }
+    }
+    out
+}
+
 /// beatoraja reads skins with libGDX's lenient JSON reader, which accepts
-/// values separated only by a line break; insert the missing commas so
-/// json5 accepts them too (strings and comments are left alone).
+/// values separated only by a line break and numbers with leading zeros;
+/// insert the missing commas and drop the zeros so json5 accepts them too
+/// (strings and comments are left alone).
 fn add_missing_commas(text: &str) -> String {
     let b: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len() + 64);
@@ -284,6 +484,17 @@ fn add_missing_commas(text: &str) -> String {
             i += 2;
             continue;
         }
+        // numbers with leading zeros (`"y":00`)
+        if c == '0'
+            && b.get(i + 1).is_some_and(char::is_ascii_digit)
+            && !out
+                .chars()
+                .next_back()
+                .is_some_and(|p| p.is_alphanumeric() || p == '.' || p == '_')
+        {
+            i += 1;
+            continue;
+        }
         if c == '\n' {
             newline_since_last = true;
         } else if !c.is_whitespace() {
@@ -314,6 +525,12 @@ pub fn header(path: &Path) -> Option<(SkinType, String)> {
 
 struct Ctx<'a> {
     sk: &'a Value,
+    image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
+    /// `.fnt` fonts read so far (index in the skin's fonts).
+    bitmap_fonts: HashMap<PathBuf, Option<usize>>,
+    dir: &'a Path,
+    fps: &'a [FilePath],
+    files: &'a HashMap<String, String>,
     h: f32,
     images: Vec<Option<PathBuf>>,
     sizes: Vec<Option<(u32, u32)>>,
@@ -432,7 +649,61 @@ impl Ctx<'_> {
             });
             prev = Some(cur);
         }
+        // shown while the mouse is over this part (y up from the bottom)
+        if let (Some(m), Some(k)) = (d.get("mouseRect"), out.keys.first()) {
+            let (w, h) = (i(m, "w", 0) as f32, i(m, "h", 0) as f32);
+            let y = k.rect.h - i(m, "y", 0) as f32 - h;
+            out.hover = Some(Rect::new(i(m, "x", 0) as f32, y, w, h));
+        }
         out
+    }
+
+    /// The bitmap font (`.fnt`, BMFont text format) a text uses: its index
+    /// in `fonts`, its page images added to the skin's images.
+    fn bitmap_font(&mut self, t: &Value, fonts: &mut Vec<BitmapFont>) -> Option<usize> {
+        let want = match t.get("font")? {
+            Value::String(s) => s.clone(),
+            v => v.to_string(),
+        };
+        let f = arr(self.sk.get("font")).iter().find(|f| id_of(f) == want)?;
+        let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
+        if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fnt")) {
+            return None;
+        }
+        if let Some(i) = self.bitmap_fonts.get(&p) {
+            return *i;
+        }
+        let font = load_bmfont(&p).map(|(mut font, pages)| {
+            let base = self.images.len();
+            for page in pages {
+                let size = (self.image_size)(&page);
+                self.sizes.push(size);
+                self.images.push(size.map(|_| page));
+            }
+            for g in font.glyphs.values_mut() {
+                g.0 += base;
+            }
+            fonts.push(font);
+            fonts.len() - 1
+        });
+        self.bitmap_fonts.insert(p, font);
+        font
+    }
+
+    /// The TrueType / OpenType font file a text uses (`font`, an id in the
+    /// skin's `font` list); bitmap fonts are not drawn with.
+    fn face(&self, t: &Value) -> Option<PathBuf> {
+        let want = match t.get("font")? {
+            Value::String(s) => s.clone(),
+            v => v.to_string(),
+        };
+        let f = arr(self.sk.get("font")).iter().find(|f| id_of(f) == want)?;
+        let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        matches!(ext.as_str(), "ttf" | "otf" | "ttc").then_some(p)
     }
 
     fn number_kind(&self, def: &Value) -> Option<Kind> {
@@ -517,6 +788,16 @@ pub(crate) fn gauge_colors(g: &Value) -> Vec<[f32; 4]> {
 }
 
 /// The graph objects (`style: "vibebms"` asks for the built-in look).
+/// `isRefNum`: a slider / graph shows number `type` within `min`..`max`
+/// (a script `value` is a rate itself).
+fn ref_num(def: &Value) -> Option<(f32, f32)> {
+    let on = def
+        .get("isRefNum")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    (on && def.get("value").is_none()).then(|| (i(def, "min", 0) as f32, i(def, "max", 0) as f32))
+}
+
 fn graph(cx: &Ctx, id: &str) -> Option<Graph> {
     let named = |g: &Value, keys: &[(&str, &str)]| -> Vec<[f32; 4]> {
         keys.iter()
@@ -688,6 +969,7 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
         }
         out.text = Some((d, get("align"), get("overflow"), None));
+        out.text_face = def.and_then(|t| cx.face(t));
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -734,20 +1016,25 @@ pub fn load(
     user_options: &HashMap<i32, bool>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    load_with(path, user_options, &HashMap::new(), image_size)
+    let user = UserSettings {
+        options: user_options.clone(),
+        ..Default::default()
+    };
+    load_with(path, &user, None, image_size)
 }
 
-/// Build a skin from a beatoraja JSON/Lua skin; `offsets` are the user's
-/// values (x, y, w, h, angle, alpha) by offset name.
+/// Build a skin from a beatoraja JSON/Lua skin with the user's settings;
+/// `state` holds the scene's values a Lua skin reads while it is built.
 pub fn load_with(
     path: &Path,
-    user_options: &HashMap<i32, bool>,
-    offsets: &HashMap<String, [i32; 6]>,
+    user: &UserSettings,
+    state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
+    let (user_options, offsets) = (&user.options, &user.offsets);
     let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
     // pass 1: header + defaults
-    let (raw, mut lua_state) = read_skin(path, None)?;
+    let (raw, mut lua_state) = read_skin(path, None, None)?;
     let props = properties(&raw);
     let mut enabled: HashSet<i64> = HashSet::new();
     let mut by_name = HashMap::new();
@@ -768,13 +1055,14 @@ pub fn load_with(
         .map(|e| e.eq_ignore_ascii_case("luaskin"))
         .unwrap_or(false)
     {
-        let (v, s) = read_skin(path, Some((&by_name, &raw, offsets)))?;
+        let (v, s) = read_skin(path, Some((&by_name, &raw, offsets, &user.files)), state)?;
         lua_state = s;
         v
     } else {
         raw
     };
     let sk = preprocess(raw, &enabled, &dir, 0);
+    let fps = filepaths(&sk);
     let w = i(&sk, "w", 1280) as f32;
     let h = i(&sk, "h", 720) as f32;
     let kind = SkinType::from_id(i(&sk, "type", -1) as i32);
@@ -782,6 +1070,11 @@ pub fn load_with(
     // sources (filepath customisation: first file matching the wildcard)
     let mut cx = Ctx {
         sk: &sk,
+        image_size,
+        bitmap_fonts: HashMap::new(),
+        dir: &dir,
+        fps: &fps,
+        files: &user.files,
         h,
         images: Vec::new(),
         sizes: Vec::new(),
@@ -789,7 +1082,7 @@ pub fn load_with(
         scripts: RefCell::new(script::Builder::new(lua_state, &dir)),
     };
     for src in arr(sk.get("source")) {
-        let p = source_path(&sk, &dir, s(src, "path"));
+        let p = skin_path(&dir, &fps, &user.files, s(src, "path"));
         let size = image_size(&p);
         cx.source_index.insert(id_of(src), cx.images.len());
         cx.sizes.push(size);
@@ -854,16 +1147,23 @@ pub fn load_with(
             }
         } else if let Some(v) = cx.find("value", &id) {
             cx.number_kind(v)
-        } else if let Some(t) = cx.find("text", &id) {
+        } else if let Some(t) = cx.find("text", &id).cloned() {
+            let t = &t;
             Some(Kind::Text {
                 id: cx.value_id(t, ScriptKind::Str),
-                font: None,
+                font: cx.bitmap_font(t, &mut skin.fonts),
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
+                face: cx.face(t),
+                constant: t.get("constantText").and_then(|c| {
+                    c.as_str()
+                        .map(String::from)
+                        .or_else(|| num(c).map(|n| n.to_string()))
+                }),
             })
         } else if let Some(sl) = cx.find("slider", &id) {
             cx.src(sl).map(|src| Kind::Slider {
-                minmax: None,
+                minmax: ref_num(sl),
                 src,
                 id: match sl.get("value") {
                     Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
@@ -898,7 +1198,7 @@ pub fn load_with(
             })
         } else if let Some(g) = cx.find("graph", &id) {
             cx.src(g).map(|src| Kind::Bar {
-                minmax: None,
+                minmax: ref_num(g),
                 src,
                 id: match g.get("value") {
                     Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
@@ -1103,6 +1403,7 @@ mod lua {
     pub fn eval(
         path: &Path,
         skin_config: Option<SkinConfig<'_>>,
+        state: Option<&dyn SkinState>,
     ) -> Result<(Value, script::Script), String> {
         let src = vfs::read(path).map_err(|e| e.to_string())?;
         let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
@@ -1110,7 +1411,7 @@ mod lua {
         let mut sc = script::Script::new(&dir, false).map_err(e)?;
         let lua = sc.lua().clone();
         let g = lua.globals();
-        if let Some((opts, header, user_offsets)) = skin_config {
+        if let Some((opts, header, user_offsets, user_files)) = skin_config {
             let cfg = lua.create_table().map_err(e)?;
             let option = lua.create_table().map_err(e)?;
             let enabled = lua.create_table().map_err(e)?;
@@ -1132,19 +1433,19 @@ mod lua {
                 offsets.set(s(o, "name"), t).map_err(e)?;
             }
             cfg.set("offset", offsets).map_err(e)?;
+            let fps = filepaths(header);
             let files = lua.create_table().map_err(e)?;
-            for f in arr(header.get("filepath")) {
-                if let Some(p) = filepath_choice(&dir, s(f, "path"), s(f, "def")) {
-                    let name = p.file_name().map(|n| n.to_string_lossy().into_owned());
-                    files.set(s(f, "name"), name).map_err(e)?;
+            for f in &fps {
+                if let Some(name) = filepath_chosen(&dir, f, user_files) {
+                    files.set(f.name.as_str(), name).map_err(e)?;
                 }
             }
             cfg.set("file_path", files).map_err(e)?;
-            let d2 = dir.clone();
+            let (d2, chosen) = (dir.clone(), user_files.clone());
             cfg.set(
                 "get_path",
                 lua.create_function(move |_, p: String| {
-                    Ok(super::super::lr2::glob_path(&d2.join(p.replace('\\', "/")))
+                    Ok(skin_path(&d2, &fps, &chosen, &p)
                         .to_string_lossy()
                         .into_owned())
                 })
@@ -1153,7 +1454,9 @@ mod lua {
             .map_err(e)?;
             g.set("skin_config", cfg).map_err(e)?;
         }
-        let v: mlua::Value = script::text_chunk(&lua, &src, path).eval().map_err(e)?;
+        let v: mlua::Value = sc
+            .with_state(state, || script::text_chunk(&lua, &src, path).eval())
+            .map_err(e)?;
         let json = sc.to_json(v).map_err(e)?;
         Ok((json, sc))
     }
@@ -1162,7 +1465,11 @@ mod lua {
 #[cfg(target_arch = "wasm32")]
 mod lua {
     use super::*;
-    pub fn eval(path: &Path, _: Option<SkinConfig<'_>>) -> Result<(Value, script::Script), String> {
+    pub fn eval(
+        path: &Path,
+        _: Option<SkinConfig<'_>>,
+        _: Option<&dyn SkinState>,
+    ) -> Result<(Value, script::Script), String> {
         Err(format!(
             "{}: Lua skins are not supported in the web build",
             path.display()
@@ -1175,12 +1482,141 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lua_runs_like_beatoraja() {
+        // skins written for LuaJ (Lua 5.2) and beatoraja's restricted io / os
+        let dir = std::env::temp_dir().join(format!("vibebms-lcompat-{}", std::process::id()));
+        let skin = dir.join("theme").join("play");
+        std::fs::create_dir_all(skin.join("parts")).unwrap();
+        std::fs::write(skin.join("parts").join("list.txt"), "a\nb\n").unwrap();
+        std::fs::write(skin.join("parts").join("p.lua"), "return 7").unwrap();
+        let lua = r#"
+            local main_state = require("main_state")
+            local n = 0
+            for l in io.lines("skin/othername/play/parts/list.txt") do n = n + 1 end
+            local f = io.open("parts/list.txt", "r")
+            local first = f:read("*l")
+            f:close()
+            local w = io.open("log.txt", "w")
+            w:write("x")
+            w:close()
+            return {
+                lines = n, first = first, written = io.open("log.txt") == nil,
+                part = dofile("skin/othername/play/parts/p.lua"),
+                band = bit32.band(0xff, 0x0f), shift = bit32.lshift(1, 4),
+                random = math.random(1.0, 1.5), fmt = string.format("%d", 2.7),
+                date = type(os.date("%Y")), time = type(os.time()),
+                opt = main_state.option(150), num = main_state.number(71),
+            }"#;
+        std::fs::write(skin.join("t.luaskin"), lua).unwrap();
+        struct St;
+        impl SkinState for St {
+            fn timer(&self, _: i32) -> Option<i64> {
+                None
+            }
+            fn option(&self, id: i32) -> bool {
+                id == 150
+            }
+            fn number(&self, id: i32) -> Option<i64> {
+                (id == 71).then_some(1234)
+            }
+            fn text(&self, _: i32) -> Option<String> {
+                None
+            }
+            fn rate(&self, _: i32) -> f32 {
+                0.0
+            }
+        }
+        let (v, _) = read_skin(&skin.join("t.luaskin"), None, Some(&St)).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let want = serde_json::json!({
+            "lines": 2, "first": "a", "written": true, "part": 7, "band": 15, "shift": 16,
+            "random": 1, "fmt": "2", "date": "string", "time": "number", "opt": true,
+            "num": 1234,
+        });
+        assert_eq!(v, want);
+    }
+
+    #[test]
+    fn filepath_choices() {
+        let dir = std::env::temp_dir().join(format!("vibebms-fpath-{}", std::process::id()));
+        for d in ["bomb/a", "bomb/b", "bg"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        for f in ["bomb/a/x.png", "bomb/b/x.png", "bg/one.png", "bg/two.png"] {
+            std::fs::write(dir.join(f), b"").unwrap();
+        }
+        let json = r#"{"type": 0, "name": "F",
+            "filepath": [
+                {"name": "Bomb", "path": "bomb/*|1|", "def": "b"},
+                {"name": "Back", "path": "bg/*.png", "def": "two"}
+            ]}"#;
+        std::fs::write(dir.join("s.json"), json).unwrap();
+        let v = read_value(&dir.join("s.json")).unwrap();
+        let fps = filepaths(&v);
+        let mut user = HashMap::new();
+        // defaults, with or without the extension
+        let p = skin_path(&dir, &fps, &user, "bomb/*|1|/x.png");
+        assert_eq!(p, dir.join("bomb/b/x.png"));
+        assert_eq!(
+            skin_path(&dir, &fps, &user, "bg/*.png"),
+            dir.join("bg/two.png")
+        );
+        user.insert("Bomb".to_string(), "a".to_string());
+        assert_eq!(
+            skin_path(&dir, &fps, &user, "bomb/*|1|/x.png"),
+            dir.join("bomb/a/x.png")
+        );
+        let opts = custom_options(&dir.join("s.json"));
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(opts.len(), 2);
+        assert_eq!(
+            (opts[0].labels.clone(), opts[0].default),
+            (vec!["a".into(), "b".into()], 1)
+        );
+        assert_eq!(
+            opts[1].labels,
+            vec!["one.png".to_string(), "two.png".into()]
+        );
+        assert!(opts[1].ops.is_empty());
+    }
+
+    #[test]
+    fn nested_branches() {
+        let v = serde_json::json!([
+            {"if": [1], "values": [
+                {"id": "a"},
+                {"if": [2], "values": [{"id": "b"}, {"if": [-3], "values": [{"id": "c"}]}]},
+                {"if": [3], "values": [{"id": "d"}]}
+            ]}
+        ]);
+        let en: HashSet<i64> = [1, 2].into();
+        let out = preprocess(v, &en, Path::new(""), 0);
+        let ids: Vec<&str> = out.as_array().unwrap().iter().map(|x| s(x, "id")).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn double_braces_read_as_one() {
+        let t =
+            "{\"a\": [{\"if\": [1], \"value\": {{\"x\": 2, \"s\": \"{{\"}}], \"b\": {\"c\": 1}}";
+        let v: Value = json5::from_str(&merge_double_braces(t)).unwrap();
+        assert_eq!(v["a"][0]["value"]["x"], 2);
+        assert_eq!(v["a"][0]["value"]["s"], "{{");
+        assert_eq!(v["b"]["c"], 1);
+    }
+
+    #[test]
     fn lenient_json_commas() {
-        let t = "{\"a\": [ {\"x\":1}\n {\"y\":\"s\"}\n ],\n \"b\": 2 // c\n , d: true\n e: 'q'\n}";
+        let t = "{\"a\": [ {\"x\":1}\n {\"y\":\"s\"}\n ],\n \"b\": 2 // c\n , d: true\n e: 'q'\n f: 00, g: -007, h: 0.05, i: \"007\"\n}";
         let v: Value = json5::from_str(&add_missing_commas(t)).unwrap();
         assert_eq!(v["a"].as_array().unwrap().len(), 2);
         assert_eq!(v["d"], Value::Bool(true));
         assert_eq!(v["e"], Value::String("q".into()));
+        assert_eq!((v["f"].as_i64(), v["g"].as_i64()), (Some(0), Some(-7)));
+        assert_eq!(
+            (v["h"].as_f64(), &v["i"]),
+            (Some(0.05), &Value::String("007".into()))
+        );
         // already valid JSON is unchanged
         let ok = "{\"a\": 1,\n \"b\": [1,\n 2]}";
         assert_eq!(add_missing_commas(ok), ok);
@@ -1340,6 +1776,57 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn bmfont_texts() {
+        let dir = std::env::temp_dir().join(format!("vibebms-bmf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fnt = "info face=\"My Font\" size=-32 bold=0\ncommon lineHeight=36 base=29 pages=1\n\
+page id=0 file=\"f_0.png\"\nchars count=1\n\
+char id=65 x=2 y=3 width=20 height=24 xoffset=1 yoffset=5 xadvance=22 page=0 chnl=15\n";
+        std::fs::write(dir.join("f.fnt"), fnt).unwrap();
+        let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+            "font": [{"id": 0, "path": "f.fnt"}],
+            "text": [{"id": "t", "ref": 10, "font": 0}],
+            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+        std::fs::write(dir.join("r.json"), json).unwrap();
+        let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(
+            &s.objects[0].kind,
+            Kind::Text { font: Some(0), .. }
+        ));
+        let f = &s.fonts[0];
+        assert_eq!(f.size, 36.0);
+        let (img, rect) = f.glyphs[&'A'];
+        assert!(s.images[img].as_ref().unwrap().ends_with("f_0.png"));
+        assert_eq!(
+            (rect, f.metrics[&'A']),
+            ([2.0, 3.0, 20.0, 24.0], [1.0, 5.0, 22.0])
+        );
+    }
+
+    #[test]
+    fn constant_texts() {
+        let dir = std::env::temp_dir().join(format!("vibebms-ctext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+            "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}],
+            "text": [{"id": "t", "constantText": "A\nB", "ref": 10, "font": 0},
+                     {"id": "u", "ref": 10, "font": 1}],
+            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                            {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+        std::fs::write(dir.join("r.json"), json).unwrap();
+        let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let Kind::Text { constant, face, .. } = &s.objects[0].kind else {
+            panic!()
+        };
+        assert_eq!(constant.as_deref(), Some("A\nB"));
+        // TrueType fonts are drawn with, bitmap ones are not
+        assert!(face.as_ref().is_some_and(|p| p.ends_with("f.TTF")));
+        assert!(matches!(&s.objects[1].kind, Kind::Text { face: None, .. }));
+    }
+
     struct ScriptSt {
         flag: bool,
     }
@@ -1392,27 +1879,34 @@ mod tests {
         let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
         let raw = read_skin(
             &dir.join("play.luaskin"),
-            Some((&HashMap::new(), &Value::Null, &HashMap::new())),
+            Some((
+                &HashMap::new(),
+                &Value::Null,
+                &HashMap::new(),
+                &HashMap::new(),
+            )),
+            None,
         )
         .unwrap()
         .0;
         assert_eq!(raw["image"][1]["id"], "img2");
         // what the sandbox keeps out
         let escape = r#"
-            local ok = os == nil and io == nil and debug == nil and string.dump == nil
+            local ok = os.execute == nil and os.remove == nil and os.getenv == nil
+                and io.popen("ls") == nil and io.open("/etc/passwd") == nil
+                and io.open("../../x.txt") == nil and debug.sethook == nil and string.dump == nil
                 and package.loadlib == nil and package.searchpath == nil
-                and not pcall(require, "io") and not pcall(require, "os")
                 and load("\27Lua", "b", "b") == nil
             package.path = "/etc/?"
             return ok and not pcall(require, "passwd") and not pcall(dofile, "../../x.lua")
                 and loadfile("/etc/passwd") == nil and loadfile("../../x.lua") == nil
                 and loadfile("play.luaskin") ~= nil"#;
         std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
-        let (v, _) = read_skin(&dir.join("esc.luaskin"), None).unwrap();
+        let (v, _) = read_skin(&dir.join("esc.luaskin"), None, None).unwrap();
         assert_eq!(v, Value::Bool(true));
         // endless loops are stopped
         std::fs::write(dir.join("loop.luaskin"), "while true do end").unwrap();
-        assert!(read_skin(&dir.join("loop.luaskin"), None).is_err());
+        assert!(read_skin(&dir.join("loop.luaskin"), None, None).is_err());
         std::fs::remove_dir_all(&dir).ok();
         let rt = s.script.clone().expect("scripts");
         let (img, num, txt) = (&s.objects[0], &s.objects[1], &s.objects[2]);
@@ -1483,7 +1977,11 @@ mod tests {
         // the user's offset values reach the script and the skin
         let mut offs = HashMap::new();
         offs.insert("Lift".to_string(), [0, 7, 0, 0, 0, 0]);
-        let s2 = load_with(&dir.join("play.luaskin"), &HashMap::new(), &offs, &sz).unwrap();
+        let user = UserSettings {
+            offsets: offs,
+            ..Default::default()
+        };
+        let s2 = load_with(&dir.join("play.luaskin"), &user, None, &sz).unwrap();
         assert_eq!(s2.objects[0].dst.keys[0].rect.x, 7.0);
         assert_eq!(s2.offsets[&40], [0.0, 7.0, 0.0, 0.0, 0.0, 0.0]);
         assert_eq!(custom_offsets(&dir.join("play.luaskin")).len(), 1);

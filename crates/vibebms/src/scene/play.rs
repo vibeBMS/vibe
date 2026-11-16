@@ -940,6 +940,11 @@ impl PlayScene {
     pub(crate) fn panel_timers(&self) -> (Option<Instant>, Option<Instant>) {
         (self.ctl.opened, self.ctl.closed)
     }
+
+    /// The hi-speed / lane cover panel is up (START or SELECT held).
+    pub(crate) fn panel_open(&self) -> bool {
+        self.ctl.open()
+    }
 }
 
 impl Scene for PlayScene {

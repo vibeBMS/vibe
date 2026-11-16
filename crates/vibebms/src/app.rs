@@ -584,13 +584,20 @@ impl Ctx {
             .unwrap_or_default()
     }
 
-    /// Option ids to pass to a skin loader for the skin configured as
-    /// `value` (a `config.skins` value) at `path`.
-    pub fn skin_user_options(&self, value: &str, path: &std::path::Path) -> HashMap<i32, bool> {
-        crate::skin::user_options(
-            &self.skin_custom_options(path),
-            self.config.skin_options.get(value),
-        )
+    /// What the user chose for the skin configured as `value` (a
+    /// `config.skins` value) at `path`.
+    pub fn skin_user_settings(
+        &self,
+        value: &str,
+        path: &std::path::Path,
+    ) -> crate::skin::UserSettings {
+        let opts = self.skin_custom_options(path);
+        let chosen = self.config.skin_options.get(value);
+        crate::skin::UserSettings {
+            options: crate::skin::user_options(&opts, chosen),
+            files: crate::skin::user_files(&opts, chosen),
+            offsets: self.skin_user_offsets(value),
+        }
     }
 
     pub fn best(&self, song: &Song, ln: i32) -> Option<&BestScore> {
@@ -1180,8 +1187,10 @@ impl ApplicationHandler<UserEvent> for App {
                     },
                 );
             }
+            WindowEvent::CursorLeft { .. } => crate::input::set_pointer(None),
             WindowEvent::CursorMoved { position, .. } => {
                 r.cursor = (position.x as f32, position.y as f32);
+                crate::input::set_pointer(Some(r.cursor));
                 let recent_touch = r
                     .last_touch
                     .map(|t| now.duration_since(t) < Duration::from_millis(600))

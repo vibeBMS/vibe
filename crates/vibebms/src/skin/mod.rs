@@ -16,13 +16,27 @@ use crate::gfx::Rect;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// What the user chose for a skin.
+#[derive(Clone, Debug, Default)]
+pub struct UserSettings {
+    /// Option ids on / off (custom options).
+    pub options: HashMap<i32, bool>,
+    /// Chosen file per custom file name (LR2 `#CUSTOMFILE`, beatoraja
+    /// `filepath`).
+    pub files: HashMap<String, String>,
+    /// Offset values (x, y, w, h, angle, alpha) by offset name.
+    pub offsets: HashMap<String, [i32; 6]>,
+}
+
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
+/// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
+/// while it is built.
 pub fn load_file(
     path: &std::path::Path,
     skins_root: &std::path::Path,
-    user_options: &std::collections::HashMap<i32, bool>,
-    offsets: &HashMap<String, [i32; 6]>,
+    user: &UserSettings,
     static_option: &dyn Fn(i32) -> Option<bool>,
+    state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
     let is_lr2 = path
@@ -30,16 +44,10 @@ pub fn load_file(
         .map(|e| e.eq_ignore_ascii_case("lr2skin") || e.eq_ignore_ascii_case("csv"))
         .unwrap_or(false);
     if is_lr2 {
-        lr2::load_with_offsets(
-            path,
-            skins_root,
-            user_options,
-            offsets,
-            static_option,
-            image_size,
-        )
+        lr2::load_with(path, skins_root, user, static_option, image_size)
     } else {
-        beatoraja::load_with(path, user_options, offsets, image_size)
+        lr2::forget_images();
+        beatoraja::load_with(path, user, state, image_size)
     }
 }
 
@@ -160,6 +168,9 @@ pub struct Dst {
     /// How an image fits the destination (beatoraja `stretch`, LR2
     /// `#STRETCH`): 0 stretches, 1 fits inside keeping the aspect ratio...
     pub stretch: i32,
+    /// Drawn only while the mouse is over this rect (relative to the
+    /// destination, y down; LR2 `#SRC_ONMOUSE`, beatoraja `mouseRect`).
+    pub hover: Option<Rect>,
 }
 
 /// beatoraja offset ids.
@@ -288,6 +299,10 @@ pub enum Kind {
         /// default), 1 shrinks to fit, 2 is cut off, 3 (vibeBMS) is cut
         /// off and scrolls while it is the current one (a marquee).
         overflow: i32,
+        /// A fixed text (beatoraja `constantText`) instead of text `id`.
+        constant: Option<String>,
+        /// The skin's own font file (beatoraja TrueType / OpenType fonts).
+        face: Option<PathBuf>,
     },
     Bar {
         src: Src,
@@ -388,10 +403,11 @@ pub struct SongListSkin {
     pub off: Vec<Option<Dst>>,
     /// Bar body per bar type (`BAR_*`).
     pub body: Vec<Option<Src>>,
-    /// Title text: (destination, align).
-    /// Title text: (destination, align, overflow as in `Kind::Text`).
-    /// Title: destination, align, overflow, bitmap font.
+    /// Title: destination, align, overflow (as in `Kind::Text`), bitmap
+    /// font.
     pub text: Option<(Dst, i32, i32, Option<usize>)>,
+    /// The title's font file (beatoraja).
+    pub text_face: Option<PathBuf>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
@@ -600,13 +616,14 @@ pub fn custom_offsets(path: &std::path::Path) -> Vec<CustomOffset> {
     }
 }
 
-/// A skin's user option (LR2 `#CUSTOMOPTION`, beatoraja `property`).
+/// A skin's user option (LR2 `#CUSTOMOPTION`, beatoraja `property`), or
+/// a choice of files (LR2 `#CUSTOMFILE`, beatoraja `filepath`).
 #[derive(Clone, Debug)]
 pub struct CustomOption {
     pub name: String,
     pub first_id: i32,
     pub labels: Vec<String>,
-    /// Option id of each choice.
+    /// Option id of each choice (none for a choice of files).
     pub ops: Vec<i32>,
     /// Choice used when none is set.
     pub default: usize,
@@ -650,6 +667,20 @@ pub fn resolve_static_ops(skin: &mut Skin, known: &HashMap<i32, bool>) {
         });
         ok
     });
+}
+
+/// The files chosen for a skin's custom files (by name; defaults left out).
+pub fn user_files(
+    opts: &[CustomOption],
+    chosen: Option<&std::collections::BTreeMap<String, String>>,
+) -> HashMap<String, String> {
+    opts.iter()
+        .filter(|o| o.ops.is_empty())
+        .filter_map(|o| {
+            let l = chosen?.get(&o.name)?;
+            o.labels.contains(l).then(|| (o.name.clone(), l.clone()))
+        })
+        .collect()
 }
 
 /// Option ids to enable / disable for the chosen labels (by option name).
@@ -712,6 +743,73 @@ pub struct Skin {
     pub offsets: HashMap<i32, [f32; 6]>,
 }
 
+impl Skin {
+    /// Which images something of the skin draws from (a skin may list
+    /// more: for options not chosen, or never used).
+    pub fn used_images(&self) -> Vec<bool> {
+        let mut used = vec![false; self.images.len()];
+        let mut mark = |s: &Src| {
+            if let Some(u) = used.get_mut(s.image) {
+                *u = true;
+            }
+        };
+        for o in &self.objects {
+            match &o.kind {
+                Kind::Image(s)
+                | Kind::JudgeLine(s)
+                | Kind::Number { src: s, .. }
+                | Kind::Bar { src: s, .. }
+                | Kind::Slider { src: s, .. }
+                | Kind::Gauge { src: s, .. }
+                | Kind::Cover { src: s, .. }
+                | Kind::Distribution { src: Some(s), .. } => mark(s),
+                Kind::ImageSet { srcs, .. } => srcs.iter().for_each(&mut mark),
+                _ => {}
+            }
+        }
+        for l in &self.lanes {
+            [
+                &l.note,
+                &l.ln_start,
+                &l.ln_end,
+                &l.ln_body,
+                &l.ln_body_active,
+                &l.mine,
+                &l.hcn_start,
+                &l.hcn_end,
+                &l.hcn_body,
+                &l.hcn_body_active,
+                &l.hcn_damage,
+                &l.hcn_reactive,
+            ]
+            .into_iter()
+            .flatten()
+            .for_each(&mut mark);
+        }
+        for j in &self.judges {
+            j.judge.iter().flatten().for_each(|(s, _)| mark(s));
+            j.combo.iter().flatten().for_each(|(s, ..)| mark(s));
+        }
+        self.bar_lines.iter().for_each(|(s, _)| mark(s));
+        if let Some(sl) = &self.songlist {
+            sl.body.iter().flatten().for_each(&mut mark);
+            sl.level.iter().flatten().for_each(|(f, _)| mark(&f.src));
+            sl.lamp.iter().flatten().for_each(|(s, _)| mark(s));
+            if let Some((_, Some(s), _)) = &sl.graph {
+                mark(s);
+            }
+        }
+        for f in &self.fonts {
+            for (img, _) in f.glyphs.values() {
+                if let Some(u) = used.get_mut(*img) {
+                    *u = true;
+                }
+            }
+        }
+        used
+    }
+}
+
 /// An LR2 bitmap font: glyph images at a design height.
 #[derive(Clone, Debug, Default)]
 pub struct BitmapFont {
@@ -721,6 +819,9 @@ pub struct BitmapFont {
     pub margin: f32,
     /// Glyph: image (index into `Skin::images`) and its rect there.
     pub glyphs: HashMap<char, (usize, [f32; 4])>,
+    /// Placement of a glyph (x offset, y offset from the top, advance) in
+    /// fonts that give it (BMFont `.fnt`); else glyphs sit side by side.
+    pub metrics: HashMap<char, [f32; 3]>,
 }
 
 /// Game state queried by the skin each frame.
@@ -802,6 +903,31 @@ mod tests {
         assert_eq!((m[&900], m[&901], m[&902]), (false, false, true));
         // unset options use their default (the first choice for LR2)
         assert_eq!((m[&910], m[&911]), (true, false));
+    }
+
+    #[test]
+    fn custom_files_are_options() {
+        let dir = std::env::temp_dir().join(format!("vibebms-cfile-{}", std::process::id()));
+        let theme = dir.join("MyTheme");
+        std::fs::create_dir_all(theme.join("play/bg")).unwrap();
+        for f in ["a.png", "b.png", "c.png"] {
+            std::fs::write(theme.join("play/bg").join(f), b"").unwrap();
+        }
+        // the theme folder renamed: found by the path's folders
+        let p = theme.join("play/s.lr2skin");
+        std::fs::write(
+            &p,
+            "#INFORMATION,0,S,me\n#CUSTOMFILE,Back,LR2files\\Theme\\Other\\play\\bg\\*.png,b\n",
+        )
+        .unwrap();
+        let opts = custom_options(&p);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].labels, vec!["a", "b", "c"]);
+        assert_eq!(opts[0].default, 1);
+        let mut chosen = std::collections::BTreeMap::new();
+        chosen.insert("Back".to_string(), "c".to_string());
+        assert_eq!(user_files(&opts, Some(&chosen))["Back"], "c");
     }
 
     #[test]

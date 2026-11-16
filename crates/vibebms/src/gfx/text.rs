@@ -27,7 +27,12 @@ struct Glyph {
 
 pub struct Text {
     fonts: Vec<fontdue::Font>,
-    cache: HashMap<(char, u16), Option<Glyph>>,
+    /// Fonts skins bring (by file), drawn with when `face` is set.
+    faces: Vec<fontdue::Font>,
+    face_of: HashMap<std::path::PathBuf, Option<u16>>,
+    /// The skin font drawing uses now (0 = the UI fonts).
+    face: u16,
+    cache: HashMap<(u16, char, u16), Option<Glyph>>,
     font_of: HashMap<char, Option<u16>>,
     cx: u32,
     cy: u32,
@@ -164,6 +169,9 @@ impl Text {
         }
         Text {
             fonts,
+            faces: Vec::new(),
+            face_of: HashMap::new(),
+            face: 0,
             cache: HashMap::new(),
             font_of: HashMap::new(),
             cx: 8,
@@ -192,6 +200,35 @@ impl Text {
         }
     }
 
+    /// A skin's font file as a face to draw with (`set_face`); read once.
+    pub fn face(&mut self, path: &std::path::Path) -> Option<u16> {
+        if let Some(f) = self.face_of.get(path) {
+            return *f;
+        }
+        let font = crate::platform::vfs::read(path).ok().and_then(|data| {
+            fontdue::Font::from_bytes(
+                data,
+                fontdue::FontSettings {
+                    scale: 32.0,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| log::warn!("font {}: {e}", path.display()))
+            .ok()
+        });
+        let id = font.map(|f| {
+            self.faces.push(f);
+            self.faces.len() as u16
+        });
+        self.face_of.insert(path.to_path_buf(), id);
+        id
+    }
+
+    /// Draw (and measure) with a skin font from now on (0: the UI fonts).
+    pub fn set_face(&mut self, face: u16) {
+        self.face = face;
+    }
+
     fn font_for(&mut self, c: char) -> Option<u16> {
         if let Some(f) = self.font_of.get(&c) {
             return *f;
@@ -213,12 +250,28 @@ impl Text {
         self.generation += 1;
     }
 
+    /// The skin font in use, if it has `c`.
+    fn face_font(&self, c: char) -> Option<&fontdue::Font> {
+        let f = self.faces.get((self.face as usize).checked_sub(1)?)?;
+        (f.lookup_glyph_index(c) != 0).then_some(f)
+    }
+
     fn glyph(&mut self, gfx: &Gfx, c: char, px: u16) -> Option<Glyph> {
-        if let Some(g) = self.cache.get(&(c, px)) {
+        let face = if self.face_font(c).is_some() {
+            self.face
+        } else {
+            0
+        };
+        if let Some(g) = self.cache.get(&(face, c, px)) {
             return *g;
         }
-        let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
-        let font = &self.fonts[fi as usize];
+        let font = match self.face_font(c) {
+            Some(f) => f,
+            None => {
+                let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
+                &self.fonts[fi as usize]
+            }
+        };
         let (m, bitmap) = font.rasterize(c, px as f32);
         let (w, h) = (m.width as u32, m.height as u32);
         let mut g = Glyph {
@@ -254,13 +307,15 @@ impl Text {
             self.cx += w + 1;
             self.shelf_h = self.shelf_h.max(h);
         }
-        self.cache.insert((c, px), Some(g));
+        self.cache.insert((face, c, px), Some(g));
         Some(g)
     }
 
     fn ascent(&self, px: f32) -> f32 {
-        self.fonts
-            .first()
+        let face = (self.face as usize)
+            .checked_sub(1)
+            .and_then(|i| self.faces.get(i));
+        face.or(self.fonts.first())
             .and_then(|f| f.horizontal_line_metrics(px))
             .map(|m| m.ascent)
             .unwrap_or(px * 0.8)

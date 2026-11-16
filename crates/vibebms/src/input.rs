@@ -229,6 +229,20 @@ pub enum Nav {
     Option,
 }
 
+/// Where the mouse is (screen pixels), for skins' hover images; `None`
+/// before it moves and after a touch.
+static POINTER: std::sync::Mutex<Option<(f32, f32)>> = std::sync::Mutex::new(None);
+
+pub fn set_pointer(p: Option<(f32, f32)>) {
+    if let Ok(mut v) = POINTER.lock() {
+        *v = p;
+    }
+}
+
+pub fn pointer() -> Option<(f32, f32)> {
+    POINTER.lock().ok().and_then(|v| *v)
+}
+
 pub fn nav_from_key(code: KeyCode, cfg: &KeyConfig) -> Option<Nav> {
     use KeyCode::*;
     match code {

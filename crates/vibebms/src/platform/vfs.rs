@@ -521,6 +521,52 @@ pub fn read_to_string(p: &Path) -> io::Result<String> {
     String::from_utf8(read(p)?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
+/// `p` as it is on disk when only the letter case differs (skins made
+/// on Windows name `Play\\x.png` for `play/x.png`); else `p`. A `*` in
+/// the file name is kept for globbing, its folder is resolved.
+pub fn resolve_case(p: &Path) -> PathBuf {
+    let wild = p
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().contains('*'));
+    if !wild && (is_file(p) || is_dir(p)) || builtin(p).is_some() {
+        return p.to_path_buf();
+    }
+    let (dir, last) = match (wild, p.parent(), p.file_name()) {
+        (true, Some(d), Some(n)) => (d, Some(n)),
+        _ => (p, None),
+    };
+    let mut out = PathBuf::new();
+    for c in dir.components() {
+        let next = out.join(c);
+        if matches!(c, std::path::Component::Normal(_)) && !is_dir(&next) && !is_file(&next) {
+            let want = c.as_os_str().to_string_lossy().to_lowercase();
+            let found = read_dir(if out.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                &out
+            })
+            .ok()
+            .and_then(|es| {
+                es.into_iter().find(|e| {
+                    e.path
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().to_lowercase() == want)
+                })
+            });
+            match found {
+                Some(e) => out.push(e.path.file_name().unwrap_or_default()),
+                None => return p.to_path_buf(),
+            }
+        } else {
+            out = next;
+        }
+    }
+    match last {
+        Some(n) => out.join(n),
+        None => out,
+    }
+}
+
 /// `p` with `.` and `..` resolved (without looking at the file system).
 pub fn normalize(p: &Path) -> PathBuf {
     use std::path::Component;
@@ -674,6 +720,26 @@ mod tests {
             Some(dir.join("Kick.OGG"))
         );
         assert_eq!(find_by_stem(&dir, "../kick.wav", AUDIO_EXTS), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn letter_case_differs() {
+        let dir = std::env::temp_dir().join(format!("vibebms-case-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("play/Img")).unwrap();
+        std::fs::write(dir.join("play/Img/A.png"), b"").unwrap();
+        assert_eq!(
+            resolve_case(&dir.join("Play/img/a.PNG")),
+            dir.join("play/Img/A.png")
+        );
+        assert_eq!(
+            resolve_case(&dir.join("PLAY/IMG/*.png")),
+            dir.join("play/Img/*.png")
+        );
+        assert_eq!(
+            resolve_case(&dir.join("play/none.png")),
+            dir.join("play/none.png")
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

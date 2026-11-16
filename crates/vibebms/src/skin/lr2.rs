@@ -13,7 +13,8 @@
 //! `_BARGRAPH_REFNUMBER`, `_NOWJUDGE_3P` / `_NOWCOMBO_3P` (PMS),
 //! `#DST_NOTE2`, `#DST_NOTE_EXPANSION_RATE`, `#JUDGETIMER`, `#STRETCH`,
 //! `#CUSTOMOFFSET` and destination offsets (fields 21 on).
-//! Not yet: onmouse (skipped), `#LOADSTART` / `#LOADEND`.
+//! `#SRC_ONMOUSE` images show while the mouse is over them.
+//! Not yet: `#LOADSTART` / `#LOADEND`.
 
 use super::*;
 use crate::platform::vfs;
@@ -84,12 +85,18 @@ fn line_offsets(f: &[&str]) -> Vec<i32> {
 }
 
 fn add_dst(dst: &mut Dst, v: &[i64; 22]) {
+    add_dst_signed(dst, v, false)
+}
+
+/// A destination key; with `mirror` a negative width / height stays (the
+/// image is drawn mirrored), else the rect is turned around.
+fn add_dst_signed(dst: &mut Dst, v: &[i64; 22], mirror: bool) {
     let (mut x, mut y, mut w, mut h) = (v[3] as f32, v[4] as f32, v[5] as f32, v[6] as f32);
-    if w < 0.0 {
+    if w < 0.0 && !mirror {
         x += w;
         w = -w;
     }
-    if h < 0.0 {
+    if h < 0.0 && !mirror {
         y += h;
         h = -h;
     }
@@ -149,6 +156,8 @@ struct Loader<'a> {
     stretch: i32,
     /// User values of `#CUSTOMOFFSET`s, by name.
     user_offsets: HashMap<String, [i32; 6]>,
+    /// The user's `#CUSTOMFILE` choices, by name.
+    user_files: HashMap<String, String>,
     /// Buttons that belong to a panel: (object, panel option id).
     panel_ops: Vec<(usize, i32)>,
     /// `#LR2FONT` list (indexed by `#SRC_TEXT`): font in `Skin::fonts`.
@@ -207,7 +216,7 @@ impl Loader<'_> {
             log::warn!("skin: {raw} is outside the skins folder");
             return PathBuf::new();
         }
-        self.glob(&p, raw)
+        self.glob(&vfs::resolve_case(&p), raw)
     }
 
     fn glob(&self, p: &Path, raw: &str) -> PathBuf {
@@ -362,16 +371,20 @@ impl Loader<'_> {
                 self.skin.name = f.get(2).unwrap_or(&"").trim().to_string();
                 self.skin.author = f.get(3).unwrap_or(&"").trim().to_string();
             }
-            "#RESOLUTION" => {
-                let (w, h) = [
+            // a header command: LR2 builds, beatoraja and Lunatic Vibes
+            // read it from the skin file itself, not from what it includes
+            "#RESOLUTION" if self.depth == 0 => {
+                let sizes = [
                     (640.0, 480.0),
                     (1280.0, 720.0),
                     (1920.0, 1080.0),
                     (3840.0, 2160.0),
-                ][(v[1].clamp(0, 3)) as usize];
-                self.skin.width = w;
-                self.skin.height = h;
-                self.resolution_set = true;
+                ];
+                if let Some(&(w, h)) = s1.parse::<usize>().ok().and_then(|i| sizes.get(i)) {
+                    self.skin.width = w;
+                    self.skin.height = h;
+                    self.resolution_set = true;
+                }
             }
             "#CUSTOMOPTION" => {
                 let labels: Vec<String> = f
@@ -396,10 +409,9 @@ impl Loader<'_> {
             }
             "#CUSTOMFILE" => {
                 if let Some(p) = f.get(2) {
-                    self.files.insert(
-                        p.trim().replace('\\', "/"),
-                        f.get(3).map(|s| s.trim().to_string()).unwrap_or_default(),
-                    );
+                    let def = f.get(3).map(|s| s.trim().to_string()).unwrap_or_default();
+                    let want = self.user_files.get(s1).cloned().unwrap_or(def);
+                    self.files.insert(p.trim().replace('\\', "/"), want);
                 }
             }
             "#SETOPTION" => {
@@ -416,6 +428,18 @@ impl Loader<'_> {
                         self.depth -= 1;
                     }
                 }
+            }
+            // the image the previous screen's skin had at this index (a
+            // result skin going on with the play skin's background)
+            "#IMAGE" if s1.eq_ignore_ascii_case("CONTINUE") => {
+                let i = self.skin.images.len();
+                let p = LAST_IMAGES
+                    .lock()
+                    .ok()
+                    .and_then(|l| l.get(i).cloned().flatten());
+                let size = p.as_deref().and_then(|p| (self.image_size)(p));
+                self.sizes.push(size);
+                self.skin.images.push(p.filter(|_| size.is_some()));
             }
             "#IMAGE" => {
                 let p = self.path(s1);
@@ -460,6 +484,24 @@ impl Loader<'_> {
                         srcs,
                         id: v[3] as i32,
                     });
+                }
+            }
+            // an image shown while the mouse is over part of it:
+            // ...,panel,x2,y2,w2,h2 (relative to the destination)
+            "#SRC_ONMOUSE" => {
+                self.cur = None;
+                if let Some(s_) = src(&v, &self.sizes) {
+                    self.push(Kind::Image(s_));
+                    let i = self.skin.objects.len() - 1;
+                    self.skin.objects[i].dst.hover = Some(Rect::new(
+                        v[12] as f32,
+                        v[13] as f32,
+                        v[14] as f32,
+                        v[15] as f32,
+                    ));
+                    if v[11] > 0 {
+                        self.panel_ops.push((i, 20 + v[11] as i32));
+                    }
                 }
             }
             "#SRC_BUTTON" => {
@@ -558,6 +600,8 @@ impl Loader<'_> {
                     font,
                     align: v[4] as i32,
                     overflow: 0,
+                    constant: None,
+                    face: None,
                 })
             }
             "#SRC_BARGRAPH" => {
@@ -992,14 +1036,19 @@ impl Loader<'_> {
                         }
                         add_dst(&mut o.dst, &v2);
                     } else {
-                        add_dst(&mut o.dst, &v);
+                        // images are mirrored by a negative size
+                        let mirror = matches!(o.kind, Kind::Image(_) | Kind::ImageSet { .. });
+                        add_dst_signed(&mut o.dst, &v, mirror);
                     }
                 }
             }
             // an object vibeBMS does not draw (#SRC_ONMOUSE hover images,
             // ...): its #DST lines must not move the object before it
-            c if c.starts_with("#SRC_") => self.cur = None,
-            _ => {}
+            c if c.starts_with("#SRC_") => {
+                log::debug!("lr2 skin: {c} is not supported");
+                self.cur = None
+            }
+            c => log::debug!("lr2 skin: {c} is not supported"),
         }
     }
 }
@@ -1008,6 +1057,16 @@ impl Loader<'_> {
     fn parent_skip(&self) -> bool {
         let n = self.conds.len();
         n > 1 && self.conds[..n - 1].iter().any(|c| c.skip)
+    }
+}
+
+/// The images of the LR2 skin loaded last, for `#IMAGE,CONTINUE`.
+static LAST_IMAGES: std::sync::Mutex<Vec<Option<PathBuf>>> = std::sync::Mutex::new(Vec::new());
+
+/// A skin of another kind was loaded: nothing to go on with.
+pub fn forget_images() {
+    if let Ok(mut l) = LAST_IMAGES.lock() {
+        l.clear();
     }
 }
 
@@ -1020,25 +1079,23 @@ pub fn load(
     static_option: &dyn Fn(i32) -> Option<bool>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    load_with_offsets(
-        path,
-        skins_root,
-        user_options,
-        &HashMap::new(),
-        static_option,
-        image_size,
-    )
+    let user = UserSettings {
+        options: user_options.clone(),
+        ..Default::default()
+    };
+    load_with(path, skins_root, &user, static_option, image_size)
 }
 
-/// [`load`] with the user's `#CUSTOMOFFSET` values (by name).
-pub fn load_with_offsets(
+/// [`load`] with the user's choices: options, `#CUSTOMFILE` files and
+/// `#CUSTOMOFFSET` values (by name).
+pub fn load_with(
     path: &Path,
     skins_root: &Path,
-    user_options: &HashMap<i32, bool>,
-    user_offsets: &HashMap<String, [i32; 6]>,
+    user: &UserSettings,
     static_option: &dyn Fn(i32) -> Option<bool>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
+    let (user_options, user_offsets) = (&user.options, &user.offsets);
     let bytes = vfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let text = vibebms_core::encoding::decode_text(&bytes);
     let mut l = Loader {
@@ -1082,6 +1139,7 @@ pub fn load_with_offsets(
         imagesets: Vec::new(),
         stretch: 0,
         user_offsets: user_offsets.clone(),
+        user_files: user.files.clone(),
         panel_ops: Vec::new(),
         fonts: Vec::new(),
         resolution_set: false,
@@ -1095,6 +1153,9 @@ pub fn load_with_offsets(
     // a button inside a panel is shown (and clickable) only while it is open
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
+    }
+    if let Ok(mut last) = LAST_IMAGES.lock() {
+        *last = l.skin.images.clone();
     }
     let known = l.options.clone();
     resolve_static_ops(&mut l.skin, &known);
@@ -1125,36 +1186,47 @@ pub fn load_with_offsets(
 }
 
 /// Screen size of a skin without `#RESOLUTION`: HD-patched LR2 builds run
-/// skins made for 1280x720 / 1920x1080 without saying so. The smallest
-/// size holding nine in ten on-screen destinations.
+/// skins made for 1280x720 / 1920x1080 without saying so. Lunatic Vibes'
+/// guess: where the objects' last positions reach (a full-screen image
+/// counts as twenty).
 fn guess_resolution(skin: &Skin) -> (f32, f32) {
-    let mut right = Vec::new();
-    let mut bottom = Vec::new();
-    for k in skin.objects.iter().flat_map(|o| &o.dst.keys) {
-        let r = k.rect;
-        // ignore what starts off screen (slide-in animations)
-        if r.x >= 0.0 && r.y >= 0.0 && r.w > 0.0 && r.h > 0.0 {
-            right.push(r.x + r.w);
-            bottom.push(r.y + r.h);
+    let mut rects: Vec<Rect> = skin
+        .objects
+        .iter()
+        .filter_map(|o| o.dst.keys.last().map(|k| k.rect))
+        .collect();
+    if let Some(sl) = &skin.songlist {
+        rects.extend(
+            sl.on
+                .iter()
+                .chain(&sl.off)
+                .flatten()
+                .filter_map(|d| d.keys.last().map(|k| k.rect)),
+        );
+    }
+    let (mut sd, mut hd, mut fhd) = (0usize, 0usize, 0usize);
+    let beyond = |r: &Rect, w: f32, h: f32| r.x > w || r.y > h || r.right() > w || r.bottom() > h;
+    for r in &rects {
+        if beyond(r, 1920.0, 1080.0) {
+            continue;
+        }
+        let full = |w: f32, h: f32| r.x == 0.0 && r.y == 0.0 && r.w == w && r.h == h;
+        if beyond(r, 1280.0, 720.0) {
+            fhd += 1;
+        } else if beyond(r, 640.0, 480.0) {
+            hd += if full(1280.0, 720.0) { 20 } else { 1 };
+        } else {
+            sd += if full(640.0, 480.0) { 20 } else { 1 };
         }
     }
-    for l in skin.lanes.iter().filter_map(|l| l.rect) {
-        right.push(l.right());
-        bottom.push(l.bottom());
+    let n = (sd + hd + fhd).max(1) as f32;
+    if fhd as f32 / n > 0.5 {
+        (1920.0, 1080.0)
+    } else if hd as f32 / n > 0.35 {
+        (1280.0, 720.0)
+    } else {
+        (640.0, 480.0)
     }
-    if right.is_empty() {
-        return (640.0, 480.0);
-    }
-    // animations move things off screen: most, not all, must fit
-    let p90 = |v: &mut Vec<f32>| {
-        v.sort_by(f32::total_cmp);
-        v[(v.len() - 1) * 9 / 10]
-    };
-    let (r, b) = (p90(&mut right), p90(&mut bottom));
-    [(640.0, 480.0), (1280.0, 720.0), (1920.0, 1080.0)]
-        .into_iter()
-        .find(|(w, h)| r <= w + 1.0 && b <= h + 1.0)
-        .unwrap_or((3840.0, 2160.0))
 }
 
 /// Unicode characters of an LR2 font code (Shift_JIS based, as beatoraja
@@ -1206,7 +1278,9 @@ pub fn load_font(
             "#S" => font.size = num(1) as f32,
             "#M" => font.margin = num(1) as f32,
             "#T" => {
-                let p = dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/"));
+                let p = vfs::resolve_case(
+                    &dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/")),
+                );
                 let size = image_size(&p);
                 if size.is_some() {
                     tex.insert(num(1), images.len());
@@ -1267,31 +1341,81 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     let Ok(b) = vfs::read(path) else {
         return Vec::new();
     };
-    vibebms_core::encoding::decode_text(&b)
-        .lines()
-        .filter(|l| {
-            l.trim_start()
-                .to_ascii_uppercase()
-                .starts_with("#CUSTOMOPTION,")
+    let mut out = Vec::new();
+    for l in vibebms_core::encoding::decode_text(&b).lines() {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        match f[0].to_ascii_uppercase().as_str() {
+            "#CUSTOMOPTION" => {
+                let (Some(name), Some(Ok(first))) = (f.get(1), f.get(2).map(|x| x.parse::<i32>()))
+                else {
+                    continue;
+                };
+                let labels: Vec<String> = f
+                    .iter()
+                    .skip(3)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                out.push(CustomOption {
+                    name: name.to_string(),
+                    first_id: first,
+                    ops: (0..labels.len() as i32).map(|i| first + i).collect(),
+                    labels,
+                    default: 0,
+                });
+            }
+            // a choice of files: their names without extension
+            "#CUSTOMFILE" => {
+                let (Some(name), Some(p)) = (f.get(1), f.get(2).and_then(|p| theme_file(path, p)))
+                else {
+                    continue;
+                };
+                let labels: Vec<String> = glob_paths(&p)
+                    .iter()
+                    .filter(|c| !c.to_string_lossy().contains('*'))
+                    .filter_map(|c| c.file_stem().map(|n| n.to_string_lossy().into_owned()))
+                    .collect();
+                let def = f.get(3).map(|d| d.to_lowercase()).unwrap_or_default();
+                if labels.len() > 1 {
+                    out.push(CustomOption {
+                        default: labels
+                            .iter()
+                            .position(|l| !def.is_empty() && l.to_lowercase().contains(&def))
+                            .unwrap_or(0),
+                        name: name.to_string(),
+                        first_id: 0,
+                        labels,
+                        ops: Vec::new(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A skin's `LR2files\Theme\<theme>\...` path without knowing the skins
+/// folder: under the skin's ancestor named `<theme>`, else under the one
+/// holding the path.
+fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
+    let s = raw.replace('\\', "/");
+    let i = s.to_ascii_lowercase().find("lr2files/theme/")?;
+    let rest = &s[i + "lr2files/theme/".len()..];
+    let (theme, tail) = rest.split_once('/')?;
+    let dirs: Vec<&Path> = skin.ancestors().skip(1).collect();
+    let named = dirs.iter().find(|a| {
+        a.file_name()
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(theme))
+    });
+    let base = named.or_else(|| {
+        dirs.iter().find(|a| {
+            Path::new(tail)
+                .parent()
+                .is_some_and(|t| vfs::is_dir(&a.join(t)))
         })
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split(',').map(str::trim).collect();
-            let first: i32 = f.get(2)?.parse().ok()?;
-            let labels: Vec<String> = f
-                .iter()
-                .skip(3)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect();
-            Some(CustomOption {
-                name: f.get(1)?.to_string(),
-                first_id: first,
-                ops: (0..labels.len() as i32).map(|i| first + i).collect(),
-                labels,
-                default: 0,
-            })
-        })
-        .collect()
+    })?;
+    Some(vfs::resolve_case(&base.join(tail)))
 }
 
 /// Read only the header: (type, name).
@@ -1487,11 +1611,37 @@ mod tests {
     }
 
     #[test]
-    fn unknown_objects_keep_their_destinations() {
+    fn negative_sizes_mirror_images() {
+        let dir = std::env::temp_dir().join(format!("vibebms-mir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let csv = "#INFORMATION,0,M,me\n#IMAGE,a.png\n\
+#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n#DST_IMAGE,0,0,100,0,-40,10,0,255,255,255,255\n\
+#SRC_NUMBER,0,0,0,0,100,10,10,1,0,0,71,0,3\n#DST_NUMBER,0,0,100,0,-10,10,0,255,255,255,255\n";
+        std::fs::write(dir.join("m.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let s = load(
+            &dir.join("m.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        // the image keeps its negative width (drawn mirrored), a number
+        // is turned around
+        let (a, b) = (s.objects[0].dst.keys[0].rect, s.objects[1].dst.keys[0].rect);
+        assert_eq!((a.x, a.w), (100.0, -40.0));
+        assert_eq!((b.x, b.w), (90.0, 10.0));
+    }
+
+    #[test]
+    fn hover_images_and_image_sets() {
         let dir = std::env::temp_dir().join(format!("vibebms-onm-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        // a hover image (not drawn) after an image: its keys are its own;
-        // beatoraja image sets pick by a value (here 42, RANDOM)
+        // a hover image after an image: its keys are its own, it shows
+        // over its hover area (in panel 2); beatoraja image sets pick by a
+        // value (here 42, RANDOM)
         let csv = "#INFORMATION,5,Hover,me\n#IMAGE,a.png\n\
 #SRC_IMAGE,0,0,0,0,23,32,1,1,0,0\n#DST_IMAGE,0,0,10,10,23,32,0,255,255,255,255\n\
 #SRC_ONMOUSE,0,0,0,0,258,67,1,1,0,0,2,0,0,129,67\n\
@@ -1510,8 +1660,11 @@ mod tests {
         .unwrap();
         assert_eq!(s.objects[0].dst.keys.len(), 1);
         assert_eq!(s.objects[0].dst.keys[0].rect.w, 23.0);
-        let Kind::ImageSet { srcs, id } = &s.objects[1].kind else {
-            panic!("{:?}", s.objects[1].kind)
+        let hover = &s.objects[1].dst;
+        assert_eq!(hover.hover, Some(Rect::new(0.0, 0.0, 129.0, 67.0)));
+        assert_eq!((hover.keys[0].rect.x, hover.ops.clone()), (544.0, vec![22]));
+        let Kind::ImageSet { srcs, id } = &s.objects[2].kind else {
+            panic!("{:?}", s.objects[2].kind)
         };
         assert_eq!((srcs.len(), *id, srcs[1].timer), (2, 42, 21));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1531,15 +1684,11 @@ mod tests {
         std::fs::write(dir.join("e.lr2skin"), csv).unwrap();
         let size = |_: &Path| Some((128, 64));
         let offsets = HashMap::from([("Judge".to_string(), [3, -4, 0, 0, 0, 0])]);
-        let s = load_with_offsets(
-            &dir.join("e.lr2skin"),
-            &dir,
-            &HashMap::new(),
-            &offsets,
-            &|_| None,
-            &size,
-        )
-        .unwrap();
+        let user = UserSettings {
+            offsets,
+            ..Default::default()
+        };
+        let s = load_with(&dir.join("e.lr2skin"), &dir, &user, &|_| None, &size).unwrap();
         assert_eq!(s.objects[0].dst.stretch, 1);
         assert_eq!(s.objects[0].dst.offsets, vec![50]);
         assert_eq!(s.offsets.get(&50).map(|o| (o[0], o[1])), Some((3.0, -4.0)));

@@ -2,12 +2,17 @@
 //! it, and skin values common to several screens.
 
 use crate::app::Ctx;
+use crate::config::HiSpeedMode;
 use crate::gfx::Gfx;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
 use std::path::PathBuf;
 use vibebms_core::chart::ChartMeta;
+use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
+use vibebms_core::judge::JudgePreset;
+use vibebms_core::lane_option::LaneOption;
 use vibebms_core::score::DjLevel;
+use vibebms_core::LnType;
 
 /// The built-in default skin of a screen.
 pub fn default_skin(kind: SkinType, portrait: bool) -> Option<PathBuf> {
@@ -31,13 +36,15 @@ pub fn configured_skin(ctx: &Ctx, kind: SkinType) -> Option<PathBuf> {
 }
 
 /// Load the skin for a screen: the configured one, else the built-in
-/// default. `static_option` answers options at load time (LR2 `#IF`). A
+/// default. `static_option` answers options at load time (LR2 `#IF`),
+/// `state` the values Lua skins read while they are built. A
 /// course result accepts a result skin.
 pub fn load(
     ctx: &Ctx,
     gfx: &mut Gfx,
     kind: SkinType,
     static_option: &dyn Fn(i32) -> Option<bool>,
+    state: &dyn crate::skin::SkinState,
 ) -> Option<LoadedSkin> {
     let accept =
         |k: SkinType| k == kind || (kind == SkinType::CourseResult && k == SkinType::Result);
@@ -48,13 +55,12 @@ pub fn load(
         .cloned()
         .unwrap_or_default();
     for path in configured_skin(ctx, kind).into_iter().chain(default) {
-        let opts = ctx.skin_user_options(&value, &path);
         match crate::skin::load_file(
             &path,
             &ctx.paths.skins,
-            &opts,
-            &ctx.skin_user_offsets(&value),
+            &ctx.skin_user_settings(&value, &path),
             static_option,
+            Some(state),
             &crate::skin::image_size,
         ) {
             Ok(skin) if accept(skin.kind) => return Some(LoadedSkin::load(skin, gfx)),
@@ -88,9 +94,7 @@ pub fn chart_option(m: &ChartMeta, mode: vibebms_core::PlayMode, id: i32) -> Opt
         177 => (m.max_bpm - m.min_bpm).abs() >= 0.01,
         178 => !m.has_random,
         179 => m.has_random,
-        180..=184 => {
-            matches!(m.judge_rank, vibebms_core::chart::JudgeRank::Rank(r) if r == id - 180)
-        }
+        180..=184 => judge_option(judge_rank_number(m), id),
         190 => m.stagefile.is_empty(),
         191 => !m.stagefile.is_empty(),
         192 => m.banner.is_empty(),
@@ -99,6 +103,156 @@ pub fn chart_option(m: &ChartMeta, mode: vibebms_core::PlayMode, id: i32) -> Opt
         195 => !m.backbmp.is_empty(),
         _ => return None,
     })
+}
+
+/// beatoraja's table texts (1001 name, 1002 level, 1003 level then
+/// name) of a chart: the first difficulty table that lists it, as
+/// beatoraja finds one for a chart not chosen from a table.
+pub fn table_text(ctx: &Ctx, md5: &str, sha256: &str, id: i32) -> Option<String> {
+    if !(1001..=1003).contains(&id) {
+        return None;
+    }
+    let same = |a: &str, b: &str| !a.is_empty() && a.eq_ignore_ascii_case(b);
+    let (name, level) = ctx.tables.iter().find_map(|t| {
+        let e = t
+            .entries
+            .iter()
+            .find(|e| same(&e.md5, md5) || same(&e.sha256, sha256))?;
+        Some((t.header.name.clone(), t.label(&e.level)))
+    })?;
+    Some(match id {
+        1001 => name,
+        1002 => level,
+        _ => format!("{level}{name}"),
+    })
+}
+
+/// beatoraja's chart numbers from the library: notes by kind (350-354),
+/// densities (360-365), TOTAL (368) and judge rank (400).
+pub fn song_number(s: &crate::library::Song, id: i32) -> Option<i64> {
+    let known = s.note_kinds.iter().any(|n| *n > 0);
+    let split = |v: f64, after: bool| {
+        if after {
+            ((v * 100.0) as i64) % 100
+        } else {
+            v as i64
+        }
+    };
+    Some(match id {
+        350..=354 if known => s.note_kinds[(id - 350) as usize],
+        400 => s.judge?,
+        360 | 361 if known => split(s.density[1], id == 361),
+        362 | 363 if known => split(s.density[2], id == 363),
+        364 | 365 if known => split(s.density[0], id == 365),
+        368 => s.total as i64,
+        _ => return None,
+    })
+}
+
+/// beatoraja's judge rank options (180 very hard .. 184 very easy) of a
+/// judge rank number: `#RANK`, or a percentage in steps of 25 from 10.
+pub fn judge_option(judge: i64, id: i32) -> bool {
+    let k = (id - 180) as i64;
+    judge == k || (judge >= 10 && ((judge - 10) / 25).min(4) == k)
+}
+
+/// beatoraja's judge rank number (400): `#RANK`, else the percentage.
+pub fn judge_rank_number(m: &ChartMeta) -> i64 {
+    use vibebms_core::chart::JudgeRank;
+    match m.judge_rank {
+        JudgeRank::Rank(r) => r as i64,
+        JudgeRank::DefExRank(v) | JudgeRank::Bmson(v) => v.round() as i64,
+    }
+}
+
+/// beatoraja option indices.
+fn random_index(o: LaneOption) -> i64 {
+    match o {
+        LaneOption::Off => 0,
+        LaneOption::Mirror => 1,
+        LaneOption::Random => 2,
+        LaneOption::RRandom => 3,
+        LaneOption::SRandom => 4,
+        LaneOption::Spiral => 5,
+        LaneOption::HRandom => 6,
+        LaneOption::AllScratch => 7,
+        LaneOption::RandomEx => 8,
+        LaneOption::SRandomEx => 9,
+    }
+}
+
+/// beatoraja button values (image set indices) of the play settings,
+/// shown on every screen.
+pub fn config_button(ctx: &Ctx, id: i32) -> Option<i64> {
+    let p = &ctx.config.play;
+    Some(match id {
+        40 => gauge_index(p.gauge),
+        42 => random_index(p.random_1p),
+        43 => random_index(p.random_2p),
+        54 => super::option_panel::dp_index(p),
+        // beatoraja HS-FIX: off, start, max, main, min BPM
+        55 => p.hs_fix as i64,
+        // beatoraja BGA: 0 on, 2 off
+        72 => {
+            if p.bga {
+                0
+            } else {
+                2
+            }
+        }
+        // beatoraja assist buttons vibeBMS has (0 off, 1 on)
+        301 => p.expand_judge as i64,
+        302 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
+        303 => p.judge_area as i64,
+        304 => p.legacy_note as i64,
+        305 => p.mark_notes as i64,
+        306 => p.bpm_guide as i64,
+        307 => p.no_mine as i64,
+        75 => p.timing_auto_adjust as i64,
+        330 => p.lane_cover as i64,
+        331 => (p.lift > 0.0) as i64,
+        332 => (p.hidden > 0.0) as i64,
+        340 => p.judge_algorithm as i64,
+        351 => p.no_mine as i64,
+        352 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
+        353 => p.legacy_note as i64,
+        78 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
+        // vibeBMS: the options its panels show that beatoraja has not
+        1401 => p.auto_scratch as i64,
+        1402 => p.lane_cover as i64,
+        1403 => crate::scene::option_panel::index_of(&JudgePreset::ALL, p.judge_preset),
+        1404 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
+        1405 => crate::scene::option_panel::index_of(&crate::config::Target::ALL, p.target),
+        // TARGET as LR2 skins for beatoraja draw it (LITONE5): A- .. AAA+,
+        // MAX, NEXT (an older list, without MAX-)
+        77 => {
+            use crate::config::Target;
+            match p.target {
+                Target::RateMaxMinus | Target::Max => 9,
+                Target::RankNext => 10,
+                Target::Best => 11,
+                t => crate::scene::option_panel::index_of(&Target::ALL, t),
+            }
+        }
+        308 => match p.ln_mode {
+            LnType::Ln => 0,
+            LnType::Cn => 1,
+            LnType::Hcn => 2,
+        },
+        _ => return None,
+    })
+}
+
+/// beatoraja's gauge index (button 40).
+pub fn gauge_index(g: GaugeType) -> i64 {
+    match g {
+        GaugeType::AssistEasy => 0,
+        GaugeType::Easy => 1,
+        GaugeType::Normal => 2,
+        GaugeType::Hard | GaugeType::Class => 3,
+        GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass => 4,
+        GaugeType::Hazard => 5,
+    }
 }
 
 /// Numbers every screen has: the local date and time (LR2 21-26: year,

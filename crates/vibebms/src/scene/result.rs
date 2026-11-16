@@ -265,7 +265,7 @@ impl Scene for ResultScene {
             let skin = {
                 let st = ResultState { s: self, ctx, now };
                 let stat = |id: i32| st.static_option(id);
-                skinned::load(ctx, gfx, kind, &stat)
+                skinned::load(ctx, gfx, kind, &stat, &st)
             };
             self.skin = skin;
         }

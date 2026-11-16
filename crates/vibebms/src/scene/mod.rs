@@ -1,3 +1,4 @@
+pub mod decide;
 pub mod graphs;
 pub mod option_panel;
 pub mod play;
