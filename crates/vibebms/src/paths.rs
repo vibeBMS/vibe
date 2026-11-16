@@ -35,6 +35,7 @@ pub const INTERNAL_DIRS: &[&str] = &[
     "scores",
     "target",
     "skins",
+    "sounds",
     "crates",
     "docs",
     "downloads",

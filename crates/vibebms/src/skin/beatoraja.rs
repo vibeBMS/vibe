@@ -1144,7 +1144,18 @@ pub fn load_with(
         fonts: Vec::new(),
         trans_color: None,
         offsets: HashMap::new(),
+        skin_select: None,
     };
+    if kind == SkinType::SkinSelect {
+        let ss = sk.get("skinSelect");
+        skin.skin_select = Some(crate::skin::SkinSelectInfo {
+            default_category: ss.map(|v| i(v, "defaultCategory", 0)).unwrap_or(0) as i32,
+            custom_property_count: ss
+                .map(|v| i(v, "customPropertyCount", -1))
+                .unwrap_or(-1)
+                .max(0) as usize,
+        });
+    }
     let note = sk.get("note").and_then(obj);
     let gauge = sk.get("gauge").and_then(obj);
     let bga = sk.get("bga").and_then(obj);
@@ -1332,6 +1343,10 @@ pub fn load_with(
             // game-supplied images: -100 stage file, -101 back bmp,
             // -102 banner, -110 black, -111 white
             Some(Kind::RefImage(-r))
+        } else if sk.get("skinpreview").is_some_and(|n| id_of(n) == id) {
+            // the skin select screen's preview of the chosen skin (as
+            // LR2's image 105)
+            Some(Kind::RefImage(REF_SKIN_PREVIEW))
         } else if let Some(sl) = sk.get("songlist").filter(|n| id_of(n) == id) {
             skin.songlist = Some(songlist(&cx, sl, h));
             Some(Kind::SongList)
@@ -1417,7 +1432,8 @@ pub fn load_with(
         skin.offsets.insert(o.id, v.map(|x| x as f32));
     }
     skin.images = cx.images;
-    if skin.objects.is_empty() {
+    // beatoraja's own key config skin is empty: its screen draws the rows
+    if skin.objects.is_empty() && skin.kind != SkinType::KeyConfig {
         return Err(format!("{}: no drawable objects", path.display()));
     }
     Ok(skin)

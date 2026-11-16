@@ -128,6 +128,8 @@ pub trait Hooks {
     }
     /// A clickable object was drawn at `rect` (screen space).
     fn clickable(&mut self, rect: Rect, act: i32, click: i32) {}
+    /// The skin select screen's preview of the chosen skin.
+    fn preview(&mut self, d: &mut Draw, rect: Rect, color: [f32; 4]) {}
 }
 
 impl LoadedSkin {
@@ -729,6 +731,7 @@ impl LoadedSkin {
                         d.b.set_clip(None);
                     }
                 }
+                Kind::RefImage(REF_SKIN_PREVIEW) => hooks.preview(d, r, fr.color),
                 Kind::RefImage(id) => {
                     if let Some(t) = hooks.ref_image(*id) {
                         d.b.quad(t, r, [0.0, 0.0, 1.0, 1.0], fr.color);

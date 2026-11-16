@@ -93,6 +93,7 @@ pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
     let h = match ext.as_str() {
         "lr2skin" => lr2::header(path),
         "json" | "luaskin" => beatoraja::header(path),
+        "lr2ss" => crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0)),
         _ => None,
     };
     CACHE
@@ -172,6 +173,10 @@ pub struct Dst {
     /// destination, y down; LR2 `#SRC_ONMOUSE`, beatoraja `mouseRect`).
     pub hover: Option<Rect>,
 }
+
+/// Game image id of the skin select screen's preview (LR2 `#SRC_IMAGE`
+/// image 105, beatoraja `skinpreview`).
+pub const REF_SKIN_PREVIEW: i32 = 105;
 
 /// beatoraja offset ids.
 pub const OFFSET_LIFT: i32 = 3;
@@ -553,6 +558,12 @@ pub enum SkinType {
     Select,
     Decide,
     Result,
+    /// beatoraja / LR2 type 8: the key config screen.
+    KeyConfig,
+    /// Type 9: the skin select (customize) screen.
+    SkinSelect,
+    /// Type 10: a system sound set (LR2 `.lr2ss`), chosen like a skin.
+    SoundSet,
     CourseResult,
     Other(i32),
 }
@@ -568,8 +579,30 @@ impl SkinType {
             5 => SkinType::Select,
             6 => SkinType::Decide,
             7 => SkinType::Result,
+            8 => SkinType::KeyConfig,
+            9 => SkinType::SkinSelect,
+            10 => SkinType::SoundSet,
             15 => SkinType::CourseResult,
             n => SkinType::Other(n),
+        }
+    }
+
+    /// The type's number (LR2 `#INFORMATION`, beatoraja `type`).
+    pub fn id(self) -> i32 {
+        match self {
+            SkinType::Play7 => 0,
+            SkinType::Play5 => 1,
+            SkinType::Play14 => 2,
+            SkinType::Play10 => 3,
+            SkinType::Play9 => 4,
+            SkinType::Select => 5,
+            SkinType::Decide => 6,
+            SkinType::Result => 7,
+            SkinType::KeyConfig => 8,
+            SkinType::SkinSelect => 9,
+            SkinType::SoundSet => 10,
+            SkinType::CourseResult => 15,
+            SkinType::Other(n) => n,
         }
     }
 
@@ -592,9 +625,27 @@ impl SkinType {
             SkinType::Decide => "DECIDE",
             SkinType::Result => "RESULT",
             SkinType::CourseResult => "COURSE_RESULT",
+            SkinType::KeyConfig => "KEY_CONFIG",
+            SkinType::SkinSelect => "SKIN_SELECT",
+            SkinType::SoundSet => "SOUND_SET",
             _ => return None,
         })
     }
+
+    /// The `config.skins` key of every type (play skins by mode label).
+    pub fn key(self) -> Option<&'static str> {
+        self.mode().map(|m| m.label()).or_else(|| self.config_key())
+    }
+}
+
+/// beatoraja skin select settings (`skinSelect` of a JSON / Lua skin).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SkinSelectInfo {
+    /// The skin type shown first (`defaultCategory`).
+    pub default_category: i32,
+    /// Option rows the skin shows (`customPropertyCount`; 0: as many as
+    /// it has buttons 220-229 for).
+    pub custom_property_count: usize,
 }
 
 /// A position adjustment a skin offers (beatoraja `offset`): objects
@@ -748,6 +799,8 @@ pub struct Skin {
     pub trans_color: Option<[u8; 3]>,
     /// User values of the skin's offsets (x, y, w, h, angle, alpha) by id.
     pub offsets: HashMap<i32, [f32; 6]>,
+    /// Skin select screens: their settings.
+    pub skin_select: Option<SkinSelectInfo>,
 }
 
 impl Skin {

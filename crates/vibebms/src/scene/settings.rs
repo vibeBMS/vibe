@@ -5,10 +5,11 @@
 //! Controller: the turntable selects, white keys decide / raise, blue keys
 //! lower / go back, SELECT leaves.
 
+use super::keybind::{keys_label, Slot};
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{
-    Bpms, HiSpeedMode, HsFix, KeyConfig, LaneKeys, PresentMode, Side, TableConfig, Target,
-    TouchMode, TouchSide, TouchStyle,
+    Bpms, HiSpeedMode, HsFix, KeyConfig, PresentMode, Side, TableConfig, Target, TouchMode,
+    TouchSide, TouchStyle,
 };
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
@@ -50,18 +51,6 @@ enum TextField {
     IrToken,
 }
 
-/// Which binding a key-config row edits.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Slot {
-    Key { side: usize, idx: usize },
-    ScratchUp(usize),
-    ScratchDown(usize),
-    ScratchAxis(usize),
-    Pms(usize),
-    Start,
-    Select,
-}
-
 #[derive(Clone, Copy)]
 enum Act {
     None,
@@ -76,6 +65,9 @@ enum Act {
     ResetKeys,
     /// Open the touch layout editor.
     EditTouchLayout,
+    /// Open a skinned screen: 0 key config, 1 skin select, 2 skin select
+    /// on the sound sets.
+    OpenScreen(usize),
     RestoreDefaultTables,
     BrowseFolder,
     /// Cycle custom option `.1` of the skin chosen for `SKIN_KEYS[.0]`.
@@ -239,7 +231,7 @@ fn kept_songs(ctx: &Ctx, v: &mut Vec<Item>) {
 }
 
 /// `config.skins` keys, in menu order.
-const SKIN_KEYS: [&str; 9] = [
+const SKIN_KEYS: [&str; 12] = [
     "7KEYS",
     "5KEYS",
     "14KEYS",
@@ -249,6 +241,9 @@ const SKIN_KEYS: [&str; 9] = [
     "DECIDE",
     "RESULT",
     "COURSE_RESULT",
+    "KEY_CONFIG",
+    "SKIN_SELECT",
+    "SOUND_SET",
 ];
 
 /// Path and custom options of the skin configured for `SKIN_KEYS[slot]`.
@@ -262,24 +257,9 @@ fn cycle_skin_option(ctx: &mut Ctx, slot: usize, idx: usize, d: i32) {
     let Some((value, opts)) = skin_options_of(ctx, slot) else {
         return;
     };
-    let Some(o) = opts.get(idx) else { return };
-    if o.labels.is_empty() {
-        return;
+    if let Some(o) = opts.get(idx) {
+        super::skinned::step_option(ctx, &value, o, d);
     }
-    let cur = o.chosen(
-        ctx.config
-            .skin_options
-            .get(&value)
-            .and_then(|m| m.get(&o.name))
-            .map(String::as_str),
-    );
-    let n = o.labels.len() as i32;
-    let next = (cur as i32 + d).rem_euclid(n) as usize;
-    ctx.config
-        .skin_options
-        .entry(value)
-        .or_default()
-        .insert(o.name.clone(), o.labels[next].clone());
 }
 
 /// Path and adjustable offsets of the skin configured for `SKIN_KEYS[slot]`.
@@ -293,20 +273,31 @@ fn adjust_skin_offset(ctx: &mut Ctx, slot: usize, idx: usize, field: usize, d: i
     let Some((value, offs)) = skin_offsets_of(ctx, slot) else {
         return;
     };
-    let Some(o) = offs.get(idx) else { return };
-    let v = ctx
-        .config
-        .skin_offsets
-        .entry(value)
-        .or_default()
-        .entry(o.name.clone())
-        .or_default();
-    // alpha in 0..255 steps of 5, angle in degrees, the rest in pixels
-    let step = if field == 5 { 5 } else { 1 };
-    v[field] = (v[field] + d * step).clamp(-2000, 2000);
-    if field == 5 {
-        v[5] = v[5].clamp(-255, 255);
+    if let Some(o) = offs.get(idx) {
+        super::skinned::step_offset(ctx, &value, &o.name, field, d);
     }
+}
+
+/// The row opening skinned screen `n` (0 key config, 1 skin select, 2
+/// sound sets in the skin select), when its skin is chosen.
+fn open_item(ctx: &Ctx, n: usize) -> Option<Item> {
+    use crate::skin::SkinType;
+    let kind = if n == 0 {
+        SkinType::KeyConfig
+    } else {
+        SkinType::SkinSelect
+    };
+    super::skinned::configured_skin(ctx, kind)?;
+    let label = match n {
+        0 => "    Open the key config screen",
+        1 => "    Open the skin select screen",
+        _ => "    Choose in the skin select screen",
+    };
+    Some(Item {
+        label: label.into(),
+        value: "↵".into(),
+        act: Act::OpenScreen(n),
+    })
 }
 
 struct Item {
@@ -348,39 +339,6 @@ fn onoff(b: bool) -> &'static str {
     } else {
         "OFF"
     }
-}
-
-fn keys_label(lk: &LaneKeys) -> String {
-    let mut v: Vec<String> = lk.keys.iter().map(|k| format!("{k:?}")).collect();
-    v.extend(
-        lk.pad
-            .iter()
-            .map(|p| format!("Pad{}#{}", p / 1_000_000, p % 1_000_000)),
-    );
-    if v.is_empty() {
-        "—".into()
-    } else {
-        v.join(", ")
-    }
-}
-
-fn slot_keys(k: &mut KeyConfig, s: Slot) -> Option<&mut LaneKeys> {
-    fn side(k: &mut KeyConfig, i: usize) -> &mut crate::config::SideKeys {
-        if i == 0 {
-            &mut k.p1
-        } else {
-            &mut k.p2
-        }
-    }
-    Some(match s {
-        Slot::Key { side: sd, idx } => &mut side(k, sd).keys[idx],
-        Slot::ScratchUp(sd) => &mut side(k, sd).scratch_up,
-        Slot::ScratchDown(sd) => &mut side(k, sd).scratch_down,
-        Slot::Pms(i) => &mut k.pms[i],
-        Slot::Start => &mut k.start,
-        Slot::Select => &mut k.select,
-        Slot::ScratchAxis(_) => return None,
-    })
 }
 
 fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
@@ -582,7 +540,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
         ],
         2 => {
             let k = &c.keys;
-            let mut v = Vec::new();
+            let mut v: Vec<Item> = open_item(ctx, 0).into_iter().collect();
             for side in 0..2 {
                 let sk = if side == 0 { &k.p1 } else { &k.p2 };
                 for (i, lk) in sk.keys.iter().enumerate().take(7) {
@@ -789,7 +747,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ];
             // built-in default skin / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
-            const MODES: [(&str, Adjust); 9] = [
+            const MODES: [(&str, Adjust); 12] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
                 ("5KEYS", |c, d| cycle_skin(c, d, "5KEYS")),
                 ("14KEYS", |c, d| cycle_skin(c, d, "14KEYS")),
@@ -799,6 +757,9 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 ("DECIDE", |c, d| cycle_skin(c, d, "DECIDE")),
                 ("RESULT", |c, d| cycle_skin(c, d, "RESULT")),
                 ("COURSE_RESULT", |c, d| cycle_skin(c, d, "COURSE_RESULT")),
+                ("KEY_CONFIG", |c, d| cycle_skin(c, d, "KEY_CONFIG")),
+                ("SKIN_SELECT", |c, d| cycle_skin(c, d, "SKIN_SELECT")),
+                ("SOUND_SET", |c, d| cycle_skin(c, d, "SOUND_SET")),
             ];
             for (slot, (m, f)) in MODES.into_iter().enumerate() {
                 let cur = match c.skins.get(m).map(String::as_str).unwrap_or("") {
@@ -807,6 +768,8 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 };
                 let label = if m.ends_with("KEYS") {
                     format!("Play skin ({m})")
+                } else if m == "SOUND_SET" {
+                    "Sound set".into()
                 } else {
                     format!(
                         "{}{} skin",
@@ -815,6 +778,15 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     )
                 };
                 v.push(it(label, cur, f));
+                // the screens these skins draw
+                if let Some(n) = ["KEY_CONFIG", "SKIN_SELECT", "SOUND_SET"]
+                    .iter()
+                    .position(|k| *k == m)
+                {
+                    if let Some(i) = open_item(ctx, n) {
+                        v.push(i);
+                    }
+                }
                 // the skin's own options, right under it
                 if let Some((value, opts)) = skin_options_of(ctx, slot) {
                     let chosen = c.skin_options.get(&value);
@@ -902,6 +874,19 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             it("Song preview", onoff(c.audio.preview), |c, _| {
                 c.config.audio.preview = !c.config.audio.preview
             }),
+            it(
+                "Sound set",
+                super::skinned::choice_name(
+                    ctx,
+                    crate::skin::SkinType::SoundSet,
+                    c.skins.get("SOUND_SET").map(String::as_str).unwrap_or(""),
+                )
+                .0,
+                |c, d| {
+                    cycle_skin(c, d, "SOUND_SET");
+                    c.play_sound(crate::sysound::Sound::OptionChange);
+                },
+            ),
             Item {
                 label: "Output".into(),
                 value: format!(
@@ -1236,6 +1221,8 @@ pub struct SettingsScene {
     back_rect: Rect,
     /// The touch layout editor was asked for.
     open_editor: bool,
+    /// A skinned screen was asked for (`Act::OpenScreen`).
+    open_screen: Option<usize>,
 }
 
 impl SettingsScene {
@@ -1254,7 +1241,16 @@ impl SettingsScene {
             axis_last: Default::default(),
             back_rect: Rect::default(),
             open_editor: false,
+            open_screen: None,
         }
+    }
+
+    /// Opened on category `cat` (its rows chosen).
+    pub fn at(ctx: &mut Ctx, cat: usize) -> SettingsScene {
+        let mut s = SettingsScene::new(ctx);
+        s.cat = cat.min(CATEGORIES.len() - 1);
+        s.focus_items = true;
+        s
     }
 
     fn activate(&mut self, ctx: &mut Ctx, d: i32, enter: bool) {
@@ -1377,6 +1373,10 @@ impl SettingsScene {
                 self.open_editor = true;
                 return;
             }
+            Act::OpenScreen(n) => {
+                self.open_screen = Some(n);
+                return;
+            }
             Act::RestoreDefaultTables => {
                 for (n, u) in bmseeker::table::DEFAULT_TABLES {
                     if !ctx.config.tables.iter().any(|t| t.url == *u) {
@@ -1476,23 +1476,7 @@ impl SettingsScene {
         let Some((slot, _)) = self.learning.take() else {
             return;
         };
-        if let Slot::ScratchAxis(side) = slot {
-            if let Some(a) = axis {
-                let sk = if side == 0 {
-                    &mut ctx.config.keys.p1
-                } else {
-                    &mut ctx.config.keys.p2
-                };
-                sk.scratch_axis = vec![a];
-            }
-        } else if let Some(lk) = slot_keys(&mut ctx.config.keys, slot) {
-            if let Some(k) = key {
-                lk.keys = vec![k];
-            }
-            if let Some(p) = pad {
-                lk.pad = vec![p];
-            }
-        }
+        super::keybind::assign(&mut ctx.config.keys, slot, key, pad, axis);
         ctx.save_config();
         // advance to the next row for quick setup
         let n = items(ctx, self.cat).len();
@@ -1509,6 +1493,16 @@ impl Scene for SettingsScene {
         let next = self.input_inner(ctx, ev);
         if std::mem::take(&mut self.open_editor) {
             return Next::Push(Box::new(super::touch_layout::TouchLayoutScene::new(ctx)));
+        }
+        if let Some(n) = self.open_screen.take() {
+            ctx.save_config();
+            return Next::Push(match n {
+                0 => Box::new(super::keyconfig::KeyConfigScene::new()),
+                1 => Box::new(super::skinselect::SkinSelectScene::new(None)),
+                _ => Box::new(super::skinselect::SkinSelectScene::new(Some(
+                    crate::skin::SkinType::SoundSet,
+                ))),
+            });
         }
         next
     }
@@ -1534,17 +1528,7 @@ impl SettingsScene {
                     ..
                 } => {
                     if let Some((slot, _)) = self.learning.take() {
-                        if let Some(lk) = slot_keys(&mut ctx.config.keys, slot) {
-                            *lk = LaneKeys::default();
-                        } else if let Slot::ScratchAxis(s) = slot {
-                            (if s == 0 {
-                                &mut ctx.config.keys.p1
-                            } else {
-                                &mut ctx.config.keys.p2
-                            })
-                            .scratch_axis
-                            .clear();
-                        }
+                        super::keybind::clear(&mut ctx.config.keys, slot, None);
                         ctx.save_config();
                     }
                 }
@@ -1971,41 +1955,41 @@ fn skin_label(ctx: &Ctx, value: &str) -> String {
 
 /// Cycle a skin setting: the built-in default, then matching installed skins.
 fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
-    let want = vibebms_core::PlayMode::ALL
-        .iter()
-        .copied()
-        .find(|m| m.label() == mode)
-        .map(super::play_skin::skin_type)
-        .or_else(|| {
-            use crate::skin::SkinType::*;
-            [Select, Decide, Result, CourseResult]
-                .into_iter()
-                .find(|t| t.config_key() == Some(mode))
-        });
-    // a course result can be a result skin
-    let fits = |t: crate::skin::SkinType| {
-        Some(t) == want
-            || (want == Some(crate::skin::SkinType::CourseResult)
-                && t == crate::skin::SkinType::Result)
+    let Some(kind) = skin_type_of(mode) else {
+        return;
     };
-    let mut opts: Vec<String> = vec![String::new()];
-    for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
-        if fits(t) {
-            let rel = p
-                .strip_prefix(&c.paths.root)
-                .map(|r| r.to_path_buf())
-                .unwrap_or(p);
-            opts.push(rel.to_string_lossy().into_owned());
-        }
-    }
+    let opts = super::skinned::skin_choices(c, kind);
     let cur = c.config.skins.get(mode).cloned().unwrap_or_default();
     let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
     let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
     if opts.len() == 1 {
-        c.toast(format!(
-            "Put more {mode} skins in {}",
-            c.paths.skins.display()
-        ));
+        let dir = if kind == crate::skin::SkinType::SoundSet {
+            c.paths.root.join("sounds")
+        } else {
+            c.paths.skins.clone()
+        };
+        c.toast(format!("Put more {mode} skins in {}", dir.display()));
     }
     c.config.skins.insert(mode.to_string(), next);
+}
+
+/// The skin type of a `config.skins` key.
+fn skin_type_of(key: &str) -> Option<crate::skin::SkinType> {
+    use crate::skin::SkinType::*;
+    [
+        Play7,
+        Play5,
+        Play14,
+        Play10,
+        Play9,
+        Select,
+        Decide,
+        Result,
+        CourseResult,
+        KeyConfig,
+        SkinSelect,
+        SoundSet,
+    ]
+    .into_iter()
+    .find(|t| t.key() == Some(key))
 }

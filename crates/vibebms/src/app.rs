@@ -185,9 +185,61 @@ pub struct Ctx {
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
     skin_offsets_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
+    /// The chosen sound set's sounds.
+    pub sounds: crate::sysound::SystemSounds,
 }
 
 impl Ctx {
+    /// A context for tests: default settings, data under `root`, no
+    /// library, silent audio.
+    #[cfg(test)]
+    pub fn for_test(root: PathBuf) -> Ctx {
+        let mixer = Mixer::new(&AudioConfig {
+            buffer_frames: 0,
+            sample_rate: 44100,
+            master: 0.0,
+            key_volume: 0.0,
+            bgm_volume: 0.0,
+            system_volume: 0.0,
+            max_voices: 16,
+        });
+        Ctx {
+            paths: Paths::at(root),
+            config: Config::default(),
+            lib: None,
+            songs: Arc::new(Vec::new()),
+            scores: HashMap::new(),
+            tables: Vec::new(),
+            mixer,
+            scan: None,
+            table_rx: None,
+            scan_again: false,
+            toasts: Vec::new(),
+            touch_seen: false,
+            width: 1280.0,
+            height: 720.0,
+            scale: 1.0,
+            screen: crate::platform::screen::Screen {
+                size_px: (1280.0, 720.0),
+                points_per_inch: 96.0,
+            },
+            library_version: 0,
+            fps: 0.0,
+            want_fullscreen: None,
+            want_present_mode: false,
+            gpu_name: String::new(),
+            prefetch: None,
+            browse: None,
+            archives: Default::default(),
+            song_fetch: Default::default(),
+            links: Default::default(),
+            skin_store: Default::default(),
+            skin_options_cache: Default::default(),
+            skin_offsets_cache: Default::default(),
+            sounds: Default::default(),
+        }
+    }
+
     pub fn toast(&mut self, s: impl Into<String>) {
         let s = s.into();
         log::info!("{s}");
@@ -559,6 +611,23 @@ impl Ctx {
         }
     }
 
+    /// Play a system sound of the chosen sound set.
+    pub fn play_sound(&mut self, s: crate::sysound::Sound) {
+        let v = self
+            .config
+            .skins
+            .get("SOUND_SET")
+            .cloned()
+            .unwrap_or_default();
+        self.sounds
+            .sync(&v, &self.paths.root, self.mixer.sample_rate);
+        self.sounds.play(&self.mixer, s);
+    }
+
+    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
+        self.sounds.stop(&self.mixer, s);
+    }
+
     /// Skins were added, replaced or deleted: what was read of them goes.
     pub fn skins_changed(&mut self) {
         self.skin_options_cache.borrow_mut().clear();
@@ -820,6 +889,7 @@ impl Running {
         }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
+        self.ctx.sounds.poll(&self.ctx.mixer);
         #[cfg(target_arch = "wasm32")]
         crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
         if let Some(fs) = self.ctx.want_fullscreen.take() {
@@ -988,6 +1058,7 @@ impl App {
             skin_store: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
+            sounds: Default::default(),
         };
         ctx.reload_library();
         ctx.load_cached_tables();

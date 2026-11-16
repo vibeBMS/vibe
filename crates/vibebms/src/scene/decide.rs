@@ -11,6 +11,7 @@ use crate::library::Song;
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin};
 use crate::skin::{SkinState, SkinType};
+use crate::sysound::Sound;
 use vibebms_core::PlayMode;
 
 /// How long the screen shows when the skin does not say (beatoraja's
@@ -56,6 +57,7 @@ impl DecideScene {
     }
 
     fn play(&mut self, ctx: &mut Ctx) -> Next {
+        ctx.stop_sound(Sound::Decide);
         match self.req.take() {
             Some(req) => Next::Replace(Box::new(PlayScene::new(ctx, req))),
             None => Next::Pop,
@@ -267,6 +269,7 @@ impl Scene for DecideScene {
             self.stage_tex = load(&song.stagefile);
             self.banner_tex = load(&song.banner);
             self.created = now;
+            ctx.play_sound(Sound::Decide);
         }
         let Some(sk) = self.skin.as_mut() else {
             return self.play(ctx);
@@ -321,7 +324,10 @@ impl Scene for DecideScene {
         let ready = ms_since(self.created, Instant::now()) >= self.input_ms();
         match nav {
             // back to the music select
-            Some(Nav::Back | Nav::Close) => Next::Pop,
+            Some(Nav::Back | Nav::Close) => {
+                ctx.stop_sound(Sound::Decide);
+                Next::Pop
+            }
             // on to play now
             Some(Nav::Decide) if ready && self.leaving.is_none() => {
                 self.leaving = Some(Instant::now());

@@ -14,6 +14,7 @@ use crate::scene::result_skin::{
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
+use crate::sysound::Sound;
 use crate::theme;
 use std::sync::mpsc::{channel, Receiver};
 use vibebms_core::gauge::GaugeType;
@@ -162,6 +163,7 @@ impl ResultScene {
                 }
             }
         }
+        ctx.play_sound(result_sound(&d).0);
         ResultScene {
             d,
             before,
@@ -196,6 +198,9 @@ impl ResultScene {
     }
 
     fn go(&mut self, ctx: &mut Ctx, to: Leave) -> Next {
+        let (playing, close) = result_sound(&self.d);
+        ctx.stop_sound(playing);
+        ctx.play_sound(close);
         match to {
             Leave::Proceed => self.proceed(ctx),
             Leave::Retry => self.retry(ctx),
@@ -400,6 +405,22 @@ impl Scene for ResultScene {
                 Align::Left,
             );
         }
+    }
+}
+
+/// The sound set's sounds of a result: the one it starts with (clear /
+/// fail; the course's once a course ends) and the one it closes with.
+fn result_sound(d: &ResultData) -> (Sound, Sound) {
+    let failed = d.clear == ClearType::Failed;
+    let course_end = d
+        .course
+        .as_ref()
+        .is_some_and(|c| failed || c.index + 1 >= c.songs.len());
+    match (course_end, failed) {
+        (true, false) => (Sound::CourseClear, Sound::CourseClose),
+        (true, true) => (Sound::CourseFail, Sound::CourseClose),
+        (false, false) => (Sound::ResultClear, Sound::ResultClose),
+        (false, true) => (Sound::ResultFail, Sound::ResultClose),
     }
 }
 

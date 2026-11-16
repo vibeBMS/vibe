@@ -368,6 +368,9 @@ impl Loader<'_> {
         match cmd.as_str() {
             "#INFORMATION" => {
                 self.skin.kind = SkinType::from_id(v[1] as i32);
+                if self.skin.kind == SkinType::SkinSelect {
+                    self.skin.skin_select = Some(Default::default());
+                }
                 self.skin.name = f.get(2).unwrap_or(&"").trim().to_string();
                 self.skin.author = f.get(3).unwrap_or(&"").trim().to_string();
             }
@@ -523,7 +526,14 @@ impl Loader<'_> {
                 let id = v[11] as i32;
                 self.push(Kind::ImageSet { srcs, id });
                 let i = self.skin.objects.len() - 1;
-                self.skin.objects[i].act = Some((id, v[12] as i32));
+                // as beatoraja reads LR2 buttons: plus-only > 0 adds,
+                // < 0 subtracts, 0 splits the button left / right
+                let click = match v[14] {
+                    n if n > 0 => 0,
+                    n if n < 0 => 1,
+                    _ => 2,
+                };
+                self.skin.objects[i].act = Some((id, click));
                 if v[13] > 0 {
                     self.panel_ops.push((i, 20 + v[13] as i32));
                 }
@@ -1133,6 +1143,7 @@ pub fn load_with(
             fonts: Vec::new(),
             trans_color: None,
             offsets: HashMap::new(),
+            skin_select: None,
         },
         sizes: Vec::new(),
         image_size,
@@ -1181,7 +1192,8 @@ pub fn load_with(
     if let Some((d, align, ..)) = l.skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
         anchor(d, *align);
     }
-    if l.skin.objects.is_empty() {
+    // beatoraja's own key config skin is empty: its screen draws the rows
+    if l.skin.objects.is_empty() && l.skin.kind != SkinType::KeyConfig {
         return Err(format!("{}: no drawable objects", path.display()));
     }
     Ok(l.skin)
@@ -1605,10 +1617,10 @@ mod tests {
         };
         // one frame per button value, fired as button 42 (RANDOM)
         assert_eq!((srcs.len(), *id), (4, 42));
-        assert_eq!(s.objects[0].act, Some((42, 0)));
+        assert_eq!(s.objects[0].act, Some((42, 2)));
         // panel 1 adds option 21 to the destination's own conditions
         assert_eq!(s.objects[0].dst.ops, vec![32, 21]);
-        assert_eq!(s.objects[1].act, Some((15, 0)));
+        assert_eq!(s.objects[1].act, Some((15, 2)));
         assert!(s.objects[1].dst.ops.is_empty());
     }
 

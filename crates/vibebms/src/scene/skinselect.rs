@@ -1,0 +1,838 @@
+//! The skin select screen drawn by a SKIN_SELECT skin (LR2 / beatoraja
+//! skin type 9): choose the skin of each skin type and its custom options,
+//! with a preview of the chosen skin. Sound sets are a skin type here
+//! (SOUND SET), as in LR2.
+//!
+//! ↑↓ (the turntable) pick a row (the skin, then its options), ←→ (white /
+//! blue keys) change it, PgUp / PgDn (START) the skin type, the wheel
+//! scrolls the options, Esc (SELECT, BACK) leaves and saves.
+//!
+//! Skin values (beatoraja's, which follow LR2's): buttons 170-185 (the
+//! skin type, clicked to choose it), 190 (next / previous skin), 220-229
+//! (option row `i`), texts 50 / 51 (the skin's name / author), 100-109
+//! (option names), 110-119 (their values), slider 7 (where the option
+//! list is scrolled), the preview (LR2 image 105, beatoraja `skinpreview`).
+
+use super::skinned::{self, ms_since};
+use crate::app::{Ctx, Draw, Next, Scene};
+use crate::gfx::text::Align;
+use crate::gfx::{with_alpha, Gfx, Rect};
+use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
+use crate::platform::Instant;
+use crate::skin::render::{Hooks, LoadedSkin, Xf};
+use crate::skin::{CustomOffset, CustomOption, SkinState, SkinType, OFFSET_FIELDS};
+use crate::sysound::Sound;
+use crate::{theme, ui};
+use std::collections::HashMap;
+use winit::keyboard::KeyCode;
+
+/// The skin types offered, in the order PgUp / PgDn walk them.
+pub const TYPES: [SkinType; 12] = [
+    SkinType::Play7,
+    SkinType::Play5,
+    SkinType::Play14,
+    SkinType::Play10,
+    SkinType::Play9,
+    SkinType::Select,
+    SkinType::Decide,
+    SkinType::Result,
+    SkinType::CourseResult,
+    SkinType::KeyConfig,
+    SkinType::SkinSelect,
+    SkinType::SoundSet,
+];
+
+/// Button of skin type `t` (170 + its number).
+pub fn type_button(t: SkinType) -> i32 {
+    170 + t.id()
+}
+
+/// One row of the option list.
+#[derive(Clone, Debug)]
+pub enum Item {
+    Option(CustomOption),
+    /// An offset's field (x, y, w, h, angle, alpha).
+    Offset(CustomOffset, usize),
+}
+
+impl Item {
+    pub fn name(&self) -> String {
+        match self {
+            Item::Option(o) => o.name.clone(),
+            Item::Offset(o, f) => format!("{} - {}", o.name, OFFSET_FIELDS[*f].to_lowercase()),
+        }
+    }
+}
+
+/// The option rows of the skin chosen as `value` (options, files, then
+/// offsets), as beatoraja lists them.
+pub fn items(ctx: &Ctx, kind: SkinType, value: &str) -> Vec<Item> {
+    if kind == SkinType::SoundSet {
+        return Vec::new();
+    }
+    let Some(p) = super::play_skin::configured_path(ctx, value) else {
+        return Vec::new();
+    };
+    let mut v: Vec<Item> = ctx
+        .skin_custom_options(&p)
+        .into_iter()
+        .filter(|o| !o.labels.is_empty())
+        .map(Item::Option)
+        .collect();
+    for o in ctx.skin_custom_offsets(&p) {
+        for f in 0..6 {
+            if o.fields[f] {
+                v.push(Item::Offset(o.clone(), f));
+            }
+        }
+    }
+    v
+}
+
+/// What an option row shows.
+pub fn item_value(ctx: &Ctx, value: &str, it: &Item) -> String {
+    match it {
+        Item::Option(o) => {
+            let chosen = ctx
+                .config
+                .skin_options
+                .get(value)
+                .and_then(|m| m.get(&o.name))
+                .map(String::as_str);
+            o.labels.get(o.chosen(chosen)).cloned().unwrap_or_default()
+        }
+        Item::Offset(o, f) => ctx
+            .config
+            .skin_offsets
+            .get(value)
+            .and_then(|m| m.get(&o.name))
+            .map(|v| v[*f])
+            .unwrap_or(0)
+            .to_string(),
+    }
+}
+
+/// The screen to open for choosing skins (on `kind`'s page): the skinned
+/// one when a SKIN_SELECT skin is chosen, else the settings' skin rows
+/// (the sound set's for SOUND_SET).
+pub fn open(ctx: &mut Ctx, kind: Option<SkinType>) -> Box<dyn Scene> {
+    if skinned::configured_skin(ctx, SkinType::SkinSelect).is_some() {
+        Box::new(SkinSelectScene::new(kind))
+    } else {
+        let cat = if kind == Some(SkinType::SoundSet) {
+            5
+        } else {
+            4
+        };
+        Box::new(super::settings::SettingsScene::at(ctx, cat))
+    }
+}
+
+pub struct SkinSelectScene {
+    skin: Option<LoadedSkin>,
+    tried: bool,
+    created: Instant,
+    leaving: Option<Instant>,
+    /// The skin type being chosen (`None`: the skin's default category).
+    kind: Option<SkinType>,
+    /// 0: the skin; 1..: option row `cursor - 1`.
+    cursor: usize,
+    /// First option row shown.
+    offset: usize,
+    clicks: Vec<(Rect, i32, i32)>,
+    back_rect: Rect,
+    axis_last: HashMap<u64, f32>,
+    /// The chosen skin drawn small, and what it was loaded for.
+    preview: Option<LoadedSkin>,
+    preview_for: Option<(SkinType, String, u64)>,
+    preview_at: Instant,
+    /// Bumped by every option change (the preview loads again).
+    changes: u64,
+    changed_at: Instant,
+}
+
+impl SkinSelectScene {
+    pub fn new(kind: Option<SkinType>) -> SkinSelectScene {
+        SkinSelectScene {
+            skin: None,
+            tried: false,
+            created: Instant::now(),
+            leaving: None,
+            kind,
+            cursor: 0,
+            offset: 0,
+            clicks: Vec::new(),
+            back_rect: Rect::default(),
+            axis_last: HashMap::new(),
+            preview: None,
+            preview_for: None,
+            preview_at: Instant::now(),
+            changes: 0,
+            changed_at: Instant::now(),
+        }
+    }
+
+    pub fn kind(&self) -> SkinType {
+        self.kind.unwrap_or(SkinType::Play7)
+    }
+
+    fn key(&self) -> &'static str {
+        self.kind().key().unwrap_or("7KEYS")
+    }
+
+    /// The `config.skins` value of the type shown.
+    pub fn value(&self, ctx: &Ctx) -> String {
+        ctx.config
+            .skins
+            .get(self.key())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn items(&self, ctx: &Ctx) -> Vec<Item> {
+        items(ctx, self.kind(), &self.value(ctx))
+    }
+
+    /// Option rows the skin has room for.
+    fn rows(&self) -> usize {
+        let Some(sk) = self.skin.as_ref() else {
+            return 6;
+        };
+        match sk.skin.skin_select.map(|s| s.custom_property_count) {
+            Some(n) if n > 0 => n,
+            _ => sk
+                .skin
+                .objects
+                .iter()
+                .filter_map(|o| o.act.map(|a| a.0))
+                .filter(|a| (220..230).contains(a))
+                .map(|a| (a - 219) as usize)
+                .max()
+                .unwrap_or(6),
+        }
+    }
+
+    fn max_offset(&self, ctx: &Ctx) -> usize {
+        self.items(ctx).len().saturating_sub(self.rows())
+    }
+
+    fn input_ms(&self) -> i64 {
+        self.skin.as_ref().map(|s| s.skin.input_ms).unwrap_or(0)
+    }
+
+    pub fn set_kind(&mut self, ctx: &mut Ctx, t: SkinType) {
+        if self.kind != Some(t) {
+            self.kind = Some(t);
+            self.cursor = 0;
+            self.offset = 0;
+            ctx.play_sound(Sound::OptionOpen);
+        }
+    }
+
+    fn step_kind(&mut self, ctx: &mut Ctx, d: i32) {
+        let i = TYPES.iter().position(|t| *t == self.kind()).unwrap_or(0) as i32;
+        let n = TYPES.len() as i32;
+        self.set_kind(ctx, TYPES[(i + d).rem_euclid(n) as usize]);
+    }
+
+    /// The next / previous skin of the type.
+    pub fn step_skin(&mut self, ctx: &mut Ctx, d: i32) {
+        let kind = self.kind();
+        let opts = skinned::skin_choices(ctx, kind);
+        let cur = self.value(ctx);
+        let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
+        let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
+        ctx.config.skins.insert(self.key().to_string(), next);
+        self.offset = 0;
+        self.cursor = 0;
+        self.changed(ctx);
+    }
+
+    /// Change option row `i` (of all of them) by `d`.
+    pub fn step_item(&mut self, ctx: &mut Ctx, i: usize, d: i32) {
+        let value = self.value(ctx);
+        match self.items(ctx).get(i) {
+            Some(Item::Option(o)) => skinned::step_option(ctx, &value, o, d),
+            Some(Item::Offset(o, f)) => skinned::step_offset(ctx, &value, &o.name, *f, d),
+            None => return,
+        }
+        self.changed(ctx);
+    }
+
+    fn changed(&mut self, ctx: &mut Ctx) {
+        self.changes += 1;
+        self.changed_at = Instant::now();
+        ctx.save_config();
+        ctx.play_sound(Sound::OptionChange);
+    }
+
+    /// Change the row under the cursor.
+    fn change(&mut self, ctx: &mut Ctx, d: i32) {
+        if self.cursor == 0 {
+            self.step_skin(ctx, d);
+        } else {
+            self.step_item(ctx, self.cursor - 1, d);
+        }
+    }
+
+    fn step(&mut self, ctx: &Ctx, d: i32) {
+        let n = self.items(ctx).len() as i32 + 1;
+        self.cursor = (self.cursor as i32 + d).rem_euclid(n) as usize;
+        // keep the chosen option row in view
+        if self.cursor > 0 {
+            let i = self.cursor - 1;
+            let rows = self.rows();
+            if i < self.offset {
+                self.offset = i;
+            } else if i >= self.offset + rows {
+                self.offset = i + 1 - rows;
+            }
+        }
+    }
+
+    fn scroll(&mut self, ctx: &Ctx, d: i32) {
+        let max = self.max_offset(ctx) as i32;
+        self.offset = (self.offset as i32 + d).clamp(0, max) as usize;
+    }
+
+    fn leave(&mut self, ctx: &mut Ctx) -> Next {
+        if self.leaving.is_none() {
+            ctx.save_config();
+            self.leaving = Some(Instant::now());
+        }
+        Next::Stay
+    }
+
+    /// A clicked skin object; `dir` is +1 / -1 by where it was clicked.
+    pub fn event(&mut self, ctx: &mut Ctx, act: i32, dir: i32) {
+        match act {
+            170..=185 => {
+                if let Some(t) = TYPES.iter().find(|t| type_button(**t) == act) {
+                    self.set_kind(ctx, *t);
+                }
+            }
+            190 => {
+                self.cursor = 0;
+                self.step_skin(ctx, dir);
+            }
+            220..=229 => {
+                let i = self.offset + (act - 220) as usize;
+                if i < self.items(ctx).len() {
+                    self.cursor = i + 1;
+                    self.step_item(ctx, i, dir);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
+        match nav {
+            Nav::Up => self.step(ctx, -1),
+            Nav::Down => self.step(ctx, 1),
+            Nav::Decide => self.change(ctx, 1),
+            Nav::Close => self.change(ctx, -1),
+            Nav::Option => self.step_kind(ctx, 1),
+            Nav::Back | Nav::Settings => return self.leave(ctx),
+        }
+        Next::Stay
+    }
+
+    /// Load the preview of the chosen skin when it changed (a moment after
+    /// the last change: stepping through skins stays quick).
+    fn update_preview(&mut self, ctx: &Ctx, gfx: &mut Gfx) {
+        let kind = self.kind();
+        let want = (kind, self.value(ctx), self.changes);
+        if self.preview_for.as_ref() == Some(&want) || self.changed_at.elapsed().as_millis() < 250 {
+            return;
+        }
+        self.preview_for = Some(want.clone());
+        if let Some(mut p) = self.preview.take() {
+            p.free(gfx);
+        }
+        // beatoraja shows none for these
+        if matches!(
+            kind,
+            SkinType::SkinSelect | SkinType::SoundSet | SkinType::Result | SkinType::CourseResult
+        ) {
+            return;
+        }
+        let Some(path) = skinned::choice_path(ctx, kind, &want.1) else {
+            return;
+        };
+        let loaded = crate::skin::load_file(
+            &path,
+            &ctx.paths.skins,
+            &ctx.skin_user_settings(&want.1, &path),
+            &|_| None,
+            Some(&PreviewState),
+            &crate::skin::image_size,
+        );
+        match loaded {
+            Ok(s) => {
+                self.preview = Some(LoadedSkin::load(s, gfx));
+                self.preview_at = Instant::now();
+            }
+            Err(e) => log::warn!("skin preview: {e}"),
+        }
+    }
+}
+
+/// What a previewed skin sees: its start, nothing playing.
+struct PreviewState;
+
+impl SkinState for PreviewState {
+    fn timer(&self, id: i32) -> Option<i64> {
+        (id == 0).then_some(0)
+    }
+    fn option(&self, id: i32) -> bool {
+        id < 0
+    }
+    fn number(&self, id: i32) -> Option<i64> {
+        skinned::clock_number(id)
+    }
+    fn text(&self, _: i32) -> Option<String> {
+        None
+    }
+    fn rate(&self, _: i32) -> f32 {
+        0.0
+    }
+}
+
+struct SelectState<'a> {
+    s: &'a SkinSelectScene,
+    ctx: &'a Ctx,
+    items: &'a [Item],
+}
+
+impl SkinState for SelectState<'_> {
+    fn timer(&self, id: i32) -> Option<i64> {
+        match id {
+            0 => Some(0),
+            1 => Some(self.s.input_ms()),
+            2 => self.s.leaving.map(|t| ms_since(self.s.created, t)),
+            _ => None,
+        }
+    }
+
+    fn option(&self, id: i32) -> bool {
+        id < 0
+    }
+
+    fn number(&self, id: i32) -> Option<i64> {
+        skinned::clock_number(id).or(match id {
+            20 => Some(self.ctx.fps as i64),
+            _ => None,
+        })
+    }
+
+    fn text(&self, id: i32) -> Option<String> {
+        let value = self.s.value(self.ctx);
+        Some(match id {
+            2 => self.ctx.config.player_name.clone(),
+            50 | 51 => {
+                let (n, a) = skinned::choice_name(self.ctx, self.s.kind(), &value);
+                if id == 50 {
+                    n
+                } else {
+                    a
+                }
+            }
+            100..=109 => self.items.get(self.s.offset + (id - 100) as usize)?.name(),
+            110..=119 => {
+                let it = self.items.get(self.s.offset + (id - 110) as usize)?;
+                item_value(self.ctx, &value, it)
+            }
+            _ => return None,
+        })
+    }
+
+    fn rate(&self, id: i32) -> f32 {
+        match id {
+            7 => {
+                let max = self.items.len().saturating_sub(self.s.rows());
+                if max == 0 {
+                    0.0
+                } else {
+                    self.s.offset as f32 / max as f32
+                }
+            }
+            _ => 0.0,
+        }
+    }
+
+    fn button(&self, id: i32) -> Option<i64> {
+        match id {
+            170..=185 | 386..=388 => Some((type_button(self.s.kind()) == id) as i64),
+            _ => skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
+        }
+    }
+}
+
+struct SelectHooks<'a> {
+    clicks: Vec<(Rect, i32, i32)>,
+    preview: Option<&'a LoadedSkin>,
+    preview_ms: i64,
+    /// The screen of the skin select skin (the clip to restore).
+    screen: Rect,
+}
+
+impl Hooks for SelectHooks<'_> {
+    fn clickable(&mut self, rect: Rect, act: i32, click: i32) {
+        self.clicks.push((rect, act, click));
+    }
+
+    fn preview(&mut self, d: &mut Draw, rect: Rect, color: [f32; 4]) {
+        let Some(p) = self.preview else { return };
+        d.b.rect(rect, [0.0, 0.0, 0.0, color[3]]);
+        struct NoHooks;
+        impl Hooks for NoHooks {}
+        p.draw(d, rect, self.preview_ms, &PreviewState, &mut NoHooks);
+        d.b.set_base_clip(Some(self.screen));
+    }
+}
+
+/// +1 / -1 for a click at (x, y) on `r` (beatoraja click modes: 0 adds, 1
+/// subtracts, 2 splits left / right, 3 top / bottom).
+pub fn click_dir(r: Rect, click: i32, x: f32, y: f32) -> i32 {
+    match click {
+        1 => -1,
+        2 if x < r.x + r.w * 0.5 => -1,
+        3 if y > r.y + r.h * 0.5 => -1,
+        _ => 1,
+    }
+}
+
+impl Scene for SkinSelectScene {
+    fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
+        if !self.tried {
+            self.tried = true;
+            let skin = {
+                let items = self.items(ctx);
+                let st = SelectState {
+                    s: self,
+                    ctx,
+                    items: &items,
+                };
+                skinned::load(ctx, gfx, SkinType::SkinSelect, &|_| None, &st)
+            };
+            let Some(skin) = skin else {
+                return Next::Replace(Box::new(super::settings::SettingsScene::at(ctx, 4)));
+            };
+            if self.kind.is_none() {
+                let c = skin
+                    .skin
+                    .skin_select
+                    .map(|s| s.default_category)
+                    .unwrap_or(0);
+                self.kind = Some(
+                    TYPES
+                        .into_iter()
+                        .find(|t| t.id() == c)
+                        .unwrap_or(SkinType::Play7),
+                );
+            }
+            self.skin = Some(skin);
+            self.created = now;
+        }
+        if let Some(sk) = self.skin.as_mut() {
+            sk.load_pending(gfx);
+        }
+        self.update_preview(ctx, gfx);
+        if let Some(p) = self.preview.as_mut() {
+            p.load_pending(gfx);
+        }
+        let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
+        match self.leaving {
+            Some(t) if ms_since(t, now) >= fade => Next::Pop,
+            _ => Next::Stay,
+        }
+    }
+
+    fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
+        ctx.save_config();
+        for s in [self.skin.take(), self.preview.take()]
+            .into_iter()
+            .flatten()
+        {
+            let mut s = s;
+            s.free(gfx);
+        }
+    }
+
+    fn realtime(&self) -> bool {
+        true
+    }
+
+    fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        if self.leaving.is_some() {
+            return Next::Stay;
+        }
+        let ready = ms_since(self.created, Instant::now()) >= self.input_ms();
+        match ev {
+            InputEv::Key {
+                code,
+                pressed: true,
+                ..
+            } => match code {
+                KeyCode::ArrowLeft => self.change(ctx, -1),
+                KeyCode::ArrowRight => self.change(ctx, 1),
+                KeyCode::PageUp | KeyCode::BracketLeft => self.step_kind(ctx, -1),
+                KeyCode::PageDown | KeyCode::BracketRight => self.step_kind(ctx, 1),
+                c => {
+                    if let Some(n) = nav_from_key(*c, &ctx.config.keys) {
+                        if ready || matches!(n, Nav::Back | Nav::Settings) {
+                            return self.nav(ctx, n);
+                        }
+                    }
+                }
+            },
+            InputEv::Pad {
+                id, pressed: true, ..
+            } => {
+                if let Some(n) = nav_from_pad_rows(*id, &ctx.config.keys) {
+                    return self.nav(ctx, n);
+                }
+            }
+            InputEv::Axis { id, value, .. } => {
+                let l = self.axis_last.entry(*id).or_insert(*value);
+                let mut d = value - *l;
+                if d > 1.0 {
+                    d -= 2.0
+                } else if d < -1.0 {
+                    d += 2.0
+                }
+                if d.abs() >= 0.06 {
+                    *l = *value;
+                    self.step(ctx, if d > 0.0 { 1 } else { -1 });
+                }
+            }
+            InputEv::Wheel { dy } => {
+                let n = (-dy).round() as i32;
+                if n != 0 {
+                    self.scroll(ctx, n);
+                }
+            }
+            InputEv::Pointer {
+                phase: Phase::Up,
+                x,
+                y,
+                ..
+            } => {
+                if self.back_rect.contains(*x, *y) {
+                    return self.leave(ctx);
+                }
+                if let Some(&(r, act, click)) =
+                    self.clicks.iter().rev().find(|(r, ..)| r.contains(*x, *y))
+                {
+                    if !self.skin.as_ref().is_some_and(|s| s.click(act)) {
+                        self.event(ctx, act, click_dir(r, click, *x, *y));
+                    }
+                }
+            }
+            _ => {}
+        }
+        Next::Stay
+    }
+
+    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let ms = ms_since(self.created, now);
+        let items = self.items(ctx);
+        let (sw, sh) = self
+            .skin
+            .as_ref()
+            .map(|s| (s.skin.width, s.skin.height))
+            .unwrap_or((1280.0, 720.0));
+        let xf = Xf::fit(sw, sh, view);
+        let mut hooks = SelectHooks {
+            clicks: Vec::new(),
+            preview: self.preview.as_ref(),
+            preview_ms: ms_since(self.preview_at, now),
+            screen: xf.rect(Rect::new(0.0, 0.0, sw, sh)),
+        };
+        {
+            let st = SelectState {
+                s: self,
+                ctx,
+                items: &items,
+            };
+            if let Some(sk) = self.skin.as_ref() {
+                sk.draw(d, view, ms, &st, &mut hooks);
+            }
+        }
+        self.clicks = hooks.clicks;
+        // the row the keys change, over its button
+        let want = if self.cursor == 0 {
+            Some(190)
+        } else {
+            let i = self.cursor - 1;
+            (i >= self.offset && i < self.offset + 10).then(|| 220 + (i - self.offset) as i32)
+        };
+        if let Some(&(r, ..)) = self.clicks.iter().find(|c| Some(c.1) == want) {
+            d.b.rect(r, with_alpha(theme::ACCENT, 0.12));
+            let t = 2.0;
+            for e in [
+                Rect::new(r.x, r.y, r.w, t),
+                Rect::new(r.x, r.y + r.h - t, r.w, t),
+                Rect::new(r.x, r.y, t, r.h),
+                Rect::new(r.x + r.w - t, r.y, t, r.h),
+            ] {
+                d.b.rect(e, theme::ACCENT);
+            }
+        }
+        let ui = ctx.ui();
+        let (w, h) = (ctx.width, ctx.height);
+        // the keys, for a moment after the screen opens
+        let shown = ms_since(self.created, now);
+        if shown < 6000 {
+            let a = ((6000 - shown) as f32 / 1000.0).min(1.0);
+            let r = Rect::new(w * 0.5 - 260.0 * ui, h - 34.0 * ui, 520.0 * ui, 26.0 * ui);
+            d.b.rect(r, with_alpha(theme::BACKGROUND, 0.8 * a));
+            d.text(
+                "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back",
+                w * 0.5,
+                r.y + 4.0 * ui,
+                15.0 * ui,
+                with_alpha(theme::TEXT, a),
+                Align::Center,
+            );
+        }
+        self.back_rect = ui::button(
+            d,
+            Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
+            "◀ BACK",
+            ui,
+            false,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn type_buttons() {
+        assert_eq!(type_button(SkinType::Play7), 170);
+        assert_eq!(type_button(SkinType::KeyConfig), 178);
+        assert_eq!(type_button(SkinType::SoundSet), 180);
+        assert_eq!(type_button(SkinType::CourseResult), 185);
+    }
+
+    fn write(p: &std::path::Path, s: &str) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, s).unwrap();
+    }
+
+    #[test]
+    fn skin_types_and_preview() {
+        let dir = std::env::temp_dir().join(format!("vibebms-sst-{}", std::process::id()));
+        let json = r#"{"type": 9, "name": "SS", "w": 1280, "h": 720,
+            "skinSelect": {"defaultCategory": 6, "customPropertyCount": 4},
+            "skinpreview": {"id": "pv"},
+            "destination": [{"id": "pv", "dst": [{"x": 0, "y": 0, "w": 640, "h": 360}]}]}"#;
+        write(&dir.join("ss/skinselect.json"), json);
+        write(
+            &dir.join("kc/keyconfig.json"),
+            r#"{"type": 8, "name": "KC", "w": 1280, "h": 720}"#,
+        );
+        write(
+            &dir.join("lr2/ss.lr2skin"),
+            "#INFORMATION,9,LSS,me\n#SRC_IMAGE,0,105,0,0,1280,720,1,1,0,0\n\
+             #DST_IMAGE,0,0,0,0,640,360,0,255,255,255,255\n",
+        );
+        let h = |p: &str| crate::skin::header(&dir.join(p)).map(|h| h.0);
+        assert_eq!(h("ss/skinselect.json"), Some(SkinType::SkinSelect));
+        assert_eq!(h("kc/keyconfig.json"), Some(SkinType::KeyConfig));
+        assert_eq!(h("lr2/ss.lr2skin"), Some(SkinType::SkinSelect));
+        let size = |_: &std::path::Path| None;
+        let load = |p: &str| {
+            crate::skin::load_file(
+                &dir.join(p),
+                &dir,
+                &Default::default(),
+                &|_| None,
+                None,
+                &size,
+            )
+            .unwrap()
+        };
+        let ss = load("ss/skinselect.json");
+        let lr2 = load("lr2/ss.lr2skin");
+        std::fs::remove_dir_all(&dir).ok();
+        let info = ss.skin_select.unwrap();
+        assert_eq!((info.default_category, info.custom_property_count), (6, 4));
+        assert!(matches!(
+            ss.objects[0].kind,
+            crate::skin::Kind::RefImage(crate::skin::REF_SKIN_PREVIEW)
+        ));
+        assert!(lr2.skin_select.is_some());
+        assert!(matches!(
+            lr2.objects[0].kind,
+            crate::skin::Kind::RefImage(crate::skin::REF_SKIN_PREVIEW)
+        ));
+    }
+
+    #[test]
+    fn choose_skins_and_options() {
+        let root = std::env::temp_dir().join(format!("vibebms-ssc-{}", std::process::id()));
+        let opt = |name: &str| {
+            format!(
+                r#"{{"type": 5, "name": "{name}", "w": 1280, "h": 720,
+                "property": [{{"name": "Color", "item": [{{"name": "Red", "op": 900}},
+                {{"name": "Blue", "op": 901}}]}}],
+                "offset": [{{"name": "Bar", "id": 40, "x": true, "y": true}}]}}"#
+            )
+        };
+        write(&root.join("skins/a/select.json"), &opt("A"));
+        write(&root.join("skins/b/select.json"), &opt("B"));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SkinSelectScene::new(Some(SkinType::Select));
+        // the built-in default, then the two skins
+        s.step_skin(&mut ctx, 1);
+        assert_eq!(s.value(&ctx), "skins/a/select.json");
+        s.event(&mut ctx, 190, 1);
+        assert_eq!(s.value(&ctx), "skins/b/select.json");
+        let items = s.items(&ctx);
+        assert_eq!(items.len(), 3); // Color, Bar - x, Bar - y
+                                    // option row 1 (button 220): Red -> Blue; row 3 (222): Bar y + 1
+        s.event(&mut ctx, 220, 1);
+        s.event(&mut ctx, 222, 1);
+        s.event(&mut ctx, 222, 1);
+        let st = SelectState {
+            s: &s,
+            ctx: &ctx,
+            items: &items,
+        };
+        assert_eq!(st.text(50).as_deref(), Some("B"));
+        assert_eq!(st.text(100).as_deref(), Some("Color"));
+        assert_eq!(st.text(110).as_deref(), Some("Blue"));
+        assert_eq!(st.text(102).as_deref(), Some("Bar - y"));
+        assert_eq!(st.text(112).as_deref(), Some("2"));
+        assert_eq!(st.text(113), None);
+        assert_eq!(st.button(175), Some(1));
+        assert_eq!(st.button(170), Some(0));
+        assert_eq!(st.rate(7), 0.0);
+        // another type: buttons 170-185
+        s.event(&mut ctx, 176, 1);
+        assert_eq!(s.kind(), SkinType::Decide);
+        ctx.save_config();
+        let back = crate::config::Config::load(&ctx.paths.config_file());
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!(back.skins["SELECT"], "skins/b/select.json");
+        assert_eq!(back.skin_options["skins/b/select.json"]["Color"], "Blue");
+        assert_eq!(back.skin_offsets["skins/b/select.json"]["Bar"][1], 2);
+    }
+
+    #[test]
+    fn click_directions() {
+        let r = Rect::new(0.0, 0.0, 100.0, 20.0);
+        assert_eq!(click_dir(r, 0, 10.0, 5.0), 1);
+        assert_eq!(click_dir(r, 1, 90.0, 5.0), -1);
+        assert_eq!(click_dir(r, 2, 10.0, 5.0), -1);
+        assert_eq!(click_dir(r, 2, 90.0, 5.0), 1);
+        assert_eq!(click_dir(r, 3, 50.0, 2.0), 1);
+        assert_eq!(click_dir(r, 3, 50.0, 18.0), -1);
+    }
+}

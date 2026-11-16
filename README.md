@@ -40,6 +40,7 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 <root>/scores/player.json      totals over all plays (judgements, time played)
 <root>/cache/                  song scan and difficulty table caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
+<root>/sounds/                 system sound sets (optional)
 <root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
 ```
 
@@ -52,7 +53,7 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 1P 7 keys | `Z S X D C F V`, scratch `LShift` / `LCtrl` |
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay; 6 key config, 7 skin select |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
@@ -155,6 +156,21 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   homepage and the terms its author states. The web build keeps them in the browser's storage, but cannot run Lua
   skins and does not unpack skins over 400 MB.
 - A skin's custom options and offsets appear under it in `SETTINGS › DISPLAY`.
+- **Key config, skin select and sound set** (skin types 8, 9 and 10): with a KEY_CONFIG skin chosen, key `6` in song
+  select (or the skin's key config button, or `SETTINGS › KEY CONFIG`) opens the key config screen it draws: ↑↓ or
+  the turntable pick a key, ←→ the mode (7 / 14 keys, 9 keys, 5 / 10 keys), Enter, a white key or a tap on the key
+  waits for a key, controller button or turntable axis to bind, Delete clears it, Esc / SELECT / BACK leaves (it
+  saves as it goes). beatoraja's rows are drawn over beatoraja skins as beatoraja does; LR2 skins use their key
+  buttons (101-136, 140-143, slots 150-159; Lunatic Vibes' texts 300-384 too). Without such a skin, `6` opens the
+  settings' KEY CONFIG. With a SKIN_SELECT skin chosen, key `7` (or the skin button) opens the skin select screen:
+  ↑↓ the skin or one of its options, ←→ change it, PgUp / PgDn the skin type, with the skin's preview (beatoraja
+  `skinpreview`, LR2 image 105); without one, `7` opens `SETTINGS › DISPLAY`. Mouse and touch use the skins'
+  buttons, and both screens have a BACK button.
+- **Sound sets** (`SETTINGS › AUDIO`, or SOUND SET in the skin select screen): the song select music, the decide
+  jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
+  `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
+  under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › AUDIO › System volume`
+  sets their volume.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
   (parent folder) and 9901 (watch the chart's replay). A graph with
