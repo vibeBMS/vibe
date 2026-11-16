@@ -16,7 +16,7 @@ thread_local! {
 
 /// Hook up the pickers of `web/index.html`:
 /// `<input id="bms-input" webkitdirectory>` (a folder) and
-/// `<input id="bms-files" multiple>` (files and .zip / .7z / .rar song packs; iPad
+/// `<input id="bms-files" multiple>` (files and .zip / .7z / .rar / .lzh song packs; iPad
 /// Safari cannot pick folders).
 pub fn install_file_input(root: PathBuf) {
     ROOT.with(|r| *r.borrow_mut() = Some(root.clone()));
@@ -40,7 +40,10 @@ pub fn install_file_input(root: PathBuf) {
                 for i in 0..files.length() {
                     if let Some(f) = files.get(i) {
                         let name = f.name().to_lowercase();
-                        if [".zip", ".7z", ".rar"].iter().any(|e| name.ends_with(e)) {
+                        if [".zip", ".7z", ".rar", ".lzh"]
+                            .iter()
+                            .any(|e| name.ends_with(e))
+                        {
                             mount_zip_file(f);
                         }
                     }
@@ -52,7 +55,7 @@ pub fn install_file_input(root: PathBuf) {
     }
 }
 
-/// Read a picked song pack (.zip / .7z / .rar) and unpack it.
+/// Read a picked song pack (.zip / .7z / .rar / .lzh) and unpack it.
 fn mount_zip_file(f: web_sys::File) {
     wasm_bindgen_futures::spawn_local(async move {
         let name = f.name();
@@ -66,7 +69,7 @@ fn mount_zip_file(f: web_sys::File) {
     });
 }
 
-/// Unpack a song pack (.zip / .7z / .rar) into the library. Returns the
+/// Unpack a song pack (.zip / .7z / .rar / .lzh) into the library. Returns the
 /// number of files added.
 fn mount_zip(name: &str, data: &[u8]) -> usize {
     let Some(root) = ROOT.with(|r| r.borrow().clone()) else {
@@ -118,9 +121,11 @@ thread_local! {
 /// Charts picked as loose files (`<root>/bms/picked/`) whose sounds are
 /// elsewhere: move each into its song's folder, or ask (see
 /// `placement`). Returns messages for the user.
-pub fn place_picked_charts(root: &Path) -> Vec<String> {
+pub fn place_picked_charts(root: &Path, songs: &[crate::library::Song]) -> Vec<String> {
     let bms = root.join("bms");
     let picked = bms.join("picked");
+    // the library's charts as read (those picked cannot be read yet)
+    let lib = placement::library(root, songs);
     let mut out = Vec::new();
     for e in vfs::read_dir(&picked).unwrap_or_default() {
         let path = e.path;
@@ -131,7 +136,7 @@ pub fn place_picked_charts(root: &Path) -> Vec<String> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match placement::locate_loose(&path, &bms) {
+        match placement::locate_loose_in(&path, &lib) {
             Some(Located::Move(dir)) => {
                 if placement::bring(&path, &dir).is_some() {
                     out.push(format!(
