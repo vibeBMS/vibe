@@ -273,6 +273,29 @@ pub fn clock_number(id: i32) -> Option<i64> {
     })
 }
 
+/// The player's totals over all charts (beatoraja `PlayerData`; LR2 has
+/// 30-37 too): time played 17-19 (h, min, s), plays, clears and fails
+/// 30-32, PG / GR / GD / BD / POOR 33-37 (POOR without empty POORs) and
+/// notes hit (PG to BD) 333.
+pub fn player_number(ctx: &Ctx, id: i32) -> Option<i64> {
+    let sum = |f: fn(&crate::library::BestScore) -> u32| -> i64 {
+        ctx.scores.values().map(|b| f(b) as i64).sum()
+    };
+    let totals = ctx.lib.as_ref().map(|l| l.totals());
+    let secs = totals.map_or(0, |t| t.play_ms / 1000) as i64;
+    Some(match id {
+        17 => secs / 3600,
+        18 => secs / 60 % 60,
+        19 => secs % 60,
+        30 => sum(|b| b.play_count),
+        31 => sum(|b| b.clear_count),
+        32 => sum(|b| b.play_count.saturating_sub(b.clear_count)),
+        33..=37 => totals.map_or(0, |t| t.judge((id - 33) as usize)) as i64,
+        333 => totals.map_or(0, |t| t.notes()) as i64,
+        _ => return None,
+    })
+}
+
 /// LR2 lamp options 100-105 (exactly one holds: lamps LR2 lacks count as
 /// the nearest one) and beatoraja's exact 1100-1104.
 pub fn lamp_option(c: vibebms_core::score::ClearType, id: i32) -> Option<bool> {

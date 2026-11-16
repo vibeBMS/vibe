@@ -220,6 +220,9 @@ impl SkinState for SelectState<'_> {
         if let Some(v) = super::skinned::clock_number(id) {
             return Some(v);
         }
+        if let Some(v) = super::skinned::player_number(self.ctx, id) {
+            return Some(v);
+        }
         let p = &self.ctx.config.play;
         let song = self.song();
         let best = self.best();
@@ -228,15 +231,6 @@ impl SkinState for SelectState<'_> {
         Some(match id {
             20 => self.ctx.fps as i64,
             12 => p.judge_offset_ms as i64,
-            // the player's plays, clears and fails over all charts
-            30 => self.ctx.scores.values().map(|b| b.play_count as i64).sum(),
-            31 => self.ctx.scores.values().map(|b| b.clear_count as i64).sum(),
-            32 => self
-                .ctx
-                .scores
-                .values()
-                .map(|b| (b.play_count - b.clear_count) as i64)
-                .sum(),
             71 => b(|b| b.ex_score as i64)?,
             72 => song.map(|s| s.notes * 2)?,
             74 => song.map(|s| s.notes)?,
@@ -526,7 +520,8 @@ impl Hooks for SelectHooks<'_> {
                     let shown = selected.then(|| now - st.timer(11).unwrap_or(0));
                     let face = sl.text_face.as_deref().and_then(|p| d.text.face(p));
                     d.text.set_face(face.unwrap_or(0));
-                    skin.text(d, &info.title, tr, *align, *overflow, c, *font, shown);
+                    let (al, of, fx, size) = (*align, *overflow, &sl.text_fx, sl.text_size);
+                    skin.text(d, &info.title, tr, al, of, c, *font, shown, fx, size, xf.sy);
                     d.text.set_face(0);
                 }
             }

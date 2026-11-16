@@ -303,6 +303,11 @@ pub enum Kind {
         constant: Option<String>,
         /// The skin's own font file (beatoraja TrueType / OpenType fonts).
         face: Option<PathBuf>,
+        /// beatoraja outline and shadow (none in LR2).
+        fx: TextFx,
+        /// beatoraja font size (skin px): `.fnt` glyphs are scaled by it
+        /// over the font's own size. `None`: by the destination height.
+        size: Option<f32>,
     },
     Bar {
         src: Src,
@@ -406,8 +411,10 @@ pub struct SongListSkin {
     /// Title: destination, align, overflow (as in `Kind::Text`), bitmap
     /// font.
     pub text: Option<(Dst, i32, i32, Option<usize>)>,
-    /// The title's font file (beatoraja).
+    /// The title's font file and outline / shadow (beatoraja).
     pub text_face: Option<PathBuf>,
+    pub text_fx: TextFx,
+    pub text_size: Option<f32>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
@@ -810,6 +817,51 @@ impl Skin {
     }
 }
 
+/// beatoraja text `outlineColor`, `outlineWidth`, `shadowColor`,
+/// `shadowOffsetX` / `Y` and `shadowSmoothness`. beatoraja draws them as
+/// follows, and so does vibe: TrueType and plain bitmap fonts only have
+/// the shadow, the text at the offset (display px) with its colour
+/// halved; distance-field bitmap fonts (`.fnt` of type 1 / 2) have all of
+/// it, the offset in texels of the glyph page.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextFx {
+    pub outline_color: [f32; 4],
+    pub outline_width: f32,
+    pub shadow_color: [f32; 4],
+    pub shadow_offset: (f32, f32),
+    pub shadow_smoothness: f32,
+}
+
+impl Default for TextFx {
+    fn default() -> TextFx {
+        // beatoraja's defaults: "ffffff00" colours, nothing else
+        TextFx {
+            outline_color: [1.0, 1.0, 1.0, 0.0],
+            outline_width: 0.0,
+            shadow_color: [1.0, 1.0, 1.0, 0.0],
+            shadow_offset: (0.0, 0.0),
+            shadow_smoothness: 0.0,
+        }
+    }
+}
+
+impl TextFx {
+    pub fn has_shadow(&self) -> bool {
+        self.shadow_offset != (0.0, 0.0)
+    }
+
+    /// The distance-field style (beatoraja's shader uniforms).
+    pub fn sdf(&self) -> crate::gfx::SdfStyle {
+        crate::gfx::SdfStyle {
+            outline_color: self.outline_color,
+            shadow_color: self.shadow_color,
+            shadow_offset: [self.shadow_offset.0, self.shadow_offset.1],
+            outline_distance: (0.5 - self.outline_width / 2.0).max(0.1),
+            shadow_smoothing: self.shadow_smoothness / 2.0,
+        }
+    }
+}
+
 /// An LR2 bitmap font: glyph images at a design height.
 #[derive(Clone, Debug, Default)]
 pub struct BitmapFont {
@@ -822,6 +874,11 @@ pub struct BitmapFont {
     /// Placement of a glyph (x offset, y offset from the top, advance) in
     /// fonts that give it (BMFont `.fnt`); else glyphs sit side by side.
     pub metrics: HashMap<char, [f32; 3]>,
+    /// Glyph images are distance fields (beatoraja font `type` 1 / 2).
+    pub sdf: bool,
+    /// The `.fnt` font's own size (its `info size`), which beatoraja
+    /// scales by the text's size; 0 for LR2 fonts.
+    pub em: f32,
 }
 
 /// Game state queried by the skin each frame.

@@ -137,6 +137,9 @@ impl SkinState for ResultState<'_> {
         if let Some(v) = super::skinned::clock_number(id) {
             return Some(v);
         }
+        if let Some(v) = super::skinned::player_number(self.ctx, id) {
+            return Some(v);
+        }
         let d = &self.s.d;
         let sc = &d.score;
         let before = self.s.before.as_ref();

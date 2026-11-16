@@ -8,6 +8,7 @@
 //! <root>/config/config.toml
 //! <root>/cache/songs.json        (scan cache, safe to delete)
 //! <root>/scores/scores.json      (your records)
+//! <root>/scores/player.json      (totals over all plays)
 //! <root>/cache/tables/*.json
 //! <root>/fonts/*.ttf|otf|ttc        (optional font overrides)
 //! <root>/<any folder with BMS files> (scanned automatically)

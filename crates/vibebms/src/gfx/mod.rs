@@ -92,12 +92,28 @@ impl Blend {
     }
 }
 
+/// How distance-field glyphs are drawn (see `fs_sdf` in the shader):
+/// beatoraja's outline and shadow for `.fnt` fonts of type 1 / 2.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct SdfStyle {
+    pub outline_color: Color,
+    pub shadow_color: Color,
+    /// Texels of the glyph page (right, down).
+    pub shadow_offset: [f32; 2],
+    /// Distance where the outline ends (0.5 = no outline).
+    pub outline_distance: f32,
+    pub shadow_smoothing: f32,
+}
+
 struct Cmd {
     tex: TexId,
     start: u32,
     count: u32,
     clip: Option<[u32; 4]>,
     blend: Blend,
+    /// Drawn as distance-field glyphs with this style (index in `styles`).
+    sdf: Option<u32>,
 }
 
 /// Geometry for one frame.
@@ -109,6 +125,8 @@ pub struct Batch {
     /// Outer clip every `set_clip` stays inside (a skin's viewport).
     base_clip: Option<Rect>,
     blend: Blend,
+    styles: Vec<SdfStyle>,
+    sdf: Option<u32>,
 }
 
 impl Batch {
@@ -118,6 +136,18 @@ impl Batch {
         self.clip = None;
         self.base_clip = None;
         self.blend = Blend::Alpha;
+        self.styles.clear();
+        self.sdf = None;
+    }
+
+    /// Draw following quads as distance-field glyphs (`None`: as images).
+    pub fn set_sdf(&mut self, style: Option<SdfStyle>) {
+        self.sdf = style.map(|st| {
+            if self.styles.last() != Some(&st) {
+                self.styles.push(st);
+            }
+            self.styles.len() as u32 - 1
+        });
     }
 
     /// Additive blending for following draws (skin glow effects).
@@ -137,6 +167,7 @@ impl Batch {
                 if c.tex == tex
                     && c.clip == self.clip
                     && c.blend == self.blend
+                    && c.sdf == self.sdf
                     && c.start + c.count == start =>
             {
                 c.count += count
@@ -147,6 +178,7 @@ impl Batch {
                 count,
                 clip: self.clip,
                 blend: self.blend,
+                sdf: self.sdf,
             }),
         }
     }
@@ -366,6 +398,14 @@ pub struct Gfx {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pipelines: [wgpu::RenderPipeline; 5],
+    /// The same for distance-field glyphs, with their styles at
+    /// `sdf_stride` apart in `sdf_buf` (a dynamic offset each).
+    sdf_pipelines: [wgpu::RenderPipeline; 5],
+    sdf_layout: wgpu::BindGroupLayout,
+    sdf_buf: wgpu::Buffer,
+    sdf_bind: wgpu::BindGroup,
+    sdf_stride: u64,
+    sdf_cap: u64,
     tex_layout: wgpu::BindGroupLayout,
     uniform_buf: wgpu::Buffer,
     uniform_bind: wgpu::BindGroup,
@@ -509,10 +549,28 @@ impl Gfx {
             bind_group_layouts: &[&uniform_layout, &tex_layout],
             push_constant_ranges: &[],
         });
-        let make = |blend: wgpu::BlendState| {
+        let sdf_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sdf"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<SdfStyle>() as u64),
+                },
+                count: None,
+            }],
+        });
+        let sdf_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("sdf"),
+            bind_group_layouts: &[&uniform_layout, &tex_layout, &sdf_layout],
+            push_constant_ranges: &[],
+        });
+        let make_with = |blend: wgpu::BlendState, sdf: bool| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("2d"),
-            layout: Some(&layout),
+            label: Some(if sdf { "sdf" } else { "2d" }),
+            layout: Some(if sdf { &sdf_pipeline_layout } else { &layout }),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
@@ -525,7 +583,7 @@ impl Gfx {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some(if sdf { "fs_sdf" } else { "fs_main" }),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(blend),
@@ -540,6 +598,7 @@ impl Gfx {
             cache: None,
         })
         };
+        let make = |blend| make_with(blend, false);
         let color = |src, dst, op| wgpu::BlendState {
             color: wgpu::BlendComponent {
                 src_factor: src,
@@ -550,13 +609,19 @@ impl Gfx {
         };
         use wgpu::{BlendFactor as F, BlendOperation as O};
         // indexed by `Blend`
-        let pipelines = [
-            make(wgpu::BlendState::ALPHA_BLENDING),
-            make(color(F::SrcAlpha, F::One, O::Add)),
-            make(color(F::SrcAlpha, F::One, O::ReverseSubtract)),
-            make(color(F::Zero, F::Src, O::Add)),
-            make(color(F::OneMinusDst, F::Zero, O::Add)),
+        let blends = [
+            wgpu::BlendState::ALPHA_BLENDING,
+            color(F::SrcAlpha, F::One, O::Add),
+            color(F::SrcAlpha, F::One, O::ReverseSubtract),
+            color(F::Zero, F::Src, O::Add),
+            color(F::OneMinusDst, F::Zero, O::Add),
         ];
+        let pipelines = blends.map(make);
+        let sdf_pipelines = blends.map(|b| make_with(b, true));
+        let sdf_stride = (std::mem::size_of::<SdfStyle>() as u64)
+            .next_multiple_of(device.limits().min_uniform_buffer_offset_alignment as u64);
+        let sdf_cap = 16;
+        let (sdf_buf, sdf_bind) = sdf_buffer(&device, &sdf_layout, sdf_stride * sdf_cap);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("linear"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -578,6 +643,12 @@ impl Gfx {
             queue,
             config,
             pipelines,
+            sdf_pipelines,
+            sdf_layout,
+            sdf_buf,
+            sdf_bind,
+            sdf_stride,
+            sdf_cap,
             tex_layout,
             uniform_buf,
             uniform_bind,
@@ -805,6 +876,24 @@ impl Gfx {
             self.queue
                 .write_buffer(&self.vbuf, 0, bytemuck::cast_slice(&batch.verts));
         }
+        let styles = batch.styles.len() as u64;
+        if styles > self.sdf_cap {
+            self.sdf_cap = styles.next_power_of_two();
+            (self.sdf_buf, self.sdf_bind) = sdf_buffer(
+                &self.device,
+                &self.sdf_layout,
+                self.sdf_stride * self.sdf_cap,
+            );
+        }
+        if styles > 0 {
+            let stride = self.sdf_stride as usize;
+            let mut bytes = vec![0u8; stride * batch.styles.len()];
+            for (i, st) in batch.styles.iter().enumerate() {
+                let b = bytemuck::bytes_of(st);
+                bytes[i * stride..i * stride + b.len()].copy_from_slice(b);
+            }
+            self.queue.write_buffer(&self.sdf_buf, 0, &bytes);
+        }
         let view = frame.texture.create_view(&Default::default());
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
@@ -848,7 +937,14 @@ impl Gfx {
                     }
                     None => pass.set_scissor_rect(0, 0, sw, sh),
                 }
-                pass.set_pipeline(&self.pipelines[c.blend as usize]);
+                match c.sdf {
+                    Some(i) => {
+                        pass.set_pipeline(&self.sdf_pipelines[c.blend as usize]);
+                        let off = (i as u64 * self.sdf_stride) as u32;
+                        pass.set_bind_group(2, &self.sdf_bind, &[off]);
+                    }
+                    None => pass.set_pipeline(&self.pipelines[c.blend as usize]),
+                }
                 pass.set_bind_group(1, &t.bind, &[]);
                 pass.draw(c.start..c.start + c.count, 0..1);
             }
@@ -857,6 +953,33 @@ impl Gfx {
         frame.present();
         Ok(())
     }
+}
+
+/// The uniform buffer of distance-field styles, `size` bytes.
+fn sdf_buffer(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    size: u64,
+) -> (wgpu::Buffer, wgpu::BindGroup) {
+    let buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("sdf styles"),
+        size,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("sdf styles"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: &buf,
+                offset: 0,
+                size: wgpu::BufferSize::new(std::mem::size_of::<SdfStyle>() as u64),
+            }),
+        }],
+    });
+    (buf, bind)
 }
 
 pub fn load_rgba(path: &std::path::Path, color_key_black: bool) -> Option<(u32, u32, Vec<u8>)> {

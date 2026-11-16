@@ -1,8 +1,9 @@
 //! Song library and score store.
 //!
-//! Stored as JSON in `cache/songs.json` (rebuildable scan cache) and
-//! `scores.json` (your play records) so it works identically on every
-//! platform, including the web build. Scanning runs in the background.
+//! Stored as JSON in `cache/songs.json` (rebuildable scan cache),
+//! `scores.json` (your play records) and `player.json` (totals over all
+//! plays) so it works identically on every platform, including the web
+//! build. Scanning runs in the background.
 
 use crate::platform::vfs;
 use serde::{Deserialize, Serialize};
@@ -96,6 +97,32 @@ impl BestScore {
     }
 }
 
+/// The player's totals over every recorded play (as beatoraja's
+/// `PlayerData`; skin numbers 17-19, 33-37 and 333). Plays and clears are
+/// the sums of the charts' counts instead.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Totals {
+    /// [PG, GR, GD, BD, PR, MS] of every play. Missing in files from
+    /// before vibe kept them: then seeded once from the best plays, so
+    /// plays from before count with their best play only.
+    pub judges: Option<[u64; 6]>,
+    /// Time played (ms): up to the last judgement of each play, counted
+    /// since vibe keeps it.
+    pub play_ms: u64,
+}
+
+impl Totals {
+    pub fn judge(&self, j: usize) -> u64 {
+        self.judges.map_or(0, |v| v[j])
+    }
+
+    /// Notes hit (PG to BD), beatoraja's "total notes played".
+    pub fn notes(&self) -> u64 {
+        (0..4).map(|j| self.judge(j)).sum()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct SongRecord {
     #[serde(flatten)]
@@ -116,6 +143,8 @@ pub struct Library {
     songs_file: PathBuf,
     scores_file: PathBuf,
     scores: HashMap<(String, i32), BestScore>,
+    totals_file: PathBuf,
+    totals: Totals,
 }
 
 fn load_songs(file: &Path) -> Vec<SongRecord> {
@@ -160,15 +189,35 @@ impl Library {
     /// `cache` holds the scan cache, `data` the score file.
     pub fn open(cache: &Path, data: &Path) -> Library {
         let scores_file = data.join("scores.json");
-        let scores = load_scores(&scores_file)
+        let scores: HashMap<_, _> = load_scores(&scores_file)
             .into_iter()
             .map(|r| ((r.sha256, r.ln), r.best))
             .collect();
+        let totals_file = data.join("player.json");
+        let mut totals: Totals = vfs::read(&totals_file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        if totals.judges.is_none() {
+            let mut j = [0u64; 6];
+            for b in scores.values() {
+                for (t, n) in j.iter_mut().zip(b.judges) {
+                    *t += n as u64;
+                }
+            }
+            totals.judges = Some(j);
+        }
         Library {
             songs_file: cache.join("songs.json"),
             scores_file,
             scores,
+            totals_file,
+            totals,
         }
+    }
+
+    pub fn totals(&self) -> &Totals {
+        &self.totals
     }
 
     pub fn songs_file(&self) -> &Path {
@@ -208,8 +257,16 @@ impl Library {
         }
     }
 
-    /// Merge a play into the best score. Returns the updated best.
-    pub fn record_play(&mut self, sha256: &str, ln: i32, s: &Score, clear: ClearType) -> BestScore {
+    /// Merge a play into the best score and the totals (`play_ms`: how
+    /// long it was played). Returns the updated best.
+    pub fn record_play(
+        &mut self,
+        sha256: &str,
+        ln: i32,
+        s: &Score,
+        clear: ClearType,
+        play_ms: u64,
+    ) -> BestScore {
         let key = (sha256.to_string(), ln);
         let old = self.scores.get(&key).cloned();
         let mut b = old.clone().unwrap_or(BestScore {
@@ -229,6 +286,19 @@ impl Library {
         b.last_played = crate::platform::unix_now() as i64;
         self.scores.insert(key, b.clone());
         self.save_scores();
+        let j = self.totals.judges.get_or_insert_default();
+        for (k, t) in j.iter_mut().enumerate() {
+            *t += s.count(k) as u64;
+        }
+        self.totals.play_ms += play_ms;
+        match serde_json::to_vec_pretty(&self.totals) {
+            Ok(v) => {
+                if let Err(e) = vfs::write(&self.totals_file, &v) {
+                    log::error!("saving totals: {e}");
+                }
+            }
+            Err(e) => log::error!("saving totals: {e}"),
+        }
         b
     }
 }
@@ -512,6 +582,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn totals_seeded_then_added() {
+        let dir = std::env::temp_dir().join(format!("vibebms-totals-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // a library from before totals: two charts' best plays
+        let rec = |sha: &str, j: [u32; 6]| serde_json::json!({"sha256": sha, "ln": 0, "judges": j, "play_count": 3});
+        let old = serde_json::json!([rec("a", [10, 5, 2, 1, 3, 4]), rec("b", [1, 1, 1, 1, 1, 1])]);
+        std::fs::write(dir.join("scores.json"), old.to_string()).unwrap();
+        std::fs::write(dir.join("player.json"), r#"{"play_ms": 5000}"#).unwrap();
+        let mut lib = Library::open(&dir, &dir);
+        assert_eq!(lib.totals().judges, Some([11, 6, 3, 2, 4, 5]));
+        assert_eq!((lib.totals().notes(), lib.totals().play_ms), (22, 5000));
+        let mut sc = Score {
+            total_notes: 3,
+            passed: 3,
+            ..Default::default()
+        };
+        sc.add(0, 0);
+        sc.add(0, 1);
+        sc.add(4, 0);
+        sc.add(5, 0);
+        // a better play of "a": the best changes, the totals only add up
+        lib.record_play("a", 0, &sc, ClearType::Easy, 61_000);
+        let want = Totals {
+            judges: Some([13, 6, 3, 2, 5, 6]),
+            play_ms: 66_000,
+        };
+        assert_eq!(*lib.totals(), want);
+        // kept, not seeded again
+        assert_eq!(*Library::open(&dir, &dir).totals(), want);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn unreadable_score_records_are_kept_aside() {
         let dir = std::env::temp_dir().join(format!("vibebms-scores-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -566,14 +669,14 @@ mod tests {
         };
         sc.add(0, 1);
         sc.add(1, 1);
-        let b = lib.record_play(&s[0].sha256, 0, &sc, ClearType::Hard);
+        let b = lib.record_play(&s[0].sha256, 0, &sc, ClearType::Hard, 1500);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 1));
         let worse = Score {
             total_notes: 2,
             passed: 2,
             ..Default::default()
         };
-        let b = lib.record_play(&s[0].sha256, 0, &worse, ClearType::Failed);
+        let b = lib.record_play(&s[0].sha256, 0, &worse, ClearType::Failed, 0);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 2));
         // persisted
         let lib2 = Library::open(&cache, &cache);

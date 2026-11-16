@@ -207,6 +207,8 @@ fn load_bmfont(path: &Path) -> Option<(BitmapFont, Vec<PathBuf>)> {
         }
     }
     font.size = if line_h > 0.0 { line_h } else { size };
+    // beatoraja falls back to the line height when there is no size
+    font.em = if size > 0.0 { size } else { font.size };
     (!font.glyphs.is_empty() && font.size > 0.0).then_some((font, pages))
 }
 
@@ -673,7 +675,10 @@ impl Ctx<'_> {
         if let Some(i) = self.bitmap_fonts.get(&p) {
             return *i;
         }
+        // types 1 and 2 are distance fields
+        let sdf = matches!(i(f, "type", 0), 1 | 2);
         let font = load_bmfont(&p).map(|(mut font, pages)| {
+            font.sdf = sdf;
             let base = self.images.len();
             for page in pages {
                 let size = (self.image_size)(&page);
@@ -743,6 +748,27 @@ pub(crate) fn hex_color(s: &str) -> [f32; 4] {
         u8::from_str_radix(s.get(k..k + 2).unwrap_or("ff"), 16).unwrap_or(255) as f32 / 255.0
     };
     [b(0), b(2), b(4), if s.len() >= 8 { b(6) } else { 1.0 }]
+}
+
+/// A text's font size (`size`), if it has one.
+fn text_size(t: &Value) -> Option<f32> {
+    let v = t.get("size").and_then(Value::as_f64)? as f32;
+    (v > 0.0).then_some(v)
+}
+
+/// A text's outline and shadow (`TextFx`), beatoraja's defaults where
+/// not given.
+fn text_fx(t: &Value) -> TextFx {
+    let f = |k: &str| t.get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+    let c = |k: &str| t.get(k).and_then(Value::as_str).map(hex_color);
+    let d = TextFx::default();
+    TextFx {
+        outline_color: c("outlineColor").unwrap_or(d.outline_color),
+        outline_width: f("outlineWidth"),
+        shadow_color: c("shadowColor").unwrap_or(d.shadow_color),
+        shadow_offset: (f("shadowOffsetX"), f("shadowOffsetY")),
+        shadow_smoothness: f("shadowSmoothness"),
+    }
 }
 
 /// beatoraja gaugegraph colours: a `color` list (4 per gauge kind) or the
@@ -970,6 +996,8 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         }
         out.text = Some((d, get("align"), get("overflow"), None));
         out.text_face = def.and_then(|t| cx.face(t));
+        out.text_fx = def.map(text_fx).unwrap_or_default();
+        out.text_size = def.and_then(text_size);
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -1155,6 +1183,8 @@ pub fn load_with(
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
                 face: cx.face(t),
+                fx: text_fx(t),
+                size: text_size(t),
                 constant: t.get("constantText").and_then(|c| {
                     c.as_str()
                         .map(String::from)
@@ -1786,23 +1816,83 @@ char id=65 x=2 y=3 width=20 height=24 xoffset=1 yoffset=5 xadvance=22 page=0 chn
         std::fs::write(dir.join("f.fnt"), fnt).unwrap();
         let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
             "font": [{"id": 0, "path": "f.fnt"}],
-            "text": [{"id": "t", "ref": 10, "font": 0}],
+            "text": [{"id": "t", "ref": 10, "font": 0, "size": 24}],
             "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
         std::fs::write(dir.join("r.json"), json).unwrap();
         let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         assert!(matches!(
             &s.objects[0].kind,
-            Kind::Text { font: Some(0), .. }
+            Kind::Text {
+                font: Some(0),
+                size: Some(24.0),
+                ..
+            }
         ));
         let f = &s.fonts[0];
-        assert_eq!(f.size, 36.0);
+        assert_eq!((f.size, f.em), (36.0, 32.0));
+        // glyphs scale by the text's size over the font's (beatoraja), not
+        // by the destination height over the line height
+        use crate::skin::render::bmfont_scale;
+        assert_eq!(bmfont_scale(f, 10.0, Some(24.0)), 0.75);
+        assert_eq!(bmfont_scale(f, 18.0, None), 0.5);
+        let lr2 = BitmapFont {
+            size: 20.0,
+            ..Default::default()
+        };
+        assert_eq!(bmfont_scale(&lr2, 10.0, Some(24.0)), 0.5);
         let (img, rect) = f.glyphs[&'A'];
         assert!(s.images[img].as_ref().unwrap().ends_with("f_0.png"));
         assert_eq!(
             (rect, f.metrics[&'A']),
             ([2.0, 3.0, 20.0, 24.0], [1.0, 5.0, 22.0])
         );
+    }
+
+    #[test]
+    fn text_outline_and_shadow() {
+        let dir = std::env::temp_dir().join(format!("vibebms-tfx-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fnt = "info face=\"F\" size=32\ncommon lineHeight=32 base=29 pages=1\n\
+page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoffset=0 xadvance=22 page=0\n";
+        std::fs::write(dir.join("d.fnt"), fnt).unwrap();
+        let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+            "font": [{"id": 0, "path": "f.ttf"}, {"id": 1, "path": "d.fnt", "type": 1}],
+            "text": [{"id": "t", "ref": 10, "font": 0, "outlineColor": "000000ff",
+                      "outlineWidth": 0.4, "shadowColor": "ff0000", "shadowOffsetX": 4,
+                      "shadowOffsetY": -2.5, "shadowSmoothness": 0.5},
+                     {"id": "u", "ref": 10, "font": 1}],
+            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                            {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+        std::fs::write(dir.join("r.json"), json).unwrap();
+        let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let Kind::Text { fx, .. } = &s.objects[0].kind else {
+            panic!()
+        };
+        assert_eq!(
+            *fx,
+            TextFx {
+                outline_color: [0.0, 0.0, 0.0, 1.0],
+                outline_width: 0.4,
+                shadow_color: [1.0, 0.0, 0.0, 1.0],
+                shadow_offset: (4.0, -2.5),
+                shadow_smoothness: 0.5,
+            }
+        );
+        assert!(fx.has_shadow());
+        let st = fx.sdf();
+        assert!((st.outline_distance - 0.3).abs() < 1e-6);
+        assert_eq!(st.shadow_smoothing, 0.25);
+        // nothing given: beatoraja's defaults (transparent white, no shadow)
+        let Kind::Text { fx, font, .. } = &s.objects[1].kind else {
+            panic!()
+        };
+        assert_eq!(*fx, TextFx::default());
+        assert!(!fx.has_shadow());
+        assert_eq!(fx.sdf().outline_distance, 0.5);
+        // a font of type 1 is a distance field
+        assert!(s.fonts[font.unwrap()].sdf);
     }
 
     #[test]
