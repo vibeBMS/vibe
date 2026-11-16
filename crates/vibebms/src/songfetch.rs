@@ -32,6 +32,22 @@ fn has_chart(done: &[Done], md5: Option<&str>) -> bool {
     })
 }
 
+/// What a chart's download came to when its song is in the library already
+/// and none of the chart's links brought it (nor led to a page).
+pub const NO_CHART_LINK: &str = "the song is in the library; no link for this chart works";
+
+fn no_chart_link(done: Vec<Done>, have_song: bool) -> Vec<Done> {
+    let page = done.iter().any(|d| matches!(d, Done::Page(_)));
+    let cancelled = done
+        .iter()
+        .any(|d| matches!(d, Done::Failed(e) if e == bmseeker::progress::CANCELLED));
+    if have_song && !page && !cancelled && !bmseeker::install::got(&done) {
+        vec![Done::Failed(NO_CHART_LINK.into())]
+    } else {
+        done
+    }
+}
+
 fn is_link(u: &str) -> bool {
     u.starts_with("https://") || u.starts_with("http://")
 }
@@ -70,7 +86,10 @@ impl SongFetch {
     /// Download `title` from `links`: the song's, then its separate
     /// chart's (each its own first, then the others known for the chart, tried
     /// in turn until one downloads; for the song, then the links BMS SEARCH
-    /// knows for the chart `md5`). False when there is nothing to try.
+    /// knows for the chart `md5`). With the song in the library already
+    /// (`have_song`), only the chart: when none of its links works, it ends
+    /// in [`NO_CHART_LINK`], and the song is not downloaded again. False when
+    /// there is nothing to try.
     pub fn start(
         &mut self,
         root: &Path,
@@ -78,12 +97,15 @@ impl SongFetch {
         artist: &str,
         md5: &str,
         links: Vec<(Vec<String>, bool)>,
+        have_song: bool,
     ) -> bool {
         let md5 = (md5.len() == 32).then(|| md5.to_string());
         let links: Vec<(Vec<String>, bool)> = links
             .into_iter()
+            .filter(|(_, d)| *d || !have_song)
             .map(|(ls, d)| (ls.into_iter().filter(|u| is_link(u)).collect::<Vec<_>>(), d))
-            .filter(|(ls, d)| !ls.is_empty() || (!d && md5.is_some()))
+            // none of its own: BMS SEARCH's (the chart's only with the song in)
+            .filter(|(ls, d)| !ls.is_empty() || ((!d || have_song) && md5.is_some()))
             .collect();
         if links.is_empty() || self.is_busy(title) {
             return false;
@@ -128,7 +150,7 @@ impl SongFetch {
                         cx,
                     ));
                 }
-                done
+                no_chart_link(done, have_song)
             });
             let _ = tx.send((title, done));
         });
@@ -141,12 +163,13 @@ impl SongFetch {
                     diff,
                     tries: Default::default(),
                     tried: Vec::new(),
-                    md5: md5.clone().filter(|_| !diff),
+                    md5: md5.clone().filter(|_| !diff || have_song),
                     chart: md5.clone().filter(|_| diff),
+                    checked: Vec::new(),
                 })
                 .collect();
             web(root, want, progress, groups, Vec::new(), move |done| {
-                let _ = tx.send((title, done));
+                let _ = tx.send((title, no_chart_link(done, have_song)));
             });
         }
         true
@@ -186,6 +209,8 @@ struct Group {
     md5: Option<String>,
     /// A separate chart's: its MD5 (not needed when the song holds it).
     chart: Option<String>,
+    /// Links a source found by name: the chart they bring is checked.
+    checked: Vec<String>,
 }
 
 /// The web build: the links one after another through the vibeBMS proxy,
@@ -231,11 +256,21 @@ fn web(
                 progress.set_stage(Stage::Finding);
                 // BMS SEARCH's API sends CORS headers: no proxy
                 crate::platform::run_task(sources.find_all(&q), false, move |found| {
-                    g.links = found
-                        .into_iter()
-                        .map(|(_, l)| l)
-                        .filter(|l| !g.tried.contains(l))
-                        .collect();
+                    for (source, l) in found {
+                        if g.tried.contains(&l) || g.links.contains(&l) {
+                            continue;
+                        }
+                        // found by name: a chart is checked here; an
+                        // archive would be looked into, which this build
+                        // does not
+                        if sources.checked(source) {
+                            if !chart_link(&l) {
+                                continue;
+                            }
+                            g.checked.push(l.clone());
+                        }
+                        g.links.push(l);
+                    }
                     groups.insert(0, g);
                     web(root, want, progress, groups, done, finish)
                 });
@@ -250,6 +285,8 @@ fn web(
     let link = g.links.remove(0);
     g.tried.push(link.clone());
     let diff = g.diff;
+    // found by name: the chart it brings must be the one
+    let check = g.checked.contains(&link).then(|| g.chart.clone()).flatten();
     // this link's outcome: the file in, or the group again (its next link)
     let next = move |got: Vec<Done>, mut groups: Vec<Group>, mut done: Vec<Done>| {
         match g.tries.record(got) {
@@ -264,6 +301,13 @@ fn web(
         let p = Some(progress.clone());
         crate::platform::http_get_progress(&via_proxy(&link), p, move |r| {
             let got = match r {
+                Ok(b)
+                    if check.as_ref().is_some_and(|m| {
+                        !bmseeker::install::md5_hex(&b).eq_ignore_ascii_case(m)
+                    }) =>
+                {
+                    Done::Failed(bmseeker::install::NOT_THE_CHART.into())
+                }
                 Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
                     let at = root.join("downloads").join(&name);
                     vfs::put_bytes(&at, b);

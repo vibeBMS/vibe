@@ -426,6 +426,9 @@ impl Ctx {
                     }
                     // (cancelled: said when it was)
                     Done::Failed(e) if e == bmseeker::progress::CANCELLED => {}
+                    Done::Failed(e) if e == crate::songfetch::NO_CHART_LINK => self.toast(format!(
+                        "{title}: the song is in the library, but none of this chart's links works"
+                    )),
                     Done::Failed(e) => self.toast(format!("{title}: download failed ({e})")),
                 }
             }

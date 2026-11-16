@@ -567,8 +567,24 @@ impl SelectScene {
                 // its separate chart's links, then add-ons each
                 let mut links = vec![(song, false), (ctx.links.links.chart_links(&e), true)];
                 links.extend(addons.into_iter().map(|a| (vec![a], true)));
-                if ctx.song_fetch.start(&root, &title, &artist, &md5, links) {
+                // the song is in the library (another of its charts): only
+                // this chart, the song not again
+                let have_song = !md5.is_empty()
+                    && ctx.songs.iter().any(|s| {
+                        crate::placement::same_name(&s.title, &title)
+                            && crate::placement::same_artist(&s.artist, &artist)
+                    });
+                if ctx
+                    .song_fetch
+                    .start(&root, &title, &artist, &md5, links, have_song)
+                {
                     ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
+                    return Next::Stay;
+                }
+                if have_song {
+                    ctx.toast(format!(
+                        "{title}: the song is in the library, but this chart has no download link"
+                    ));
                     return Next::Stay;
                 }
                 // the song's page, then the separate chart's (the chart goes
