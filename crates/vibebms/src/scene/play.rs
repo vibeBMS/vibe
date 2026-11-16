@@ -19,7 +19,7 @@ use vibebms_audio::{Bus, PlayOptions, SoundBank};
 use vibebms_core::chart::{BgaLayer, Chart, SoundId, NO_SOUND};
 use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent};
 use vibebms_core::gauge::GrooveGauge;
-use vibebms_core::judge::{judge_rules, BAD, GOOD, GREAT, MISS};
+use vibebms_core::judge::{judge_rules, GOOD, GREAT};
 use vibebms_core::lane_option::{self, DoubleOption, LaneOption};
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -1012,7 +1012,9 @@ impl Scene for PlayScene {
                             *b = Some(now);
                         }
                     }
-                    if judge >= BAD && judge != MISS {
+                    // the POOR BGA: a judgement that leaves no combo
+                    // (beatoraja; an empty POOR in 7KEYS keeps the combo)
+                    if combo == 0 {
                         self.poor_until = Some(now + Duration::from_millis(500));
                     }
                 }

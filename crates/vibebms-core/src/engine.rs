@@ -1044,6 +1044,29 @@ mod tests {
     }
 
     #[test]
+    fn empty_poor_between_notes() {
+        let (_, mut e) = engine(FOUR, LnType::Ln, false);
+        e.update(1_000_000);
+        press(&mut e, 0, 2_000_000);
+        release(&mut e, 0, 2_050_000);
+        let before = e.gauge.value();
+        // 300 ms before the next note: past BAD's early edge (220 ms)
+        press(&mut e, 0, 2_500_000 - 300_000);
+        release(&mut e, 0, 2_500_000 - 290_000);
+        let after = e.gauge.value();
+        press(&mut e, 0, 2_500_000);
+        assert_eq!(judges(&mut e), vec![PGREAT, MISS, PGREAT]);
+        // the note stayed, the combo went on, the gauge lost less than a POOR
+        assert_eq!(e.combo(), 2);
+        assert!(
+            before - after > 0.0 && before - after <= 2.0,
+            "{before} -> {after}"
+        );
+        assert_eq!(e.score.count(MISS), 1);
+        assert_eq!(e.score.count(POOR), 0);
+    }
+
+    #[test]
     fn autoplay_all_pgreat() {
         let (_, mut e) = engine(FOUR, LnType::Ln, true);
         let mut t = 0;
