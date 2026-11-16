@@ -300,7 +300,8 @@ impl LoadedSkin {
     /// Draw a text into `r` (font size = height; see `Kind::Text` overflow),
     /// with an LR2 bitmap font when one is given. `shown_ms`: how long the
     /// text has been the current one, for a marquee (overflow 3; `None`
-    /// keeps it still).
+    /// keeps it still). `fx`: its outline and shadow as beatoraja draws
+    /// them (see `TextFx`); `scale`: screen px per skin px.
     #[allow(clippy::too_many_arguments)]
     pub fn text(
         &self,
@@ -312,13 +313,45 @@ impl LoadedSkin {
         color: crate::gfx::Color,
         font: Option<usize>,
         shown_ms: Option<i64>,
+        fx: &TextFx,
+        scale: f32,
     ) {
+        let args = (align, overflow, font, shown_ms);
+        if font
+            .and_then(|i| self.skin.fonts.get(i))
+            .is_some_and(|f| f.sdf)
+        {
+            // the shader draws the outline and shadow
+            d.b.set_sdf(Some(fx.sdf()));
+            self.text_plain(d, s, r, color, args);
+            d.b.set_sdf(None);
+            return;
+        }
+        if fx.has_shadow() {
+            let (dx, dy) = (fx.shadow_offset.0 * scale, fx.shadow_offset.1 * scale);
+            let half = [color[0] * 0.5, color[1] * 0.5, color[2] * 0.5, color[3]];
+            self.text_plain(d, s, Rect::new(r.x + dx, r.y + dy, r.w, r.h), half, args);
+        }
+        self.text_plain(d, s, r, color, args);
+    }
+
+    /// `text` without outline or shadow; `args`: align, overflow, font,
+    /// shown_ms.
+    fn text_plain(
+        &self,
+        d: &mut Draw,
+        s: &str,
+        r: Rect,
+        color: crate::gfx::Color,
+        args: (i32, i32, Option<usize>, Option<i64>),
+    ) {
+        let (align, overflow, font, shown_ms) = args;
         // lines one under the other (beatoraja's fonts: 1.2 sizes apart)
         if s.contains('\n') {
             for (i, line) in s.split('\n').enumerate() {
                 let y = r.y + r.h * 1.2 * i as f32;
                 let lr = Rect::new(r.x, y, r.w, r.h);
-                self.text(d, line, lr, align, overflow, color, font, shown_ms);
+                self.text_plain(d, line, lr, color, args);
             }
             return;
         }
@@ -703,13 +736,15 @@ impl LoadedSkin {
                     overflow,
                     constant,
                     face,
+                    fx,
                 } => {
                     if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
                         let shown = now - st.timer(11).unwrap_or(0);
                         let f = face.as_deref().and_then(|p| d.text.face(p));
                         d.text.set_face(f.unwrap_or(0));
-                        self.text(d, &s, r, *align, *overflow, fr.color, *font, Some(shown));
+                        let (al, of, c) = (*align, *overflow, fr.color);
+                        self.text(d, &s, r, al, of, c, *font, Some(shown), fx, xf.sx);
                         d.text.set_face(0);
                     }
                 }

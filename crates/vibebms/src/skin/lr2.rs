@@ -602,6 +602,7 @@ impl Loader<'_> {
                     overflow: 0,
                     constant: None,
                     face: None,
+                    fx: TextFx::default(),
                 })
             }
             "#SRC_BARGRAPH" => {

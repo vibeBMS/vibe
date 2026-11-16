@@ -526,7 +526,8 @@ impl Hooks for SelectHooks<'_> {
                     let shown = selected.then(|| now - st.timer(11).unwrap_or(0));
                     let face = sl.text_face.as_deref().and_then(|p| d.text.face(p));
                     d.text.set_face(face.unwrap_or(0));
-                    skin.text(d, &info.title, tr, *align, *overflow, c, *font, shown);
+                    let (al, of, fx) = (*align, *overflow, &sl.text_fx);
+                    skin.text(d, &info.title, tr, al, of, c, *font, shown, fx, xf.sx);
                     d.text.set_face(0);
                 }
             }
