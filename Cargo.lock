@@ -3660,8 +3660,7 @@ dependencies = [
 [[package]]
 name = "reedsolomon-rs"
 version = "0.4.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81f4afa0094e231cfcb6b23f9f6f568db67097fa7a2a9bae0992d339e7555fc3"
+source = "git+https://github.com/scryer-media/rarpar?rev=be8e5aceff738bd618a540143def08b3e745aae1#be8e5aceff738bd618a540143def08b3e745aae1"
 dependencies = [
  "memmap2",
  "rayon",
@@ -4832,7 +4831,8 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unrar-rs"
-version = "0.16.1"
+version = "0.16.4"
+source = "git+https://github.com/scryer-media/rarpar?rev=be8e5aceff738bd618a540143def08b3e745aae1#be8e5aceff738bd618a540143def08b3e745aae1"
 dependencies = [
  "aes",
  "blake2s_simd",

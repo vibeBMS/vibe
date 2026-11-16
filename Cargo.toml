@@ -46,7 +46,7 @@ inherits = "release"
 strip = false
 lto = "thin"
 
-# unrar-rs with one function made to build for the web (wasm32 has no libc
-# mktime): see third_party/unrar-rs/VIBEBMS.md
+# unrar-rs 0.16.3 does not build for the web (wasm32 has no libc mktime):
+# fixed upstream, not released yet; drop this with the next release.
 [patch.crates-io]
-unrar-rs = { path = "third_party/unrar-rs" }
+unrar-rs = { git = "https://github.com/scryer-media/rarpar", rev = "be8e5aceff738bd618a540143def08b3e745aae1" }
