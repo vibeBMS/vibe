@@ -524,7 +524,10 @@ impl Hooks for SelectHooks<'_> {
                     }
                     // the selected bar's title scrolls when it is too long
                     let shown = selected.then(|| now - st.timer(11).unwrap_or(0));
+                    let face = sl.text_face.as_deref().and_then(|p| d.text.face(p));
+                    d.text.set_face(face.unwrap_or(0));
                     skin.text(d, &info.title, tr, *align, *overflow, c, *font, shown);
+                    d.text.set_face(0);
                 }
             }
             if let (Some(lv), Some(Some((font, dst)))) = (info.level, sl.level.get(info.difficulty))

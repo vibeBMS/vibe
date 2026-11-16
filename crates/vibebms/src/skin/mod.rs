@@ -301,6 +301,8 @@ pub enum Kind {
         overflow: i32,
         /// A fixed text (beatoraja `constantText`) instead of text `id`.
         constant: Option<String>,
+        /// The skin's own font file (beatoraja TrueType / OpenType fonts).
+        face: Option<PathBuf>,
     },
     Bar {
         src: Src,
@@ -401,10 +403,11 @@ pub struct SongListSkin {
     pub off: Vec<Option<Dst>>,
     /// Bar body per bar type (`BAR_*`).
     pub body: Vec<Option<Src>>,
-    /// Title text: (destination, align).
-    /// Title text: (destination, align, overflow as in `Kind::Text`).
-    /// Title: destination, align, overflow, bitmap font.
+    /// Title: destination, align, overflow (as in `Kind::Text`), bitmap
+    /// font.
     pub text: Option<(Dst, i32, i32, Option<usize>)>,
+    /// The title's font file (beatoraja).
+    pub text_face: Option<PathBuf>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).

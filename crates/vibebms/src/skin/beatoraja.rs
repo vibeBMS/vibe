@@ -469,6 +469,9 @@ pub fn header(path: &Path) -> Option<(SkinType, String)> {
 
 struct Ctx<'a> {
     sk: &'a Value,
+    dir: &'a Path,
+    fps: &'a [FilePath],
+    files: &'a HashMap<String, String>,
     h: f32,
     images: Vec<Option<PathBuf>>,
     sizes: Vec<Option<(u32, u32)>>,
@@ -594,6 +597,22 @@ impl Ctx<'_> {
             out.hover = Some(Rect::new(i(m, "x", 0) as f32, y, w, h));
         }
         out
+    }
+
+    /// The TrueType / OpenType font file a text uses (`font`, an id in the
+    /// skin's `font` list); bitmap fonts are not drawn with.
+    fn face(&self, t: &Value) -> Option<PathBuf> {
+        let want = match t.get("font")? {
+            Value::String(s) => s.clone(),
+            v => v.to_string(),
+        };
+        let f = arr(self.sk.get("font")).iter().find(|f| id_of(f) == want)?;
+        let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        matches!(ext.as_str(), "ttf" | "otf" | "ttc").then_some(p)
     }
 
     fn number_kind(&self, def: &Value) -> Option<Kind> {
@@ -859,6 +878,7 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
         }
         out.text = Some((d, get("align"), get("overflow"), None));
+        out.text_face = def.and_then(|t| cx.face(t));
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -959,6 +979,9 @@ pub fn load_with(
     // sources (filepath customisation: first file matching the wildcard)
     let mut cx = Ctx {
         sk: &sk,
+        dir: &dir,
+        fps: &fps,
+        files: &user.files,
         h,
         images: Vec::new(),
         sizes: Vec::new(),
@@ -1037,6 +1060,7 @@ pub fn load_with(
                 font: None,
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
+                face: cx.face(t),
                 constant: t.get("constantText").and_then(|c| {
                     c.as_str()
                         .map(String::from)
@@ -1663,15 +1687,21 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vibebms-ctext-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
-            "text": [{"id": "t", "constantText": "A\nB", "ref": 10}],
-            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+            "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}],
+            "text": [{"id": "t", "constantText": "A\nB", "ref": 10, "font": 0},
+                     {"id": "u", "ref": 10, "font": 1}],
+            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                            {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
         std::fs::write(dir.join("r.json"), json).unwrap();
         let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
         std::fs::remove_dir_all(&dir).ok();
-        let Kind::Text { constant, .. } = &s.objects[0].kind else {
+        let Kind::Text { constant, face, .. } = &s.objects[0].kind else {
             panic!()
         };
         assert_eq!(constant.as_deref(), Some("A\nB"));
+        // TrueType fonts are drawn with, bitmap ones are not
+        assert!(face.as_ref().is_some_and(|p| p.ends_with("f.TTF")));
+        assert!(matches!(&s.objects[1].kind, Kind::Text { face: None, .. }));
     }
 
     struct ScriptSt {

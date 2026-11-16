@@ -601,6 +601,7 @@ impl Loader<'_> {
                     align: v[4] as i32,
                     overflow: 0,
                     constant: None,
+                    face: None,
                 })
             }
             "#SRC_BARGRAPH" => {

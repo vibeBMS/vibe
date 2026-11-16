@@ -648,11 +648,15 @@ impl LoadedSkin {
                     align,
                     overflow,
                     constant,
+                    face,
                 } => {
                     if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
                         let shown = now - st.timer(11).unwrap_or(0);
+                        let f = face.as_deref().and_then(|p| d.text.face(p));
+                        d.text.set_face(f.unwrap_or(0));
                         self.text(d, &s, r, *align, *overflow, fr.color, *font, Some(shown));
+                        d.text.set_face(0);
                     }
                 }
                 Kind::Bar {
