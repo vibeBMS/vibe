@@ -55,9 +55,6 @@ own Apple ID (AltStore, Sideloadly; a free Apple ID's signature lasts 7 days) or
 (`codesign`, then Xcode's Devices window or `ios-deploy`). The app's `Documents` folder is the data root and is
 visible in the Files app (`UIFileSharingEnabled`), so BMS folders can be copied in.
 
-## Test data
-`python3 tools/gen_demo.py bms/demo` writes a small self-made 7-key chart with synthesized keysounds.
-
 ## Web (wasm32)
 ```sh
 rustup target add wasm32-unknown-unknown

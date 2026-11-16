@@ -23,7 +23,6 @@ iPad·Android 같은 터치 기기용 화면 컨트롤러를 내장하고 있습
 ```sh
 cargo run --release                                  # 선곡 화면
 cargo run --release -- path/to/song.bme --autoplay   # 차트 바로 플레이
-python3 tools/gen_demo.py bms/demo                   # 테스트용 데모 차트 생성
 ```
 
 릴리스 빌드한 실행 파일을 원하는 폴더에 두고 그 안에 BMS 폴더를 넣으면 됩니다.
@@ -146,4 +145,4 @@ crates/vibebms-android  Android 진입점
 > UnRAR source code may be used in any software to handle RAR archives without limitations free of charge, but cannot be used to develop RAR (WinRAR) compatible archiver and to re-create RAR compression algorithm, which is proprietary. Distribution of modified UnRAR source code in separate form or as a part of other software is permitted, provided that full text of this paragraph, starting from "UnRAR source code" words, is included in license, or in documentation if license is not available, and in source code comments of resulting package.
 
 판정·게이지 규칙은 beatoraja의 공개 소스와 LR2 커뮤니티에 공개된 판정폭을 참고해 독자적으로 구현했습니다.
-차트와 음원은 포함하지 않습니다(`tools/gen_demo.py`의 데모는 자체 생성).
+차트와 음원은 포함하지 않습니다.
