@@ -73,6 +73,16 @@ enum Wait {
     Nothing,
     /// A manbow event venue's work page: its download links.
     Venue,
+    /// The event mirror's list of events, for the work `num` of the manbow
+    /// event `event`.
+    Catalog {
+        event: u64,
+        num: u64,
+    },
+    /// A mirrored event's index, for its work `num`.
+    MirrorIndex {
+        num: u64,
+    },
     /// A BMS SEARCH venue work's manifest (JSON): its download links.
     Manifest,
     DriveFolder,
@@ -117,6 +127,10 @@ pub const PRESS_DOWNLOAD_JS: &str = r#"(function () {
     }
   }, 500);
 })();"#;
+
+/// The BMS event mirror's list of events (vibeBMS/BMS): each with its
+/// manbow venue number and, when mirrored, its index of works and files.
+pub const MIRROR_CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
 
 /// Hosts whose links always need a browser.
 const PAGES: &[&str] = &[
@@ -175,8 +189,18 @@ impl Resolver {
         if host.ends_with("dropbox.com") {
             return file(dropbox_url(&u));
         }
-        // a difficulty table's link to the work's page on an event venue
+        // a difficulty table's link to the work's page on an event venue:
+        // the event mirror's copy if there is one, else the work's own links
         if host == "manbow.nothing.sh" && lower.contains("action=more_def") && self.hops < 2 {
+            if let Some((event, num)) = crate::manbow::work_page(&u) {
+                if self.hops == 0 {
+                    self.wait = Wait::Catalog {
+                        event: event.into(),
+                        num: num.into(),
+                    };
+                    return Step::Get(MIRROR_CATALOG.into());
+                }
+            }
             self.wait = Wait::Venue;
             return Step::Get(u);
         }
@@ -223,11 +247,16 @@ impl Resolver {
 
     /// The answer to the last [`Step::Get`] / [`Step::Post`]: the next step.
     pub fn feed(&mut self, answer: Result<Vec<u8>, String>) -> Step {
+        let wait = std::mem::replace(&mut self.wait, Wait::Nothing);
+        let mirror = matches!(wait, Wait::Catalog { .. } | Wait::MirrorIndex { .. });
         let body = match answer {
             Ok(b) => b,
+            // no mirror: the work's own page
+            Err(_) if mirror => return self.mirror(wait, None),
             Err(e) => return Step::Fail(Fetch::Failed(e)),
         };
-        match std::mem::replace(&mut self.wait, Wait::Nothing) {
+        match wait {
+            w @ (Wait::Catalog { .. } | Wait::MirrorIndex { .. }) => self.mirror(w, Some(body)),
             Wait::Nothing => Step::Fail(Fetch::Failed("nothing asked".into())),
             // on to the work's own download link
             Wait::Venue => {
@@ -332,6 +361,58 @@ impl Resolver {
                 )
             }
         }
+    }
+}
+
+impl Resolver {
+    /// The event mirror's answer (`body`; `None`: it failed): the work's
+    /// main archive there, or else its page on the venue.
+    fn mirror(&mut self, wait: Wait, body: Option<Vec<u8>>) -> Step {
+        let v: Option<serde_json::Value> = body.and_then(|b| serde_json::from_slice(&b).ok());
+        let list = v.as_ref().and_then(|v| v.as_array());
+        match wait {
+            Wait::Catalog { event, num } => {
+                let index = list.into_iter().flatten().find_map(|e| {
+                    let mirrored = e.get("mirror").and_then(|m| m.as_bool()) == Some(true);
+                    (mirrored && e.get("venue").and_then(|n| n.as_u64()) == Some(event))
+                        .then(|| e.get("index")?.as_str())
+                        .flatten()
+                });
+                if let Some(index) = index {
+                    self.wait = Wait::MirrorIndex { num };
+                    return Step::Get(index.to_string());
+                }
+            }
+            Wait::MirrorIndex { num } => {
+                let work = list
+                    .into_iter()
+                    .flatten()
+                    .find(|w| w.get("num").and_then(|n| n.as_u64()) == Some(num));
+                // the main archive: "042.zip" (an add-on is "042+1.rar")
+                let main = work
+                    .and_then(|w| w.get("files")?.as_array())
+                    .into_iter()
+                    .flatten()
+                    .find(|f| {
+                        f.get("name")
+                            .and_then(|n| n.as_str())
+                            .is_some_and(|n| !n.contains('+'))
+                    });
+                let s = |f: &serde_json::Value, k: &str| {
+                    f.get(k).and_then(|x| x.as_str()).map(str::to_string)
+                };
+                if let Some(url) = main.and_then(|f| s(f, "url")) {
+                    self.name = main.and_then(|f| s(f, "original"));
+                    return Step::File {
+                        url,
+                        mega_key: None,
+                    };
+                }
+            }
+            _ => {}
+        }
+        self.wait = Wait::Venue;
+        Step::Get(self.link.clone())
     }
 }
 
@@ -1360,6 +1441,32 @@ mod tests {
     }
 
     #[test]
+    fn mirrored_works() {
+        let link = "https://manbow.nothing.sh/event/event.cgi?action=More_def&num=94&event=146";
+        let (mut r, _) = Resolver::new(link);
+        let catalog = br#"[{"tag":"boftt","venue":146,"mirror":true,"index":"https://raw.example/boftt/index.json"}]"#;
+        assert_eq!(
+            r.feed(Ok(catalog.to_vec())),
+            Step::Get("https://raw.example/boftt/index.json".into())
+        );
+        let index = br#"[{"num":94,"files":[{"name":"094+1.rar","url":"https://gh/094+1.rar","original":"add.rar"},{"name":"094.zip","url":"https://gh/094.zip","original":"song_ogg.zip"}]}]"#;
+        assert_eq!(
+            r.feed(Ok(index.to_vec())),
+            Step::File {
+                url: "https://gh/094.zip".into(),
+                mega_key: None
+            }
+        );
+        assert_eq!(r.name.as_deref(), Some("song_ogg.zip"));
+        // the mirror out of reach, or the work not in it: the venue page
+        let (mut r, _) = Resolver::new(link);
+        assert_eq!(r.feed(Err("offline".into())), Step::Get(link.into()));
+        let (mut r, _) = Resolver::new(link);
+        r.feed(Ok(catalog.to_vec()));
+        assert_eq!(r.feed(Ok(b"[]".to_vec())), Step::Get(link.into()));
+    }
+
+    #[test]
     fn venue_pages() {
         let page = r#"<h3>Download</h3></div><blockquote><p style="x">wav<br><a href="https://drive.google.com/file/d/W/view">https://drive.google.com/file/d/W/view</A><br>ogg<br><a href="https://drive.google.com/file/d/O/view">https://drive.google.com/file/d/O/view</A></p><footer>Total</footer></blockquote>"#;
         let links = venue_links(page);
@@ -1370,11 +1477,12 @@ mod tests {
             pick_link(&links).as_deref(),
             Some("https://drive.google.com/file/d/O/view")
         );
-        // the venue page, then the ogg archive on Drive
-        let (mut r, s) = Resolver::new(
-            "https://manbow.nothing.sh/event/event.cgi?action=More_def&num=94&event=146",
-        );
-        assert!(matches!(s, Step::Get(_)));
+        // not mirrored: the venue page, then the ogg archive on Drive
+        let link = "https://manbow.nothing.sh/event/event.cgi?action=More_def&num=94&event=146";
+        let (mut r, s) = Resolver::new(link);
+        assert_eq!(s, Step::Get(MIRROR_CATALOG.into()));
+        let catalog = br#"[{"tag":"x","venue":146,"mirror":false}]"#;
+        assert_eq!(r.feed(Ok(catalog.to_vec())), Step::Get(link.into()));
         match r.feed(Ok(page.as_bytes().to_vec())) {
             Step::File { url, .. } => assert!(url.contains("id=O")),
             s => panic!("{s:?}"),

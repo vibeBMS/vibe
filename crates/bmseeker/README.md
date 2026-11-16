@@ -55,7 +55,7 @@ bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
 | 모듈 | 하는 일 |
 | --- | --- |
 | `table` | bmstable 형식 난이도표 (HTML의 `<meta name="bmstable">` → header → data) |
-| `hosts` | 링크 → 아카이브: 직링크, Google Drive 파일·폴더, Dropbox, MediaFire, MEGA 파일·폴더(합본 안에서 제목·아티스트로 찾기), manbow·BMS SEARCH(venue.bmssearch.net) 이벤트 작품 페이지. OneDrive는 브라우저에서 `PRESS_DOWNLOAD_JS`로 |
+| `hosts` | 링크 → 아카이브: 직링크, Google Drive 파일·폴더, Dropbox, MediaFire, MEGA 파일·폴더(합본 안에서 제목·아티스트로 찾기), manbow·BMS SEARCH(venue.bmssearch.net) 이벤트 작품 페이지(manbow 작품은 [이벤트 미러](https://github.com/vibeBMS/BMS)에 있으면 미러에서). OneDrive는 브라우저에서 `PRESS_DOWNLOAD_JS`로 |
 | `unpack` / `import` | .zip / .7z / .rar 풀기 (Shift_JIS·EUC-KR 이름, 경로 탈출·압축 폭탄 방지) |
 | `placement` | 차분 채보가 어느 곡 폴더에 속하는지: 함께 온 파일까지 쳐서 쓰는 음원의 99% 이상 + 같은 곡(제목·아티스트), 아니면 후보 3개; 같은 이름 파일은 스마트 덮어쓰기 |
 | `install` | 난이도표의 곡 하나: 본체 링크와 차분 링크를 받아 라이브러리에 |
