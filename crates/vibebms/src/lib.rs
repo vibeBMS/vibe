@@ -26,6 +26,7 @@ pub mod scene;
 pub mod skin;
 pub mod skinstore;
 pub mod songfetch;
+pub mod sysound;
 pub mod theme;
 pub mod touch;
 pub mod ui;

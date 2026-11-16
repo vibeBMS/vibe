@@ -1,5 +1,7 @@
 pub mod decide;
 pub mod graphs;
+pub mod keybind;
+pub mod keyconfig;
 pub mod option_panel;
 pub mod play;
 pub mod play_skin;
@@ -9,4 +11,5 @@ pub mod select;
 pub mod select_skin;
 pub mod settings;
 pub mod skinned;
+pub mod skinselect;
 pub mod touch_layout;

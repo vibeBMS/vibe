@@ -306,3 +306,109 @@ pub fn ms_since(t0: crate::platform::Instant, now: crate::platform::Instant) -> 
         -(t0.duration_since(now).as_millis() as i64)
     }
 }
+
+/// What can be chosen for a skin type, as `config.skins` values: the
+/// built-in default (empty), then the installed skins (sound sets for
+/// SOUND_SET). A course result can be a result skin.
+pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
+    let rel = |p: PathBuf| {
+        p.strip_prefix(&ctx.paths.root)
+            .map(|r| r.to_path_buf())
+            .unwrap_or(p)
+            .to_string_lossy()
+            .into_owned()
+    };
+    let mut out = vec![String::new()];
+    if kind == SkinType::SoundSet {
+        out.extend(
+            crate::sysound::find_sets(&ctx.paths.root)
+                .into_iter()
+                .map(|s| rel(s.path)),
+        );
+        return out;
+    }
+    let fits = |t: SkinType| t == kind || (kind == SkinType::CourseResult && t == SkinType::Result);
+    for (p, t, _) in crate::skin::lr2::find_skins(&ctx.paths.skins) {
+        if fits(t) {
+            out.push(rel(p));
+        }
+    }
+    out
+}
+
+/// The skin file a choice of a type stands for (the built-in default for
+/// an empty one, where there is one).
+pub fn choice_path(ctx: &Ctx, kind: SkinType, value: &str) -> Option<PathBuf> {
+    if let Some(p) = super::play_skin::configured_path(ctx, value) {
+        return Some(p);
+    }
+    match kind.mode() {
+        Some(m) => Some(super::play_skin::default_skin(
+            m,
+            ctx.config.play.side == crate::config::Side::P2,
+            ctx.portrait(),
+            ctx.touch_enabled(),
+        )),
+        None => default_skin(kind, ctx.portrait()),
+    }
+}
+
+/// (name, author) of a choice of a type.
+pub fn choice_name(ctx: &Ctx, kind: SkinType, value: &str) -> (String, String) {
+    let Some(p) = super::play_skin::configured_path(ctx, value) else {
+        return ("DEFAULT".into(), "vibeBMS".into());
+    };
+    if kind == SkinType::SoundSet {
+        if let Some(s) = crate::sysound::set_info(&p) {
+            return (s.name, s.author);
+        }
+    }
+    let name = crate::skin::header(&p)
+        .map(|h| h.1)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| {
+            p.file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        });
+    (name, String::new())
+}
+
+/// Step custom option `o` of the skin chosen as `value` by `d` choices.
+pub fn step_option(ctx: &mut Ctx, value: &str, o: &crate::skin::CustomOption, d: i32) {
+    if o.labels.is_empty() {
+        return;
+    }
+    let cur = o.chosen(
+        ctx.config
+            .skin_options
+            .get(value)
+            .and_then(|m| m.get(&o.name))
+            .map(String::as_str),
+    );
+    let n = o.labels.len() as i32;
+    let next = (cur as i32 + d).rem_euclid(n) as usize;
+    ctx.config
+        .skin_options
+        .entry(value.to_string())
+        .or_default()
+        .insert(o.name.clone(), o.labels[next].clone());
+}
+
+/// Step field `field` (x, y, w, h, angle, alpha) of offset `name` of the
+/// skin chosen as `value` by `d` steps.
+pub fn step_offset(ctx: &mut Ctx, value: &str, name: &str, field: usize, d: i32) {
+    let v = ctx
+        .config
+        .skin_offsets
+        .entry(value.to_string())
+        .or_default()
+        .entry(name.to_string())
+        .or_default();
+    // alpha in 0..255 steps of 5, angle in degrees, the rest in pixels
+    let step = if field == 5 { 5 } else { 1 };
+    v[field] = (v[field] + d * step).clamp(-2000, 2000);
+    if field == 5 {
+        v[5] = v[5].clamp(-255, 255);
+    }
+}

@@ -12,6 +12,7 @@ use crate::scene::select_skin::{SelectHooks, SelectState};
 use crate::scene::skinned;
 use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
+use crate::sysound::Sound;
 use crate::theme;
 use crate::ui;
 use std::collections::HashMap;
@@ -128,6 +129,9 @@ pub struct SelectScene {
     pub(crate) created: Instant,
     pub(crate) skin: Option<LoadedSkin>,
     skin_tried: bool,
+    /// The sound set's BGM is playing; the panel its sounds last saw.
+    bgm_on: bool,
+    sound_panel: usize,
     /// Clickable skin objects from the last frame: (rect, event, click mode).
     skin_clicks: Vec<(Rect, i32, i32)>,
     /// Open skin panel (1..=6) and when panels last opened / closed.
@@ -207,6 +211,8 @@ impl SelectScene {
             created: Instant::now(),
             skin: None,
             skin_tried: false,
+            bgm_on: false,
+            sound_panel: 0,
             skin_clicks: Vec::new(),
             panel: 0,
             panel_on: [None; 6],
@@ -496,6 +502,7 @@ impl SelectScene {
             return;
         }
         self.stack.push((self.node.clone(), self.cursor));
+        ctx.play_sound(Sound::FolderOpen);
         self.node = node;
         self.bars = bars;
         // the folder's own bar (LR2: deciding on it closes the folder)
@@ -506,6 +513,7 @@ impl SelectScene {
 
     fn back(&mut self, ctx: &mut Ctx) -> bool {
         if let Some((n, c)) = self.stack.pop() {
+            ctx.play_sound(Sound::FolderClose);
             self.node = n;
             self.bars = self.listing(ctx, &self.node.clone());
             self.cursor = c.min(self.bars.len().saturating_sub(1));
@@ -532,6 +540,9 @@ impl SelectScene {
         }
         let n = self.bars.len() as i32;
         self.cursor = ((self.cursor as i32 + d).rem_euclid(n)) as usize;
+        if d != 0 {
+            ctx.play_sound(Sound::Scratch);
+        }
         self.moved(ctx);
     }
 
@@ -581,6 +592,7 @@ impl SelectScene {
         };
         ctx.mixer.stop(PREVIEW_KEY);
         self.preview_for = None;
+        self.stop_bgm(ctx);
         Next::Push(Box::new(PlayScene::new(
             ctx,
             PlayRequest {
@@ -616,6 +628,7 @@ impl SelectScene {
                 let song = ctx.songs[i].clone();
                 ctx.mixer.stop(PREVIEW_KEY);
                 self.preview_for = None;
+                self.stop_bgm(ctx);
                 let req = PlayRequest {
                     song,
                     autoplay: autoplay || ctx.config.play.autoplay,
@@ -748,6 +761,7 @@ impl SelectScene {
                     return Next::Stay;
                 }
                 ctx.mixer.stop(PREVIEW_KEY);
+                self.stop_bgm(ctx);
                 let run = CourseRun::new(c.name.clone(), songs, c.constraint.clone());
                 let first = run.songs[0].clone();
                 let req = PlayRequest {
@@ -789,6 +803,7 @@ impl SelectScene {
             9 => return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx))),
             _ => {}
         }
+        ctx.play_sound(Sound::OptionChange);
         ctx.save_config();
         Next::Stay
     }
@@ -824,6 +839,33 @@ impl SelectScene {
             ),
             ("SETTINGS".into(), "OPEN".into()),
         ]
+    }
+
+    /// The sound set's BGM while no song preview plays, and the option
+    /// panels' open / close sounds.
+    fn update_sounds(&mut self, ctx: &mut Ctx) {
+        let want = self.preview_for.is_none();
+        if want != self.bgm_on {
+            self.bgm_on = want;
+            if want {
+                ctx.play_sound(Sound::Select);
+            } else {
+                ctx.stop_sound(Sound::Select);
+            }
+        }
+        if self.panel != self.sound_panel {
+            ctx.play_sound(if self.panel > 0 {
+                Sound::OptionOpen
+            } else {
+                Sound::OptionClose
+            });
+            self.sound_panel = self.panel;
+        }
+    }
+
+    fn stop_bgm(&mut self, ctx: &mut Ctx) {
+        ctx.stop_sound(Sound::Select);
+        self.bgm_on = true; // until resumed
     }
 
     fn update_preview(&mut self, ctx: &mut Ctx) {
@@ -1068,13 +1110,19 @@ impl SelectScene {
             _ => false,
         };
         if done {
+            ctx.play_sound(Sound::OptionChange);
             ctx.save_config();
             return Next::Stay;
         }
         match act {
             15 => self.decide(ctx, false),
             16 => self.decide(ctx, true),
-            13 | 14 => self.option(ctx, 9),
+            // beatoraja / LR2: the key config and skin select screens
+            13 => {
+                self.stop_bgm(ctx);
+                Next::Push(super::keyconfig::open(ctx))
+            }
+            14 => Next::Push(super::skinselect::open(ctx, None)),
             42 => self.option(ctx, 0),
             40 => self.option(ctx, 1),
             308 => self.option(ctx, 3),
@@ -1137,6 +1185,7 @@ impl SelectScene {
             self.panel_repeat = Some((k, Instant::now() + Duration::from_millis(300), 0));
         }
         if let Some(msg) = said {
+            ctx.play_sound(Sound::OptionChange);
             // the skin shows the change on its panel; without one, a toast
             if !self.skin_has_panels() {
                 ctx.toast(msg);
@@ -1250,6 +1299,7 @@ impl Scene for SelectScene {
             self.scroll = (self.scroll + diff * 0.3).rem_euclid(n);
         }
         self.update_preview(ctx);
+        self.update_sounds(ctx);
         self.update_ranking(ctx);
         self.update_banner(ctx, gfx);
         if !self.skin_tried {
@@ -1362,8 +1412,11 @@ impl Scene for SelectScene {
                     return Next::Stay; // own repeat handling
                 }
                 match code {
-                    // beatoraja number keys: 3 LN mode
+                    // beatoraja number keys: 3 LN mode, 6 key config (7 skin
+                    // select: beatoraja's F12 rescans here)
                     KeyCode::Digit3 | KeyCode::Numpad3 => return self.option(ctx, 3),
+                    KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13),
+                    KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14),
                     KeyCode::F2 => return self.option(ctx, 0),
                     KeyCode::F3 => return self.option(ctx, 1),
                     KeyCode::F4 => return self.option(ctx, 3),
@@ -1531,6 +1584,8 @@ impl Scene for SelectScene {
     }
 
     fn resumed(&mut self, ctx: &mut Ctx) {
+        // the BGM again (a screen over this one may have stopped it)
+        self.bgm_on = false;
         // scores may have changed
         self.dist_cache.borrow_mut().clear();
         self.rebuild(ctx);
@@ -1539,6 +1594,7 @@ impl Scene for SelectScene {
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         ctx.mixer.stop(PREVIEW_KEY);
+        self.stop_bgm(ctx);
         if let Some(mut s) = self.skin.take() {
             s.free(gfx);
         }
