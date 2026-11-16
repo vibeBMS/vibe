@@ -166,6 +166,7 @@ impl SongFetch {
                     md5: md5.clone().filter(|_| !diff || have_song),
                     chart: md5.clone().filter(|_| diff),
                     checked: Vec::new(),
+                    want: md5.clone(),
                 })
                 .collect();
             web(root, want, progress, groups, Vec::new(), move |done| {
@@ -209,8 +210,10 @@ struct Group {
     md5: Option<String>,
     /// A separate chart's: its MD5 (not needed when the song holds it).
     chart: Option<String>,
-    /// Links a source found by name: the chart they bring is checked.
+    /// Links a source found by name: what they bring is checked to hold
+    /// the chart `want`.
     checked: Vec<String>,
+    want: Option<String>,
 }
 
 /// The web build: the links one after another through the vibeBMS proxy,
@@ -254,19 +257,14 @@ fn web(
                 };
                 let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
                 progress.set_stage(Stage::Finding);
-                // BMS SEARCH's API sends CORS headers: no proxy
-                crate::platform::run_task(sources.find_all(&q), false, move |found| {
+                // through the proxy (but BMS SEARCH, which sends CORS headers)
+                crate::platform::run_task(sources.find_all(&q), true, move |found| {
                     for (source, l) in found {
                         if g.tried.contains(&l) || g.links.contains(&l) {
                             continue;
                         }
-                        // found by name: a chart is checked here; an
-                        // archive would be looked into, which this build
-                        // does not
+                        // found by name: what it brings is checked
                         if sources.checked(source) {
-                            if !chart_link(&l) {
-                                continue;
-                            }
                             g.checked.push(l.clone());
                         }
                         g.links.push(l);
@@ -286,7 +284,7 @@ fn web(
     g.tried.push(link.clone());
     let diff = g.diff;
     // found by name: the chart it brings must be the one
-    let check = g.checked.contains(&link).then(|| g.chart.clone()).flatten();
+    let check = g.checked.contains(&link).then(|| g.want.clone()).flatten();
     // this link's outcome: the file in, or the group again (its next link)
     let next = move |got: Vec<Done>, mut groups: Vec<Group>, mut done: Vec<Done>| {
         match g.tries.record(got) {
@@ -332,6 +330,14 @@ fn web(
     web_fetch(link, want_song, Some(progress.clone()), move |r| {
         progress.set_stage(Stage::Unpacking);
         let got = match r {
+            // found by name: only if it holds the chart
+            Ok(bytes)
+                if check
+                    .as_ref()
+                    .is_some_and(|m| !bmseeker::install::archive_holds_chart(bytes.clone(), m)) =>
+            {
+                vec![Done::Failed(bmseeker::install::NOT_THE_CHART.into())]
+            }
             // a separate chart's archive: its charts into their songs' folders
             Ok(bytes) if diff => {
                 let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");

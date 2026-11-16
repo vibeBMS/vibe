@@ -234,7 +234,7 @@ pub fn ir_send(
 }
 
 /// Run a bmseeker task: its requests made here, one after another
-/// (`proxy`: on the web through the vibeBMS proxy, for hosts that send no
+/// (`proxy`: on the web through the vibeBMS proxy, but to hosts that send
 /// CORS headers), then `on_done` with its result.
 pub fn run_task<T>(task: T, proxy: bool, on_done: impl FnOnce(T::Output) + Send + 'static)
 where
@@ -258,7 +258,7 @@ where
         T::Output: Send + 'static,
     {
         let url = |u: &str| {
-            if proxy && IS_WEB {
+            if proxy && IS_WEB && !crate::hosts::sends_cors(u) {
                 crate::hosts::via_proxy(u)
             } else {
                 u.to_string()

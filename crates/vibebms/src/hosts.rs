@@ -33,6 +33,13 @@ pub fn context() -> &'static Context {
     }
 }
 
+/// Whether `url`'s host sends CORS headers (a web page reads it itself):
+/// BMS SEARCH's API.
+pub fn sends_cors(url: &str) -> bool {
+    let host = url.split('/').nth(2).unwrap_or("").to_ascii_lowercase();
+    host == "api.bmssearch.net"
+}
+
 /// `url` as the web build fetches it.
 pub fn via_proxy(url: &str) -> String {
     format!("{WEB_PROXY}?url={}", url_encode(url))
