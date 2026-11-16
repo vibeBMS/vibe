@@ -15,7 +15,7 @@ use crate::skin::SkinType;
 use crate::theme;
 use crate::ui;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions, Sample};
@@ -88,7 +88,7 @@ pub struct SelectScene {
     version: u64,
     /// Web: the kept song folder a first Delete press asked about.
     #[cfg(target_arch = "wasm32")]
-    delete_armed: Option<std::path::PathBuf>,
+    delete_armed: Option<PathBuf>,
     /// Last position of each turntable axis (it scrolls the list).
     axis_last: HashMap<u64, f32>,
     pub(crate) node: Node,
@@ -106,6 +106,9 @@ pub struct SelectScene {
     labels: HashMap<usize, Vec<String>>,
     preview_for: Option<String>,
     preview_rx: Option<Receiver<Option<Arc<Sample>>>>,
+    /// The preview's file being read (the web: from the browser's storage)
+    /// before it is decoded.
+    preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
     banner: Option<(String, Option<TexId>)>,
     pub(crate) ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
@@ -136,6 +139,32 @@ fn lower(s: &str) -> String {
     s.to_lowercase()
 }
 
+/// A song's preview: the chart's `#PREVIEW`, else a sound in its folder
+/// named `preview…` (as beatoraja finds one).
+fn preview_file(song: &Song) -> Option<PathBuf> {
+    use crate::platform::vfs::{find_by_stem, read_dir, AUDIO_EXTS};
+    let dir = Path::new(&song.path).parent()?;
+    if !song.preview.is_empty() {
+        if let Some(p) = find_by_stem(dir, &song.preview, AUDIO_EXTS) {
+            return Some(p);
+        }
+    }
+    let mut found: Vec<PathBuf> = read_dir(dir)
+        .ok()?
+        .into_iter()
+        .filter(|e| !e.is_dir)
+        .map(|e| e.path)
+        .filter(|p| {
+            let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase());
+            let ext = p.extension().map(|s| s.to_string_lossy().to_lowercase());
+            stem.is_some_and(|s| s.starts_with("preview"))
+                && ext.is_some_and(|e| AUDIO_EXTS.contains(&e.as_str()))
+        })
+        .collect();
+    found.sort();
+    found.into_iter().next()
+}
+
 impl SelectScene {
     pub fn new(ctx: &mut Ctx) -> SelectScene {
         let mut s = SelectScene {
@@ -158,6 +187,7 @@ impl SelectScene {
             axis_last: HashMap::new(),
             preview_for: None,
             preview_rx: None,
+            preview_fetch: None,
             banner: None,
             ranking: HashMap::new(),
             quit_armed: None,
@@ -478,6 +508,7 @@ impl SelectScene {
             ctx.mixer.stop(PREVIEW_KEY);
         }
         self.preview_rx = None;
+        self.preview_fetch = None;
     }
 
     fn step(&mut self, ctx: &mut Ctx, d: i32) {
@@ -803,6 +834,29 @@ impl SelectScene {
                 }
             }
         }
+        // its file read: decoded (off the main thread natively)
+        if self
+            .preview_fetch
+            .as_ref()
+            .is_some_and(|(f, _)| f.finished())
+        {
+            let (_, p) = self.preview_fetch.take().expect("checked");
+            let rate = ctx.mixer.sample_rate;
+            let (tx, rx) = channel();
+            self.preview_rx = Some(rx);
+            crate::platform::spawn("preview", move || {
+                let ext = p
+                    .extension()
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                let s = crate::platform::vfs::read(&p)
+                    .ok()
+                    .and_then(|bytes| vibebms_audio::decode_bytes(bytes, &ext, rate).ok())
+                    .map(Arc::new);
+                let _ = tx.send(s);
+            });
+            return;
+        }
         if !ctx.config.audio.preview
             || self.preview_for.is_some()
             || self.last_move.elapsed() < Duration::from_millis(450)
@@ -812,32 +866,10 @@ impl SelectScene {
         let Some((_, song)) = self.selected_song(ctx) else {
             return;
         };
-        if song.preview.is_empty() {
-            return;
-        }
-        let dir = Path::new(&song.path)
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
-        let name = song.preview.clone();
         self.preview_for = Some(song.path.clone());
-        let rate = ctx.mixer.sample_rate;
-        let (tx, rx) = channel();
-        self.preview_rx = Some(rx);
-        crate::platform::spawn("preview", move || {
-            let s =
-                crate::platform::vfs::find_by_stem(&dir, &name, crate::platform::vfs::AUDIO_EXTS)
-                    .and_then(|p| {
-                        let ext = p
-                            .extension()
-                            .map(|e| e.to_string_lossy().to_lowercase())
-                            .unwrap_or_default();
-                        let bytes = crate::platform::vfs::read(&p).ok()?;
-                        vibebms_audio::decode_bytes(bytes, &ext, rate).ok()
-                    })
-                    .map(Arc::new);
-            let _ = tx.send(s);
-        });
+        if let Some(p) = preview_file(song) {
+            self.preview_fetch = Some((crate::platform::vfs::Prefetch::files(vec![p.clone()]), p));
+        }
     }
 
     fn update_ranking(&mut self, ctx: &mut Ctx) {
