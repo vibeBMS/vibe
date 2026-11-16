@@ -396,8 +396,11 @@ pub fn scan(
     progress: Arc<ScanProgress>,
 ) {
     let known_records = load_songs(&songs_file);
+    // charts read before the library kept their judge rank and note
+    // kinds are read again (once)
     let known: HashMap<String, (i64, i64)> = known_records
         .iter()
+        .filter(|r| r.song.judge.is_some())
         .map(|r| (r.song.path.clone(), (r.mtime, r.size)))
         .collect();
     let mut files: Vec<(PathBuf, String)> = Vec::new();
