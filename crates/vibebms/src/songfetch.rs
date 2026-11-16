@@ -96,7 +96,7 @@ fn song_dir(root: &Path, stem: &str, want: &crate::hosts::Want) -> std::path::Pa
     let chart = crate::placement::ChartInfo {
         title: want.title.clone(),
         artist: want.artist.clone(),
-        sounds: Vec::new(),
+        ..Default::default()
     };
     bmseeker::placement::song_folder(&crate::placement::Vfs, &root.join("bms"), stem, &[chart])
 }
