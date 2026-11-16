@@ -131,6 +131,12 @@ impl From<String> for Fail {
     }
 }
 
+impl From<bmseeker::net::NetError> for Fail {
+    fn from(e: bmseeker::net::NetError) -> Fail {
+        Fail::Msg(e.to_string())
+    }
+}
+
 impl From<&str> for Fail {
     fn from(e: &str) -> Fail {
         Fail::Msg(e.into())
@@ -590,7 +596,7 @@ fn web_resolve(
             })
         }
         Err(Fetch::Page) => done(Err(Fail::Page(link))),
-        Err(Fetch::Failed(e)) => done(Err(Fail::Msg(e))),
+        Err(Fetch::Failed(e)) => done(Err(e.into())),
     });
 }
 
@@ -630,7 +636,7 @@ fn fetch_work(
             match fetch(&f.url, None, &tmp, context()) {
                 Ok(()) => format!("{name}.{}", sniff(&tmp).unwrap_or("zip")),
                 Err(Fetch::Page) => return Err(Fail::Page(f.url.clone())),
-                Err(Fetch::Failed(e)) => return Err(Fail::Msg(e)),
+                Err(Fetch::Failed(e)) => return Err(e.into()),
             }
         } else {
             crate::hosts::download_to(&f.url, &tmp)?;

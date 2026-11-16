@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-pub use bmseeker::install::Done;
 #[cfg(target_arch = "wasm32")]
 use bmseeker::install::{chart_link, chart_name};
+pub use bmseeker::install::{Done, Failure};
 
 #[derive(Default)]
 pub struct SongFetch {
@@ -32,17 +32,15 @@ fn has_chart(done: &[Done], md5: Option<&str>) -> bool {
     })
 }
 
-/// What a chart's download came to when its song is in the library already
-/// and none of the chart's links brought it (nor led to a page).
-pub const NO_CHART_LINK: &str = "the song is in the library; no link for this chart works";
-
+/// A chart's download whose song is in the library already, and none of
+/// the chart's links brought it (nor led to a page): [`Failure::NoChartLink`].
 fn no_chart_link(done: Vec<Done>, have_song: bool) -> Vec<Done> {
     let page = done.iter().any(|d| matches!(d, Done::Page(_)));
     let cancelled = done
         .iter()
-        .any(|d| matches!(d, Done::Failed(e) if e == bmseeker::progress::CANCELLED));
+        .any(|d| matches!(d, Done::Failed(e) if e.cancelled()));
     if have_song && !page && !cancelled && !bmseeker::install::got(&done) {
-        vec![Done::Failed(NO_CHART_LINK.into())]
+        vec![Done::Failed(Failure::NoChartLink)]
     } else {
         done
     }
@@ -113,7 +111,7 @@ impl SongFetch {
     /// in turn until one downloads; for the song, then the links BMS SEARCH
     /// knows for the chart `md5`). With the song in the library already
     /// (`have_song`), only the chart: when none of its links works, it ends
-    /// in [`NO_CHART_LINK`], and the song is not downloaded again. False when
+    /// in [`Failure::NoChartLink`], and the song is not downloaded again. False when
     /// there is nothing to try.
     pub fn start(
         &mut self,
@@ -261,7 +259,7 @@ fn web(
     }
     let title = want.title.clone();
     if progress.cancelled() {
-        done.push(Done::Failed(bmseeker::progress::CANCELLED.into()));
+        done.push(Done::Failed(bmseeker::net::NetError::Cancelled.into()));
         return finish(done);
     }
     let mut g = groups.remove(0);
@@ -330,7 +328,7 @@ fn web(
                         !bmseeker::install::md5_hex(&b).eq_ignore_ascii_case(m)
                     }) =>
                 {
-                    Done::Failed(bmseeker::install::NOT_THE_CHART.into())
+                    Done::Failed(Failure::NotTheChart)
                 }
                 Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
                     let at = root.join("downloads").join(&name);
@@ -364,7 +362,7 @@ fn web(
                     !bmseeker::install::archive_holds_chart(bytes.clone(), m, song.as_ref())
                 }) =>
             {
-                vec![Done::Failed(bmseeker::install::NOT_THE_CHART.into())]
+                vec![Done::Failed(Failure::NotTheChart)]
             }
             // a separate chart's archive: its charts into their songs' folders
             Ok(bytes) if diff => {
@@ -393,7 +391,7 @@ fn web(
                 )
             }
             Err(Fail::Page(url)) => vec![Done::Page(url)],
-            Err(Fail::Msg(e)) => vec![Done::Failed(e)],
+            Err(Fail::Msg(e)) => vec![Done::Failed(e.into())],
         };
         let (groups, done) = next(got, groups, done);
         web(root, want, progress, groups, done, finish)
@@ -432,6 +430,7 @@ mod tests {
         let missing = bmseeker::install::md5_hex(b"#TITLE Missing");
         let done = place_diff(&r, &tmp, &missing);
         assert!(!bmseeker::install::got(&done), "{done:?}");
+        assert!(matches!(&done[..], [Done::Failed(Failure::NotTheChart)]));
         assert!(!tmp.exists() && !r.join("downloads/ours.bms").exists());
         put(&tmp.join("Song/ours.bms"), OURS);
         put(
@@ -471,5 +470,24 @@ mod tests {
             "{done:?}"
         );
         let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// The chart alone, its song in the library: no link working is a
+    /// failure of its own; a page or a cancel stays what it was.
+    #[test]
+    fn no_chart_link_with_the_song_in() {
+        let failed = || vec![Done::Failed(Failure::NotTheChart)];
+        assert!(matches!(
+            &no_chart_link(failed(), true)[..],
+            [Done::Failed(Failure::NoChartLink)]
+        ));
+        assert!(matches!(
+            &no_chart_link(failed(), false)[..],
+            [Done::Failed(Failure::NotTheChart)]
+        ));
+        let cancelled = vec![Done::Failed(bmseeker::net::NetError::Cancelled.into())];
+        assert!(matches!(&no_chart_link(cancelled, true)[..], [Done::Failed(e)] if e.cancelled()));
+        let page = vec![Done::Page("https://x/".into())];
+        assert!(matches!(&no_chart_link(page, true)[..], [Done::Page(_)]));
     }
 }

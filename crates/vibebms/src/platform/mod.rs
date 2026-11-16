@@ -84,15 +84,7 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, f: F) {
     (0..n).for_each(f);
 }
 
-/// Asynchronous HTTP (ehttp: ureq natively, `fetch` in browsers). `on_done`
-/// runs on a worker thread natively and on the event loop on the web.
-pub fn http(
-    method: &str,
-    url: &str,
-    headers: &[(String, String)],
-    body: Vec<u8>,
-    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
-) {
+fn request(method: &str, url: &str, headers: &[(String, String)], body: Vec<u8>) -> ehttp::Request {
     let mut req = ehttp::Request::get(url);
     req.method = match method {
         "POST" => ehttp::Method::POST,
@@ -104,11 +96,42 @@ pub fn http(
     for (k, v) in headers {
         req.headers.insert(k, v);
     }
-    ehttp::fetch(req, move |r| {
+    req
+}
+
+/// Asynchronous HTTP (ehttp: ureq natively, `fetch` in browsers). `on_done`
+/// runs on a worker thread natively and on the event loop on the web.
+pub fn http(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Vec<u8>,
+    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+) {
+    ehttp::fetch(request(method, url, headers, body), move |r| {
         on_done(match r {
             Ok(r) if r.ok => Ok(r.bytes),
             Ok(r) => Err(format!("HTTP {} {}", r.status, r.url)),
             Err(e) => Err(e),
+        })
+    });
+}
+
+/// A bmseeker task's request: [`http`] with its failure typed (a status
+/// as `NetError::Status`, which bmseeker's retries and checks look at).
+fn http_answer(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Vec<u8>,
+    on_done: impl FnOnce(bmseeker::net::Answer) + Send + 'static,
+) {
+    use bmseeker::net::NetError;
+    ehttp::fetch(request(method, url, headers, body), move |r| {
+        on_done(match r {
+            Ok(r) if r.ok => Ok(r.bytes),
+            Ok(r) => Err(NetError::Status(r.status)),
+            Err(e) => Err(NetError::Other(e)),
         })
     });
 }
@@ -289,11 +312,11 @@ where
         };
         match next {
             Next::Done(out) => on_done(task, out),
-            Next::Ask(Request::Get(u)) => http_get(&url(&u), move |a| {
+            Next::Ask(Request::Get(u)) => http_answer("GET", &url(&u), &[], Vec::new(), move |a| {
                 let next = task.feed(a);
                 step(task, next, proxy, on_done)
             }),
-            Next::Ask(Request::Post { url: u, body }) => http(
+            Next::Ask(Request::Post { url: u, body }) => http_answer(
                 "POST",
                 &url(&u),
                 &[("Content-Type".into(), "application/json".into())],
