@@ -96,7 +96,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA
   and plain archive servers work; the web build goes through the vibeBMS proxy). When the song is in the library
-  already, only the chart is fetched, and a message says when none of its links works.
+  already, only the chart is fetched, and a message says when none of its links works. What a download holds is
+  sorted first, the same on the desktop and the web: a song new to the library gets a folder of its own; a song the
+  library has already is not added again ("already installed"; only files its folder lacks come in); a separate
+  chart goes into its song's folder with its own files as they are laid out (its `sound/` folder too), the song found
+  by the library's charts in the same download, then by the song's own charts the table names (`org_md5`), then by
+  the sounds it uses and its title and artist; when two folders are as likely, it waits rather than picking one.
   Links that cannot be downloaded directly (OneDrive, uploaders, deleted files) open their download page: on the
   desktop in a browser window in the app, whose downloaded zip/7z/rar/lzh is unpacked into `bms/` before the chart's page
   opens; a downloaded chart goes into its song's folder (the folder with the same title and artist, as the library

@@ -61,6 +61,9 @@ pub(crate) enum Bar {
         artist: String,
         /// The chart's (for its other links).
         md5: String,
+        /// The song's own charts a table names (where a separate chart
+        /// goes).
+        org_md5: Vec<String>,
         /// More links for the song, after `url` (an event work's other
         /// links, then its page).
         more: Vec<String>,
@@ -418,6 +421,7 @@ impl SelectScene {
                             title: w.title.clone(),
                             artist: w.artist.clone(),
                             md5: String::new(),
+                            org_md5: Vec::new(),
                             more: w.links.iter().skip(1).chain([&w.page]).cloned().collect(),
                             addons: w.addons.clone(),
                             level: String::new(),
@@ -448,6 +452,7 @@ impl SelectScene {
                             title: e.title.clone(),
                             artist: e.artist.clone(),
                             md5: e.md5.clone(),
+                            org_md5: e.org_md5.clone(),
                             more: Vec::new(),
                             addons: Vec::new(),
                             level: table.label(&e.level),
@@ -644,6 +649,7 @@ impl SelectScene {
                 title,
                 artist,
                 md5,
+                org_md5,
                 more,
                 addons,
                 ..
@@ -684,7 +690,7 @@ impl SelectScene {
                     });
                 if ctx
                     .song_fetch
-                    .start(&root, &title, &artist, &md5, links, have_song)
+                    .start(&root, &title, &artist, &md5, org_md5, links, have_song)
                 {
                     ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
                     return Next::Stay;

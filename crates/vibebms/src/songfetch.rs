@@ -67,50 +67,30 @@ fn no_chart_link(done: Vec<Done>, have_song: bool) -> Vec<Done> {
     }
 }
 
-/// A song just added (`done`, from one link): the charts that waited in
-/// the downloads for it go into its folder (natively `install::link` does
-/// this).
+/// What a link brought (`bytes`; a chart's own link: its file name
+/// `file`) into the library, as natively (`bmseeker::install::take`): in
+/// memory, unpacked, its packages each into a folder of its own, into
+/// their songs' folders (the library as the player read it), or waiting;
+/// a song added, the charts that waited for it into its folder.
+/// `check`: found by name, only if it holds the chart `q.md5`.
 #[cfg(any(target_arch = "wasm32", test))]
-fn place_waiting(root: &Path, songs: &[Song], mut done: Vec<Done>) -> Vec<Done> {
-    if matches!(done.first(), Some(Done::Added(..))) {
-        let downloads = root.join("downloads");
-        let lib = &mut crate::placement::library(root, songs);
-        let placed = bmseeker::install::place_waiting_in(&crate::placement::Vfs, &downloads, lib);
-        done.extend(placed.into_iter().map(Done::Placed));
-    }
-    done
-}
-
-/// A separate chart's archive unpacked into `tmp` (below the downloads):
-/// its charts into their songs' folders, the chart `md5` kept waiting (no
-/// other: a pack without it fails, and the next link is tried); `tmp` goes.
-#[cfg(any(target_arch = "wasm32", test))]
-fn place_diff(root: &Path, songs: &[Song], tmp: &Path, md5: &str) -> Vec<Done> {
-    let downloads = root.join("downloads");
-    let lib = &mut crate::placement::library(root, songs);
-    let done =
-        bmseeker::install::place_diff_in(&crate::placement::Vfs, tmp, &downloads, lib, md5, None);
-    crate::platform::vfs::remove_dir(tmp);
-    done
-}
-
-/// The library folder (below `<root>/bms`) for the song `want`'s archive
-/// named `stem`: that name, unless a folder of it holds another song of
-/// that title (then `stem (2)`...).
-#[cfg(any(target_arch = "wasm32", test))]
-fn song_dir(
+fn take(
     root: &Path,
     songs: &[Song],
-    stem: &str,
-    want: &crate::hosts::Want,
-) -> std::path::PathBuf {
-    let chart = crate::placement::ChartInfo {
-        title: want.title.clone(),
-        artist: want.artist.clone(),
-        ..Default::default()
-    };
-    let lib = crate::placement::library(root, songs);
-    bmseeker::placement::song_folder_in(&crate::placement::Vfs, &lib, stem, &[chart])
+    bytes: Vec<u8>,
+    q: &bmseeker::sources::Query,
+    check: bool,
+    file: Option<String>,
+) -> Vec<Done> {
+    let req = bmseeker::install::request(q, check, file, &crate::hosts::context().config);
+    let lib = &mut crate::placement::library(root, songs);
+    bmseeker::install::take(
+        &crate::placement::Vfs,
+        bmseeker::unpack::Blob::Bytes(bytes),
+        &req,
+        &root.join("downloads"),
+        lib,
+    )
 }
 
 fn is_link(u: &str) -> bool {
@@ -161,13 +141,16 @@ impl SongFetch {
     /// knows for the chart `md5`). With the song in the library already
     /// (`have_song`), only the chart: when none of its links works, it ends
     /// in [`Failure::NoChartLink`], and the song is not downloaded again. False when
-    /// there is nothing to try.
+    /// there is nothing to try. `org_md5`: the song's own charts a table
+    /// names (where its separate chart goes).
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &mut self,
         root: &Path,
         title: &str,
         artist: &str,
         md5: &str,
+        org_md5: Vec<String>,
         links: Vec<(Vec<String>, bool)>,
         have_song: bool,
     ) -> bool {
@@ -216,6 +199,7 @@ impl SongFetch {
                     md5: md5.clone().unwrap_or_default(),
                     want: want.clone(),
                     diff: *diff,
+                    org_md5: org_md5.clone(),
                 };
                 let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
                 done.extend(bmseeker::install::links_in(
@@ -243,6 +227,7 @@ impl SongFetch {
                     chart: md5.clone().filter(|_| diff),
                     checked: Vec::new(),
                     want: md5.clone(),
+                    org_md5: org_md5.clone(),
                 })
                 .collect();
             web(
@@ -298,6 +283,8 @@ struct Group {
     /// the chart `want`.
     checked: Vec<String>,
     want: Option<String>,
+    /// The song's own charts a table names (where a separate chart goes).
+    org_md5: Vec<String>,
 }
 
 /// The web build: the links one after another through the vibeBMS proxy,
@@ -315,11 +302,9 @@ fn web(
 ) {
     use crate::archive::{web_fetch, Fail};
     use crate::hosts::via_proxy;
-    use crate::platform::vfs;
     if groups.is_empty() {
         return finish(done);
     }
-    let title = want.title.clone();
     if progress.cancelled() {
         done.push(Done::Failed(bmseeker::net::NetError::Cancelled.into()));
         return finish(done);
@@ -339,6 +324,7 @@ fn web(
                     md5,
                     want: want.clone(),
                     diff: g.diff,
+                    org_md5: g.org_md5.clone(),
                 };
                 let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
                 progress.set_stage(Stage::Finding);
@@ -367,10 +353,14 @@ fn web(
     }
     let link = g.links.remove(0);
     g.tried.push(link.clone());
-    let diff = g.diff;
     // found by name: the chart it brings must be the one
-    let check = g.checked.contains(&link).then(|| g.want.clone()).flatten();
-    let md5 = g.want.clone().unwrap_or_default();
+    let check = g.checked.contains(&link) && g.want.is_some();
+    let q = bmseeker::sources::Query {
+        md5: g.want.clone().unwrap_or_default(),
+        want: want.clone(),
+        diff: g.diff,
+        org_md5: g.org_md5.clone(),
+    };
     // this link's outcome: the file in, or the group again (its next link)
     let next = move |got: Vec<Done>, mut groups: Vec<Group>, mut done: Vec<Done>| {
         match g.tries.record(got) {
@@ -385,76 +375,22 @@ fn web(
         let p = Some(progress.clone());
         crate::platform::http_get_progress(&via_proxy(&link), p, move |r| {
             let got = match r {
-                Ok(b)
-                    if check.as_ref().is_some_and(|m| {
-                        !bmseeker::install::md5_hex(&b).eq_ignore_ascii_case(m)
-                    }) =>
-                {
-                    Done::Failed(Failure::NotTheChart)
-                }
+                // (a page where a chart was expected)
                 Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
-                    let at = root.join("downloads").join(&name);
-                    vfs::put_bytes(&at, b);
-                    let lib = crate::placement::library(&root, &songs);
-                    match crate::placement::locate_loose_in(&at, &lib) {
-                        Some(crate::placement::Located::Move(dir)) => {
-                            match crate::placement::bring(&at, &dir) {
-                                Some(to) => Done::Placed(to),
-                                None => Done::Waiting(at),
-                            }
-                        }
-                        _ => Done::Waiting(at),
-                    }
+                    take(&root, &songs, b, &q, check, Some(name))
                 }
-                _ => Done::Page(link),
+                _ => vec![Done::Page(link)],
             };
-            let (groups, done) = next(vec![got], groups, done);
+            let (groups, done) = next(got, groups, done);
             web(root, songs, want, progress, groups, done, finish)
         });
         return;
     }
-    let want_song = (!diff).then(|| want.clone());
-    let song = want_song.clone();
+    let want_song = (!q.diff).then(|| want.clone());
     web_fetch(link, want_song, Some(progress.clone()), move |r| {
         progress.set_stage(Stage::Unpacking);
         let got = match r {
-            // found by name: only if it holds the chart (a song: or its
-            // charts are that song's, its chart a separate one)
-            Ok(bytes)
-                if check.as_ref().is_some_and(|m| {
-                    !bmseeker::install::archive_holds_chart(bytes.clone(), m, song.as_ref())
-                }) =>
-            {
-                vec![Done::Failed(Failure::NotTheChart)]
-            }
-            // a separate chart's archive: its charts into their songs' folders
-            Ok(bytes) if diff => {
-                let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
-                let stem = crate::archive::safe_name(&title);
-                // (what is left of it goes with the folder)
-                let tmp = root.join("downloads").join(".diff");
-                match vfs::add_archive_at(&tmp, &format!("{stem}.{ext}"), bytes) {
-                    0 => {
-                        vfs::remove_dir(&tmp);
-                        vec![Done::Failed("the archive holds nothing".into())]
-                    }
-                    _ => place_diff(&root, &songs, &tmp, &md5),
-                }
-            }
-            Ok(bytes) => {
-                let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
-                let dir = song_dir(&root, &songs, &crate::archive::safe_name(&title), &want);
-                let stem = dir.file_name().unwrap_or_default().to_string_lossy();
-                // and the charts that waited for it
-                place_waiting(
-                    &root,
-                    &songs,
-                    vec![match vfs::add_zip(&root, &format!("{stem}.{ext}"), bytes) {
-                        0 => Done::Failed("the archive holds nothing".into()),
-                        n => Done::Added(dir.clone(), n),
-                    }],
-                )
-            }
+            Ok(bytes) => take(&root, &songs, bytes, &q, check, None),
             Err(Fail::Page(url)) => vec![Done::Page(url)],
             Err(Fail::Msg(e)) => vec![Done::Failed(e.into())],
         };
@@ -480,93 +416,170 @@ mod tests {
     }
 
     const OURS: &str = "#TITLE Song [X]\n#ARTIST alpha / obj: b\n#WAV01 01.wav\n";
+    const SONG: &str = "#TITLE Song\n#ARTIST alpha\n#WAV01 01.wav\n";
+
+    /// A zip (stored) of `files` (name, contents), as a host would serve it.
+    fn zip(files: &[(&str, &str)]) -> Vec<u8> {
+        fn crc32(b: &[u8]) -> u32 {
+            let mut c = !0u32;
+            for &x in b {
+                c ^= x as u32;
+                for _ in 0..8 {
+                    c = if c & 1 != 0 {
+                        (c >> 1) ^ 0xEDB8_8320
+                    } else {
+                        c >> 1
+                    };
+                }
+            }
+            !c
+        }
+        let (mut out, mut dir) = (Vec::new(), Vec::new());
+        for (name, body) in files {
+            let (n, b) = (name.as_bytes(), body.as_bytes());
+            let at = out.len() as u32;
+            // version, flags, stored, time, date (1980-01-01), crc, sizes
+            let mut head = vec![20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0];
+            head.extend(crc32(b).to_le_bytes());
+            head.extend((b.len() as u32).to_le_bytes());
+            head.extend((b.len() as u32).to_le_bytes());
+            head.extend((n.len() as u16).to_le_bytes());
+            head.extend([0, 0]);
+            out.extend(b"PK\x03\x04");
+            out.extend(&head);
+            out.extend(n);
+            out.extend(b);
+            dir.extend(b"PK\x01\x02\x14\x00");
+            dir.extend(&head);
+            // comment, disk, attributes, offset
+            dir.extend([0u8; 10]);
+            dir.extend(at.to_le_bytes());
+            dir.extend(n);
+        }
+        let start = out.len() as u32;
+        out.extend(&dir);
+        out.extend(b"PK\x05\x06\x00\x00\x00\x00");
+        out.extend((files.len() as u16).to_le_bytes());
+        out.extend((files.len() as u16).to_le_bytes());
+        out.extend((dir.len() as u32).to_le_bytes());
+        out.extend(start.to_le_bytes());
+        out.extend([0, 0]);
+        out
+    }
+
+    fn query(md5: &str, diff: bool) -> bmseeker::sources::Query {
+        bmseeker::sources::Query {
+            md5: md5.into(),
+            want: crate::hosts::Want {
+                title: "Song".into(),
+                artist: "alpha".into(),
+            },
+            diff,
+            ..Default::default()
+        }
+    }
+
+    /// Nothing left of what passed through the downloads.
+    fn passed(r: &Path) -> bool {
+        std::fs::read_dir(r.join("downloads"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().starts_with(".take-"))
+    }
 
     /// The web build's separate chart archive: the chart wanted waits (no
-    /// other), the unpacked folder goes; a pack without it is no success.
+    /// other), what it was unpacked into goes; a pack without it is no
+    /// success.
     #[test]
     fn a_separate_charts_archive_on_the_web() {
         let r = root("diff");
-        let tmp = r.join("downloads/.diff");
-        put(&tmp.join("Song/ours.bms"), OURS);
-        put(
-            &tmp.join("Song/other.bms"),
-            "#TITLE Other\n#ARTIST g\n#WAV01 o.wav\n",
-        );
+        let pack = zip(&[
+            ("Song/ours.bms", OURS),
+            ("Song/other.bms", "#TITLE Other\n#ARTIST g\n#WAV01 o.wav\n"),
+        ]);
         let missing = bmseeker::install::md5_hex(b"#TITLE Missing");
-        let done = place_diff(&r, &[], &tmp, &missing);
-        assert!(!bmseeker::install::got(&done), "{done:?}");
+        let done = take(&r, &[], pack.clone(), &query(&missing, true), false, None);
         assert!(matches!(&done[..], [Done::Failed(Failure::NotTheChart)]));
-        assert!(!tmp.exists() && !r.join("downloads/ours.bms").exists());
-        put(&tmp.join("Song/ours.bms"), OURS);
-        put(
-            &tmp.join("Song/other.bms"),
-            "#TITLE Other\n#ARTIST g\n#WAV01 o.wav\n",
-        );
+        assert!(!r.join("downloads/ours.bms").exists() && passed(&r));
+        // found by name and not holding it: not even looked at further
+        let done = take(&r, &[], pack.clone(), &query(&missing, true), true, None);
+        assert!(matches!(&done[..], [Done::Failed(Failure::NotTheChart)]));
         let md5 = bmseeker::install::md5_hex(OURS.as_bytes());
-        let done = place_diff(&r, &[], &tmp, &md5);
+        let done = take(&r, &[], pack, &query(&md5, true), false, None);
         let waiting = r.join("downloads/ours.bms");
         assert!(
             matches!(&done[..], [Done::Waiting(p)] if *p == waiting),
             "{done:?}"
         );
         assert!(waiting.is_file() && !r.join("downloads/other.bms").exists());
-        assert!(!tmp.exists());
+        assert!(passed(&r));
         let _ = std::fs::remove_dir_all(&r);
     }
 
-    /// A chart that came before its song goes into the song's folder once
-    /// the song is added.
+    /// A song's archive: a folder of its own named after the song, the
+    /// chart that waited for it placed there.
     #[test]
     fn a_waiting_chart_finds_its_song() {
         let r = root("waiting");
         put(&r.join("downloads/ours.bms"), OURS);
+        let pack = zip(&[("song.bms", SONG), ("01.ogg", "x")]);
+        let done = take(&r, &[], pack, &query("", false), false, None);
         let song = r.join("bms/Song");
-        put(
-            &song.join("song.bms"),
-            "#TITLE Song\n#ARTIST alpha\n#WAV01 01.wav\n",
-        );
-        put(&song.join("01.ogg"), "x");
-        // a failure places nothing
-        let done = place_waiting(&r, &[], vec![Done::Failed("x".into())]);
-        assert_eq!(done.len(), 1);
-        let done = place_waiting(&r, &[], vec![Done::Added(song.clone(), 2)]);
         assert!(
-            matches!(&done[..], [Done::Added(..), Done::Placed(p)] if *p == song.join("ours.bms")),
+            matches!(&done[..], [Done::Added(d, 2), Done::Placed(p)]
+                if *d == song && *p == song.join("ours.bms")),
             "{done:?}"
         );
+        assert!(song.join("01.ogg").is_file() && passed(&r));
         let _ = std::fs::remove_dir_all(&r);
     }
 
     /// The library as the player read it stands for its charts (in a web
-    /// page they cannot be read when a download comes).
+    /// page they cannot be read when a download comes): a chart's own link
+    /// goes into its song's folder by it, and one the library has is
+    /// already installed.
     #[test]
     fn placed_by_the_library_as_read() {
         let r = root("catalog");
-        put(&r.join("downloads/ours.bms"), OURS);
         let song = r.join("bms/Song");
         // (what bmseeker would read of it says nothing of the song)
         put(&song.join("song.bms"), "#WAV01 01.wav\n");
         put(&song.join("01.ogg"), "x");
-        let added = || vec![Done::Added(song.clone(), 2)];
-        let done = place_waiting(&r, &[], added());
-        assert_eq!(done.len(), 1, "{done:?}");
-        let read = [Song {
+        let chart = |songs: &[Song]| {
+            let q = query("", true);
+            take(&r, songs, OURS.into(), &q, false, Some("ours.bms".into()))
+        };
+        let done = chart(&[]);
+        let waiting = r.join("downloads/ours.bms");
+        assert!(
+            matches!(&done[..], [Done::Waiting(p)] if *p == waiting),
+            "{done:?}"
+        );
+        let _ = std::fs::remove_file(&waiting);
+        let mut read = vec![Song {
             path: song.join("song.bms").to_string_lossy().into_owned(),
             md5: "0123456789abcdef0123456789abcdef".into(),
             title: "Song".into(),
             artist: "alpha".into(),
             ..Default::default()
         }];
-        let lib = crate::placement::library(&r, &read);
-        assert_eq!(
-            lib.folders_of("0123456789ABCDEF0123456789ABCDEF"),
-            std::slice::from_ref(&song)
-        );
-        let done = place_waiting(&r, &read, added());
+        let done = chart(&read);
         assert!(
-            matches!(&done[..], [Done::Added(..), Done::Placed(p)] if *p == song.join("ours.bms")),
+            matches!(&done[..], [Done::Placed(p)] if *p == song.join("ours.bms")),
             "{done:?}"
         );
+        read.push(Song {
+            path: song.join("ours.bms").to_string_lossy().into_owned(),
+            md5: bmseeker::install::md5_hex(OURS.as_bytes()),
+            ..Default::default()
+        });
+        let done = chart(&read);
+        assert!(
+            matches!(&done[..], [Done::Owned(d)] if *d == song),
+            "{done:?}"
+        );
+        assert!(!song.join("ours_.bms").exists() && passed(&r));
         let _ = std::fs::remove_dir_all(&r);
     }
 
@@ -583,38 +596,42 @@ mod tests {
         assert!(!f.is_busy("Aurora", "alpha"));
     }
 
-    /// Another song of the title has the folder: this one gets its own.
+    /// Another song of the title has the folder: this one gets its own;
+    /// the same song goes into its folder.
     #[test]
     fn same_title_other_song_on_the_web() {
         let r = root("same-title");
         put(
-            &r.join("bms/Aurora/a.bms"),
-            "#TITLE Aurora [A]\n#ARTIST alpha\n",
+            &r.join("bms/Song/a.bms"),
+            "#TITLE Song [A]\n#ARTIST alpha\n",
         );
-        let want = |artist: &str| crate::hosts::Want {
-            title: "Aurora [HYPER]".into(),
-            artist: artist.into(),
-        };
         // by the files, or by the library as read (its chart's title and
         // artist from its records)
         let read = [Song {
-            path: r.join("bms/Aurora/a.bms").to_string_lossy().into_owned(),
-            title: "Aurora [A]".into(),
+            path: r.join("bms/Song/a.bms").to_string_lossy().into_owned(),
+            title: "Song [A]".into(),
             artist: "alpha".into(),
             ..Default::default()
         }];
+        let pack = |artist: &str| {
+            let chart = format!("#TITLE Song [B]\n#ARTIST {artist}\n#WAV01 01.wav\n");
+            zip(&[("b.bms", &chart), ("01.ogg", "x")])
+        };
+        let mut q = query("", false);
         for songs in [&[][..], &read] {
-            assert_eq!(
-                song_dir(&r, songs, "Aurora", &want("alpha / obj: x")),
-                r.join("bms/Aurora")
+            q.want.artist = "beta".into();
+            let done = take(&r, songs, pack("beta"), &q, false, None);
+            let other = r.join("bms/Song (2)");
+            assert!(
+                matches!(&done[..], [Done::Added(d, 2)] if *d == other),
+                "{done:?}"
             );
-            assert_eq!(
-                song_dir(&r, songs, "Aurora", &want("beta")),
-                r.join("bms/Aurora (2)")
-            );
-            assert_eq!(
-                song_dir(&r, songs, "Other", &want("beta")),
-                r.join("bms/Other")
+            let _ = std::fs::remove_dir_all(&other);
+            q.want.artist = "alpha / obj: x".into();
+            let done = take(&r, songs, pack("alpha"), &q, false, None);
+            assert!(
+                matches!(&done[..], [Done::Added(d, 2)] if *d == r.join("bms/Song")),
+                "{done:?}"
             );
         }
         let _ = std::fs::remove_dir_all(&r);

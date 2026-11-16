@@ -44,6 +44,9 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report 
             }
             out.song_arrived = true;
         }
+        Ok(Imported::Owned(dir)) => {
+            ctx.toast(format!("{}: already installed", file_name(&dir)));
+        }
         Ok(Imported::Placed(p)) => {
             let dir = p.parent().map(file_name).unwrap_or_default();
             ctx.toast(format!("{} → {dir}", file_name(&p)));
@@ -61,6 +64,10 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report 
                 "{} is not a song (kept in downloads)",
                 file_name(&p)
             ));
+            out.rescan = false;
+        }
+        Ok(other) => {
+            log::warn!("import: {other:?}");
             out.rescan = false;
         }
     }
