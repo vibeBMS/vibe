@@ -372,11 +372,17 @@ impl LoadedSkin {
         align: i32,
         color: crate::gfx::Color,
     ) {
-        let glyphs: Vec<&(usize, [f32; 4])> = s.chars().filter_map(|c| f.glyphs.get(&c)).collect();
+        let chars: Vec<char> = s.chars().filter(|c| f.glyphs.contains_key(c)).collect();
+        let glyphs: Vec<&(usize, [f32; 4])> =
+            chars.iter().filter_map(|c| f.glyphs.get(c)).collect();
         if glyphs.is_empty() || f.size <= 0.0 {
             return;
         }
         let k = r.h / f.size;
+        if !f.metrics.is_empty() {
+            self.bmfont_text(d, f, &chars, r, align, color);
+            return;
+        }
         let width = glyphs.iter().map(|g| g.1[2]).sum::<f32>() * k + f.margin * glyphs.len() as f32;
         let scale = if r.w > 0.0 && r.w < width {
             r.w / width
@@ -401,6 +407,54 @@ impl LoadedSkin {
                 }
             }
             x += tw + f.margin * scale;
+        }
+    }
+
+    /// A BMFont text: glyphs placed by their offsets and advances, scaled
+    /// so a line fills the rect's height.
+    fn bmfont_text(
+        &self,
+        d: &mut Draw,
+        f: &super::BitmapFont,
+        chars: &[char],
+        r: Rect,
+        align: i32,
+        color: crate::gfx::Color,
+    ) {
+        let k = r.h / f.size;
+        let adv = |c: &char| f.metrics.get(c).map(|m| m[2]).unwrap_or(0.0);
+        let width = chars.iter().map(adv).sum::<f32>() * k;
+        let scale = if r.w > 0.0 && r.w < width {
+            r.w / width
+        } else {
+            1.0
+        };
+        let a = align.clamp(0, 2) as f32 * 0.5;
+        let mut x = r.x + r.w * a - width * scale * a;
+        for c in chars {
+            let (Some((img, g)), Some(m)) = (f.glyphs.get(c), f.metrics.get(c)) else {
+                continue;
+            };
+            if self.lazy.get(*img) == Some(&true) && self.tex[*img].is_none() {
+                let mut w = self.wanted.borrow_mut();
+                if !w.contains(img) {
+                    w.push(*img);
+                }
+            }
+            if let Some(t) = self.tex.get(*img).copied().flatten() {
+                if let Some((w, h)) = d.gfx.texture_size(t) {
+                    let (w, h) = (w as f32, h as f32);
+                    let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
+                    let gr = Rect::new(
+                        x + m[0] * k * scale,
+                        r.y + m[1] * k,
+                        g[2] * k * scale,
+                        g[3] * k,
+                    );
+                    d.b.quad(t, gr, uv, color);
+                }
+            }
+            x += m[2] * k * scale;
         }
     }
 

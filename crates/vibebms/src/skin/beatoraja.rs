@@ -154,6 +154,62 @@ fn to_custom((name, items, def): &Property) -> Option<CustomOption> {
     })
 }
 
+/// Read a BMFont text font (`.fnt`): the font and its page image files
+/// (glyph image indices are page ids).
+fn load_bmfont(path: &Path) -> Option<(BitmapFont, Vec<PathBuf>)> {
+    let bytes = vfs::read(path).ok()?;
+    let text = vibebms_core::encoding::decode_text(&bytes);
+    let dir = path.parent().unwrap_or(Path::new(""));
+    let mut font = BitmapFont::default();
+    let mut pages: Vec<PathBuf> = Vec::new();
+    let (mut size, mut line_h) = (0.0f32, 0.0f32);
+    for line in text.lines() {
+        let line = line.trim_start_matches('\u{feff}');
+        let (tag, rest) = line.split_once(' ').unwrap_or((line, ""));
+        // key=value pairs; values may be quoted
+        let mut kv: HashMap<&str, String> = HashMap::new();
+        let mut rest = rest.trim();
+        while let Some((k, v)) = rest.split_once('=') {
+            let (val, after) = match v.strip_prefix('"') {
+                Some(q) => q.split_once('"').unwrap_or((q, "")),
+                None => v.split_once(' ').unwrap_or((v, "")),
+            };
+            kv.insert(k.trim(), val.to_string());
+            rest = after.trim();
+        }
+        let n = |k: &str| kv.get(k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+        match tag {
+            "info" => size = n("size").abs(),
+            "common" => line_h = n("lineHeight"),
+            "page" => {
+                let id = n("id") as usize;
+                if id < 64 {
+                    if pages.len() <= id {
+                        pages.resize(id + 1, PathBuf::new());
+                    }
+                    let file = kv.get("file").cloned().unwrap_or_default();
+                    pages[id] = vfs::resolve_case(&dir.join(file.replace('\\', "/")));
+                }
+            }
+            "char" => {
+                let Some(c) = char::from_u32(n("id") as u32) else {
+                    continue;
+                };
+                let page = n("page") as usize;
+                if page < pages.len() {
+                    font.glyphs
+                        .insert(c, (page, [n("x"), n("y"), n("width"), n("height")]));
+                    font.metrics
+                        .insert(c, [n("xoffset"), n("yoffset"), n("xadvance")]);
+                }
+            }
+            _ => {}
+        }
+    }
+    font.size = if line_h > 0.0 { line_h } else { size };
+    (!font.glyphs.is_empty() && font.size > 0.0).then_some((font, pages))
+}
+
 /// A `filepath` customisation: name, path (with a `*`), default file.
 struct FilePath {
     name: String,
@@ -469,6 +525,9 @@ pub fn header(path: &Path) -> Option<(SkinType, String)> {
 
 struct Ctx<'a> {
     sk: &'a Value,
+    image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
+    /// `.fnt` fonts read so far (index in the skin's fonts).
+    bitmap_fonts: HashMap<PathBuf, Option<usize>>,
     dir: &'a Path,
     fps: &'a [FilePath],
     files: &'a HashMap<String, String>,
@@ -597,6 +656,38 @@ impl Ctx<'_> {
             out.hover = Some(Rect::new(i(m, "x", 0) as f32, y, w, h));
         }
         out
+    }
+
+    /// The bitmap font (`.fnt`, BMFont text format) a text uses: its index
+    /// in `fonts`, its page images added to the skin's images.
+    fn bitmap_font(&mut self, t: &Value, fonts: &mut Vec<BitmapFont>) -> Option<usize> {
+        let want = match t.get("font")? {
+            Value::String(s) => s.clone(),
+            v => v.to_string(),
+        };
+        let f = arr(self.sk.get("font")).iter().find(|f| id_of(f) == want)?;
+        let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
+        if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fnt")) {
+            return None;
+        }
+        if let Some(i) = self.bitmap_fonts.get(&p) {
+            return *i;
+        }
+        let font = load_bmfont(&p).map(|(mut font, pages)| {
+            let base = self.images.len();
+            for page in pages {
+                let size = (self.image_size)(&page);
+                self.sizes.push(size);
+                self.images.push(size.map(|_| page));
+            }
+            for g in font.glyphs.values_mut() {
+                g.0 += base;
+            }
+            fonts.push(font);
+            fonts.len() - 1
+        });
+        self.bitmap_fonts.insert(p, font);
+        font
     }
 
     /// The TrueType / OpenType font file a text uses (`font`, an id in the
@@ -979,6 +1070,8 @@ pub fn load_with(
     // sources (filepath customisation: first file matching the wildcard)
     let mut cx = Ctx {
         sk: &sk,
+        image_size,
+        bitmap_fonts: HashMap::new(),
         dir: &dir,
         fps: &fps,
         files: &user.files,
@@ -1054,10 +1147,11 @@ pub fn load_with(
             }
         } else if let Some(v) = cx.find("value", &id) {
             cx.number_kind(v)
-        } else if let Some(t) = cx.find("text", &id) {
+        } else if let Some(t) = cx.find("text", &id).cloned() {
+            let t = &t;
             Some(Kind::Text {
                 id: cx.value_id(t, ScriptKind::Str),
-                font: None,
+                font: cx.bitmap_font(t, &mut skin.fonts),
                 align: i(t, "align", 0) as i32,
                 overflow: i(t, "overflow", 0) as i32,
                 face: cx.face(t),
@@ -1680,6 +1774,35 @@ mod tests {
         assert_eq!(s.objects[2].dst.ops, vec![32]);
         assert!(s.judges[0].judge[0].is_some());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn bmfont_texts() {
+        let dir = std::env::temp_dir().join(format!("vibebms-bmf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fnt = "info face=\"My Font\" size=-32 bold=0\ncommon lineHeight=36 base=29 pages=1\n\
+page id=0 file=\"f_0.png\"\nchars count=1\n\
+char id=65 x=2 y=3 width=20 height=24 xoffset=1 yoffset=5 xadvance=22 page=0 chnl=15\n";
+        std::fs::write(dir.join("f.fnt"), fnt).unwrap();
+        let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+            "font": [{"id": 0, "path": "f.fnt"}],
+            "text": [{"id": "t", "ref": 10, "font": 0}],
+            "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+        std::fs::write(dir.join("r.json"), json).unwrap();
+        let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(
+            &s.objects[0].kind,
+            Kind::Text { font: Some(0), .. }
+        ));
+        let f = &s.fonts[0];
+        assert_eq!(f.size, 36.0);
+        let (img, rect) = f.glyphs[&'A'];
+        assert!(s.images[img].as_ref().unwrap().ends_with("f_0.png"));
+        assert_eq!(
+            (rect, f.metrics[&'A']),
+            ([2.0, 3.0, 20.0, 24.0], [1.0, 5.0, 22.0])
+        );
     }
 
     #[test]

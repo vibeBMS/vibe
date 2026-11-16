@@ -819,6 +819,9 @@ pub struct BitmapFont {
     pub margin: f32,
     /// Glyph: image (index into `Skin::images`) and its rect there.
     pub glyphs: HashMap<char, (usize, [f32; 4])>,
+    /// Placement of a glyph (x offset, y offset from the top, advance) in
+    /// fonts that give it (BMFont `.fnt`); else glyphs sit side by side.
+    pub metrics: HashMap<char, [f32; 3]>,
 }
 
 /// Game state queried by the skin each frame.
