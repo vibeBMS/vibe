@@ -14,14 +14,31 @@ use std::sync::Arc;
 use bmseeker::install::{chart_link, chart_name};
 pub use bmseeker::install::{Done, Failure};
 
+/// A song as a table names it: its title and artist (two songs of one
+/// title are two downloads).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SongId {
+    title: String,
+    artist: String,
+}
+
+impl SongId {
+    fn new(title: &str, artist: &str) -> SongId {
+        SongId {
+            title: title.to_string(),
+            artist: artist.to_string(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SongFetch {
-    tx: Option<Sender<(String, Vec<Done>)>>,
-    rx: Option<Receiver<(String, Vec<Done>)>>,
+    tx: Option<Sender<(SongId, Vec<Done>)>>,
+    rx: Option<Receiver<(SongId, Vec<Done>)>>,
     /// The songs downloading, and how far each has got.
-    busy: Vec<(String, Arc<Progress>)>,
+    busy: Vec<(SongId, Arc<Progress>)>,
     /// Songs in the library, until the library has been read again.
-    adding: Vec<(String, Arc<Progress>)>,
+    adding: Vec<(SongId, Arc<Progress>)>,
 }
 
 /// Whether a song just added (`done`) holds the chart `md5`.
@@ -71,29 +88,44 @@ fn place_diff(root: &Path, tmp: &Path, md5: &str) -> Vec<Done> {
     done
 }
 
+/// The library folder (below `<root>/bms`) for the song `want`'s archive
+/// named `stem`: that name, unless a folder of it holds another song of
+/// that title (then `stem (2)`...).
+#[cfg(any(target_arch = "wasm32", test))]
+fn song_dir(root: &Path, stem: &str, want: &crate::hosts::Want) -> std::path::PathBuf {
+    let chart = crate::placement::ChartInfo {
+        title: want.title.clone(),
+        artist: want.artist.clone(),
+        sounds: Vec::new(),
+    };
+    bmseeker::placement::song_folder(&crate::placement::Vfs, &root.join("bms"), stem, &[chart])
+}
+
 fn is_link(u: &str) -> bool {
     u.starts_with("https://") || u.starts_with("http://")
 }
 
 impl SongFetch {
     /// Downloading, or in the library but not read yet.
-    pub fn is_busy(&self, title: &str) -> bool {
-        self.progress(title).is_some()
+    pub fn is_busy(&self, title: &str, artist: &str) -> bool {
+        self.progress(title, artist).is_some()
     }
 
-    /// How far `title`'s download has got (while [`Self::is_busy`]).
-    pub fn progress(&self, title: &str) -> Option<&Arc<Progress>> {
+    /// How far the song's download has got (while [`Self::is_busy`]).
+    pub fn progress(&self, title: &str, artist: &str) -> Option<&Arc<Progress>> {
+        let id = SongId::new(title, artist);
         self.busy
             .iter()
             .chain(&self.adding)
-            .find(|(t, _)| t == title)
+            .find(|(s, _)| *s == id)
             .map(|(_, p)| p)
     }
 
-    /// Stop `title`'s download (true if it was downloading). Its outcome
+    /// Stop the song's download (true if it was downloading). Its outcome
     /// still comes (a failure, cancelled), when it has stopped.
-    pub fn cancel(&mut self, title: &str) -> bool {
-        let Some(i) = self.busy.iter().position(|(t, _)| t == title) else {
+    pub fn cancel(&mut self, title: &str, artist: &str) -> bool {
+        let id = SongId::new(title, artist);
+        let Some(i) = self.busy.iter().position(|(s, _)| *s == id) else {
             return false;
         };
         let (_, p) = self.busy.remove(i);
@@ -130,7 +162,7 @@ impl SongFetch {
             // none of its own: BMS SEARCH's (the chart's only with the song in)
             .filter(|(ls, d)| !ls.is_empty() || ((!d || have_song) && md5.is_some()))
             .collect();
-        if links.is_empty() || self.is_busy(title) {
+        if links.is_empty() || self.is_busy(title, artist) {
             return false;
         }
         if self.tx.is_none() {
@@ -140,12 +172,13 @@ impl SongFetch {
         }
         let tx = self.tx.clone().expect("channel");
         let progress = Progress::new();
-        self.busy.push((title.to_string(), progress.clone()));
+        let id = SongId::new(title, artist);
+        self.busy.push((id.clone(), progress.clone()));
         let want = crate::hosts::Want {
             title: title.to_string(),
             artist: artist.to_string(),
         };
-        let (root, title) = (root.to_path_buf(), title.to_string());
+        let root = root.to_path_buf();
         #[cfg(not(target_arch = "wasm32"))]
         crate::platform::spawn("song", move || {
             progress.set_stage(Stage::Finding);
@@ -175,7 +208,7 @@ impl SongFetch {
                 }
                 no_chart_link(done, have_song)
             });
-            let _ = tx.send((title, done));
+            let _ = tx.send((id, done));
         });
         #[cfg(target_arch = "wasm32")]
         {
@@ -193,31 +226,31 @@ impl SongFetch {
                 })
                 .collect();
             web(root, want, progress, groups, Vec::new(), move |done| {
-                let _ = tx.send((title, no_chart_link(done, have_song)));
+                let _ = tx.send((id, no_chart_link(done, have_song)));
             });
         }
         true
     }
 
-    /// The songs that finished since the last call, with what became of
-    /// their links.
+    /// The songs that finished since the last call (their titles), with
+    /// what became of their links.
     pub fn poll(&mut self) -> Vec<(String, Vec<Done>)> {
-        let done: Vec<(String, Vec<Done>)> = self
+        let done: Vec<(SongId, Vec<Done>)> = self
             .rx
             .as_ref()
             .map(|rx| rx.try_iter().collect())
             .unwrap_or_default();
-        for (t, d) in &done {
-            if let Some(i) = self.busy.iter().position(|(b, _)| b == t) {
-                let (title, p) = self.busy.remove(i);
+        for (id, d) in &done {
+            if let Some(i) = self.busy.iter().position(|(b, _)| b == id) {
+                let (id, p) = self.busy.remove(i);
                 // in the library: until it is read again
                 if bmseeker::install::got(d) {
                     p.set_stage(Stage::Adding);
-                    self.adding.push((title, p));
+                    self.adding.push((id, p));
                 }
             }
         }
-        done
+        done.into_iter().map(|(id, d)| (id.title, d)).collect()
     }
 }
 
@@ -380,13 +413,14 @@ fn web(
             }
             Ok(bytes) => {
                 let ext = crate::hosts::sniff_bytes(&bytes).unwrap_or("zip");
-                let stem = crate::archive::safe_name(&title);
+                let dir = song_dir(&root, &crate::archive::safe_name(&title), &want);
+                let stem = dir.file_name().unwrap_or_default().to_string_lossy();
                 // and the charts that waited for it
                 place_waiting(
                     &root,
                     vec![match vfs::add_zip(&root, &format!("{stem}.{ext}"), bytes) {
                         0 => Done::Failed("the archive holds nothing".into()),
-                        n => Done::Added(root.join("bms").join(&stem), n),
+                        n => Done::Added(dir.clone(), n),
                     }],
                 )
             }
@@ -469,6 +503,43 @@ mod tests {
             matches!(&done[..], [Done::Added(..), Done::Placed(p)] if *p == song.join("ours.bms")),
             "{done:?}"
         );
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// Two songs of one title are two downloads.
+    #[test]
+    fn downloads_by_title_and_artist() {
+        let mut f = SongFetch::default();
+        f.busy
+            .push((SongId::new("Aurora", "alpha"), Progress::new()));
+        assert!(f.is_busy("Aurora", "alpha") && !f.is_busy("Aurora", "beta"));
+        assert!(f.progress("Aurora", "beta").is_none());
+        assert!(!f.cancel("Aurora", "beta"));
+        assert!(f.cancel("Aurora", "alpha"));
+        assert!(!f.is_busy("Aurora", "alpha"));
+    }
+
+    /// Another song of the title has the folder: this one gets its own.
+    #[test]
+    fn same_title_other_song_on_the_web() {
+        let r = root("same-title");
+        put(
+            &r.join("bms/Aurora/a.bms"),
+            "#TITLE Aurora [A]\n#ARTIST alpha\n",
+        );
+        let want = |artist: &str| crate::hosts::Want {
+            title: "Aurora [HYPER]".into(),
+            artist: artist.into(),
+        };
+        assert_eq!(
+            song_dir(&r, "Aurora", &want("alpha / obj: x")),
+            r.join("bms/Aurora")
+        );
+        assert_eq!(
+            song_dir(&r, "Aurora", &want("beta")),
+            r.join("bms/Aurora (2)")
+        );
+        assert_eq!(song_dir(&r, "Other", &want("beta")), r.join("bms/Other"));
         let _ = std::fs::remove_dir_all(&r);
     }
 
