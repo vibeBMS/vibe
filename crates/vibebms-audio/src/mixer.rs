@@ -403,6 +403,17 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
     let name = device.name().unwrap_or_else(|_| "output".into());
     let def = match device.default_output_config() {
         Ok(c) => c,
+        // iOS: the output unit's format may not be readable before it
+        // runs; it takes 48 kHz stereo f32 all the same
+        Err(e) if cfg!(target_os = "ios") => {
+            log::warn!("audio: no default output config ({e}); trying 48 kHz stereo");
+            cpal::SupportedStreamConfig::new(
+                2,
+                cpal::SampleRate(48_000),
+                cpal::SupportedBufferSize::Unknown,
+                cpal::SampleFormat::F32,
+            )
+        }
         Err(e) => return Err((e.to_string(), Box::new(state))),
     };
     let mut rate = def.sample_rate().0;
