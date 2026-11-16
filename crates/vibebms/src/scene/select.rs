@@ -34,12 +34,14 @@ pub(crate) enum Node {
     Root,
     Folder(String),
     All,
-    Table(usize),
-    Level(usize, String),
-    Courses(usize),
+    /// A table, by its URL (`ctx.tables` is re-sorted as tables arrive).
+    Table(String),
+    Level(String, String),
+    Courses(String),
     Search(String),
-    /// A mirrored event (`ctx.archives.events[i]`).
-    Archive(usize),
+    /// A mirrored event, by its index's URL (the events are rebuilt as the
+    /// lists arrive).
+    Archive(String),
     /// The open folder's own bar, first in its list: choosing it closes
     /// the folder (as in IIDX and LR2).
     Close(Box<Node>),
@@ -69,13 +71,24 @@ pub(crate) enum Bar {
         /// (差分) chart for that song.
         url: String,
         url_diff: String,
-        /// A mirrored work: (event, work number) to download directly.
-        archive: Option<(usize, u32)>,
+        /// A mirrored work: (event's URL, work number) to download directly.
+        archive: Option<(String, u32)>,
     },
     Course {
-        table: usize,
+        /// The table's URL.
+        table: String,
         course: usize,
     },
+}
+
+/// The table at `url` (see [`Node::Table`]).
+pub(crate) fn table<'a>(ctx: &'a Ctx, url: &str) -> Option<&'a bmseeker::table::DifficultyTable> {
+    ctx.tables.iter().find(|t| t.source_url == url)
+}
+
+/// The index of the event at `url` in `ctx.archives.events` now.
+fn event(ctx: &Ctx, url: &str) -> Option<usize> {
+    ctx.archives.events.iter().position(|e| e.url == url)
 }
 
 pub(crate) enum Rank {
@@ -250,7 +263,7 @@ impl SelectScene {
                 "s:{}",
                 ctx.songs.get(*i).map(|s| s.path.as_str()).unwrap_or("")
             ),
-            Bar::Missing { title, .. } => format!("m:{title}"),
+            Bar::Missing { title, artist, .. } => format!("m:{title}\u{1f}{artist}"),
             Bar::Course { table, course } => format!("c:{table}:{course}"),
         }
     }
@@ -304,29 +317,29 @@ impl SelectScene {
                         count: n,
                     });
                 }
-                for (i, ev) in ctx.archives.events.iter().enumerate() {
+                for ev in ctx.archives.events.iter() {
                     if ev.works.is_empty() {
                         continue;
                     }
                     bars.push(Bar::Folder {
                         label: ev.label().to_string(),
                         sub: if ev.mirrored { "mirror" } else { "links" }.into(),
-                        node: Node::Archive(i),
+                        node: Node::Archive(ev.url.clone()),
                         count: ev.works.len(),
                     });
                 }
-                for (i, t) in ctx.tables.iter().enumerate() {
+                for t in ctx.tables.iter() {
                     bars.push(Bar::Folder {
                         label: t.header.name.clone(),
                         sub: format!("{} levels", t.levels().len()),
-                        node: Node::Table(i),
+                        node: Node::Table(t.source_url.clone()),
                         count: t.entries.len(),
                     });
                     if !t.header.courses.is_empty() {
                         bars.push(Bar::Folder {
                             label: format!("{} COURSES", t.header.name),
                             sub: String::new(),
-                            node: Node::Courses(i),
+                            node: Node::Courses(t.source_url.clone()),
                             count: t.header.courses.len(),
                         });
                     }
@@ -354,7 +367,7 @@ impl SelectScene {
                 )
             }
             Node::Table(t) => {
-                let Some(table) = ctx.tables.get(*t) else {
+                let Some(table) = table(ctx, t) else {
                     return Vec::new();
                 };
                 table
@@ -370,16 +383,17 @@ impl SelectScene {
                         Bar::Folder {
                             label: table.label(&l),
                             sub: format!("{have}/{}", entries.len()),
-                            node: Node::Level(*t, l),
+                            node: Node::Level(t.clone(), l),
                             count: entries.len(),
                         }
                     })
                     .collect()
             }
-            Node::Archive(e) => {
-                let Some(ev) = ctx.archives.events.get(*e) else {
+            Node::Archive(url) => {
+                let Some(e) = event(ctx, url) else {
                     return Vec::new();
                 };
+                let ev = &ctx.archives.events[e];
                 let root = &ctx.paths.root;
                 let mut bars = Vec::new();
                 for w in &ev.works {
@@ -409,7 +423,10 @@ impl SelectScene {
                             level: String::new(),
                             url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
                             url_diff: String::new(),
-                            archive: ctx.archives.can_download(*e, w.num).then_some((*e, w.num)),
+                            archive: ctx
+                                .archives
+                                .can_download(e, w.num)
+                                .then(|| (url.clone(), w.num)),
                         });
                     } else {
                         bars.extend(sorted(mine));
@@ -418,7 +435,7 @@ impl SelectScene {
                 bars
             }
             Node::Level(t, l) => {
-                let Some(table) = ctx.tables.get(*t) else {
+                let Some(table) = table(ctx, t) else {
                     return Vec::new();
                 };
                 table
@@ -441,13 +458,11 @@ impl SelectScene {
                     })
                     .collect()
             }
-            Node::Courses(t) => ctx
-                .tables
-                .get(*t)
+            Node::Courses(t) => table(ctx, t)
                 .map(|tb| {
                     (0..tb.header.courses.len())
                         .map(|c| Bar::Course {
-                            table: *t,
+                            table: t.clone(),
                             course: c,
                         })
                         .collect()
@@ -612,12 +627,13 @@ impl SelectScene {
                 )))
             }
             Some(Bar::Missing {
-                archive: Some((e, num)),
+                archive: Some((url, num)),
                 title,
                 ..
             }) => {
                 let root = ctx.paths.root.clone();
-                let msg = match ctx.archives.download(&root, e, num) {
+                let got = event(ctx, &url).ok_or_else(|| "no such event".to_string());
+                let msg = match got.and_then(|e| ctx.archives.download(&root, e, num)) {
                     Ok(m) => m,
                     Err(why) => format!("{title}: {why}"),
                 };
@@ -636,11 +652,11 @@ impl SelectScene {
             }) => {
                 // straight from the links (as the event mirror's works)
                 // chosen again while it downloads: cancelled
-                if ctx.song_fetch.cancel(&title) {
+                if ctx.song_fetch.cancel(&title, &artist) {
                     ctx.toast(format!("{title}: cancelled"));
                     return Next::Stay;
                 }
-                if ctx.song_fetch.is_busy(&title) {
+                if ctx.song_fetch.is_busy(&title, &artist) {
                     ctx.toast(format!("{title}: being added to the library"));
                     return Next::Stay;
                 }
@@ -706,10 +722,8 @@ impl SelectScene {
                 });
                 Next::Stay
             }
-            Some(Bar::Course { table, course }) => {
-                let Some(c) = ctx
-                    .tables
-                    .get(table)
+            Some(Bar::Course { table: url, course }) => {
+                let Some(c) = table(ctx, &url)
                     .and_then(|t| t.header.courses.get(course))
                     .cloned()
                 else {
@@ -1270,6 +1284,11 @@ impl Scene for SelectScene {
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        // the library read again since the last frame (an earlier input
+        // rescanned): the bars' song indices are of the old list
+        if self.version != ctx.library_version {
+            self.rebuild(ctx);
+        }
         // search box
         if let Some(q) = self.search_edit.as_mut() {
             if let InputEv::Key {
@@ -1589,18 +1608,13 @@ impl SelectScene {
                     .file_name()
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                Node::Table(t) | Node::Courses(t) => ctx
-                    .tables
-                    .get(*t)
+                Node::Table(t) | Node::Courses(t) => table(ctx, t)
                     .map(|t| t.header.name.clone())
                     .unwrap_or_default(),
-                Node::Level(t, l) => ctx.tables.get(*t).map(|t| t.label(l)).unwrap_or_default(),
+                Node::Level(t, l) => table(ctx, t).map(|t| t.label(l)).unwrap_or_default(),
                 Node::Search(q) => format!("SEARCH \"{q}\""),
-                Node::Archive(e) => ctx
-                    .archives
-                    .events
-                    .get(*e)
-                    .map(|e| e.label().to_string())
+                Node::Archive(url) => event(ctx, url)
+                    .map(|e| ctx.archives.events[e].label().to_string())
                     .unwrap_or_default(),
                 Node::Close(inner) => self.node_name(ctx, inner),
             }

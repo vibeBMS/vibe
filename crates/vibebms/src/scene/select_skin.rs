@@ -112,9 +112,7 @@ impl SelectState<'_> {
             },
             Bar::Course { table, course } => BarInfo {
                 kind: BAR_GRADE,
-                title: ctx
-                    .tables
-                    .get(*table)
+                title: super::select::table(ctx, table)
                     .and_then(|t| t.header.courses.get(*course))
                     .map(|c| c.name.clone())
                     .unwrap_or_default(),
@@ -404,12 +402,12 @@ impl SkinState for SelectState<'_> {
             1000 => self.s.path_label(self.ctx),
             1001 | 1003 => match &self.s.node {
                 Node::Table(t) | Node::Level(t, _) | Node::Courses(t) => {
-                    self.ctx.tables.get(*t)?.header.name.clone()
+                    super::select::table(self.ctx, t)?.header.name.clone()
                 }
                 _ => return None,
             },
             1002 => match &self.s.node {
-                Node::Level(t, l) => self.ctx.tables.get(*t)?.label(l),
+                Node::Level(t, l) => super::select::table(self.ctx, t)?.label(l),
                 _ => return None,
             },
             1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
@@ -620,8 +618,8 @@ impl Hooks for SelectHooks<'_> {
                 }
             }
             // a table song downloading: how far it has got, over its bar
-            if let Some(Bar::Missing { title, .. }) = s.bars.get(idx) {
-                if let Some(p) = self.st.ctx.song_fetch.progress(title) {
+            if let Some(Bar::Missing { title, artist, .. }) = s.bars.get(idx) {
+                if let Some(p) = self.st.ctx.song_fetch.progress(title, artist) {
                     download_progress(d, sr, p, now);
                 }
             }
