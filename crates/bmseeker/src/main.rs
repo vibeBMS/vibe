@@ -15,9 +15,6 @@
 //! bmseeker lookup [-t TITLE] [-a ARTIST] [--md5 MD5]
 //!                                                 a song's download links on
 //!                                                 BMS SEARCH
-//! bmseeker press-js                               the script a browser runs on
-//!                                                 a share page to press its
-//!                                                 Download button (OneDrive)
 //! bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
 //!                                                 a song (or its separate
 //!                                                 chart) into the library, the
@@ -80,7 +77,6 @@ mod cli {
   bmseeker missing <table URL> <library> [-l LEVEL] [--get]
   bmseeker fetch <link>... <file or folder> [-t TITLE] [-a ARTIST] [--md5 MD5] [--search] [--any] [--json]
   bmseeker lookup [-t TITLE] [-a ARTIST] [--md5 MD5]
-  bmseeker press-js
   bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
@@ -255,10 +251,6 @@ mod cli {
                 for l in bmseeker::bmssearch::lookup(a.get("--md5").unwrap_or(""), &a.want()) {
                     println!("{l}");
                 }
-                Ok(())
-            }
-            Some("press-js") => {
-                println!("{}", hosts::PRESS_DOWNLOAD_JS);
                 Ok(())
             }
             Some("install") => {

@@ -13,7 +13,6 @@ bmseeker fetch <링크>... <파일 또는 폴더> [-t 제목] [-a 아티스트] 
                                                      --search / --md5: 다 실패하면 BMS SEARCH의 링크도;
                                                      --any: 페이지가 아닌 단일 파일(채보, 동영상)도; --json: 결과를 JSON 한 줄로)
 bmseeker lookup [-t 제목] [-a 아티스트] [--md5 MD5]       BMS SEARCH에 있는 그 곡의 다운로드 링크
-bmseeker press-js                                    공유 페이지(OneDrive)의 다운로드 버튼을 누르는 브라우저 스크립트
 bmseeker install <링크>... <라이브러리> [--diff] [-t 제목] [-a 아티스트] [--md5 MD5]
                                                      곡(또는 차분)을 라이브러리에 (링크를 차례로)
 bmseeker import <파일> <라이브러리>                   받아 둔 파일을 라이브러리에
