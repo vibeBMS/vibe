@@ -163,6 +163,9 @@ impl SelectState<'_> {
             171 => song.map(|s| s.has_bga).unwrap_or(false),
             172 => song.map(|s| !s.has_ln).unwrap_or(false),
             173 => song.map(|s| s.has_ln).unwrap_or(false),
+            180..=184 => song
+                .and_then(|s| s.judge)
+                .is_some_and(|j| super::skinned::judge_option(j, id)),
             176 => song.map(|s| s.min_bpm == s.max_bpm).unwrap_or(false),
             177 => song.map(|s| s.min_bpm != s.max_bpm).unwrap_or(false),
             1177 => song.map(|s| s.has_stop).unwrap_or(false),
@@ -283,7 +286,7 @@ impl SkinState for SelectState<'_> {
             180 => self.ranking()?.len() as i64,
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,
             390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
-            350..=368 => return super::skinned::song_number(song?, id),
+            350..=368 | 400 => return super::skinned::song_number(song?, id),
             1163 => song.map(|s| s.length_ms / 60000)?,
             1164 => song.map(|s| (s.length_ms / 1000) % 60)?,
             _ => return None,

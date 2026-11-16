@@ -672,6 +672,16 @@ pub(crate) fn gauge_colors(g: &Value) -> Vec<[f32; 4]> {
 }
 
 /// The graph objects (`style: "vibebms"` asks for the built-in look).
+/// `isRefNum`: a slider / graph shows number `type` within `min`..`max`
+/// (a script `value` is a rate itself).
+fn ref_num(def: &Value) -> Option<(f32, f32)> {
+    let on = def
+        .get("isRefNum")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    (on && def.get("value").is_none()).then(|| (i(def, "min", 0) as f32, i(def, "max", 0) as f32))
+}
+
 fn graph(cx: &Ctx, id: &str) -> Option<Graph> {
     let named = |g: &Value, keys: &[(&str, &str)]| -> Vec<[f32; 4]> {
         keys.iter()
@@ -1024,7 +1034,7 @@ pub fn load_with(
             })
         } else if let Some(sl) = cx.find("slider", &id) {
             cx.src(sl).map(|src| Kind::Slider {
-                minmax: None,
+                minmax: ref_num(sl),
                 src,
                 id: match sl.get("value") {
                     Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),
@@ -1059,7 +1069,7 @@ pub fn load_with(
             })
         } else if let Some(g) = cx.find("graph", &id) {
             cx.src(g).map(|src| Kind::Bar {
-                minmax: None,
+                minmax: ref_num(g),
                 src,
                 id: match g.get("value") {
                     Some(v) => cx.dyn_id(Some(v), ScriptKind::Float).unwrap_or(0),

@@ -282,9 +282,7 @@ impl SceneState<'_> {
             177 => (m.max_bpm - m.min_bpm).abs() >= 0.01,
             178 => !m.has_random,
             179 => m.has_random,
-            180..=184 => {
-                matches!(m.judge_rank, vibebms_core::chart::JudgeRank::Rank(r) if r == id - 180)
-            }
+            180..=184 => super::skinned::judge_option(super::skinned::judge_rank_number(m), id),
             190 => m.stagefile.is_empty(),
             191 => !m.stagefile.is_empty(),
             192 => m.banner.is_empty(),
@@ -578,7 +576,7 @@ impl SkinState for SceneState<'_> {
                 }
             }
             350..=368 => {
-                if (350..=353).contains(&id) && s.req.song.note_kinds.iter().all(|n| *n == 0) {
+                if (350..=354).contains(&id) && s.req.song.note_kinds.iter().all(|n| *n == 0) {
                     // a song from an older library: count the chart's
                     let (k, _) = crate::library::chart_info(&s.chart);
                     return Some(k[(id - 350) as usize]);

@@ -116,6 +116,7 @@ impl DecideState<'_> {
             171 => song.has_bga,
             172 => !song.has_ln,
             173 => song.has_ln,
+            180..=184 => song.judge.is_some_and(|j| skinned::judge_option(j, id)),
             176 => song.min_bpm == song.max_bpm,
             177 => song.min_bpm != song.max_bpm,
             1177 => song.has_stop,
@@ -187,7 +188,7 @@ impl SkinState for DecideState<'_> {
             103 | 184 => rate as i64 % 100,
             1163 => song.length_ms / 60000,
             1164 => (song.length_ms / 1000) % 60,
-            350..=368 => return skinned::song_number(song, id),
+            350..=368 | 400 => return skinned::song_number(song, id),
             _ => return None,
         })
     }

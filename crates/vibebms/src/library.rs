@@ -44,9 +44,11 @@ pub struct Song {
     pub stagefile: String,
     pub banner: String,
     pub preview: String,
-    /// Notes by kind: normal, long, scratch, long on the scratch (zeros
-    /// in libraries scanned before they were stored).
-    pub note_kinds: [i64; 4],
+    /// Notes by kind: normal, long, scratch, long on the scratch, mines
+    /// (zeros in libraries scanned before they were stored).
+    pub note_kinds: [i64; 5],
+    /// Judge rank as beatoraja keeps it: `#RANK` 0..4, else a percentage.
+    pub judge: Option<i64>,
     /// Notes per second: average, peak and near the end, as beatoraja
     /// measures them.
     pub density: [f64; 3],
@@ -291,10 +293,15 @@ pub fn find_charts(roots: &[PathBuf], skip: &HashSet<PathBuf>) -> Vec<PathBuf> {
 /// follow beatoraja's `SongInformation`: a second's count includes the
 /// long notes held through it; the average leaves out the quietest
 /// seconds; the end is the busiest 5 s after the gauge could last fill.
-pub fn chart_info(c: &vibebms_core::Chart) -> ([i64; 4], [f64; 3]) {
+pub fn chart_info(c: &vibebms_core::Chart) -> ([i64; 5], [f64; 3]) {
     let mode = c.mode();
     let scratch = |l: u8| (0..mode.players()).any(|p| mode.scratch_lane(p) == Some(l as usize));
-    let mut kinds = [0i64; 4];
+    let mut kinds = [0i64; 5];
+    kinds[4] = c
+        .notes
+        .iter()
+        .filter(|n| matches!(n.kind, vibebms_core::chart::NoteKind::Mine { .. }))
+        .count() as i64;
     let notes: Vec<_> = c.notes.iter().filter(|n| n.is_playable()).collect();
     let last = notes.iter().map(|n| n.end_time()).max().unwrap_or(0).max(0);
     // a chart beatoraja would not analyse (over an hour): no densities
@@ -350,6 +357,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
     Song {
         note_kinds,
         density,
+        judge: Some(crate::scene::skinned::judge_rank_number(m)),
         path: path.to_string_lossy().into_owned(),
         folder,
         md5: m.md5.clone(),
@@ -493,7 +501,7 @@ mod tests {
             #00116:01\n#00111:0001\n#00112:01\n#00153:01\n#00353:01\n";
         let c = vibebms_core::bms::parse_bms(bms.as_bytes(), "bms", &Default::default()).unwrap();
         let (k, d) = chart_info(&c);
-        assert_eq!(k, [2, 1, 1, 0]);
+        assert_eq!(k, [2, 1, 1, 0, 0]);
         // the LN holds through seconds 2..=6; second 2 has two more notes
         assert_eq!(d[1], 3.0);
     }

@@ -94,9 +94,7 @@ pub fn chart_option(m: &ChartMeta, mode: vibebms_core::PlayMode, id: i32) -> Opt
         177 => (m.max_bpm - m.min_bpm).abs() >= 0.01,
         178 => !m.has_random,
         179 => m.has_random,
-        180..=184 => {
-            matches!(m.judge_rank, vibebms_core::chart::JudgeRank::Rank(r) if r == id - 180)
-        }
+        180..=184 => judge_option(judge_rank_number(m), id),
         190 => m.stagefile.is_empty(),
         191 => !m.stagefile.is_empty(),
         192 => m.banner.is_empty(),
@@ -129,8 +127,8 @@ pub fn table_text(ctx: &Ctx, md5: &str, sha256: &str, id: i32) -> Option<String>
     })
 }
 
-/// beatoraja's chart numbers from the library: notes by kind (350-353),
-/// densities (360-365) and TOTAL (368).
+/// beatoraja's chart numbers from the library: notes by kind (350-354),
+/// densities (360-365), TOTAL (368) and judge rank (400).
 pub fn song_number(s: &crate::library::Song, id: i32) -> Option<i64> {
     let known = s.note_kinds.iter().any(|n| *n > 0);
     let split = |v: f64, after: bool| {
@@ -141,13 +139,21 @@ pub fn song_number(s: &crate::library::Song, id: i32) -> Option<i64> {
         }
     };
     Some(match id {
-        350..=353 if known => s.note_kinds[(id - 350) as usize],
+        350..=354 if known => s.note_kinds[(id - 350) as usize],
+        400 => s.judge?,
         360 | 361 if known => split(s.density[1], id == 361),
         362 | 363 if known => split(s.density[2], id == 363),
         364 | 365 if known => split(s.density[0], id == 365),
         368 => s.total as i64,
         _ => return None,
     })
+}
+
+/// beatoraja's judge rank options (180 very hard .. 184 very easy) of a
+/// judge rank number: `#RANK`, or a percentage in steps of 25 from 10.
+pub fn judge_option(judge: i64, id: i32) -> bool {
+    let k = (id - 180) as i64;
+    judge == k || (judge >= 10 && ((judge - 10) / 25).min(4) == k)
 }
 
 /// beatoraja's judge rank number (400): `#RANK`, else the percentage.
