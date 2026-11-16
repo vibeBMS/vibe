@@ -182,32 +182,32 @@ impl SongFetch {
         #[cfg(not(target_arch = "wasm32"))]
         crate::platform::spawn("song", move || {
             progress.set_stage(Stage::Finding);
-            let done: Vec<Done> = bmseeker::progress::scope(Some(progress), || {
-                let mut done = Vec::new();
-                for (ls, diff) in &links {
-                    // the song brought the chart: no separate chart to get
-                    if *diff && has_chart(&done, md5.as_deref()) {
-                        break;
-                    }
-                    // the lists' links are in `ls` already: BMS SEARCH after
-                    let cx = crate::hosts::context();
-                    let q = bmseeker::sources::Query {
-                        md5: md5.clone().unwrap_or_default(),
-                        want: want.clone(),
-                        diff: *diff,
-                    };
-                    let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
-                    done.extend(bmseeker::install::links(
-                        &root.join("downloads"),
-                        &root.join("bms"),
-                        &q,
-                        ls,
-                        &sources,
-                        cx,
-                    ));
+            // the settings and hosts, reporting to (and cancelled by) this
+            // song's progress
+            let cx = crate::hosts::context().with_progress(progress);
+            let mut done = Vec::new();
+            for (ls, diff) in &links {
+                // the song brought the chart: no separate chart to get
+                if *diff && has_chart(&done, md5.as_deref()) {
+                    break;
                 }
-                no_chart_link(done, have_song)
-            });
+                // the lists' links are in `ls` already: BMS SEARCH after
+                let q = bmseeker::sources::Query {
+                    md5: md5.clone().unwrap_or_default(),
+                    want: want.clone(),
+                    diff: *diff,
+                };
+                let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
+                done.extend(bmseeker::install::links(
+                    &root.join("downloads"),
+                    &root.join("bms"),
+                    &q,
+                    ls,
+                    &sources,
+                    &cx,
+                ));
+            }
+            let done = no_chart_link(done, have_song);
             let _ = tx.send((id, done));
         });
         #[cfg(target_arch = "wasm32")]
