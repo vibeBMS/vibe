@@ -220,10 +220,11 @@ impl LaneMapper {
 pub enum Nav {
     Up,
     Down,
-    Left,
-    Right,
     Decide,
     Back,
+    /// Close the folder (LR2: the blue keys, ←): unlike `Back`, nothing at
+    /// the top.
+    Close,
     Settings,
     Option,
 }
@@ -233,8 +234,9 @@ pub fn nav_from_key(code: KeyCode, cfg: &KeyConfig) -> Option<Nav> {
     match code {
         ArrowUp => return Some(Nav::Up),
         ArrowDown => return Some(Nav::Down),
-        ArrowLeft => return Some(Nav::Left),
-        ArrowRight => return Some(Nav::Right),
+        // LR2: ← closes the folder, → is Enter
+        ArrowLeft => return Some(Nav::Close),
+        ArrowRight => return Some(Nav::Decide),
         Enter | NumpadEnter => return Some(Nav::Decide),
         Escape | Backspace => return Some(Nav::Back),
         F1 | Tab => return Some(Nav::Settings),
@@ -245,8 +247,9 @@ pub fn nav_from_key(code: KeyCode, cfg: &KeyConfig) -> Option<Nav> {
     if in_lk(&p.keys[0]) || in_lk(&p.keys[2]) || in_lk(&p.keys[4]) || in_lk(&p.keys[6]) {
         return Some(Nav::Decide);
     }
-    if in_lk(&p.keys[1]) {
-        return Some(Nav::Back);
+    // LR2: the white keys decide, the blue ones close the folder
+    if in_lk(&p.keys[1]) || in_lk(&p.keys[3]) || in_lk(&p.keys[5]) {
+        return Some(Nav::Close);
     }
     if in_lk(&p.scratch_up) {
         return Some(Nav::Up);
@@ -269,11 +272,8 @@ pub fn nav_from_pad(id: u64, cfg: &KeyConfig) -> Option<Nav> {
     if in_lk(&p.keys[0]) || in_lk(&p.keys[2]) || in_lk(&p.keys[4]) || in_lk(&p.keys[6]) {
         return Some(Nav::Decide);
     }
-    if in_lk(&p.keys[1]) {
-        return Some(Nav::Back);
-    }
-    if in_lk(&p.keys[3]) {
-        return Some(Nav::Settings);
+    if in_lk(&p.keys[1]) || in_lk(&p.keys[3]) || in_lk(&p.keys[5]) {
+        return Some(Nav::Close);
     }
     if in_lk(&cfg.start) {
         return Some(Nav::Option);

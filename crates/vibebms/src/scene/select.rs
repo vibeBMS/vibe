@@ -453,8 +453,8 @@ impl SelectScene {
         self.stack.push((self.node.clone(), self.cursor));
         self.node = node;
         self.bars = bars;
-        // the first entry, after the folder's own bar
-        self.cursor = usize::from(self.bars.len() > 1);
+        // the folder's own bar (LR2: deciding on it closes the folder)
+        self.cursor = 0;
         self.scroll = self.cursor as f32;
         self.moved(ctx);
     }
@@ -1074,16 +1074,11 @@ impl SelectScene {
         match nav {
             Nav::Up => self.step(ctx, -1),
             Nav::Down => self.step(ctx, 1),
-            Nav::Left => {
-                if !self.back(ctx) {
-                    self.step(ctx, -10)
-                }
-            }
-            Nav::Right => match self.bars.get(self.cursor) {
-                Some(Bar::Folder { .. }) => return self.decide(ctx, false),
-                _ => self.step(ctx, 10),
-            },
             Nav::Decide => return self.decide(ctx, false),
+            Nav::Close if self.panel > 0 => self.toggle_panel(0),
+            Nav::Close => {
+                self.back(ctx);
+            }
             Nav::Back if self.panel > 0 => self.toggle_panel(0),
             Nav::Back => {
                 if !self.back(ctx) {

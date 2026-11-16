@@ -276,15 +276,18 @@ impl Scene for ResultScene {
                 if matches!(code, KeyCode::KeyR | KeyCode::F5) {
                     return self.leave(ctx, Leave::Retry);
                 }
-                match nav_from_key(*code, &ctx.config.keys) {
-                    Some(Nav::Decide) | Some(Nav::Back) => return self.leave(ctx, Leave::Proceed),
-                    _ => {}
+                if let Some(Nav::Decide | Nav::Back | Nav::Close) =
+                    nav_from_key(*code, &ctx.config.keys)
+                {
+                    return self.leave(ctx, Leave::Proceed);
                 }
             }
             InputEv::Pad {
                 id, pressed: true, ..
             } => {
-                if let Some(Nav::Decide | Nav::Back) = nav_from_pad(*id, &ctx.config.keys) {
+                if let Some(Nav::Decide | Nav::Back | Nav::Close) =
+                    nav_from_pad(*id, &ctx.config.keys)
+                {
                     return self.leave(ctx, Leave::Proceed);
                 }
             }
