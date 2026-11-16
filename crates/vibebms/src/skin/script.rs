@@ -257,6 +257,231 @@ if global then
 end
 "#;
 
+    /// What beatoraja's Lua (LuaJ, Lua 5.2) has and Lua 5.4 lacks or does
+    /// differently: `os` without what reaches the system, `bit32`,
+    /// `unpack`, number arguments that need not be integers, and inert
+    /// `luajava` / `debug` as beatoraja gives old skins.
+    const COMPAT: &str = r#"
+for _, k in ipairs({ "execute", "exit", "getenv", "remove", "rename", "tmpname", "setlocale" }) do
+  os[k] = nil
+end
+unpack = unpack or table.unpack
+loadstring = loadstring or load
+math.pow = math.pow or function(a, b) return a ^ b end
+local function int(x)
+  if math.type(x) == "float" and x == x and x ~= math.huge and x ~= -math.huge then
+    return x >= 0 and math.floor(x) or math.ceil(x)
+  end
+  return x
+end
+local random = math.random
+math.random = function(m, n)
+  if m == nil then return random() end
+  if n == nil then return random(int(m)) end
+  return random(int(m), int(n))
+end
+local format = string.format
+local INT = { d = true, i = true, x = true, X = true, o = true, c = true }
+string.format = function(fmt, ...)
+  local args = table.pack(...)
+  if type(fmt) == "string" then
+    local k = 0
+    for conv in fmt:gmatch("%%[-+ #0]*%d*%.?%d*([%a%%])") do
+      if conv ~= "%" then
+        k = k + 1
+        if INT[conv] then args[k] = int(args[k]) end
+      end
+    end
+  end
+  return format(fmt, table.unpack(args, 1, args.n))
+end
+
+local M = 0xFFFFFFFF
+local function u(x) return int(x or 0) & M end
+local b = {}
+function b.band(...) local r = M for _, v in ipairs({ ... }) do r = r & u(v) end return r end
+function b.bor(...) local r = 0 for _, v in ipairs({ ... }) do r = r | u(v) end return r end
+function b.bxor(...) local r = 0 for _, v in ipairs({ ... }) do r = r ~ u(v) end return r end
+function b.bnot(x) return ~u(x) & M end
+function b.btest(...) return b.band(...) ~= 0 end
+function b.lshift(x, n)
+  n = int(n)
+  if n < 0 then return b.rshift(x, -n) end
+  if n >= 32 then return 0 end
+  return (u(x) << n) & M
+end
+function b.rshift(x, n)
+  n = int(n)
+  if n < 0 then return b.lshift(x, -n) end
+  if n >= 32 then return 0 end
+  return u(x) >> n
+end
+function b.arshift(x, n)
+  x, n = u(x), int(n)
+  if n < 0 then return b.lshift(x, -n) end
+  local neg = x & 0x80000000 ~= 0
+  if n >= 32 then return neg and M or 0 end
+  local r = x >> n
+  if neg then r = r | ((M << (32 - n)) & M) end
+  return r
+end
+function b.lrotate(x, n)
+  x, n = u(x), int(n) % 32
+  return ((x << n) | (x >> (32 - n))) & M
+end
+function b.rrotate(x, n) return b.lrotate(x, -int(n)) end
+function b.extract(x, f, w)
+  w = int(w or 1)
+  return (u(x) >> int(f)) & ((1 << w) - 1)
+end
+function b.replace(x, v, f, w)
+  f, w = int(f), int(w or 1)
+  local m = ((1 << w) - 1) << f
+  return ((u(x) & ~m) | ((u(v) << f) & m)) & M
+end
+bit32 = b
+package.loaded.bit32 = b
+
+-- beatoraja's stand-ins for old skins: Java classes are inert here
+local inert = setmetatable({}, { __call = function() return nil end })
+getmetatable(inert).__index = function() return inert end
+luajava = {
+  bindClass = function() return inert end,
+  new = function() return inert end,
+  newInstance = function() return inert end,
+  createProxy = function() return inert end,
+}
+package.loaded.luajava = luajava
+debug = { getmetatable = getmetatable }
+package.loaded.debug = debug
+"#;
+
+    /// `io` over the skin's files (read through `read`): files open for
+    /// writing take what is written and keep nothing.
+    const IO: &str = r#"
+local read = ...
+local F = {}
+F.__index = F
+local function file(data) return setmetatable({ data = data or "", pos = 1 }, F) end
+function F:read(...)
+  local fmts, out = table.pack(...), {}
+  if fmts.n == 0 then fmts = { "l", n = 1 } end
+  for k = 1, fmts.n do
+    local f, v = fmts[k], nil
+    if type(f) == "string" then f = f:gsub("^%*", ""):sub(1, 1) end
+    if type(f) == "number" then
+      if self.pos <= #self.data or f == 0 then
+        v = self.data:sub(self.pos, self.pos + f - 1)
+        self.pos = self.pos + #v
+      end
+    elseif f == "a" then
+      v = self.data:sub(self.pos)
+      self.pos = #self.data + 1
+    elseif f == "l" or f == "L" then
+      if self.pos <= #self.data then
+        local e = self.data:find("\n", self.pos, true) or #self.data + 1
+        v = self.data:sub(self.pos, f == "L" and e or e - 1)
+        self.pos = e + 1
+        if f == "l" then v = v:gsub("\r$", "") end
+      end
+    elseif f == "n" then
+      local s, e = self.data:find("^%s*[-+]?[%d.]+[eE]?[-+]?%d*", self.pos)
+      if s then
+        v = tonumber(self.data:sub(s, e):match("%S+"))
+        self.pos = e + 1
+      end
+    end
+    out[k] = v
+    if v == nil then return table.unpack(out, 1, k) end
+  end
+  return table.unpack(out, 1, fmts.n)
+end
+function F:lines(...)
+  local fmts = table.pack(...)
+  return function() return self:read(table.unpack(fmts, 1, fmts.n)) end
+end
+function F:write() return self end
+function F:flush() return self end
+function F:setvbuf() return true end
+function F:close() self.closed = true return true end
+function F:seek(whence, off)
+  local base = ({ set = 0, cur = self.pos - 1, ["end"] = #self.data })[whence or "cur"] or 0
+  self.pos = math.max(0, math.min(#self.data, base + (off or 0))) + 1
+  return self.pos - 1
+end
+io = {
+  stdin = file(), stdout = file(), stderr = file(),
+  open = function(path, mode)
+    mode = mode or "r"
+    if mode:find("r") then
+      local d = read(tostring(path))
+      if d == nil then return nil, tostring(path) .. ": No such file or directory", 2 end
+      return file(d)
+    end
+    return file()
+  end,
+  lines = function(path, ...)
+    if path == nil then return function() return nil end end
+    local d = read(tostring(path))
+    if d == nil then error(tostring(path) .. ": No such file or directory", 2) end
+    return file(d):lines(...)
+  end,
+  read = function() return nil end,
+  write = function() return io.stdout end,
+  close = function(f) if f then return f:close() end return true end,
+  input = function() return io.stdin end,
+  output = function() return io.stdout end,
+  tmpfile = function() return file() end,
+  popen = function() return nil, "not allowed" end,
+  type = function(f)
+    if getmetatable(f) ~= F then return nil end
+    return f.closed and "closed file" or "file"
+  end,
+}
+package.loaded.io = io
+"#;
+
+    /// Largest file a script may read.
+    const IO_MAX_BYTES: i64 = 16 << 20;
+
+    /// The file a skin script names (`require`, `dofile`, `io`), inside
+    /// the theme folder `root`. Paths are relative to the skin's folder or
+    /// to beatoraja's folder (`skin/<theme>/...`, whatever the theme
+    /// folder is called here); `lua_only` admits Lua files only.
+    fn resolve(dir: &Path, root: &Path, name: &str, lua_only: bool) -> Option<std::path::PathBuf> {
+        let name = name.replace('\\', "/");
+        let p = Path::new(&name);
+        let mut cands = Vec::new();
+        cands.push(p.to_path_buf());
+        if !p.is_absolute() {
+            let tail = name
+                .get(..5)
+                .filter(|h| h.eq_ignore_ascii_case("skin/"))
+                .and_then(|_| name[5..].split_once('/'))
+                .map(|(_, t)| t);
+            for a in dir.ancestors() {
+                cands.push(a.join(p));
+                if let Some(t) = tail {
+                    cands.push(a.join(t));
+                }
+                if crate::platform::vfs::normalize(a) == *root {
+                    break;
+                }
+            }
+        }
+        cands
+            .into_iter()
+            .map(|c| crate::platform::vfs::normalize(&c))
+            .filter(|c| c.starts_with(root))
+            .filter(|c| {
+                !lua_only
+                    || c.extension().is_some_and(|e| {
+                        e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("luaskin")
+                    })
+            })
+            .find(|c| crate::platform::vfs::is_file(c))
+    }
+
     /// Replace the functions of the skin table with markers (indices into
     /// the returned list), so the table converts to JSON.
     const WALK: &str = r#"
@@ -322,12 +547,14 @@ return fns
         /// A Lua state with the skin modules; `global` also exposes them as
         /// globals (JSON skins), `dir` is the skin's `require` path.
         pub fn new(dir: &Path, global: bool) -> mlua::Result<Script> {
-            // no os / io / debug: scripts only reach what the skin modules give
+            // no debug, and os / io as beatoraja restricts them (below):
+            // scripts only reach what the skin modules give
             let libs = mlua::StdLib::COROUTINE
                 | mlua::StdLib::TABLE
                 | mlua::StdLib::STRING
                 | mlua::StdLib::UTF8
                 | mlua::StdLib::MATH
+                | mlua::StdLib::OS
                 | mlua::StdLib::PACKAGE;
             let lua = Lua::new_with(libs, mlua::LuaOptions::default())?;
             lua.set_memory_limit(MEMORY_LIMIT)?;
@@ -351,18 +578,16 @@ return fns
                 string.dump = nil"##,
             )
             .call::<()>(())?;
+            lua.load(COMPAT).set_name("vibebms compat").call::<()>(())?;
             let vb = lua.create_table()?;
             defaults(&lua, &vb, 0)?;
-            // `require` and `dofile` read Lua files of the skin's theme
+            // `require`, `dofile` and `io` read files of the skin's theme
             // folder (the parent of the skin file's folder) only
             let root = crate::platform::vfs::normalize(dir.parent().unwrap_or(dir));
-            let inside = move |p: &Path| {
-                let p = crate::platform::vfs::normalize(p);
-                let ext = p
-                    .extension()
-                    .map(|x| x.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                (p.starts_with(&root) && matches!(ext.as_str(), "lua" | "luaskin")).then_some(p)
+            let base = dir.to_path_buf();
+            let find = {
+                let (root, base) = (root.clone(), base.clone());
+                move |p: &str, lua_only: bool| resolve(&base, &root, p, lua_only)
             };
             let pkg: Table = lua.globals().get("package")?;
             for k in ["path", "cpath"] {
@@ -371,18 +596,17 @@ return fns
             for k in ["loadlib", "searchpath"] {
                 pkg.set(k, LV::Nil)?;
             }
-            let base = dir.to_path_buf();
-            let find = inside.clone();
+            let f = find.clone();
             let searcher = lua.create_function(move |lua, name: String| {
                 let rel = name.replace('.', "/");
-                let found = [
-                    format!("{rel}.lua"),
-                    format!("{rel}.luaskin"),
-                    format!("{rel}/init.lua"),
-                ]
-                .iter()
-                .filter_map(|r| find(&base.join(r)))
-                .find(|p| crate::platform::vfs::is_file(p));
+                // the skin's folder, then `package.path` as the skin set it
+                let pkg: Table = lua.globals().get("package")?;
+                let templates: String = pkg.get::<Option<String>>("path")?.unwrap_or_default();
+                let found = ["?.lua", "?.luaskin", "?/init.lua"]
+                    .into_iter()
+                    .chain(templates.split(';'))
+                    .filter(|t| t.contains('?'))
+                    .find_map(|t| f(&t.replace('?', &rel), true));
                 let Some(path) = found else {
                     return Ok(LV::String(
                         lua.create_string(format!("no skin file {name}"))?,
@@ -397,20 +621,29 @@ return fns
             searchers.raw_set(1, preload)?;
             searchers.raw_set(2, searcher)?;
             pkg.set("searchers", searchers)?;
-            let base = dir.to_path_buf();
+            let f = find.clone();
             lua.globals().set(
                 "dofile",
                 lua.create_function(move |lua, p: String| {
-                    let Some(path) = inside(&base.join(p.replace('\\', "/"))) else {
-                        return Err(mlua::Error::runtime(format!(
-                            "dofile: {p} is outside the skin"
-                        )));
+                    let Some(path) = f(&p, true) else {
+                        return Err(mlua::Error::runtime(format!("dofile: no skin file {p}")));
                     };
                     let src = crate::platform::vfs::read(&path)
                         .map_err(|e| mlua::Error::runtime(e.to_string()))?;
                     text_chunk(lua, &src, &path).call::<mlua::MultiValue>(())
                 })?,
             )?;
+            // io reads the skin's files; what scripts write goes nowhere
+            let read = lua.create_function(move |lua, p: String| {
+                let data = find(&p, false)
+                    .filter(|p| crate::platform::vfs::stamp(p).1 <= IO_MAX_BYTES)
+                    .and_then(|p| crate::platform::vfs::read(&p).ok());
+                match data {
+                    Some(d) => Ok(LV::String(lua.create_string(d)?)),
+                    None => Ok(LV::Nil),
+                }
+            })?;
+            lua.load(IO).set_name("vibebms io").call::<()>(read)?;
             lua.load(PRELUDE)
                 .set_name("vibebms prelude")
                 .call::<()>((vb.clone(), global))?;
@@ -419,6 +652,24 @@ return fns
 
         pub fn lua(&self) -> &Lua {
             &self.lua
+        }
+
+        /// Run `f` (the skin's own code) with `main_state` answering from
+        /// `st`: skins read the scene's values while they are built.
+        pub fn with_state<R>(
+            &self,
+            st: Option<&dyn SkinState>,
+            f: impl FnOnce() -> mlua::Result<R>,
+        ) -> mlua::Result<R> {
+            let Some(st) = st else { return f() };
+            let timers = RefCell::new(HashMap::new());
+            let exec = RefCell::new(Vec::new());
+            let r = self.lua.scope(|s| {
+                bind(s, &self.vb, st, &timers, &exec, 0)?;
+                f()
+            });
+            let _ = defaults(&self.lua, &self.vb, 0);
+            r
         }
 
         /// Turn the evaluated skin table into JSON, keeping its functions.
@@ -475,6 +726,98 @@ return fns
             lua.create_function(|_, _: mlua::MultiValue| Ok(i64::MIN))?,
         )?;
         vb.set("time", lua.create_function(move |_, ()| Ok(now_us))?)?;
+        Ok(())
+    }
+
+    /// The state access functions `vb` holds while a scope lasts.
+    fn bind<'scope, 'env: 'scope>(
+        s: &'scope mlua::Scope<'scope, 'env>,
+        vb: &Table,
+        st: &'scope dyn SkinState,
+        set_timers: &'scope RefCell<HashMap<i32, i64>>,
+        exec: &'scope RefCell<Vec<i32>>,
+        now_us: i64,
+    ) -> mlua::Result<()> {
+        let timer = move |id: i32| -> i64 {
+            if let Some(us) = set_timers.borrow().get(&id) {
+                return *us;
+            }
+            st.timer(id)
+                .map(|t| t.saturating_mul(1000))
+                .unwrap_or(i64::MIN)
+        };
+        vb.set(
+            "number",
+            s.create_function(move |_, id: i32| Ok(st.number(id).unwrap_or(0)))?,
+        )?;
+        vb.set(
+            "float_number",
+            s.create_function(move |_, id: i32| Ok(st.rate(id) as f64))?,
+        )?;
+        vb.set(
+            "option",
+            s.create_function(move |_, id: i32| Ok(st.option(id)))?,
+        )?;
+        vb.set(
+            "text",
+            s.create_function(move |_, id: i32| Ok(st.text(id).unwrap_or_default()))?,
+        )?;
+        vb.set(
+            "event_index",
+            s.create_function(move |_, id: i32| Ok(st.button(id).unwrap_or(0)))?,
+        )?;
+        vb.set("timer", s.create_function(move |_, id: i32| Ok(timer(id)))?)?;
+        vb.set("time", s.create_function(move |_, ()| Ok(now_us))?)?;
+        vb.set(
+            "offset",
+            s.create_function(move |lua, id: i32| {
+                let t = lua.create_table()?;
+                let o = st.offset(id).unwrap_or_default();
+                for (k, v) in ["x", "y", "w", "h", "r", "a"].iter().zip(o) {
+                    t.set(*k, v)?;
+                }
+                Ok(t)
+            })?,
+        )?;
+        vb.set(
+            "set_timer",
+            s.create_function(move |_, (id, v): (i32, i64)| {
+                set_timers.borrow_mut().insert(id, v);
+                Ok(true)
+            })?,
+        )?;
+        vb.set(
+            "event_exec",
+            s.create_function(move |_, id: i32| {
+                exec.borrow_mut().push(id);
+                Ok(true)
+            })?,
+        )?;
+        let num = move |id: i32| st.number(id).unwrap_or(0);
+        let notes = move || (num(74).max(1) * 2) as f64;
+        vb.set("exscore", s.create_function(move |_, ()| Ok(num(71)))?)?;
+        vb.set(
+            "rate",
+            s.create_function(move |_, ()| Ok(num(71) as f64 / notes()))?,
+        )?;
+        vb.set(
+            "exscore_best",
+            s.create_function(move |_, ()| Ok(num(150)))?,
+        )?;
+        vb.set(
+            "rate_best",
+            s.create_function(move |_, ()| Ok(num(150) as f64 / notes()))?,
+        )?;
+        vb.set("gauge", s.create_function(move |_, ()| Ok(num(107)))?)?;
+        vb.set(
+            "judge",
+            s.create_function(move |_, j: i32| {
+                Ok(match j {
+                    0..=4 => num(110 + j),
+                    _ => num(420),
+                })
+            })?,
+        )?;
         Ok(())
     }
 
@@ -686,90 +1029,7 @@ return fns
             arm(&self.lua, FRAME_TIME);
             let now_us = now.saturating_mul(1000);
             let r = self.lua.scope(|s| {
-                let vb = &self.vb;
-                let set_timers = &self.set_timers;
-                let timer = move |id: i32| -> i64 {
-                    if let Some(us) = set_timers.borrow().get(&id) {
-                        return *us;
-                    }
-                    st.timer(id)
-                        .map(|t| t.saturating_mul(1000))
-                        .unwrap_or(i64::MIN)
-                };
-                vb.set(
-                    "number",
-                    s.create_function(move |_, id: i32| Ok(st.number(id).unwrap_or(0)))?,
-                )?;
-                vb.set(
-                    "float_number",
-                    s.create_function(move |_, id: i32| Ok(st.rate(id) as f64))?,
-                )?;
-                vb.set(
-                    "option",
-                    s.create_function(move |_, id: i32| Ok(st.option(id)))?,
-                )?;
-                vb.set(
-                    "text",
-                    s.create_function(move |_, id: i32| Ok(st.text(id).unwrap_or_default()))?,
-                )?;
-                vb.set(
-                    "event_index",
-                    s.create_function(move |_, id: i32| Ok(st.button(id).unwrap_or(0)))?,
-                )?;
-                vb.set("timer", s.create_function(move |_, id: i32| Ok(timer(id)))?)?;
-                vb.set("time", s.create_function(move |_, ()| Ok(now_us))?)?;
-                vb.set(
-                    "offset",
-                    s.create_function(move |lua, id: i32| {
-                        let t = lua.create_table()?;
-                        let o = st.offset(id).unwrap_or_default();
-                        for (k, v) in ["x", "y", "w", "h", "r", "a"].iter().zip(o) {
-                            t.set(*k, v)?;
-                        }
-                        Ok(t)
-                    })?,
-                )?;
-                vb.set(
-                    "set_timer",
-                    s.create_function(move |_, (id, v): (i32, i64)| {
-                        set_timers.borrow_mut().insert(id, v);
-                        Ok(true)
-                    })?,
-                )?;
-                let exec = &self.exec;
-                vb.set(
-                    "event_exec",
-                    s.create_function(move |_, id: i32| {
-                        exec.borrow_mut().push(id);
-                        Ok(true)
-                    })?,
-                )?;
-                let num = move |id: i32| st.number(id).unwrap_or(0);
-                let notes = move || (num(74).max(1) * 2) as f64;
-                vb.set("exscore", s.create_function(move |_, ()| Ok(num(71)))?)?;
-                vb.set(
-                    "rate",
-                    s.create_function(move |_, ()| Ok(num(71) as f64 / notes()))?,
-                )?;
-                vb.set(
-                    "exscore_best",
-                    s.create_function(move |_, ()| Ok(num(150)))?,
-                )?;
-                vb.set(
-                    "rate_best",
-                    s.create_function(move |_, ()| Ok(num(150) as f64 / notes()))?,
-                )?;
-                vb.set("gauge", s.create_function(move |_, ()| Ok(num(107)))?)?;
-                vb.set(
-                    "judge",
-                    s.create_function(move |_, j: i32| {
-                        Ok(match j {
-                            0..=4 => num(110 + j),
-                            _ => num(420),
-                        })
-                    })?,
-                )?;
-
+                bind(s, &self.vb, st, &self.set_timers, &self.exec, now_us)?;
                 // clicked events, then custom events and timers, then values
                 let queued = std::mem::take(&mut *self.queued.borrow_mut());
                 for k in queued {

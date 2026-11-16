@@ -104,13 +104,12 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
     };
     let stat = |id: i32| st.static_option(id);
     for path in configured.into_iter().chain(std::iter::once(default)) {
-        let opts = ctx.skin_user_options(&value, &path);
         match crate::skin::load_file(
             &path,
             &ctx.paths.skins,
-            &opts,
-            &ctx.skin_user_offsets(&value),
+            &ctx.skin_user_settings(&value, &path),
             &stat,
+            Some(&st),
             &crate::skin::image_size,
         ) {
             Ok(skin) if skin.kind == skin_type(mode) => return Some(LoadedSkin::load(skin, gfx)),

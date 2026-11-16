@@ -149,6 +149,8 @@ struct Loader<'a> {
     stretch: i32,
     /// User values of `#CUSTOMOFFSET`s, by name.
     user_offsets: HashMap<String, [i32; 6]>,
+    /// The user's `#CUSTOMFILE` choices, by name.
+    user_files: HashMap<String, String>,
     /// Buttons that belong to a panel: (object, panel option id).
     panel_ops: Vec<(usize, i32)>,
     /// `#LR2FONT` list (indexed by `#SRC_TEXT`): font in `Skin::fonts`.
@@ -362,16 +364,20 @@ impl Loader<'_> {
                 self.skin.name = f.get(2).unwrap_or(&"").trim().to_string();
                 self.skin.author = f.get(3).unwrap_or(&"").trim().to_string();
             }
-            "#RESOLUTION" => {
-                let (w, h) = [
+            // a header command: LR2 builds, beatoraja and Lunatic Vibes
+            // read it from the skin file itself, not from what it includes
+            "#RESOLUTION" if self.depth == 0 => {
+                let sizes = [
                     (640.0, 480.0),
                     (1280.0, 720.0),
                     (1920.0, 1080.0),
                     (3840.0, 2160.0),
-                ][(v[1].clamp(0, 3)) as usize];
-                self.skin.width = w;
-                self.skin.height = h;
-                self.resolution_set = true;
+                ];
+                if let Some(&(w, h)) = s1.parse::<usize>().ok().and_then(|i| sizes.get(i)) {
+                    self.skin.width = w;
+                    self.skin.height = h;
+                    self.resolution_set = true;
+                }
             }
             "#CUSTOMOPTION" => {
                 let labels: Vec<String> = f
@@ -396,10 +402,9 @@ impl Loader<'_> {
             }
             "#CUSTOMFILE" => {
                 if let Some(p) = f.get(2) {
-                    self.files.insert(
-                        p.trim().replace('\\', "/"),
-                        f.get(3).map(|s| s.trim().to_string()).unwrap_or_default(),
-                    );
+                    let def = f.get(3).map(|s| s.trim().to_string()).unwrap_or_default();
+                    let want = self.user_files.get(s1).cloned().unwrap_or(def);
+                    self.files.insert(p.trim().replace('\\', "/"), want);
                 }
             }
             "#SETOPTION" => {
@@ -998,8 +1003,11 @@ impl Loader<'_> {
             }
             // an object vibeBMS does not draw (#SRC_ONMOUSE hover images,
             // ...): its #DST lines must not move the object before it
-            c if c.starts_with("#SRC_") => self.cur = None,
-            _ => {}
+            c if c.starts_with("#SRC_") => {
+                log::debug!("lr2 skin: {c} is not supported");
+                self.cur = None
+            }
+            c => log::debug!("lr2 skin: {c} is not supported"),
         }
     }
 }
@@ -1020,25 +1028,23 @@ pub fn load(
     static_option: &dyn Fn(i32) -> Option<bool>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    load_with_offsets(
-        path,
-        skins_root,
-        user_options,
-        &HashMap::new(),
-        static_option,
-        image_size,
-    )
+    let user = UserSettings {
+        options: user_options.clone(),
+        ..Default::default()
+    };
+    load_with(path, skins_root, &user, static_option, image_size)
 }
 
-/// [`load`] with the user's `#CUSTOMOFFSET` values (by name).
-pub fn load_with_offsets(
+/// [`load`] with the user's choices: options, `#CUSTOMFILE` files and
+/// `#CUSTOMOFFSET` values (by name).
+pub fn load_with(
     path: &Path,
     skins_root: &Path,
-    user_options: &HashMap<i32, bool>,
-    user_offsets: &HashMap<String, [i32; 6]>,
+    user: &UserSettings,
     static_option: &dyn Fn(i32) -> Option<bool>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
+    let (user_options, user_offsets) = (&user.options, &user.offsets);
     let bytes = vfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let text = vibebms_core::encoding::decode_text(&bytes);
     let mut l = Loader {
@@ -1082,6 +1088,7 @@ pub fn load_with_offsets(
         imagesets: Vec::new(),
         stretch: 0,
         user_offsets: user_offsets.clone(),
+        user_files: user.files.clone(),
         panel_ops: Vec::new(),
         fonts: Vec::new(),
         resolution_set: false,
@@ -1267,31 +1274,81 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     let Ok(b) = vfs::read(path) else {
         return Vec::new();
     };
-    vibebms_core::encoding::decode_text(&b)
-        .lines()
-        .filter(|l| {
-            l.trim_start()
-                .to_ascii_uppercase()
-                .starts_with("#CUSTOMOPTION,")
+    let mut out = Vec::new();
+    for l in vibebms_core::encoding::decode_text(&b).lines() {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        match f[0].to_ascii_uppercase().as_str() {
+            "#CUSTOMOPTION" => {
+                let (Some(name), Some(Ok(first))) = (f.get(1), f.get(2).map(|x| x.parse::<i32>()))
+                else {
+                    continue;
+                };
+                let labels: Vec<String> = f
+                    .iter()
+                    .skip(3)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                out.push(CustomOption {
+                    name: name.to_string(),
+                    first_id: first,
+                    ops: (0..labels.len() as i32).map(|i| first + i).collect(),
+                    labels,
+                    default: 0,
+                });
+            }
+            // a choice of files: their names without extension
+            "#CUSTOMFILE" => {
+                let (Some(name), Some(p)) = (f.get(1), f.get(2).and_then(|p| theme_file(path, p)))
+                else {
+                    continue;
+                };
+                let labels: Vec<String> = glob_paths(&p)
+                    .iter()
+                    .filter(|c| !c.to_string_lossy().contains('*'))
+                    .filter_map(|c| c.file_stem().map(|n| n.to_string_lossy().into_owned()))
+                    .collect();
+                let def = f.get(3).map(|d| d.to_lowercase()).unwrap_or_default();
+                if labels.len() > 1 {
+                    out.push(CustomOption {
+                        default: labels
+                            .iter()
+                            .position(|l| !def.is_empty() && l.to_lowercase().contains(&def))
+                            .unwrap_or(0),
+                        name: name.to_string(),
+                        first_id: 0,
+                        labels,
+                        ops: Vec::new(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A skin's `LR2files\Theme\<theme>\...` path without knowing the skins
+/// folder: under the skin's ancestor named `<theme>`, else under the one
+/// holding the path.
+fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
+    let s = raw.replace('\\', "/");
+    let i = s.to_ascii_lowercase().find("lr2files/theme/")?;
+    let rest = &s[i + "lr2files/theme/".len()..];
+    let (theme, tail) = rest.split_once('/')?;
+    let dirs: Vec<&Path> = skin.ancestors().skip(1).collect();
+    let named = dirs.iter().find(|a| {
+        a.file_name()
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(theme))
+    });
+    let base = named.or_else(|| {
+        dirs.iter().find(|a| {
+            Path::new(tail)
+                .parent()
+                .is_some_and(|t| vfs::is_dir(&a.join(t)))
         })
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split(',').map(str::trim).collect();
-            let first: i32 = f.get(2)?.parse().ok()?;
-            let labels: Vec<String> = f
-                .iter()
-                .skip(3)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect();
-            Some(CustomOption {
-                name: f.get(1)?.to_string(),
-                first_id: first,
-                ops: (0..labels.len() as i32).map(|i| first + i).collect(),
-                labels,
-                default: 0,
-            })
-        })
-        .collect()
+    })?;
+    Some(base.join(tail))
 }
 
 /// Read only the header: (type, name).
@@ -1531,15 +1588,11 @@ mod tests {
         std::fs::write(dir.join("e.lr2skin"), csv).unwrap();
         let size = |_: &Path| Some((128, 64));
         let offsets = HashMap::from([("Judge".to_string(), [3, -4, 0, 0, 0, 0])]);
-        let s = load_with_offsets(
-            &dir.join("e.lr2skin"),
-            &dir,
-            &HashMap::new(),
-            &offsets,
-            &|_| None,
-            &size,
-        )
-        .unwrap();
+        let user = UserSettings {
+            offsets,
+            ..Default::default()
+        };
+        let s = load_with(&dir.join("e.lr2skin"), &dir, &user, &|_| None, &size).unwrap();
         assert_eq!(s.objects[0].dst.stretch, 1);
         assert_eq!(s.objects[0].dst.offsets, vec![50]);
         assert_eq!(s.offsets.get(&50).map(|o| (o[0], o[1])), Some((3.0, -4.0)));

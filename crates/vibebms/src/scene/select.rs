@@ -1247,7 +1247,7 @@ impl Scene for SelectScene {
             let skin = {
                 let st = SelectState { s: self, ctx, now };
                 let stat = |id: i32| st.static_option(id);
-                skinned::load(ctx, gfx, SkinType::Select, &stat)
+                skinned::load(ctx, gfx, SkinType::Select, &stat, &st)
             };
             self.skin = skin;
         }

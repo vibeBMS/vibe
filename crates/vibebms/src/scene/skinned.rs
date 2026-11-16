@@ -31,13 +31,15 @@ pub fn configured_skin(ctx: &Ctx, kind: SkinType) -> Option<PathBuf> {
 }
 
 /// Load the skin for a screen: the configured one, else the built-in
-/// default. `static_option` answers options at load time (LR2 `#IF`). A
+/// default. `static_option` answers options at load time (LR2 `#IF`),
+/// `state` the values Lua skins read while they are built. A
 /// course result accepts a result skin.
 pub fn load(
     ctx: &Ctx,
     gfx: &mut Gfx,
     kind: SkinType,
     static_option: &dyn Fn(i32) -> Option<bool>,
+    state: &dyn crate::skin::SkinState,
 ) -> Option<LoadedSkin> {
     let accept =
         |k: SkinType| k == kind || (kind == SkinType::CourseResult && k == SkinType::Result);
@@ -48,13 +50,12 @@ pub fn load(
         .cloned()
         .unwrap_or_default();
     for path in configured_skin(ctx, kind).into_iter().chain(default) {
-        let opts = ctx.skin_user_options(&value, &path);
         match crate::skin::load_file(
             &path,
             &ctx.paths.skins,
-            &opts,
-            &ctx.skin_user_offsets(&value),
+            &ctx.skin_user_settings(&value, &path),
             static_option,
+            Some(state),
             &crate::skin::image_size,
         ) {
             Ok(skin) if accept(skin.kind) => return Some(LoadedSkin::load(skin, gfx)),
