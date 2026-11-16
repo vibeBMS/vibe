@@ -45,6 +45,12 @@ pub enum InputEv {
         dy: f32,
     },
     Dropped(std::path::PathBuf),
+    /// Keys may have been let go unseen: the window lost the focus (all
+    /// keys), or no finger is on the screen any more (`touch_only`).
+    Released {
+        time: Instant,
+        touch_only: bool,
+    },
 }
 
 /// A lane key transition produced by any device.

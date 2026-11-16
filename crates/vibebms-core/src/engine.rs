@@ -305,6 +305,27 @@ impl Engine {
         }
     }
 
+    /// The (lane, key) held now (as the inputs so far left them).
+    pub fn held(&self) -> Vec<(u8, u8)> {
+        let mut out: Vec<(u8, u8)> = Vec::new();
+        for (l, st) in self.lanes.iter().enumerate() {
+            for (k, down) in st.keys.iter().enumerate() {
+                if *down {
+                    out.push((l as u8, k as u8));
+                }
+            }
+        }
+        // presses not taken yet count too, a release after them undoes them
+        for ev in &self.queue {
+            let key = (ev.lane, ev.key);
+            out.retain(|k| *k != key);
+            if ev.pressed {
+                out.push(key);
+            }
+        }
+        out
+    }
+
     pub fn drain_events(&mut self) -> std::vec::Drain<'_, EngineEvent> {
         self.events.drain(..)
     }

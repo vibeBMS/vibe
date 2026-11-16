@@ -1149,6 +1149,23 @@ impl Scene for PlayScene {
                         .pointer(&self.zones, *id, *phase, *x, *y, *time, thr, &mut lane_evs);
                 }
             }
+            // releases that never came: let go of what is held
+            InputEv::Released { time, touch_only } => {
+                self.touch.release_all(*time, &mut lane_evs);
+                if !touch_only {
+                    let held = self.engine.as_ref().map(|e| e.held()).unwrap_or_default();
+                    for (lane, sub) in held {
+                        if !lane_evs.iter().any(|e| e.lane == lane && e.sub == sub) {
+                            lane_evs.push(LaneEv {
+                                lane,
+                                sub,
+                                pressed: false,
+                                time: *time,
+                            });
+                        }
+                    }
+                }
+            }
             _ => {}
         }
         let mut fed = false;

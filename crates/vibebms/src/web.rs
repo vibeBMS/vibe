@@ -294,8 +294,13 @@ pub fn install_input_stamps() {
 /// When the input event being handled happened: its browser time, if it
 /// was noted just now; else now.
 pub fn input_time() -> crate::platform::Instant {
+    stamp_time(INPUT_STAMP.with(|s| s.replace(-1.0)))
+}
+
+/// An event's browser time (`timeStamp`, ms; < 0: none) as an `Instant`:
+/// now, less how long ago it was (if that was lately).
+fn stamp_time(stamp: f64) -> crate::platform::Instant {
     let now = crate::platform::Instant::now();
-    let stamp = INPUT_STAMP.with(|s| s.replace(-1.0));
     let perf = web_sys::window()
         .and_then(|w| w.performance())
         .map(|p| p.now());
@@ -305,4 +310,41 @@ pub fn input_time() -> crate::platform::Instant {
             .unwrap_or(now),
         _ => now,
     }
+}
+
+thread_local! {
+    /// When the last finger left the screen, until the app takes it.
+    static TOUCHES_GONE: std::cell::Cell<Option<crate::platform::Instant>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Watch for the moment no finger is on the screen (`touchend` /
+/// `touchcancel` with no touches left): a key whose release the page never
+/// got (the browser took the gesture, an iPad's home bar) is let go then.
+pub fn install_touch_watch() {
+    let Some(w) = web_sys::window() else { return };
+    let watch = Closure::<dyn FnMut(web_sys::Event)>::new(|e: web_sys::Event| {
+        if let Some(t) = e.dyn_ref::<web_sys::TouchEvent>() {
+            if t.touches().length() == 0 {
+                let at = stamp_time(e.time_stamp());
+                TOUCHES_GONE.with(|g| g.set(Some(at)));
+            }
+        }
+    });
+    let opts = web_sys::AddEventListenerOptions::new();
+    opts.set_capture(true);
+    opts.set_passive(true);
+    for kind in ["touchend", "touchcancel"] {
+        let _ = w.add_event_listener_with_callback_and_add_event_listener_options(
+            kind,
+            watch.as_ref().unchecked_ref(),
+            &opts,
+        );
+    }
+    watch.forget();
+}
+
+/// When no finger was left on the screen, once.
+pub fn take_touches_gone() -> Option<crate::platform::Instant> {
+    TOUCHES_GONE.with(|g| g.take())
 }

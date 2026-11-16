@@ -652,6 +652,7 @@ pub fn run() {
         use winit::platform::web::EventLoopExtWebSys;
         crate::web::install_file_input(app.paths.root.clone());
         crate::web::install_input_stamps();
+        crate::web::install_touch_watch();
         event_loop.spawn_app(app);
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -1208,13 +1209,41 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::DroppedFile(p) => r.dispatch(el, InputEv::Dropped(p)),
-            WindowEvent::Focused(false) => r.ctx.save_config(),
+            WindowEvent::Focused(false) => {
+                r.ctx.save_config();
+                // its key and touch releases go elsewhere now
+                r.dispatch(
+                    el,
+                    InputEv::Released {
+                        time: now,
+                        touch_only: false,
+                    },
+                );
+            }
+            WindowEvent::Occluded(true) => r.dispatch(
+                el,
+                InputEv::Released {
+                    time: now,
+                    touch_only: false,
+                },
+            ),
             _ => {}
         }
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(r) = self.run.as_mut() else { return };
+        // no finger on the screen: keys still held lost their release
+        #[cfg(target_arch = "wasm32")]
+        if let Some(time) = crate::web::take_touches_gone() {
+            r.dispatch(
+                el,
+                InputEv::Released {
+                    time,
+                    touch_only: true,
+                },
+            );
+        }
         #[cfg(any(
             target_os = "android",
             all(

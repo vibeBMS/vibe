@@ -291,6 +291,8 @@ pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32, right: bool) ->
 }
 
 struct Ptr {
+    /// When it went down.
+    down: Instant,
     zone: usize,
     lane: u8,
     sub: u8,
@@ -338,6 +340,34 @@ impl TouchInput {
         }
     }
 
+    /// Let go of the keys held by pointers down by `time`, whose releases
+    /// were lost (the page lost the focus, or no finger was on the screen
+    /// at `time`), and of keys no pointer holds.
+    pub fn release_all(&mut self, time: Instant, out: &mut Vec<LaneEv>) {
+        self.ptrs.retain(|_, p| p.down > time);
+        let mut gone: Vec<(u8, u8)> = Vec::new();
+        for (key, c) in self.held.iter_mut() {
+            let left = self
+                .ptrs
+                .values()
+                .filter(|p| (p.lane, p.sub) == *key)
+                .count() as u32;
+            if *c > 0 && left == 0 {
+                gone.push(*key);
+            }
+            *c = left;
+        }
+        gone.sort_unstable();
+        for (lane, sub) in gone {
+            out.push(LaneEv {
+                lane,
+                sub,
+                pressed: false,
+                time,
+            });
+        }
+    }
+
     /// Returns true if the pointer is handled by the touch controls.
     #[allow(clippy::too_many_arguments)]
     pub fn pointer(
@@ -353,6 +383,10 @@ impl TouchInput {
     ) -> bool {
         match phase {
             Phase::Down => {
+                // the same pointer down again: its release was lost
+                if let Some(p) = self.ptrs.remove(&id) {
+                    self.release(p.lane, p.sub, time, out);
+                }
                 let Some(zi) = pick(zones, x, y) else {
                     return false;
                 };
@@ -365,6 +399,7 @@ impl TouchInput {
                 self.ptrs.insert(
                     id,
                     Ptr {
+                        down: time,
                         zone: zi,
                         lane: z.lane,
                         sub: 0,
@@ -673,5 +708,48 @@ mod tests {
         t.pointer(&zones, 2, Phase::Up, 50.0, 60.0, now, 6.0, &mut out);
         assert_eq!(out[0].sub, 1);
         assert!(!out[0].pressed);
+    }
+
+    #[test]
+    fn lost_releases() {
+        let zones = layout(
+            PlayMode::Beat7K,
+            TouchStyle::Keyboard,
+            Rect::new(0.0, 0.0, 870.0, 200.0),
+            0,
+            false,
+            4.0,
+        );
+        let now = Instant::now();
+        let mut t = TouchInput::default();
+        let mut out = Vec::new();
+        // key 1, right of the scratch (170 px)
+        let (x, y) = (220.0, 50.0);
+        assert!(t.pointer(&zones, 1, Phase::Down, x, y, now, 6.0, &mut out));
+        let lane = out[0].lane;
+        // its release never came; another finger on the key presses it again
+        // only once it was let go
+        t.release_all(now, &mut out);
+        assert!(!t.is_pressed(lane));
+        assert_eq!(out.last().map(|e| (e.lane, e.pressed)), Some((lane, false)));
+        out.clear();
+        t.pointer(&zones, 2, Phase::Down, x, y, now, 6.0, &mut out);
+        assert_eq!(out.iter().filter(|e| e.pressed).count(), 1);
+        // the same id down again, its up lost: released, then pressed
+        out.clear();
+        t.pointer(&zones, 2, Phase::Down, x, y, now, 6.0, &mut out);
+        assert_eq!(
+            out.iter().map(|e| e.pressed).collect::<Vec<_>>(),
+            [false, true]
+        );
+        t.pointer(&zones, 2, Phase::Up, x, y, now, 6.0, &mut out);
+        assert!(!t.is_pressed(lane));
+        // a finger down after the moment no finger was on the screen stays
+        let gone = Instant::now();
+        let later = gone + std::time::Duration::from_millis(5);
+        t.pointer(&zones, 3, Phase::Down, x, y, later, 6.0, &mut out);
+        out.clear();
+        t.release_all(gone, &mut out);
+        assert!(out.is_empty() && t.is_pressed(lane));
     }
 }
