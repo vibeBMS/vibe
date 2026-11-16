@@ -207,6 +207,8 @@ fn load_bmfont(path: &Path) -> Option<(BitmapFont, Vec<PathBuf>)> {
         }
     }
     font.size = if line_h > 0.0 { line_h } else { size };
+    // beatoraja falls back to the line height when there is no size
+    font.em = if size > 0.0 { size } else { font.size };
     (!font.glyphs.is_empty() && font.size > 0.0).then_some((font, pages))
 }
 
@@ -748,6 +750,12 @@ pub(crate) fn hex_color(s: &str) -> [f32; 4] {
     [b(0), b(2), b(4), if s.len() >= 8 { b(6) } else { 1.0 }]
 }
 
+/// A text's font size (`size`), if it has one.
+fn text_size(t: &Value) -> Option<f32> {
+    let v = t.get("size").and_then(Value::as_f64)? as f32;
+    (v > 0.0).then_some(v)
+}
+
 /// A text's outline and shadow (`TextFx`), beatoraja's defaults where
 /// not given.
 fn text_fx(t: &Value) -> TextFx {
@@ -989,6 +997,7 @@ fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         out.text = Some((d, get("align"), get("overflow"), None));
         out.text_face = def.and_then(|t| cx.face(t));
         out.text_fx = def.map(text_fx).unwrap_or_default();
+        out.text_size = def.and_then(text_size);
     }
     out.level = arr(sl.get("level"))
         .iter()
@@ -1175,6 +1184,7 @@ pub fn load_with(
                 overflow: i(t, "overflow", 0) as i32,
                 face: cx.face(t),
                 fx: text_fx(t),
+                size: text_size(t),
                 constant: t.get("constantText").and_then(|c| {
                     c.as_str()
                         .map(String::from)
@@ -1806,17 +1816,31 @@ char id=65 x=2 y=3 width=20 height=24 xoffset=1 yoffset=5 xadvance=22 page=0 chn
         std::fs::write(dir.join("f.fnt"), fnt).unwrap();
         let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
             "font": [{"id": 0, "path": "f.fnt"}],
-            "text": [{"id": "t", "ref": 10, "font": 0}],
+            "text": [{"id": "t", "ref": 10, "font": 0, "size": 24}],
             "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
         std::fs::write(dir.join("r.json"), json).unwrap();
         let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         assert!(matches!(
             &s.objects[0].kind,
-            Kind::Text { font: Some(0), .. }
+            Kind::Text {
+                font: Some(0),
+                size: Some(24.0),
+                ..
+            }
         ));
         let f = &s.fonts[0];
-        assert_eq!(f.size, 36.0);
+        assert_eq!((f.size, f.em), (36.0, 32.0));
+        // glyphs scale by the text's size over the font's (beatoraja), not
+        // by the destination height over the line height
+        use crate::skin::render::bmfont_scale;
+        assert_eq!(bmfont_scale(f, 10.0, Some(24.0)), 0.75);
+        assert_eq!(bmfont_scale(f, 18.0, None), 0.5);
+        let lr2 = BitmapFont {
+            size: 20.0,
+            ..Default::default()
+        };
+        assert_eq!(bmfont_scale(&lr2, 10.0, Some(24.0)), 0.5);
         let (img, rect) = f.glyphs[&'A'];
         assert!(s.images[img].as_ref().unwrap().ends_with("f_0.png"));
         assert_eq!(

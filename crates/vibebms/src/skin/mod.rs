@@ -305,6 +305,9 @@ pub enum Kind {
         face: Option<PathBuf>,
         /// beatoraja outline and shadow (none in LR2).
         fx: TextFx,
+        /// beatoraja font size (skin px): `.fnt` glyphs are scaled by it
+        /// over the font's own size. `None`: by the destination height.
+        size: Option<f32>,
     },
     Bar {
         src: Src,
@@ -411,6 +414,7 @@ pub struct SongListSkin {
     /// The title's font file and outline / shadow (beatoraja).
     pub text_face: Option<PathBuf>,
     pub text_fx: TextFx,
+    pub text_size: Option<f32>,
     /// Level number per difficulty (0..=6).
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
@@ -872,6 +876,9 @@ pub struct BitmapFont {
     pub metrics: HashMap<char, [f32; 3]>,
     /// Glyph images are distance fields (beatoraja font `type` 1 / 2).
     pub sdf: bool,
+    /// The `.fnt` font's own size (its `info size`), which beatoraja
+    /// scales by the text's size; 0 for LR2 fonts.
+    pub em: f32,
 }
 
 /// Game state queried by the skin each frame.

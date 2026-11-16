@@ -32,6 +32,16 @@ fn value(st: &dyn SkinState, id: i32, minmax: Option<(f32, f32)>) -> f32 {
     }
 }
 
+/// Screen px per font px of a BMFont text drawn into a rect `h` high
+/// with font size `size` (screen px): size over the font's own size as in
+/// beatoraja, else so a line fills the rect.
+pub fn bmfont_scale(f: &BitmapFont, h: f32, size: Option<f32>) -> f32 {
+    match size {
+        Some(s) if f.em > 0.0 => s / f.em,
+        _ => h / f.size,
+    }
+}
+
 /// Where an image of `w` x `h` goes in `r` under beatoraja stretch type
 /// `mode`, and whether it is cut off at `r`.
 pub fn stretched(mode: i32, r: Rect, w: f32, h: f32) -> (Rect, bool) {
@@ -301,7 +311,8 @@ impl LoadedSkin {
     /// with an LR2 bitmap font when one is given. `shown_ms`: how long the
     /// text has been the current one, for a marquee (overflow 3; `None`
     /// keeps it still). `fx`: its outline and shadow as beatoraja draws
-    /// them (see `TextFx`); `scale`: screen px per skin px.
+    /// them (see `TextFx`); `size`: the beatoraja font size (skin px),
+    /// which sizes `.fnt` glyphs; `scale`: screen px per skin px.
     #[allow(clippy::too_many_arguments)]
     pub fn text(
         &self,
@@ -314,9 +325,10 @@ impl LoadedSkin {
         font: Option<usize>,
         shown_ms: Option<i64>,
         fx: &TextFx,
+        size: Option<f32>,
         scale: f32,
     ) {
-        let args = (align, overflow, font, shown_ms);
+        let args = (align, overflow, font, shown_ms, size.map(|s| s * scale));
         if font
             .and_then(|i| self.skin.fonts.get(i))
             .is_some_and(|f| f.sdf)
@@ -336,16 +348,16 @@ impl LoadedSkin {
     }
 
     /// `text` without outline or shadow; `args`: align, overflow, font,
-    /// shown_ms.
+    /// shown_ms, font size (screen px).
     fn text_plain(
         &self,
         d: &mut Draw,
         s: &str,
         r: Rect,
         color: crate::gfx::Color,
-        args: (i32, i32, Option<usize>, Option<i64>),
+        args: (i32, i32, Option<usize>, Option<i64>, Option<f32>),
     ) {
-        let (align, overflow, font, shown_ms) = args;
+        let (align, overflow, font, shown_ms, size) = args;
         // lines one under the other (beatoraja's fonts: 1.2 sizes apart)
         if s.contains('\n') {
             for (i, line) in s.split('\n').enumerate() {
@@ -356,7 +368,7 @@ impl LoadedSkin {
             return;
         }
         if let Some(f) = font.and_then(|i| self.skin.fonts.get(i)) {
-            self.bitmap_text(d, f, s, r, align, color);
+            self.bitmap_text(d, f, s, r, align, color, size);
             return;
         }
         let (x, al) = match align {
@@ -396,6 +408,7 @@ impl LoadedSkin {
     /// LR2 bitmap text as beatoraja draws it: glyphs scaled to the rect
     /// height, the line shrunk to the rect width if wider, aligned around
     /// the anchor (left edge / centre / right edge of the rect).
+    #[allow(clippy::too_many_arguments)]
     fn bitmap_text(
         &self,
         d: &mut Draw,
@@ -404,6 +417,7 @@ impl LoadedSkin {
         r: Rect,
         align: i32,
         color: crate::gfx::Color,
+        size: Option<f32>,
     ) {
         let chars: Vec<char> = s.chars().filter(|c| f.glyphs.contains_key(c)).collect();
         let glyphs: Vec<&(usize, [f32; 4])> =
@@ -413,7 +427,7 @@ impl LoadedSkin {
         }
         let k = r.h / f.size;
         if !f.metrics.is_empty() {
-            self.bmfont_text(d, f, &chars, r, align, color);
+            self.bmfont_text(d, f, &chars, r, align, color, size);
             return;
         }
         let width = glyphs.iter().map(|g| g.1[2]).sum::<f32>() * k + f.margin * glyphs.len() as f32;
@@ -444,7 +458,9 @@ impl LoadedSkin {
     }
 
     /// A BMFont text: glyphs placed by their offsets and advances, scaled
-    /// so a line fills the rect's height.
+    /// as beatoraja does by the text's font size over the font's own (else
+    /// so a line fills the rect's height).
+    #[allow(clippy::too_many_arguments)]
     fn bmfont_text(
         &self,
         d: &mut Draw,
@@ -453,8 +469,9 @@ impl LoadedSkin {
         r: Rect,
         align: i32,
         color: crate::gfx::Color,
+        size: Option<f32>,
     ) {
-        let k = r.h / f.size;
+        let k = bmfont_scale(f, r.h, size);
         let adv = |c: &char| f.metrics.get(c).map(|m| m[2]).unwrap_or(0.0);
         let width = chars.iter().map(adv).sum::<f32>() * k;
         let scale = if r.w > 0.0 && r.w < width {
@@ -737,6 +754,7 @@ impl LoadedSkin {
                     constant,
                     face,
                     fx,
+                    size,
                 } => {
                     if let Some(s) = constant.clone().or_else(|| st.text(*id)) {
                         // texts follow the selection (timer 11), else the scene
@@ -744,7 +762,8 @@ impl LoadedSkin {
                         let f = face.as_deref().and_then(|p| d.text.face(p));
                         d.text.set_face(f.unwrap_or(0));
                         let (al, of, c) = (*align, *overflow, fr.color);
-                        self.text(d, &s, r, al, of, c, *font, Some(shown), fx, xf.sx);
+                        let sh = Some(shown);
+                        self.text(d, &s, r, al, of, c, *font, sh, fx, *size, xf.sy);
                         d.text.set_face(0);
                     }
                 }
