@@ -239,8 +239,16 @@ fn kept_songs(ctx: &Ctx, v: &mut Vec<Item>) {
 }
 
 /// `config.skins` keys, in menu order.
-const SKIN_KEYS: [&str; 7] = [
-    "7KEYS", "5KEYS", "14KEYS", "10KEYS", "9KEYS", "SELECT", "RESULT",
+const SKIN_KEYS: [&str; 9] = [
+    "7KEYS",
+    "5KEYS",
+    "14KEYS",
+    "10KEYS",
+    "9KEYS",
+    "SELECT",
+    "DECIDE",
+    "RESULT",
+    "COURSE_RESULT",
 ];
 
 /// Path and custom options of the skin configured for `SKIN_KEYS[slot]`.
@@ -781,14 +789,16 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ];
             // built-in default skin / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
-            const MODES: [(&str, Adjust); 7] = [
+            const MODES: [(&str, Adjust); 9] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
                 ("5KEYS", |c, d| cycle_skin(c, d, "5KEYS")),
                 ("14KEYS", |c, d| cycle_skin(c, d, "14KEYS")),
                 ("10KEYS", |c, d| cycle_skin(c, d, "10KEYS")),
                 ("9KEYS", |c, d| cycle_skin(c, d, "9KEYS")),
                 ("SELECT", |c, d| cycle_skin(c, d, "SELECT")),
+                ("DECIDE", |c, d| cycle_skin(c, d, "DECIDE")),
                 ("RESULT", |c, d| cycle_skin(c, d, "RESULT")),
+                ("COURSE_RESULT", |c, d| cycle_skin(c, d, "COURSE_RESULT")),
             ];
             for (slot, (m, f)) in MODES.into_iter().enumerate() {
                 let cur = match c.skins.get(m).map(String::as_str).unwrap_or("") {
@@ -798,7 +808,11 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 let label = if m.ends_with("KEYS") {
                     format!("Play skin ({m})")
                 } else {
-                    format!("{}{} skin", &m[..1], m[1..].to_lowercase())
+                    format!(
+                        "{}{} skin",
+                        &m[..1],
+                        m[1..].to_lowercase().replace('_', " ")
+                    )
                 };
                 v.push(it(label, cur, f));
                 // the skin's own options, right under it
@@ -1963,13 +1977,20 @@ fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
         .find(|m| m.label() == mode)
         .map(super::play_skin::skin_type)
         .or_else(|| {
-            [crate::skin::SkinType::Select, crate::skin::SkinType::Result]
+            use crate::skin::SkinType::*;
+            [Select, Decide, Result, CourseResult]
                 .into_iter()
                 .find(|t| t.config_key() == Some(mode))
         });
+    // a course result can be a result skin
+    let fits = |t: crate::skin::SkinType| {
+        Some(t) == want
+            || (want == Some(crate::skin::SkinType::CourseResult)
+                && t == crate::skin::SkinType::Result)
+    };
     let mut opts: Vec<String> = vec![String::new()];
     for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
-        if Some(t) == want {
+        if fits(t) {
             let rel = p
                 .strip_prefix(&c.paths.root)
                 .map(|r| r.to_path_buf())

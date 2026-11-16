@@ -616,15 +616,13 @@ impl SelectScene {
                 let song = ctx.songs[i].clone();
                 ctx.mixer.stop(PREVIEW_KEY);
                 self.preview_for = None;
-                Next::Push(Box::new(PlayScene::new(
-                    ctx,
-                    PlayRequest {
-                        song,
-                        autoplay: autoplay || ctx.config.play.autoplay,
-                        course: None,
-                        replay: None,
-                    },
-                )))
+                let req = PlayRequest {
+                    song,
+                    autoplay: autoplay || ctx.config.play.autoplay,
+                    course: None,
+                    replay: None,
+                };
+                Next::Push(super::decide::start(ctx, req))
             }
             Some(Bar::Missing {
                 archive: Some((url, num)),
@@ -752,15 +750,13 @@ impl SelectScene {
                 ctx.mixer.stop(PREVIEW_KEY);
                 let run = CourseRun::new(c.name.clone(), songs, c.constraint.clone());
                 let first = run.songs[0].clone();
-                Next::Push(Box::new(PlayScene::new(
-                    ctx,
-                    PlayRequest {
-                        song: first,
-                        autoplay: autoplay || ctx.config.play.autoplay,
-                        course: Some(run),
-                        replay: None,
-                    },
-                )))
+                let req = PlayRequest {
+                    song: first,
+                    autoplay: autoplay || ctx.config.play.autoplay,
+                    course: Some(run),
+                    replay: None,
+                };
+                Next::Push(super::decide::start(ctx, req))
             }
             None => Next::Stay,
         }
