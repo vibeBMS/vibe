@@ -102,6 +102,37 @@ pub fn chart_option(m: &ChartMeta, mode: vibebms_core::PlayMode, id: i32) -> Opt
     })
 }
 
+/// beatoraja's table texts (1001 name, 1002 level, 1003 level then
+/// name) of a chart: the first difficulty table that lists it, as
+/// beatoraja finds one for a chart not chosen from a table.
+pub fn table_text(ctx: &Ctx, md5: &str, sha256: &str, id: i32) -> Option<String> {
+    if !(1001..=1003).contains(&id) {
+        return None;
+    }
+    let same = |a: &str, b: &str| !a.is_empty() && a.eq_ignore_ascii_case(b);
+    let (name, level) = ctx.tables.iter().find_map(|t| {
+        let e = t
+            .entries
+            .iter()
+            .find(|e| same(&e.md5, md5) || same(&e.sha256, sha256))?;
+        Some((t.header.name.clone(), t.label(&e.level)))
+    })?;
+    Some(match id {
+        1001 => name,
+        1002 => level,
+        _ => format!("{level}{name}"),
+    })
+}
+
+/// beatoraja's judge rank number (400): `#RANK`, else the percentage.
+pub fn judge_rank_number(m: &ChartMeta) -> i64 {
+    use vibebms_core::chart::JudgeRank;
+    match m.judge_rank {
+        JudgeRank::Rank(r) => r as i64,
+        JudgeRank::DefExRank(v) | JudgeRank::Bmson(v) => v.round() as i64,
+    }
+}
+
 /// Numbers every screen has: the local date and time (LR2 21-26: year,
 /// month, day, hour, minute, second).
 pub fn clock_number(id: i32) -> Option<i64> {

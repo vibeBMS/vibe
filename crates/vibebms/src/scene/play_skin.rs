@@ -269,6 +269,26 @@ impl SceneState<'_> {
             193 => !m.banner.is_empty(),
             194 => m.backbmp.is_empty(),
             195 => !m.backbmp.is_empty(),
+            1177 => m.has_stop,
+            // a difficulty table lists the chart
+            1008 => super::skinned::table_text(self.ctx, &s.req.song.md5, &s.req.song.sha256, 1001)
+                .is_some(),
+            // course stage 1..4, the last stage, a grade course
+            280..=283 => s
+                .req
+                .course
+                .as_ref()
+                .is_some_and(|c| c.index == (id - 280) as usize),
+            289 => s
+                .req
+                .course
+                .as_ref()
+                .is_some_and(|c| c.index + 1 == c.songs.len()),
+            293 => s
+                .req
+                .course
+                .as_ref()
+                .is_some_and(|c| !c.constraints.is_empty()),
             271 => p.lane_cover || p.sudden > 0.0,
             272 => p.lift > 0.0,
             273 => p.hidden > 0.0,
@@ -276,6 +296,11 @@ impl SceneState<'_> {
             400 => p.hispeed_mode == HiSpeedMode::Constant,
             _ => return None,
         })
+    }
+
+    /// The chart's record before this play.
+    fn best_record(&self) -> Option<&crate::library::BestScore> {
+        self.ctx.best(&self.s.req.song, self.s.ln_mode() as i32)
     }
 
     fn engine(&self) -> Option<&vibebms_core::engine::Engine> {
@@ -317,7 +342,13 @@ impl SkinState for SceneState<'_> {
                 .engine()
                 .filter(|e| e.gauge.current().is_max())
                 .map(|_| 0),
-            48 | 143 => s.finished_instant.map(|t| self.ms(t)),
+            143 => s.finished_instant.map(|t| self.ms(t)),
+            // the last note judged with no combo broken
+            48 => {
+                let sc = &self.engine()?.score;
+                let full = sc.combo_breaks == 0 && (3..=5).all(|j| sc.count(j) == 0);
+                s.finished_instant.filter(|_| full).map(|t| self.ms(t))
+            }
             50..=69 => lane_t(50, &s.bomb_at),
             70..=89 => {
                 let lane = lane_from_lr2(mode, id - 70)?;
@@ -406,6 +437,8 @@ impl SkinState for SceneState<'_> {
                     b == abs - 230
                 }
                 1240 => e.gauge.current().is_qualified(),
+                // the lane cover / hi-speed is being changed
+                270 => self.s.panel_open(),
                 241..=246 => lj.map(|j| j.0 == (abs - 241) as usize).unwrap_or(false),
                 1242 => lj.map(|j| j.1 > 0).unwrap_or(false),
                 1243 => lj.map(|j| j.1 < 0).unwrap_or(false),
@@ -480,19 +513,68 @@ impl SkinState for SceneState<'_> {
             425 => sc?.combo_breaks as i64,
             423 => sc?.fast() as i64,
             424 => sc?.slow() as i64,
-            115 => rate(sc?.rate()) / 100,
-            116 => rate(sc?.rate()) % 100,
+            115 | 155 => rate(sc?.rate()) / 100,
+            116 | 156 => rate(sc?.rate()) % 100,
+            171 => sc?.ex_score() as i64,
+            174 => sc?.max_combo as i64,
+            177 => sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64,
+            426 => (sc?.count(POOR) + sc?.count(MISS)) as i64,
+            427 => (sc?.count(BAD) + sc?.count(POOR) + sc?.count(MISS)) as i64,
+            // the personal best's rate, max combo and miss count, and the
+            // differences to them
+            183 | 184 => {
+                let r = rate(self.pace().best as f64 / sc?.max_ex().max(1) as f64);
+                if id == 183 {
+                    r / 100
+                } else {
+                    r % 100
+                }
+            }
+            173 | 175 => {
+                let b = self.best_record().map(|b| b.max_combo as i64).unwrap_or(0);
+                if id == 173 {
+                    b
+                } else {
+                    sc?.max_combo as i64 - b
+                }
+            }
+            176 | 178 => {
+                let b = self
+                    .best_record()
+                    .filter(|b| b.min_bp != u32::MAX)
+                    .map(|b| b.min_bp as i64)
+                    .unwrap_or(0);
+                if id == 176 {
+                    b
+                } else {
+                    sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64 - b
+                }
+            }
+            // chart: notes, LN, scratch, scratch LN; TOTAL; judge rank
+            350..=353 => {
+                let mode = s.mode();
+                let scratch =
+                    |l: u8| (0..mode.players()).any(|p| mode.scratch_lane(p) == Some(l as usize));
+                s.chart
+                    .notes
+                    .iter()
+                    .filter(|n| n.is_playable())
+                    .filter(|n| scratch(n.lane) == (id >= 352) && n.is_long() == (id % 2 == 1))
+                    .count() as i64
+            }
+            368 => s.chart.total(s.ln_mode()) as i64,
+            400 => super::skinned::judge_rank_number(m),
             150 | 170 => self.pace().best,
             121 | 151 => self.pace().target,
             // differences to the pacemakers (best / target at this point)
             152 | 172 => sc?.ex_score() as i64 - self.pace().best_now,
             128 | 153 => sc?.ex_score() as i64 - self.pace().target_now,
             154 => self.diff_next_rank()?,
-            122 | 157 => {
+            122 | 135 | 157 => {
                 let max = sc?.max_ex().max(1) as f64;
                 rate(self.pace().target as f64 / max) / 100
             }
-            123 | 158 => {
+            123 | 136 | 158 => {
                 let max = sc?.max_ex().max(1) as f64;
                 rate(self.pace().target as f64 / max) % 100
             }
@@ -516,7 +598,22 @@ impl SkinState for SceneState<'_> {
 
     fn text(&self, id: i32) -> Option<String> {
         let m = &self.s.chart.meta;
+        let song = &self.s.req.song;
+        if let Some(t) = super::skinned::table_text(self.ctx, &song.md5, &song.sha256, id) {
+            return Some(t);
+        }
         Some(match id {
+            1030 => song.md5.clone(),
+            1031 => song.sha256.clone(),
+            // course stages' titles
+            150..=159 => self
+                .s
+                .req
+                .course
+                .as_ref()?
+                .songs
+                .get((id - 150) as usize)?
+                .full_title(),
             2 => self.ctx.config.player_name.clone(),
             10 => m.title.clone(),
             11 => m.subtitle.clone(),

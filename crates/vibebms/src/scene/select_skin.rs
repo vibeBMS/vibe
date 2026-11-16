@@ -402,16 +402,26 @@ impl SkinState for SelectState<'_> {
             }
             30 => self.s.search_edit.clone().unwrap_or_default(),
             1000 => self.s.path_label(self.ctx),
-            1001 | 1003 => match &self.s.node {
-                Node::Table(t) | Node::Level(t, _) | Node::Courses(t) => {
+            // the table being browsed, else the selected chart's
+            1001..=1003 => match &self.s.node {
+                Node::Level(t, l) => {
+                    let t = self.ctx.tables.get(*t)?;
+                    match id {
+                        1001 => t.header.name.clone(),
+                        1002 => t.label(l),
+                        _ => format!("{}{}", t.label(l), t.header.name),
+                    }
+                }
+                Node::Table(t) | Node::Courses(t) if id != 1002 => {
                     self.ctx.tables.get(*t)?.header.name.clone()
                 }
-                _ => return None,
+                _ => {
+                    let s = song?;
+                    super::skinned::table_text(self.ctx, &s.md5, &s.sha256, id)?
+                }
             },
-            1002 => match &self.s.node {
-                Node::Level(t, l) => self.ctx.tables.get(*t)?.label(l),
-                _ => return None,
-            },
+            1030 => song?.md5.clone(),
+            1031 => song?.sha256.clone(),
             1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
                 opts.get((n - OPTION_TEXT) as usize)?.1.clone()

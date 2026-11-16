@@ -202,6 +202,7 @@ impl SkinState for ResultState<'_> {
                 .play
                 .duration_ms(&crate::config::Bpms::of_meta(&d.meta))
                 .round() as i64,
+            400 => super::skinned::judge_rank_number(m),
             370 => d.clear as i64,
             371 => before.map(|b| b.clear as i64).unwrap_or(0),
             374 => split2(avg).0,
@@ -214,7 +215,13 @@ impl SkinState for ResultState<'_> {
 
     fn text(&self, id: i32) -> Option<String> {
         let m = &self.s.d.meta;
+        let song = &self.s.d.request.song;
+        if let Some(t) = super::skinned::table_text(self.ctx, &song.md5, &song.sha256, id) {
+            return Some(t);
+        }
         Some(match id {
+            1030 => song.md5.clone(),
+            1031 => song.sha256.clone(),
             2 => self.ctx.config.player_name.clone(),
             10 => m.title.clone(),
             11 => m.subtitle.clone(),
