@@ -24,6 +24,7 @@ pub mod platform;
 pub mod replay;
 pub mod scene;
 pub mod skin;
+pub mod skinstore;
 pub mod songfetch;
 pub mod theme;
 pub mod touch;

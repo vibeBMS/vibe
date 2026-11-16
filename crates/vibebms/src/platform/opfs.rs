@@ -96,7 +96,8 @@ thread_local! {
     static NEXT: Cell<u32> = const { Cell::new(1) };
     static WAITING: RefCell<HashMap<u32, Done>> = RefCell::new(HashMap::new());
     /// The folders kept, and their names in the storage: `<root>/bms`
-    /// (songs) and `<root>/scores/replays`.
+    /// (songs), `<root>/scores/replays` and `<root>/skins` (skins
+    /// downloaded).
     static KEPT: RefCell<Vec<(PathBuf, &'static str)>> = const { RefCell::new(Vec::new()) };
     static STATUS: Cell<Status> = Cell::new(Status::default());
     /// Messages for the player (a write failed: the storage is full, ...).
@@ -197,6 +198,7 @@ pub fn start(
     let kept_dirs = vec![
         (root.join("bms"), "bms"),
         (crate::replay::dir(root), "replays"),
+        (root.join("skins"), "skins"),
     ];
     KEPT.with(|k| *k.borrow_mut() = kept_dirs.clone());
     let has_opfs = web_sys::window()
