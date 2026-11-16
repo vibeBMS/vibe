@@ -85,12 +85,18 @@ fn line_offsets(f: &[&str]) -> Vec<i32> {
 }
 
 fn add_dst(dst: &mut Dst, v: &[i64; 22]) {
+    add_dst_signed(dst, v, false)
+}
+
+/// A destination key; with `mirror` a negative width / height stays (the
+/// image is drawn mirrored), else the rect is turned around.
+fn add_dst_signed(dst: &mut Dst, v: &[i64; 22], mirror: bool) {
     let (mut x, mut y, mut w, mut h) = (v[3] as f32, v[4] as f32, v[5] as f32, v[6] as f32);
-    if w < 0.0 {
+    if w < 0.0 && !mirror {
         x += w;
         w = -w;
     }
-    if h < 0.0 {
+    if h < 0.0 && !mirror {
         y += h;
         h = -h;
     }
@@ -1028,7 +1034,9 @@ impl Loader<'_> {
                         }
                         add_dst(&mut o.dst, &v2);
                     } else {
-                        add_dst(&mut o.dst, &v);
+                        // images are mirrored by a negative size
+                        let mirror = matches!(o.kind, Kind::Image(_) | Kind::ImageSet { .. });
+                        add_dst_signed(&mut o.dst, &v, mirror);
                     }
                 }
             }
@@ -1598,6 +1606,31 @@ mod tests {
         assert_eq!(s.objects[0].dst.ops, vec![32, 21]);
         assert_eq!(s.objects[1].act, Some((15, 0)));
         assert!(s.objects[1].dst.ops.is_empty());
+    }
+
+    #[test]
+    fn negative_sizes_mirror_images() {
+        let dir = std::env::temp_dir().join(format!("vibebms-mir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let csv = "#INFORMATION,0,M,me\n#IMAGE,a.png\n\
+#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n#DST_IMAGE,0,0,100,0,-40,10,0,255,255,255,255\n\
+#SRC_NUMBER,0,0,0,0,100,10,10,1,0,0,71,0,3\n#DST_NUMBER,0,0,100,0,-10,10,0,255,255,255,255\n";
+        std::fs::write(dir.join("m.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let s = load(
+            &dir.join("m.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        // the image keeps its negative width (drawn mirrored), a number
+        // is turned around
+        let (a, b) = (s.objects[0].dst.keys[0].rect, s.objects[1].dst.keys[0].rect);
+        assert_eq!((a.x, a.w), (100.0, -40.0));
+        assert_eq!((b.x, b.w), (90.0, 10.0));
     }
 
     #[test]

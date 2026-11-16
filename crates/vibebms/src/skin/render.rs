@@ -554,19 +554,21 @@ impl LoadedSkin {
                 continue;
             };
             let r = xf.rect(fr.rect);
+            // where it is on screen (a mirrored image has a negative size)
+            let area = Rect::new(r.x.min(r.x + r.w), r.y.min(r.y + r.h), r.w.abs(), r.h.abs());
             if let Some(h) = o.dst.hover {
-                let area = Rect::new(
-                    r.x + h.x * xf.sx,
-                    r.y + h.y * xf.sy,
+                let over = Rect::new(
+                    area.x + h.x * xf.sx,
+                    area.y + h.y * xf.sy,
                     h.w * xf.sx,
                     h.h * xf.sy,
                 );
-                if !crate::input::pointer().is_some_and(|(x, y)| area.contains(x, y)) {
+                if !crate::input::pointer().is_some_and(|(x, y)| over.contains(x, y)) {
                     continue;
                 }
             }
             if let Some((act, click)) = o.act {
-                hooks.clickable(r, act, click);
+                hooks.clickable(area, act, click);
             }
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => {
