@@ -66,11 +66,9 @@ fn mount_zip_file(f: web_sys::File) {
     });
 }
 
-/// Unpack a song pack (.zip / .7z / .rar) into the library (the page's demo
-/// button calls this with a downloaded zip). Returns the number of files
-/// added.
-#[wasm_bindgen(js_name = mountZip)]
-pub fn mount_zip(name: &str, data: &[u8]) -> usize {
+/// Unpack a song pack (.zip / .7z / .rar) into the library. Returns the
+/// number of files added.
+fn mount_zip(name: &str, data: &[u8]) -> usize {
     let Some(root) = ROOT.with(|r| r.borrow().clone()) else {
         return 0;
     };

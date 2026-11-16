@@ -35,7 +35,6 @@
   <div id="bar">
     <label>📂 Folder<input id="bms-input" type="file" webkitdirectory directory multiple /></label>
     <label>📦 Files / .zip<input id="bms-files" type="file" multiple /></label>
-    <button id="demo" hidden>▶ Demo song</button>
     <button id="hide" title="hide">✕</button>
   </div>
   <div id="msg"></div>
@@ -60,7 +59,7 @@
     })();
   </script>
   <script type="module">
-    import init, { mountZip } from "./pkg/vibebms_web.js";
+    import init from "./pkg/vibebms_web.js";
     const msg = document.getElementById("msg");
     const say = (t, ms) => { msg.textContent = t; msg.style.display = t ? "block" : "none";
                              if (ms) setTimeout(() => (msg.style.display = "none"), ms); };
@@ -68,19 +67,6 @@
     say("Loading…");
     await init();
     say("");
-    // a demo song shipped next to the page (CI builds one)
-    const demo = document.getElementById("demo");
-    fetch("demo.zip", { method: "HEAD" }).then((r) => { if (r.ok) demo.hidden = false; }).catch(() => {});
-    demo.onclick = async () => {
-      say("Loading demo…");
-      try {
-        const buf = new Uint8Array(await (await fetch("demo.zip")).arrayBuffer());
-        const n = mountZip("vibeBMS demo.zip", buf);
-        say(n ? "Demo added to the song list" : "Could not open the demo", 2000);
-      } catch (e) {
-        say("Could not load the demo: " + e, 4000);
-      }
-    };
   </script>
 </body>
 </html>

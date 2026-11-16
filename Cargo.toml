@@ -45,8 +45,3 @@ opt-level = 2
 inherits = "release"
 strip = false
 lto = "thin"
-
-# unrar-rs 0.16.3 does not build for the web (wasm32 has no libc mktime):
-# fixed upstream, not released yet; drop this with the next release.
-[patch.crates-io]
-unrar-rs = { git = "https://github.com/scryer-media/rarpar", rev = "be8e5aceff738bd618a540143def08b3e745aae1" }

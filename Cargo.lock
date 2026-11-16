@@ -408,7 +408,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0"
-source = "git+https://github.com/vibeBMS/BMSeeker#b55f5ed8b8c6bdf7316a08c85f1983abfb136ed7"
+source = "git+https://github.com/vibeBMS/BMSeeker#3f441f855dbc59f5f10c3b469699d2fb534a4917"
 dependencies = [
  "aes",
  "ehttp",
@@ -3660,7 +3660,8 @@ dependencies = [
 [[package]]
 name = "reedsolomon-rs"
 version = "0.4.11"
-source = "git+https://github.com/scryer-media/rarpar?rev=be8e5aceff738bd618a540143def08b3e745aae1#be8e5aceff738bd618a540143def08b3e745aae1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81f4afa0094e231cfcb6b23f9f6f568db67097fa7a2a9bae0992d339e7555fc3"
 dependencies = [
  "memmap2",
  "rayon",
@@ -4525,7 +4526,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
@@ -4832,7 +4833,8 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 [[package]]
 name = "unrar-rs"
 version = "0.16.4"
-source = "git+https://github.com/scryer-media/rarpar?rev=be8e5aceff738bd618a540143def08b3e745aae1#be8e5aceff738bd618a540143def08b3e745aae1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "554158008d94fd89f4c88ea53a8053de4531902a505949058835c5a043a55983"
 dependencies = [
  "aes",
  "blake2s_simd",

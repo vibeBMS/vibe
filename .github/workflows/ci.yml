@@ -90,10 +90,6 @@ jobs:
           curl -fsSL -o web/fonts/NotoSansKR-Regular.otf "$base/SubsetOTF/KR/NotoSansKR-Regular.otf"
           curl -fsSL -o web/fonts/NotoSansCJK-LICENSE.txt "$base/LICENSE"
           printf "NotoSansJP-Regular.otf\nNotoSansKR-Regular.otf\n" >> web/fonts/fonts.txt
-      - name: demo song (the page's "Demo song" button)
-        run: |
-          python3 tools/gen_demo.py "$RUNNER_TEMP/demo/vibeBMS demo"
-          (cd "$RUNNER_TEMP/demo" && zip -qr "$GITHUB_WORKSPACE/web/demo.zip" "vibeBMS demo")
       - uses: actions/upload-artifact@v4
         with:
           name: vibeBMS-web
