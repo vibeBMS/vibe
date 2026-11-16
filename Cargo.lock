@@ -408,9 +408,10 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0"
-source = "git+https://github.com/vibeBMS/BMSeeker#abe37f16290c1067611ce28f4ab2505a6c264e9a"
+source = "git+https://github.com/vibeBMS/BMSeeker#6bba33104de8e996ce004d9d6065d32c2c493d72"
 dependencies = [
  "aes",
+ "delharc",
  "ehttp",
  "encoding_rs",
  "flate2",
@@ -966,6 +967,17 @@ name = "dasp_sample"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
+
+[[package]]
+name = "delharc"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3658b90877f637514897c3dcbd628e0d290bcc7fee551a398b3994ebdc62d51e"
+dependencies = [
+ "bitflags 2.13.2",
+ "chrono",
+ "memchr",
+]
 
 [[package]]
 name = "deranged"
@@ -4527,7 +4539,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
