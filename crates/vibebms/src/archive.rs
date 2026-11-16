@@ -519,7 +519,8 @@ fn web_fetch_files(
 }
 
 /// The archive `link` leads to (for the song `want`), its requests and the
-/// file itself through the proxy (reporting to `progress`, if any).
+/// file itself through the proxy (reporting to `progress`, if any); a file
+/// that does not come gives way to the next of the links its page named.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn web_fetch(
     link: String,
@@ -527,29 +528,45 @@ pub(crate) fn web_fetch(
     progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
 ) {
-    use crate::hosts::{Fetch, MegaCipher, Resolver};
+    let r = crate::hosts::Resolver::new(&link, want, crate::hosts::context());
+    web_resolve(r, link, progress, Box::new(done));
+}
+
+#[cfg(target_arch = "wasm32")]
+type WebDone = Box<dyn FnOnce(Result<Vec<u8>, Fail>) + Send>;
+
+#[cfg(target_arch = "wasm32")]
+fn web_resolve(
+    r: crate::hosts::Resolver,
+    link: String,
+    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
+    done: WebDone,
+) {
+    use crate::hosts::{Fetch, MegaCipher};
     if let Some(p) = &progress {
         p.set_stage(bmseeker::progress::Stage::Finding);
     }
-    let r = Resolver::new(&link, want, crate::hosts::context());
-    crate::platform::run_task(r, true, move |target| match target {
+    crate::platform::run_task_with(r, true, move |mut r, target| match target {
         Ok(t) => {
             let via = crate::hosts::via_proxy(&t.url);
-            crate::platform::http_get_progress(&via, progress, move |a| {
-                done(match a {
+            crate::platform::http_get_progress(&via, progress.clone(), move |a| {
+                let got = match a {
                     Ok(mut b) => {
                         if let Some(k) = t.mega_key {
                             MegaCipher::new(&k).apply(&mut b);
                         }
-                        if crate::hosts::sniff_bytes(&b).is_some() {
-                            Ok(b)
-                        } else {
-                            Err(Fail::Page(link))
-                        }
+                        crate::hosts::sniff_bytes(&b).is_some().then_some(b)
                     }
                     // the proxy passes archives only: a page (or a refusal)
-                    Err(_) => Err(Fail::Page(link)),
-                })
+                    Err(_) => None,
+                };
+                let cancelled = progress.as_ref().is_some_and(|p| p.cancelled());
+                match got {
+                    Some(b) => done(Ok(b)),
+                    // a mirror the page named
+                    None if !cancelled && r.try_next() => web_resolve(r, link, progress, done),
+                    None => done(Err(Fail::Page(link))),
+                }
             })
         }
         Err(Fetch::Page) => done(Err(Fail::Page(link))),

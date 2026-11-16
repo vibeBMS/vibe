@@ -241,9 +241,18 @@ where
     T: bmseeker::net::Task + 'static,
     T::Output: Send + 'static,
 {
+    run_task_with(task, proxy, move |_, out| on_done(out));
+}
+
+/// [`run_task`], `on_done` getting the task back too (to run it again).
+pub fn run_task_with<T>(task: T, proxy: bool, on_done: impl FnOnce(T, T::Output) + Send + 'static)
+where
+    T: bmseeker::net::Task + 'static,
+    T::Output: Send + 'static,
+{
     use bmseeker::net::{Next, Request};
-    type Done<O> = Box<dyn FnOnce(O) + Send>;
-    fn step<T>(mut task: T, next: Next<T::Output>, proxy: bool, on_done: Done<T::Output>)
+    type Done<T, O> = Box<dyn FnOnce(T, O) + Send>;
+    fn step<T>(mut task: T, next: Next<T::Output>, proxy: bool, on_done: Done<T, T::Output>)
     where
         T: bmseeker::net::Task + 'static,
         T::Output: Send + 'static,
@@ -256,7 +265,7 @@ where
             }
         };
         match next {
-            Next::Done(out) => on_done(out),
+            Next::Done(out) => on_done(task, out),
             Next::Ask(Request::Get(u)) => http_get(&url(&u), move |a| {
                 let next = task.feed(a);
                 step(task, next, proxy, on_done)
