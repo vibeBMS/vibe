@@ -5,36 +5,51 @@ BMS 라이브러리 도구: 난이도표를 읽고, 라이브러리에 없는 �
 vibeBMS가 쓰는 라이브러리이자, 게임 없이 쓰는 명령줄 도구입니다.
 
 ```text
-bmseeker table <난이도표 URL>                        레벨별 채보 수
-bmseeker missing <난이도표 URL> <라이브러리> [-l 레벨] [--get]
-                                                     라이브러리에 없는 곡 (--get: 받기)
-bmseeker fetch <링크>... <파일 또는 폴더> [-t 제목] [-a 아티스트] [--md5 MD5] [--search] [--any] [--json]
-                                                     링크를 차례로 시도해 아카이브 받기 (폴더면 원래 파일 이름으로;
-                                                     --search / --md5: 다 실패하면 BMS SEARCH의 링크도;
-                                                     --any: 페이지가 아닌 단일 파일(채보, 동영상)도; --json: 결과를 JSON 한 줄로)
-bmseeker lookup [-t 제목] [-a 아티스트] [--md5 MD5]       BMS SEARCH에 있는 그 곡의 다운로드 링크
-bmseeker install <링크>... <라이브러리> [--diff] [-t 제목] [-a 아티스트] [--md5 MD5]
-                                                     곡(또는 차분)을 라이브러리에 (링크를 차례로)
-bmseeker import <파일> <라이브러리>                   받아 둔 파일을 라이브러리에
-bmseeker place <채보> <라이브러리> [--to 폴더] [--min 퍼센트]
+bmseeker [--json] [--config 파일] <명사> <동사> ...
+
+link resolve <링크>... [-t 제목 -a 아티스트]           링크가 가리키는 것 (파일 URL·이름 / 브라우저가 필요한 페이지 / 오류), 받지 않음
+link get <링크>... [-o 폴더|파일] [-t -a --md5] [--search] [--any]
+                                                     링크를 차례로 시도해 받기 (폴더면 원래 파일 이름으로;
+                                                     --search: 다 실패하면 소스들(BMS SEARCH...)의 링크도;
+                                                     --any: 페이지가 아닌 단일 파일(채보, 동영상)도)
+song find [-t -a --md5] [--diff] [--table URL]... [--list 파일|URL]...
+                                                     소스들이 아는 그 곡(--diff: 차분)의 링크
+table show <URL>                                     난이도표와 레벨별 채보 수
+table missing <URL> -L 라이브러리 [-l 레벨] [--get] [--also URL]... [--list ...] [--own-links]
+                                                     라이브러리에 없는 채보 (--get: 받기)
+table export lr2|bmt <URL> <폴더>                     LR2 커스텀 폴더 / beatoraja 난이도표 캐시
+library import <파일> -L 라이브러리                   받아 둔 파일을 라이브러리에
+library place <채보> -L 라이브러리 [--to 폴더] [--min 퍼센트]
                                                      차분이 들어갈 곡 폴더 후보 (또는 옮기기)
-bmseeker pending <라이브러리>                         곡을 기다리는 차분
-bmseeker manbow <이벤트 번호> <폴더>                   manbow 이벤트의 작품과 링크, 어느 링크가 본체/애드온/미러인지를
-                                                     <폴더>/works.json으로 (<폴더>/overrides.json: 손으로 정한 것)
-bmseeker check-links <works.json> <links.json> [--days N] [--minutes M]
-                                                     작품 링크마다 받아 보고 무엇인지 기록 (본체 / 애드온 / 미디어, 죽은 링크)
-bmseeker export lr2 <난이도표 URL> <폴더>             LR2 커스텀 폴더 (그 폴더를 LR2에 추가)
-bmseeker export bmt <난이도표 URL> <beatoraja table 폴더>
-                                                     beatoraja 난이도표 캐시
+library pending -L 라이브러리                          곡을 기다리는 차분
+library install <링크>... -L 라이브러리 [--diff] [-t -a --md5] [--own-links]
+                                                     곡(또는 차분)을: 링크를 차례로, 그다음 소스들의 링크
+event works <manbow 이벤트 번호> [--overrides 파일|-]  작품마다 링크와 어느 것이 본체/애드온/미러인지 (JSON Lines)
+event check [작품 파일|-] [--known 파일] [--days N] [--minutes M]
+                                                     작품 링크마다 받아 보고 무엇인지 (JSON Lines)
 ```
 
-`missing`과 `export`는 채보의 다른 링크를 MD5로 찾습니다: 링크가 비었거나 죽었으면 채우고, 받아지지
-않으면(페이지, OneDrive 등) 다음 링크를 차례로 시도합니다. 찾는 곳은 그 난이도표, `--also <URL>`로 준
-다른 난이도표, Stella 업로더 목록, `--links <파일 또는 URL>`로 준 TSV(`md5`, `url_diff`, `url`), 그리고 곡을
-받을 때 마지막으로 [BMS SEARCH](https://bmssearch.net) API(채보 → 작품 → 작가가 올린 다운로드 링크, 작품에 묶이지 않은
-차분은 제목·아티스트로 작품 검색)입니다. `--own-links`: 난이도표의 링크만.
+`--json`이면 모든 명령이 JSON Lines(한 줄에 레코드 하나, 나오는 대로)를 씁니다. `event` 명령은 늘 그렇고,
+레코드를 파일이나 `-`(stdin)에서 읽습니다 (JSON Lines, 또는 JSON 배열, 또는 키별 객체). 사람을 위한 메모는
+stderr로만 나갑니다.
 
-`cargo run -p bmseeker -- missing https://stellabms.xyz/sl/table.html ~/bms -l 0`
+```text
+work   {"num","title","artist","team","kind","size_kb","page","links":[{"label","url"}],"main":[url],"extra":[[url]],"review"?, ...}
+check  {"url","state":"archive|chart|page|gone|error","kind"?,"format"?,"size","charts","title"?,"error"?,"at"}
+```
+
+예: `bmseeker event works 152 --overrides overrides.json > works.jsonl`,
+`bmseeker event check works.jsonl --known links.jsonl --minutes 290 > links.new.jsonl`.
+
+다른 링크를 찾는 곳(소스)은 설정의 `sources` 순서로 묻습니다: 난이도표(`table`, `--also`로 더), Stella 업로더
+목록(`stella`), TSV 목록(`tsv`, `--list`; `md5`, `url_diff`, `url`), [BMS SEARCH](https://bmssearch.net)(`bmssearch`,
+채보 → 작품 → 작가가 올린 다운로드 링크, 작품에 묶이지 않은 차분은 제목·아티스트로 검색). `--own-links`: 자기 링크만.
+
+설정(`--config`, `$BMSEEKER_CONFIG`, `<설정 폴더>/bmseeker/config.json`)은 JSON으로 기본값 위에 덮습니다:
+`user_agent`, `mirror_catalog`(BMS 이벤트 미러 목록, 비우면 안 씀), `manbow`, `bmssearch_api`, `stella_list`,
+`mega_api`, `sources`, `tables`, `downloads`(라이브러리 안 대기 폴더), `min_coverage`.
+
+`cargo run -p bmseeker-cli -- table missing https://stellabms.xyz/sl/table.html -L ~/bms -l 0`
 
 ## 창
 

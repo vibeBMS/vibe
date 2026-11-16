@@ -11,10 +11,6 @@ repository.workspace = true
 name = "bmseeker"
 path = "src/lib.rs"
 
-[[bin]]
-name = "bmseeker"
-path = "src/main.rs"
-
 [dependencies]
 vibebms-core.workspace = true
 serde.workspace = true

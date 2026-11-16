@@ -1,0 +1,19 @@
+[package]
+name = "bmseeker-cli"
+description = "bmseeker from a terminal: difficulty tables, downloads from where BMS authors link songs, a library's charts, BMS events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "bmseeker"
+path = "src/main.rs"
+
+[dependencies]
+bmseeker.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+md-5.workspace = true
+sha2.workspace = true

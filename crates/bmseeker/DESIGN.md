@@ -76,12 +76,12 @@ link resolve <LINK>...                     what each link leads to
 link get <LINK>... [-o DIR] [--title T --artist A --md5 M] [--search] [--any]
 song find [--md5 M] [--title T] [--artist A]
 table show <URL>
-table missing <URL> --library DIR [--level L] [--get]
+table missing <URL> -L DIR [--level L] [--get]
 table export lr2|bmt <URL> <OUT>
-library import <FILE> --library DIR
-library place <CHART> --library DIR [--to DIR] [--min PERCENT]
-library pending --library DIR
-library install <LINK>... --library DIR [--diff] [--title T --artist A --md5 M]
+library import <FILE> -L DIR
+library place <CHART> -L DIR [--to DIR] [--min PERCENT]
+library pending -L DIR
+library install <LINK>... -L DIR [--diff] [--title T --artist A --md5 M]
 event works <VENUE> [--overrides FILE]     works of a manbow event (JSONL)
 event check [FILE|-] [--known FILE]        each work's links checked (JSONL)
 serve                                      requests and events over stdio (GUI)
