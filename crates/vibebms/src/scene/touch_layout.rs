@@ -538,7 +538,8 @@ impl Scene for TouchLayoutScene {
             }
         }
         // the toolbar
-        let bh = 40.0 * ui;
+        // finger-sized on phones
+        let bh = (40.0 * ui).max(8.0 * ctx.px_per_mm()).min(h * 0.1);
         let gap = 8.0 * ui;
         let tw = (w - 16.0 * ui).min(780.0 * ui);
         let x0 = (w - tw) * 0.5;
