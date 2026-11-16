@@ -422,6 +422,18 @@ impl Loader<'_> {
                     }
                 }
             }
+            // the image the previous screen's skin had at this index (a
+            // result skin going on with the play skin's background)
+            "#IMAGE" if s1.eq_ignore_ascii_case("CONTINUE") => {
+                let i = self.skin.images.len();
+                let p = LAST_IMAGES
+                    .lock()
+                    .ok()
+                    .and_then(|l| l.get(i).cloned().flatten());
+                let size = p.as_deref().and_then(|p| (self.image_size)(p));
+                self.sizes.push(size);
+                self.skin.images.push(p.filter(|_| size.is_some()));
+            }
             "#IMAGE" => {
                 let p = self.path(s1);
                 let size = (self.image_size)(&p);
@@ -1019,6 +1031,16 @@ impl Loader<'_> {
     }
 }
 
+/// The images of the LR2 skin loaded last, for `#IMAGE,CONTINUE`.
+static LAST_IMAGES: std::sync::Mutex<Vec<Option<PathBuf>>> = std::sync::Mutex::new(Vec::new());
+
+/// A skin of another kind was loaded: nothing to go on with.
+pub fn forget_images() {
+    if let Ok(mut l) = LAST_IMAGES.lock() {
+        l.clear();
+    }
+}
+
 /// Load an LR2 skin. `static_option` answers chart/config dependent `#IF`
 /// conditions at load time; `image_size` checks (and measures) image files.
 pub fn load(
@@ -1102,6 +1124,9 @@ pub fn load_with(
     // a button inside a panel is shown (and clickable) only while it is open
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
+    }
+    if let Ok(mut last) = LAST_IMAGES.lock() {
+        *last = l.skin.images.clone();
     }
     let known = l.options.clone();
     resolve_static_ops(&mut l.skin, &known);

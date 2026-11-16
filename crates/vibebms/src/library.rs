@@ -44,6 +44,12 @@ pub struct Song {
     pub stagefile: String,
     pub banner: String,
     pub preview: String,
+    /// Notes by kind: normal, long, scratch, long on the scratch (zeros
+    /// in libraries scanned before they were stored).
+    pub note_kinds: [i64; 4],
+    /// Notes per second: average, peak and near the end, as beatoraja
+    /// measures them.
+    pub density: [f64; 3],
 }
 
 impl Song {
@@ -281,9 +287,69 @@ pub fn find_charts(roots: &[PathBuf], skip: &HashSet<PathBuf>) -> Vec<PathBuf> {
     v
 }
 
+/// Notes by kind and the densities of a chart (see `Song`). Densities
+/// follow beatoraja's `SongInformation`: a second's count includes the
+/// long notes held through it; the average leaves out the quietest
+/// seconds; the end is the busiest 5 s after the gauge could last fill.
+pub fn chart_info(c: &vibebms_core::Chart) -> ([i64; 4], [f64; 3]) {
+    let mode = c.mode();
+    let scratch = |l: u8| (0..mode.players()).any(|p| mode.scratch_lane(p) == Some(l as usize));
+    let mut kinds = [0i64; 4];
+    let notes: Vec<_> = c.notes.iter().filter(|n| n.is_playable()).collect();
+    let last = notes.iter().map(|n| n.end_time()).max().unwrap_or(0).max(0);
+    // a chart beatoraja would not analyse (over an hour): no densities
+    if last > 3_600_000_000 {
+        return (kinds, [0.0; 3]);
+    }
+    let mut secs = vec![0i64; (last / 1_000_000 + 2) as usize];
+    let total = c.total(vibebms_core::LnType::Ln);
+    let mut border = if total > 0.0 {
+        (notes.len() as f64 * (1.0 - 100.0 / total)) as i64
+    } else {
+        0
+    };
+    let mut border_pos = 0usize;
+    for n in &notes {
+        let s = (n.time.max(0) / 1_000_000) as usize;
+        kinds[usize::from(n.is_long()) + 2 * usize::from(scratch(n.lane))] += 1;
+        let e = if n.is_long() {
+            ((n.end_time().max(0) / 1_000_000) as usize).min(secs.len() - 1)
+        } else {
+            s
+        };
+        for v in &mut secs[s..=e.max(s)] {
+            *v += 1;
+        }
+        border -= 1;
+        if border == 0 {
+            border_pos = s;
+        }
+    }
+    let bd = notes.len() as i64 / secs.len() as i64 / 4;
+    let peak = secs.iter().copied().max().unwrap_or(0) as f64;
+    let busy: Vec<i64> = secs.iter().copied().filter(|v| *v >= bd).collect();
+    let avg = if busy.is_empty() {
+        0.0
+    } else {
+        busy.iter().sum::<i64>() as f64 / busy.len() as f64
+    };
+    let d = 5.min(secs.len().saturating_sub(border_pos + 1));
+    let end = if d > 0 {
+        (border_pos..secs.len() - d)
+            .map(|i| secs[i..i + d].iter().sum::<i64>() as f64 / d as f64)
+            .fold(0.0, f64::max)
+    } else {
+        0.0
+    };
+    (kinds, [avg, peak, end])
+}
+
 pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> Song {
     let m = &c.meta;
+    let (note_kinds, density) = chart_info(c);
     Song {
+        note_kinds,
+        density,
         path: path.to_string_lossy().into_owned(),
         folder,
         md5: m.md5.clone(),
@@ -419,6 +485,19 @@ pub fn scan(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn chart_info_counts() {
+        // 120 BPM: a measure is 2 s. Scratch note, two keys, a 4 s LN.
+        let bms = "#PLAYER 1\n#BPM 120\n#TOTAL 200\n#WAV01 a.wav\n\
+            #00116:01\n#00111:0001\n#00112:01\n#00153:01\n#00353:01\n";
+        let c = vibebms_core::bms::parse_bms(bms.as_bytes(), "bms", &Default::default()).unwrap();
+        let (k, d) = chart_info(&c);
+        assert_eq!(k, [2, 1, 1, 0]);
+        // the LN holds through seconds 2..=6; second 2 has two more notes
+        assert_eq!(d[1], 3.0);
+    }
+
     use super::*;
 
     #[test]

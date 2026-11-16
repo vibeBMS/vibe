@@ -17,11 +17,9 @@ use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::*;
-use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
-use vibebms_core::judge::JudgePreset;
-use vibebms_core::lane_option::LaneOption;
+use vibebms_core::gauge::GaugeType;
 use vibebms_core::score::{ClearType, DjLevel};
-use vibebms_core::{LnType, PlayMode};
+use vibebms_core::PlayMode;
 
 /// vibeBMS select option ids (text value / name, click event).
 pub const OPTION_TEXT: i32 = 9000;
@@ -185,22 +183,6 @@ impl SelectState<'_> {
     }
 }
 
-/// beatoraja option indices.
-fn random_index(o: LaneOption) -> i64 {
-    match o {
-        LaneOption::Off => 0,
-        LaneOption::Mirror => 1,
-        LaneOption::Random => 2,
-        LaneOption::RRandom => 3,
-        LaneOption::SRandom => 4,
-        LaneOption::Spiral => 5,
-        LaneOption::HRandom => 6,
-        LaneOption::AllScratch => 7,
-        LaneOption::RandomEx => 8,
-        LaneOption::SRandomEx => 9,
-    }
-}
-
 impl SkinState for SelectState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
         let s = self.s;
@@ -303,6 +285,7 @@ impl SkinState for SelectState<'_> {
             180 => self.ranking()?.len() as i64,
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,
             390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
+            350..=368 => return super::skinned::song_number(song?, id),
             1163 => song.map(|s| s.length_ms / 60000)?,
             1164 => song.map(|s| (s.length_ms / 1000) % 60)?,
             _ => return None,
@@ -315,70 +298,7 @@ impl SkinState for SelectState<'_> {
     }
 
     fn button(&self, id: i32) -> Option<i64> {
-        let p = &self.ctx.config.play;
-        Some(match id {
-            40 => match p.gauge {
-                GaugeType::AssistEasy => 0,
-                GaugeType::Easy => 1,
-                GaugeType::Normal => 2,
-                GaugeType::Hard | GaugeType::Class => 3,
-                GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass => 4,
-                GaugeType::Hazard => 5,
-            },
-            42 => random_index(p.random_1p),
-            43 => random_index(p.random_2p),
-            54 => super::option_panel::dp_index(p),
-            // beatoraja HS-FIX: off, start, max, main, min BPM
-            55 => p.hs_fix as i64,
-            // beatoraja BGA: 0 on, 2 off
-            72 => {
-                if p.bga {
-                    0
-                } else {
-                    2
-                }
-            }
-            // beatoraja assist buttons vibeBMS has (0 off, 1 on)
-            301 => p.expand_judge as i64,
-            302 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
-            303 => p.judge_area as i64,
-            304 => p.legacy_note as i64,
-            305 => p.mark_notes as i64,
-            306 => p.bpm_guide as i64,
-            307 => p.no_mine as i64,
-            75 => p.timing_auto_adjust as i64,
-            330 => p.lane_cover as i64,
-            331 => (p.lift > 0.0) as i64,
-            332 => (p.hidden > 0.0) as i64,
-            340 => p.judge_algorithm as i64,
-            351 => p.no_mine as i64,
-            352 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,
-            353 => p.legacy_note as i64,
-            78 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
-            // vibeBMS: the options its panels show that beatoraja has not
-            1401 => p.auto_scratch as i64,
-            1402 => p.lane_cover as i64,
-            1403 => crate::scene::option_panel::index_of(&JudgePreset::ALL, p.judge_preset),
-            1404 => crate::scene::option_panel::index_of(&GaugeAutoShift::ALL, p.gauge_auto_shift),
-            1405 => crate::scene::option_panel::index_of(&crate::config::Target::ALL, p.target),
-            // TARGET as LR2 skins for beatoraja draw it (LITONE5): A- .. AAA+,
-            // MAX, NEXT (an older list, without MAX-)
-            77 => {
-                use crate::config::Target;
-                match p.target {
-                    Target::RateMaxMinus | Target::Max => 9,
-                    Target::RankNext => 10,
-                    Target::Best => 11,
-                    t => crate::scene::option_panel::index_of(&Target::ALL, t),
-                }
-            }
-            308 => match p.ln_mode {
-                LnType::Ln => 0,
-                LnType::Cn => 1,
-                LnType::Hcn => 2,
-            },
-            _ => return self.number(id),
-        })
+        super::skinned::config_button(self.ctx, id).or_else(|| self.number(id))
     }
 
     fn text(&self, id: i32) -> Option<String> {

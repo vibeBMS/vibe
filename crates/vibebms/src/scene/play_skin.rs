@@ -389,7 +389,10 @@ impl SkinState for SceneState<'_> {
                 s.lane_judge.get(lane).copied().flatten().map(|j| j as i64)
             }
             520 | 521 => s.last_judge[(id - 520) as usize].map(|j| j.0 as i64),
-            _ => self.number(id),
+            40 => self
+                .engine()
+                .map(|e| super::skinned::gauge_index(e.gauge.current_type())),
+            _ => super::skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
         }
     }
 
@@ -552,19 +555,17 @@ impl SkinState for SceneState<'_> {
                     sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64 - b
                 }
             }
-            // chart: notes, LN, scratch, scratch LN; TOTAL; judge rank
-            350..=353 => {
-                let mode = s.mode();
-                let scratch =
-                    |l: u8| (0..mode.players()).any(|p| mode.scratch_lane(p) == Some(l as usize));
-                s.chart
-                    .notes
-                    .iter()
-                    .filter(|n| n.is_playable())
-                    .filter(|n| scratch(n.lane) == (id >= 352) && n.is_long() == (id % 2 == 1))
-                    .count() as i64
+            350..=368 => {
+                if (350..=353).contains(&id) && s.req.song.note_kinds.iter().all(|n| *n == 0) {
+                    // a song from an older library: count the chart's
+                    let (k, _) = crate::library::chart_info(&s.chart);
+                    return Some(k[(id - 350) as usize]);
+                }
+                if id == 368 {
+                    return Some(s.chart.total(s.ln_mode()) as i64);
+                }
+                return super::skinned::song_number(&s.req.song, id);
             }
-            368 => s.chart.total(s.ln_mode()) as i64,
             400 => super::skinned::judge_rank_number(m),
             150 | 170 => self.pace().best,
             121 | 151 => self.pace().target,

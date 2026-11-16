@@ -120,6 +120,14 @@ impl SkinState for ResultState<'_> {
         }
     }
 
+    fn button(&self, id: i32) -> Option<i64> {
+        match id {
+            // the gauge played
+            40 => Some(super::skinned::gauge_index(self.s.d.gauge_type)),
+            _ => super::skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
+        }
+    }
+
     fn option(&self, id: i32) -> bool {
         let v = self.static_option(id.abs()).unwrap_or(false);
         v != (id < 0)
@@ -203,6 +211,7 @@ impl SkinState for ResultState<'_> {
                 .duration_ms(&crate::config::Bpms::of_meta(&d.meta))
                 .round() as i64,
             400 => super::skinned::judge_rank_number(m),
+            350..=368 => return super::skinned::song_number(&d.request.song, id),
             370 => d.clear as i64,
             371 => before.map(|b| b.clear as i64).unwrap_or(0),
             374 => split2(avg).0,
