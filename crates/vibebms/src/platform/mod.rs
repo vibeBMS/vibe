@@ -126,17 +126,30 @@ pub fn http_get_progress(
     progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
 ) {
+    http_get_moved(url, progress, move |r, _| on_done(r));
+}
+
+/// [`http_get_progress`], and where the request's redirects ended when the
+/// answer says so (the vibeBMS proxy's `X-Final-Url`, a refusal's too).
+#[cfg(target_arch = "wasm32")]
+pub fn http_get_moved(
+    url: &str,
+    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
+    on_done: impl FnOnce(Result<Vec<u8>, String>, Option<String>) + Send + 'static,
+) {
     use ehttp::streaming::Part;
     use std::ops::ControlFlow;
     use std::sync::{Arc, Mutex};
     use wasm_bindgen::JsCast;
-    type Done = Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>;
-    // (the body so far, `on_done` until it is called, when data last came)
+    type Done = Box<dyn FnOnce(Result<Vec<u8>, String>, Option<String>) + Send>;
+    // (the body so far, `on_done` until it is called, when data last came,
+    // where the redirects ended)
     struct St {
         body: Vec<u8>,
         done: Option<Done>,
         last: f64,
         watch: Option<i32>,
+        moved: Option<String>,
     }
     let now = || js_sys::Date::now();
     let state = Arc::new(Mutex::new(St {
@@ -144,17 +157,23 @@ pub fn http_get_progress(
         done: Some(Box::new(on_done)),
         last: now(),
         watch: None,
+        moved: None,
     }));
     let finish = |st: &Arc<Mutex<St>>, r: Result<(), String>| {
         let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
         let body = std::mem::take(&mut g.body);
+        let moved = g.moved.take();
         if let (Some(id), Some(w)) = (g.watch.take(), web_sys::window()) {
             w.clear_interval_with_handle(id);
         }
         if let Some(f) = g.done.take() {
             drop(g);
-            f(r.map(|_| body));
+            f(r.map(|_| body), moved);
         }
+    };
+    let moved = |st: &Arc<Mutex<St>>, r: &ehttp::PartialResponse| {
+        st.lock().unwrap_or_else(|e| e.into_inner()).moved =
+            r.headers.get("x-final-url").map(str::to_string);
     };
     // a watch: cancelled, or nothing for a while
     {
@@ -199,10 +218,12 @@ pub fn http_get_progress(
                     ControlFlow::Break(())
                 }
                 Ok(Part::Response(r)) if !r.ok => {
+                    moved(&state, &r);
                     finish(&state, Err(format!("HTTP {} {}", r.status, r.url)));
                     ControlFlow::Break(())
                 }
                 Ok(Part::Response(r)) => {
+                    moved(&state, &r);
                     if let Some(p) = &progress {
                         p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
                     }

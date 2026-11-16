@@ -528,9 +528,13 @@ pub(crate) fn web_fetch(
     progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
 ) {
-    let r = crate::hosts::Resolver::new(&link, want, crate::hosts::context());
-    web_resolve(r, link, progress, Box::new(done));
+    let r = crate::hosts::Resolver::new(&link, want.clone(), crate::hosts::context());
+    web_resolve(r, link, want, 0, progress, Box::new(done));
 }
+
+/// How many times a download's redirects may lead it to another host.
+#[cfg(target_arch = "wasm32")]
+const MOVES: u8 = 2;
 
 #[cfg(target_arch = "wasm32")]
 type WebDone = Box<dyn FnOnce(Result<Vec<u8>, Fail>) + Send>;
@@ -539,6 +543,8 @@ type WebDone = Box<dyn FnOnce(Result<Vec<u8>, Fail>) + Send>;
 fn web_resolve(
     r: crate::hosts::Resolver,
     link: String,
+    want: Option<crate::hosts::Want>,
+    moves: u8,
     progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     done: WebDone,
 ) {
@@ -549,7 +555,7 @@ fn web_resolve(
     crate::platform::run_task_with(r, true, move |mut r, target| match target {
         Ok(t) => {
             let via = crate::hosts::via_proxy(&t.url);
-            crate::platform::http_get_progress(&via, progress.clone(), move |a| {
+            crate::platform::http_get_moved(&via, progress.clone(), move |a, moved| {
                 let got = match a {
                     Ok(mut b) => {
                         if let Some(k) = t.mega_key {
@@ -561,11 +567,25 @@ fn web_resolve(
                     Err(_) => None,
                 };
                 let cancelled = progress.as_ref().is_some_and(|p| p.cancelled());
-                match got {
-                    Some(b) => done(Ok(b)),
+                // a page reached through redirects (a short link) on a host
+                // that knows its way to the file: from there
+                let cx = crate::hosts::context();
+                let rehost = moved.filter(|u| *u != t.url && moves < MOVES).filter(|u| {
+                    crate::hosts::Link::parse(u, 0)
+                        .and_then(|l| cx.hosts.find(&l).map(|h| h.name()))
+                        .is_some_and(|h| h != "direct" && h != r.host())
+                });
+                match (got, rehost) {
+                    (Some(b), _) => done(Ok(b)),
+                    (None, Some(u)) if !cancelled => {
+                        let r = crate::hosts::Resolver::new(&u, want.clone(), cx);
+                        web_resolve(r, link, want, moves + 1, progress, done)
+                    }
                     // a mirror the page named
-                    None if !cancelled && r.try_next() => web_resolve(r, link, progress, done),
-                    None => done(Err(Fail::Page(link))),
+                    (None, _) if !cancelled && r.try_next() => {
+                        web_resolve(r, link, want, moves, progress, done)
+                    }
+                    (None, _) => done(Err(Fail::Page(link))),
                 }
             })
         }
