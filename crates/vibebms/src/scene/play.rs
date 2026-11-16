@@ -140,6 +140,8 @@ pub struct PlayScene {
     pub(crate) finished_at: Option<i64>,
     pub(crate) key_flash: Vec<Option<Instant>>,
     pub(crate) quit: bool,
+    /// A key went to the judge (a play quit before any did is not one).
+    touched: bool,
     pub(crate) scene_start: Instant,
     pub(crate) ready_at: Option<Instant>,
     pub(crate) finished_instant: Option<Instant>,
@@ -370,6 +372,7 @@ impl PlayScene {
             lane_judge: Vec::new(),
             skin: None,
             quit: false,
+            touched: false,
         }
     }
 
@@ -691,6 +694,7 @@ impl PlayScene {
         if self.req.replay.is_some() {
             return;
         }
+        self.touched |= ev.pressed;
         let t = self.chart_us(ev.time) - offset;
         if let Some(e) = self.engine.as_mut() {
             e.input(InputEvent {
@@ -801,6 +805,11 @@ impl PlayScene {
         let Some(e) = self.engine.as_ref() else {
             return Next::Pop;
         };
+        // quit (START + SELECT, Esc) before a key was played: no play to
+        // record or count, no results; back to song select
+        if self.quit && !self.touched {
+            return Next::Pop;
+        }
         let gauge = &e.gauge;
         let gauge_clear = if failed
             || e.is_failed() && gauge.auto_shift != vibebms_core::gauge::GaugeAutoShift::Continue
