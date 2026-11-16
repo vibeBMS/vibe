@@ -65,12 +65,13 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   stays and the multiplier follows each chart's BPM.
 - Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
   turntables work.
-- Touch (`SETTINGS › TOUCH`): an IIDX layout (turntable and two rows of keys; round pop'n buttons for PMS) or a single
-  row of keys, portrait or landscape SP and landscape DP, multi-touch and sliding. A touch between keys plays the
-  nearest one. Keys are sized like an arcade's (the screen size is guessed from the device and can be set), and the
-  START / SELECT buttons in the letterbox beside the play screen (left for 1P and DP, right for 2P) open the panels
-  above. A key whose release the browser never delivers (an iPad's home bar dragged with a key held) is let go
-  once no finger is on the screen.
+- Touch (`SETTINGS › TOUCH`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
+  of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
+  them, drag their corners or pinch them) for each key mode and orientation. Portrait or landscape SP and landscape
+  DP, multi-touch and sliding. A touch between keys plays the nearest one. Keys are sized like an arcade's (the screen
+  size is guessed from the device and can be set), and the START / SELECT buttons in the letterbox beside the play
+  screen (left for 1P and DP, right for 2P) open the panels above. A key whose release the browser never delivers (an
+  iPad's home bar dragged with a key held) is let go once no finger is on the screen.
 
 ## Features
 

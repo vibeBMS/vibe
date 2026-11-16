@@ -715,34 +715,13 @@ impl PlayScene {
 
     /// Screen areas of the touch controls: (rect, player, scratch on the right).
     fn touch_areas(&self, ctx: &Ctx) -> Vec<(Rect, usize, bool)> {
-        let (w, h) = (ctx.width, ctx.height);
         if !ctx.touch_enabled() {
             return Vec::new();
         }
         let t = &ctx.config.touch;
-        let share = if h > w {
-            t.portrait_height
-        } else {
-            t.landscape_height
-        };
-        let ctrl_h = (h * share).clamp(80.0, h * 0.6);
-        let area = Rect::new(0.0, h - ctrl_h, w, ctrl_h);
-        let dp = self.mode.is_double();
+        let area = touch::controls_area(ctx.width, ctx.height, t);
         let side2 = ctx.config.play.side == Side::P2;
-        if dp && ctx.config.touch.allow_dp {
-            // the two keypads a white key's gap (12 mm) apart
-            let half = (area.w - 12.0 * ctx.px_per_mm()).max(area.w * 0.9) * 0.5;
-            vec![
-                (Rect::new(area.x, area.y, half, area.h), 0, false),
-                (
-                    Rect::new(area.right() - half, area.y, half, area.h),
-                    1,
-                    true,
-                ),
-            ]
-        } else {
-            vec![(area, 0, !dp && side2)]
-        }
+        touch::player_areas(self.mode, area, t, side2, ctx.px_per_mm())
     }
 
     /// Where the play skin goes (above the touch controls) and, with touch
@@ -785,16 +764,15 @@ impl PlayScene {
         }
         self.zones_key = key;
         self.zones.clear();
-        for (area, player, right) in areas {
-            let player = (*player).min(self.mode.players() - 1);
-            self.zones.extend(touch::layout(
+        if !areas.is_empty() {
+            self.zones = touch::zones(
                 self.mode,
-                ctx.config.touch.style,
-                *area,
-                player,
-                *right,
+                &ctx.config.touch,
+                touch::controls_area(ctx.width, ctx.height, &ctx.config.touch),
+                ctx.config.play.side == Side::P2,
+                ctx.portrait(),
                 ctx.px_per_mm(),
-            ));
+            );
         }
         if let (_, Some(buttons)) = self.play_view(ctx, areas) {
             self.zones.extend(buttons);

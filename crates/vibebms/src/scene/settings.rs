@@ -68,6 +68,8 @@ enum Act {
     Rescan,
     RefreshTables,
     ResetKeys,
+    /// Open the touch layout editor.
+    EditTouchLayout,
     RestoreDefaultTables,
     BrowseFolder,
     /// Cycle custom option `.1` of the skin chosen for `SKIN_KEYS[.0]`.
@@ -301,6 +303,13 @@ fn it(label: impl Into<String>, value: impl Into<String>, f: fn(&mut Ctx, i32)) 
 fn cyc<T: Copy + PartialEq>(all: &[T], v: T, d: i32) -> T {
     let i = all.iter().position(|x| *x == v).unwrap_or(0) as i32;
     all[(i + d).rem_euclid(all.len() as i32) as usize]
+}
+
+fn touch_style_label(s: TouchStyle) -> &'static str {
+    match s {
+        TouchStyle::Iidx => "BM (turntable + 7)",
+        s => s.label(),
+    }
 }
 
 fn onoff(b: bool) -> &'static str {
@@ -601,6 +610,11 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 |c, _| c.config.keys.any_axis_is_scratch = !c.config.keys.any_axis_is_scratch,
             ));
             v.push(Item {
+                label: "Touch controller layout".into(),
+                value: format!("{}  edit ↵", touch_style_label(c.touch.style)),
+                act: Act::EditTouchLayout,
+            });
+            v.push(Item {
                 label: "Reset key config".into(),
                 value: "↵".into(),
                 act: Act::ResetKeys,
@@ -619,20 +633,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     )
                 },
             ),
-            it(
-                "Layout",
-                match c.touch.style {
-                    TouchStyle::Iidx => "IIDX (turntable + 7)",
-                    TouchStyle::Keyboard => "KEYBOARD",
-                },
-                |c, d| {
-                    c.config.touch.style = cyc(
-                        &[TouchStyle::Iidx, TouchStyle::Keyboard],
-                        c.config.touch.style,
-                        d,
-                    )
-                },
-            ),
+            it("Layout", touch_style_label(c.touch.style), |c, d| {
+                c.config.touch.style = cyc(&TouchStyle::ALL, c.config.touch.style, d)
+            }),
+            Item {
+                label: "Edit the touch layout".into(),
+                value: "↵".into(),
+                act: Act::EditTouchLayout,
+            },
             it(
                 "Controls height (landscape)",
                 format!("{:.0}%", c.touch.landscape_height * 100.0),
@@ -1001,6 +1009,8 @@ pub struct SettingsScene {
     scroll: f32,
     axis_seen: std::collections::HashMap<u64, f32>,
     back_rect: Rect,
+    /// The touch layout editor was asked for.
+    open_editor: bool,
 }
 
 impl SettingsScene {
@@ -1017,6 +1027,7 @@ impl SettingsScene {
             scroll: 0.0,
             axis_seen: Default::default(),
             back_rect: Rect::default(),
+            open_editor: false,
         }
     }
 
@@ -1127,6 +1138,10 @@ impl SettingsScene {
             }
             Act::RefreshTables => ctx.refresh_tables(true),
             Act::ResetKeys => ctx.config.keys = KeyConfig::default(),
+            Act::EditTouchLayout => {
+                self.open_editor = true;
+                return;
+            }
             Act::RestoreDefaultTables => {
                 for (n, u) in bmseeker::table::DEFAULT_TABLES {
                     if !ctx.config.tables.iter().any(|t| t.url == *u) {
@@ -1215,6 +1230,20 @@ impl Scene for SettingsScene {
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        let next = self.input_inner(ctx, ev);
+        if std::mem::take(&mut self.open_editor) {
+            return Next::Push(Box::new(super::touch_layout::TouchLayoutScene::new(ctx)));
+        }
+        next
+    }
+
+    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        self.draw_inner(ctx, d, now)
+    }
+}
+
+impl SettingsScene {
+    fn input_inner(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         // key learning
         if self.learning.is_some() {
             match ev {
@@ -1415,7 +1444,7 @@ impl Scene for SettingsScene {
         Next::Stay
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let ui = ctx.ui();
         let (w, h) = (ctx.width, ctx.height);
         d.b.gradient(
