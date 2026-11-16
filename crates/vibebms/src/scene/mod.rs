@@ -8,3 +8,4 @@ pub mod select;
 pub mod select_skin;
 pub mod settings;
 pub mod skinned;
+pub mod touch_layout;

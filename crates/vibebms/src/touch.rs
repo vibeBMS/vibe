@@ -1,10 +1,11 @@
 //! On-screen touch controls (phones, tablets, Surface, touch monitors).
 //!
-//! Two styles: a row of keys like a keyboard, or an IIDX-controller-like
-//! turntable plus two rows of buttons. Fingers can slide between keys, and
+//! Two presets: a row of keys like a keyboard, or a beatmania-controller-like
+//! turntable plus two rows of buttons (BM); and the player's own layouts,
+//! edited in `scene::touch_layout`. Fingers can slide between keys, and
 //! circling the turntable reverses scratch direction (back-spin scratch).
 
-use crate::config::TouchStyle;
+use crate::config::{TouchButton, TouchConfig, TouchLayout, TouchStyle};
 use crate::gfx::{with_alpha, Batch, Rect};
 use crate::input::{LaneEv, Phase};
 use crate::platform::Instant;
@@ -33,7 +34,7 @@ pub struct Zone {
 }
 
 impl Zone {
-    fn hit(&self, x: f32, y: f32) -> bool {
+    pub fn hit(&self, x: f32, y: f32) -> bool {
         self.distance(x, y) <= 0.0
     }
 
@@ -57,13 +58,22 @@ impl Zone {
             Shape::Circle { r, .. } => r * 0.5,
         }
     }
+
+    /// The rectangle the zone is drawn in (a circle's bounding square).
+    pub fn bounds(&self) -> Rect {
+        match self.shape {
+            Shape::Rect(r) => r,
+            Shape::Circle { cx, cy, r } => Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
+        }
+    }
 }
 
-/// The zone a new touch at (x, y) presses: the one under it, else the
-/// nearest key within its reach. Touchscreens give no feel for the gaps
-/// between keys, so a finger landing in one still plays the key next to it.
-fn pick(zones: &[Zone], x: f32, y: f32) -> Option<usize> {
-    zones.iter().position(|z| z.hit(x, y)).or_else(|| {
+/// The zone a new touch at (x, y) presses: the one under it (the last
+/// drawn where they overlap), else the nearest key within its reach.
+/// Touchscreens give no feel for the gaps between keys, so a finger
+/// landing in one still plays the key next to it.
+pub fn pick(zones: &[Zone], x: f32, y: f32) -> Option<usize> {
+    zones.iter().rposition(|z| z.hit(x, y)).or_else(|| {
         zones
             .iter()
             .enumerate()
@@ -123,7 +133,7 @@ pub fn layout(
                 .sum();
             centred(area, units * area.h * 0.5)
         }
-        TouchStyle::Iidx => area,
+        TouchStyle::Iidx | TouchStyle::Custom => area,
     };
     let mut zones = Vec::new();
     match style {
@@ -154,7 +164,7 @@ pub fn layout(
                 x += w;
             }
         }
-        TouchStyle::Iidx if mode == PlayMode::Popn9K => {
+        TouchStyle::Iidx | TouchStyle::Custom if mode == PlayMode::Popn9K => {
             // the pop'n music panel: round buttons, 1 3 5 7 9 below and
             // 2 4 6 8 above between them, as wide as the area allows
             let h = area.h * 0.94;
@@ -179,7 +189,8 @@ pub fn layout(
                 });
             }
         }
-        TouchStyle::Iidx => {
+        // (Custom is resolved by `zones`: BM here)
+        TouchStyle::Iidx | TouchStyle::Custom => {
             // the arcade keypad at its real width: white keys below, the
             // blue ones above over the gaps (the rows share the controls'
             // height, at most the real key height)
@@ -248,6 +259,183 @@ pub fn layout(
         }
     }
     zones
+}
+
+/// The strip at the bottom of a `w` x `h` screen the controls take.
+pub fn controls_area(w: f32, h: f32, cfg: &TouchConfig) -> Rect {
+    let share = if h > w {
+        cfg.portrait_height
+    } else {
+        cfg.landscape_height
+    };
+    let ctrl_h = (h * share).max(80.0).min(h * 0.6);
+    Rect::new(0.0, h - ctrl_h, w, ctrl_h)
+}
+
+/// The presets' controls of each player in `area`: (rect, player, scratch
+/// on the right). `side2`: the 2P side (single play).
+pub fn player_areas(
+    mode: PlayMode,
+    area: Rect,
+    cfg: &TouchConfig,
+    side2: bool,
+    px_per_mm: f32,
+) -> Vec<(Rect, usize, bool)> {
+    let dp = mode.is_double();
+    if dp && cfg.allow_dp {
+        // the two keypads a white key's gap (12 mm) apart
+        let half = (area.w - 12.0 * px_per_mm).max(area.w * 0.9) * 0.5;
+        vec![
+            (Rect::new(area.x, area.y, half, area.h), 0, false),
+            (
+                Rect::new(area.right() - half, area.y, half, area.h),
+                1,
+                true,
+            ),
+        ]
+    } else {
+        vec![(area, 0, !dp && side2)]
+    }
+}
+
+/// Where the custom layout of a key mode and orientation is kept in
+/// `TouchConfig::layouts`.
+pub fn slot(mode: PlayMode, portrait: bool) -> String {
+    let o = if portrait { "portrait" } else { "landscape" };
+    format!("{} {o}", mode.label())
+}
+
+/// The preset shown: the chosen one, or the one Custom starts from.
+pub fn preset_of(cfg: &TouchConfig) -> TouchStyle {
+    match cfg.style {
+        TouchStyle::Custom if cfg.custom_from == TouchStyle::Custom => TouchStyle::Iidx,
+        TouchStyle::Custom => cfg.custom_from,
+        s => s,
+    }
+}
+
+/// The zones of a preset (Keyboard or BM) for every player in `area`.
+pub fn preset_zones(
+    mode: PlayMode,
+    style: TouchStyle,
+    area: Rect,
+    cfg: &TouchConfig,
+    side2: bool,
+    px_per_mm: f32,
+) -> Vec<Zone> {
+    player_areas(mode, area, cfg, side2, px_per_mm)
+        .into_iter()
+        .flat_map(|(a, player, right)| {
+            let player = player.min(mode.players() - 1);
+            layout(mode, style, a, player, right, px_per_mm)
+        })
+        .collect()
+}
+
+/// The custom layout of `mode` in this orientation, if Custom is chosen
+/// and the mode has one.
+pub fn custom_layout(cfg: &TouchConfig, mode: PlayMode, portrait: bool) -> Option<&TouchLayout> {
+    (cfg.style == TouchStyle::Custom)
+        .then(|| cfg.layouts.get(&slot(mode, portrait)))
+        .flatten()
+        .filter(|l| !l.buttons.is_empty())
+}
+
+/// The lane buttons the controls in `area` use: the chosen preset, or the
+/// custom layout of this mode and orientation.
+pub fn zones(
+    mode: PlayMode,
+    cfg: &TouchConfig,
+    area: Rect,
+    side2: bool,
+    portrait: bool,
+    px_per_mm: f32,
+) -> Vec<Zone> {
+    match custom_layout(cfg, mode, portrait) {
+        Some(l) => custom_zones(mode, l, area),
+        None => preset_zones(mode, preset_of(cfg), area, cfg, side2, px_per_mm),
+    }
+}
+
+/// A custom button's rectangle on the screen.
+pub fn button_rect(b: &TouchButton, area: Rect) -> Rect {
+    Rect::new(
+        area.x + b.x * area.w,
+        area.y + b.y * area.h,
+        b.w * area.w,
+        b.h * area.h,
+    )
+}
+
+/// Set a custom button's rectangle from one on the screen (in steps of
+/// 1/10000 of the area, which keep the config file short).
+pub fn set_button_rect(b: &mut TouchButton, r: Rect, area: Rect) {
+    let q = |v: f32| (v * 10_000.0).round() / 10_000.0;
+    b.x = q((r.x - area.x) / area.w);
+    b.y = q((r.y - area.y) / area.h);
+    b.w = q(r.w / area.w);
+    b.h = q(r.h / area.h);
+}
+
+/// The zones of a custom layout: a lane's colour and kind come from the
+/// mode, as in the presets.
+pub fn custom_zones(mode: PlayMode, l: &TouchLayout, area: Rect) -> Vec<Zone> {
+    let mut seen = Vec::new();
+    l.buttons
+        .iter()
+        .filter(|b| (b.lane as usize) < mode.lane_count() && b.w > 0.0 && b.h > 0.0)
+        .filter(|b| {
+            let new = !seen.contains(&b.lane);
+            seen.push(b.lane);
+            new
+        })
+        .map(|b| {
+            let r = button_rect(b, area);
+            let lane = b.lane as usize;
+            let scratch = mode.is_scratch(lane);
+            let k = lane % mode.lanes_per_player();
+            let shape = if b.round {
+                let (cx, cy) = r.center();
+                Shape::Circle {
+                    cx,
+                    cy,
+                    r: r.w.min(r.h) * 0.5,
+                }
+            } else {
+                Shape::Rect(r)
+            };
+            Zone {
+                shape,
+                lane: b.lane,
+                scratch,
+                black: !scratch && k % 2 == 1,
+                color: (b.round && mode == PlayMode::Popn9K)
+                    .then(|| crate::gfx::rgba(POPN_COLORS[k.min(8)])),
+            }
+        })
+        .collect()
+}
+
+/// A custom layout with the lane buttons of `zones` (a preset) in `area`.
+pub fn to_layout(zones: &[Zone], area: Rect) -> TouchLayout {
+    TouchLayout {
+        buttons: zones
+            .iter()
+            .filter(|z| z.lane < START)
+            .map(|z| {
+                let mut b = TouchButton {
+                    lane: z.lane,
+                    x: 0.0,
+                    y: 0.0,
+                    w: 0.0,
+                    h: 0.0,
+                    round: matches!(z.shape, Shape::Circle { .. }),
+                };
+                set_button_rect(&mut b, z.bounds(), area);
+                b
+            })
+            .collect(),
+    }
 }
 
 /// START above SELECT, two square buttons 1.5 buttons apart, away from the
@@ -461,7 +649,7 @@ impl TouchInput {
                 // slide between keys (not onto START / SELECT)
                 if let Some(ni) = zones
                     .iter()
-                    .position(|nz| !nz.scratch && nz.lane < START && nz.hit(x, y))
+                    .rposition(|nz| !nz.scratch && nz.lane < START && nz.hit(x, y))
                 {
                     if ni != zi {
                         let (lane, sub) = (p.lane, p.sub);
@@ -751,5 +939,153 @@ mod tests {
         out.clear();
         t.release_all(gone, &mut out);
         assert!(out.is_empty() && t.is_pressed(lane));
+    }
+    fn shapes_match(a: &[Zone], b: &[Zone]) {
+        assert_eq!(a.len(), b.len());
+        for (a, b) in a.iter().zip(b) {
+            assert_eq!((a.lane, a.scratch, a.black), (b.lane, b.scratch, b.black));
+            assert_eq!(a.color.is_some(), b.color.is_some());
+            let (ra, rb) = (a.bounds(), b.bounds());
+            for (u, v) in [(ra.x, rb.x), (ra.y, rb.y), (ra.w, rb.w), (ra.h, rb.h)] {
+                assert!((u - v).abs() < 0.5, "{ra:?} {rb:?}");
+            }
+            assert_eq!(
+                matches!(a.shape, Shape::Circle { .. }),
+                matches!(b.shape, Shape::Circle { .. })
+            );
+        }
+    }
+
+    #[test]
+    fn presets_are_the_chosen_layout_until_custom() {
+        let area = Rect::new(0.0, 400.0, 1600.0, 360.0);
+        let mut cfg = TouchConfig::default();
+        // the default is the BM preset, as before custom layouts
+        let bm = zones(PlayMode::Beat7K, &cfg, area, false, false, 4.0);
+        let old = layout(PlayMode::Beat7K, TouchStyle::Iidx, area, 0, false, 4.0);
+        shapes_match(&bm, &old);
+        // BM: the turntable on the scratch side, white keys low, black raised
+        let disc = bm.iter().find(|z| z.scratch).unwrap();
+        assert!(matches!(disc.shape, Shape::Circle { .. }));
+        let keys: Vec<Zone> = bm.iter().filter(|z| !z.scratch).copied().collect();
+        assert!(keys.iter().all(|k| k.bounds().x > disc.bounds().right()));
+        let (white, black): (Vec<&Zone>, Vec<&Zone>) = keys.iter().partition(|k| !k.black);
+        assert_eq!((white.len(), black.len()), (4, 3));
+        assert!(black
+            .iter()
+            .all(|b| white.iter().all(|w| b.bounds().bottom() < w.bounds().y)));
+        // each black key over the gap between two white ones
+        for b in &black {
+            let c = b.bounds().center().0;
+            assert!(white.iter().any(|w| w.bounds().right() < c));
+            assert!(white.iter().any(|w| w.bounds().x > c));
+        }
+        // 2P side: the turntable on the right
+        let p2 = zones(PlayMode::Beat7K, &cfg, area, true, false, 4.0);
+        let disc2 = p2.iter().find(|z| z.scratch).unwrap().bounds();
+        assert!(p2
+            .iter()
+            .filter(|z| !z.scratch)
+            .all(|k| k.bounds().right() < disc2.x));
+        cfg.style = TouchStyle::Keyboard;
+        let kb = zones(PlayMode::Beat7K, &cfg, area, false, false, 4.0);
+        shapes_match(
+            &kb,
+            &layout(PlayMode::Beat7K, TouchStyle::Keyboard, area, 0, false, 4.0),
+        );
+        // Custom with nothing edited shows the preset it starts from
+        cfg.style = TouchStyle::Custom;
+        cfg.custom_from = TouchStyle::Keyboard;
+        shapes_match(&zones(PlayMode::Beat7K, &cfg, area, false, false, 4.0), &kb);
+        // double play: two sets
+        cfg.style = TouchStyle::Iidx;
+        let dp = zones(PlayMode::Beat14K, &cfg, area, false, false, 4.0);
+        assert_eq!(dp.len(), 16);
+        cfg.allow_dp = false;
+        assert_eq!(
+            zones(PlayMode::Beat14K, &cfg, area, false, false, 4.0).len(),
+            8
+        );
+    }
+
+    #[test]
+    fn presets_copy_into_custom_layouts() {
+        let area = Rect::new(0.0, 500.0, 2340.0, 580.0);
+        let mut cfg = TouchConfig {
+            style: TouchStyle::Custom,
+            ..Default::default()
+        };
+        for mode in PlayMode::ALL {
+            for style in [TouchStyle::Iidx, TouchStyle::Keyboard] {
+                let preset = preset_zones(mode, style, area, &cfg, false, 5.0);
+                let l = to_layout(&preset, area);
+                assert_eq!(l.buttons.len(), mode.lane_count());
+                cfg.layouts.insert(slot(mode, false), l);
+                let custom = zones(mode, &cfg, area, false, false, 5.0);
+                shapes_match(&custom, &preset);
+                // the other orientation has none: the preset
+                assert!(custom_layout(&cfg, mode, true).is_none());
+            }
+        }
+        // a layout made on one screen scales with the controls area
+        let l = cfg.layouts.get(&slot(PlayMode::Beat7K, false)).unwrap();
+        let small = Rect::new(0.0, 200.0, 1170.0, 290.0);
+        let z = custom_zones(PlayMode::Beat7K, l, small);
+        let big = custom_zones(PlayMode::Beat7K, l, area);
+        assert!((z[3].bounds().x * 2.0 - big[3].bounds().x).abs() < 1.0);
+    }
+
+    #[test]
+    fn custom_buttons_are_hit_where_drawn() {
+        let area = Rect::new(0.0, 600.0, 1000.0, 400.0);
+        let b = |lane, x, y, w, h, round| TouchButton {
+            lane,
+            x,
+            y,
+            w,
+            h,
+            round,
+        };
+        let l = TouchLayout {
+            buttons: vec![
+                // a turntable in a 300 x 400 rect: a circle of radius 150
+                b(7, 0.0, 0.0, 0.3, 1.0, true),
+                b(0, 0.4, 0.5, 0.2, 0.5, false),
+                // overlapping key 1, drawn over it
+                b(1, 0.5, 0.25, 0.2, 0.5, false),
+                // above the controls area, over the play screen
+                b(2, 0.8, -0.5, 0.2, 0.25, false),
+                // unknown lane and a duplicate: left out
+                b(40, 0.0, 0.0, 0.1, 0.1, false),
+                b(0, 0.9, 0.9, 0.1, 0.1, false),
+            ],
+        };
+        let z = custom_zones(PlayMode::Beat7K, &l, area);
+        assert_eq!(z.len(), 4);
+        let Shape::Circle { cx, cy, r } = z[0].shape else {
+            panic!("round turntable")
+        };
+        assert_eq!((cx, cy, r), (150.0, 800.0, 150.0));
+        assert!(z[0].scratch && !z[1].black && z[2].black);
+        let lane = |x, y| pick(&z, x, y).map(|i| z[i].lane);
+        assert_eq!(lane(150.0, 800.0), Some(7));
+        // the rect's corner is outside the circle drawn
+        assert_ne!(lane(5.0, 605.0), Some(7));
+        assert_eq!(lane(450.0, 950.0), Some(0));
+        // where keys 1 and 2 overlap, the one drawn last
+        assert_eq!(lane(550.0, 850.0), Some(1));
+        assert_eq!(lane(900.0, 450.0), Some(2));
+        // touches play them as in the presets
+        let mut t = TouchInput::default();
+        let mut out = Vec::new();
+        let now = Instant::now();
+        assert!(t.pointer(&z, 1, Phase::Down, 900.0, 450.0, now, 6.0, &mut out));
+        assert_eq!((out[0].lane, out[0].pressed), (2, true));
+    }
+
+    #[test]
+    fn slots_by_mode_and_orientation() {
+        assert_eq!(slot(PlayMode::Beat7K, false), "7KEYS landscape");
+        assert_eq!(slot(PlayMode::Popn9K, true), "9KEYS portrait");
     }
 }
