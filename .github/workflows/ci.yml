@@ -333,9 +333,19 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
+          # only the branch's head is published: a newer push has its own run,
+          # and GitHub lets this token point the tag only at a branch's head
+          head() { gh api "repos/$GH_REPO/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha; }
+          if [ "$(head)" != "$SHA" ]; then
+            echo "$GITHUB_REF_NAME has moved on from ${SHA:0:7}; its own run publishes it"
+            exit 0
+          fi
           # the tag follows the latest commit
-          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$SHA" -F force=true >/dev/null \
-            || gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$SHA" >/dev/null
+          if ! gh api -X PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$SHA" -F force=true >/dev/null \
+            && ! gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$SHA" >/dev/null; then
+            [ "$(head)" != "$SHA" ] && { echo "$GITHUB_REF_NAME moved on meanwhile"; exit 0; }
+            exit 1
+          fi
           notes="$(
             echo "The latest build of \`${GITHUB_REF_NAME}\`: ${SHA:0:7} ($(date -u '+%Y-%m-%d %H:%M UTC'))."
             echo
