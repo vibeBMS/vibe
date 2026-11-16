@@ -121,9 +121,11 @@ thread_local! {
 /// Charts picked as loose files (`<root>/bms/picked/`) whose sounds are
 /// elsewhere: move each into its song's folder, or ask (see
 /// `placement`). Returns messages for the user.
-pub fn place_picked_charts(root: &Path) -> Vec<String> {
+pub fn place_picked_charts(root: &Path, songs: &[crate::library::Song]) -> Vec<String> {
     let bms = root.join("bms");
     let picked = bms.join("picked");
+    // the library's charts as read (those picked cannot be read yet)
+    let lib = placement::library(root, songs);
     let mut out = Vec::new();
     for e in vfs::read_dir(&picked).unwrap_or_default() {
         let path = e.path;
@@ -134,7 +136,7 @@ pub fn place_picked_charts(root: &Path) -> Vec<String> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match placement::locate_loose(&path, &bms) {
+        match placement::locate_loose_in(&path, &lib) {
             Some(Located::Move(dir)) => {
                 if placement::bring(&path, &dir).is_some() {
                     out.push(format!(

@@ -102,6 +102,25 @@ pub fn locate_loose(chart: &Path, library: &Path) -> Option<Located> {
     bmseeker::placement::locate_loose(&Vfs, chart, library)
 }
 
+/// The library below `<root>/bms` as bmseeker sees it, its charts as the
+/// player's library has them (their hashes, titles and artists: a web
+/// page cannot read its library's charts when it likes).
+pub fn library(root: &Path, songs: &[crate::library::Song]) -> bmseeker::library::Library {
+    let owned = songs.iter().map(|s| bmseeker::library::Owned {
+        path: s.path.clone().into(),
+        md5: s.md5.clone(),
+        sha256: s.sha256.clone(),
+        title: s.title.clone(),
+        artist: s.artist.clone(),
+    });
+    bmseeker::library::Library::from_catalog(&root.join("bms"), owned)
+}
+
+/// [`locate_loose`] in `lib`.
+pub fn locate_loose_in(chart: &Path, lib: &bmseeker::library::Library) -> Option<Located> {
+    bmseeker::placement::locate_in(&Vfs, chart, lib, false, Rules::default()).map(|(l, _)| l)
+}
+
 /// Move `file` into `dir` (smart overwrite: `bmseeker::placement::bring`).
 pub fn bring(file: &Path, dir: &Path) -> Option<std::path::PathBuf> {
     bmseeker::placement::bring(&Vfs, file, dir)

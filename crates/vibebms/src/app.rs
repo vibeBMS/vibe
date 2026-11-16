@@ -321,6 +321,7 @@ impl Ctx {
                     .then(a.level_num().cmp(&b.level_num()))
             });
             self.songs = Arc::new(songs);
+            self.song_fetch.set_library(self.songs.clone());
             self.scores = lib.scores();
         }
         self.library_version += 1;
@@ -488,7 +489,7 @@ impl Ctx {
             self.prefetch = None;
             // charts picked without their song's folder go into it
             #[cfg(target_arch = "wasm32")]
-            for m in crate::web::place_picked_charts(&self.paths.root) {
+            for m in crate::web::place_picked_charts(&self.paths.root, &self.songs) {
                 self.toast(m);
             }
             self.start_scan();
