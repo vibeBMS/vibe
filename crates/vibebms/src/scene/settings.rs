@@ -74,6 +74,102 @@ enum Act {
     SkinOption(usize, usize),
     /// Adjust field `.2` (x, y, w, h, angle, alpha) of offset `.1` of that skin.
     SkinOffset(usize, usize, usize),
+    /// Web: ask the browser to keep the songs.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    KeepSongs,
+    /// Web: delete song folder `.0` kept in the browser (`usize::MAX`: all),
+    /// on a second press.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    DeleteKept(usize),
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// The kept song folder a first press armed for deleting.
+    static ARMED: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// `n` bytes for people.
+#[cfg(target_arch = "wasm32")]
+fn bytes(n: f64) -> String {
+    if n >= 1e9 {
+        format!("{:.1} GB", n / 1e9)
+    } else if n >= 1e6 {
+        format!("{:.0} MB", n / 1e6)
+    } else {
+        format!("{:.0} KB", n / 1e3)
+    }
+}
+
+/// Web: the songs kept in the browser, and how much room they take.
+#[cfg(target_arch = "wasm32")]
+fn kept_songs(ctx: &Ctx, v: &mut Vec<Item>) {
+    let st = crate::platform::opfs::status();
+    if !st.available {
+        v.push(Item {
+            label: "Songs stay until the page closes (this browser keeps no files)".into(),
+            value: String::new(),
+            act: Act::None,
+        });
+        return;
+    }
+    let room = if st.quota > 0.0 {
+        format!("{} of {}", bytes(st.usage), bytes(st.quota))
+    } else {
+        bytes(st.usage)
+    };
+    let saving = if st.pending > 0 {
+        format!(" · saving {}", st.pending)
+    } else {
+        String::new()
+    };
+    v.push(Item {
+        label: format!("Songs kept in this browser: {room}{saving}"),
+        value: if st.persisted {
+            "kept for good".into()
+        } else {
+            "ask to keep ↵".into()
+        },
+        act: if st.persisted {
+            Act::None
+        } else {
+            Act::KeepSongs
+        },
+    });
+    let folders = crate::platform::vfs::folder_sizes(&ctx.paths.root.join("bms"));
+    let armed = ARMED.with(|a| a.get());
+    if !folders.is_empty() {
+        let total: u64 = folders.iter().map(|f| f.1).sum();
+        v.push(Item {
+            label: format!(
+                "Delete every song kept here ({} folder{}, {})",
+                folders.len(),
+                if folders.len() == 1 { "" } else { "s" },
+                bytes(total as f64)
+            ),
+            value: if armed == Some(usize::MAX) {
+                "press again to delete".into()
+            } else {
+                "delete ×".into()
+            },
+            act: Act::DeleteKept(usize::MAX),
+        });
+    }
+    for (i, (dir, size, files)) in folders.iter().enumerate() {
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        v.push(Item {
+            label: format!("    {name}  ({files} files)"),
+            value: if armed == Some(i) {
+                "press again to delete".into()
+            } else {
+                format!("{}  delete ×", bytes(*size as f64))
+            },
+            act: Act::DeleteKept(i),
+        });
+    }
 }
 
 /// `config.skins` keys, in menu order.
@@ -751,6 +847,8 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 value: format!("{} charts", ctx.songs.len()),
                 act: Act::Rescan,
             });
+            #[cfg(target_arch = "wasm32")]
+            kept_songs(ctx, &mut v);
             v
         }
         7 => {
@@ -874,8 +972,43 @@ impl SettingsScene {
         let Some(item) = list.get(self.sel) else {
             return;
         };
+        // a delete waits for a second press on the same row
+        #[cfg(target_arch = "wasm32")]
+        if !matches!(item.act, Act::DeleteKept(_)) {
+            ARMED.with(|a| a.set(None));
+        }
         match item.act {
             Act::None => return,
+            Act::KeepSongs => {
+                #[cfg(target_arch = "wasm32")]
+                crate::platform::opfs::request_persist();
+                return;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            Act::DeleteKept(_) => return,
+            #[cfg(target_arch = "wasm32")]
+            Act::DeleteKept(i) => {
+                if ARMED.with(|a| a.replace(Some(i))) != Some(i) {
+                    return;
+                }
+                ARMED.with(|a| a.set(None));
+                let bms = ctx.paths.root.join("bms");
+                if i == usize::MAX {
+                    crate::platform::vfs::remove_dir(&bms);
+                    ctx.toast("Deleted every song kept here".to_string());
+                } else if let Some((dir, size, _)) =
+                    crate::platform::vfs::folder_sizes(&bms).into_iter().nth(i)
+                {
+                    crate::platform::vfs::remove_dir(&dir);
+                    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned());
+                    ctx.toast(format!(
+                        "Deleted {} ({})",
+                        name.unwrap_or_default(),
+                        bytes(size as f64)
+                    ));
+                }
+                return;
+            }
             Act::Adjust(f) => f(ctx, if d == 0 { 1 } else { d }),
             Act::SkinOption(slot, i) => cycle_skin_option(ctx, slot, i, if d == 0 { 1 } else { d }),
             Act::SkinOffset(slot, i, f) => {

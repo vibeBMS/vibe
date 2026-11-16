@@ -163,7 +163,9 @@ mod imp {
     }
 
     pub fn remove_file(p: &Path) -> io::Result<()> {
-        FS.with(|fs| fs.borrow_mut().files.remove(p));
+        if FS.with(|fs| fs.borrow_mut().files.remove(p)).is_some() {
+            super::super::opfs::remove(p);
+        }
         if let Some(s) = storage() {
             let _ = s.remove_item(&format!("{LS_PREFIX}{}", p.display()));
         }
@@ -258,11 +260,84 @@ mod imp {
             }
             match fs.files.remove(from) {
                 Some(n) => {
+                    keep(to, &n.data);
+                    super::super::opfs::remove(from);
                     fs.files.insert(to.to_path_buf(), n);
                     true
                 }
                 None => false,
             }
+        })
+    }
+
+    /// Write `p`'s data to the browser's storage (if it is kept there);
+    /// once written, `p` is read from there (its bytes leave memory).
+    fn keep(p: &Path, data: &Data) {
+        let to = p.to_path_buf();
+        let swap = move |file: web_sys::File| {
+            FS.with(|fs| {
+                if let Some(n) = fs.borrow_mut().files.get_mut(&to) {
+                    if n.size == file.size() as i64 {
+                        // its time as the stored file will have it
+                        n.mtime = (file.last_modified() / 1000.0) as i64;
+                        n.data = Data::File(file);
+                    }
+                }
+            })
+        };
+        match data {
+            Data::Bytes(b) => super::super::opfs::save(p, b, swap),
+            Data::File(f) => super::super::opfs::save_file(p, f, swap),
+        }
+    }
+
+    /// A file kept in the browser's storage, mounted (read when needed).
+    pub fn mount(p: PathBuf, file: web_sys::File) {
+        FS.with(|fs| {
+            let size = file.size() as i64;
+            let mtime = (file.last_modified() / 1000.0) as i64;
+            fs.borrow_mut().files.insert(
+                p,
+                Node {
+                    data: Data::File(file),
+                    size,
+                    mtime,
+                },
+            );
+        });
+    }
+
+    /// Remove the folder `dir` and everything below it (here and in the
+    /// browser's storage); the library is read again.
+    pub fn remove_dir(dir: &Path) {
+        FS.with(|fs| {
+            let mut fs = fs.borrow_mut();
+            fs.files.retain(|k, _| !k.starts_with(dir));
+            fs.added = true;
+        });
+        super::super::opfs::remove(dir);
+    }
+
+    /// The folders right below `dir`: (folder, bytes, files), the largest
+    /// first.
+    pub fn folder_sizes(dir: &Path) -> Vec<(PathBuf, u64, usize)> {
+        FS.with(|fs| {
+            let mut by: BTreeMap<PathBuf, (u64, usize)> = BTreeMap::new();
+            for (k, n) in fs.borrow().files.iter() {
+                let Ok(rest) = k.strip_prefix(dir) else {
+                    continue;
+                };
+                let mut c = rest.components();
+                let (Some(first), Some(_)) = (c.next(), c.next()) else {
+                    continue;
+                };
+                let e = by.entry(dir.join(first.as_os_str())).or_default();
+                e.0 += n.size.max(0) as u64;
+                e.1 += 1;
+            }
+            let mut out: Vec<_> = by.into_iter().map(|(p, (b, n))| (p, b, n)).collect();
+            out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            out
         })
     }
 
@@ -286,14 +361,9 @@ mod imp {
                 let path = root.join("bms").join(rel);
                 let size = f.size() as i64;
                 let mtime = (f.last_modified() / 1000.0) as i64;
-                fs.files.insert(
-                    path,
-                    Node {
-                        data: Data::File(f),
-                        size,
-                        mtime,
-                    },
-                );
+                let data = Data::File(f);
+                keep(&path, &data);
+                fs.files.insert(path, Node { data, size, mtime });
             }
             fs.added = true;
         });
@@ -325,13 +395,18 @@ mod imp {
     /// A file held in memory only (song files: not saved with the
     /// settings, as `write` does).
     pub fn put_bytes(p: &Path, data: Vec<u8>) {
+        let data = Data::Bytes(Rc::new(data));
+        keep(p, &data);
         FS.with(|fs| {
             let mut fs = fs.borrow_mut();
-            let size = data.len() as i64;
+            let size = match &data {
+                Data::Bytes(b) => b.len() as i64,
+                Data::File(f) => f.size() as i64,
+            };
             fs.files.insert(
                 p.to_path_buf(),
                 Node {
-                    data: Data::Bytes(Rc::new(data)),
+                    data,
                     size,
                     mtime: 0,
                 },

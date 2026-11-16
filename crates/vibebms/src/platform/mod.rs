@@ -5,6 +5,8 @@
 //! jobs on the event loop and uses `XMLHttpRequest` for HTTP.
 
 pub mod dxa;
+#[cfg(target_arch = "wasm32")]
+pub mod opfs;
 pub mod screen;
 pub mod vfs;
 

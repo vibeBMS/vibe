@@ -451,6 +451,10 @@ impl Ctx {
             self.ensure_scanned("bms");
             self.start_scan();
         }
+        #[cfg(target_arch = "wasm32")]
+        for m in crate::platform::opfs::take_notes() {
+            self.toast(m);
+        }
         // web: newly picked files -> read the chart files, then scan
         if crate::platform::vfs::take_added() {
             let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
@@ -653,6 +657,14 @@ pub fn run() {
         crate::web::install_file_input(app.paths.root.clone());
         crate::web::install_input_stamps();
         crate::web::install_touch_watch();
+        // the songs kept in the browser: mounted, then read as picked ones
+        // (the first scan waits for them)
+        crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, |n| {
+            if n > 0 {
+                log::info!("library: {n} files kept in the browser");
+            }
+            crate::platform::vfs::mark_added();
+        });
         event_loop.spawn_app(app);
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -939,7 +951,11 @@ impl App {
         };
         ctx.reload_library();
         ctx.load_cached_tables();
-        ctx.start_scan();
+        // the web build's first scan comes once the songs kept in the
+        // browser are mounted
+        if !crate::platform::IS_WEB {
+            ctx.start_scan();
+        }
         ctx.refresh_tables(false);
         ctx.links.start(&ctx.paths.cache);
         ctx.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
