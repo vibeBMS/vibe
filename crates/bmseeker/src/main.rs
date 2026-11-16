@@ -12,6 +12,12 @@
 //!                                                 SEARCH's for the song with
 //!                                                 --search / --md5); into a
 //!                                                 folder under its own name
+//! bmseeker lookup [-t TITLE] [-a ARTIST] [--md5 MD5]
+//!                                                 a song's download links on
+//!                                                 BMS SEARCH
+//! bmseeker press-js                               the script a browser runs on
+//!                                                 a share page to press its
+//!                                                 Download button (OneDrive)
 //! bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
 //!                                                 a song (or its separate
 //!                                                 chart) into the library, the
@@ -67,6 +73,8 @@ mod cli {
   bmseeker table <table URL>
   bmseeker missing <table URL> <library> [-l LEVEL] [--get]
   bmseeker fetch <link>... <file or folder> [-t TITLE] [-a ARTIST] [--md5 MD5] [--search] [--any] [--json]
+  bmseeker lookup [-t TITLE] [-a ARTIST] [--md5 MD5]
+  bmseeker press-js
   bmseeker install <link>... <library> [--diff] [-t TITLE] [-a ARTIST] [--md5 MD5]
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
@@ -236,6 +244,16 @@ mod cli {
                 };
                 fetch(links, out, &a)
             }
+            Some("lookup") => {
+                for l in bmseeker::bmssearch::lookup(a.get("--md5").unwrap_or(""), &a.want()) {
+                    println!("{l}");
+                }
+                Ok(())
+            }
+            Some("press-js") => {
+                println!("{}", hosts::PRESS_DOWNLOAD_JS);
+                Ok(())
+            }
             Some("install") => {
                 // <link>... <library>: the links tried in turn
                 let (library, links) = match a.pos.split_last() {
@@ -386,6 +404,8 @@ mod cli {
         };
         let mut errors = Vec::new();
         let mut tried: Vec<String> = Vec::new();
+        // links that gave a page: a browser may get the file from them
+        let mut pages: Vec<String> = Vec::new();
         let mut try_link = |link: &str, errors: &mut Vec<String>| -> Option<(String, String)> {
             if tried.iter().any(|t| t == link) {
                 return None;
@@ -395,6 +415,7 @@ mod cli {
                 Ok(name) => Some((link.to_string(), name)),
                 Err(Fetch::Page) => {
                     errors.push(format!("{link}: a page, not a file"));
+                    pages.push(link.to_string());
                     None
                 }
                 Err(Fetch::Failed(e)) => {
@@ -411,11 +432,15 @@ mod cli {
             }
             got = found.iter().find_map(|l| try_link(l, &mut errors));
         }
+        drop(try_link);
         let json = a.has("--json");
         let Some((link, name)) = got else {
             let _ = std::fs::remove_file(&tmp);
             if json {
-                println!("{}", serde_json::json!({ "errors": errors }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "errors": errors, "pages": pages })
+                );
             }
             return Err(errors.join("\n"));
         };

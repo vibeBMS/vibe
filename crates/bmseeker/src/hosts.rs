@@ -286,10 +286,15 @@ impl Resolver {
             // the download button's link
             Wait::MediaFire => {
                 let page = String::from_utf8_lossy(&body);
+                // http or https: older pages link the file over http
                 match page
-                    .find("href=\"https://download")
-                    .and_then(|at| between(&page[at..], "href=\"", "\""))
-                {
+                    .match_indices("href=\"")
+                    .filter_map(|(at, _)| between(&page[at..], "href=\"", "\""))
+                    .find(|l| {
+                        let l = l.to_ascii_lowercase();
+                        (l.starts_with("https://download") || l.starts_with("http://download"))
+                            && l.contains("mediafire.com/")
+                    }) {
                     Some(link) => Step::File {
                         url: unescape(link),
                         mega_key: None,
@@ -1254,6 +1259,13 @@ mod tests {
         assert_eq!(
             file(r.feed(Ok(page.into()))),
             "https://download1.mediafire.com/x/a.rar"
+        );
+        // an older page: the file over http, after other links
+        let (mut r, _) = Resolver::new("https://www.mediafire.com/file/x/a.rar/file");
+        let page = r#"<a href="http://www.mediafire.com/help"></a><a class="input popsok" href="http://download1336.mediafire.com/k/x/a.zip" id="downloadButton">"#;
+        assert_eq!(
+            file(r.feed(Ok(page.into()))),
+            "http://download1336.mediafire.com/k/x/a.zip"
         );
         // MEGA: the API, then the file and its key
         let (mut r, s) = Resolver::new(
