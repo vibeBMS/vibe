@@ -209,7 +209,7 @@ impl Loader<'_> {
             log::warn!("skin: {raw} is outside the skins folder");
             return PathBuf::new();
         }
-        self.glob(&p, raw)
+        self.glob(&vfs::resolve_case(&p), raw)
     }
 
     fn glob(&self, p: &Path, raw: &str) -> PathBuf {
@@ -1132,36 +1132,47 @@ pub fn load_with(
 }
 
 /// Screen size of a skin without `#RESOLUTION`: HD-patched LR2 builds run
-/// skins made for 1280x720 / 1920x1080 without saying so. The smallest
-/// size holding nine in ten on-screen destinations.
+/// skins made for 1280x720 / 1920x1080 without saying so. Lunatic Vibes'
+/// guess: where the objects' last positions reach (a full-screen image
+/// counts as twenty).
 fn guess_resolution(skin: &Skin) -> (f32, f32) {
-    let mut right = Vec::new();
-    let mut bottom = Vec::new();
-    for k in skin.objects.iter().flat_map(|o| &o.dst.keys) {
-        let r = k.rect;
-        // ignore what starts off screen (slide-in animations)
-        if r.x >= 0.0 && r.y >= 0.0 && r.w > 0.0 && r.h > 0.0 {
-            right.push(r.x + r.w);
-            bottom.push(r.y + r.h);
+    let mut rects: Vec<Rect> = skin
+        .objects
+        .iter()
+        .filter_map(|o| o.dst.keys.last().map(|k| k.rect))
+        .collect();
+    if let Some(sl) = &skin.songlist {
+        rects.extend(
+            sl.on
+                .iter()
+                .chain(&sl.off)
+                .flatten()
+                .filter_map(|d| d.keys.last().map(|k| k.rect)),
+        );
+    }
+    let (mut sd, mut hd, mut fhd) = (0usize, 0usize, 0usize);
+    let beyond = |r: &Rect, w: f32, h: f32| r.x > w || r.y > h || r.right() > w || r.bottom() > h;
+    for r in &rects {
+        if beyond(r, 1920.0, 1080.0) {
+            continue;
+        }
+        let full = |w: f32, h: f32| r.x == 0.0 && r.y == 0.0 && r.w == w && r.h == h;
+        if beyond(r, 1280.0, 720.0) {
+            fhd += 1;
+        } else if beyond(r, 640.0, 480.0) {
+            hd += if full(1280.0, 720.0) { 20 } else { 1 };
+        } else {
+            sd += if full(640.0, 480.0) { 20 } else { 1 };
         }
     }
-    for l in skin.lanes.iter().filter_map(|l| l.rect) {
-        right.push(l.right());
-        bottom.push(l.bottom());
+    let n = (sd + hd + fhd).max(1) as f32;
+    if fhd as f32 / n > 0.5 {
+        (1920.0, 1080.0)
+    } else if hd as f32 / n > 0.35 {
+        (1280.0, 720.0)
+    } else {
+        (640.0, 480.0)
     }
-    if right.is_empty() {
-        return (640.0, 480.0);
-    }
-    // animations move things off screen: most, not all, must fit
-    let p90 = |v: &mut Vec<f32>| {
-        v.sort_by(f32::total_cmp);
-        v[(v.len() - 1) * 9 / 10]
-    };
-    let (r, b) = (p90(&mut right), p90(&mut bottom));
-    [(640.0, 480.0), (1280.0, 720.0), (1920.0, 1080.0)]
-        .into_iter()
-        .find(|(w, h)| r <= w + 1.0 && b <= h + 1.0)
-        .unwrap_or((3840.0, 2160.0))
 }
 
 /// Unicode characters of an LR2 font code (Shift_JIS based, as beatoraja
@@ -1213,7 +1224,9 @@ pub fn load_font(
             "#S" => font.size = num(1) as f32,
             "#M" => font.margin = num(1) as f32,
             "#T" => {
-                let p = dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/"));
+                let p = vfs::resolve_case(
+                    &dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/")),
+                );
                 let size = image_size(&p);
                 if size.is_some() {
                     tex.insert(num(1), images.len());
@@ -1348,7 +1361,7 @@ fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
                 .is_some_and(|t| vfs::is_dir(&a.join(t)))
         })
     })?;
-    Some(base.join(tail))
+    Some(vfs::resolve_case(&base.join(tail)))
 }
 
 /// Read only the header: (type, name).

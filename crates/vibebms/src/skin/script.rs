@@ -471,7 +471,7 @@ package.loaded.io = io
         }
         cands
             .into_iter()
-            .map(|c| crate::platform::vfs::normalize(&c))
+            .map(|c| crate::platform::vfs::resolve_case(&crate::platform::vfs::normalize(&c)))
             .filter(|c| c.starts_with(root))
             .filter(|c| {
                 !lua_only

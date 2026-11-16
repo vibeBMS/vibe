@@ -180,7 +180,7 @@ fn filepath_files(dir: &Path, path: &str) -> Vec<String> {
         (Some(a), Some(b)) => format!("{}{}", &path[..a], &path[b + 1..]),
         _ => path.to_string(),
     };
-    super::lr2::glob_paths(&dir.join(pattern))
+    super::lr2::glob_paths(&vfs::resolve_case(&dir.join(pattern)))
         .iter()
         .filter(|p| !p.to_string_lossy().contains('*'))
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -227,17 +227,17 @@ fn skin_path(dir: &Path, fps: &[FilePath], files: &HashMap<String, String>, path
         } else {
             wild
         };
-        return dir.join(format!("{}{name}{foot}", &key[..end]));
+        return vfs::resolve_case(&dir.join(format!("{}{name}{foot}", &key[..end])));
     }
     let Some(star) = path.rfind('*') else {
-        return dir.join(&path);
+        return vfs::resolve_case(&dir.join(&path));
     };
     let ext = match (path.find('|'), path.rfind('|')) {
         (Some(a), Some(b)) if a > star => format!("{}{}", &path[star + 1..a], &path[b + 1..]),
         _ => path[star + 1..].to_string(),
     }
     .to_lowercase();
-    let folder = dir.join(&path[..path[..star].rfind('/').unwrap_or(0)]);
+    let folder = vfs::resolve_case(&dir.join(&path[..path[..star].rfind('/').unwrap_or(0)]));
     let mut all: Vec<PathBuf> = vfs::read_dir(&folder)
         .unwrap_or_default()
         .into_iter()
