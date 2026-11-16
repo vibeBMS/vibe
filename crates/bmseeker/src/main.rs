@@ -27,6 +27,12 @@
 //!                                                 a chart's song folder: the
 //!                                                 candidates, or move it there
 //! bmseeker pending <library>                      charts waiting for their song
+//! bmseeker manbow <event number> <folder>
+//!                                                 a manbow event's works, each
+//!                                                 with its links and which to
+//!                                                 take, into <folder>/works.json
+//!                                                 (<folder>/overrides.json:
+//!                                                 the choices made by hand)
 //! bmseeker check-links <works.json> <links.json> [--days N] [--minutes M]
 //!                                                 what each work's links give
 //!                                                 (an event index's: main /
@@ -79,6 +85,7 @@ mod cli {
   bmseeker import <file> <library>
   bmseeker place <chart> <library> [--to DIR] [--min PERCENT]
   bmseeker pending <library>
+  bmseeker manbow <event number> <folder>
   bmseeker check-links <works.json> <links.json> [--days N] [--minutes M]
   bmseeker export lr2 <table URL> <folder>
   bmseeker export bmt <table URL> <beatoraja table folder>
@@ -368,6 +375,10 @@ mod cli {
                 }
                 Ok(())
             }
+            Some("manbow") => {
+                let event: u32 = a.need(0)?.parse().map_err(|_| USAGE.to_string())?;
+                manbow_works(event, Path::new(a.need(1)?))
+            }
             Some("check-links") => check_links(
                 Path::new(a.need(0)?),
                 Path::new(a.need(1)?),
@@ -463,6 +474,70 @@ mod cli {
         } else {
             println!("{} ({format}, from {link})", file.display());
         }
+        Ok(())
+    }
+
+    /// `manbow`: `<dir>/works.json` for a manbow event, as the BMS mirror's
+    /// tools read it.
+    fn manbow_works(event: u32, dir: &Path) -> Result<(), String> {
+        use bmseeker::manbow;
+        use serde_json::{json, Map, Value};
+        let page = |u: &str| hosts::get(u).map(|b| manbow::decode(&b));
+        let works = manbow::works(
+            event,
+            &page(&manbow::url_list_url(event))?,
+            &page(&manbow::work_list_url(event))?,
+        );
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let overrides: Map<String, Value> = std::fs::read(dir.join("overrides.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for w in &works {
+            let mut o = Map::new();
+            o.insert("num".into(), json!(w.num));
+            o.insert("title".into(), json!(w.title));
+            o.insert("artist".into(), json!(w.artist));
+            o.insert("team".into(), json!(w.team));
+            o.insert("kind".into(), json!(w.kind));
+            o.insert("size_kb".into(), json!(w.size_kb));
+            o.insert("page".into(), json!(w.page));
+            let links: Vec<Value> = w
+                .links
+                .iter()
+                .map(|(l, u)| json!({ "label": l, "url": u }))
+                .collect();
+            o.insert("links".into(), Value::Array(links));
+            o.insert("main".into(), json!(w.pick.main));
+            o.insert("extra".into(), json!(w.pick.extra));
+            if !w.pick.review.is_empty() {
+                o.insert("review".into(), json!(w.pick.review));
+            }
+            if let Some(Value::Object(by_hand)) = overrides.get(&w.num.to_string()) {
+                for (k, v) in by_hand {
+                    o.insert(k.clone(), v.clone());
+                }
+                o.shift_remove("review");
+            }
+            out.push(Value::Object(o));
+        }
+        // as Python writes it (one space a level), which the repository keeps
+        let mut buf = Vec::new();
+        let fmt = serde_json::ser::PrettyFormatter::with_indent(b" ");
+        let mut ser = serde_json::Serializer::with_formatter(&mut buf, fmt);
+        serde::Serialize::serialize(&out, &mut ser).map_err(|e| e.to_string())?;
+        buf.push(b'\n');
+        std::fs::write(dir.join("works.json"), buf).map_err(|e| e.to_string())?;
+        let review = works
+            .iter()
+            .filter(|w| !w.pick.review.is_empty() && !overrides.contains_key(&w.num.to_string()))
+            .count();
+        let disq = works.iter().filter(|w| w.kind == "Disq").count();
+        println!(
+            "{} works, {review} to review, {disq} disqualified",
+            works.len()
+        );
         Ok(())
     }
 

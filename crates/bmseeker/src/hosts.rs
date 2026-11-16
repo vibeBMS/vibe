@@ -342,108 +342,19 @@ fn venue_links(page: &str) -> Vec<(String, String)> {
         return Vec::new();
     };
     let block = &page[at + "<h3>Download</h3>".len()..];
-    let block = &block[..block.find("</blockquote>").unwrap_or(block.len())];
-    let mut out = Vec::new();
-    let mut label = String::new();
-    let mut rest = block;
-    while let Some(i) = rest.find("href=\"") {
-        // the last line of text before the link (lines end at <br>)
-        let before = &rest[..i];
-        let lower = before.to_ascii_lowercase();
-        let mut cuts: Vec<usize> = lower.match_indices("<br").map(|(k, _)| k).collect();
-        cuts.insert(0, 0);
-        cuts.push(before.len());
-        let text = cuts
-            .windows(2)
-            .rev()
-            .map(|w| {
-                strip_tags(&before[w[0]..w[1]])
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-            .find(|t| !t.is_empty())
-            .unwrap_or_default();
-        if !text.is_empty() {
-            label = text;
-        }
-        let Some(url) = between(&rest[i..], "href=\"", "\"") else {
-            break;
-        };
-        let url = unescape(url);
-        if url.starts_with("http") {
-            out.push((label.clone(), url));
-        }
-        rest = &rest[i + 6..];
-        rest = &rest[rest
-            .find("</a>")
-            .or_else(|| rest.find("</A>"))
-            .map_or(0, |k| k + 4)..];
-    }
-    out
+    // up to the box's footer (its size and date)
+    let end = ["</blockquote>", "<footer"]
+        .iter()
+        .filter_map(|e| block.find(e))
+        .min()
+        .unwrap_or(block.len());
+    crate::manbow::links_of(&block[..end])
 }
 
-fn strip_tags(s: &str) -> String {
-    let mut out = String::new();
-    let mut tag = false;
-    for c in s.chars() {
-        match c {
-            '<' => tag = true,
-            '>' => tag = false,
-            c if !tag => out.push(c),
-            _ => {}
-        }
-    }
-    unescape(&out)
-}
-
-/// The main archive among a work's links (as the mirror's
-/// `scrape_manbow.py` picks): high quality over low, ogg over wav, full
-/// packages over BGA-only archives and patches, the first of equals.
+/// The main archive among a work's links, as the event mirror picks it
+/// ([`crate::manbow::pick`]).
 fn pick_link(links: &[(String, String)]) -> Option<String> {
-    let score = |label: &str, url: &str| {
-        let t = format!("{label} {url}").to_lowercase();
-        let has = |ws: &[&str]| ws.iter().any(|w| t.contains(w));
-        let mut s = 0;
-        if has(&["hq", "高画質", "高品質", "high quality"]) {
-            s += 6;
-        }
-        if has(&["lq", "低画質", "低品質", "low quality"]) {
-            s -= 6;
-        }
-        if has(&["ogg"]) {
-            s += 4;
-        }
-        if has(&["wav", "flac"]) {
-            s -= 4;
-        }
-        if has(&[
-            "bga only",
-            "only bga",
-            "bga単体",
-            "bgaのみ",
-            "差分",
-            "patch",
-            "追加",
-        ]) {
-            s -= 8;
-        }
-        if has(&["mirror", "ミラー", "予備", "backup"]) {
-            s -= 1;
-        }
-        if has(&["/folders/", "/scl/fo/", "/folder/"]) {
-            s -= 3;
-        }
-        s
-    };
-    let mut best: Option<(i32, &String)> = None;
-    for (label, url) in links {
-        let s = score(label, url);
-        if best.as_ref().is_none_or(|(b, _)| s > *b) {
-            best = Some((s, url));
-        }
-    }
-    best.map(|(_, u)| u.to_string())
+    crate::manbow::pick(links).main.into_iter().next()
 }
 
 /// The file or folder id of a Google Drive link (`/file/d/ID`,
@@ -1454,7 +1365,7 @@ mod tests {
         let links = venue_links(page);
         assert_eq!(links.len(), 2);
         assert_eq!(links[0].0, "wav");
-        assert_eq!(links[1].0, "ogg");
+        assert_eq!(links[1].0, "wav ogg");
         assert_eq!(
             pick_link(&links).as_deref(),
             Some("https://drive.google.com/file/d/O/view")

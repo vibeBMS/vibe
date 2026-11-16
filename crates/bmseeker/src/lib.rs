@@ -25,6 +25,7 @@ pub mod hosts;
 pub mod import;
 pub mod install;
 pub mod links;
+pub mod manbow;
 pub mod placement;
 // downloads and unpacks to a disk
 #[cfg(not(target_arch = "wasm32"))]
