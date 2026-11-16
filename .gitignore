@@ -5,7 +5,9 @@
 /cache/
 /scores/
 /replays/
-/skins/
+/skins/*
+# the skin catalog the app downloads skins from
+!/skins/catalog.json
 *.db
 *.db-journal
 .DS_Store

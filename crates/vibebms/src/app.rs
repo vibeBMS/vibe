@@ -178,6 +178,8 @@ pub struct Ctx {
     pub song_fetch: crate::songfetch::SongFetch,
     /// Links for table songs whose own are missing or dead.
     pub links: crate::links::LinkLists,
+    /// The skin catalog and the skins downloaded from it.
+    pub skin_store: crate::skinstore::SkinStore,
     /// Custom options read from skin files (path -> options).
     skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
@@ -433,6 +435,18 @@ impl Ctx {
                 }
             }
         }
+        // skins downloaded
+        let skins = self.skin_store.poll(&self.paths);
+        for t in skins.toasts {
+            self.toast(t);
+        }
+        // (not the in-app browser: what it downloads goes to the library)
+        for p in &skins.pages {
+            crate::platform::open_url(p);
+        }
+        if skins.changed {
+            self.skins_changed();
+        }
         // a work's link that needs a person on its page
         if !pages.is_empty() {
             if IN_APP_BROWSER {
@@ -536,6 +550,12 @@ impl Ctx {
         if done {
             self.table_rx = None;
         }
+    }
+
+    /// Skins were added, replaced or deleted: what was read of them goes.
+    pub fn skins_changed(&mut self) {
+        self.skin_options_cache.borrow_mut().clear();
+        self.skin_offsets_cache.borrow_mut().clear();
     }
 
     /// Custom options of a skin file (cached).
@@ -660,13 +680,15 @@ pub fn run() {
         // the songs kept in the browser: mounted, then read as picked ones
         // (the first scan waits for them)
         let replays = crate::replay::dir(&app.paths.root);
+        let skins = app.paths.skins.clone();
         crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, move |n| {
             if n > 0 {
                 log::info!("library: {n} files kept in the browser");
             }
             crate::platform::vfs::mark_added();
-            // the replays are small: read now, ready when a play wants one
-            let _ = crate::platform::vfs::Prefetch::dirs(&[replays]);
+            // the replays are small: read now, ready when a play wants one;
+            // the skins downloaded: read now, as skins are read at once
+            let _ = crate::platform::vfs::Prefetch::dirs(&[replays, skins]);
         });
         event_loop.spawn_app(app);
     }
@@ -949,6 +971,7 @@ impl App {
             archives: Default::default(),
             song_fetch: Default::default(),
             links: Default::default(),
+            skin_store: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
         };
@@ -963,6 +986,8 @@ impl App {
         ctx.links.start(&ctx.paths.cache);
         ctx.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
         ctx.archives.refresh(false);
+        ctx.skin_store = crate::skinstore::SkinStore::load(&ctx.paths);
+        ctx.skin_store.refresh(false);
         // tests: open the download browser on this page at start
         #[cfg(not(target_arch = "wasm32"))]
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {

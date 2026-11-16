@@ -130,6 +130,12 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
   events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported.
+- **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS` lists the skins in
+  [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
+  downloads, unpacks and installs one into `skins/` from its author's own link (Google Drive, Dropbox, MEGA, GitHub,
+  plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
+  homepage and the terms its author states. The web build keeps them in the browser's storage, but cannot run Lua
+  skins and does not unpack skins over 400 MB.
 - A skin's custom options and offsets appear under it in `SETTINGS › DISPLAY`.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
