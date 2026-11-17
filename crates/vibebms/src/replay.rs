@@ -128,6 +128,29 @@ impl Replay {
     }
 }
 
+/// Why `r` cannot be a G-BATTLE opponent on `song` for a player in LN
+/// mode `ln` (`None`: it can). The opponent plays its inputs again on the
+/// second side, so the chart and the judge must come out as they did.
+pub fn ghost_refusal(
+    r: &Replay,
+    song: &crate::library::Song,
+    ln: vibebms_core::LnType,
+) -> Option<&'static str> {
+    Some(if !matches!(song.mode.as_str(), "7KEYS" | "5KEYS") {
+        "G-BATTLE needs a 5 or 7 key chart"
+    } else if r.play.battle {
+        "the replay is a BATTLE play"
+    } else if r.ops.is_empty() {
+        "the replay has no inputs"
+    } else if r.play.legacy_note {
+        "the replay is a LEGACY NOTE play"
+    } else if song.score_ln(r.play.ln_mode) != song.score_ln(ln) {
+        "the replay was played in another LN mode"
+    } else {
+        return None;
+    })
+}
+
 /// EX score of judgements (PG 2, GR 1).
 pub fn ex_of(judges: &[u8]) -> u32 {
     judges

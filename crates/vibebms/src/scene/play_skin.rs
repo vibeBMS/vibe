@@ -125,7 +125,7 @@ pub fn aspect(ctx: &Ctx, mode: PlayMode) -> f32 {
 /// Load the configured skin for this chart's mode, falling back to the
 /// built-in default when it is missing, broken or of another type.
 pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<LoadedSkin> {
-    let mode = scene.mode();
+    let mode = scene.skin_mode;
     let default = default_skin(
         mode,
         ctx.config.play.side == crate::config::Side::P2,
@@ -138,7 +138,11 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
         .get(mode.label())
         .cloned()
         .unwrap_or_default();
-    let configured = if value == PERSPECTIVE {
+    // (a battle's sides play on a flat skin)
+    let battle = scene.input_mode != scene.mode;
+    let configured = if value == PERSPECTIVE && battle {
+        None
+    } else if value == PERSPECTIVE {
         Some(perspective_skin(mode, ctx.portrait()))
     } else {
         configured_path(ctx, &value)
@@ -208,6 +212,20 @@ impl SceneState<'_> {
                 ..Pace::default()
             };
         };
+        // a battle: the target is the opponent, as it plays
+        if let Some(ex) = s.opponent_ex() {
+            let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
+            let best_now = match &s.best_ghost {
+                Some(g) => crate::replay::ex_of(&g[..(sc.passed as usize).min(g.len())]) as i64,
+                None => (best as f64 * done).round() as i64,
+            };
+            return Pace {
+                best,
+                target: ex,
+                best_now,
+                target_now: ex,
+            };
+        }
         let target = self.ctx.config.play.target.score(sc.max_ex(), best as u32) as i64;
         let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
         let at = |v: i64| (v as f64 * done).round() as i64;
@@ -253,7 +271,7 @@ impl SceneState<'_> {
         let s = self.s;
         let m = &s.chart.meta;
         let p = &self.ctx.config.play;
-        let mode = s.mode();
+        let mode = s.skin_mode;
         Some(match id {
             30 => true,
             31 => false,
@@ -387,8 +405,8 @@ impl SkinState for SceneState<'_> {
             40 => s.ready_at.map(|t| self.ms(t)),
             41 => s.ready_at.map(|_| self.ms(s.start)),
             // judge / combo 1P, 2P, 3P (the PMS middle region)
-            46 | 47 | 446 | 447 => s.last_judge[(id % 2 == 1) as usize].map(|j| self.ms(j.2)),
-            247 | 448 => s.last_judge[2].map(|j| self.ms(j.2)),
+            46 | 47 | 446 | 447 => s.last_judge((id % 2 == 1) as usize).map(|j| self.ms(j.2)),
+            247 | 448 => s.last_judge(2).map(|j| self.ms(j.2)),
             2 | 3 => s.ending_at().map(|t| self.ms(t)),
             44 => self
                 .engine()
@@ -440,7 +458,7 @@ impl SkinState for SceneState<'_> {
                 let lane = lane_from_lr2(s.mode(), id - 500)?;
                 s.lane_judge.get(lane).copied().flatten().map(|j| j as i64)
             }
-            520 | 521 => s.last_judge[(id - 520) as usize].map(|j| j.0 as i64),
+            520 | 521 => s.last_judge((id - 520) as usize).map(|j| j.0 as i64),
             40 => self
                 .engine()
                 .map(|e| super::skinned::gauge_index(e.gauge.current_type())),
@@ -637,7 +655,7 @@ impl SkinState for SceneState<'_> {
                 rate(self.pace().target as f64 / max) % 100
             }
             // timing of the last judgement (ms, + = early as in beatoraja)
-            525 | 526 => s.last_judge[(id - 525) as usize]?.1 / 1000,
+            525 | 526 => s.last_judge((id - 525) as usize)?.1 / 1000,
             160 => s
                 .chart
                 .timing
@@ -1127,7 +1145,8 @@ impl Hooks for SceneHooks<'_> {
     }
 
     fn judge(&self, side: usize) -> Option<(usize, u32)> {
-        self.st.s.last_judge[side.min(2)].map(|j| (j.0, j.3))
+        let s = self.st.s;
+        s.last_judge(side).map(|j| (j.0, j.3))
     }
 }
 

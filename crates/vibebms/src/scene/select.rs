@@ -1,7 +1,7 @@
 //! Song select: folders, difficulty tables, courses, search, options.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::config::{Bpms, HsFix};
+use crate::config::{Bpms, HsFix, Versus};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
@@ -604,6 +604,7 @@ impl SelectScene {
                 autoplay: false,
                 course: None,
                 replay: Some(std::sync::Arc::new(r)),
+                vs: None,
             },
         )))
     }
@@ -630,6 +631,20 @@ impl SelectScene {
             }
             Some(Bar::Song(i)) => {
                 let song = ctx.songs[i].clone();
+                // G-BATTLE: the opponent's replay, if it can be one
+                let slot = match ctx.config.play.versus {
+                    Versus::GhostBest => Some(crate::replay::Slot::Best),
+                    Versus::GhostLast => Some(crate::replay::Slot::Last),
+                    _ => None,
+                };
+                let vs = match slot.map(|s| super::play::ghost_for(ctx, &song, s).map(|r| (r, s))) {
+                    Some(Ok((r, s))) => Some(super::play::Versus::Ghost(r, s)),
+                    Some(Err(e)) => {
+                        ctx.toast(e);
+                        return Next::Stay;
+                    }
+                    None => None,
+                };
                 ctx.mixer.stop(PREVIEW_KEY);
                 self.preview_for = None;
                 self.stop_bgm(ctx);
@@ -638,6 +653,7 @@ impl SelectScene {
                     autoplay: autoplay || ctx.config.play.autoplay,
                     course: None,
                     replay: None,
+                    vs,
                 };
                 Next::Push(super::decide::start(ctx, req))
             }
@@ -780,6 +796,7 @@ impl SelectScene {
                     autoplay: autoplay || ctx.config.play.autoplay,
                     course: Some(run),
                     replay: None,
+                    vs: None,
                 };
                 Next::Push(super::decide::start(ctx, req))
             }
@@ -812,6 +829,14 @@ impl SelectScene {
             7 => p.judge_preset = cycle(&JudgePreset::ALL, p.judge_preset),
             8 => p.autoplay = !p.autoplay,
             9 => return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx))),
+            10 => {
+                // OFF, BATTLE, BATTLE AS, G-BATTLE (MY BEST, LAST), VS
+                let all = super::option_panel::battle_choices(false);
+                let row: Vec<i64> = all.iter().copied().filter(|i| *i != 1).collect();
+                let label = super::option_panel::step_battle(p, &row, 1);
+                // (skins other than the default show no such row)
+                ctx.toast(format!("BATTLE: {label}"));
+            }
             _ => {}
         }
         ctx.play_sound(Sound::OptionChange);
@@ -849,6 +874,18 @@ impl SelectScene {
                 if p.autoplay { "ON" } else { "OFF" }.into(),
             ),
             ("SETTINGS".into(), "OPEN".into()),
+            (
+                "BATTLE".into(),
+                match super::option_panel::battle_index(p) {
+                    2 => "BATTLE",
+                    3 => "BATTLE AS",
+                    4 => "G-BEST",
+                    5 => "G-LAST",
+                    6 => "VS",
+                    _ => "OFF",
+                }
+                .into(),
+            ),
         ]
     }
 
@@ -1436,6 +1473,7 @@ impl Scene for SelectScene {
                     KeyCode::F7 => return self.option(ctx, 4),
                     KeyCode::F8 => return self.option(ctx, 5),
                     KeyCode::F9 => return self.option(ctx, 7),
+                    KeyCode::F1 => return self.option(ctx, 10),
                     #[cfg(target_arch = "wasm32")]
                     KeyCode::Delete => {
                         self.delete_kept(ctx);

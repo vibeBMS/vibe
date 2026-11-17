@@ -991,6 +991,15 @@ end
             "rate_best",
             s.create_function(move |_, ()| Ok(num(150) as f64 / notes()))?,
         )?;
+        // the rival: the target (a battle's opponent)
+        vb.set(
+            "exscore_rival",
+            s.create_function(move |_, ()| Ok(num(121)))?,
+        )?;
+        vb.set(
+            "rate_rival",
+            s.create_function(move |_, ()| Ok(num(121) as f64 / notes()))?,
+        )?;
         vb.set("gauge", s.create_function(move |_, ()| Ok(num(107)))?)?;
         vb.set(
             "judge",

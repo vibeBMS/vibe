@@ -61,6 +61,42 @@ pub struct PlayRequest {
     /// Watch this replay (its options and seed make the chart and the rules;
     /// the keys do nothing but START / SELECT).
     pub replay: Option<Arc<Replay>>,
+    /// An opponent on the second side.
+    pub vs: Option<Versus>,
+}
+
+/// The chart's replay `slot` as a G-BATTLE opponent, or why it cannot be
+/// one.
+pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Arc<Replay>, String> {
+    let ln = ctx.config.play.ln_mode;
+    let r = Replay::load_filed(
+        &ctx.paths.root,
+        &song.sha256,
+        song.score_ln(ln) as i32,
+        song.fixed_ln(),
+        slot,
+    )
+    .ok_or_else(|| {
+        let which = match slot {
+            crate::replay::Slot::Best => "MY BEST",
+            crate::replay::Slot::Last => "LAST",
+        };
+        format!("G-BATTLE: no {which} replay of {}", song.title)
+    })?;
+    match crate::replay::ghost_refusal(&r, song, ln) {
+        Some(why) => Err(format!("G-BATTLE: {why}")),
+        None => Ok(Arc::new(r)),
+    }
+}
+
+/// Who plays the second side of a battle.
+#[derive(Clone, Debug)]
+pub enum Versus {
+    /// A second player here (VS).
+    Local,
+    /// G-BATTLE: a replay of the chart (its seed and lane option make the
+    /// chart; its inputs play again on the second side), and which.
+    Ghost(Arc<Replay>, crate::replay::Slot),
 }
 
 type Rgba = (u32, u32, Vec<u8>);
@@ -122,7 +158,14 @@ pub struct PlayScene {
     pub(crate) next_sample: i64,
     pub(crate) lane_notes: Vec<Vec<usize>>,
     pub(crate) lane_cursor: Vec<usize>,
+    /// The chart's mode (its lanes).
     pub(crate) mode: PlayMode,
+    /// The mode the play skin is for (G-BATTLE on a phone held upright: the
+    /// single play skin, the opponent only in numbers).
+    pub(crate) skin_mode: PlayMode,
+    /// The mode the keys and touch controls play (G-BATTLE: the single
+    /// play chart's, the player on the first side).
+    pub(crate) input_mode: PlayMode,
     pub(crate) ln: LnType,
     /// The LN mode the play is filed under (`LnProfile::score_ln`).
     pub(crate) score_ln: LnType,
@@ -163,6 +206,10 @@ pub(crate) enum Role {
     Player,
     /// A replay being watched.
     Replay(Feed),
+    /// G-BATTLE's opponent: a replay of the chart played again, silent.
+    /// `desync`: its judgements went other than the replay's (another
+    /// version judged it): its replay's EX score is shown instead.
+    Ghost { feed: Feed, desync: bool },
 }
 
 /// Replay ops going into a judge as the chart plays.
@@ -212,6 +259,25 @@ impl SideState {
     fn player(&self) -> bool {
         matches!(self.role, Role::Player)
     }
+
+    fn ghost(&self) -> bool {
+        matches!(self.role, Role::Ghost { .. })
+    }
+}
+
+/// The single play mode of a double play mode (a battle chart's side).
+pub(crate) fn single_mode(mode: PlayMode) -> PlayMode {
+    match mode {
+        PlayMode::Beat14K => PlayMode::Beat7K,
+        PlayMode::Beat10K => PlayMode::Beat5K,
+        m => m,
+    }
+}
+
+/// The screen has room for both sides of a battle: not a phone held
+/// upright (narrower than 15 cm).
+pub(crate) fn battle_skin_fits(ctx: &Ctx) -> bool {
+    !(ctx.portrait() && ctx.width / ctx.px_per_mm().max(0.1) < 150.0)
 }
 
 /// The gauge graph's samples (every 500 ms) with the gauge as the play
@@ -332,6 +398,43 @@ pub(crate) fn load_chart(
     Ok((chart, facts, ln_profile))
 }
 
+/// G-BATTLE's chart: the single play chart read with the opponent's seed
+/// and arranged by its lane option, on both sides (as LR2 lends a ghost's
+/// random); each side's LEGACY NOTE and NO MINE apply to its own lanes.
+/// What the player's options did (the player's side is a single play).
+pub(crate) fn load_battle_chart(
+    path: &Path,
+    bytes: &[u8],
+    mine: &PlayConfig,
+    theirs: &PlayConfig,
+    seed: i64,
+) -> Result<(Chart, AssistFacts, vibebms_core::LnProfile), String> {
+    let p = PlayConfig {
+        random_1p: theirs.random_1p,
+        battle: false,
+        legacy_note: false,
+        no_mine: false,
+        ..mine.clone()
+    };
+    let (mut chart, mut facts, ln_profile) = load_chart(path, bytes, &p, seed, None)?;
+    if chart.mode().is_double() || chart.mode() == PlayMode::Popn9K {
+        return Err("G-BATTLE needs a 5 or 7 key chart".into());
+    }
+    lane_option::battle(&mut chart);
+    if mine.legacy_note {
+        facts.legacy_note = chart.meta.has_long;
+        lane_option::legacy_note_of(&mut chart, Some(0));
+    }
+    for (player, no_mine) in [(0, mine.no_mine), (1, theirs.no_mine)] {
+        if no_mine {
+            let n = chart.notes.len();
+            lane_option::remove_mines_of(&mut chart, Some(player));
+            facts.no_mine |= player == 0 && chart.notes.len() != n;
+        }
+    }
+    Ok((chart, facts, ln_profile))
+}
+
 /// What judges a side: the play options' rules, as a course may change
 /// them.
 #[derive(Clone, Debug)]
@@ -401,7 +504,12 @@ impl PlayScene {
             .replay
             .as_ref()
             .map_or_else(|| ctx.config.play.clone(), |r| r.play.clone());
-        let replay_seed = req.replay.as_ref().map(|r| r.seed);
+        // G-BATTLE: the opponent's seed and lane option make the chart
+        let ghost = match &req.vs {
+            Some(Versus::Ghost(g, _)) => Some(g.clone()),
+            _ => None,
+        };
+        let replay_seed = req.replay.as_ref().or(ghost.as_ref()).map(|r| r.seed);
         let play_ln = play.ln_mode;
         let rate = ctx.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
@@ -422,7 +530,10 @@ impl PlayScene {
                 });
                 let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
                 let lanes = in_course.then_some(course_mirror);
-                let (chart, facts, ln_profile) = load_chart(&path, &bytes, &play, seed, lanes)?;
+                let (chart, facts, ln_profile) = match &ghost {
+                    Some(g) => load_battle_chart(&path, &bytes, &play, &g.play, seed)?,
+                    None => load_chart(&path, &bytes, &play, seed, lanes)?,
+                };
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
                 let resolve = |name: &str| {
@@ -497,6 +608,8 @@ impl PlayScene {
             lane_notes: Vec::new(),
             lane_cursor: Vec::new(),
             mode,
+            skin_mode: mode,
+            input_mode: mode,
             ln: play_ln,
             score_ln: LnType::Ln,
             total: 0.0,
@@ -607,6 +720,19 @@ impl PlayScene {
         } = *l;
         self.seed = seed;
         self.mode = chart.mode();
+        let ghost = match &self.req.vs {
+            Some(Versus::Ghost(g, _)) => Some(g.clone()),
+            _ => None,
+        };
+        // G-BATTLE: the player plays the first side as a single play
+        self.input_mode = match ghost {
+            Some(_) => single_mode(self.mode),
+            None => self.mode,
+        };
+        self.skin_mode = match ghost {
+            Some(_) if !battle_skin_fits(ctx) => self.input_mode,
+            _ => self.mode,
+        };
         let replay_play = self.req.replay.as_ref().map(|r| r.play.clone());
         let p = replay_play.as_ref().unwrap_or(&ctx.config.play);
         let course = self.req.course.as_ref();
@@ -647,7 +773,9 @@ impl PlayScene {
                 .iter()
                 .any(|n| n.is_playable() && self.mode.is_scratch(n.lane as usize));
         self.assist = facts.level();
-        let (mut engine, total) = make_engine(&chart, &rules, None);
+        // G-BATTLE: the player judges the first side alone
+        let side = ghost.as_ref().map(|_| 0);
+        let (mut engine, total) = make_engine(&chart, &rules, side);
         self.total = total;
         if let Some(v) = course.and_then(|c| c.gauge_values.as_ref()) {
             engine.gauge.set_values(v);
@@ -677,6 +805,21 @@ impl PlayScene {
             role,
             gauge_log: Vec::new(),
         }];
+        // the opponent: its replay's own rules on the second side
+        if let Some(g) = &ghost {
+            let mut r = Rules::of(&g.play);
+            r.autoplay = false;
+            let (engine, _) = make_engine(&chart, &r, Some(1));
+            let lpp = self.input_mode.lanes_per_player() as u8;
+            self.sides.push(SideState {
+                engine,
+                role: Role::Ghost {
+                    feed: Feed::new(g.clone(), lpp),
+                    desync: false,
+                },
+                gauge_log: Vec::new(),
+            });
+        }
         // each lane's notes in its judge
         let mut lane_notes = vec![Vec::new(); lanes];
         for side in &self.sides {
@@ -690,18 +833,25 @@ impl PlayScene {
         self.key_off = vec![None; lanes];
         self.bomb_at = vec![None; lanes];
         self.lane_judge = vec![None; lanes];
-        // keysounds of auto lanes are scheduled ahead like BGM for exact timing
+        // keysounds of auto lanes are scheduled ahead like BGM for exact
+        // timing (the players' lanes: an opponent is silent)
+        let heard = |lane: usize| {
+            self.sides
+                .iter()
+                .any(|s| !s.ghost() && s.engine.judges(lane as u8))
+        };
         self.auto_notes = chart
             .notes
             .iter()
             .filter(|n| {
                 auto_lanes.get(n.lane as usize).copied().unwrap_or(false)
+                    && heard(n.lane as usize)
                     && n.is_playable()
                     && n.sound != NO_SOUND
             })
             .map(|n| (n.time, n.sound))
             .collect();
-        self.mapper = Some(LaneMapper::new(&ctx.config.keys, self.mode));
+        self.mapper = Some(LaneMapper::new(&ctx.config.keys, self.input_mode));
         self.bga_tex = images
             .into_iter()
             .map(|i| i.map(|(w, h, px)| gfx.create_texture(w, h, &px)))
@@ -717,9 +867,14 @@ impl PlayScene {
         if let Some((w, h, px)) = stagefile {
             self.stage_tex = Some(gfx.create_texture(w, h, &px));
         }
-        let mut opts = vec![p.random_1p.label().to_string()];
-        if self.mode.is_double() {
+        // (G-BATTLE: the opponent's lane option)
+        let random_1p = ghost.as_ref().map_or(p.random_1p, |g| g.play.random_1p);
+        let mut opts = vec![random_1p.label().to_string()];
+        if self.input_mode.is_double() {
             opts.push(p.random_2p.label().to_string());
+        }
+        if ghost.is_some() {
+            opts.push("G-BATTLE".into());
         }
         if p.auto_scratch {
             opts.push("AUTO-SCR".into());
@@ -816,8 +971,10 @@ impl PlayScene {
     /// the keys they press lit.
     fn run_feeds(&mut self, t: i64, now: Instant) {
         for side in &mut self.sides {
-            let Role::Replay(f) = &mut side.role else {
-                continue;
+            let (f, desync) = match &mut side.role {
+                Role::Player => continue,
+                Role::Replay(f) => (f, None),
+                Role::Ghost { feed, desync } => (feed, Some(desync)),
             };
             let (flash, off) = (&mut self.key_flash, &mut self.key_off);
             f.run(&mut side.engine, t, |lane, pressed| {
@@ -826,6 +983,15 @@ impl PlayScene {
                     *f = Some(now);
                 }
             });
+            // an opponent that judges other than its replay did
+            if let Some(d) = desync.filter(|d| !**d) {
+                let (e, r) = (&side.engine, &f.replay);
+                let done = f.at >= r.ops.len();
+                *d = !r.ghost.starts_with(&e.ghost) || (done && e.score.ex_score() != r.ex_score);
+                if *d {
+                    log::warn!("G-BATTLE: the opponent's replay went out of step");
+                }
+            }
         }
     }
 
@@ -907,7 +1073,7 @@ impl PlayScene {
         let t = &ctx.config.touch;
         let area = touch::controls_area(ctx.width, ctx.height, t);
         let side2 = ctx.config.play.side == Side::P2;
-        touch::player_areas(self.mode, area, t, side2, ctx.px_per_mm())
+        touch::player_areas(self.input_mode, area, t, side2, ctx.px_per_mm())
     }
 
     /// Where the play skin goes (above the touch controls) and, with touch
@@ -930,7 +1096,8 @@ impl PlayScene {
             };
             let xf = crate::skin::render::Xf::fit(sk.skin.width, sk.skin.height, screen);
             let side2 = ctx.config.play.side == Side::P2;
-            let right = touch::system_right(&ctx.config.touch, self.mode, side2, ctx.portrait());
+            let right =
+                touch::system_right(&ctx.config.touch, self.input_mode, side2, ctx.portrait());
             let b = crate::perspective::system_buttons(sk.skin.width, sk.skin.height, right);
             let zone = |lane, [x, y, w, h]: [f32; 4]| touch::Zone {
                 shape: touch::Shape::Rect(xf.rect(Rect::new(x, y, w, h))),
@@ -953,7 +1120,7 @@ impl PlayScene {
             .map(|s| s.skin.width / s.skin.height.max(1.0))
             .unwrap_or(16.0 / 9.0);
         let side2 = ctx.config.play.side == Side::P2;
-        let right = touch::system_right(&ctx.config.touch, self.mode, side2, ctx.portrait());
+        let right = touch::system_right(&ctx.config.touch, self.input_mode, side2, ctx.portrait());
         let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm(), right);
         (view, Some(buttons))
     }
@@ -975,11 +1142,11 @@ impl PlayScene {
             let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
             let fans = self.persp_fans(ctx, view);
             let top = self.persp_touch_top(ctx, &fans, view);
-            self.zones = touch::fan_zones(self.mode, &fans, top);
+            self.zones = touch::fan_zones(self.input_mode, &fans, top);
         }
         if !areas.is_empty() {
             self.zones = touch::zones(
-                self.mode,
+                self.input_mode,
                 &ctx.config.touch,
                 touch::controls_area(ctx.width, ctx.height, &ctx.config.touch),
                 ctx.config.play.side == Side::P2,
@@ -1035,7 +1202,7 @@ impl PlayScene {
             subtitle: self.chart.meta.subtitle.clone(),
             artist: self.chart.meta.artist.clone(),
             level: self.chart.meta.level.clone(),
-            mode: self.mode,
+            mode: self.input_mode,
             ln: self.score_ln,
             score,
             clear,
@@ -1045,7 +1212,7 @@ impl PlayScene {
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
-            notes_graph: super::graphs::columns(e.notes(), self.mode, self.chart.length()),
+            notes_graph: super::graphs::columns(e.notes(), self.input_mode, self.chart.length()),
             meta: self.chart.meta.clone(),
             length_us: self.chart.length(),
             bpm_log: self
@@ -1066,6 +1233,7 @@ impl PlayScene {
             ),
             seed: self.seed,
             course,
+            p2: self.opponent_result(),
             replay: (!e.recorded().is_empty()).then(|| Replay {
                 version: crate::replay::VERSION,
                 sha256: self.req.song.sha256.clone(),
@@ -1074,7 +1242,7 @@ impl PlayScene {
                 ln: self.score_ln as i32,
                 date: crate::platform::unix_now() as i64,
                 seed: self.seed,
-                play: ctx.config.play.clone(),
+                play: self.played(ctx),
                 ex_score: e.score.ex_score(),
                 clear: clear.label().to_string(),
                 ghost: e.ghost.clone(),
@@ -1082,6 +1250,88 @@ impl PlayScene {
             }),
         };
         Next::Replace(Box::new(ResultScene::new(ctx, data)))
+    }
+
+    /// The play options as they made this play (a replay's): G-BATTLE
+    /// borrowed the opponent's lane option for a single play.
+    fn played(&self, ctx: &Ctx) -> PlayConfig {
+        let mut p = ctx.config.play.clone();
+        if let Some(Versus::Ghost(g, _)) = &self.req.vs {
+            p.random_1p = g.play.random_1p;
+            p.battle = false;
+        }
+        p
+    }
+
+    /// The second side's results (G-BATTLE's opponent).
+    fn opponent_result(&self) -> Option<crate::scene::result::SideResult> {
+        let side = self.sides.get(1)?;
+        let e = &side.engine;
+        let (name, desync) = match (&side.role, &self.req.vs) {
+            (Role::Ghost { desync, .. }, Some(Versus::Ghost(_, slot))) => {
+                let name = match slot {
+                    crate::replay::Slot::Best => "MY BEST",
+                    crate::replay::Slot::Last => "LAST",
+                };
+                (name.to_string(), *desync)
+            }
+            _ => ("2P".to_string(), false),
+        };
+        let gauge = &e.gauge;
+        let gauge_clear =
+            if e.is_failed() && gauge.auto_shift != vibebms_core::gauge::GaugeAutoShift::Continue {
+                None
+            } else {
+                gauge.final_clear_gauge().map(|g| g.clear_type())
+            };
+        let mut score = e.score.clone();
+        score.passed = score.passed.min(score.total_notes);
+        let ex = match (&self.req.vs, desync) {
+            (Some(Versus::Ghost(g, _)), true) => g.ex_score,
+            _ => score.ex_score(),
+        };
+        Some(crate::scene::result::SideResult {
+            name,
+            clear: score.clear_type(gauge_clear, Assist::None),
+            score,
+            ex,
+            desync,
+            gauge_type: gauge.current_type(),
+            gauge_value: gauge.value(),
+            gauge_log: settled_log(&side.gauge_log, gauge.value()),
+            timing_log: e.timing_log.clone(),
+            judge_log: e.judge_log.clone(),
+        })
+    }
+
+    /// The last judgement of a judge region as the skin shows it: a
+    /// single play skin over a battle (a phone held upright) has the
+    /// player's alone, never the opponent's.
+    pub(crate) fn last_judge(&self, region: usize) -> Option<(usize, i64, Instant, u32)> {
+        if region > 0 && self.skin_mode.players() < self.mode.players() {
+            return None;
+        }
+        self.last_judge[region.min(2)]
+    }
+
+    /// The opponent's EX score now: its judge's, or once a G-BATTLE
+    /// replay went out of step, its replay's at the player's note.
+    pub(crate) fn opponent_ex(&self) -> Option<i64> {
+        let side = self.sides.get(1)?;
+        Some(match &side.role {
+            Role::Ghost { feed, desync: true } => {
+                let passed = self.engine().map_or(0, |e| e.score.passed as usize);
+                feed.replay.ex_at(passed) as i64
+            }
+            _ => side.engine.score.ex_score() as i64,
+        })
+    }
+
+    /// G-BATTLE's opponent went out of step with its replay.
+    pub(crate) fn ghost_desync(&self) -> bool {
+        self.sides
+            .iter()
+            .any(|s| matches!(s.role, Role::Ghost { desync: true, .. }))
     }
 
     /// START / SELECT and what they do to the keys: `true` when the event
@@ -1264,7 +1514,7 @@ impl Scene for PlayScene {
         let sample = t >= self.next_sample;
         let mut finished = true;
         for (k, side) in self.sides.iter_mut().enumerate() {
-            let player = side.player();
+            let (player, ghost) = (side.player(), side.ghost());
             let engine = &mut side.engine;
             if player {
                 engine.update(t - offset);
@@ -1278,7 +1528,7 @@ impl Scene for PlayScene {
             if sample {
                 side.gauge_log.push(engine.gauge.value());
             }
-            finished &= engine.is_finished(t - offset);
+            finished &= ghost || engine.is_finished(t - offset);
         }
         if sample {
             // every 500 ms of play time, like beatoraja
@@ -1291,7 +1541,11 @@ impl Scene for PlayScene {
         let mut failed = false;
         for (k, ev) in events {
             let auto = &autos[k];
+            let ghost = self.sides[k].ghost();
             match ev {
+                // the opponent is silent, its failing ends nothing
+                EngineEvent::Sound { .. } | EngineEvent::Volume { .. } | EngineEvent::Failed
+                    if ghost => {}
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } => {
                     self.sound_event(ctx, ev, auto)
                 }
@@ -1308,6 +1562,7 @@ impl Scene for PlayScene {
                     // move the timing a ms per 30 ms off (diff > 0: early)
                     let p = &mut ctx.config.play;
                     if p.timing_auto_adjust
+                        && k == 0
                         && !auto.get(lane as usize).copied().unwrap_or(true)
                         && judge <= GOOD
                         && diff.abs() <= 150_000
@@ -1334,7 +1589,7 @@ impl Scene for PlayScene {
                     }
                     // the POOR BGA: a judgement that leaves no combo
                     // (beatoraja; an empty POOR in 7KEYS keeps the combo)
-                    if combo == 0 {
+                    if combo == 0 && !ghost {
                         self.poor_until = Some(now + Duration::from_millis(500));
                     }
                 }
@@ -1624,8 +1879,8 @@ impl PlayScene {
             return Vec::new();
         };
         let xf = crate::skin::render::Xf::fit(sk.skin.width, sk.skin.height, view);
-        let lpp = self.mode.lanes_per_player();
-        (0..self.mode.players())
+        let lpp = self.skin_mode.lanes_per_player();
+        (0..self.skin_mode.players())
             .filter_map(|p| {
                 sk.skin.lanes[p * lpp..((p + 1) * lpp).min(sk.skin.lanes.len())]
                     .iter()
@@ -1821,6 +2076,17 @@ impl PlayScene {
         }
         if self.ctl.open() && !self.skin_panel {
             self.draw_panel(ctx, d, view, now);
+        }
+        if self.ghost_desync() {
+            let ui = ctx.ui();
+            d.text(
+                "GHOST DESYNC",
+                view.x + view.w * 0.5,
+                view.y + 8.0 * ui,
+                16.0 * ui,
+                theme::ACCENT,
+                Align::Center,
+            );
         }
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
@@ -2082,6 +2348,183 @@ mod tests {
             panic!("digests: {got:x?}");
         }
         assert_eq!(got, want);
+    }
+
+    /// G-BATTLE: a replay made on the single play chart plays again as the
+    /// opponent on the battle chart's second side, judging the same; the
+    /// player's side judges as the single play chart with the opponent's
+    /// lane option (what the player's replay keeps).
+    #[test]
+    fn a_replay_plays_again_as_the_opponent() {
+        let d = PlayConfig::default;
+        let cases: Vec<(usize, PlayConfig, PlayConfig)> = vec![
+            (7, d(), d()),
+            (
+                7,
+                PlayConfig {
+                    random_1p: LaneOption::SRandom,
+                    ln_mode: LnType::Cn,
+                    auto_scratch: true,
+                    ..d()
+                },
+                PlayConfig {
+                    no_mine: true,
+                    gauge: GaugeType::Hard,
+                    ..d()
+                },
+            ),
+            (
+                5,
+                PlayConfig {
+                    random_1p: LaneOption::HRandom,
+                    ln_mode: LnType::Hcn,
+                    no_mine: true,
+                    judge_preset: JudgePreset::Lr2,
+                    ..d()
+                },
+                PlayConfig {
+                    random_1p: LaneOption::Mirror,
+                    legacy_note: true,
+                    judge_preset: JudgePreset::Iidx,
+                    ..d()
+                },
+            ),
+        ];
+        for (keys, theirs, mine) in cases {
+            let text = bot::chart_text(keys, 11);
+            let path = Path::new("song/chart.bme");
+            let seed = 777;
+            // the opponent's play
+            let (sp, _, _) = load_chart(path, text.as_bytes(), &theirs, seed, None).unwrap();
+            let (mut e, _) = make_engine(&sp, &Rules::of(&theirs), None);
+            e.record();
+            bot::drive(&mut e, &bot::inputs(&sp, None, 5), sp.length() + 2_000_000);
+            let r = Arc::new(Replay {
+                version: crate::replay::VERSION,
+                sha256: String::new(),
+                md5: String::new(),
+                title: String::new(),
+                ln: 0,
+                date: 0,
+                seed,
+                play: theirs.clone(),
+                ex_score: e.score.ex_score(),
+                clear: String::new(),
+                ghost: e.ghost.clone(),
+                ops: e.recorded().to_vec(),
+            });
+            // the battle
+            let (bt, facts, _) =
+                load_battle_chart(path, text.as_bytes(), &mine, &theirs, seed).unwrap();
+            assert!(!facts.battle);
+            assert_eq!(facts.lane, vec![theirs.random_1p]);
+            let lpp = bt.mode().lanes_per_player() as u8;
+            let (mut g, _) = make_engine(&bt, &Rules::of(&theirs), Some(1));
+            let mut feed = Feed::new(r.clone(), lpp);
+            let mut t = -1_500_000;
+            let mut lit = 0;
+            while feed.at < r.ops.len() {
+                feed.run(&mut g, t, |lane, _| {
+                    assert!(lane >= lpp);
+                    lit += 1;
+                });
+                t += 16_667;
+            }
+            assert!(lit > 100);
+            assert_eq!(g.ghost, r.ghost);
+            assert_eq!(digest(&g), digest(&e), "{keys}K opponent");
+            // the player's side and the player's replay
+            let (mut me, _) = make_engine(&bt, &Rules::of(&mine), Some(0));
+            let mut played = mine.clone();
+            played.random_1p = theirs.random_1p;
+            let (solo, _, _) = load_chart(path, text.as_bytes(), &played, seed, None).unwrap();
+            let (mut alone, _) = make_engine(&solo, &Rules::of(&played), None);
+            let inputs = bot::inputs(&solo, None, 8);
+            bot::drive(&mut me, &inputs, solo.length() + 2_000_000);
+            bot::drive(&mut alone, &inputs, solo.length() + 2_000_000);
+            assert_eq!(digest(&me), digest(&alone), "{keys}K player");
+        }
+    }
+
+    /// For trying G-BATTLE by hand: the test bot plays a chart and its
+    /// replay becomes the chart's best and latest.
+    /// `VIBEBMS_BOT_CHART=<chart> VIBEBMS_BOT_ROOT=<data folder> cargo test
+    /// -p vibebms bot_replay -- --ignored`
+    #[test]
+    #[ignore]
+    fn bot_replay() {
+        let chart = std::env::var("VIBEBMS_BOT_CHART").unwrap();
+        let root = std::path::PathBuf::from(std::env::var("VIBEBMS_BOT_ROOT").unwrap());
+        let path = Path::new(&chart);
+        let bytes = std::fs::read(path).unwrap();
+        let c = vibebms_core::load_chart_bytes(path, &bytes, &Default::default()).unwrap();
+        let song = crate::library::song_from_chart(path, String::new(), &c);
+        let play = PlayConfig {
+            random_1p: LaneOption::Random,
+            ..PlayConfig::default()
+        };
+        let seed = 31337;
+        let (c, _, prof) = load_chart(path, &bytes, &play, seed, None).unwrap();
+        let (mut e, _) = make_engine(&c, &Rules::of(&play), None);
+        e.record();
+        bot::drive(&mut e, &bot::inputs(&c, None, 3), c.length() + 2_000_000);
+        let r = Replay {
+            version: crate::replay::VERSION,
+            sha256: song.sha256.clone(),
+            md5: song.md5.clone(),
+            title: song.title.clone(),
+            ln: prof.score_ln(play.ln_mode) as i32,
+            date: 0,
+            seed,
+            play,
+            ex_score: e.score.ex_score(),
+            clear: "CLEAR".into(),
+            ghost: e.ghost.clone(),
+            ops: e.recorded().to_vec(),
+        };
+        r.save(&root, crate::replay::Slot::Best).unwrap();
+        r.save(&root, crate::replay::Slot::Last).unwrap();
+        println!("EX {} of {}", r.ex_score, e.score.max_ex());
+    }
+
+    #[test]
+    fn only_fitting_replays_are_opponents() {
+        use crate::replay::ghost_refusal;
+        let song = crate::library::Song {
+            mode: "7KEYS".into(),
+            has_ln: true,
+            ..Default::default()
+        };
+        let r = Replay {
+            version: crate::replay::VERSION,
+            sha256: String::new(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 0,
+            seed: 1,
+            play: PlayConfig::default(),
+            ex_score: 0,
+            clear: String::new(),
+            ghost: Vec::new(),
+            ops: vec![Op::Update(0)],
+        };
+        assert_eq!(ghost_refusal(&r, &song, LnType::Ln), None);
+        assert!(ghost_refusal(&r, &song, LnType::Cn).is_some());
+        let bad = |f: fn(&mut Replay)| {
+            let mut x = r.clone();
+            f(&mut x);
+            ghost_refusal(&x, &song, LnType::Ln).is_some()
+        };
+        assert!(bad(|r| r.play.battle = true));
+        assert!(bad(|r| r.play.legacy_note = true));
+        assert!(bad(|r| r.ops.clear()));
+        assert!(bad(|r| r.play.ln_mode = LnType::Hcn));
+        let dp = crate::library::Song {
+            mode: "14KEYS".into(),
+            ..song.clone()
+        };
+        assert!(ghost_refusal(&r, &dp, LnType::Ln).is_some());
     }
 
     #[test]

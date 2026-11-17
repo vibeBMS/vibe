@@ -614,7 +614,8 @@ RANDOM_LABELS = ["OFF", "MIRROR", "RANDOM", "R-RANDOM", "S-RANDOM", "SPIRAL", "H
 PANEL1 = [  # title, keys, group, values, accent
     ("RANDOM", "1 ▼   2 ▲", 0, RANDOM_LABELS, TEAL),
     ("GAUGE", "3", 1, ["ASSIST EASY", "EASY", "NORMAL", "HARD", "EX-HARD", "HAZARD"], (120, 230, 90)),
-    ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE"], RED),
+    ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE", "BATTLE AS", "G-BATTLE BEST",
+                           "G-BATTLE LAST", "VS"], RED),
     ("HS-FIX", "5", 3, ["OFF", "START BPM", "MAX BPM", "MAIN BPM", "MIN BPM"], (180, 120, 255)),
     ("RANDOM 2P", "6 ▲   7 ▼", 4, RANDOM_LABELS, TEAL),
     ("TARGET", "TURNTABLE", 5, ["RANK A-", "RANK A", "RANK A+", "RANK AA-", "RANK AA", "RANK AA+",
@@ -2289,17 +2290,17 @@ def select_layout(fonts, parts, portrait=False):
         sk.put(sk.img(key), 30, y_, w_, h_, op=[2, -5])
     # options: clickable buttons (vibeBMS option ids 9000 + i)
     panel(img, (16, 506, 660, 154), "OPTIONS", f)
-    for i in range(10):
-        bx, by = 26 + (i % 5) * 130, 530 + (i // 5) * 64
+    for i in range(11):
+        bx, by = 22 + (i % 6) * 109, 530 + (i // 6) * 64
         bid = f"optbtn{i}"
         if bid not in sk._ids:
             sk._ids.add(bid)
             x_, y_, w_, h_ = parts.items["optbtn"]
             sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
                                   "act": 9000 + i})
-        sk.put(bid, bx, by, 124, 60)
-        sk.label_text(9100 + i, bx + 6, by + 8, 112, 12, align=1, color=DIM)
-        sk.label_text(9000 + i, bx + 6, by + 28, 112, 20, align=1)
+        sk.put(bid, bx, by, 104, 60)
+        sk.label_text(9100 + i, bx + 5, by + 8, 94, 12, align=1, color=DIM)
+        sk.label_text(9000 + i, bx + 5, by + 28, 94, 20, align=1)
     # footer
     panel(img, (16, 668, 660, 40))
     bw_, bh_ = parts.items["btn_back"][2:]

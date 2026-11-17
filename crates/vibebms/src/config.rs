@@ -21,6 +21,20 @@ pub enum Side {
     P2,
 }
 
+/// The battles chosen in song select that are not play options: they
+/// last until the game closes (never saved).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Versus {
+    #[default]
+    Off,
+    /// G-BATTLE against your MY BEST replay of the chart.
+    GhostBest,
+    /// G-BATTLE against your latest replay of the chart.
+    GhostLast,
+    /// Two players, one per side (VS).
+    Local,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HiSpeedMode {
     /// The hi-speed applies to the main BPM; notes speed up and slow down
@@ -201,6 +215,9 @@ pub struct PlayConfig {
     pub dp_option: DoubleOption,
     /// Play SP charts on both sides (BATTLE).
     pub battle: bool,
+    /// G-BATTLE / VS for this session (not saved, not in replays).
+    #[serde(skip)]
+    pub versus: Versus,
     pub side: Side,
     pub ln_mode: LnType,
     pub auto_scratch: bool,
@@ -362,6 +379,7 @@ impl Default for PlayConfig {
             random_2p: LaneOption::Off,
             dp_option: DoubleOption::Off,
             battle: false,
+            versus: Versus::Off,
             side: Side::P1,
             ln_mode: LnType::Ln,
             auto_scratch: false,

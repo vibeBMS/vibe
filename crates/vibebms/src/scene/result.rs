@@ -22,6 +22,50 @@ use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
 
+/// The other side of a battle: G-BATTLE's opponent (VS: the 2P player).
+#[derive(Clone, Debug)]
+pub struct SideResult {
+    /// Who it is: "MY BEST", "LAST", "2P".
+    pub name: String,
+    pub score: Score,
+    /// Its EX score (G-BATTLE out of step: its replay's).
+    pub ex: u32,
+    /// G-BATTLE: its judgements went other than its replay's.
+    pub desync: bool,
+    pub clear: ClearType,
+    pub gauge_type: GaugeType,
+    pub gauge_value: f32,
+    pub gauge_log: Vec<f32>,
+    pub timing_log: Vec<(i64, i64)>,
+    pub judge_log: Vec<(i64, u8, i8)>,
+}
+
+/// A battle's outcome for the first side, by EX score.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Win,
+    Lose,
+    Draw,
+}
+
+impl Outcome {
+    pub fn of(mine: u32, theirs: u32) -> Outcome {
+        match mine.cmp(&theirs) {
+            std::cmp::Ordering::Greater => Outcome::Win,
+            std::cmp::Ordering::Less => Outcome::Lose,
+            std::cmp::Ordering::Equal => Outcome::Draw,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Outcome::Win => "WIN",
+            Outcome::Lose => "LOSE",
+            Outcome::Draw => "DRAW",
+        }
+    }
+}
+
 pub struct ResultData {
     pub request: PlayRequest,
     pub title: String,
@@ -57,6 +101,8 @@ pub struct ResultData {
     pub judge: String,
     pub seed: i64,
     pub course: Option<CourseRun>,
+    /// A battle's other side.
+    pub p2: Option<SideResult>,
     /// The play's replay (a play of its own, not one watched).
     pub replay: Option<crate::replay::Replay>,
 }
@@ -90,6 +136,14 @@ pub struct ResultScene {
 enum Leave {
     Proceed,
     Retry,
+}
+
+impl ResultData {
+    /// A battle's outcome for the first side.
+    pub fn outcome(&self) -> Option<Outcome> {
+        let p2 = self.p2.as_ref()?;
+        Some(Outcome::of(self.score.ex_score(), p2.ex))
+    }
 }
 
 impl ResultScene {
@@ -233,6 +287,7 @@ impl ResultScene {
                     autoplay: self.d.autoplay,
                     course: Some(c),
                     replay: None,
+                    vs: None,
                 },
             )));
         }
@@ -251,6 +306,7 @@ impl ResultScene {
                 replay: Some(std::sync::Arc::new(r)),
                 course: None,
                 autoplay: false,
+                vs: None,
                 ..self.d.request.clone()
             },
         )))
@@ -404,6 +460,32 @@ impl Scene for ResultScene {
             hooks.clicks
         };
         self.clicks = clicks;
+        // a battle's outcome (skins without a second side show it so)
+        if let (Some(p2), Some(o)) = (&self.d.p2, self.d.outcome()) {
+            let ui = ctx.ui();
+            let what = if p2.desync {
+                format!("{} (out of step)", p2.name)
+            } else {
+                p2.name.clone()
+            };
+            d.text(
+                &format!(
+                    "{}  {}  {} - {}  vs {what}",
+                    match self.d.request.vs {
+                        Some(crate::scene::play::Versus::Ghost(..)) => "G-BATTLE",
+                        _ => "VS",
+                    },
+                    o.label(),
+                    self.d.score.ex_score(),
+                    p2.ex
+                ),
+                12.0 * ui,
+                ctx.height - 48.0 * ui,
+                16.0 * ui,
+                theme::ACCENT,
+                Align::Left,
+            );
+        }
         if !self.ir_status.is_empty() {
             let ui = ctx.ui();
             d.text(

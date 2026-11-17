@@ -135,6 +135,16 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
   kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
   score at the same note, not the best score spread evenly over the chart.
+- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST or LAST replay of it (song select's BATTLE row,
+  F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST). The chart
+  is made with the replay's seed and lane option on both sides (as LR2 lends a ghost's random); you play the
+  first side, the replay's inputs play the second again under its own options (judge, gauge, LN mode, AUTO
+  SCRATCH), silently. Its EX score is the pacemaker target as it plays; if it ever judges other than its
+  replay did (a judge that changed since), the play shows GHOST DESYNC and the replay's EX score at your note
+  stands in. Your side is saved as a normal play (lamp, scores, replays and IR as any other, the opponent's
+  lane option counting for the assist level). Replays of BATTLE or LEGACY NOTE plays, of another LN mode, or
+  without inputs cannot be opponents. On a phone held upright the single play skin is shown and the opponent
+  is only the pacemaker. The results name the winner by EX score; RETRY plays the same battle again.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
 - **Audio**: low-latency output (ASIO/JACK feature flags), keysounds scheduled to the sample, WAV/OGG/MP3/FLAC.
 
