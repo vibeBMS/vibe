@@ -346,6 +346,10 @@ pub enum Kind {
         /// beatoraja style: the destination covers the whole gauge and is
         /// split into `parts` cells (LR2 places one cell per step).
         split: bool,
+        /// The player side whose gauge it shows (LR2 `#SRC_GROOVEGAUGE`'s
+        /// first field; a vibeBMS JSON destination's `side`): 2P is a
+        /// battle's opponent.
+        side: usize,
     },
     Bga,
     /// One of several images chosen by a skin number (beatoraja `imageset`).
@@ -562,6 +566,10 @@ pub enum SkinType {
     Play14,
     Play10,
     Play9,
+    /// LR2 types 12 / 13 (beatoraja's "7/5KEYS BATTLE"): a double play
+    /// layout for two sides of a battle.
+    Battle7,
+    Battle5,
     Select,
     Decide,
     Result,
@@ -589,6 +597,8 @@ impl SkinType {
             8 => SkinType::KeyConfig,
             9 => SkinType::SkinSelect,
             10 => SkinType::SoundSet,
+            12 => SkinType::Battle7,
+            13 => SkinType::Battle5,
             15 => SkinType::CourseResult,
             n => SkinType::Other(n),
         }
@@ -608,6 +618,8 @@ impl SkinType {
             SkinType::KeyConfig => 8,
             SkinType::SkinSelect => 9,
             SkinType::SoundSet => 10,
+            SkinType::Battle7 => 12,
+            SkinType::Battle5 => 13,
             SkinType::CourseResult => 15,
             SkinType::Other(n) => n,
         }
@@ -618,8 +630,8 @@ impl SkinType {
         Some(match self {
             SkinType::Play7 => Beat7K,
             SkinType::Play5 => Beat5K,
-            SkinType::Play14 => Beat14K,
-            SkinType::Play10 => Beat10K,
+            SkinType::Play14 | SkinType::Battle7 => Beat14K,
+            SkinType::Play10 | SkinType::Battle5 => Beat10K,
             SkinType::Play9 => Popn9K,
             _ => return None,
         })
@@ -635,13 +647,35 @@ impl SkinType {
             SkinType::KeyConfig => "KEY_CONFIG",
             SkinType::SkinSelect => "SKIN_SELECT",
             SkinType::SoundSet => "SOUND_SET",
+            SkinType::Battle7 => "7KEYS BATTLE",
+            SkinType::Battle5 => "5KEYS BATTLE",
             _ => return None,
         })
     }
 
     /// The `config.skins` key of every type (play skins by mode label).
     pub fn key(self) -> Option<&'static str> {
+        if self.is_battle() {
+            return self.config_key();
+        }
         self.mode().map(|m| m.label()).or_else(|| self.config_key())
+    }
+
+    /// A battle play skin (types 12 / 13).
+    pub fn is_battle(self) -> bool {
+        matches!(self, SkinType::Battle7 | SkinType::Battle5)
+    }
+
+    /// The battle type for a double play type and back (what a battle
+    /// slot accepts besides its own type).
+    pub fn battle_pair(self) -> Option<SkinType> {
+        Some(match self {
+            SkinType::Battle7 => SkinType::Play14,
+            SkinType::Battle5 => SkinType::Play10,
+            SkinType::Play14 => SkinType::Battle7,
+            SkinType::Play10 => SkinType::Battle5,
+            _ => return None,
+        })
     }
 }
 

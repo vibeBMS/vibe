@@ -11,7 +11,7 @@
 //! Panel 3's green number keys repeat while held (`repeats`), by 10 ms
 //! after 50 steps. Number key 3 changes the LN mode, as in beatoraja.
 
-use crate::config::{Bpms, HiSpeedMode, HsFix, PlayConfig, Target};
+use crate::config::{Bpms, HiSpeedMode, HsFix, PlayConfig, Target, Versus};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::{DoubleOption, LaneOption};
@@ -38,7 +38,7 @@ pub fn value(p: &PlayConfig, g: i32) -> Option<i64> {
             GaugeType::ExClass | GaugeType::ExHardClass => 4,
             g => index_of(&GaugeType::SELECTABLE, g),
         },
-        2 => dp_index(p),
+        2 => battle_index(p),
         3 => index_of(&HsFix::ALL, p.hs_fix),
         4 => index_of(&LaneOption::ALL, p.random_2p),
         5 => index_of(&Target::ALL, p.target),
@@ -91,16 +91,84 @@ fn onoff(b: bool) -> &'static str {
     }
 }
 
-/// DP OPTION as beatoraja lists it: OFF, FLIP, BATTLE.
+/// DP OPTION as beatoraja lists it (skin button 54): OFF, FLIP, BATTLE,
+/// BATTLE AS (BATTLE with AUTO SCRATCH on both sides).
 pub fn dp_index(p: &PlayConfig) -> i64 {
-    if p.battle {
-        2
-    } else {
-        p.dp_option as i64
+    match (p.battle, p.auto_scratch) {
+        (true, true) => 3,
+        (true, false) => 2,
+        _ => p.dp_option as i64,
     }
 }
 
-const DP_LABELS: [&str; 3] = ["OFF", "FLIP", "BATTLE"];
+/// Set DP OPTION to `i` (as `dp_index`): BATTLE AS turns AUTO SCRATCH on,
+/// leaving it turns it off again.
+pub fn set_dp_index(p: &mut PlayConfig, i: i64) {
+    if dp_index(p) == 3 && i != 3 {
+        p.auto_scratch = false;
+    }
+    p.battle = i >= 2;
+    if i == 3 {
+        p.auto_scratch = true;
+    }
+    p.dp_option = if i == 1 {
+        DoubleOption::Flip
+    } else {
+        DoubleOption::Off
+    };
+}
+
+/// DP OPTION with the battles that are not play options: BATTLE AS,
+/// then G-BATTLE (MY BEST, LAST) and VS (the select screen's panel and
+/// BATTLE row).
+pub const BATTLE_LABELS: [&str; 7] = [
+    "OFF",
+    "FLIP",
+    "BATTLE",
+    "BATTLE AS",
+    "G-BATTLE MY BEST",
+    "G-BATTLE LAST",
+    "VS",
+];
+
+pub fn battle_index(p: &PlayConfig) -> i64 {
+    match p.versus {
+        Versus::Off => dp_index(p),
+        Versus::GhostBest => 4,
+        Versus::GhostLast => 5,
+        Versus::Local => 6,
+    }
+}
+
+pub fn set_battle_index(p: &mut PlayConfig, i: i64) {
+    set_dp_index(p, if i <= 3 { i } else { 0 });
+    p.versus = match i {
+        4 => Versus::GhostBest,
+        5 => Versus::GhostLast,
+        6 => Versus::Local,
+        _ => Versus::Off,
+    };
+}
+
+/// The battle values that can be chosen now (VS needs a local second
+/// player's controls).
+pub fn battle_choices(vs: bool) -> &'static [i64] {
+    if vs {
+        &[0, 1, 2, 3, 4, 5, 6]
+    } else {
+        &[0, 1, 2, 3, 4, 5]
+    }
+}
+
+/// The next of `choices` after the current battle value (`d` = ±1).
+pub fn step_battle(p: &mut PlayConfig, choices: &[i64], d: i32) -> &'static str {
+    let cur = battle_index(p);
+    let n = choices.len() as i32;
+    let i = choices.iter().position(|c| *c == cur).unwrap_or(0) as i32;
+    let next = choices[(i + d).rem_euclid(n) as usize];
+    set_battle_index(p, next);
+    BATTLE_LABELS[next as usize]
+}
 
 /// Keys that repeat while held: panel 3's green number (keys 4 and 6).
 pub fn repeats(panel: usize, key: usize) -> bool {
@@ -126,14 +194,8 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("GAUGE: {}", p.gauge.label())
         }
         (1, 3) => {
-            let i = (dp_index(p) + 1) % 3;
-            p.battle = i == 2;
-            p.dp_option = if i == 1 {
-                DoubleOption::Flip
-            } else {
-                DoubleOption::Off
-            };
-            format!("DP OPTION: {}", DP_LABELS[i as usize])
+            let label = step_battle(p, battle_choices(true), 1);
+            format!("DP OPTION: {label}")
         }
         (1, 4) => {
             let f = step(&HsFix::ALL, p.hs_fix, 1);
@@ -232,13 +294,23 @@ mod tests {
         assert_eq!(p.random_1p, LaneOption::Mirror);
         key(&mut p, 1, 1, &b);
         assert_eq!(p.random_1p, LaneOption::Off);
-        // DP OPTION: OFF -> FLIP -> BATTLE -> OFF
+        // DP OPTION: OFF -> FLIP -> BATTLE -> BATTLE AS -> G-BATTLE (MY
+        // BEST, LAST) -> OFF
         key(&mut p, 1, 3, &b);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Flip, false));
         key(&mut p, 1, 3, &b);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Off, true));
         key(&mut p, 1, 3, &b);
-        assert_eq!(dp_index(&p), 0);
+        assert_eq!((dp_index(&p), p.auto_scratch), (3, true));
+        key(&mut p, 1, 3, &b);
+        assert_eq!((dp_index(&p), p.auto_scratch, p.battle), (0, false, false));
+        assert_eq!(p.versus, Versus::GhostBest);
+        key(&mut p, 1, 3, &b);
+        assert_eq!(p.versus, Versus::GhostLast);
+        key(&mut p, 1, 3, &b);
+        assert_eq!(p.versus, Versus::Local);
+        key(&mut p, 1, 3, &b);
+        assert_eq!((battle_index(&p), p.versus), (0, Versus::Off));
         key(&mut p, 1, 4, &b);
         assert_eq!(p.hs_fix, HsFix::Start);
         let d = p.duration_ms(&b);

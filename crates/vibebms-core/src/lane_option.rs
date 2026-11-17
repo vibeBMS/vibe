@@ -115,17 +115,30 @@ pub fn battle(chart: &mut Chart) {
 
 /// LEGACY NOTE: turn long notes into normal notes (assist).
 pub fn legacy_note(chart: &mut Chart) {
+    legacy_note_of(chart, None);
+}
+
+/// LEGACY NOTE on one player's lanes (`None`: all).
+pub fn legacy_note_of(chart: &mut Chart, player: Option<usize>) {
+    let mode = chart.mode();
     for n in &mut chart.notes {
-        if n.is_long() {
+        if n.is_long() && player.is_none_or(|p| mode.player_of_lane(n.lane as usize) == p) {
             n.kind = NoteKind::Normal;
         }
     }
 }
 
 pub fn remove_mines(chart: &mut Chart) {
-    chart
-        .notes
-        .retain(|n| !matches!(n.kind, NoteKind::Mine { .. }));
+    remove_mines_of(chart, None);
+}
+
+/// NO MINE on one player's lanes (`None`: all).
+pub fn remove_mines_of(chart: &mut Chart, player: Option<usize>) {
+    let mode = chart.mode();
+    chart.notes.retain(|n| {
+        !matches!(n.kind, NoteKind::Mine { .. })
+            || player.is_some_and(|p| mode.player_of_lane(n.lane as usize) != p)
+    });
 }
 
 /// Apply a lane option to one player side.

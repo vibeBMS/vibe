@@ -76,6 +76,18 @@ pub struct LaneMapper {
     any_axis: Vec<u8>,
     axis: HashMap<u64, AxisState>,
     pub mode: PlayMode,
+    /// The first two controllers swapped (VS: the 1P controller is the one
+    /// connected second).
+    pub swap_pads: bool,
+}
+
+/// A controller code with the first two controllers swapped.
+fn swapped(id: u64) -> u64 {
+    match id / 1_000_000 {
+        0 => id + 1_000_000,
+        1 => id - 1_000_000,
+        _ => id,
+    }
 }
 
 const AXIS_RELEASE: Duration = Duration::from_millis(100);
@@ -89,6 +101,7 @@ impl LaneMapper {
             any_axis: Vec::new(),
             axis: HashMap::new(),
             mode,
+            swap_pads: false,
         };
         let add = |lk: &LaneKeys, lane: usize, sub: u8, m: &mut LaneMapper| {
             for k in &lk.keys {
@@ -103,6 +116,8 @@ impl LaneMapper {
         let controls = |m: &mut LaneMapper| {
             add(&cfg.start, crate::touch::START as usize, 0, m);
             add(&cfg.select, crate::touch::SELECT as usize, 0, m);
+            add(&cfg.p2_start, crate::touch::START2 as usize, 0, m);
+            add(&cfg.p2_select, crate::touch::SELECT2 as usize, 0, m);
         };
         if mode == PlayMode::Popn9K {
             for (i, lk) in cfg.pms.iter().take(9).enumerate() {
@@ -143,12 +158,14 @@ impl LaneMapper {
     }
 
     pub fn pad(&self, id: u64) -> Option<(u8, u8)> {
+        let id = if self.swap_pads { swapped(id) } else { id };
         self.pads.get(&id).copied()
     }
 
     /// Turntable emulation from an analog axis: movement in one direction
     /// holds sub-key 0/1, reversing switches, stopping releases.
     pub fn axis(&mut self, id: u64, value: f32, time: Instant, out: &mut Vec<LaneEv>) {
+        let id = if self.swap_pads { swapped(id) } else { id };
         let lane = match self.axes.get(&id) {
             Some(l) => *l,
             None => {

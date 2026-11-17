@@ -530,6 +530,14 @@ def build_parts(fonts):
     kd.rectangle((2, 2, 41, 4), fill=mix(AMBER, (255, 255, 255), 0.5) + (255,))
     a.add("hs_knob", knob)
     a.add("auto_tag", text_img(fonts, "AUTO PLAY", "bold", 13, AMBER, AMBER, (40, 30, 0), 1, pad=2))
+    # a battle's outcome on the results
+    a.add("res_win", text_img(fonts, "WIN", "black_it", 40, (255, 255, 255), AMBER, (60, 30, 0), 3))
+    a.add("res_lose", text_img(fonts, "LOSE", "black_it", 40, (220, 225, 240), BLUE, (0, 20, 60), 3))
+    a.add("res_draw", text_img(fonts, "DRAW", "black_it", 40, (255, 255, 255), TEAL, (0, 40, 36), 3))
+    for key, label in (("bt_title", "BATTLE"), ("bt_ex", "EX SCORE"), ("bt_rate", "RATE"),
+                       ("bt_combo", "MAX COMBO"), ("bt_miss", "MISS"), ("bt_vs", "VS"),
+                       ("bt_pct", "%")):
+        a.add(key, text_img(fonts, label, "semi", 13, DIM, DIM, (0, 0, 0), 0, pad=2))
     # difficulty badges (beatoraja difficulty 1..5)
     for k, name in enumerate(("BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE"), 1):
         col = DIFF_COLORS[k]
@@ -614,7 +622,8 @@ RANDOM_LABELS = ["OFF", "MIRROR", "RANDOM", "R-RANDOM", "S-RANDOM", "SPIRAL", "H
 PANEL1 = [  # title, keys, group, values, accent
     ("RANDOM", "1 ▼   2 ▲", 0, RANDOM_LABELS, TEAL),
     ("GAUGE", "3", 1, ["ASSIST EASY", "EASY", "NORMAL", "HARD", "EX-HARD", "HAZARD"], (120, 230, 90)),
-    ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE"], RED),
+    ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE", "BATTLE AS", "G-BATTLE BEST",
+                           "G-BATTLE LAST", "VS"], RED),
     ("HS-FIX", "5", 3, ["OFF", "START BPM", "MAX BPM", "MAIN BPM", "MIN BPM"], (180, 120, 255)),
     ("RANDOM 2P", "6 ▲   7 ▼", 4, RANDOM_LABELS, TEAL),
     ("TARGET", "TURNTABLE", 5, ["RANK A-", "RANK A", "RANK A+", "RANK AA-", "RANK AA", "RANK AA+",
@@ -983,7 +992,7 @@ def note_def(sk, all_lanes):
 
 
 def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, keys_h,
-          judge_at, translucent=False, part="all", tt=None):
+          judge_at, translucent=False, part="all", tt=None, own=False):
     """Note field, keys, beams, bombs and judgement for one player.
 
     `part` "under" draws what goes below the notes and "over" the rest, so
@@ -995,7 +1004,7 @@ def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, key
         field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent)
     if part in ("all", "over"):
         field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
-                   lanes_out, tt)
+                   lanes_out, tt, own)
 
 
 def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent):
@@ -1024,29 +1033,38 @@ def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, transl
                                   "dst": [sk.key(fx, top, fw, lane_h, fixed=True, time=0)]})
 
 
+# vibeBMS ids of the second player's own lane cover (VS): its SUDDEN+ as a
+# slider, shown, its white and green numbers
+P2_SUDDEN, P2_COVER, P2_WHITE, P2_GREEN, P2_COVER_OFFSET = 9404, 9271, 9014, 9313, 9004
+
+
 def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
-               lanes_out, tt=None):
+               lanes_out, tt=None, own=False):
+    """`own`: the 2P field shows the second player's own cover (VS)."""
     judge_y = top + lane_h
     if player == 0:
         sk.put("notes", fx, top, fw, lane_h, fixed=True)
+    own = own and player == 1
+    sud, shown, white, green = ((P2_SUDDEN, P2_COVER, P2_WHITE, P2_GREEN) if own
+                                else (4, 271, 14, 313))
     # lane cover (SUDDEN+): slides down from above the field
     cov = f"cover{player}"
     if cov not in sk._ids:
         sk._ids.add(cov)
         x, y, w, h = sk.parts.items["cover"]
         sk.j["slider"].append({"id": cov, "src": "parts", "x": x, "y": y, "w": w, "h": h,
-                               "angle": 2, "range": lane_h, "type": 4})
-    sk.put(cov, fx, top - lane_h, fw, lane_h, op=[271], fixed=True)
+                               "angle": 2, "range": lane_h, "type": sud})
+    sk.put(cov, fx, top - lane_h, fw, lane_h, op=[shown], fixed=True)
     # white (cover, 1/1000) and green numbers on the cover's lower edge
-    cw, ch = sk.num("n_small", 14, 4)[1:]
-    gw_ = sk.num("n_green", 313, 4)[1] * 4
+    cw, ch = sk.num("n_small", white, 4)[1:]
+    gw_ = sk.num("n_green", green, 4)[1] * 4
     ny = top - ch - 10
     mid = fx + fw // 2
-    for d in (sk.put(sk.num("n_small", 14, 4)[0], mid - 8 - cw * 4, ny, cw, ch, op=[271],
+    for d in (sk.put(sk.num("n_small", white, 4)[0], mid - 8 - cw * 4, ny, cw, ch, op=[shown],
                      fixed=True),
-              sk.put(sk.num("n_green", 313, 4)[0], mid + 8, ny - 1, gw_ // 4, 22, op=[271],
+              sk.put(sk.num("n_green", green, 4)[0], mid + 8, ny - 1, gw_ // 4, 22, op=[shown],
                      fixed=True)):
-        d["offset"] = 4
+        d["offset"] = P2_COVER_OFFSET if own else 4
     # judge line
     sk.put(sk.img("judgeline"), fx, judge_y - 4, fw, 8, fixed=True)
     # bombs + hold glow
@@ -1150,10 +1168,12 @@ def ready(sk, cx, cy):
     ])
 
 
-def gauge(sk, x, y, w, h, fixed=False):
+def gauge(sk, x, y, w, h, fixed=False, side=0, parts=50):
     nodes = [sk.img(f"g{t}_{c}") for t in range(9) for c in range(4)]
-    sk.j["gauge"] = {"id": "gauge", "nodes": nodes, "parts": 50}
-    sk.put("gauge", x, y, w, h, fixed=fixed)
+    sk.j["gauge"] = {"id": "gauge", "nodes": nodes, "parts": parts}
+    d = sk.put("gauge", x, y, w, h, fixed=fixed)
+    if d and side:
+        d["side"] = side  # vibeBMS: the 2P side's gauge (a battle's opponent)
 
 
 def progress(sk, x, y, h, fixed=False):
@@ -1169,8 +1189,14 @@ def progress(sk, x, y, h, fixed=False):
 # Each helper draws its static part into the background image and adds the
 # dynamic objects to the skin, both in the same (1P, y-down) coordinates.
 
-def gauge_number(sk, x, y):
-    """Gauge value: big integer, small decimal and percent sign (bottom aligned)."""
+def gauge_number(sk, x, y, side=0):
+    """Gauge value: big integer, small decimal and percent sign (bottom
+    aligned); the 2P side's without the decimal."""
+    if side:
+        w = sk.number("n_gauge", 127, 3, x + 19, y)
+        pw, ph = sk.parts.items["pct"][2:]
+        sk.put(sk.img("pct"), x + 19 + w, y + 28 - ph + 1, pw, ph)
+        return w + 19 + pw
     w = sk.number("n_gauge", 107, 3, x, y)
     sk.put(sk.img("gauge_dot"), x + w, y + 22, 5, 5)
     sk.number("n_gauge_s", 407, 1, x + w + 6, y + 9)
@@ -1413,13 +1439,13 @@ def info_bar(sk, img, f, x, y, w, h):
     sk.number("n_small", 311, 2, hx + cw + 5, cy - ch // 2, zeropad=True, color=(200, 255, 200))
 
 
-def gauge_block(sk, img, f, x, y, w, bar=22):
+def gauge_block(sk, img, f, x, y, w, bar=22, side=0, label="GROOVE GAUGE", parts=50):
     """Gauge across the full width `w`, its value above the right end."""
-    draw_label(img, f, x + 2, y + 12, "GROOVE GAUGE", 11)
-    gauge_number(sk, x + w - gauge_number_width(sk), y)
+    draw_label(img, f, x + 2, y + 12, label, 11)
+    gauge_number(sk, x + w - gauge_number_width(sk), y, side)
     ImageDraw.Draw(img).rounded_rectangle((x - 2, y + 28, x + w + 1, y + 31 + bar), 4,
                                           fill=(6, 7, 11, 255), outline=EDGE + (255,))
-    gauge(sk, x, y + 30, w, bar)
+    gauge(sk, x, y + 30, w, bar, side=side, parts=parts)
 
 
 def title_bar(sk, img, f, x, y, w, h=56):
@@ -1514,13 +1540,13 @@ def pace_graph(sk, img, f, x, y, w, h):
         draw_label(img, f, bx + bw // 2, gy + gh + 6, label, 10, anchor="ma")
 
 
-def pace_rows(sk, img, f, x, y, w, rh=44, gap=6):
+def pace_rows(sk, img, f, x, y, w, rh=44, gap=6, target="TARGET"):
     """NOW / BEST / TARGET EX scores, with the differences to the pacemakers."""
     d = ImageDraw.Draw(img)
     cw, ch = sk.num("n_mid", 71, 5)[1:]
     sw, sh = sk.num("n_signed", 152, 5)[1:]
     rows = (("NOW SCORE", 71, None, BLUE), ("BEST SCORE", 150, 152, (70, 220, 130)),
-            ("TARGET", 151, 153, RED))
+            (target, 151, 153, RED))
     for i, (label, ref, diff, col) in enumerate(rows):
         ry = y + i * (rh + gap)
         d.rounded_rectangle((x, ry, x + w - 1, ry + rh - 1), 6, fill=mix(PANEL, col, 0.14) + (240,),
@@ -1654,13 +1680,16 @@ def time_box(sk, img, f, x, y, w, h):
     sk.number("n_mid", 164, 2, t0 + cw * 2 + 10, y + h - ch - 5, zeropad=True)
 
 
-def land_dp(fonts, parts, mode, touch=False):
+def land_dp(fonts, parts, mode, touch=False, battle=False):
+    """Double play; `battle`: the battle skin (types 12 / 13), a gauge per
+    side and the opponent as the target."""
     W, H = 1280, (TOUCH_H if touch else 720)
     lane_h = TOUCH_LANE_H if touch else DP_LANE_H
-    kind = {"7": 2, "5": 3}[mode]
-    name = f"vibeBMS Default {'14' if mode == '7' else '10'}K{' touch' if touch else ''}"
+    kind = {"7": 12, "5": 13}[mode] if battle else {"7": 2, "5": 3}[mode]
+    name = (f"vibeBMS Default {'14' if mode == '7' else '10'}K{' battle' if battle else ''}"
+            f"{' touch' if touch else ''}")
     sk = Skin(kind, name, W, H, parts)
-    bgname = "bg_land_dp_touch.png" if touch else "bg_land_dp.png"
+    bgname = f"bg_land_{'battle' if battle else 'dp'}{'_touch' if touch else ''}.png"
     sk.source("bg", bgname)
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
     img = background(W, H)
@@ -1684,18 +1713,27 @@ def land_dp(fonts, parts, mode, touch=False):
         tts = [(f1 + 20, H - 8 - size // 2, size), (f2 + fw - 20, H - 8 - size // 2, size)]
     for part in ("under", "over"):
         field(sk, mode, 0, 0, f1, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[0])
-        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[1])
+        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[1],
+              own=battle)
     # progress in the gap
     gx = W // 2 - 6
     d.rounded_rectangle((gx + 2, 4, gx + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))
     progress(sk, gx, 0, lane_h)
     # the gauge between the turntables, LEVEL / gauge type / HI-SPEED under it
+    # (a battle: each side's gauge under its field)
+    def gauges(x0, x1, y, bar):
+        if not battle:
+            gauge_block(sk, img, f, x0, y, x1 - x0, bar)
+            return
+        half = (x1 - x0 - 24) // 2
+        gauge_block(sk, img, f, x0, y, half, bar, label="1P GAUGE", parts=25)
+        gauge_block(sk, img, f, x1 - half, y, half, bar, side=1, label="2P GAUGE", parts=25)
     if touch:
-        gauge_block(sk, img, f, f1, lane_h + 4, f2 + fw - f1, GAUGE_BAR - 8)
+        gauges(f1, f2 + fw, lane_h + 4, GAUGE_BAR - 8)
     else:
         gx0 = tts[0][0] + size // 2 + 10
         gx1 = tts[1][0] - size // 2 - 10
-        gauge_block(sk, img, f, gx0, DP_KEYS_Y + DP_KEYS_H + 6, gx1 - gx0, GAUGE_BAR)
+        gauges(gx0, gx1, DP_KEYS_Y + DP_KEYS_H + 6, GAUGE_BAR)
         info_bar(sk, img, f, gx0, H - 8 - 24, gx1 - gx0, 24)
     # outer columns (above the turntables)
     lx, rx = 8, W - 8 - DP_COL
@@ -1712,7 +1750,7 @@ def land_dp(fonts, parts, mode, touch=False):
     time_box(sk, img, f, rx, 8, DP_COL, 54)
     rows_h = 3 * 44 + 2 * 6
     pace_graph(sk, img, f, rx, 70, DP_COL, col_b - rows_h - 8 - 70)
-    pace_rows(sk, img, f, rx, col_b - rows_h, DP_COL)
+    pace_rows(sk, img, f, rx, col_b - rows_h, DP_COL, target="2P" if battle else "TARGET")
     if not touch:
         # bottom corners, beside the turntables
         cw_ = tts[0][0] - size // 2 - 8 - lx
@@ -2150,6 +2188,54 @@ def res_graphs(sk, img, f, x, y, w, h):
            ty + 2, gw - 4, gh[2] - 4)
 
 
+# vibeBMS ids of the battle results: the option "a battle", the opponent's
+# name, its miss count and lamp
+OPTION_BATTLE, TEXT_OPPONENT, NUM_P2_MISS = 9350, 9351, 9376
+
+
+def res_battle(sk, x, y, w, h):
+    """A battle's two sides over the region (shown only after a battle):
+    WIN / LOSE / DRAW, then the player's and the opponent's EX score, rate,
+    max combo and miss count side by side."""
+    items = sk.parts.items
+    op = [OPTION_BATTLE]
+    sk.put(sk.img("white"), x, y, w, h, op=op, r=PANEL[0], g=PANEL[1], b=PANEL[2], a=250)
+    sk.put(sk.img("white"), x, y, w, 2, op=op, r=AMBER[0], g=AMBER[1], b=AMBER[2])
+    tw, th = items["bt_title"][2:]
+    sk.put(sk.img("bt_title"), x + 14, y + 10, tw, th, op=op)
+    for key, o in (("res_win", 352), ("res_lose", 353), ("res_draw", 354)):
+        ow, oh = items[key][2:]
+        sk.put(sk.img(key), 0, 0, 0, 0, op=op + [o],
+               keys=fade_in(400, x + (w - ow) // 2, y + 8, ow, oh), loop=650)
+    c1, c2 = x + w * 56 // 100, x + w - 14
+    hy = y + 70
+    sk.label_text(2, c1 - 140, hy, 140, 16, align=2)
+    vw, vh = items["bt_vs"][2:]
+    sk.put(sk.img("bt_vs"), (c1 + c2 - 140) // 2 - vw // 2 + 70 - 70, hy + 2, vw, vh, op=op)
+    sk.label_text(TEXT_OPPONENT, c2 - 140, hy, 140, 16, align=2, color=AMBER)
+    mw, mh = sk.num("n_mid", 71, 5)[1:]
+    rows = [("bt_ex", 71, 121), ("bt_rate", None, None), ("bt_combo", 75, 125),
+            ("bt_miss", 76, NUM_P2_MISS)]
+    rh = (h - 100) // len(rows)
+    for i, (key, mine, theirs) in enumerate(rows):
+        ry = y + 96 + i * rh + (rh - mh) // 2
+        lw, lh = items[key][2:]
+        sk.put(sk.img(key), x + 14, ry + (mh - lh) // 2, lw, lh, op=op)
+        if mine is None:
+            # 100.00% for each side
+            for (r_, a, b) in ((c1, 102, 103), (c2, 122, 123)):
+                cw = mw
+                px = r_ - 14 - cw * 5 - 6
+                sk.number("n_mid", a, 3, px, ry, op=op)
+                sk.put(sk.img("white"), px + cw * 3 + 1, ry + mh - 7, 4, 4, op=op)
+                sk.number("n_mid", b, 2, px + cw * 3 + 6, ry, zeropad=True, op=op)
+                pw, ph = items["bt_pct"][2:]
+                sk.put(sk.img("bt_pct"), r_ - pw, ry + mh - ph, pw, ph, op=op)
+            continue
+        sk.number("n_mid", mine, 5, c1 - mw * 5, ry, op=op)
+        sk.number("n_mid", theirs, 5, c2 - mw * 5, ry, op=op, color=AMBER)
+
+
 def result_layout(fonts, parts, portrait=False):
     W, H = (720, 1280) if portrait else (1280, 720)
     sk = Skin(7, "vibeBMS Default Result", W, H, parts)
@@ -2166,6 +2252,7 @@ def result_layout(fonts, parts, portrait=False):
         judge_panel(sk, img, f, 8, 640, 400, 190)
         res_timing(sk, img, f, 416, 640, 296, 190)
         res_graphs(sk, img, f, 8, 838, 704, 434)
+        res_battle(sk, 8, 838, 704, 300)
     else:
         res_clear(sk, img, f, 12, 56, 404, 150)
         res_scores(sk, img, f, 12, 214, 404, 196)
@@ -2173,6 +2260,7 @@ def result_layout(fonts, parts, portrait=False):
         res_timing(sk, img, f, 12, 608, 404, 100)
         res_info(sk, img, f, 428, 56, 424, 652)
         res_graphs(sk, img, f, 864, 56, 404, 652)
+        res_battle(sk, 428, 56, 424, 318)
     return sk, img
 
 
@@ -2289,17 +2377,17 @@ def select_layout(fonts, parts, portrait=False):
         sk.put(sk.img(key), 30, y_, w_, h_, op=[2, -5])
     # options: clickable buttons (vibeBMS option ids 9000 + i)
     panel(img, (16, 506, 660, 154), "OPTIONS", f)
-    for i in range(10):
-        bx, by = 26 + (i % 5) * 130, 530 + (i // 5) * 64
+    for i in range(11):
+        bx, by = 22 + (i % 6) * 109, 530 + (i // 6) * 64
         bid = f"optbtn{i}"
         if bid not in sk._ids:
             sk._ids.add(bid)
             x_, y_, w_, h_ = parts.items["optbtn"]
             sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
                                   "act": 9000 + i})
-        sk.put(bid, bx, by, 124, 60)
-        sk.label_text(9100 + i, bx + 6, by + 8, 112, 12, align=1, color=DIM)
-        sk.label_text(9000 + i, bx + 6, by + 28, 112, 20, align=1)
+        sk.put(bid, bx, by, 104, 60)
+        sk.label_text(9100 + i, bx + 5, by + 8, 94, 12, align=1, color=DIM)
+        sk.label_text(9000 + i, bx + 5, by + 28, 94, 20, align=1)
     # footer
     panel(img, (16, 668, 660, 40))
     bw_, bh_ = parts.items["btn_back"][2:]
@@ -2350,8 +2438,10 @@ def main():
                  f"play{mode}_portrait{'_2p' if side else ''}.json", "bg_port.png")
     for mode, name in (("7", "play14"), ("5", "play10")):
         for touch in (False, True):
-            sk, img, bg = land_dp(fonts, parts, mode, touch)
-            emit(sk, img, f"{name}{'_touch' if touch else ''}.json", bg)
+            for battle in (False, True):
+                sk, img, bg = land_dp(fonts, parts, mode, touch, battle)
+                emit(sk, img, f"{name}{'_battle' if battle else ''}{'_touch' if touch else ''}.json",
+                     bg)
     huds = {}
     for mode in ("7", "5", "9", "14", "10"):
         for portrait in (False, True):

@@ -26,9 +26,14 @@ pub enum Shape {
     Quad([[f32; 2]; 4]),
 }
 
-/// Pseudo lanes of the START and SELECT buttons (the hi-speed panel).
+/// Pseudo lanes of the START and SELECT buttons (the hi-speed panel), and
+/// the second player's in VS.
 pub const START: u8 = 254;
 pub const SELECT: u8 = 255;
+pub const START2: u8 = 252;
+pub const SELECT2: u8 = 253;
+/// The first pseudo lane: lanes from here on are buttons, not keys.
+pub const SYSTEM: u8 = START2;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Zone {
@@ -120,7 +125,7 @@ pub fn pick(zones: &[Zone], x: f32, y: f32) -> Option<usize> {
         zones
             .iter()
             .enumerate()
-            .filter(|(_, z)| !z.scratch && z.lane < START)
+            .filter(|(_, z)| !z.scratch && z.lane < SYSTEM)
             .map(|(i, z)| (i, z.distance(x, y), z.reach()))
             .filter(|(_, d, reach)| d <= reach)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -484,7 +489,7 @@ pub fn to_layout(zones: &[Zone], area: Rect) -> TouchLayout {
     TouchLayout {
         buttons: zones
             .iter()
-            .filter(|z| z.lane < START)
+            .filter(|z| z.lane < SYSTEM)
             .map(|z| {
                 let mut b = TouchButton {
                     lane: z.lane,
@@ -775,7 +780,7 @@ impl TouchInput {
                 // slide between keys (not onto START / SELECT)
                 if let Some(ni) = zones
                     .iter()
-                    .rposition(|nz| !nz.scratch && nz.lane < START && nz.hit(x, y))
+                    .rposition(|nz| !nz.scratch && nz.lane < SYSTEM && nz.hit(x, y))
                 {
                     if ni != zi {
                         let (lane, sub) = (p.lane, p.sub);
@@ -939,7 +944,7 @@ mod tests {
         // the real key width (29 mm at 4 px per mm), the set centred
         let key = z
             .iter()
-            .find(|z| !z.scratch && z.lane < START)
+            .find(|z| !z.scratch && z.lane < SYSTEM)
             .map(width_of)
             .unwrap();
         assert!((key - 29.0 * 4.0).abs() < 0.5, "{key}");
@@ -962,7 +967,7 @@ mod tests {
         assert!(cx - r < 0.0 && cx + r > 0.5 * r);
         assert!(z[1..]
             .iter()
-            .filter(|z| z.lane < START)
+            .filter(|z| z.lane < SYSTEM)
             .all(|z| match z.shape {
                 Shape::Rect(k) => (k.w - 116.0).abs() < 0.5 && k.right() <= 850.5,
                 _ => false,

@@ -235,8 +235,16 @@ impl Chart {
 
     /// Number of judgements a full play produces (LN counts once, CN/HCN twice).
     pub fn total_judgements(&self, default_ln: LnType) -> usize {
+        self.total_judgements_of(default_ln, None)
+    }
+
+    /// The judgements of one player's lanes (`None`: every lane): a side
+    /// of a battle chart counts as its single play chart.
+    pub fn total_judgements_of(&self, default_ln: LnType, player: Option<usize>) -> usize {
+        let mode = self.mode();
         self.notes
             .iter()
+            .filter(|n| player.is_none_or(|p| mode.player_of_lane(n.lane as usize) == p))
             .map(|n| match &n.kind {
                 NoteKind::Normal => 1,
                 NoteKind::Long { ln_type, .. } => match ln_type.unwrap_or(default_ln) {
@@ -283,7 +291,12 @@ impl Chart {
     /// (LR2: `160 + (n + clamp(n - 400, 0, 200)) × 0.16`, otherwise
     /// beatoraja's). A bmson `total` is a percentage of that default.
     pub fn total_for(&self, default_ln: LnType, preset: GaugePreset) -> f64 {
-        let n = self.total_judgements(default_ln).max(1) as f64;
+        self.total_of(default_ln, preset, None)
+    }
+
+    /// TOTAL for one player's lanes (`total_judgements_of`).
+    pub fn total_of(&self, default_ln: LnType, preset: GaugePreset, player: Option<usize>) -> f64 {
+        let n = self.total_judgements_of(default_ln, player).max(1) as f64;
         let default = match preset {
             GaugePreset::Lr2 => 160.0 + (n + (n - 400.0).clamp(0.0, 200.0)) * 0.16,
             _ => (7.605 * n / (0.01 * n + 6.5)).max(260.0),

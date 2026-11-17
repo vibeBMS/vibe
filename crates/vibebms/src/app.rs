@@ -1102,11 +1102,42 @@ impl App {
             match vibebms_core::load_chart(&path, &Default::default()) {
                 Ok(c) => {
                     let song = crate::library::song_from_chart(&path, String::new(), &c);
+                    // --ghost best|last: G-BATTLE against that replay
+                    let ghost = args
+                        .iter()
+                        .find_map(|a| a.strip_prefix("--ghost="))
+                        .map(|g| {
+                            let slot = if g == "last" {
+                                crate::replay::Slot::Last
+                            } else {
+                                crate::replay::Slot::Best
+                            };
+                            crate::scene::play::ghost_for(&ctx, &song, slot).map(|r| (r, slot))
+                        });
+                    let vs = match ghost {
+                        Some(Ok((r, slot))) => Some(crate::scene::play::Versus::Ghost(r, slot)),
+                        Some(Err(e)) => {
+                            ctx.toast(e);
+                            None
+                        }
+                        // --vs: two players here
+                        None if args.iter().any(|a| a == "--vs") => {
+                            match crate::scene::play::vs_refusal(&ctx, &song) {
+                                Some(why) => {
+                                    ctx.toast(why.to_string());
+                                    None
+                                }
+                                None => Some(crate::scene::play::Versus::Local),
+                            }
+                        }
+                        None => None,
+                    };
                     let req = crate::scene::play::PlayRequest {
                         song,
                         autoplay,
                         course: None,
                         replay: None,
+                        vs,
                     };
                     scenes.push(Box::new(crate::scene::play::PlayScene::new(&mut ctx, req)));
                 }

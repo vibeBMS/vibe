@@ -7,13 +7,19 @@ use winit::keyboard::KeyCode;
 /// Which binding a key-config row edits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Slot {
-    Key { side: usize, idx: usize },
+    Key {
+        side: usize,
+        idx: usize,
+    },
     ScratchUp(usize),
     ScratchDown(usize),
     ScratchAxis(usize),
     Pms(usize),
     Start,
     Select,
+    /// The second player's START / SELECT (VS).
+    Start2,
+    Select2,
 }
 
 impl Slot {
@@ -27,6 +33,8 @@ impl Slot {
             Slot::Pms(i) => format!("{} KEY", i + 1),
             Slot::Start => "START".into(),
             Slot::Select => "SELECT".into(),
+            Slot::Start2 => "2P START".into(),
+            Slot::Select2 => "2P SELECT".into(),
         }
     }
 
@@ -63,6 +71,8 @@ pub fn slot_keys(k: &mut KeyConfig, s: Slot) -> Option<&mut LaneKeys> {
         Slot::Pms(i) => k.pms.get_mut(i)?,
         Slot::Start => &mut k.start,
         Slot::Select => &mut k.select,
+        Slot::Start2 => &mut k.p2_start,
+        Slot::Select2 => &mut k.p2_select,
         Slot::ScratchAxis(_) => return None,
     })
 }
@@ -75,6 +85,8 @@ pub fn slot_keys_ref(k: &KeyConfig, s: Slot) -> Option<&LaneKeys> {
         Slot::Pms(i) => k.pms.get(i)?,
         Slot::Start => &k.start,
         Slot::Select => &k.select,
+        Slot::Start2 => &k.p2_start,
+        Slot::Select2 => &k.p2_select,
         Slot::ScratchAxis(_) => return None,
     })
 }

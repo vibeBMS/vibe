@@ -351,10 +351,15 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
         return out;
     }
     // play skins: the built-in perspective one too
-    if kind.mode().is_some() {
+    if kind.mode().is_some() && !kind.is_battle() {
         out.push(super::play_skin::PERSPECTIVE.into());
     }
-    let fits = |t: SkinType| t == kind || (kind == SkinType::CourseResult && t == SkinType::Result);
+    // (a battle slot takes double play skins too)
+    let fits = |t: SkinType| {
+        t == kind
+            || (kind == SkinType::CourseResult && t == SkinType::Result)
+            || (kind.is_battle() && t.battle_pair() == Some(kind))
+    };
     for (p, t, _) in crate::skin::lr2::find_skins(&ctx.paths.skins) {
         if fits(t) {
             out.push(rel(p));
@@ -370,6 +375,7 @@ pub fn choice_path(ctx: &Ctx, kind: SkinType, value: &str) -> Option<PathBuf> {
         return Some(p);
     }
     match kind.mode() {
+        Some(m) if kind.is_battle() => Some(super::play_skin::battle_skin(m, ctx.touch_enabled())),
         Some(m) => Some(super::play_skin::default_skin(
             m,
             ctx.config.play.side == crate::config::Side::P2,

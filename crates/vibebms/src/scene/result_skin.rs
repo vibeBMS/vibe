@@ -18,6 +18,11 @@ pub const EVENT_CONTINUE: i32 = 9501;
 /// vibeBMS: watch this play again (its replay).
 pub const EVENT_REPLAY: i32 = 9502;
 
+/// vibeBMS option: the result of a battle (a second side to show).
+pub const OPTION_BATTLE: i32 = 9350;
+/// vibeBMS text: who the second side was ("MY BEST", "LAST", "2P").
+pub const TEXT_OPPONENT: i32 = 9351;
+
 /// Timer 151 (result graph end) fires this long after the scene starts.
 pub const GRAPH_MS: i64 = 1000;
 
@@ -47,6 +52,19 @@ impl ResultState<'_> {
             return Some(v);
         }
         Some(match id {
+            OPTION_BATTLE => d.p2.is_some(),
+            // the first side won, lost, drew (by EX score)
+            352 => d.outcome() == Some(super::result::Outcome::Win),
+            353 => d.outcome() == Some(super::result::Outcome::Lose),
+            354 => d.outcome() == Some(super::result::Outcome::Draw),
+            // the second side's gauge and DJ level
+            44 | 45 => {
+                d.p2.as_ref()
+                    .is_some_and(|p| p.gauge_type.is_survival() == (id == 45))
+            }
+            210..=217 => d.p2.as_ref().is_some_and(|p| {
+                rank_index(DjLevel::from_rate(p.ex, p.score.max_ex())) == id - 210
+            }),
             32 => !d.autoplay,
             33 => d.autoplay,
             42 => !d.gauge_type.is_survival(),
@@ -101,6 +119,39 @@ impl ResultState<'_> {
     }
 }
 
+/// A battle's second side's values (LR2 2P numbers, the target being it).
+fn p2_number(mine: u32, p: &super::result::SideResult, id: i32) -> Option<i64> {
+    let sc = &p.score;
+    let rate = split2(p.ex as f64 / sc.max_ex().max(1) as f64 * 100.0);
+    let ex = p.ex as i64;
+    Some(match id {
+        108 | 128 | 153 => mine as i64 - ex,
+        120 => {
+            let n = sc.total_notes.max(1) as i64;
+            (sc.count(PGREAT) as i64 * 150_000
+                + sc.count(GREAT) as i64 * 100_000
+                + sc.count(GOOD) as i64 * 20_000)
+                / n
+                + sc.max_combo as i64 * 50_000 / n
+        }
+        121 | 151 => ex,
+        122 | 135 => rate.0,
+        123 | 136 => rate.1,
+        125 => sc.max_combo as i64,
+        126 => sc.total_notes as i64,
+        127 => p.gauge_value as i64,
+        130 => sc.count(PGREAT) as i64,
+        131 => sc.count(GREAT) as i64,
+        132 => sc.count(GOOD) as i64,
+        133 => sc.count(BAD) as i64,
+        134 => (sc.count(POOR) + sc.count(MISS)) as i64,
+        // vibeBMS: its miss count and clear type
+        9376 => sc.miss_count() as i64,
+        9370 => p.clear as i64,
+        _ => return None,
+    })
+}
+
 fn split2(v: f64) -> (i64, i64) {
     let x = (v * 100.0).round() as i64;
     (x / 100, (x % 100).abs())
@@ -141,6 +192,12 @@ impl SkinState for ResultState<'_> {
             return Some(v);
         }
         let d = &self.s.d;
+        if let Some(v) =
+            d.p2.as_ref()
+                .and_then(|p| p2_number(d.score.ex_score(), p, id))
+        {
+            return Some(v);
+        }
         let sc = &d.score;
         let before = self.s.before.as_ref();
         // a play not recorded: the chart's record as it stands
@@ -232,6 +289,7 @@ impl SkinState for ResultState<'_> {
             return Some(t);
         }
         Some(match id {
+            TEXT_OPPONENT => self.s.d.p2.as_ref()?.name.clone(),
             1030 => song.md5.clone(),
             1031 => song.sha256.clone(),
             2 => self.ctx.config.player_name.clone(),

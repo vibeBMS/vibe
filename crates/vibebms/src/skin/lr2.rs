@@ -683,6 +683,7 @@ impl Loader<'_> {
                         step: (v[11] as f32, v[12] as f32),
                         parts,
                         split: false,
+                        side: v[1].clamp(0, 1) as usize,
                     });
                 }
             }
@@ -1616,6 +1617,37 @@ mod tests {
         assert_eq!(s.objects[0].dst.ops, vec![32, 21]);
         assert_eq!(s.objects[1].act, Some((15, 2)));
         assert!(s.objects[1].dst.ops.is_empty());
+    }
+
+    #[test]
+    fn battle_skins_and_their_gauges() {
+        let dir = std::env::temp_dir().join(format!("vibebms-bat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // a 7KEYS BATTLE skin: a gauge for each side
+        let csv = "#INFORMATION,12,B,me\n#IMAGE,a.png\n\
+#SRC_GROOVEGAUGE,0,0,0,0,40,10,4,1,0,0,5,0\n#DST_GROOVEGAUGE,0,0,10,10,5,10,0,255,255,255,255\n\
+#SRC_GROOVEGAUGE,1,0,0,0,40,10,4,1,0,0,5,0\n#DST_GROOVEGAUGE,1,0,300,10,5,10,0,255,255,255,255\n";
+        std::fs::write(dir.join("b.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((128, 64));
+        let s = load(
+            &dir.join("b.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        assert_eq!(s.kind, SkinType::Battle7);
+        let sides: Vec<usize> = s
+            .objects
+            .iter()
+            .filter_map(|o| match o.kind {
+                Kind::Gauge { side, .. } => Some(side),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sides, vec![0, 1]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

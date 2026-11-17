@@ -94,7 +94,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
-- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE, assists, floating / fixed hi-speed,
+- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
+  both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
   a course leave no record for the song.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
@@ -135,8 +136,30 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's (`scores/replays/`; in the
   web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
-  else its latest); a replay is not recorded. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
+  else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
+  kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
   score at the same note, not the best score spread evenly over the chart.
+- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST or LAST replay of it (song select's BATTLE row,
+  F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST). The chart
+  is made with the replay's seed and lane option on both sides (as LR2 lends a ghost's random); you play the
+  first side, the replay's inputs play the second again under its own options (judge, gauge, LN mode, AUTO
+  SCRATCH), silently. Its EX score is the pacemaker target as it plays; if it ever judges other than its
+  replay did (a judge that changed since), the play shows GHOST DESYNC and the replay's EX score at your note
+  stands in. Your side is saved as a normal play (lamp, scores, replays and IR as any other, the opponent's
+  lane option counting for the assist level). Replays of BATTLE or LEGACY NOTE plays, of another LN mode, or
+  without inputs cannot be opponents. On a phone held upright the single play skin is shown and the opponent
+  is only the pacemaker. The results name the winner by EX score; RETRY plays the same battle again.
+- **VS**: two players here, one per side of a 5 or 7 key chart (the BATTLE row's last value, or DP OPTION's).
+  Each has their own keys (1P / 2P key config), START / SELECT (2P: `P` / `O` by default, `2P START` / `2P
+  SELECT` in the key config), hi-speed, lane cover, LIFT, HIDDEN+, gauge, AUTO SCRATCH and judge offset
+  (`[play.p2]` in the config; each player's START panel changes their own) and lane option (RANDOM / RANDOM
+  2P). Each side has its own judge, gauge, score and keysound voices (one side's keysounds or HCN muting never
+  cut the other's); a player who fails stops (FAILED over their side) and the other plays on; the play ends
+  when both have finished or failed. The results show both sides and the winner. Nothing is saved: no
+  scores, lamps, replays or play counts. Controllers: press a button on the 1P controller while the chart
+  loads (the order they were connected in can swap them). On one keyboard, many keyboards miss keys when
+  several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
+  player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
 - **Audio**: low-latency output (ASIO/JACK feature flags), keysounds scheduled to the sample, WAV/OGG/MP3/FLAC.
 
@@ -169,6 +192,17 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported. Text outline and shadow are
   drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the text in half its colour
   at the offset), distance-field `.fnt` fonts (font `type` 1 / 2) the outline, shadow colour and softness too.
+- **Battle skins** (types 12 / 13, "7KEYS BATTLE" / "5KEYS BATTLE" in `SETTINGS › DISPLAY`; a 14 / 10 key skin
+  can be chosen there too): drawn when both sides of a battle are shown (G-BATTLE, VS). The built-in ones have a
+  gauge per side and the opponent as the target. LR2 `#SRC_GROOVEGAUGE` with 1 in its first field (vibeBMS JSON:
+  a gauge destination's `"side": 1`) is the second side's gauge. When there is an opponent: numbers 120-136 are
+  its values as LR2's 2P (score, EX, rate, combo, max combo, notes, gauge, next rank, PG..POOR, total rate),
+  108 is 1P minus 2P and 121 / 151 / 128 / 153 / bar graphs 114 / 115 its EX score as the target; timers 43 / 45
+  / 49 / 144 its gauge rising, full, full combo and last note (42 / 143 the first side's); options 44 / 45 its
+  groove / survival gauge, 56 / 57 its AUTO SCRATCH, 210-217 its DJ level, 352 / 353 / 354 the first side
+  winning / losing / level. A skin's 2P judge region shows the opponent's judgements; a single play skin shown
+  over a battle (a phone held upright) never does. Results: numbers 120-136 and options 352-354 likewise,
+  vibeBMS option 9350 "a battle", text 9351 the opponent's name, numbers 9376 / 9370 its miss count and lamp.
 - Player totals for skins (numbers 17-19, 30-37, 333): plays and clears are summed over the charts' records;
   judgements and time played are counted after every recorded play (not autoplay or replays). Judgements from
   before vibeBMS kept them count each chart's best play only; time played starts at zero.

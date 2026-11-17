@@ -231,12 +231,14 @@ fn kept_songs(ctx: &Ctx, v: &mut Vec<Item>) {
 }
 
 /// `config.skins` keys, in menu order.
-const SKIN_KEYS: [&str; 12] = [
+const SKIN_KEYS: [&str; 14] = [
     "7KEYS",
     "5KEYS",
     "14KEYS",
     "10KEYS",
     "9KEYS",
+    "7KEYS BATTLE",
+    "5KEYS BATTLE",
     "SELECT",
     "DECIDE",
     "RESULT",
@@ -368,9 +370,25 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     )
                 },
             ),
-            it("Battle (SP on both sides)", onoff(p.battle), |c, _| {
-                c.config.play.battle = !c.config.play.battle
-            }),
+            it(
+                "Battle (SP on both sides)",
+                match super::option_panel::dp_index(p) {
+                    2 => "BATTLE",
+                    3 => "BATTLE AS",
+                    _ => "OFF",
+                },
+                |c, d| {
+                    // OFF, BATTLE, BATTLE AS (AUTO SCRATCH on both sides)
+                    let p = &mut c.config.play;
+                    let i = super::option_panel::dp_index(p).max(1) - 1;
+                    let i = (i + d as i64).rem_euclid(3);
+                    let flip = p.dp_option;
+                    super::option_panel::set_dp_index(p, if i == 0 { 0 } else { i + 1 });
+                    if i == 0 {
+                        p.dp_option = flip;
+                    }
+                },
+            ),
             it("Play side", format!("{:?}", p.side), |c, _| {
                 c.config.play.side = if c.config.play.side == Side::P1 {
                     Side::P2
@@ -483,6 +501,21 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             it("Gauge", p.gauge.label(), |c, d| {
                 c.config.play.gauge = cyc(&GaugeType::SELECTABLE, c.config.play.gauge, d)
             }),
+            // the second player's own in VS
+            it("VS 2P gauge", p.p2.gauge.label(), |c, d| {
+                c.config.play.p2.gauge = cyc(&GaugeType::SELECTABLE, c.config.play.p2.gauge, d)
+            }),
+            it("VS 2P auto scratch", onoff(p.p2.auto_scratch), |c, _| {
+                c.config.play.p2.auto_scratch = !c.config.play.p2.auto_scratch
+            }),
+            it(
+                "VS 2P judge offset (ms)",
+                format!("{:+}", p.p2.judge_offset_ms),
+                |c, d| {
+                    c.config.play.p2.judge_offset_ms =
+                        (c.config.play.p2.judge_offset_ms + d).clamp(-500, 500)
+                },
+            ),
             it("Gauge auto shift", p.gauge_auto_shift.label(), |c, d| {
                 c.config.play.gauge_auto_shift =
                     cyc(&GaugeAutoShift::ALL, c.config.play.gauge_auto_shift, d)
@@ -591,6 +624,16 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 label: "SELECT".into(),
                 value: keys_label(&k.select),
                 act: Act::Bind(Slot::Select),
+            });
+            v.push(Item {
+                label: "2P START (VS)".into(),
+                value: keys_label(&k.p2_start),
+                act: Act::Bind(Slot::Start2),
+            });
+            v.push(Item {
+                label: "2P SELECT (VS)".into(),
+                value: keys_label(&k.p2_select),
+                act: Act::Bind(Slot::Select2),
             });
             v.push(it(
                 "Any gamepad axis = turntable",
@@ -773,12 +816,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ];
             // built-in default skin / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
-            const MODES: [(&str, Adjust); 12] = [
+            const MODES: [(&str, Adjust); 14] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
                 ("5KEYS", |c, d| cycle_skin(c, d, "5KEYS")),
                 ("14KEYS", |c, d| cycle_skin(c, d, "14KEYS")),
                 ("10KEYS", |c, d| cycle_skin(c, d, "10KEYS")),
                 ("9KEYS", |c, d| cycle_skin(c, d, "9KEYS")),
+                ("7KEYS BATTLE", |c, d| cycle_skin(c, d, "7KEYS BATTLE")),
+                ("5KEYS BATTLE", |c, d| cycle_skin(c, d, "5KEYS BATTLE")),
                 ("SELECT", |c, d| cycle_skin(c, d, "SELECT")),
                 ("DECIDE", |c, d| cycle_skin(c, d, "DECIDE")),
                 ("RESULT", |c, d| cycle_skin(c, d, "RESULT")),
@@ -792,7 +837,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     "" => "DEFAULT".into(),
                     p => skin_label(ctx, p),
                 };
-                let label = if m.ends_with("KEYS") {
+                let label = if m.contains("KEYS") {
                     format!("Play skin ({m})")
                 } else if m == "SOUND_SET" {
                     "Sound set".into()
@@ -2085,6 +2130,8 @@ fn skin_type_of(key: &str) -> Option<crate::skin::SkinType> {
         Play14,
         Play10,
         Play9,
+        Battle7,
+        Battle5,
         Select,
         Decide,
         Result,

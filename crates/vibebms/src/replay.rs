@@ -65,6 +65,13 @@ fn file(root: &Path, sha256: &str, ln: i32, slot: Slot) -> PathBuf {
 }
 
 impl Replay {
+    /// Whether it may be kept as a chart's latest or best replay (the
+    /// material of ghosts and G-BATTLE opponents): not a BATTLE play (a
+    /// single play chart on both sides, judged as one).
+    pub fn keepable(&self) -> bool {
+        !self.play.battle
+    }
+
     /// The EX score of the first `n` judgements.
     pub fn ex_at(&self, n: usize) -> u32 {
         ex_of(&self.ghost[..n.min(self.ghost.len())])
@@ -119,6 +126,29 @@ impl Replay {
                 Slot::Last => (r.date, r.ex_score as i64),
             })
     }
+}
+
+/// Why `r` cannot be a G-BATTLE opponent on `song` for a player in LN
+/// mode `ln` (`None`: it can). The opponent plays its inputs again on the
+/// second side, so the chart and the judge must come out as they did.
+pub fn ghost_refusal(
+    r: &Replay,
+    song: &crate::library::Song,
+    ln: vibebms_core::LnType,
+) -> Option<&'static str> {
+    Some(if !matches!(song.mode.as_str(), "7KEYS" | "5KEYS") {
+        "G-BATTLE needs a 5 or 7 key chart"
+    } else if r.play.battle {
+        "the replay is a BATTLE play"
+    } else if r.ops.is_empty() {
+        "the replay has no inputs"
+    } else if r.play.legacy_note {
+        "the replay is a LEGACY NOTE play"
+    } else if song.score_ln(r.play.ln_mode) != song.score_ln(ln) {
+        "the replay was played in another LN mode"
+    } else {
+        return None;
+    })
 }
 
 /// EX score of judgements (PG 2, GR 1).

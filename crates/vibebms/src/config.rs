@@ -21,6 +21,20 @@ pub enum Side {
     P2,
 }
 
+/// The battles chosen in song select that are not play options: they
+/// last until the game closes (never saved).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Versus {
+    #[default]
+    Off,
+    /// G-BATTLE against your MY BEST replay of the chart.
+    GhostBest,
+    /// G-BATTLE against your latest replay of the chart.
+    GhostLast,
+    /// Two players, one per side (VS).
+    Local,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HiSpeedMode {
     /// The hi-speed applies to the main BPM; notes speed up and slow down
@@ -201,6 +215,9 @@ pub struct PlayConfig {
     pub dp_option: DoubleOption,
     /// Play SP charts on both sides (BATTLE).
     pub battle: bool,
+    /// G-BATTLE / VS for this session (not saved, not in replays).
+    #[serde(skip)]
+    pub versus: Versus,
     pub side: Side,
     pub ln_mode: LnType,
     pub auto_scratch: bool,
@@ -246,6 +263,80 @@ pub struct PlayConfig {
     pub hran_threshold_bpm: u32,
     /// The score the pacemaker and the result compare against.
     pub target: Target,
+    /// The second player's own options in VS.
+    pub p2: SideOptions,
+}
+
+/// The options each player of VS has of their own (the first player's
+/// are the play options themselves).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct SideOptions {
+    pub gauge: GaugeType,
+    pub hispeed: f32,
+    pub hs_fix: HsFix,
+    pub fixed_duration_ms: f32,
+    pub sudden: f32,
+    pub hidden: f32,
+    pub lift: f32,
+    pub lane_cover: bool,
+    pub auto_scratch: bool,
+    pub judge_offset_ms: i32,
+}
+
+impl Default for SideOptions {
+    fn default() -> Self {
+        SideOptions::of(&PlayConfig {
+            p2: SideOptions::blank(),
+            ..PlayConfig::default()
+        })
+    }
+}
+
+impl SideOptions {
+    /// (Only to make the default play options.)
+    fn blank() -> SideOptions {
+        SideOptions {
+            gauge: GaugeType::Normal,
+            hispeed: 2.5,
+            hs_fix: HsFix::Off,
+            fixed_duration_ms: 600.0,
+            sudden: 0.0,
+            hidden: 0.0,
+            lift: 0.0,
+            lane_cover: false,
+            auto_scratch: false,
+            judge_offset_ms: 0,
+        }
+    }
+
+    pub fn of(p: &PlayConfig) -> SideOptions {
+        SideOptions {
+            gauge: p.gauge,
+            hispeed: p.hispeed,
+            hs_fix: p.hs_fix,
+            fixed_duration_ms: p.fixed_duration_ms,
+            sudden: p.sudden,
+            hidden: p.hidden,
+            lift: p.lift,
+            lane_cover: p.lane_cover,
+            auto_scratch: p.auto_scratch,
+            judge_offset_ms: p.judge_offset_ms,
+        }
+    }
+
+    fn apply(&self, p: &mut PlayConfig) {
+        p.gauge = self.gauge;
+        p.hispeed = self.hispeed;
+        p.hs_fix = self.hs_fix;
+        p.fixed_duration_ms = self.fixed_duration_ms;
+        p.sudden = self.sudden;
+        p.hidden = self.hidden;
+        p.lift = self.lift;
+        p.lane_cover = self.lane_cover;
+        p.auto_scratch = self.auto_scratch;
+        p.judge_offset_ms = self.judge_offset_ms;
+    }
 }
 
 /// Hi-speed limits and steps (as in LR2 / beatoraja).
@@ -256,6 +347,27 @@ pub const HISPEED_STEP: f32 = 0.25;
 const LEGACY_BPM: f64 = 150.0;
 
 impl PlayConfig {
+    /// The options a player side plays with: the second player's in VS
+    /// are these with `p2`'s own.
+    pub fn for_side(&self, side: usize) -> PlayConfig {
+        let mut p = self.clone();
+        if side == 1 {
+            self.p2.apply(&mut p);
+        }
+        p
+    }
+
+    /// Keep what changed in `p`, the options of `side` (as `for_side`).
+    pub fn set_side(&mut self, side: usize, p: &PlayConfig) {
+        if side == 1 {
+            self.p2 = SideOptions::of(p);
+        } else {
+            let p2 = std::mem::replace(&mut self.p2, SideOptions::blank());
+            *self = p.clone();
+            self.p2 = p2;
+        }
+    }
+
     /// Share of the lane notes are visible in (below the lane cover, above
     /// the LIFT).
     pub fn visible(&self, with_cover: bool) -> f32 {
@@ -362,6 +474,7 @@ impl Default for PlayConfig {
             random_2p: LaneOption::Off,
             dp_option: DoubleOption::Off,
             battle: false,
+            versus: Versus::Off,
             side: Side::P1,
             ln_mode: LnType::Ln,
             auto_scratch: false,
@@ -388,6 +501,7 @@ impl Default for PlayConfig {
             timing_auto_adjust: false,
             hran_threshold_bpm: 120,
             target: Target::Best,
+            p2: SideOptions::blank(),
         }
     }
 }
@@ -442,6 +556,9 @@ pub struct KeyConfig {
     pub pms: Vec<LaneKeys>,
     pub start: LaneKeys,
     pub select: LaneKeys,
+    /// The second player's START / SELECT (VS).
+    pub p2_start: LaneKeys,
+    pub p2_select: LaneKeys,
     /// Any gamepad axis movement counts as scratch when no axis is bound.
     pub any_axis_is_scratch: bool,
 }
@@ -475,6 +592,8 @@ impl Default for KeyConfig {
                 .collect(),
             start: LaneKeys::k(&[KeyQ]),
             select: LaneKeys::k(&[KeyW]),
+            p2_start: LaneKeys::k(&[KeyP]),
+            p2_select: LaneKeys::k(&[KeyO]),
             any_axis_is_scratch: true,
         }
     }
@@ -795,22 +914,81 @@ impl Default for Config {
 
 impl Config {
     pub fn load(path: &std::path::Path) -> Config {
-        match crate::platform::vfs::read_to_string(path) {
-            Ok(s) => match toml::from_str::<toml::Value>(&s).and_then(|mut v| {
-                migrate(&mut v);
-                v.try_into::<Config>()
-            }) {
-                Ok(c) => c,
+        let Ok(s) = crate::platform::vfs::read_to_string(path) else {
+            return Config::default();
+        };
+        let parsed = toml::from_str::<toml::Value>(&s).map(|mut v| {
+            migrate(&mut v);
+            v
+        });
+        let e = match parsed {
+            Ok(v) => match v.clone().try_into::<Config>() {
+                Ok(c) => return c,
+                // a value of the wrong type (a setting that changed type):
+                // keep everything else
                 Err(e) => {
-                    log::error!("config parse error ({e}); backing up and using defaults");
-                    if let Ok(b) = crate::platform::vfs::read(path) {
-                        let _ = crate::platform::vfs::write(&path.with_extension("toml.bak"), &b);
-                    }
-                    Config::default()
+                    log::error!("config: {e}; the settings that cannot be read are reset");
+                    backup(path);
+                    return Config::lenient(&v);
                 }
             },
-            Err(_) => Config::default(),
+            Err(e) => e,
+        };
+        log::error!("config parse error ({e}); backing up and using defaults");
+        backup(path);
+        Config::default()
+    }
+
+    /// The settings of `v` that can be read, the defaults for the others:
+    /// each value is taken if the whole still reads (a table's values one
+    /// by one when it does not).
+    pub fn lenient(v: &toml::Value) -> Config {
+        fn reads(v: &toml::Value) -> bool {
+            v.clone().try_into::<Config>().is_ok()
         }
+        fn table_at<'a>(root: &'a mut toml::Value, path: &[String]) -> Option<&'a mut toml::Table> {
+            let mut cur = root;
+            for p in path {
+                cur = cur.as_table_mut()?.get_mut(p)?;
+            }
+            cur.as_table_mut()
+        }
+        // `user`'s values into the table at `path`
+        fn merge(root: &mut toml::Value, path: &mut Vec<String>, user: &toml::Value) {
+            let Some(t) = user.as_table() else {
+                return;
+            };
+            for (k, uv) in t {
+                let Some(table) = table_at(root, path) else {
+                    return;
+                };
+                let old = table.insert(k.clone(), uv.clone());
+                if reads(root) {
+                    continue;
+                }
+                let Some(table) = table_at(root, path) else {
+                    return;
+                };
+                match old {
+                    Some(o) => {
+                        let both = o.is_table() && uv.is_table();
+                        table.insert(k.clone(), o);
+                        if both {
+                            path.push(k.clone());
+                            merge(root, path, uv);
+                            path.pop();
+                        }
+                    }
+                    None => {
+                        table.remove(k);
+                    }
+                }
+            }
+        }
+        let mut root = toml::Value::try_from(Config::default())
+            .unwrap_or(toml::Value::Table(Default::default()));
+        merge(&mut root, &mut Vec::new(), v);
+        root.try_into().unwrap_or_default()
     }
 
     pub fn save(&self, path: &std::path::Path) {
@@ -822,6 +1000,13 @@ impl Config {
             }
             Err(e) => log::error!("config serialize error: {e}"),
         }
+    }
+}
+
+/// Keep a copy of a configuration that could not be read whole.
+fn backup(path: &std::path::Path) {
+    if let Ok(b) = crate::platform::vfs::read(path) {
+        let _ = crate::platform::vfs::write(&path.with_extension("toml.bak"), &b);
     }
 }
 
@@ -902,6 +1087,37 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn a_setting_of_the_wrong_type_resets_alone() {
+        // VS options as a number, an unknown gauge, a key list as a string
+        let s = "player_name = \"ME\"\n[play]\nhispeed = 3.5\np2 = 5\nbattle = true\n\
+                 [play.target]\nx = 1\n[keys]\np2_start = \"P\"\n[display]\nwidth = 999\n";
+        let v: toml::Value = toml::from_str(s).unwrap();
+        assert!(v.clone().try_into::<Config>().is_err());
+        let c = Config::lenient(&v);
+        assert_eq!(c.player_name, "ME");
+        assert_eq!(c.play.hispeed, 3.5);
+        assert!(c.play.battle);
+        assert_eq!(c.play.p2, SideOptions::default());
+        assert_eq!(c.play.target, Target::Best);
+        assert_eq!(c.keys, KeyConfig::default());
+        assert_eq!(c.display.width, 999);
+        // second player's options of their own
+        let mut p = PlayConfig::default();
+        p.p2.hispeed = 4.0;
+        p.p2.sudden = 0.3;
+        let two = p.for_side(1);
+        assert_eq!((two.hispeed, two.sudden), (4.0, 0.3));
+        let mut changed = two.clone();
+        changed.hispeed = 5.0;
+        p.set_side(1, &changed);
+        assert_eq!((p.hispeed, p.p2.hispeed), (2.5, 5.0));
+        let mut one = p.for_side(0);
+        one.lift = 0.2;
+        p.set_side(0, &one);
+        assert_eq!((p.lift, p.p2.hispeed), (0.2, 5.0));
     }
 
     #[test]
