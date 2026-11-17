@@ -108,7 +108,7 @@ impl PlayScene {
                 seed: self.facts.seed,
                 play: self.played(ctx),
                 ex_score: e.score.ex_score(),
-                clear: clear.label().to_string(),
+                clear,
                 ghost: e.ghost.clone(),
                 ops: e.recorded().to_vec(),
             }),

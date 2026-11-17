@@ -17,14 +17,44 @@ use crate::chart::JudgeRank;
 use crate::mode::RuleFamily;
 use serde::{Deserialize, Serialize};
 
-pub const PGREAT: usize = 0;
-pub const GREAT: usize = 1;
-pub const GOOD: usize = 2;
-pub const BAD: usize = 3;
-/// Missed note (note passed without being hit).
-pub const POOR: usize = 4;
-/// Empty poor / 空POOR (pressed with no note in range).
-pub const MISS: usize = 5;
+crate::choices! {
+    /// A judgement, best first. Scores, logs, ghosts and replays keep its
+    /// index (`as usize`, the constants below).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum Judge {
+        PGreat => "PGREAT",
+        Great => "GREAT",
+        Good => "GOOD",
+        Bad => "BAD",
+        /// Missed note (note passed without being hit).
+        Poor => "POOR",
+        /// Empty poor / 空POOR (pressed with no note in range).
+        Miss => "MISS",
+    }
+}
+
+impl Judge {
+    /// The judgement of index `i`.
+    pub fn of(i: usize) -> Option<Judge> {
+        Judge::ALL.get(i).copied()
+    }
+
+    /// Its EX score: PGREAT 2, GREAT 1.
+    pub fn ex(self) -> u32 {
+        match self {
+            Judge::PGreat => 2,
+            Judge::Great => 1,
+            _ => 0,
+        }
+    }
+}
+
+pub const PGREAT: usize = Judge::PGreat as usize;
+pub const GREAT: usize = Judge::Great as usize;
+pub const GOOD: usize = Judge::Good as usize;
+pub const BAD: usize = Judge::Bad as usize;
+pub const POOR: usize = Judge::Poor as usize;
+pub const MISS: usize = Judge::Miss as usize;
 
 crate::choices! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]

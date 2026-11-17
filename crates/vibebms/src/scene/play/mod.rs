@@ -3,7 +3,6 @@
 //! the end.
 
 mod bga;
-mod chart;
 mod control;
 mod finish;
 mod hud;
@@ -22,7 +21,6 @@ mod tests;
 pub(crate) use session::Session;
 #[cfg(test)]
 pub(crate) use {
-    chart::{load_battle_chart, load_chart, make_engine, Rules},
     session::{Role, SideState},
     skin::{ghost_ex, PlayState},
 };
@@ -91,7 +89,7 @@ impl PlayRequest {
 /// one.
 pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Arc<Replay>, String> {
     let ln = ctx.config.play.ln_mode;
-    let r = Replay::load_filed(
+    let r = crate::replay::load_filed(
         &ctx.paths.root,
         &song.sha256,
         song.score_ln(ln) as i32,
@@ -133,7 +131,7 @@ pub(crate) fn single_mode(mode: PlayMode) -> PlayMode {
 /// Why VS cannot be played on `song` here (`None`: it can): a 5 or 7 key
 /// chart; with touch controls, a tablet-sized screen (two control sets).
 pub fn vs_refusal(ctx: &Ctx, song: &Song) -> Option<&'static str> {
-    if !matches!(song.mode.as_str(), "7KEYS" | "5KEYS") {
+    if !matches!(song.mode, PlayMode::Beat7K | PlayMode::Beat5K) {
         return Some("VS needs a 5 or 7 key chart");
     }
     vs_touch_too_small(ctx).then_some(VS_TOUCH_TOO_SMALL)

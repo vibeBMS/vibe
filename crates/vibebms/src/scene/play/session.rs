@@ -559,27 +559,28 @@ fn sound(side: usize, e: &Engine, ev: EngineEvent) -> Option<Out> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::PlayConfig;
-    use crate::scene::play::chart::{load_chart, make_engine, Rules};
     use std::path::Path;
     use vibebms_core::bot;
     use vibebms_core::chart::NoteKind;
     use vibebms_core::gauge::GaugeType;
     use vibebms_core::judge::GREAT;
+    use vibebms_core::play::{build_chart, build_engine, RuleOptions};
 
     const SHOW: Show = Show {
         bomb_upto: GREAT,
         three_regions: false,
     };
 
-    fn chart(play: &PlayConfig) -> Chart {
+    fn chart(play: &RuleOptions) -> Chart {
         let text = bot::chart_text(7, 5);
         let path = Path::new("song/chart.bme");
-        load_chart(path, text.as_bytes(), play, 1, None).unwrap().0
+        build_chart(path, text.as_bytes(), play, 1, None)
+            .unwrap()
+            .chart
     }
 
-    fn side(chart: &Chart, r: &Rules, player: Option<usize>) -> SideState {
-        SideState::new(make_engine(chart, r, player).0, Role::Player)
+    fn side(chart: &Chart, r: &RuleOptions, player: Option<usize>, auto: bool) -> SideState {
+        SideState::new(build_engine(chart, r, player, auto).0, Role::Player)
     }
 
     /// Frames every 1/60 s as the scene steps them, `keys` before each,
@@ -604,11 +605,9 @@ mod tests {
 
     #[test]
     fn autoplay_steps_through_the_chart() {
-        let play = PlayConfig::default();
+        let play = RuleOptions::default();
         let c = chart(&play);
-        let mut r = Rules::of(&play);
-        r.autoplay = true;
-        let sides = vec![side(&c, &r, None)];
+        let sides = vec![side(&c, &play, None, true)];
         let mut s = Session::new(c, sides, false, Instant::now());
         let mut out = Vec::new();
         let (failed, t) = run(&mut s, &mut out, |_, _| {});
@@ -632,7 +631,7 @@ mod tests {
 
     #[test]
     fn keys_early_judge_and_move_the_offset() {
-        let play = PlayConfig::default();
+        let play = RuleOptions::default();
         let c = chart(&play);
         // every note pressed 45 ms early (> 0: early), long notes left alone
         let mut keys: Vec<(i64, u8, bool)> = c
@@ -642,7 +641,7 @@ mod tests {
             .flat_map(|n| [(n.time - 45_000, n.lane, true), (n.time, n.lane, false)])
             .collect();
         keys.sort_by_key(|k| k.0);
-        let sides = vec![side(&c, &Rules::of(&play), None)];
+        let sides = vec![side(&c, &play, None, false)];
         let mut s = Session::new(c, sides, false, Instant::now());
         let mut out = Vec::new();
         let mut next = 0;
@@ -679,16 +678,19 @@ mod tests {
 
     #[test]
     fn a_vs_player_who_fails_stops_and_the_other_plays_on() {
-        let play = PlayConfig {
+        let play = RuleOptions {
             battle: true,
-            ..PlayConfig::default()
+            ..RuleOptions::default()
         };
         let c = chart(&play);
-        let mut hard = Rules::of(&play);
-        hard.gauge = GaugeType::Hard;
-        let mut auto = Rules::of(&play);
-        auto.autoplay = true;
-        let sides = vec![side(&c, &hard, Some(0)), side(&c, &auto, Some(1))];
+        let hard = RuleOptions {
+            gauge: GaugeType::Hard,
+            ..play.clone()
+        };
+        let sides = vec![
+            side(&c, &hard, Some(0), false),
+            side(&c, &play, Some(1), true),
+        ];
         let mut s = Session::new(c, sides, true, Instant::now());
         let mut out = Vec::new();
         let (failed, _) = run(&mut s, &mut out, |_, _| {});

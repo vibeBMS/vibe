@@ -1,7 +1,6 @@
 //! Loading a play's chart, sounds and images off the main thread, and the
 //! screen shown meanwhile.
 
-use super::chart::{load_battle_chart, load_chart};
 use super::{PlayRequest, Versus};
 use crate::app::{Ctx, Draw};
 use crate::config::PlayConfig;
@@ -17,6 +16,7 @@ use std::sync::Arc;
 use vibebms_audio::SoundBank;
 use vibebms_core::chart::Chart;
 use vibebms_core::lane_option::DoubleOption;
+use vibebms_core::play::{build_battle_chart, build_chart, PlayChart, RuleOptions};
 use vibebms_core::score::AssistFacts;
 
 pub(super) type Rgba = (u32, u32, Vec<u8>);
@@ -67,8 +67,11 @@ impl Loading {
         // option (RANDOM, RANDOM 2P)
         let play = if req.is_vs() {
             PlayConfig {
-                battle: true,
-                dp_option: DoubleOption::Off,
+                rules: RuleOptions {
+                    battle: true,
+                    dp_option: DoubleOption::Off,
+                    ..play.rules
+                },
                 ..play
             }
         } else {
@@ -93,9 +96,13 @@ impl Loading {
                 });
                 let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
                 let lanes = in_course.then_some(course_mirror);
-                let (chart, facts, ln_profile) = match &ghost {
-                    Some(g) => load_battle_chart(&path, &bytes, &play, &g.play, seed)?,
-                    None => load_chart(&path, &bytes, &play, seed, lanes)?,
+                let PlayChart {
+                    chart,
+                    facts,
+                    ln_profile,
+                } = match &ghost {
+                    Some(g) => build_battle_chart(&path, &bytes, &play, &g.play, seed)?,
+                    None => build_chart(&path, &bytes, &play, seed, lanes)?,
                 };
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);

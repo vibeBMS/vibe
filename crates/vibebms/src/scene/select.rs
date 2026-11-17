@@ -621,9 +621,7 @@ impl SelectScene {
         let song = song.clone();
         let ln = song.score_ln(ctx.config.play.ln_mode) as i32;
         let fixed = song.fixed_ln();
-        let load = |slot| {
-            crate::replay::Replay::load_filed(&ctx.paths.root, &song.sha256, ln, fixed, slot)
-        };
+        let load = |slot| crate::replay::load_filed(&ctx.paths.root, &song.sha256, ln, fixed, slot);
         let Some(r) = load(crate::replay::Slot::Best).or_else(|| load(crate::replay::Slot::Last))
         else {
             ctx.toast(format!("No replay of {}", song.title));

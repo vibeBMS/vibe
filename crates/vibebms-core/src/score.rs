@@ -1,5 +1,6 @@
 //! Score bookkeeping: EX score, combo, clear lamp, DJ level.
 
+use crate::judge::{BAD, GOOD, GREAT, MISS, PGREAT, POOR};
 use serde::{Deserialize, Serialize};
 
 /// Options that help the player (beatoraja assist levels): the lamp is
@@ -146,16 +147,17 @@ impl Score {
         self.counts[judge][0] + self.counts[judge][1] + self.just[judge]
     }
 
+    /// GREAT to BAD hit early (a PGREAT is neither FAST nor SLOW).
     pub fn fast(&self) -> u32 {
-        (1..4).map(|j| self.counts[j][0]).sum()
+        (GREAT..=BAD).map(|j| self.counts[j][0]).sum()
     }
 
     pub fn slow(&self) -> u32 {
-        (1..4).map(|j| self.counts[j][1]).sum()
+        (GREAT..=BAD).map(|j| self.counts[j][1]).sum()
     }
 
     pub fn ex_score(&self) -> u32 {
-        self.count(0) * 2 + self.count(1)
+        self.count(PGREAT) * 2 + self.count(GREAT)
     }
 
     pub fn max_ex(&self) -> u32 {
@@ -181,7 +183,10 @@ impl Score {
 
     /// Miss count (BAD + POOR + empty POOR + notes never reached).
     pub fn miss_count(&self) -> u32 {
-        self.count(3) + self.count(4) + self.count(5) + self.total_notes.saturating_sub(self.passed)
+        self.count(BAD)
+            + self.count(POOR)
+            + self.count(MISS)
+            + self.total_notes.saturating_sub(self.passed)
     }
 
     pub fn dj_level(&self) -> DjLevel {
@@ -200,9 +205,9 @@ impl Score {
             Assist::None => {}
         }
         let all = self.passed >= self.total_notes && self.total_notes > 0;
-        if all && self.count(3) + self.count(4) == 0 {
-            if self.count(2) == 0 {
-                if self.count(1) == 0 {
+        if all && self.count(BAD) + self.count(POOR) == 0 {
+            if self.count(GOOD) == 0 {
+                if self.count(GREAT) == 0 {
                     return ClearType::Max;
                 }
                 return ClearType::Perfect;

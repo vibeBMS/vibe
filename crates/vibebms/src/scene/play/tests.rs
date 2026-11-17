@@ -11,6 +11,7 @@ use vibebms_core::engine::{Engine, Op};
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::{DoubleOption, LaneOption};
+use vibebms_core::play::{build_battle_chart, build_chart, build_engine, PlayChart, RuleOptions};
 
 /// FNV-1a over what a play leaves: judgements, logs, score, gauge.
 fn digest(e: &Engine) -> u64 {
@@ -49,12 +50,14 @@ fn digest(e: &Engine) -> u64 {
 /// the replay as the play scene does (the replay's options and seed
 /// make the chart and the rules): both must judge the same. The
 /// digest of the play.
-fn play_and_watch(keys: usize, play: &PlayConfig) -> (u64, u32) {
+fn play_and_watch(keys: usize, play: &RuleOptions) -> (u64, u32) {
     let text = bot::chart_text(keys, keys as i64 * 7);
     let path = Path::new("song/chart.bme");
     let seed = 4242;
-    let (chart, _, _) = load_chart(path, text.as_bytes(), play, seed, None).unwrap();
-    let (mut e, _) = make_engine(&chart, &Rules::of(play), None);
+    let chart = build_chart(path, text.as_bytes(), play, seed, None)
+        .unwrap()
+        .chart;
+    let (mut e, _) = build_engine(&chart, play, None, false);
     e.record();
     let inputs = bot::inputs(&chart, None, 99);
     bot::drive(&mut e, &inputs, chart.length() + 2_000_000);
@@ -67,15 +70,20 @@ fn play_and_watch(keys: usize, play: &PlayConfig) -> (u64, u32) {
         ln: 0,
         date: 0,
         seed,
-        play: play.clone(),
+        play: PlayConfig {
+            rules: play.clone(),
+            ..PlayConfig::default()
+        },
         ex_score: e.score.ex_score(),
-        clear: String::new(),
+        clear: ClearType::default(),
         ghost: e.ghost.clone(),
         ops: e.recorded().to_vec(),
     };
     let r: Replay = serde_json::from_slice(&serde_json::to_vec(&r).unwrap()).unwrap();
-    let (chart, _, _) = load_chart(path, text.as_bytes(), &r.play, r.seed, None).unwrap();
-    let (mut w, _) = make_engine(&chart, &Rules::of(&r.play), None);
+    let chart = build_chart(path, text.as_bytes(), &r.play, r.seed, None)
+        .unwrap()
+        .chart;
+    let (mut w, _) = build_engine(&chart, &r.play, None, false);
     // fed frame by frame as the scene does
     let mut feed = Feed::new(Arc::new(r.clone()), 0);
     let mut t = -1_500_000;
@@ -99,24 +107,24 @@ fn autoplay_plays_every_chart_through() {
             (LnType::Cn, LaneOption::SRandom),
             (LnType::Hcn, LaneOption::HRandom),
         ] {
-            let play = PlayConfig {
+            let play = RuleOptions {
                 ln_mode: ln,
                 random_1p: random,
                 battle: keys < 10 && ln == LnType::Cn,
-                ..PlayConfig::default()
+                ..RuleOptions::default()
             };
             let text = bot::chart_text(keys, keys as i64 * 3);
             let path = Path::new("song/chart.bme");
-            let (chart, _, _) = load_chart(path, text.as_bytes(), &play, 9, None).unwrap();
-            let mut r = Rules::of(&play);
-            r.autoplay = true;
+            let chart = build_chart(path, text.as_bytes(), &play, 9, None)
+                .unwrap()
+                .chart;
             let players = if chart.mode().is_double() && play.battle {
                 vec![Some(0), Some(1)]
             } else {
                 vec![None]
             };
             for player in players {
-                let (mut e, _) = make_engine(&chart, &r, player);
+                let (mut e, _) = build_engine(&chart, &play, player, true);
                 let end = chart.length() + 2_000_000;
                 let mut t = -1_000_000;
                 while t < end {
@@ -137,50 +145,50 @@ fn autoplay_plays_every_chart_through() {
 /// play scene took several judges (the digests were taken then).
 #[test]
 fn replays_judge_as_before() {
-    let d = PlayConfig::default;
-    let cases: Vec<(usize, PlayConfig)> = vec![
+    let d = RuleOptions::default;
+    let cases: Vec<(usize, RuleOptions)> = vec![
         (7, d()),
         (5, d()),
         (14, d()),
         (10, d()),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::Random,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::SRandom,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::HRandom,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::AllScratch,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 ln_mode: LnType::Cn,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 ln_mode: LnType::Hcn,
                 gauge: GaugeType::Hard,
                 ..d()
@@ -188,7 +196,7 @@ fn replays_judge_as_before() {
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 judge_preset: JudgePreset::Lr2,
                 gauge_preset: GaugePreset::Lr2,
                 ..d()
@@ -196,21 +204,21 @@ fn replays_judge_as_before() {
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 judge_preset: JudgePreset::Iidx,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 auto_scratch: true,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 legacy_note: true,
                 no_mine: true,
                 ..d()
@@ -218,14 +226,14 @@ fn replays_judge_as_before() {
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 expand_judge: true,
                 ..d()
             },
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 judge_algorithm: vibebms_core::engine::JudgeAlgorithm::Duration,
                 gauge: GaugeType::ExHard,
                 ..d()
@@ -233,14 +241,14 @@ fn replays_judge_as_before() {
         ),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 battle: true,
                 ..d()
             },
         ),
         (
             5,
-            PlayConfig {
+            RuleOptions {
                 battle: true,
                 auto_scratch: true,
                 random_2p: LaneOption::Mirror,
@@ -249,7 +257,7 @@ fn replays_judge_as_before() {
         ),
         (
             14,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::Random,
                 random_2p: LaneOption::RRandom,
                 dp_option: DoubleOption::Flip,
@@ -291,18 +299,18 @@ fn replays_judge_as_before() {
 /// lane option (what the player's replay keeps).
 #[test]
 fn a_replay_plays_again_as_the_opponent() {
-    let d = PlayConfig::default;
-    let cases: Vec<(usize, PlayConfig, PlayConfig)> = vec![
+    let d = RuleOptions::default;
+    let cases: Vec<(usize, RuleOptions, RuleOptions)> = vec![
         (7, d(), d()),
         (
             7,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::SRandom,
                 ln_mode: LnType::Cn,
                 auto_scratch: true,
                 ..d()
             },
-            PlayConfig {
+            RuleOptions {
                 no_mine: true,
                 gauge: GaugeType::Hard,
                 ..d()
@@ -310,14 +318,14 @@ fn a_replay_plays_again_as_the_opponent() {
         ),
         (
             5,
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::HRandom,
                 ln_mode: LnType::Hcn,
                 no_mine: true,
                 judge_preset: JudgePreset::Lr2,
                 ..d()
             },
-            PlayConfig {
+            RuleOptions {
                 random_1p: LaneOption::Mirror,
                 legacy_note: true,
                 judge_preset: JudgePreset::Iidx,
@@ -330,8 +338,10 @@ fn a_replay_plays_again_as_the_opponent() {
         let path = Path::new("song/chart.bme");
         let seed = 777;
         // the opponent's play
-        let (sp, _, _) = load_chart(path, text.as_bytes(), &theirs, seed, None).unwrap();
-        let (mut e, _) = make_engine(&sp, &Rules::of(&theirs), None);
+        let sp = build_chart(path, text.as_bytes(), &theirs, seed, None)
+            .unwrap()
+            .chart;
+        let (mut e, _) = build_engine(&sp, &theirs, None, false);
         e.record();
         bot::drive(&mut e, &bot::inputs(&sp, None, 5), sp.length() + 2_000_000);
         let r = Arc::new(Replay {
@@ -342,19 +352,23 @@ fn a_replay_plays_again_as_the_opponent() {
             ln: 0,
             date: 0,
             seed,
-            play: theirs.clone(),
+            play: PlayConfig {
+                rules: theirs.clone(),
+                ..PlayConfig::default()
+            },
             ex_score: e.score.ex_score(),
-            clear: String::new(),
+            clear: ClearType::default(),
             ghost: e.ghost.clone(),
             ops: e.recorded().to_vec(),
         });
         // the battle
-        let (bt, facts, _) =
-            load_battle_chart(path, text.as_bytes(), &mine, &theirs, seed).unwrap();
+        let PlayChart {
+            chart: bt, facts, ..
+        } = build_battle_chart(path, text.as_bytes(), &mine, &theirs, seed).unwrap();
         assert!(!facts.battle);
         assert_eq!(facts.lane, vec![theirs.random_1p]);
         let lpp = bt.mode().lanes_per_player() as u8;
-        let (mut g, _) = make_engine(&bt, &Rules::of(&theirs), Some(1));
+        let (mut g, _) = build_engine(&bt, &theirs, Some(1), false);
         let mut feed = Feed::new(r.clone(), lpp);
         let mut t = -1_500_000;
         let mut lit = 0;
@@ -369,11 +383,13 @@ fn a_replay_plays_again_as_the_opponent() {
         assert_eq!(g.ghost, r.ghost);
         assert_eq!(digest(&g), digest(&e), "{keys}K opponent");
         // the player's side and the player's replay
-        let (mut me, _) = make_engine(&bt, &Rules::of(&mine), Some(0));
+        let (mut me, _) = build_engine(&bt, &mine, Some(0), false);
         let mut played = mine.clone();
         played.random_1p = theirs.random_1p;
-        let (solo, _, _) = load_chart(path, text.as_bytes(), &played, seed, None).unwrap();
-        let (mut alone, _) = make_engine(&solo, &Rules::of(&played), None);
+        let solo = build_chart(path, text.as_bytes(), &played, seed, None)
+            .unwrap()
+            .chart;
+        let (mut alone, _) = build_engine(&solo, &played, None, false);
         let inputs = bot::inputs(&solo, None, 8);
         bot::drive(&mut me, &inputs, solo.length() + 2_000_000);
         bot::drive(&mut alone, &inputs, solo.length() + 2_000_000);
@@ -395,12 +411,19 @@ fn bot_replay() {
     let c = vibebms_core::load_chart_bytes(path, &bytes, &Default::default()).unwrap();
     let song = crate::library::song_from_chart(path, String::new(), &c);
     let play = PlayConfig {
-        random_1p: LaneOption::Random,
+        rules: RuleOptions {
+            random_1p: LaneOption::Random,
+            ..RuleOptions::default()
+        },
         ..PlayConfig::default()
     };
     let seed = 31337;
-    let (c, _, prof) = load_chart(path, &bytes, &play, seed, None).unwrap();
-    let (mut e, _) = make_engine(&c, &Rules::of(&play), None);
+    let PlayChart {
+        chart: c,
+        ln_profile: prof,
+        ..
+    } = build_chart(path, &bytes, &play, seed, None).unwrap();
+    let (mut e, _) = build_engine(&c, &play, None, false);
     e.record();
     bot::drive(&mut e, &bot::inputs(&c, None, 3), c.length() + 2_000_000);
     let r = Replay {
@@ -413,12 +436,12 @@ fn bot_replay() {
         seed,
         play,
         ex_score: e.score.ex_score(),
-        clear: "CLEAR".into(),
+        clear: ClearType::Normal,
         ghost: e.ghost.clone(),
         ops: e.recorded().to_vec(),
     };
-    r.save(&root, crate::replay::Slot::Best).unwrap();
-    r.save(&root, crate::replay::Slot::Last).unwrap();
+    crate::replay::save(&r, &root, crate::replay::Slot::Best).unwrap();
+    crate::replay::save(&r, &root, crate::replay::Slot::Last).unwrap();
     println!("EX {} of {}", r.ex_score, e.score.max_ex());
 }
 
@@ -462,7 +485,7 @@ fn vs_players_have_their_own_voices_and_controls() {
 fn only_fitting_replays_are_opponents() {
     use crate::replay::ghost_refusal;
     let song = crate::library::Song {
-        mode: "7KEYS".into(),
+        mode: PlayMode::Beat7K,
         has_ln: true,
         ..Default::default()
     };
@@ -476,7 +499,7 @@ fn only_fitting_replays_are_opponents() {
         seed: 1,
         play: PlayConfig::default(),
         ex_score: 0,
-        clear: String::new(),
+        clear: ClearType::default(),
         ghost: Vec::new(),
         ops: vec![Op::Update(0)],
     };
@@ -492,7 +515,7 @@ fn only_fitting_replays_are_opponents() {
     assert!(bad(|r| r.ops.clear()));
     assert!(bad(|r| r.play.ln_mode = LnType::Hcn));
     let dp = crate::library::Song {
-        mode: "14KEYS".into(),
+        mode: PlayMode::Beat14K,
         ..song.clone()
     };
     assert!(ghost_refusal(&r, &dp, LnType::Ln).is_some());

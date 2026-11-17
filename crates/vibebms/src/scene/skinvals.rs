@@ -40,7 +40,7 @@ impl ChartFacts<'_> {
     pub fn of_song(s: &Song) -> ChartFacts<'_> {
         ChartFacts {
             difficulty: s.difficulty,
-            mode: PlayMode::ALL.iter().copied().find(|p| p.label() == s.mode),
+            mode: Some(s.mode),
             has_bga: s.has_bga,
             has_ln: s.has_ln,
             has_random: s.has_random,
@@ -548,7 +548,7 @@ mod tests {
         };
         let s = Song {
             difficulty: 3,
-            mode: PlayMode::Beat7K.label().into(),
+            mode: PlayMode::Beat7K,
             min_bpm: 150.0,
             max_bpm: 150.004,
             main_bpm: 150.0,
