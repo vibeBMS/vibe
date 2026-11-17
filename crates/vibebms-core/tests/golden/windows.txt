@@ -1,0 +1,2240 @@
+Beatoraja FiveKeys Rank(-1) None -> w0
+Beatoraja FiveKeys Rank(-1) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys Rank(-1) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys Rank(-1) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys Rank(-1) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys Rank(0) None -> w5
+Beatoraja FiveKeys Rank(0) Some([200, 100, 100]) -> w6
+Beatoraja FiveKeys Rank(0) Some([400, 50, 300]) -> w7
+Beatoraja FiveKeys Rank(0) Some([50, 50, 50]) -> w8
+Beatoraja FiveKeys Rank(0) Some([10, 500, 20]) -> w9
+Beatoraja FiveKeys Rank(1) None -> w10
+Beatoraja FiveKeys Rank(1) Some([200, 100, 100]) -> w11
+Beatoraja FiveKeys Rank(1) Some([400, 50, 300]) -> w12
+Beatoraja FiveKeys Rank(1) Some([50, 50, 50]) -> w13
+Beatoraja FiveKeys Rank(1) Some([10, 500, 20]) -> w14
+Beatoraja FiveKeys Rank(2) None -> w0
+Beatoraja FiveKeys Rank(2) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys Rank(2) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys Rank(2) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys Rank(2) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys Rank(3) None -> w15
+Beatoraja FiveKeys Rank(3) Some([200, 100, 100]) -> w16
+Beatoraja FiveKeys Rank(3) Some([400, 50, 300]) -> w17
+Beatoraja FiveKeys Rank(3) Some([50, 50, 50]) -> w18
+Beatoraja FiveKeys Rank(3) Some([10, 500, 20]) -> w19
+Beatoraja FiveKeys Rank(4) None -> w20
+Beatoraja FiveKeys Rank(4) Some([200, 100, 100]) -> w21
+Beatoraja FiveKeys Rank(4) Some([400, 50, 300]) -> w22
+Beatoraja FiveKeys Rank(4) Some([50, 50, 50]) -> w23
+Beatoraja FiveKeys Rank(4) Some([10, 500, 20]) -> w24
+Beatoraja FiveKeys Rank(5) None -> w0
+Beatoraja FiveKeys Rank(5) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys Rank(5) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys Rank(5) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys Rank(5) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys DefExRank(NaN) None -> w0
+Beatoraja FiveKeys DefExRank(NaN) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys DefExRank(NaN) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys DefExRank(NaN) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys DefExRank(NaN) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys DefExRank(-5.0) None -> w0
+Beatoraja FiveKeys DefExRank(-5.0) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys DefExRank(-5.0) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys DefExRank(-5.0) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys DefExRank(-5.0) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys DefExRank(0.0) None -> w0
+Beatoraja FiveKeys DefExRank(0.0) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys DefExRank(0.0) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys DefExRank(0.0) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys DefExRank(0.0) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys DefExRank(0.5) None -> w25
+Beatoraja FiveKeys DefExRank(0.5) Some([200, 100, 100]) -> w26
+Beatoraja FiveKeys DefExRank(0.5) Some([400, 50, 300]) -> w27
+Beatoraja FiveKeys DefExRank(0.5) Some([50, 50, 50]) -> w28
+Beatoraja FiveKeys DefExRank(0.5) Some([10, 500, 20]) -> w29
+Beatoraja FiveKeys DefExRank(1.0) None -> w25
+Beatoraja FiveKeys DefExRank(1.0) Some([200, 100, 100]) -> w26
+Beatoraja FiveKeys DefExRank(1.0) Some([400, 50, 300]) -> w27
+Beatoraja FiveKeys DefExRank(1.0) Some([50, 50, 50]) -> w28
+Beatoraja FiveKeys DefExRank(1.0) Some([10, 500, 20]) -> w29
+Beatoraja FiveKeys DefExRank(50.0) None -> w30
+Beatoraja FiveKeys DefExRank(50.0) Some([200, 100, 100]) -> w31
+Beatoraja FiveKeys DefExRank(50.0) Some([400, 50, 300]) -> w32
+Beatoraja FiveKeys DefExRank(50.0) Some([50, 50, 50]) -> w33
+Beatoraja FiveKeys DefExRank(50.0) Some([10, 500, 20]) -> w34
+Beatoraja FiveKeys DefExRank(80.0) None -> w35
+Beatoraja FiveKeys DefExRank(80.0) Some([200, 100, 100]) -> w36
+Beatoraja FiveKeys DefExRank(80.0) Some([400, 50, 300]) -> w37
+Beatoraja FiveKeys DefExRank(80.0) Some([50, 50, 50]) -> w38
+Beatoraja FiveKeys DefExRank(80.0) Some([10, 500, 20]) -> w39
+Beatoraja FiveKeys DefExRank(99.9) None -> w40
+Beatoraja FiveKeys DefExRank(99.9) Some([200, 100, 100]) -> w41
+Beatoraja FiveKeys DefExRank(99.9) Some([400, 50, 300]) -> w42
+Beatoraja FiveKeys DefExRank(99.9) Some([50, 50, 50]) -> w43
+Beatoraja FiveKeys DefExRank(99.9) Some([10, 500, 20]) -> w44
+Beatoraja FiveKeys DefExRank(100.0) None -> w0
+Beatoraja FiveKeys DefExRank(100.0) Some([200, 100, 100]) -> w1
+Beatoraja FiveKeys DefExRank(100.0) Some([400, 50, 300]) -> w2
+Beatoraja FiveKeys DefExRank(100.0) Some([50, 50, 50]) -> w3
+Beatoraja FiveKeys DefExRank(100.0) Some([10, 500, 20]) -> w4
+Beatoraja FiveKeys DefExRank(120.0) None -> w45
+Beatoraja FiveKeys DefExRank(120.0) Some([200, 100, 100]) -> w46
+Beatoraja FiveKeys DefExRank(120.0) Some([400, 50, 300]) -> w47
+Beatoraja FiveKeys DefExRank(120.0) Some([50, 50, 50]) -> w48
+Beatoraja FiveKeys DefExRank(120.0) Some([10, 500, 20]) -> w49
+Beatoraja FiveKeys DefExRank(133.0) None -> w50
+Beatoraja FiveKeys DefExRank(133.0) Some([200, 100, 100]) -> w51
+Beatoraja FiveKeys DefExRank(133.0) Some([400, 50, 300]) -> w52
+Beatoraja FiveKeys DefExRank(133.0) Some([50, 50, 50]) -> w53
+Beatoraja FiveKeys DefExRank(133.0) Some([10, 500, 20]) -> w54
+Beatoraja FiveKeys DefExRank(300.0) None -> w55
+Beatoraja FiveKeys DefExRank(300.0) Some([200, 100, 100]) -> w56
+Beatoraja FiveKeys DefExRank(300.0) Some([400, 50, 300]) -> w57
+Beatoraja FiveKeys DefExRank(300.0) Some([50, 50, 50]) -> w58
+Beatoraja FiveKeys DefExRank(300.0) Some([10, 500, 20]) -> w59
+Beatoraja FiveKeys DefExRank(1e300) None -> w60
+Beatoraja FiveKeys DefExRank(1e300) Some([200, 100, 100]) -> w61
+Beatoraja FiveKeys DefExRank(1e300) Some([400, 50, 300]) -> w62
+Beatoraja FiveKeys DefExRank(1e300) Some([50, 50, 50]) -> w63
+Beatoraja FiveKeys DefExRank(1e300) Some([10, 500, 20]) -> w64
+Beatoraja FiveKeys Bmson(-1.0) None -> w15
+Beatoraja FiveKeys Bmson(-1.0) Some([200, 100, 100]) -> w16
+Beatoraja FiveKeys Bmson(-1.0) Some([400, 50, 300]) -> w17
+Beatoraja FiveKeys Bmson(-1.0) Some([50, 50, 50]) -> w18
+Beatoraja FiveKeys Bmson(-1.0) Some([10, 500, 20]) -> w19
+Beatoraja FiveKeys Bmson(0.0) None -> w15
+Beatoraja FiveKeys Bmson(0.0) Some([200, 100, 100]) -> w16
+Beatoraja FiveKeys Bmson(0.0) Some([400, 50, 300]) -> w17
+Beatoraja FiveKeys Bmson(0.0) Some([50, 50, 50]) -> w18
+Beatoraja FiveKeys Bmson(0.0) Some([10, 500, 20]) -> w19
+Beatoraja FiveKeys Bmson(0.5) None -> w25
+Beatoraja FiveKeys Bmson(0.5) Some([200, 100, 100]) -> w26
+Beatoraja FiveKeys Bmson(0.5) Some([400, 50, 300]) -> w27
+Beatoraja FiveKeys Bmson(0.5) Some([50, 50, 50]) -> w28
+Beatoraja FiveKeys Bmson(0.5) Some([10, 500, 20]) -> w29
+Beatoraja FiveKeys Bmson(33.3) None -> w65
+Beatoraja FiveKeys Bmson(33.3) Some([200, 100, 100]) -> w66
+Beatoraja FiveKeys Bmson(33.3) Some([400, 50, 300]) -> w67
+Beatoraja FiveKeys Bmson(33.3) Some([50, 50, 50]) -> w68
+Beatoraja FiveKeys Bmson(33.3) Some([10, 500, 20]) -> w69
+Beatoraja FiveKeys Bmson(100.0) None -> w15
+Beatoraja FiveKeys Bmson(100.0) Some([200, 100, 100]) -> w16
+Beatoraja FiveKeys Bmson(100.0) Some([400, 50, 300]) -> w17
+Beatoraja FiveKeys Bmson(100.0) Some([50, 50, 50]) -> w18
+Beatoraja FiveKeys Bmson(100.0) Some([10, 500, 20]) -> w19
+Beatoraja FiveKeys Bmson(150.0) None -> w70
+Beatoraja FiveKeys Bmson(150.0) Some([200, 100, 100]) -> w71
+Beatoraja FiveKeys Bmson(150.0) Some([400, 50, 300]) -> w72
+Beatoraja FiveKeys Bmson(150.0) Some([50, 50, 50]) -> w73
+Beatoraja FiveKeys Bmson(150.0) Some([10, 500, 20]) -> w74
+Beatoraja FiveKeys Bmson(200.0) None -> w75
+Beatoraja FiveKeys Bmson(200.0) Some([200, 100, 100]) -> w76
+Beatoraja FiveKeys Bmson(200.0) Some([400, 50, 300]) -> w77
+Beatoraja FiveKeys Bmson(200.0) Some([50, 50, 50]) -> w78
+Beatoraja FiveKeys Bmson(200.0) Some([10, 500, 20]) -> w79
+Beatoraja FiveKeys Bmson(10000.0) None -> w60
+Beatoraja FiveKeys Bmson(10000.0) Some([200, 100, 100]) -> w61
+Beatoraja FiveKeys Bmson(10000.0) Some([400, 50, 300]) -> w62
+Beatoraja FiveKeys Bmson(10000.0) Some([50, 50, 50]) -> w63
+Beatoraja FiveKeys Bmson(10000.0) Some([10, 500, 20]) -> w64
+Beatoraja FiveKeys Bmson(1000000000.0) None -> w60
+Beatoraja FiveKeys Bmson(1000000000.0) Some([200, 100, 100]) -> w61
+Beatoraja FiveKeys Bmson(1000000000.0) Some([400, 50, 300]) -> w62
+Beatoraja FiveKeys Bmson(1000000000.0) Some([50, 50, 50]) -> w63
+Beatoraja FiveKeys Bmson(1000000000.0) Some([10, 500, 20]) -> w64
+Beatoraja SevenKeys Rank(-1) None -> w80
+Beatoraja SevenKeys Rank(-1) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys Rank(-1) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys Rank(-1) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys Rank(-1) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys Rank(0) None -> w85
+Beatoraja SevenKeys Rank(0) Some([200, 100, 100]) -> w86
+Beatoraja SevenKeys Rank(0) Some([400, 50, 300]) -> w87
+Beatoraja SevenKeys Rank(0) Some([50, 50, 50]) -> w88
+Beatoraja SevenKeys Rank(0) Some([10, 500, 20]) -> w89
+Beatoraja SevenKeys Rank(1) None -> w90
+Beatoraja SevenKeys Rank(1) Some([200, 100, 100]) -> w91
+Beatoraja SevenKeys Rank(1) Some([400, 50, 300]) -> w92
+Beatoraja SevenKeys Rank(1) Some([50, 50, 50]) -> w93
+Beatoraja SevenKeys Rank(1) Some([10, 500, 20]) -> w94
+Beatoraja SevenKeys Rank(2) None -> w80
+Beatoraja SevenKeys Rank(2) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys Rank(2) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys Rank(2) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys Rank(2) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys Rank(3) None -> w95
+Beatoraja SevenKeys Rank(3) Some([200, 100, 100]) -> w96
+Beatoraja SevenKeys Rank(3) Some([400, 50, 300]) -> w97
+Beatoraja SevenKeys Rank(3) Some([50, 50, 50]) -> w98
+Beatoraja SevenKeys Rank(3) Some([10, 500, 20]) -> w99
+Beatoraja SevenKeys Rank(4) None -> w100
+Beatoraja SevenKeys Rank(4) Some([200, 100, 100]) -> w101
+Beatoraja SevenKeys Rank(4) Some([400, 50, 300]) -> w102
+Beatoraja SevenKeys Rank(4) Some([50, 50, 50]) -> w103
+Beatoraja SevenKeys Rank(4) Some([10, 500, 20]) -> w104
+Beatoraja SevenKeys Rank(5) None -> w80
+Beatoraja SevenKeys Rank(5) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys Rank(5) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys Rank(5) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys Rank(5) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys DefExRank(NaN) None -> w80
+Beatoraja SevenKeys DefExRank(NaN) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys DefExRank(NaN) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys DefExRank(NaN) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys DefExRank(NaN) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys DefExRank(-5.0) None -> w80
+Beatoraja SevenKeys DefExRank(-5.0) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys DefExRank(-5.0) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys DefExRank(-5.0) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys DefExRank(-5.0) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys DefExRank(0.0) None -> w80
+Beatoraja SevenKeys DefExRank(0.0) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys DefExRank(0.0) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys DefExRank(0.0) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys DefExRank(0.0) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys DefExRank(0.5) None -> w105
+Beatoraja SevenKeys DefExRank(0.5) Some([200, 100, 100]) -> w106
+Beatoraja SevenKeys DefExRank(0.5) Some([400, 50, 300]) -> w107
+Beatoraja SevenKeys DefExRank(0.5) Some([50, 50, 50]) -> w108
+Beatoraja SevenKeys DefExRank(0.5) Some([10, 500, 20]) -> w109
+Beatoraja SevenKeys DefExRank(1.0) None -> w105
+Beatoraja SevenKeys DefExRank(1.0) Some([200, 100, 100]) -> w106
+Beatoraja SevenKeys DefExRank(1.0) Some([400, 50, 300]) -> w107
+Beatoraja SevenKeys DefExRank(1.0) Some([50, 50, 50]) -> w108
+Beatoraja SevenKeys DefExRank(1.0) Some([10, 500, 20]) -> w109
+Beatoraja SevenKeys DefExRank(50.0) None -> w110
+Beatoraja SevenKeys DefExRank(50.0) Some([200, 100, 100]) -> w111
+Beatoraja SevenKeys DefExRank(50.0) Some([400, 50, 300]) -> w112
+Beatoraja SevenKeys DefExRank(50.0) Some([50, 50, 50]) -> w113
+Beatoraja SevenKeys DefExRank(50.0) Some([10, 500, 20]) -> w114
+Beatoraja SevenKeys DefExRank(80.0) None -> w115
+Beatoraja SevenKeys DefExRank(80.0) Some([200, 100, 100]) -> w116
+Beatoraja SevenKeys DefExRank(80.0) Some([400, 50, 300]) -> w117
+Beatoraja SevenKeys DefExRank(80.0) Some([50, 50, 50]) -> w118
+Beatoraja SevenKeys DefExRank(80.0) Some([10, 500, 20]) -> w119
+Beatoraja SevenKeys DefExRank(99.9) None -> w120
+Beatoraja SevenKeys DefExRank(99.9) Some([200, 100, 100]) -> w121
+Beatoraja SevenKeys DefExRank(99.9) Some([400, 50, 300]) -> w122
+Beatoraja SevenKeys DefExRank(99.9) Some([50, 50, 50]) -> w123
+Beatoraja SevenKeys DefExRank(99.9) Some([10, 500, 20]) -> w124
+Beatoraja SevenKeys DefExRank(100.0) None -> w80
+Beatoraja SevenKeys DefExRank(100.0) Some([200, 100, 100]) -> w81
+Beatoraja SevenKeys DefExRank(100.0) Some([400, 50, 300]) -> w82
+Beatoraja SevenKeys DefExRank(100.0) Some([50, 50, 50]) -> w83
+Beatoraja SevenKeys DefExRank(100.0) Some([10, 500, 20]) -> w84
+Beatoraja SevenKeys DefExRank(120.0) None -> w125
+Beatoraja SevenKeys DefExRank(120.0) Some([200, 100, 100]) -> w126
+Beatoraja SevenKeys DefExRank(120.0) Some([400, 50, 300]) -> w127
+Beatoraja SevenKeys DefExRank(120.0) Some([50, 50, 50]) -> w128
+Beatoraja SevenKeys DefExRank(120.0) Some([10, 500, 20]) -> w129
+Beatoraja SevenKeys DefExRank(133.0) None -> w130
+Beatoraja SevenKeys DefExRank(133.0) Some([200, 100, 100]) -> w131
+Beatoraja SevenKeys DefExRank(133.0) Some([400, 50, 300]) -> w132
+Beatoraja SevenKeys DefExRank(133.0) Some([50, 50, 50]) -> w133
+Beatoraja SevenKeys DefExRank(133.0) Some([10, 500, 20]) -> w134
+Beatoraja SevenKeys DefExRank(300.0) None -> w135
+Beatoraja SevenKeys DefExRank(300.0) Some([200, 100, 100]) -> w136
+Beatoraja SevenKeys DefExRank(300.0) Some([400, 50, 300]) -> w137
+Beatoraja SevenKeys DefExRank(300.0) Some([50, 50, 50]) -> w138
+Beatoraja SevenKeys DefExRank(300.0) Some([10, 500, 20]) -> w139
+Beatoraja SevenKeys DefExRank(1e300) None -> w140
+Beatoraja SevenKeys DefExRank(1e300) Some([200, 100, 100]) -> w141
+Beatoraja SevenKeys DefExRank(1e300) Some([400, 50, 300]) -> w142
+Beatoraja SevenKeys DefExRank(1e300) Some([50, 50, 50]) -> w143
+Beatoraja SevenKeys DefExRank(1e300) Some([10, 500, 20]) -> w144
+Beatoraja SevenKeys Bmson(-1.0) None -> w95
+Beatoraja SevenKeys Bmson(-1.0) Some([200, 100, 100]) -> w96
+Beatoraja SevenKeys Bmson(-1.0) Some([400, 50, 300]) -> w97
+Beatoraja SevenKeys Bmson(-1.0) Some([50, 50, 50]) -> w98
+Beatoraja SevenKeys Bmson(-1.0) Some([10, 500, 20]) -> w99
+Beatoraja SevenKeys Bmson(0.0) None -> w95
+Beatoraja SevenKeys Bmson(0.0) Some([200, 100, 100]) -> w96
+Beatoraja SevenKeys Bmson(0.0) Some([400, 50, 300]) -> w97
+Beatoraja SevenKeys Bmson(0.0) Some([50, 50, 50]) -> w98
+Beatoraja SevenKeys Bmson(0.0) Some([10, 500, 20]) -> w99
+Beatoraja SevenKeys Bmson(0.5) None -> w105
+Beatoraja SevenKeys Bmson(0.5) Some([200, 100, 100]) -> w106
+Beatoraja SevenKeys Bmson(0.5) Some([400, 50, 300]) -> w107
+Beatoraja SevenKeys Bmson(0.5) Some([50, 50, 50]) -> w108
+Beatoraja SevenKeys Bmson(0.5) Some([10, 500, 20]) -> w109
+Beatoraja SevenKeys Bmson(33.3) None -> w145
+Beatoraja SevenKeys Bmson(33.3) Some([200, 100, 100]) -> w146
+Beatoraja SevenKeys Bmson(33.3) Some([400, 50, 300]) -> w147
+Beatoraja SevenKeys Bmson(33.3) Some([50, 50, 50]) -> w148
+Beatoraja SevenKeys Bmson(33.3) Some([10, 500, 20]) -> w149
+Beatoraja SevenKeys Bmson(100.0) None -> w95
+Beatoraja SevenKeys Bmson(100.0) Some([200, 100, 100]) -> w96
+Beatoraja SevenKeys Bmson(100.0) Some([400, 50, 300]) -> w97
+Beatoraja SevenKeys Bmson(100.0) Some([50, 50, 50]) -> w98
+Beatoraja SevenKeys Bmson(100.0) Some([10, 500, 20]) -> w99
+Beatoraja SevenKeys Bmson(150.0) None -> w150
+Beatoraja SevenKeys Bmson(150.0) Some([200, 100, 100]) -> w151
+Beatoraja SevenKeys Bmson(150.0) Some([400, 50, 300]) -> w152
+Beatoraja SevenKeys Bmson(150.0) Some([50, 50, 50]) -> w153
+Beatoraja SevenKeys Bmson(150.0) Some([10, 500, 20]) -> w154
+Beatoraja SevenKeys Bmson(200.0) None -> w155
+Beatoraja SevenKeys Bmson(200.0) Some([200, 100, 100]) -> w156
+Beatoraja SevenKeys Bmson(200.0) Some([400, 50, 300]) -> w157
+Beatoraja SevenKeys Bmson(200.0) Some([50, 50, 50]) -> w158
+Beatoraja SevenKeys Bmson(200.0) Some([10, 500, 20]) -> w159
+Beatoraja SevenKeys Bmson(10000.0) None -> w140
+Beatoraja SevenKeys Bmson(10000.0) Some([200, 100, 100]) -> w141
+Beatoraja SevenKeys Bmson(10000.0) Some([400, 50, 300]) -> w142
+Beatoraja SevenKeys Bmson(10000.0) Some([50, 50, 50]) -> w143
+Beatoraja SevenKeys Bmson(10000.0) Some([10, 500, 20]) -> w144
+Beatoraja SevenKeys Bmson(1000000000.0) None -> w140
+Beatoraja SevenKeys Bmson(1000000000.0) Some([200, 100, 100]) -> w141
+Beatoraja SevenKeys Bmson(1000000000.0) Some([400, 50, 300]) -> w142
+Beatoraja SevenKeys Bmson(1000000000.0) Some([50, 50, 50]) -> w143
+Beatoraja SevenKeys Bmson(1000000000.0) Some([10, 500, 20]) -> w144
+Beatoraja Pms Rank(-1) None -> w160
+Beatoraja Pms Rank(-1) Some([200, 100, 100]) -> w161
+Beatoraja Pms Rank(-1) Some([400, 50, 300]) -> w162
+Beatoraja Pms Rank(-1) Some([50, 50, 50]) -> w163
+Beatoraja Pms Rank(-1) Some([10, 500, 20]) -> w164
+Beatoraja Pms Rank(0) None -> w165
+Beatoraja Pms Rank(0) Some([200, 100, 100]) -> w166
+Beatoraja Pms Rank(0) Some([400, 50, 300]) -> w167
+Beatoraja Pms Rank(0) Some([50, 50, 50]) -> w168
+Beatoraja Pms Rank(0) Some([10, 500, 20]) -> w169
+Beatoraja Pms Rank(1) None -> w170
+Beatoraja Pms Rank(1) Some([200, 100, 100]) -> w171
+Beatoraja Pms Rank(1) Some([400, 50, 300]) -> w172
+Beatoraja Pms Rank(1) Some([50, 50, 50]) -> w173
+Beatoraja Pms Rank(1) Some([10, 500, 20]) -> w174
+Beatoraja Pms Rank(2) None -> w160
+Beatoraja Pms Rank(2) Some([200, 100, 100]) -> w161
+Beatoraja Pms Rank(2) Some([400, 50, 300]) -> w162
+Beatoraja Pms Rank(2) Some([50, 50, 50]) -> w163
+Beatoraja Pms Rank(2) Some([10, 500, 20]) -> w164
+Beatoraja Pms Rank(3) None -> w175
+Beatoraja Pms Rank(3) Some([200, 100, 100]) -> w176
+Beatoraja Pms Rank(3) Some([400, 50, 300]) -> w162
+Beatoraja Pms Rank(3) Some([50, 50, 50]) -> w177
+Beatoraja Pms Rank(3) Some([10, 500, 20]) -> w178
+Beatoraja Pms Rank(4) None -> w179
+Beatoraja Pms Rank(4) Some([200, 100, 100]) -> w180
+Beatoraja Pms Rank(4) Some([400, 50, 300]) -> w162
+Beatoraja Pms Rank(4) Some([50, 50, 50]) -> w181
+Beatoraja Pms Rank(4) Some([10, 500, 20]) -> w178
+Beatoraja Pms Rank(5) None -> w160
+Beatoraja Pms Rank(5) Some([200, 100, 100]) -> w161
+Beatoraja Pms Rank(5) Some([400, 50, 300]) -> w162
+Beatoraja Pms Rank(5) Some([50, 50, 50]) -> w163
+Beatoraja Pms Rank(5) Some([10, 500, 20]) -> w164
+Beatoraja Pms DefExRank(NaN) None -> w160
+Beatoraja Pms DefExRank(NaN) Some([200, 100, 100]) -> w161
+Beatoraja Pms DefExRank(NaN) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(NaN) Some([50, 50, 50]) -> w163
+Beatoraja Pms DefExRank(NaN) Some([10, 500, 20]) -> w164
+Beatoraja Pms DefExRank(-5.0) None -> w160
+Beatoraja Pms DefExRank(-5.0) Some([200, 100, 100]) -> w161
+Beatoraja Pms DefExRank(-5.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(-5.0) Some([50, 50, 50]) -> w163
+Beatoraja Pms DefExRank(-5.0) Some([10, 500, 20]) -> w164
+Beatoraja Pms DefExRank(0.0) None -> w160
+Beatoraja Pms DefExRank(0.0) Some([200, 100, 100]) -> w161
+Beatoraja Pms DefExRank(0.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(0.0) Some([50, 50, 50]) -> w163
+Beatoraja Pms DefExRank(0.0) Some([10, 500, 20]) -> w164
+Beatoraja Pms DefExRank(0.5) None -> w182
+Beatoraja Pms DefExRank(0.5) Some([200, 100, 100]) -> w166
+Beatoraja Pms DefExRank(0.5) Some([400, 50, 300]) -> w183
+Beatoraja Pms DefExRank(0.5) Some([50, 50, 50]) -> w184
+Beatoraja Pms DefExRank(0.5) Some([10, 500, 20]) -> w169
+Beatoraja Pms DefExRank(1.0) None -> w182
+Beatoraja Pms DefExRank(1.0) Some([200, 100, 100]) -> w166
+Beatoraja Pms DefExRank(1.0) Some([400, 50, 300]) -> w183
+Beatoraja Pms DefExRank(1.0) Some([50, 50, 50]) -> w184
+Beatoraja Pms DefExRank(1.0) Some([10, 500, 20]) -> w169
+Beatoraja Pms DefExRank(50.0) None -> w185
+Beatoraja Pms DefExRank(50.0) Some([200, 100, 100]) -> w186
+Beatoraja Pms DefExRank(50.0) Some([400, 50, 300]) -> w187
+Beatoraja Pms DefExRank(50.0) Some([50, 50, 50]) -> w188
+Beatoraja Pms DefExRank(50.0) Some([10, 500, 20]) -> w169
+Beatoraja Pms DefExRank(80.0) None -> w189
+Beatoraja Pms DefExRank(80.0) Some([200, 100, 100]) -> w190
+Beatoraja Pms DefExRank(80.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(80.0) Some([50, 50, 50]) -> w191
+Beatoraja Pms DefExRank(80.0) Some([10, 500, 20]) -> w192
+Beatoraja Pms DefExRank(99.9) None -> w193
+Beatoraja Pms DefExRank(99.9) Some([200, 100, 100]) -> w194
+Beatoraja Pms DefExRank(99.9) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(99.9) Some([50, 50, 50]) -> w195
+Beatoraja Pms DefExRank(99.9) Some([10, 500, 20]) -> w196
+Beatoraja Pms DefExRank(100.0) None -> w160
+Beatoraja Pms DefExRank(100.0) Some([200, 100, 100]) -> w161
+Beatoraja Pms DefExRank(100.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(100.0) Some([50, 50, 50]) -> w163
+Beatoraja Pms DefExRank(100.0) Some([10, 500, 20]) -> w164
+Beatoraja Pms DefExRank(120.0) None -> w197
+Beatoraja Pms DefExRank(120.0) Some([200, 100, 100]) -> w198
+Beatoraja Pms DefExRank(120.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(120.0) Some([50, 50, 50]) -> w199
+Beatoraja Pms DefExRank(120.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms DefExRank(133.0) None -> w200
+Beatoraja Pms DefExRank(133.0) Some([200, 100, 100]) -> w201
+Beatoraja Pms DefExRank(133.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(133.0) Some([50, 50, 50]) -> w202
+Beatoraja Pms DefExRank(133.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms DefExRank(300.0) None -> w203
+Beatoraja Pms DefExRank(300.0) Some([200, 100, 100]) -> w204
+Beatoraja Pms DefExRank(300.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms DefExRank(300.0) Some([50, 50, 50]) -> w205
+Beatoraja Pms DefExRank(300.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms DefExRank(1e300) None -> w206
+Beatoraja Pms DefExRank(1e300) Some([200, 100, 100]) -> w207
+Beatoraja Pms DefExRank(1e300) Some([400, 50, 300]) -> w208
+Beatoraja Pms DefExRank(1e300) Some([50, 50, 50]) -> w209
+Beatoraja Pms DefExRank(1e300) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(-1.0) None -> w175
+Beatoraja Pms Bmson(-1.0) Some([200, 100, 100]) -> w176
+Beatoraja Pms Bmson(-1.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms Bmson(-1.0) Some([50, 50, 50]) -> w177
+Beatoraja Pms Bmson(-1.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(0.0) None -> w175
+Beatoraja Pms Bmson(0.0) Some([200, 100, 100]) -> w176
+Beatoraja Pms Bmson(0.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms Bmson(0.0) Some([50, 50, 50]) -> w177
+Beatoraja Pms Bmson(0.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(0.5) None -> w182
+Beatoraja Pms Bmson(0.5) Some([200, 100, 100]) -> w166
+Beatoraja Pms Bmson(0.5) Some([400, 50, 300]) -> w183
+Beatoraja Pms Bmson(0.5) Some([50, 50, 50]) -> w184
+Beatoraja Pms Bmson(0.5) Some([10, 500, 20]) -> w169
+Beatoraja Pms Bmson(33.3) None -> w165
+Beatoraja Pms Bmson(33.3) Some([200, 100, 100]) -> w166
+Beatoraja Pms Bmson(33.3) Some([400, 50, 300]) -> w167
+Beatoraja Pms Bmson(33.3) Some([50, 50, 50]) -> w168
+Beatoraja Pms Bmson(33.3) Some([10, 500, 20]) -> w169
+Beatoraja Pms Bmson(100.0) None -> w175
+Beatoraja Pms Bmson(100.0) Some([200, 100, 100]) -> w176
+Beatoraja Pms Bmson(100.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms Bmson(100.0) Some([50, 50, 50]) -> w177
+Beatoraja Pms Bmson(100.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(150.0) None -> w210
+Beatoraja Pms Bmson(150.0) Some([200, 100, 100]) -> w211
+Beatoraja Pms Bmson(150.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms Bmson(150.0) Some([50, 50, 50]) -> w212
+Beatoraja Pms Bmson(150.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(200.0) None -> w213
+Beatoraja Pms Bmson(200.0) Some([200, 100, 100]) -> w214
+Beatoraja Pms Bmson(200.0) Some([400, 50, 300]) -> w162
+Beatoraja Pms Bmson(200.0) Some([50, 50, 50]) -> w215
+Beatoraja Pms Bmson(200.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(10000.0) None -> w206
+Beatoraja Pms Bmson(10000.0) Some([200, 100, 100]) -> w207
+Beatoraja Pms Bmson(10000.0) Some([400, 50, 300]) -> w208
+Beatoraja Pms Bmson(10000.0) Some([50, 50, 50]) -> w209
+Beatoraja Pms Bmson(10000.0) Some([10, 500, 20]) -> w178
+Beatoraja Pms Bmson(1000000000.0) None -> w206
+Beatoraja Pms Bmson(1000000000.0) Some([200, 100, 100]) -> w207
+Beatoraja Pms Bmson(1000000000.0) Some([400, 50, 300]) -> w208
+Beatoraja Pms Bmson(1000000000.0) Some([50, 50, 50]) -> w209
+Beatoraja Pms Bmson(1000000000.0) Some([10, 500, 20]) -> w178
+Lr2 FiveKeys Rank(-1) None -> w216
+Lr2 FiveKeys Rank(0) None -> w217
+Lr2 FiveKeys Rank(1) None -> w218
+Lr2 FiveKeys Rank(2) None -> w216
+Lr2 FiveKeys Rank(3) None -> w219
+Lr2 FiveKeys Rank(4) None -> w216
+Lr2 FiveKeys Rank(5) None -> w216
+Lr2 FiveKeys DefExRank(NaN) None -> w216
+Lr2 FiveKeys DefExRank(-5.0) None -> w216
+Lr2 FiveKeys DefExRank(0.0) None -> w216
+Lr2 FiveKeys DefExRank(0.5) None -> w216
+Lr2 FiveKeys DefExRank(1.0) None -> w220
+Lr2 FiveKeys DefExRank(50.0) None -> w221
+Lr2 FiveKeys DefExRank(80.0) None -> w222
+Lr2 FiveKeys DefExRank(99.9) None -> w223
+Lr2 FiveKeys DefExRank(100.0) None -> w216
+Lr2 FiveKeys DefExRank(120.0) None -> w224
+Lr2 FiveKeys DefExRank(133.0) None -> w225
+Lr2 FiveKeys DefExRank(300.0) None -> w226
+Lr2 FiveKeys DefExRank(1e300) None -> w227
+Lr2 FiveKeys Bmson(-1.0) None -> w219
+Lr2 FiveKeys Bmson(0.0) None -> w219
+Lr2 FiveKeys Bmson(0.5) None -> w228
+Lr2 FiveKeys Bmson(33.3) None -> w229
+Lr2 FiveKeys Bmson(100.0) None -> w219
+Lr2 FiveKeys Bmson(150.0) None -> w230
+Lr2 FiveKeys Bmson(200.0) None -> w231
+Lr2 FiveKeys Bmson(10000.0) None -> w227
+Lr2 FiveKeys Bmson(1000000000.0) None -> w227
+Lr2 SevenKeys Rank(-1) None -> w216
+Lr2 SevenKeys Rank(0) None -> w217
+Lr2 SevenKeys Rank(1) None -> w218
+Lr2 SevenKeys Rank(2) None -> w216
+Lr2 SevenKeys Rank(3) None -> w219
+Lr2 SevenKeys Rank(4) None -> w216
+Lr2 SevenKeys Rank(5) None -> w216
+Lr2 SevenKeys DefExRank(NaN) None -> w216
+Lr2 SevenKeys DefExRank(-5.0) None -> w216
+Lr2 SevenKeys DefExRank(0.0) None -> w216
+Lr2 SevenKeys DefExRank(0.5) None -> w216
+Lr2 SevenKeys DefExRank(1.0) None -> w220
+Lr2 SevenKeys DefExRank(50.0) None -> w221
+Lr2 SevenKeys DefExRank(80.0) None -> w222
+Lr2 SevenKeys DefExRank(99.9) None -> w223
+Lr2 SevenKeys DefExRank(100.0) None -> w216
+Lr2 SevenKeys DefExRank(120.0) None -> w224
+Lr2 SevenKeys DefExRank(133.0) None -> w225
+Lr2 SevenKeys DefExRank(300.0) None -> w226
+Lr2 SevenKeys DefExRank(1e300) None -> w227
+Lr2 SevenKeys Bmson(-1.0) None -> w219
+Lr2 SevenKeys Bmson(0.0) None -> w219
+Lr2 SevenKeys Bmson(0.5) None -> w228
+Lr2 SevenKeys Bmson(33.3) None -> w229
+Lr2 SevenKeys Bmson(100.0) None -> w219
+Lr2 SevenKeys Bmson(150.0) None -> w230
+Lr2 SevenKeys Bmson(200.0) None -> w231
+Lr2 SevenKeys Bmson(10000.0) None -> w227
+Lr2 SevenKeys Bmson(1000000000.0) None -> w227
+Lr2 Pms Rank(-1) None -> w216
+Lr2 Pms Rank(0) None -> w217
+Lr2 Pms Rank(1) None -> w218
+Lr2 Pms Rank(2) None -> w216
+Lr2 Pms Rank(3) None -> w219
+Lr2 Pms Rank(4) None -> w216
+Lr2 Pms Rank(5) None -> w216
+Lr2 Pms DefExRank(NaN) None -> w216
+Lr2 Pms DefExRank(-5.0) None -> w216
+Lr2 Pms DefExRank(0.0) None -> w216
+Lr2 Pms DefExRank(0.5) None -> w216
+Lr2 Pms DefExRank(1.0) None -> w220
+Lr2 Pms DefExRank(50.0) None -> w221
+Lr2 Pms DefExRank(80.0) None -> w222
+Lr2 Pms DefExRank(99.9) None -> w223
+Lr2 Pms DefExRank(100.0) None -> w216
+Lr2 Pms DefExRank(120.0) None -> w224
+Lr2 Pms DefExRank(133.0) None -> w225
+Lr2 Pms DefExRank(300.0) None -> w226
+Lr2 Pms DefExRank(1e300) None -> w227
+Lr2 Pms Bmson(-1.0) None -> w219
+Lr2 Pms Bmson(0.0) None -> w219
+Lr2 Pms Bmson(0.5) None -> w228
+Lr2 Pms Bmson(33.3) None -> w229
+Lr2 Pms Bmson(100.0) None -> w219
+Lr2 Pms Bmson(150.0) None -> w230
+Lr2 Pms Bmson(200.0) None -> w231
+Lr2 Pms Bmson(10000.0) None -> w227
+Lr2 Pms Bmson(1000000000.0) None -> w227
+Iidx FiveKeys Rank(-1) None -> w232
+Iidx FiveKeys Rank(0) None -> w232
+Iidx FiveKeys Rank(1) None -> w232
+Iidx FiveKeys Rank(2) None -> w232
+Iidx FiveKeys Rank(3) None -> w232
+Iidx FiveKeys Rank(4) None -> w232
+Iidx FiveKeys Rank(5) None -> w232
+Iidx FiveKeys DefExRank(NaN) None -> w232
+Iidx FiveKeys DefExRank(-5.0) None -> w232
+Iidx FiveKeys DefExRank(0.0) None -> w232
+Iidx FiveKeys DefExRank(0.5) None -> w232
+Iidx FiveKeys DefExRank(1.0) None -> w232
+Iidx FiveKeys DefExRank(50.0) None -> w232
+Iidx FiveKeys DefExRank(80.0) None -> w232
+Iidx FiveKeys DefExRank(99.9) None -> w232
+Iidx FiveKeys DefExRank(100.0) None -> w232
+Iidx FiveKeys DefExRank(120.0) None -> w232
+Iidx FiveKeys DefExRank(133.0) None -> w232
+Iidx FiveKeys DefExRank(300.0) None -> w232
+Iidx FiveKeys DefExRank(1e300) None -> w232
+Iidx FiveKeys Bmson(-1.0) None -> w232
+Iidx FiveKeys Bmson(0.0) None -> w232
+Iidx FiveKeys Bmson(0.5) None -> w232
+Iidx FiveKeys Bmson(33.3) None -> w232
+Iidx FiveKeys Bmson(100.0) None -> w232
+Iidx FiveKeys Bmson(150.0) None -> w232
+Iidx FiveKeys Bmson(200.0) None -> w232
+Iidx FiveKeys Bmson(10000.0) None -> w232
+Iidx FiveKeys Bmson(1000000000.0) None -> w232
+Iidx SevenKeys Rank(-1) None -> w232
+Iidx SevenKeys Rank(0) None -> w232
+Iidx SevenKeys Rank(1) None -> w232
+Iidx SevenKeys Rank(2) None -> w232
+Iidx SevenKeys Rank(3) None -> w232
+Iidx SevenKeys Rank(4) None -> w232
+Iidx SevenKeys Rank(5) None -> w232
+Iidx SevenKeys DefExRank(NaN) None -> w232
+Iidx SevenKeys DefExRank(-5.0) None -> w232
+Iidx SevenKeys DefExRank(0.0) None -> w232
+Iidx SevenKeys DefExRank(0.5) None -> w232
+Iidx SevenKeys DefExRank(1.0) None -> w232
+Iidx SevenKeys DefExRank(50.0) None -> w232
+Iidx SevenKeys DefExRank(80.0) None -> w232
+Iidx SevenKeys DefExRank(99.9) None -> w232
+Iidx SevenKeys DefExRank(100.0) None -> w232
+Iidx SevenKeys DefExRank(120.0) None -> w232
+Iidx SevenKeys DefExRank(133.0) None -> w232
+Iidx SevenKeys DefExRank(300.0) None -> w232
+Iidx SevenKeys DefExRank(1e300) None -> w232
+Iidx SevenKeys Bmson(-1.0) None -> w232
+Iidx SevenKeys Bmson(0.0) None -> w232
+Iidx SevenKeys Bmson(0.5) None -> w232
+Iidx SevenKeys Bmson(33.3) None -> w232
+Iidx SevenKeys Bmson(100.0) None -> w232
+Iidx SevenKeys Bmson(150.0) None -> w232
+Iidx SevenKeys Bmson(200.0) None -> w232
+Iidx SevenKeys Bmson(10000.0) None -> w232
+Iidx SevenKeys Bmson(1000000000.0) None -> w232
+Iidx Pms Rank(-1) None -> w232
+Iidx Pms Rank(0) None -> w232
+Iidx Pms Rank(1) None -> w232
+Iidx Pms Rank(2) None -> w232
+Iidx Pms Rank(3) None -> w232
+Iidx Pms Rank(4) None -> w232
+Iidx Pms Rank(5) None -> w232
+Iidx Pms DefExRank(NaN) None -> w232
+Iidx Pms DefExRank(-5.0) None -> w232
+Iidx Pms DefExRank(0.0) None -> w232
+Iidx Pms DefExRank(0.5) None -> w232
+Iidx Pms DefExRank(1.0) None -> w232
+Iidx Pms DefExRank(50.0) None -> w232
+Iidx Pms DefExRank(80.0) None -> w232
+Iidx Pms DefExRank(99.9) None -> w232
+Iidx Pms DefExRank(100.0) None -> w232
+Iidx Pms DefExRank(120.0) None -> w232
+Iidx Pms DefExRank(133.0) None -> w232
+Iidx Pms DefExRank(300.0) None -> w232
+Iidx Pms DefExRank(1e300) None -> w232
+Iidx Pms Bmson(-1.0) None -> w232
+Iidx Pms Bmson(0.0) None -> w232
+Iidx Pms Bmson(0.5) None -> w232
+Iidx Pms Bmson(33.3) None -> w232
+Iidx Pms Bmson(100.0) None -> w232
+Iidx Pms Bmson(150.0) None -> w232
+Iidx Pms Bmson(200.0) None -> w232
+Iidx Pms Bmson(10000.0) None -> w232
+Iidx Pms Bmson(1000000000.0) None -> w232
+
+[w0]
+note ±15000 ±37500 ±75000 ±112500 -150000..500000
+scratch ±22500 ±45000 ±82500 ±120000 -160000..500000
+ln_end ±90000 ±112500 ±150000 ±187500
+scratch_ln_end ±97500 ±120000 ±120000 ±195000
+margins 0 0 hz None
+
+[w1]
+note ±30000 ±37500 ±75000 ±112500 -150000..500000
+scratch ±45000 ±45000 ±82500 ±120000 -160000..500000
+ln_end ±180000 ±180000 ±180000 ±187500
+scratch_ln_end ±195000 ±195000 ±195000 ±195000
+margins 0 0 hz None
+
+[w2]
+note ±60000 ±60000 ±112500 ±112500 -150000..500000
+scratch ±90000 ±90000 ±120000 ±120000 -160000..500000
+ln_end ±187500 ±187500 ±187500 ±187500
+scratch_ln_end ±195000 ±195000 ±195000 ±195000
+margins 0 0 hz None
+
+[w3]
+note ±7500 ±18750 ±37500 ±112500 -150000..500000
+scratch ±11250 ±22500 ±41250 ±120000 -160000..500000
+ln_end ±45000 ±56250 ±75000 ±187500
+scratch_ln_end ±48750 ±60000 ±60000 ±195000
+margins 0 0 hz None
+
+[w4]
+note ±1500 ±112500 ±112500 ±112500 -150000..500000
+scratch ±2250 ±120000 ±120000 ±120000 -160000..500000
+ln_end ±9000 ±187500 ±187500 ±187500
+scratch_ln_end ±9750 ±195000 ±195000 ±195000
+margins 0 0 hz None
+
+[w5]
+note ±5000 ±12500 ±25000 ±37500 -150000..500000
+scratch ±7500 ±15000 ±27500 ±40000 -160000..500000
+ln_end ±30000 ±37500 ±50000 ±62500
+scratch_ln_end ±32500 ±40000 ±40000 ±65000
+margins 0 0 hz None
+
+[w6]
+note ±10000 ±12500 ±25000 ±37500 -150000..500000
+scratch ±15000 ±15000 ±27500 ±40000 -160000..500000
+ln_end ±60000 ±60000 ±60000 ±62500
+scratch_ln_end ±65000 ±65000 ±65000 ±65000
+margins 0 0 hz None
+
+[w7]
+note ±20000 ±20000 ±37500 ±37500 -150000..500000
+scratch ±30000 ±30000 ±40000 ±40000 -160000..500000
+ln_end ±62500 ±62500 ±62500 ±62500
+scratch_ln_end ±65000 ±65000 ±65000 ±65000
+margins 0 0 hz None
+
+[w8]
+note ±2500 ±6250 ±12500 ±37500 -150000..500000
+scratch ±3750 ±7500 ±13750 ±40000 -160000..500000
+ln_end ±15000 ±18750 ±25000 ±62500
+scratch_ln_end ±16250 ±20000 ±20000 ±65000
+margins 0 0 hz None
+
+[w9]
+note ±500 ±37500 ±37500 ±37500 -150000..500000
+scratch ±750 ±40000 ±40000 ±40000 -160000..500000
+ln_end ±3000 ±62500 ±62500 ±62500
+scratch_ln_end ±3250 ±65000 ±65000 ±65000
+margins 0 0 hz None
+
+[w10]
+note ±10000 ±25000 ±50000 ±75000 -150000..500000
+scratch ±15000 ±30000 ±55000 ±80000 -160000..500000
+ln_end ±60000 ±75000 ±100000 ±125000
+scratch_ln_end ±65000 ±80000 ±80000 ±130000
+margins 0 0 hz None
+
+[w11]
+note ±20000 ±25000 ±50000 ±75000 -150000..500000
+scratch ±30000 ±30000 ±55000 ±80000 -160000..500000
+ln_end ±120000 ±120000 ±120000 ±125000
+scratch_ln_end ±130000 ±130000 ±130000 ±130000
+margins 0 0 hz None
+
+[w12]
+note ±40000 ±40000 ±75000 ±75000 -150000..500000
+scratch ±60000 ±60000 ±80000 ±80000 -160000..500000
+ln_end ±125000 ±125000 ±125000 ±125000
+scratch_ln_end ±130000 ±130000 ±130000 ±130000
+margins 0 0 hz None
+
+[w13]
+note ±5000 ±12500 ±25000 ±75000 -150000..500000
+scratch ±7500 ±15000 ±27500 ±80000 -160000..500000
+ln_end ±30000 ±37500 ±50000 ±125000
+scratch_ln_end ±32500 ±40000 ±40000 ±130000
+margins 0 0 hz None
+
+[w14]
+note ±1000 ±75000 ±75000 ±75000 -150000..500000
+scratch ±1500 ±80000 ±80000 ±80000 -160000..500000
+ln_end ±6000 ±125000 ±125000 ±125000
+scratch_ln_end ±6500 ±130000 ±130000 ±130000
+margins 0 0 hz None
+
+[w15]
+note ±20000 ±50000 ±100000 ±150000 -150000..500000
+scratch ±30000 ±60000 ±110000 ±160000 -160000..500000
+ln_end ±120000 ±150000 ±200000 ±250000
+scratch_ln_end ±130000 ±160000 ±160000 ±260000
+margins 0 0 hz None
+
+[w16]
+note ±40000 ±50000 ±100000 ±150000 -150000..500000
+scratch ±60000 ±60000 ±110000 ±160000 -160000..500000
+ln_end ±240000 ±240000 ±240000 ±250000
+scratch_ln_end ±260000 ±260000 ±260000 ±260000
+margins 0 0 hz None
+
+[w17]
+note ±80000 ±80000 ±150000 ±150000 -150000..500000
+scratch ±120000 ±120000 ±160000 ±160000 -160000..500000
+ln_end ±250000 ±250000 ±250000 ±250000
+scratch_ln_end ±260000 ±260000 ±260000 ±260000
+margins 0 0 hz None
+
+[w18]
+note ±10000 ±25000 ±50000 ±150000 -150000..500000
+scratch ±15000 ±30000 ±55000 ±160000 -160000..500000
+ln_end ±60000 ±75000 ±100000 ±250000
+scratch_ln_end ±65000 ±80000 ±80000 ±260000
+margins 0 0 hz None
+
+[w19]
+note ±2000 ±150000 ±150000 ±150000 -150000..500000
+scratch ±3000 ±160000 ±160000 ±160000 -160000..500000
+ln_end ±12000 ±250000 ±250000 ±250000
+scratch_ln_end ±13000 ±260000 ±260000 ±260000
+margins 0 0 hz None
+
+[w20]
+note ±25000 ±62500 ±125000 ±187500 -150000..500000
+scratch ±37500 ±75000 ±137500 ±200000 -160000..500000
+ln_end ±150000 ±187500 ±250000 ±312500
+scratch_ln_end ±162500 ±200000 ±200000 ±325000
+margins 0 0 hz None
+
+[w21]
+note ±50000 ±62500 ±125000 ±187500 -150000..500000
+scratch ±75000 ±75000 ±137500 ±200000 -160000..500000
+ln_end ±300000 ±300000 ±300000 ±312500
+scratch_ln_end ±325000 ±325000 ±325000 ±325000
+margins 0 0 hz None
+
+[w22]
+note ±100000 ±100000 ±187500 ±187500 -150000..500000
+scratch ±150000 ±150000 ±200000 ±200000 -160000..500000
+ln_end ±312500 ±312500 ±312500 ±312500
+scratch_ln_end ±325000 ±325000 ±325000 ±325000
+margins 0 0 hz None
+
+[w23]
+note ±12500 ±31250 ±62500 ±187500 -150000..500000
+scratch ±18750 ±37500 ±68750 ±200000 -160000..500000
+ln_end ±75000 ±93750 ±125000 ±312500
+scratch_ln_end ±81250 ±100000 ±100000 ±325000
+margins 0 0 hz None
+
+[w24]
+note ±2500 ±187500 ±187500 ±187500 -150000..500000
+scratch ±3750 ±200000 ±200000 ±200000 -160000..500000
+ln_end ±15000 ±312500 ±312500 ±312500
+scratch_ln_end ±16250 ±325000 ±325000 ±325000
+margins 0 0 hz None
+
+[w25]
+note ±200 ±500 ±1000 ±1500 -150000..500000
+scratch ±300 ±600 ±1100 ±1600 -160000..500000
+ln_end ±1200 ±1500 ±2000 ±2500
+scratch_ln_end ±1300 ±1600 ±1600 ±2600
+margins 0 0 hz None
+
+[w26]
+note ±400 ±500 ±1000 ±1500 -150000..500000
+scratch ±600 ±600 ±1100 ±1600 -160000..500000
+ln_end ±2400 ±2400 ±2400 ±2500
+scratch_ln_end ±2600 ±2600 ±2600 ±2600
+margins 0 0 hz None
+
+[w27]
+note ±800 ±800 ±1500 ±1500 -150000..500000
+scratch ±1200 ±1200 ±1600 ±1600 -160000..500000
+ln_end ±2500 ±2500 ±2500 ±2500
+scratch_ln_end ±2600 ±2600 ±2600 ±2600
+margins 0 0 hz None
+
+[w28]
+note ±100 ±250 ±500 ±1500 -150000..500000
+scratch ±150 ±300 ±550 ±1600 -160000..500000
+ln_end ±600 ±750 ±1000 ±2500
+scratch_ln_end ±650 ±800 ±800 ±2600
+margins 0 0 hz None
+
+[w29]
+note ±20 ±1500 ±1500 ±1500 -150000..500000
+scratch ±30 ±1600 ±1600 ±1600 -160000..500000
+ln_end ±120 ±2500 ±2500 ±2500
+scratch_ln_end ±130 ±2600 ±2600 ±2600
+margins 0 0 hz None
+
+[w30]
+note ±7400 ±18500 ±37000 ±55500 -150000..500000
+scratch ±11100 ±22200 ±40700 ±59200 -160000..500000
+ln_end ±44400 ±55500 ±74000 ±92500
+scratch_ln_end ±48100 ±59200 ±59200 ±96200
+margins 0 0 hz None
+
+[w31]
+note ±14800 ±18500 ±37000 ±55500 -150000..500000
+scratch ±22200 ±22200 ±40700 ±59200 -160000..500000
+ln_end ±88800 ±88800 ±88800 ±92500
+scratch_ln_end ±96200 ±96200 ±96200 ±96200
+margins 0 0 hz None
+
+[w32]
+note ±29600 ±29600 ±55500 ±55500 -150000..500000
+scratch ±44400 ±44400 ±59200 ±59200 -160000..500000
+ln_end ±92500 ±92500 ±92500 ±92500
+scratch_ln_end ±96200 ±96200 ±96200 ±96200
+margins 0 0 hz None
+
+[w33]
+note ±3700 ±9250 ±18500 ±55500 -150000..500000
+scratch ±5550 ±11100 ±20350 ±59200 -160000..500000
+ln_end ±22200 ±27750 ±37000 ±92500
+scratch_ln_end ±24050 ±29600 ±29600 ±96200
+margins 0 0 hz None
+
+[w34]
+note ±740 ±55500 ±55500 ±55500 -150000..500000
+scratch ±1110 ±59200 ±59200 ±59200 -160000..500000
+ln_end ±4440 ±92500 ±92500 ±92500
+scratch_ln_end ±4810 ±96200 ±96200 ±96200
+margins 0 0 hz None
+
+[w35]
+note ±12000 ±30000 ±60000 ±90000 -150000..500000
+scratch ±18000 ±36000 ±66000 ±96000 -160000..500000
+ln_end ±72000 ±90000 ±120000 ±150000
+scratch_ln_end ±78000 ±96000 ±96000 ±156000
+margins 0 0 hz None
+
+[w36]
+note ±24000 ±30000 ±60000 ±90000 -150000..500000
+scratch ±36000 ±36000 ±66000 ±96000 -160000..500000
+ln_end ±144000 ±144000 ±144000 ±150000
+scratch_ln_end ±156000 ±156000 ±156000 ±156000
+margins 0 0 hz None
+
+[w37]
+note ±48000 ±48000 ±90000 ±90000 -150000..500000
+scratch ±72000 ±72000 ±96000 ±96000 -160000..500000
+ln_end ±150000 ±150000 ±150000 ±150000
+scratch_ln_end ±156000 ±156000 ±156000 ±156000
+margins 0 0 hz None
+
+[w38]
+note ±6000 ±15000 ±30000 ±90000 -150000..500000
+scratch ±9000 ±18000 ±33000 ±96000 -160000..500000
+ln_end ±36000 ±45000 ±60000 ±150000
+scratch_ln_end ±39000 ±48000 ±48000 ±156000
+margins 0 0 hz None
+
+[w39]
+note ±1200 ±90000 ±90000 ±90000 -150000..500000
+scratch ±1800 ±96000 ±96000 ±96000 -160000..500000
+ln_end ±7200 ±150000 ±150000 ±150000
+scratch_ln_end ±7800 ±156000 ±156000 ±156000
+margins 0 0 hz None
+
+[w40]
+note ±14800 ±37000 ±74000 ±111000 -150000..500000
+scratch ±22200 ±44400 ±81400 ±118400 -160000..500000
+ln_end ±88800 ±111000 ±148000 ±185000
+scratch_ln_end ±96200 ±118400 ±118400 ±192400
+margins 0 0 hz None
+
+[w41]
+note ±29600 ±37000 ±74000 ±111000 -150000..500000
+scratch ±44400 ±44400 ±81400 ±118400 -160000..500000
+ln_end ±177600 ±177600 ±177600 ±185000
+scratch_ln_end ±192400 ±192400 ±192400 ±192400
+margins 0 0 hz None
+
+[w42]
+note ±59200 ±59200 ±111000 ±111000 -150000..500000
+scratch ±88800 ±88800 ±118400 ±118400 -160000..500000
+ln_end ±185000 ±185000 ±185000 ±185000
+scratch_ln_end ±192400 ±192400 ±192400 ±192400
+margins 0 0 hz None
+
+[w43]
+note ±7400 ±18500 ±37000 ±111000 -150000..500000
+scratch ±11100 ±22200 ±40700 ±118400 -160000..500000
+ln_end ±44400 ±55500 ±74000 ±185000
+scratch_ln_end ±48100 ±59200 ±59200 ±192400
+margins 0 0 hz None
+
+[w44]
+note ±1480 ±111000 ±111000 ±111000 -150000..500000
+scratch ±2220 ±118400 ±118400 ±118400 -160000..500000
+ln_end ±8880 ±185000 ±185000 ±185000
+scratch_ln_end ±9620 ±192400 ±192400 ±192400
+margins 0 0 hz None
+
+[w45]
+note ±18000 ±45000 ±90000 ±135000 -150000..500000
+scratch ±27000 ±54000 ±99000 ±144000 -160000..500000
+ln_end ±108000 ±135000 ±180000 ±225000
+scratch_ln_end ±117000 ±144000 ±144000 ±234000
+margins 0 0 hz None
+
+[w46]
+note ±36000 ±45000 ±90000 ±135000 -150000..500000
+scratch ±54000 ±54000 ±99000 ±144000 -160000..500000
+ln_end ±216000 ±216000 ±216000 ±225000
+scratch_ln_end ±234000 ±234000 ±234000 ±234000
+margins 0 0 hz None
+
+[w47]
+note ±72000 ±72000 ±135000 ±135000 -150000..500000
+scratch ±108000 ±108000 ±144000 ±144000 -160000..500000
+ln_end ±225000 ±225000 ±225000 ±225000
+scratch_ln_end ±234000 ±234000 ±234000 ±234000
+margins 0 0 hz None
+
+[w48]
+note ±9000 ±22500 ±45000 ±135000 -150000..500000
+scratch ±13500 ±27000 ±49500 ±144000 -160000..500000
+ln_end ±54000 ±67500 ±90000 ±225000
+scratch_ln_end ±58500 ±72000 ±72000 ±234000
+margins 0 0 hz None
+
+[w49]
+note ±1800 ±135000 ±135000 ±135000 -150000..500000
+scratch ±2700 ±144000 ±144000 ±144000 -160000..500000
+ln_end ±10800 ±225000 ±225000 ±225000
+scratch_ln_end ±11700 ±234000 ±234000 ±234000
+margins 0 0 hz None
+
+[w50]
+note ±19800 ±49500 ±99000 ±148500 -150000..500000
+scratch ±29700 ±59400 ±108900 ±158400 -160000..500000
+ln_end ±118800 ±148500 ±198000 ±247500
+scratch_ln_end ±128700 ±158400 ±158400 ±257400
+margins 0 0 hz None
+
+[w51]
+note ±39600 ±49500 ±99000 ±148500 -150000..500000
+scratch ±59400 ±59400 ±108900 ±158400 -160000..500000
+ln_end ±237600 ±237600 ±237600 ±247500
+scratch_ln_end ±257400 ±257400 ±257400 ±257400
+margins 0 0 hz None
+
+[w52]
+note ±79200 ±79200 ±148500 ±148500 -150000..500000
+scratch ±118800 ±118800 ±158400 ±158400 -160000..500000
+ln_end ±247500 ±247500 ±247500 ±247500
+scratch_ln_end ±257400 ±257400 ±257400 ±257400
+margins 0 0 hz None
+
+[w53]
+note ±9900 ±24750 ±49500 ±148500 -150000..500000
+scratch ±14850 ±29700 ±54450 ±158400 -160000..500000
+ln_end ±59400 ±74250 ±99000 ±247500
+scratch_ln_end ±64350 ±79200 ±79200 ±257400
+margins 0 0 hz None
+
+[w54]
+note ±1980 ±148500 ±148500 ±148500 -150000..500000
+scratch ±2970 ±158400 ±158400 ±158400 -160000..500000
+ln_end ±11880 ±247500 ±247500 ±247500
+scratch_ln_end ±12870 ±257400 ±257400 ±257400
+margins 0 0 hz None
+
+[w55]
+note ±45000 ±112500 ±225000 ±337500 -150000..500000
+scratch ±67500 ±135000 ±247500 ±360000 -160000..500000
+ln_end ±270000 ±337500 ±450000 ±562500
+scratch_ln_end ±292500 ±360000 ±360000 ±585000
+margins 0 0 hz None
+
+[w56]
+note ±90000 ±112500 ±225000 ±337500 -150000..500000
+scratch ±135000 ±135000 ±247500 ±360000 -160000..500000
+ln_end ±540000 ±540000 ±540000 ±562500
+scratch_ln_end ±585000 ±585000 ±585000 ±585000
+margins 0 0 hz None
+
+[w57]
+note ±180000 ±180000 ±337500 ±337500 -150000..500000
+scratch ±270000 ±270000 ±360000 ±360000 -160000..500000
+ln_end ±562500 ±562500 ±562500 ±562500
+scratch_ln_end ±585000 ±585000 ±585000 ±585000
+margins 0 0 hz None
+
+[w58]
+note ±22500 ±56250 ±112500 ±337500 -150000..500000
+scratch ±33750 ±67500 ±123750 ±360000 -160000..500000
+ln_end ±135000 ±168750 ±225000 ±562500
+scratch_ln_end ±146250 ±180000 ±180000 ±585000
+margins 0 0 hz None
+
+[w59]
+note ±4500 ±337500 ±337500 ±337500 -150000..500000
+scratch ±6750 ±360000 ±360000 ±360000 -160000..500000
+ln_end ±27000 ±562500 ±562500 ±562500
+scratch_ln_end ±29250 ±585000 ±585000 ±585000
+margins 0 0 hz None
+
+[w60]
+note ±2000000 ±5000000 ±10000000 ±15000000 -150000..500000
+scratch ±3000000 ±6000000 ±11000000 ±16000000 -160000..500000
+ln_end ±12000000 ±15000000 ±20000000 ±25000000
+scratch_ln_end ±13000000 ±16000000 ±16000000 ±26000000
+margins 0 0 hz None
+
+[w61]
+note ±4000000 ±5000000 ±10000000 ±15000000 -150000..500000
+scratch ±6000000 ±6000000 ±11000000 ±16000000 -160000..500000
+ln_end ±24000000 ±24000000 ±24000000 ±25000000
+scratch_ln_end ±26000000 ±26000000 ±26000000 ±26000000
+margins 0 0 hz None
+
+[w62]
+note ±8000000 ±8000000 ±15000000 ±15000000 -150000..500000
+scratch ±12000000 ±12000000 ±16000000 ±16000000 -160000..500000
+ln_end ±25000000 ±25000000 ±25000000 ±25000000
+scratch_ln_end ±26000000 ±26000000 ±26000000 ±26000000
+margins 0 0 hz None
+
+[w63]
+note ±1000000 ±2500000 ±5000000 ±15000000 -150000..500000
+scratch ±1500000 ±3000000 ±5500000 ±16000000 -160000..500000
+ln_end ±6000000 ±7500000 ±10000000 ±25000000
+scratch_ln_end ±6500000 ±8000000 ±8000000 ±26000000
+margins 0 0 hz None
+
+[w64]
+note ±200000 ±15000000 ±15000000 ±15000000 -150000..500000
+scratch ±300000 ±16000000 ±16000000 ±16000000 -160000..500000
+ln_end ±1200000 ±25000000 ±25000000 ±25000000
+scratch_ln_end ±1300000 ±26000000 ±26000000 ±26000000
+margins 0 0 hz None
+
+[w65]
+note ±6600 ±16500 ±33000 ±49500 -150000..500000
+scratch ±9900 ±19800 ±36300 ±52800 -160000..500000
+ln_end ±39600 ±49500 ±66000 ±82500
+scratch_ln_end ±42900 ±52800 ±52800 ±85800
+margins 0 0 hz None
+
+[w66]
+note ±13200 ±16500 ±33000 ±49500 -150000..500000
+scratch ±19800 ±19800 ±36300 ±52800 -160000..500000
+ln_end ±79200 ±79200 ±79200 ±82500
+scratch_ln_end ±85800 ±85800 ±85800 ±85800
+margins 0 0 hz None
+
+[w67]
+note ±26400 ±26400 ±49500 ±49500 -150000..500000
+scratch ±39600 ±39600 ±52800 ±52800 -160000..500000
+ln_end ±82500 ±82500 ±82500 ±82500
+scratch_ln_end ±85800 ±85800 ±85800 ±85800
+margins 0 0 hz None
+
+[w68]
+note ±3300 ±8250 ±16500 ±49500 -150000..500000
+scratch ±4950 ±9900 ±18150 ±52800 -160000..500000
+ln_end ±19800 ±24750 ±33000 ±82500
+scratch_ln_end ±21450 ±26400 ±26400 ±85800
+margins 0 0 hz None
+
+[w69]
+note ±660 ±49500 ±49500 ±49500 -150000..500000
+scratch ±990 ±52800 ±52800 ±52800 -160000..500000
+ln_end ±3960 ±82500 ±82500 ±82500
+scratch_ln_end ±4290 ±85800 ±85800 ±85800
+margins 0 0 hz None
+
+[w70]
+note ±30000 ±75000 ±150000 ±225000 -150000..500000
+scratch ±45000 ±90000 ±165000 ±240000 -160000..500000
+ln_end ±180000 ±225000 ±300000 ±375000
+scratch_ln_end ±195000 ±240000 ±240000 ±390000
+margins 0 0 hz None
+
+[w71]
+note ±60000 ±75000 ±150000 ±225000 -150000..500000
+scratch ±90000 ±90000 ±165000 ±240000 -160000..500000
+ln_end ±360000 ±360000 ±360000 ±375000
+scratch_ln_end ±390000 ±390000 ±390000 ±390000
+margins 0 0 hz None
+
+[w72]
+note ±120000 ±120000 ±225000 ±225000 -150000..500000
+scratch ±180000 ±180000 ±240000 ±240000 -160000..500000
+ln_end ±375000 ±375000 ±375000 ±375000
+scratch_ln_end ±390000 ±390000 ±390000 ±390000
+margins 0 0 hz None
+
+[w73]
+note ±15000 ±37500 ±75000 ±225000 -150000..500000
+scratch ±22500 ±45000 ±82500 ±240000 -160000..500000
+ln_end ±90000 ±112500 ±150000 ±375000
+scratch_ln_end ±97500 ±120000 ±120000 ±390000
+margins 0 0 hz None
+
+[w74]
+note ±3000 ±225000 ±225000 ±225000 -150000..500000
+scratch ±4500 ±240000 ±240000 ±240000 -160000..500000
+ln_end ±18000 ±375000 ±375000 ±375000
+scratch_ln_end ±19500 ±390000 ±390000 ±390000
+margins 0 0 hz None
+
+[w75]
+note ±40000 ±100000 ±200000 ±300000 -150000..500000
+scratch ±60000 ±120000 ±220000 ±320000 -160000..500000
+ln_end ±240000 ±300000 ±400000 ±500000
+scratch_ln_end ±260000 ±320000 ±320000 ±520000
+margins 0 0 hz None
+
+[w76]
+note ±80000 ±100000 ±200000 ±300000 -150000..500000
+scratch ±120000 ±120000 ±220000 ±320000 -160000..500000
+ln_end ±480000 ±480000 ±480000 ±500000
+scratch_ln_end ±520000 ±520000 ±520000 ±520000
+margins 0 0 hz None
+
+[w77]
+note ±160000 ±160000 ±300000 ±300000 -150000..500000
+scratch ±240000 ±240000 ±320000 ±320000 -160000..500000
+ln_end ±500000 ±500000 ±500000 ±500000
+scratch_ln_end ±520000 ±520000 ±520000 ±520000
+margins 0 0 hz None
+
+[w78]
+note ±20000 ±50000 ±100000 ±300000 -150000..500000
+scratch ±30000 ±60000 ±110000 ±320000 -160000..500000
+ln_end ±120000 ±150000 ±200000 ±500000
+scratch_ln_end ±130000 ±160000 ±160000 ±520000
+margins 0 0 hz None
+
+[w79]
+note ±4000 ±300000 ±300000 ±300000 -150000..500000
+scratch ±6000 ±320000 ±320000 ±320000 -160000..500000
+ln_end ±24000 ±500000 ±500000 ±500000
+scratch_ln_end ±26000 ±520000 ±520000 ±520000
+margins 0 0 hz None
+
+[w80]
+note ±15000 ±45000 ±112500 -210000..165000 -150000..500000
+scratch ±22500 ±52500 ±120000 -217500..172500 -160000..500000
+ln_end ±90000 ±120000 ±150000 -210000..165000
+scratch_ln_end ±97500 ±127500 ±157500 -217500..172500
+margins 0 0 hz None
+
+[w81]
+note ±30000 ±45000 ±112500 -210000..165000 -150000..500000
+scratch ±45000 ±52500 ±120000 -217500..172500 -160000..500000
+ln_end -180000..165000 -180000..165000 -180000..165000 -210000..165000
+scratch_ln_end -195000..172500 -195000..172500 -195000..172500 -217500..172500
+margins 0 0 hz None
+
+[w82]
+note ±60000 ±60000 -210000..165000 -210000..165000 -150000..500000
+scratch ±90000 ±90000 -217500..172500 -217500..172500 -160000..500000
+ln_end -210000..165000 -210000..165000 -210000..165000 -210000..165000
+scratch_ln_end -217500..172500 -217500..172500 -217500..172500 -217500..172500
+margins 0 0 hz None
+
+[w83]
+note ±7500 ±22500 ±56250 -210000..165000 -150000..500000
+scratch ±11250 ±26250 ±60000 -217500..172500 -160000..500000
+ln_end ±45000 ±60000 ±75000 -210000..165000
+scratch_ln_end ±48750 ±63750 ±78750 -217500..172500
+margins 0 0 hz None
+
+[w84]
+note ±1500 -210000..165000 -210000..165000 -210000..165000 -150000..500000
+scratch ±2250 -217500..172500 -217500..172500 -217500..172500 -160000..500000
+ln_end ±9000 -210000..165000 -210000..165000 -210000..165000
+scratch_ln_end ±9750 -217500..172500 -217500..172500 -217500..172500
+margins 0 0 hz None
+
+[w85]
+note ±5000 ±15000 ±37500 -70000..55000 -150000..500000
+scratch ±7500 ±17500 ±40000 -72500..57500 -160000..500000
+ln_end ±30000 ±40000 ±50000 -70000..55000
+scratch_ln_end ±32500 ±42500 ±52500 -72500..57500
+margins 0 0 hz None
+
+[w86]
+note ±10000 ±15000 ±37500 -70000..55000 -150000..500000
+scratch ±15000 ±17500 ±40000 -72500..57500 -160000..500000
+ln_end -60000..55000 -60000..55000 -60000..55000 -70000..55000
+scratch_ln_end -65000..57500 -65000..57500 -65000..57500 -72500..57500
+margins 0 0 hz None
+
+[w87]
+note ±20000 ±20000 -70000..55000 -70000..55000 -150000..500000
+scratch ±30000 ±30000 -72500..57500 -72500..57500 -160000..500000
+ln_end -70000..55000 -70000..55000 -70000..55000 -70000..55000
+scratch_ln_end -72500..57500 -72500..57500 -72500..57500 -72500..57500
+margins 0 0 hz None
+
+[w88]
+note ±2500 ±7500 ±18750 -70000..55000 -150000..500000
+scratch ±3750 ±8750 ±20000 -72500..57500 -160000..500000
+ln_end ±15000 ±20000 ±25000 -70000..55000
+scratch_ln_end ±16250 ±21250 ±26250 -72500..57500
+margins 0 0 hz None
+
+[w89]
+note ±500 -70000..55000 -70000..55000 -70000..55000 -150000..500000
+scratch ±750 -72500..57500 -72500..57500 -72500..57500 -160000..500000
+ln_end ±3000 -70000..55000 -70000..55000 -70000..55000
+scratch_ln_end ±3250 -72500..57500 -72500..57500 -72500..57500
+margins 0 0 hz None
+
+[w90]
+note ±10000 ±30000 ±75000 -140000..110000 -150000..500000
+scratch ±15000 ±35000 ±80000 -145000..115000 -160000..500000
+ln_end ±60000 ±80000 ±100000 -140000..110000
+scratch_ln_end ±65000 ±85000 ±105000 -145000..115000
+margins 0 0 hz None
+
+[w91]
+note ±20000 ±30000 ±75000 -140000..110000 -150000..500000
+scratch ±30000 ±35000 ±80000 -145000..115000 -160000..500000
+ln_end -120000..110000 -120000..110000 -120000..110000 -140000..110000
+scratch_ln_end -130000..115000 -130000..115000 -130000..115000 -145000..115000
+margins 0 0 hz None
+
+[w92]
+note ±40000 ±40000 -140000..110000 -140000..110000 -150000..500000
+scratch ±60000 ±60000 -145000..115000 -145000..115000 -160000..500000
+ln_end -140000..110000 -140000..110000 -140000..110000 -140000..110000
+scratch_ln_end -145000..115000 -145000..115000 -145000..115000 -145000..115000
+margins 0 0 hz None
+
+[w93]
+note ±5000 ±15000 ±37500 -140000..110000 -150000..500000
+scratch ±7500 ±17500 ±40000 -145000..115000 -160000..500000
+ln_end ±30000 ±40000 ±50000 -140000..110000
+scratch_ln_end ±32500 ±42500 ±52500 -145000..115000
+margins 0 0 hz None
+
+[w94]
+note ±1000 -140000..110000 -140000..110000 -140000..110000 -150000..500000
+scratch ±1500 -145000..115000 -145000..115000 -145000..115000 -160000..500000
+ln_end ±6000 -140000..110000 -140000..110000 -140000..110000
+scratch_ln_end ±6500 -145000..115000 -145000..115000 -145000..115000
+margins 0 0 hz None
+
+[w95]
+note ±20000 ±60000 ±150000 -280000..220000 -150000..500000
+scratch ±30000 ±70000 ±160000 -290000..230000 -160000..500000
+ln_end ±120000 ±160000 ±200000 -280000..220000
+scratch_ln_end ±130000 ±170000 ±210000 -290000..230000
+margins 0 0 hz None
+
+[w96]
+note ±40000 ±60000 ±150000 -280000..220000 -150000..500000
+scratch ±60000 ±70000 ±160000 -290000..230000 -160000..500000
+ln_end -240000..220000 -240000..220000 -240000..220000 -280000..220000
+scratch_ln_end -260000..230000 -260000..230000 -260000..230000 -290000..230000
+margins 0 0 hz None
+
+[w97]
+note ±80000 ±80000 -280000..220000 -280000..220000 -150000..500000
+scratch ±120000 ±120000 -290000..230000 -290000..230000 -160000..500000
+ln_end -280000..220000 -280000..220000 -280000..220000 -280000..220000
+scratch_ln_end -290000..230000 -290000..230000 -290000..230000 -290000..230000
+margins 0 0 hz None
+
+[w98]
+note ±10000 ±30000 ±75000 -280000..220000 -150000..500000
+scratch ±15000 ±35000 ±80000 -290000..230000 -160000..500000
+ln_end ±60000 ±80000 ±100000 -280000..220000
+scratch_ln_end ±65000 ±85000 ±105000 -290000..230000
+margins 0 0 hz None
+
+[w99]
+note ±2000 -280000..220000 -280000..220000 -280000..220000 -150000..500000
+scratch ±3000 -290000..230000 -290000..230000 -290000..230000 -160000..500000
+ln_end ±12000 -280000..220000 -280000..220000 -280000..220000
+scratch_ln_end ±13000 -290000..230000 -290000..230000 -290000..230000
+margins 0 0 hz None
+
+[w100]
+note ±25000 ±75000 ±187500 -350000..275000 -150000..500000
+scratch ±37500 ±87500 ±200000 -362500..287500 -160000..500000
+ln_end ±150000 ±200000 ±250000 -350000..275000
+scratch_ln_end ±162500 ±212500 ±262500 -362500..287500
+margins 0 0 hz None
+
+[w101]
+note ±50000 ±75000 ±187500 -350000..275000 -150000..500000
+scratch ±75000 ±87500 ±200000 -362500..287500 -160000..500000
+ln_end -300000..275000 -300000..275000 -300000..275000 -350000..275000
+scratch_ln_end -325000..287500 -325000..287500 -325000..287500 -362500..287500
+margins 0 0 hz None
+
+[w102]
+note ±100000 ±100000 -350000..275000 -350000..275000 -150000..500000
+scratch ±150000 ±150000 -362500..287500 -362500..287500 -160000..500000
+ln_end -350000..275000 -350000..275000 -350000..275000 -350000..275000
+scratch_ln_end -362500..287500 -362500..287500 -362500..287500 -362500..287500
+margins 0 0 hz None
+
+[w103]
+note ±12500 ±37500 ±93750 -350000..275000 -150000..500000
+scratch ±18750 ±43750 ±100000 -362500..287500 -160000..500000
+ln_end ±75000 ±100000 ±125000 -350000..275000
+scratch_ln_end ±81250 ±106250 ±131250 -362500..287500
+margins 0 0 hz None
+
+[w104]
+note ±2500 -350000..275000 -350000..275000 -350000..275000 -150000..500000
+scratch ±3750 -362500..287500 -362500..287500 -362500..287500 -160000..500000
+ln_end ±15000 -350000..275000 -350000..275000 -350000..275000
+scratch_ln_end ±16250 -362500..287500 -362500..287500 -362500..287500
+margins 0 0 hz None
+
+[w105]
+note ±200 ±600 ±1500 -2800..2200 -150000..500000
+scratch ±300 ±700 ±1600 -2900..2300 -160000..500000
+ln_end ±1200 ±1600 ±2000 -2800..2200
+scratch_ln_end ±1300 ±1700 ±2100 -2900..2300
+margins 0 0 hz None
+
+[w106]
+note ±400 ±600 ±1500 -2800..2200 -150000..500000
+scratch ±600 ±700 ±1600 -2900..2300 -160000..500000
+ln_end -2400..2200 -2400..2200 -2400..2200 -2800..2200
+scratch_ln_end -2600..2300 -2600..2300 -2600..2300 -2900..2300
+margins 0 0 hz None
+
+[w107]
+note ±800 ±800 -2800..2200 -2800..2200 -150000..500000
+scratch ±1200 ±1200 -2900..2300 -2900..2300 -160000..500000
+ln_end -2800..2200 -2800..2200 -2800..2200 -2800..2200
+scratch_ln_end -2900..2300 -2900..2300 -2900..2300 -2900..2300
+margins 0 0 hz None
+
+[w108]
+note ±100 ±300 ±750 -2800..2200 -150000..500000
+scratch ±150 ±350 ±800 -2900..2300 -160000..500000
+ln_end ±600 ±800 ±1000 -2800..2200
+scratch_ln_end ±650 ±850 ±1050 -2900..2300
+margins 0 0 hz None
+
+[w109]
+note ±20 -2800..2200 -2800..2200 -2800..2200 -150000..500000
+scratch ±30 -2900..2300 -2900..2300 -2900..2300 -160000..500000
+ln_end ±120 -2800..2200 -2800..2200 -2800..2200
+scratch_ln_end ±130 -2900..2300 -2900..2300 -2900..2300
+margins 0 0 hz None
+
+[w110]
+note ±7400 ±22200 ±55500 -103600..81400 -150000..500000
+scratch ±11100 ±25900 ±59200 -107300..85100 -160000..500000
+ln_end ±44400 ±59200 ±74000 -103600..81400
+scratch_ln_end ±48100 ±62900 ±77700 -107300..85100
+margins 0 0 hz None
+
+[w111]
+note ±14800 ±22200 ±55500 -103600..81400 -150000..500000
+scratch ±22200 ±25900 ±59200 -107300..85100 -160000..500000
+ln_end -88800..81400 -88800..81400 -88800..81400 -103600..81400
+scratch_ln_end -96200..85100 -96200..85100 -96200..85100 -107300..85100
+margins 0 0 hz None
+
+[w112]
+note ±29600 ±29600 -103600..81400 -103600..81400 -150000..500000
+scratch ±44400 ±44400 -107300..85100 -107300..85100 -160000..500000
+ln_end -103600..81400 -103600..81400 -103600..81400 -103600..81400
+scratch_ln_end -107300..85100 -107300..85100 -107300..85100 -107300..85100
+margins 0 0 hz None
+
+[w113]
+note ±3700 ±11100 ±27750 -103600..81400 -150000..500000
+scratch ±5550 ±12950 ±29600 -107300..85100 -160000..500000
+ln_end ±22200 ±29600 ±37000 -103600..81400
+scratch_ln_end ±24050 ±31450 ±38850 -107300..85100
+margins 0 0 hz None
+
+[w114]
+note ±740 -103600..81400 -103600..81400 -103600..81400 -150000..500000
+scratch ±1110 -107300..85100 -107300..85100 -107300..85100 -160000..500000
+ln_end ±4440 -103600..81400 -103600..81400 -103600..81400
+scratch_ln_end ±4810 -107300..85100 -107300..85100 -107300..85100
+margins 0 0 hz None
+
+[w115]
+note ±12000 ±36000 ±90000 -168000..132000 -150000..500000
+scratch ±18000 ±42000 ±96000 -174000..138000 -160000..500000
+ln_end ±72000 ±96000 ±120000 -168000..132000
+scratch_ln_end ±78000 ±102000 ±126000 -174000..138000
+margins 0 0 hz None
+
+[w116]
+note ±24000 ±36000 ±90000 -168000..132000 -150000..500000
+scratch ±36000 ±42000 ±96000 -174000..138000 -160000..500000
+ln_end -144000..132000 -144000..132000 -144000..132000 -168000..132000
+scratch_ln_end -156000..138000 -156000..138000 -156000..138000 -174000..138000
+margins 0 0 hz None
+
+[w117]
+note ±48000 ±48000 -168000..132000 -168000..132000 -150000..500000
+scratch ±72000 ±72000 -174000..138000 -174000..138000 -160000..500000
+ln_end -168000..132000 -168000..132000 -168000..132000 -168000..132000
+scratch_ln_end -174000..138000 -174000..138000 -174000..138000 -174000..138000
+margins 0 0 hz None
+
+[w118]
+note ±6000 ±18000 ±45000 -168000..132000 -150000..500000
+scratch ±9000 ±21000 ±48000 -174000..138000 -160000..500000
+ln_end ±36000 ±48000 ±60000 -168000..132000
+scratch_ln_end ±39000 ±51000 ±63000 -174000..138000
+margins 0 0 hz None
+
+[w119]
+note ±1200 -168000..132000 -168000..132000 -168000..132000 -150000..500000
+scratch ±1800 -174000..138000 -174000..138000 -174000..138000 -160000..500000
+ln_end ±7200 -168000..132000 -168000..132000 -168000..132000
+scratch_ln_end ±7800 -174000..138000 -174000..138000 -174000..138000
+margins 0 0 hz None
+
+[w120]
+note ±14800 ±44400 ±111000 -207200..162800 -150000..500000
+scratch ±22200 ±51800 ±118400 -214600..170200 -160000..500000
+ln_end ±88800 ±118400 ±148000 -207200..162800
+scratch_ln_end ±96200 ±125800 ±155400 -214600..170200
+margins 0 0 hz None
+
+[w121]
+note ±29600 ±44400 ±111000 -207200..162800 -150000..500000
+scratch ±44400 ±51800 ±118400 -214600..170200 -160000..500000
+ln_end -177600..162800 -177600..162800 -177600..162800 -207200..162800
+scratch_ln_end -192400..170200 -192400..170200 -192400..170200 -214600..170200
+margins 0 0 hz None
+
+[w122]
+note ±59200 ±59200 -207200..162800 -207200..162800 -150000..500000
+scratch ±88800 ±88800 -214600..170200 -214600..170200 -160000..500000
+ln_end -207200..162800 -207200..162800 -207200..162800 -207200..162800
+scratch_ln_end -214600..170200 -214600..170200 -214600..170200 -214600..170200
+margins 0 0 hz None
+
+[w123]
+note ±7400 ±22200 ±55500 -207200..162800 -150000..500000
+scratch ±11100 ±25900 ±59200 -214600..170200 -160000..500000
+ln_end ±44400 ±59200 ±74000 -207200..162800
+scratch_ln_end ±48100 ±62900 ±77700 -214600..170200
+margins 0 0 hz None
+
+[w124]
+note ±1480 -207200..162800 -207200..162800 -207200..162800 -150000..500000
+scratch ±2220 -214600..170200 -214600..170200 -214600..170200 -160000..500000
+ln_end ±8880 -207200..162800 -207200..162800 -207200..162800
+scratch_ln_end ±9620 -214600..170200 -214600..170200 -214600..170200
+margins 0 0 hz None
+
+[w125]
+note ±18000 ±54000 ±135000 -252000..198000 -150000..500000
+scratch ±27000 ±63000 ±144000 -261000..207000 -160000..500000
+ln_end ±108000 ±144000 ±180000 -252000..198000
+scratch_ln_end ±117000 ±153000 ±189000 -261000..207000
+margins 0 0 hz None
+
+[w126]
+note ±36000 ±54000 ±135000 -252000..198000 -150000..500000
+scratch ±54000 ±63000 ±144000 -261000..207000 -160000..500000
+ln_end -216000..198000 -216000..198000 -216000..198000 -252000..198000
+scratch_ln_end -234000..207000 -234000..207000 -234000..207000 -261000..207000
+margins 0 0 hz None
+
+[w127]
+note ±72000 ±72000 -252000..198000 -252000..198000 -150000..500000
+scratch ±108000 ±108000 -261000..207000 -261000..207000 -160000..500000
+ln_end -252000..198000 -252000..198000 -252000..198000 -252000..198000
+scratch_ln_end -261000..207000 -261000..207000 -261000..207000 -261000..207000
+margins 0 0 hz None
+
+[w128]
+note ±9000 ±27000 ±67500 -252000..198000 -150000..500000
+scratch ±13500 ±31500 ±72000 -261000..207000 -160000..500000
+ln_end ±54000 ±72000 ±90000 -252000..198000
+scratch_ln_end ±58500 ±76500 ±94500 -261000..207000
+margins 0 0 hz None
+
+[w129]
+note ±1800 -252000..198000 -252000..198000 -252000..198000 -150000..500000
+scratch ±2700 -261000..207000 -261000..207000 -261000..207000 -160000..500000
+ln_end ±10800 -252000..198000 -252000..198000 -252000..198000
+scratch_ln_end ±11700 -261000..207000 -261000..207000 -261000..207000
+margins 0 0 hz None
+
+[w130]
+note ±19800 ±59400 ±148500 -277200..217800 -150000..500000
+scratch ±29700 ±69300 ±158400 -287100..227700 -160000..500000
+ln_end ±118800 ±158400 ±198000 -277200..217800
+scratch_ln_end ±128700 ±168300 ±207900 -287100..227700
+margins 0 0 hz None
+
+[w131]
+note ±39600 ±59400 ±148500 -277200..217800 -150000..500000
+scratch ±59400 ±69300 ±158400 -287100..227700 -160000..500000
+ln_end -237600..217800 -237600..217800 -237600..217800 -277200..217800
+scratch_ln_end -257400..227700 -257400..227700 -257400..227700 -287100..227700
+margins 0 0 hz None
+
+[w132]
+note ±79200 ±79200 -277200..217800 -277200..217800 -150000..500000
+scratch ±118800 ±118800 -287100..227700 -287100..227700 -160000..500000
+ln_end -277200..217800 -277200..217800 -277200..217800 -277200..217800
+scratch_ln_end -287100..227700 -287100..227700 -287100..227700 -287100..227700
+margins 0 0 hz None
+
+[w133]
+note ±9900 ±29700 ±74250 -277200..217800 -150000..500000
+scratch ±14850 ±34650 ±79200 -287100..227700 -160000..500000
+ln_end ±59400 ±79200 ±99000 -277200..217800
+scratch_ln_end ±64350 ±84150 ±103950 -287100..227700
+margins 0 0 hz None
+
+[w134]
+note ±1980 -277200..217800 -277200..217800 -277200..217800 -150000..500000
+scratch ±2970 -287100..227700 -287100..227700 -287100..227700 -160000..500000
+ln_end ±11880 -277200..217800 -277200..217800 -277200..217800
+scratch_ln_end ±12870 -287100..227700 -287100..227700 -287100..227700
+margins 0 0 hz None
+
+[w135]
+note ±45000 ±135000 ±337500 -630000..495000 -150000..500000
+scratch ±67500 ±157500 ±360000 -652500..517500 -160000..500000
+ln_end ±270000 ±360000 ±450000 -630000..495000
+scratch_ln_end ±292500 ±382500 ±472500 -652500..517500
+margins 0 0 hz None
+
+[w136]
+note ±90000 ±135000 ±337500 -630000..495000 -150000..500000
+scratch ±135000 ±157500 ±360000 -652500..517500 -160000..500000
+ln_end -540000..495000 -540000..495000 -540000..495000 -630000..495000
+scratch_ln_end -585000..517500 -585000..517500 -585000..517500 -652500..517500
+margins 0 0 hz None
+
+[w137]
+note ±180000 ±180000 -630000..495000 -630000..495000 -150000..500000
+scratch ±270000 ±270000 -652500..517500 -652500..517500 -160000..500000
+ln_end -630000..495000 -630000..495000 -630000..495000 -630000..495000
+scratch_ln_end -652500..517500 -652500..517500 -652500..517500 -652500..517500
+margins 0 0 hz None
+
+[w138]
+note ±22500 ±67500 ±168750 -630000..495000 -150000..500000
+scratch ±33750 ±78750 ±180000 -652500..517500 -160000..500000
+ln_end ±135000 ±180000 ±225000 -630000..495000
+scratch_ln_end ±146250 ±191250 ±236250 -652500..517500
+margins 0 0 hz None
+
+[w139]
+note ±4500 -630000..495000 -630000..495000 -630000..495000 -150000..500000
+scratch ±6750 -652500..517500 -652500..517500 -652500..517500 -160000..500000
+ln_end ±27000 -630000..495000 -630000..495000 -630000..495000
+scratch_ln_end ±29250 -652500..517500 -652500..517500 -652500..517500
+margins 0 0 hz None
+
+[w140]
+note ±2000000 ±6000000 ±15000000 -28000000..22000000 -150000..500000
+scratch ±3000000 ±7000000 ±16000000 -29000000..23000000 -160000..500000
+ln_end ±12000000 ±16000000 ±20000000 -28000000..22000000
+scratch_ln_end ±13000000 ±17000000 ±21000000 -29000000..23000000
+margins 0 0 hz None
+
+[w141]
+note ±4000000 ±6000000 ±15000000 -28000000..22000000 -150000..500000
+scratch ±6000000 ±7000000 ±16000000 -29000000..23000000 -160000..500000
+ln_end -24000000..22000000 -24000000..22000000 -24000000..22000000 -28000000..22000000
+scratch_ln_end -26000000..23000000 -26000000..23000000 -26000000..23000000 -29000000..23000000
+margins 0 0 hz None
+
+[w142]
+note ±8000000 ±8000000 -28000000..22000000 -28000000..22000000 -150000..500000
+scratch ±12000000 ±12000000 -29000000..23000000 -29000000..23000000 -160000..500000
+ln_end -28000000..22000000 -28000000..22000000 -28000000..22000000 -28000000..22000000
+scratch_ln_end -29000000..23000000 -29000000..23000000 -29000000..23000000 -29000000..23000000
+margins 0 0 hz None
+
+[w143]
+note ±1000000 ±3000000 ±7500000 -28000000..22000000 -150000..500000
+scratch ±1500000 ±3500000 ±8000000 -29000000..23000000 -160000..500000
+ln_end ±6000000 ±8000000 ±10000000 -28000000..22000000
+scratch_ln_end ±6500000 ±8500000 ±10500000 -29000000..23000000
+margins 0 0 hz None
+
+[w144]
+note ±200000 -28000000..22000000 -28000000..22000000 -28000000..22000000 -150000..500000
+scratch ±300000 -29000000..23000000 -29000000..23000000 -29000000..23000000 -160000..500000
+ln_end ±1200000 -28000000..22000000 -28000000..22000000 -28000000..22000000
+scratch_ln_end ±1300000 -29000000..23000000 -29000000..23000000 -29000000..23000000
+margins 0 0 hz None
+
+[w145]
+note ±6600 ±19800 ±49500 -92400..72600 -150000..500000
+scratch ±9900 ±23100 ±52800 -95700..75900 -160000..500000
+ln_end ±39600 ±52800 ±66000 -92400..72600
+scratch_ln_end ±42900 ±56100 ±69300 -95700..75900
+margins 0 0 hz None
+
+[w146]
+note ±13200 ±19800 ±49500 -92400..72600 -150000..500000
+scratch ±19800 ±23100 ±52800 -95700..75900 -160000..500000
+ln_end -79200..72600 -79200..72600 -79200..72600 -92400..72600
+scratch_ln_end -85800..75900 -85800..75900 -85800..75900 -95700..75900
+margins 0 0 hz None
+
+[w147]
+note ±26400 ±26400 -92400..72600 -92400..72600 -150000..500000
+scratch ±39600 ±39600 -95700..75900 -95700..75900 -160000..500000
+ln_end -92400..72600 -92400..72600 -92400..72600 -92400..72600
+scratch_ln_end -95700..75900 -95700..75900 -95700..75900 -95700..75900
+margins 0 0 hz None
+
+[w148]
+note ±3300 ±9900 ±24750 -92400..72600 -150000..500000
+scratch ±4950 ±11550 ±26400 -95700..75900 -160000..500000
+ln_end ±19800 ±26400 ±33000 -92400..72600
+scratch_ln_end ±21450 ±28050 ±34650 -95700..75900
+margins 0 0 hz None
+
+[w149]
+note ±660 -92400..72600 -92400..72600 -92400..72600 -150000..500000
+scratch ±990 -95700..75900 -95700..75900 -95700..75900 -160000..500000
+ln_end ±3960 -92400..72600 -92400..72600 -92400..72600
+scratch_ln_end ±4290 -95700..75900 -95700..75900 -95700..75900
+margins 0 0 hz None
+
+[w150]
+note ±30000 ±90000 ±225000 -420000..330000 -150000..500000
+scratch ±45000 ±105000 ±240000 -435000..345000 -160000..500000
+ln_end ±180000 ±240000 ±300000 -420000..330000
+scratch_ln_end ±195000 ±255000 ±315000 -435000..345000
+margins 0 0 hz None
+
+[w151]
+note ±60000 ±90000 ±225000 -420000..330000 -150000..500000
+scratch ±90000 ±105000 ±240000 -435000..345000 -160000..500000
+ln_end -360000..330000 -360000..330000 -360000..330000 -420000..330000
+scratch_ln_end -390000..345000 -390000..345000 -390000..345000 -435000..345000
+margins 0 0 hz None
+
+[w152]
+note ±120000 ±120000 -420000..330000 -420000..330000 -150000..500000
+scratch ±180000 ±180000 -435000..345000 -435000..345000 -160000..500000
+ln_end -420000..330000 -420000..330000 -420000..330000 -420000..330000
+scratch_ln_end -435000..345000 -435000..345000 -435000..345000 -435000..345000
+margins 0 0 hz None
+
+[w153]
+note ±15000 ±45000 ±112500 -420000..330000 -150000..500000
+scratch ±22500 ±52500 ±120000 -435000..345000 -160000..500000
+ln_end ±90000 ±120000 ±150000 -420000..330000
+scratch_ln_end ±97500 ±127500 ±157500 -435000..345000
+margins 0 0 hz None
+
+[w154]
+note ±3000 -420000..330000 -420000..330000 -420000..330000 -150000..500000
+scratch ±4500 -435000..345000 -435000..345000 -435000..345000 -160000..500000
+ln_end ±18000 -420000..330000 -420000..330000 -420000..330000
+scratch_ln_end ±19500 -435000..345000 -435000..345000 -435000..345000
+margins 0 0 hz None
+
+[w155]
+note ±40000 ±120000 ±300000 -560000..440000 -150000..500000
+scratch ±60000 ±140000 ±320000 -580000..460000 -160000..500000
+ln_end ±240000 ±320000 ±400000 -560000..440000
+scratch_ln_end ±260000 ±340000 ±420000 -580000..460000
+margins 0 0 hz None
+
+[w156]
+note ±80000 ±120000 ±300000 -560000..440000 -150000..500000
+scratch ±120000 ±140000 ±320000 -580000..460000 -160000..500000
+ln_end -480000..440000 -480000..440000 -480000..440000 -560000..440000
+scratch_ln_end -520000..460000 -520000..460000 -520000..460000 -580000..460000
+margins 0 0 hz None
+
+[w157]
+note ±160000 ±160000 -560000..440000 -560000..440000 -150000..500000
+scratch ±240000 ±240000 -580000..460000 -580000..460000 -160000..500000
+ln_end -560000..440000 -560000..440000 -560000..440000 -560000..440000
+scratch_ln_end -580000..460000 -580000..460000 -580000..460000 -580000..460000
+margins 0 0 hz None
+
+[w158]
+note ±20000 ±60000 ±150000 -560000..440000 -150000..500000
+scratch ±30000 ±70000 ±160000 -580000..460000 -160000..500000
+ln_end ±120000 ±160000 ±200000 -560000..440000
+scratch_ln_end ±130000 ±170000 ±210000 -580000..460000
+margins 0 0 hz None
+
+[w159]
+note ±4000 -560000..440000 -560000..440000 -560000..440000 -150000..500000
+scratch ±6000 -580000..460000 -580000..460000 -580000..460000 -160000..500000
+ln_end ±24000 -560000..440000 -560000..440000 -560000..440000
+scratch_ln_end ±26000 -580000..460000 -580000..460000 -580000..460000
+margins 0 0 hz None
+
+[w160]
+note ±20000 ±35000 ±81900 ±183000 -175000..500000
+scratch ±20000 ±35000 ±81900 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±151900 ±283000
+scratch_ln_end ±120000 ±120000 ±151900 ±283000
+margins 200000 0 hz None
+
+[w161]
+note ±40000 ±40000 ±81900 ±183000 -175000..500000
+scratch ±40000 ±40000 ±81900 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w162]
+note ±80000 ±80000 ±183000 ±183000 -175000..500000
+scratch ±80000 ±80000 ±183000 ±183000 -175000..500000
+ln_end ±283000 ±283000 ±283000 ±283000
+scratch_ln_end ±283000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w163]
+note ±10000 ±17500 ±40950 ±183000 -175000..500000
+scratch ±10000 ±17500 ±40950 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±75950 ±283000
+scratch_ln_end ±60000 ±60000 ±75950 ±283000
+margins 200000 0 hz None
+
+[w164]
+note ±2000 ±175000 ±175000 ±183000 -175000..500000
+scratch ±2000 ±175000 ±175000 ±183000 -175000..500000
+ln_end ±12000 ±283000 ±283000 ±283000
+scratch_ln_end ±12000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w165]
+note ±20000 ±20000 ±38610 ±183000 -175000..500000
+scratch ±20000 ±20000 ±38610 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±120000 ±283000
+scratch_ln_end ±120000 ±120000 ±120000 ±283000
+margins 200000 0 hz None
+
+[w166]
+note ±40000 ±40000 ±40000 ±183000 -175000..500000
+scratch ±40000 ±40000 ±40000 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w167]
+note ±80000 ±80000 ±115830 ±183000 -175000..500000
+scratch ±80000 ±80000 ±115830 ±183000 -175000..500000
+ln_end ±283000 ±283000 ±283000 ±283000
+scratch_ln_end ±283000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w168]
+note ±10000 ±10000 ±19305 ±183000 -175000..500000
+scratch ±10000 ±10000 ±19305 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±60000 ±283000
+scratch_ln_end ±60000 ±60000 ±60000 ±283000
+margins 200000 0 hz None
+
+[w169]
+note ±2000 ±100000 ±100000 ±183000 -175000..500000
+scratch ±2000 ±100000 ±100000 ±183000 -175000..500000
+ln_end ±12000 ±283000 ±283000 ±283000
+scratch_ln_end ±12000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w170]
+note ±20000 ±25000 ±58500 ±183000 -175000..500000
+scratch ±20000 ±25000 ±58500 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±120000 ±283000
+scratch_ln_end ±120000 ±120000 ±120000 ±283000
+margins 200000 0 hz None
+
+[w171]
+note ±40000 ±40000 ±58500 ±183000 -175000..500000
+scratch ±40000 ±40000 ±58500 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w172]
+note ±80000 ±80000 ±175500 ±183000 -175000..500000
+scratch ±80000 ±80000 ±175500 ±183000 -175000..500000
+ln_end ±283000 ±283000 ±283000 ±283000
+scratch_ln_end ±283000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w173]
+note ±10000 ±12500 ±29250 ±183000 -175000..500000
+scratch ±10000 ±12500 ±29250 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±60000 ±283000
+scratch_ln_end ±60000 ±60000 ±60000 ±283000
+margins 200000 0 hz None
+
+[w174]
+note ±2000 ±125000 ±125000 ±183000 -175000..500000
+scratch ±2000 ±125000 ±125000 ±183000 -175000..500000
+ln_end ±12000 ±283000 ±283000 ±283000
+scratch_ln_end ±12000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w175]
+note ±20000 ±50000 ±117000 ±183000 -175000..500000
+scratch ±20000 ±50000 ±117000 ±183000 -175000..500000
+ln_end ±120000 ±150000 ±217000 ±283000
+scratch_ln_end ±120000 ±150000 ±217000 ±283000
+margins 200000 0 hz None
+
+[w176]
+note ±40000 ±50000 ±117000 ±183000 -175000..500000
+scratch ±40000 ±50000 ±117000 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w177]
+note ±10000 ±25000 ±58500 ±183000 -175000..500000
+scratch ±10000 ±25000 ±58500 ±183000 -175000..500000
+ln_end ±60000 ±75000 ±108500 ±283000
+scratch_ln_end ±60000 ±75000 ±108500 ±283000
+margins 200000 0 hz None
+
+[w178]
+note ±2000 ±183000 ±183000 ±183000 -175000..500000
+scratch ±2000 ±183000 ±183000 ±183000 -175000..500000
+ln_end ±12000 ±283000 ±283000 ±283000
+scratch_ln_end ±12000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w179]
+note ±20000 ±66500 ±155610 ±183000 -175000..500000
+scratch ±20000 ±66500 ±155610 ±183000 -175000..500000
+ln_end ±120000 ±199500 ±283000 ±283000
+scratch_ln_end ±120000 ±199500 ±283000 ±283000
+margins 200000 0 hz None
+
+[w180]
+note ±40000 ±66500 ±155610 ±183000 -175000..500000
+scratch ±40000 ±66500 ±155610 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±283000 ±283000
+scratch_ln_end ±240000 ±240000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w181]
+note ±10000 ±33250 ±77805 ±183000 -175000..500000
+scratch ±10000 ±33250 ±77805 ±183000 -175000..500000
+ln_end ±60000 ±99750 ±141500 ±283000
+scratch_ln_end ±60000 ±99750 ±141500 ±283000
+margins 200000 0 hz None
+
+[w182]
+note ±20000 ±20000 ±20000 ±183000 -175000..500000
+scratch ±20000 ±20000 ±20000 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±120000 ±283000
+scratch_ln_end ±120000 ±120000 ±120000 ±283000
+margins 200000 0 hz None
+
+[w183]
+note ±80000 ±80000 ±80000 ±183000 -175000..500000
+scratch ±80000 ±80000 ±80000 ±183000 -175000..500000
+ln_end ±283000 ±283000 ±283000 ±283000
+scratch_ln_end ±283000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w184]
+note ±10000 ±10000 ±10000 ±183000 -175000..500000
+scratch ±10000 ±10000 ±10000 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±60000 ±283000
+scratch_ln_end ±60000 ±60000 ±60000 ±283000
+margins 200000 0 hz None
+
+[w185]
+note ±20000 ±20000 ±40950 ±183000 -175000..500000
+scratch ±20000 ±20000 ±40950 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±120000 ±283000
+scratch_ln_end ±120000 ±120000 ±120000 ±283000
+margins 200000 0 hz None
+
+[w186]
+note ±40000 ±40000 ±40950 ±183000 -175000..500000
+scratch ±40000 ±40000 ±40950 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w187]
+note ±80000 ±80000 ±122850 ±183000 -175000..500000
+scratch ±80000 ±80000 ±122850 ±183000 -175000..500000
+ln_end ±283000 ±283000 ±283000 ±283000
+scratch_ln_end ±283000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w188]
+note ±10000 ±10000 ±20475 ±183000 -175000..500000
+scratch ±10000 ±10000 ±20475 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±60000 ±283000
+scratch_ln_end ±60000 ±60000 ±60000 ±283000
+margins 200000 0 hz None
+
+[w189]
+note ±20000 ±28000 ±65520 ±183000 -175000..500000
+scratch ±20000 ±28000 ±65520 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±121520 ±283000
+scratch_ln_end ±120000 ±120000 ±121520 ±283000
+margins 200000 0 hz None
+
+[w190]
+note ±40000 ±40000 ±65520 ±183000 -175000..500000
+scratch ±40000 ±40000 ±65520 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w191]
+note ±10000 ±14000 ±32760 ±183000 -175000..500000
+scratch ±10000 ±14000 ±32760 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±60760 ±283000
+scratch_ln_end ±60000 ±60000 ±60760 ±283000
+margins 200000 0 hz None
+
+[w192]
+note ±2000 ±140000 ±140000 ±183000 -175000..500000
+scratch ±2000 ±140000 ±140000 ±183000 -175000..500000
+ln_end ±12000 ±283000 ±283000 ±283000
+scratch_ln_end ±12000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w193]
+note ±20000 ±34500 ±80730 ±183000 -175000..500000
+scratch ±20000 ±34500 ±80730 ±183000 -175000..500000
+ln_end ±120000 ±120000 ±149730 ±283000
+scratch_ln_end ±120000 ±120000 ±149730 ±283000
+margins 200000 0 hz None
+
+[w194]
+note ±40000 ±40000 ±80730 ±183000 -175000..500000
+scratch ±40000 ±40000 ±80730 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w195]
+note ±10000 ±17250 ±40365 ±183000 -175000..500000
+scratch ±10000 ±17250 ±40365 ±183000 -175000..500000
+ln_end ±60000 ±60000 ±74865 ±283000
+scratch_ln_end ±60000 ±60000 ±74865 ±283000
+margins 200000 0 hz None
+
+[w196]
+note ±2000 ±172500 ±172500 ±183000 -175000..500000
+scratch ±2000 ±172500 ±172500 ±183000 -175000..500000
+ln_end ±12000 ±283000 ±283000 ±283000
+scratch_ln_end ±12000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w197]
+note ±20000 ±42000 ±98280 ±183000 -175000..500000
+scratch ±20000 ±42000 ±98280 ±183000 -175000..500000
+ln_end ±120000 ±126000 ±182280 ±283000
+scratch_ln_end ±120000 ±126000 ±182280 ±283000
+margins 200000 0 hz None
+
+[w198]
+note ±40000 ±42000 ±98280 ±183000 -175000..500000
+scratch ±40000 ±42000 ±98280 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w199]
+note ±10000 ±21000 ±49140 ±183000 -175000..500000
+scratch ±10000 ±21000 ±49140 ±183000 -175000..500000
+ln_end ±60000 ±63000 ±91140 ±283000
+scratch_ln_end ±60000 ±63000 ±91140 ±283000
+margins 200000 0 hz None
+
+[w200]
+note ±20000 ±46500 ±108810 ±183000 -175000..500000
+scratch ±20000 ±46500 ±108810 ±183000 -175000..500000
+ln_end ±120000 ±139500 ±201810 ±283000
+scratch_ln_end ±120000 ±139500 ±201810 ±283000
+margins 200000 0 hz None
+
+[w201]
+note ±40000 ±46500 ±108810 ±183000 -175000..500000
+scratch ±40000 ±46500 ±108810 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±240000 ±283000
+scratch_ln_end ±240000 ±240000 ±240000 ±283000
+margins 200000 0 hz None
+
+[w202]
+note ±10000 ±23250 ±54405 ±183000 -175000..500000
+scratch ±10000 ±23250 ±54405 ±183000 -175000..500000
+ln_end ±60000 ±69750 ±100905 ±283000
+scratch_ln_end ±60000 ±69750 ±100905 ±283000
+margins 200000 0 hz None
+
+[w203]
+note ±20000 ±105000 ±183000 ±183000 -175000..500000
+scratch ±20000 ±105000 ±183000 ±183000 -175000..500000
+ln_end ±120000 ±283000 ±283000 ±283000
+scratch_ln_end ±120000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w204]
+note ±40000 ±105000 ±183000 ±183000 -175000..500000
+scratch ±40000 ±105000 ±183000 ±183000 -175000..500000
+ln_end ±240000 ±283000 ±283000 ±283000
+scratch_ln_end ±240000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w205]
+note ±10000 ±52500 ±91500 ±183000 -175000..500000
+scratch ±10000 ±52500 ±91500 ±183000 -175000..500000
+ln_end ±60000 ±141500 ±141500 ±283000
+scratch_ln_end ±60000 ±141500 ±141500 ±283000
+margins 200000 0 hz None
+
+[w206]
+note ±20000 ±183000 ±183000 ±183000 -175000..500000
+scratch ±20000 ±183000 ±183000 ±183000 -175000..500000
+ln_end ±120000 ±283000 ±283000 ±283000
+scratch_ln_end ±120000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w207]
+note ±40000 ±183000 ±183000 ±183000 -175000..500000
+scratch ±40000 ±183000 ±183000 ±183000 -175000..500000
+ln_end ±240000 ±283000 ±283000 ±283000
+scratch_ln_end ±240000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w208]
+note ±80000 ±91500 ±183000 ±183000 -175000..500000
+scratch ±80000 ±91500 ±183000 ±183000 -175000..500000
+ln_end ±283000 ±283000 ±283000 ±283000
+scratch_ln_end ±283000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w209]
+note ±10000 ±91500 ±91500 ±183000 -175000..500000
+scratch ±10000 ±91500 ±91500 ±183000 -175000..500000
+ln_end ±60000 ±141500 ±141500 ±283000
+scratch_ln_end ±60000 ±141500 ±141500 ±283000
+margins 200000 0 hz None
+
+[w210]
+note ±20000 ±75000 ±175500 ±183000 -175000..500000
+scratch ±20000 ±75000 ±175500 ±183000 -175000..500000
+ln_end ±120000 ±225000 ±283000 ±283000
+scratch_ln_end ±120000 ±225000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w211]
+note ±40000 ±75000 ±175500 ±183000 -175000..500000
+scratch ±40000 ±75000 ±175500 ±183000 -175000..500000
+ln_end ±240000 ±240000 ±283000 ±283000
+scratch_ln_end ±240000 ±240000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w212]
+note ±10000 ±37500 ±87750 ±183000 -175000..500000
+scratch ±10000 ±37500 ±87750 ±183000 -175000..500000
+ln_end ±60000 ±112500 ±141500 ±283000
+scratch_ln_end ±60000 ±112500 ±141500 ±283000
+margins 200000 0 hz None
+
+[w213]
+note ±20000 ±100000 ±183000 ±183000 -175000..500000
+scratch ±20000 ±100000 ±183000 ±183000 -175000..500000
+ln_end ±120000 ±283000 ±283000 ±283000
+scratch_ln_end ±120000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w214]
+note ±40000 ±100000 ±183000 ±183000 -175000..500000
+scratch ±40000 ±100000 ±183000 ±183000 -175000..500000
+ln_end ±240000 ±283000 ±283000 ±283000
+scratch_ln_end ±240000 ±283000 ±283000 ±283000
+margins 200000 0 hz None
+
+[w215]
+note ±10000 ±50000 ±91500 ±183000 -175000..500000
+scratch ±10000 ±50000 ±91500 ±183000 -175000..500000
+ln_end ±60000 ±141500 ±141500 ±283000
+scratch_ln_end ±60000 ±141500 ±141500 ±283000
+margins 200000 0 hz None
+
+[w216]
+note ±18000 ±40000 ±100000 ±200000 0..1000000
+scratch ±18000 ±40000 ±100000 ±200000 0..1000000
+ln_end ±100000 ±100000 ±100000 ±200000
+scratch_ln_end ±100000 ±100000 ±100000 ±200000
+margins 0 0 hz None
+
+[w217]
+note ±8000 ±24000 ±40000 ±200000 0..1000000
+scratch ±8000 ±24000 ±40000 ±200000 0..1000000
+ln_end ±40000 ±40000 ±40000 ±200000
+scratch_ln_end ±40000 ±40000 ±40000 ±200000
+margins 0 0 hz None
+
+[w218]
+note ±15000 ±30000 ±60000 ±200000 0..1000000
+scratch ±15000 ±30000 ±60000 ±200000 0..1000000
+ln_end ±60000 ±60000 ±60000 ±200000
+scratch_ln_end ±60000 ±60000 ±60000 ±200000
+margins 0 0 hz None
+
+[w219]
+note ±21000 ±60000 ±120000 ±200000 0..1000000
+scratch ±21000 ±60000 ±120000 ±200000 0..1000000
+ln_end ±120000 ±120000 ±120000 ±200000
+scratch_ln_end ±120000 ±120000 ±120000 ±200000
+margins 0 0 hz None
+
+[w220]
+note ±0 ±0 ±0 ±200000 0..1000000
+scratch ±0 ±0 ±0 ±200000 0..1000000
+ln_end ±0 ±0 ±0 ±200000
+scratch_ln_end ±0 ±0 ±0 ±200000
+margins 0 0 hz None
+
+[w221]
+note ±11360 ±26880 ±49600 ±200000 0..1000000
+scratch ±11360 ±26880 ±49600 ±200000 0..1000000
+ln_end ±49600 ±49600 ±49600 ±200000
+scratch_ln_end ±49600 ±49600 ±49600 ±200000
+margins 0 0 hz None
+
+[w222]
+note ±16200 ±34000 ±76000 ±200000 0..1000000
+scratch ±16200 ±34000 ±76000 ±200000 0..1000000
+ln_end ±76000 ±76000 ±76000 ±200000
+scratch_ln_end ±76000 ±76000 ±76000 ±200000
+margins 0 0 hz None
+
+[w223]
+note ±17880 ±39600 ±98400 ±200000 0..1000000
+scratch ±17880 ±39600 ±98400 ±200000 0..1000000
+ln_end ±98400 ±98400 ±98400 ±200000
+scratch_ln_end ±98400 ±98400 ±98400 ±200000
+margins 0 0 hz None
+
+[w224]
+note ±19800 ±52000 ±112000 ±200000 0..1000000
+scratch ±19800 ±52000 ±112000 ±200000 0..1000000
+ln_end ±112000 ±112000 ±112000 ±200000
+scratch_ln_end ±112000 ±112000 ±112000 ±200000
+margins 0 0 hz None
+
+[w225]
+note ±20880 ±59200 ±119200 ±200000 0..1000000
+scratch ±20880 ±59200 ±119200 ±200000 0..1000000
+ln_end ±119200 ±119200 ±119200 ±200000
+scratch_ln_end ±119200 ±119200 ±119200 ±200000
+margins 0 0 hz None
+
+[w226]
+note ±47250 ±135000 ±200000 ±200000 0..1000000
+scratch ±47250 ±135000 ±200000 ±200000 0..1000000
+ln_end ±200000 ±200000 ±200000 ±200000
+scratch_ln_end ±200000 ±200000 ±200000 ±200000
+margins 0 0 hz None
+
+[w227]
+note ±200000 ±200000 ±200000 ±200000 0..1000000
+scratch ±200000 ±200000 ±200000 ±200000 0..1000000
+ln_end ±200000 ±200000 ±200000 ±200000
+scratch_ln_end ±200000 ±200000 ±200000 ±200000
+margins 0 0 hz None
+
+[w228]
+note ±320 ±960 ±1600 ±200000 0..1000000
+scratch ±320 ±960 ±1600 ±200000 0..1000000
+ln_end ±1600 ±1600 ±1600 ±200000
+scratch_ln_end ±1600 ±1600 ±1600 ±200000
+margins 0 0 hz None
+
+[w229]
+note ±10240 ±25920 ±46400 ±200000 0..1000000
+scratch ±10240 ±25920 ±46400 ±200000 0..1000000
+ln_end ±46400 ±46400 ±46400 ±200000
+scratch_ln_end ±46400 ±46400 ±46400 ±200000
+margins 0 0 hz None
+
+[w230]
+note ±31500 ±90000 ±180000 ±200000 0..1000000
+scratch ±31500 ±90000 ±180000 ±200000 0..1000000
+ln_end ±180000 ±180000 ±180000 ±200000
+scratch_ln_end ±180000 ±180000 ±180000 ±200000
+margins 0 0 hz None
+
+[w231]
+note ±42000 ±120000 ±200000 ±200000 0..1000000
+scratch ±42000 ±120000 ±200000 ±200000 0..1000000
+ln_end ±200000 ±200000 ±200000 ±200000
+scratch_ln_end ±200000 ±200000 ±200000 ±200000
+margins 0 0 hz None
+
+[w232]
+note ±16667 ±33333 ±116667 ±250000 -150000..500000
+scratch ±16667 ±33333 ±116667 ±250000 -150000..500000
+ln_end ±116667 ±158333 ±200000 ±250000
+scratch_ln_end ±116667 ±158333 ±200000 ±250000
+margins 0 0 hz Some(120)

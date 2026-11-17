@@ -698,9 +698,139 @@ mod tests {
         assert_eq!(k, [2, 1, 1, 0, 0]);
         // the LN holds through seconds 2..=6; second 2 has two more notes
         assert_eq!(d[1], 3.0);
+        // buckets [0, 0, 3, 2, 1, 1, 1, 0]: all count (threshold 0); the
+        // gauge could fill after the 2nd note (second 2): 8/5
+        assert_eq!(d, [1.0, 3.0, 1.6]);
     }
 
     use super::*;
+    use vibebms_core::chart::{Chart, ChartMeta, LnType, Note, NoteKind};
+    use vibebms_core::PlayMode;
+
+    fn info_note(lane: u8, time: i64, kind: NoteKind) -> Note {
+        Note {
+            lane,
+            time,
+            beat: 0.0,
+            pos: 0.0,
+            sound: 0,
+            kind,
+        }
+    }
+
+    fn info_long(lane: u8, time: i64, end_time: i64, ln_type: Option<LnType>) -> Note {
+        info_note(
+            lane,
+            time,
+            NoteKind::Long {
+                end_time,
+                end_beat: 0.0,
+                end_pos: 0.0,
+                end_sound: 0,
+                ln_type,
+            },
+        )
+    }
+
+    fn info_chart(mode: PlayMode, total: Option<f64>, mut notes: Vec<Note>) -> Chart {
+        notes.sort_by_key(|n| (n.time, n.lane));
+        Chart {
+            meta: ChartMeta {
+                mode: Some(mode),
+                total,
+                ..Default::default()
+            },
+            notes,
+            ..Default::default()
+        }
+    }
+
+    /// The spec's larger example: 48 notes (two long notes adding a count
+    /// to the next second each), buckets [0, 2, 6, 8, 7, 1, 0, 3, 9, 10,
+    /// 4, 0], TOTAL 175 (the 20th note, in second 4, is where the gauge
+    /// could fill).
+    #[test]
+    fn chart_info_synthetic() {
+        let mut notes = Vec::new();
+        let normals = [
+            (1, 2),
+            (2, 6),
+            (3, 8),
+            (4, 7),
+            (5, 1),
+            (7, 3),
+            (8, 8),
+            (9, 8),
+            (10, 3),
+        ];
+        for (sec, n) in normals {
+            for k in 0..n {
+                notes.push(info_note(
+                    (k % 7) as u8,
+                    sec * 1_000_000 + k * 100_000,
+                    NoteKind::Normal,
+                ));
+            }
+        }
+        notes.push(info_long(0, 8_950_000, 9_500_000, None));
+        notes.push(info_long(1, 9_950_000, 10_500_000, None));
+        notes.push(info_note(2, 6_500_000, NoteKind::Mine { damage: 1.0 }));
+        let c = info_chart(PlayMode::Beat7K, Some(175.0), notes);
+        let (k, d) = chart_info(&c);
+        assert_eq!(k, [46, 2, 0, 0, 1]);
+        assert!((d[0] - 50.0 / 9.0).abs() < 1e-9, "{d:?}");
+        assert_eq!(d[1], 10.0);
+        assert!((d[2] - 5.2).abs() < 1e-9, "{d:?}");
+        // TOTAL 100 or less: from second 0, every 5-second window counts
+        let mut low = c.clone();
+        low.meta.total = Some(100.0);
+        assert!((chart_info(&low).1[2] - 5.2).abs() < 1e-9);
+        // an unset TOTAL is beatoraja's default for the judgement count
+        // (here 260: k = trunc(48 × (1 − 100/260)) = 29; the 29th note is in
+        // second 8; three buckets are left before the last: 23 / 3)
+        let mut def = c.clone();
+        def.meta.total = None;
+        assert!((chart_info(&def).1[2] - 23.0 / 3.0).abs() < 1e-9);
+    }
+
+    /// Kinds by scratch lane (any player's), mines; negative times in
+    /// second 0; over an hour no densities; no notes nothing.
+    #[test]
+    fn chart_info_edges() {
+        let c = info_chart(
+            PlayMode::Beat14K,
+            Some(300.0),
+            vec![
+                info_note(7, -2_000_000, NoteKind::Normal),
+                info_note(15, 500_000, NoteKind::Normal),
+                info_long(15, 600_000, 2_400_000, Some(LnType::Cn)),
+                info_long(8, 700_000, 900_000, None),
+                info_note(3, 800_000, NoteKind::Invisible),
+                info_note(4, 800_000, NoteKind::Mine { damage: 5.0 }),
+            ],
+        );
+        let (k, d) = chart_info(&c);
+        assert_eq!(k, [0, 1, 2, 1, 1]);
+        // buckets [4, 1, 1, 0]: threshold ⌊⌊4/4⌋/4⌋ = 0
+        assert_eq!(d[0], 6.0 / 4.0);
+        assert_eq!(d[1], 4.0);
+        let mut long = c.clone();
+        long.notes
+            .push(info_note(0, 3_600_000_001, NoteKind::Normal));
+        // over an hour: no densities, and only the mines are counted
+        let (k, d) = chart_info(&long);
+        assert_eq!((k, d), ([0, 0, 0, 0, 1], [0.0; 3]));
+        let mut hour = c.clone();
+        hour.notes
+            .push(info_note(0, 3_600_000_000, NoteKind::Normal));
+        assert!(chart_info(&hour).1[1] > 0.0);
+        let empty = info_chart(
+            PlayMode::Beat7K,
+            None,
+            vec![info_note(1, 1_000_000, NoteKind::Mine { damage: 1.0 })],
+        );
+        assert_eq!(chart_info(&empty), ([0, 0, 0, 0, 1], [0.0; 3]));
+    }
 
     #[test]
     fn totals_seeded_then_added() {

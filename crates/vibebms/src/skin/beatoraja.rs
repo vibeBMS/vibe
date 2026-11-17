@@ -1589,6 +1589,84 @@ mod tests {
         assert_eq!(v, want);
     }
 
+    /// Every example of the path resolution's specification (§5.2).
+    #[test]
+    fn skin_path_rules() {
+        let dir = std::env::temp_dir().join(format!("vibebms-skinpath-{}", std::process::id()));
+        for d in ["bomb/a", "bomb/b", "bg", "lane", "parts", "img", "plain"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        for f in [
+            "bomb/a/x.png",
+            "bomb/b/x.png",
+            "bg/one.png",
+            "bg/two.png",
+            "lane/lane_blue.png",
+            "lane/lane_red.png",
+            "parts/a.png",
+            "parts/b.PNG",
+            "parts/c.jpg",
+            "img/f1.png",
+            "img/f2.txt",
+            "plain/file.png",
+        ] {
+            std::fs::write(dir.join(f), b"").unwrap();
+        }
+        let v = serde_json::json!({"filepath": [
+            {"name": "Gone", "path": "gone/*.png", "def": "x"},
+            {"name": "Bomb", "path": "bomb\\*|1|", "def": "b"},
+            {"name": "Back", "path": "bg/*.png", "def": "two"},
+            {"name": "Lane", "path": "lane/lane_*.png", "def": "lane_blue.png"},
+            {"name": "Plain", "path": "plain/file.png", "def": ""},
+        ]});
+        let fps = filepaths(&v);
+        // an entry without a `*` is no entry
+        assert_eq!(fps.len(), 4);
+        let none = HashMap::new();
+        let with = |k: &str, val: &str| HashMap::from([(k.to_string(), val.to_string())]);
+        let p = |files: &HashMap<String, String>, path: &str| skin_path(&dir, &fps, files, path);
+        assert_eq!(p(&none, "bomb/*|1|/x.png"), dir.join("bomb/b/x.png"));
+        assert_eq!(p(&none, "bomb\\*|1|\\x.png"), dir.join("bomb/b/x.png"));
+        assert_eq!(
+            p(&with("Bomb", "A"), "bomb/*|1|/x.png"),
+            dir.join("bomb/a/x.png")
+        );
+        assert_eq!(p(&none, "bg/*.png"), dir.join("bg/two.png"));
+        assert_eq!(
+            p(&with("Back", "three"), "bg/*.png"),
+            dir.join("bg/one.png")
+        );
+        assert_eq!(
+            p(&with("Back", "ONE.png"), "bg/*.png"),
+            dir.join("bg/one.png")
+        );
+        assert_eq!(
+            p(&with("Lane", "LANE_RED.PNG"), "lane/lane_*.png"),
+            dir.join("lane/lane_red.png")
+        );
+        assert_eq!(p(&none, "lane/lane_*.png"), dir.join("lane/lane_blue.png"));
+        // no candidates: the entry is skipped, then the wildcard rule finds
+        // nothing either: the path as given
+        assert_eq!(p(&none, "gone/*.png"), dir.join("gone/*.png"));
+        // a wildcard without an entry: one of the matching files, at random
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let got = p(&none, "parts/*.png");
+            assert!(
+                got == dir.join("parts/a.png") || got == dir.join("parts/b.PNG"),
+                "{got:?}"
+            );
+            seen.insert(got);
+        }
+        assert_eq!(p(&none, "img/*|frame|.png"), dir.join("img/f1.png"));
+        assert_eq!(p(&none, "parts/none_*.gif"), dir.join("parts/none_*.gif"));
+        // no wildcard: the path with its letter case as on disk
+        assert_eq!(p(&none, "Plain\\File.PNG"), dir.join("plain/file.png"));
+        assert_eq!(p(&none, "plain/missing.png"), dir.join("plain/missing.png"));
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(!seen.is_empty());
+    }
+
     #[test]
     fn filepath_choices() {
         let dir = std::env::temp_dir().join(format!("vibebms-fpath-{}", std::process::id()));
