@@ -212,7 +212,7 @@ impl SkinState for ResultState<'_> {
             .score(sc.max_ex(), self.best_ex()) as i64;
         let rate = split2(sc.rate() * 100.0);
         let m = &d.meta;
-        let (avg, dev) = graphs::timing_stats(&d.timing_log);
+        let (avg, dev) = self.s.timing_stats;
         let bp = |b: &crate::library::BestScore| {
             if b.min_bp == u32::MAX {
                 0
