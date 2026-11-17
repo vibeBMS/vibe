@@ -1,9 +1,9 @@
 use crate::clock::{FrameClock, Obs};
 use crate::decode::Sample;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -280,20 +280,48 @@ pub struct Mixer {
     pub buffer_frames: u32,
     pub device_name: String,
     _stream: Option<cpal::Stream>,
-    /// Null output (no device): frames advance with wall-clock time.
-    null_start: Option<Instant>,
-    null_state: Option<std::sync::Mutex<State>>,
+    /// The mixer: rendered by the stream's callback, or here while there
+    /// is no stream.
+    state: Arc<Mutex<State>>,
+    /// The stream reported its device gone.
+    lost: Arc<AtomicBool>,
+    cfg: AudioConfig,
+    /// Null output (no device): frames advance with wall-clock time from
+    /// this moment and frame.
+    null_start: Option<(Instant, u64)>,
+    /// When to try to open the output again (after it was lost).
+    retry_at: Option<Instant>,
     /// The web build's output (its own clock of what is heard).
     #[cfg(target_arch = "wasm32")]
     web: Option<crate::web::WebOut>,
 }
+
+/// How long to wait between tries to reopen a lost output.
+const RETRY: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl Mixer {
     pub fn new(cfg: &AudioConfig) -> Mixer {
         let (tx, rx) = channel();
         let frame = Arc::new(AtomicU64::new(0));
         let epoch = Instant::now();
-        let state = State::new(rx, cfg, frame.clone(), epoch);
+        let state = Arc::new(Mutex::new(State::new(rx, cfg, frame.clone(), epoch)));
+        let lost = Arc::new(AtomicBool::new(false));
+        let mut m = Mixer {
+            tx,
+            frame,
+            epoch,
+            sample_rate: 44100,
+            buffer_frames: 512,
+            device_name: String::new(),
+            _stream: None,
+            state,
+            lost,
+            cfg: cfg.clone(),
+            null_start: None,
+            retry_at: None,
+            #[cfg(target_arch = "wasm32")]
+            web: None,
+        };
         // the web: the mixer in an AudioWorklet (cpal where there is none)
         #[cfg(target_arch = "wasm32")]
         match crate::web::WebOut::open(cfg.max_voices.max(16)) {
@@ -303,54 +331,83 @@ impl Mixer {
                 w.set_bus_volume(Bus::Bgm, cfg.bgm_volume);
                 w.set_bus_volume(Bus::System, cfg.system_volume);
                 w.set_master(cfg.master);
-                return Mixer {
-                    tx,
-                    frame,
-                    epoch,
-                    sample_rate: w.rate,
-                    buffer_frames: 128,
-                    device_name: "web".into(),
-                    _stream: None,
-                    null_start: None,
-                    null_state: None,
-                    web: Some(w),
-                };
+                m.sample_rate = w.rate;
+                m.buffer_frames = 128;
+                m.device_name = "web".into();
+                m.web = Some(w);
+                return m;
             }
             Err(e) => log::warn!("audio worklet unavailable ({e}); using cpal"),
         }
-        match open_stream(cfg, state) {
+        match open_stream(cfg, &m.state, &m.lost) {
             Ok((stream, rate, buf, name)) => {
                 log::info!("audio: {name} {rate} Hz, buffer {buf} frames");
-                Mixer {
-                    tx,
-                    frame,
-                    epoch,
-                    sample_rate: rate,
-                    buffer_frames: buf,
-                    device_name: name,
-                    _stream: Some(stream),
-                    null_start: None,
-                    null_state: None,
-                    #[cfg(target_arch = "wasm32")]
-                    web: None,
-                }
+                m.sample_rate = rate;
+                m.buffer_frames = buf;
+                m.device_name = name;
+                m._stream = Some(stream);
             }
-            Err((e, state)) => {
+            Err(e) => {
                 log::warn!("audio output unavailable ({e}); using silent output");
-                Mixer {
-                    tx,
-                    frame,
-                    epoch,
-                    sample_rate: 44100,
-                    buffer_frames: 512,
-                    // the settings' Output row shows why
-                    device_name: format!("none ({e})"),
-                    _stream: None,
-                    null_start: Some(Instant::now()),
-                    null_state: Some(std::sync::Mutex::new(*state)),
-                    #[cfg(target_arch = "wasm32")]
-                    web: None,
+                // the settings' Output row shows why
+                m.device_name = format!("none ({e})");
+                m.go_silent();
+            }
+        }
+        m
+    }
+
+    /// Render by the wall clock from here on (no stream).
+    fn go_silent(&mut self) {
+        self._stream = None;
+        let rate = self.sample_rate;
+        let mut st = self.state.lock().unwrap();
+        st.clock = FrameClock::new(rate);
+        self.null_start = Some((Instant::now(), st.frame));
+    }
+
+    /// Call every frame: an output whose device went away (unplugged, a
+    /// driver reset) is opened again on what is the default device now;
+    /// meanwhile the mixer goes on silently with the clock, so the play
+    /// does not stall.
+    pub fn keep_alive(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if self.web.is_some() {
+            return;
+        }
+        if self.lost.swap(false, Ordering::AcqRel) && self._stream.is_some() {
+            log::warn!("audio: the output device is gone; reopening");
+            self.go_silent();
+            self.retry_at = Some(Instant::now());
+        }
+        if !self.retry_at.is_some_and(|t| Instant::now() >= t) {
+            return;
+        }
+        // the sounds are decoded at the rate in use: keep it
+        let cfg = AudioConfig {
+            sample_rate: self.sample_rate,
+            ..self.cfg.clone()
+        };
+        // frames rendered so far stay the clock's
+        self.current_frame();
+        match open_stream(&cfg, &self.state, &self.lost) {
+            Ok((stream, rate, buf, name)) => {
+                log::info!("audio: reopened {name} {rate} Hz, buffer {buf} frames");
+                if rate != self.sample_rate {
+                    log::warn!(
+                        "audio: {rate} Hz now, sounds were decoded for {} Hz",
+                        self.sample_rate
+                    );
                 }
+                self.buffer_frames = buf;
+                self.device_name = name;
+                self._stream = Some(stream);
+                self.null_start = None;
+                self.retry_at = None;
+            }
+            Err(e) => {
+                log::debug!("audio: reopening failed ({e})");
+                self.retry_at = Some(Instant::now() + RETRY);
             }
         }
     }
@@ -361,14 +418,14 @@ impl Mixer {
         if let Some(w) = &self.web {
             return w.current_frame();
         }
-        if let (Some(start), Some(st)) = (self.null_start, &self.null_state) {
-            let target = (start.elapsed().as_secs_f64() * self.sample_rate as f64) as u64;
-            let mut s = st.lock().unwrap();
+        if let Some((start, base)) = self.null_start {
+            let target = base + (start.elapsed().as_secs_f64() * self.sample_rate as f64) as u64;
+            let mut s = self.state.lock().unwrap();
             let start_us = s.us(start);
             while s.frame < target {
                 let n = ((target - s.frame) as usize).min(4096);
                 // the frames are the clock here
-                let t = start_us + s.frame as f64 * 1e6 / self.sample_rate as f64;
+                let t = start_us + (s.frame - base) as f64 * 1e6 / self.sample_rate as f64;
                 let obs = Obs {
                     frame: s.frame,
                     frames: n,
@@ -481,12 +538,18 @@ impl Mixer {
 
 type OpenOk = (cpal::Stream, u32, u32, String);
 
-fn open_stream(cfg: &AudioConfig, mut state: State) -> Result<OpenOk, (String, Box<State>)> {
+/// An output stream on the default device that renders `state`; `lost` is
+/// set when its device goes away.
+fn open_stream(
+    cfg: &AudioConfig,
+    state: &Arc<Mutex<State>>,
+    lost: &Arc<AtomicBool>,
+) -> Result<OpenOk, String> {
     #[cfg(target_os = "ios")]
     crate::ios::activate(cfg.buffer_frames);
     let host = cpal::default_host();
     let Some(device) = host.default_output_device() else {
-        return Err(("no output device".into(), Box::new(state)));
+        return Err("no output device".into());
     };
     let name = device.name().unwrap_or_else(|_| "output".into());
     let def = match device.default_output_config() {
@@ -502,7 +565,7 @@ fn open_stream(cfg: &AudioConfig, mut state: State) -> Result<OpenOk, (String, B
                 cpal::SampleFormat::F32,
             )
         }
-        Err(e) => return Err((e.to_string(), Box::new(state))),
+        Err(e) => return Err(e.to_string()),
     };
     let mut rate = def.sample_rate().0;
     let fmt = def.sample_format();
@@ -537,7 +600,8 @@ fn open_stream(cfg: &AudioConfig, mut state: State) -> Result<OpenOk, (String, B
     } else {
         def.channels()
     };
-    state.clock = FrameClock::new(rate);
+    // a new stream: its clock is fitted anew
+    state.lock().unwrap().clock = FrameClock::new(rate);
     let mut config = cpal::StreamConfig {
         channels,
         sample_rate: cpal::SampleRate(rate),
@@ -552,25 +616,14 @@ fn open_stream(cfg: &AudioConfig, mut state: State) -> Result<OpenOk, (String, B
         config.buffer_size = cpal::BufferSize::Fixed(b);
         buf = b;
     }
-    let shared = std::sync::Arc::new(std::sync::Mutex::new(Some(state)));
     let try_build = |config: &cpal::StreamConfig| -> Result<cpal::Stream, String> {
-        let st = shared.lock().unwrap().take().ok_or("state consumed")?;
-        let r = match fmt {
-            cpal::SampleFormat::F32 => build::<f32>(&device, config, st),
-            cpal::SampleFormat::I16 => build::<i16>(&device, config, st),
-            cpal::SampleFormat::U16 => build::<u16>(&device, config, st),
-            cpal::SampleFormat::I32 => build::<i32>(&device, config, st),
-            other => Err((
-                format!("unsupported sample format {other:?}"),
-                Box::new(st_dummy()),
-            )),
-        };
-        match r {
-            Ok(s) => Ok(s),
-            Err((e, st)) => {
-                *shared.lock().unwrap() = Some(*st);
-                Err(e)
-            }
+        let (st, l) = (state.clone(), lost.clone());
+        match fmt {
+            cpal::SampleFormat::F32 => build::<f32>(&device, config, st, l),
+            cpal::SampleFormat::I16 => build::<i16>(&device, config, st, l),
+            cpal::SampleFormat::U16 => build::<u16>(&device, config, st, l),
+            cpal::SampleFormat::I32 => build::<i32>(&device, config, st, l),
+            other => Err(format!("unsupported sample format {other:?}")),
         }
     };
     let stream = match try_build(&config) {
@@ -579,102 +632,71 @@ fn open_stream(cfg: &AudioConfig, mut state: State) -> Result<OpenOk, (String, B
             log::warn!("buffer size {buf} rejected ({e}); using device default");
             config.buffer_size = cpal::BufferSize::Default;
             buf = 0;
-            match try_build(&config) {
-                Ok(s) => s,
-                Err(e) => {
-                    return Err((
-                        e,
-                        Box::new(shared.lock().unwrap().take().unwrap_or_else(st_dummy)),
-                    ))
-                }
-            }
+            try_build(&config)?
         }
-        Err(e) => {
-            return Err((
-                e,
-                Box::new(shared.lock().unwrap().take().unwrap_or_else(st_dummy)),
-            ))
-        }
+        Err(e) => return Err(e),
     };
-    if let Err(e) = stream.play() {
-        return Err((e.to_string(), Box::new(st_dummy())));
-    }
+    stream.play().map_err(|e| e.to_string())?;
     let buf = if buf == 0 { (rate / 100).max(256) } else { buf };
     Ok((stream, rate, buf, name))
-}
-
-fn st_dummy() -> State {
-    let (_tx, rx) = channel();
-    State::new(
-        rx,
-        &AudioConfig::default(),
-        Arc::new(AtomicU64::new(0)),
-        Instant::now(),
-    )
 }
 
 fn build<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-    state: State,
-) -> Result<cpal::Stream, (String, Box<State>)>
+    state: Arc<Mutex<State>>,
+    lost: Arc<AtomicBool>,
+) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let channels = config.channels as usize;
-    // The state is moved into the callback; on failure we cannot get it back,
-    // so build with a cell that the error path can reclaim.
-    let cell = Arc::new(std::sync::Mutex::new(Some(state)));
-    let cb_cell = cell.clone();
-    let mut local: Option<State> = None;
     // the stream's first callback timestamp: its clock's origin
     let mut base: Option<cpal::StreamInstant> = None;
-    let result = device.build_output_stream(
-        config,
-        move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
-            if local.is_none() {
-                local = cb_cell.lock().ok().and_then(|mut g| g.take());
-            }
-            let Some(st) = local.as_mut() else {
-                data.iter_mut().for_each(|d| *d = T::from_sample(0.0));
-                return;
-            };
-            let frames = data.len() / channels.max(1);
-            let cb = info.timestamp().callback;
-            let base = *base.get_or_insert(cb);
-            let obs = Obs {
-                frame: st.frame,
-                frames,
-                stream_us: cb.duration_since(&base).map(|d| d.as_secs_f64() * 1e6),
-                now_us: st.us(Instant::now()),
-            };
-            st.render_obs(frames, Some(obs));
-            for f in 0..frames {
-                let l = soft_clip(st.mix[f * 2]);
-                let r = soft_clip(st.mix[f * 2 + 1]);
-                let base = f * channels;
-                match channels {
-                    1 => data[base] = T::from_sample((l + r) * 0.5),
-                    _ => {
-                        data[base] = T::from_sample(l);
-                        data[base + 1] = T::from_sample(r);
-                        for c in 2..channels {
-                            data[base + c] = T::from_sample(0.0);
+    device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+                // the main thread holds it only to reopen or render silently
+                let Ok(mut st) = state.try_lock() else {
+                    data.iter_mut().for_each(|d| *d = T::from_sample(0.0));
+                    return;
+                };
+                let frames = data.len() / channels.max(1);
+                let cb = info.timestamp().callback;
+                let base = *base.get_or_insert(cb);
+                let obs = Obs {
+                    frame: st.frame,
+                    frames,
+                    stream_us: cb.duration_since(&base).map(|d| d.as_secs_f64() * 1e6),
+                    now_us: st.us(Instant::now()),
+                };
+                st.render_obs(frames, Some(obs));
+                for f in 0..frames {
+                    let l = soft_clip(st.mix[f * 2]);
+                    let r = soft_clip(st.mix[f * 2 + 1]);
+                    let base = f * channels;
+                    match channels {
+                        1 => data[base] = T::from_sample((l + r) * 0.5),
+                        _ => {
+                            data[base] = T::from_sample(l);
+                            data[base + 1] = T::from_sample(r);
+                            for c in 2..channels {
+                                data[base + c] = T::from_sample(0.0);
+                            }
                         }
                     }
                 }
-            }
-        },
-        |e| log::error!("audio stream error: {e}"),
-        None,
-    );
-    match result {
-        Ok(s) => Ok(s),
-        Err(e) => {
-            let st = cell.lock().unwrap().take().unwrap_or_else(st_dummy);
-            Err((e.to_string(), Box::new(st)))
-        }
-    }
+            },
+            move |e| {
+                log::error!("audio stream error: {e}");
+                if matches!(e, cpal::StreamError::DeviceNotAvailable) {
+                    lost.store(true, Ordering::Release);
+                }
+            },
+            None,
+        )
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -820,6 +842,34 @@ mod tests {
         assert_eq!(st.voices[0].start_at, 441);
         assert!((st.mix[2 * 340] - 0.5).abs() < 1e-3);
         assert!((st.mix[2 * 341] - 0.5).abs() < 1e-3);
+    }
+
+    /// The output is lost: the mixer goes on silently from the frames
+    /// played, by the wall clock, and tries to reopen (here there may be
+    /// no device: it then waits to try again).
+    #[test]
+    fn a_lost_output_goes_on_silently_and_reopens() {
+        let mut m = Mixer::new(&AudioConfig::default());
+        let before = m.current_frame();
+        m.go_silent();
+        m.retry_at = Some(Instant::now());
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let f = m.current_frame();
+        assert!(f >= before + m.sample_rate as u64 / 100, "{before} -> {f}");
+        // a sound played meanwhile is taken (and rendered) by the clock
+        let s = sample(10, 16384);
+        m.play(&s, PlayOptions::default());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        m.current_frame();
+        assert!(m.state.lock().unwrap().voices.is_empty());
+        m.keep_alive();
+        match m._stream {
+            Some(_) => assert!(m.null_start.is_none() && m.retry_at.is_none()),
+            None => {
+                assert!(m.retry_at.is_some_and(|t| t > Instant::now()));
+                assert!(m.current_frame() >= f);
+            }
+        }
     }
 
     #[test]

@@ -896,6 +896,7 @@ impl Running {
         }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
+        self.ctx.mixer.keep_alive();
         self.ctx.sounds.poll(&self.ctx.mixer);
         #[cfg(target_arch = "wasm32")]
         crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
