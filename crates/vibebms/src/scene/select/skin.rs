@@ -17,7 +17,7 @@ use super::preview::Rank;
 use super::tree::{table, Bar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
-use crate::config::{Bpms, HiSpeedMode};
+use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
@@ -183,7 +183,11 @@ impl<'a> SelectState<'a> {
                 let s = ctx.lib.songs.get(*k)?;
                 BarInfo {
                     kind: BAR_SONG,
-                    title: s.full_title(),
+                    // a favourite: marked
+                    title: match super::tree::favorite(ctx, s) {
+                        true => format!("♥ {}", s.full_title()),
+                        false => s.full_title(),
+                    },
                     level: Some(s.level_num()),
                     difficulty: s.difficulty.clamp(0, 6) as usize,
                     lamp: Some(
@@ -194,6 +198,17 @@ impl<'a> SelectState<'a> {
                     rival: self.rival_lamp(s),
                 }
             }
+            Bar::Random => BarInfo {
+                kind: BAR_COMMAND,
+                title: match ctx.config.select.random {
+                    RandomSelect::Any => "RANDOM SELECT".into(),
+                    r => format!("RANDOM SELECT ({})", r.label()),
+                },
+                level: None,
+                difficulty: 0,
+                lamp: None,
+                rival: None,
+            },
             Bar::Missing(m) => BarInfo {
                 kind: BAR_NOSONG,
                 title: m.title.clone(),
@@ -292,7 +307,9 @@ impl SkinState for SelectState<'_> {
             20 => self.ctx.view.fps as i64,
             12 => p.judge_offset_ms as i64,
             // a selected song's record (0 when never played)
-            71 | 75..=84 | 102 | 103 if song.is_some() => return best_number(self.best, id),
+            71 | 75..=84 | 102 | 103 | BEST_MIN_CB if song.is_some() => {
+                return best_number(self.best, id)
+            }
             370 => return best_number(self.best, id),
             72 => song?.notes * 2,
             74 => song?.notes,
@@ -319,7 +336,16 @@ impl SkinState for SelectState<'_> {
     }
 
     fn button(&self, id: i32) -> Option<i64> {
-        config_button(self.ctx, id).or_else(|| self.number(id))
+        use crate::scene::option_panel::index_of;
+        let sel = &self.ctx.config.select;
+        Some(match id {
+            // LR2 / beatoraja: difficulty filter, key mode filter (in
+            // beatoraja's order), sort
+            10 => sel.difficulty_filter as i64,
+            11 => index_of(&KeyFilter::ALL, sel.key_filter),
+            12 => index_of(&SortMode::ALL, sel.sort),
+            _ => return config_button(self.ctx, id).or_else(|| self.number(id)),
+        })
     }
 
     fn text(&self, id: i32) -> Option<String> {
@@ -363,7 +389,7 @@ impl SkinState for SelectState<'_> {
             1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
                 let o = SelectOption::ALL.get((n - OPTION_TEXT) as usize)?;
-                o.value(self.ctx, song.map(Bpms::of_song))
+                o.value(self.ctx, song.map(Bpms::of_song), song)
             }
             n if (OPTION_NAME..OPTION_NAME + 100).contains(&n) => SelectOption::ALL
                 .get((n - OPTION_NAME) as usize)?

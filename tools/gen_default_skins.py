@@ -2286,6 +2286,10 @@ LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (7
                (255, 255, 255)]
 
 
+# vibeBMS's select options (skin texts 9000 + i / 9100 + i, events 9000 + i)
+SELECT_OPTIONS = 18
+
+
 def select_layout(fonts, parts, portrait=False):
     W, H = 1280, 720
     sk = Skin(5, "vibeBMS Default Select", *((720, 1280) if portrait else (W, H)), parts)
@@ -2378,14 +2382,19 @@ def select_layout(fonts, parts, portrait=False):
     rw, rh = parts.items["rank0"][2:]
     for k in range(8):
         sk.put(sk.img(f"rank{k}"), 676 - 16 - rw // 2, 362, rw // 2, rh // 2, op=[320 + k])
-    for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 200), ("MISS", 350), ("COMBO", 470))):
+    for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 165), ("MIN BP", 290),
+                                    ("MIN CB", 384), ("COMBO", 480))):
         draw_label(img, f, x, 448, label, 11)
     sk.number("n_mid", 71, 5, 30, 462, op=[5])
-    sk.number("n_mid", 102, 3, 200, 462, op=[5])
-    sk.put(sk.img("white"), 200 + 21 * 3 + 1, 484, 4, 4, op=[5])
-    sk.number("n_mid", 103, 2, 200 + 21 * 3 + 6, 462, zeropad=True, op=[5])
-    sk.number("n_mid", 76, 4, 350, 462, op=[5])
-    sk.number("n_mid", 75, 5, 470, 462, op=[5])
+    sk.number("n_mid", 102, 3, 165, 462, op=[5])
+    sk.put(sk.img("white"), 165 + 21 * 3 + 1, 484, 4, 4, op=[5])
+    sk.number("n_mid", 103, 2, 165 + 21 * 3 + 6, 462, zeropad=True, op=[5])
+    sk.number("n_mid", 76, 4, 290, 462, op=[5])
+    # the record's min CB (vibeBMS number 9425)
+    sk.number("n_mid", 9425, 4, 384, 462, op=[5])
+    sk.number("n_mid", 75, 5, 480, 462, op=[5])
+    # the judge preset the record is of (option 7's value)
+    sk.label_text(9007, 134, 364, 100, 12, color=DIM)
     draw_label(img, f, 590, 448, "PLAYS", 11)
     sk.number("n_small", 77, 4, 590, 466, op=[5])
     # the IR: the lamp beside and the rank (vibeBMS text 9200), the top three
@@ -2399,17 +2408,17 @@ def select_layout(fonts, parts, portrait=False):
         sk.put(sk.img(key), 30, y_, w_, h_, op=[2, -5])
     # options: clickable buttons (vibeBMS option ids 9000 + i)
     panel(img, (16, 506, 660, 154), "OPTIONS", f)
-    for i in range(11):
-        bx, by = 22 + (i % 6) * 109, 530 + (i // 6) * 64
+    for i in range(SELECT_OPTIONS):
+        bx, by = 22 + (i % 6) * 109, 528 + (i // 6) * 44
         bid = f"optbtn{i}"
         if bid not in sk._ids:
             sk._ids.add(bid)
             x_, y_, w_, h_ = parts.items["optbtn"]
             sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
                                   "act": 9000 + i})
-        sk.put(bid, bx, by, 104, 60)
-        sk.label_text(9100 + i, bx + 5, by + 8, 94, 12, align=1, color=DIM)
-        sk.label_text(9000 + i, bx + 5, by + 28, 94, 20, align=1)
+        sk.put(bid, bx, by, 104, 43)
+        sk.label_text(9100 + i, bx + 5, by + 4, 94, 10, align=1, color=DIM)
+        sk.label_text(9000 + i, bx + 5, by + 18, 94, 18, align=1)
     # footer
     panel(img, (16, 668, 660, 40))
     bw_, bh_ = parts.items["btn_back"][2:]

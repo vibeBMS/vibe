@@ -7,6 +7,7 @@ use crate::app::{Ctx, Next};
 use crate::config::Versus;
 use crate::replay::{self, Slot};
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
+use vibebms_core::rng::JavaRandom;
 
 impl SelectScene {
     pub(super) fn decide(&mut self, ctx: &mut Ctx, autoplay: bool) -> Next {
@@ -56,6 +57,19 @@ impl SelectScene {
                         vs,
                     },
                 )
+            }
+            Some(Bar::Random) => {
+                let pick = super::tree::random_candidates(ctx, &self.bars);
+                if pick.is_empty() {
+                    let kind = ctx.config.select.random.label();
+                    ctx.toast(format!("RANDOM SELECT: no chart here is {kind}"));
+                    return Next::Stay;
+                }
+                let seed = crate::platform::unix_ms();
+                let k = JavaRandom::new(seed).next_int_bounded(pick.len() as i32);
+                self.cursor = pick[k as usize];
+                self.moved(ctx);
+                self.decide(ctx, autoplay)
             }
             Some(Bar::Missing(m)) => {
                 self.fetch(ctx, m);
@@ -147,7 +161,8 @@ impl SelectScene {
         let song = song.clone();
         let ln = song.score_ln(ctx.config.play.ln_mode) as i32;
         let fixed = song.fixed_ln();
-        let load = |slot| replay::load_filed(&ctx.paths.root, &song.sha256, ln, fixed, slot);
+        let rule = ctx.config.play.judge_preset;
+        let load = |slot| replay::load_filed(&ctx.paths.root, &song.sha256, ln, rule, fixed, slot);
         let Some(r) = load(Slot::Best).or_else(|| load(Slot::Last)) else {
             ctx.toast(format!("No replay of {}", song.title));
             return Next::Stay;
@@ -288,10 +303,12 @@ pub(crate) fn course_title(ctx: &Ctx, c: &CourseBar) -> String {
     }
 }
 
-/// A course's record (its identity's, in any LN mode: the best).
+/// A course's record (its identity's, in any LN mode, under the rule
+/// mode chosen: the best).
 pub(crate) fn course_best<'a>(ctx: &'a Ctx, id: &str) -> Option<&'a crate::library::BestScore> {
+    let rule = ctx.config.play.judge_preset;
     (0..3)
-        .filter_map(|ln| ctx.best_key(id, ln))
+        .filter_map(|ln| ctx.best_key(id, ln, rule))
         .max_by_key(|b| b.clear)
 }
 

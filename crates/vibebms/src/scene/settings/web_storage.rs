@@ -46,7 +46,7 @@ fn stale_folders(ctx: &Ctx, folders: &[Kept]) -> Vec<usize> {
                         .lib
                         .scores
                         .iter()
-                        .any(|((sha, _), b)| *sha == s.sha256 && b.last_played >= cut)
+                        .any(|(k, b)| k.id == s.sha256 && b.last_played >= cut)
             })
         })
         .map(|(i, _)| i)

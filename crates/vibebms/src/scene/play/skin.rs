@@ -165,7 +165,11 @@ impl<'a> PlayState<'a> {
             ctx,
             now,
             engine: s.session.engine(),
-            best: ctx.best_key(&s.req.record_key(), s.facts.score_ln as i32),
+            best: ctx.best_key(
+                &s.req.record_key(),
+                s.facts.score_ln as i32,
+                s.facts.rules.judge,
+            ),
             chart: ChartFacts::of_meta(&s.session.chart.meta, s.facts.skin_mode),
             bpms: crate::config::Bpms::of_meta(&s.session.chart.meta),
             play: [side_play(0), side_play(1)],

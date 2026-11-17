@@ -21,6 +21,7 @@ pub mod placement;
 pub mod platform;
 pub mod replay;
 pub mod scene;
+pub mod screenshot;
 pub mod skin;
 pub mod skinstore;
 pub mod songfetch;

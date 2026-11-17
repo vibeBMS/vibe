@@ -62,6 +62,7 @@ fn best() -> BestScore {
         judges: [600, 300, 50, 20, 10, 20],
         max_combo: 400,
         min_bp: 50,
+        min_cb: 30,
         play_count: 12,
         clear_count: 5,
         last_played: 1_700_000_000,
@@ -73,7 +74,8 @@ fn ctx() -> Ctx {
     let mut ctx = Ctx::for_test(root);
     let s = song();
     let ln = s.score_ln(ctx.config.play.ln_mode) as i32;
-    ctx.lib.scores.insert((s.sha256.clone(), ln), best());
+    let key = crate::library::RecordKey::new(&s.sha256, ln, ctx.config.play.judge_preset);
+    ctx.lib.scores.insert(key, best());
     ctx.tables.list.push(bmseeker::table::DifficultyTable {
         source_url: "https://example.invalid/table".into(),
         header: bmseeker::table::TableHeader {

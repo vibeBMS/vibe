@@ -3,7 +3,7 @@
 //! `<root>/scores/courses.json`. The difficulty tables' dan courses are
 //! played as class courses beside them.
 
-use crate::library::Song;
+use crate::library::{RecordKey, Song};
 use crate::platform::vfs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -283,31 +283,30 @@ impl CourseStore {
 }
 
 /// A course's record (a NONSTOP play's, an expert or class course's
-/// result) under its identity `id` (`CourseDef::id`), kept as a song's
-/// (S-OLR2b 3.8, 4.4): the best EX score with its counts (strictly
-/// higher), the lamp only raised, max combo, min BP, play and clear
-/// counts. (The one place course records are written.)
+/// result), `key` its identity (`CourseDef::id`) with the play's LN mode
+/// and rule mode, kept as a song's (S-OLR2b 3.8, 4.4): the best EX score
+/// with its counts (strictly higher), the lamp only raised, max combo, min
+/// BP and CB, play and clear counts. (The one place course records are
+/// written.)
 pub fn save_course(
     lib: &mut crate::library::Library,
-    id: &str,
-    ln: i32,
+    key: &RecordKey,
     s: &vibebms_core::score::Score,
     clear: vibebms_core::score::ClearType,
     play_ms: u64,
 ) -> crate::library::BestScore {
-    lib.record_play(id, ln, s, clear, play_ms)
+    lib.record_play(key, s, clear, play_ms)
 }
 
-/// A course's stage into its chart's own record, partly
+/// A course's stage into its chart's own record `key`, partly
 /// (`Library::record_stage`).
 pub fn save_stage(
     lib: &mut crate::library::Library,
-    sha256: &str,
-    ln: i32,
+    key: &RecordKey,
     s: &vibebms_core::score::Score,
     clear: vibebms_core::score::ClearType,
 ) -> crate::library::BestScore {
-    lib.record_stage(sha256, ln, s, clear)
+    lib.record_stage(key, s, clear)
 }
 
 fn song_dir(s: &Song) -> &Path {

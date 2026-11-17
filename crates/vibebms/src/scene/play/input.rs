@@ -30,14 +30,20 @@ impl PlayScene {
                 if *repeat {
                     return Next::Stay;
                 }
-                if let Some(m) = &self.controls.mapper {
+                if let Some(m) = self.controls.mapper.as_mut() {
                     if let Some((lane, sub)) = m.key(*code) {
-                        lane_evs.push(LaneEv {
+                        let e = LaneEv {
                             lane,
                             sub,
                             pressed: *pressed,
                             time: *time,
-                        });
+                        };
+                        if m.passes(&e) {
+                            lane_evs.push(e);
+                        } else {
+                            // chatter: dropped (not an unbound key)
+                            return Next::Stay;
+                        }
                     }
                 }
                 if lane_evs.is_empty() && *pressed {
@@ -75,13 +81,18 @@ impl PlayScene {
                     }
                     return Next::Stay;
                 }
-                if let Some((lane, sub)) = self.controls.mapper.as_ref().and_then(|m| m.pad(*id)) {
-                    lane_evs.push(LaneEv {
-                        lane,
-                        sub,
-                        pressed: *pressed,
-                        time: *time,
-                    });
+                if let Some(m) = self.controls.mapper.as_mut() {
+                    if let Some((lane, sub)) = m.pad(*id) {
+                        let e = LaneEv {
+                            lane,
+                            sub,
+                            pressed: *pressed,
+                            time: *time,
+                        };
+                        if m.passes(&e) {
+                            lane_evs.push(e);
+                        }
+                    }
                 }
             }
             InputEv::Axis { id, value, time } => {
@@ -108,6 +119,9 @@ impl PlayScene {
             InputEv::Released { time, touch_only } => {
                 self.touch.input.release_all(*time, &mut lane_evs);
                 if !touch_only {
+                    if let Some(m) = self.controls.mapper.as_mut() {
+                        m.released_all();
+                    }
                     let held: Vec<(u8, u8)> = self
                         .session
                         .sides

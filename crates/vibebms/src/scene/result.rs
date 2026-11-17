@@ -6,7 +6,7 @@ use crate::config::SubmitPolicy;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
-use crate::library::BestScore;
+use crate::library::{BestScore, RecordKey};
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::result_skin::{
@@ -19,6 +19,7 @@ use crate::sysound::Sound;
 use crate::theme;
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::Judge;
+use vibebms_core::judge::JudgePreset;
 use vibebms_core::record::PlayRecord;
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -146,6 +147,12 @@ enum Leave {
 }
 
 impl ResultData {
+    /// The rule mode the play is filed under (its judge preset; see
+    /// `RecordKey`).
+    pub fn rule(&self) -> JudgePreset {
+        self.record.rules.judge
+    }
+
     /// A battle's outcome for the first side.
     pub fn outcome(&self) -> Option<Outcome> {
         let p2 = self.p2.as_ref()?;
@@ -159,15 +166,15 @@ impl ResultScene {
             ctx.net.ir.record(&mut d.record);
         }
         let song = &d.request.song;
-        let ln = d.ln as i32;
         // a NONSTOP course and a course's result: under the course's
         // identity (S-OLR2b 3.8, 4.4)
-        let key = match (&d.course, d.course_total) {
+        let id = match (&d.course, d.course_total) {
             (Some(c), true) => c.def.id(),
             _ => d.request.record_key().into_owned(),
         };
+        let key = RecordKey::new(&id, d.ln as i32, d.rule());
         let stage = d.course.as_ref().is_some_and(|c| !c.nonstop()) && !d.course_total;
-        let before = ctx.best_key(&key, ln).cloned();
+        let before = ctx.best_key(&key.id, key.ln, key.rule).cloned();
         let mut after = None;
         let mut note = String::new();
         // every play of its own keeps its replay as the chart's latest
@@ -181,8 +188,9 @@ impl ResultScene {
             // a course's stage: its chart's record, partly (S-OLR2b 4.4)
             note = match (d.assist, ctx.lib.db.as_mut()) {
                 (Assist::None, Some(lib)) => {
-                    let b = crate::courses::save_stage(lib, &song.sha256, ln, &d.score, d.clear);
-                    ctx.lib.scores.insert((song.sha256.clone(), ln), b.clone());
+                    let key = RecordKey::new(&song.sha256, key.ln, key.rule);
+                    let b = crate::courses::save_stage(lib, &key, &d.score, d.clear);
+                    ctx.lib.scores.insert(key, b.clone());
                     after = Some(b);
                     "COURSE STAGE: best score and FULL COMBO kept".into()
                 }
@@ -195,13 +203,13 @@ impl ResultScene {
             if let Some(lib) = ctx.lib.db.as_mut() {
                 let play_ms = d.record.result.play_ms;
                 let b = if d.course.is_some() && ranked {
-                    crate::courses::save_course(lib, &key, ln, &d.score, d.clear, play_ms)
+                    crate::courses::save_course(lib, &key, &d.score, d.clear, play_ms)
                 } else if ranked {
-                    lib.record_play(&key, ln, &d.score, d.clear, play_ms)
+                    lib.record_play(&key, &d.score, d.clear, play_ms)
                 } else {
-                    lib.record_assisted(&key, ln, &d.score, d.clear, play_ms)
+                    lib.record_assisted(&key, &d.score, d.clear, play_ms)
                 };
-                ctx.lib.scores.insert((key.clone(), ln), b.clone());
+                ctx.lib.scores.insert(key, b.clone());
                 after = Some(b);
             }
             if !ranked {
@@ -391,6 +399,16 @@ impl Scene for ResultScene {
     fn realtime(&self) -> bool {
         // skin animations need every frame
         self.host.skin.is_some()
+    }
+
+    fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
+        let d = &self.d;
+        vec![
+            d.title.clone(),
+            crate::screenshot::difficulty(d.request.song.difficulty),
+            d.clear.label().into(),
+            d.score.ex_score().to_string(),
+        ]
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {

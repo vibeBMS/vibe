@@ -117,7 +117,7 @@ impl SkinState for DecideState<'_> {
         Some(match id {
             20 => self.ctx.view.fps as i64,
             10 | 310..=313 => return speed_number(&self.ctx.config.play, &Bpms::of_song(song), id),
-            71 | 75..=78 | 102 | 103 | 150 | 173 | 176 | 183 | 184 => {
+            71 | 75..=78 | 102 | 103 | 150 | 173 | 176 | 183 | 184 | BEST_MIN_CB => {
                 return best_number(self.best, id)
             }
             72 => song.notes * 2,

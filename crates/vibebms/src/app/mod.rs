@@ -91,6 +91,11 @@ pub trait Scene {
     fn realtime(&self) -> bool {
         false
     }
+    /// What a screenshot of it shows, for its file name: title,
+    /// difficulty, lamp, EX score (as far as the scene has them).
+    fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Songs are downloaded in an in-app browser (desktop, Android, iOS).
@@ -110,6 +115,10 @@ struct Running {
     touches: std::collections::HashMap<u64, (f32, f32)>,
     /// Fonts downloaded in the background (web build).
     font_job: Option<Job<Vec<u8>>>,
+    /// A screenshot's file name while its frame is read back, then its
+    /// saving.
+    shot_name: Option<String>,
+    shot_job: Option<Job<Result<String, String>>>,
     mouse_down: bool,
     cursor: (f32, f32),
     frame_count: u32,
@@ -205,6 +214,30 @@ pub fn run() {
 }
 
 impl Running {
+    /// A screenshot read back: saved in the background; once saved, said.
+    fn poll_screenshot(&mut self) {
+        if let Some(r) = self
+            .shot_name
+            .is_some()
+            .then(|| self.gfx.take_capture())
+            .flatten()
+        {
+            let name = self.shot_name.take().unwrap_or_default();
+            match r {
+                Ok(img) => {
+                    self.shot_job = Some(crate::screenshot::save(img, name, &self.ctx.paths.root))
+                }
+                Err(e) => self.ctx.toast(format!("Screenshot: {e}")),
+            }
+        }
+        for r in Job::drain_slot(&mut self.shot_job) {
+            match r {
+                Ok(path) => self.ctx.toast(format!("Screenshot: {path}")),
+                Err(e) => self.ctx.toast(format!("Screenshot: {e}")),
+            }
+        }
+    }
+
     /// The display paces the frames, uncapped, at a rate it tells (the
     /// web's browser paces them itself).
     fn vsync_paced(&self) -> bool {
@@ -328,6 +361,19 @@ impl Running {
             }
         }
         draw_overlay(&mut self.ctx, &mut d, now);
+        if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
+            if self.gfx.request_capture() {
+                let label = self.scenes.last().map(|s| s.screenshot_label(&self.ctx));
+                let name = crate::screenshot::file_name(
+                    &crate::screenshot::stamp(),
+                    &label.unwrap_or_default(),
+                );
+                self.shot_name = Some(name);
+            } else {
+                self.ctx
+                    .toast("Screenshots: this GPU's screen cannot be read");
+            }
+        }
         let waited = self
             .gfx
             .render(&self.batch, theme::BACKGROUND)
@@ -338,6 +384,7 @@ impl Running {
         if self.vsync_paced() {
             self.next_frame = self.pacer.next_start(waited);
         }
+        self.poll_screenshot();
         self.frame_count += 1;
         let el_t = now.duration_since(self.fps_since);
         if el_t >= Duration::from_millis(500) {
@@ -448,9 +495,15 @@ impl App {
             gpu_name: gfx.adapter_name.clone(),
             want_fullscreen: None,
             want_present_mode: false,
+            want_screenshot: false,
         };
         let mut ctx = Ctx::new(self.paths.clone(), config, mixer, view);
-        ctx.lib.db = Some(Library::open(&ctx.paths.cache, &ctx.paths.scores));
+        let root = ctx.paths.root.clone();
+        ctx.lib.db = Some(Library::open(
+            &ctx.paths.cache,
+            &ctx.paths.scores,
+            |sha, ln| crate::replay::rule_of_old(&root, sha, ln, crate::replay::Slot::Best),
+        ));
         ctx.lib.courses = crate::courses::CourseStore::open(&ctx.paths.scores);
         ctx.reload_library();
         ctx.load_cached_tables();
@@ -493,6 +546,8 @@ impl App {
             #[cfg(target_arch = "wasm32")]
             touches: Default::default(),
             font_job: web_fonts(),
+            shot_name: None,
+            shot_job: None,
             mouse_down: false,
             cursor: (0.0, 0.0),
             frame_count: 0,

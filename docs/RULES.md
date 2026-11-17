@@ -240,6 +240,19 @@ Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 
   notes all have their type (`#LNMODE`, bmson `t`) under that type (with several types, the strongest:
   HCN > CN > LN), whatever the player's LN mode; otherwise under the player's LN mode. Records such charts had
   under the player's mode are merged into the chart's when the library loads.
+* They are filed by rule mode too, the judge preset played with (beatoraja, LR2 or IIDX): each has its own best
+  EX score, lamp, min BP, min CB, play counts and replays, and song select shows those of the judge preset chosen
+  now. (The gauge set is not part of it: a play with LR2's windows and beatoraja's gauges is an LR2 play.) Course
+  records are filed the same way under the course's identity. The IR lamps are the IR's and stay as they are.
+  Records from before rule modes are filed under the rule of their best EX play's replay, where it can be read when
+  the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
+  the default preset; replays from before count for the preset they were played with.
+
+## Best scores
+The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
+the max combo, the min BP (BAD + POOR + empty POOR + notes not reached, skin number 76) and the min CB (combo
+breaks, the notes a failed play never reached counted; vibeBMS skin number 9425, as 425 is the play's). An
+assisted play keeps its lamp and counts only. Records from before the min CB was kept show 0 until a play sets it.
 
 ## Clear lamps
 FAILED < ASSIST (assist options) < L-ASSIST (light assist options, ASSIST EASY gauge) < EASY < CLEAR < HARD <
@@ -305,10 +318,24 @@ factor at the multiples of 10 [S1], the note-count factor from 125 notes up [S1]
 the combo rules [S4]. Mine damage has S14 (not said to be measured) and contradicting readings (S10). The kit's
 tables give S-OLR2's predictions, which are vibeBMS's rows.
 
+Input filters (`SETTINGS › KEY CONFIG`, kept in `[keys.tuning]`):
+- **Key chatter filter** (off by default; 1–50 ms): a key or controller button press that comes sooner than this
+  after the last press of its lane (and turntable direction) let through is dropped, and so is the release that
+  ends it, so presses and releases still pair. It goes by the inputs' own timestamps, not by when a frame sees
+  them, so a press is never moved in time: the presses let through are judged at their own times as without it.
+  What it changes in judging: a dropped press hits no note and is no empty POOR; two notes of one lane closer than
+  the setting cannot both be hit (16th notes at 300 BPM are 50 ms apart; keep it well under the charts' fastest
+  jacks); a bounce while a long note is held is a release and a press far from the last press, which it does not
+  drop. Touch and analog turntables are not filtered. A replay keeps the presses the judge got, so it is watched
+  the same whatever the setting.
+- **Analog turntable**: a movement between two reports smaller than the dead band (default 0.004 of the axis's
+  −1..1 range; higher is less sensitive) is not a turn, and a turntable that has not moved for the stop time
+  (default 100 ms) is let go, its release at the time it last moved plus that time.
+
 Not followed, and why no gap covers it:
 - The judging clock. LR2 judges a press on the first game tick that sees it, ticks at most every 2 ms with its
   threaded loop (else once a frame), and has an input debounce; vibeBMS judges each press at its own time, LR2 at
-  an unbounded tick rate, and has no debounce. This is deliberate. LR2's tick only delays when a press is seen,
+  an unbounded tick rate, and has no debounce by default (the chatter filter below is off). This is deliberate. LR2's tick only delays when a press is seen,
   by less than one tick (2 ms or more, a frame without the threaded loop), as a device's latency does: it changes
   a judgement only at a window's edge, by the player's setup, not by a scoring rule, and the measured windows
   (S5, taken with vertical sync off) already carry it. Windows are still compared in whole milliseconds as LR2

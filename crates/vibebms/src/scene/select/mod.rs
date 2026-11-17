@@ -7,6 +7,8 @@ mod preview;
 mod skin;
 mod tree;
 
+#[cfg(test)]
+pub(crate) use options::SelectOption;
 pub use preview::resolve_image;
 pub(crate) use skin::SelectState;
 pub(crate) use tree::{Bar, Node};
@@ -307,6 +309,18 @@ impl Scene for SelectScene {
 
     fn realtime(&self) -> bool {
         self.host.skin.is_some()
+    }
+
+    /// The selected chart, its lamp and EX score.
+    fn screenshot_label(&self, ctx: &Ctx) -> Vec<String> {
+        let Some((_, s)) = self.selected_song(ctx) else {
+            return Vec::new();
+        };
+        let mut v = vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)];
+        if let Some(b) = ctx.best(s, ctx.config.play.ln_mode) {
+            v.extend([b.clear.label().to_string(), b.ex_score.to_string()]);
+        }
+        v
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {

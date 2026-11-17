@@ -67,7 +67,8 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 1P 7 keys | `Z S X D C F V`, scratch `LShift` / `LCtrl` |
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay; 6 key config, 7 skin select |
+| Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay; 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
@@ -85,7 +86,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the opposite: the green number
   stays and the multiplier follows each chart's BPM.
 - Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
-  turntables work.
+  turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
+  default; see [docs/RULES.md](docs/RULES.md) "Input filters").
 - Touch (`SETTINGS › TOUCH`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
   them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
@@ -101,6 +103,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP and `#SCROLL`, LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
+  Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
+  those of the preset chosen.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
@@ -149,7 +153,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (`archives`).
 - **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
-  it judges exactly the same. Each chart keeps its latest play's and its best EX score's (`scores/replays/`; in the
+  it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
   web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
   else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
   kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
@@ -249,7 +253,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   sets their volume.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
-  (parent folder) and 9901 (watch the chart's replay). A graph with
+  (parent folder) and 9901 (watch the chart's replay); number 9425 is the record's min CB (fewest combo breaks). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
   using timer 21, the app draws a hi-speed panel beside the lanes.

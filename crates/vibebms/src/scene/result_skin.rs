@@ -196,7 +196,7 @@ impl SkinState for ResultState<'_> {
             | 410..=427 => return score_number(sc, id),
             76 | 177 => sc.miss_count() as i64,
             77..=79 => return best_number(after, id),
-            122 | 123 | 150 | 157 | 158 | 170 | 173 | 176 | 183 | 184 | 371 => {
+            122 | 123 | 150 | 157 | 158 | 170 | 173 | 176 | 183 | 184 | 371 | BEST_MIN_CB => {
                 return best_number(before, id)
             }
             90..=92 | 96 | 400 => return chart_number(&self.chart, id),

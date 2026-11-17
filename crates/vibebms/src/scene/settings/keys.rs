@@ -48,6 +48,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     for (i, lk) in k.pms.iter().enumerate().take(9) {
         v.push(bind(format!("9K button {}", i + 1), lk, Slot::Pms(i)));
     }
+    let t = &k.tuning;
     v.extend([
         bind("START".into(), &k.start, Slot::Start),
         bind("SELECT".into(), &k.select, Slot::Select),
@@ -57,6 +58,33 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             "Any gamepad axis = turntable",
             onoff(k.any_axis_is_scratch),
             |c, _| c.config.keys.any_axis_is_scratch ^= true,
+        ),
+        Row::adjust(
+            "Turntable dead band (analog)",
+            format!("{:.3}", t.turntable_dead_band as f32 / 1000.0),
+            |c, d| {
+                let v = &mut c.config.keys.tuning.turntable_dead_band;
+                *v = v.saturating_add_signed(d).clamp(1, 50)
+            },
+        ),
+        Row::adjust(
+            "Turntable stop time (analog, ms)",
+            t.turntable_stop_ms.to_string(),
+            |c, d| {
+                let v = &mut c.config.keys.tuning.turntable_stop_ms;
+                *v = v.saturating_add_signed(d * 10).clamp(20, 500)
+            },
+        ),
+        Row::adjust(
+            "Key chatter filter (ms)",
+            match t.chatter_ms {
+                0 => "OFF".into(),
+                n => n.to_string(),
+            },
+            |c, d| {
+                let v = &mut c.config.keys.tuning.chatter_ms;
+                *v = v.saturating_add_signed(d).min(50)
+            },
         ),
         Row::new(
             "Touch controller layout",

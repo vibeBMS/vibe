@@ -203,6 +203,7 @@ pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Ar
         &ctx.paths.root,
         &song.sha256,
         song.score_ln(ln) as i32,
+        ctx.config.play.judge_preset,
         song.fixed_ln(),
         slot,
     )
@@ -493,6 +494,10 @@ impl PlayScene {
 impl Scene for PlayScene {
     fn realtime(&self) -> bool {
         true
+    }
+    fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
+        let s = &self.req.song;
+        vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)]
     }
     fn full_screen(&self) -> bool {
         true

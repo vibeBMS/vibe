@@ -58,6 +58,41 @@ pub struct KeyConfig {
     pub p2_select: LaneKeys,
     /// Any gamepad axis movement counts as scratch when no axis is bound.
     pub any_axis_is_scratch: bool,
+    /// The analog turntable and the chatter filter (written once changed).
+    #[serde(skip_serializing_if = "InputTuning::is_default")]
+    pub tuning: InputTuning,
+}
+
+/// How input from devices is taken.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct InputTuning {
+    /// An analog turntable's movement between two reports smaller than
+    /// this (thousandths of the axis, which goes from −1 to 1) is not a
+    /// turn: higher is less sensitive.
+    pub turntable_dead_band: u32,
+    /// An analog turntable that has not moved for this long (ms) is let go.
+    pub turntable_stop_ms: u32,
+    /// A key or button press sooner than this (ms) after the last press
+    /// of its lane let through is chatter, dropped with its release (0:
+    /// off). Keyboard and controller buttons only.
+    pub chatter_ms: u32,
+}
+
+impl Default for InputTuning {
+    fn default() -> Self {
+        InputTuning {
+            turntable_dead_band: 4,
+            turntable_stop_ms: 100,
+            chatter_ms: 0,
+        }
+    }
+}
+
+impl InputTuning {
+    pub fn is_default(&self) -> bool {
+        *self == InputTuning::default()
+    }
 }
 
 impl Default for KeyConfig {
@@ -92,6 +127,7 @@ impl Default for KeyConfig {
             p2_start: LaneKeys::k(&[KeyP]),
             p2_select: LaneKeys::k(&[KeyO]),
             any_axis_is_scratch: true,
+            tuning: InputTuning::default(),
         }
     }
 }

@@ -5,8 +5,11 @@
 use super::input::PanelKey;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
-use crate::config::{Bpms, HsFix, Side, Versus, HISPEED_STEP};
+use crate::config::{
+    Bpms, DifficultyFilter, HsFix, KeyFilter, RandomSelect, Side, SortMode, Versus, HISPEED_STEP,
+};
 use crate::input::Repeat;
+use crate::library::{Favorites, Song};
 use crate::platform::{Duration, Instant};
 use crate::scene::option_panel::{self, cycle, onoff};
 use crate::scene::skin_host::Tap;
@@ -35,10 +38,17 @@ pub(crate) enum SelectOption {
     Autoplay,
     Settings,
     Battle,
+    Sort,
+    KeyFilter,
+    DifficultyFilter,
+    FavoriteChart,
+    FavoriteSong,
+    RandomSelect,
+    Screenshot,
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 11] = [
+    pub const ALL: [SelectOption; 18] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -50,6 +60,13 @@ impl SelectOption {
         SelectOption::Autoplay,
         SelectOption::Settings,
         SelectOption::Battle,
+        SelectOption::Sort,
+        SelectOption::KeyFilter,
+        SelectOption::DifficultyFilter,
+        SelectOption::FavoriteChart,
+        SelectOption::FavoriteSong,
+        SelectOption::RandomSelect,
+        SelectOption::Screenshot,
     ];
 
     pub fn name(self) -> &'static str {
@@ -65,13 +82,33 @@ impl SelectOption {
             SelectOption::Autoplay => "AUTOPLAY",
             SelectOption::Settings => "SETTINGS",
             SelectOption::Battle => "BATTLE",
+            SelectOption::Sort => "SORT",
+            SelectOption::KeyFilter => "KEY MODE",
+            SelectOption::DifficultyFilter => "DIFFICULTY",
+            SelectOption::FavoriteChart => "FAV CHART",
+            SelectOption::FavoriteSong => "FAV SONG",
+            SelectOption::RandomSelect => "RANDOM SELECT",
+            SelectOption::Screenshot => "SCREENSHOT",
         }
     }
 
-    /// Its value; `bpm` is the selected chart's (for its green number).
-    pub fn value(self, ctx: &Ctx, bpm: Option<Bpms>) -> String {
+    /// Its value; `bpm` is the selected chart's (for its green number),
+    /// `song` the selected chart (for the favourites).
+    pub fn value(self, ctx: &Ctx, bpm: Option<Bpms>, song: Option<&Song>) -> String {
         let p = &ctx.config.play;
+        let sel = &ctx.config.select;
+        let fav = |f: fn(&Favorites, &Song) -> bool| match (song, ctx.lib.db.as_ref()) {
+            (Some(s), Some(l)) => onoff(f(l.favorites(), s)),
+            _ => "—",
+        };
         match self {
+            SelectOption::FavoriteChart => fav(Favorites::chart).into(),
+            SelectOption::FavoriteSong => fav(Favorites::song).into(),
+            SelectOption::Sort => sel.sort.label().into(),
+            SelectOption::KeyFilter => sel.key_filter.label().into(),
+            SelectOption::DifficultyFilter => sel.difficulty_filter.label().into(),
+            SelectOption::RandomSelect => sel.random.label().into(),
+            SelectOption::Screenshot => "SAVE".into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -123,6 +160,27 @@ impl SelectScene {
     /// Change option `o` (the next value).
     pub(super) fn option(&mut self, ctx: &mut Ctx, o: SelectOption) -> Next {
         let bpm = self.bpms(ctx);
+        let sel = &mut ctx.config.select;
+        // the list: its order, what it shows, the records it is sorted by
+        let relist = match o {
+            SelectOption::Sort => {
+                sel.sort = cycle(&SortMode::ALL, sel.sort, 1);
+                true
+            }
+            SelectOption::KeyFilter => {
+                sel.key_filter = cycle(&KeyFilter::ALL, sel.key_filter, 1);
+                true
+            }
+            SelectOption::DifficultyFilter => {
+                sel.difficulty_filter = cycle(&DifficultyFilter::ALL, sel.difficulty_filter, 1);
+                true
+            }
+            SelectOption::RandomSelect => {
+                sel.random = cycle(&RandomSelect::ALL, sel.random, 1);
+                false
+            }
+            _ => matches!(o, SelectOption::Judge | SelectOption::LnMode),
+        };
         let p = &mut ctx.config.play;
         match o {
             SelectOption::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, 1),
@@ -152,10 +210,47 @@ impl SelectScene {
                     vs_hint(ctx);
                 }
             }
+            SelectOption::Sort
+            | SelectOption::KeyFilter
+            | SelectOption::DifficultyFilter
+            | SelectOption::RandomSelect => {
+                // (skins without these show nothing of it)
+                ctx.toast(format!("{}: {}", o.name(), o.value(ctx, None, None)));
+            }
+            SelectOption::Screenshot => {
+                ctx.view.want_screenshot = true;
+                return Next::Stay;
+            }
+            SelectOption::FavoriteChart | SelectOption::FavoriteSong => {
+                self.toggle_favorite(ctx, o == SelectOption::FavoriteSong)
+            }
+        }
+        if relist {
+            self.rebuild(ctx);
         }
         ctx.play_sound(Sound::OptionChange);
         ctx.save_config();
         Next::Stay
+    }
+
+    /// Make the selected chart (`song`: its song) a favourite, or one no
+    /// more.
+    pub(super) fn toggle_favorite(&mut self, ctx: &mut Ctx, song: bool) {
+        let Some((_, s)) = self.selected_song(ctx) else {
+            return;
+        };
+        let s = s.clone();
+        let Some(lib) = ctx.lib.db.as_mut() else {
+            return;
+        };
+        let on = lib.toggle_favorite(&s, song);
+        let what = if song {
+            "FAVORITE SONG"
+        } else {
+            "FAVORITE CHART"
+        };
+        ctx.toast(format!("{what}: {} ({})", onoff(on), s.title));
+        self.rebuild(ctx);
     }
 
     /// Open / close a skin panel (1..=6; 0 closes the open one).
@@ -234,6 +329,10 @@ impl SelectScene {
                 Next::Push(crate::scene::keyconfig::open(ctx))
             }
             14 => Next::Push(crate::scene::skinselect::open(ctx, None)),
+            // LR2 / beatoraja: the difficulty and key mode filters, the sort
+            10 => self.option(ctx, SelectOption::DifficultyFilter),
+            11 => self.option(ctx, SelectOption::KeyFilter),
+            12 => self.option(ctx, SelectOption::Sort),
             42 => self.option(ctx, SelectOption::Random),
             40 => self.option(ctx, SelectOption::Gauge),
             308 => self.option(ctx, SelectOption::LnMode),

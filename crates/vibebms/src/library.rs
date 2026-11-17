@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use vibebms_core::judge::Judge;
+use vibebms_core::judge::{Judge, JudgePreset};
 use vibebms_core::score::{ClearType, Score};
 use vibebms_core::{LnProfile, LnType, PlayMode};
 
@@ -59,6 +59,10 @@ pub struct Song {
     /// The long notes by type (`LnProfile::bits`); `None` in libraries
     /// scanned before it was stored.
     pub ln_profile: Option<u8>,
+    /// When its file was last changed (s; the scan's stamp): when it came,
+    /// for the NEW sort.
+    #[serde(skip)]
+    pub added: i64,
 }
 
 impl Song {
@@ -107,13 +111,31 @@ pub struct BestScore {
     pub judges: [u32; 6],
     pub max_combo: u32,
     pub min_bp: u32,
+    /// The fewest combo breaks of a play (the notes a failed play never
+    /// reached count). `u32::MAX`: none known (no play yet, or records
+    /// from before it was kept).
+    #[serde(default = "no_cb")]
+    pub min_cb: u32,
     pub play_count: u32,
     pub clear_count: u32,
     pub last_played: i64,
 }
 
+fn no_cb() -> u32 {
+    u32::MAX
+}
+
 impl BestScore {
-    /// Two records of the same chart and LN mode as one.
+    /// No play yet.
+    fn none() -> BestScore {
+        BestScore {
+            min_bp: u32::MAX,
+            min_cb: u32::MAX,
+            ..Default::default()
+        }
+    }
+
+    /// Two records of the same chart, LN mode and rule mode as one.
     pub fn merge(&self, o: &BestScore) -> BestScore {
         let (hi, lo) = if o.ex_score > self.ex_score {
             (o, self)
@@ -127,6 +149,7 @@ impl BestScore {
             judges: hi.judges,
             max_combo: hi.max_combo.max(lo.max_combo),
             min_bp: hi.min_bp.min(lo.min_bp),
+            min_cb: hi.min_cb.min(lo.min_cb),
             play_count: hi.play_count + lo.play_count,
             clear_count: hi.clear_count + lo.clear_count,
             last_played: hi.last_played.max(lo.last_played),
@@ -168,6 +191,38 @@ impl Totals {
     }
 }
 
+/// The player's favourites: charts by SHA-256, songs by their folder
+/// (every chart in it, those added later too).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Favorites {
+    pub charts: std::collections::BTreeSet<String>,
+    pub songs: std::collections::BTreeSet<String>,
+}
+
+impl Favorites {
+    /// The folder that makes a chart's song.
+    fn song_of(s: &Song) -> String {
+        Path::new(&s.path)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
+    pub fn chart(&self, s: &Song) -> bool {
+        self.charts.contains(&s.sha256)
+    }
+
+    pub fn song(&self, s: &Song) -> bool {
+        self.songs.contains(&Self::song_of(s))
+    }
+
+    /// A favourite as a chart or as its song's.
+    pub fn has(&self, s: &Song) -> bool {
+        self.chart(s) || self.song(s)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct SongRecord {
     #[serde(flatten)]
@@ -181,10 +236,34 @@ struct SongRecord {
     skipped_by: Option<String>,
 }
 
+/// What a record is filed under: a chart (its SHA-256) or a course (its
+/// identity), the LN mode it was played in (`Song::score_ln`) and the rule
+/// mode, the judge preset it was played with (vibe-LR2, vibe-beatoraja and
+/// IIDX plays each have their own bests, lamps and replays).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RecordKey {
+    pub id: String,
+    pub ln: i32,
+    pub rule: JudgePreset,
+}
+
+impl RecordKey {
+    pub fn new(id: &str, ln: i32, rule: JudgePreset) -> RecordKey {
+        RecordKey {
+            id: id.to_string(),
+            ln,
+            rule,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct ScoreRecord {
     sha256: String,
     ln: i32,
+    /// `None` in files from before records were kept per rule mode.
+    #[serde(default)]
+    rule: Option<JudgePreset>,
     #[serde(flatten)]
     best: BestScore,
 }
@@ -192,9 +271,22 @@ struct ScoreRecord {
 pub struct Library {
     songs_file: PathBuf,
     scores_file: PathBuf,
-    scores: HashMap<(String, i32), BestScore>,
+    scores: HashMap<RecordKey, BestScore>,
     totals_file: PathBuf,
     totals: Totals,
+    favorites_file: PathBuf,
+    favorites: Favorites,
+}
+
+fn save_json(path: &Path, v: &impl Serialize, what: &str) {
+    match serde_json::to_vec_pretty(v) {
+        Ok(j) => {
+            if let Err(e) = vfs::write(path, &j) {
+                log::error!("saving {what}: {e}");
+            }
+        }
+        Err(e) => log::error!("saving {what}: {e}"),
+    }
 }
 
 fn load_songs(file: &Path) -> Vec<SongRecord> {
@@ -236,13 +328,35 @@ fn load_scores(file: &Path) -> Vec<ScoreRecord> {
 }
 
 impl Library {
-    /// `cache` holds the scan cache, `data` the score file.
-    pub fn open(cache: &Path, data: &Path) -> Library {
+    /// `cache` holds the scan cache, `data` the score file. A record from
+    /// before records were kept per rule mode goes under `rule_of`'s rule
+    /// for it (its best play's replay says what that play was played
+    /// with), else under the default (beatoraja), merged with what is
+    /// there; the file is written again at once.
+    pub fn open(
+        cache: &Path,
+        data: &Path,
+        rule_of: impl Fn(&str, i32) -> Option<JudgePreset>,
+    ) -> Library {
         let scores_file = data.join("scores.json");
-        let scores: HashMap<_, _> = load_scores(&scores_file)
-            .into_iter()
-            .map(|r| ((r.sha256, r.ln), r.best))
-            .collect();
+        let mut scores: HashMap<RecordKey, BestScore> = HashMap::new();
+        let mut migrated = false;
+        for r in load_scores(&scores_file) {
+            let rule = r.rule.unwrap_or_else(|| {
+                migrated = true;
+                rule_of(&r.sha256, r.ln).unwrap_or_default()
+            });
+            let key = RecordKey {
+                id: r.sha256,
+                ln: r.ln,
+                rule,
+            };
+            let best = match scores.remove(&key) {
+                Some(b) => b.merge(&r.best),
+                None => r.best,
+            };
+            scores.insert(key, best);
+        }
         let totals_file = data.join("player.json");
         let mut totals: Totals = vfs::read(&totals_file)
             .ok()
@@ -257,17 +371,47 @@ impl Library {
             }
             totals.judges = Some(j);
         }
-        Library {
+        let favorites_file = data.join("favorites.json");
+        let favorites = vfs::read(&favorites_file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let lib = Library {
             songs_file: cache.join("songs.json"),
             scores_file,
             scores,
             totals_file,
             totals,
+            favorites_file,
+            favorites,
+        };
+        if migrated {
+            lib.save_scores();
         }
+        lib
     }
 
     pub fn totals(&self) -> &Totals {
         &self.totals
+    }
+
+    pub fn favorites(&self) -> &Favorites {
+        &self.favorites
+    }
+
+    /// Make `s` (`song`: its song) a favourite, or one no more; whether it
+    /// is now.
+    pub fn toggle_favorite(&mut self, s: &Song, song: bool) -> bool {
+        let (set, key) = match song {
+            true => (&mut self.favorites.songs, Favorites::song_of(s)),
+            false => (&mut self.favorites.charts, s.sha256.clone()),
+        };
+        let on = !set.remove(&key);
+        if on {
+            set.insert(key);
+        }
+        save_json(&self.favorites_file, &self.favorites, "favourites");
+        on
     }
 
     pub fn songs_file(&self) -> &Path {
@@ -278,12 +422,15 @@ impl Library {
         load_songs(&self.songs_file)
             .into_iter()
             .filter(|r| r.skipped_by.is_none())
-            .map(|r| r.song)
+            .map(|r| Song {
+                added: r.mtime,
+                ..r.song
+            })
             .collect()
     }
 
-    /// Best scores keyed by `(sha256, ln_mode)`.
-    pub fn scores(&self) -> HashMap<(String, i32), BestScore> {
+    /// The records.
+    pub fn scores(&self) -> HashMap<RecordKey, BestScore> {
         self.scores.clone()
     }
 
@@ -291,21 +438,16 @@ impl Library {
         let mut v: Vec<ScoreRecord> = self
             .scores
             .iter()
-            .map(|((s, l), b)| ScoreRecord {
-                sha256: s.clone(),
-                ln: *l,
+            .map(|(k, b)| ScoreRecord {
+                sha256: k.id.clone(),
+                ln: k.ln,
+                rule: Some(k.rule),
                 best: b.clone(),
             })
             .collect();
-        v.sort_by(|a, b| a.sha256.cmp(&b.sha256).then(a.ln.cmp(&b.ln)));
-        match serde_json::to_vec_pretty(&v) {
-            Ok(j) => {
-                if let Err(e) = vfs::write(&self.scores_file, &j) {
-                    log::error!("saving scores: {e}");
-                }
-            }
-            Err(e) => log::error!("saving scores: {e}"),
-        }
+        let order = |r: &ScoreRecord| (r.ln, r.rule.map(|p| p as u8));
+        v.sort_by(|a, b| a.sha256.cmp(&b.sha256).then(order(a).cmp(&order(b))));
+        save_json(&self.scores_file, &v, "scores");
     }
 
     /// Records of charts whose long notes all have their type, filed
@@ -314,18 +456,23 @@ impl Library {
     pub fn merge_fixed_ln(&mut self, songs: &[Song]) {
         let mut changed = false;
         for song in songs.iter().filter(|s| s.fixed_ln()) {
-            let key = song.score_ln(LnType::Ln) as i32;
-            for other in (0..3).filter(|k| *k != key) {
-                let Some(old) = self.scores.remove(&(song.sha256.clone(), other)) else {
-                    continue;
-                };
-                let k = (song.sha256.clone(), key);
-                let merged = match self.scores.get(&k) {
-                    Some(b) => b.merge(&old),
-                    None => old,
-                };
-                self.scores.insert(k, merged);
-                changed = true;
+            let ln = song.score_ln(LnType::Ln) as i32;
+            for rule in JudgePreset::ALL {
+                for other in (0..3).filter(|k| *k != ln) {
+                    let Some(old) = self
+                        .scores
+                        .remove(&RecordKey::new(&song.sha256, other, rule))
+                    else {
+                        continue;
+                    };
+                    let k = RecordKey::new(&song.sha256, ln, rule);
+                    let merged = match self.scores.get(&k) {
+                        Some(b) => b.merge(&old),
+                        None => old,
+                    };
+                    self.scores.insert(k, merged);
+                    changed = true;
+                }
             }
         }
         if changed {
@@ -337,22 +484,21 @@ impl Library {
     /// counts and the totals, but no best score, combo or BP.
     pub fn record_assisted(
         &mut self,
-        sha256: &str,
-        ln: i32,
+        key: &RecordKey,
         s: &Score,
         clear: ClearType,
         play_ms: u64,
     ) -> BestScore {
-        let key = (sha256.to_string(), ln);
-        let mut b = self.scores.get(&key).cloned().unwrap_or(BestScore {
-            min_bp: u32::MAX,
-            ..Default::default()
-        });
+        let mut b = self
+            .scores
+            .get(key)
+            .cloned()
+            .unwrap_or_else(BestScore::none);
         b.clear = b.clear.max(clear);
         b.play_count += 1;
         b.clear_count += (clear > ClearType::Failed) as u32;
         b.last_played = crate::platform::unix_now() as i64;
-        self.scores.insert(key, b.clone());
+        self.scores.insert(key.clone(), b.clone());
         self.save_scores();
         self.add_totals(s, play_ms);
         b
@@ -364,32 +510,19 @@ impl Library {
             *t += s.count(k) as u64;
         }
         self.totals.play_ms += play_ms;
-        match serde_json::to_vec_pretty(&self.totals) {
-            Ok(v) => {
-                if let Err(e) = vfs::write(&self.totals_file, &v) {
-                    log::error!("saving totals: {e}");
-                }
-            }
-            Err(e) => log::error!("saving totals: {e}"),
-        }
+        save_json(&self.totals_file, &self.totals, "totals");
     }
 
-    /// A stage of an expert or class course into its chart's record,
-    /// partly (S-OLR2b 4.4): the best EX score with its counts (strictly
-    /// higher), max combo and min BP, the lamp only to FULL COMBO; no play
-    /// count (the course's result counts the play).
-    pub fn record_stage(
-        &mut self,
-        sha256: &str,
-        ln: i32,
-        s: &Score,
-        clear: ClearType,
-    ) -> BestScore {
-        let key = (sha256.to_string(), ln);
-        let mut b = self.scores.get(&key).cloned().unwrap_or(BestScore {
-            min_bp: u32::MAX,
-            ..Default::default()
-        });
+    /// A stage of an expert or class course into its chart's record
+    /// `key`, partly (S-OLR2b 4.4): the best EX score with its counts
+    /// (strictly higher), max combo, min BP and min CB, the lamp only to
+    /// FULL COMBO; no play count (the course's result counts the play).
+    pub fn record_stage(&mut self, key: &RecordKey, s: &Score, clear: ClearType) -> BestScore {
+        let mut b = self
+            .scores
+            .get(key)
+            .cloned()
+            .unwrap_or_else(BestScore::none);
         if s.ex_score() > b.ex_score {
             b.ex_score = s.ex_score();
             b.judges = Judge::ALL.map(|j| s.count(j));
@@ -400,27 +533,24 @@ impl Library {
         b.notes = s.total_notes;
         b.max_combo = b.max_combo.max(s.max_combo);
         b.min_bp = b.min_bp.min(s.miss_count());
-        self.scores.insert(key, b.clone());
+        b.min_cb = b.min_cb.min(combo_breaks(s));
+        self.scores.insert(key.clone(), b.clone());
         self.save_scores();
         b
     }
 
-    /// Merge a play into the best score and the totals (`play_ms`: how
-    /// long it was played). Returns the updated best.
+    /// Merge a play into the record `key` and the totals (`play_ms`: how
+    /// long it was played). Returns the updated record. A course's record
+    /// is one too, under the course's identity.
     pub fn record_play(
         &mut self,
-        sha256: &str,
-        ln: i32,
+        key: &RecordKey,
         s: &Score,
         clear: ClearType,
         play_ms: u64,
     ) -> BestScore {
-        let key = (sha256.to_string(), ln);
-        let old = self.scores.get(&key).cloned();
-        let mut b = old.clone().unwrap_or(BestScore {
-            min_bp: u32::MAX,
-            ..Default::default()
-        });
+        let old = self.scores.get(key).cloned();
+        let mut b = old.clone().unwrap_or_else(BestScore::none);
         if s.ex_score() > b.ex_score || old.is_none() {
             b.ex_score = s.ex_score();
             b.judges = Judge::ALL.map(|j| s.count(j));
@@ -429,14 +559,21 @@ impl Library {
         b.notes = s.total_notes;
         b.max_combo = b.max_combo.max(s.max_combo);
         b.min_bp = b.min_bp.min(s.miss_count());
+        b.min_cb = b.min_cb.min(combo_breaks(s));
         b.play_count += 1;
         b.clear_count += (clear > ClearType::Failed) as u32;
         b.last_played = crate::platform::unix_now() as i64;
-        self.scores.insert(key, b.clone());
+        self.scores.insert(key.clone(), b.clone());
         self.save_scores();
         self.add_totals(s, play_ms);
         b
     }
+}
+
+/// A play's combo breaks, the notes it never reached among them (as its
+/// miss count has them).
+fn combo_breaks(s: &Score) -> u32 {
+    s.combo_breaks + s.total_notes.saturating_sub(s.passed)
 }
 
 #[derive(Default)]
@@ -637,6 +774,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         stagefile: m.stagefile.clone(),
         banner: m.banner.clone(),
         preview: m.preview.clone(),
+        added: 0,
     }
 }
 
@@ -806,6 +944,16 @@ mod tests {
 
     use super::*;
     use vibebms_core::chart::{Chart, ChartMeta, LnType, Note, NoteKind};
+
+    /// The library at `dir` (its records from before rule modes under the
+    /// default).
+    fn open(dir: &Path) -> Library {
+        Library::open(dir, dir, |_, _| None)
+    }
+
+    fn key(id: &str, ln: i32) -> RecordKey {
+        RecordKey::new(id, ln, JudgePreset::Beatoraja)
+    }
     use vibebms_core::PlayMode;
 
     fn info_note(lane: u8, time: i64, kind: NoteKind) -> Note {
@@ -960,7 +1108,7 @@ mod tests {
         let old = serde_json::json!([rec("a", [10, 5, 2, 1, 3, 4]), rec("b", [1, 1, 1, 1, 1, 1])]);
         std::fs::write(dir.join("scores.json"), old.to_string()).unwrap();
         std::fs::write(dir.join("player.json"), r#"{"play_ms": 5000}"#).unwrap();
-        let mut lib = Library::open(&dir, &dir);
+        let mut lib = open(&dir);
         assert_eq!(lib.totals().judges, Some([11, 6, 3, 2, 4, 5]));
         assert_eq!((lib.totals().notes(), lib.totals().play_ms), (22, 5000));
         let mut sc = Score {
@@ -973,14 +1121,14 @@ mod tests {
         sc.add(Judge::Poor, 0);
         sc.add(Judge::Miss, 0);
         // a better play of "a": the best changes, the totals only add up
-        lib.record_play("a", 0, &sc, ClearType::Easy, 61_000);
+        lib.record_play(&key("a", 0), &sc, ClearType::Easy, 61_000);
         let want = Totals {
             judges: Some([13, 6, 3, 2, 5, 6]),
             play_ms: 66_000,
         };
         assert_eq!(*lib.totals(), want);
         // kept, not seeded again
-        assert_eq!(*Library::open(&dir, &dir).totals(), want);
+        assert_eq!(*open(&dir).totals(), want);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -994,7 +1142,7 @@ mod tests {
         };
         let old = serde_json::json!([rec(0, 100, "Hard", 2), rec(2, 120, "Easy", 1)]);
         std::fs::write(dir.join("scores.json"), old.to_string()).unwrap();
-        let mut lib = Library::open(&dir, &dir);
+        let mut lib = open(&dir);
         // #LNMODE 2: every long note a CN
         let cn = Song {
             sha256: "c".into(),
@@ -1010,9 +1158,9 @@ mod tests {
         };
         assert_eq!(cn.score_ln(LnType::Hcn), LnType::Cn);
         lib.merge_fixed_ln(std::slice::from_ref(&cn));
-        let s = Library::open(&dir, &dir).scores();
+        let s = open(&dir).scores();
         assert_eq!(s.len(), 1);
-        let b = &s[&("c".to_string(), 1)];
+        let b = &s[&key("c", 1)];
         assert_eq!(
             (b.ex_score, b.clear, b.play_count),
             (120, ClearType::Hard, 3)
@@ -1034,6 +1182,124 @@ mod tests {
         assert_eq!(free.score_ln(LnType::Hcn), LnType::Hcn);
         // no long notes: LN
         assert_eq!(Song::default().score_ln(LnType::Cn), LnType::Ln);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Records from before rule modes: under the rule of their best
+    /// play's replay where there is one, else the default; written with
+    /// their rule at once, and read back the same.
+    #[test]
+    fn records_of_before_rule_modes_are_filed_by_rule() {
+        let dir = std::env::temp_dir().join(format!("vibebms-rules-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rec = |sha: &str, ex: u32| {
+            serde_json::json!({"sha256": sha, "ln": 0, "ex_score": ex,
+            "clear": "Hard", "min_bp": 7, "play_count": 2})
+        };
+        let old = serde_json::json!([rec("lr2", 100), rec("plain", 50)]);
+        std::fs::write(dir.join("scores.json"), old.to_string()).unwrap();
+        let rule_of = |sha: &str, _ln: i32| (sha == "lr2").then_some(JudgePreset::Lr2);
+        let lib = Library::open(&dir, &dir, rule_of);
+        let s = lib.scores();
+        let lr2 = RecordKey::new("lr2", 0, JudgePreset::Lr2);
+        assert_eq!(s[&lr2].ex_score, 100);
+        assert_eq!(s[&key("plain", 0)].ex_score, 50);
+        assert_eq!(s.len(), 2);
+        // a min CB was not kept then
+        assert_eq!((s[&lr2].min_bp, s[&lr2].min_cb), (7, u32::MAX));
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("scores.json")).unwrap()).unwrap();
+        let rules: Vec<&str> = written
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["rule"].as_str().unwrap())
+            .collect();
+        assert_eq!(rules, ["Lr2", "Beatoraja"]);
+        // read again: the rule is the record's own now
+        assert_eq!(open(&dir).scores(), s);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Plays under each rule mode have their own record; the min BP and
+    /// min CB are bests of their own (not the best EX play's), a failed
+    /// play's counting the notes it never reached, an assisted play's not
+    /// at all.
+    #[test]
+    fn records_per_rule_mode_and_min_cb() {
+        let dir = std::env::temp_dir().join(format!("vibebms-mincb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut lib = open(&dir);
+        let play = |pg: u32, bad: u32, cb: u32, passed: u32| {
+            let mut s = Score {
+                total_notes: 10,
+                passed,
+                combo_breaks: cb,
+                ..Default::default()
+            };
+            for _ in 0..pg {
+                s.add(Judge::PGreat, 0);
+            }
+            for _ in 0..bad {
+                s.add(Judge::Bad, 0);
+            }
+            s
+        };
+        let bea = key("c", 0);
+        let lr2 = RecordKey::new("c", 0, JudgePreset::Lr2);
+        let b = lib.record_play(&bea, &play(8, 2, 2, 10), ClearType::Easy, 0);
+        assert_eq!((b.ex_score, b.min_bp, b.min_cb), (16, 2, 2));
+        // LR2's record is apart
+        let b = lib.record_play(&lr2, &play(9, 1, 1, 10), ClearType::Hard, 0);
+        assert_eq!((b.ex_score, b.min_cb, b.play_count), (18, 1, 1));
+        // a lower EX score with fewer combo breaks: the min CB only
+        let b = lib.record_play(&bea, &play(4, 0, 0, 10), ClearType::Failed, 0);
+        assert_eq!((b.ex_score, b.min_bp, b.min_cb), (16, 0, 0));
+        // a failed play: the notes it never reached break the combo
+        let b = lib.record_play(&key("d", 0), &play(3, 0, 0, 3), ClearType::Failed, 0);
+        assert_eq!((b.min_bp, b.min_cb), (7, 7));
+        // an assisted play keeps neither
+        let b = lib.record_assisted(&key("d", 0), &play(10, 0, 0, 10), ClearType::AssistEasy, 0);
+        assert_eq!(b.min_cb, 7);
+        let s = open(&dir).scores();
+        assert_eq!(
+            (s[&bea].clear, s[&lr2].clear),
+            (ClearType::Easy, ClearType::Hard)
+        );
+        assert_eq!(s[&RecordKey::new("c", 0, JudgePreset::Lr2)].min_cb, 1);
+        assert!(!s.contains_key(&RecordKey::new("c", 0, JudgePreset::Iidx)));
+        // two records as one: each best on its own
+        let m = s[&bea].merge(&s[&lr2]);
+        assert_eq!((m.ex_score, m.min_bp, m.min_cb), (18, 0, 0));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Favourite charts and songs (a song: every chart in its folder),
+    /// kept with the records.
+    #[test]
+    fn favorites_are_kept() {
+        let dir = std::env::temp_dir().join(format!("vibebms-fav-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let chart = |path: &str, sha: &str| Song {
+            path: path.into(),
+            sha256: sha.into(),
+            ..Default::default()
+        };
+        let (a, b, c) = (
+            chart("/bms/x/a.bms", "a"),
+            chart("/bms/x/b.bms", "b"),
+            chart("/bms/y/c.bms", "c"),
+        );
+        let mut lib = open(&dir);
+        assert!(lib.toggle_favorite(&a, false));
+        assert!(lib.toggle_favorite(&b, true));
+        let f = open(&dir).favorites().clone();
+        assert!(f.chart(&a) && !f.chart(&b) && f.song(&a) && f.song(&b));
+        assert!(f.has(&a) && f.has(&b) && !f.has(&c));
+        // off again
+        assert!(!lib.toggle_favorite(&a, true));
+        assert!(!lib.toggle_favorite(&a, false));
+        assert_eq!(*open(&dir).favorites(), Favorites::default());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1070,7 +1336,7 @@ mod tests {
             p.clone(),
         );
         assert!(p.done.load(Ordering::Acquire));
-        let mut lib = Library::open(&cache, &cache);
+        let mut lib = open(&cache);
         let s = lib.songs();
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].title, "A");
@@ -1094,14 +1360,14 @@ mod tests {
         };
         sc.add(Judge::PGreat, 1);
         sc.add(Judge::Great, 1);
-        let b = lib.record_play(&s[0].sha256, 0, &sc, ClearType::Hard, 1500);
+        let b = lib.record_play(&key(&s[0].sha256, 0), &sc, ClearType::Hard, 1500);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 1));
         let worse = Score {
             total_notes: 2,
             passed: 2,
             ..Default::default()
         };
-        let b = lib.record_play(&s[0].sha256, 0, &worse, ClearType::Failed, 0);
+        let b = lib.record_play(&key(&s[0].sha256, 0), &worse, ClearType::Failed, 0);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 2));
         // an assisted play: lamp and counts only, never the best score
         let mut great = Score {
@@ -1111,13 +1377,13 @@ mod tests {
         };
         great.add(Judge::PGreat, 1);
         great.add(Judge::PGreat, 1);
-        let b = lib.record_assisted(&s[0].sha256, 0, &great, ClearType::AssistEasy, 0);
+        let b = lib.record_assisted(&key(&s[0].sha256, 0), &great, ClearType::AssistEasy, 0);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 3));
-        let b = lib.record_assisted("other", 0, &great, ClearType::LightAssistEasy, 0);
+        let b = lib.record_assisted(&key("other", 0), &great, ClearType::LightAssistEasy, 0);
         assert_eq!((b.ex_score, b.min_bp, b.max_combo), (0, u32::MAX, 0));
         assert_eq!((b.clear, b.clear_count), (ClearType::LightAssistEasy, 1));
         // persisted
-        let lib2 = Library::open(&cache, &cache);
+        let lib2 = open(&cache);
         assert_eq!(lib2.scores().len(), 2);
         // the library folder cannot be read (here: gone): its charts stay
         let moved = dir.with_extension("away");
@@ -1132,7 +1398,7 @@ mod tests {
             p3.clone(),
         );
         assert!(!p3.changed.load(Ordering::Relaxed));
-        assert_eq!(Library::open(&cache, &cache).songs().len(), 1);
+        assert_eq!(open(&cache).songs().len(), 1);
         // and go once the folder is there without them
         std::fs::create_dir_all(dir.join("pack")).unwrap();
         let p4 = Arc::new(ScanProgress::default());
@@ -1142,7 +1408,7 @@ mod tests {
             [cache.clone()].into_iter().collect(),
             p4.clone(),
         );
-        assert_eq!(Library::open(&cache, &cache).songs().len(), 0);
+        assert_eq!(open(&cache).songs().len(), 0);
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&moved).ok();
     }
@@ -1159,7 +1425,7 @@ mod tests {
         let gone = songs.join("gone.bme").to_string_lossy().into_owned();
         let old = serde_json::json!([{ "path": gone, "title": "Gone", "mtime": 1, "size": 1 }]);
         std::fs::write(cache.join("songs.json"), old.to_string()).unwrap();
-        assert_eq!(Library::open(&cache, &cache).songs().len(), 1);
+        assert_eq!(open(&cache).songs().len(), 1);
         let p = Arc::new(ScanProgress::default());
         scan(
             cache.join("songs.json"),
@@ -1168,7 +1434,7 @@ mod tests {
             p.clone(),
         );
         assert!(p.changed.load(Ordering::Relaxed));
-        assert!(Library::open(&cache, &cache).songs().is_empty());
+        assert!(open(&cache).songs().is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
