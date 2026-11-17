@@ -5018,6 +5018,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "toml",
+ "ttf-parser 0.25.1",
  "vibebms-audio",
  "vibebms-core",
  "vibebms-ir",

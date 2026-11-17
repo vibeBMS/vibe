@@ -39,6 +39,8 @@ wgpu = { version = "24", features = ["webgl"] }
 bytemuck = { version = "1", features = ["derive"] }
 fontdue = "0.9"
 fontdb = "0.16"
+# the characters of a fallback font before fontdue parses it (the version fontdue reads with)
+ttf-parser = { version = "0.25", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
 web-time = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
