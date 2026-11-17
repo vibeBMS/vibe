@@ -351,3 +351,91 @@ pub fn install_touch_watch() {
 pub fn take_touches_gone() -> Option<crate::platform::Instant> {
     TOUCHES_GONE.with(|g| g.take())
 }
+
+/// A touch on the page's canvas, from the browser's touch events.
+pub enum TouchIn {
+    /// A finger came down, moved or went up (`id` is the touch's
+    /// identifier + 1; `x`, `y` in device pixels on the canvas).
+    Point {
+        id: u64,
+        phase: crate::input::Phase,
+        x: f32,
+        y: f32,
+        time: crate::platform::Instant,
+    },
+    /// The fingers still on the screen after one went up: any other the app
+    /// holds lost its release.
+    Left(Vec<u64>),
+}
+
+thread_local! {
+    static TOUCH_IN: RefCell<Vec<TouchIn>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Read touches from the browser's touch events rather than winit's pointer
+/// events: a finger's `pointerup` can go missing (a key then stays down
+/// while other fingers hold the screen), and each `touchend` lists the
+/// fingers still down, so the ones that are not are let go at once.
+pub fn install_touch_input() {
+    use crate::input::Phase;
+    let Some(w) = web_sys::window() else { return };
+    let opts = web_sys::AddEventListenerOptions::new();
+    opts.set_capture(true);
+    opts.set_passive(true);
+    for (kind, phase) in [
+        ("touchstart", Phase::Down),
+        ("touchmove", Phase::Move),
+        ("touchend", Phase::Up),
+        ("touchcancel", Phase::Up),
+    ] {
+        let f = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+            let Some(t) = e.dyn_ref::<web_sys::TouchEvent>() else {
+                return;
+            };
+            // only the canvas's (a touch's events go where it began)
+            let Some(canvas) = e
+                .target()
+                .and_then(|t| t.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+            else {
+                return;
+            };
+            let r = canvas.get_bounding_client_rect();
+            let dpr = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
+            let time = stamp_time(e.time_stamp());
+            let changed = t.changed_touches();
+            TOUCH_IN.with(|q| {
+                let mut q = q.borrow_mut();
+                for i in 0..changed.length() {
+                    let Some(c) = changed.get(i) else { continue };
+                    q.push(TouchIn::Point {
+                        id: c.identifier() as u64 + 1,
+                        phase,
+                        x: ((c.client_x() as f64 - r.left()) * dpr) as f32,
+                        y: ((c.client_y() as f64 - r.top()) * dpr) as f32,
+                        time,
+                    });
+                }
+                if phase == Phase::Up {
+                    let left = t.touches();
+                    q.push(TouchIn::Left(
+                        (0..left.length())
+                            .filter_map(|i| left.get(i))
+                            .map(|c| c.identifier() as u64 + 1)
+                            .collect(),
+                    ));
+                }
+            });
+        });
+        let _ = w.add_event_listener_with_callback_and_add_event_listener_options(
+            kind,
+            f.as_ref().unchecked_ref(),
+            &opts,
+        );
+        f.forget();
+    }
+}
+
+/// The touches since the last call.
+pub fn take_touches() -> Vec<TouchIn> {
+    TOUCH_IN.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}

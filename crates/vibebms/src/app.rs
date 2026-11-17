@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use vibebms_audio::{AudioConfig, Mixer};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
@@ -729,6 +729,9 @@ struct Running {
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
     gilrs: Option<gilrs::Gilrs>,
     last_touch: Option<Instant>,
+    /// The page's fingers down and where they last were (web).
+    #[cfg(target_arch = "wasm32")]
+    touches: HashMap<u64, (f32, f32)>,
     /// Fonts downloaded in the background (web build).
     font_job: Option<Job<Vec<u8>>>,
     mouse_down: bool,
@@ -799,6 +802,7 @@ pub fn run() {
         crate::web::install_file_input(app.paths.root.clone());
         crate::web::install_input_stamps();
         crate::web::install_touch_watch();
+        crate::web::install_touch_input();
         // the songs kept in the browser: mounted, then read as picked ones
         // (the first scan waits for them)
         let replays = crate::replay::dir(&app.paths.root);
@@ -1199,6 +1203,8 @@ impl App {
                 .map_err(|e| log::warn!("gamepads unavailable: {e}"))
                 .ok(),
             last_touch: None,
+            #[cfg(target_arch = "wasm32")]
+            touches: HashMap::new(),
             font_job: web_fonts(),
             mouse_down: false,
             cursor: (0.0, 0.0),
@@ -1412,9 +1418,14 @@ impl ApplicationHandler<UserEvent> for App {
                 };
                 r.dispatch(el, InputEv::Wheel { dy });
             }
+            // the page reads touches itself (`web::install_touch_input`)
+            #[cfg(target_arch = "wasm32")]
+            WindowEvent::Touch(_) => {}
+            #[cfg(not(target_arch = "wasm32"))]
             WindowEvent::Touch(t) => {
                 r.ctx.touch_seen = true;
                 r.last_touch = Some(now);
+                use winit::event::TouchPhase;
                 let phase = match t.phase {
                     TouchPhase::Started => Phase::Down,
                     TouchPhase::Moved => Phase::Move,
@@ -1457,6 +1468,60 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(r) = self.run.as_mut() else { return };
+        #[cfg(target_arch = "wasm32")]
+        for t in crate::web::take_touches() {
+            match t {
+                crate::web::TouchIn::Point {
+                    id,
+                    phase,
+                    x,
+                    y,
+                    time,
+                } => {
+                    r.ctx.touch_seen = true;
+                    r.last_touch = Some(Instant::now());
+                    if phase == Phase::Up {
+                        r.touches.remove(&id);
+                    } else {
+                        r.touches.insert(id, (x, y));
+                    }
+                    r.dispatch(
+                        el,
+                        InputEv::Pointer {
+                            id,
+                            phase,
+                            x,
+                            y,
+                            time,
+                            touch: true,
+                        },
+                    );
+                }
+                // fingers held here that are no longer on the screen
+                crate::web::TouchIn::Left(left) => {
+                    let lost: Vec<(u64, (f32, f32))> = r
+                        .touches
+                        .iter()
+                        .filter(|(id, _)| !left.contains(id))
+                        .map(|(id, p)| (*id, *p))
+                        .collect();
+                    for (id, (x, y)) in lost {
+                        r.touches.remove(&id);
+                        r.dispatch(
+                            el,
+                            InputEv::Pointer {
+                                id,
+                                phase: Phase::Up,
+                                x,
+                                y,
+                                time: Instant::now(),
+                                touch: true,
+                            },
+                        );
+                    }
+                }
+            }
+        }
         // no finger on the screen: keys still held lost their release
         #[cfg(target_arch = "wasm32")]
         if let Some(time) = crate::web::take_touches_gone() {

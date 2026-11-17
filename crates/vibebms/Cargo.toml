@@ -88,7 +88,7 @@ vibebms-lua-web = { path = "../vibebms-lua-web" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator", "Location", "Event", "AddEventListenerOptions", "EventTarget", "Performance", "TouchEvent", "TouchList", "Worker", "MessageEvent", "Blob", "BlobPropertyBag", "Url"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator", "Location", "Event", "AddEventListenerOptions", "EventTarget", "Performance", "TouchEvent", "TouchList", "Touch", "Worker", "MessageEvent", "Blob", "BlobPropertyBag", "Url"] }
 
 [dev-dependencies]
 # archives for tests
