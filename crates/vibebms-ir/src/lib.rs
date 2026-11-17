@@ -17,4 +17,3 @@ pub mod rule;
 
 pub use http::{HttpRequest, HttpResponse, Secret};
 pub use provider::{Op, Outcome, Provider, ProviderId};
-pub use providers::vibe_json::{ChartRef, IrConfig, IrScore, JsonIr, ScoreSubmission};

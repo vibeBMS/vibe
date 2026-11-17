@@ -283,10 +283,14 @@ impl ResultScene {
         )))
     }
 
-    /// Send the play now: the player was asked to (send policy ASK).
+    /// Send the play now: the player was asked to (send policy ASK). (Not
+    /// said so on the web: a server's preflight may refuse the header.)
     fn send_asked(&mut self, ctx: &mut Ctx) -> Next {
         let now = crate::platform::unix_ms();
-        ctx.net.ir.submit(&self.d.record, &ctx.config.ir, true, now);
+        let intent = !crate::platform::IS_WEB;
+        ctx.net
+            .ir
+            .submit(&self.d.record, &ctx.config.ir, intent, now);
         Next::Stay
     }
 

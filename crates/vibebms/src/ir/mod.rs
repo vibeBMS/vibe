@@ -23,9 +23,10 @@ use std::io;
 use std::path::PathBuf;
 use vibebms_core::record::{Platform, PlayRecord};
 use vibebms_ir::eligibility::{eligible, Refusal};
+use vibebms_ir::lamps::RankView;
 use vibebms_ir::limiter::Limiter;
 use vibebms_ir::outbox::{Item, Outbox, Reply, State};
-use vibebms_ir::provider::IrError;
+use vibebms_ir::provider::{ChartId, IrError};
 use vibebms_ir::providers::tachi::Tachi;
 use vibebms_ir::providers::vibe_json::VibeJson;
 use vibebms_ir::{HttpRequest, HttpResponse, Op, Outcome, Provider, ProviderId};
@@ -110,18 +111,40 @@ impl IrService {
         moved
     }
 
-    /// The client of a vibeBMS IR account for the music select's
-    /// rankings, with its key.
-    pub fn vibe_json(&self, a: &IrAccount) -> Option<vibebms_ir::JsonIr> {
-        matches!(a.provider, ProviderId::VibeJson(_)).then_some(())?;
-        vibebms_ir::JsonIr::new(&vibebms_ir::IrConfig {
-            enabled: a.enabled,
-            name: a.name.clone(),
-            url: a.url.clone(),
-            token: (self.keys.get(a.provider))
-                .map_or(String::new(), |c| c.token.expose().to_string()),
-            auto_submit: a.submit,
-        })
+    /// The leaderboard of `chart` at the account the music select's
+    /// rankings come from (`None`: there is none, or it cannot ask).
+    pub fn ranking(
+        &self,
+        ir: &IrSettings,
+        chart: ChartId,
+    ) -> Option<Job<Result<RankView, String>>> {
+        let a = ir.primary()?.clone();
+        fn op(chart: &ChartId) -> Op<'_> {
+            Op::Ranking {
+                chart,
+                view: "",
+                limit: 0,
+                etag: None,
+            }
+        }
+        let creds = self.keys.get(a.provider);
+        let req = provider(&a)?.request(&op(&chart), creds.as_ref()).ok()?;
+        let req = http::request(req.method, &req.url, &req.headers, req.body);
+        Some(Job::start(move |tx, _| {
+            http::exchange(req, move |r| {
+                let read = r.map_err(|e| e.to_string()).and_then(|r| {
+                    let resp = response(r);
+                    // (the adapter is made again here: this runs on the
+                    // HTTP thread natively)
+                    match provider(&a).map(|p| p.parse(&op(&chart), &resp)) {
+                        Some(Outcome::Ranking(v)) => Ok(v),
+                        Some(Outcome::Rejected(why) | Outcome::Retry { why, .. }) => Err(why),
+                        o => Err(format!("unexpected answer: {o:?}")),
+                    }
+                });
+                let _ = tx.send(read);
+            })
+        }))
     }
 
     /// A play has ended: it gets its play id and goes into the history
@@ -177,13 +200,7 @@ impl IrService {
         let r = http::request(req.method, &req.url, &req.headers, req.body);
         self.jobs.push(Job::start(move |tx, _| {
             http::exchange(r, move |r| {
-                let r = r
-                    .map(|r| HttpResponse {
-                        status: r.status,
-                        headers: r.headers.headers,
-                        body: r.body,
-                    })
-                    .map_err(|e| e.to_string());
+                let r = r.map(response).map_err(|e| e.to_string());
                 let _ = tx.send(Answer { p, ticket, r });
             })
         }));
@@ -473,6 +490,14 @@ impl IrService {
     }
 }
 
+fn response(r: http::Response) -> HttpResponse {
+    HttpResponse {
+        status: r.status,
+        headers: r.headers.headers,
+        body: r.body,
+    }
+}
+
 /// `ms` (Unix) as the local time of day.
 fn clock(ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ms).map_or(String::new(), |t| {
@@ -529,7 +554,6 @@ mod tests {
         let a = &Config::load(&file).ir.accounts[0];
         let again = IrService::new(&paths, 0);
         assert_eq!(again.keys.get(a.provider).unwrap().token.expose(), "s3cr3t");
-        assert!(again.vibe_json(a).is_some());
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -575,6 +599,7 @@ mod tests {
         let (url, seen) = crate::platform::http::tests::serve(vec![
             "HTTP/1.1 503 Busy\r\nRetry-After: 3600\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbusy",
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Length: 125\r\nConnection: close\r\n\r\n[{\"rank\":1,\"player\":\"P\",\"player_id\":\"9\",\"clear\":\"Hard\",\"ex_score\":7,\"pgreat\":3,\"great\":1,\"max_combo\":4,\"min_bp\":0,\"notes\":4}]",
         ]);
         let root = std::env::temp_dir().join(format!("vibebms-ir-send-{}", std::process::id()));
         let paths = Paths::at(root.clone());
@@ -634,6 +659,27 @@ mod tests {
         let mut asked = play(t0 + 9);
         again.record(&mut asked);
         assert_eq!(again.status(&asked, &s), ["Mine: press I to send"]);
+        // the music select's ranking, from the primary account
+        let chart = ChartId {
+            sha256: rec.chart.sha256.clone(),
+            ..Default::default()
+        };
+        let mut job = again.ranking(&s, chart).unwrap();
+        let got = (0..500)
+            .find_map(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                job.poll()
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (got.entries[0].player.as_str(), got.entries[0].ex),
+            ("P", 7)
+        );
+        assert!(seen
+            .recv()
+            .unwrap()
+            .contains(&format!("sha256={}", rec.chart.sha256)));
         std::fs::remove_dir_all(&root).ok();
     }
 }

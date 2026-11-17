@@ -13,7 +13,7 @@ use crate::sysound::Sound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions};
-use vibebms_ir::IrScore;
+use vibebms_ir::lamps::RankView;
 
 pub(super) const PREVIEW_KEY: u64 = u64::MAX - 1;
 
@@ -25,8 +25,8 @@ const BANNER_AFTER: Duration = Duration::from_millis(120);
 
 /// A chart's IR ranking.
 pub(crate) enum Rank {
-    Loading(Job<Result<Vec<IrScore>, String>>),
-    Done(Vec<IrScore>),
+    Loading(Job<Result<RankView, String>>),
+    Done(RankView),
     Error,
 }
 
@@ -158,27 +158,26 @@ impl SelectScene {
         if self.last_move.elapsed() < RANKING_AFTER {
             return;
         }
-        let primary = ctx.config.ir.primary();
-        let Some(client) = primary.and_then(|a| ctx.net.ir.vibe_json(a)) else {
-            return;
-        };
         let Some((_, song)) = self.selected_song(ctx) else {
             return;
         };
-        if self.ranking.contains_key(&song.sha256) {
+        if self.ranking.contains_key(&song.sha256) || ctx.config.ir.primary().is_none() {
             return;
         }
-        let chart = vibebms_ir::ChartRef {
+        let chart = vibebms_ir::provider::ChartId {
             md5: song.md5.clone(),
             sha256: song.sha256.clone(),
-            ln_type: format!("{:?}", ctx.config.play.ln_mode).to_uppercase(),
+            mode: song.mode,
+            ln: song.score_ln(ctx.config.play.ln_mode),
+            remote: None,
         };
-        let job = Job::start(|tx, _| {
-            crate::platform::ir_send(client.ranking_request(&chart), move |body| {
-                let _ = tx.send(body.and_then(|b| vibebms_ir::JsonIr::parse_ranking(&b)));
-            })
-        });
-        self.ranking.insert(song.sha256.clone(), Rank::Loading(job));
+        // (`Error`: this IR cannot be asked about the chart)
+        let rank = ctx
+            .net
+            .ir
+            .ranking(&ctx.config.ir, chart)
+            .map_or(Rank::Error, Rank::Loading);
+        self.ranking.insert(song.sha256.clone(), rank);
     }
 
     pub(super) fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {

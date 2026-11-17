@@ -134,17 +134,6 @@ pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send 
     send(ehttp::Request::get(url), on_done)
 }
 
-/// Send a request built by an IR client.
-pub fn ir_send(
-    req: vibebms_ir::HttpRequest,
-    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
-) {
-    send(
-        request(req.method, &req.url, &req.headers, req.body),
-        on_done,
-    )
-}
-
 /// GET `url`, its body given to `sink` as it comes; then `on_done` with how
 /// it ended and where its redirects ended when the answer says so (the
 /// vibeBMS proxy's `X-Final-Url`, a refusal's too). It reports to
