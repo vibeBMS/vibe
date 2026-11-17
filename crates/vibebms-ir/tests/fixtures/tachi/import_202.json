@@ -1,0 +1,1 @@
+{"success": true, "description": "Import loaded into queue. You can poll the provided URL for information on when its complete.", "body": {"url": "https://boku.tachi.ac/api/v1/imports/bea63277b54a5846bab1fd3a6ce54bfd41276857/poll-status", "importID": "bea63277b54a5846bab1fd3a6ce54bfd41276857"}}
