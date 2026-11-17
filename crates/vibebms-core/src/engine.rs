@@ -29,6 +29,17 @@ pub enum Op {
     Input(i64, u8, u8, bool),
 }
 
+impl Op {
+    /// The op with its input's lane moved by `by` (a single play's replay
+    /// fed to the second side of a battle chart).
+    pub fn shifted(self, by: u8) -> Op {
+        match self {
+            Op::Input(t, lane, key, pressed) => Op::Input(t, lane.wrapping_add(by), key, pressed),
+            op => op,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputEvent {
     /// Chart time in µs.
@@ -157,9 +168,14 @@ pub struct EngineConfig {
     /// key (keyboard / touch). If false the opposite direction must be
     /// spun (turntable controllers, beatoraja behaviour).
     pub scratch_release_ends_bss: bool,
+    /// Judge only this player's lanes (one side of a battle chart: its
+    /// notes, inputs and note count are that player's alone). `None`:
+    /// every lane.
+    pub player: Option<usize>,
 }
 
 pub struct Engine {
+    mode: crate::mode::PlayMode,
     notes: Vec<PlayNote>,
     lane_notes: Vec<Vec<usize>>,
     lane_hidden: Vec<Vec<(i64, SoundId)>>,
@@ -195,9 +211,10 @@ impl Engine {
         let mut notes = Vec::new();
         let mut lane_notes = vec![Vec::new(); lanes];
         let mut lane_hidden = vec![Vec::new(); lanes];
+        let mine = |lane: usize| cfg.player.is_none_or(|p| mode.player_of_lane(lane) == p);
         for (ci, n) in chart.notes.iter().enumerate() {
             let lane = n.lane as usize;
-            if lane >= lanes {
+            if lane >= lanes || !mine(lane) {
                 continue;
             }
             let (kind, end_time, end_sound) = match &n.kind {
@@ -234,7 +251,7 @@ impl Engine {
             });
         }
         let (judge_start, judge_end) = cfg.rules.windows.extent();
-        let total = chart.total_judgements(cfg.default_ln) as u32;
+        let total = chart.total_judgements_of(cfg.default_ln, cfg.player) as u32;
         let mut auto = cfg.auto_lanes.clone();
         auto.resize(lanes, false);
         let cfg = EngineConfig {
@@ -243,6 +260,7 @@ impl Engine {
         };
         let last_time = notes.iter().map(|n| n.end_time).max().unwrap_or(0);
         Engine {
+            mode,
             notes,
             lane_notes,
             lane_hidden,
@@ -305,6 +323,18 @@ impl Engine {
         self.lanes.get(lane).and_then(|l| l.processing)
     }
 
+    /// The lane is one this engine judges (`EngineConfig::player`).
+    pub fn judges(&self, lane: u8) -> bool {
+        self.cfg
+            .player
+            .is_none_or(|p| self.mode.player_of_lane(lane as usize) == p)
+    }
+
+    /// The player whose lanes it judges (`None`: all).
+    pub fn player(&self) -> Option<usize> {
+        self.cfg.player
+    }
+
     pub fn is_auto(&self, lane: usize) -> bool {
         self.cfg.auto_lanes.get(lane).copied().unwrap_or(false)
     }
@@ -318,7 +348,10 @@ impl Engine {
         if let Some(r) = self.recorded.as_mut() {
             r.push(Op::Input(ev.time, ev.lane, ev.key, ev.pressed));
         }
-        if (ev.lane as usize) < self.lanes.len() && !self.is_auto(ev.lane as usize) {
+        if (ev.lane as usize) < self.lanes.len()
+            && self.judges(ev.lane)
+            && !self.is_auto(ev.lane as usize)
+        {
             self.queue.push(ev);
         }
     }
@@ -1025,6 +1058,7 @@ mod tests {
             algorithm: JudgeAlgorithm::Combo,
             auto_lanes: vec![auto; 8],
             scratch_release_ends_bss: true,
+            player: None,
         };
         let e = Engine::new(&chart, cfg, gauge);
         (chart, e)
@@ -1293,5 +1327,123 @@ mod tests {
         assert_eq!(r.judge_log, e.judge_log);
         assert_eq!(r.score.ex_score(), e.score.ex_score());
         assert!(!e.ghost.is_empty());
+    }
+    type Outcome = (Score, Vec<u8>, Vec<(i64, u8, i8)>, Vec<(i64, i64)>, u32);
+
+    /// One engine's result: what replays and records are made of.
+    fn result(e: &Engine) -> Outcome {
+        (
+            e.score.clone(),
+            e.ghost.clone(),
+            e.judge_log.clone(),
+            e.timing_log.clone(),
+            (e.gauge.value() * 1000.0) as u32,
+        )
+    }
+
+    fn side_engine(chart: &Chart, ln: LnType, player: Option<usize>, auto_sc: bool) -> Engine {
+        let mode = chart.mode();
+        let fam = mode.family();
+        let rules = judge_rules(JudgePreset::Beatoraja, fam, chart.meta.judge_rank, None);
+        let total = chart.total_of(ln, GaugePreset::Beatoraja, player);
+        let gauge = GrooveGauge::new(
+            GaugePreset::Beatoraja,
+            fam,
+            GaugeType::Normal,
+            GaugeAutoShift::None,
+            total,
+            chart.total_judgements_of(ln, player),
+        );
+        let cfg = EngineConfig {
+            rules,
+            default_ln: ln,
+            algorithm: JudgeAlgorithm::Combo,
+            auto_lanes: (0..mode.lane_count())
+                .map(|l| auto_sc && mode.is_scratch(l))
+                .collect(),
+            scratch_release_ends_bss: true,
+            player,
+        };
+        Engine::new(chart, cfg, gauge)
+    }
+
+    #[test]
+    fn a_battle_side_judges_as_its_single_play_chart() {
+        use crate::lane_option::{apply, battle, LaneOption};
+        let mut checked = 0;
+        for keys in [7, 5] {
+            let src = crate::bot::chart_text(keys, keys as i64);
+            let base = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
+            let lpp = base.mode().lanes_per_player() as u8;
+            for (k, opt) in LaneOption::ALL.iter().enumerate() {
+                let ln = [LnType::Ln, LnType::Cn, LnType::Hcn][k % 3];
+                let auto_sc = k % 4 == 3;
+                let seed = 1000 + k as i64;
+                let mut sp = base.clone();
+                apply(&mut sp, 0, *opt, seed, 125_000);
+                let mut bt = base.clone();
+                apply(&mut bt, 0, *opt, seed, 125_000);
+                battle(&mut bt);
+                let inputs = crate::bot::inputs(&sp, None, seed);
+                let end = sp.length() + 2_000_000;
+                let mut a = side_engine(&sp, ln, None, auto_sc);
+                let mut b = side_engine(&bt, ln, Some(0), auto_sc);
+                a.record();
+                b.record();
+                crate::bot::drive(&mut a, &inputs, end);
+                crate::bot::drive(&mut b, &inputs, end);
+                assert!(a.score.ex_score() > 0 && a.score.count(POOR) > 0);
+                assert_eq!(result(&a), result(&b), "{keys}K {opt:?}");
+                assert_eq!(a.recorded(), b.recorded());
+                assert!(b.is_finished(end));
+                // the play's ops on the second side judge the same
+                let mut c = side_engine(&bt, ln, Some(1), auto_sc);
+                for op in a.recorded() {
+                    c.apply(op.shifted(lpp));
+                }
+                assert_eq!(result(&a), result(&c), "2P {keys}K {opt:?}");
+                // and the second side's notes are the single play chart's
+                let mut bt = base.clone();
+                battle(&mut bt);
+                apply(&mut bt, 1, *opt, seed, 125_000);
+                let key = |n: &crate::chart::Note| (n.time, n.lane, n.sound, n.end_time());
+                let mut two: Vec<_> = bt.notes.iter().filter(|n| n.lane >= lpp).map(key).collect();
+                let mut one: Vec<_> = {
+                    let mut c = base.clone();
+                    apply(&mut c, 0, *opt, seed, 125_000);
+                    c.notes
+                        .iter()
+                        .map(|n| (n.time, n.lane + lpp, n.sound, n.end_time()))
+                        .collect()
+                };
+                two.sort();
+                one.sort();
+                assert_eq!(one, two, "{keys}K {opt:?} on 2P");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 20);
+    }
+
+    #[test]
+    fn a_side_takes_only_its_lanes() {
+        let src = crate::bot::chart_text(7, 3);
+        let mut c = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
+        let n = c.total_judgements(LnType::Cn);
+        crate::lane_option::battle(&mut c);
+        assert_eq!(c.total_judgements_of(LnType::Cn, Some(1)), n);
+        assert_eq!(c.total_judgements(LnType::Cn), 2 * n);
+        let mut e = side_engine(&c, LnType::Cn, Some(1), false);
+        assert!(e.notes().iter().all(|n| n.lane >= 8));
+        assert!(e.judges(9) && !e.judges(2));
+        e.record();
+        e.input(InputEvent {
+            time: 0,
+            lane: 2,
+            key: 0,
+            pressed: true,
+        });
+        assert!(e.held().is_empty());
+        assert_eq!(e.score.total_notes as usize, n);
     }
 }

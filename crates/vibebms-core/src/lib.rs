@@ -14,6 +14,7 @@
 
 pub mod bms;
 pub mod bmson;
+pub mod bot;
 pub mod chart;
 pub mod encoding;
 pub mod engine;

@@ -536,6 +536,7 @@ impl PlayScene {
             algorithm: p.judge_algorithm,
             auto_lanes: auto_lanes.clone(),
             scratch_release_ends_bss: true,
+            player: None,
         };
         let mut engine = Engine::new(&chart, cfg, gauge);
         // a play of its own (not a course stage): kept as a replay
