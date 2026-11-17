@@ -1617,7 +1617,6 @@ fn empty_press_keysound_skips() {
 /// §9 Q1: an input takes effect at its own time: a mine that passed
 /// before a press (in the same update) is not hit.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q1)"]
 fn q01_mine_before_a_press_in_one_update() {
     let c = chart7(vec![mine(0, 2 * SEC, 10.0, 90)]);
     let mut e = engine(&c, &Setup::default());
@@ -1629,7 +1628,6 @@ fn q01_mine_before_a_press_in_one_update() {
 
 /// §9 Q1: a mine that passed before a release (in the same update) is hit.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q1)"]
 fn q01_mine_before_a_release_in_one_update() {
     let c = chart7(vec![mine(0, 2 * SEC, 10.0, 90)]);
     let mut e = engine(&c, &Setup::default());
@@ -1643,7 +1641,6 @@ fn q01_mine_before_a_release_in_one_update() {
 
 /// §9 Q1: a HCN body's time up to a release counts as held.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q1)"]
 fn q01_hcn_body_up_to_a_release_is_held() {
     let c = hcn_chart();
     let mut e = engine(&c, &Setup::ln(LnType::Hcn));
@@ -1667,7 +1664,6 @@ fn q01_hcn_body_up_to_a_release_is_held() {
 
 /// §9 Q3: a CN's early release keeps the input's own time (as an LN's).
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q3)"]
 fn q03_cn_pending_release_keeps_the_input_time() {
     let c = ln_chart();
     let mut e = engine(&c, &Setup::ln(LnType::Cn));
@@ -1761,7 +1757,6 @@ fn q05_5k_scratch_ln_end_good_is_great_wide() {
 /// §9 Q6: a HCN body's Volume is sent once when it goes quiet (and once
 /// when it sounds again), not on every step.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q6)"]
 fn q06_hcn_body_volume_once() {
     let c = hcn_chart();
     let mut e = engine(&c, &Setup::ln(LnType::Hcn));
@@ -1830,7 +1825,6 @@ fn q06_hcn_body_volume_follows_the_key() {
 /// §9 Q8: a late-stamped input sees the notes as they were at its time,
 /// even when the engine had already moved on.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q8)"]
 fn q08_late_input_sees_passed_notes() {
     let c = chart7(vec![normal(0, 2 * SEC, 10), normal(0, 2_500 * MS, 11)]);
     let mut e = engine(&c, &Setup::default());
@@ -1847,7 +1841,6 @@ fn q08_late_input_sees_passed_notes() {
 /// §9 Q9: an auto lane starts a long note whose head arrives while it still
 /// holds the previous one: the previous one ends first.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q9)"]
 fn q09_touching_cns_under_autoplay() {
     let c = chart7(vec![
         long(0, 2 * SEC, 3 * SEC, 10, 50),
@@ -1886,7 +1879,6 @@ fn q09_touching_cns_under_autoplay() {
 
 /// §9 Q9 in LN mode.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q9)"]
 fn q09_touching_lns_under_autoplay() {
     let c = chart7(vec![
         long(0, 2 * SEC, 3 * SEC, 10, 50),
@@ -1948,7 +1940,6 @@ fn q09_separate_lns_under_autoplay() {
 /// §9 Q9: one long update under autoplay passes several long notes of a
 /// lane; each one is started (the one held ended first).
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q9)"]
 fn q09_one_big_update_under_autoplay() {
     let c = chart7(vec![
         long(0, 2 * SEC, 2_500 * MS, 10, 50),
@@ -2029,7 +2020,6 @@ fn gap_engine(c: &Chart) -> Engine {
 
 /// §9 Q11: a note in no window never discards an earlier valid choice.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q11)"]
 fn q11_none_keeps_the_choice() {
     let c = chart7(vec![normal(0, 2 * SEC, 10), normal(0, 2_380 * MS, 11)]);
     let mut e = gap_engine(&c);
@@ -2051,7 +2041,6 @@ fn q11_gap_rules_single_note() {
 /// §9 Q12: the search's bounds are inclusive at both ends: a note exactly
 /// at the latest early bound (+500 ms) is in reach (empty POOR).
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q12)"]
 fn q12_search_includes_the_early_bound() {
     let c = chart7(vec![normal(0, SEC, 9), normal(0, 2_500 * MS, 10)]);
     let mut e = engine(&c, &Setup::default());
@@ -2175,7 +2164,6 @@ fn held_with_queued_inputs() {
 /// §9.3 decision 7: `held()` reports a queued input's key reduced to its
 /// lowest bit, as it is stored once processed.
 #[test]
-#[ignore = "clean-room: new behaviour (§9.3 decision 7)"]
 fn held_reduces_queued_key_indices() {
     let c = chart7(vec![normal(0, 5 * SEC, 10)]);
     let mut e = engine(&c, &Setup::default());
@@ -2417,7 +2405,6 @@ fn play_notes() {
 /// §9.3 decision 6: notes on lanes the mode does not have are dropped and
 /// not counted, so the chart finishes.
 #[test]
-#[ignore = "clean-room: new behaviour (§9.3 decision 6)"]
 fn notes_past_the_lane_count_are_not_counted() {
     let c = chart7(vec![
         normal(0, 2 * SEC, 10),

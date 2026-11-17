@@ -2436,6 +2436,51 @@ mod tests {
         (digest(&e), e.score.ex_score())
     }
 
+    /// Autoplay through the scene's chart and judge making, frame by
+    /// frame: every key mode and LN mode, with the lane options, battle
+    /// and HCN bodies; every note PGREAT, the play finished.
+    #[test]
+    fn autoplay_plays_every_chart_through() {
+        for keys in [5, 7, 10, 14] {
+            for (ln, random) in [
+                (LnType::Ln, LaneOption::Off),
+                (LnType::Cn, LaneOption::SRandom),
+                (LnType::Hcn, LaneOption::HRandom),
+            ] {
+                let play = PlayConfig {
+                    ln_mode: ln,
+                    random_1p: random,
+                    battle: keys < 10 && ln == LnType::Cn,
+                    ..PlayConfig::default()
+                };
+                let text = bot::chart_text(keys, keys as i64 * 3);
+                let path = Path::new("song/chart.bme");
+                let (chart, _, _) = load_chart(path, text.as_bytes(), &play, 9, None).unwrap();
+                let mut r = Rules::of(&play);
+                r.autoplay = true;
+                let players = if chart.mode().is_double() && play.battle {
+                    vec![Some(0), Some(1)]
+                } else {
+                    vec![None]
+                };
+                for player in players {
+                    let (mut e, _) = make_engine(&chart, &r, player);
+                    let end = chart.length() + 2_000_000;
+                    let mut t = -1_000_000;
+                    while t < end {
+                        e.update(t);
+                        e.drain_events().count();
+                        t += 16_667;
+                    }
+                    let what = format!("{keys}K {ln:?} {random:?} {player:?}");
+                    assert!(e.score.total_notes > 0, "{what}");
+                    assert!(e.ghost.iter().all(|j| *j == 0), "{what}: {:?}", e.ghost);
+                    assert!(e.is_finished(end) && !e.is_failed(), "{what}");
+                }
+            }
+        }
+    }
+
     /// Replays of plays with these options judge the same as before the
     /// play scene took several judges (the digests were taken then).
     #[test]
