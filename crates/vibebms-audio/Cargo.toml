@@ -15,7 +15,7 @@ asio = ["cpal/asio"]
 jack = ["cpal/jack"]
 
 [dependencies]
-cpal = "0.15"
+cpal = "0.18"
 # the formats BMS keysounds come in (not symphonia's default Matroska)
 symphonia = { version = "0.5", default-features = false, features = ["adpcm", "flac", "mp3", "ogg", "pcm", "vorbis", "wav"] }
 log.workspace = true
