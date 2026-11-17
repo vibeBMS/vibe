@@ -263,11 +263,53 @@ fn filepath_chosen(dir: &Path, f: &FilePath, files: &HashMap<String, String>) ->
         .cloned()
 }
 
-/// A file a skin names, as beatoraja's `SkinLoader.getPath` finds it: a
-/// `filepath` whose path starts it puts the chosen file in place of its
-/// `*`; another `*` picks one of the matching files at random.
+/// The file a skin names: a `filepath` whose path starts it puts the
+/// chosen file in place of its `*`; another `*` picks one of the matching
+/// files at random; other paths are matched to the files' letter case.
+///
+/// Written from a behaviour specification, not from another program's
+/// code.
 fn skin_path(dir: &Path, fps: &[FilePath], files: &HashMap<String, String>, path: &str) -> PathBuf {
-    todo!("clean-room rewrite: see spec §5")
+    let path = path.replace('\\', "/");
+    for f in fps {
+        let Some(rest) = path.strip_prefix(f.path.as_str()) else {
+            continue;
+        };
+        // no file to choose: try the next entry
+        let Some(chosen) = filepath_chosen(dir, f, files) else {
+            continue;
+        };
+        let before_star = &f.path[..f.path.find('*').unwrap_or(f.path.len())];
+        let folder = &before_star[..before_star.rfind('/').map_or(0, |i| i + 1)];
+        return vfs::resolve_case(&dir.join(format!("{folder}{chosen}{rest}")));
+    }
+    let Some(star) = path.rfind('*') else {
+        return vfs::resolve_case(&dir.join(&path));
+    };
+    let after = &path[star + 1..];
+    let suffix = match (after.find('|'), after.rfind('|')) {
+        (Some(a), Some(b)) => format!("{}{}", &after[..a], &after[b + 1..]),
+        _ => after.to_string(),
+    }
+    .to_lowercase();
+    let folder = match path[..star].rfind('/') {
+        Some(i) => vfs::resolve_case(&dir.join(&path[..i])),
+        None => dir.to_path_buf(),
+    };
+    let mut found: Vec<PathBuf> = vfs::read_dir(&folder)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.path)
+        .filter(|p| p.to_string_lossy().to_lowercase().ends_with(&suffix))
+        .collect();
+    if found.is_empty() {
+        return dir.join(&path);
+    }
+    found.sort();
+    let nanos = crate::platform::SystemTime::now()
+        .duration_since(crate::platform::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos()) as usize;
+    found.swap_remove(nanos % found.len())
 }
 
 fn offsets_of(sk: &Value) -> Vec<CustomOffset> {

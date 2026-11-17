@@ -465,12 +465,102 @@ pub fn find_charts(roots: &[PathBuf], skip: &HashSet<PathBuf>) -> Vec<PathBuf> {
     v
 }
 
-/// Notes by kind and the densities of a chart (see `Song`). Densities
-/// follow beatoraja's `SongInformation`: a second's count includes the
-/// long notes held through it; the average leaves out the quietest
-/// seconds; the end is the busiest 5 s after the gauge could last fill.
+/// Notes by kind and the densities of a chart (see `Song`).
+///
+/// Kinds: normal notes and long notes off the scratch lanes, the same on
+/// them, mines. Densities (notes per second): the average over the
+/// seconds that are not much quieter than the chart's mean, the busiest
+/// second, and the busiest stretch of up to 5 s from the point where the
+/// notes left could still fill the gauge from empty. A second's count
+/// includes the long notes held through it. Charts over an hour get no
+/// densities.
+///
+/// Written from a behaviour specification, not from another program's
+/// code.
 pub fn chart_info(c: &vibebms_core::Chart) -> ([i64; 5], [f64; 3]) {
-    todo!("clean-room rewrite: see spec §4")
+    use vibebms_core::chart::{LnType, NoteKind};
+    const SEC: i64 = 1_000_000;
+
+    let mode = c.mode();
+    let lanes = mode.lane_count();
+    let is_scratch = |lane: u8| (lane as usize) < lanes && mode.is_scratch(lane as usize);
+    let mut kinds = [0i64; 5];
+    for n in &c.notes {
+        let slot = match n.kind {
+            NoteKind::Normal => 0,
+            NoteKind::Long { .. } => 1,
+            NoteKind::Mine { .. } => {
+                kinds[4] += 1;
+                continue;
+            }
+            NoteKind::Invisible => continue,
+        };
+        kinds[slot + if is_scratch(n.lane) { 2 } else { 0 }] += 1;
+    }
+
+    let mut playable: Vec<&vibebms_core::Note> =
+        c.notes.iter().filter(|n| n.is_playable()).collect();
+    playable.sort_by_key(|n| (n.time, n.lane));
+    let n_notes = playable.len() as i64;
+    let last = playable
+        .iter()
+        .map(|n| n.end_time())
+        .max()
+        .unwrap_or(0)
+        .max(0);
+    if n_notes == 0 || last > 3_600 * SEC {
+        return (kinds, [0.0; 3]);
+    }
+
+    let second = |t: i64| t.max(0) / SEC;
+    let buckets_len = second(last) + 2;
+    let mut buckets = vec![0i64; buckets_len as usize];
+    for n in &playable {
+        let from = second(n.time);
+        let to = second(n.end_time()).min(buckets_len - 1).max(from);
+        for b in &mut buckets[from as usize..=to as usize] {
+            *b += 1;
+        }
+    }
+
+    let threshold = n_notes / buckets_len / 4;
+    let busy: Vec<i64> = buckets
+        .iter()
+        .copied()
+        .filter(|b| *b >= threshold)
+        .collect();
+    let average = if busy.is_empty() {
+        0.0
+    } else {
+        busy.iter().sum::<i64>() as f64 / busy.len() as f64
+    };
+    let peak = buckets.iter().copied().max().unwrap_or(0) as f64;
+
+    let total = c.total(LnType::Ln);
+    let k = if total > 0.0 {
+        (n_notes as f64 * (1.0 - 100.0 / total)) as i64
+    } else {
+        0
+    };
+    let fill = if k >= 1 {
+        second(playable[(k.min(n_notes) - 1) as usize].time)
+    } else {
+        0
+    };
+    let width = 5.min(buckets_len - 1 - fill);
+    let end = if width > 0 {
+        (fill..=buckets_len - 1 - width)
+            .map(|s| {
+                buckets[s as usize..(s + width) as usize]
+                    .iter()
+                    .sum::<i64>()
+            })
+            .max()
+            .map_or(0.0, |sum| sum as f64 / width as f64)
+    } else {
+        0.0
+    };
+    (kinds, [average, peak, end])
 }
 
 pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> Song {
@@ -740,11 +830,8 @@ mod tests {
     }
 
     /// The one-hour guard limits only the densities: all five kinds are
-    /// counted (the specification's decision; the current code returns
-    /// before counting the four playable kinds, so this fails until
-    /// `chart_info` is rewritten).
+    /// counted.
     #[test]
-    #[ignore = "clean-room: new behaviour (spec §9.3 decision 8: kinds are counted past one hour)"]
     fn chart_info_counts_kinds_past_an_hour() {
         let c = info_chart(
             PlayMode::Beat14K,
