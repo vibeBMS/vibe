@@ -124,6 +124,7 @@ enum TextField {
     AddIrServer,
     CourseTitle,
     ImportLr2,
+    ImportScores,
 }
 
 impl TextField {
@@ -140,6 +141,7 @@ impl TextField {
             TextField::AddIrServer => "vibeBMS IR server URL",
             TextField::CourseTitle => "Course title",
             TextField::ImportLr2 => "LR2's folder (or its song.db)",
+            TextField::ImportScores => "Score database (or its folder)",
         }
     }
 }
@@ -432,6 +434,7 @@ impl SettingsScene {
             }
             TextField::CourseTitle => courses::rename(ctx, s),
             TextField::ImportLr2 => courses::import(ctx, &s),
+            TextField::ImportScores => library::import_scores(ctx, &s),
             tf => ir::commit(ctx, tf, s),
         }
         ctx.save_config();
