@@ -17,7 +17,7 @@
 //! and bindings). beatoraja draws its rows over its (empty) skin; so does
 //! this screen, for beatoraja skins and LR2 skins without key buttons.
 
-use super::keybind::{self, Slot};
+use super::keybind::{self, Learn, Learned, Slot};
 use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::{skinned, skinvals};
 use crate::app::{Ctx, Draw, Next, Scene};
@@ -125,7 +125,10 @@ pub fn open(ctx: &mut Ctx) -> Box<dyn Scene> {
     if skinned::configured_skin(ctx, SkinType::KeyConfig).is_some() {
         Box::new(KeyConfigScene::new())
     } else {
-        Box::new(super::settings::SettingsScene::at(ctx, 2))
+        Box::new(super::settings::SettingsScene::at(
+            ctx,
+            super::settings::Page::Keys,
+        ))
     }
 }
 
@@ -139,8 +142,8 @@ pub struct KeyConfigScene {
     list: ListView,
     /// LR2 binding slot (0 keyboard, 1 controller, 2 axis).
     device: usize,
-    /// Waiting for a key to bind to the chosen row (since).
-    learning: Option<Instant>,
+    /// Waiting for a key to bind to the chosen row.
+    learn: Learn,
     /// The skin is an LR2 one (its texts 40-49 are the slots).
     lr2: bool,
     /// The rows are drawn here (beatoraja draws them over its skin).
@@ -148,7 +151,6 @@ pub struct KeyConfigScene {
     rows: HitMap<usize>,
     mode_rects: [Rect; 2],
     back_rect: Rect,
-    axis_seen: HashMap<u64, f32>,
     axis: AxisStepper,
     /// Keys and buttons down now, by row (LR2 key timers 100-139).
     pressed: HashMap<Slot, Instant>,
@@ -167,13 +169,12 @@ impl KeyConfigScene {
             mode: 0,
             list: ListView::new(),
             device: 0,
-            learning: None,
+            learn: Learn::default(),
             lr2: false,
             overlay: true,
             rows: HitMap::default(),
             mode_rects: [Rect::default(); 2],
             back_rect: Rect::default(),
-            axis_seen: HashMap::new(),
             axis: AxisStepper::default(),
             pressed: HashMap::new(),
         }
@@ -187,12 +188,12 @@ impl KeyConfigScene {
     pub fn set_mode(&mut self, m: usize) {
         self.mode = m % MODES.len();
         self.list.select(0);
-        self.learning = None;
+        self.learn.stop();
     }
 
     fn step(&mut self, d: i32) {
         self.list.step(d, slots(self.mode).len());
-        self.learning = None;
+        self.learn.stop();
     }
 
     fn select(&mut self, s: Slot) {
@@ -201,19 +202,24 @@ impl KeyConfigScene {
         }
     }
 
-    /// Bind what was pressed to the chosen row; then on to the next row.
-    pub fn learn(
-        &mut self,
-        ctx: &mut Ctx,
-        key: Option<KeyCode>,
-        pad: Option<u64>,
-        axis: Option<u64>,
-    ) {
-        if self.learning.is_none() {
+    /// Wait for what to bind to the chosen row.
+    fn start_learning(&mut self) {
+        self.learn.start(self.slot());
+    }
+
+    /// An input while the chosen row waits: bound to it (then on to the
+    /// next row), or it clears or cancels.
+    pub fn learn_input(&mut self, ctx: &mut Ctx, ev: &InputEv) {
+        let Some(slot) = self.learn.slot else {
             return;
-        }
-        if keybind::assign(&mut ctx.config.keys, self.slot(), key, pad, axis) {
-            self.learning = None;
+        };
+        let (key, pad, axis) = match self.learn.input(ev) {
+            Learned::Waiting | Learned::Cancel => return,
+            Learned::Clear => return self.clear(ctx),
+            Learned::Bind(key, pad, axis) => (key, pad, axis),
+        };
+        if keybind::assign(&mut ctx.config.keys, slot, key, pad, axis) {
+            self.learn.stop();
             ctx.save_config();
             ctx.play_sound(Sound::OptionChange);
             let n = slots(self.mode).len();
@@ -224,7 +230,7 @@ impl KeyConfigScene {
     fn clear(&mut self, ctx: &mut Ctx) {
         let dev = self.lr2.then_some(self.device);
         keybind::clear(&mut ctx.config.keys, self.slot(), dev);
-        self.learning = None;
+        self.learn.stop();
         ctx.save_config();
         ctx.play_sound(Sound::OptionChange);
     }
@@ -232,7 +238,7 @@ impl KeyConfigScene {
     fn leave(&mut self, ctx: &mut Ctx) -> Next {
         if self.host.leaving.is_none() {
             ctx.save_config();
-            self.learning = None;
+            self.learn.stop();
             self.host.leave(Instant::now());
         }
         Next::Stay
@@ -245,7 +251,7 @@ impl KeyConfigScene {
                 let s = slots(self.mode).into_iter().find(|s| lr2_button(*s) == act);
                 if let Some(s) = s {
                     self.select(s);
-                    self.learning = Some(Instant::now());
+                    self.start_learning();
                 }
             }
             143 => self.set_mode(self.mode + 1),
@@ -279,7 +285,7 @@ impl KeyConfigScene {
         match nav {
             Nav::Up => self.step(-1),
             Nav::Down => self.step(1),
-            Nav::Decide => self.learning = Some(Instant::now()),
+            Nav::Decide => self.start_learning(),
             Nav::Close | Nav::Option => self.set_mode(self.mode + 1),
             Nav::Back | Nav::Settings => return self.leave(ctx),
         }
@@ -416,7 +422,10 @@ impl Scene for KeyConfigScene {
             };
             let Some(skin) = skin else {
                 // no usable skin: the settings' page instead
-                return Next::Replace(Box::new(super::settings::SettingsScene::at(ctx, 2)));
+                return Next::Replace(Box::new(super::settings::SettingsScene::at(
+                    ctx,
+                    super::settings::Page::Keys,
+                )));
             };
             let ext = skin.skin.path.extension().map(|e| e.to_ascii_lowercase());
             self.lr2 = ext.is_some_and(|e| e == "lr2skin" || e == "csv");
@@ -460,42 +469,8 @@ impl Scene for KeyConfigScene {
             InputEv::Pad { id, pressed, .. } => self.press(ctx, None, Some(*id), *pressed),
             _ => {}
         }
-        if self.learning.is_some() {
-            match ev {
-                InputEv::Key {
-                    code: KeyCode::Escape,
-                    pressed: true,
-                    ..
-                } => self.learning = None,
-                InputEv::Key {
-                    code: KeyCode::Delete,
-                    pressed: true,
-                    ..
-                } => self.clear(ctx),
-                InputEv::Key {
-                    code,
-                    pressed: true,
-                    repeat: false,
-                    ..
-                } => self.learn(ctx, Some(*code), None, None),
-                InputEv::Pad {
-                    id, pressed: true, ..
-                } => self.learn(ctx, None, Some(*id), None),
-                InputEv::Axis { id, value, .. } => {
-                    let first = *self.axis_seen.entry(*id).or_insert(*value);
-                    if (value - first).abs() > 0.3 {
-                        self.axis_seen.clear();
-                        self.learn(ctx, None, None, Some(*id));
-                    }
-                }
-                InputEv::Pointer {
-                    phase: Phase::Down, ..
-                } => self.learning = None,
-                _ => {}
-            }
-            if self.learning.is_none() {
-                self.axis_seen.clear();
-            }
+        if self.learn.on() {
+            self.learn_input(ctx, ev);
             return Next::Stay;
         }
         let ready = self.host.ready(Instant::now());
@@ -567,7 +542,7 @@ impl Scene for KeyConfigScene {
                 if let Some(&i) = self.rows.at(*x, *y) {
                     // a tap chooses a row, a second one binds it
                     if i == self.list.sel {
-                        self.learning = Some(Instant::now());
+                        self.start_learning();
                     } else {
                         self.list.select(i);
                     }
@@ -591,7 +566,7 @@ impl Scene for KeyConfigScene {
         }
         let ui = ctx.ui();
         let (w, h) = (ctx.width, ctx.height);
-        if self.learning.is_some() {
+        if self.learn.on() {
             let r = Rect::new(w * 0.2, h - 70.0 * ui, w * 0.6, 56.0 * ui);
             ui::panel(d, r);
             let what = format!(
@@ -652,7 +627,7 @@ impl KeyConfigScene {
             let row = Rect::new(x, y, 700.0 * sx, 24.0 * sy);
             self.rows.push(row, i);
             if i == sel {
-                let c = if self.learning.is_some() {
+                let c = if self.learn.on() {
                     [0.8, 0.1, 0.1, 0.8]
                 } else {
                     [0.1, 0.2, 0.9, 0.8]
@@ -742,12 +717,12 @@ mod tests {
         // LR2's button 123 chooses 2P key 3 and waits for a key
         s.event(&mut ctx, 123);
         assert_eq!(s.slot(), Slot::Key { side: 1, idx: 2 });
-        assert!(s.learning.is_some());
+        assert!(s.learn.on());
         s.input(&mut ctx, &key(KeyCode::KeyQ));
         assert_eq!(ctx.config.keys.p2.keys[2].keys, vec![KeyCode::KeyQ]);
         // on to the next row, no longer waiting
         assert_eq!(s.slot(), Slot::Key { side: 1, idx: 3 });
-        assert!(s.learning.is_none());
+        assert!(!s.learn.on());
         // the keyboard: ↓, Enter, a controller button
         s.input(&mut ctx, &key(KeyCode::ArrowDown));
         s.input(&mut ctx, &key(KeyCode::Enter));

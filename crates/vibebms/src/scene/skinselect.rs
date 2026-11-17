@@ -13,6 +13,7 @@
 //! (option names), 110-119 (their values), slider 7 (where the option
 //! list is scrolled), the preview (LR2 image 105, beatoraja `skinpreview`).
 
+use super::settings::Page;
 use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::skinned;
 use super::skinvals::{self, ms_since};
@@ -123,12 +124,12 @@ pub fn open(ctx: &mut Ctx, kind: Option<SkinType>) -> Box<dyn Scene> {
     if skinned::configured_skin(ctx, SkinType::SkinSelect).is_some() {
         Box::new(SkinSelectScene::new(kind))
     } else {
-        let cat = if kind == Some(SkinType::SoundSet) {
-            5
+        let page = if kind == Some(SkinType::SoundSet) {
+            Page::Audio
         } else {
-            4
+            Page::Display
         };
-        Box::new(super::settings::SettingsScene::at(ctx, cat))
+        Box::new(super::settings::SettingsScene::at(ctx, page))
     }
 }
 
@@ -484,7 +485,10 @@ impl Scene for SkinSelectScene {
                 skinned::load(ctx, gfx, SkinType::SkinSelect, &|_| None, &st)
             };
             let Some(skin) = skin else {
-                return Next::Replace(Box::new(super::settings::SettingsScene::at(ctx, 4)));
+                return Next::Replace(Box::new(super::settings::SettingsScene::at(
+                    ctx,
+                    Page::Display,
+                )));
             };
             if self.kind.is_none() {
                 let c = skin

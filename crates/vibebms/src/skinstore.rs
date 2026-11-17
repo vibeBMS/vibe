@@ -180,8 +180,6 @@ pub struct SkinStore {
     /// id -> its install.
     pub installed: BTreeMap<String, Installed>,
     busy: Vec<(String, Installing)>,
-    /// A row pressed once that a second press confirms: (id, delete).
-    pub armed: Option<(String, bool)>,
 }
 
 /// What [`SkinStore::poll`] reports.
