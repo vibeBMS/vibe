@@ -1452,7 +1452,7 @@ mod tests {
         let p = run();
         assert!(p.unread.lock().unwrap().is_empty());
         assert!(p.changed.load(Ordering::Relaxed));
-        let s = Library::open(&cache, &cache).songs();
+        let s = Library::open(&cache, &cache, |_, _| None).songs();
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].title, "A");
         std::fs::remove_dir_all(&dir).ok();

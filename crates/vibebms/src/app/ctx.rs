@@ -322,8 +322,11 @@ impl Ctx {
             self.reload_library();
         }
         self.read_unread(unread);
-        let n = self.lib.songs.len();
-        self.toast(format!("Library: {n} charts"));
+        // (with charts being read in, another scan follows: the count then)
+        if self.lib.prefetch.is_none() {
+            let n = self.lib.songs.len();
+            self.toast(format!("Library: {n} charts"));
+        }
         if !again {
             return;
         }
@@ -332,6 +335,10 @@ impl Ctx {
         } else {
             // what was downloaded before it started is in now
             self.net.song_fetch.scanned();
+            if self.lib.prefetch.is_none() {
+                // web: the charts kept in memory for this scan leave it
+                crate::platform::vfs::release_charts();
+            }
         }
     }
 
@@ -339,9 +346,14 @@ impl Ctx {
     /// memory for the browser's stored copy after it was read in, before
     /// the scan): read them in, then scan again (`poll_scan`). Only once
     /// in a row, so a chart that cannot be read at all does not keep the
-    /// library scanning.
+    /// library scanning; only on the web, where reading in is what helps.
     fn read_unread(&mut self, unread: Vec<std::path::PathBuf>) {
-        if unread.is_empty() {
+        // natively a file the scan could not read stays unreadable until it
+        // changes (and then the next scan reads it): nothing to read in
+        if unread.is_empty() || !cfg!(target_arch = "wasm32") {
+            if !unread.is_empty() {
+                log::warn!("scan: {} charts could not be read", unread.len());
+            }
             self.lib.reading_unread = false;
             return;
         }
