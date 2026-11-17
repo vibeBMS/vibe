@@ -407,6 +407,42 @@ fn builtin_perspective_skins_load_and_reflow() {
                     }
                 }
             }
+            // the panels around the lanes stay clear of them on the
+            // screens the skin is reflowed to
+            let aspects: &[f32] = if portrait {
+                &[9.0 / 16.0, 9.0 / 19.5, 3.0 / 4.0]
+            } else {
+                &[16.0 / 9.0, 19.5 / 9.0, 4.0 / 3.0, 16.0 / 10.0, 2.4]
+            };
+            for &aspect in aspects {
+                let (rw, rh) = crate::perspective::reflowed_size(w, h, aspect);
+                let mut re = sk.clone();
+                re.reflow(rw, rh);
+                let fans = crate::perspective::layout(mode, false, rw, rh, &Default::default());
+                for o in &re.objects {
+                    let (Some(k), Some(a)) = (o.dst.keys.first(), o.dst.anchor) else {
+                        continue;
+                    };
+                    let r = k.rect;
+                    // the background, and what is shown over the lanes
+                    // (judgements, READY, the hi-speed panel)
+                    if r.w >= rw || a[1] == 0.5 || o.dst.timer != 0 {
+                        continue;
+                    }
+                    for f in &fans {
+                        let yb = r.bottom().min(f.bottom);
+                        let Some(d) = f.depth(yb).filter(|_| yb > f.y(1.0)) else {
+                            continue;
+                        };
+                        let (x0, x1) = (f.point(0.0, d)[0], f.point(1.0, d)[0]);
+                        assert!(
+                            r.right() <= x0 || r.x >= x1,
+                            "{} at {rw}x{rh}: {r:?} over the lanes ({x0}..{x1} at {yb})",
+                            path.display()
+                        );
+                    }
+                }
+            }
             // a taller screen: the background stretches, the bottom
             // half's objects come down with the lanes
             let bg = sk.objects[0].dst.keys[0].rect;

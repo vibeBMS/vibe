@@ -101,27 +101,30 @@ impl Fan {
         self.depth(self.bottom).unwrap_or(0.0)
     }
 
-    /// The lane (index into `lanes`) at a screen point between the bottom
-    /// and the far end.
-    pub fn lane_at(&self, x: f32, y: f32) -> Option<usize> {
-        if y > self.bottom {
-            return None;
-        }
-        let (u, d) = self.locate(x, y)?;
-        if d > 1.0 {
-            return None;
-        }
-        self.lanes.iter().position(|l| u >= l.u0 && u < l.u1)
-    }
-
-    /// The lanes' shapes from the bottom up to screen height `top`: what
-    /// is drawn as the touch area and what a touch hits.
-    pub fn touch_quads(&self, top: f32) -> Vec<(FanLane, Quad)> {
+    /// The touch columns: each lane from the bottom up to screen height
+    /// `top`, widened to meet its neighbours halfway across a gap, the
+    /// outer lanes reaching out to `x0` and `x1` (the screen's edges, or
+    /// halfway to the next fan). What is drawn as the touch area and what
+    /// a touch hits.
+    pub fn touch_quads(&self, top: f32, x0: f32, x1: f32) -> Vec<(FanLane, Quad)> {
         let d0 = self.d_bottom();
         let d1 = self.depth(top).unwrap_or(1.0).clamp(d0, 1.0);
+        let n = self.lanes.len();
+        // a side of column `i` (its left edge; `n`: the right edge of the last)
+        let side = |i: usize, d: f32| match i {
+            0 => [x0, self.y(d)],
+            i if i == n => [x1, self.y(d)],
+            i => self.point((self.lanes[i - 1].u1 + self.lanes[i].u0) * 0.5, d),
+        };
         self.lanes
             .iter()
-            .map(|l| (*l, self.quad(l.u0, l.u1, d0, d1)))
+            .enumerate()
+            .map(|(i, l)| {
+                (
+                    *l,
+                    [side(i, d1), side(i + 1, d1), side(i + 1, d0), side(i, d0)],
+                )
+            })
             .collect()
     }
 
@@ -204,8 +207,17 @@ pub fn top_of_lanes(portrait: bool, double: bool) -> f32 {
     }
 }
 
+/// The widest a landscape fan gets at the bottom, in screen heights: on a
+/// very wide screen the lanes stop growing rather than getting flat.
+const MAX_FAN_ASPECT: f32 = 2.4;
+
 /// The fans of `mode` on a canvas of `w` x `h` (y down), one per player.
 /// `side2`: the 2P side in single play (the scratch on the right).
+///
+/// The lanes are laid out like the mobile perspective games (BanG Dream!,
+/// Project SEKAI, Arcaea): the fans reach the screen's bottom corners, so
+/// the judge line spans about 85 % of the width (two fans side by side in
+/// double play), and the touch columns are as wide as the lanes there.
 pub fn layout(mode: PlayMode, side2: bool, w: f32, h: f32, cfg: &PerspectiveConfig) -> Vec<Fan> {
     let portrait = h > w;
     let double = mode.is_double();
@@ -214,23 +226,20 @@ pub fn layout(mode: PlayMode, side2: bool, w: f32, h: f32, cfg: &PerspectiveConf
     let top = top_of_lanes(portrait, double).min(base_y - 40.0);
     let length = cfg.length.clamp(LENGTH_RANGE.0, LENGTH_RANGE.1);
     let len = (base_y - top) * length;
-    // (centre x, width at the bottom of the screen) of each fan
-    let fans: Vec<(f32, f32)> = match (portrait, double) {
-        (true, false) => vec![(w * 0.5, w * 0.98)],
-        (true, true) => vec![(w * 0.25, w * 0.49), (w * 0.75, w * 0.49)],
-        (false, false) => vec![(w * 0.5, (w - 600.0).min(h).max(w * 0.4))],
-        (false, true) => {
-            let fw = (w * 0.42).min(h * 0.9);
-            vec![(w * 0.28, fw), (w * 0.72, fw)]
-        }
+    // the width at the bottom of the screen of all the fans side by side
+    let all = if portrait {
+        w
+    } else {
+        w.min(h * MAX_FAN_ASPECT * mode.players() as f32)
     };
+    let n = mode.players();
+    let bw = all / n as f32;
     // the size at the bottom relative to the base
     let s_bottom = 1.0 + k * (h - base_y) / (len * (1.0 + k));
-    fans.into_iter()
-        .enumerate()
-        .map(|(player, (cx, bw))| Fan {
+    (0..n)
+        .map(|player| Fan {
             player,
-            cx,
+            cx: w * 0.5 + (player as f32 + 0.5 - n as f32 * 0.5) * bw,
             base_y,
             len,
             width: bw / s_bottom,
@@ -340,7 +349,7 @@ mod tests {
             assert!((f.point(0.0, d)[0] - f.point(0.0, 0.0)[0]).abs() < 1e-3);
         }
         // the bottom of the screen is the bottom of the lanes, as wide
-        assert!((f.width - 720.0 * 0.98).abs() < 1e-3);
+        assert!((f.width - 720.0).abs() < 1e-3);
     }
 
     #[test]
@@ -382,6 +391,28 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn judge_line_spans_most_of_the_width() {
+        // as in the mobile perspective games: about 85 % of the width at
+        // the judge line (both fans in double play), in landscape too
+        for (w, h) in [
+            (1280.0, 720.0),
+            (1560.0, 720.0),
+            (1280.0, 960.0),
+            (720.0, 1280.0),
+            (720.0, 1560.0),
+        ] {
+            for mode in PlayMode::ALL {
+                let fans = layout(mode, false, w, h, &PerspectiveConfig::default());
+                let share = fans.iter().map(|f| f.width).sum::<f32>() / w;
+                assert!((0.83..0.9).contains(&share), "{mode:?} {w}x{h}: {share}");
+            }
+        }
+        // a very wide screen: the lanes stop growing
+        let f = layout(PlayMode::Beat7K, false, 4000.0, 720.0, &Default::default());
+        assert!(f[0].bounds()[2] <= 720.0 * MAX_FAN_ASPECT + 0.01);
     }
 
     #[test]

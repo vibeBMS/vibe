@@ -152,7 +152,7 @@ impl PlayScene {
             let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
             let fans = self.persp_fans(ctx, view);
             let top = self.persp_touch_top(ctx, &fans, view);
-            zones = touch::fan_zones(input_mode, &fans, top);
+            zones = touch::fan_zones(input_mode, &fans, top, view.x, view.right());
         }
         if !areas.is_empty() {
             zones = touch::zones(

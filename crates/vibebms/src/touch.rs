@@ -514,11 +514,24 @@ pub fn flip(l: &mut TouchLayout) {
     }
 }
 
-/// The perspective skin's lanes as touch zones: each lane's shape from the
-/// bottom of the screen up to `top` (as drawn).
-pub fn fan_zones(mode: PlayMode, fans: &[crate::perspective::Fan], top: f32) -> Vec<Zone> {
+/// The perspective skin's lanes as touch zones: columns from the bottom of
+/// the screen up to `top` (as drawn) that fill the width `x0..x1`, split
+/// halfway between the fans in double play.
+pub fn fan_zones(
+    mode: PlayMode,
+    fans: &[crate::perspective::Fan],
+    top: f32,
+    x0: f32,
+    x1: f32,
+) -> Vec<Zone> {
+    let mid = |i: usize| (fans[i - 1].cx + fans[i].cx) * 0.5;
     fans.iter()
-        .flat_map(|f| f.touch_quads(top))
+        .enumerate()
+        .flat_map(|(i, f)| {
+            let l = if i == 0 { x0 } else { mid(i) };
+            let r = if i + 1 == fans.len() { x1 } else { mid(i + 1) };
+            f.touch_quads(top, l, r)
+        })
         .map(|(l, q)| {
             let k = l.lane % mode.lanes_per_player();
             Zone {
@@ -979,51 +992,87 @@ mod tests {
         crate::perspective::layout(PlayMode::Beat7K, false, 720.0, 1280.0, &cfg)
     }
 
+    /// The lane a zone hits at (x, y), as drawn (no nearest-key fallback).
+    fn hit_lane(zones: &[Zone], x: f32, y: f32) -> Option<u8> {
+        zones
+            .iter()
+            .rposition(|z| z.hit(x, y))
+            .map(|i| zones[i].lane)
+    }
+
     #[test]
     fn fan_zones_hit_what_is_drawn() {
         let fans = fans();
         let f = &fans[0];
         let top = 1280.0 * 0.7;
-        let zones = fan_zones(PlayMode::Beat7K, &fans, top);
+        let zones = fan_zones(PlayMode::Beat7K, &fans, top, 0.0, 720.0);
         assert_eq!(zones.len(), 8);
         assert!(zones[0].scratch && zones[0].lane == 7);
-        let mut hits = 0;
+        // a lane's column, gaps split halfway, the outer ones to the edges
+        let column = |u: f32| {
+            let n = f.lanes.len();
+            (0..n)
+                .find(|&i| i + 1 == n || u < (f.lanes[i].u1 + f.lanes[i + 1].u0) * 0.5)
+                .map(|i| f.lanes[i].lane as u8)
+        };
         for i in 0..=72 {
             for j in 0..=40 {
                 let (x, y) = (i as f32 * 10.0, top + j as f32 * (1280.0 - top) / 40.0);
-                let drawn = f.lane_at(x, y).map(|i| f.lanes[i].lane as u8);
-                // what the zones hit, as drawn (no nearest-key fallback)
-                let hit = zones
-                    .iter()
-                    .rposition(|z| z.hit(x, y))
-                    .map(|i| zones[i].lane);
-                // the lane edges themselves may go either way
-                let edge = f.locate(x, y).is_some_and(|(u, _)| {
-                    f.lanes
-                        .iter()
-                        .any(|l| (u - l.u0).abs() < 1e-4 || (u - l.u1).abs() < 1e-4)
-                });
+                let (u, _) = f.locate(x, y).unwrap();
+                // the edges between columns may go either way
+                let edge = f
+                    .lanes
+                    .windows(2)
+                    .any(|w| (u - (w[0].u1 + w[1].u0) * 0.5).abs() < 1e-4);
                 if !edge {
-                    assert_eq!(drawn, hit, "at {x}, {y}");
+                    assert_eq!(hit_lane(&zones, x, y), column(u), "at {x}, {y}");
                 }
-                hits += usize::from(hit.is_some());
             }
         }
-        assert!(hits > 1500, "{hits}");
         // above the touch area nothing is hit
         assert!(pick(&zones, 360.0, top - 80.0).is_none());
-        // the gap beside the scratch plays the key next to it
-        let gap = f.point((f.lanes[0].u1 + f.lanes[1].u0) * 0.5, f.d_bottom() * 0.5);
-        assert_eq!(f.lane_at(gap[0], gap[1]), None);
-        let z = pick(&zones, gap[0], gap[1]).unwrap();
-        assert_eq!(zones[z].lane, 0);
+        // the gap beside the scratch: each side plays the lane beside it
+        let (g0, g1) = (f.lanes[0].u1, f.lanes[1].u0);
+        let at = |u: f32| f.point(u, f.d_bottom() * 0.5);
+        let [x, y] = at(g0 + (g1 - g0) * 0.25);
+        assert_eq!(hit_lane(&zones, x, y), Some(7));
+        let [x, y] = at(g0 + (g1 - g0) * 0.75);
+        assert_eq!(hit_lane(&zones, x, y), Some(0));
+    }
+
+    #[test]
+    fn fan_zones_fill_the_width() {
+        // from the screen's bottom to above the judge line, edge to edge;
+        // in double play each player's half
+        let cfg = crate::config::PerspectiveConfig::default();
+        for (w, h) in [
+            (1280.0, 720.0),
+            (1560.0, 720.0),
+            (1280.0, 960.0),
+            (720.0, 1560.0),
+        ] {
+            for mode in PlayMode::ALL {
+                let fans = crate::perspective::layout(mode, false, w, h, &cfg);
+                let line = fans[0].base_y;
+                let zones = fan_zones(mode, &fans, line - 0.1 * h, 0.0, w);
+                for y in [h - 1.0, line, line - 0.09 * h] {
+                    for i in 0..200 {
+                        let x = (i as f32 + 0.5) * w / 200.0;
+                        let lane = hit_lane(&zones, x, y)
+                            .unwrap_or_else(|| panic!("{mode:?} {w}x{h}: {x}, {y}"));
+                        let player = usize::from(x > w * 0.5 && mode.players() == 2);
+                        assert_eq!(lane as usize / mode.lanes_per_player(), player);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
     fn fan_lanes_slide_and_scratch_swipes() {
         let fans = fans();
         let f = &fans[0];
-        let zones = fan_zones(PlayMode::Beat7K, &fans, 1280.0 * 0.7);
+        let zones = fan_zones(PlayMode::Beat7K, &fans, 1280.0 * 0.7, 0.0, 720.0);
         let now = Instant::now();
         let mut t = TouchInput::default();
         let mut out = Vec::new();
