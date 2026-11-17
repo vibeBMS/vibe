@@ -4,7 +4,7 @@
 //! Notes move in lane space as on a flat lane (the green number holds);
 //! only where a depth is on the screen differs.
 
-use super::play_skin::SceneState;
+use super::skin::PlayState;
 use crate::app::Draw;
 use crate::config::HiSpeedMode;
 use crate::gfx::{rgba, with_alpha, Blend, Color};
@@ -79,25 +79,27 @@ fn depth_of_px(f: &Fan, px: f32, at: f32) -> f32 {
 }
 
 fn ms_since(now: Instant, t: Option<Instant>) -> Option<f32> {
-    let t = t?;
-    (now >= t).then(|| now.duration_since(t).as_secs_f32() * 1000.0)
+    Some(now.checked_duration_since(t?)?.as_secs_f32() * 1000.0)
 }
 
 /// Draw the note field (the skin's `notes` object).
-pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
-    let s = st.s;
+pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
+    let scene = st.s;
+    let s = &scene.session;
     let ctx = st.ctx;
     if s.engine().is_none() {
         return;
     }
-    let Some(sk) = s.skin.as_ref() else { return };
+    let Some(sk) = scene.skin.as_ref() else {
+        return;
+    };
     let view = xf.rect(crate::gfx::Rect::new(
         0.0,
         0.0,
         sk.skin.width,
         sk.skin.height,
     ));
-    let fans = s.persp_fans(ctx, view);
+    let fans = scene.persp_fans(ctx, view);
     let p = &ctx.config.play;
     let dep = Depths::of(p);
     let mode = s.mode;
@@ -163,13 +165,18 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
         // the touch area (what a touch hits) and the scratch's swipe marks
         if ctx.touch_enabled() {
             let opacity = ctx.config.touch.opacity;
-            for z in s.zones.iter().filter(|z| z.lane < crate::touch::SYSTEM) {
+            for z in scene
+                .touch
+                .zones
+                .iter()
+                .filter(|z| z.lane < crate::touch::SYSTEM)
+            {
                 let (Shape::Quad(q), Some(l)) =
                     (z.shape, f.lanes.iter().find(|l| l.lane == z.lane as usize))
                 else {
                     continue;
                 };
-                let pressed = s.touch.is_pressed(z.lane);
+                let pressed = scene.touch.input.is_pressed(z.lane);
                 let c = note_color(mode, l);
                 let a = opacity * if pressed { 0.22 } else { 0.07 };
                 d.b.quad4(
@@ -210,9 +217,8 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
         }
         // key beams: lit while pressed, fading once let go
         for l in &f.lanes {
-            let on = s.key_flash.get(l.lane).copied().flatten();
-            let off = s.key_off.get(l.lane).copied().flatten();
-            let k = match (on, off) {
+            let lane = s.lanes.get(l.lane);
+            let k = match (lane.and_then(|l| l.pressed), lane.and_then(|l| l.released)) {
                 (Some(a), Some(b)) if b >= a => {
                     1.0 - ms_since(now, Some(b)).unwrap_or(0.0) / BEAM_FADE_MS
                 }
@@ -252,16 +258,11 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
         // notes
         for l in &f.lanes {
             let lane = l.lane;
-            let (Some(list), Some(engine)) = (s.lane_notes.get(lane), s.engine_for(lane)) else {
+            let (Some(ln), Some(engine)) = (s.lanes.get(lane), s.engine_for(lane)) else {
                 continue;
             };
             let notes = engine.notes();
-            let cursor = s
-                .lane_cursor
-                .get(lane)
-                .copied()
-                .unwrap_or(0)
-                .min(list.len());
+            let (list, cursor) = (&ln.notes, ln.cursor.min(ln.notes.len()));
             let c = note_color(mode, l);
             let m = (l.u1 - l.u0) * 0.04;
             let u = (l.u0 + m, l.u1 - m);
@@ -345,7 +346,7 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
                 EDGE,
                 EDGE,
             );
-            if s.panel_open() {
+            if scene.controls.panel[0].open() {
                 let [x, y] = f.point(0.5, dep.cover);
                 let size = (f.width * 0.035).max(10.0);
                 let text = format!(
@@ -383,7 +384,7 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
             let c = note_color(mode, l);
             let cu = (l.u0 + l.u1) * 0.5;
             let lw = l.u1 - l.u0;
-            if let Some(age) = ms_since(now, s.bomb_at.get(l.lane).copied().flatten()) {
+            if let Some(age) = ms_since(now, s.lanes.get(l.lane).and_then(|l| l.bomb)) {
                 if age < BOMB_MS {
                     let k = age / BOMB_MS;
                     let r = lw * (0.45 + 0.9 * k);
