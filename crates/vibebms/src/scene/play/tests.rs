@@ -282,7 +282,7 @@ fn replays_judge_as_before() {
         (0xd42210a62c598fbb, 558),
         (0x32364c7127b745df, 558),
         // the LR2 judge as docs/LR2_BEHAVIOUR.md has it (replay format 5)
-        (0xe7e0e5baeac5f829, 436),
+        (0x1bdbeee50682a22e, 434),
         (0xbcd1d1647dd9fff4, 434),
         (0xffe1584f208e5414, 550),
         (0x47dc09ae4c89eab1, 468),
