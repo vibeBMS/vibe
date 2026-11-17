@@ -7,10 +7,12 @@
 //! author's download page.
 
 use crate::app::AppEvent;
+use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::Sender;
 
 /// The mirror's list of events.
 pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
@@ -164,8 +166,8 @@ pub struct Archives {
     pub installed: HashMap<String, PathBuf>,
     /// Works downloading now ("EVENT/num").
     pub busy: Vec<String>,
-    tx: Option<Sender<Msg>>,
-    rx: Option<Receiver<Msg>>,
+    /// Lists, indexes and works being fetched.
+    jobs: Vec<Job<Msg>>,
 }
 
 fn key(event: &str, num: u32) -> String {
@@ -255,15 +257,6 @@ impl Archives {
         }
     }
 
-    fn channel(&mut self) -> Sender<Msg> {
-        if self.tx.is_none() {
-            let (tx, rx) = channel();
-            self.tx = Some(tx);
-            self.rx = Some(rx);
-        }
-        self.tx.clone().expect("channel")
-    }
-
     /// Fetch the lists of events and the indexes older than a day (all
     /// with `force`).
     pub fn refresh(&mut self, force: bool) {
@@ -275,14 +268,13 @@ impl Archives {
             .map(|c| c.url.clone())
             .collect();
         for url in lists {
-            let tx = self.channel();
             let u = url.clone();
-            crate::platform::http_get(&url, move |r| {
+            self.jobs.push(Job::get(&url, move |r| {
                 let r = r.and_then(|b| {
                     serde_json::from_slice::<Vec<CatalogEntry>>(&b).map_err(|e| e.to_string())
                 });
-                let _ = tx.send(Msg::Catalog(u, r));
-            });
+                Msg::Catalog(u, r)
+            }));
         }
         let todo: Vec<String> = self
             .events
@@ -291,14 +283,13 @@ impl Archives {
             .map(|e| e.url.clone())
             .collect();
         for url in todo {
-            let tx = self.channel();
             let u = url.clone();
-            crate::platform::http_get(&url, move |r| {
+            self.jobs.push(Job::get(&url, move |r| {
                 let r = r.and_then(|b| {
                     serde_json::from_slice::<Vec<Work>>(&b).map_err(|e| e.to_string())
                 });
-                let _ = tx.send(Msg::Index(u, r));
-            });
+                Msg::Index(u, r)
+            }));
         }
     }
 
@@ -348,22 +339,23 @@ impl Archives {
         self.busy.push(k);
         let (name, title) = (event.name.clone(), work.title.clone());
         let size: u64 = files.iter().map(|f| f.size).sum();
-        let tx = self.channel();
         let root = root.to_path_buf();
-        #[cfg(not(target_arch = "wasm32"))]
-        crate::platform::spawn("archive", move || {
-            let r = fetch_work(&root, &name, &files, &tx);
-            let _ = tx.send(Msg::Done(name, num, r));
-        });
-        #[cfg(target_arch = "wasm32")]
-        {
-            let stem = work_stem(&files);
-            let rel = PathBuf::from("bms").join(&name).join(&stem);
-            let dir = root.join("bms").join(&name);
-            web_fetch_files(files, dir, stem, move |r| {
-                let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
+        self.jobs.push(Job::start(|tx, _| {
+            #[cfg(not(target_arch = "wasm32"))]
+            crate::platform::spawn("archive", move || {
+                let r = fetch_work(&root, &name, &files, &tx);
+                let _ = tx.send(Msg::Done(name, num, r));
             });
-        }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let stem = work_stem(&files);
+                let rel = PathBuf::from("bms").join(&name).join(&stem);
+                let dir = root.join("bms").join(&name);
+                web_fetch_files(files, dir, stem, move |r| {
+                    let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
+                });
+            }
+        }));
         Ok(if size > 0 {
             format!("Downloading {title} ({} MB)…", (size + (1 << 19)) >> 20)
         } else {
@@ -373,11 +365,7 @@ impl Archives {
 
     /// What happened since the last frame.
     pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
-        let msgs: Vec<Msg> = self
-            .rx
-            .as_ref()
-            .map(|rx| rx.try_iter().collect())
-            .unwrap_or_default();
+        let msgs = Job::drain_all(&mut self.jobs);
         let mut out = Vec::new();
         let (mut changed, mut new_events) = (false, false);
         for m in msgs {
