@@ -128,21 +128,10 @@ pub enum TableMsg {
     Failed(String, String),
 }
 
-/// Shared state available to every scene.
 /// Songs are downloaded in an in-app browser (desktop, Android, iOS).
-pub const IN_APP_BROWSER: bool = cfg!(any(
-    target_os = "android",
-    all(
-        feature = "browser",
-        any(
-            windows,
-            target_os = "macos",
-            target_os = "linux",
-            target_os = "ios"
-        )
-    )
-));
+pub const IN_APP_BROWSER: bool = cfg!(in_app_browser);
 
+/// Shared state available to every scene.
 pub struct Ctx {
     pub paths: Paths,
     pub config: Config,
@@ -282,9 +271,7 @@ impl Ctx {
         match self.config.touch.mode {
             TouchMode::On => true,
             TouchMode::Off => false,
-            TouchMode::Auto => {
-                cfg!(any(target_os = "android", target_os = "ios")) || self.touch_seen
-            }
+            TouchMode::Auto => cfg!(mobile) || self.touch_seen,
         }
     }
 
@@ -726,8 +713,7 @@ struct Running {
     batch: Batch,
     ctx: Ctx,
     scenes: Vec<Box<dyn Scene>>,
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
-    gilrs: Option<gilrs::Gilrs>,
+    gamepads: crate::input::gamepad::Gamepads,
     last_touch: Option<Instant>,
     /// The page's fingers down and where they last were (web).
     #[cfg(target_arch = "wasm32")]
@@ -744,13 +730,6 @@ struct Running {
     redraw_pending: bool,
     /// The on-screen keyboard is asked for.
     ime_on: bool,
-    #[cfg(any(
-        target_os = "android",
-        all(
-            feature = "browser",
-            any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
-        )
-    ))]
     downloads: crate::browser::Downloads,
 }
 
@@ -880,47 +859,10 @@ impl Running {
     }
 
     fn poll_gamepads(&mut self, el: &ActiveEventLoop) {
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
-        {
-            let mut evs = Vec::new();
-            if let Some(g) = self.gilrs.as_mut() {
-                let now_i = Instant::now();
-                let now_s = crate::platform::SystemTime::now();
-                while let Some(e) = g.next_event() {
-                    let age = now_s
-                        .duration_since(e.time)
-                        .unwrap_or_default()
-                        .min(Duration::from_millis(50));
-                    let time = now_i.checked_sub(age).unwrap_or(now_i);
-                    let pad = usize::from(e.id) as u64 * 1_000_000;
-                    match e.event {
-                        gilrs::EventType::ButtonPressed(_, code) => evs.push(InputEv::Pad {
-                            id: pad + code.into_u32() as u64,
-                            pressed: true,
-                            time,
-                        }),
-                        gilrs::EventType::ButtonReleased(_, code) => evs.push(InputEv::Pad {
-                            id: pad + code.into_u32() as u64,
-                            pressed: false,
-                            time,
-                        }),
-                        gilrs::EventType::AxisChanged(_, value, code) => evs.push(InputEv::Axis {
-                            id: pad + code.into_u32() as u64,
-                            value,
-                            time,
-                        }),
-                        gilrs::EventType::Connected => self.ctx.toast("Controller connected"),
-                        gilrs::EventType::Disconnected => self.ctx.toast("Controller disconnected"),
-                        _ => {}
-                    }
-                }
-            }
-            for e in evs {
-                self.dispatch(el, e);
-            }
+        let ctx = &mut self.ctx;
+        for e in self.gamepads.poll(|m| ctx.toast(m)) {
+            self.dispatch(el, e);
         }
-        #[cfg(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))]
-        let _ = el;
     }
 
     fn frame(&mut self, el: &ActiveEventLoop) {
@@ -961,7 +903,7 @@ impl Running {
         // the on-screen keyboard (iOS, Android) while a text field is edited
         if self.ctx.text_input != self.ime_on {
             self.ime_on = self.ctx.text_input;
-            if cfg!(any(target_os = "ios", target_os = "android")) {
+            if cfg!(mobile) {
                 self.window.set_ime_allowed(self.ime_on);
             }
         }
@@ -1198,10 +1140,7 @@ impl App {
             batch: Batch::default(),
             ctx,
             scenes,
-            #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
-            gilrs: gilrs::Gilrs::new()
-                .map_err(|e| log::warn!("gamepads unavailable: {e}"))
-                .ok(),
+            gamepads: crate::input::gamepad::Gamepads::open(),
             last_touch: None,
             #[cfg(target_arch = "wasm32")]
             touches: HashMap::new(),
@@ -1213,13 +1152,6 @@ impl App {
             next_frame: now,
             redraw_pending: false,
             ime_on: false,
-            #[cfg(any(
-                target_os = "android",
-                all(
-                    feature = "browser",
-                    any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
-                )
-            ))]
             downloads: Default::default(),
         });
     }
@@ -1246,7 +1178,7 @@ impl ApplicationHandler<UserEvent> for App {
         let mut attrs = Window::default_attributes().with_title("vibeBMS");
         // a phone or tablet window fills the screen (a size given here
         // would be used as is, and the screen would show part of it)
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        #[cfg(not(mobile))]
         {
             attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(
                 config.display.width.max(320),
@@ -1298,17 +1230,9 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         let Some(r) = self.run.as_mut() else { return };
-        #[cfg(any(
-            target_os = "android",
-            all(
-                feature = "browser",
-                any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
-            )
-        ))]
         if r.downloads.window_event(id, &event) {
             return;
         }
-        let _ = id;
         // (the web: when the browser got the event, not when this runs)
         #[cfg(target_arch = "wasm32")]
         let now = crate::web::input_time();
@@ -1319,9 +1243,8 @@ impl ApplicationHandler<UserEvent> for App {
                 r.ctx.save_config();
                 el.exit();
             }
-            WindowEvent::Resized(s) => {
+            WindowEvent::Resized(_) => {
                 let (w, h) = surface_size(&r.window);
-                let _ = s;
                 r.gfx.resize(w, h);
                 r.ctx.width = w as f32;
                 r.ctx.height = h as f32;
@@ -1533,19 +1456,10 @@ impl ApplicationHandler<UserEvent> for App {
                 },
             );
         }
-        #[cfg(any(
-            target_os = "android",
-            all(
-                feature = "browser",
-                any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
-            )
-        ))]
-        {
-            if let Some(pages) = r.ctx.browse.take() {
-                r.downloads.browse(el, &r.window, &mut r.ctx, pages);
-            }
-            r.downloads.poll(&mut r.ctx);
+        if let Some(pages) = r.ctx.browse.take() {
+            r.downloads.browse(el, &r.window, &mut r.ctx, pages);
         }
+        r.downloads.poll(&mut r.ctx);
         let realtime = r.scenes.last().map(|s| s.realtime()).unwrap_or(false);
         let fps = r.ctx.config.display.max_fps;
         let now = Instant::now();

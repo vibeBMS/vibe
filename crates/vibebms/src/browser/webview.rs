@@ -1,13 +1,11 @@
-//! The in-app browser (desktop, iOS): the system web view for a chart's
-//! download page, in a window of its own (on iOS over the game, with Back
-//! and Close buttons the page gets). What the page downloads goes to
-//! `<root>/downloads/` without asking and is brought into the library
-//! (`import`): archives are unpacked, a 差分 chart goes into its song's
-//! folder. After a song arrives the browser moves on to the next page given
-//! (the separate chart's).
+//! The in-app browser on the desktop and iOS (wry): the page in a window of
+//! its own (on iOS over the game, with Back and Close buttons the page
+//! gets). Archives it downloads are unpacked, a 差分 chart goes into its
+//! song's folder. After a song arrives the browser moves on to the next page
+//! given (the separate chart's).
 
+use super::imports::Imports;
 use crate::app::Ctx;
-use crate::import::{self, Imported};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -38,14 +36,12 @@ struct Window {
     rx: Receiver<Event>,
 }
 
-type ImportResult = Result<Imported, String>;
-
 /// The browser window, the pages still to show and the imports running.
 #[derive(Default)]
 pub struct Downloads {
     window: Option<Window>,
     next: VecDeque<String>,
-    imports: Option<(Sender<ImportResult>, Receiver<ImportResult>)>,
+    imports: Imports,
 }
 
 /// `dir/name`, or `dir/name (2)` etc. when that exists.
@@ -328,7 +324,6 @@ impl Downloads {
     /// Once per frame: the browser's events, downloads that finished,
     /// imports that are done.
     pub fn poll(&mut self, ctx: &mut Ctx) {
-        let mut finished = Vec::new();
         let mut closed = false;
         if let Some(w) = &self.window {
             if !w.pump() {
@@ -340,7 +335,7 @@ impl Downloads {
                 match ev {
                     Event::Started(name) => ctx.toast(format!("Downloading {name}…")),
                     Event::Failed(url) => ctx.toast(format!("Download failed: {url}")),
-                    Event::Finished(p) => finished.push(p),
+                    Event::Finished(p) => self.imports.start(p, ctx.paths.root.join("bms")),
                     Event::Closed => closed = true,
                 }
             }
@@ -348,62 +343,13 @@ impl Downloads {
         if closed {
             self.window = None;
         }
-        let library = ctx.paths.root.join("bms");
-        for file in finished {
-            let (tx, _) = self.imports.get_or_insert_with(channel);
-            let tx = tx.clone();
-            let lib = library.clone();
-            crate::platform::spawn("import", move || {
-                let _ = tx.send(import::import(&file, &lib));
-            });
-        }
-        let done: Vec<_> = self
-            .imports
-            .as_ref()
-            .map(|(_, rx)| rx.try_iter().collect())
-            .unwrap_or_default();
-        for r in done {
-            self.imported(ctx, r);
-        }
-    }
-
-    fn imported(&mut self, ctx: &mut Ctx, r: ImportResult) {
-        let done = import::report(ctx, r);
-        // on to the separate chart's page
-        if done.song_arrived {
-            if let (Some(url), Some(w)) = (self.next.pop_front(), &self.window) {
+        let (next, window) = (&mut self.next, &self.window);
+        self.imports.poll(ctx, |ctx| {
+            if let (Some(url), Some(w)) = (next.pop_front(), window) {
                 let _ = w.webview.load_url(&url);
                 ctx.toast("Now the chart: download it from this page");
             }
-        }
-        let mut rescan = done.rescan;
-        #[cfg(target_os = "ios")]
-        if let Some((chart, _)) = done.ask {
-            ctx.toast(format!(
-                "{}: several songs could be it; it stays in downloads",
-                bmseeker::fs::file_name(&chart)
-            ));
-        }
-        #[cfg(not(target_os = "ios"))]
-        if let Some((chart, folders)) = done.ask {
-            // several songs could be it: let the user pick the folder
-            let name = bmseeker::fs::file_name(&chart);
-            let mut dialog =
-                rfd::FileDialog::new().set_title(format!("Which song folder is {name} for?"));
-            if let Some((d, _)) = folders.first() {
-                dialog = dialog.set_directory(d);
-            }
-            if let Some(dir) = dialog.pick_folder() {
-                if crate::placement::bring(&chart, &dir).is_some() {
-                    ctx.toast(format!("{name} → {}", bmseeker::fs::file_name(&dir)));
-                    rescan = true;
-                }
-            }
-        }
-        if rescan {
-            ctx.ensure_scanned("bms");
-            ctx.start_scan();
-        }
+        });
     }
 }
 

@@ -3,25 +3,22 @@
 //! download to `<root>/downloads/`; this side opens it through JNI, polls
 //! its events and brings finished downloads into the library (`import`).
 
+use super::imports::Imports;
 use crate::app::Ctx;
-use crate::import::{self, Imported};
 use jni::objects::{JClass, JObject, JString, JValue};
 use jni::JNIEnv;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::WindowId;
-
-type ImportResult = Result<Imported, String>;
 
 /// The pages still to show, whether the browser is up, the imports running.
 #[derive(Default)]
 pub struct Downloads {
     open: bool,
     next: VecDeque<String>,
-    imports: Option<(Sender<ImportResult>, Receiver<ImportResult>)>,
+    imports: Imports,
 }
 
 /// Run `f` with the JVM and the activity (the app's NativeActivity).
@@ -143,42 +140,20 @@ impl Downloads {
                     "S" => ctx.toast(format!("Downloading {rest}…")),
                     "E" => ctx.toast(format!("Download failed: {rest}")),
                     "C" => self.open = false,
-                    "F" => {
-                        let (tx, _) = self.imports.get_or_insert_with(channel);
-                        let (tx, file) = (tx.clone(), PathBuf::from(rest));
-                        let library = ctx.paths.root.join("bms");
-                        crate::platform::spawn("import", move || {
-                            let _ = tx.send(import::import(&file, &library));
-                        });
-                    }
+                    "F" => self
+                        .imports
+                        .start(PathBuf::from(rest), ctx.paths.root.join("bms")),
                     _ => {}
                 }
             }
         }
-        let done: Vec<_> = self
-            .imports
-            .as_ref()
-            .map(|(_, rx)| rx.try_iter().collect())
-            .unwrap_or_default();
-        for r in done {
-            let report = import::report(ctx, r);
-            if report.song_arrived {
-                if let Some(url) = self.next.pop_front() {
-                    if open(&url, &ctx.paths.root.join("downloads")).is_ok() {
-                        ctx.toast("Now the chart: download it from this page");
-                    }
+        let next = &mut self.next;
+        self.imports.poll(ctx, |ctx| {
+            if let Some(url) = next.pop_front() {
+                if open(&url, &ctx.paths.root.join("downloads")).is_ok() {
+                    ctx.toast("Now the chart: download it from this page");
                 }
             }
-            if let Some((chart, _)) = report.ask {
-                ctx.toast(format!(
-                    "{}: several songs could be it; it stays in downloads",
-                    bmseeker::fs::file_name(&chart)
-                ));
-            }
-            if report.rescan {
-                ctx.ensure_scanned("bms");
-                ctx.start_scan();
-            }
-        }
+        });
     }
 }
