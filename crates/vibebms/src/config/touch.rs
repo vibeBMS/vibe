@@ -128,9 +128,9 @@ pub const TOUCH_HEIGHT_RANGE: (f32, f32) = (0.1, 0.6);
 impl Default for PerspectiveConfig {
     fn default() -> Self {
         PerspectiveConfig {
-            strength: 0.65,
+            strength: 0.75,
             length: 1.0,
-            touch_height: 0.3,
+            touch_height: 0.4,
         }
     }
 }
