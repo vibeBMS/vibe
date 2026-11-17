@@ -4,7 +4,7 @@
 # number only grows (Android's versionCode and the iOS CFBundleVersion take
 # it); the commit says which source it is. Written into Cargo.toml, so
 # CARGO_PKG_VERSION carries it. Local builds keep the committed
-# <version>+dev, which never looks for updates.
+# <version>-dev, which never looks for updates.
 set -euo pipefail
 base="$(perl -ne 'if (/^\[workspace\.package\]/) { $w = 1 } elsif (/^\[/) { $w = 0 }
   if ($w && /^version = "(\d+\.\d+\.\d+)/) { print $1; exit }' Cargo.toml)"

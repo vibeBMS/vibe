@@ -78,8 +78,8 @@ later). `build_web.sh` ends by checking (with Node, if installed) that the modul
 defined (`node tools/check_wasm_imports.mjs`).
 
 ## Versions
-`Cargo.toml` names the version being worked towards, with `+dev`: `0.1.0+dev` is what local builds report.
+`Cargo.toml` names the version being worked towards as a prerelease: `0.1.0-dev` is what local builds report.
 CI builds are nightlies of it: `tools/ci_version.sh` rewrites it to `<version>-nightly.<run>+<commit>`,
 e.g. `0.1.0-nightly.192+e129ac9`, so `CARGO_PKG_VERSION` names the build. The run number only grows:
 Android's `versionCode` and the iOS `CFBundleVersion` are that number (iOS's `CFBundleShortVersionString`
-is the plain `0.1.0`, as it takes numbers only). After a release, Cargo.toml moves on to the next version.
+is the plain `0.1.0`, as it takes numbers only). After a release, Cargo.toml moves on to the next version (e.g. `0.1.1-dev`).
