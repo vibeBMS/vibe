@@ -22,24 +22,18 @@ pub enum TableMsg {
 pub struct Ctx {
     pub paths: Paths,
     pub config: Config,
-    pub lib: Option<Library>,
-    pub songs: Arc<Vec<Song>>,
-    pub scores: HashMap<(String, i32), BestScore>,
+    /// The library and the player's records.
+    pub lib: Lib,
     pub tables: Vec<DifficultyTable>,
     pub mixer: Mixer,
-    pub scan: Option<Arc<ScanProgress>>,
     pub table_job: Option<Job<TableMsg>>,
-    /// Scan again once the running scan ends (files came in during it).
-    scan_again: bool,
     pub toasts: Vec<(String, Instant)>,
     /// The window and the screen.
     pub view: View,
     pub touch_seen: bool,
-    pub library_version: u64,
     /// A text field is being edited (scenes set it as they draw): the
     /// on-screen keyboard is shown on iOS and Android.
     pub text_input: bool,
-    pub prefetch: Option<crate::platform::vfs::Prefetch>,
     /// Download pages to show in the in-app browser (song, then chart).
     pub browse: Option<Vec<String>>,
     /// Mirrored event entries (`archive`).
@@ -59,6 +53,24 @@ pub struct Ctx {
     pub sounds: crate::sysound::SystemSounds,
     /// The desktop executable's self-update.
     pub updater: crate::update::Updater,
+}
+
+/// The library: its database, the charts as last read, the records, and
+/// the scan.
+#[derive(Default)]
+pub struct Lib {
+    pub db: Option<Library>,
+    /// Sorted by title, then level.
+    pub songs: Arc<Vec<Song>>,
+    pub scores: HashMap<(String, i32), BestScore>,
+    /// Counts changes to what the music select lists (the songs, tables,
+    /// events).
+    pub version: u64,
+    pub scan: Option<Arc<ScanProgress>>,
+    /// Scan again once the running scan ends (files came in during it).
+    scan_again: bool,
+    /// Web: picked charts being read before the scan.
+    pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
 
 /// The window and the screen it is on.
@@ -82,20 +94,14 @@ impl Ctx {
         Ctx {
             paths,
             config,
-            lib: None,
-            songs: Arc::new(Vec::new()),
-            scores: HashMap::new(),
+            lib: Lib::default(),
             tables: Vec::new(),
             mixer,
-            scan: None,
             table_job: None,
-            scan_again: false,
             toasts: Vec::new(),
             view,
             touch_seen: false,
-            library_version: 0,
             text_input: false,
-            prefetch: None,
             browse: None,
             archives: Default::default(),
             song_fetch: Default::default(),
@@ -211,21 +217,21 @@ impl Ctx {
     /// starts, or the songs it found would be lost: the next one finds no
     /// change). `again`: start the scan asked for meanwhile.
     fn finish_scan(&mut self, again: bool) {
-        let Some(s) = &self.scan else { return };
+        let Some(s) = &self.lib.scan else { return };
         if !s.done.load(Ordering::Acquire) {
             return;
         }
         let changed = s.changed.load(Ordering::Acquire);
-        self.scan = None;
-        if changed || self.songs.is_empty() {
+        self.lib.scan = None;
+        if changed || self.lib.songs.is_empty() {
             self.reload_library();
         }
-        let n = self.songs.len();
+        let n = self.lib.songs.len();
         self.toast(format!("Library: {n} charts"));
         if !again {
             return;
         }
-        if std::mem::take(&mut self.scan_again) {
+        if std::mem::take(&mut self.lib.scan_again) {
             self.start_scan();
         } else {
             // what was downloaded before it started is in now
@@ -235,19 +241,20 @@ impl Ctx {
 
     pub fn start_scan(&mut self) {
         self.finish_scan(false);
-        self.scan_again = false;
+        self.lib.scan_again = false;
         if self
+            .lib
             .scan
             .as_ref()
             .map(|s| !s.done.load(Ordering::Acquire))
             .unwrap_or(false)
         {
             // it may have passed what just came in: again after it
-            self.scan_again = true;
+            self.lib.scan_again = true;
             return;
         }
         let progress = Arc::new(ScanProgress::default());
-        self.scan = Some(progress.clone());
+        self.lib.scan = Some(progress.clone());
         let db = self.paths.songs_cache();
         let roots = self.scan_roots();
         let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
@@ -260,7 +267,7 @@ impl Ctx {
     }
 
     pub fn reload_library(&mut self) {
-        if let Some(lib) = &mut self.lib {
+        if let Some(lib) = &mut self.lib.db {
             let mut songs = lib.songs();
             lib.merge_fixed_ln(&songs);
             songs.sort_by(|a, b| {
@@ -269,11 +276,11 @@ impl Ctx {
                     .cmp(&b.title.to_lowercase())
                     .then(a.level_num().cmp(&b.level_num()))
             });
-            self.songs = Arc::new(songs);
-            self.song_fetch.set_library(self.songs.clone());
-            self.scores = lib.scores();
+            self.lib.songs = Arc::new(songs);
+            self.song_fetch.set_library(self.lib.songs.clone());
+            self.lib.scores = lib.scores();
         }
-        self.library_version += 1;
+        self.lib.version += 1;
     }
 
     fn table_cache_file(&self, url: &str) -> PathBuf {
@@ -288,7 +295,7 @@ impl Ctx {
         for t in &mut self.tables {
             self.links.links.fill(&mut t.entries);
         }
-        self.library_version += 1;
+        self.lib.version += 1;
     }
 
     pub fn load_cached_tables(&mut self) {
@@ -411,7 +418,7 @@ impl Ctx {
             }
         }
         if changed {
-            self.library_version += 1;
+            self.lib.version += 1;
         }
         if rescan {
             #[cfg(not(target_arch = "wasm32"))]
@@ -430,18 +437,19 @@ impl Ctx {
                 .collect();
             let charts = crate::library::find_charts(&self.scan_roots(), &skip);
             self.toast(format!("Reading {} charts…", charts.len()));
-            self.prefetch = Some(crate::platform::vfs::Prefetch::files(charts));
+            self.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(charts));
         }
         if self
+            .lib
             .prefetch
             .as_ref()
             .map(|p| p.finished())
             .unwrap_or(false)
         {
-            self.prefetch = None;
+            self.lib.prefetch = None;
             // charts picked without their song's folder go into it
             #[cfg(target_arch = "wasm32")]
-            for m in crate::web::place_picked_charts(&self.paths.root, &self.songs) {
+            for m in crate::web::place_picked_charts(&self.paths.root, &self.lib.songs) {
                 self.toast(m);
             }
             self.start_scan();
@@ -484,7 +492,7 @@ impl Ctx {
                             .position(|u| *u == t.source_url)
                             .unwrap_or(usize::MAX)
                     });
-                    self.library_version += 1;
+                    self.lib.version += 1;
                 }
                 TableMsg::Failed(n, e) => self.toast(format!("Table {n}: {e}")),
             }
@@ -567,7 +575,7 @@ impl Ctx {
 
     /// The record of `sha256` under the LN mode `ln` (as filed).
     pub fn best_key(&self, sha256: &str, ln: i32) -> Option<&BestScore> {
-        self.scores.get(&(sha256, ln) as &dyn ScoreKey)
+        self.lib.scores.get(&(sha256, ln) as &dyn ScoreKey)
     }
 }
 

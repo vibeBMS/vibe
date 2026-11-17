@@ -162,7 +162,7 @@ impl ResultScene {
             ir_status = format!("{why}: not saved");
         } else if recorded(d.autoplay, d.unranked) {
             let ranked = d.assist == Assist::None;
-            if let Some(lib) = ctx.lib.as_mut() {
+            if let Some(lib) = ctx.lib.db.as_mut() {
                 // played up to the last judgement (as beatoraja counts it)
                 let last_us = d.judge_log.iter().map(|j| j.0).max().unwrap_or(0);
                 let play_ms = last_us.max(0) as u64 / 1000;
@@ -171,7 +171,7 @@ impl ResultScene {
                 } else {
                     lib.record_assisted(&song.sha256, ln, &d.score, d.clear, play_ms)
                 };
-                ctx.scores.insert((song.sha256.clone(), ln), b.clone());
+                ctx.lib.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
             }
             if !ranked {

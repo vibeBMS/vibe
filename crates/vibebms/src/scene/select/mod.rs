@@ -145,11 +145,11 @@ impl SelectScene {
 
     /// The library or the tables changed: the lists again.
     fn rebuild(&mut self, ctx: &Ctx) {
-        self.version = ctx.library_version;
+        self.version = ctx.lib.version;
         self.dist_cache.borrow_mut().clear();
         self.md5_map.clear();
         self.sha_map.clear();
-        for (i, s) in ctx.songs.iter().enumerate() {
+        for (i, s) in ctx.lib.songs.iter().enumerate() {
             if !s.md5.is_empty() {
                 self.md5_map.insert(s.md5.clone(), i);
             }
@@ -216,7 +216,7 @@ impl SelectScene {
 
     fn selected_song<'a>(&self, ctx: &'a Ctx) -> Option<(usize, &'a Song)> {
         match self.bars.get(self.cursor) {
-            Some(Bar::Song(i)) => ctx.songs.get(*i).map(|s| (*i, s)),
+            Some(Bar::Song(i)) => ctx.lib.songs.get(*i).map(|s| (*i, s)),
             _ => None,
         }
     }
@@ -275,7 +275,7 @@ impl SelectScene {
 
 impl Scene for SelectScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if self.version != ctx.library_version {
+        if self.version != ctx.lib.version {
             self.rebuild(ctx);
         }
         // a newer nightly was found (once)
@@ -313,7 +313,7 @@ impl Scene for SelectScene {
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         // the library read again since the last frame (an earlier input
         // rescanned): the bars' song indices are of the old list
-        if self.version != ctx.library_version {
+        if self.version != ctx.lib.version {
             self.rebuild(ctx);
         }
         self.input_event(ctx, ev)

@@ -62,7 +62,7 @@ impl<'a> SelectState<'a> {
     pub fn new(s: &'a SelectScene, ctx: &'a Ctx) -> SelectState<'a> {
         let bar = s.bars.get(s.cursor);
         let song = match bar {
-            Some(Bar::Song(i)) => ctx.songs.get(*i),
+            Some(Bar::Song(i)) => ctx.lib.songs.get(*i),
             _ => None,
         };
         SelectState {
@@ -112,7 +112,7 @@ impl<'a> SelectState<'a> {
                 lamp: None,
             },
             Bar::Song(k) => {
-                let s = ctx.songs.get(*k)?;
+                let s = ctx.lib.songs.get(*k)?;
                 BarInfo {
                     kind: BAR_SONG,
                     title: s.full_title(),

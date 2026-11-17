@@ -94,7 +94,7 @@ impl SelectScene {
             Bar::Folder { label, .. } => format!("f:{label}"),
             Bar::Song(i) => format!(
                 "s:{}",
-                ctx.songs.get(*i).map(|s| s.path.as_str()).unwrap_or("")
+                ctx.lib.songs.get(*i).map(|s| s.path.as_str()).unwrap_or("")
             ),
             Bar::Missing(m) => format!("m:{}\u{1f}{}", m.title, m.artist),
             Bar::Course { table, course } => format!("c:{table}:{course}"),
@@ -104,7 +104,7 @@ impl SelectScene {
     /// The bars of `node`; songs sorted by title, difficulty and level
     /// when `sort`.
     fn build(&self, ctx: &Ctx, node: &Node, sort: bool) -> Vec<Bar> {
-        let songs = &ctx.songs;
+        let songs = &ctx.lib.songs;
         let sorted = |mut v: Vec<usize>| -> Vec<Bar> {
             if sort {
                 v.sort_by_cached_key(|i| {
@@ -334,7 +334,7 @@ impl SelectScene {
         let mut count = |bars: &[Bar]| {
             for b in bars {
                 let Some(song) = (match b {
-                    Bar::Song(k) => ctx.songs.get(*k),
+                    Bar::Song(k) => ctx.lib.songs.get(*k),
                     _ => None,
                 }) else {
                     continue;

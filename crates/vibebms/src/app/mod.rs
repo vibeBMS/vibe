@@ -424,7 +424,6 @@ impl App {
             system_volume: a.system,
             max_voices: 512,
         });
-        let lib = Some(Library::open(&self.paths.cache, &self.paths.scores));
         let size = {
             let (width, height) = surface_size(&window);
             // the renderer started from winit's idea of the size
@@ -451,7 +450,7 @@ impl App {
             want_present_mode: false,
         };
         let mut ctx = Ctx::new(self.paths.clone(), config, mixer, view);
-        ctx.lib = lib;
+        ctx.lib.db = Some(Library::open(&ctx.paths.cache, &ctx.paths.scores));
         ctx.reload_library();
         ctx.load_cached_tables();
         // the web build's first scan comes once the songs kept in the

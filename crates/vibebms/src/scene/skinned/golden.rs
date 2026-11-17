@@ -73,7 +73,7 @@ fn ctx() -> Ctx {
     let mut ctx = Ctx::for_test(root);
     let s = song();
     let ln = s.score_ln(ctx.config.play.ln_mode) as i32;
-    ctx.scores.insert((s.sha256.clone(), ln), best());
+    ctx.lib.scores.insert((s.sha256.clone(), ln), best());
     ctx.tables.push(bmseeker::table::DifficultyTable {
         source_url: "https://example.invalid/table".into(),
         header: bmseeker::table::TableHeader {
@@ -88,7 +88,7 @@ fn ctx() -> Ctx {
         }],
         fetched_at: 0,
     });
-    ctx.songs = Arc::new(vec![s]);
+    ctx.lib.songs = Arc::new(vec![s]);
     ctx
 }
 

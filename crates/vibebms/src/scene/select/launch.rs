@@ -24,7 +24,7 @@ impl SelectScene {
                 Next::Stay
             }
             Some(Bar::Song(i)) => {
-                let song = ctx.songs[i].clone();
+                let song = ctx.lib.songs[i].clone();
                 // G-BATTLE: the opponent's replay, if it can be one
                 let slot = match ctx.config.play.versus {
                     Versus::GhostBest => Some(Slot::Best),
@@ -80,7 +80,7 @@ impl SelectScene {
                         ));
                         return Next::Stay;
                     };
-                    songs.push(ctx.songs[i].clone());
+                    songs.push(ctx.lib.songs[i].clone());
                 }
                 if songs.is_empty() {
                     return Next::Stay;
@@ -195,7 +195,7 @@ impl SelectScene {
         // the song is in the library (another of its charts): what to say
         // when nothing can be tried
         let have_song = !md5.is_empty()
-            && ctx.songs.iter().any(|s| {
+            && ctx.lib.songs.iter().any(|s| {
                 crate::placement::same_name(&s.title, &title)
                     && crate::placement::same_artist(&s.artist, &artist)
             });

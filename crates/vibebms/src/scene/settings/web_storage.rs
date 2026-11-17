@@ -40,9 +40,10 @@ fn stale_folders(ctx: &Ctx, folders: &[Kept]) -> Vec<usize> {
         .enumerate()
         .filter(|(_, k)| k.newest > 0 && k.newest < cut)
         .filter(|(_, k)| {
-            !ctx.songs.iter().any(|s| {
+            !ctx.lib.songs.iter().any(|s| {
                 std::path::Path::new(&s.path).starts_with(&k.dir)
                     && ctx
+                        .lib
                         .scores
                         .iter()
                         .any(|((sha, _), b)| *sha == s.sha256 && b.last_played >= cut)
