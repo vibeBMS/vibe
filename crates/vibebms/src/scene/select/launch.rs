@@ -199,7 +199,11 @@ impl SelectScene {
                 crate::placement::same_name(&s.title, &title)
                     && crate::placement::same_artist(&s.artist, &artist)
             });
-        if ctx.net.song_fetch.start(&root, entry, addons) {
+        if ctx
+            .net
+            .song_fetch
+            .start(&root, &ctx.lib.songs, entry, addons)
+        {
             ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
             return;
         }

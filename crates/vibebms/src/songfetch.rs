@@ -5,16 +5,16 @@
 
 use crate::app::AppEvent;
 use crate::library::Song;
+use crate::platform::Job;
 use bmseeker::progress::{Progress, Stage};
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 pub use bmseeker::install::{Done, Failure};
 
 /// A song as a table names it: its title and artist (two songs of one
 /// title are two downloads).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct SongId {
     title: String,
     artist: String,
@@ -31,15 +31,11 @@ impl SongId {
 
 #[derive(Default)]
 pub struct SongFetch {
-    tx: Option<Sender<(SongId, Vec<Done>)>>,
-    rx: Option<Receiver<(SongId, Vec<Done>)>>,
-    /// The songs downloading, and how far each has got.
-    busy: Vec<(SongId, Arc<Progress>)>,
+    /// The songs downloading (one cancelled until it has stopped), and
+    /// what became of their links.
+    jobs: Vec<(SongId, Job<Vec<Done>>)>,
     /// Songs in the library, until the library has been read again.
     adding: Vec<(SongId, Arc<Progress>)>,
-    /// The library's charts as last read (where each is, its hashes, title
-    /// and artist), for placing what comes.
-    songs: Arc<Vec<Song>>,
 }
 
 /// What a link brought (`bytes`; a chart's own link: its file name
@@ -95,10 +91,12 @@ impl SongFetch {
     /// How far the song's download has got (while [`Self::is_busy`]).
     pub fn progress(&self, title: &str, artist: &str) -> Option<&Arc<Progress>> {
         let id = SongId::new(title, artist);
-        self.busy
+        self.jobs
             .iter()
-            .chain(&self.adding)
-            .find(|(s, _)| *s == id)
+            .map(|(s, job)| (s, job.progress()))
+            .filter(|(_, p)| !p.cancelled())
+            .chain(self.adding.iter().map(|(s, p)| (s, p)))
+            .find(|(s, _)| **s == id)
             .map(|(_, p)| p)
     }
 
@@ -106,12 +104,17 @@ impl SongFetch {
     /// still comes (a failure, cancelled), when it has stopped.
     pub fn cancel(&mut self, title: &str, artist: &str) -> bool {
         let id = SongId::new(title, artist);
-        let Some(i) = self.busy.iter().position(|(s, _)| *s == id) else {
-            return false;
-        };
-        let (_, p) = self.busy.remove(i);
-        p.cancel();
-        true
+        match self
+            .jobs
+            .iter()
+            .find(|(s, job)| *s == id && !job.progress().cancelled())
+        {
+            Some((_, job)) => {
+                job.cancel();
+                true
+            }
+            None => false,
+        }
     }
 
     /// The library has been read again: the songs added are in it.
@@ -119,19 +122,16 @@ impl SongFetch {
         self.adding.clear();
     }
 
-    /// The library's charts, as read (for placing what comes).
-    pub fn set_library(&mut self, songs: Arc<Vec<Song>>) {
-        self.songs = songs;
-    }
-
     /// Download the table's entry `e` (a chart, its song, their links:
     /// each its own first, then the others known for the chart), then the
-    /// add-ons `addons`: `bmseeker::install::EntryJob` (natively on a
-    /// thread; on the web through the vibeBMS proxy, unpacked / placed in
-    /// memory). False when there is nothing to try.
+    /// add-ons `addons`, into the library as the player read it (`songs`):
+    /// `bmseeker::install::EntryJob` (natively on a thread; on the web
+    /// through the vibeBMS proxy, unpacked / placed in memory). False when
+    /// there is nothing to try.
     pub fn start(
         &mut self,
         root: &Path,
+        songs: &[Song],
         mut e: bmseeker::install::Entry,
         addons: Vec<String>,
     ) -> bool {
@@ -142,62 +142,64 @@ impl SongFetch {
         e.song.retain(|u| is_link(u));
         e.chart.retain(|u| is_link(u));
         let id = SongId::new(&e.want.title, &e.want.artist);
-        let progress = Progress::new();
-        // the settings and hosts, reporting to (and cancelled by) this
-        // song's progress
-        let cx = crate::hosts::install_context().with_progress(progress.clone());
-        let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
-        // the library as the player has it, for the song and its chart
-        let lib = crate::placement::library(root, &self.songs);
-        let store = Arc::new(crate::placement::Vfs);
-        let job =
-            bmseeker::install::EntryJob::new(store, root.join("downloads"), lib, e, sources, &cx)
-                .addons(addons.into_iter().filter(|u| is_link(u)));
-        if job.is_empty() {
-            return false;
-        }
-        let tx = self
-            .tx
-            .get_or_insert_with(|| {
-                let (tx, rx) = channel();
-                self.rx = Some(rx);
-                tx
-            })
-            .clone();
-        self.busy.push((id.clone(), progress.clone()));
-        progress.set_stage(Stage::Finding);
-        let finish = move |out: Installed| {
-            let _ = tx.send((id, out.done));
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        crate::platform::spawn("song", move || {
-            let mut job = job;
-            finish(bmseeker::install::job::run_job(
-                &mut job,
-                &bmseeker::native::Native::new(&cx),
-            ))
+        let mut started = false;
+        let job = Job::start(|tx, progress| {
+            // the settings and hosts, reporting to (and cancelled by) this
+            // song's progress
+            let cx = crate::hosts::install_context().with_progress(progress.clone());
+            let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
+            let lib = crate::placement::library(root, songs);
+            let store = Arc::new(crate::placement::Vfs);
+            let job = bmseeker::install::EntryJob::new(
+                store,
+                root.join("downloads"),
+                lib,
+                e,
+                sources,
+                &cx,
+            )
+            .addons(addons.into_iter().filter(|u| is_link(u)));
+            if job.is_empty() {
+                return;
+            }
+            started = true;
+            progress.set_stage(Stage::Finding);
+            let finish = move |out: Installed| {
+                let _ = tx.send(out.done);
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            crate::platform::spawn("song", move || {
+                let mut job = job;
+                finish(bmseeker::install::job::run_job(
+                    &mut job,
+                    &bmseeker::native::Native::new(&cx),
+                ))
+            });
+            #[cfg(target_arch = "wasm32")]
+            crate::platform::run_job(job, Some(progress), finish);
         });
-        #[cfg(target_arch = "wasm32")]
-        crate::platform::run_job(job, Some(progress), finish);
-        true
+        if started {
+            self.jobs.push((id, job));
+        }
+        started
     }
 
     /// What the songs that finished since the last call brought.
     pub fn poll(&mut self) -> Vec<AppEvent> {
-        let done: Vec<(SongId, Vec<Done>)> = self
-            .rx
-            .as_ref()
-            .map(|rx| rx.try_iter().collect())
-            .unwrap_or_default();
+        let mut done = Vec::new();
+        self.jobs.retain_mut(|(id, job)| match job.poll() {
+            Some(d) => {
+                done.push((std::mem::take(id), job.progress().clone(), d));
+                false
+            }
+            None => true,
+        });
         let mut out = Vec::new();
-        for (id, d) in done {
-            if let Some(i) = self.busy.iter().position(|(b, _)| *b == id) {
-                let (id, p) = self.busy.remove(i);
-                // in the library: until it is read again
-                if bmseeker::install::got(&d) {
-                    p.set_stage(Stage::Adding);
-                    self.adding.push((id, p));
-                }
+        for (id, p, d) in done {
+            // in the library: until it is read again
+            if !p.cancelled() && bmseeker::install::got(&d) {
+                p.set_stage(Stage::Adding);
+                self.adding.push((id.clone(), p));
             }
             out.extend(d.into_iter().flat_map(|d| events(&id.title, d)));
         }
@@ -388,13 +390,25 @@ mod tests {
     #[test]
     fn downloads_by_title_and_artist() {
         let mut f = SongFetch::default();
-        f.busy
-            .push((SongId::new("Aurora", "alpha"), Progress::new()));
+        let job = Job::spawn("test", |p| {
+            while !p.cancelled() {
+                std::thread::yield_now();
+            }
+            vec![Done::Failed(Failure::Net(
+                bmseeker::net::NetError::Cancelled,
+            ))]
+        });
+        f.jobs.push((SongId::new("Aurora", "alpha"), job));
         assert!(f.is_busy("Aurora", "alpha") && !f.is_busy("Aurora", "beta"));
         assert!(f.progress("Aurora", "beta").is_none());
         assert!(!f.cancel("Aurora", "beta"));
         assert!(f.cancel("Aurora", "alpha"));
-        assert!(!f.is_busy("Aurora", "alpha"));
+        assert!(!f.is_busy("Aurora", "alpha") && !f.cancel("Aurora", "alpha"));
+        // its outcome comes once it has stopped, and says nothing more
+        while !f.jobs.is_empty() {
+            assert_eq!(f.poll(), []);
+            std::thread::yield_now();
+        }
     }
 
     /// Another song of the title has the folder: this one gets its own;

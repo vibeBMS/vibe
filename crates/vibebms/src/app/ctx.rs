@@ -339,7 +339,6 @@ impl Ctx {
                     .then(a.level_num().cmp(&b.level_num()))
             });
             self.lib.songs = Arc::new(songs);
-            self.net.song_fetch.set_library(self.lib.songs.clone());
             self.lib.scores = lib.scores();
         }
         self.lib.version += 1;
