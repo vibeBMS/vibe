@@ -7,9 +7,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # each CI build's number: 0.1.<run> (the app stores and sideloading
-  # tools want a newer number to update an installed app)
-  BUILD_NUMBER: ${{ github.run_number }}
 
 jobs:
   test:
@@ -81,6 +78,10 @@ jobs:
           # the runner image too: a build cached on another image (ubuntu-24.04
           # before 22.04) restored as fresh but without its crates' files
           key: ${{ matrix.target }}-${{ matrix.os }}
+      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # whose key reads Cargo.toml)
+      - run: ./tools/ci_version.sh
+        shell: bash
       - run: cargo build --release -p vibebms --target ${{ matrix.target }}
       # the executable alone (the downloads job links it in the run summary)
       - uses: actions/upload-artifact@v4
@@ -115,6 +116,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.name }}
+      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # whose key reads Cargo.toml)
+      - run: ./tools/ci_version.sh
+        shell: bash
       - run: cargo build --release -p vibebms --no-default-features --target ${{ matrix.target }}
       - name: needs glibc 2.28 at most
         run: |
@@ -143,6 +148,10 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # whose key reads Cargo.toml)
+      - run: ./tools/ci_version.sh
+        shell: bash
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
@@ -218,6 +227,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: aarch64-apple-ios
+      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # whose key reads Cargo.toml)
+      - run: ./tools/ci_version.sh
+        shell: bash
       - run: cargo build --release -p vibebms --target aarch64-apple-ios
       - name: package
         run: |
@@ -225,9 +238,9 @@ jobs:
           mkdir -p "$app"
           cp target/aarch64-apple-ios/release/vibebms "$app/"
           cp platform/ios/Info.plist platform/ios/*.png "$app/"
-          base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | cut -d. -f1-2)"
-          plutil -replace CFBundleShortVersionString -string "$base.$BUILD_NUMBER" "$app/Info.plist"
-          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$app/Info.plist"
+          # iOS takes numbers only: 0.1.<run> and <run>
+          plutil -replace CFBundleShortVersionString -string "${VIBEBMS_VERSION%%+*}" "$app/Info.plist"
+          plutil -replace CFBundleVersion -string "$VIBEBMS_BUILD" "$app/Info.plist"
           zip -qr vibeBMS-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
@@ -307,6 +320,10 @@ jobs:
           toolchain: stable
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # whose key reads Cargo.toml)
+      - run: ./tools/ci_version.sh
+        shell: bash
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -347,9 +364,8 @@ jobs:
         with:
           gradle-version: "8.11.1"
       - run: |
-          base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | cut -d. -f1-2)"
-          echo "VIBEBMS_VERSION_CODE=$BUILD_NUMBER" >> "$GITHUB_ENV"
-          echo "VIBEBMS_VERSION_NAME=$base.$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "VIBEBMS_VERSION_CODE=$VIBEBMS_BUILD" >> "$GITHUB_ENV"
+          echo "VIBEBMS_VERSION_NAME=$VIBEBMS_VERSION" >> "$GITHUB_ENV"
       - run: gradle -p platform/android --no-daemon assembleRelease
       - run: cp platform/android/app/build/outputs/apk/release/app-release.apk vibeBMS.apk
       - uses: actions/upload-artifact@v4
@@ -376,6 +392,11 @@ jobs:
         with:
           pattern: vibeBMS-*
           path: art
+      # the version the builds were given (tools/ci_version.sh)
+      - name: version
+        run: |
+          base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | cut -d. -f1-2)"
+          echo "VERSION=$base.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
       - name: files
         run: |
           mkdir out
@@ -391,9 +412,8 @@ jobs:
           # an AltStore / SideStore source: add its URL once, and the app
           # store offers each new nightly .ipa as an update
           if [ -f out/vibeBMS-unsigned.ipa ]; then
-            base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | cut -d. -f1-2)"
             jq -n --arg repo "$GITHUB_REPOSITORY" --arg sha "${GITHUB_SHA:0:7}" \
-              --arg version "$base.$BUILD_NUMBER" --arg build "$BUILD_NUMBER" \
+              --arg version "${VERSION%%+*}" --arg build "$GITHUB_RUN_NUMBER" \
               --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --argjson size "$(stat -c %s out/vibeBMS-unsigned.ipa)" '{
               name: "vibeBMS nightly",
@@ -412,7 +432,7 @@ jobs:
                   version: $version,
                   buildVersion: $build,
                   date: $date,
-                  localizedDescription: "Nightly build of \($sha).",
+                  localizedDescription: "Nightly build \($version)+\($sha).",
                   downloadURL: "https://github.com/\($repo)/releases/download/nightly/vibeBMS-unsigned.ipa",
                   size: $size,
                   minOSVersion: "14.0"
@@ -443,7 +463,7 @@ jobs:
             exit 1
           fi
           notes="$(
-            echo "The latest build of \`${GITHUB_REF_NAME}\`: ${SHA:0:7} ($(date -u '+%Y-%m-%d %H:%M UTC'))."
+            echo "The latest build of \`${GITHUB_REF_NAME}\`: version $VERSION ($(date -u '+%Y-%m-%d %H:%M UTC'))."
             echo
             echo "Files from this commit: $(cd out && ls | sed 's/^/`/; s/$/`/' | paste -sd ' ')"
             echo

@@ -76,3 +76,9 @@ llvm)/bin/llvm-ar`). Lua raises errors as WebAssembly exceptions, so `wasm-opt`,
 `--enable-exception-handling`, and the page needs a browser with them (Chrome 95, Firefox 100, Safari 15.2 or
 later). `build_web.sh` ends by checking (with Node, if installed) that the module imports no C function nothing
 defined (`node tools/check_wasm_imports.mjs`).
+
+## Versions
+The committed version (`[workspace.package]` in `Cargo.toml`) is what local builds report. CI builds
+rewrite it with `tools/ci_version.sh` to `<major>.<minor>.<run>+<commit>`, e.g. `0.1.192+e129ac9`, so
+`CARGO_PKG_VERSION` carries the build: the run number only grows (Android's `versionCode` and the iOS
+`CFBundleVersion`, which allow numbers only), and the commit says which source it is.
