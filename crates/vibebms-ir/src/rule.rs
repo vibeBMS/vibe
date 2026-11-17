@@ -218,7 +218,7 @@ pub fn open_gap(p: Profile, rec: &PlayRecord) -> Option<&'static Gap> {
 }
 
 /// Each difference the IR design found (its section 2.4), by profile. A gap
-/// closes (`closed: true`) when public documentation establishes the rule
+/// closes (`closed: true`) when a source establishes the rule
 /// and the engine follows it, or the profile leaves the case out; the
 /// sources and each gap's state are in `docs/RULES.md`.
 pub const EQUIVALENCE: &[Gap] = &[
