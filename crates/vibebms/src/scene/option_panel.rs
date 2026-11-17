@@ -77,13 +77,14 @@ pub fn index_of<T: PartialEq>(all: &[T], v: T) -> i64 {
     all.iter().position(|x| *x == v).unwrap_or(0) as i64
 }
 
-fn step<T: Copy + PartialEq>(all: &[T], v: T, d: i32) -> T {
+/// `v` moved `d` places along `all`, around the end.
+pub fn cycle<T: Copy + PartialEq>(all: &[T], v: T, d: i32) -> T {
     let n = all.len() as i32;
     let i = all.iter().position(|x| *x == v).unwrap_or(0) as i32;
     all[(i + d).rem_euclid(n) as usize]
 }
 
-fn onoff(b: bool) -> &'static str {
+pub fn onoff(b: bool) -> &'static str {
     if b {
         "ON"
     } else {
@@ -186,11 +187,11 @@ pub fn repeat(p: &mut PlayConfig, key: usize, step: f64, b: &Bpms) -> String {
 pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<String> {
     Some(match (panel, key) {
         (1, 0 | 1) => {
-            p.random_1p = step(&LaneOption::ALL, p.random_1p, if key == 0 { 1 } else { -1 });
+            p.random_1p = cycle(&LaneOption::ALL, p.random_1p, if key == 0 { 1 } else { -1 });
             format!("RANDOM: {}", p.random_1p.label())
         }
         (1, 2) => {
-            p.gauge = step(&GaugeType::SELECTABLE, p.gauge, 1);
+            p.gauge = cycle(&GaugeType::SELECTABLE, p.gauge, 1);
             format!("GAUGE: {}", p.gauge.label())
         }
         (1, 3) => {
@@ -198,12 +199,12 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("DP OPTION: {label}")
         }
         (1, 4) => {
-            let f = step(&HsFix::ALL, p.hs_fix, 1);
+            let f = cycle(&HsFix::ALL, p.hs_fix, 1);
             p.set_hs_fix(f, b);
             format!("HS-FIX: {}", f.label())
         }
         (1, 5 | 6) => {
-            p.random_2p = step(&LaneOption::ALL, p.random_2p, if key == 6 { 1 } else { -1 });
+            p.random_2p = cycle(&LaneOption::ALL, p.random_2p, if key == 6 { 1 } else { -1 });
             format!("RANDOM 2P: {}", p.random_2p.label())
         }
         (2, 0) => {
@@ -245,7 +246,7 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("BGA: {}", onoff(p.bga))
         }
         (3, 1) => {
-            p.gauge_auto_shift = step(&GaugeAutoShift::ALL, p.gauge_auto_shift, 1);
+            p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, 1);
             format!("GAUGE AUTO SHIFT: {}", p.gauge_auto_shift.label())
         }
         (3, 2) => {
@@ -269,7 +270,7 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
 pub fn turn(p: &mut PlayConfig, panel: usize, dir: i32, _b: &Bpms) -> Option<String> {
     Some(match panel {
         1 => {
-            p.target = step(&Target::ALL, p.target, -dir);
+            p.target = cycle(&Target::ALL, p.target, -dir);
             format!("TARGET: {}", p.target.label())
         }
         _ => return None,

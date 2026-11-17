@@ -476,19 +476,31 @@ pub fn gauge_index(g: GaugeType) -> i64 {
 /// Numbers every screen has: the local date and time (LR2 21-26: year,
 /// month, day, hour, minute, second).
 pub fn clock_number(id: i32) -> Option<i64> {
-    use chrono::{Datelike, Timelike};
-    if !(21..=26).contains(&id) {
-        return None;
+    (21..=26).contains(&id).then(|| Clock::now().number(id))?
+}
+
+/// The local date and time, read once for a frame's clock numbers.
+pub struct Clock([i64; 6]);
+
+impl Clock {
+    pub fn now() -> Clock {
+        use chrono::{Datelike, Timelike};
+        let t = chrono::Local::now();
+        Clock([
+            t.year() as i64,
+            t.month() as i64,
+            t.day() as i64,
+            t.hour() as i64,
+            t.minute() as i64,
+            t.second() as i64,
+        ])
     }
-    let t = chrono::Local::now();
-    Some(match id {
-        21 => t.year() as i64,
-        22 => t.month() as i64,
-        23 => t.day() as i64,
-        24 => t.hour() as i64,
-        25 => t.minute() as i64,
-        _ => t.second() as i64,
-    })
+
+    /// LR2 numbers 21-26 (see [`clock_number`]).
+    pub fn number(&self, id: i32) -> Option<i64> {
+        let i = usize::try_from(id - 21).ok()?;
+        self.0.get(i).copied()
+    }
 }
 
 /// The player's totals over all charts (beatoraja `PlayerData`; LR2 has

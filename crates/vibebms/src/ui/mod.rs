@@ -1,9 +1,11 @@
 //! Small immediate-mode widgets shared by the menu scenes.
 
+mod confirm;
 mod hit;
 mod list;
 mod text_input;
 
+pub use confirm::Armed;
 pub use hit::HitMap;
 pub use list::ListView;
 pub use text_input::{TextEvent, TextInput};
@@ -12,6 +14,9 @@ use crate::app::Draw;
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Rect};
 use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
+
+/// How far (in UI units) a press may move and still be a tap, not a drag.
+pub const DRAG_SLOP: f32 = 10.0;
 
 /// Panel look shared with the default skins: rounded, thin border, a short
 /// accent tab on the top edge.

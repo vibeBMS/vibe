@@ -2,6 +2,8 @@
 //! them: which binding a row is, its label, and learning a key into it.
 
 use crate::config::{KeyConfig, LaneKeys, SideKeys};
+use crate::input::{InputEv, Phase};
+use std::collections::HashMap;
 use winit::keyboard::KeyCode;
 
 /// Which binding a key-config row edits.
@@ -197,6 +199,81 @@ pub fn clear(k: &mut KeyConfig, s: Slot, device: Option<usize>) {
     }
 }
 
+/// Waiting for what to bind to a row: a key, a controller button, or an
+/// axis turned far enough from where it was first seen.
+#[derive(Debug, Default)]
+pub struct Learn {
+    pub slot: Option<Slot>,
+    axes: HashMap<u64, f32>,
+}
+
+/// What an input does while a row waits ([`Learn::input`]).
+#[derive(Debug, PartialEq)]
+pub enum Learned {
+    Waiting,
+    /// Escape, or a touch: it stopped waiting.
+    Cancel,
+    /// Delete: clear the row.
+    Clear,
+    /// Bind this to the row (`assign`'s arguments).
+    Bind(Option<KeyCode>, Option<u64>, Option<u64>),
+}
+
+impl Learn {
+    pub fn start(&mut self, s: Slot) {
+        self.slot = Some(s);
+        self.axes.clear();
+    }
+
+    pub fn stop(&mut self) {
+        self.slot = None;
+    }
+
+    pub fn on(&self) -> bool {
+        self.slot.is_some()
+    }
+
+    pub fn input(&mut self, ev: &InputEv) -> Learned {
+        match ev {
+            InputEv::Key {
+                code: KeyCode::Escape,
+                pressed: true,
+                ..
+            }
+            | InputEv::Pointer {
+                phase: Phase::Down, ..
+            } => {
+                self.stop();
+                Learned::Cancel
+            }
+            InputEv::Key {
+                code: KeyCode::Delete,
+                pressed: true,
+                ..
+            } => Learned::Clear,
+            InputEv::Key {
+                code,
+                pressed: true,
+                repeat: false,
+                ..
+            } => Learned::Bind(Some(*code), None, None),
+            InputEv::Pad {
+                id, pressed: true, ..
+            } => Learned::Bind(None, Some(*id), None),
+            InputEv::Axis { id, value, .. } => {
+                let first = *self.axes.entry(*id).or_insert(*value);
+                if (value - first).abs() > 0.3 {
+                    self.axes.clear();
+                    Learned::Bind(None, None, Some(*id))
+                } else {
+                    Learned::Waiting
+                }
+            }
+            _ => Learned::Waiting,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +298,37 @@ mod tests {
         clear(&mut k, Slot::ScratchUp(1), Some(2));
         assert!(k.p2.scratch_axis.is_empty());
         assert!(!k.p2.scratch_up.keys.is_empty());
+    }
+
+    #[test]
+    fn learning() {
+        use crate::platform::Instant;
+        let mut l = Learn::default();
+        l.start(Slot::Start);
+        let axis = |value| InputEv::Axis {
+            id: 4,
+            value,
+            time: Instant::now(),
+        };
+        // an axis binds once it has turned far enough from where it was
+        assert_eq!(l.input(&axis(0.5)), Learned::Waiting);
+        assert_eq!(l.input(&axis(0.7)), Learned::Waiting);
+        assert_eq!(l.input(&axis(0.9)), Learned::Bind(None, None, Some(4)));
+        let key = |code, repeat| InputEv::Key {
+            code,
+            pressed: true,
+            repeat,
+            time: Instant::now(),
+            text: None,
+        };
+        assert_eq!(l.input(&key(KeyCode::KeyQ, true)), Learned::Waiting);
+        assert_eq!(
+            l.input(&key(KeyCode::KeyQ, false)),
+            Learned::Bind(Some(KeyCode::KeyQ), None, None)
+        );
+        assert_eq!(l.input(&key(KeyCode::Delete, false)), Learned::Clear);
+        assert!(l.on());
+        assert_eq!(l.input(&key(KeyCode::Escape, false)), Learned::Cancel);
+        assert!(!l.on());
     }
 }

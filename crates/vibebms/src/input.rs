@@ -363,6 +363,43 @@ impl AxisStepper {
     }
 }
 
+/// A held key that acts again and again: first after a delay, then each
+/// time `due` is asked past the interval it gives.
+#[derive(Clone, Copy, Debug)]
+pub struct Repeat<K> {
+    pub key: K,
+    since: Instant,
+    next: Instant,
+    /// Repeats so far.
+    pub count: u32,
+}
+
+impl<K> Repeat<K> {
+    pub fn new(key: K, now: Instant, delay: Duration) -> Repeat<K> {
+        Repeat {
+            key,
+            since: now,
+            next: now + delay,
+            count: 0,
+        }
+    }
+
+    /// How long the key has been held at `now`.
+    pub fn held(&self, now: Instant) -> Duration {
+        now.saturating_duration_since(self.since)
+    }
+
+    /// Whether it acts again at `now`; the next time `every` later.
+    pub fn due(&mut self, now: Instant, every: Duration) -> bool {
+        if now < self.next {
+            return false;
+        }
+        self.next = now + every;
+        self.count += 1;
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,6 +444,19 @@ mod tests {
         m.tick(t + Duration::from_millis(200), &mut out);
         assert_eq!(out.len(), 1);
         assert!(!out[0].pressed);
+    }
+
+    #[test]
+    fn repeats() {
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        let mut r = Repeat::new(1, t, ms(300));
+        assert!(!r.due(t + ms(299), ms(50)));
+        assert!(r.due(t + ms(300), ms(50)));
+        assert!(!r.due(t + ms(340), ms(50)));
+        assert!(r.due(t + ms(350), ms(50)));
+        assert_eq!(r.count, 2);
+        assert_eq!(r.held(t + ms(400)), ms(400));
     }
 
     #[test]
