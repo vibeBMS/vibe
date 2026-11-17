@@ -271,9 +271,10 @@ pub enum IrError {
     NoCredentials,
     /// The provider does not offer the operation.
     NotOffered,
-    /// The service knows the chart only by its own id, not yet learned.
+    /// The service cannot address the chart: the key it needs is unknown
+    /// (Tachi's chart id not learned yet; a bmson's MD5 on BMS-IR).
     NoChartId,
-    /// The play cannot be put in the service's terms.
+    /// The play or request cannot be put in the service's terms.
     Unsendable(String),
 }
 
@@ -282,7 +283,7 @@ impl fmt::Display for IrError {
         match self {
             IrError::NoCredentials => f.write_str("not signed in"),
             IrError::NotOffered => f.write_str("not offered by this IR"),
-            IrError::NoChartId => f.write_str("chart not known to this IR yet"),
+            IrError::NoChartId => f.write_str("this IR does not know the chart by its hash"),
             IrError::Unsendable(why) => write!(f, "cannot be sent: {why}"),
         }
     }
