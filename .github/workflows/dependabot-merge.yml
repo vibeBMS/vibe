@@ -1,9 +1,11 @@
 name: Dependabot merge
 
 # Merges a Dependabot pull request once CI has passed on its head commit,
-# unless it holds a major update of a library (those wait for a person: CI
-# cannot check everything a new major version may change). Actions updates
-# merge at any version: CI itself runs them.
+# unless it changes a dependency's major version. Those wait for a person:
+# CI cannot check everything a new major may change (behaviour on devices,
+# licences and terms). Major follows Cargo: the first part of the old version
+# that is not 0, so 0.6 -> 0.8 is a major change, though Dependabot calls it
+# a minor update.
 
 on:
   workflow_run:
@@ -33,10 +35,29 @@ jobs:
           pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,headRefOid \
             --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
           if [ -z "$pr" ]; then echo "no open pull request at $SHA"; exit 0; fi
-          # Dependabot lists each update with its type in the commit message
-          if [[ "$BRANCH" != dependabot/github_actions/* ]] &&
-            gh api "repos/$REPO/commits/$SHA" --jq .commit.message | grep -q "update-type: version-update:semver-major"; then
-            echo "#$pr holds a major update: left for review"
+          gh api "repos/$REPO/commits/$SHA" --jq .commit.message > "$RUNNER_TEMP/msg"
+          cat > "$RUNNER_TEMP/held.py" <<'EOF'
+          import re, sys
+          # Each update Dependabot lists, "Updates `x` from A to B" or
+          # "Bumps [x](...) from A to B.", is held when it changes A's major:
+          # its first part other than 0, as Cargo reads 0.x versions.
+          msg = sys.stdin.read()
+          ups = re.findall(r"(?:Updates `([^`]+)`|Bumps \[([^\]]+)\]\([^)]*\)) from v?(\S+?) to v?(\S+?)\.?$", msg, re.M)
+          if not ups:
+              print("no updates found in the commit message")
+          def parts(v):
+              n = [int(x) for x in re.findall(r"\d+", v.split("+")[0].split("-")[0])[:3]]
+              return n + [0] * (3 - len(n))
+          for a, b, old, new in ups:
+              o, n = parts(old), parts(new)
+              i = next((k for k, v in enumerate(o) if v), 2)
+              if o[: i + 1] != n[: i + 1] or n < o:
+                  print(f"{a or b} {old} -> {new}")
+          EOF
+          held=$(python3 -I "$RUNNER_TEMP/held.py" < "$RUNNER_TEMP/msg")
+          if [ -n "$held" ] || grep -q "update-type: version-update:semver-major" "$RUNNER_TEMP/msg"; then
+            echo "#$pr left for review:"
+            echo "${held:-a major update}"
             exit 0
           fi
           gh pr merge -R "$REPO" "$pr" --squash --delete-branch --match-head-commit "$SHA"

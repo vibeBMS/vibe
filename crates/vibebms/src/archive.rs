@@ -107,6 +107,19 @@ pub struct Catalog {
     pub fetched_at: u64,
 }
 
+/// The events of a list (`events.json`). An entry that does not read (a
+/// field of another type, a null) is left out, not the whole list; one
+/// without an index is kept and skipped later. Fields the app does not
+/// use (`venue`, `date`) may be missing or null.
+pub fn parse_catalog(bytes: &[u8]) -> Result<Vec<CatalogEntry>, String> {
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    Ok(entries
+        .into_iter()
+        .filter_map(|e| serde_json::from_value(e).ok())
+        .collect())
+}
+
 /// Whether a configured URL is a list of events.
 pub fn is_catalog(url: &str) -> bool {
     url.trim_end_matches('/').ends_with("events.json")
@@ -270,10 +283,7 @@ impl Archives {
         for url in lists {
             let u = url.clone();
             self.jobs.push(Job::get(&url, move |r| {
-                let r = r.and_then(|b| {
-                    serde_json::from_slice::<Vec<CatalogEntry>>(&b).map_err(|e| e.to_string())
-                });
-                Msg::Catalog(u, r)
+                Msg::Catalog(u, r.and_then(|b| parse_catalog(&b)))
             }));
         }
         let todo: Vec<String> = self
@@ -664,6 +674,59 @@ mod tests {
             ]
         );
         assert!(is_catalog(CATALOG) && !is_catalog(OLD_DEFAULT));
+    }
+
+    #[test]
+    fn reads_other_events() {
+        // events not of BOF: names in Japanese, no venue or a null one, links
+        // only; an entry that does not read is left out, the rest kept
+        let j = r#"[{"tag": "mumei2026", "name": "無名戦&A-1 2026",
+            "title": "自称無名BMS作家が物申す！ & A-1 ClimaX 2026", "venue": 151,
+            "date": "2026-05-01", "mirror": false, "index": "https://x/mumei2026/index.json"},
+            {"tag": "dpbms2014", "name": "DPBMS差分大会", "title": "合作！DPBMS差分大会",
+            "venue": null, "mirror": true, "index": "https://x/dpbms2014/index.json"},
+            {"tag": "pabat", "title": "P", "index": "https://x/pabat/index.json"},
+            {"tag": "bad", "name": null, "index": "https://x/bad/index.json"},
+            {"tag": "noindex", "name": "N"}]"#;
+        let events = parse_catalog(j.as_bytes()).unwrap();
+        assert_eq!(events.len(), 4);
+        let mut a = Archives {
+            sources: vec![CATALOG.into()],
+            catalogs: vec![Catalog {
+                url: CATALOG.into(),
+                events,
+                fetched_at: 1,
+            }],
+            ..Default::default()
+        };
+        let paths = crate::paths::Paths::at(std::env::temp_dir().join("vibebms-archive-test-2"));
+        a.rebuild(&paths);
+        let names: Vec<(&str, &str, &str, bool)> = a
+            .events
+            .iter()
+            .map(|e| (e.name.as_str(), e.label(), e.title.as_str(), e.mirrored))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                (
+                    "MUMEI2026",
+                    "無名戦&A-1 2026",
+                    "自称無名BMS作家が物申す！ & A-1 ClimaX 2026",
+                    false
+                ),
+                ("DPBMS2014", "DPBMS差分大会", "合作！DPBMS差分大会", true),
+                ("PABAT", "PABAT", "P", false)
+            ]
+        );
+        assert!(parse_catalog(b"{}").is_err());
+        // a links-only work: no files, so its page opens rather than a download
+        a.events[0].works = serde_json::from_str(
+            r#"[{"num": 3, "title": "T", "artist": "A", "team": "", "kind": "",
+            "page": "p", "files": [], "links": ["https://drive.google.com/x"]}]"#,
+        )
+        .unwrap();
+        assert!(!a.can_download(0, 3));
     }
 
     #[test]
