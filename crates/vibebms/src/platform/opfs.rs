@@ -7,6 +7,12 @@
 //! write OPFS that every browser with it has, Safari included); it also
 //! lists and removes, and keeps `platform::store`'s files. Its requests run
 //! one after another.
+//!
+//! BMSeeker's web page (same origin, so the same storage) changes `bms/`
+//! too: it says which song folders it changed on the `BroadcastChannel`
+//! `vibebms-library`, and they are listed and mounted again ([`start`]).
+//! It writes holding the Web Lock `vibebms-library` alone; the library is
+//! listed and its charts read holding it shared ([`hold_library`]).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -48,11 +54,16 @@ async function list(d, prefix, out) {
 async function run(id, op, path, data) {
   const parts = path.split("/").filter((p) => p);
   if (op === "list") {
-    const out = [];
-    let d = null;
-    try { d = await dir(parts, false); } catch (e) { return out; }
-    await list(d, "", out);
-    return out;
+    // (BMSeeker writes the library holding this lock alone: never while
+    // it is listed)
+    const listed = async () => {
+      const out = [];
+      let d = null;
+      try { d = await dir(parts, false); } catch (e) { return out; }
+      await list(d, "", out);
+      return out;
+    };
+    return navigator.locks ? navigator.locks.request("vibebms-library", { mode: "shared" }, listed) : listed();
   }
   if (op === "write") {
     const name = parts.pop();
@@ -291,13 +302,103 @@ pub fn start(
     on_msg.forget();
     WORKER_H.with(|w| *w.borrow_mut() = Some(worker));
     // each kept folder listed, one after another; then `done`
-    let mount = std::rc::Rc::new(RefCell::new(mount));
+    let mount: Mount = std::rc::Rc::new(RefCell::new(mount));
+    listen(root, mount.clone());
     list_all(kept_dirs, mount, 0, Box::new(done));
+}
+
+type Mount = std::rc::Rc<RefCell<dyn FnMut(PathBuf, web_sys::File)>>;
+
+/// Song folders BMSeeker changed (`{type: "changed", folders: ["bms/<song>",
+/// ...]}`): each listed and mounted again (what is no more, gone), then
+/// the library read again.
+fn listen(root: &Path, mount: Mount) {
+    // (web-sys' BroadcastChannel is a feature of its own: reached as JS)
+    let ch = js_sys::Reflect::get(&js_sys::global(), &"BroadcastChannel".into())
+        .ok()
+        .and_then(|c| c.dyn_into::<js_sys::Function>().ok())
+        .and_then(|c| {
+            js_sys::Reflect::construct(&c, &js_sys::Array::of1(&"vibebms-library".into())).ok()
+        });
+    let Some(ch) = ch else { return };
+    let root = root.to_path_buf();
+    let on_msg =
+        Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
+            let data = e.data();
+            let field = |k: &str| js_sys::Reflect::get(&data, &k.into()).unwrap_or_default();
+            if field("type").as_string().as_deref() != Some("changed") {
+                return;
+            }
+            let folders: Vec<String> = js_sys::Array::from(&field("folders"))
+                .iter()
+                .filter_map(|f| f.as_string())
+                .filter(|f| {
+                    let p = Path::new(f);
+                    p.starts_with("bms")
+                        && p.components().count() > 1
+                        && p.components()
+                            .all(|c| matches!(c, std::path::Component::Normal(_)))
+                })
+                .collect();
+            for rel in folders {
+                let (dir, mount) = (root.join(&rel), mount.clone());
+                log::info!("library: {rel} changed by BMSeeker");
+                send(
+                    "list",
+                    &rel,
+                    JsValue::NULL,
+                    None,
+                    Box::new(move |r| {
+                        let Ok(v) = r else { return };
+                        super::vfs::unmount(&dir);
+                        for item in js_sys::Array::from(&v).iter() {
+                            let item: js_sys::Array = item.unchecked_into();
+                            if let (Some(f), Ok(file)) = (
+                                item.get(0).as_string(),
+                                item.get(1).dyn_into::<web_sys::File>(),
+                            ) {
+                                (mount.borrow_mut())(dir.join(f), file);
+                            }
+                        }
+                        super::vfs::mark_added();
+                    }),
+                );
+            }
+        });
+    let _ = js_sys::Reflect::set(&ch, &"onmessage".into(), on_msg.as_ref());
+    // (open for as long as the page is)
+    on_msg.forget();
+}
+
+thread_local! {
+    /// Lets go of the library's lock (held while its charts are read).
+    static HELD: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
+}
+
+/// Hold the Web Lock `vibebms-library` shared while the library is read
+/// (`false`: let go of it), so BMSeeker writes nothing meanwhile.
+pub fn hold_library(on: bool) {
+    let held = HELD.with(|h| h.borrow_mut().take());
+    if let Some(release) = held {
+        let _ = release.call0(&JsValue::NULL);
+    }
+    if on {
+        let take = js_sys::Function::new_no_args(
+            "if (!navigator.locks) return () => {};\n\
+             let release;\n\
+             const held = new Promise((r) => (release = r));\n\
+             navigator.locks.request('vibebms-library', { mode: 'shared' }, () => held);\n\
+             return () => release();",
+        );
+        if let Ok(release) = take.call0(&JsValue::NULL) {
+            HELD.with(|h| *h.borrow_mut() = release.dyn_into().ok());
+        }
+    }
 }
 
 fn list_all(
     mut dirs: Vec<(PathBuf, &'static str)>,
-    mount: std::rc::Rc<RefCell<dyn FnMut(PathBuf, web_sys::File)>>,
+    mount: Mount,
     n: usize,
     done: Box<dyn FnOnce(usize)>,
 ) {

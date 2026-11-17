@@ -54,6 +54,19 @@ fn stale_folders(ctx: &Ctx, folders: &[Kept]) -> Vec<usize> {
 }
 
 pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>, v: &mut Vec<Row>) {
+    // BMSeeker's web page, beside this one: what it adds shows here at once
+    v.push(Row::new(
+        "Manage the library with BMSeeker (difficulty tables, downloads)",
+        "open ↗",
+        Act::Run(
+            |_, _| {
+                if let Some(origin) = web_sys::window().and_then(|w| w.location().origin().ok()) {
+                    crate::platform::open_url(&format!("{origin}/BMSeeker/"));
+                }
+            },
+            0,
+        ),
+    ));
     let st = crate::platform::opfs::status();
     if !st.available {
         v.push(Row::note(
