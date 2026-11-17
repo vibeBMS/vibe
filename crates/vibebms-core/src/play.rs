@@ -3,6 +3,7 @@
 //! and a replay checked without the app).
 
 use crate::chart::{Chart, LnProfile, LnType};
+use crate::course::{CourseKind, Join};
 use crate::engine::{Engine, EngineConfig, JudgeAlgorithm};
 use crate::gauge::{GaugeAutoShift, GaugePreset, GaugeType, GrooveGauge};
 use crate::judge::{judge_rules, JudgePreset};
@@ -39,6 +40,10 @@ pub struct RuleOptions {
     pub judge_rates: [i64; 3],
     /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
     pub hran_threshold_bpm: u32,
+    /// A course's stage (NONSTOP: the course): its kind, which decides
+    /// the LR2 set's gauges (`GrooveGauge::new_in`). Not a player option.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub course: Option<CourseKind>,
 }
 
 impl Default for RuleOptions {
@@ -60,7 +65,42 @@ impl Default for RuleOptions {
             expand_judge: false,
             judge_rates: [400, 400, 100],
             hran_threshold_bpm: 120,
+            course: None,
         }
+    }
+}
+
+impl RuleOptions {
+    /// The rules of a course of `kind` played on these options. Under the
+    /// LR2 gauge set a class course forces LR2's settings (S-OLR2b 5.1):
+    /// EASY and G-ATTACK play GROOVE (its class gauges, as HARD plays
+    /// EX-CLASS), and no lane option, BATTLE, DP FLIP, assist or note
+    /// option; an expert or NONSTOP course forces nothing (4.2). Under the
+    /// other sets every course plays the set's dan gauges, as vibeBMS's
+    /// table courses do. No course has GAUGE AUTO SHIFT.
+    pub fn for_course(&self, kind: CourseKind) -> RuleOptions {
+        let lr2 = self.gauge_preset == GaugePreset::Lr2;
+        let mut r = RuleOptions {
+            course: Some(kind),
+            gauge_auto_shift: GaugeAutoShift::None,
+            ..self.clone()
+        };
+        match (lr2, kind) {
+            (true, CourseKind::Class) => {
+                r.gauge = self.gauge.to_lr2_class();
+                r.random_1p = LaneOption::Off;
+                r.random_2p = LaneOption::Off;
+                r.dp_option = DoubleOption::Off;
+                r.battle = false;
+                r.auto_scratch = false;
+                r.legacy_note = false;
+                r.no_mine = false;
+                r.expand_judge = false;
+            }
+            (true, _) => {}
+            (false, _) => r.gauge = self.gauge.to_class(),
+        }
+        r
     }
 }
 
@@ -92,7 +132,36 @@ pub fn build_chart(
         random_seed: seed,
         random_selections: None,
     };
-    let mut chart = crate::load_chart_bytes(path, bytes, &opts).map_err(|e| e.to_string())?;
+    let chart = crate::load_chart_bytes(path, bytes, &opts).map_err(|e| e.to_string())?;
+    Ok(arrange(chart, rules, seed, course))
+}
+
+/// A NONSTOP course's chart: its stages (path, bytes) joined with `joins`
+/// (`nonstop::join`), each stage's `#RANDOM` rolled on from `seed`, then
+/// arranged by `rules` as one chart.
+pub fn build_nonstop_chart(
+    stages: &[(&Path, &[u8])],
+    joins: &[Join],
+    rules: &RuleOptions,
+    seed: i64,
+) -> Result<(PlayChart, crate::nonstop::Nonstop), String> {
+    let mut shared = crate::bms::Shared::new(seed);
+    let mut read = Vec::new();
+    for (path, bytes) in stages {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext.eq_ignore_ascii_case("bmson") {
+            return Err("a NONSTOP course takes BMS charts only".into());
+        }
+        let stage = crate::bms::parse_stage(bytes, ext, &mut shared)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        read.push(stage);
+    }
+    let (chart, ns) = crate::nonstop::join(read, joins).map_err(|e| e.to_string())?;
+    Ok((arrange(chart, rules, seed, None), ns))
+}
+
+/// `chart` arranged by `rules` (`course`: as `build_chart`'s).
+fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool>) -> PlayChart {
     let ln_profile = chart.ln_profile();
     let mut facts = AssistFacts::default();
     if rules.battle && !chart.mode().is_double() {
@@ -123,11 +192,11 @@ pub fn build_chart(
         lane_option::remove_mines_of(&mut chart, None);
         facts.no_mine = chart.notes.len() != n;
     }
-    Ok(PlayChart {
+    PlayChart {
         chart,
         facts,
         ln_profile,
-    })
+    }
 }
 
 /// G-BATTLE's chart: the single play chart read with the opponent's seed
@@ -183,13 +252,14 @@ pub fn build_engine(
     let judge = judge_rules(rules.judge_preset, fam, chart.meta.judge_rank, rates);
     let total = chart.total_of(rules.ln_mode, rules.gauge_preset, player);
     let notes = chart.total_judgements_of(rules.ln_mode, player);
-    let gauge = GrooveGauge::new(
+    let gauge = GrooveGauge::new_in(
         rules.gauge_preset,
         fam,
         rules.gauge,
         rules.gauge_auto_shift,
         total,
         notes,
+        rules.course,
     );
     let cfg = EngineConfig {
         rules: judge,
@@ -202,4 +272,107 @@ pub fn build_engine(
         player,
     };
     (Engine::new(chart, cfg, gauge), total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::course::CourseTotals;
+    use crate::judge::Judge;
+
+    fn lr2() -> RuleOptions {
+        RuleOptions {
+            judge_preset: JudgePreset::Lr2,
+            gauge_preset: GaugePreset::Lr2,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn class_courses_force_lr2_settings() {
+        let mine = RuleOptions {
+            random_1p: LaneOption::SRandom,
+            random_2p: LaneOption::Mirror,
+            dp_option: DoubleOption::Flip,
+            battle: true,
+            auto_scratch: true,
+            legacy_note: true,
+            no_mine: true,
+            expand_judge: true,
+            gauge_auto_shift: GaugeAutoShift::BestClear,
+            ..lr2()
+        };
+        for (gauge, played) in [
+            (GaugeType::Easy, GaugeType::Class),
+            (GaugeType::Normal, GaugeType::Class),
+            (GaugeType::GAttack, GaugeType::Class),
+            (GaugeType::Hard, GaugeType::ExClass),
+            (GaugeType::Hazard, GaugeType::Hazard),
+            (GaugeType::PAttack, GaugeType::PAttack),
+        ] {
+            let r = RuleOptions { gauge, ..mine.clone() }.for_course(CourseKind::Class);
+            assert_eq!(r.gauge, played, "{gauge:?}");
+            assert_eq!((r.random_1p, r.random_2p), (LaneOption::Off, LaneOption::Off));
+            assert_eq!(r.dp_option, DoubleOption::Off);
+            assert!(!(r.battle || r.auto_scratch || r.legacy_note || r.no_mine || r.expand_judge));
+            assert_eq!(r.gauge_auto_shift, GaugeAutoShift::None);
+            assert_eq!(r.course, Some(CourseKind::Class));
+        }
+        // expert and NONSTOP force nothing (but GAUGE AUTO SHIFT)
+        let r = RuleOptions {
+            gauge: GaugeType::GAttack,
+            ..mine.clone()
+        }
+        .for_course(CourseKind::Expert);
+        assert_eq!((r.gauge, r.random_1p, r.battle), (GaugeType::GAttack, LaneOption::SRandom, true));
+        // another set: its dan gauges, the options as they are
+        let b = RuleOptions {
+            gauge: GaugeType::Hard,
+            random_1p: LaneOption::Random,
+            ..Default::default()
+        }
+        .for_course(CourseKind::Class);
+        assert_eq!((b.gauge, b.random_1p), (GaugeType::ExClass, LaneOption::Random));
+    }
+
+    /// Two stages of an expert course: the second starts from the first's
+    /// exact gauge, the course combo and totals run on (S-OLR2b 4.2).
+    #[test]
+    fn expert_courses_carry_the_gauge_combo_and_totals() {
+        let rules = lr2().for_course(CourseKind::Expert);
+        let mut totals = CourseTotals::default();
+        let mut gauge: Option<Vec<f32>> = None;
+        let (mut notes, mut pg, mut empty) = (0, 0, 0);
+        for k in 0..2 {
+            let text = crate::bot::chart_text(7, 20 + k);
+            let p = build_chart(Path::new("c.bme"), text.as_bytes(), &rules, 9, None).unwrap();
+            let (mut e, _) = build_engine(&p.chart, &rules, None, false);
+            assert_eq!(e.gauge.value(), 100.0);
+            if let Some(v) = &gauge {
+                e.gauge.set_values(v);
+                assert_eq!(e.gauge.values(), *v);
+            }
+            let inputs = crate::bot::inputs(&p.chart, None, 3 + k);
+            crate::bot::drive(&mut e, &inputs, p.chart.length() + 2_000_000);
+            let mines = e
+                .notes()
+                .iter()
+                .filter(|n| n.is_mine() && n.state.is_some())
+                .count() as u32;
+            let first_break = e.ghost.iter().position(|j| !e.rules().combo[*j as usize]);
+            totals.add(&e.score, mines, e.combo(), first_break.map(|i| i as u32));
+            notes += e.score.total_notes;
+            pg += e.score.count(Judge::PGreat);
+            empty += e.score.count(Judge::Miss) - mines;
+            gauge = Some(e.gauge.values());
+        }
+        let s = &totals.score;
+        assert_eq!((s.total_notes, s.passed), (notes, notes));
+        assert_eq!((s.count(Judge::PGreat), s.count(Judge::Miss)), (pg, empty));
+        assert!(s.max_combo >= totals.combo);
+        // the course's lamp from the gauge it ended with
+        let v = gauge.unwrap()[GaugeType::Normal as usize];
+        let lamp = totals.lamp(true, v, crate::score::ClearType::Normal);
+        assert_eq!(lamp == crate::score::ClearType::Failed, v <= 2.0);
+    }
 }

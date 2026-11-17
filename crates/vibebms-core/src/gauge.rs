@@ -6,6 +6,7 @@
 //!
 //! Gauge change tables are ordered PG, GR, GD, BD, POOR, empty POOR.
 
+use crate::course::CourseKind;
 use crate::judge::Judge;
 use crate::mode::RuleFamily;
 use crate::score::ClearType;
@@ -27,6 +28,10 @@ crate::choices! {
         Class = 6 => "CLASS",
         ExClass = 7 => "EX-CLASS",
         ExHardClass = 8 => "EXHARD-CLASS",
+        /// LR2's attack gauges (the LR2 set only): P-ATTACK takes only
+        /// PGREAT and GREAT, G-ATTACK heals only on GOOD (S-OLR2b 1).
+        PAttack = 9 => "P-ATTACK",
+        GAttack = 10 => "G-ATTACK",
     }
 }
 
@@ -48,6 +53,36 @@ impl GaugeType {
         )
     }
 
+    /// The gauges every set has (all but the attack gauges).
+    pub const STANDARD: [GaugeType; 9] = [
+        GaugeType::AssistEasy,
+        GaugeType::Easy,
+        GaugeType::Normal,
+        GaugeType::Hard,
+        GaugeType::ExHard,
+        GaugeType::Hazard,
+        GaugeType::Class,
+        GaugeType::ExClass,
+        GaugeType::ExHardClass,
+    ];
+
+    /// The LR2 set's gauge option, in LR2's order (S-OLR2b 1.1), then the
+    /// set's two gauges LR2 does not have.
+    pub const LR2_SELECTABLE: [GaugeType; 8] = [
+        GaugeType::Normal,
+        GaugeType::Hard,
+        GaugeType::Hazard,
+        GaugeType::Easy,
+        GaugeType::PAttack,
+        GaugeType::GAttack,
+        GaugeType::AssistEasy,
+        GaugeType::ExHard,
+    ];
+
+    pub fn is_attack(self) -> bool {
+        matches!(self, GaugeType::PAttack | GaugeType::GAttack)
+    }
+
     pub fn is_class(self) -> bool {
         matches!(
             self,
@@ -61,7 +96,9 @@ impl GaugeType {
             GaugeType::AssistEasy => ClearType::LightAssistEasy,
             GaugeType::Easy => ClearType::Easy,
             GaugeType::Normal | GaugeType::Class => ClearType::Normal,
-            GaugeType::Hard | GaugeType::ExClass => ClearType::Hard,
+            GaugeType::Hard | GaugeType::ExClass | GaugeType::PAttack | GaugeType::GAttack => {
+                ClearType::Hard
+            }
             GaugeType::ExHard | GaugeType::ExHardClass => ClearType::ExHard,
             GaugeType::Hazard => ClearType::FullCombo,
         }
@@ -74,6 +111,37 @@ impl GaugeType {
             GaugeType::Hard => GaugeType::ExClass,
             _ => GaugeType::ExHardClass,
         }
+    }
+
+    /// The gauge an LR2 class course plays a selection on (S-OLR2b 5.1):
+    /// EASY and G-ATTACK become GROOVE (its class gauge, CLASS), HARD its
+    /// class HARD (EX-CLASS); HAZARD and P-ATTACK are kept. (ASSIST EASY
+    /// and EX-HARD, not LR2's, as `to_class`.)
+    pub fn to_lr2_class(self) -> GaugeType {
+        match self {
+            GaugeType::Hazard
+            | GaugeType::PAttack
+            | GaugeType::Class
+            | GaugeType::ExClass
+            | GaugeType::ExHardClass => self,
+            GaugeType::GAttack => GaugeType::Class,
+            g => g.to_class(),
+        }
+    }
+}
+
+impl GaugePreset {
+    /// The gauge option's values under this set, in its order.
+    pub fn selectable(self) -> &'static [GaugeType] {
+        match self {
+            GaugePreset::Lr2 => &GaugeType::LR2_SELECTABLE,
+            _ => &GaugeType::SELECTABLE,
+        }
+    }
+
+    /// Whether the set has gauge `t` (the attack gauges are LR2's only).
+    pub fn has(self, t: GaugeType) -> bool {
+        self == GaugePreset::Lr2 || !t.is_attack()
     }
 }
 
@@ -117,6 +185,9 @@ enum Modifier {
     /// LR2's HARD damage increase: by TOTAL below 256 and by note count
     /// below 1000, the larger (S-OLR2 3.4).
     Lr2Damage,
+    /// G-ATTACK's: that factor on its PGREAT, POOR and empty POOR only
+    /// (S-OLR2b 1.2).
+    Lr2Attack,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -131,6 +202,9 @@ pub struct GaugeElement {
     pub guts: &'static [(f32, f32)],
     /// The gauge empties when it falls below this (LR2: 2 %).
     pub death: f32,
+    /// A mine takes the gauge down to this at most (LR2's groove gauges
+    /// in a course: 2 %, though judgements may empty them).
+    pub mine_floor: f32,
 }
 
 const fn e(
@@ -151,12 +225,44 @@ const fn e(
         values,
         guts,
         death: 0.0,
+        mine_floor: 0.0,
     }
 }
 
 /// An LR2 survival gauge: it empties below 2 %.
 const fn lr2(g: GaugeElement) -> GaugeElement {
     GaugeElement { death: 2.0, ..g }
+}
+
+/// A gauge of LR2's in a course (S-OLR2 3.6; S-OLR2b 3.6, 4.1, 5.2): it
+/// starts full, has no 2 % floor for judgements (it empties below 2 %,
+/// though a mine still stops the groove gauges at 2 %), takes the × 0.6
+/// rule and clears at any value it lives at. In expert and NONSTOP
+/// courses GROOVE and EASY have their own values; a class course plays
+/// its own gauges (`GaugeType::to_lr2_class`).
+fn lr2_course(g: &GaugeElement, ty: GaugeType, kind: CourseKind) -> GaugeElement {
+    use GaugeType::*;
+    let groove = matches!(ty, AssistEasy | Easy | Normal | Class);
+    let mut e = GaugeElement {
+        init: 100.0,
+        min: 0.0,
+        border: 0.0,
+        death: 2.0,
+        guts: LR2_GUTS,
+        mine_floor: if groove { 2.0 } else { 0.0 },
+        ..g.clone()
+    };
+    let own = match (kind, ty) {
+        (CourseKind::Class, _) => None,
+        (_, Normal) => Some([0.1, 0.1, 0.04, -1.5, -2.0, -1.5]),
+        (_, AssistEasy | Easy) => Some([0.12, 0.12, 0.048, -1.2, -1.6, -1.2]),
+        _ => None,
+    };
+    if let Some(v) = own {
+        e.values = v;
+        e.modifier = None;
+    }
+    e
 }
 
 use Modifier::*;
@@ -213,7 +319,7 @@ const PMS: [GaugeElement; 9] = [
 // damage) gain 0.04 for a GOOD. ASSIST EASY, EX-HARD and EXHARD-CLASS are
 // not LR2's.
 #[rustfmt::skip]
-const LR2: [GaugeElement; 9] = [
+const LR2: [GaugeElement; 11] = [
     e(    Some(Total),     2.0, 100.0, 20.0,  60.0, [ 1.2,  1.2,  0.6,   -3.2,   -4.8,  -1.6], &[]),
     e(    Some(Total),     2.0, 100.0, 20.0,  80.0, [ 1.2,  1.2,  0.6,   -3.2,   -4.8,  -1.6], &[]),
     e(    Some(Total),     2.0, 100.0, 20.0,  80.0, [ 1.0,  1.0,  0.5,   -4.0,   -6.0,  -2.0], &[]),
@@ -223,6 +329,10 @@ const LR2: [GaugeElement; 9] = [
     lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.04,   -2.0,   -3.0,  -2.0], LR2_GUTS)),
     lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.04,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
     lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,  -12.0,  -20.0,  -2.0], &[])),
+    // P-ATTACK: a GOOD or worse, an empty POOR, ends the play; G-ATTACK:
+    // its PGREAT costs as much as a POOR (S-OLR2b 1.2)
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [ 0.1, -1.0, -100.0, -100.0, -100.0, -100.0], LR2_GUTS)),
+    lr2(e(Some(Lr2Attack), 0.0, 100.0, 100.0, 0.0,  [-10.0, -1.0,  0.1,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
 ];
 // IIDX-like approximation (groove gauges start at 22%, HARD damage halves below 30%)
 #[rustfmt::skip]
@@ -238,7 +348,8 @@ const IIDX: [GaugeElement; 9] = [
     e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -5.0,  -10.0,  -5.0], &[]),
 ];
 
-pub fn gauge_elements(preset: GaugePreset, fam: RuleFamily) -> &'static [GaugeElement; 9] {
+/// The set's gauges, by `GaugeType` (the attack gauges: the LR2 set's).
+pub fn gauge_elements(preset: GaugePreset, fam: RuleFamily) -> &'static [GaugeElement] {
     match (preset, fam) {
         (GaugePreset::Lr2, _) => &LR2,
         (GaugePreset::Iidx, _) => &IIDX,
@@ -248,7 +359,8 @@ pub fn gauge_elements(preset: GaugePreset, fam: RuleFamily) -> &'static [GaugeEl
     }
 }
 
-fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
+/// Change `i` (PG .. empty POOR), `f`, made for `total` and `notes`.
+fn modify(m: Modifier, i: usize, f: f32, total: f64, notes: usize) -> f32 {
     let notes_f = notes.max(1) as f64;
     match m {
         Total => {
@@ -268,6 +380,13 @@ fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
         }
         Lr2Damage => {
             if f < 0.0 {
+                f * lr2_damage_factor(total, notes as f64)
+            } else {
+                f
+            }
+        }
+        Lr2Attack => {
+            if matches!(i, 0 | 4 | 5) {
                 f * lr2_damage_factor(total, notes as f64)
             } else {
                 f
@@ -388,8 +507,8 @@ impl Gauge {
     pub fn new(ty: GaugeType, elem: &GaugeElement, total: f64, notes: usize) -> Self {
         let mut values = elem.values;
         if let Some(m) = elem.modifier {
-            for v in values.iter_mut() {
-                *v = modify(m, *v, total, notes);
+            for (i, v) in values.iter_mut().enumerate() {
+                *v = modify(m, i, *v, total, notes);
             }
         }
         Gauge {
@@ -416,7 +535,9 @@ impl Gauge {
 
     pub fn update(&mut self, judge: Judge, rate: f32) {
         let mut inc = self.values[judge as usize] * rate;
-        if inc < 0.0 {
+        // (only BAD .. empty POOR: G-ATTACK's PGREAT and the attack
+        // gauges' GREAT are never reduced)
+        if inc < 0.0 && judge >= Judge::Bad {
             if let Some((_, m)) = self.elem.guts.iter().find(|(t, _)| self.value < *t) {
                 inc *= m;
             }
@@ -468,14 +589,42 @@ impl GrooveGauge {
         total: f64,
         notes: usize,
     ) -> Self {
+        Self::new_in(preset, fam, selected, gas, total, notes, None)
+    }
+
+    /// The gauges of a play, in a course of `course`'s kind (`None`: a
+    /// single play): every gauge of the set, the attack gauge played
+    /// with them (an attack gauge the set has not: HARD). A course
+    /// changes only the LR2 set's gauges (`lr2_course`).
+    pub fn new_in(
+        preset: GaugePreset,
+        fam: RuleFamily,
+        selected: GaugeType,
+        gas: GaugeAutoShift,
+        total: f64,
+        notes: usize,
+        course: Option<CourseKind>,
+    ) -> Self {
+        let selected = if preset.has(selected) {
+            selected
+        } else {
+            GaugeType::Hard
+        };
         let elems = gauge_elements(preset, fam);
-        let gauges = GaugeType::ALL
-            .iter()
-            .zip(elems.iter())
-            .map(|(t, e)| Gauge::new(*t, e, total, notes))
+        let attack = selected.is_attack().then_some(selected);
+        let gauges = GaugeType::STANDARD
+            .into_iter()
+            .chain(attack)
+            .map(|t| {
+                let e = &elems[t as usize];
+                match course.filter(|_| preset == GaugePreset::Lr2) {
+                    Some(k) => Gauge::new(t, &lr2_course(e, t, k), total, notes),
+                    None => Gauge::new(t, e, total, notes),
+                }
+            })
             .collect();
         let current = match gas {
-            GaugeAutoShift::BestClear if !selected.is_class() => GaugeType::ExHard,
+            GaugeAutoShift::BestClear if SHIFT_ORDER.contains(&selected) => GaugeType::ExHard,
             _ => selected,
         };
         GrooveGauge {
@@ -490,12 +639,22 @@ impl GrooveGauge {
         self.current
     }
 
-    pub fn current(&self) -> &Gauge {
-        &self.gauges[self.current as usize]
+    /// The gauge played from (an attack gauge the set has not: HARD).
+    pub fn selected_type(&self) -> GaugeType {
+        self.selected
     }
 
+    pub fn current(&self) -> &Gauge {
+        self.get(self.current)
+    }
+
+    /// Gauge `t`: one of the set's, or the attack gauge played.
     pub fn get(&self, t: GaugeType) -> &Gauge {
-        &self.gauges[t as usize]
+        let i = t as usize;
+        match self.gauges.get(i).filter(|g| g.ty == t) {
+            Some(g) => g,
+            None => self.gauges.iter().find(|g| g.ty == t).unwrap_or(&self.gauges[0]),
+        }
     }
 
     pub fn value(&self) -> f32 {
@@ -509,15 +668,18 @@ impl GrooveGauge {
         self.shift();
     }
 
+    /// A mine's damage `v` on every gauge (no guts; LR2's groove gauges
+    /// in a course stop at their mine floor).
     pub fn add_value(&mut self, v: f32) {
         for g in &mut self.gauges {
-            let nv = g.value() + v;
+            let nv = (g.value() + v).max(g.elem.mine_floor);
             g.set_value(nv);
         }
         self.shift();
     }
 
-    /// Restore values (e.g. carrying gauges across a course).
+    /// Restore values (e.g. carrying gauges across a course), in the
+    /// order of `values`.
     pub fn set_values(&mut self, values: &[f32]) {
         for (g, v) in self.gauges.iter_mut().zip(values) {
             g.value = v.clamp(g.elem.min, g.elem.max);
@@ -716,5 +878,205 @@ mod tests {
         let mut b = Gauge::new(GaugeType::Hard, &SEVEN[3], 300.0, 2000);
         b.set_value(1.0);
         assert!(!b.is_dead());
+    }
+
+    fn lr2(ty: GaugeType, total: f64, notes: usize) -> GrooveGauge {
+        GrooveGauge::new(
+            GaugePreset::Lr2,
+            RuleFamily::SevenKeys,
+            ty,
+            GaugeAutoShift::None,
+            total,
+            notes,
+        )
+    }
+
+    fn changes(g: &GrooveGauge) -> [f32; 6] {
+        Judge::ALL.map(|j| g.current().change_for(j))
+    }
+
+    fn close(a: [f32; 6], b: [f32; 6]) -> bool {
+        a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+
+    /// S-OLR2b 1.2's table: P-ATTACK +0.1, -1, then -100 for the rest;
+    /// G-ATTACK -10f, -1, +0.1, -6, -10f, -2f; both from 100.
+    #[test]
+    fn attack_gauges_as_specified() {
+        let p = lr2(GaugeType::PAttack, 300.0, 1000);
+        assert_eq!(changes(&p), [0.1, -1.0, -100.0, -100.0, -100.0, -100.0]);
+        assert_eq!((p.value(), p.current_type()), (100.0, GaugeType::PAttack));
+        // f = 1 (TOTAL 300, 1000 notes); f = 10/7 (TOTAL 200)
+        let g = lr2(GaugeType::GAttack, 300.0, 1000);
+        assert_eq!(changes(&g), [-10.0, -1.0, 0.1, -6.0, -10.0, -2.0]);
+        let f = 10.0 / 7.0;
+        let g = lr2(GaugeType::GAttack, 200.0, 1000);
+        assert!(close(
+            changes(&g),
+            [-10.0 * f, -1.0, 0.1, -6.0, -10.0 * f, -2.0 * f]
+        ));
+        // 250 notes: g(n) = 3
+        let g = lr2(GaugeType::GAttack, 300.0, 250);
+        assert!(close(changes(&g), [-30.0, -1.0, 0.1, -6.0, -30.0, -6.0]));
+        // only the gauge played is added to the set's
+        assert_eq!(g.gauges.len(), 10);
+        assert_eq!(lr2(GaugeType::Hard, 300.0, 1000).gauges.len(), 9);
+    }
+
+    #[test]
+    fn p_attack_dies_on_good_or_worse_and_on_empty_poor() {
+        for j in [Judge::Good, Judge::Bad, Judge::Poor, Judge::Miss] {
+            let mut g = lr2(GaugeType::PAttack, 300.0, 1000);
+            g.update(j, 1.0);
+            assert!(g.is_failed_now(), "{j:?}");
+            // also at a low gauge (x 0.6: -60)
+            let mut g = lr2(GaugeType::PAttack, 300.0, 1000);
+            g.set_values(&[100.0; 9].into_iter().chain([30.0]).collect::<Vec<_>>());
+            g.update(j, 1.0);
+            assert!(g.is_failed_now(), "{j:?} at 30");
+        }
+        // PGREAT and GREAT live; a mine takes its value
+        let mut g = lr2(GaugeType::PAttack, 300.0, 1000);
+        for _ in 0..50 {
+            g.update(Judge::Great, 1.0);
+        }
+        assert_eq!(g.value(), 50.0);
+        g.update(Judge::PGreat, 1.0);
+        g.add_value(-40.0);
+        assert!((g.value() - 10.1).abs() < 1e-4);
+        // a clear is HARD CLEAR
+        assert_eq!(g.final_clear_gauge().map(|t| t.clear_type()), Some(ClearType::Hard));
+    }
+
+    #[test]
+    fn attack_gauges_low_gauge_rule_and_death() {
+        let mut g = lr2(GaugeType::GAttack, 300.0, 1000);
+        let set = |g: &mut GrooveGauge, v: f32| {
+            let mut vals = vec![100.0; 9];
+            vals.push(v);
+            g.set_values(&vals);
+        };
+        // at 30 shown (below 32): BAD, POOR, empty POOR x 0.6; PGREAT and
+        // GREAT never
+        for (j, after) in [
+            (Judge::Bad, 30.0 - 3.6),
+            (Judge::Poor, 30.0 - 6.0),
+            (Judge::Miss, 30.0 - 1.2),
+            (Judge::PGreat, 20.0),
+            (Judge::Great, 29.0),
+            (Judge::Good, 30.1),
+        ] {
+            set(&mut g, 30.0);
+            g.update(j, 1.0);
+            assert!((g.value() - after).abs() < 1e-4, "{j:?}: {}", g.value());
+        }
+        // empties below 2; exactly 2 lives
+        set(&mut g, 3.0);
+        g.update(Judge::Great, 1.0);
+        assert!(!g.is_failed_now());
+        assert_eq!(g.value(), 2.0);
+        g.update(Judge::Great, 1.0);
+        assert!(g.is_failed_now());
+        // no 80 % border: any value it lives at clears
+        assert_eq!(g.current().elem.border, 0.0);
+    }
+
+    #[test]
+    fn attack_gauges_are_the_lr2_sets() {
+        assert_eq!(
+            GaugePreset::Lr2.selectable()[..6],
+            [
+                GaugeType::Normal,
+                GaugeType::Hard,
+                GaugeType::Hazard,
+                GaugeType::Easy,
+                GaugeType::PAttack,
+                GaugeType::GAttack
+            ]
+        );
+        assert!(!GaugePreset::Beatoraja.selectable().contains(&GaugeType::PAttack));
+        // another set plays an attack gauge as its HARD
+        let g = GrooveGauge::new(
+            GaugePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            GaugeType::GAttack,
+            GaugeAutoShift::None,
+            300.0,
+            1000,
+        );
+        assert_eq!((g.current_type(), g.gauges.len()), (GaugeType::Hard, 9));
+    }
+
+    /// LR2's course gauges (S-OLR2 3.6, S-OLR2b 3.6, 4.1, 5.2).
+    #[test]
+    fn lr2_course_gauges() {
+        let course = |ty, kind| {
+            GrooveGauge::new_in(
+                GaugePreset::Lr2,
+                RuleFamily::SevenKeys,
+                ty,
+                GaugeAutoShift::None,
+                300.0,
+                1000,
+                Some(kind),
+            )
+        };
+        for kind in [CourseKind::Expert, CourseKind::Nonstop] {
+            let g = course(GaugeType::Normal, kind);
+            assert_eq!(changes(&g), [0.1, 0.1, 0.04, -1.5, -2.0, -1.5]);
+            assert_eq!(g.value(), 100.0);
+            let e = course(GaugeType::Easy, kind);
+            assert!(close(changes(&e), [0.12, 0.12, 0.048, -1.2, -1.6, -1.2]));
+            let h = course(GaugeType::Hard, kind);
+            assert_eq!(changes(&h), [0.1, 0.1, 0.05, -6.0, -10.0, -2.0]);
+            let p = course(GaugeType::PAttack, kind);
+            assert_eq!(changes(&p)[2], -100.0);
+        }
+        // class: its own gauges, HAZARD as single play
+        let c = course(GaugeType::Class, CourseKind::Class);
+        assert_eq!(changes(&c), [0.1, 0.1, 0.04, -2.0, -3.0, -2.0]);
+        let z = course(GaugeType::Hazard, CourseKind::Class);
+        assert_eq!(changes(&z), [0.0, 0.0, 0.0, -100.0, -100.0, 0.0]);
+        // every gauge: x 0.6 at 30, no 2 % floor, clears at any value
+        let mut g = course(GaugeType::Normal, CourseKind::Expert);
+        let mut v = g.values();
+        v[GaugeType::Normal as usize] = 30.0;
+        g.set_values(&v);
+        g.update(Judge::Poor, 1.0);
+        assert!((g.value() - 28.8).abs() < 1e-4);
+        assert!(g.current().is_qualified());
+        v[GaugeType::Normal as usize] = 3.0;
+        g.set_values(&v);
+        g.update(Judge::Poor, 1.0);
+        assert!(g.is_failed_now());
+        // a mine still stops GROOVE at 2 %, but empties HARD
+        let mut g = course(GaugeType::Normal, CourseKind::Nonstop);
+        g.add_value(-1295.0);
+        assert_eq!(g.value(), 2.0);
+        assert!(g.get(GaugeType::Hard).is_dead());
+        let mut c = course(GaugeType::Class, CourseKind::Class);
+        c.add_value(-1295.0);
+        assert_eq!(c.value(), 2.0);
+        // the other sets: as without a course
+        let b = GrooveGauge::new_in(
+            GaugePreset::Beatoraja,
+            RuleFamily::SevenKeys,
+            GaugeType::Class,
+            GaugeAutoShift::None,
+            300.0,
+            1000,
+            Some(CourseKind::Expert),
+        );
+        assert_eq!(
+            b,
+            GrooveGauge::new(
+                GaugePreset::Beatoraja,
+                RuleFamily::SevenKeys,
+                GaugeType::Class,
+                GaugeAutoShift::None,
+                300.0,
+                1000,
+            )
+        );
     }
 }

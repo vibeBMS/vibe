@@ -162,6 +162,56 @@ impl TimingMap {
         map
     }
 
+    /// A map made in time (a NONSTOP course's): BPM `changes` (time,
+    /// BPM; the first at 0) and `stops` (time, length), in µs and time
+    /// order. Its scroll moves with time only, as a chart of `scroll_bpm`
+    /// would; a stop still holds it (S-OLR2b 3.3).
+    pub fn of_times(changes: &[(i64, f64)], stops: &[(i64, i64)], scroll_bpm: f64) -> TimingMap {
+        let first = changes.first().map_or(130.0, |c| c.1);
+        let mut map = TimingMap::new(first);
+        map.scroll[0].scroll = scroll_bpm / map.segs[0].bpm;
+        // changes before stops at the same time
+        let mut events: Vec<(i64, u8, f64)> = changes
+            .iter()
+            .skip(1)
+            .map(|&(t, b)| (t, 0, b))
+            .chain(stops.iter().map(|&(t, d)| (t, 1, d as f64)))
+            .filter(|e| e.0 >= 0 && e.2 > 0.0)
+            .collect();
+        events.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        for (t, kind, v) in events {
+            let beat = map.beat_at_time(t as f64);
+            let bpm = map.segs.last().map_or(first, |s| s.bpm);
+            if kind == 0 {
+                map.segs.push(TimeSeg {
+                    beat,
+                    time: t as f64,
+                    bpm: v,
+                });
+                let pos = map.pos_at_beat(beat);
+                map.scroll.push(ScrollSeg {
+                    beat,
+                    pos,
+                    scroll: scroll_bpm / v,
+                });
+            } else {
+                // (a time inside an earlier stop starts after it)
+                let start = map.time_at_beat_f(beat).max(t as f64);
+                map.segs.push(TimeSeg {
+                    beat,
+                    time: start + v,
+                    bpm,
+                });
+                map.stops.push(StopEvent {
+                    beat,
+                    time: start.round() as i64,
+                    duration: v as i64,
+                });
+            }
+        }
+        map
+    }
+
     fn seg_before_beat(&self, beat: f64) -> &TimeSeg {
         // last segment whose beat is strictly less than `beat`, else the first one
         let idx = self.segs.partition_point(|s| s.beat < beat);
@@ -293,6 +343,21 @@ mod tests {
         let m = TimingMap::build(60.0, vec![(0.0, TimingEvent::StopBeats(1.0))]);
         assert_eq!(m.time_at_beat(0.0), 0);
         assert_eq!(m.time_at_beat(1.0), 2_000_000);
+    }
+
+    #[test]
+    fn made_in_time_scrolls_with_time() {
+        // 120 BPM, 240 from 1 s, a 0.5 s stop at 2 s: the scroll moves
+        // as 150 BPM would, and holds during the stop
+        let m = TimingMap::of_times(&[(0, 120.0), (1_000_000, 240.0)], &[(2_000_000, 500_000)], 150.0);
+        let pos = |t: f64| m.pos_at_time(t);
+        assert!((pos(1_000_000.0) - 2.5).abs() < 1e-9);
+        assert!((pos(2_000_000.0) - 5.0).abs() < 1e-9);
+        assert!((pos(2_400_000.0) - 5.0).abs() < 1e-9);
+        assert!((pos(3_500_000.0) - 7.5).abs() < 1e-9);
+        assert_eq!(m.bpm_at_time(1_500_000.0), 240.0);
+        assert_eq!(m.stops.len(), 1);
+        assert!((m.beat_at_time(3_500_000.0) - (2.0 + 4.0 + 4.0)).abs() < 1e-9);
     }
 
     #[test]

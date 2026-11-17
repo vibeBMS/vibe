@@ -3132,7 +3132,8 @@ fn hcn_ticks_update_every_gauge() {
 fn gauge_types_over_a_play() {
     let c = gen_chart(PlayMode::Beat7K, 3, false, JudgeRank::Rank(2), 10);
     let mut seen = BTreeMap::new();
-    for gauge in GaugeType::ALL {
+    // (the beatoraja set's gauges: the attack gauges are the LR2 set's)
+    for gauge in GaugeType::STANDARD {
         for gas in GaugeAutoShift::ALL {
             let s = Setup {
                 gauge,

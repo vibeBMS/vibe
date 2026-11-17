@@ -252,6 +252,9 @@ pub struct Engine {
     failed: bool,
     recorded: Option<Vec<Op>>,
     events: Vec<EngineEvent>,
+    /// Rules taken on at a time (a NONSTOP course's later stages), the
+    /// next last.
+    switches: Vec<(i64, JudgeRules)>,
 }
 
 impl Engine {
@@ -343,6 +346,22 @@ impl Engine {
             failed: false,
             recorded: None,
             events: Vec::new(),
+            switches: Vec::new(),
+        }
+    }
+
+    /// Take on `rules` at each time given (a NONSTOP course's stages with
+    /// their own `#RANK`: from their start, S-OLR2b 3.5).
+    pub fn switch_rules(&mut self, mut at: Vec<(i64, JudgeRules)>) {
+        at.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+        self.switches = at;
+    }
+
+    /// The switches due by `t`.
+    fn take_rules(&mut self, t: i64) {
+        while let Some((_, r)) = self.switches.pop_if(|(at, _)| *at <= t) {
+            self.reach = r.windows.extent();
+            self.cfg.rules = r;
         }
     }
 
@@ -500,6 +519,7 @@ impl Engine {
         for group in queue.chunk_by(|a, b| a.time == b.time) {
             let t = group[0].time;
             let m = now.min(self.prev().max(t));
+            self.take_rules(m);
             for l in &mut self.lanes {
                 l.after = l.keys;
             }
@@ -521,6 +541,7 @@ impl Engine {
         }
         queue.clear();
         self.queue = queue;
+        self.take_rules(now);
         self.advance(now, None);
         self.settle(now);
     }

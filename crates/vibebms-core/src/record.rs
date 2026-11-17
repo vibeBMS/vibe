@@ -148,7 +148,7 @@ impl RuleFacts {
             judge_rates: (*engine.rules() != own).then_some(rules.judge_rates),
             algorithm: rules.judge_algorithm,
             gauge_set: rules.gauge_preset,
-            gauge: rules.gauge,
+            gauge: engine.gauge.selected_type(),
             gas: rules.gauge_auto_shift,
             ln_mode: rules.ln_mode,
             charge_bss,
