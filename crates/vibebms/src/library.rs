@@ -421,11 +421,20 @@ fn is_chart(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Vec<PathBuf>) {
+/// Chart files under `dir` into `out`; folders that cannot be read (a
+/// drive not mounted, no permission) into `unreadable`.
+fn walk(
+    dir: &Path,
+    depth: usize,
+    skip: &HashSet<PathBuf>,
+    out: &mut Vec<PathBuf>,
+    unreadable: &mut Vec<PathBuf>,
+) {
     if depth > 16 {
         return;
     }
     let Ok(entries) = vfs::read_dir(dir) else {
+        unreadable.push(dir.to_path_buf());
         return;
     };
     for e in entries {
@@ -439,7 +448,7 @@ fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Vec<PathBuf
         }
         if e.is_dir {
             if !skip.contains(&e.path) {
-                walk(&e.path, depth + 1, skip, out);
+                walk(&e.path, depth + 1, skip, out, unreadable);
             }
         } else if is_chart(&e.path) {
             out.push(e.path);
@@ -451,7 +460,7 @@ fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Vec<PathBuf
 pub fn find_charts(roots: &[PathBuf], skip: &HashSet<PathBuf>) -> Vec<PathBuf> {
     let mut v = Vec::new();
     for r in roots {
-        walk(r, 0, skip, &mut v);
+        walk(r, 0, skip, &mut v, &mut Vec::new());
     }
     v
 }
@@ -572,10 +581,11 @@ pub fn scan(
         .map(|r| (r.song.path.clone(), (r.mtime, r.size)))
         .collect();
     let mut files: Vec<(PathBuf, String)> = Vec::new();
+    let mut unreadable: Vec<PathBuf> = Vec::new();
     for root in &roots {
         *progress.current.lock().unwrap() = root.display().to_string();
         let mut found = Vec::new();
-        walk(root, 0, &skip, &mut found);
+        walk(root, 0, &skip, &mut found, &mut unreadable);
         for f in found {
             let first = f
                 .strip_prefix(root)
@@ -590,10 +600,23 @@ pub fn scan(
         }
         progress.found.store(files.len(), Ordering::Relaxed);
     }
-    let seen: HashSet<String> = files
+    let mut seen: HashSet<String> = files
         .iter()
         .map(|(f, _)| f.to_string_lossy().into_owned())
         .collect();
+    // charts in a folder that cannot be read now (a drive not mounted) are
+    // kept, not removed with their records
+    for r in &known_records {
+        if unreadable
+            .iter()
+            .any(|d| Path::new(&r.song.path).starts_with(d))
+        {
+            seen.insert(r.song.path.clone());
+        }
+    }
+    if !unreadable.is_empty() {
+        log::warn!("scan: cannot read {}", unreadable[0].display());
+    }
     let todo: Vec<(PathBuf, String, (i64, i64))> = files
         .into_iter()
         .filter_map(|(f, folder)| {
@@ -845,6 +868,31 @@ mod tests {
         // persisted
         let lib2 = Library::open(&cache, &cache);
         assert_eq!(lib2.scores().len(), 2);
+        // the library folder cannot be read (here: gone): its charts stay
+        let moved = dir.with_extension("away");
+        std::fs::rename(&dir, &moved).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::copy(moved.join("cache/songs.json"), cache.join("songs.json")).unwrap();
+        let p3 = Arc::new(ScanProgress::default());
+        scan(
+            cache.join("songs.json"),
+            vec![dir.join("pack")],
+            [cache.clone()].into_iter().collect(),
+            p3.clone(),
+        );
+        assert!(!p3.changed.load(Ordering::Relaxed));
+        assert_eq!(Library::open(&cache, &cache).songs().len(), 1);
+        // and go once the folder is there without them
+        std::fs::create_dir_all(dir.join("pack")).unwrap();
+        let p4 = Arc::new(ScanProgress::default());
+        scan(
+            cache.join("songs.json"),
+            vec![dir.join("pack")],
+            [cache.clone()].into_iter().collect(),
+            p4.clone(),
+        );
+        assert_eq!(Library::open(&cache, &cache).songs().len(), 0);
         std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&moved).ok();
     }
 }
