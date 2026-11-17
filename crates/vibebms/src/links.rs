@@ -70,7 +70,7 @@ fn load(file: PathBuf, deliver: impl FnOnce(Links) + Send + 'static) {
             }
         }
     }
-    let list = crate::hosts::context().config.stella_list.clone();
+    let list = bmseeker::config::Config::default().stella_list;
     // web: stellabms.xyz sends no CORS headers
     #[cfg(target_arch = "wasm32")]
     let url = crate::hosts::via_proxy(&list);

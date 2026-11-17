@@ -74,6 +74,9 @@ pub struct Lib {
 /// Downloads, and the self-update.
 #[derive(Default)]
 pub struct Net {
+    /// How links resolve and songs install (bmseeker's settings with the
+    /// player's), made again when those settings change.
+    pub hosts: crate::hosts::Context,
     /// Mirrored event entries (`archive`).
     pub archives: crate::archive::Archives,
     /// Difficulty-table songs downloading.
@@ -155,12 +158,16 @@ impl Skins {
 impl Ctx {
     /// A context with nothing loaded yet.
     pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
+        let hosts = crate::hosts::context(&config);
         Ctx {
             paths,
             config,
             lib: Lib::default(),
             tables: Tables::default(),
-            net: Net::default(),
+            net: Net {
+                hosts,
+                ..Default::default()
+            },
             audio: Audio {
                 mixer,
                 sounds: Default::default(),

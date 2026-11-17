@@ -9,60 +9,18 @@ pub use bmseeker::native::{fetch_files, Native};
 /// tables through (none sends CORS headers): vibeBMS/proxy `worker.js`.
 pub const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
 
-static THIRD_PARTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Whether third parties' copies are used (the "Third-party mirrors"
-/// setting: bmseeker's `third_party`).
-pub fn set_third_party(on: bool) {
-    THIRD_PARTY.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-static FOLDER_NAMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Whether a song's folder is named after its charts (the "Name song
-/// folders after their charts" setting: bmseeker's `folder_naming`).
-pub fn set_folder_naming(on: bool) {
-    FOLDER_NAMING.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// What a song's download installs with: [`context`], its folder named as
-/// [`set_folder_naming`] says.
-pub fn install_context() -> Context {
-    let cx = context();
-    if !FOLDER_NAMING.load(std::sync::atomic::Ordering::Relaxed) {
-        return cx.clone();
-    }
+/// What the app resolves links and installs songs with: bmseeker's default
+/// settings and hosts, with the player's choices (third parties' copies
+/// used, a song's folder named after its charts); on the web a download
+/// that fails is a page (the proxy passes archives only).
+pub fn context(config: &crate::config::Config) -> Context {
     Context {
-        config: std::sync::Arc::new(bmseeker::config::Config {
-            folder_naming: true,
-            ..(*cx.config).clone()
-        }),
-        ..cx.clone()
-    }
-}
-
-/// What the app resolves links with: bmseeker's default settings and hosts
-/// (third parties' copies too, when [`set_third_party`]); on the web a
-/// download that fails is a page (the proxy passes archives only).
-pub fn context() -> &'static Context {
-    use std::sync::LazyLock;
-    fn new(config: bmseeker::config::Config) -> Context {
-        Context {
-            failures_are_pages: crate::platform::IS_WEB,
-            ..Context::new(config)
-        }
-    }
-    static OWN: LazyLock<Context> = LazyLock::new(|| new(Default::default()));
-    static ALL: LazyLock<Context> = LazyLock::new(|| {
-        new(bmseeker::config::Config {
-            third_party: true,
+        failures_are_pages: crate::platform::IS_WEB,
+        ..Context::new(bmseeker::config::Config {
+            third_party: config.third_party_mirrors,
+            folder_naming: config.name_song_folders,
             ..Default::default()
         })
-    });
-    if THIRD_PARTY.load(std::sync::atomic::Ordering::Relaxed) {
-        &ALL
-    } else {
-        &OWN
     }
 }
 

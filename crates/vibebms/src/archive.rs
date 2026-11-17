@@ -322,7 +322,13 @@ impl Archives {
     /// Download work `num` of event `ev` and unpack it into the library:
     /// the app on a thread, to disk; the web build through the vibeBMS
     /// proxy, in memory.
-    pub fn download(&mut self, root: &Path, ev: usize, num: u32) -> Result<String, String> {
+    pub fn download(
+        &mut self,
+        root: &Path,
+        cx: &crate::hosts::Context,
+        ev: usize,
+        num: u32,
+    ) -> Result<String, String> {
         let event = self.events.get(ev).ok_or("no such event")?;
         let work = event
             .works
@@ -339,11 +345,11 @@ impl Archives {
         self.busy.push(k);
         let (name, title) = (event.name.clone(), work.title.clone());
         let size: u64 = files.iter().map(|f| f.size).sum();
-        let root = root.to_path_buf();
+        let (root, cx) = (root.to_path_buf(), cx.clone());
         self.jobs.push(Job::start(|tx, _| {
             #[cfg(not(target_arch = "wasm32"))]
             crate::platform::spawn("archive", move || {
-                let r = fetch_work(&root, &name, &files, &tx);
+                let r = fetch_work(&root, &cx, &name, &files, &tx);
                 let _ = tx.send(Msg::Done(name, num, r));
             });
             #[cfg(target_arch = "wasm32")]
@@ -351,7 +357,7 @@ impl Archives {
                 let stem = work_stem(&files);
                 let rel = PathBuf::from("bms").join(&name).join(&stem);
                 let dir = root.join("bms").join(&name);
-                web_fetch_files(files, dir, stem, move |r| {
+                web_fetch_files(files, dir, stem, &cx, move |r| {
                     let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
                 });
             }
@@ -491,10 +497,11 @@ fn web_fetch_files(
     files: Vec<File>,
     dir: PathBuf,
     stem: String,
+    cx: &crate::hosts::Context,
     done: impl FnOnce(Result<usize, Fail>) + Send + 'static,
 ) {
     use bmseeker::install::job::Files;
-    let job = Files::new(sources(&files), PathBuf::new(), crate::hosts::context());
+    let job = Files::new(sources(&files), PathBuf::new(), cx);
     crate::platform::run_job(job, None, move |r| {
         let got = match r {
             Ok(got) => got,
@@ -538,6 +545,7 @@ fn web_fetch_files(
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_work(
     root: &Path,
+    cx: &crate::hosts::Context,
     event: &str,
     files: &[File],
     tx: &Sender<Msg>,
@@ -575,7 +583,6 @@ fn fetch_work(
             self.native.perform(e)
         }
     }
-    let cx = crate::hosts::context();
     let driver = Telling {
         native: crate::hosts::Native::new(cx),
         tx,

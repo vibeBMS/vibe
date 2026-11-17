@@ -119,7 +119,7 @@ pub(super) fn get(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize) {
         State::Installed { update: false } if !armed.confirm(Confirm::Reinstall(e.id)) => return,
         _ => armed.clear(),
     }
-    let r = ctx.skins.store.install(&ctx.paths, i);
+    let r = ctx.skins.store.install(&ctx.paths, &ctx.net.hosts, i);
     ctx.toast(r.unwrap_or_else(|e| e));
 }
 

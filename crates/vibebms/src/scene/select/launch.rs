@@ -151,10 +151,11 @@ impl SelectScene {
         if let Some((event_url, num)) = archive {
             let root = ctx.paths.root.clone();
             let got = event(ctx, &event_url).ok_or_else(|| "no such event".to_string());
-            let msg = match got.and_then(|e| ctx.net.archives.download(&root, e, num)) {
-                Ok(m) => m,
-                Err(why) => format!("{title}: {why}"),
-            };
+            let msg =
+                match got.and_then(|e| ctx.net.archives.download(&root, &ctx.net.hosts, e, num)) {
+                    Ok(m) => m,
+                    Err(why) => format!("{title}: {why}"),
+                };
             ctx.toast(msg);
             return;
         }
@@ -202,7 +203,7 @@ impl SelectScene {
         if ctx
             .net
             .song_fetch
-            .start(&root, &ctx.lib.songs, entry, addons)
+            .start(&root, &ctx.lib.songs, &ctx.net.hosts, entry, addons)
         {
             ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
             return;

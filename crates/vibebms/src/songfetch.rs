@@ -54,7 +54,7 @@ fn take_in(
     check: bool,
     file: Option<String>,
 ) -> Vec<Done> {
-    let req = bmseeker::install::request(q, check, file, &crate::hosts::install_context().config);
+    let req = bmseeker::install::request(q, check, file, &Default::default());
     bmseeker::install::take(
         &crate::placement::Vfs,
         bmseeker::unpack::Blob::Bytes(bytes),
@@ -132,6 +132,7 @@ impl SongFetch {
         &mut self,
         root: &Path,
         songs: &[Song],
+        cx: &crate::hosts::Context,
         mut e: bmseeker::install::Entry,
         addons: Vec<String>,
     ) -> bool {
@@ -146,7 +147,7 @@ impl SongFetch {
         let job = Job::start(|tx, progress| {
             // the settings and hosts, reporting to (and cancelled by) this
             // song's progress
-            let cx = crate::hosts::install_context().with_progress(progress.clone());
+            let cx = cx.with_progress(progress.clone());
             let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
             let lib = crate::placement::library(root, songs);
             let store = Arc::new(crate::placement::Vfs);

@@ -67,7 +67,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             onoff(c.third_party_mirrors),
             |c, _| {
                 c.config.third_party_mirrors ^= true;
-                crate::hosts::set_third_party(c.config.third_party_mirrors);
+                c.net.hosts = crate::hosts::context(&c.config);
             },
         ),
         Row::adjust(
@@ -75,7 +75,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             onoff(c.name_song_folders),
             |c, _| {
                 c.config.name_song_folders ^= true;
-                crate::hosts::set_folder_naming(c.config.name_song_folders);
+                c.net.hosts = crate::hosts::context(&c.config);
             },
         ),
         Row::new("Restore default tables", "↵", Act::Run(restore_defaults, 0)),
