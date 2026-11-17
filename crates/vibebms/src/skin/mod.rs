@@ -911,6 +911,40 @@ pub struct Skin {
 }
 
 impl Skin {
+    /// An empty skin of `kind`, `width` x `height`.
+    pub fn new(path: &std::path::Path, kind: SkinType, width: f32, height: f32) -> Skin {
+        Skin {
+            path: path.to_path_buf(),
+            name: String::new(),
+            author: String::new(),
+            kind,
+            width,
+            height,
+            images: Vec::new(),
+            objects: Vec::new(),
+            lanes: Vec::new(),
+            judges: Default::default(),
+            bar_lines: Vec::new(),
+            songlist: None,
+            custom_options: Vec::new(),
+            scene_ms: 0,
+            input_ms: 0,
+            fadeout_ms: 0,
+            note_expansion: None,
+            note_fall_y: None,
+            judge_timer: None,
+            play_start_ms: None,
+            close_ms: None,
+            finish_margin_ms: 0,
+            script: None,
+            fonts: Vec::new(),
+            trans_color: None,
+            offsets: HashMap::new(),
+            skin_select: None,
+            perspective: false,
+        }
+    }
+
     /// Widen or heighten the canvas to `w` x `h`, moving the objects with
     /// an `anchor` (the others stay where they are).
     pub fn reflow(&mut self, w: f32, h: f32) {

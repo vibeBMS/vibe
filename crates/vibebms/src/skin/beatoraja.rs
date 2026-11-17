@@ -1119,34 +1119,15 @@ pub fn load_with(
     }
 
     let mut skin = Skin {
-        path: path.to_path_buf(),
         name: s(&sk, "name").to_string(),
         author: s(&sk, "author").to_string(),
-        kind,
-        width: w,
-        height: h,
-        images: Vec::new(),
-        objects: Vec::new(),
-        lanes: Vec::new(),
-        judges: Default::default(),
-        bar_lines: Vec::new(),
-        songlist: None,
         custom_options: props.iter().filter_map(to_custom).collect(),
         scene_ms: i(&sk, "scene", 0),
         input_ms: i(&sk, "input", 0),
         fadeout_ms: i(&sk, "fadeout", 0),
-        note_expansion: None,
-        note_fall_y: None,
-        judge_timer: None,
-        play_start_ms: None,
-        close_ms: None,
         finish_margin_ms: i(&sk, "finishmargin", 0),
-        script: None,
-        fonts: Vec::new(),
-        trans_color: None,
-        offsets: HashMap::new(),
-        skin_select: None,
         perspective: sk.get("perspective").and_then(Value::as_bool) == Some(true),
+        ..Skin::new(path, kind, w, h)
     };
     if kind == SkinType::SkinSelect {
         let ss = sk.get("skinSelect");
