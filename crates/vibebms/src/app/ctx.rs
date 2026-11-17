@@ -418,10 +418,14 @@ impl Ctx {
         if crate::platform::vfs::take_added() {
             let charts = crate::library::find_charts(&self.scan_roots(), &self.internal_dirs());
             self.toast(format!("Reading {} charts…", charts.len()));
+            #[cfg(target_arch = "wasm32")]
+            crate::platform::opfs::hold_library(true);
             self.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(charts));
         }
         if self.lib.prefetch.as_ref().is_some_and(|p| p.finished()) {
             self.lib.prefetch = None;
+            #[cfg(target_arch = "wasm32")]
+            crate::platform::opfs::hold_library(false);
             // charts picked without their song's folder go into it
             #[cfg(target_arch = "wasm32")]
             for m in crate::web::place_picked_charts(&self.paths.root, &self.lib.songs) {
