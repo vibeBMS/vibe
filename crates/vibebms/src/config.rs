@@ -1077,6 +1077,203 @@ fn migrate(v: &mut toml::Value) {
 mod tests {
     use super::*;
 
+    /// Every setting away from its default.
+    fn full_config() -> Config {
+        use std::collections::BTreeMap;
+        let lk = |k: KeyCode, pad: u64| LaneKeys {
+            keys: vec![k, KeyCode::F1],
+            pad: vec![pad],
+        };
+        let side = |base: u64| SideKeys {
+            keys: (0..9).map(|i| lk(KeyCode::Digit1, base + i)).collect(),
+            scratch_up: lk(KeyCode::ArrowUp, base + 20),
+            scratch_down: lk(KeyCode::ArrowDown, base + 21),
+            scratch_axis: vec![base + 30, base + 31],
+        };
+        Config {
+            player_name: "TESTER".into(),
+            bms_dirs: vec!["/music/bms".into(), "relative/dir".into()],
+            scan_root: false,
+            play: PlayConfig {
+                gauge: GaugeType::ExHard,
+                gauge_auto_shift: GaugeAutoShift::BestClear,
+                gauge_preset: GaugePreset::Lr2,
+                judge_preset: JudgePreset::Iidx,
+                judge_algorithm: JudgeAlgorithm::Duration,
+                random_1p: LaneOption::SRandom,
+                random_2p: LaneOption::Mirror,
+                dp_option: DoubleOption::Flip,
+                battle: true,
+                versus: Versus::Off,
+                side: Side::P2,
+                ln_mode: LnType::Hcn,
+                auto_scratch: true,
+                legacy_note: true,
+                no_mine: true,
+                autoplay: true,
+                hispeed_mode: HiSpeedMode::Constant,
+                hispeed: 3.75,
+                hs_fix: HsFix::Max,
+                fixed_duration_ms: 512.5,
+                sudden: 0.25,
+                hidden: 0.125,
+                lift: 0.0625,
+                lane_cover: true,
+                judge_offset_ms: -12,
+                visual_offset_ms: 7,
+                bga: false,
+                show_fast_slow: false,
+                expand_judge: true,
+                judge_rates: [200, 150, 75],
+                judge_area: true,
+                mark_notes: true,
+                bpm_guide: true,
+                timing_auto_adjust: true,
+                hran_threshold_bpm: 150,
+                target: Target::RateAAPlus,
+                p2: SideOptions {
+                    gauge: GaugeType::Hazard,
+                    hispeed: 1.5,
+                    hs_fix: HsFix::Start,
+                    fixed_duration_ms: 400.0,
+                    sudden: 0.5,
+                    hidden: 0.25,
+                    lift: 0.125,
+                    lane_cover: true,
+                    auto_scratch: true,
+                    judge_offset_ms: 9,
+                },
+            },
+            keys: KeyConfig {
+                p1: side(0),
+                p2: side(1_000_000),
+                pms: (0..9).map(|i| lk(KeyCode::KeyA, 100 + i)).collect(),
+                start: lk(KeyCode::Enter, 200),
+                select: lk(KeyCode::Space, 201),
+                p2_start: lk(KeyCode::Numpad1, 202),
+                p2_select: lk(KeyCode::Numpad2, 203),
+                any_axis_is_scratch: false,
+            },
+            touch: TouchConfig {
+                mode: TouchMode::On,
+                style: TouchStyle::Custom,
+                landscape_height: 0.5,
+                portrait_height: 0.25,
+                opacity: 0.5,
+                screen_inches: 10.5,
+                allow_dp: false,
+                scratch_threshold_deg: 4.5,
+                start_select_side: TouchSide::Right,
+                custom_from: TouchStyle::Keyboard,
+                layouts: BTreeMap::from([(
+                    "7KEYS landscape".into(),
+                    TouchLayout {
+                        buttons: vec![
+                            TouchButton {
+                                lane: 7,
+                                x: -0.05,
+                                y: 0.0,
+                                w: 0.25,
+                                h: 1.0,
+                                round: true,
+                            },
+                            TouchButton {
+                                lane: 0,
+                                x: 0.3,
+                                y: 0.55,
+                                w: 0.08,
+                                h: 0.4,
+                                round: false,
+                            },
+                        ],
+                    },
+                )]),
+            },
+            perspective: PerspectiveConfig {
+                strength: 0.4,
+                length: 0.8,
+                touch_height: 0.25,
+            },
+            display: DisplayConfig {
+                fullscreen: true,
+                width: 1920,
+                height: 1080,
+                present_mode: PresentMode::VSync,
+                max_fps: 144,
+                ui_scale: 1.25,
+                show_fps: true,
+            },
+            audio: AudioSettings {
+                buffer_frames: 128,
+                sample_rate: 48000,
+                master: 0.5,
+                key: 0.75,
+                bgm: 0.25,
+                system: 0.125,
+                preview: false,
+            },
+            tables: vec![
+                TableConfig {
+                    name: "Mine".into(),
+                    url: "https://example.org/table.html".into(),
+                    enabled: false,
+                },
+                TableConfig {
+                    name: "Other".into(),
+                    url: "https://example.org/other/".into(),
+                    enabled: true,
+                },
+            ],
+            archives: vec!["https://example.org/events/index.json".into()],
+            third_party_mirrors: !THIRD_PARTY_DEFAULT,
+            name_song_folders: true,
+            ir_server: IrConfig {
+                enabled: true,
+                name: "Test IR".into(),
+                url: "https://ir.example.org/api".into(),
+                token: "secret".into(),
+                auto_submit: true,
+            },
+            check_updates: false,
+            skins: BTreeMap::from([
+                ("7KEYS".into(), "skins/a/play7.lr2skin".into()),
+                ("SOUND_SET".into(), "sounds/x".into()),
+            ]),
+            skin_options: BTreeMap::from([(
+                "skins/a/play7.lr2skin".into(),
+                BTreeMap::from([("LANE".into(), "BLACK".into())]),
+            )]),
+            skin_offsets: BTreeMap::from([(
+                "skins/a/play7.lr2skin".into(),
+                BTreeMap::from([("JUDGE".into(), [1, -2, 3, 4, 5, 255])]),
+            )]),
+        }
+    }
+
+    /// A configuration written before (`tests/golden/config.toml`, and the
+    /// play options as a replay stores them, `play_config.json`) reads back
+    /// as it was and is written byte for byte the same. `GOLDEN_BLESS=1`
+    /// writes the files anew.
+    #[test]
+    fn full_config_stays_the_same() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
+        let (toml_path, json_path) = (dir.join("config.toml"), dir.join("play_config.json"));
+        let c = full_config();
+        if std::env::var_os("GOLDEN_BLESS").is_some() {
+            std::fs::write(&toml_path, toml::to_string_pretty(&c).unwrap()).unwrap();
+            std::fs::write(&json_path, serde_json::to_vec(&c.play).unwrap()).unwrap();
+        }
+        let s = std::fs::read_to_string(&toml_path).unwrap();
+        let read: Config = toml::from_str(&s).unwrap();
+        assert_eq!(read, c);
+        assert_eq!(toml::to_string_pretty(&read).unwrap(), s);
+        assert_eq!(Config::load(&toml_path), c);
+        let j = std::fs::read(&json_path).unwrap();
+        let play: PlayConfig = serde_json::from_slice(&j).unwrap();
+        assert_eq!(play, c.play);
+        assert_eq!(serde_json::to_vec(&play).unwrap(), j);
+    }
+
     #[test]
     fn roundtrip_toml() {
         let c = Config::default();
