@@ -371,6 +371,9 @@ pub struct SelectHooks<'a> {
     pub banner: Option<TexId>,
     /// Screen rects of drawn bars: (rect, bar index).
     pub bars: Vec<(Rect, usize)>,
+    /// How far down the screen a bar moves per list step (px), when the
+    /// list goes down the screen.
+    pub pitch: Option<f32>,
     /// Clickable objects: (rect, event, click mode).
     pub clicks: Vec<(Rect, i32, i32)>,
 }
@@ -461,6 +464,11 @@ impl Hooks for SelectHooks<'_> {
             d.or_else(|| other.get(k).and_then(Option::as_ref))?
                 .eval(now, st)
         };
+        let centre = sl.center as isize;
+        self.pitch = slot_frame(centre, false)
+            .zip(slot_frame(centre - 1, false))
+            .map(|(a, b)| (xf.rect(a.rect).y - xf.rect(b.rect).y).abs())
+            .filter(|p| *p >= 1.0);
         // the cursor in unwrapped list coordinates nearest to the scroll position
         let cur = {
             let c = s.cursor as f32;

@@ -121,6 +121,8 @@ pub struct SelectScene {
     scrolled_at: Instant,
     pub(crate) search_edit: Option<String>,
     bar_rects: Vec<(Rect, usize)>,
+    /// The skin's distance between bars on screen (`SelectHooks::pitch`).
+    bar_pitch: Option<f32>,
     drag: Option<(u64, f32, f32, bool)>,
     pub(crate) last_move: Instant,
     held_nav: Option<(Nav, Instant, Instant)>,
@@ -236,6 +238,7 @@ impl SelectScene {
             #[cfg(target_arch = "wasm32")]
             delete_armed: None,
             bar_rects: Vec::new(),
+            bar_pitch: None,
             drag: None,
             last_move: Instant::now(),
             held_nav: None,
@@ -1656,7 +1659,8 @@ impl Scene for SelectScene {
                 Phase::Move => {
                     if let Some((did, sy, ss, moved)) = self.drag.as_mut() {
                         if *did == *id {
-                            let bh = 46.0 * ctx.ui();
+                            // the list follows the finger
+                            let bh = self.bar_pitch.unwrap_or(46.0 * ctx.ui());
                             let dy = *y - *sy;
                             if dy.abs() > 8.0 {
                                 *moved = true;
@@ -1731,21 +1735,23 @@ impl Scene for SelectScene {
 impl SelectScene {
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let (bars, clicks) = {
+        let (bars, pitch, clicks) = {
             let st = SelectState { s: self, ctx, now };
             let mut hooks = SelectHooks {
                 st: &st,
                 banner: self.banner.as_ref().and_then(|b| b.1),
                 bars: Vec::new(),
+                pitch: None,
                 clicks: Vec::new(),
             };
             let ms = now.saturating_duration_since(self.created).as_millis() as i64;
             if let Some(sk) = self.skin.as_ref() {
                 sk.draw(d, view, ms, &st, &mut hooks);
             }
-            (hooks.bars, hooks.clicks)
+            (hooks.bars, hooks.pitch, hooks.clicks)
         };
         self.bar_rects = bars;
+        self.bar_pitch = pitch;
         self.skin_clicks = clicks;
         // search box (typing is not part of skins)
         if let Some(q) = &self.search_edit {
