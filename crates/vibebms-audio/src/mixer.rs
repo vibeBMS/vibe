@@ -178,15 +178,9 @@ impl State {
         }
     }
 
-    /// Render `frames` stereo frames into `self.mix`.
-    #[cfg(test)]
-    fn render(&mut self, frames: usize) {
-        self.render_obs(frames, None);
-    }
-
     /// Render `frames` stereo frames into `self.mix`, with what the
     /// callback knows of the time (see `clock`).
-    fn render_obs(&mut self, frames: usize, obs: Option<Obs>) {
+    fn render(&mut self, frames: usize, obs: Option<Obs>) {
         if let Some(o) = obs {
             self.clock.observe(o);
         }
@@ -235,11 +229,7 @@ impl State {
                 }
                 let n = (last - i).min(v.end - v.pos);
                 if g != 0.0 {
-                    for k in 0..n {
-                        let (l, r) = v.sample.frame(v.pos + k);
-                        mix[(i + k) * 2] += l * g;
-                        mix[(i + k) * 2 + 1] += r * g;
-                    }
+                    v.sample.mix_into(v.pos, &mut mix[i * 2..(i + n) * 2], g);
                 }
                 v.pos += n;
                 i += n;
@@ -432,7 +422,7 @@ impl Mixer {
                     stream_us: Some(t),
                     now_us: t,
                 };
-                s.render_obs(n, Some(obs));
+                s.render(n, Some(obs));
             }
             return s.frame;
         }
@@ -676,7 +666,7 @@ where
                     stream_us: cb.duration_since(&base).map(|d| d.as_secs_f64() * 1e6),
                     now_us: st.us(Instant::now()),
                 };
-                st.render_obs(frames, Some(obs));
+                st.render(frames, Some(obs));
                 for f in 0..frames {
                     let l = soft_clip(st.mix[f * 2]);
                     let r = soft_clip(st.mix[f * 2 + 1]);
@@ -751,10 +741,10 @@ mod tests {
         let (tx, mut st) = state();
         let s = sample(10, 16384);
         tx.send(Cmd::Play(voice(&s, 5, 0))).unwrap();
-        st.render(8);
+        st.render(8, None);
         assert_eq!(st.mix[2 * 4], 0.0);
         assert!((st.mix[2 * 5] - 0.5).abs() < 1e-3);
-        st.render(8);
+        st.render(8, None);
         // frames 8..15 continue the voice (frames 3..9 of sample at 8..12)
         assert!((st.mix[2 * 6] - 0.5).abs() < 1e-3);
         assert_eq!(st.mix[2 * 7], 0.0);
@@ -793,7 +783,7 @@ mod tests {
                     stream_us: Some(t + 1e9),
                     now_us: t + 300.0,
                 };
-                st.render_obs(buf, Some(obs));
+                st.render(buf, Some(obs));
                 due.retain(|(k, d)| match st.voices.iter().find(|v| v.key == *k) {
                     Some(v) if v.at_us.is_none() => {
                         let heard = v.start_at as f64 * 1e6 / true_rate;
@@ -817,13 +807,13 @@ mod tests {
     #[test]
     fn a_late_deadline_starts_now_from_its_beginning() {
         let (tx, mut st) = state();
-        st.render(480);
+        st.render(480, None);
         let s = sample(100, 16384);
         let mut v = voice(&s, u64::MAX, 3);
         // due at frame 0 (long past)
         v.at_us = Some(0.0);
         tx.send(Cmd::Play(v)).unwrap();
-        st.render(10);
+        st.render(10, None);
         assert_eq!(st.voices[0].start_at, 480);
         assert_eq!(st.voices[0].pos, 10);
         assert!((st.mix[0] - 0.5).abs() < 1e-3);
@@ -839,9 +829,9 @@ mod tests {
         tx.send(Cmd::Play(v)).unwrap();
         // the same sound played now does not cancel the scheduled one
         tx.send(Cmd::Play(voice(&s, 0, 9))).unwrap();
-        st.render(100);
+        st.render(100, None);
         assert_eq!(st.voices.len(), 2);
-        st.render(400);
+        st.render(400, None);
         // the scheduled one started and cut the first there
         assert_eq!(st.voices.len(), 1);
         assert_eq!(st.voices[0].start_at, 441);
@@ -883,10 +873,62 @@ mod tests {
         let s = sample(100, 16384);
         tx.send(Cmd::Play(voice(&s, 0, 7))).unwrap();
         tx.send(Cmd::Play(voice(&s, 10, 7))).unwrap();
-        st.render(20);
+        st.render(20, None);
         // before frame 10 one voice, afterwards still exactly one voice
         assert!((st.mix[2 * 5] - 0.5).abs() < 1e-3);
         assert!((st.mix[2 * 15] - 0.5).abs() < 1e-3);
         assert_eq!(st.voices.len(), 1);
+    }
+
+    /// Mono and stereo voices (sliced, looping, scheduled) over buffers of
+    /// odd sizes sum to what reading them frame by frame gives.
+    #[test]
+    fn render_equals_the_frame_by_frame_sum() {
+        let (tx, mut st) = state();
+        let pcm = |ch: u16, frames: usize| {
+            Arc::new(Sample {
+                channels: ch,
+                frames,
+                data: (0..frames * ch as usize)
+                    .map(|i| (i * 7919 % 65536) as u16 as i16)
+                    .collect(),
+            })
+        };
+        let (mono, stereo) = (pcm(1, 300), pcm(2, 250));
+        // (sample, start_at, slice, looping, volume)
+        let voices = [
+            (&mono, 0u64, 0..300, false, 1.0),
+            (&stereo, 0, 20..200, false, 0.7),
+            (&mono, 50, 10..90, true, 0.3),
+            (&stereo, 123, 0..61, true, 1.3),
+        ];
+        for (s, start_at, r, looping, vol) in voices.iter().cloned() {
+            let mut v = voice(s, start_at, 0);
+            (v.pos, v.start, v.end, v.looping, v.vol) = (r.start, r.start, r.end, looping, vol);
+            tx.send(Cmd::Play(v)).unwrap();
+        }
+        let mut t = 0;
+        for buf in [37, 64, 100, 1, 128, 77, 200] {
+            st.render(buf, None);
+            for f in 0..buf {
+                let (mut l, mut r) = (0.0f32, 0.0f32);
+                for (s, start_at, range, looping, vol) in voices.iter().cloned() {
+                    let Some(k) = (t + f).checked_sub(start_at as usize) else {
+                        continue;
+                    };
+                    if !looping && k >= range.len() {
+                        continue;
+                    }
+                    let i = range.start + k % range.len();
+                    let ch = s.channels as usize;
+                    let at = |c: usize| s.data[i * ch + c.min(ch - 1)] as f32 / 32768.0 * vol;
+                    l += at(0);
+                    r += at(1);
+                }
+                let at = (st.mix[2 * f], st.mix[2 * f + 1]);
+                assert_eq!(at, (l, r), "frame {}", t + f);
+            }
+            t += buf;
+        }
     }
 }
