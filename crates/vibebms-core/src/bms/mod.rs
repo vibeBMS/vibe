@@ -22,11 +22,11 @@ mod source;
 
 use crate::chart::Chart;
 use crate::encoding::decode_text;
-use crate::ChartError;
 use crate::rng::JavaRandom;
+use crate::ChartError;
 use md5::{Digest, Md5};
-use std::collections::HashMap;
 use sha2::Sha256;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct ParseOptions {

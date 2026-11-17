@@ -853,6 +853,7 @@ pub fn refusal_words(r: Refusal) -> String {
         Refusal::RandomChart => "a #RANDOM chart".into(),
         Refusal::MixedDevices => "keyboard and controller mixed".into(),
         Refusal::WallTime => "play time does not fit the chart".into(),
+        Refusal::Gauge(g) => format!("no {} gauge there", g.label()),
     }
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]

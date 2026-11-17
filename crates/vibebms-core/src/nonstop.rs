@@ -109,15 +109,21 @@ fn course_mode(modes: &[PlayMode]) -> Result<PlayMode, ChartError> {
             "a NONSTOP course's stages must be of one key mode".into(),
         ));
     }
-    Ok(*modes.iter().max_by_key(|m| m.keys_per_player()).unwrap_or(&first))
+    Ok(*modes
+        .iter()
+        .max_by_key(|m| m.keys_per_player())
+        .unwrap_or(&first))
 }
 
 /// The playable notes' beats (an LN to its end).
 fn note_beats(c: &Chart) -> impl Iterator<Item = (f64, f64)> + '_ {
-    c.notes.iter().filter(|n| n.is_playable()).map(|n| match n.kind {
-        NoteKind::Long { end_beat, .. } => (n.beat, end_beat),
-        _ => (n.beat, n.beat),
-    })
+    c.notes
+        .iter()
+        .filter(|n| n.is_playable())
+        .map(|n| match n.kind {
+            NoteKind::Long { end_beat, .. } => (n.beat, end_beat),
+            _ => (n.beat, n.beat),
+        })
 }
 
 /// Joins `stages` (each read with `bms::parse_stage`, in order) with
@@ -292,7 +298,10 @@ pub fn join(
         let first_bar = if k == 0 {
             0
         } else {
-            c.bar_lines.iter().position(|b| to(b.time) >= at).unwrap_or(0)
+            c.bar_lines
+                .iter()
+                .position(|b| to(b.time) >= at)
+                .unwrap_or(0)
         };
         bars.extend(c.bar_lines[first_bar..].iter().map(|b| (k, to(b.time))));
         let at_own = ((at as f64 - offset) * ratio).round();
@@ -384,7 +393,8 @@ pub fn join(
             *end_pos = tm.pos_at_beat(*end_beat);
         }
     }
-    out.notes.sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
+    out.notes
+        .sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
     out.bgm.sort_by_key(|b| b.time);
     bga.sort_by_key(|b| b.0.time);
     let (events, bga_stage) = bga.into_iter().unzip();
@@ -406,10 +416,7 @@ impl Nonstop {
     /// The stage playing at `t`: it advances at every join (LR2 advances
     /// only at the gap joins, S-OLR2b 3.7).
     pub fn stage_at(&self, t: i64) -> usize {
-        self.stages
-            .iter()
-            .rposition(|s| s.join <= t)
-            .unwrap_or(0)
+        self.stages.iter().rposition(|s| s.join <= t).unwrap_or(0)
     }
 
     /// The stage of sound `sound`.
@@ -419,7 +426,6 @@ impl Nonstop {
             .position(|s| s.sounds.contains(&sound))
             .unwrap_or(0)
     }
-
 
     /// Stage `k`'s sound volume at `t`: faded in before its join, out
     /// after the next, linearly in a value then squared (S-OLR2b 3.1).
@@ -525,7 +531,10 @@ mod tests {
             let (c, ns) = joined(&[A, B], &[j]);
             assert_eq!(ns.stages[1].join, 6 * SEC);
             assert_eq!(ns.stages[1].start, 2_800_000);
-            assert_eq!(times(&c), [(0, 2 * SEC), (1, 6_500_000), (0, 6_800_000), (0, 9_200_000)]);
+            assert_eq!(
+                times(&c),
+                [(0, 2 * SEC), (1, 6_500_000), (0, 6_800_000), (0, 9_200_000)]
+            );
         }
         // gap 1: the first note 0.5 to 1.5 measures after the join (bar 1)
         let (c, ns) = joined(&[A, B], &[Join::Gap1]);
@@ -534,7 +543,10 @@ mod tests {
         // gap 2: the join on A's first bar more than 5 s after bar 3 (bar
         // 6, 12 s), B untrimmed
         let (c, ns) = joined(&[A, B], &[Join::Gap2]);
-        assert_eq!((ns.stages[1].join, ns.stages[1].start), (12 * SEC, 12 * SEC));
+        assert_eq!(
+            (ns.stages[1].join, ns.stages[1].start),
+            (12 * SEC, 12 * SEC)
+        );
         assert_eq!(times(&c)[2], (0, 16 * SEC));
         // a last note half way through a measure: the earlier bar line
         let tie = "#BPM 120\n#WAV01 a.wav\n#00312:0001\n";
@@ -574,10 +586,7 @@ mod tests {
         // key 3 at 5.2 s, key 1 at 6.6 s (at the limit) and key 2 at 6.5 s
         // (A's last 100 ms used key 2) are background sounds; key 4 at
         // 6.5 s (a free lane, within 100 ms) and key 5 at 6.75 s stay
-        assert_eq!(
-            times(&c)[2..],
-            [(3, 6_500_000), (4, 6_750_000)]
-        );
+        assert_eq!(times(&c)[2..], [(3, 6_500_000), (4, 6_750_000)]);
         let bgm: Vec<i64> = c.bgm.iter().map(|b| b.time).collect();
         assert_eq!(bgm, [5_200_000, 6_500_000, 6_600_000]);
         assert_eq!(c.note_count(), 4);
@@ -642,7 +651,9 @@ mod tests {
         assert_eq!(e.ghost, [Judge::PGreat, Judge::Poor, Judge::Great]);
         // a later stage without #RANK keeps the windows
         let (_, ns) = joined(&[B, A], &[Join::Cut]);
-        assert!(ns.rule_switches(JudgePreset::Lr2, RuleFamily::SevenKeys).is_empty());
+        assert!(ns
+            .rule_switches(JudgePreset::Lr2, RuleFamily::SevenKeys)
+            .is_empty());
     }
 
     #[test]

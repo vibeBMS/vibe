@@ -209,15 +209,12 @@ impl<'a> SelectState<'a> {
                 lamp: None,
                 rival: None,
             },
-            Bar::Course { table: t, course } => BarInfo {
+            Bar::Course(c) => BarInfo {
                 kind: BAR_GRADE,
-                title: table(ctx, t)
-                    .and_then(|t| t.header.courses.get(*course))
-                    .map(|c| c.name.clone())
-                    .unwrap_or_default(),
+                title: super::launch::course_title(ctx, c),
                 level: None,
                 difficulty: 0,
-                lamp: None,
+                lamp: super::launch::course_lamp(ctx, c),
                 rival: None,
             },
         })
@@ -233,7 +230,7 @@ impl<'a> SelectState<'a> {
         Some(match id {
             1 => matches!(self.bar, Some(Bar::Folder { .. })),
             2 => matches!(self.bar, Some(Bar::Song(_) | Bar::Missing(_))),
-            3 => matches!(self.bar, Some(Bar::Course { .. })),
+            3 => matches!(self.bar, Some(Bar::Course(_))),
             5 => song.is_some(),
             32 | 33 | 40..=43 | 1046 => return play_option(p.autoplay, p.bga, p.gauge, id),
             100..=105 | 1100..=1104 => {

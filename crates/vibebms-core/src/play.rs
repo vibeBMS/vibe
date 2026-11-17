@@ -310,9 +310,16 @@ mod tests {
             (GaugeType::Hazard, GaugeType::Hazard),
             (GaugeType::PAttack, GaugeType::PAttack),
         ] {
-            let r = RuleOptions { gauge, ..mine.clone() }.for_course(CourseKind::Class);
+            let r = RuleOptions {
+                gauge,
+                ..mine.clone()
+            }
+            .for_course(CourseKind::Class);
             assert_eq!(r.gauge, played, "{gauge:?}");
-            assert_eq!((r.random_1p, r.random_2p), (LaneOption::Off, LaneOption::Off));
+            assert_eq!(
+                (r.random_1p, r.random_2p),
+                (LaneOption::Off, LaneOption::Off)
+            );
             assert_eq!(r.dp_option, DoubleOption::Off);
             assert!(!(r.battle || r.auto_scratch || r.legacy_note || r.no_mine || r.expand_judge));
             assert_eq!(r.gauge_auto_shift, GaugeAutoShift::None);
@@ -324,7 +331,10 @@ mod tests {
             ..mine.clone()
         }
         .for_course(CourseKind::Expert);
-        assert_eq!((r.gauge, r.random_1p, r.battle), (GaugeType::GAttack, LaneOption::SRandom, true));
+        assert_eq!(
+            (r.gauge, r.random_1p, r.battle),
+            (GaugeType::GAttack, LaneOption::SRandom, true)
+        );
         // another set: its dan gauges, the options as they are
         let b = RuleOptions {
             gauge: GaugeType::Hard,
@@ -332,7 +342,10 @@ mod tests {
             ..Default::default()
         }
         .for_course(CourseKind::Class);
-        assert_eq!((b.gauge, b.random_1p), (GaugeType::ExClass, LaneOption::Random));
+        assert_eq!(
+            (b.gauge, b.random_1p),
+            (GaugeType::ExClass, LaneOption::Random)
+        );
     }
 
     /// Two stages of an expert course: the second starts from the first's

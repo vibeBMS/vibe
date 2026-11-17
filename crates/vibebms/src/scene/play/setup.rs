@@ -13,10 +13,8 @@ use crate::input::LaneMapper;
 use crate::platform::{Duration, Instant};
 use crate::replay::Slot;
 use vibebms_core::chart::NO_SOUND;
-use vibebms_core::gauge::{GaugeAutoShift, GaugePreset};
 use vibebms_core::play::build_engine;
 use vibebms_core::record::{ChartFacts, RuleFacts};
-use vibebms_core::LnType;
 
 impl PlayScene {
     pub(super) fn setup(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, l: Box<Loaded>) {
@@ -29,6 +27,7 @@ impl PlayScene {
             seed,
             mut facts,
             ln_profile,
+            nonstop,
         } = *l;
         let mode = chart.mode();
         let vs = self.req.is_vs();
@@ -62,31 +61,20 @@ impl PlayScene {
             facts.battle = false;
             facts.lane.truncate(1);
         }
+        // a NONSTOP course is recorded as a song is, under its identity;
+        // an expert or class course's stages each partly, then the course
         let unranked = course
+            .filter(|c| !c.nonstop())
             .map(|_| "COURSE")
             .or(self.req.replay.as_ref().map(|_| "REPLAY"))
             .or(vs.then_some("VS"));
-        // LN mode: course constraints may force one
-        let mut ln = p.ln_mode;
-        if let Some(c) = course {
-            if c.has("ln") {
-                ln = LnType::Ln;
-            } else if c.has("cn") {
-                ln = LnType::Cn;
-            } else if c.has("hcn") {
-                ln = LnType::Hcn;
-            }
-        }
+        // a course's rules (a replay's play options have them)
+        let rules = match (course, &self.req.replay) {
+            (Some(c), None) => c.rules(&p.rules),
+            _ => p.rules.clone(),
+        };
+        let ln = rules.ln_mode;
         let score_ln = ln_profile.score_ln(ln);
-        let mut rules = p.rules.clone();
-        rules.ln_mode = ln;
-        if course.map(|c| c.has("gauge_lr2")).unwrap_or(false) {
-            rules.gauge_preset = GaugePreset::Lr2;
-        }
-        if course.is_some() {
-            rules.gauge = p.gauge.to_class();
-            rules.gauge_auto_shift = GaugeAutoShift::None;
-        }
         // AUTO SCRATCH is an assist when it plays scored notes
         facts.auto_scratch = p.auto_scratch
             && chart
@@ -96,13 +84,22 @@ impl PlayScene {
         // G-BATTLE, VS: the player judges the first side alone
         let side = (ghost.is_some() || vs).then_some(0);
         let (mut engine, total) = build_engine(&chart, &rules, side, self.req.autoplay);
+        if let Some(ns) = &nonstop {
+            engine.switch_rules(ns.rule_switches(rules.judge_preset, mode.family()));
+        }
         let chart_facts = ChartFacts::new(&chart, own_mode, ln_profile, total);
         let rule_facts = RuleFacts::new(&rules, &engine, &chart_facts, facts, seed);
-        if let Some(v) = course.and_then(|c| c.gauge_values.as_ref()) {
+        // an expert or class course's later stage: the gauges as the last
+        // left them (a replay of one: as they were given)
+        let carried = match &self.req.replay {
+            Some(r) => r.course.as_ref().and_then(|c| c.gauge.clone()),
+            None => course.and_then(|c| c.gauge_values.clone()),
+        };
+        if let Some(v) = &carried {
             engine.gauge.set_values(v);
         }
-        // a play of its own (not a course stage): kept as a replay
-        if self.req.replay.is_none() && !self.req.autoplay && course.is_none() && !vs {
+        // a play of its own: kept as a replay
+        if self.req.replay.is_none() && !self.req.autoplay && !vs {
             engine.record();
         }
         // the best play's ghost: MY BEST's pacemaker at the same note
@@ -110,7 +107,7 @@ impl PlayScene {
             Some(_) => None,
             None => crate::replay::load_filed(
                 &ctx.paths.root,
-                &self.req.song.sha256,
+                &self.req.replay_key(),
                 score_ln as i32,
                 ln_profile.has_long() && !ln_profile.undefined,
                 Slot::Best,
@@ -194,8 +191,12 @@ impl PlayScene {
             best_ex,
             chart: chart_facts,
             rules: rule_facts,
+            seed,
+            gauge_in: carried,
         };
+        let nonstop = nonstop.map(std::sync::Arc::new);
         self.session = Session::new(chart, sides, vs, self.session.start);
+        self.session.set_nonstop(nonstop);
         self.audio = Audio::new(bank, auto_notes);
         self.skin = super::skin::load(ctx, gfx, self);
         // start: a lead-in so the first notes scroll in (the skin's

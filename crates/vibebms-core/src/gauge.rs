@@ -653,7 +653,11 @@ impl GrooveGauge {
         let i = t as usize;
         match self.gauges.get(i).filter(|g| g.ty == t) {
             Some(g) => g,
-            None => self.gauges.iter().find(|g| g.ty == t).unwrap_or(&self.gauges[0]),
+            None => self
+                .gauges
+                .iter()
+                .find(|g| g.ty == t)
+                .unwrap_or(&self.gauges[0]),
         }
     }
 
@@ -945,7 +949,10 @@ mod tests {
         g.add_value(-40.0);
         assert!((g.value() - 10.1).abs() < 1e-4);
         // a clear is HARD CLEAR
-        assert_eq!(g.final_clear_gauge().map(|t| t.clear_type()), Some(ClearType::Hard));
+        assert_eq!(
+            g.final_clear_gauge().map(|t| t.clear_type()),
+            Some(ClearType::Hard)
+        );
     }
 
     #[test]
@@ -994,7 +1001,9 @@ mod tests {
                 GaugeType::GAttack
             ]
         );
-        assert!(!GaugePreset::Beatoraja.selectable().contains(&GaugeType::PAttack));
+        assert!(!GaugePreset::Beatoraja
+            .selectable()
+            .contains(&GaugeType::PAttack));
         // another set plays an attack gauge as its HARD
         let g = GrooveGauge::new(
             GaugePreset::Beatoraja,

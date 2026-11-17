@@ -349,7 +349,11 @@ mod tests {
     fn made_in_time_scrolls_with_time() {
         // 120 BPM, 240 from 1 s, a 0.5 s stop at 2 s: the scroll moves
         // as 150 BPM would, and holds during the stop
-        let m = TimingMap::of_times(&[(0, 120.0), (1_000_000, 240.0)], &[(2_000_000, 500_000)], 150.0);
+        let m = TimingMap::of_times(
+            &[(0, 120.0), (1_000_000, 240.0)],
+            &[(2_000_000, 500_000)],
+            150.0,
+        );
         let pos = |t: f64| m.pos_at_time(t);
         assert!((pos(1_000_000.0) - 2.5).abs() < 1e-9);
         assert!((pos(2_000_000.0) - 5.0).abs() < 1e-9);

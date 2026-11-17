@@ -245,10 +245,7 @@ fn passes(rec: &PlayRecord, g: &Gate) -> Result<Profile, Refusal> {
         .find(|t| t.profile == profile && t.modes.contains(&mode))
         .ok_or(Refusal::NotTaken(profile, mode))?;
     let gauge = rec.rules.gauge;
-    gate(
-        gauge.is_attack() && !g.attack_gauges,
-        Refusal::Gauge(gauge),
-    )?;
+    gate(gauge.is_attack() && !g.attack_gauges, Refusal::Gauge(gauge))?;
     if let Some(gap) = open_gap(profile, rec).filter(|_| g.third_party) {
         return Err(Refusal::OpenGap(gap.id));
     }

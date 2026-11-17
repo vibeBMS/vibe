@@ -260,14 +260,22 @@ mod tests {
         }
         // an LR2 player's string: the password's characters are not read,
         // upper-case MD5s are taken as lower-case
-        let lr2 = format!("2500000000100000000000000000{}{}{}", "9f3a", md5('A'), md5('b'));
+        let lr2 = format!(
+            "2500000000100000000000000000{}{}{}",
+            "9f3a",
+            md5('A'),
+            md5('b')
+        );
         let c = CourseDef::parse(&lr2).unwrap();
         assert_eq!(c.joins, vec![Join::Cut]);
         assert_eq!(c.stages[0], md5('a'));
         assert_ne!(c.id(), lr2);
         // not a course string
         assert_eq!(CourseDef::parse("123"), None);
-        assert_eq!(CourseDef::parse(&format!("{}{}", &id[..32], md5('x'))), None);
+        assert_eq!(
+            CourseDef::parse(&format!("{}{}", &id[..32], md5('x'))),
+            None
+        );
         let bad_kind = format!("{}7{}{}", "0".repeat(10), "0".repeat(21), md5('a'));
         assert_eq!(CourseDef::parse(&bad_kind), None);
     }

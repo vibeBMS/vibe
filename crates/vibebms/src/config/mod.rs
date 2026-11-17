@@ -167,6 +167,9 @@ pub struct Config {
     /// Skin offsets: skin -> offset name -> x, y, w, h, angle, alpha.
     pub skin_offsets:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, [i32; 6]>>,
+    /// RANDOM MIX's settings (written once changed).
+    #[serde(skip_serializing_if = "crate::courses::RandomMix::is_default")]
+    pub random_mix: crate::courses::RandomMix,
 }
 
 impl Default for Config {
@@ -200,6 +203,7 @@ impl Default for Config {
             skins: Default::default(),
             skin_options: Default::default(),
             skin_offsets: Default::default(),
+            random_mix: Default::default(),
         }
     }
 }
@@ -355,6 +359,7 @@ mod tests {
                     expand_judge: true,
                     judge_rates: [200, 150, 75],
                     hran_threshold_bpm: 150,
+                    course: None,
                 },
                 versus: Versus::Off,
                 side: Side::P2,
@@ -505,6 +510,7 @@ mod tests {
                 "skins/a/play7.lr2skin".into(),
                 BTreeMap::from([("JUDGE".into(), [1, -2, 3, 4, 5, 255])]),
             )]),
+            random_mix: Default::default(),
         }
     }
 

@@ -68,6 +68,7 @@ impl Outcome {
     }
 }
 
+#[derive(Clone)]
 pub struct ResultData {
     pub request: PlayRequest,
     pub title: String,
@@ -107,6 +108,8 @@ pub struct ResultData {
     pub replay: Option<crate::replay::Replay>,
     /// What the play was: its rules, devices and end time among them.
     pub record: PlayRecord,
+    /// An expert or class course's own result (its stages' totals).
+    pub course_total: bool,
 }
 
 /// Whether a play goes into the records and the player's totals: not
@@ -152,10 +155,19 @@ impl ResultData {
 
 impl ResultScene {
     pub fn new(ctx: &mut Ctx, mut d: ResultData) -> ResultScene {
-        ctx.net.ir.record(&mut d.record);
+        if !d.course_total {
+            ctx.net.ir.record(&mut d.record);
+        }
         let song = &d.request.song;
         let ln = d.ln as i32;
-        let before = ctx.best_key(&song.sha256, ln).cloned();
+        // a NONSTOP course and a course's result: under the course's
+        // identity (S-OLR2b 3.8, 4.4)
+        let key = match (&d.course, d.course_total) {
+            (Some(c), true) => c.def.id(),
+            _ => d.request.record_key().into_owned(),
+        };
+        let stage = d.course.as_ref().is_some_and(|c| !c.nonstop()) && !d.course_total;
+        let before = ctx.best_key(&key, ln).cloned();
         let mut after = None;
         let mut note = String::new();
         // every play of its own keeps its replay as the chart's latest
@@ -165,18 +177,31 @@ impl ResultScene {
                 log::warn!("replay: {e}");
             }
         }
-        if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
+        if stage && !d.autoplay {
+            // a course's stage: its chart's record, partly (S-OLR2b 4.4)
+            note = match (d.assist, ctx.lib.db.as_mut()) {
+                (Assist::None, Some(lib)) => {
+                    let b = crate::courses::save_stage(lib, &song.sha256, ln, &d.score, d.clear);
+                    ctx.lib.scores.insert((song.sha256.clone(), ln), b.clone());
+                    after = Some(b);
+                    "COURSE STAGE: best score and FULL COMBO kept".into()
+                }
+                _ => "COURSE STAGE: not saved".into(),
+            };
+        } else if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
             note = format!("{why}: not saved");
         } else if recorded(d.autoplay, d.unranked) {
-            let ranked = d.assist == Assist::None;
+            let ranked = d.assist == Assist::None || d.course_total;
             if let Some(lib) = ctx.lib.db.as_mut() {
                 let play_ms = d.record.result.play_ms;
-                let b = if ranked {
-                    lib.record_play(&song.sha256, ln, &d.score, d.clear, play_ms)
+                let b = if d.course.is_some() && ranked {
+                    crate::courses::save_course(lib, &key, ln, &d.score, d.clear, play_ms)
+                } else if ranked {
+                    lib.record_play(&key, ln, &d.score, d.clear, play_ms)
                 } else {
-                    lib.record_assisted(&song.sha256, ln, &d.score, d.clear, play_ms)
+                    lib.record_assisted(&key, ln, &d.score, d.clear, play_ms)
                 };
-                ctx.lib.scores.insert((song.sha256.clone(), ln), b.clone());
+                ctx.lib.scores.insert((key.clone(), ln), b.clone());
                 after = Some(b);
             }
             if !ranked {
@@ -195,7 +220,7 @@ impl ResultScene {
                 }
             }
         }
-        if ctx.config.ir.submit == SubmitPolicy::Auto {
+        if ctx.config.ir.submit == SubmitPolicy::Auto && !d.course_total {
             let now = crate::platform::unix_ms();
             ctx.net.ir.submit(&d.record, &ctx.config.ir, false, now);
         }
@@ -217,11 +242,11 @@ impl ResultScene {
 
     /// Start leaving: with a skin, its fade-out runs first.
     fn leave(&mut self, ctx: &mut Ctx, to: Leave) -> Next {
-        let h = &mut self.host;
-        if h.created.elapsed() < Duration::from_millis(500) || h.leaving.is_some() {
+        if matches!(to, Leave::Retry) && !self.retries() {
             return Next::Stay;
         }
-        if matches!(to, Leave::Retry) && self.d.course.is_some() {
+        let h = &mut self.host;
+        if h.created.elapsed() < Duration::from_millis(500) || h.leaving.is_some() {
             return Next::Stay;
         }
         if h.fadeout_ms() > 0 {
@@ -242,8 +267,19 @@ impl ResultScene {
         }
     }
 
+    /// A course's stage (expert, class), not its result.
+    fn course_stage(&self) -> bool {
+        self.d.course.as_ref().is_some_and(|c| !c.nonstop()) && !self.d.course_total
+    }
+
+    /// Retry is offered: not in an expert or class course (S-OLR2b 4.3);
+    /// a NONSTOP course plays again from its start (3.8).
+    fn retries(&self) -> bool {
+        !self.course_stage() && !self.d.course_total
+    }
+
     fn next_stage(&self) -> bool {
-        matches!(&self.d.course, Some(c) if c.index + 1 < c.songs.len() && self.d.clear != ClearType::Failed)
+        matches!(&self.d.course, Some(c) if self.course_stage() && c.index + 1 < c.songs.len() && self.d.clear != ClearType::Failed)
     }
 
     fn proceed(&mut self, ctx: &mut Ctx) -> Next {
@@ -262,6 +298,10 @@ impl ResultScene {
                 },
             )));
         }
+        // the last stage played (or failed): the course's result
+        if self.course_stage() {
+            return Next::Replace(Box::new(ResultScene::new(ctx, course_result(&self.d))));
+        }
         Next::Pop
     }
 
@@ -271,11 +311,11 @@ impl ResultScene {
             ctx.toast("No replay of this play".to_string());
             return Next::Stay;
         };
+        // (a NONSTOP play's chart is its course's)
         Next::Replace(Box::new(PlayScene::new(
             ctx,
             PlayRequest {
                 replay: Some(std::sync::Arc::new(r)),
-                course: None,
                 autoplay: false,
                 vs: None,
                 ..self.d.request.clone()
@@ -295,7 +335,7 @@ impl ResultScene {
     }
 
     fn retry(&mut self, ctx: &mut Ctx) -> Next {
-        if self.d.course.is_some() {
+        if !self.retries() {
             return Next::Stay;
         }
         Next::Replace(Box::new(PlayScene::new(ctx, self.d.request.clone())))
@@ -313,7 +353,7 @@ impl Scene for ResultScene {
                 self.stage_tex = crate::scene::select::resolve_image(&p)
                     .and_then(|rp| gfx.load_image(&rp, false));
             }
-            let kind = if self.d.course.is_some() && !self.next_stage() {
+            let kind = if self.d.course_total {
                 SkinType::CourseResult
             } else {
                 SkinType::Result
@@ -480,15 +520,73 @@ impl Scene for ResultScene {
 /// fail; the course's once a course ends) and the one it closes with.
 fn result_sound(d: &ResultData) -> (Sound, Sound) {
     let failed = d.clear == ClearType::Failed;
-    let course_end = d
-        .course
-        .as_ref()
-        .is_some_and(|c| failed || c.index + 1 >= c.songs.len());
-    match (course_end, failed) {
+    match (d.course_total, failed) {
         (true, false) => (Sound::CourseClear, Sound::CourseClose),
         (true, true) => (Sound::CourseFail, Sound::CourseClose),
         (false, false) => (Sound::ResultClear, Sound::ResultClose),
         (false, true) => (Sound::ResultFail, Sound::ResultClose),
+    }
+}
+
+/// An expert or class course's result once its last stage is played (or
+/// a stage failed), from that stage's: the stages' totals, the notes of
+/// those not played counted as not judged, the course's lamp (S-OLR2b
+/// 4.4; under the other gauge sets the worst stage's).
+fn course_result(last: &ResultData) -> ResultData {
+    let Some(c) = last.course.clone() else {
+        return last.clone();
+    };
+    let mut score = c.totals.score.clone();
+    score.total_notes += c.songs[c.stages.len().min(c.songs.len())..]
+        .iter()
+        .map(|s| s.notes.max(0) as u32)
+        .sum::<u32>();
+    let finished =
+        c.stages.len() == c.songs.len() && c.stages.iter().all(|s| s.2 != ClearType::Failed);
+    let (gauge_type, gauge_value) = c.last_gauge.unwrap_or((last.gauge_type, 0.0));
+    let clear = if last.record.rules.gauge_set == vibebms_core::gauge::GaugePreset::Lr2 {
+        c.totals
+            .lamp(finished, gauge_value, gauge_type.clear_type())
+    } else if finished {
+        c.stages
+            .iter()
+            .map(|s| s.2)
+            .min()
+            .unwrap_or(ClearType::Failed)
+    } else {
+        ClearType::Failed
+    };
+    let subtitle = format!("{} COURSE", c.kind().label());
+    let artist = c
+        .stages
+        .iter()
+        .map(|s| s.0.as_str())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    ResultData {
+        request: PlayRequest {
+            course: None,
+            ..last.request.clone()
+        },
+        meta: vibebms_core::ChartMeta {
+            title: c.name.clone(),
+            subtitle: subtitle.clone(),
+            artist: artist.clone(),
+            ..last.meta.clone()
+        },
+        title: c.name.clone(),
+        subtitle,
+        artist,
+        score,
+        clear,
+        gauge_type,
+        gauge_value,
+        unranked: None,
+        replay: None,
+        p2: None,
+        course: Some(c),
+        course_total: true,
+        ..last.clone()
     }
 }
 

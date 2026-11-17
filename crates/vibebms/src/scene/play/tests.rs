@@ -78,6 +78,7 @@ fn play_and_watch(keys: usize, play: &RuleOptions) -> (u64, u32) {
         clear: ClearType::default(),
         ghost: e.ghost.clone(),
         ops: e.recorded().to_vec(),
+        course: None,
     };
     let r: Replay = serde_json::from_slice(&serde_json::to_vec(&r).unwrap()).unwrap();
     let chart = build_chart(path, text.as_bytes(), &r.play, r.seed, None)
@@ -365,6 +366,7 @@ fn a_replay_plays_again_as_the_opponent() {
             clear: ClearType::default(),
             ghost: e.ghost.clone(),
             ops: e.recorded().to_vec(),
+            course: None,
         });
         // the battle
         let PlayChart {
@@ -444,6 +446,7 @@ fn bot_replay() {
         clear: ClearType::Normal,
         ghost: e.ghost.clone(),
         ops: e.recorded().to_vec(),
+        course: None,
     };
     crate::replay::save(&r, &root, crate::replay::Slot::Best).unwrap();
     crate::replay::save(&r, &root, crate::replay::Slot::Last).unwrap();
@@ -507,6 +510,7 @@ fn only_fitting_replays_are_opponents() {
         clear: ClearType::default(),
         ghost: Vec::new(),
         ops: vec![Op::Update(0)],
+        course: None,
     };
     assert_eq!(ghost_refusal(&r, &song, LnType::Ln), None);
     assert!(ghost_refusal(&r, &song, LnType::Cn).is_some());
@@ -532,4 +536,53 @@ fn gauge_graph_ends_with_the_final_gauge() {
     assert_eq!(settled_log(&[100.0, 40.0], 0.0), vec![100.0, 40.0, 0.0]);
     assert_eq!(settled_log(&[20.0, 82.0], 82.0), vec![20.0, 82.0]);
     assert_eq!(settled_log(&[], 20.0), vec![20.0]);
+}
+
+/// A course's rules: LR2's class settings under the LR2 set, a table
+/// course's constraints, NONSTOP's view (S-OLR2b 3.3, 5.1).
+#[test]
+fn course_rules_and_view() {
+    use vibebms_core::course::{CourseDef, CourseKind};
+    let run = |kind, constraints: &[&str]| {
+        let def = CourseDef {
+            kind,
+            ..Default::default()
+        };
+        let c = constraints.iter().map(|s| s.to_string()).collect();
+        CourseRun::new("C".into(), def, Vec::new(), c)
+    };
+    let mut p = crate::config::PlayConfig::default();
+    p.rules.gauge = GaugeType::Easy;
+    p.rules.random_1p = LaneOption::Random;
+    p.sudden = 0.3;
+    // a table course with gauge_lr2: LR2's class settings
+    let class = run(CourseKind::Class, &["gauge_lr2", "cn"]);
+    let r = class.rules(&p.rules);
+    assert_eq!(
+        (r.gauge_preset, r.gauge),
+        (GaugePreset::Lr2, GaugeType::Class)
+    );
+    assert_eq!(
+        (r.random_1p, r.ln_mode),
+        (LaneOption::Off, vibebms_core::LnType::Cn)
+    );
+    let mut view = std::borrow::Cow::Borrowed(&p);
+    class.view(&mut view);
+    assert_eq!(view.sudden, 0.0);
+    // beatoraja's set: its dan gauge, the lane option kept (MIRROR at most
+    // when it says so)
+    let table = run(CourseKind::Class, &["grade_mirror"]);
+    let r = table.rules(&p.rules);
+    assert_eq!(
+        (r.gauge, r.random_1p),
+        (GaugeType::Class, LaneOption::Random)
+    );
+    assert_eq!(table.lanes(), Some(true));
+    // NONSTOP: HS-FIX off, any lane option
+    p.hs_fix = crate::config::HsFix::Main;
+    let ns = run(CourseKind::Nonstop, &[]);
+    let mut view = std::borrow::Cow::Borrowed(&p);
+    ns.view(&mut view);
+    assert_eq!((view.hs_fix, view.sudden), (crate::config::HsFix::Off, 0.3));
+    assert_eq!(ns.lanes(), None);
 }

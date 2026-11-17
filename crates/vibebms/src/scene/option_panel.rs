@@ -36,7 +36,7 @@ pub fn value(p: &PlayConfig, g: i32) -> Option<i64> {
         1 => match p.gauge {
             GaugeType::Class => 3,
             GaugeType::ExClass | GaugeType::ExHardClass => 4,
-            g => index_of(&GaugeType::SELECTABLE, g),
+            g => index_of(p.gauge_preset.selectable(), g),
         },
         2 => battle_index(p),
         3 => index_of(&HsFix::ALL, p.hs_fix),
@@ -191,7 +191,7 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("RANDOM: {}", p.random_1p.label())
         }
         (1, 2) => {
-            p.gauge = cycle(&GaugeType::SELECTABLE, p.gauge, 1);
+            p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, 1);
             format!("GAUGE: {}", p.gauge.label())
         }
         (1, 3) => {

@@ -6,6 +6,7 @@ use crate::app::Ctx;
 use crate::scene::skinvals::rank_index;
 use std::collections::HashMap;
 use std::path::Path;
+use vibebms_core::course::CourseKind;
 use vibebms_core::score::DjLevel;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -17,6 +18,8 @@ pub(crate) enum Node {
     Table(String),
     Level(String, String),
     Courses(String),
+    /// The player's courses of a kind (LR2's course folders).
+    MyCourses(CourseKind),
     Search(String),
     /// A mirrored event, by its index's URL (the events are rebuilt as the
     /// lists arrive).
@@ -36,11 +39,18 @@ pub(crate) enum Bar {
     },
     Song(usize),
     Missing(Missing),
-    Course {
-        /// The table's URL.
-        table: String,
-        course: usize,
-    },
+    Course(CourseBar),
+}
+
+/// A course in a list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CourseBar {
+    /// A table's (its URL), by its index there.
+    Table(String, usize),
+    /// The player's, by its id.
+    Mine(u64),
+    /// RANDOM MIX: makes a course of the kind.
+    RandomMix(CourseKind),
 }
 
 /// A chart a table or an event lists that is not in the library.
@@ -97,7 +107,7 @@ impl SelectScene {
                 ctx.lib.songs.get(*i).map(|s| s.path.as_str()).unwrap_or("")
             ),
             Bar::Missing(m) => format!("m:{}\u{1f}{}", m.title, m.artist),
-            Bar::Course { table, course } => format!("c:{table}:{course}"),
+            Bar::Course(c) => format!("c:{c:?}"),
         }
     }
 
@@ -156,6 +166,15 @@ impl SelectScene {
                         sub: if ev.mirrored { "mirror" } else { "links" }.into(),
                         node: Node::Archive(ev.url.clone()),
                         count: ev.works.len(),
+                    });
+                }
+                // the player's courses, by kind (LR2's course folders)
+                for kind in [CourseKind::Expert, CourseKind::Nonstop, CourseKind::Class] {
+                    bars.push(Bar::Folder {
+                        label: format!("{} COURSES", kind.label()),
+                        sub: "courses".into(),
+                        node: Node::MyCourses(kind),
+                        count: ctx.lib.courses.of_kind(kind).len(),
                     });
                 }
                 for t in ctx.tables.list.iter() {
@@ -287,13 +306,22 @@ impl SelectScene {
             Node::Courses(t) => table(ctx, t)
                 .map(|tb| {
                     (0..tb.header.courses.len())
-                        .map(|c| Bar::Course {
-                            table: t.clone(),
-                            course: c,
-                        })
+                        .map(|c| Bar::Course(CourseBar::Table(t.clone(), c)))
                         .collect()
                 })
                 .unwrap_or_default(),
+            // newest first, then (expert, NONSTOP) RANDOM MIX
+            Node::MyCourses(kind) => ctx
+                .lib
+                .courses
+                .of_kind(*kind)
+                .iter()
+                .map(|c| Bar::Course(CourseBar::Mine(c.id)))
+                .chain(
+                    (*kind != CourseKind::Class)
+                        .then_some(Bar::Course(CourseBar::RandomMix(*kind))),
+                )
+                .collect(),
         }
     }
 
@@ -378,6 +406,7 @@ impl SelectScene {
             Node::Table(t) | Node::Courses(t) => table(ctx, t)
                 .map(|t| t.header.name.clone())
                 .unwrap_or_default(),
+            Node::MyCourses(k) => format!("{} COURSES", k.label()),
             Node::Level(t, l) => table(ctx, t).map(|t| t.label(l)).unwrap_or_default(),
             Node::Search(q) => format!("SEARCH \"{q}\""),
             Node::Archive(url) => event(ctx, url)
