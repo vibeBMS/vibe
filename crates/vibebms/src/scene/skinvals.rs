@@ -353,6 +353,7 @@ pub fn judge_option(judge: i64, id: i32) -> bool {
 pub fn judge_rank_number(m: &ChartMeta) -> i64 {
     match m.judge_rank {
         JudgeRank::Rank(r) => r as i64,
+        JudgeRank::NoNumber => 2,
         JudgeRank::DefExRank(v) | JudgeRank::Bmson(v) => v.round() as i64,
     }
 }

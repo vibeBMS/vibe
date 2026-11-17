@@ -11,6 +11,7 @@ use vibebms_core::record::{
     self, thin_gauge_log, CourseStage, DeviceFacts, Platform, PlayFlags, PlayRecord, PlayResult,
 };
 use vibebms_core::score::{Assist, ClearType};
+use vibebms_ir::rule::Profile;
 
 /// The gauge graph's samples (every 500 ms) with the gauge as the play
 /// ended: a FAILED play's graph reaches 0, a clear's its last value.
@@ -42,16 +43,22 @@ impl PlayScene {
             return Next::Pop;
         }
         let gauge = &e.gauge;
-        let gauge_clear = if failed || e.is_failed() && gauge.auto_shift != GaugeAutoShift::Continue
-        {
+        let died = failed || e.is_failed() && gauge.auto_shift != GaugeAutoShift::Continue;
+        let gauge_clear = if died {
             None
         } else {
             gauge.final_clear_gauge().map(|g| g.clear_type())
         };
         let mut score = e.score.clone();
         let assist = self.facts.rules.assist.level();
+        // a play of the vibe-LR2 profile has LR2's lamp (also what IR gets)
+        let lr2 = Profile::VibeLr2
+            .rules()
+            .matches(&self.facts.rules, &self.facts.chart);
         let clear = if self.controls.quit {
             ClearType::Failed
+        } else if lr2 {
+            score.lr2_clear_type(died, gauge_clear, assist)
         } else {
             score.clear_type(gauge_clear, assist)
         };

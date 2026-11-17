@@ -1177,9 +1177,9 @@ mod tests {
     /// An open gap is told by its reason; one without, by its id.
     #[test]
     fn open_gaps_in_words() {
-        let a3 = vibebms_ir::rule::gap("A3").unwrap().reason;
-        assert!(!a3.is_empty());
-        assert_eq!(refusal_words(Refusal::OpenGap("A3")), a3);
+        let a4 = vibebms_ir::rule::gap("A4").unwrap().reason;
+        assert!(!a4.is_empty());
+        assert_eq!(refusal_words(Refusal::OpenGap("A4")), a4);
         assert_eq!(
             refusal_words(Refusal::OpenGap("Z9")),
             "rules not confirmed equal yet (Z9)"

@@ -9,14 +9,14 @@ timing_log: a252d1b432cf1577
 notes: 31ec09dc2dcd07b9 damaged 09612b07b5ecb5a5
 end: combo 0 failed false finished true held [] ops 3629
 [Beat5K Ln Lr2 Duration Normal]
-score: ex 366 counts [[69, 61], [52, 54], [38, 36], [9, 9], [3, 8], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 55 breaks 29 total 339 passed 339
-events: 708 56abd50adde6687e
-gauge history: f1399dc3b209155e
-gauge: Normal: 42c80000 42c80000 426277cf ~0 ~0 00000000 4245ccb8 00000000 00000000
-ghost: bbd2e3376e8be395 339
-judge_log: 7b83d622d6f427bf
-timing_log: 4b45b4240cbd7ec9
-notes: 3de0117229026f5c damaged 3c8990dae7d5d1cb
+score: ex 375 counts [[68, 63], [50, 51], [36, 39], [8, 7], [3, 8], [1, 0]] just [6, 0, 0, 0, 0, 2] max_combo 55 breaks 26 total 339 passed 339
+events: 708 deea6316e2708301
+gauge history: 3a7492956d084712
+gauge: Normal: 42c80000 42c80000 428bf95c ~0 ~0 00000000 425be117 00000000 00000000
+ghost: 8128d0054008aab5 339
+judge_log: f1e9448059b24db1
+timing_log: ec1eecb5d98aff83
+notes: 4c3bfc47f7819ca4 damaged 3c8990dae7d5d1cb
 end: combo 11 failed false finished true held [] ops 3512
 [Beat5K Ln Iidx Lowest Normal]
 score: ex 259 counts [[43, 27], [45, 36], [52, 55], [9, 3], [0, 2], [0, 1]] just [19, 0, 0, 0, 0, 0] max_combo 72 breaks 15 total 291 passed 291
@@ -39,14 +39,14 @@ timing_log: 7566a2bb178b2ab2
 notes: 8e5b89f1a802e6ce damaged 09612b07b5ecb5a5
 end: combo 0 failed true finished true held [] ops 3569
 [Beat5K Cn Lr2 Duration Hard]
-score: ex 489 counts [[85, 101], [61, 56], [29, 34], [6, 5], [7, 7], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 50 breaks 25 total 391 passed 391
-events: 793 88ecd94d48d893ff
-gauge history: 1981500cc9d2ea72
-gauge: Hard: 42c80000 42c80000 4271991a ~0 ~0 00000000 4234994d 00000000 00000000
-ghost: 0c6c2ac8584d38a7 391
-judge_log: 235a7256f2eb1fb2
-timing_log: e5a4772a5d510932
-notes: 00bbbbbfda90582f damaged 09612b07b5ecb5a5
+score: ex 491 counts [[85, 100], [60, 53], [29, 36], [6, 4], [7, 7], [1, 0]] just [4, 0, 0, 0, 0, 2] max_combo 50 breaks 24 total 391 passed 391
+events: 793 430ad2226b51e5e1
+gauge history: 715bd58ea8528fdf
+gauge: Hard: 42c80000 42c80000 427faee6 ~0 ~0 00000000 42387a94 00000000 00000000
+ghost: 56148e441951a966 391
+judge_log: 5e91315d215bec5e
+timing_log: a3e0107334b23319
+notes: ef6c6ab67a12078b damaged 09612b07b5ecb5a5
 end: combo 20 failed true finished true held [] ops 3677
 [Beat5K Cn Iidx Lowest Hard]
 score: ex 450 counts [[85, 72], [57, 35], [38, 40], [6, 2], [3, 8], [0, 0]] just [22, 0, 0, 0, 0, 0] max_combo 87 breaks 19 total 368 passed 368
@@ -69,14 +69,14 @@ timing_log: 116a2d8c0688f300
 notes: da5026827f865f81 damaged 74b10406b98a6671
 end: combo 2 failed true finished true held [] ops 3620
 [Beat5K Hcn Lr2 Duration ExHard]
-score: ex 464 counts [[87, 87], [55, 61], [28, 18], [1, 5], [8, 8], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 52 breaks 22 total 358 passed 358
-events: 719 d24f7b804177ce94
-gauge history: c74523570cee7cef
-gauge: ExHard: 42c80000 42c80000 42bff262 ~0 ~0 00000000 42483310 00000000 00000000
-ghost: e10d5bbf64615bcd 358
-judge_log: 219444c9b55bc436
-timing_log: 66f6e7cfcc8dc013
-notes: f78c6fedb5280b88 damaged 97825f654380a490
+score: ex 467 counts [[86, 85], [55, 58], [27, 18], [1, 5], [8, 9], [3, 0]] just [6, 0, 0, 0, 0, 2] max_combo 46 breaks 23 total 358 passed 358
+events: 718 18724044fad290b4
+gauge history: fdc26f8e55778c87
+gauge: ExHard: 42c80000 42c80000 42b2c27c ~0 ~0 00000000 423a3d3d 00000000 00000000
+ghost: 50f6be099d9232ae 358
+judge_log: e97ec7d37e0a3aeb
+timing_log: 959cb0b8aabda709
+notes: d03c31924f4c19ac damaged 97825f654380a490
 end: combo 11 failed true finished true held [] ops 3449
 [Beat5K Hcn Iidx Lowest ExHard]
 score: ex 478 counts [[79, 84], [46, 52], [36, 30], [1, 2], [10, 1], [0, 1]] just [27, 0, 0, 0, 0, 0] max_combo 56 breaks 15 total 368 passed 368
@@ -99,14 +99,14 @@ timing_log: 47fe052563315105
 notes: 592dc5c0bec2a527 damaged 7334784fe60cfbf5
 end: combo 26 failed false finished true held [] ops 3970
 [Beat7K Ln Lr2 Duration Normal]
-score: ex 353 counts [[57, 51], [78, 59], [64, 63], [21, 12], [0, 9], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 37 breaks 42 total 414 passed 414
-events: 925 c153ca85f9c77659
-gauge history: c26bfc677788101e
-gauge: Normal: 42876c6c 42876c6c 4207b497 ~0 ~0 00000000 41e7ff89 00000000 00000000
-ghost: 62e84c97e627a407 414
-judge_log: 3e98fe7174349d90
-timing_log: ebb09510f86076b4
-notes: acb4af8caf67ded4 damaged 09612b07b5ecb5a5
+score: ex 366 counts [[51, 54], [69, 71], [60, 65], [20, 7], [0, 9], [5, 0]] just [8, 0, 0, 0, 0, 1] max_combo 38 breaks 36 total 414 passed 414
+events: 925 a47cd73a2db9eca2
+gauge history: 15d8ccc5d8abca90
+gauge: Normal: 42aa0256 42aa0256 42225904 ~0 ~0 00000000 420651a4 00000000 00000000
+ghost: 0bd3a371cd5328d4 414
+judge_log: 514a9eab83f4dcdd
+timing_log: cf7a4ae474f75665
+notes: 6bd9ddbe14944a27 damaged 09612b07b5ecb5a5
 end: combo 3 failed false finished true held [] ops 4147
 [Beat7K Ln Iidx Lowest Normal]
 score: ex 373 counts [[56, 50], [61, 56], [71, 86], [11, 5], [0, 9], [0, 1]] just [22, 0, 0, 0, 0, 0] max_combo 53 breaks 25 total 427 passed 427
@@ -129,15 +129,15 @@ timing_log: d8c2917871cc2a64
 notes: 81577fd4ab44ddc3 damaged 09612b07b5ecb5a5
 end: combo 26 failed true finished true held [] ops 4259
 [Beat7K Cn Lr2 Duration Hard]
-score: ex 608 counts [[116, 113], [84, 66], [38, 46], [6, 7], [8, 7], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 53 breaks 28 total 491 passed 491
-events: 1001 e8316d4de8511227
-gauge history: ea4bb36002a1fc3b
-gauge: Hard: 42c80000 42c80000 42bfa4b3 ~0 ~0 00000000 42866651 00000000 00000000
-ghost: 438cf27f7c1dcfbe 491
-judge_log: 4c2164e246edae54
-timing_log: c12341a78914645c
-notes: d6e0fe2069fbca48 damaged 83ca06a42b0f50d1
-end: combo 12 failed true finished true held [] ops 4269
+score: ex 617 counts [[110, 119], [81, 70], [34, 49], [6, 3], [8, 7], [0, 0]] just [4, 0, 0, 0, 0, 2] max_combo 53 breaks 24 total 491 passed 491
+events: 1000 1fdbc6068d84c734
+gauge history: ef0772ee260076c3
+gauge: Hard: 42c80000 42c80000 42c80000 ~0 ~0 00000000 4295d1c0 00000000 00000000
+ghost: 4bae9987b63528bb 491
+judge_log: 5bbf9f3c69742042
+timing_log: f135bac3c9c247eb
+notes: 9b1eacbf0b34e610 damaged 83ca06a42b0f50d1
+end: combo 47 failed true finished true held [] ops 4269
 [Beat7K Cn Iidx Lowest Hard]
 score: ex 666 counts [[122, 116], [62, 64], [56, 37], [3, 2], [7, 16], [0, 0]] just [32, 0, 0, 0, 0, 0] max_combo 74 breaks 28 total 517 passed 517
 events: 1033 88dc0b44eaf50693
@@ -159,15 +159,15 @@ timing_log: 84cb43c62bc9ed40
 notes: bc1497a861a8eefb damaged 86ee79df4352d3e1
 end: combo 25 failed true finished true held [] ops 4009
 [Beat7K Hcn Lr2 Duration ExHard]
-score: ex 642 counts [[105, 132], [85, 83], [31, 32], [5, 4], [10, 5], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 66 breaks 24 total 492 passed 492
-events: 982 10625c77a1e97ffc
-gauge history: 8a6ef5289e73ec1e
-gauge: ExHard: 42c0df62 42c0df62 42bde086 ~0 ~0 00000000 428b3342 00000000 00000000
-ghost: 6acd469f68140d14 492
-judge_log: 86c7730225b865fa
-timing_log: 61a32eeb47e9f423
-notes: 37374d35eea95514 damaged 7927753d11bc5e66
-end: combo 2 failed true finished true held [] ops 4075
+score: ex 654 counts [[105, 134], [82, 82], [31, 29], [5, 3], [10, 5], [1, 0]] just [6, 0, 0, 0, 0, 0] max_combo 66 breaks 23 total 492 passed 492
+events: 982 8a6da27905e9a636
+gauge history: 9aa565a0ac9e9052
+gauge: ExHard: 42bfa257 42bfa257 42bd0749 ~0 ~0 00000000 428ec28f 00000000 00000000
+ghost: 2ec445fbfb8483eb 492
+judge_log: c0fd89ac070e45f0
+timing_log: bf1c5a08c4695dd8
+notes: 7a3b387928a91f6a damaged 7927753d11bc5e66
+end: combo 1 failed true finished true held [] ops 4075
 [Beat7K Hcn Iidx Lowest ExHard]
 score: ex 609 counts [[101, 115], [47, 60], [39, 49], [4, 0], [7, 12], [0, 1]] just [35, 0, 0, 0, 0, 0] max_combo 42 breaks 23 total 469 passed 469
 events: 957 6a571b159842e0ea
@@ -189,15 +189,15 @@ timing_log: b675d4dd79aa514a
 notes: 91ea0aaa4581a1cb damaged 09612b07b5ecb5a5
 end: combo 3 failed false finished true held [] ops 5188
 [Beat10K Ln Lr2 Duration Normal]
-score: ex 582 counts [[97, 91], [129, 77], [87, 74], [35, 18], [0, 18], [7, 0]] just [0, 0, 0, 0, 0, 0] max_combo 34 breaks 71 total 626 passed 626
-events: 1399 ae12cd710d40fca8
-gauge history: 6092502195549d2e
-gauge: Normal: 413859a6 413859a6 40a89568 ~0 ~0 00000000 00000000 00000000 00000000
-ghost: aae46ca70151fa7a 626
-judge_log: 537d11955f7b7c66
-timing_log: cee1f44e0d2e4c36
-notes: 3759bb35847a48eb damaged 09612b07b5ecb5a5
-end: combo 10 failed false finished true held [] ops 5392
+score: ex 595 counts [[90, 99], [117, 92], [82, 91], [26, 9], [0, 16], [3, 0]] just [4, 0, 0, 0, 0, 1] max_combo 43 breaks 51 total 626 passed 626
+events: 1385 245af61c119fc8fc
+gauge history: 388d3b3bc07ac853
+gauge: Normal: 42a2b05a 42a2b05a 40afbe88 ~0 ~0 00000000 41af327d 00000000 00000000
+ghost: 2da184d46a9f941f 626
+judge_log: a39228fed4a5f192
+timing_log: 74f476dd5a6c1592
+notes: c0db32e8bc0d8b73 damaged 09612b07b5ecb5a5
+end: combo 5 failed false finished true held [] ops 5392
 [Beat10K Ln Iidx Lowest Normal]
 score: ex 597 counts [[84, 89], [92, 73], [103, 123], [13, 3], [0, 11], [0, 3]] just [43, 0, 0, 0, 0, 0] max_combo 80 breaks 30 total 634 passed 634
 events: 1417 1483e9507ac8b5ef
@@ -219,14 +219,14 @@ timing_log: 665a81bd7f23d594
 notes: c7588e8613c2c71d damaged 78dd3fe445b5aba7
 end: combo 1 failed true finished true held [] ops 5551
 [Beat10K Cn Lr2 Duration Hard]
-score: ex 920 counts [[179, 161], [123, 117], [51, 57], [12, 8], [20, 19], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 42 breaks 59 total 747 passed 747
-events: 1522 5c1341ad2ceb8c60
-gauge history: ecc20fc90c0c6b6f
-gauge: Hard: 428159e2 428159e2 401ab097 ~0 ~0 00000000 410f3204 00000000 00000000
-ghost: 7a498e9fb82b42f3 747
-judge_log: 6656bddc0ba1d514
-timing_log: 1afb767e8be2fcbf
-notes: b51e126a1f3835fd damaged 09612b07b5ecb5a5
+score: ex 927 counts [[177, 162], [121, 118], [48, 61], [12, 4], [20, 19], [4, 0]] just [5, 0, 0, 0, 0, 4] max_combo 47 breaks 55 total 747 passed 747
+events: 1522 c050e63b954dc3ad
+gauge history: 5bad08f94dcd48a1
+gauge: Hard: 429d62e0 429d62e0 401aa52f ~0 ~0 00000000 4144cb4a 00000000 00000000
+ghost: 638a2df1195e8788 747
+judge_log: 06c8bcf45f6e3c34
+timing_log: ecfe6a26218c4c1a
+notes: 9ca0a15bc750eee3 damaged 09612b07b5ecb5a5
 end: combo 1 failed true finished true held [] ops 5459
 [Beat10K Cn Iidx Lowest Hard]
 score: ex 959 counts [[168, 171], [74, 87], [45, 75], [3, 9], [18, 15], [0, 3]] just [60, 0, 0, 0, 0, 0] max_combo 55 breaks 48 total 725 passed 725
@@ -249,14 +249,14 @@ timing_log: 954fb0350bc41833
 notes: 6b70fa5014083fe1 damaged ff9d9e61043f062c
 end: combo 35 failed true finished true held [] ops 5516
 [Beat10K Hcn Lr2 Duration ExHard]
-score: ex 822 counts [[138, 157], [127, 105], [67, 63], [22, 8], [11, 21], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 44 breaks 62 total 719 passed 719
-events: 1471 dee601dadbefb609
-gauge history: 363d1ccc5cf504d9
-gauge: ExHard: 42881db0 42881db0 41b1b2ce ~0 ~0 00000000 40f7ff10 00000000 00000000
-ghost: 4c93f5fcf21d218f 719
-judge_log: 0f6249e19051a7fd
-timing_log: bf3451eae8046edb
-notes: 8ed36fe6e0effc09 damaged a74412320d3cc665
+score: ex 839 counts [[137, 162], [124, 109], [57, 72], [18, 6], [11, 19], [2, 0]] just [4, 0, 0, 0, 0, 3] max_combo 44 breaks 54 total 719 passed 719
+events: 1468 f354be5d71631f1f
+gauge history: c5a9698db7531c14
+gauge: ExHard: 42c7bff7 42c7bff7 41bbb774 ~0 ~0 00000000 418465e5 00000000 00000000
+ghost: 2770ca79f2775d8c 719
+judge_log: 62702b619144a54d
+timing_log: a741ceb55e26b35b
+notes: e7ae2783ba974b9d damaged a74412320d3cc665
 end: combo 32 failed true finished true held [] ops 5432
 [Beat10K Hcn Iidx Lowest ExHard]
 score: ex 950 counts [[157, 176], [84, 98], [69, 74], [4, 5], [13, 15], [0, 2]] just [51, 0, 0, 0, 0, 0] max_combo 88 breaks 39 total 746 passed 746
@@ -279,14 +279,14 @@ timing_log: ca94a21a1fc1e0e6
 notes: f4511da30955981e damaged 09612b07b5ecb5a5
 end: combo 13 failed false finished true held [] ops 6590
 [Beat14K Ln Lr2 Duration Normal]
-score: ex 764 counts [[137, 110], [155, 115], [135, 113], [43, 19], [0, 20], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 59 breaks 82 total 847 passed 847
-events: 1895 91c8d88a1984db74
-gauge history: b7ad371109c9b4c5
-gauge: Normal: 4175068f 4175068f 40317ed0 ~0 ~0 00000000 00000000 00000000 00000000
-ghost: 80e385055ea317b9 847
-judge_log: 997dafef0b621d4b
-timing_log: d548efac17f16f1f
-notes: 50dd5713d279b8b0 damaged 09612b07b5ecb5a5
+score: ex 781 counts [[126, 125], [143, 126], [127, 130], [35, 9], [0, 21], [4, 0]] just [5, 0, 0, 0, 0, 2] max_combo 85 breaks 65 total 847 passed 847
+events: 1883 cca4dcd53ca64d7d
+gauge history: 3dc75f84b53e0f5b
+gauge: Normal: 4284af80 4284af80 40316ab0 ~0 ~0 00000000 415ccc21 00000000 00000000
+ghost: 687973e495fc3f46 847
+judge_log: c1cce28530000cf8
+timing_log: ed61d29d4c92af3e
+notes: 09b4f70747ca49f5 damaged 09612b07b5ecb5a5
 end: combo 2 failed false finished true held [] ops 6717
 [Beat14K Ln Iidx Lowest Normal]
 score: ex 979 counts [[141, 160], [127, 108], [96, 123], [24, 5], [7, 25], [0, 4]] just [71, 0, 0, 0, 0, 0] max_combo 68 breaks 61 total 887 passed 887
@@ -309,15 +309,15 @@ timing_log: fe9c04f483e4cb58
 notes: 22f27892bf93ff6d damaged 09612b07b5ecb5a5
 end: combo 5 failed true finished true held [] ops 6827
 [Beat14K Cn Lr2 Duration Hard]
-score: ex 1250 counts [[230, 232], [172, 154], [69, 74], [14, 14], [20, 26], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 94 breaks 74 total 1005 passed 1005
-events: 2029 6a8c877d01f5e6d0
-gauge history: 6e6039d833d0baff
-gauge: Hard: 42860a93 42860a93 419c7ea3 ~0 ~0 00000000 413d982a 00000000 00000000
-ghost: 3ec94e02cbff3dd1 1005
-judge_log: 7b034b087be7a3b1
-timing_log: 7e7ccbb9aa4d6ad6
-notes: 82759865b83ef965 damaged 09612b07b5ecb5a5
-end: combo 5 failed true finished true held [] ops 6643
+score: ex 1268 counts [[228, 238], [166, 154], [62, 84], [13, 10], [19, 23], [1, 0]] just [8, 0, 0, 0, 0, 2] max_combo 94 breaks 65 total 1005 passed 1005
+events: 2024 df8b34fb16e7b9d3
+gauge history: a58b12341dc86a2e
+gauge: Hard: 42bb9ab0 42bb9ab0 41be9d5f ~0 ~0 00000000 41c3096d 00000000 00000000
+ghost: 4b04538d79c58c4c 1005
+judge_log: a66dec6eb418573d
+timing_log: e136949a0f422706
+notes: db612ad20a54b788 damaged 09612b07b5ecb5a5
+end: combo 6 failed true finished true held [] ops 6643
 [Beat14K Cn Iidx Lowest Hard]
 score: ex 1324 counts [[220, 250], [122, 116], [80, 94], [4, 4], [15, 25], [0, 2]] just [73, 0, 0, 0, 0, 0] max_combo 79 breaks 48 total 1003 passed 1003
 events: 2011 d2845c104b01f5e0
@@ -339,14 +339,14 @@ timing_log: a8927acd09c8dc7f
 notes: 87902a0bf77eb0f4 damaged 346429348074c0f7
 end: combo 2 failed true finished true held [] ops 6565
 [Beat14K Hcn Lr2 Duration ExHard]
-score: ex 1314 counts [[249, 226], [207, 157], [65, 91], [15, 11], [19, 13], [3, 0]] just [0, 0, 0, 0, 0, 0] max_combo 65 breaks 58 total 1053 passed 1053
-events: 2102 8e0b05908435e3d8
-gauge history: 5ddb284d4663e27b
-gauge: ExHard: 42bf38bb 42bf38bb 4261403c ~0 ~0 00000000 420432ba 00000000 00000000
-ghost: c5f977960f3796f5 1053
-judge_log: dfb87011be8dc944
-timing_log: ca2e83f3a304bbbd
-notes: 368a21aea5b087f1 damaged 5d8bdf3d7b8dbfb1
+score: ex 1334 counts [[248, 230], [203, 163], [61, 92], [13, 6], [19, 12], [0, 0]] just [6, 0, 0, 0, 0, 1] max_combo 65 breaks 50 total 1053 passed 1053
+events: 2097 624ee9743d232b0f
+gauge history: 15326969cbfa44ac
+gauge: ExHard: 42bf3873 42bf3873 42bb9fb5 ~0 ~0 00000000 4251f558 00000000 00000000
+ghost: 0c16faac7255c5b4 1053
+judge_log: d6b3d99a0f603776
+timing_log: 6368c70f845883e7
+notes: 09ac8901593a66a3 damaged 33f0be7aa87d3f71
 end: combo 1 failed true finished true held [] ops 6988
 [Beat14K Hcn Iidx Lowest ExHard]
 score: ex 1273 counts [[208, 228], [119, 144], [90, 102], [3, 9], [16, 24], [0, 1]] just [69, 0, 0, 0, 0, 0] max_combo 113 breaks 52 total 1012 passed 1012
@@ -369,14 +369,14 @@ timing_log: 187ae53de9d3368a
 notes: 48d00950ddd4f4e6 damaged 09612b07b5ecb5a5
 end: combo 6 failed false finished true held [] ops 4566
 [Popn9K Ln Lr2 Duration Normal]
-score: ex 573 counts [[95, 109], [102, 63], [37, 61], [11, 11], [7, 14], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 63 breaks 43 total 510 passed 510
-events: 1055 323eaf02ddb51b95
-gauge history: dfbca062ea7a5b92
-gauge: Normal: 42bf9ea8 42bf9ea8 41b523c7 ~0 ~0 00000000 41e198ea 00000000 00000000
-ghost: e192c62042f8e5a0 510
-judge_log: 2b4e6a0d236ba802
-timing_log: eef2dd6b747fcec3
-notes: 723f68bc5813837b damaged 99a8045f494e632c
+score: ex 571 counts [[89, 109], [101, 66], [36, 67], [10, 5], [7, 16], [4, 0]] just [4, 0, 0, 0, 0, 1] max_combo 63 breaks 38 total 510 passed 510
+events: 1055 64cb2dd249b53dd3
+gauge history: d1a9d97246509a42
+gauge: Normal: 42bf9e6b 42bf9e6b 42041608 ~0 ~0 00000000 41eecc16 00000000 00000000
+ghost: 418f8f01170b8aef 510
+judge_log: 57696bf7fd125d14
+timing_log: a8f79ba60ad1d03e
+notes: 2fcfdc2af115f9fe damaged 99a8045f494e632c
 end: combo 1 failed false finished true held [] ops 4393
 [Popn9K Ln Iidx Lowest Normal]
 score: ex 396 counts [[62, 55], [58, 66], [66, 97], [11, 6], [0, 12], [0, 0]] just [19, 0, 0, 0, 0, 0] max_combo 60 breaks 29 total 452 passed 452
@@ -399,14 +399,14 @@ timing_log: d7dabd5814c8bd2d
 notes: eb5fc844397adb79 damaged 09612b07b5ecb5a5
 end: combo 2 failed true finished true held [] ops 4490
 [Popn9K Cn Lr2 Duration Hard]
-score: ex 657 counts [[118, 121], [87, 92], [38, 43], [10, 7], [16, 11], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 47 breaks 44 total 543 passed 543
-events: 1116 8d4bb358b73fb1ee
-gauge history: 1268e5f0b7380d02
-gauge: Hard: 42a5df6e 42a5df6e 41810030 ~0 ~0 00000000 418865ea 00000000 00000000
-ghost: bb9e4c24a89928c9 543
-judge_log: 1c61be8115ebb83e
-timing_log: 3d1dea99002d85ab
-notes: 930a9c07c1191137 damaged 09612b07b5ecb5a5
+score: ex 668 counts [[117, 128], [83, 87], [37, 49], [8, 4], [16, 10], [4, 0]] just [4, 0, 0, 0, 0, 4] max_combo 47 breaks 38 total 543 passed 543
+events: 1115 5b54a2e5138850b3
+gauge history: e7648eb1ee99c127
+gauge: Hard: 42aff4ae 42aff4ae 4196fb9e ~0 ~0 00000000 41d23cf0 00000000 00000000
+ghost: fc529368469f69f9 543
+judge_log: 169033dd164d1e2b
+timing_log: 1809e8ad00905eb0
+notes: 5ca2c621cb968685 damaged 09612b07b5ecb5a5
 end: combo 3 failed true finished true held [] ops 4411
 [Popn9K Cn Iidx Lowest Hard]
 score: ex 665 counts [[119, 109], [59, 48], [43, 74], [5, 2], [11, 9], [0, 0]] just [51, 0, 0, 0, 0, 0] max_combo 51 breaks 27 total 530 passed 530
@@ -429,14 +429,14 @@ timing_log: 903e8fcdf5b83bd1
 notes: b9b8814c68bd5f5f damaged 8c264dccd8400111
 end: combo 1 failed true finished true held [] ops 4657
 [Popn9K Hcn Lr2 Duration ExHard]
-score: ex 700 counts [[119, 131], [98, 102], [35, 38], [8, 6], [14, 16], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 81 breaks 44 total 567 passed 567
-events: 1126 bc68827b832b2cc2
-gauge history: 93ac0bc7c9339175
-gauge: ExHard: 42a8c40b 42a8c40b 41a5d0b8 ~0 ~0 00000000 418798fd 00000000 00000000
-ghost: efaae2b0d251df19 567
-judge_log: 993887926a23df9c
-timing_log: fbd8cc19bdfa9201
-notes: aaab6e8deeca6619 damaged baee7fba94acd366
+score: ex 705 counts [[117, 132], [96, 105], [35, 35], [8, 6], [14, 16], [0, 0]] just [3, 0, 0, 0, 0, 3] max_combo 81 breaks 44 total 567 passed 567
+events: 1125 60be5f94bc8e7369
+gauge history: e2270d37b2045c19
+gauge: ExHard: 42a8a1f8 42a8a1f8 41a82f68 ~0 ~0 00000000 41838481 00000000 00000000
+ghost: 0fadbed5a685b0e0 567
+judge_log: 83874090142a8b6f
+timing_log: 616050b48ebde7f8
+notes: 93c1cdde2d62d33d damaged baee7fba94acd366
 end: combo 0 failed true finished true held [] ops 4500
 [Popn9K Hcn Iidx Lowest ExHard]
 score: ex 818 counts [[143, 145], [80, 76], [42, 44], [0, 3], [7, 20], [0, 0]] just [43, 0, 0, 0, 0, 0] max_combo 60 breaks 30 total 603 passed 603
@@ -459,14 +459,14 @@ timing_log: ab4478456c71f2f8
 notes: 4b6672ffcf0af771 damaged 09612b07b5ecb5a5
 end: combo 277 failed false finished true held [] ops 3491
 [algorithm Combo Lr2]
-score: ex 442 counts [[70, 47], [101, 107], [6, 11], [6, 1], [0, 0], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
-events: 755 eef8ae4e39c842d9
-gauge history: e1d32692e62d3457
-gauge: Normal: 42c80000 42c80000 42c80000 42bfb382 4264c27f 00000000 42c80000 42c5b856 42a8611f
-ghost: 247dff063db64654 349
-judge_log: a17ef24d5e16660f
-timing_log: 610f41d09cc25b22
-notes: 3f4456bec7ee8411 damaged 09612b07b5ecb5a5
+score: ex 449 counts [[69, 49], [98, 113], [6, 6], [6, 0], [0, 1], [1, 0]] just [1, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
+events: 752 ad450d8564a67d56
+gauge history: 2b5e1468eab4e34b
+gauge: Normal: 42c80000 42c80000 42c80000 42c0b8a3 4266ae1c 00000000 42c80000 42c5c7b2 42a956e1
+ghost: 42ab1016ab15667a 349
+judge_log: b0b4fec3b3517e32
+timing_log: 65fa9393cc4a0642
+notes: 15e608b7a28c9c33 damaged 09612b07b5ecb5a5
 end: combo 15 failed false finished true held [] ops 3491
 [algorithm Combo Iidx]
 score: ex 334 counts [[56, 45], [44, 48], [63, 66], [6, 1], [0, 0], [0, 2]] just [20, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
@@ -489,14 +489,14 @@ timing_log: a0d819c99ca199d3
 notes: 253b9526d0a5d467 damaged 09612b07b5ecb5a5
 end: combo 112 failed false finished true held [] ops 3491
 [algorithm Duration Lr2]
-score: ex 435 counts [[72, 46], [108, 91], [6, 14], [6, 5], [0, 1], [3, 0]] just [0, 0, 0, 0, 0, 0] max_combo 59 breaks 12 total 349 passed 349
-events: 756 62350dc04c8c443b
-gauge history: c852d9dbac9041cb
-gauge: Normal: 42c80000 42c80000 42c80000 4270858e 00000000 00000000 42c80000 42b10546 4243332c
-ghost: cd728e172d551c13 349
-judge_log: d2b3d7f574537eec
-timing_log: 2d960a43d7b1df42
-notes: 2720d8f68d340dae damaged 09612b07b5ecb5a5
+score: ex 449 counts [[69, 49], [98, 113], [6, 6], [6, 0], [0, 1], [1, 0]] just [1, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
+events: 752 ad450d8564a67d56
+gauge history: 2b5e1468eab4e34b
+gauge: Normal: 42c80000 42c80000 42c80000 42c0b8a3 4266ae1c 00000000 42c80000 42c5c7b2 42a956e1
+ghost: 42ab1016ab15667a 349
+judge_log: b0b4fec3b3517e32
+timing_log: 65fa9393cc4a0642
+notes: 15e608b7a28c9c33 damaged 09612b07b5ecb5a5
 end: combo 15 failed false finished true held [] ops 3491
 [algorithm Duration Iidx]
 score: ex 332 counts [[57, 42], [47, 45], [67, 58], [6, 6], [0, 0], [0, 2]] just [21, 0, 0, 0, 0, 0] max_combo 59 breaks 12 total 349 passed 349
@@ -519,14 +519,14 @@ timing_log: ab4478456c71f2f8
 notes: 4b6672ffcf0af771 damaged 09612b07b5ecb5a5
 end: combo 277 failed false finished true held [] ops 3491
 [algorithm Lowest Lr2]
-score: ex 442 counts [[70, 47], [101, 107], [6, 11], [6, 1], [0, 0], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
-events: 755 eef8ae4e39c842d9
-gauge history: e1d32692e62d3457
-gauge: Normal: 42c80000 42c80000 42c80000 42bfb382 4264c27f 00000000 42c80000 42c5b856 42a8611f
-ghost: 247dff063db64654 349
-judge_log: a17ef24d5e16660f
-timing_log: 610f41d09cc25b22
-notes: 3f4456bec7ee8411 damaged 09612b07b5ecb5a5
+score: ex 449 counts [[69, 49], [98, 113], [6, 6], [6, 0], [0, 1], [1, 0]] just [1, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
+events: 752 ad450d8564a67d56
+gauge history: 2b5e1468eab4e34b
+gauge: Normal: 42c80000 42c80000 42c80000 42c0b8a3 4266ae1c 00000000 42c80000 42c5c7b2 42a956e1
+ghost: 42ab1016ab15667a 349
+judge_log: b0b4fec3b3517e32
+timing_log: 65fa9393cc4a0642
+notes: 15e608b7a28c9c33 damaged 09612b07b5ecb5a5
 end: combo 15 failed false finished true held [] ops 3491
 [algorithm Lowest Iidx]
 score: ex 334 counts [[56, 45], [44, 48], [63, 66], [6, 1], [0, 0], [0, 2]] just [20, 0, 0, 0, 0, 0] max_combo 108 breaks 7 total 349 passed 349
@@ -549,14 +549,14 @@ timing_log: 459b19a76c87035b
 notes: 92f201b679e477a6 damaged 09612b07b5ecb5a5
 end: combo 1 failed false finished true held [] ops 2513
 [rank Rank(0) Lr2]
-score: ex 98 counts [[17, 6], [29, 23], [34, 29], [49, 45], [0, 6], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 12 breaks 100 total 238 passed 238
-events: 546 c2c3dfba2cc439ba
-gauge history: be20471f3a7ec520
-gauge: Normal: 418a6b91 418a6b91 414a7cc7 00000000 00000000 00000000 00000000 00000000 00000000
-ghost: 4e63a45d6e2c1cad 238
-judge_log: 1b067faa0213e323
-timing_log: 96720e2c89d784e9
-notes: 5b06575cadbe418b damaged 09612b07b5ecb5a5
+score: ex 94 counts [[17, 4], [25, 25], [28, 22], [79, 30], [0, 7], [28, 0]] just [1, 0, 0, 0, 0, 1] max_combo 12 breaks 116 total 238 passed 238
+events: 584 9be135577af963d2
+gauge history: 40c9c88febc58238
+gauge: Normal: 419328e1 419328e1 414a7cc7 00000000 00000000 00000000 00000000 00000000 00000000
+ghost: 228f07846e487d7c 238
+judge_log: 281690de79b3104d
+timing_log: 6f86528df8d55f95
+notes: 5148aff2482f2425 damaged 09612b07b5ecb5a5
 end: combo 3 failed false finished true held [] ops 2513
 [rank Rank(0) Iidx]
 score: ex 217 counts [[39, 22], [38, 33], [37, 44], [6, 1], [0, 6], [0, 0]] just [12, 0, 0, 0, 0, 0] max_combo 50 breaks 13 total 238 passed 238
@@ -579,14 +579,14 @@ timing_log: 399bd5874cc182a0
 notes: 1ae6719f311752ae damaged 09612b07b5ecb5a5
 end: combo 29 failed false finished true held [] ops 2586
 [rank Rank(1) Lr2]
-score: ex 189 counts [[35, 24], [35, 36], [46, 43], [20, 10], [0, 1], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 31 breaks 31 total 250 passed 250
-events: 574 263f331a91639e2a
-gauge history: 56a2ae346fac3c70
-gauge: Normal: 42c80000 42c80000 42c80000 00000000 00000000 00000000 4289bd7b 419347bf 00000000
-ghost: 24ebc2ee76d33d84 250
-judge_log: 2720f395860d655e
-timing_log: ec4657d53178cdfb
-notes: 63140a6229b14319 damaged 09612b07b5ecb5a5
+score: ex 192 counts [[33, 29], [35, 33], [46, 43], [19, 9], [0, 3], [1, 0]] just [0, 0, 0, 0, 0, 1] max_combo 31 breaks 31 total 250 passed 250
+events: 572 2b080013db0efb94
+gauge history: b98c1678bd12c343
+gauge: Normal: 42c80000 42c80000 42b8f5cb 00000000 00000000 00000000 4280eb91 4118000f 00000000
+ghost: 91fb92d05dd31313 250
+judge_log: f6fdb1a336406405
+timing_log: bba208cec44fa173
+notes: 5db1abb66cf74712 damaged 09612b07b5ecb5a5
 end: combo 29 failed false finished true held [] ops 2586
 [rank Rank(1) Iidx]
 score: ex 246 counts [[43, 42], [31, 29], [48, 40], [7, 1], [0, 1], [0, 1]] just [8, 0, 0, 0, 0, 0] max_combo 42 breaks 9 total 250 passed 250
@@ -609,15 +609,15 @@ timing_log: 043bcaefbbb296a7
 notes: c1678287fd2b15ef damaged 09612b07b5ecb5a5
 end: combo 2 failed false finished true held [] ops 2492
 [rank Rank(4) Lr2]
-score: ex 211 counts [[38, 27], [42, 39], [37, 39], [8, 1], [0, 4], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 57 breaks 13 total 235 passed 235
-events: 526 12ae96bb213cfacd
-gauge history: b681f2d3240c10b2
-gauge: Normal: 42c80000 42c80000 42c551b4 41d2a403 00000000 00000000 42a62907 425d520f 416570d3
-ghost: 756f66ccfcb8b8bd 235
-judge_log: 53dab938caa1107e
-timing_log: 5e6b342cbcf31822
-notes: 1ee8226e29e9823b damaged 09612b07b5ecb5a5
-end: combo 2 failed false finished true held [] ops 2492
+score: ex 218 counts [[37, 27], [41, 45], [35, 35], [8, 0], [0, 5], [0, 0]] just [2, 0, 0, 0, 0, 2] max_combo 58 breaks 13 total 235 passed 235
+events: 525 15c2da702a57644b
+gauge history: 5ac2a5b711634e11
+gauge: Normal: 42c73678 42c73678 42c43678 41af335d 00000000 00000000 42a3f0b9 425399c1 411ca429
+ghost: b232369e4977b5d3 235
+judge_log: a6ae2c4a6e1bb1ca
+timing_log: ceca497fe9af0fc6
+notes: 6c5e57f44c6fbe3b damaged 09612b07b5ecb5a5
+end: combo 1 failed false finished true held [] ops 2492
 [rank Rank(4) Iidx]
 score: ex 216 counts [[34, 24], [34, 26], [40, 47], [5, 1], [0, 4], [0, 0]] just [20, 0, 0, 0, 0, 0] max_combo 79 breaks 10 total 235 passed 235
 events: 524 a20a5875875056d7
@@ -639,15 +639,15 @@ timing_log: 2f69661c49e2c99e
 notes: f3ea340313558615 damaged 09612b07b5ecb5a5
 end: combo 18 failed false finished true held [] ops 2569
 [rank DefExRank(120.0) Lr2]
-score: ex 286 counts [[52, 34], [67, 47], [11, 19], [10, 1], [0, 4], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 38 breaks 15 total 245 passed 245
-events: 558 aff4868df0071a1d
-gauge history: 8bad5408e938e678
-gauge: Normal: 42c80000 42c80000 42c80000 419debea 00000000 00000000 429e47de 423af602 00000000
-ghost: 972580731337bb48 245
-judge_log: 17d353b7b6707656
-timing_log: eff60d70659e1f18
-notes: 1561511d84268a72 damaged 09612b07b5ecb5a5
-end: combo 18 failed false finished true held [] ops 2569
+score: ex 282 counts [[43, 35], [71, 53], [10, 17], [9, 1], [0, 5], [1, 0]] just [1, 0, 0, 0, 0, 2] max_combo 38 breaks 15 total 245 passed 245
+events: 551 ddff50af1a4785e4
+gauge history: 4b63b57e16cc2a71
+gauge: Normal: 42c80000 42c80000 42c80000 41b666cb 00000000 00000000 42a13885 42473370 3fd5c1e9
+ghost: 76072fcc87fd418f 245
+judge_log: f1f3148bd4dd3dae
+timing_log: 8a6a00cf9f73854d
+notes: 9adbb40f16a8cf56 damaged 09612b07b5ecb5a5
+end: combo 19 failed false finished true held [] ops 2569
 [rank DefExRank(120.0) Iidx]
 score: ex 242 counts [[46, 31], [40, 26], [40, 39], [7, 1], [0, 4], [0, 0]] just [11, 0, 0, 0, 0, 0] max_combo 73 breaks 12 total 245 passed 245
 events: 552 498de9112de4ec05
@@ -669,14 +669,14 @@ timing_log: d791210aa5c937da
 notes: 085053277a0ec170 damaged 09612b07b5ecb5a5
 end: combo 0 failed false finished true held [] ops 2545
 [rank Bmson(150.0) Lr2]
-score: ex 336 counts [[64, 53], [51, 51], [3, 4], [12, 0], [0, 3], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 51 breaks 15 total 241 passed 241
-events: 539 b88af60e2206a43e
-gauge history: 150c3bc55506d54f
+score: ex 336 counts [[63, 53], [50, 52], [3, 4], [12, 0], [0, 3], [0, 0]] just [1, 0, 0, 0, 0, 0] max_combo 51 breaks 15 total 241 passed 241
+events: 539 59f078ede26e3c42
+gauge history: 18931a4a1eba5e3c
 gauge: Normal: 42c50000 42c3c9d1 42bac9d1 42240a89 00000000 00000000 42bd51ed 4292f5f2 4204667f
-ghost: 5ff310e6a6626c5d 241
-judge_log: dd4e8d528275aba7
-timing_log: 60d252ee804923e3
-notes: 50aa1a030c5e5271 damaged 09612b07b5ecb5a5
+ghost: a1e5f4fdbdcfb509 241
+judge_log: 3f559d44238b8d83
+timing_log: 87fa9adc3e33fac0
+notes: 45e5ddfd7305f6dd damaged 09612b07b5ecb5a5
 end: combo 0 failed false finished true held [] ops 2545
 [rank Bmson(150.0) Iidx]
 score: ex 207 counts [[29, 31], [40, 27], [44, 43], [12, 2], [0, 3], [0, 0]] just [10, 0, 0, 0, 0, 0] max_combo 48 breaks 17 total 241 passed 241
@@ -1041,8 +1041,8 @@ end: combo 1 failed false finished true held [] ops 1722
 [gauge Beat7K Lr2 Hard Continue Some(150.0)]
 score: ex 100 counts [[11, 10], [34, 24], [13, 10], [3, 2], [0, 3], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 32 breaks 8 total 110 passed 110
 events: 254 850c7623a546e879
-gauge history: a8a631aa143796e8
-gauge: Hard: 42c80000 42c80000 42aad17a ~0 ~0 00000000 428a4cc8 41e13301 00000000
+gauge history: ffe50e8a432349fc
+gauge: Hard: 42c80000 42c80000 42aad17a ~0 ~0 00000000 4289d6ff 00000000 00000000
 ghost: 07979517735df35a 110
 judge_log: 750cda8aa72c405f
 timing_log: 556a10c8d4fbc97f
@@ -1051,8 +1051,8 @@ end: combo 7 failed false finished true held [] ops 1339
 [gauge Beat7K Lr2 ExHard SelectToUnder None]
 score: ex 100 counts [[11, 10], [34, 24], [13, 10], [3, 2], [0, 3], [0, 0]] just [0, 0, 0, 0, 0, 0] max_combo 32 breaks 8 total 110 passed 110
 events: 254 850c7623a546e879
-gauge history: b02e81d681249604
-gauge: Normal: 42c80000 42c80000 42c80000 ~0 ~0 00000000 428a4cc8 41e13301 00000000
+gauge history: b698df8df81c9895
+gauge: Normal: 42c80000 42c80000 42c80000 ~0 ~0 00000000 4289d6ff 00000000 00000000
 ghost: 07979517735df35a 110
 judge_log: 750cda8aa72c405f
 timing_log: 556a10c8d4fbc97f

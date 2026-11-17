@@ -15,9 +15,12 @@
 //! * `lr2_damage_examples`, `lr2_damage_total_factor`,
 //!   `lr2_damage_note_factor`, `lr2_damage_only_hard_and_ex_hard` and the
 //!   LR2 rows of `damage_grid` pin vibeBMS's rule (specification §3.2),
-//!   recorded from its code. Its TOTAL factor is S1's measurements with
-//!   the ones digit dropped, as S1 says; its note-count factor agrees
-//!   with LR2 from 125 notes up and is unconfirmed below (gap A4).
+//!   recorded from its code: S-OLR2's rule (`docs/LR2_BEHAVIOUR.md`, 3.4),
+//!   whose TOTAL factor steps every 16 from 80 and gives S1's measured
+//!   value at every multiple of 10 but 200 (see
+//!   `lr2_hard_total_factor_as_measured`), and whose note-count factor
+//!   agrees with S1 from 125 notes up; S-OLR2 marks its 21 to 29 notes
+//!   unchecked (gap A4).
 //! * `lr2_*_as_measured` and `lr2_hard_low_gauge_rule` are LR2's own
 //!   behaviour as documented in public sources, each test naming its own.
 
@@ -203,7 +206,8 @@ fn lr2_damage_examples() {
         let d = |total, n| damage(e, GaugeType::Hard, total, n);
         assert_damage(d(300.0, 250), [-18.0, -30.0, -6.0], "300/250");
         assert_damage(d(300.0, 2000), [-6.0, -10.0, -2.0], "300/2000");
-        assert_damage(d(200.0, 2000), [-9.0, -15.0, -3.0], "200/2000");
+        let f = 10.0 / 7.0;
+        assert_damage(d(200.0, 2000), [-6.0 * f, -10.0 * f, -2.0 * f], "200/2000");
         assert_damage(d(100.0, 2000), [-60.0, -100.0, -20.0], "100/2000");
         // positive changes untouched
         let g = Gauge::new(GaugeType::Hard, e, 100.0, 10);
@@ -225,32 +229,34 @@ fn lr2_damage_examples() {
     }
 }
 
-/// §3.2: the TOTAL factor is S1's POOR damage over 10 at the multiple of
-/// 10 at or below TOTAL (S1: LR2 drops the ones digit), 10 below 120.
+/// §3.2: the TOTAL factor is 10 / floor((TOTAL − 80) / 16), the step at
+/// least 1 (S-OLR2 3.4); the note-count factor decides from 256 up.
 #[test]
 fn lr2_damage_total_factor() {
     let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
     let m = |total| damage(e, GaugeType::Hard, total, 5000)[1] / -10.0;
     for (total, f) in [
         (1e9, 1.0),
+        (256.0, 1.0),
         (240.0, 1.0),
-        (239.99, 1.11),
-        (230.0, 1.11),
-        (229.0, 1.25),
-        (210.0, 1.25),
-        (209.0, 1.5),
-        (200.0, 1.5),
-        (199.0, 1.666),
-        (180.0, 1.666),
-        (179.0, 2.0),
+        (239.99, 10.0 / 9.0),
+        (224.0, 10.0 / 9.0),
+        (223.0, 1.25),
+        (208.0, 1.25),
+        (207.0, 10.0 / 7.0),
+        (200.0, 10.0 / 7.0),
+        (192.0, 10.0 / 7.0),
+        (191.0, 10.0 / 6.0),
+        (176.0, 10.0 / 6.0),
+        (175.0, 2.0),
         (160.0, 2.0),
         (159.0, 2.5),
-        (150.0, 2.5),
-        (149.0, 3.333),
-        (130.0, 3.333),
-        (129.0, 5.0),
-        (120.0, 5.0),
-        (119.99, 10.0),
+        (144.0, 2.5),
+        (143.0, 10.0 / 3.0),
+        (128.0, 10.0 / 3.0),
+        (127.0, 5.0),
+        (112.0, 5.0),
+        (111.99, 10.0),
         (0.0, 10.0),
         (-100.0, 10.0),
     ] {
@@ -258,10 +264,9 @@ fn lr2_damage_total_factor() {
     }
 }
 
-/// §3.2: the note-count factor, with its jump at 30 (8 from below, 7 at
-/// 30). vibeBMS's rule: from 250 notes up, and at 125 and 0, as S1 measured
-/// in LR2 (`lr2_hard_note_factor_as_measured`); the segments below 125 are
-/// unconfirmed.
+/// §3.2: the note-count factor, with its jump at 30 (8.2 at 29, 7 at 30),
+/// as S-OLR2 3.4 gives it; from 250 notes up, and at 125 and 0, as S1
+/// measured in LR2 (`lr2_hard_note_factor_as_measured`).
 #[test]
 fn lr2_damage_note_factor() {
     let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
@@ -299,7 +304,7 @@ fn lr2_damage_note_factor() {
     ));
     assert!(close(
         damage(e, GaugeType::Hard, 200.0, 900)[1] / -10.0,
-        1.5
+        10.0 / 7.0
     ));
     assert!(close(
         damage(e, GaugeType::Hard, 150.0, 400)[1] / -10.0,
@@ -307,16 +312,22 @@ fn lr2_damage_note_factor() {
     ));
 }
 
-/// The rest of the LR2 set is not changed by it.
+/// HARD in a dan course (EX-CLASS) takes HARD's damage (S-OLR2 3.6); the
+/// rest of the LR2 set is not changed by it.
 #[test]
-fn lr2_damage_only_hard_and_ex_hard() {
+fn lr2_damage_only_hard_ex_hard_and_ex_class() {
+    let x = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::ExClass);
+    assert_damage(
+        damage(x, GaugeType::ExClass, 300.0, 250),
+        [-18.0, -30.0, -6.0],
+        "EX-CLASS 300/250",
+    );
     for ty in [
         GaugeType::AssistEasy,
         GaugeType::Easy,
         GaugeType::Normal,
         GaugeType::Hazard,
         GaugeType::Class,
-        GaugeType::ExClass,
         GaugeType::ExHardClass,
     ] {
         let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, ty);
@@ -388,7 +399,8 @@ fn changes(g: &Gauge) -> [f32; 6] {
 }
 
 /// S1, S3 (and S2, S6 for EASY and HARD): LR2's gauges per PG, GR, GD,
-/// BAD, POOR, empty POOR; t / n gains for GROOVE, × 1.2 for EASY. S8:
+/// BAD, POOR, empty POOR; t / n gains for GROOVE, × 1.2 for EASY; the dan
+/// gauge's GOOD, which S1 gives as "0.05?", is 0.04 by S-OLR2 3.6. S8:
 /// GROOVE starts at 20 %, clears at 80 % and never falls below 2 %.
 #[test]
 fn lr2_gauge_values_as_measured() {
@@ -398,7 +410,7 @@ fn lr2_gauge_values_as_measured() {
             (GaugeType::Normal, [0.3, 0.3, 0.15, -4.0, -6.0, -2.0]),
             (GaugeType::Easy, [0.36, 0.36, 0.18, -3.2, -4.8, -1.6]),
             (GaugeType::Hard, [0.1, 0.1, 0.05, -6.0, -10.0, -2.0]),
-            (GaugeType::Class, [0.1, 0.1, 0.05, -2.0, -3.0, -2.0]),
+            (GaugeType::Class, [0.1, 0.1, 0.04, -2.0, -3.0, -2.0]),
         ] {
             let e = elem(GaugePreset::Lr2, fam, ty);
             let got = changes(&Gauge::new(ty, e, t, n));
@@ -436,9 +448,10 @@ fn lr2_hard_low_gauge_rule() {
 }
 
 /// S1: HARD POOR damage measured in LR2 at TOTAL in steps of 10 (1000
-/// notes or more), given to the digits shown there; LR2 drops the ones
-/// digit ("1の位以下は切り捨て"), so 159 is 150's (S1 also names a script
-/// that sets TOTAL 159 for 150's damage).
+/// notes or more), given to the digits shown there; S1 names a script that
+/// sets TOTAL 159 for 150's damage. S-OLR2's rule gives each of them but
+/// 200, where S1 has 15 and the rule 14.29: one POOR from 100 shows 84
+/// either way (the kit's `a4-t200` tells them apart).
 #[test]
 fn lr2_hard_total_factor_as_measured() {
     let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
@@ -448,8 +461,7 @@ fn lr2_hard_total_factor_as_measured() {
         (230.0, 11.1),
         (220.0, 12.5),
         (210.0, 12.5),
-        (200.0, 15.0),
-        (209.0, 15.0),
+        (200.0, 14.285_714),
         (159.0, 25.0),
         (190.0, 16.66),
         (180.0, 16.66),
@@ -462,8 +474,9 @@ fn lr2_hard_total_factor_as_measured() {
         (110.0, 100.0),
         (100.0, 100.0),
     ] {
+        // to the digits S1 shows (11.1 for 11.11…)
         let got = -damage(e, GaugeType::Hard, total, 5000)[1];
-        assert!(close(got, poor), "TOTAL {total}: {got}");
+        assert!((got - poor).abs() < 0.015, "TOTAL {total}: {got}");
     }
 }
 

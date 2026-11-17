@@ -159,6 +159,9 @@ pub struct BarLine {
 pub enum JudgeRank {
     /// `#RANK 0..=4` (VERY HARD .. VERY EASY)
     Rank(i32),
+    /// `#RANK` with a value that is not a number: NORMAL, as a missing
+    /// one, except under the LR2 judge, which reads it as 0, VERY HARD.
+    NoNumber,
     /// `#DEFEXRANK n` (percent of NORMAL)
     DefExRank(f64),
     /// bmson `judge_rank` (percent, 100 = EASY in beatoraja terms)
@@ -288,13 +291,20 @@ impl Chart {
 
     /// TOTAL under a gauge preset for one player's lanes (as
     /// `total_judgements_of`): `#TOTAL`, else the preset's default (LR2:
-    /// `160 + (n + clamp(n - 400, 0, 200)) × 0.16`, otherwise beatoraja's).
-    /// A bmson `total` is a percentage of that default.
+    /// `floor(160 + (n + clamp(n - 400, 0, 200)) × 0.16)`, otherwise
+    /// beatoraja's). LR2 reads `#TOTAL` as an integer, fraction dropped,
+    /// and takes its default below 1 (S-OLR2 3.3). A bmson `total` is a
+    /// percentage of that default.
     pub fn total_of(&self, default_ln: LnType, preset: GaugePreset, player: Option<usize>) -> f64 {
-        let n = self.total_judgements_of(default_ln, player).max(1) as f64;
-        let default = match preset {
-            GaugePreset::Lr2 => 160.0 + (n + (n - 400.0).clamp(0.0, 200.0)) * 0.16,
-            _ => (7.605 * n / (0.01 * n + 6.5)).max(260.0),
+        let judgements = self.total_judgements_of(default_ln, player);
+        let n = judgements.max(1) as f64;
+        let lr2 = preset == GaugePreset::Lr2;
+        let default = if lr2 {
+            // in integers: 0.16 is not exact in binary
+            let n = judgements as i64;
+            (160 + 4 * (n + (n - 400).clamp(0, 200)) / 25) as f64
+        } else {
+            (7.605 * n / (0.01 * n + 6.5)).max(260.0)
         };
         if let Some(r) = self.meta.total_rate {
             return if r > 0.0 {
@@ -304,7 +314,8 @@ impl Chart {
             };
         }
         match self.meta.total {
-            Some(t) if t > 0.0 => t,
+            Some(t) if lr2 && t >= 1.0 => t.trunc(),
+            Some(t) if !lr2 && t > 0.0 => t,
             _ => default,
         }
     }
@@ -369,6 +380,16 @@ mod tests {
         c.meta.total = None;
         c.notes.truncate(300);
         assert!((c.total_of(LnType::Ln, GaugePreset::Lr2, None) - 208.0).abs() < 1e-9);
+        // LR2: whole numbers (7 notes: 161.12), #TOTAL's fraction dropped,
+        // below 1 the default (S-OLR2 3.3); beatoraja keeps them
+        c.notes.truncate(7);
+        let lr2 = |c: &Chart| c.total_of(LnType::Ln, GaugePreset::Lr2, None);
+        assert_eq!(lr2(&c), 161.0);
+        for (t, want) in [(250.9, 250.0), (1.0, 1.0), (0.5, 161.0)] {
+            c.meta.total = Some(t);
+            assert_eq!(lr2(&c), want);
+            assert_eq!(c.total_of(LnType::Ln, GaugePreset::Beatoraja, None), t);
+        }
     }
 
     #[test]

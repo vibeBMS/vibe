@@ -1,9 +1,8 @@
 //! The charts of `tools/lr2-measure` played by vibeBMS as its README tells
-//! a player to play them in LR2, with the timing errors a player has: the
-//! A11 charts tell vibeBMS's three note choices apart as the README's
-//! table says, and the A4, A7 and A8 charts give vibeBMS's rows of its
-//! tables. The README's other rows (the rules vibeBMS does not have) are
-//! worked out by `gen.py`.
+//! a player to play them in LR2, with the timing errors a player has: each
+//! chart gives vibeBMS's row of the README's tables, which is what
+//! `docs/LR2_BEHAVIOUR.md` (S-OLR2) predicts LR2 shows. The README's other
+//! rows (the rules vibeBMS does not have) are worked out by `gen.py`.
 
 use std::path::{Path, PathBuf};
 use vibebms_core::chart::Chart;
@@ -11,6 +10,7 @@ use vibebms_core::engine::{Engine, JudgeAlgorithm, Op};
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::{Judge, JudgePreset};
 use vibebms_core::play::{build_chart, build_engine, RuleOptions};
+use vibebms_core::score::{Assist, ClearType};
 
 const MS: i64 = 1000;
 /// The first trial (two measures at BPM 150) and a trial's length.
@@ -95,51 +95,45 @@ fn a11(name: &str, algorithm: JudgeAlgorithm, presses: fn(i64) -> Vec<Step>) -> 
     Judge::ALL.map(|j| e.score.count(j))
 }
 
-/// README, A11: each chart's count under each candidate vibeBMS has.
+/// README, A11: under the LR2 judge a press takes the lane's earliest
+/// unresolved note and, after a BAD, the next one (the BAD chain), whatever
+/// the note choice option says: the counts S-OLR2 predicts.
 #[test]
-fn the_a11_charts_tell_the_note_choices_apart() {
+fn the_a11_charts_give_the_lr2_judges_counts() {
     use JudgeAlgorithm::{Combo, Duration, Lowest};
     let bad = |c: [u32; 6]| c[Judge::Bad as usize];
     let good = |c: [u32; 6]| c[Judge::Good as usize];
     let poor = |c: [u32; 6]| c[Judge::Poor as usize];
-    // 1: key 1 and key 7 together on the key-7 note
-    let one = |a| {
-        a11("a11-1.bme", a, |t| {
+    for a in [Combo, Duration, Lowest] {
+        // 1: key 1 and key 7 together on the key-7 note: the first key-1
+        // note a BAD, the second taken by the same press
+        let one = a11("a11-1.bme", a, |t| {
             vec![
                 Step::Press(t + 120 * MS, KEY1, 0),
                 Step::Press(t + 120 * MS, KEY7, 0),
             ]
-        })
-    };
-    assert_eq!(bad(one(Lowest)), 16);
-    assert_eq!((bad(one(Combo)), poor(one(Combo))), (0, 16));
-    assert_eq!(bad(one(Duration)), 0);
-    // 2: the same, EASY
-    let two = |a| {
-        a11("a11-2.bme", a, |t| {
+        });
+        assert_eq!((bad(one), poor(one)), (16, 0), "{a:?}");
+        // 2: the same, EASY: a GOOD, no chain, the second note missed
+        let two = a11("a11-2.bme", a, |t| {
             vec![
                 Step::Press(t + 90 * MS, KEY1, 0),
                 Step::Press(t + 90 * MS, KEY7, 0),
             ]
-        })
-    };
-    assert_eq!((good(two(Lowest)), poor(two(Lowest))), (16, 16));
-    assert_eq!((good(two(Combo)), poor(two(Combo))), (16, 16));
-    assert_eq!((good(two(Duration)), poor(two(Duration))), (0, 16));
-    // 3: scratch with key 6, then the other scratch key with key 7
-    let three = |a| {
-        a11("a11-3.bme", a, |t| {
+        });
+        assert_eq!((good(two), poor(two)), (16, 16), "{a:?}");
+        // 3: scratch with key 6 (two BADs by the chain), then the other
+        // scratch key with key 7 (the next scratch note is a trial away)
+        let three = a11("a11-3.bme", a, |t| {
             vec![
                 Step::Press(t + 160 * MS, SCRATCH, 0),
                 Step::Press(t + 160 * MS, KEY6, 0),
                 Step::Press(t + 240 * MS, SCRATCH, 1),
                 Step::Press(t + 240 * MS, KEY7, 0),
             ]
-        })
-    };
-    assert_eq!((bad(three(Lowest)), poor(three(Lowest))), (32, 0));
-    assert_eq!((bad(three(Combo)), poor(three(Combo))), (16, 16));
-    assert_eq!((bad(three(Duration)), poor(three(Duration))), (16, 16));
+        });
+        assert_eq!((bad(three), poor(three)), (32, 0), "{a:?}");
+    }
 }
 
 /// README, A7: vibeBMS's readings of the GROOVE gauge on autoplay, in the
@@ -211,21 +205,75 @@ fn the_a4_readings_are_vibebms_note_factor() {
     }
 }
 
-/// README, A8: vibeBMS's GROOVE gauge after each mine, key 1 held through
-/// them from the rest before the first; `ZZ` leaves 2 %.
+/// README, A4 (TOTAL 200): vibeBMS's HARD gauge after each of the four
+/// key-7 notes let pass, the chords before them hit: 10 / 7 a POOR's
+/// factor (S-OLR2), where S1's 15 would read 84 70 54 40.
+#[test]
+fn the_a4_t200_readings_are_vibebms_total_factor() {
+    let shown = |v: f32| (v / 2.0 + 1e-4).floor() as u32 * 2;
+    let r = rules(JudgeAlgorithm::Combo, GaugeType::Hard);
+    let c = chart("a4-t200.bme", &r);
+    assert_eq!(c.total_judgements_of(r.ln_mode, None), 1000);
+    let (mut e, total) = build_engine(&c, &r, None, false);
+    assert_eq!(total, 200.0);
+    let mut steps: Vec<Step> = Vec::new();
+    for n in &c.notes {
+        match n.lane {
+            KEY7 => steps.push(Step::Read(n.time + 1000 * MS)),
+            lane => steps.push(Step::Press(n.time, lane, 0)),
+        }
+    }
+    let got = run(&mut e, steps, c.length() + 2_000 * MS);
+    assert_eq!(
+        got.into_iter().map(shown).collect::<Vec<_>>(),
+        [84, 70, 56, 42]
+    );
+}
+
+/// README, A8: vibeBMS's gauge after each mine (from 100 % after the eight
+/// key-7 notes), with S-OLR2's lamp and POOR count.
 #[test]
 fn the_a8_readings_are_vibebms_mines() {
-    let r = rules(JudgeAlgorithm::Combo, GaugeType::Normal);
-    let c = chart("a8-mines.bme", &r);
-    let (mut e, _) = build_engine(&c, &r, None, false);
-    let mut steps: Vec<Step> = (0..8)
-        .map(|i| Step::Press(LEAD + i * 100 * MS, KEY7, 0))
-        .collect();
-    steps.push(Step::Hold(LEAD + TRIAL, KEY1, 0));
     // the mines are at the start of trials 2 .. 5
-    steps.extend((2..6).map(|k| Step::Read(LEAD + k * TRIAL + 1000 * MS)));
-    let got = run(&mut e, steps, c.length());
-    assert_eq!(got, [96.0, 76.0, 26.0, 2.0]);
+    let mine = |k: i64| LEAD + k * TRIAL;
+    let play = |gauge, keys: Vec<Step>| {
+        let r = rules(JudgeAlgorithm::Combo, gauge);
+        let c = chart("a8-mines.bme", &r);
+        let (mut e, _) = build_engine(&c, &r, None, false);
+        let mut steps: Vec<Step> = (0..8)
+            .map(|i| Step::Press(LEAD + i * 100 * MS, KEY7, 0))
+            .collect();
+        steps.extend(keys);
+        steps.extend((2..6).map(|k| Step::Read(mine(k) + 1000 * MS)));
+        let got = run(&mut e, steps, c.length());
+        let died = e.is_failed();
+        let lamp = e.score.lr2_clear_type(died, None, Assist::None);
+        (got, e.score.count(Judge::Miss), lamp)
+    };
+    // 1: GROOVE, key 1 held from the rest before the first: `ZZ` leaves
+    // 2 %, a FULL COMBO all the same; one POOR a mine
+    let hold = || vec![Step::Hold(LEAD + TRIAL, KEY1, 0)];
+    assert_eq!(
+        play(GaugeType::Normal, hold()),
+        (vec![96.0, 76.0, 26.0, 2.0], 4, ClearType::FullCombo)
+    );
+    // 2: taps (NORMAL: GREAT 40 ms): 40 ms early and on time set a mine
+    // off, 41 ms early or after it nothing
+    let taps = |early: [i64; 4]| {
+        (2..6)
+            .zip(early)
+            .map(|(k, ms)| Step::Press(mine(k) - ms * MS, KEY1, 0))
+            .collect()
+    };
+    assert_eq!(
+        play(GaugeType::Normal, taps([40, 0, 41, -10])).0,
+        [96.0, 76.0, 76.0, 76.0]
+    );
+    // 3: HARD, held: the same damage, FAILED at `ZZ`
+    assert_eq!(
+        play(GaugeType::Hard, hold()),
+        (vec![96.0, 76.0, 26.0, 0.0], 4, ClearType::Failed)
+    );
 }
 
 /// README, A3: a `#RANK` chart's counts against the references of `#RANK`
