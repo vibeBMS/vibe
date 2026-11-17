@@ -180,8 +180,8 @@ pub enum Reach {
     Every,
     /// A `#RANK` other than 0 .. 3.
     RankOutside,
-    /// HARD where the note-count factor of its damage is not LR2's as
-    /// measured and can be the larger (`lr2_hard_damage_unconfirmed`).
+    /// HARD where the note-count factor of its damage is unchecked and
+    /// the larger (`lr2_hard_damage_unconfirmed`).
     HardFewNotes,
     /// A chart without `#TOTAL`, on a gauge TOTAL changes (not HAZARD).
     NoTotal,
@@ -257,8 +257,8 @@ pub const EQUIVALENCE: &[Gap] = &[
     Gap {
         id: "A4",
         profile: Profile::VibeLr2,
-        what: "HARD damage note-count factor below 125 notes unconfirmed (the TOTAL factor is \
-               S1's, steps of 10)",
+        what: "HARD damage note-count factor on 21 to 29 notes: S-OLR2 marks its segment \
+               unchecked (tools/lr2-measure's 29- and 30-note charts settle it)",
         closed: false,
         reaches: Reach::HardFewNotes,
         reason: "LR2's HARD damage for a chart with this few notes isn't confirmed",

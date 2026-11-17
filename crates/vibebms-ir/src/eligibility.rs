@@ -521,11 +521,11 @@ mod tests {
                 Refusal::OpenGap("A3"),
             ),
             (
-                "LR2, HARD on 100 notes",
+                "LR2, HARD on 25 notes",
                 lr2(),
                 |r| {
                     r.rules.gauge = GaugeType::Hard;
-                    r.result.score.total_notes = 100;
+                    r.result.score.total_notes = 25;
                 },
                 bok,
                 Refusal::OpenGap("A4"),
@@ -669,7 +669,7 @@ mod tests {
         assert!(!hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(3)));
         assert!(hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(5)));
         assert!(hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(-1)));
-        // HARD below 125 notes, unless TOTAL's factor is already 10
+        // HARD on 21 to 29 notes, unless TOTAL's factor is as large
         let hard = |n: u32, t: f64| {
             move |r: &mut PlayRecord| {
                 r.rules.gauge = GaugeType::Hard;
@@ -682,8 +682,9 @@ mod tests {
             hard(n, t)(&mut r);
             Reach::HardFewNotes.hits(&r)
         };
-        assert!(few(124, 300.0) && few(1, 120.0));
-        assert!(!few(125, 300.0) && !few(124, 119.0) && !few(0, 300.0));
+        assert!(few(21, 300.0) && few(29, 300.0) && few(25, 112.0));
+        assert!(!few(20, 300.0) && !few(30, 300.0) && !few(124, 300.0));
+        assert!(!few(25, 111.0) && !few(0, 300.0));
         assert!(!hits("A4", |r| r.result.score.total_notes = 50));
         // no #TOTAL: every gauge but HAZARD (DEATH) gains or loses by it
         assert!(!hits("A7", |r| {

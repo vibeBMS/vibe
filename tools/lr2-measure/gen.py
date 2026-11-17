@@ -168,6 +168,33 @@ def a4():
         write(f"a4-n{n}.bme", f"A4 HARD {n} notes", ev, total=300)
 
 
+A4_T200_CHORDS = 498
+A4_T200_MISSES = 4
+
+
+def a4_t200():
+    """TOTAL 200, 1000 notes (the note-count factor 1): 498 chords of keys
+    3 and 5 to hit, then 4 key-7 notes to let pass, one every 2 measures."""
+    ev = []
+    for i in range(A4_T200_CHORDS):
+        ev += [(i * 250, KEY[3], "01"), (i * 250, KEY[5], "01")]
+    start = A4_T200_CHORDS * 250 + 2 * MEASURE_MS
+    start -= start % SLOT_MS
+    ev += [(start + k * TRIAL_MS, KEY[7], "01") for k in range(A4_T200_MISSES)]
+    write("a4-t200.bme", "A4 HARD TOTAL 200", ev, total=200)
+
+
+def a4_t200_table():
+    print("A4 TOTAL 200: HARD gauge after each POOR (10 x factor, from 100)")
+    for name, f in [("10 / floor((TOTAL - 80) / 16) = 10/7 (S-OLR2)", 10 / 7),
+                    ("S1's 15 at TOTAL 200 (1.5)", 1.5)]:
+        g, row = 100.0, []
+        for _ in range(A4_T200_MISSES):
+            g -= 10 * f * (0.6 if g < 32 else 1)
+            row.append(shown(g))
+        print(f"  {name}: {' '.join(map(str, row))}")
+
+
 def vibe_note_factor(n):
     if n >= 1000:
         return 1.0
@@ -211,6 +238,8 @@ if __name__ == "__main__":
     a8()
     a3()
     a4()
+    a4_t200()
     a7_table()
     a8_table()
     a4_table()
+    a4_t200_table()

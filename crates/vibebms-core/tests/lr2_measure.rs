@@ -204,6 +204,31 @@ fn the_a4_readings_are_vibebms_note_factor() {
     }
 }
 
+/// README, A4 (TOTAL 200): vibeBMS's HARD gauge after each of the four
+/// key-7 notes let pass, the chords before them hit: 10 / 7 a POOR's
+/// factor (S-OLR2), where S1's 15 would read 84 70 54 40.
+#[test]
+fn the_a4_t200_readings_are_vibebms_total_factor() {
+    let shown = |v: f32| (v / 2.0 + 1e-4).floor() as u32 * 2;
+    let r = rules(JudgeAlgorithm::Combo, GaugeType::Hard);
+    let c = chart("a4-t200.bme", &r);
+    assert_eq!(c.total_judgements_of(r.ln_mode, None), 1000);
+    let (mut e, total) = build_engine(&c, &r, None, false);
+    assert_eq!(total, 200.0);
+    let mut steps: Vec<Step> = Vec::new();
+    for n in &c.notes {
+        match n.lane {
+            KEY7 => steps.push(Step::Read(n.time + 1000 * MS)),
+            lane => steps.push(Step::Press(n.time, lane, 0)),
+        }
+    }
+    let got = run(&mut e, steps, c.length() + 2_000 * MS);
+    assert_eq!(
+        got.into_iter().map(shown).collect::<Vec<_>>(),
+        [84, 70, 56, 42]
+    );
+}
+
 /// README, A8: vibeBMS's GROOVE gauge after each mine, key 1 held through
 /// them from the rest before the first; `ZZ` leaves 2 %.
 #[test]

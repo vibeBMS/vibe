@@ -114,8 +114,8 @@ enum Modifier {
     LimitIncrement,
     /// Damage increased for low TOTAL / few notes (beatoraja's version).
     ModifyDamage,
-    /// LR2's damage increase (as LR2oraja): by TOTAL below 240 and by note
-    /// count below 1000, the larger.
+    /// LR2's HARD damage increase: by TOTAL below 256 and by note count
+    /// below 1000, the larger (S-OLR2 3.4).
     Lr2Damage,
 }
 
@@ -207,8 +207,11 @@ const PMS: [GaugeElement; 9] = [
     e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.03,   -3.0,   -6.0,   -6.0], &[]),
     e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,   -5.0,  -10.0,  -10.0], &[]),
 ];
-// LR2's HAZARD (DEATH): a BAD or POOR ends the play, an empty POOR costs
-// nothing (docs/RULES.md, source S8)
+// LR2's (S-OLR2 3): HAZARD (DEATH) gains nothing, a BAD or POOR ends the
+// play, an empty POOR costs nothing, it clears at 80 % as GROOVE does;
+// the dan gauges (GROOVE or EASY: CLASS; HARD: EX-CLASS, with HARD's
+// damage) gain 0.04 for a GOOD. ASSIST EASY, EX-HARD and EXHARD-CLASS are
+// not LR2's.
 #[rustfmt::skip]
 const LR2: [GaugeElement; 9] = [
     e(    Some(Total),     2.0, 100.0, 20.0,  60.0, [ 1.2,  1.2,  0.6,   -3.2,   -4.8,  -1.6], &[]),
@@ -216,9 +219,9 @@ const LR2: [GaugeElement; 9] = [
     e(    Some(Total),     2.0, 100.0, 20.0,  80.0, [ 1.0,  1.0,  0.5,   -4.0,   -6.0,  -2.0], &[]),
     lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [ 0.1,  0.1, 0.05,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
     lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [ 0.1,  0.1, 0.05,  -12.0,  -20.0,  -2.0], &[])),
-    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0, -100.0, -100.0,   0.0], &[])),
-    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,   -2.0,   -3.0,  -2.0], LR2_GUTS)),
-    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
+    lr2(e(None,            0.0, 100.0, 100.0, 80.0, [ 0.0,  0.0,  0.0, -100.0, -100.0,   0.0], LR2_GUTS)),
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.04,   -2.0,   -3.0,  -2.0], LR2_GUTS)),
+    lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.04,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
     lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,  -12.0,  -20.0,  -2.0], &[])),
 ];
 // IIDX-like approximation (groove gauges start at 22%, HARD damage halves below 30%)
@@ -284,9 +287,8 @@ fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
 // specification (TOTAL steps and note-count breakpoints), not from another
 // program's code.
 
-/// The TOTAL factor of both: LR2's HARD POOR damage as measured at each
-/// multiple of 10, over 10, LR2 dropping the ones digit (docs/RULES.md,
-/// source S1); below 120, 10.
+/// The TOTAL factor of the five-key EX-HARD gauge: steps at multiples of
+/// 10, below 120 10 (the table S2 and S4 give as beatoraja's).
 const TOTAL_STEPS: [(f64, f32); 9] = [
     (240.0, 1.0),
     (230.0, 1.11),
@@ -298,16 +300,6 @@ const TOTAL_STEPS: [(f64, f32); 9] = [
     (130.0, 3.333),
     (120.0, 5.0),
 ];
-
-fn total_factor(total: f64) -> f32 {
-    if total.is_nan() {
-        return 1.0;
-    }
-    TOTAL_STEPS
-        .iter()
-        .find(|(t, _)| total >= *t)
-        .map_or(10.0, |(_, f)| *f)
-}
 
 /// Damage multiplier of the beatoraja-preset five-key EX-HARD gauge: the
 /// larger of the TOTAL factor and a note-count factor (single precision).
@@ -330,12 +322,30 @@ fn five_key_damage_factor(total: f64, notes: usize) -> f32 {
             hi = lo;
         }
     };
-    total_factor(total).max(by_notes)
+    let by_total = if total.is_nan() {
+        1.0
+    } else {
+        TOTAL_STEPS
+            .iter()
+            .find(|(t, _)| total >= *t)
+            .map_or(10.0, |(_, f)| *f)
+    };
+    by_total.max(by_notes)
 }
 
-/// Damage multiplier of the LR2-preset HARD and EX-HARD gauges: the larger
-/// of the TOTAL factor and a note-count factor, computed in double
-/// precision and rounded to single precision.
+/// LR2's HARD damage factor by TOTAL: 10 / floor((TOTAL - 80) / 16), the
+/// step at least 1 (S-OLR2 3.4).
+fn lr2_total_factor(total: f64) -> f64 {
+    if total.is_nan() {
+        return 1.0;
+    }
+    10.0 / ((total - 80.0) / 16.0).trunc().max(1.0)
+}
+
+/// Damage multiplier of the LR2-preset HARD (and EX-HARD, EX-CLASS)
+/// gauges: the larger of the TOTAL factor and the note-count factor
+/// (S-OLR2 3.4), computed in double precision and rounded to single
+/// precision.
 fn lr2_damage_factor(total: f64, n: f64) -> f32 {
     let by_notes = if n >= 1000.0 {
         1.0
@@ -354,15 +364,16 @@ fn lr2_damage_factor(total: f64, n: f64) -> f32 {
     } else {
         10.0
     };
-    f64::max(total_factor(total) as f64, by_notes) as f32
+    f64::max(lr2_total_factor(total), by_notes) as f32
 }
 
 /// The LR2-preset HARD damage of a chart with `notes` notes and `total`
-/// is not LR2's as measured: below 125 notes S1 gives only the graph's
-/// ends, and the note-count factor is then the larger unless the TOTAL
-/// factor is already the most, 10 (docs/RULES.md, gap A4).
+/// may not be LR2's: from 21 to 29 notes S-OLR2 marks the note-count
+/// factor's segment unchecked (10 − 0.2 per note above 20, then 7 at 30;
+/// a continuous 10 − 0.3 per note would differ), and it decides there
+/// unless the TOTAL factor is at least as large (docs/RULES.md, gap A4).
 pub fn lr2_hard_damage_unconfirmed(total: f64, notes: u32) -> bool {
-    (1..125).contains(&notes) && total_factor(total) < 10.0
+    (21..30).contains(&notes) && lr2_total_factor(total) < 10.0 - 0.2 * (notes - 20) as f64
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -652,10 +663,10 @@ mod tests {
         assert!((g.change_for(Judge::Poor) + 30.0).abs() < 1e-4);
         let big = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 2000);
         assert_eq!(big.change_for(Judge::Poor), -10.0);
-        // TOTAL 200 and 209 (the ones digit dropped): x1.5
-        for t in [200.0, 209.0] {
+        // TOTAL 192 to 207: 10 / 7
+        for t in [192.0, 200.0, 207.0] {
             let low = Gauge::new(GaugeType::Hard, &LR2[3], t, 2000);
-            assert!((low.change_for(Judge::Poor) + 15.0).abs() < 1e-3);
+            assert!((low.change_for(Judge::Poor) + 100.0 / 7.0).abs() < 1e-3);
         }
         assert!(
             (Gauge::new(GaugeType::Hard, &LR2[3], 100.0, 2000).change_for(Judge::Poor) + 100.0)
@@ -671,6 +682,10 @@ mod tests {
             g.update(Judge::Miss, 1.0);
         }
         assert_eq!(g.value(), 100.0);
+        // no gains; it clears at 80 %, as GROOVE
+        g.set_value(50.0);
+        g.update(Judge::PGreat, 1.0);
+        assert_eq!((g.value(), g.is_qualified()), (50.0, false));
         g.update(Judge::Bad, 1.0);
         assert!(g.is_dead());
         // beatoraja's HAZARD still pays for an empty POOR
