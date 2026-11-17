@@ -1895,30 +1895,32 @@ def persp(fonts, parts, mode, portrait):
         pl.start((16, 162, 688, 42), (0.5, 0))
         persp_stats(sk, pl.img, f, 16, 162, 688, 42)
     elif not double:
+        # the lanes span most of the width at the bottom: the panels go in
+        # the top corners beside their far end, narrower further down
         pl.start((300, 8, 680, 72), (0.5, 0))
         header(sk, pl.img, f, 300, 8, 680, 72)
-        pl.start((12, 96, 278, 308), (0, 0))
+        pl.start((12, 96, 278, 148), (0, 0))
         score_panel(sk, pl.img, f, 12, 96, 278, 148)
-        judge_panel(sk, pl.img, f, 12, 252, 278, 152)
-        pl.start((986, 96, 284, 448), (1, 0))
+        pl.start((12, 252, 232, 152), (0, 0))
+        judge_panel(sk, pl.img, f, 12, 252, 232, 152)
+        pl.start((986, 96, 284, 156), (1, 0))
         gauge_block(sk, pl.img, f, 990, 96, 278)
         bpm_panel(sk, pl.img, f, 990, 160, 278, 92)
-        status_panel(sk, pl.img, f, 990, 260, 278, 130)
-        pace_rows(sk, pl.img, f, 990, 398, 278)
+        pl.start((1036, 260, 232, 130), (1, 0))
+        status_panel(sk, pl.img, f, 1036, 260, 232, 130)
     else:
         pl.start((300, 8, 680, 72), (0.5, 0))
         header(sk, pl.img, f, 300, 8, 680, 72)
         pl.start((466, 94, 348, 112), (0.5, 0))
         gauge_block(sk, pl.img, f, 470, 96, 340)
         persp_stats(sk, pl.img, f, 470, 156, 340, 42)
-        pl.start((12, 96, 200, 148), (0, 0))
-        score_panel(sk, pl.img, f, 12, 96, 200, 148)
-        pl.start((1068, 96, 200, 152), (1, 0))
-        judge_panel(sk, pl.img, f, 1068, 96, 200, 152)
+        pl.start((12, 96, 176, 148), (0, 0))
+        score_panel(sk, pl.img, f, 12, 96, 176, 148)
+        pl.start((1092, 96, 176, 152), (1, 0))
+        judge_panel(sk, pl.img, f, 1092, 96, 176, 152)
     # judgements over each fan, the hi-speed panel and READY
     sk.anchor = (0.5, 0.5)
-    centres = [W // 4, W * 3 // 4] if double and portrait else \
-        [int(W * 0.28), int(W * 0.72)] if double else [W // 2]
+    centres = [W // 4, W * 3 // 4] if double else [W // 2]
     for player, cx in enumerate(centres):
         judge_block(sk, player, cx, jtop)
         ready(sk, cx, (top + base) // 2)
