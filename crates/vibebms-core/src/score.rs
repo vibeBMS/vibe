@@ -17,7 +17,7 @@ pub enum Assist {
 /// beatoraja's `BMSPlayer`): an option counts only when it took effect.
 /// An assisted play keeps only its lamp (ASSIST / L-ASSIST) and its play
 /// count: no best scores, no best replay, no IR.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AssistFacts {
     /// The lane options applied, per side.
     pub lane: Vec<crate::lane_option::LaneOption>,

@@ -20,7 +20,7 @@ pub enum LnType {
 
 /// Which long notes a chart has: ones of no type (played as the player's
 /// LN mode) and ones typed by the chart (`#LNMODE`, bmson `t`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LnProfile {
     pub undefined: bool,
     /// Typed LN, CN, HCN.

@@ -13,6 +13,7 @@
 //! * [`engine`]: the real-time judge engine (normal notes, LN / CN / HCN, mines, BSS)
 //! * [`play`]: the rule options and the chart and judge they make
 //! * [`replay`]: a play's inputs, to judge it again (headless)
+//! * [`record`]: a finished play as facts (its chart, rules, devices, result)
 
 /// An enum of options picked from a list, with `ALL` (in declaration
 /// order) and `label()`, so the list cannot drift from the enum:
@@ -88,6 +89,7 @@ pub mod judge;
 pub mod lane_option;
 pub mod mode;
 pub mod play;
+pub mod record;
 pub mod replay;
 pub mod rng;
 pub mod score;
