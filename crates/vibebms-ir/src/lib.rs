@@ -10,6 +10,7 @@ pub mod eligibility;
 pub mod http;
 pub mod lamps;
 pub mod limiter;
+pub mod outbox;
 pub mod provider;
 pub mod providers;
 pub mod rule;
