@@ -11,16 +11,111 @@ pub struct LoadedSkin {
     pub skin: Skin,
     pub tex: Vec<Option<TexId>>,
     /// Bitmap font sheets load on first use (a Japanese font has hundreds):
-    /// which images are such sheets, and the ones asked for since the
-    /// last `load_pending`.
+    /// which images are such sheets (and not asked for yet), and the ones
+    /// asked for since the last `load_pending`.
     lazy: Vec<bool>,
     wanted: std::cell::RefCell<Vec<usize>>,
+    /// Images being decoded, with the images that show each file; the
+    /// first is the skin's own, which it is not drawn without.
+    decoding: Vec<(ImageJobs, Vec<Vec<usize>>)>,
+    ready: bool,
     /// Images that are videos (looping from when the skin loaded).
     videos: Vec<(usize, crate::video::Video)>,
     loaded_at: crate::platform::Instant,
 }
 
-/// 0..1 of a bar or slider: a rate, or a number within `minmax`.
+pub type Rgba = (u32, u32, Vec<u8>);
+
+/// An image file's pixels; `key` turns that colour transparent if the
+/// image has no alpha of its own (LR2 `#TRANSCOLOR`).
+fn decode(path: &std::path::Path, key: Option<[u8; 3]>) -> Option<Rgba> {
+    let (w, h, mut px) = crate::gfx::load_rgba(path, false)?;
+    if let Some(k) = key {
+        if px.chunks_exact(4).all(|p| p[3] == 255) {
+            for p in px.chunks_exact_mut(4) {
+                if p[..3] == k {
+                    p[3] = 0;
+                }
+            }
+        }
+    }
+    Some((w, h, px))
+}
+
+/// Image files decoded off the main thread, one after another on a worker
+/// thread (so no more than a couple are held at once); on the web, which
+/// has no threads, as many as fit in a few milliseconds per `poll`.
+pub struct ImageJobs {
+    total: usize,
+    left: usize,
+    source: Source,
+}
+
+enum Source {
+    Worker(std::sync::mpsc::Receiver<Option<Rgba>>),
+    Here(Vec<PathBuf>, Option<[u8; 3]>),
+}
+
+impl ImageJobs {
+    pub fn start(paths: Vec<PathBuf>, key: Option<[u8; 3]>) -> ImageJobs {
+        let total = paths.len();
+        let source = if crate::platform::IS_WEB {
+            Source::Here(paths, key)
+        } else {
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            crate::platform::spawn("image decode", move || {
+                for p in &paths {
+                    // the receiver is gone: the images are not wanted
+                    if tx.send(decode(p, key)).is_err() {
+                        break;
+                    }
+                }
+            });
+            Source::Worker(rx)
+        };
+        ImageJobs {
+            total,
+            left: total,
+            source,
+        }
+    }
+
+    pub fn done(&self) -> bool {
+        self.left == 0
+    }
+
+    /// The images decoded since the last call, by index in the paths
+    /// given, made textures by `upload` (`None`: not an image); `wait`
+    /// waits for all.
+    pub fn poll<T>(
+        &mut self,
+        wait: bool,
+        mut upload: impl FnMut(Rgba) -> T,
+    ) -> Vec<(usize, Option<T>)> {
+        use std::sync::mpsc::TryRecvError;
+        let mut out = Vec::new();
+        let t0 = crate::platform::Instant::now();
+        while self.left > 0 {
+            let i = self.total - self.left;
+            let img = match &self.source {
+                Source::Worker(rx) if wait => rx.recv().ok().flatten(),
+                Source::Worker(rx) => match rx.try_recv() {
+                    Ok(img) => img,
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => None,
+                },
+                Source::Here(..) if !wait && !out.is_empty() && t0.elapsed().as_millis() >= 8 => {
+                    break
+                }
+                Source::Here(paths, key) => decode(&paths[i], *key),
+            };
+            self.left -= 1;
+            out.push((i, img.map(&mut upload)));
+        }
+        out
+    }
+}
+
 /// A part `r` (an image's region `uv`) of an object drawn at `whole`:
 /// with the object's blend, turned with it about its centre.
 fn part(d: &mut Draw, t: TexId, r: Rect, uv: [f32; 4], fr: &Frame, whole: Rect) {
@@ -33,6 +128,7 @@ fn part(d: &mut Draw, t: TexId, r: Rect, uv: [f32; 4], fr: &Frame, whole: Rect) 
     d.b.set_blend(crate::gfx::Blend::Alpha);
 }
 
+/// 0..1 of a bar or slider: a rate, or a number within `minmax`.
 fn value(st: &dyn SkinState, id: i32, minmax: Option<(f32, f32)>) -> f32 {
     match minmax {
         Some((lo, hi)) if hi != lo => {
@@ -159,33 +255,58 @@ impl LoadedSkin {
         let mut videos = Vec::new();
         // only what is drawn, and an image several sources name once
         let used = skin.used_images();
-        let mut loaded: HashMap<&PathBuf, Option<TexId>> = HashMap::new();
-        let tex = skin
-            .images
-            .iter()
-            .zip(&lazy)
-            .enumerate()
-            .map(|(i, (p, lazy))| {
-                let p = p.as_ref().filter(|_| !lazy && used[i])?;
-                if crate::video::is_video(p) {
-                    if let Some(v) = crate::video::Video::open(p, true) {
-                        videos.push((i, v));
-                    }
-                    return None;
+        let mut files: Vec<PathBuf> = Vec::new();
+        let mut users: Vec<Vec<usize>> = Vec::new();
+        let mut file_of: HashMap<&PathBuf, usize> = HashMap::new();
+        for (i, p) in skin.images.iter().enumerate() {
+            let Some(p) = p.as_ref().filter(|_| !lazy[i] && used[i]) else {
+                continue;
+            };
+            if crate::video::is_video(p) {
+                if let Some(v) = crate::video::Video::open(p, true) {
+                    videos.push((i, v));
                 }
-                *loaded
-                    .entry(p)
-                    .or_insert_with(|| gfx.load_image_keyed(p, key))
-            })
-            .collect();
-        LoadedSkin {
+                continue;
+            }
+            let f = *file_of.entry(p).or_insert_with(|| {
+                files.push(p.clone());
+                users.push(Vec::new());
+                files.len() - 1
+            });
+            users[f].push(i);
+        }
+        let mut sk = LoadedSkin {
+            tex: vec![None; skin.images.len()],
+            decoding: vec![(ImageJobs::start(files, key), users)],
+            ready: false,
             skin,
-            tex,
             lazy,
             wanted: Default::default(),
             videos,
             loaded_at: crate::platform::Instant::now(),
+        };
+        sk.take_decoded(gfx, false);
+        sk
+    }
+
+    /// Wait for the skin's images (else they come in while it is not
+    /// drawn yet).
+    pub fn wait(&mut self, gfx: &mut Gfx) {
+        self.take_decoded(gfx, true);
+    }
+
+    fn take_decoded(&mut self, gfx: &mut Gfx, wait: bool) {
+        for (jobs, users) in &mut self.decoding {
+            for (f, t) in jobs.poll(wait, |(w, h, px)| gfx.create_texture(w, h, &px)) {
+                for &i in &users[f] {
+                    self.tex[i] = t;
+                }
+            }
         }
+        if self.decoding.first().is_some_and(|(j, _)| j.done()) {
+            self.ready = true;
+        }
+        self.decoding.retain(|(j, _)| !j.done());
     }
 
     /// Load the font sheets drawing asked for and advance videos (call
@@ -196,21 +317,22 @@ impl LoadedSkin {
             v.update(gfx, ms);
             self.tex[*i] = v.texture();
         }
-        let wanted = std::mem::take(&mut *self.wanted.borrow_mut());
-        let key = self.skin.trans_color;
-        for i in wanted {
-            if self.tex.get(i).is_some_and(Option::is_none) {
-                let t = self.skin.images[i]
-                    .as_ref()
-                    .and_then(|p| gfx.load_image_keyed(p, key));
-                self.tex[i] = t;
-                // a sheet that cannot load is not asked for again
-                self.lazy[i] = false;
-            }
+        self.take_decoded(gfx, false);
+        // (asked for once: a sheet that cannot load is not asked for again)
+        let mut wanted = std::mem::take(&mut *self.wanted.borrow_mut());
+        wanted.retain(|&i| std::mem::take(&mut self.lazy[i]));
+        let (files, users): (Vec<PathBuf>, Vec<Vec<usize>>) = wanted
+            .into_iter()
+            .filter_map(|i| Some((self.skin.images[i].clone()?, vec![i])))
+            .unzip();
+        if !files.is_empty() {
+            let jobs = ImageJobs::start(files, self.skin.trans_color);
+            self.decoding.push((jobs, users));
         }
     }
 
     pub fn free(&mut self, gfx: &mut Gfx) {
+        self.decoding.clear();
         // video textures belong to the videos
         for (i, mut v) in self.videos.drain(..) {
             self.tex[i] = None;
@@ -613,6 +735,9 @@ impl LoadedSkin {
         st: &dyn SkinState,
         hooks: &mut dyn Hooks,
     ) {
+        if !self.ready {
+            return;
+        }
         // nothing outside the skin's own screen (objects placed off-screen
         // would show in letterbox bars)
         let xf = Xf::fit(self.skin.width, self.skin.height, view);
@@ -957,5 +1082,36 @@ pub fn marquee_offset(t: i64, travel: f32, size: f32) -> f32 {
         0.0
     } else {
         ((t - WAIT_MS) / 1000.0 * speed).min(travel)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn images_decode_off_the_main_thread_in_order() {
+        let dir = std::env::temp_dir().join(format!("vibebms-imgjobs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut img = image::RgbaImage::new(3, 2);
+        img.put_pixel(0, 0, image::Rgba([1, 2, 3, 255]));
+        img.save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(5, 4).save(dir.join("b.png")).unwrap();
+        let paths = ["a.png", "none.png", "b.png"].map(|f| dir.join(f)).to_vec();
+        let size = |(w, h, _): Rgba| (w, h);
+        let mut jobs = ImageJobs::start(paths.clone(), None);
+        let mut got = Vec::new();
+        while !jobs.done() {
+            got.extend(jobs.poll(false, size));
+        }
+        assert_eq!(got, vec![(0, Some((3, 2))), (1, None), (2, Some((5, 4)))]);
+        // the colour key (black): in images without alpha only
+        let mut jobs = ImageJobs::start(paths, Some([0, 0, 0]));
+        let px = jobs.poll(true, |(_, _, px)| px[3]);
+        assert_eq!(
+            px.iter().map(|p| p.1).collect::<Vec<_>>(),
+            [Some(255), None, Some(0)]
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
