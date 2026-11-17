@@ -13,7 +13,7 @@ pub(crate) enum Node {
     Root,
     Folder(String),
     All,
-    /// A table, by its URL (`ctx.tables` is re-sorted as tables arrive).
+    /// A table, by its URL (`ctx.tables.list` is re-sorted as tables arrive).
     Table(String),
     Level(String, String),
     Courses(String),
@@ -71,7 +71,7 @@ pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 
 /// The table at `url` (see [`Node::Table`]).
 pub(crate) fn table<'a>(ctx: &'a Ctx, url: &str) -> Option<&'a bmseeker::table::DifficultyTable> {
-    ctx.tables.iter().find(|t| t.source_url == url)
+    ctx.tables.list.iter().find(|t| t.source_url == url)
 }
 
 /// The index of the event at `url` in `ctx.archives.events` now.
@@ -158,7 +158,7 @@ impl SelectScene {
                         count: ev.works.len(),
                     });
                 }
-                for t in ctx.tables.iter() {
+                for t in ctx.tables.list.iter() {
                     bars.push(Bar::Folder {
                         label: t.header.name.clone(),
                         sub: format!("{} levels", t.levels().len()),

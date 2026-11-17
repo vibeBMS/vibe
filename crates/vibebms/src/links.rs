@@ -19,7 +19,7 @@ const STELLA_FILE: &str = "links-stella.json";
 #[derive(Default)]
 pub struct LinkLists {
     /// Everything known: the tables' links, then the list's.
-    pub links: Links,
+    pub known: Links,
     stella: Links,
     job: Option<Job<Links>>,
 }
@@ -52,7 +52,7 @@ impl LinkLists {
 
     /// Everything known again, from `tables` and the list.
     pub fn rebuild(&mut self, tables: &[DifficultyTable]) {
-        self.links = Links::from_tables(tables).and(self.stella.clone());
+        self.known = Links::from_tables(tables).and(self.stella.clone());
     }
 }
 

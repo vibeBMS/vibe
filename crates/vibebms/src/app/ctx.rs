@@ -24,9 +24,9 @@ pub struct Ctx {
     pub config: Config,
     /// The library and the player's records.
     pub lib: Lib,
-    pub tables: Vec<DifficultyTable>,
+    /// Difficulty tables and the other links known for their songs.
+    pub tables: Tables,
     pub mixer: Mixer,
-    pub table_job: Option<Job<TableMsg>>,
     pub toasts: Vec<(String, Instant)>,
     /// The window and the screen.
     pub view: View,
@@ -40,8 +40,6 @@ pub struct Ctx {
     pub archives: crate::archive::Archives,
     /// Difficulty-table songs downloading.
     pub song_fetch: crate::songfetch::SongFetch,
-    /// Links for table songs whose own are missing or dead.
-    pub links: crate::links::LinkLists,
     /// The skin catalog and the skins downloaded from it.
     pub skin_store: crate::skinstore::SkinStore,
     /// Custom options read from skin files (path -> options).
@@ -73,6 +71,17 @@ pub struct Lib {
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
 
+/// The difficulty tables read, and the links that fill theirs.
+#[derive(Default)]
+pub struct Tables {
+    /// In the configuration's order.
+    pub list: Vec<DifficultyTable>,
+    /// Tables being fetched.
+    pub job: Option<Job<TableMsg>>,
+    /// Links for table songs whose own are missing or dead.
+    pub links: crate::links::LinkLists,
+}
+
 /// The window and the screen it is on.
 pub struct View {
     /// The window's size in device pixels.
@@ -95,9 +104,8 @@ impl Ctx {
             paths,
             config,
             lib: Lib::default(),
-            tables: Vec::new(),
+            tables: Tables::default(),
             mixer,
-            table_job: None,
             toasts: Vec::new(),
             view,
             touch_seen: false,
@@ -105,7 +113,6 @@ impl Ctx {
             browse: None,
             archives: Default::default(),
             song_fetch: Default::default(),
-            links: Default::default(),
             skin_store: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
@@ -291,22 +298,22 @@ impl Ctx {
     /// The tables' missing or dead links filled from the other links known
     /// for their charts (the other tables', the Stella uploader's).
     pub fn fill_links(&mut self) {
-        self.links.rebuild(&self.tables);
-        for t in &mut self.tables {
-            self.links.links.fill(&mut t.entries);
+        self.tables.links.rebuild(&self.tables.list);
+        for t in &mut self.tables.list {
+            self.tables.links.known.fill(&mut t.entries);
         }
         self.lib.version += 1;
     }
 
     pub fn load_cached_tables(&mut self) {
-        self.tables.clear();
+        self.tables.list.clear();
         for t in self.config.tables.iter().filter(|t| t.enabled) {
             let f = self.table_cache_file(&t.url);
             if let Some(dt) = crate::platform::vfs::read(&f)
                 .ok()
                 .and_then(|b| serde_json::from_slice::<DifficultyTable>(&b).ok())
             {
-                self.tables.push(dt);
+                self.tables.list.push(dt);
             }
         }
         self.fill_links();
@@ -314,7 +321,7 @@ impl Ctx {
 
     /// Fetch tables in the background. `force` refetches even fresh caches.
     pub fn refresh_tables(&mut self, force: bool) {
-        if self.table_job.is_some() {
+        if self.tables.job.is_some() {
             return;
         }
         let now = crate::platform::unix_now();
@@ -325,7 +332,7 @@ impl Ctx {
             .filter(|t| t.enabled)
             .filter(|t| {
                 force
-                    || !self.tables.iter().any(|dt| {
+                    || !self.tables.list.iter().any(|dt| {
                         dt.source_url == t.url && now.saturating_sub(dt.fetched_at) < 86_400
                     })
             })
@@ -334,7 +341,7 @@ impl Ctx {
         if todo.is_empty() {
             return;
         }
-        self.table_job = Some(Job::start(|tx, _| {
+        self.tables.job = Some(Job::start(|tx, _| {
             for (name, url) in todo {
                 let tx = tx.clone();
                 crate::platform::load_table(&url, move |r| {
@@ -455,11 +462,11 @@ impl Ctx {
             self.start_scan();
         }
         self.finish_scan(true);
-        if self.links.poll() {
+        if self.tables.links.poll() {
             self.fill_links();
         }
         let mut loaded = false;
-        for m in Job::drain_slot(&mut self.table_job) {
+        for m in Job::drain_slot(&mut self.tables.job) {
             match m {
                 TableMsg::Loaded(t) => {
                     let t = *t;
@@ -476,17 +483,18 @@ impl Ctx {
                     ));
                     if let Some(old) = self
                         .tables
+                        .list
                         .iter_mut()
                         .find(|o| o.source_url == t.source_url)
                     {
                         *old = t;
                     } else {
-                        self.tables.push(t);
+                        self.tables.list.push(t);
                     }
                     // keep config order
                     let order: Vec<String> =
                         self.config.tables.iter().map(|t| t.url.clone()).collect();
-                    self.tables.sort_by_key(|t| {
+                    self.tables.list.sort_by_key(|t| {
                         order
                             .iter()
                             .position(|u| *u == t.source_url)

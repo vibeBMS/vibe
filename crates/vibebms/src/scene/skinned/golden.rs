@@ -74,7 +74,7 @@ fn ctx() -> Ctx {
     let s = song();
     let ln = s.score_ln(ctx.config.play.ln_mode) as i32;
     ctx.lib.scores.insert((s.sha256.clone(), ln), best());
-    ctx.tables.push(bmseeker::table::DifficultyTable {
+    ctx.tables.list.push(bmseeker::table::DifficultyTable {
         source_url: "https://example.invalid/table".into(),
         header: bmseeker::table::TableHeader {
             name: "Golden Table".into(),

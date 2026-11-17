@@ -200,7 +200,7 @@ pub fn chart_text(t: &ChartText, id: i32) -> Option<String> {
 /// table.
 pub fn table_of(ctx: &Ctx, md5: &str, sha256: &str) -> Option<(String, String)> {
     let same = |a: &str, b: &str| !a.is_empty() && a.eq_ignore_ascii_case(b);
-    ctx.tables.iter().find_map(|t| {
+    ctx.tables.list.iter().find_map(|t| {
         let e = t
             .entries
             .iter()

@@ -174,7 +174,7 @@ impl SelectScene {
             url_diff: url_diff.clone(),
             ..Default::default()
         };
-        let mut song = ctx.links.links.song_links(&e);
+        let mut song = ctx.tables.links.known.song_links(&e);
         for u in more {
             if !song.contains(&u) {
                 song.push(u);
@@ -189,7 +189,7 @@ impl SelectScene {
             },
             org_md5,
             song,
-            chart: ctx.links.links.chart_links(&e),
+            chart: ctx.tables.links.known.chart_links(&e),
             ..Default::default()
         };
         // the song is in the library (another of its charts): what to say

@@ -38,6 +38,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     for (i, t) in c.tables.iter().enumerate() {
         let loaded = ctx
             .tables
+            .list
             .iter()
             .find(|d| d.source_url == t.url)
             .map(|d| format!(" [{}]", d.entries.len()))

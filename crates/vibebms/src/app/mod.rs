@@ -459,7 +459,7 @@ impl App {
             ctx.start_scan();
         }
         ctx.refresh_tables(false);
-        ctx.links.start(&ctx.paths.cache);
+        ctx.tables.links.start(&ctx.paths.cache);
         ctx.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
         ctx.archives.refresh(false);
         ctx.skin_store = crate::skinstore::SkinStore::load(&ctx.paths);
