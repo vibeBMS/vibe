@@ -4,14 +4,13 @@
 use super::{PlayRequest, Versus};
 use crate::app::{Ctx, Draw};
 use crate::config::PlayConfig;
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Rect};
 use crate::platform::vfs::Prefetch;
-use crate::platform::Instant;
+use crate::platform::{Instant, Job};
 use crate::theme;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::SoundBank;
 use vibebms_core::chart::Chart;
@@ -35,11 +34,13 @@ pub(super) struct Loaded {
     pub ln_profile: vibebms_core::LnProfile,
 }
 
+type Work = Box<dyn FnOnce() -> Result<Box<Loaded>, String> + Send>;
+
 pub(super) struct Loading {
-    /// The job, started once the song's files are available.
-    job: Option<Box<dyn FnOnce() + Send>>,
+    /// The work, started once the song's files are available.
+    work: Option<Work>,
     prefetch: Prefetch,
-    rx: Receiver<Result<Box<Loaded>, String>>,
+    job: Option<Job<Result<Box<Loaded>, String>>>,
     /// Sound files read, of how many.
     progress: Arc<AtomicUsize>,
     total_files: Arc<AtomicUsize>,
@@ -50,7 +51,6 @@ impl Loading {
     pub fn start(ctx: &Ctx, req: &PlayRequest) -> Loading {
         let progress = Arc::new(AtomicUsize::new(0));
         let total_files = Arc::new(AtomicUsize::new(0));
-        let (tx, rx) = channel();
         let path = PathBuf::from(&req.song.path);
         // watching a replay: its options make the chart
         let play = req
@@ -77,7 +77,7 @@ impl Loading {
         } else {
             play
         };
-        let rate = ctx.mixer.sample_rate;
+        let rate = ctx.audio.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
         let course_mirror = req
             .course
@@ -86,67 +86,64 @@ impl Loading {
             .unwrap_or(true);
         let in_course = req.course.is_some();
         let song_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        let job = move || {
-            let r = (|| -> Result<Box<Loaded>, String> {
-                let seed = replay_seed.unwrap_or_else(|| {
-                    crate::platform::SystemTime::now()
-                        .duration_since(crate::platform::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(1)
-                });
-                let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
-                let lanes = in_course.then_some(course_mirror);
-                let PlayChart {
-                    chart,
-                    facts,
-                    ln_profile,
-                } = match &ghost {
-                    Some(g) => build_battle_chart(&path, &bytes, &play, &g.play, seed)?,
-                    None => build_chart(&path, &bytes, &play, seed, lanes)?,
-                };
-                let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-                t2.store(chart.sound_files.len(), Ordering::Relaxed);
-                let index = crate::platform::vfs::DirIndex::new(&dir);
-                let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
-                let read = |p: &Path| crate::platform::vfs::read(p).ok();
-                let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
-                // an image or a video (shown when ffmpeg is installed)
-                let (images, videos) = if play.bga {
-                    use crate::platform::vfs::IMAGE_EXTS;
-                    use crate::video::{is_video, VIDEO_EXTS};
-                    chart
-                        .images
-                        .iter()
-                        .map(|f| match index.find(f, IMAGE_EXTS) {
-                            Some(p) if is_video(&p) => (None, Some(p)),
-                            Some(p) => (crate::gfx::load_rgba(&p, true), None),
-                            None => (None, index.find(f, VIDEO_EXTS)),
-                        })
-                        .unzip()
-                } else {
-                    (Vec::new(), Vec::new())
-                };
-                let stagefile = crate::platform::vfs::inside(&dir, &chart.meta.stagefile)
-                    .filter(|_| !chart.meta.stagefile.is_empty())
-                    .and_then(|p| crate::scene::select::resolve_image(&p))
-                    .and_then(|p| crate::gfx::load_rgba(&p, false));
-                Ok(Box::new(Loaded {
-                    chart,
-                    bank,
-                    images,
-                    videos,
-                    stagefile,
-                    seed,
-                    facts,
-                    ln_profile,
-                }))
-            })();
-            let _ = tx.send(r);
+        let work = move || -> Result<Box<Loaded>, String> {
+            let seed = replay_seed.unwrap_or_else(|| {
+                crate::platform::SystemTime::now()
+                    .duration_since(crate::platform::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(1)
+            });
+            let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
+            let lanes = in_course.then_some(course_mirror);
+            let PlayChart {
+                chart,
+                facts,
+                ln_profile,
+            } = match &ghost {
+                Some(g) => build_battle_chart(&path, &bytes, &play, &g.play, seed)?,
+                None => build_chart(&path, &bytes, &play, seed, lanes)?,
+            };
+            let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+            t2.store(chart.sound_files.len(), Ordering::Relaxed);
+            let index = crate::platform::vfs::DirIndex::new(&dir);
+            let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
+            let read = |p: &Path| crate::platform::vfs::read(p).ok();
+            let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
+            // an image or a video (shown when ffmpeg is installed)
+            let (images, videos) = if play.bga {
+                use crate::platform::vfs::IMAGE_EXTS;
+                use crate::video::{is_video, VIDEO_EXTS};
+                chart
+                    .images
+                    .iter()
+                    .map(|f| match index.find(f, IMAGE_EXTS) {
+                        Some(p) if is_video(&p) => (None, Some(p)),
+                        Some(p) => (crate::gfx::load_rgba(&p, true), None),
+                        None => (None, index.find(f, VIDEO_EXTS)),
+                    })
+                    .unzip()
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            let stagefile = crate::platform::vfs::inside(&dir, &chart.meta.stagefile)
+                .filter(|_| !chart.meta.stagefile.is_empty())
+                .and_then(|p| crate::scene::select::resolve_image(&p))
+                .and_then(|p| crate::gfx::load_rgba(&p, false));
+            Ok(Box::new(Loaded {
+                chart,
+                bank,
+                images,
+                videos,
+                stagefile,
+                seed,
+                facts,
+                ln_profile,
+            }))
         };
         Loading {
-            job: Some(Box::new(job)),
+            work: Some(Box::new(work)),
             prefetch: Prefetch::dirs(&[song_dir]),
-            rx,
+            job: None,
             progress,
             total_files,
             since: Instant::now(),
@@ -155,20 +152,24 @@ impl Loading {
 
     /// The job started once the files are there; what it loaded once done.
     pub fn poll(&mut self) -> Option<Result<Box<Loaded>, String>> {
-        if self.job.is_some() && self.prefetch.finished() {
-            if let Some(job) = self.job.take() {
-                crate::platform::spawn("load", job);
-            }
+        if self.work.is_some() && self.prefetch.finished() {
+            let work = self.work.take();
+            self.job = work.map(|work| Job::spawn("load", |_| work()));
         }
-        self.rx.try_recv().ok()
+        self.job.as_mut()?.poll()
     }
 
     pub fn draw(&self, ctx: &Ctx, d: &mut Draw, req: &PlayRequest) {
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         let s = &req.song;
         let line = |d: &mut Draw, text: &str, y: f32, size: f32, color| {
-            d.text_fit(text, w * 0.5, y, size * ui, color, Align::Center, w * 0.9);
+            d.text(
+                text,
+                w * 0.5,
+                y,
+                TextStyle::new(size * ui, color, Align::Center).fit(w * 0.9),
+            );
         };
         line(d, &s.genre, h * 0.3, 18.0, theme::TEXT_DIM);
         line(d, &s.full_title(), h * 0.36, 34.0, theme::TEXT);
@@ -188,9 +189,7 @@ impl Loading {
                 &format!("{}  STAGE {}/{}", c.name, c.index + 1, c.songs.len()),
                 w * 0.5,
                 h * 0.22,
-                22.0 * ui,
-                theme::ACCENT,
-                Align::Center,
+                TextStyle::new(22.0 * ui, theme::ACCENT, Align::Center),
             );
         }
         let total = self.total_files.load(Ordering::Relaxed).max(1);
@@ -204,9 +203,7 @@ impl Loading {
             &format!("LOADING{dots}  {done}/{total}"),
             w * 0.5,
             bar.y + 16.0 * ui,
-            16.0 * ui,
-            theme::TEXT_DIM,
-            Align::Center,
+            TextStyle::new(16.0 * ui, theme::TEXT_DIM, Align::Center),
         );
     }
 }

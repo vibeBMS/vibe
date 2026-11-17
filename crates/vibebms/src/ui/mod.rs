@@ -11,7 +11,7 @@ pub use list::ListView;
 pub use text_input::{TextEvent, TextInput};
 
 use crate::app::Draw;
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Rect};
 use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 
@@ -46,14 +46,11 @@ pub fn button(d: &mut Draw, r: Rect, label: &str, ui: f32, active: bool) -> Rect
     };
     d.b.rounded_panel(r, 7.0, fill, border, if active { 1.5 } else { 1.0 });
     let size = (16.0 * ui).min(r.h * 0.6);
-    d.text_fit(
+    d.text(
         label,
         r.x + r.w * 0.5,
         r.y + (r.h - size) * 0.5 - size * 0.08,
-        size,
-        TEXT,
-        Align::Center,
-        r.w - 8.0,
+        TextStyle::new(size, TEXT, Align::Center).fit(r.w - 8.0),
     );
     r
 }

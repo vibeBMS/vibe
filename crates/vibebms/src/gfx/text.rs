@@ -15,6 +15,43 @@ pub enum Align {
     Right,
 }
 
+/// How a string is drawn.
+#[derive(Clone, Copy, Debug)]
+pub struct TextStyle {
+    pub size: f32,
+    pub color: Color,
+    /// Where the string is from `x`.
+    pub align: Align,
+    /// Wider strings are squeezed horizontally to this (the classic
+    /// BMS-select look for long titles).
+    pub max_w: f32,
+    /// A 1px dark shadow for readability over BGA.
+    pub shadow: bool,
+}
+
+impl TextStyle {
+    pub fn new(size: f32, color: Color, align: Align) -> TextStyle {
+        TextStyle {
+            size,
+            color,
+            align,
+            max_w: f32::INFINITY,
+            shadow: false,
+        }
+    }
+
+    pub fn fit(self, max_w: f32) -> TextStyle {
+        TextStyle { max_w, ..self }
+    }
+
+    pub fn shadow(self) -> TextStyle {
+        TextStyle {
+            shadow: true,
+            ..self
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Glyph {
     uv: [f32; 4],
@@ -400,7 +437,6 @@ impl Text {
     }
 
     /// Draw `s` with its top edge at `y`. Returns the drawn width.
-    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         gfx: &Gfx,
@@ -408,28 +444,24 @@ impl Text {
         s: &str,
         x: f32,
         y: f32,
-        size: f32,
-        color: Color,
-        align: Align,
+        style: TextStyle,
     ) -> f32 {
-        self.draw_scaled(gfx, batch, s, x, y, size, color, align, f32::INFINITY)
-    }
-
-    /// Like [`Text::draw`] but squeezes horizontally to fit `max_w`
-    /// (the classic BMS-select look for long titles).
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_scaled(
-        &mut self,
-        gfx: &Gfx,
-        batch: &mut Batch,
-        s: &str,
-        x: f32,
-        y: f32,
-        size: f32,
-        color: Color,
-        align: Align,
-        max_w: f32,
-    ) -> f32 {
+        if style.shadow {
+            let sh = (style.size / 16.0).max(1.0);
+            let dark = TextStyle {
+                color: [0.0, 0.0, 0.0, style.color[3] * 0.8],
+                shadow: false,
+                ..style
+            };
+            self.draw(gfx, batch, s, x + sh, y + sh, dark);
+        }
+        let TextStyle {
+            size,
+            color,
+            align,
+            max_w,
+            ..
+        } = style;
         if s.is_empty() || self.fonts.is_empty() {
             return 0.0;
         }
@@ -484,33 +516,6 @@ impl Text {
         }
         self.line = glyphs;
         drawn
-    }
-
-    /// Draw with a 1px dark shadow for readability over BGA.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_shadow(
-        &mut self,
-        gfx: &Gfx,
-        batch: &mut Batch,
-        s: &str,
-        x: f32,
-        y: f32,
-        size: f32,
-        color: Color,
-        align: Align,
-    ) -> f32 {
-        let sh = (size / 16.0).max(1.0);
-        self.draw(
-            gfx,
-            batch,
-            s,
-            x + sh,
-            y + sh,
-            size,
-            [0.0, 0.0, 0.0, color[3] * 0.8],
-            align,
-        );
-        self.draw(gfx, batch, s, x, y, size, color, align)
     }
 }
 

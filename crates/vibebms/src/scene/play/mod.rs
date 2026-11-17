@@ -143,14 +143,14 @@ pub const VS_TOUCH_TOO_SMALL: &str =
 /// Touch controls on a screen too small for two control sets (a phone:
 /// its short side under 12 cm).
 pub fn vs_touch_too_small(ctx: &Ctx) -> bool {
-    let short_mm = ctx.width.min(ctx.height) / ctx.px_per_mm().max(0.1);
+    let short_mm = ctx.view.width.min(ctx.view.height) / ctx.px_per_mm().max(0.1);
     ctx.touch_enabled() && short_mm < 120.0
 }
 
 /// The screen has room for both sides of a battle: not a phone held
 /// upright (narrower than 15 cm).
 pub(crate) fn battle_skin_fits(ctx: &Ctx) -> bool {
-    !(ctx.portrait() && ctx.width / ctx.px_per_mm().max(0.1) < 150.0)
+    !(ctx.portrait() && ctx.view.width / ctx.px_per_mm().max(0.1) < 150.0)
 }
 
 enum Stage {
@@ -272,7 +272,7 @@ impl PlayScene {
                         p.judge_offset_ms = (p.judge_offset_ms - d).clamp(-500, 500);
                     }
                 }
-                o => self.audio.out(&ctx.mixer, &self.session, o),
+                o => self.audio.out(&ctx.audio.mixer, &self.session, o),
             }
         }
     }
@@ -283,7 +283,7 @@ impl PlayScene {
         let Some(sk) = self.skin.as_ref().filter(|s| s.skin.perspective) else {
             return;
         };
-        let aspect = ctx.width / ctx.height.max(1.0);
+        let aspect = ctx.view.width / ctx.view.height.max(1.0);
         if (sk.skin.width / sk.skin.height - aspect).abs() > aspect * 0.01 {
             let new = skin::load(ctx, gfx, self);
             if let Some(mut old) = std::mem::replace(&mut self.skin, new) {
@@ -307,7 +307,7 @@ impl PlayScene {
             self.feed(ctx, e);
         }
         self.released = released;
-        self.audio.schedule(&ctx.mixer, &self.session, t);
+        self.audio.schedule(&ctx.audio.mixer, &self.session, t);
         let skin = self.skin.as_ref().map(|s| &s.skin);
         let show = Show {
             bomb_upto: skin.and_then(|s| s.judge_timer).unwrap_or(GREAT),
@@ -328,7 +328,7 @@ impl PlayScene {
                 since,
                 failed: true,
             };
-            ctx.mixer.stop_bus(Bus::Bgm);
+            ctx.audio.mixer.stop_bus(Bus::Bgm);
         } else if self.session.over(t) {
             self.stage = Stage::Ending {
                 since: now,
@@ -378,8 +378,8 @@ impl Scene for PlayScene {
                     false => 1200,
                 };
                 if now.duration_since(since) > Duration::from_millis(wait as u64) {
-                    ctx.mixer.stop_bus(Bus::Bgm);
-                    ctx.mixer.stop_bus(Bus::Key);
+                    ctx.audio.mixer.stop_bus(Bus::Bgm);
+                    ctx.audio.mixer.stop_bus(Bus::Key);
                     return self.finish(ctx, failed);
                 }
             }
@@ -396,8 +396,8 @@ impl Scene for PlayScene {
         if let Some(mut sk) = self.skin.take() {
             sk.free(gfx);
         }
-        ctx.mixer.stop_bus(Bus::Bgm);
-        ctx.mixer.stop_bus(Bus::Key);
+        ctx.audio.mixer.stop_bus(Bus::Bgm);
+        ctx.audio.mixer.stop_bus(Bus::Key);
         self.bga.free(gfx);
         ctx.save_config();
     }

@@ -24,7 +24,7 @@ impl SelectScene {
                 Next::Stay
             }
             Some(Bar::Song(i)) => {
-                let song = ctx.songs[i].clone();
+                let song = ctx.lib.songs[i].clone();
                 // G-BATTLE: the opponent's replay, if it can be one
                 let slot = match ctx.config.play.versus {
                     Versus::GhostBest => Some(Slot::Best),
@@ -80,7 +80,7 @@ impl SelectScene {
                         ));
                         return Next::Stay;
                     };
-                    songs.push(ctx.songs[i].clone());
+                    songs.push(ctx.lib.songs[i].clone());
                 }
                 if songs.is_empty() {
                     return Next::Stay;
@@ -151,18 +151,19 @@ impl SelectScene {
         if let Some((event_url, num)) = archive {
             let root = ctx.paths.root.clone();
             let got = event(ctx, &event_url).ok_or_else(|| "no such event".to_string());
-            let msg = match got.and_then(|e| ctx.archives.download(&root, e, num)) {
-                Ok(m) => m,
-                Err(why) => format!("{title}: {why}"),
-            };
+            let msg =
+                match got.and_then(|e| ctx.net.archives.download(&root, &ctx.net.hosts, e, num)) {
+                    Ok(m) => m,
+                    Err(why) => format!("{title}: {why}"),
+                };
             ctx.toast(msg);
             return;
         }
-        if ctx.song_fetch.cancel(&title, &artist) {
+        if ctx.net.song_fetch.cancel(&title, &artist) {
             ctx.toast(format!("{title}: cancelled"));
             return;
         }
-        if ctx.song_fetch.is_busy(&title, &artist) {
+        if ctx.net.song_fetch.is_busy(&title, &artist) {
             ctx.toast(format!("{title}: being added to the library"));
             return;
         }
@@ -174,7 +175,7 @@ impl SelectScene {
             url_diff: url_diff.clone(),
             ..Default::default()
         };
-        let mut song = ctx.links.links.song_links(&e);
+        let mut song = ctx.tables.links.known.song_links(&e);
         for u in more {
             if !song.contains(&u) {
                 song.push(u);
@@ -189,17 +190,21 @@ impl SelectScene {
             },
             org_md5,
             song,
-            chart: ctx.links.links.chart_links(&e),
+            chart: ctx.tables.links.known.chart_links(&e),
             ..Default::default()
         };
         // the song is in the library (another of its charts): what to say
         // when nothing can be tried
         let have_song = !md5.is_empty()
-            && ctx.songs.iter().any(|s| {
+            && ctx.lib.songs.iter().any(|s| {
                 crate::placement::same_name(&s.title, &title)
                     && crate::placement::same_artist(&s.artist, &artist)
             });
-        if ctx.song_fetch.start(&root, entry, addons) {
+        if ctx
+            .net
+            .song_fetch
+            .start(&root, &ctx.lib.songs, &ctx.net.hosts, entry, addons)
+        {
             ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
             return;
         }
@@ -217,7 +222,7 @@ impl SelectScene {
             .collect();
         if crate::app::IN_APP_BROWSER && !pages.is_empty() {
             ctx.toast(format!("Download {title} in the browser window"));
-            ctx.browse = Some(pages.iter().map(|u| u.to_string()).collect());
+            ctx.net.browse = Some(pages.iter().map(|u| u.to_string()).collect());
             return;
         }
         let opened = pages

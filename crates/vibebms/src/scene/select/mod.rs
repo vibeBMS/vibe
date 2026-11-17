@@ -16,7 +16,7 @@ use crate::config::Bpms;
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::input::{AxisStepper, InputEv, Nav, Repeat};
 use crate::library::Song;
-use crate::platform::Instant;
+use crate::platform::{Instant, Job};
 use crate::scene::skin_host::SkinHost;
 use crate::scene::skinned;
 use crate::skin::SkinType;
@@ -27,7 +27,6 @@ use skin::SelectHooks;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use tree::Distribution;
 use vibebms_audio::Sample;
@@ -71,7 +70,7 @@ pub struct SelectScene {
     md5_map: HashMap<String, usize>,
     sha_map: HashMap<String, usize>,
     preview_for: Option<String>,
-    preview_rx: Option<Receiver<Option<Arc<Sample>>>>,
+    preview_job: Option<Job<Option<Arc<Sample>>>>,
     /// The preview's file being read (the web: from the browser's storage)
     /// before it is decoded.
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
@@ -121,7 +120,7 @@ impl SelectScene {
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
             preview_for: None,
-            preview_rx: None,
+            preview_job: None,
             preview_fetch: None,
             banner: None,
             banner_job: None,
@@ -145,11 +144,11 @@ impl SelectScene {
 
     /// The library or the tables changed: the lists again.
     fn rebuild(&mut self, ctx: &Ctx) {
-        self.version = ctx.library_version;
+        self.version = ctx.lib.version;
         self.dist_cache.borrow_mut().clear();
         self.md5_map.clear();
         self.sha_map.clear();
-        for (i, s) in ctx.songs.iter().enumerate() {
+        for (i, s) in ctx.lib.songs.iter().enumerate() {
             if !s.md5.is_empty() {
                 self.md5_map.insert(s.md5.clone(), i);
             }
@@ -196,9 +195,9 @@ impl SelectScene {
     fn moved(&mut self, ctx: &mut Ctx) {
         self.last_move = Instant::now();
         if self.preview_for.take().is_some() {
-            ctx.mixer.stop(preview::PREVIEW_KEY);
+            ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         }
-        self.preview_rx = None;
+        self.preview_job = None;
         self.preview_fetch = None;
     }
 
@@ -216,7 +215,7 @@ impl SelectScene {
 
     fn selected_song<'a>(&self, ctx: &'a Ctx) -> Option<(usize, &'a Song)> {
         match self.bars.get(self.cursor) {
-            Some(Bar::Song(i)) => ctx.songs.get(*i).map(|s| (*i, s)),
+            Some(Bar::Song(i)) => ctx.lib.songs.get(*i).map(|s| (*i, s)),
             _ => None,
         }
     }
@@ -249,7 +248,7 @@ impl SelectScene {
     }
 
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let (bars, pitch) = {
             let st = SelectState::new(self, ctx);
             let mut hooks = SelectHooks {
@@ -266,7 +265,7 @@ impl SelectScene {
         // search box (typing is not part of skins), in the upper half,
         // above an on-screen keyboard
         if let Some(t) = self.search_edit.as_mut() {
-            let (w, h, ui) = (ctx.width, ctx.height, ctx.ui());
+            let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
             let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
             t.draw_box(ctx, d, r, "SEARCH: ");
         }
@@ -275,11 +274,11 @@ impl SelectScene {
 
 impl Scene for SelectScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if self.version != ctx.library_version {
+        if self.version != ctx.lib.version {
             self.rebuild(ctx);
         }
         // a newer nightly was found (once)
-        if let Some(n) = ctx.updater.take_notice() {
+        if let Some(n) = ctx.net.updater.take_notice() {
             ctx.toast(n);
         }
         self.repeat_keys(ctx, now);
@@ -313,7 +312,7 @@ impl Scene for SelectScene {
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         // the library read again since the last frame (an earlier input
         // rescanned): the bars' song indices are of the old list
-        if self.version != ctx.library_version {
+        if self.version != ctx.lib.version {
             self.rebuild(ctx);
         }
         self.input_event(ctx, ev)
@@ -328,7 +327,7 @@ impl Scene for SelectScene {
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
-        ctx.mixer.stop(preview::PREVIEW_KEY);
+        ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         self.stop_bgm(ctx);
         self.host.free(gfx);
         if let Some((_, Some(t))) = self.banner.take() {

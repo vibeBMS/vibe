@@ -6,10 +6,13 @@
 //! mirror and unpacks into `bms/<EVENT>/` on choosing it, or opens its
 //! author's download page.
 
+use crate::app::AppEvent;
+use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::Sender;
 
 /// The mirror's list of events.
 pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
@@ -163,8 +166,8 @@ pub struct Archives {
     pub installed: HashMap<String, PathBuf>,
     /// Works downloading now ("EVENT/num").
     pub busy: Vec<String>,
-    tx: Option<Sender<Msg>>,
-    rx: Option<Receiver<Msg>>,
+    /// Lists, indexes and works being fetched.
+    jobs: Vec<Job<Msg>>,
 }
 
 fn key(event: &str, num: u32) -> String {
@@ -254,15 +257,6 @@ impl Archives {
         }
     }
 
-    fn channel(&mut self) -> Sender<Msg> {
-        if self.tx.is_none() {
-            let (tx, rx) = channel();
-            self.tx = Some(tx);
-            self.rx = Some(rx);
-        }
-        self.tx.clone().expect("channel")
-    }
-
     /// Fetch the lists of events and the indexes older than a day (all
     /// with `force`).
     pub fn refresh(&mut self, force: bool) {
@@ -274,14 +268,13 @@ impl Archives {
             .map(|c| c.url.clone())
             .collect();
         for url in lists {
-            let tx = self.channel();
             let u = url.clone();
-            crate::platform::http_get(&url, move |r| {
+            self.jobs.push(Job::get(&url, move |r| {
                 let r = r.and_then(|b| {
                     serde_json::from_slice::<Vec<CatalogEntry>>(&b).map_err(|e| e.to_string())
                 });
-                let _ = tx.send(Msg::Catalog(u, r));
-            });
+                Msg::Catalog(u, r)
+            }));
         }
         let todo: Vec<String> = self
             .events
@@ -290,14 +283,13 @@ impl Archives {
             .map(|e| e.url.clone())
             .collect();
         for url in todo {
-            let tx = self.channel();
             let u = url.clone();
-            crate::platform::http_get(&url, move |r| {
+            self.jobs.push(Job::get(&url, move |r| {
                 let r = r.and_then(|b| {
                     serde_json::from_slice::<Vec<Work>>(&b).map_err(|e| e.to_string())
                 });
-                let _ = tx.send(Msg::Index(u, r));
-            });
+                Msg::Index(u, r)
+            }));
         }
     }
 
@@ -330,7 +322,13 @@ impl Archives {
     /// Download work `num` of event `ev` and unpack it into the library:
     /// the app on a thread, to disk; the web build through the vibeBMS
     /// proxy, in memory.
-    pub fn download(&mut self, root: &Path, ev: usize, num: u32) -> Result<String, String> {
+    pub fn download(
+        &mut self,
+        root: &Path,
+        cx: &crate::hosts::Context,
+        ev: usize,
+        num: u32,
+    ) -> Result<String, String> {
         let event = self.events.get(ev).ok_or("no such event")?;
         let work = event
             .works
@@ -347,22 +345,23 @@ impl Archives {
         self.busy.push(k);
         let (name, title) = (event.name.clone(), work.title.clone());
         let size: u64 = files.iter().map(|f| f.size).sum();
-        let tx = self.channel();
-        let root = root.to_path_buf();
-        #[cfg(not(target_arch = "wasm32"))]
-        crate::platform::spawn("archive", move || {
-            let r = fetch_work(&root, &name, &files, &tx);
-            let _ = tx.send(Msg::Done(name, num, r));
-        });
-        #[cfg(target_arch = "wasm32")]
-        {
-            let stem = work_stem(&files);
-            let rel = PathBuf::from("bms").join(&name).join(&stem);
-            let dir = root.join("bms").join(&name);
-            web_fetch_files(files, dir, stem, move |r| {
-                let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
+        let (root, cx) = (root.to_path_buf(), cx.clone());
+        self.jobs.push(Job::start(|tx, _| {
+            #[cfg(not(target_arch = "wasm32"))]
+            crate::platform::spawn("archive", move || {
+                let r = fetch_work(&root, &cx, &name, &files, &tx);
+                let _ = tx.send(Msg::Done(name, num, r));
             });
-        }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let stem = work_stem(&files);
+                let rel = PathBuf::from("bms").join(&name).join(&stem);
+                let dir = root.join("bms").join(&name);
+                web_fetch_files(files, dir, stem, &cx, move |r| {
+                    let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
+                });
+            }
+        }));
         Ok(if size > 0 {
             format!("Downloading {title} ({} MB)…", (size + (1 << 19)) >> 20)
         } else {
@@ -370,18 +369,11 @@ impl Archives {
         })
     }
 
-    /// Messages since the last frame: (toasts, the library changed, the
-    /// indexes changed, pages to open in the browser).
-    #[allow(clippy::type_complexity)]
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> (Vec<String>, bool, bool, Vec<String>) {
-        let msgs: Vec<Msg> = self
-            .rx
-            .as_ref()
-            .map(|rx| rx.try_iter().collect())
-            .unwrap_or_default();
-        let (mut toasts, mut rescan, mut changed) = (Vec::new(), false, false);
-        let mut pages = Vec::new();
-        let mut new_events = false;
+    /// What happened since the last frame.
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
+        let msgs = Job::drain_all(&mut self.jobs);
+        let mut out = Vec::new();
+        let (mut changed, mut new_events) = (false, false);
         for m in msgs {
             match m {
                 Msg::Catalog(url, Ok(entries)) => {
@@ -408,13 +400,16 @@ impl Archives {
                     }
                 }
                 Msg::Index(url, Err(e)) => log::warn!("archive index {url}: {e}"),
-                Msg::Status(s) => toasts.push(s),
+                Msg::Status(s) => out.push(AppEvent::Toast(s)),
                 Msg::Done(event, num, r) => {
                     let k = key(&event, num);
                     self.busy.retain(|b| *b != k);
                     match r {
                         Ok((dir, n)) => {
-                            toasts.push(format!("Added {} ({n} files)", dir.display()));
+                            out.push(AppEvent::Toast(format!(
+                                "Added {} ({n} files)",
+                                dir.display()
+                            )));
                             self.installed.insert(k, dir);
                             if let Ok(j) = serde_json::to_vec_pretty(&self.installed) {
                                 let _ = crate::platform::vfs::create_dir_all(&Self::dir(paths));
@@ -423,14 +418,18 @@ impl Archives {
                                     &j,
                                 );
                             }
-                            rescan = true;
+                            out.push(AppEvent::Rescan);
                             changed = true;
                         }
                         Err(Fail::Page(url)) => {
-                            toasts.push("No direct download: opening its page".into());
-                            pages.push(url);
+                            out.push(AppEvent::Toast(
+                                "No direct download: opening its page".into(),
+                            ));
+                            out.push(AppEvent::Browse(url));
                         }
-                        Err(Fail::Msg(e)) => toasts.push(format!("Download failed: {e}")),
+                        Err(Fail::Msg(e)) => {
+                            out.push(AppEvent::Toast(format!("Download failed: {e}")))
+                        }
                     }
                 }
             }
@@ -441,7 +440,10 @@ impl Archives {
             self.refresh(false);
             changed = true;
         }
-        (toasts, rescan, changed, pages)
+        if changed {
+            out.push(AppEvent::LibraryChanged);
+        }
+        out
     }
 }
 
@@ -495,10 +497,11 @@ fn web_fetch_files(
     files: Vec<File>,
     dir: PathBuf,
     stem: String,
+    cx: &crate::hosts::Context,
     done: impl FnOnce(Result<usize, Fail>) + Send + 'static,
 ) {
     use bmseeker::install::job::Files;
-    let job = Files::new(sources(&files), PathBuf::new(), crate::hosts::context());
+    let job = Files::new(sources(&files), PathBuf::new(), cx);
     crate::platform::run_job(job, None, move |r| {
         let got = match r {
             Ok(got) => got,
@@ -542,6 +545,7 @@ fn web_fetch_files(
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_work(
     root: &Path,
+    cx: &crate::hosts::Context,
     event: &str,
     files: &[File],
     tx: &Sender<Msg>,
@@ -579,7 +583,6 @@ fn fetch_work(
             self.native.perform(e)
         }
     }
-    let cx = crate::hosts::context();
     let driver = Telling {
         native: crate::hosts::Native::new(cx),
         tx,

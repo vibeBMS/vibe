@@ -4,7 +4,7 @@
 //! built-in skin's look.
 
 use crate::app::Draw;
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Color, Rect};
 use crate::skin::{BpmGraph, GaugeGraph, NotesGraph, TimingGraph, VisualizerGraph};
 use vibebms_core::engine::PlayNote;
@@ -443,9 +443,11 @@ pub fn timing(d: &mut Draw, a: &Area, g: &TimingGraph, log: &[(i64, i64)], windo
             &format!("AVG {avg:+.2} ms    SD {dev:.2} ms"),
             r.x + 6.0,
             r.y + 4.0,
-            (r.h * 0.11).clamp(10.0, 18.0),
-            a.fade(rgba(0xe6ecf5ff), 1.0),
-            Align::Left,
+            TextStyle::new(
+                (r.h * 0.11).clamp(10.0, 18.0),
+                a.fade(rgba(0xe6ecf5ff), 1.0),
+                Align::Left,
+            ),
         );
         return;
     };

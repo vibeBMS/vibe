@@ -53,7 +53,7 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
     ));
     v.push(Row::new(
         "Rescan library",
-        format!("{} charts", ctx.songs.len()),
+        format!("{} charts", ctx.lib.songs.len()),
         Act::Run(|c, _| c.start_scan(), 0),
     ));
     #[cfg(target_arch = "wasm32")]

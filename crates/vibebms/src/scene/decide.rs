@@ -115,7 +115,7 @@ impl SkinState for DecideState<'_> {
         }
         let song = self.song?;
         Some(match id {
-            20 => self.ctx.fps as i64,
+            20 => self.ctx.view.fps as i64,
             10 | 310..=313 => return speed_number(&self.ctx.config.play, &Bpms::of_song(song), id),
             71 | 75..=78 | 102 | 103 | 150 | 173 | 176 | 183 | 184 => {
                 return best_number(self.best, id)
@@ -260,7 +260,7 @@ impl Scene for DecideScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let st = DecideState::new(self, ctx);
         let mut hooks = DecideHooks {
             stage: self.stage_tex,

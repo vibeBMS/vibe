@@ -11,7 +11,7 @@ fn shown(e: &SkinEntry) -> bool {
 
 /// The skin catalog: each skin, what it is, and what can be done with it.
 pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
-    let store = &ctx.skin_store;
+    let store = &ctx.skins.store;
     let mut v = vec![Row::new(
         format!(
             "Skin catalog: {} skins, installed into {}",
@@ -23,7 +23,7 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
         } else {
             "update ↻"
         },
-        Act::Run(|c, _| c.skin_store.refresh(true), 0),
+        Act::Run(|c, _| c.skins.store.refresh(true), 0),
     )];
     if IS_WEB {
         v.push(Row::note(
@@ -79,7 +79,7 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
             "page ↗",
             Act::Run(
                 |c, i| {
-                    if let Some(e) = c.skin_store.catalog.skins.get(i) {
+                    if let Some(e) = c.skins.store.catalog.skins.get(i) {
                         crate::platform::open_url(&e.homepage);
                     }
                 },
@@ -108,31 +108,31 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
 /// Install catalog skin `i`: an installed one again on a second press, a
 /// downloading one is cancelled.
 pub(super) fn get(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize) {
-    let Some(e) = ctx.skin_store.catalog.skins.get(i).cloned() else {
+    let Some(e) = ctx.skins.store.catalog.skins.get(i).cloned() else {
         return;
     };
-    match ctx.skin_store.state(&ctx.paths.skins, &e) {
+    match ctx.skins.store.state(&ctx.paths.skins, &e) {
         State::Busy(_) => {
-            ctx.skin_store.cancel(&e.id);
+            ctx.skins.store.cancel(&e.id);
             return;
         }
         State::Installed { update: false } if !armed.confirm(Confirm::Reinstall(e.id)) => return,
         _ => armed.clear(),
     }
-    let r = ctx.skin_store.install(&ctx.paths, i);
+    let r = ctx.skins.store.install(&ctx.paths, &ctx.net.hosts, i);
     ctx.toast(r.unwrap_or_else(|e| e));
 }
 
 /// Delete catalog skin `i`, on a second press; the skins chosen from its
 /// folders go back to the default.
 pub(super) fn delete(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize) {
-    let Some(e) = ctx.skin_store.catalog.skins.get(i).cloned() else {
+    let Some(e) = ctx.skins.store.catalog.skins.get(i).cloned() else {
         return;
     };
     if !armed.confirm(Confirm::DeleteSkin(e.id.clone())) {
         return;
     }
-    match ctx.skin_store.delete(&ctx.paths, i) {
+    match ctx.skins.store.delete(&ctx.paths, i) {
         Ok(folders) => {
             let skins = &ctx.paths.skins;
             let rel = skins
@@ -148,7 +148,7 @@ pub(super) fn delete(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize) {
                     v.clear();
                 }
             }
-            ctx.skins_changed();
+            ctx.skins.files_changed();
             ctx.toast(format!("Deleted {}", e.name));
         }
         Err(m) => ctx.toast(m),

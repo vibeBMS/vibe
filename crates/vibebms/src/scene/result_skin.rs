@@ -178,7 +178,7 @@ impl SkinState for ResultState<'_> {
         };
         let (avg, dev) = self.s.timing_stats;
         Some(match id {
-            20 => self.ctx.fps as i64,
+            20 => self.ctx.view.fps as i64,
             71
             | 72
             | 74

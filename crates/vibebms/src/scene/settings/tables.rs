@@ -8,7 +8,7 @@ fn toggle(c: &mut Ctx, i: usize) {
         t.enabled ^= true;
     }
     c.load_cached_tables();
-    c.refresh_tables(false);
+    c.tables.refresh(&c.config.tables, false);
 }
 
 fn remove(c: &mut Ctx, i: usize) {
@@ -29,7 +29,7 @@ fn restore_defaults(c: &mut Ctx, _: usize) {
         }
     }
     c.load_cached_tables();
-    c.refresh_tables(false);
+    c.tables.refresh(&c.config.tables, false);
 }
 
 pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
@@ -38,6 +38,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     for (i, t) in c.tables.iter().enumerate() {
         let loaded = ctx
             .tables
+            .list
             .iter()
             .find(|d| d.source_url == t.url)
             .map(|d| format!(" [{}]", d.entries.len()))
@@ -59,14 +60,14 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         Row::new(
             "Update all tables",
             "↻",
-            Act::Run(|c, _| c.refresh_tables(true), 0),
+            Act::Run(|c, _| c.tables.refresh(&c.config.tables, true), 0),
         ),
         Row::adjust(
             "Third-party sources (mirrors, Ginger / Konmai MD5 lookups)",
             onoff(c.third_party_mirrors),
             |c, _| {
                 c.config.third_party_mirrors ^= true;
-                crate::hosts::set_third_party(c.config.third_party_mirrors);
+                c.net.hosts = crate::hosts::context(&c.config);
             },
         ),
         Row::adjust(
@@ -74,7 +75,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             onoff(c.name_song_folders),
             |c, _| {
                 c.config.name_song_folders ^= true;
-                crate::hosts::set_folder_naming(c.config.name_song_folders);
+                c.net.hosts = crate::hosts::context(&c.config);
             },
         ),
         Row::new("Restore default tables", "↵", Act::Run(restore_defaults, 0)),

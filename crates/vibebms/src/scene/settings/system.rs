@@ -4,7 +4,7 @@ use crate::scene::option_panel::onoff;
 use crate::update::{Status, Version, SUPPORTED, VERSION};
 
 fn update_now(c: &mut Ctx, _: usize) {
-    if let Some(msg) = c.updater.install() {
+    if let Some(msg) = c.net.updater.install() {
         c.toast(msg);
     }
 }
@@ -36,12 +36,12 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         onoff(ctx.config.check_updates),
         |c, _| {
             c.config.check_updates ^= true;
-            if matches!(c.updater.status, Status::Idle | Status::CheckFailed(_)) {
-                c.updater.check(c.config.check_updates);
+            if matches!(c.net.updater.status, Status::Idle | Status::CheckFailed(_)) {
+                c.net.updater.check(c.config.check_updates);
             }
         },
     ));
-    match &ctx.updater.status {
+    match &ctx.net.updater.status {
         Status::Idle => {}
         Status::Checking => v.push(Row::note("Checking for updates…", "")),
         Status::UpToDate => v.push(Row::note("vibeBMS is up to date", "")),
@@ -49,7 +49,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             v.push(Row::note(format!("Could not check for updates: {e}"), ""))
         }
         Status::Available(o) | Status::Failed(o, _) => {
-            let failed = matches!(ctx.updater.status, Status::Failed(..));
+            let failed = matches!(ctx.net.updater.status, Status::Failed(..));
             v.push(Row::new(
                 format!("Update available: {} ({})", o.version, mb(o.size)),
                 if failed {
@@ -59,7 +59,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 },
                 Act::Run(update_now, 0),
             ));
-            if let Status::Failed(_, e) = &ctx.updater.status {
+            if let Status::Failed(_, e) = &ctx.net.updater.status {
                 v.push(Row::note(format!("    The update failed: {e}"), ""));
             }
         }

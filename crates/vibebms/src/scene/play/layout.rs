@@ -64,7 +64,7 @@ impl PlayScene {
             return Vec::new();
         }
         let t = &self.touch_config(ctx);
-        let area = touch::controls_area(ctx.width, ctx.height, t);
+        let area = touch::controls_area(ctx.view.width, ctx.view.height, t);
         let side2 = ctx.config.play.side == Side::P2;
         touch::player_areas(self.facts.input_mode, area, t, side2, ctx.px_per_mm())
     }
@@ -86,8 +86,8 @@ impl PlayScene {
         let screen = Rect::new(
             0.0,
             0.0,
-            ctx.width,
-            areas.first().map(|t| t.0.y).unwrap_or(ctx.height),
+            ctx.view.width,
+            areas.first().map(|t| t.0.y).unwrap_or(ctx.view.height),
         );
         let input_mode = self.facts.input_mode;
         if self.perspective() {
@@ -136,8 +136,8 @@ impl PlayScene {
 
     pub(super) fn rebuild_zones(&mut self, ctx: &Ctx, areas: &[(Rect, usize, bool)]) {
         let key = (
-            ctx.width as u32,
-            ctx.height as u32,
+            ctx.view.width as u32,
+            ctx.view.height as u32,
             ctx.touch_enabled(),
             self.skin.is_some(),
         );
@@ -149,7 +149,7 @@ impl PlayScene {
         let input_mode = self.facts.input_mode;
         let mut zones = Vec::new();
         if self.perspective() && ctx.touch_enabled() {
-            let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+            let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
             let fans = self.persp_fans(ctx, view);
             let top = self.persp_touch_top(ctx, &fans, view);
             zones = touch::fan_zones(input_mode, &fans, top);
@@ -158,7 +158,7 @@ impl PlayScene {
             zones = touch::zones(
                 input_mode,
                 &self.touch_config(ctx),
-                touch::controls_area(ctx.width, ctx.height, &ctx.config.touch),
+                touch::controls_area(ctx.view.width, ctx.view.height, &ctx.config.touch),
                 ctx.config.play.side == Side::P2,
                 ctx.portrait(),
                 ctx.px_per_mm(),

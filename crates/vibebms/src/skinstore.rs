@@ -12,6 +12,7 @@
 //! archive of a whole `LR2files` keeps its themes' names). A beatoraja
 //! skin's paths are its own: it goes to `skins/<folder>/` too.
 
+use crate::app::AppEvent;
 use crate::archive::{safe_name, Fail};
 use crate::platform::Job;
 use bmseeker::progress::Progress;
@@ -182,16 +183,6 @@ pub struct SkinStore {
     busy: Vec<(String, Installing)>,
 }
 
-/// What [`SkinStore::poll`] reports.
-#[derive(Default)]
-pub struct Polled {
-    pub toasts: Vec<String>,
-    /// Skins were added or replaced.
-    pub changed: bool,
-    /// Pages to open (a link that is not a file).
-    pub pages: Vec<String>,
-}
-
 fn cache_file(paths: &crate::paths::Paths) -> PathBuf {
     paths.cache.join("skin-catalog.json")
 }
@@ -283,7 +274,12 @@ impl SkinStore {
 
     /// Download catalog entry `idx` and install it (replacing what it
     /// left before). Returns what to tell the player.
-    pub fn install(&mut self, paths: &crate::paths::Paths, idx: usize) -> Result<String, String> {
+    pub fn install(
+        &mut self,
+        paths: &crate::paths::Paths,
+        cx: &crate::hosts::Context,
+        idx: usize,
+    ) -> Result<String, String> {
         let e = self.catalog.skins.get(idx).cloned().ok_or("no such skin")?;
         if self.busy.iter().any(|(id, _)| *id == e.id) {
             return Err(format!("{} is downloading already", e.name));
@@ -303,10 +299,10 @@ impl SkinStore {
         let id = e.id.clone();
         #[cfg(not(target_arch = "wasm32"))]
         let job = {
-            let (root, skins) = (paths.root.clone(), paths.skins.clone());
+            let (root, skins, cx) = (paths.root.clone(), paths.skins.clone(), cx.clone());
             Job::spawn("skin", move |progress| {
                 bmseeker::progress::scope(Some(progress), || {
-                    fetch_and_install(&root, &skins, &e, &old)
+                    fetch_and_install(&root, &skins, &cx, &e, &old)
                 })
             })
         };
@@ -314,7 +310,7 @@ impl SkinStore {
         let job = {
             let skins = paths.skins.clone();
             Job::start(|tx, progress| {
-                web_install(e, skins, old, progress, move |r| {
+                web_install(e, skins, old, cx, progress, move |r| {
                     let _ = tx.send(r);
                 })
             })
@@ -357,8 +353,8 @@ impl SkinStore {
     }
 
     /// What happened since the last frame.
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Polled {
-        let mut out = Polled::default();
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
+        let mut out = Vec::new();
         if let Some(r) = self.fetching.as_mut().and_then(Job::poll) {
             self.fetching = None;
             match r {
@@ -391,24 +387,28 @@ impl SkinStore {
             let name = e.map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
             match r {
                 Ok(folders) => {
-                    out.toasts.push(format!(
+                    out.push(AppEvent::Toast(format!(
                         "Installed {name} in skins/{}: choose it in DISPLAY",
                         folders.join(", skins/")
-                    ));
+                    )));
                     let version = e.map(|e| e.version.clone()).unwrap_or_default();
                     self.installed.insert(id, Installed { version, folders });
                     self.save_record(paths);
-                    out.changed = true;
+                    out.push(AppEvent::SkinsChanged);
                 }
                 Err(Fail::Page(url)) => {
-                    out.toasts
-                        .push(format!("{name}: no direct download, opening its page"));
-                    out.pages.push(url);
+                    out.push(AppEvent::Toast(format!(
+                        "{name}: no direct download, opening its page"
+                    )));
+                    // (not the in-app browser: what it downloads goes to the library)
+                    out.push(AppEvent::OpenUrl(url));
                 }
                 Err(Fail::Msg(e)) if e == bmseeker::progress::CANCELLED => {
-                    out.toasts.push(format!("{name}: cancelled"))
+                    out.push(AppEvent::Toast(format!("{name}: cancelled")))
                 }
-                Err(Fail::Msg(e)) => out.toasts.push(format!("{name}: download failed ({e})")),
+                Err(Fail::Msg(e)) => {
+                    out.push(AppEvent::Toast(format!("{name}: download failed ({e})")))
+                }
             }
         }
         out
@@ -637,6 +637,7 @@ fn missed(m: bmseeker::install::job::Missed) -> Fail {
 fn fetch_and_install(
     root: &Path,
     skins: &Path,
+    cx: &crate::hosts::Context,
     e: &SkinEntry,
     old: &[String],
 ) -> Result<Vec<String>, Fail> {
@@ -648,7 +649,7 @@ fn fetch_and_install(
     let got: Vec<PathBuf> = (0..e.downloads.len())
         .map(|i| Files::slot(&slots, i))
         .collect();
-    let fetched = crate::hosts::fetch_files(sources(e), &slots, crate::hosts::context());
+    let fetched = crate::hosts::fetch_files(sources(e), &slots, cx);
     let r = match fetched {
         Ok(_) => {
             bmseeker::progress::stage(bmseeker::progress::Stage::Unpacking);
@@ -671,11 +672,12 @@ fn web_install(
     e: SkinEntry,
     skins: PathBuf,
     old: Vec<String>,
+    cx: &crate::hosts::Context,
     progress: Arc<Progress>,
     done: impl FnOnce(Result<Vec<String>, Fail>) + Send + 'static,
 ) {
     use bmseeker::install::job::Files;
-    let cx = crate::hosts::context().with_progress(progress.clone());
+    let cx = cx.with_progress(progress.clone());
     let job = Files::new(sources(&e), PathBuf::new(), &cx);
     crate::platform::run_job(job, Some(progress.clone()), move |r| {
         let got = match r {
@@ -964,8 +966,9 @@ mod tests {
         let skins = root.join("skins");
         std::fs::create_dir_all(&skins).unwrap();
         let p = Progress::new();
+        let cx = crate::hosts::context(&Default::default());
         let r = bmseeker::progress::scope(Some(p.clone()), || {
-            fetch_and_install(&root, &skins, &e, &[e.folder()])
+            fetch_and_install(&root, &skins, &cx, &e, &[e.folder()])
         });
         match r {
             Ok(folders) => {

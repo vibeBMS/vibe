@@ -18,7 +18,7 @@ use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::skinned;
 use super::skinvals::{self, ms_since};
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
@@ -79,12 +79,14 @@ pub fn items(ctx: &Ctx, kind: SkinType, value: &str) -> Vec<Item> {
         return Vec::new();
     };
     let mut v: Vec<Item> = ctx
-        .skin_custom_options(&p)
-        .into_iter()
+        .skins
+        .custom_options(&p)
+        .iter()
         .filter(|o| !o.labels.is_empty())
+        .cloned()
         .map(Item::Option)
         .collect();
-    for o in ctx.skin_custom_offsets(&p) {
+    for o in ctx.skins.custom_offsets(&p).iter() {
         for f in 0..6 {
             if o.fields[f] {
                 v.push(Item::Offset(o.clone(), f));
@@ -405,7 +407,7 @@ impl SkinState for SelectState<'_> {
 
     fn number(&self, id: i32) -> Option<i64> {
         skinvals::clock_number(id).or(match id {
-            20 => Some(self.ctx.fps as i64),
+            20 => Some(self.ctx.view.fps as i64),
             _ => None,
         })
     }
@@ -588,7 +590,7 @@ impl Scene for SkinSelectScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let items = self.items(ctx);
         let (sw, sh) = self.host.size();
         let mut hooks = SelectHooks {
@@ -622,7 +624,7 @@ impl Scene for SkinSelectScene {
             }
         }
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         // the keys, for a moment after the screen opens
         let shown = self.host.ms(now);
         if shown < 6000 {
@@ -633,9 +635,7 @@ impl Scene for SkinSelectScene {
                 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back",
                 w * 0.5,
                 r.y + 4.0 * ui,
-                15.0 * ui,
-                with_alpha(theme::TEXT, a),
-                Align::Center,
+                TextStyle::new(15.0 * ui, with_alpha(theme::TEXT, a), Align::Center),
             );
         }
         self.back_rect = ui::back_button(d, w, ui);

@@ -13,24 +13,24 @@ fn volume(v: &mut f32, d: i32) -> f32 {
 
 pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     let a = &ctx.config.audio;
-    let mix = &ctx.mixer;
+    let mix = &ctx.audio.mixer;
     let sound_set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
     vec![
         Row::adjust("Master volume", percent(a.master), |c, d| {
             let v = volume(&mut c.config.audio.master, d);
-            c.mixer.set_master(v);
+            c.audio.mixer.set_master(v);
         }),
         Row::adjust("Keysound volume", percent(a.key), |c, d| {
             let v = volume(&mut c.config.audio.key, d);
-            c.mixer.set_bus_volume(Bus::Key, v);
+            c.audio.mixer.set_bus_volume(Bus::Key, v);
         }),
         Row::adjust("BGM volume", percent(a.bgm), |c, d| {
             let v = volume(&mut c.config.audio.bgm, d);
-            c.mixer.set_bus_volume(Bus::Bgm, v);
+            c.audio.mixer.set_bus_volume(Bus::Bgm, v);
         }),
         Row::adjust("System volume", percent(a.system), |c, d| {
             let v = volume(&mut c.config.audio.system, d);
-            c.mixer.set_bus_volume(Bus::System, v);
+            c.audio.mixer.set_bus_volume(Bus::System, v);
         }),
         Row::adjust(
             "Buffer size (restart)",

@@ -13,7 +13,7 @@ pub(crate) enum Node {
     Root,
     Folder(String),
     All,
-    /// A table, by its URL (`ctx.tables` is re-sorted as tables arrive).
+    /// A table, by its URL (`ctx.tables.list` is re-sorted as tables arrive).
     Table(String),
     Level(String, String),
     Courses(String),
@@ -71,12 +71,12 @@ pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 
 /// The table at `url` (see [`Node::Table`]).
 pub(crate) fn table<'a>(ctx: &'a Ctx, url: &str) -> Option<&'a bmseeker::table::DifficultyTable> {
-    ctx.tables.iter().find(|t| t.source_url == url)
+    ctx.tables.list.iter().find(|t| t.source_url == url)
 }
 
-/// The index of the event at `url` in `ctx.archives.events` now.
+/// The index of the event at `url` in `ctx.net.archives.events` now.
 pub(super) fn event(ctx: &Ctx, url: &str) -> Option<usize> {
-    ctx.archives.events.iter().position(|e| e.url == url)
+    ctx.net.archives.events.iter().position(|e| e.url == url)
 }
 
 impl SelectScene {
@@ -94,7 +94,7 @@ impl SelectScene {
             Bar::Folder { label, .. } => format!("f:{label}"),
             Bar::Song(i) => format!(
                 "s:{}",
-                ctx.songs.get(*i).map(|s| s.path.as_str()).unwrap_or("")
+                ctx.lib.songs.get(*i).map(|s| s.path.as_str()).unwrap_or("")
             ),
             Bar::Missing(m) => format!("m:{}\u{1f}{}", m.title, m.artist),
             Bar::Course { table, course } => format!("c:{table}:{course}"),
@@ -104,7 +104,7 @@ impl SelectScene {
     /// The bars of `node`; songs sorted by title, difficulty and level
     /// when `sort`.
     fn build(&self, ctx: &Ctx, node: &Node, sort: bool) -> Vec<Bar> {
-        let songs = &ctx.songs;
+        let songs = &ctx.lib.songs;
         let sorted = |mut v: Vec<usize>| -> Vec<Bar> {
             if sort {
                 v.sort_by_cached_key(|i| {
@@ -147,7 +147,7 @@ impl SelectScene {
                         count: n,
                     });
                 }
-                for ev in ctx.archives.events.iter() {
+                for ev in ctx.net.archives.events.iter() {
                     if ev.works.is_empty() {
                         continue;
                     }
@@ -158,7 +158,7 @@ impl SelectScene {
                         count: ev.works.len(),
                     });
                 }
-                for t in ctx.tables.iter() {
+                for t in ctx.tables.list.iter() {
                     bars.push(Bar::Folder {
                         label: t.header.name.clone(),
                         sub: format!("{} levels", t.levels().len()),
@@ -221,13 +221,13 @@ impl SelectScene {
                 let Some(e) = event(ctx, url) else {
                     return Vec::new();
                 };
-                let ev = &ctx.archives.events[e];
+                let ev = &ctx.net.archives.events[e];
                 let root = &ctx.paths.root;
                 let mut bars = Vec::new();
                 for w in &ev.works {
                     // the folder it was downloaded to, else a chart with its
                     // title and artist
-                    let mine: Vec<usize> = match ctx.archives.installed_dir(&ev.name, w.num) {
+                    let mine: Vec<usize> = match ctx.net.archives.installed_dir(&ev.name, w.num) {
                         Some(dir) => {
                             let dir = root.join(dir);
                             (0..songs.len())
@@ -249,6 +249,7 @@ impl SelectScene {
                             addons: w.addons.clone(),
                             url: w.links.first().cloned().unwrap_or_else(|| w.page.clone()),
                             archive: ctx
+                                .net
                                 .archives
                                 .can_download(e, w.num)
                                 .then(|| (url.clone(), w.num)),
@@ -334,7 +335,7 @@ impl SelectScene {
         let mut count = |bars: &[Bar]| {
             for b in bars {
                 let Some(song) = (match b {
-                    Bar::Song(k) => ctx.songs.get(*k),
+                    Bar::Song(k) => ctx.lib.songs.get(*k),
                     _ => None,
                 }) else {
                     continue;
@@ -380,7 +381,7 @@ impl SelectScene {
             Node::Level(t, l) => table(ctx, t).map(|t| t.label(l)).unwrap_or_default(),
             Node::Search(q) => format!("SEARCH \"{q}\""),
             Node::Archive(url) => event(ctx, url)
-                .map(|e| ctx.archives.events[e].label().to_string())
+                .map(|e| ctx.net.archives.events[e].label().to_string())
                 .unwrap_or_default(),
             Node::Close(inner) => self.node_name(ctx, inner),
         }

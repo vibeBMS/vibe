@@ -4,6 +4,7 @@
 use super::skin::PlayState;
 use crate::app::Draw;
 use crate::config::{HiSpeedMode, PlayConfig};
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::Rect;
 use crate::skin::render::{LoadedSkin, Xf};
 use crate::skin::SkinState;
@@ -288,9 +289,7 @@ pub(super) fn draw(
                 label,
                 (x0 + x1) * 0.5,
                 *y - size - 4.0,
-                size,
-                *c,
-                crate::gfx::text::Align::Center,
+                TextStyle::new(size, *c, Align::Center),
             );
         }
     }

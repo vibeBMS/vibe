@@ -3,7 +3,7 @@
 use super::script::Overlay;
 use super::*;
 use crate::app::Draw;
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Gfx, TexId};
 
 /// A skin with its textures uploaded.
@@ -516,11 +516,11 @@ impl LoadedSkin {
         let size = r.h.max(4.0);
         match overflow {
             1 if r.w > 1.0 => {
-                d.text_fit(s, x, r.y, size, color, al, r.w);
+                d.text(s, x, r.y, TextStyle::new(size, color, al).fit(r.w));
             }
             2 if r.w > 1.0 => {
                 d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
-                d.text(s, x, r.y, size, color, al);
+                d.text(s, x, r.y, TextStyle::new(size, color, al));
                 d.b.set_clip(None);
             }
             // vibeBMS: a long text shows its start, cut off; while it is
@@ -528,16 +528,16 @@ impl LoadedSkin {
             3 if r.w > 1.0 => {
                 let w = d.measure(s, size);
                 if w <= r.w {
-                    d.text(s, x, r.y, size, color, al);
+                    d.text(s, x, r.y, TextStyle::new(size, color, al));
                     return;
                 }
                 let off = shown_ms.map_or(0.0, |t| marquee_offset(t, w - r.w, size));
                 d.b.set_clip(Some(Rect::new(r.x, r.y - size, r.w, size * 3.0)));
-                d.text(s, r.x - off, r.y, size, color, Align::Left);
+                d.text(s, r.x - off, r.y, TextStyle::new(size, color, Align::Left));
                 d.b.set_clip(None);
             }
             _ => {
-                d.text(s, x, r.y, size, color, al);
+                d.text(s, x, r.y, TextStyle::new(size, color, al));
             }
         }
     }
@@ -815,7 +815,7 @@ impl LoadedSkin {
                     h.w * xf.sx,
                     h.h * xf.sy,
                 );
-                if !crate::input::pointer().is_some_and(|(x, y)| over.contains(x, y)) {
+                if !d.pointer.is_some_and(|(x, y)| over.contains(x, y)) {
                     continue;
                 }
             }

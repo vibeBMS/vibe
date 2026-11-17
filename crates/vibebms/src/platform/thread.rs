@@ -148,6 +148,17 @@ impl<T> Job<T> {
         out
     }
 
+    /// What the jobs in `jobs` sent since the last call; the jobs that are
+    /// over go.
+    pub fn drain_all(jobs: &mut Vec<Job<T>>) -> Vec<T> {
+        let mut out = Vec::new();
+        jobs.retain_mut(|job| {
+            out.extend(std::iter::from_fn(|| job.poll()));
+            !job.over
+        });
+        out
+    }
+
     pub fn progress(&self) -> &Arc<Progress> {
         &self.progress
     }

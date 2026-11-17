@@ -21,7 +21,7 @@ mod web_storage;
 
 use super::keybind::{self, Learn, Learned, Slot};
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::{Duration, Instant};
@@ -333,7 +333,7 @@ impl SettingsScene {
                 }));
             }
             Act::Restart => {
-                ctx.updater.relaunch_on_exit();
+                ctx.net.updater.relaunch_on_exit();
                 self.then = Some(Next::Quit);
             }
         }
@@ -398,7 +398,7 @@ impl SettingsScene {
                         url: s,
                         enabled: true,
                     });
-                    ctx.refresh_tables(false);
+                    ctx.tables.refresh(&ctx.config.tables, false);
                 }
             }
             TextField::IrUrl => ctx.config.ir_server.url = s,
@@ -558,7 +558,7 @@ impl SettingsScene {
 
     fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw) {
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         d.b.gradient(
             Rect::new(0.0, 0.0, w, h),
             ui::lift(theme::BACKGROUND, 0.04),
@@ -574,17 +574,13 @@ impl SettingsScene {
             "SETTINGS",
             16.0 * ui,
             12.0 * ui,
-            22.0 * ui,
-            theme::ACCENT,
-            Align::Left,
+            TextStyle::new(22.0 * ui, theme::ACCENT, Align::Left),
         );
         d.text(
             "↑↓ select  ←→ change  Enter edit  Esc back",
             w * 0.5,
             15.0 * ui,
-            15.0 * ui,
-            theme::TEXT_DIM,
-            Align::Center,
+            TextStyle::new(15.0 * ui, theme::TEXT_DIM, Align::Center),
         );
         self.back_rect = ui::back_button(d, w, ui);
         let rh = ROW_H * ui;
@@ -648,21 +644,23 @@ impl SettingsScene {
             let r = Rect::new(list_r.x + 10.0 * ui, y, list_r.w - 20.0 * ui, rh - 4.0);
             ui::row(d, r, i == self.list.sel && self.focus_rows);
             let ty = r.y + (r.h - size) * 0.5;
-            d.text_fit(
+            d.text(
                 &row.label,
                 r.x + 12.0 * ui,
                 ty,
-                size,
-                theme::TEXT,
-                Align::Left,
-                r.w * 0.55,
+                TextStyle::new(size, theme::TEXT, Align::Left).fit(r.w * 0.55),
             );
             let color = match row.act {
                 Act::None => theme::TEXT_DIM,
                 _ => theme::ACCENT,
             };
             let right = r.right() - 12.0 * ui;
-            let drawn = d.text_fit(&row.value, right, ty, size, color, Align::Right, r.w * 0.42);
+            let drawn = d.text(
+                &row.value,
+                right,
+                ty,
+                TextStyle::new(size, color, Align::Right).fit(r.w * 0.42),
+            );
             self.row_rects.push(r, (i, right - drawn * 0.5));
         }
         d.b.set_clip(None);
@@ -682,17 +680,13 @@ impl SettingsScene {
                 what,
                 x,
                 r.y + 18.0 * ui,
-                22.0 * ui,
-                theme::TEXT,
-                Align::Center,
+                TextStyle::new(22.0 * ui, theme::TEXT, Align::Center),
             );
             d.text(
                 "Esc = cancel, Delete = clear",
                 x,
                 r.y + 54.0 * ui,
-                15.0 * ui,
-                theme::TEXT_DIM,
-                Align::Center,
+                TextStyle::new(15.0 * ui, theme::TEXT_DIM, Align::Center),
             );
         }
     }

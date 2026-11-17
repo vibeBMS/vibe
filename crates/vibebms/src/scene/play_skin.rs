@@ -106,7 +106,7 @@ pub fn aspect(ctx: &Ctx, mode: PlayMode) -> f32 {
         .unwrap_or_default();
     // the perspective skin takes the screen's shape
     if value == PERSPECTIVE {
-        return ctx.width / ctx.height.max(1.0);
+        return ctx.view.width / ctx.view.height.max(1.0);
     }
     let path = configured_path(ctx, &value).unwrap_or_else(|| {
         let p2 = ctx.config.play.side == crate::config::Side::P2;

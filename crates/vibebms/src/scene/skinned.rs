@@ -41,7 +41,7 @@ pub fn load(
 ) -> Option<LoadedSkin> {
     let accept =
         |k: SkinType| k == kind || (kind == SkinType::CourseResult && k == SkinType::Result);
-    let default = default_skin(kind, ctx.height > ctx.width);
+    let default = default_skin(kind, ctx.view.height > ctx.view.width);
     let value = kind
         .config_key()
         .and_then(|k| ctx.config.skins.get(k))

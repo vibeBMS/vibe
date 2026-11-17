@@ -13,7 +13,7 @@ use super::tree::{table, Bar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
 use crate::scene::skinvals::*;
@@ -62,7 +62,7 @@ impl<'a> SelectState<'a> {
     pub fn new(s: &'a SelectScene, ctx: &'a Ctx) -> SelectState<'a> {
         let bar = s.bars.get(s.cursor);
         let song = match bar {
-            Some(Bar::Song(i)) => ctx.songs.get(*i),
+            Some(Bar::Song(i)) => ctx.lib.songs.get(*i),
             _ => None,
         };
         SelectState {
@@ -112,7 +112,7 @@ impl<'a> SelectState<'a> {
                 lamp: None,
             },
             Bar::Song(k) => {
-                let s = ctx.songs.get(*k)?;
+                let s = ctx.lib.songs.get(*k)?;
                 BarInfo {
                     kind: BAR_SONG,
                     title: s.full_title(),
@@ -221,7 +221,7 @@ impl SkinState for SelectState<'_> {
         let p = &self.ctx.config.play;
         let song = self.song;
         Some(match id {
-            20 => self.ctx.fps as i64,
+            20 => self.ctx.view.fps as i64,
             12 => p.judge_offset_ms as i64,
             // a selected song's record (0 when never played)
             71 | 75..=84 | 102 | 103 if song.is_some() => return best_number(self.best, id),
@@ -354,11 +354,14 @@ fn download_progress(d: &mut Draw, r: Rect, p: &bmseeker::progress::Progress, no
         &label,
         x + 1.0,
         y + 1.0,
-        size,
-        [0.0, 0.0, 0.0, 0.8],
-        Align::Right,
+        TextStyle::new(size, [0.0, 0.0, 0.0, 0.8], Align::Right),
     );
-    d.text(&label, x, y, size, [0.92, 0.96, 1.0, 1.0], Align::Right);
+    d.text(
+        &label,
+        x,
+        y,
+        TextStyle::new(size, [0.92, 0.96, 1.0, 1.0], Align::Right),
+    );
 }
 
 fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
@@ -501,7 +504,7 @@ impl Hooks for SelectHooks<'_> {
             }
             // a table song downloading: how far it has got, over its bar
             if let Some(Bar::Missing(m)) = s.bars.get(idx) {
-                if let Some(p) = self.st.ctx.song_fetch.progress(&m.title, &m.artist) {
+                if let Some(p) = self.st.ctx.net.song_fetch.progress(&m.title, &m.artist) {
                     download_progress(d, sr, p, now);
                 }
             }

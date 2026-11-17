@@ -12,7 +12,7 @@
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{Side, TouchConfig, TouchSide, TouchStyle};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Gfx, Rect};
 use crate::input::{nav_from_pad, InputEv, Nav, Phase};
 use crate::platform::Instant;
@@ -155,7 +155,7 @@ impl TouchLayoutScene {
     }
 
     fn area(ctx: &Ctx) -> Rect {
-        touch::controls_area(ctx.width, ctx.height, &ctx.config.touch)
+        touch::controls_area(ctx.view.width, ctx.view.height, &ctx.config.touch)
     }
 
     fn side2(ctx: &Ctx) -> bool {
@@ -181,7 +181,7 @@ impl TouchLayoutScene {
             .aspects
             .entry((self.mode, ctx.portrait()))
             .or_insert_with(|| super::play_skin::aspect(ctx, mode));
-        let screen = Rect::new(0.0, 0.0, ctx.width, Self::area(ctx).y);
+        let screen = Rect::new(0.0, 0.0, ctx.view.width, Self::area(ctx).y);
         let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx), ctx.portrait());
         touch::system_buttons(screen, aspect, ctx.px_per_mm(), right)
     }
@@ -191,7 +191,7 @@ impl TouchLayoutScene {
     fn edge(ctx: &Ctx) -> Rect {
         let y = Self::area(ctx).y;
         let mm = ctx.px_per_mm();
-        Rect::new(0.0, y - 5.0 * mm, ctx.width, 6.5 * mm)
+        Rect::new(0.0, y - 5.0 * mm, ctx.view.width, 6.5 * mm)
     }
 
     fn custom(&self, ctx: &Ctx) -> bool {
@@ -225,7 +225,7 @@ impl TouchLayoutScene {
     /// fingertip and partly on the screen.
     fn set_rect(&mut self, ctx: &mut Ctx, lane: u8, r: Rect) {
         self.make_custom(ctx);
-        let r = on_screen(r, ctx.width, ctx.height, least(ctx));
+        let r = on_screen(r, ctx.view.width, ctx.view.height, least(ctx));
         let area = Self::area(ctx);
         let slot = touch::slot(self.mode(), ctx.portrait());
         if let Some(b) = ctx
@@ -467,7 +467,7 @@ impl TouchLayoutScene {
                 self.set_rect(ctx, lane, pinched(orig, d0, mid0, pa, pb));
             }
             Grab::Strip { id: g } if g == id => {
-                let h = ctx.height;
+                let h = ctx.view.height;
                 self.set_height(ctx, (h - y) / h.max(1.0));
             }
             _ => {}
@@ -567,7 +567,7 @@ impl Scene for TouchLayoutScene {
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
         let ui = ctx.ui();
         let mm = ctx.px_per_mm();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         let area = Self::area(ctx);
         d.b.rect(Rect::new(0.0, 0.0, w, h), theme::BACKGROUND);
         // where the play screen goes, START / SELECT beside it
@@ -581,23 +581,18 @@ impl Scene for TouchLayoutScene {
             "PLAY SCREEN",
             view.x + view.w * 0.5,
             view.y + (view.h - 20.0 * ui) * 0.5 + 30.0 * ui,
-            20.0 * ui,
-            with_alpha(theme::TEXT_DIM, 0.5),
-            Align::Center,
+            TextStyle::new(20.0 * ui, with_alpha(theme::TEXT_DIM, 0.5), Align::Center),
         );
         let opacity = ctx.config.touch.opacity;
         TouchInput::default().draw(d.b, &system, opacity);
         for (z, label) in system.iter().zip(["START", "SELECT"]) {
             let r = z.bounds();
             let size = (r.w * 0.22).min(14.0 * ui);
-            d.text_fit(
+            d.text(
                 label,
                 r.x + r.w * 0.5,
                 r.y + (r.h - size) * 0.5,
-                size,
-                theme::TEXT,
-                Align::Center,
-                r.w * 0.9,
+                TextStyle::new(size, theme::TEXT, Align::Center).fit(r.w * 0.9),
             );
         }
         let side2 = Self::side2(ctx);
@@ -624,9 +619,7 @@ impl Scene for TouchLayoutScene {
                 &format!("CONTROLS {:.0}%", share * 100.0),
                 w * 0.5,
                 area.y - gh - 3.0 * mm - size * 1.2,
-                size,
-                theme::ACCENT,
-                Align::Center,
+                TextStyle::new(size, theme::ACCENT, Align::Center),
             );
         }
         // the buttons, drawn as in play
@@ -646,9 +639,7 @@ impl Scene for TouchLayoutScene {
                 &label,
                 r.x + r.w * 0.5,
                 r.y + (r.h - size) * 0.5,
-                size,
-                with_alpha(theme::TEXT, 0.8),
-                Align::Center,
+                TextStyle::new(size, with_alpha(theme::TEXT, 0.8), Align::Center),
             );
         }
         if let Some((r, _)) = self.sel.and_then(|l| self.rect_of(ctx, l)) {
@@ -741,14 +732,11 @@ impl Scene for TouchLayoutScene {
             ),
         ];
         for (i, (text, color)) in lines.into_iter().enumerate() {
-            d.text_fit(
+            d.text(
                 text,
                 view.x + view.w * 0.5,
                 y + i as f32 * small * 1.4,
-                small,
-                color,
-                Align::Center,
-                view.w - 16.0 * ui,
+                TextStyle::new(small, color, Align::Center).fit(view.w - 16.0 * ui),
             );
         }
     }

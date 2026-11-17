@@ -31,7 +31,7 @@ pub(super) fn step_skin_option(ctx: &mut Ctx, t: SkinType, i: usize, d: i32) {
         return;
     };
     let value = value.to_string();
-    if let Some(o) = ctx.skin_custom_options(&path).get(i) {
+    if let Some(o) = ctx.skins.custom_options(&path).get(i) {
         skinned::step_option(ctx, &value, o, d);
     }
 }
@@ -42,7 +42,7 @@ pub(super) fn step_skin_offset(ctx: &mut Ctx, t: SkinType, i: usize, field: usiz
         return;
     };
     let value = value.to_string();
-    if let Some(o) = ctx.skin_custom_offsets(&path).get(i) {
+    if let Some(o) = ctx.skins.custom_offsets(&path).get(i) {
         skinned::step_offset(ctx, &value, &o.name, field, d);
     }
 }
@@ -120,7 +120,7 @@ fn skin_rows(ctx: &Ctx, t: SkinType, v: &mut Vec<Row>) {
         return;
     };
     let picked = c.skin_options.get(value);
-    for (i, o) in ctx.skin_custom_options(&path).iter().enumerate() {
+    for (i, o) in ctx.skins.custom_options(&path).iter().enumerate() {
         let k = o.chosen(picked.and_then(|m| m.get(&o.name)).map(String::as_str));
         v.push(Row::new(
             format!("    {}", o.name),
@@ -129,7 +129,7 @@ fn skin_rows(ctx: &Ctx, t: SkinType, v: &mut Vec<Row>) {
         ));
     }
     let set = c.skin_offsets.get(value);
-    for (i, o) in ctx.skin_custom_offsets(&path).iter().enumerate() {
+    for (i, o) in ctx.skins.custom_offsets(&path).iter().enumerate() {
         let cur = set
             .and_then(|m| m.get(&o.name))
             .copied()
@@ -149,7 +149,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     let mut v = vec![
         Row::adjust("Fullscreen (F11)", onoff(d.fullscreen), |c, _| {
             c.config.display.fullscreen ^= true;
-            c.want_fullscreen = Some(c.config.display.fullscreen);
+            c.view.want_fullscreen = Some(c.config.display.fullscreen);
         }),
         Row::adjust(
             "Present mode",
@@ -158,7 +158,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 use PresentMode::*;
                 let m = &mut c.config.display.present_mode;
                 *m = cycle(&[LowLatency, VSync, Immediate], *m, d);
-                c.want_present_mode = true;
+                c.view.want_present_mode = true;
             },
         ),
         Row::adjust("Max FPS (0 = unlimited)", d.max_fps.to_string(), |c, d| {
@@ -172,7 +172,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         Row::adjust("Show FPS", onoff(d.show_fps), |c, _| {
             c.config.display.show_fps ^= true
         }),
-        Row::note("GPU", ctx.gpu_name.clone()),
+        Row::note("GPU", ctx.view.gpu_name.clone()),
     ];
     // built-in default skin / skins in <root>/skins
     for t in TYPES {
