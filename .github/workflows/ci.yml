@@ -41,6 +41,8 @@ jobs:
           key: cross-check
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
+      # the runner may have only versioned llvm-ar-NN
+      - run: echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" >> "$GITHUB_ENV"
       - run: cargo clippy -p vibebms -p vibebms-web -p vibebms-lua-web --lib --target wasm32-unknown-unknown -- -D warnings
       - run: cargo install cargo-ndk --locked
       - run: >-
@@ -141,6 +143,8 @@ jobs:
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
+      # the runner may have only versioned llvm-ar-NN
+      - run: echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" >> "$GITHUB_ENV"
       # third parties' mirrors on by default: the repository variable
       # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions > Variables)
       - run: ./tools/build_web.sh
