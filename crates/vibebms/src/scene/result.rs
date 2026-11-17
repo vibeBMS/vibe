@@ -1,12 +1,13 @@
 //! Result screen: lamp, score, judge breakdown, gauge graph, timing histogram,
-//! saving best scores and IR submission.
+//! saving best scores, and what became of the play at each IR.
 
 use crate::app::{Ctx, Draw, Next, Scene};
+use crate::config::SubmitPolicy;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
-use crate::platform::{Duration, Instant, Job};
+use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::result_skin::{
     ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY,
@@ -121,8 +122,11 @@ pub struct ResultScene {
     pub(crate) after: Option<BestScore>,
     /// (average, standard deviation) of the timing log (ms).
     pub(crate) timing_stats: (f64, f64),
-    ir_job: Option<Job<String>>,
-    ir_status: String,
+    /// What became of the play's record here ("not saved", "lamp only").
+    note: String,
+    /// Where the IR lines are (a tap there sends the play when the player
+    /// is asked to).
+    ir_rect: Rect,
     /// The play's profile and rules (`rule::describe`).
     rules_line: String,
     pub(crate) host: SkinHost,
@@ -147,13 +151,13 @@ impl ResultData {
 }
 
 impl ResultScene {
-    pub fn new(ctx: &mut Ctx, d: ResultData) -> ResultScene {
+    pub fn new(ctx: &mut Ctx, mut d: ResultData) -> ResultScene {
+        ctx.net.ir.record(&mut d.record);
         let song = &d.request.song;
         let ln = d.ln as i32;
         let before = ctx.best_key(&song.sha256, ln).cloned();
         let mut after = None;
-        let mut ir_job = None;
-        let mut ir_status = String::new();
+        let mut note = String::new();
         // every play of its own keeps its replay as the chart's latest
         // (a BATTLE play's would replace a single play's: it is not kept)
         if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
@@ -162,7 +166,7 @@ impl ResultScene {
             }
         }
         if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
-            ir_status = format!("{why}: not saved");
+            note = format!("{why}: not saved");
         } else if recorded(d.autoplay, d.unranked) {
             let ranked = d.assist == Assist::None;
             if let Some(lib) = ctx.lib.db.as_mut() {
@@ -176,7 +180,7 @@ impl ResultScene {
                 after = Some(b);
             }
             if !ranked {
-                ir_status = format!("{}: lamp only", d.clear.label());
+                note = format!("{}: lamp only", d.clear.label());
             }
             // a new best EX score: its replay is the chart's best (MY BEST's
             // ghost)
@@ -190,49 +194,10 @@ impl ResultScene {
                     log::warn!("replay: {e}");
                 }
             }
-            let cfg = &ctx.config.ir_server;
-            let send = cfg.auto_submit && ranked;
-            if let Some(client) = vibebms_ir::JsonIr::new(cfg).filter(|_| send) {
-                let chart = vibebms_ir::ChartRef {
-                    md5: song.md5.clone(),
-                    sha256: song.sha256.clone(),
-                    ln_type: format!("{:?}", d.ln).to_uppercase(),
-                };
-                let rec = &d.record;
-                let mut sub = vibebms_ir::ScoreSubmission::from_score(
-                    &chart,
-                    &d.score,
-                    d.clear,
-                    (rec.ended_ms / 1000) as u64,
-                );
-                sub.option = d.options.clone();
-                sub.seed = rec.rules.seed;
-                sub.gauge = d.gauge_type.label().into();
-                sub.judge_preset = format!(
-                    "{} / {}",
-                    rec.rules.judge.label(),
-                    rec.rules.gauge_set.label()
-                );
-                sub.device = if rec.device.touch > 0 || rec.device.touch_ui {
-                    "TOUCH".into()
-                } else {
-                    "KEYBOARD/CONTROLLER".into()
-                };
-                ir_status = format!("{}: sending…", cfg.name);
-                let name = cfg.name.clone();
-                let req = client.submit_request(&sub);
-                ir_job = Some(Job::start(|tx, _| match req {
-                    Ok(req) => crate::platform::ir_send(req, move |r| {
-                        let _ = tx.send(match r {
-                            Ok(_) => format!("{name}: submitted"),
-                            Err(e) => format!("{name}: {e}"),
-                        });
-                    }),
-                    Err(e) => {
-                        let _ = tx.send(format!("{name}: {e}"));
-                    }
-                }));
-            }
+        }
+        if ctx.config.ir.submit == SubmitPolicy::Auto {
+            let now = crate::platform::unix_ms();
+            ctx.net.ir.submit(&d.record, &ctx.config.ir, false, now);
         }
         ctx.play_sound(result_sound(&d).0);
         let rules_line = vibebms_ir::rule::describe(&d.record);
@@ -241,8 +206,8 @@ impl ResultScene {
             d,
             before,
             after,
-            ir_job,
-            ir_status,
+            note,
+            ir_rect: Rect::default(),
             rules_line,
             host: SkinHost::new(),
             stage_tex: None,
@@ -318,6 +283,17 @@ impl ResultScene {
         )))
     }
 
+    /// Send the play now: the player was asked to (send policy ASK). (Not
+    /// said so on the web: a server's preflight may refuse the header.)
+    fn send_asked(&mut self, ctx: &mut Ctx) -> Next {
+        let now = crate::platform::unix_ms();
+        let intent = !crate::platform::IS_WEB;
+        ctx.net
+            .ir
+            .submit(&self.d.record, &ctx.config.ir, intent, now);
+        Next::Stay
+    }
+
     fn retry(&mut self, ctx: &mut Ctx) -> Next {
         if self.d.course.is_some() {
             return Next::Stay;
@@ -328,10 +304,6 @@ impl ResultScene {
 
 impl Scene for ResultScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if let Some(m) = self.ir_job.as_mut().and_then(Job::poll) {
-            self.ir_status = m;
-            self.ir_job = None;
-        }
         if self.host.first_update() {
             if !self.d.meta.stagefile.is_empty() {
                 let p = std::path::Path::new(&self.d.request.song.path)
@@ -395,6 +367,9 @@ impl Scene for ResultScene {
                 if *code == KeyCode::KeyP {
                     return self.watch(ctx);
                 }
+                if *code == KeyCode::KeyI && ctx.config.ir.submit == SubmitPolicy::Ask {
+                    return self.send_asked(ctx);
+                }
                 if let Some(Nav::Decide | Nav::Back | Nav::Close) =
                     nav_from_key(*code, &ctx.config.keys)
                 {
@@ -416,6 +391,9 @@ impl Scene for ResultScene {
                 y,
                 ..
             } => {
+                if self.ir_rect.contains(*x, *y) && ctx.config.ir.submit == SubmitPolicy::Ask {
+                    return self.send_asked(ctx);
+                }
                 // skin buttons, else a tap anywhere continues
                 return match self.host.tap(*x, *y) {
                     Tap::Script => Next::Stay,
@@ -436,6 +414,28 @@ impl Scene for ResultScene {
             let mut hooks = ResultHooks { st: &st };
             self.host.draw(d, view, now, &st, &mut hooks);
         }
+        // what became of the play here and at each IR, upwards from the
+        // bottom
+        let ui = ctx.ui();
+        let lines = ctx.net.ir.status(&self.d.record, &ctx.config.ir);
+        let line_h = 20.0 * ui;
+        let mut y = ctx.view.height - 26.0 * ui;
+        let style = TextStyle::new(14.0 * ui, theme::ACCENT, Align::Left);
+        let mut width: f32 = 0.0;
+        for l in std::iter::once(&self.note)
+            .chain(&lines)
+            .rev()
+            .filter(|l| !l.is_empty())
+        {
+            width = width.max(d.text(l, 12.0 * ui, y, style));
+            y -= line_h;
+        }
+        self.ir_rect = Rect::new(
+            0.0,
+            y + line_h,
+            12.0 * ui + width,
+            ctx.view.height - y - line_h,
+        );
         // a battle's outcome (skins without a second side show it so)
         let shown = self.host.skin.as_ref().is_some_and(|s| {
             s.skin.objects.iter().any(|o| {
@@ -445,7 +445,6 @@ impl Scene for ResultScene {
             })
         });
         if let (Some(p2), Some(o), false) = (&self.d.p2, self.d.outcome(), shown) {
-            let ui = ctx.ui();
             let what = if p2.desync {
                 format!("{} (out of step)", p2.name)
             } else {
@@ -463,17 +462,8 @@ impl Scene for ResultScene {
                     p2.ex
                 ),
                 12.0 * ui,
-                ctx.view.height - 48.0 * ui,
+                y - 2.0 * ui,
                 TextStyle::new(16.0 * ui, theme::ACCENT, Align::Left),
-            );
-        }
-        let ui = ctx.ui();
-        if !self.ir_status.is_empty() {
-            d.text(
-                &self.ir_status,
-                12.0 * ui,
-                ctx.view.height - 26.0 * ui,
-                TextStyle::new(14.0 * ui, theme::ACCENT, Align::Left),
             );
         }
         // the rules the play was judged under, and their profile

@@ -7,8 +7,8 @@
 use crate::http::{enc, HttpRequest, HttpResponse, Secret};
 use crate::lamps::{LampSet, RankEntry, RankView, RemoteLamp};
 use crate::provider::{
-    by_status, need, AuthKind, Avail, Caps, ChartId, ChartKeys, Creds, Frozen, IrError, Op,
-    Outcome, Provider, ProviderId, Rate,
+    by_status, need, AuthKind, Avail, Caps, ChartKeys, Creds, Frozen, IrError, Op, Outcome,
+    Provider, ProviderId, Rate,
 };
 use crate::rule::Profile;
 use serde::{Deserialize, Serialize};
@@ -393,7 +393,7 @@ impl ScoreSubmission {
     }
 }
 
-/// The chart of a version 1 request (`JsonIr`).
+/// The chart of a submission.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChartRef {
     pub md5: String,
@@ -402,78 +402,11 @@ pub struct ChartRef {
     pub ln_type: String,
 }
 
-/// The IR settings of the config file (one vibe-json server).
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct IrConfig {
-    pub enabled: bool,
-    pub name: String,
-    /// Base URL of the IR's API.
-    pub url: String,
-    /// API token (from the IR's web site); needed to submit scores.
-    pub token: String,
-    pub auto_submit: bool,
-}
-
-/// The version 1 calls the select and result scenes make until the IR
-/// service and outbox take them over (IR-7, IR-10, IR-11).
-pub struct JsonIr {
-    ir: VibeJson,
-    creds: Option<Creds>,
-}
-
-impl JsonIr {
-    /// The client for a configuration, if it is enabled and has a URL.
-    pub fn new(cfg: &IrConfig) -> Option<JsonIr> {
-        Some(JsonIr {
-            ir: VibeJson::new(0, &cfg.url).filter(|_| cfg.enabled)?,
-            creds: (!cfg.token.is_empty()).then(|| Creds::token(Secret::new(cfg.token.as_str()))),
-        })
-    }
-
-    pub fn ranking_request(&self, chart: &ChartRef) -> HttpRequest {
-        let ln = match chart.ln_type.as_str() {
-            "CN" => LnType::Cn,
-            "HCN" => LnType::Hcn,
-            _ => LnType::Ln,
-        };
-        let chart = ChartId {
-            md5: chart.md5.clone(),
-            sha256: chart.sha256.clone(),
-            ln,
-            ..Default::default()
-        };
-        let op = Op::Ranking {
-            chart: &chart,
-            view: "",
-            limit: 0,
-            etag: None,
-        };
-        self.ir
-            .request(&op, self.creds.as_ref())
-            .expect("a ranking needs no credentials")
-    }
-
-    pub fn parse_ranking(body: &[u8]) -> Result<Vec<IrScore>, String> {
-        ranking_rows(body).map(|(_, rows)| rows)
-    }
-
-    /// The submission request (`Err` without an API token).
-    pub fn submit_request(&self, score: &ScoreSubmission) -> Result<HttpRequest, String> {
-        let creds = self.creds.as_ref().ok_or("no API token")?;
-        let body = Frozen {
-            content_type: "application/json".into(),
-            body: serde_json::to_string(score).map_err(|e| e.to_string())?,
-        };
-        Ok(self.ir.post(&body, &creds.token))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::http::RetryAfter;
-    use crate::provider::{AccountInfo, PlayerRef};
+    use crate::provider::{AccountInfo, ChartId, PlayerRef};
     use vibebms_core::lane_option::LaneOption;
     use vibebms_core::record::{ClientId, VERSION as RECORD};
     use vibebms_core::PlayMode;
@@ -732,45 +665,6 @@ mod tests {
             ir.parse(&op, &resp(200, "<html>")),
             Outcome::Rejected(_)
         ));
-        assert_eq!(
-            JsonIr::parse_ranking(format!("[{row}]").as_bytes())
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn version_1_calls() {
-        let cfg = IrConfig {
-            enabled: true,
-            url: "https://ir.example/api/".into(),
-            token: "tok".into(),
-            ..Default::default()
-        };
-        let ir = JsonIr::new(&cfg).unwrap();
-        let r = ir.ranking_request(&ChartRef {
-            sha256: "ab".into(),
-            ln_type: "LN".into(),
-            ..Default::default()
-        });
-        assert_eq!(
-            r.url,
-            "https://ir.example/api/ranking?sha256=ab&md5=&lntype=LN"
-        );
-        assert!(r
-            .headers
-            .iter()
-            .any(|(k, v)| k == "Authorization" && v == "Bearer tok"));
-        assert!(JsonIr::new(&IrConfig::default()).is_none());
-        let sub = ScoreSubmission::default();
-        assert_eq!(ir.submit_request(&sub).unwrap().method, "POST");
-        let anon = JsonIr::new(&IrConfig {
-            token: String::new(),
-            ..cfg
-        })
-        .unwrap();
-        assert!(anon.submit_request(&sub).is_err());
     }
 
     #[test]
