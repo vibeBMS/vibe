@@ -29,6 +29,29 @@ pub struct UserSettings {
     pub offsets: HashMap<String, [i32; 6]>,
 }
 
+/// The format of a skin file, by its extension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkinFormat {
+    /// LR2 `.lr2skin`, or a `.csv` chosen as the skin itself.
+    Lr2,
+    /// beatoraja JSON or Lua.
+    Beatoraja,
+    /// LR2 sound set `.lr2ss`.
+    SoundSet,
+}
+
+impl SkinFormat {
+    pub fn of(path: &std::path::Path) -> Option<SkinFormat> {
+        let ext = path.extension()?.to_string_lossy().to_lowercase();
+        Some(match ext.as_str() {
+            "lr2skin" | "csv" => SkinFormat::Lr2,
+            "json" | "luaskin" => SkinFormat::Beatoraja,
+            "lr2ss" => SkinFormat::SoundSet,
+            _ => return None,
+        })
+    }
+}
+
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
 /// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
 /// while it is built.
@@ -40,11 +63,7 @@ pub fn load_file(
     state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    let is_lr2 = path
-        .extension()
-        .map(|e| e.eq_ignore_ascii_case("lr2skin") || e.eq_ignore_ascii_case("csv"))
-        .unwrap_or(false);
-    if is_lr2 {
+    if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
         lr2::load_with(path, skins_root, user, static_option, image_size)
     } else {
         lr2::forget_images();
@@ -87,15 +106,12 @@ pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
     if let Some(h) = CACHE.lock().ok()?.get_or_insert_default().get(&key) {
         return h.clone();
     }
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    let h = match ext.as_str() {
-        "lr2skin" => lr2::header(path),
-        "json" | "luaskin" => beatoraja::header(path),
-        "lr2ss" => crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0)),
-        _ => None,
+    let h = match SkinFormat::of(path)? {
+        SkinFormat::Lr2 => lr2::header(path),
+        SkinFormat::Beatoraja => beatoraja::header(path),
+        SkinFormat::SoundSet => {
+            crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0))
+        }
     };
     CACHE
         .lock()
@@ -703,13 +719,9 @@ pub const OFFSET_FIELDS: [&str; 6] = ["X", "Y", "W", "H", "ANGLE", "ALPHA"];
 
 /// The adjustable offsets of a skin file.
 pub fn custom_offsets(path: &std::path::Path) -> Vec<CustomOffset> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    match ext.as_str() {
-        "json" | "luaskin" => beatoraja::custom_offsets(path),
-        "lr2skin" => lr2::custom_offsets(path),
+    match SkinFormat::of(path) {
+        Some(SkinFormat::Lr2) => lr2::custom_offsets(path),
+        Some(SkinFormat::Beatoraja) => beatoraja::custom_offsets(path),
         _ => Vec::new(),
     }
 }
@@ -738,13 +750,9 @@ impl CustomOption {
 
 /// The custom options of a skin file, without building the skin.
 pub fn custom_options(path: &std::path::Path) -> Vec<CustomOption> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    match ext.as_str() {
-        "lr2skin" | "csv" => lr2::custom_options(path),
-        "json" | "luaskin" => beatoraja::custom_options(path),
+    match SkinFormat::of(path) {
+        Some(SkinFormat::Lr2) => lr2::custom_options(path),
+        Some(SkinFormat::Beatoraja) => beatoraja::custom_options(path),
         _ => Vec::new(),
     }
 }
@@ -1061,6 +1069,23 @@ mod tests {
             color: [1.0; 4],
             angle: 0.0,
         }
+    }
+
+    #[test]
+    fn a_csv_skin_is_an_lr2_skin_throughout() {
+        let dir = std::env::temp_dir().join(format!("vibebms-csv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("s.csv");
+        std::fs::write(
+            &p,
+            "#INFORMATION,7,CSV skin,me\n#CUSTOMOPTION,Lane,900,Dark,Light\n\
+             #CUSTOMOFFSET,Judge,10,1,1,0,0,0,1\n",
+        )
+        .unwrap();
+        assert_eq!(header(&p), Some((SkinType::Result, "CSV skin".into())));
+        assert_eq!(custom_options(&p).len(), 1);
+        assert_eq!(custom_offsets(&p).len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
