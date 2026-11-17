@@ -290,7 +290,9 @@ impl Loader<'_> {
     fn lane_src(&mut self, v: &[i64; 22], which: usize) {
         let mode = self.mode();
         let Some(l) = lane_of(mode, v[1]) else { return };
-        let Some(s) = src(v, &self.images) else { return };
+        let Some(s) = src(v, &self.images) else {
+            return;
+        };
         if self.skin.lanes.len() < mode.lane_count() {
             self.skin
                 .lanes

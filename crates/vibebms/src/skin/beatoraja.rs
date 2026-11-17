@@ -380,7 +380,9 @@ fn header_of(path: &Path) -> Result<std::sync::Arc<Header>, String> {
 
 /// The `offset` list of a skin: positions the user may adjust.
 pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
-    header_of(path).map(|h| h.offsets.clone()).unwrap_or_default()
+    header_of(path)
+        .map(|h| h.offsets.clone())
+        .unwrap_or_default()
 }
 
 /// The `property` list of a skin as custom options, then its `filepath`
