@@ -15,4 +15,4 @@ crate-type = ["cdylib"]
 vibebms = { path = "../vibebms" }
 winit = { version = "0.30", features = ["android-native-activity"] }
 log.workspace = true
-android_logger = "0.14"
+android_logger = "0.15"
