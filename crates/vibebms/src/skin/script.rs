@@ -489,7 +489,16 @@ package.loaded.io = io
                         e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("luaskin")
                     })
             })
-            .find(|c| crate::platform::vfs::is_file(c))
+            .find(|c| crate::platform::vfs::is_file(c) && really_inside(c, root))
+    }
+
+    /// `path` is inside `root` once links are followed (a link in the skin
+    /// folder must not reach other files).
+    fn really_inside(path: &Path, root: &Path) -> bool {
+        match (std::fs::canonicalize(path), std::fs::canonicalize(root)) {
+            (Ok(p), Ok(r)) => p.starts_with(r),
+            _ => false,
+        }
     }
 
     /// Replace the functions of the skin table with markers (indices into
@@ -1303,6 +1312,25 @@ end
                 v,
                 "nil;HTTP disabled;failed;0;HTTP disabled;0;false;nil;HTTP disabled;false"
             );
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn a_link_out_of_the_skin_folder_is_not_followed() {
+            let dir = std::env::temp_dir().join(format!("vibebms-lua-link-{}", std::process::id()));
+            let skin = dir.join("theme").join("skin");
+            std::fs::create_dir_all(&skin).unwrap();
+            std::fs::write(dir.join("secret.txt"), "secret").unwrap();
+            std::fs::write(skin.join("own.txt"), "own").unwrap();
+            std::os::unix::fs::symlink(dir.join("secret.txt"), skin.join("link.txt")).unwrap();
+            let s = Script::new(&skin, true).unwrap();
+            let read = |name: &str| -> Option<String> {
+                let code = format!(r#"local f = io.open("{name}") return f and f:read("a")"#);
+                s.lua().load(code).eval().unwrap()
+            };
+            assert_eq!(read("own.txt").as_deref(), Some("own"));
+            assert_eq!(read("link.txt"), None);
+            std::fs::remove_dir_all(&dir).ok();
         }
 
         #[test]
