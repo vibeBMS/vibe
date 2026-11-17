@@ -507,6 +507,11 @@ pub struct SongListSkin {
     pub level: Vec<Option<(NumberFont, Dst)>>,
     /// Clear lamp per clear type (beatoraja order, 0..=10).
     pub lamp: Vec<Option<(Src, Dst)>>,
+    /// The player's and a rival's lamps side by side, shown in place of
+    /// `lamp` while a rival is chosen (LR2 `BAR_MY_LAMP` /
+    /// `BAR_RIVAL_LAMP`, beatoraja `playerlamp` / `rivallamp`).
+    pub my_lamp: Vec<Option<(Src, Dst)>>,
+    pub rival_lamp: Vec<Option<(Src, Dst)>>,
     /// Lamp / rank distribution on folder bars.
     pub graph: Option<(Dst, Option<Src>, bool)>,
 }
@@ -1022,7 +1027,9 @@ impl Skin {
         if let Some(sl) = &self.songlist {
             sl.body.iter().flatten().for_each(&mut mark);
             sl.level.iter().flatten().for_each(|(f, _)| mark(&f.src));
-            sl.lamp.iter().flatten().for_each(|(s, _)| mark(s));
+            (sl.lamp.iter().chain(&sl.my_lamp).chain(&sl.rival_lamp))
+                .flatten()
+                .for_each(|(s, _)| mark(s));
             if let Some((_, Some(s), _)) = &sl.graph {
                 mark(s);
             }

@@ -11,7 +11,7 @@ mod play;
 mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
-pub use ir::{provider_name, IrAccount, IrSettings, OldToken, SubmitPolicy};
+pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
 pub use keys::{KeyConfig, LaneKeys, SideKeys};
 pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
 pub use touch::{
@@ -22,13 +22,31 @@ pub use touch::{
 use migrate::migrate;
 use serde::{Deserialize, Serialize};
 
+/// How frames reach the screen (`gfx::device::choose_present_mode`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PresentMode {
-    /// Lowest latency available (Mailbox > Immediate > VSync).
+    /// "Smooth": vsync (FIFO) with two frames queued, each drawn for when
+    /// it will be shown: even motion at the display's rate, about a frame
+    /// more from a key to the screen.
     #[default]
-    LowLatency,
     VSync,
+    /// "Low latency": the newest frame at each vblank, without tearing
+    /// (mailbox); where the GPU has none (Apple's Metal, some drivers),
+    /// the same as Smooth.
+    LowLatency,
+    /// "Unlimited": as many frames as the GPU makes, shown at once
+    /// (immediate, tearing), else mailbox, else Smooth.
     Immediate,
+}
+
+impl PresentMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            PresentMode::VSync => "SMOOTH (VSYNC, BUFFERED)",
+            PresentMode::LowLatency => "LOW LATENCY",
+            PresentMode::Immediate => "UNLIMITED (TEARING)",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -50,7 +68,7 @@ impl Default for DisplayConfig {
             fullscreen: false,
             width: 1280,
             height: 720,
-            present_mode: PresentMode::LowLatency,
+            present_mode: PresentMode::VSync,
             max_fps: 0,
             ui_scale: 1.0,
             show_fps: false,
@@ -465,6 +483,7 @@ mod tests {
                         ..Default::default()
                     },
                 ],
+                ..Default::default()
             },
             check_updates: false,
             skins: BTreeMap::from([

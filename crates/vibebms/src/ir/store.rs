@@ -225,6 +225,8 @@ fn random_id(now_ms: i64) -> String {
     use std::hash::BuildHasher;
     let mut h = Sha256::new();
     h.update(now_ms.to_le_bytes());
+    // (the web has no process id: `process::id` panics there)
+    #[cfg(not(target_arch = "wasm32"))]
     h.update(std::process::id().to_le_bytes());
     // seeded from the OS natively
     let r = std::collections::hash_map::RandomState::new().hash_one(now_ms);

@@ -151,16 +151,12 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             c.config.display.fullscreen ^= true;
             c.view.want_fullscreen = Some(c.config.display.fullscreen);
         }),
-        Row::adjust(
-            "Present mode",
-            format!("{:?}", d.present_mode).to_uppercase(),
-            |c, d| {
-                use PresentMode::*;
-                let m = &mut c.config.display.present_mode;
-                *m = cycle(&[LowLatency, VSync, Immediate], *m, d);
-                c.view.want_present_mode = true;
-            },
-        ),
+        Row::adjust("Present mode", d.present_mode.label(), |c, d| {
+            use PresentMode::*;
+            let m = &mut c.config.display.present_mode;
+            *m = cycle(&[VSync, LowLatency, Immediate], *m, d);
+            c.view.want_present_mode = true;
+        }),
         Row::adjust("Max FPS (0 = unlimited)", d.max_fps.to_string(), |c, d| {
             let steps = [0u32, 60, 75, 120, 144, 165, 240, 360, 480, 1000];
             c.config.display.max_fps = cycle(&steps, c.config.display.max_fps, d)

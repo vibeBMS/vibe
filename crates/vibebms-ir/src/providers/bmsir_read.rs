@@ -34,7 +34,78 @@ pub const CHARTS_PER_REQUEST: usize = 50;
 /// The documented waits, for when `Retry-After` cannot be read.
 const WAITS: &[(u16, u64)] = &[(429, 60), (503, 10)];
 
-pub struct BmsIrRead;
+/// The `client_view`s (whose scores count) and their names on the site.
+pub const VIEWS: [(&str, &str); 10] = [
+    ("all_clients", "all clients"),
+    ("lr2", "LR2"),
+    ("all", "LR2 and its kin"),
+    ("lr2oraja", "LR2oraja"),
+    ("lr2oraja-ed", "LR2oraja ED"),
+    ("beatoraja", "beatoraja"),
+    ("openlr2", "OpenLR2"),
+    ("bmz-oraja", "BMZ-oraja"),
+    ("bmz-lr2", "BMZ-LR2"),
+    ("bmz-player", "BMZ (both)"),
+];
+
+/// The difficulty tables BMS-IR keeps lamps for (`table` of
+/// `player_lamps.json`, as its tables page lists them).
+pub const TABLES: [(&str, &str); 27] = [
+    ("official", "発狂BMS難易度表"),
+    ("genocide_normal", "GENOCIDE 通常難易度表"),
+    ("overjoy", "Overjoy"),
+    ("second_normal", "第2通常難易度表"),
+    ("second_insane", "第2発狂難易度表"),
+    ("new_generation_normal", "NEW GENERATION 通常難易度表"),
+    ("new_generation", "NEW GENERATION 発狂難易度表"),
+    ("overjoy3", "第三期Overjoy"),
+    ("starlight", "STELLAVERSE Starlight"),
+    ("satellite", "STELLAVERSE Satellite"),
+    ("solar", "STELLAVERSE Solar"),
+    ("stella", "STELLAVERSE Stella"),
+    ("supernova", "STELLAVERSE Supernova"),
+    ("kuse", "癖譜面ライブラリー"),
+    ("kuse_sub", "癖譜面ライブラリー サブ"),
+    ("ln3", "第3期LN難易度表"),
+    ("solomon", "Solomon難易度表"),
+    ("appamada", "不放逸"),
+    ("modern_insane", "BMS現代発狂譜面寄せ集め"),
+    ("jiriki_archive", "BMS地力譜面アーカイブ"),
+    ("ude_gachi", "腕ガチ難易度表"),
+    ("gachimijoy", "Gachimijoy"),
+    ("code_stream", "16分乱打難易度表（仮）"),
+    ("dystopia", "Dystopia難易度表"),
+    ("delayjoy", "ディレイjoy"),
+    ("mini_jack", "連打絡み難易度表"),
+    ("scramble", "Scramble難易度表"),
+];
+
+/// A player id as the site shows it (`/new/player?id=191167`), from what
+/// the user pasted: the number, or a player page's address.
+pub fn player_id(s: &str) -> Option<&str> {
+    let s = s.trim();
+    let id = match s.find("id=") {
+        Some(i) => s[i + 3..].split(['&', '#']).next()?,
+        None => s,
+    };
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())).then_some(id)
+}
+
+/// The adapter, at `bms-ir.org` or at another address of the same API
+/// (a test server).
+pub struct BmsIrRead {
+    base: String,
+}
+
+impl BmsIrRead {
+    /// At `base` (its `/new/api/v1/public`), or at BMS-IR when empty.
+    pub fn at(base: &str) -> BmsIrRead {
+        let base = base.trim().trim_end_matches('/');
+        BmsIrRead {
+            base: if base.is_empty() { BASE } else { base }.to_string(),
+        }
+    }
+}
 
 impl Provider for BmsIrRead {
     fn id(&self) -> ProviderId {
@@ -106,7 +177,7 @@ impl Provider for BmsIrRead {
             ),
             _ => return Err(IrError::NotOffered),
         };
-        let req = HttpRequest::new("GET", format!("{BASE}/{path}"));
+        let req = HttpRequest::new("GET", format!("{}/{path}", self.base));
         Ok(match etag {
             Some(t) => req.header("If-None-Match", t),
             None => req,
@@ -114,7 +185,7 @@ impl Provider for BmsIrRead {
     }
 
     fn parse(&self, op: &Op, resp: &HttpResponse) -> Outcome {
-        if let Some(o) = by_status(resp, || error_code(resp), WAITS) {
+        if let Some(o) = by_status(resp, || error_words(resp), WAITS) {
             return o;
         }
         match (op, resp.status) {
@@ -130,7 +201,7 @@ impl Provider for BmsIrRead {
                 Ok(o) => o,
                 Err(e) => Outcome::Rejected(format!("bad response: {e}")),
             },
-            _ => Outcome::Rejected(error_code(resp)),
+            _ => Outcome::Rejected(error_words(resp)),
         }
     }
 }
@@ -152,6 +223,21 @@ fn error_code(resp: &HttpResponse) -> String {
     serde_json::from_slice::<Failure>(&resp.body)
         .map(|f| f.error)
         .unwrap_or_else(|_| format!("HTTP {}", resp.status))
+}
+
+/// A failure for people: the codes a user can act on in words, the others
+/// as they are.
+fn error_words(resp: &HttpResponse) -> String {
+    let code = error_code(resp);
+    match code.as_str() {
+        // no such player, or its lamps are not published
+        "player_not_public" => "player not public".into(),
+        "invalid_id" => "not a player id".into(),
+        "table_not_found" => "no charts of this table".into(),
+        "rate_limited" => "too many requests".into(),
+        "busy" => "server busy".into(),
+        _ => code,
+    }
 }
 
 fn read(op: &Op, resp: &HttpResponse) -> Result<Outcome, serde_json::Error> {
@@ -340,7 +426,7 @@ mod tests {
             limit: 3,
             etag: Some("\"e\""),
         };
-        let r = BmsIrRead.request(&rank, None).unwrap();
+        let r = BmsIrRead::at("").request(&rank, None).unwrap();
         assert_eq!(
             (r.method, r.url.as_str()),
             (
@@ -362,7 +448,7 @@ mod tests {
             limit: 0,
             etag: None,
         };
-        assert!(BmsIrRead
+        assert!(BmsIrRead::at("")
             .request(&rank, None)
             .unwrap()
             .url
@@ -374,13 +460,16 @@ mod tests {
             limit: 0,
             etag: None,
         };
-        assert_eq!(BmsIrRead.request(&rank, None), Err(IrError::NoChartId));
+        assert_eq!(
+            BmsIrRead::at("").request(&rank, None),
+            Err(IrError::NoChartId)
+        );
 
         let md5 = ["a", "b"];
-        let r = BmsIrRead.request(&Op::ChartInfo { md5: &md5 }, None);
+        let r = BmsIrRead::at("").request(&Op::ChartInfo { md5: &md5 }, None);
         assert!(r.unwrap().url.ends_with("chart.json?md5=a,b"));
         let many = ["a"; 51];
-        assert!(BmsIrRead
+        assert!(BmsIrRead::at("")
             .request(&Op::ChartInfo { md5: &many }, None)
             .is_err());
 
@@ -390,17 +479,17 @@ mod tests {
             view: "all_clients",
             etag: None,
         };
-        assert!(BmsIrRead
+        assert!(BmsIrRead::at("")
             .request(&lamps, None)
             .unwrap()
             .url
             .ends_with("player_lamps.json?id=100002&table=satellite&client_view=all_clients"));
         assert_eq!(
-            BmsIrRead.request(&Op::Verify, None),
+            BmsIrRead::at("").request(&Op::Verify, None),
             Err(IrError::NotOffered)
         );
         assert_eq!(
-            BmsIrRead.freeze(&PlayRecord::default(), "p", Profile::VibeLr2),
+            BmsIrRead::at("").freeze(&PlayRecord::default(), "p", Profile::VibeLr2),
             Err(IrError::NotOffered)
         );
     }
@@ -414,7 +503,8 @@ mod tests {
             limit: 3,
             etag: None,
         };
-        let Outcome::Ranking(v) = BmsIrRead.parse(&op, &resp(200, fixture("ranking.json"))) else {
+        let Outcome::Ranking(v) = BmsIrRead::at("").parse(&op, &resp(200, fixture("ranking.json")))
+        else {
             panic!()
         };
         assert_eq!((v.players, v.entries.len()), (89, 3));
@@ -437,11 +527,11 @@ mod tests {
         assert_eq!(v.entries[2].clear, ClearType::ExHard);
         // unchanged, and a chart nobody played
         assert_eq!(
-            BmsIrRead.parse(&op, &resp(304, Vec::new())),
+            BmsIrRead::at("").parse(&op, &resp(304, Vec::new())),
             Outcome::NotModified
         );
         let none = br#"{"schema_version":1,"ok":false,"error":"chart_not_found"}"#;
-        let Outcome::Ranking(v) = BmsIrRead.parse(&op, &resp(404, none.to_vec())) else {
+        let Outcome::Ranking(v) = BmsIrRead::at("").parse(&op, &resp(404, none.to_vec())) else {
             panic!()
         };
         assert_eq!((v.players, v.entries.len()), (0, 0));
@@ -451,7 +541,8 @@ mod tests {
     fn chart_facts() {
         let md5 = [MD5, "0123456789abcdef0123456789abcdef"];
         let op = Op::ChartInfo { md5: &md5 };
-        let Outcome::Charts(c) = BmsIrRead.parse(&op, &resp(200, fixture("chart.json"))) else {
+        let Outcome::Charts(c) = BmsIrRead::at("").parse(&op, &resp(200, fixture("chart.json")))
+        else {
             panic!()
         };
         // the chart BMS-IR has no record of is left out
@@ -477,7 +568,8 @@ mod tests {
             view: "all_clients",
             etag: None,
         };
-        let Outcome::Lamps(set) = BmsIrRead.parse(&op, &resp(200, fixture("player_lamps.json")))
+        let Outcome::Lamps(set) =
+            BmsIrRead::at("").parse(&op, &resp(200, fixture("player_lamps.json")))
         else {
             panic!()
         };
@@ -502,8 +594,8 @@ mod tests {
         assert_eq!(lamp("01af4c0984ed654897885308bc10083d"), None);
         assert_eq!(set.by_chart.len(), 4);
         assert_eq!(
-            BmsIrRead.parse(&op, &resp(404, fixture("error.json"))),
-            Outcome::Rejected("player_not_public".into())
+            BmsIrRead::at("").parse(&op, &resp(404, fixture("error.json"))),
+            Outcome::Rejected("player not public".into())
         );
     }
 
@@ -515,24 +607,24 @@ mod tests {
             br#"{"schema_version":1,"ok":false,"error":"busy"}"#.to_vec(),
         );
         assert_eq!(
-            BmsIrRead.parse(&op, &busy),
+            BmsIrRead::at("").parse(&op, &busy),
             Outcome::Retry {
                 after: Some(RetryAfter::Secs(10)),
-                why: "busy".into()
+                why: "server busy".into()
             }
         );
         // unread on the web: the documented minute
         let slow = resp(429, br#"{"error":"rate_limited"}"#.to_vec());
         assert_eq!(
-            BmsIrRead.parse(&op, &slow),
+            BmsIrRead::at("").parse(&op, &slow),
             Outcome::Retry {
                 after: Some(RetryAfter::Secs(60)),
-                why: "rate_limited".into()
+                why: "too many requests".into()
             }
         );
         busy.headers.push(("Retry-After".into(), "3".into()));
         assert!(matches!(
-            BmsIrRead.parse(&op, &busy),
+            BmsIrRead::at("").parse(&op, &busy),
             Outcome::Retry {
                 after: Some(RetryAfter::Secs(3)),
                 ..
@@ -540,7 +632,7 @@ mod tests {
         ));
         let bad = resp(400, br#"{"ok":false,"error":"invalid_md5"}"#.to_vec());
         assert_eq!(
-            BmsIrRead.parse(&op, &bad),
+            BmsIrRead::at("").parse(&op, &bad),
             Outcome::Rejected("invalid_md5".into())
         );
         let c = chart();
@@ -551,10 +643,27 @@ mod tests {
             etag: None,
         };
         assert!(matches!(
-            BmsIrRead.parse(&rank, &resp(200, b"<html>".to_vec())),
+            BmsIrRead::at("").parse(&rank, &resp(200, b"<html>".to_vec())),
             Outcome::Rejected(_)
         ));
         assert_eq!(iso_ms("2026-01-01T00:00:00.5Z"), Some(1_767_225_600_000));
         assert_eq!(iso_ms("2026-01-01 00:00:00"), None);
+    }
+
+    #[test]
+    fn player_ids_from_what_is_pasted() {
+        assert_eq!(player_id(" 191167 "), Some("191167"));
+        assert_eq!(
+            player_id("https://www.bms-ir.org/new/player?id=191167&tab=lamps"),
+            Some("191167")
+        );
+        assert_eq!(player_id("tester"), None);
+        assert_eq!(player_id(""), None);
+        // the views and tables are unique keys
+        let mut keys: Vec<&str> = VIEWS.iter().chain(&TABLES).map(|(k, _)| *k).collect();
+        keys.sort();
+        let n = keys.len();
+        keys.dedup();
+        assert_eq!(keys.len(), n);
     }
 }

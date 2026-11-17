@@ -5,7 +5,12 @@
 //! vibeBMS ids for its own select options: text `9000 + i` is the value and
 //! `9100 + i` the name of option `i`, and a clickable object with event
 //! `9000 + i` cycles it (see `SelectOption`); event 9900 leaves the
-//! current folder.
+//! current folder; text 9200 is the selected chart's IR line (the lamp
+//! beside the player's, the rank).
+//!
+//! IR: ranking rows 120-129 (names), 380-389 (EX), 390-399 (lamps), 179
+//! the player's rank, 180 the chart's players. The bar list draws the
+//! lamp of the player chosen in `IrSettings::beside` as the rival lamp.
 
 use super::options::SelectOption;
 use super::preview::Rank;
@@ -21,6 +26,8 @@ use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::*;
 use std::cell::OnceCell;
 use vibebms_core::score::{ClearType, DjLevel};
+use vibebms_ir::lamps::RankView;
+use vibebms_ir::ProviderId;
 
 /// vibeBMS select option ids (text value / name, click event).
 pub const OPTION_TEXT: i32 = 9000;
@@ -31,6 +38,8 @@ pub const EVENT_BACK: i32 = 9900;
 /// vibeBMS: watch the chosen chart's replay (its best play's, else its
 /// latest).
 pub const EVENT_REPLAY: i32 = 9901;
+/// vibeBMS text: the selected chart on the IR ("IR HARD   #12 / 345").
+pub const TEXT_IR: i32 = 9200;
 
 /// The select screen's values in one frame: what the selected bar is
 /// looked up once.
@@ -45,6 +54,8 @@ pub struct SelectState<'a> {
     /// Its BPMs, else 150 (beatoraja shows the hi-speed on folders too).
     bpms: Bpms,
     rank: Option<&'a Rank>,
+    /// Whose IR lamps show beside the player's.
+    beside: Option<(ProviderId, &'a str)>,
     table: OnceCell<Option<(String, String)>>,
     clock: Clock,
 }
@@ -56,6 +67,8 @@ pub struct BarInfo {
     pub level: Option<i64>,
     pub difficulty: usize,
     pub lamp: Option<ClearType>,
+    /// The lamp of the player chosen beside (a song's, while one is).
+    pub rival: Option<ClearType>,
 }
 
 impl<'a> SelectState<'a> {
@@ -74,6 +87,7 @@ impl<'a> SelectState<'a> {
             chart: song.map(ChartFacts::of_song),
             bpms: song.map_or(REFERENCE_BPMS, Bpms::of_song),
             rank: song.and_then(|x| s.ranking.get(&x.sha256)),
+            beside: ctx.net.ir.beside(&ctx.config.ir),
             table: OnceCell::new(),
             clock: Clock::now(),
         }
@@ -81,10 +95,63 @@ impl<'a> SelectState<'a> {
 
     /// IR ranking of the selected chart, once loaded.
     fn ranking(&self) -> Option<&[vibebms_ir::lamps::RankEntry]> {
+        self.rank_view().map(|v| v.entries.as_slice())
+    }
+
+    fn rank_view(&self) -> Option<&RankView> {
         match self.rank? {
-            Rank::Done(v) => Some(&v.entries),
+            Rank::Done(v) => Some(v),
             _ => None,
         }
+    }
+
+    /// The player's place in the selected chart's ranking.
+    fn my_rank(&self) -> Option<u32> {
+        let me = &self.ctx.config.ir.primary()?.user_id;
+        let mine = self
+            .ranking()?
+            .iter()
+            .find(|e| !me.is_empty() && e.player_id == *me);
+        mine.map(|e| e.rank)
+    }
+
+    /// The chart's players in the ranking (the rows when the server does
+    /// not say).
+    fn players(&self) -> Option<u32> {
+        let v = self.rank_view()?;
+        Some(if v.players > 0 {
+            v.players
+        } else {
+            v.entries.len() as u32
+        })
+    }
+
+    /// The lamp of the player chosen beside on a song.
+    fn rival_lamp(&self, s: &Song) -> Option<ClearType> {
+        let (p, player) = self.beside?;
+        let lamp = self.ctx.net.ir.lamp(p, player, &s.md5, &s.sha256);
+        Some(lamp.map_or(ClearType::NoPlay, |l| l.clear))
+    }
+
+    /// The selected chart on the IR: the lamp beside the player's (whose,
+    /// unless the player's own), the player's rank of the chart's players.
+    fn ir_line(&self) -> Option<String> {
+        let song = self.song?;
+        let mut parts = Vec::new();
+        if let (Some(lamp), Some((p, player))) = (self.rival_lamp(song), self.beside) {
+            let ir = &self.ctx.config.ir;
+            let mine = ir.account(p).is_some_and(|a| a.user_id == player);
+            let who = match self.ctx.net.ir.player_name(p, player) {
+                Some(name) if !mine => name,
+                _ => "IR",
+            };
+            parts.push(format!("{who} {}", lamp.label()));
+        }
+        if let Some(n) = self.players() {
+            let rank = self.my_rank().map_or("—".into(), |r| r.to_string());
+            parts.push(format!("#{rank} / {n}"));
+        }
+        (!parts.is_empty()).then(|| parts.join("   "))
     }
 
     /// The table that lists the selected chart.
@@ -110,6 +177,7 @@ impl<'a> SelectState<'a> {
                 level: None,
                 difficulty: 0,
                 lamp: None,
+                rival: None,
             },
             Bar::Song(k) => {
                 let s = ctx.lib.songs.get(*k)?;
@@ -123,6 +191,7 @@ impl<'a> SelectState<'a> {
                             .map(|b| b.clear)
                             .unwrap_or(ClearType::NoPlay),
                     ),
+                    rival: self.rival_lamp(s),
                 }
             }
             Bar::Missing(m) => BarInfo {
@@ -138,6 +207,7 @@ impl<'a> SelectState<'a> {
                     .ok(),
                 difficulty: 0,
                 lamp: None,
+                rival: None,
             },
             Bar::Course { table: t, course } => BarInfo {
                 kind: BAR_GRADE,
@@ -148,6 +218,7 @@ impl<'a> SelectState<'a> {
                 level: None,
                 difficulty: 0,
                 lamp: None,
+                rival: None,
             },
         })
     }
@@ -234,7 +305,8 @@ impl SkinState for SelectState<'_> {
                 _ => self.s.bars.len() as i64,
             },
             10 | 310..=313 => return speed_number(p, &self.bpms, id),
-            180 => self.ranking()?.len() as i64,
+            179 => self.my_rank()? as i64,
+            180 => self.players()? as i64,
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex as i64,
             390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
             350..=368 => return song_number(song?, id),
@@ -269,6 +341,7 @@ impl SkinState for SelectState<'_> {
             },
             10..=16 | 1030 | 1031 => return chart_text(&ChartText::of_song(song?), id),
             120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
+            TEXT_IR => return self.ir_line(),
             30 => self
                 .s
                 .search_edit
@@ -497,9 +570,17 @@ impl Hooks for SelectHooks<'_> {
                     }
                 }
             }
-            if let Some(Some((src, dst))) = info.lamp.and_then(|c| sl.lamp.get(c as usize)) {
-                if let Some((lr, f)) = sub(dst) {
-                    skin.blit(d, src, now, st, lr, &f);
+            // with a rival chosen, the pair where the skin has one
+            let pair = !sl.my_lamp.is_empty() && !sl.rival_lamp.is_empty();
+            let lamps = match info.rival {
+                Some(r) if pair => [(info.lamp, &sl.my_lamp), (Some(r), &sl.rival_lamp)],
+                _ => [(info.lamp, &sl.lamp), (None, &sl.lamp)],
+            };
+            for (clear, set) in lamps {
+                if let Some(Some((src, dst))) = clear.and_then(|c| set.get(c as usize)) {
+                    if let Some((lr, f)) = sub(dst) {
+                        skin.blit(d, src, now, st, lr, &f);
+                    }
                 }
             }
             // a table song downloading: how far it has got, over its bar
@@ -509,5 +590,70 @@ impl Hooks for SelectHooks<'_> {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::config::IrAccount;
+    use std::sync::Arc;
+    use vibebms_ir::lamps::RankEntry;
+
+    /// The player's IR lamps (as a start finds them in the cache) beside
+    /// the local lamp of each song bar, and the selected chart's IR line
+    /// and rank numbers.
+    #[test]
+    fn ir_lamps_beside_and_the_rank() {
+        let root = std::env::temp_dir().join(format!("vibebms-select-ir-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let song = |md5: &str, sha: &str| Song {
+            md5: md5.into(),
+            sha256: sha.into(),
+            title: md5.into(),
+            ..Default::default()
+        };
+        let (a, b) = ("a".repeat(32), "b".repeat(32));
+        ctx.lib.songs = Arc::new(vec![song(&a, "1"), song(&b, "2")]);
+        ctx.config.ir.accounts = vec![IrAccount {
+            provider: ProviderId::BmsIr,
+            user_id: "9".into(),
+            tables: vec!["official".into()],
+            ..Default::default()
+        }];
+        let now = crate::platform::unix_ms();
+        let file = ctx.paths.cache.join("ir/bmsir/9/official.json");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let set = serde_json::json!({"view": "", "fetched_ms": now, "set": {
+            "player_name": "me", "by_chart": {a.clone(): {"clear": "Hard"}}}});
+        std::fs::write(&file, set.to_string()).unwrap();
+        ctx.net.ir.poll(now, &mut ctx.config.ir);
+        let mut s = SelectScene::new(&mut ctx);
+        s.bars = vec![Bar::Song(0), Bar::Song(1)];
+        s.cursor = 0;
+        let view = RankView {
+            players: 40,
+            entries: vec![RankEntry {
+                rank: 3,
+                player_id: "9".into(),
+                ..Default::default()
+            }],
+            etag: None,
+        };
+        s.ranking.insert("1".into(), Rank::Done(view));
+        let st = SelectState::new(&s, &ctx);
+        let rival = |i| st.bar(i).unwrap().rival;
+        assert_eq!(
+            (rival(0), rival(1)),
+            (Some(ClearType::Hard), Some(ClearType::NoPlay))
+        );
+        assert_eq!(st.text(TEXT_IR).as_deref(), Some("IR HARD   #3 / 40"));
+        assert_eq!((st.number(179), st.number(180)), (Some(3), Some(40)));
+        // none beside: no rival lamps; the rank stays
+        ctx.config.ir.beside = crate::config::Beside::Off;
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(st.bar(0).unwrap().rival, None);
+        assert_eq!(st.text(TEXT_IR).as_deref(), Some("#3 / 40"));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

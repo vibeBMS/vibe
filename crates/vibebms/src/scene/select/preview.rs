@@ -5,9 +5,10 @@
 use super::SelectScene;
 use crate::app::Ctx;
 use crate::gfx::Gfx;
+use crate::ir::NotAsked;
 use crate::library::Song;
 use crate::platform::vfs::{self, Prefetch};
-use crate::platform::{Duration, Job};
+use crate::platform::{unix_ms, Duration, Job};
 use crate::skin::render::ImageJobs;
 use crate::sysound::Sound;
 use std::path::{Path, PathBuf};
@@ -171,13 +172,15 @@ impl SelectScene {
             ln: song.score_ln(ctx.config.play.ln_mode),
             remote: None,
         };
-        // (`Error`: this IR cannot be asked about the chart)
-        let rank = ctx
-            .net
-            .ir
-            .ranking(&ctx.config.ir, chart)
-            .map_or(Rank::Error, Rank::Loading);
-        self.ranking.insert(song.sha256.clone(), rank);
+        let sha = chart.sha256.clone();
+        let rank = match ctx.net.ir.ranking(&ctx.config.ir, chart, unix_ms()) {
+            Ok(job) => Rank::Loading(job),
+            // (asked again next frame)
+            Err(NotAsked::Later) => return,
+            // this IR cannot be asked about the chart
+            Err(NotAsked::Never) => Rank::Error,
+        };
+        self.ranking.insert(sha, rank);
     }
 
     pub(super) fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {
