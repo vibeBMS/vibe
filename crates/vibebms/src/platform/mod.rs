@@ -333,6 +333,113 @@ where
     step(task, next, proxy, Box::new(on_done));
 }
 
+/// A web download's failure as bmseeker types it (a status, a cancel, a
+/// stall: [`http_get_moved`]'s words).
+#[cfg(target_arch = "wasm32")]
+fn download_error(e: String) -> bmseeker::net::NetError {
+    use bmseeker::net::NetError;
+    if e == bmseeker::progress::CANCELLED {
+        return NetError::Cancelled;
+    }
+    if e.starts_with("no data for") {
+        return NetError::Stalled(bmseeker::hosts::STALL_MS / 1000);
+    }
+    let status = e
+        .strip_prefix("HTTP ")
+        .and_then(|r| r.split(' ').next()?.parse().ok());
+    match status {
+        Some(n) => NetError::Status(n),
+        None => NetError::Other(e),
+    }
+}
+
+/// Run a bmseeker job in a web page: its requests through the vibeBMS
+/// proxy (but to hosts that send CORS headers), its files through the
+/// proxy too (reporting to `progress`, ended by its cancel or a stall; a
+/// MEGA file decrypted here; where the redirects ended from the proxy's
+/// `X-Final-Url`), its waits on the page's timer; then `on_done` with its
+/// result.
+#[cfg(target_arch = "wasm32")]
+pub fn run_job<J>(
+    job: J,
+    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
+    on_done: impl FnOnce(J::Output) + Send + 'static,
+) where
+    J: bmseeker::install::job::Job + 'static,
+    J::Output: Send + 'static,
+{
+    use bmseeker::install::job::{Effect, Fed, Served, Step, Unserved};
+    use bmseeker::net::Request;
+    type Done<O> = Box<dyn FnOnce(O) + Send>;
+    type Progress = Option<std::sync::Arc<bmseeker::progress::Progress>>;
+    fn step<J>(job: J, next: Step<J::Output>, progress: Progress, on_done: Done<J::Output>)
+    where
+        J: bmseeker::install::job::Job + 'static,
+        J::Output: Send + 'static,
+    {
+        let then = move |job: J, fed: Fed, progress: Progress, on_done: Done<J::Output>| {
+            let mut job = job;
+            let next = job.feed(fed);
+            step(job, next, progress, on_done)
+        };
+        let url = |u: &str| {
+            if crate::hosts::sends_cors(u) {
+                u.to_string()
+            } else {
+                crate::hosts::via_proxy(u)
+            }
+        };
+        match next {
+            Step::Done(out) => on_done(out),
+            Step::Do(Effect::Http(Request::Get(u))) => {
+                http_answer("GET", &url(&u), &[], Vec::new(), move |a| {
+                    then(job, Fed::Http(a), progress, on_done)
+                })
+            }
+            Step::Do(Effect::Http(Request::Post { url: u, body })) => http_answer(
+                "POST",
+                &url(&u),
+                &[("Content-Type".into(), "application/json".into())],
+                body,
+                move |a| then(job, Fed::Http(a), progress, on_done),
+            ),
+            Step::Do(Effect::Download { target, .. }) => {
+                let via = crate::hosts::via_proxy(&target.url);
+                http_get_moved(&via, progress.clone(), move |r, at| {
+                    let fed = match r {
+                        Ok(mut b) => {
+                            if let Some(k) = &target.mega_key {
+                                bmseeker::hosts::MegaCipher::new(k).apply(&mut b);
+                            }
+                            Ok(Served::bytes(b, None, at))
+                        }
+                        Err(e) => Err(Unserved {
+                            error: download_error(e),
+                            at,
+                        }),
+                    };
+                    then(job, Fed::Downloaded(fed), progress, on_done)
+                })
+            }
+            Step::Do(Effect::Sleep(d)) => {
+                use wasm_bindgen::JsCast;
+                let wake = wasm_bindgen::closure::Closure::once_into_js(move || {
+                    then(job, Fed::Woke, progress, on_done)
+                });
+                if let Some(w) = web_sys::window() {
+                    let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        wake.unchecked_ref(),
+                        d.as_millis() as i32,
+                    );
+                }
+            }
+        }
+    }
+    let mut job = job;
+    let next = job.start();
+    step(job, next, progress, Box::new(on_done));
+}
+
 /// Load a difficulty table (page → header → data, with mirror fallback).
 pub fn load_table(
     url: &str,

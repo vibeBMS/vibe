@@ -524,9 +524,12 @@ fn web_fetch_files(
     }
 }
 
-/// The archive `link` leads to (for the song `want`), its requests and the
-/// file itself through the proxy (reporting to `progress`, if any); a file
-/// that does not come gives way to the next of the links its page named.
+/// The archive `link` leads to (for the song `want`): bmseeker's
+/// `Acquire` run in the page (`platform::run_job`: its requests and the
+/// file itself through the proxy, reporting to `progress`, if any). A
+/// file that does not come gives way to the next of the links its page
+/// named; a server's passing failure is tried again; what the proxy
+/// refuses (not an archive) is a page.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn web_fetch(
     link: String,
@@ -534,69 +537,22 @@ pub(crate) fn web_fetch(
     progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
     done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
 ) {
-    let r = crate::hosts::Resolver::new(&link, want.clone(), crate::hosts::context());
-    web_resolve(r, link, want, 0, progress, Box::new(done));
-}
-
-/// How many times a download's redirects may lead it to another host.
-#[cfg(target_arch = "wasm32")]
-const MOVES: u8 = 2;
-
-#[cfg(target_arch = "wasm32")]
-type WebDone = Box<dyn FnOnce(Result<Vec<u8>, Fail>) + Send>;
-
-#[cfg(target_arch = "wasm32")]
-fn web_resolve(
-    r: crate::hosts::Resolver,
-    link: String,
-    want: Option<crate::hosts::Want>,
-    moves: u8,
-    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
-    done: WebDone,
-) {
-    use crate::hosts::{Fetch, MegaCipher};
-    if let Some(p) = &progress {
-        p.set_stage(bmseeker::progress::Stage::Finding);
-    }
-    crate::platform::run_task_with(r, true, move |mut r, target| match target {
-        Ok(t) => {
-            let via = crate::hosts::via_proxy(&t.url);
-            crate::platform::http_get_moved(&via, progress.clone(), move |a, moved| {
-                let got = match a {
-                    Ok(mut b) => {
-                        if let Some(k) = t.mega_key {
-                            MegaCipher::new(&k).apply(&mut b);
-                        }
-                        crate::hosts::sniff_bytes(&b).is_some().then_some(b)
-                    }
-                    // the proxy passes archives only: a page (or a refusal)
-                    Err(_) => None,
-                };
-                let cancelled = progress.as_ref().is_some_and(|p| p.cancelled());
-                // a page reached through redirects (a short link) on a host
-                // that knows its way to the file: from there
-                let cx = crate::hosts::context();
-                let rehost = moved.filter(|u| *u != t.url && moves < MOVES).filter(|u| {
-                    crate::hosts::Link::parse(u, 0)
-                        .and_then(|l| cx.hosts.find(&l).map(|h| h.name()))
-                        .is_some_and(|h| h != "direct" && h != r.host())
-                });
-                match (got, rehost) {
-                    (Some(b), _) => done(Ok(b)),
-                    (None, Some(u)) if !cancelled => {
-                        let r = crate::hosts::Resolver::new(&u, want.clone(), cx);
-                        web_resolve(r, link, want, moves + 1, progress, done)
-                    }
-                    // a mirror the page named
-                    (None, _) if !cancelled && r.try_next() => {
-                        web_resolve(r, link, want, moves, progress, done)
-                    }
-                    (None, _) => done(Err(Fail::Page(link))),
-                }
-            })
-        }
-        Err(Fetch::Page) => done(Err(Fail::Page(link))),
-        Err(Fetch::Failed(e)) => done(Err(e.into())),
+    use crate::hosts::Fetch;
+    use bmseeker::install::job::Acquire;
+    let cx = match &progress {
+        Some(p) => crate::hosts::context().with_progress(p.clone()),
+        None => crate::hosts::context().clone(),
+    };
+    let job = Acquire::new(&link, want, false, PathBuf::new(), &cx).failures_are_pages();
+    crate::platform::run_job(job, progress, move |r| {
+        done(match r {
+            Ok(got) => match got.blob {
+                bmseeker::unpack::Blob::Bytes(b) => Ok(b),
+                bmseeker::unpack::Blob::File(_) => Err(Fail::Msg("not in memory".into())),
+            },
+            Err(Fetch::Page) => Err(Fail::Page(link)),
+            Err(Fetch::Failed(e)) => Err(e.into()),
+        })
     });
 }
 
