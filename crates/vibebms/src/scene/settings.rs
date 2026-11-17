@@ -93,7 +93,7 @@ enum Act {
     SkinPage(usize),
     /// Delete catalog skin `.0`, on a second press.
     SkinDelete(usize),
-    /// Download and install the update found (or open the release page).
+    /// Download and install the update found.
     UpdateNow,
     /// Leave and start the updated executable.
     RestartNow,
@@ -1122,7 +1122,27 @@ fn system_items(ctx: &Ctx) -> Vec<Item> {
         value: format!("vibeBMS {VERSION}"),
         act: Act::None,
     }];
+    let note = |label: String| Item {
+        label,
+        value: String::new(),
+        act: Act::None,
+    };
     if !SUPPORTED {
+        return v;
+    }
+    match Version::current() {
+        Some(cur) if cur.is_nightly() => {}
+        Some(cur) if cur.dev => {
+            v.push(note(
+                "A local build: only the nightly builds update themselves".into(),
+            ));
+            return v;
+        }
+        _ => return v,
+    }
+    // installed by a package manager, or in a folder it cannot write to:
+    // its updates come from elsewhere
+    if !crate::update::self_updating() {
         return v;
     }
     v.push(it(
@@ -1135,45 +1155,21 @@ fn system_items(ctx: &Ctx) -> Vec<Item> {
             }
         },
     ));
-    let note = |label: String| Item {
-        label,
-        value: String::new(),
-        act: Act::None,
-    };
-    match Version::current() {
-        Some(cur) if cur.is_nightly() => {}
-        Some(cur) if cur.dev => {
-            v.push(note(
-                "A local build: only the nightly builds update themselves".into(),
-            ));
-            return v;
-        }
-        _ => {
-            v.push(note("Only the nightly builds update themselves".into()));
-            return v;
-        }
-    }
     match &ctx.updater.status {
         Status::Idle => {}
         Status::Checking => v.push(note("Checking for updates…".into())),
         Status::UpToDate => v.push(note("vibeBMS is up to date".into())),
         Status::CheckFailed(e) => v.push(note(format!("Could not check for updates: {e}"))),
         Status::Available(o) | Status::Failed(o, _) => {
-            let refused = o.refusal.is_some();
             v.push(Item {
                 label: format!("Update available: {} ({})", o.version, mb(o.size)),
-                value: if refused {
-                    "release page ↗".into()
-                } else if matches!(ctx.updater.status, Status::Failed(..)) {
+                value: if matches!(ctx.updater.status, Status::Failed(..)) {
                     "try again ↵".into()
                 } else {
                     "Update now ↵".into()
                 },
                 act: Act::UpdateNow,
             });
-            if let Some(why) = &o.refusal {
-                v.push(note(format!("    {why}: update it from the release page")));
-            }
             if let Status::Failed(_, e) = &ctx.updater.status {
                 v.push(note(format!("    The update failed: {e}")));
             }

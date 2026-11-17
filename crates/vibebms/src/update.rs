@@ -3,13 +3,18 @@
 //! CI builds are nightlies, `<version>-nightly.<run>+<commit>`
 //! (`tools/ci_version.sh`); only they check (local builds are `-dev`,
 //! releases have no channel yet). The nightly release has a `latest.json`
-//! (docs/BUILDING.md):
+//! (docs/BUILDING.md) with a part per channel (`nightly`; `stable` is kept
+//! for the releases to come):
 //!
 //! ```json
 //! {
-//!   "version": "0.1.0-nightly.200+abc1234",
-//!   "files": {
-//!     "vibebms-linux-x64": { "version": "0.1.0-nightly.200+abc1234", "sha256": "…", "size": 31457280 }
+//!   "channels": {
+//!     "nightly": {
+//!       "version": "0.1.0-nightly.200+abc1234",
+//!       "files": {
+//!         "vibebms-linux-x64": { "version": "0.1.0-nightly.200+abc1234", "sha256": "…", "size": 31457280 }
+//!       }
+//!     }
 //!   }
 //! }
 //! ```
@@ -23,8 +28,8 @@
 //! in the running executable's place (`self-replace`: on Windows a running
 //! executable cannot be overwritten, but can be renamed); "Restart now"
 //! then starts it with the same arguments. An executable a package manager
-//! installed, or one in a folder that cannot be written to, is not
-//! replaced: the release page is opened instead.
+//! installed, or one in a folder that cannot be written to, does nothing:
+//! it neither checks nor offers (its package manager updates it).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -38,8 +43,6 @@ pub const LATEST_URL: &str =
     "https://github.com/vibeBMS/vibe/releases/download/nightly/latest.json";
 /// Where the nightly's files are downloaded from (`<base>/<asset>`).
 pub const DOWNLOAD_BASE: &str = "https://github.com/vibeBMS/vibe/releases/download/nightly";
-/// The release's page, for those who update by hand.
-pub const RELEASE_PAGE: &str = "https://github.com/vibeBMS/vibe/releases/tag/nightly";
 
 /// This build's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -217,19 +220,33 @@ pub struct FileEntry {
     pub size: u64,
 }
 
-/// The nightly release's `latest.json`.
+/// `latest.json`: a part per channel.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LatestFile {
+    /// `nightly` (and, for the releases to come, `stable`).
+    pub channels: BTreeMap<String, Latest>,
+}
+
+/// The channel nightlies read.
+pub const NIGHTLY: &str = "nightly";
+
+/// One channel of `latest.json`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Latest {
-    /// The release's version (its newest files').
+    /// The channel's version (its newest files').
     pub version: String,
     /// File name -> what it is.
     pub files: BTreeMap<String, FileEntry>,
 }
 
 impl Latest {
-    pub fn parse(bytes: &[u8]) -> Result<Latest, String> {
-        serde_json::from_slice(bytes).map_err(|e| format!("latest.json: {e}"))
+    /// The `channel` part of a `latest.json` (empty when it has none).
+    pub fn parse(bytes: &[u8], channel: &str) -> Result<Latest, String> {
+        let f: LatestFile =
+            serde_json::from_slice(bytes).map_err(|e| format!("latest.json: {e}"))?;
+        Ok(f.channels.get(channel).cloned().unwrap_or_default())
     }
 
     /// What it offers a build of `current` whose file is `asset`: its file
@@ -246,7 +263,6 @@ impl Latest {
             version,
             sha256: f.sha256.to_ascii_lowercase(),
             size: f.size,
-            refusal: None,
         })
     }
 }
@@ -258,9 +274,6 @@ pub struct Offer {
     pub version: Version,
     pub sha256: String,
     pub size: u64,
-    /// Why this executable is not replaced in place (the release page is
-    /// opened instead).
-    pub refusal: Option<String>,
 }
 
 /// Bytes downloaded of an update.
@@ -317,28 +330,23 @@ pub struct Updater {
 }
 
 impl Updater {
-    /// Check for an update in the background, if this build checks and
-    /// `enabled` (the "Check for updates" setting).
+    /// Check for an update in the background, if this build updates
+    /// itself ([`self_updating`]) and `enabled` (the "Check for updates"
+    /// setting).
     pub fn check(&mut self, enabled: bool) {
-        if !SUPPORTED || !enabled || self.rx.is_some() {
+        if !enabled || self.rx.is_some() || !self_updating() {
             return;
         }
-        let (Some(current), Some(asset)) =
-            (Version::current().filter(Version::is_nightly), asset_name())
-        else {
+        let (Some(current), Some(asset)) = (Version::current(), asset_name()) else {
             return;
         };
         let (tx, rx) = channel();
         self.rx = Some(rx);
         self.status = Status::Checking;
         crate::platform::http_get(LATEST_URL, move |r| {
-            // (a worker thread: the folder is looked at here too)
-            let r = r.and_then(|b| Latest::parse(&b)).map(|l| {
-                l.offer(&asset, &current).map(|mut o| {
-                    o.refusal = exe_path().and_then(|e| install_refusal(&e));
-                    o
-                })
-            });
+            let r = r
+                .and_then(|b| Latest::parse(&b, NIGHTLY))
+                .map(|l| l.offer(&asset, &current));
             let _ = tx.send(Msg::Checked(r));
         });
     }
@@ -391,18 +399,13 @@ impl Updater {
         self.notice.take()
     }
 
-    /// Download and put in place the update found (an executable that
-    /// cannot replace itself: its release page opens). Returns what to
-    /// tell the player.
+    /// Download and put in place the update found. Returns what to tell
+    /// the player.
     pub fn install(&mut self) -> Option<String> {
         let o = match &self.status {
             Status::Available(o) | Status::Failed(o, _) => o.clone(),
             _ => return None,
         };
-        if let Some(why) = &o.refusal {
-            crate::platform::open_url(RELEASE_PAGE);
-            return Some(format!("{why}: download the update from the release page"));
-        }
         let Some(exe) = exe_path() else {
             return Some("Update failed: the executable's location is not known".into());
         };
@@ -507,6 +510,20 @@ fn dir_writable(dir: &Path) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Whether this build updates itself: a nightly, on the desktop, whose
+/// executable is its own (not a package manager's) in a folder it can
+/// write to. Others neither check nor offer. (Looked at once: it writes a
+/// probe file.)
+pub fn self_updating() -> bool {
+    static IT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *IT.get_or_init(|| {
+        SUPPORTED
+            && Version::current().is_some_and(|v| v.is_nightly())
+            && asset_name().is_some()
+            && exe_path().is_some_and(|e| install_refusal(&e).is_none())
+    })
 }
 
 /// Why the executable at `exe` is not replaced in place, if it is not.
@@ -798,7 +815,9 @@ mod tests {
         assert!(asset_name().is_some());
     }
 
-    const LATEST: &str = r#"{
+    const LATEST: &str = r#"{ "channels": {
+      "stable": { "version": "0.1.0", "files": {} },
+      "nightly": {
       "version": "0.1.0-nightly.200+abc1234",
       "files": {
         "vibebms-linux-x64": {
@@ -816,11 +835,11 @@ mod tests {
         "vibebms-linux-arm64-portable": { "version": "0.1.0-beta", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "size": 4 }
       },
       "something": "new"
-    }"#;
+    } } }"#;
 
     #[test]
     fn latest_json() {
-        let l = Latest::parse(LATEST.as_bytes()).unwrap();
+        let l = Latest::parse(LATEST.as_bytes(), NIGHTLY).unwrap();
         assert_eq!(l.version, "0.1.0-nightly.200+abc1234");
         assert_eq!(l.files.len(), 5);
         let cur = v("0.1.0-nightly.192+e129ac9");
@@ -848,8 +867,12 @@ mod tests {
             l.offer("vibebms-linux-x64", &v("0.1.0-nightly.200+abc1234")),
             None
         );
-        assert!(Latest::parse(b"not json").is_err());
-        assert_eq!(Latest::parse(b"{}").unwrap(), Latest::default());
+        // the other channels are not read
+        let stable = Latest::parse(LATEST.as_bytes(), "stable").unwrap();
+        assert_eq!(stable.version, "0.1.0");
+        assert_eq!(stable.offer("vibebms-linux-x64", &cur), None);
+        assert!(Latest::parse(b"not json", NIGHTLY).is_err());
+        assert_eq!(Latest::parse(b"{}", NIGHTLY).unwrap(), Latest::default());
     }
 
     #[test]

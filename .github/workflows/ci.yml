@@ -408,6 +408,9 @@ jobs:
           echo "BASE_VERSION=$base" >> "$GITHUB_ENV"
           echo "VERSION=$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
       - name: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           mkdir out
           for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable macos-arm64 macos-x64; do
@@ -450,7 +453,19 @@ jobs:
                 appPermissions: { entitlements: [], privacy: {} }
               }],
               news: []
-            }' > out/altstore.json
+            }' > out/altstore.new.json
+            # the nightly is one app of the source: the others (a stable one,
+            # for the releases to come) are kept from the previous source
+            mkdir -p prev
+            if ! gh release download nightly -p altstore.json -D prev --clobber 2>/dev/null \
+              || ! jq -e '.apps | type == "array"' prev/altstore.json >/dev/null 2>&1; then
+              echo '{"apps": []}' > prev/altstore.json
+            fi
+            jq --slurpfile prev prev/altstore.json '
+              (.apps[0].bundleIdentifier) as $id
+              | .apps += [$prev[0].apps[] | select(.bundleIdentifier != $id)]
+            ' out/altstore.new.json > out/altstore.json
+            rm out/altstore.new.json
           fi
           ls -l out
       # what the desktop executables' self-update reads (crates/vibebms/src/
@@ -480,10 +495,13 @@ jobs:
               --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$f")" \
               '. + {($n): {version: $v, sha256: $sha, size: $size}}' <<< "$new")"
           done
-          jq --arg version "$VERSION" --argjson new "$new" '{
-            version: $version,
-            files: ((if (.files | type) == "object" then .files else {} end) + $new)
-          }' prev/latest.json > out/latest.json
+          # a part per channel: this job writes "nightly" and keeps the
+          # others ("stable", for the releases to come)
+          jq --arg version "$VERSION" --argjson new "$new" '
+            (if (.channels | type) == "object" then .channels else {} end) as $ch
+            | (($ch.nightly.files // .files) | if type == "object" then . else {} end) as $old
+            | {channels: ($ch + {nightly: {version: $version, files: ($old + $new)}})}
+          ' prev/latest.json > out/latest.json
           cat out/latest.json
       - name: release
         env:

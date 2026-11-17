@@ -33,7 +33,7 @@ systems (glibc 2.28) and without WebKitGTK, but has no download browser.
 
 The desktop executables from there look for a newer nightly on start (`SETTINGS › SYSTEM › Check for updates`).
 When there is one, the song select says so and `SETTINGS › SYSTEM` updates in place ("Update now", then "Restart
-now"); a copy a package manager installed, or in a folder that cannot be written to, links to the release page.
+now"); a copy a package manager installed, or one in a folder that cannot be written to, does not check.
 
 Or build it yourself:
 

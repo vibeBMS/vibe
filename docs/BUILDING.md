@@ -90,15 +90,20 @@ The nightly release has a `latest.json` that the desktop executables read on sta
 
 ```json
 {
-  "version": "0.1.0-nightly.200+abc1234",
-  "files": {
-    "vibebms-linux-x64": { "version": "0.1.0-nightly.200+abc1234", "sha256": "<64 hex digits>", "size": 31457280 },
-    "vibebms-windows-x64.exe": { "version": "0.1.0-nightly.198+0f1e2d3", "sha256": "<64 hex digits>", "size": 28311552 }
+  "channels": {
+    "nightly": {
+      "version": "0.1.0-nightly.200+abc1234",
+      "files": {
+        "vibebms-linux-x64": { "version": "0.1.0-nightly.200+abc1234", "sha256": "<64 hex digits>", "size": 31457280 },
+        "vibebms-windows-x64.exe": { "version": "0.1.0-nightly.198+0f1e2d3", "sha256": "<64 hex digits>", "size": 28311552 }
+      }
+    }
   }
 }
 ```
 
-`version` is the release's (the run that published it); `files` has an entry for each desktop executable in the
+It has a part per channel: the `nightly` job writes `nightly` and keeps any other (a `stable` part is kept for the
+releases to come; nothing reads it yet). In a channel, `version` is the release's (the run that published it); `files` has an entry for each desktop executable in the
 release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`, `-arm64-portable`, `vibebms-macos-arm64`, `-x64`,
 `vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with, its SHA-256 and its size in bytes. Each
 desktop build job writes its `VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `nightly` job reads it. A
@@ -114,7 +119,7 @@ commit differs from its own and its run number (`nightly.<run>`) is higher; were
 "Update now" downloads the file next to the executable, checks its size and SHA-256 and puts it in the running
 executable's place (the `self-replace` crate: an atomic rename on Unix that keeps the permissions; on Windows the
 running executable is renamed away first); "Restart now" starts it with the same arguments. An executable under
-`/usr` (or another package manager's folder), inside a `.app` bundle, or in a folder it cannot write to opens the
-release page instead. Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
+`/usr` (or another package manager's folder), inside a `.app` bundle, or in a folder it cannot write to does nothing:
+it neither checks nor offers updates (its package manager updates it). Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
 local builds (`-dev`, no metadata), releases (there is no release channel yet) and the web, Android and iOS builds
 never do.
