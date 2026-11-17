@@ -75,25 +75,34 @@ pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     if crate::video::is_video(p) {
         return crate::video::size(p);
     }
-    crate::platform::vfs::read(p).ok().and_then(|b| {
-        if let Some(s) = crate::gfx::dds::size(&b).or_else(|| crate::gfx::cim::size(&b)) {
-            return Some(s);
-        }
-        let r = image::ImageReader::new(std::io::Cursor::new(&b[..]))
-            .with_guessed_format()
-            .ok()?;
-        if r.format().is_some() {
-            return r.into_dimensions().ok();
-        }
-        // TGA has no signature: trust the extension
-        let tga = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("tga"));
-        tga.then(|| {
-            image::ImageReader::with_format(std::io::Cursor::new(&b[..]), image::ImageFormat::Tga)
-                .into_dimensions()
-                .ok()
-        })
-        .flatten()
+    // the start of the file says, but for the odd JPEG with a large
+    // preview ahead of its frame header
+    const HEAD: usize = 64 << 10;
+    let head = crate::platform::vfs::read_head(p, HEAD).ok()?;
+    image_size_of(&head, p).or_else(|| {
+        let whole = (head.len() == HEAD).then(|| crate::platform::vfs::read(p).ok())??;
+        image_size_of(&whole, p)
     })
+}
+
+fn image_size_of(b: &[u8], p: &std::path::Path) -> Option<(u32, u32)> {
+    if let Some(s) = crate::gfx::dds::size(b).or_else(|| crate::gfx::cim::size(b)) {
+        return Some(s);
+    }
+    let r = image::ImageReader::new(std::io::Cursor::new(b))
+        .with_guessed_format()
+        .ok()?;
+    if r.format().is_some() {
+        return r.into_dimensions().ok();
+    }
+    // TGA has no signature: trust the extension
+    let tga = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("tga"));
+    tga.then(|| {
+        image::ImageReader::with_format(std::io::Cursor::new(b), image::ImageFormat::Tga)
+            .into_dimensions()
+            .ok()
+    })
+    .flatten()
 }
 
 /// (type, name) of any supported skin file (cached: reading a Lua skin's
@@ -1084,6 +1093,31 @@ mod tests {
         assert_eq!(header(&p), Some((SkinType::Result, "CSV skin".into())));
         assert_eq!(custom_options(&p).len(), 1);
         assert_eq!(custom_offsets(&p).len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn image_sizes_from_the_header_or_the_whole_file() {
+        let dir = std::env::temp_dir().join(format!("vibebms-imgsize-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = image::RgbImage::new(300, 200);
+        let (png, jpg) = (dir.join("a.png"), dir.join("a.jpg"));
+        img.save(&png).unwrap();
+        // a JPEG whose frame header is past the first 64 KiB
+        let mut b = Vec::new();
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut std::io::Cursor::new(&mut b), image::ImageFormat::Jpeg)
+            .unwrap();
+        let mut big = b[..2].to_vec();
+        for _ in 0..2 {
+            big.extend([0xFF, 0xE1, 0xFF, 0xFF]);
+            big.resize(big.len() + 0xFFFD, 0);
+        }
+        big.extend(&b[2..]);
+        std::fs::write(&jpg, big).unwrap();
+        assert_eq!(image_size(&png), Some((300, 200)));
+        assert_eq!(image_size(&jpg), Some((300, 200)));
+        assert_eq!(image_size(&dir.join("none.png")), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
