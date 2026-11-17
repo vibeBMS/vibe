@@ -86,6 +86,8 @@ pub struct IrService {
     /// Accounts whose player id was just entered: what its first lamp set
     /// says is told.
     checking: Vec<ProviderId>,
+    /// What to tell the player at the next poll.
+    notes: Vec<String>,
 }
 
 /// The adapter of an account, where this build has one.
@@ -142,6 +144,7 @@ impl IrService {
             lamps: LampCache::new(paths.cache.join("ir")),
             lamps_ms: 0,
             checking: Vec::new(),
+            notes: Vec::new(),
         };
         ir.load();
         ir
@@ -246,6 +249,7 @@ impl IrService {
         if rec.play_id.is_empty() {
             return;
         }
+        let mut dropped = Vec::new();
         for a in ir.accounts.iter().filter(|a| a.enabled && a.submit) {
             let (Some(p), Ok(profile)) = (provider(a), eligible(rec, a.provider.kind())) else {
                 continue;
@@ -253,17 +257,33 @@ impl IrService {
             let id = &rec.play_id;
             match Item::freeze(&*p, &a.user_id, rec, id, profile, user_intent, now_ms) {
                 Ok(item) => match self.outbox.as_mut() {
-                    Some(o) => {
-                        for d in o.push(item) {
-                            log::warn!("IR outbox full: dropped {} ({})", d.summary.title, d.id);
-                        }
-                    }
+                    Some(o) => dropped.extend(o.push(item)),
                     None => self.early.push(item),
                 },
                 Err(e) => log::warn!("IR {}: {e}", a.title()),
             }
         }
+        self.dropped(dropped);
         self.save();
+    }
+
+    /// Items the outbox dropped to stay within its bound: logged and told.
+    fn dropped(&mut self, items: Vec<Item>) {
+        for d in &items {
+            log::warn!("IR outbox full: dropped {} ({})", d.summary.title, d.id);
+        }
+        let max = vibebms_ir::outbox::MAX_UNFINISHED;
+        self.notes.extend(match items.as_slice() {
+            [] => None,
+            [d] => Some(format!(
+                "IR outbox full ({max} waiting): dropped {}",
+                d.summary.title
+            )),
+            more => Some(format!(
+                "IR outbox full ({max} waiting): dropped the {} oldest",
+                more.len()
+            )),
+        });
     }
 
     /// Check the account of `p` (its key, or its player id, was entered or
@@ -370,9 +390,11 @@ impl IrService {
             self.loading = None;
             let mut o = self.loaded(r, now_ms);
             o.prune(now_ms);
+            let mut dropped = Vec::new();
             for i in self.early.drain(..) {
-                o.push(i);
+                dropped.extend(o.push(i));
             }
+            self.dropped(dropped);
             self.outbox = Some(o);
             changed = true;
         }
@@ -417,6 +439,7 @@ impl IrService {
         if changed {
             self.save();
         }
+        events.extend(self.notes.drain(..).map(AppEvent::Toast));
         events
     }
 
@@ -1045,6 +1068,47 @@ mod tests {
         }
         assert_eq!(ir.ranking(&s, chart("ab"), t).err(), Some(NotAsked::Later));
         assert!(ir.ranking(&s, chart("ab"), t + 60_000).is_ok());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The outbox at its bound drops its oldest waiting play for a new one,
+    /// and says so.
+    #[test]
+    fn a_full_outbox_tells_what_it_dropped() {
+        let root = std::env::temp_dir().join(format!("vibebms-ir-full-{}", std::process::id()));
+        let paths = Paths::at(root.clone());
+        let mut s = IrSettings {
+            accounts: vec![IrAccount {
+                url: "http://127.0.0.1:9".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let t0 = 1_794_916_800_000;
+        let mut ir = IrService::new(&paths, t0);
+        // no key: nothing is sent
+        ir.poll(t0, &mut s);
+        let vj = VibeJson::new(0, "http://127.0.0.1:9").unwrap();
+        let profile = vibebms_ir::rule::Profile::VibeBeatoraja;
+        let o = ir.outbox.as_mut().unwrap();
+        for n in 0..vibebms_ir::outbox::MAX_UNFINISHED {
+            let rec = play(t0 + n as i64);
+            let id = format!("p{n}");
+            o.push(Item::freeze(&vj, "", &rec, &id, profile, false, t0 + n as i64).unwrap());
+        }
+        let mut rec = play(t0 + 10_000);
+        rec.chart.title = "NEWEST".into();
+        ir.record(&mut rec);
+        ir.submit(&rec, &s, false, t0 + 10_000);
+        let said = ir.poll(t0 + 10_000, &mut s);
+        assert_eq!(
+            said,
+            [AppEvent::Toast(
+                "IR outbox full (500 waiting): dropped SONG".into()
+            )]
+        );
+        assert!(ir.items().any(|i| i.play_id == rec.play_id));
+        assert!(!ir.items().any(|i| i.play_id == "p0"));
         std::fs::remove_dir_all(&root).ok();
     }
 }
