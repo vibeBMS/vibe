@@ -440,7 +440,7 @@ jobs:
           echo "VIBEBMS_KEYSTORE=$ks" >> "$GITHUB_ENV"
           echo "VIBEBMS_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
           echo "VIBEBMS_KEY_ALIAS=$alias" >> "$GITHUB_ENV"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: "9.6.0"
       - run: |
