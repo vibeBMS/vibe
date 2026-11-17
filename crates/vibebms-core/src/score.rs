@@ -226,6 +226,35 @@ impl Score {
         }
         gc
     }
+
+    /// LR2's lamp (`docs/LR2_BEHAVIOUR.md`, 7.2), one of its five: FAILED
+    /// when the gauge emptied (`died`); else FULL COMBO when the max combo
+    /// is the note count, whatever the gauge ends at (empty POORs and
+    /// mines keep the combo); else the qualified gauge's (`gauge_clear`,
+    /// HAZARD's a CLEAR), or FAILED. Any assist caps it at EASY.
+    pub fn lr2_clear_type(
+        &self,
+        died: bool,
+        gauge_clear: Option<ClearType>,
+        assist: Assist,
+    ) -> ClearType {
+        let lamp = if died {
+            ClearType::Failed
+        } else if self.max_combo >= self.total_notes {
+            ClearType::FullCombo
+        } else {
+            match gauge_clear {
+                None => ClearType::Failed,
+                Some(ClearType::FullCombo) => ClearType::Normal,
+                Some(c) => c,
+            }
+        };
+        if assist == Assist::None || lamp == ClearType::Failed {
+            lamp
+        } else {
+            lamp.min(ClearType::Easy)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +343,49 @@ mod tests {
         assert_eq!(
             s.clear_type(Some(ClearType::Hard), Assist::Light),
             ClearType::LightAssistEasy
+        );
+    }
+
+    #[test]
+    fn lr2_lamps() {
+        let mut s = Score {
+            total_notes: 2,
+            passed: 2,
+            max_combo: 2,
+            ..Default::default()
+        };
+        // a GROOVE full combo that ends below 80 %
+        s.add(Judge::Miss, 1);
+        assert_eq!(
+            s.lr2_clear_type(false, None, Assist::None),
+            ClearType::FullCombo
+        );
+        assert_eq!(
+            s.lr2_clear_type(true, None, Assist::None),
+            ClearType::Failed
+        );
+        assert_eq!(
+            s.lr2_clear_type(false, None, Assist::Light),
+            ClearType::Easy
+        );
+        s.max_combo = 1;
+        for (gauge, lamp) in [
+            (None, ClearType::Failed),
+            (Some(ClearType::Easy), ClearType::Easy),
+            (Some(ClearType::Normal), ClearType::Normal),
+            (Some(ClearType::Hard), ClearType::Hard),
+            // HAZARD
+            (Some(ClearType::FullCombo), ClearType::Normal),
+        ] {
+            assert_eq!(s.lr2_clear_type(false, gauge, Assist::None), lamp);
+        }
+        assert_eq!(
+            s.lr2_clear_type(false, Some(ClearType::Hard), Assist::Full),
+            ClearType::Easy
+        );
+        assert_eq!(
+            s.lr2_clear_type(false, None, Assist::Full),
+            ClearType::Failed
         );
     }
 }
