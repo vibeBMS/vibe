@@ -79,8 +79,8 @@ pub struct Gate {
     pub wall_time: bool,
 }
 
-/// Bokutachi BMS 7K/14K (vibe-LR2): off until the LR2 equivalence work
-/// (IR-14) is done.
+/// Bokutachi BMS 7K/14K (vibe-LR2): off while an open LR2 gap reaches
+/// every play (A11, the note choice: `tools/lr2-measure`).
 pub const BOKUTACHI_BMS: bool = false;
 
 const BMS_MODES: &[PlayMode] = &[
