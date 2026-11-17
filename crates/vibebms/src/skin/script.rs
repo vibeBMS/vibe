@@ -3,9 +3,9 @@
 //! image indices, slider / graph rates and click events.
 //!
 //! Each script value gets a synthetic id (`SCRIPT_ID + n`) in the namespace
-//! of what it replaces (option, timer, number, ...). Once per frame
-//! [`Runtime::update`] evaluates every script against the scene's
-//! [`SkinState`], and [`Overlay`] answers those ids from the results.
+//! of what it replaces (option, timer, number, ...). [`Overlay`] answers
+//! those ids, running a script against the scene's [`SkinState`] when its
+//! value is first read in a frame ([`Runtime::update`] starts one).
 //! Scripts reach the game through beatoraja's `main_state`, `timer_util`
 //! and `event_util` modules (as globals in JSON skins).
 
@@ -85,9 +85,16 @@ pub struct Overlay<'a> {
 }
 
 impl Overlay<'_> {
-    fn val(&self, id: i32) -> Option<Val> {
-        let rt = self.rt?;
-        script_index(id).map(|k| rt.value(k))
+    /// `f` of script `id`'s value (`None`: not a script).
+    fn val<R>(&self, id: i32, f: impl FnOnce(&Val) -> R) -> Option<R> {
+        let (rt, k) = (self.rt?, script_index(id)?);
+        // scripts see the state under the skin's values, as in `update`
+        let st = Overlay {
+            st: self.st,
+            rt: None,
+            offsets: self.offsets,
+        };
+        Some(rt.value(k, &st, f))
     }
 }
 
@@ -96,43 +103,30 @@ impl SkinState for Overlay<'_> {
         if let Some(us) = self.rt.and_then(|rt| rt.timer_override(id)) {
             return us;
         }
-        match self.val(id) {
-            Some(v) => match v.int() {
-                Some(us) if us != i64::MIN => Some(us.div_euclid(1000)),
-                _ => None,
-            },
+        match self.val(id, Val::int) {
+            Some(Some(us)) if us != i64::MIN => Some(us.div_euclid(1000)),
+            Some(_) => None,
             None => self.st.timer(id),
         }
     }
     fn option(&self, id: i32) -> bool {
-        match self.val(id.abs()) {
-            Some(v) => v.truthy() == (id > 0),
+        match self.val(id.abs(), Val::truthy) {
+            Some(on) => on == (id > 0),
             None => self.st.option(id),
         }
     }
     fn number(&self, id: i32) -> Option<i64> {
-        match self.val(id) {
-            Some(v) => v.int(),
-            None => self.st.number(id),
-        }
+        self.val(id, Val::int).unwrap_or_else(|| self.st.number(id))
     }
     fn text(&self, id: i32) -> Option<String> {
-        match self.val(id) {
-            Some(v) => Some(v.text()),
-            None => self.st.text(id),
-        }
+        self.val(id, Val::text).or_else(|| self.st.text(id))
     }
     fn rate(&self, id: i32) -> f32 {
-        match self.val(id) {
-            Some(v) => v.num() as f32,
-            None => self.st.rate(id),
-        }
+        self.val(id, |v| v.num() as f32)
+            .unwrap_or_else(|| self.st.rate(id))
     }
     fn button(&self, id: i32) -> Option<i64> {
-        match self.val(id) {
-            Some(v) => v.int(),
-            None => self.st.button(id),
-        }
+        self.val(id, Val::int).unwrap_or_else(|| self.st.button(id))
     }
     fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
         self.st.distribution(rank)
@@ -1168,7 +1162,8 @@ end
                 entries: self.entries,
                 timers: self.timers,
                 events: RefCell::new(self.events),
-                cache: RefCell::new(vec![Val::Nil; n]),
+                cache: RefCell::new(vec![(0, Val::Nil); n]),
+                generation: Cell::new(0),
                 queued: RefCell::new(Vec::new()),
                 failed: RefCell::new(HashSet::new()),
             }))
@@ -1182,7 +1177,11 @@ end
         entries: Vec<Entry>,
         timers: Vec<(i32, Function)>,
         events: RefCell<Vec<CustomEvent>>,
-        cache: RefCell<Vec<Val>>,
+        /// Values with the frame they are of: a value is worked out when
+        /// first read in a frame, so what is not drawn does not run.
+        cache: RefCell<Vec<(u64, Val)>>,
+        /// The frame (counted by `update`).
+        generation: Cell<u64>,
         /// Clicked script events, run on the next frame.
         queued: RefCell<Vec<usize>>,
         failed: RefCell<HashSet<usize>>,
@@ -1206,8 +1205,36 @@ end
     }
 
     impl Runtime {
-        pub(super) fn value(&self, k: usize) -> Val {
-            self.cache.borrow().get(k).cloned().unwrap_or_default()
+        /// `f` of script `k`'s value this frame, `st` the state it reads.
+        pub(super) fn value<R>(
+            &self,
+            k: usize,
+            st: &dyn SkinState,
+            f: impl FnOnce(&Val) -> R,
+        ) -> R {
+            let Some(e) = self.entries.get(k).filter(|e| e.kind != ScriptKind::Event) else {
+                return f(&Val::Nil);
+            };
+            let now = self.generation.get();
+            if self.cache.borrow()[k].0 != now {
+                let v = self.frame.with(st, || self.eval(k, e));
+                self.cache.borrow_mut()[k] = (now, v);
+            }
+            f(&self.cache.borrow()[k].1)
+        }
+
+        fn eval(&self, k: usize, e: &Entry) -> Val {
+            match e.f.call::<LV>(()) {
+                Ok(v) => val(v),
+                Err(err) => {
+                    self.warn(k, &err);
+                    if e.kind == ScriptKind::Timer {
+                        Val::Int(i64::MIN)
+                    } else {
+                        Val::Nil
+                    }
+                }
+            }
         }
 
         /// A timer scripts control: `Some(None)` = off.
@@ -1242,13 +1269,15 @@ end
             }
         }
 
-        /// Evaluate every script for this frame (`now` = scene ms).
+        /// Start a frame (`now` = scene ms): run clicked and custom events,
+        /// custom timers and timer scripts (they watch for changes, so they
+        /// run every frame); other values are worked out when read.
         pub fn update(&self, st: &dyn SkinState, now: i64) {
             arm(&self.lua, FRAME_TIME);
             let now_us = now.saturating_mul(1000);
             self.frame.now_us.set(now_us);
+            self.generation.set(self.generation.get() + 1);
             self.frame.with(st, || {
-                // clicked events, then custom events and timers, then values
                 let queued = std::mem::take(&mut *self.queued.borrow_mut());
                 for k in queued {
                     if let Err(e) = self.entries[k].f.call::<()>(()) {
@@ -1281,22 +1310,12 @@ end
                         .borrow_mut()
                         .insert(*id, v.unwrap_or(i64::MIN));
                 }
-                let mut cache = self.cache.borrow_mut();
+                let now = self.generation.get();
                 for (k, e) in self.entries.iter().enumerate() {
-                    if e.kind == ScriptKind::Event {
-                        continue;
+                    if e.kind == ScriptKind::Timer {
+                        let v = self.eval(k, e);
+                        self.cache.borrow_mut()[k] = (now, v);
                     }
-                    cache[k] = match e.f.call::<LV>(()) {
-                        Ok(v) => val(v),
-                        Err(err) => {
-                            self.warn(k, &err);
-                            if e.kind == ScriptKind::Timer {
-                                Val::Int(i64::MIN)
-                            } else {
-                                Val::Nil
-                            }
-                        }
-                    };
                 }
             });
         }
@@ -1402,6 +1421,47 @@ end
             // a timer set while the skin was built is not kept
             let t = s.with_state(Some(&St), || s.lua().load("return timer(5)").eval::<i64>());
             assert_eq!(t.unwrap(), i64::MIN);
+        }
+
+        #[test]
+        fn values_run_when_read_and_timers_every_frame() {
+            let dir = Path::new("/nonexistent/theme/skin");
+            let s = Script::new(dir, true).unwrap();
+            s.lua()
+                .load("calls, ticks = 0, 0 function count() calls = calls + 1 return calls end")
+                .exec()
+                .unwrap();
+            let mut b = Builder::new(Some(s), dir);
+            let s = |code: &str| Value::String(code.into());
+            let counted = b.register(&s("count()"), ScriptKind::Int).unwrap();
+            let timer = b.register(&s("timer(900)"), ScriptKind::Int).unwrap();
+            b.register(
+                &s("(function() ticks = ticks + 1 return 0 end)()"),
+                ScriptKind::Timer,
+            );
+            b.custom_timer(900, &s("1234000"));
+            let rt = b.finish().unwrap();
+            let offsets = HashMap::new();
+            let ov = Overlay {
+                st: &St,
+                rt: Some(&rt),
+                offsets: &offsets,
+            };
+            let global = |k: &str| rt.lua.globals().get::<i64>(k).unwrap();
+            // (a timer script runs once as it is read, in case it makes the
+            // timer function)
+            let ticks = global("ticks");
+            rt.update(&St, 0);
+            rt.update(&St, 16);
+            // not read: not run; timers run every frame
+            assert_eq!((global("calls"), global("ticks")), (0, ticks + 2));
+            assert_eq!(ov.number(counted), Some(1));
+            assert_eq!(ov.number(counted), Some(1));
+            // what custom timers set this frame is seen by the values
+            assert_eq!(ov.number(timer), Some(1234000));
+            rt.update(&St, 32);
+            assert_eq!(ov.number(counted), Some(2));
+            assert_eq!(global("ticks"), ticks + 3);
         }
 
         #[test]
