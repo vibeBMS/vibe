@@ -1,5 +1,5 @@
-# The Flatpak: the CI-built x86_64 executable (`vibebms-linux-x64`, the
-# `browser` build) as it is, with a desktop entry, the icon and AppStream
+# The Flatpak: a CI-built Linux executable (`vibebms-linux-x64` or `-arm64`,
+# the `browser` build) as it is, with a desktop entry, the icon and AppStream
 # data. tools/package_flatpak.sh copies this folder, fills in the @…@ (the
 # channel's app id, name and version, from tools/ci_version.sh) and builds
 # the bundle; it is no build from source.

@@ -14,7 +14,10 @@ use std::io::{Read, Write};
 
 /// The replay format. 2: the judge handles every input at its own time
 /// (a replay of 1 may judge a little otherwise when played again).
-pub const VERSION: u32 = 2;
+/// 3: the LR2 preset keeps LR2's combo and note rules in every key mode
+/// and its HAZARD gauge ignores an empty POOR (a LR2-preset replay of 2
+/// in 5/10 keys or PMS, or on HAZARD, may judge otherwise).
+pub const VERSION: u32 = 3;
 
 /// The oldest format still read: its ghost still paces a play, but
 /// watching it or playing it again (G-BATTLE) runs it on this judge.

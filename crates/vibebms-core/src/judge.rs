@@ -362,6 +362,12 @@ const LR2_WINDOWS: [[i64; 5]; 3] = [
 ];
 const LR2_BAD: i64 = 200_000;
 
+/// LR2's rules in every key mode (`docs/RULES.md`, sources): BAD and POOR
+/// break the combo, an empty POOR keeps it; every judgement but the empty
+/// POOR takes the note, so one note can give any number of empty POORs.
+const LR2_COMBO: [bool; 6] = [true, true, true, false, false, true];
+const LR2_VANISH: [bool; 6] = [true, true, true, true, true, false];
+
 /// The judge rank in percent as LR2oraja takes it: `#RANK` 0..3 are 25 to
 /// 100, `#RANK 4` and out-of-range values NORMAL (75); `#DEFEXRANK` is a
 /// percentage of NORMAL; bmson `judge_rank` is used as is.
@@ -475,11 +481,15 @@ pub fn judge_rules(
             frame_hz: Some(IIDX_HZ),
         },
     };
+    let (combo, vanish, miss_one) = match preset {
+        JudgePreset::Lr2 => (LR2_COMBO, LR2_VANISH, false),
+        _ => (f.combo, f.vanish, f.miss_one),
+    };
     JudgeRules {
         windows,
-        combo: f.combo,
-        miss_one: f.miss_one,
-        vanish: f.vanish,
+        combo,
+        miss_one,
+        vanish,
     }
 }
 
@@ -579,6 +589,19 @@ mod tests {
             b[..3],
             [(-42_000, 42_000), (-120_000, 120_000), (-200_000, 200_000)]
         );
+    }
+
+    #[test]
+    fn lr2_rules_in_every_key_mode() {
+        for fam in [RuleFamily::FiveKeys, RuleFamily::SevenKeys, RuleFamily::Pms] {
+            let r = judge_rules(JudgePreset::Lr2, fam, JudgeRank::Rank(2), None);
+            // an empty POOR keeps the combo and never takes the note
+            assert!(r.combo[Judge::Miss as usize] && !r.vanish[Judge::Miss as usize]);
+            // BAD and POOR break it; a BAD takes the note
+            assert!(!r.combo[Judge::Bad as usize] && !r.combo[Judge::Poor as usize]);
+            assert!(r.vanish[Judge::Bad as usize]);
+            assert!(!r.miss_one);
+        }
     }
 
     #[test]
