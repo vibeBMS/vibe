@@ -158,6 +158,16 @@ pub struct PlayScene {
     pub(crate) skin: Option<crate::skin::render::LoadedSkin>,
 }
 
+/// The gauge graph's samples (every 500 ms) with the gauge as the play
+/// ended: a FAILED play's graph reaches 0, a clear's its last value.
+fn settled_log(log: &[f32], last: f32) -> Vec<f32> {
+    let mut v = log.to_vec();
+    if v.last() != Some(&last) {
+        v.push(last);
+    }
+    v
+}
+
 fn rgba_of(path: &Path, key: bool) -> Option<Rgba> {
     let p = crate::scene::select::resolve_image(path)?;
     crate::gfx::load_rgba(&p, key)
@@ -913,7 +923,7 @@ impl PlayScene {
             clear,
             gauge_type: gauge.current_type(),
             gauge_value: gauge.value(),
-            gauge_log: self.gauge_log.clone(),
+            gauge_log: settled_log(&self.gauge_log, gauge.value()),
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
@@ -1703,5 +1713,18 @@ impl PlayScene {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::settled_log;
+
+    #[test]
+    fn gauge_graph_ends_with_the_final_gauge() {
+        // failed between two samples: the graph reaches 0
+        assert_eq!(settled_log(&[100.0, 40.0], 0.0), vec![100.0, 40.0, 0.0]);
+        assert_eq!(settled_log(&[20.0, 82.0], 82.0), vec![20.0, 82.0]);
+        assert_eq!(settled_log(&[], 20.0), vec![20.0]);
     }
 }
