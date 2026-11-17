@@ -1,5 +1,6 @@
 //! HTTP (ehttp: ureq natively, `fetch` in browsers). Callbacks run on a
-//! worker thread natively and on the event loop on the web.
+//! worker thread natively and on the event loop on the web. Nothing here
+//! logs a request: its headers can carry credentials.
 
 use super::{Duration, Instant};
 use bmseeker::hosts::STALL_MS;
@@ -7,7 +8,9 @@ use bmseeker::net::{Answer, NetError};
 use bmseeker::progress::Progress;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub(super) fn request(
+/// A request: `method` is `GET`, `POST`, `PUT` or `DELETE` (anything else
+/// is a GET); a JSON body needs its `Content-Type` among `headers`.
+pub fn request(
     method: &str,
     url: &str,
     headers: &[(String, String)],
@@ -27,15 +30,92 @@ pub(super) fn request(
     req
 }
 
+/// An answer, whatever its status.
+#[derive(Debug)]
+pub struct Response {
+    pub status: u16,
+    /// Natively all of them; on the web only those CORS lets a page read
+    /// (see [`exchange`]).
+    pub headers: ehttp::Headers,
+    /// The body, a refusal's own words too.
+    pub body: Vec<u8>,
+}
+
+/// Send `req`: its answer, or why none came.
+fn call(req: ehttp::Request, on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static) {
+    ehttp::fetch(req, move |r| {
+        on_done(match r {
+            Ok(r) => Ok(Response {
+                status: r.status,
+                headers: r.headers,
+                body: r.bytes,
+            }),
+            Err(e) => Err(NetError::Other(e)),
+        })
+    });
+}
+
 /// Send `req`: the body of its answer, or why there is none (a status as
 /// `NetError::Status`, which bmseeker's retries and checks look at).
 pub fn fetch(req: ehttp::Request, on_done: impl FnOnce(Answer) + Send + 'static) {
-    ehttp::fetch(req, move |r| {
-        on_done(match r {
-            Ok(r) if r.ok => Ok(r.bytes),
-            Ok(r) => Err(NetError::Status(r.status)),
-            Err(e) => Err(NetError::Other(e)),
-        })
+    call(req, move |r| {
+        on_done(r.and_then(|r| match r.status {
+            200..=299 => Ok(r.body),
+            n => Err(NetError::Status(n)),
+        }))
+    });
+}
+
+/// How long [`exchange`] waits for a whole answer. Natively ehttp bounds
+/// only the reading of a GET's body, and a request left hanging would hold
+/// the IR outbox's item in "sending".
+const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
+
+/// Send `req` (IR requests) and give its answer whatever its status, with
+/// the headers and the body: `Retry-After` and `ETag`, a refusal's JSON.
+/// `Err` means no answer came: the connection failed, the browser refused
+/// it, or nothing came within 30 s (`NetError::Stalled`).
+///
+/// On the web this is the browser's `fetch`, in CORS mode and without
+/// cookies:
+/// - `Authorization`, or a `Content-Type` other than a form's or plain
+///   text (JSON), makes the browser ask the server first (a preflight); a
+///   server that does not allow them, or sends no CORS headers at all, is
+///   a failed connection here, with no status.
+/// - A page reads only the safelisted response headers (`Cache-Control`,
+///   `Content-Language`, `Content-Length`, `Content-Type`, `Expires`,
+///   `Last-Modified`, `Pragma`) and those the server names in
+///   `Access-Control-Expose-Headers`: `Retry-After` and `ETag` are missing
+///   unless the server exposes them.
+/// - An error answer without the CORS headers reaches the page as a
+///   failed connection too, its status and body unread.
+/// - The browser's cache revalidates by itself: without an `If-None-Match`
+///   of the page's own, a 304 comes here as the 200 it confirmed.
+pub fn exchange(
+    req: ehttp::Request,
+    on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
+) {
+    exchange_within(req, EXCHANGE_LIMIT, on_done)
+}
+
+fn exchange_within(
+    req: ehttp::Request,
+    limit: Duration,
+    on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
+) {
+    // the answer or the watchdog, whichever is first
+    let done = Arc::new(Mutex::new(Some(on_done)));
+    let take = |d: &Mutex<Option<_>>| d.lock().unwrap_or_else(|e| e.into_inner()).take();
+    let watch = done.clone();
+    super::thread::after(limit, move || {
+        if let Some(f) = take(&watch) {
+            f(Err(NetError::Stalled(limit.as_secs())));
+        }
+    });
+    call(req, move |r| {
+        if let Some(f) = take(&done) {
+            f(r);
+        }
     });
 }
 
@@ -166,10 +246,120 @@ pub fn stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::sync::mpsc;
+
+    /// A server giving `answers` in turn, one per connection; each request
+    /// as it came (head and body) is sent back.
+    fn serve(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            for a in answers {
+                let (mut s, _) = l.accept().unwrap();
+                let mut got = Vec::new();
+                let mut buf = [0u8; 4096];
+                // the head, then as much body as it announces
+                loop {
+                    let n = s.read(&mut buf).unwrap();
+                    got.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&got).to_lowercase();
+                    let whole = text.find("\r\n\r\n").is_some_and(|end| {
+                        let len = text
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .map_or(0, |n| n.trim().parse().unwrap());
+                        got.len() >= end + 4 + len
+                    });
+                    if n == 0 || whole {
+                        break;
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&got).into_owned());
+                let _ = s.write_all(a.as_bytes());
+            }
+        });
+        (url, rx)
+    }
+
+    fn send(req: ehttp::Request) -> Result<Response, NetError> {
+        let (tx, rx) = mpsc::channel();
+        exchange(req, move |r| {
+            let _ = tx.send(r);
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap()
+    }
+
+    #[test]
+    fn an_exchange_keeps_the_status_headers_and_body() {
+        let (url, seen) = serve(vec![
+            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 120\r\nContent-Length: 4\r\nConnection: close\r\n\r\nslow",
+            "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 304 Not Modified\r\nETag: \"v2\"\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 37\r\nConnection: close\r\n\r\n{\"success\":false,\"description\":\"key\"}",
+        ]);
+        let r = send(request("GET", &format!("{url}/a"), &[], Vec::new())).unwrap();
+        assert_eq!((r.status, r.body.as_slice()), (429, &b"slow"[..]));
+        assert_eq!(r.headers.get("retry-after"), Some("120"));
+        assert!(seen.recv().unwrap().starts_with("GET /a HTTP/1.1"));
+
+        let r = send(request("GET", &format!("{url}/b"), &[], Vec::new())).unwrap();
+        assert_eq!(r.status, 429);
+        assert_eq!(r.headers.get("Retry-After"), None);
+        seen.recv().unwrap();
+
+        let tag = vec![("If-None-Match".to_string(), "\"v2\"".to_string())];
+        let r = send(request("GET", &format!("{url}/c"), &tag, Vec::new())).unwrap();
+        assert_eq!(r.status, 304);
+        assert_eq!(r.headers.get("etag"), Some("\"v2\""));
+        assert!(r.body.is_empty());
+        assert!(seen
+            .recv()
+            .unwrap()
+            .to_lowercase()
+            .contains("if-none-match: \"v2\""));
+
+        let headers = vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("Authorization".to_string(), "Bearer k3y".to_string()),
+        ];
+        let body = br#"{"scores":[]}"#.to_vec();
+        let r = send(request("POST", &format!("{url}/d"), &headers, body)).unwrap();
+        assert_eq!(r.status, 401);
+        assert_eq!(r.body, br#"{"success":false,"description":"key"}"#);
+        let got = seen.recv().unwrap();
+        assert!(got.starts_with("POST /d HTTP/1.1"), "{got}");
+        assert!(got.to_lowercase().contains("authorization: bearer k3y"));
+        assert!(got.ends_with(r#"{"scores":[]}"#));
+    }
+
+    #[test]
+    fn an_exchange_without_an_answer_ends() {
+        // a server that never answers: the watchdog ends it
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", l.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        let req = request("POST", &url, &[], b"{}".to_vec());
+        exchange_within(req, Duration::from_millis(300), move |r| {
+            let _ = tx.send(r);
+        });
+        let r = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(r.unwrap_err(), NetError::Stalled(0));
+        drop(l);
+        // nothing listens: the failure does not say the credentials
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", l.local_addr().unwrap());
+        drop(l);
+        let auth = vec![("Authorization".to_string(), "Bearer s3cret".to_string())];
+        match send(request("GET", &url, &auth, Vec::new())) {
+            Err(NetError::Other(e)) => assert!(!e.contains("s3cret"), "{e}"),
+            r => panic!("{r:?}"),
+        }
+    }
 
     #[test]
     fn a_stream_ends_when_cancelled() {
-        use std::io::{Read, Write};
         // 2 bytes of 10, then nothing
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/f", l.local_addr().unwrap());
