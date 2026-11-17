@@ -10,10 +10,9 @@
 //!
 //! Sets are looked for in `<root>/sounds/` and `<root>/skins/`.
 
-use crate::platform::vfs;
+use crate::platform::{vfs, Job};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{Bus, Mixer, PlayOptions, Sample};
 
@@ -315,7 +314,7 @@ pub struct SystemSounds {
     /// The `config.skins` value loaded (`None`: nothing yet).
     value: Option<String>,
     samples: HashMap<Sound, Arc<Sample>>,
-    rx: Option<Receiver<Loaded>>,
+    job: Option<Job<Loaded>>,
     /// A looping sound asked for while the set was loading.
     want_loop: Option<Sound>,
 }
@@ -335,14 +334,12 @@ impl SystemSounds {
                     self.samples.insert(s, Arc::new(x));
                 }
             }
-            self.rx = None;
+            self.job = None;
             return;
         }
         let path = root.join(value);
         let root = root.to_path_buf();
-        let (tx, rx) = channel();
-        self.rx = Some(rx);
-        crate::platform::spawn("sound set", move || {
+        self.job = Some(Job::spawn("sound set", move |_| {
             let mut out = Vec::new();
             for (s, p) in set_files(&path, &root) {
                 let ext = p
@@ -357,16 +354,16 @@ impl SystemSounds {
                     Err(e) => log::warn!("sound set: {}: {e}", p.display()),
                 }
             }
-            let _ = tx.send(out);
-        });
+            out
+        }));
     }
 
     /// Take the decoded sounds once they are ready.
     pub fn poll(&mut self, mixer: &Mixer) {
-        let Some(v) = self.rx.as_ref().and_then(|rx| rx.try_recv().ok()) else {
+        let Some(v) = self.job.as_mut().and_then(Job::poll) else {
             return;
         };
-        self.rx = None;
+        self.job = None;
         self.samples.extend(v);
         if let Some(s) = self.want_loop.take() {
             self.play(mixer, s);
@@ -388,7 +385,7 @@ impl SystemSounds {
                     ..Default::default()
                 },
             ),
-            None if s.looping() && self.rx.is_some() => self.want_loop = Some(s),
+            None if s.looping() && self.job.is_some() => self.want_loop = Some(s),
             None => {}
         }
     }
