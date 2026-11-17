@@ -156,9 +156,9 @@ impl Worklet {
         }
         let mix = self.state.render(frames, None);
         let (l, r) = self.out[..2 * frames].split_at_mut(frames);
-        for ((l, r), m) in l.iter_mut().zip(r).zip(mix.chunks_exact(2)) {
-            *l = soft_clip(m[0]);
-            *r = soft_clip(m[1]);
+        for ((l, r), &[ml, mr]) in l.iter_mut().zip(r).zip(mix.as_chunks::<2>().0) {
+            *l = soft_clip(ml);
+            *r = soft_clip(mr);
         }
         &self.out[..2 * frames]
     }

@@ -308,7 +308,12 @@ where
                     now_us: us_since(epoch, Instant::now()),
                 };
                 let mix = m.render(frames, Some(obs));
-                for (o, d) in mix.chunks_exact(2).zip(data.chunks_exact_mut(channels)) {
+                for (o, d) in mix
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(data.chunks_exact_mut(channels))
+                {
                     let (l, r) = (soft_clip(o[0]), soft_clip(o[1]));
                     if channels == 1 {
                         d[0] = T::from_sample((l + r) * 0.5);

@@ -26,7 +26,7 @@ impl Sample {
         let g = gain / 32768.0;
         if self.channels == 1 {
             let data = &self.data[from..from + out.len() / 2];
-            for (o, &s) in out.chunks_exact_mut(2).zip(data) {
+            for (o, &s) in out.as_chunks_mut::<2>().0.iter_mut().zip(data) {
                 let v = s as f32 * g;
                 o[0] += v;
                 o[1] += v;

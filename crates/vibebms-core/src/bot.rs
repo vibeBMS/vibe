@@ -12,7 +12,7 @@ use crate::rng::JavaRandom;
 /// stop.
 pub fn chart_text(keys: usize, seed: i64) -> String {
     let mut rng = JavaRandom::new(seed);
-    let side: Vec<&str> = if keys % 5 == 0 {
+    let side: Vec<&str> = if keys.is_multiple_of(5) {
         vec!["1", "2", "3", "4", "5", "6"]
     } else {
         vec!["1", "2", "3", "4", "5", "8", "9", "6"]
