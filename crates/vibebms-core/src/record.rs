@@ -19,6 +19,10 @@ pub const VERSION: u32 = 1;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayRecord {
     pub v: u32,
+    /// The play's own id (32 hex digits): unique across installs, the same
+    /// on every copy or submission of the play. Given as it is kept (the
+    /// app's IR history), empty before.
+    pub play_id: String,
     pub chart: ChartFacts,
     pub rules: RuleFacts,
     pub device: DeviceFacts,
@@ -254,6 +258,9 @@ pub fn thin_gauge_log(log: &[f32]) -> Vec<f32> {
 pub struct ClientId {
     pub name: String,
     pub version: String,
+    /// The SHA-256 of the executable that played it, where there is one of
+    /// its own to hash (the desktop builds).
+    pub exe_sha256: Option<String>,
 }
 
 /// A course's stage.

@@ -11,11 +11,16 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("vibeBMS"),
     );
+    let private = app.internal_data_path();
     let root = app
         .external_data_path()
-        .or_else(|| app.internal_data_path())
+        .or_else(|| private.clone())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let paths = vibebms_app::paths::Paths::at(root);
+    let mut paths = vibebms_app::paths::Paths::at(root);
+    // IR keys: not where other apps and the user can read them
+    if let Some(p) = private {
+        paths.private = p;
+    }
     let event_loop = winit::event_loop::EventLoop::<vibebms_app::app::UserEvent>::with_user_event()
         .with_android_app(app)
         .build()

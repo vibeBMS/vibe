@@ -9,6 +9,8 @@
 //! <root>/cache/songs.json        (scan cache, safe to delete)
 //! <root>/scores/scores.json      (your records)
 //! <root>/scores/player.json      (totals over all plays)
+//! <root>/scores/history/         (every play, a file per month: `ir::store`)
+//! <root>/scores/outbox/          (IR submissions waiting to be sent)
 //! <root>/cache/tables/*.json
 //! <root>/fonts/*.ttf|otf|ttc        (optional font overrides)
 //! <root>/<any folder with BMS files> (scanned automatically)
@@ -24,7 +26,13 @@ pub struct Paths {
     pub tables: PathBuf,
     pub fonts: PathBuf,
     pub scores: PathBuf,
+    /// Made as they are first written (`platform::store`).
+    pub history: PathBuf,
+    pub outbox: PathBuf,
     pub skins: PathBuf,
+    /// Where IR keys are kept (`ir::creds`): `config`, Android's private
+    /// storage where the root is the shared one.
+    pub private: PathBuf,
 }
 
 /// Directory names under the root that are never scanned for charts.
@@ -64,7 +72,10 @@ impl Paths {
             tables: root.join("cache").join("tables"),
             fonts: root.join("fonts"),
             scores: root.join("scores"),
+            history: root.join("scores").join("history"),
+            outbox: root.join("scores").join("outbox"),
             skins: root.join("skins"),
+            private: root.join("config"),
             root,
         };
         for d in [&p.config, &p.cache, &p.tables, &p.scores, &p.skins] {

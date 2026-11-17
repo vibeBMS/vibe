@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    # Dependabot's branches run as pull requests (and publish no web preview)
+    branches-ignore: ['dependabot/**']
   pull_request:
   workflow_dispatch:
 
@@ -263,8 +265,11 @@ jobs:
     # pushes publish the build to the gh-pages branch (GitHub Pages)
     permissions:
       contents: write
+    # only pushes publish, so only they queue behind each other (a group
+    # keeps one run waiting and cancels the rest, which would cancel pull
+    # requests' builds)
     concurrency:
-      group: web-pages
+      group: ${{ github.event_name == 'push' && 'web-pages' || format('web-{0}', github.run_id) }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

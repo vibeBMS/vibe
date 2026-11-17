@@ -1,0 +1,1 @@
+{"success": true, "description": "Import completed.", "body": {"importStatus": "completed", "import": {"importID": "bea63277b54a5846bab1fd3a6ce54bfd41276857", "scoreIDs": [], "errors": [{"type": "InvalidDatapoint", "message": "Invalid score of 9999, expected a number between 0 and 1800."}], "userIntent": false}}}

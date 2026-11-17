@@ -144,6 +144,12 @@ pub struct App {
 
 impl App {
     pub fn new(paths: Paths, proxy: EventLoopProxy<UserEvent>) -> App {
+        // now: a self-update replaces the file later (Windows), while this
+        // build runs on
+        #[cfg(desktop)]
+        crate::platform::spawn("exe hash", || {
+            crate::ir::build_id::exe_sha256();
+        });
         App {
             run: None,
             paths,

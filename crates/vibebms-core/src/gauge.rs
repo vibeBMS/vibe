@@ -207,6 +207,8 @@ const PMS: [GaugeElement; 9] = [
     e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.03,   -3.0,   -6.0,   -6.0], &[]),
     e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,   -5.0,  -10.0,  -10.0], &[]),
 ];
+// LR2's HAZARD (DEATH): a BAD or POOR ends the play, an empty POOR costs
+// nothing (docs/RULES.md, source S8)
 #[rustfmt::skip]
 const LR2: [GaugeElement; 9] = [
     e(    Some(Total),     2.0, 100.0, 20.0,  60.0, [ 1.2,  1.2,  0.6,   -3.2,   -4.8,  -1.6], &[]),
@@ -214,7 +216,7 @@ const LR2: [GaugeElement; 9] = [
     e(    Some(Total),     2.0, 100.0, 20.0,  80.0, [ 1.0,  1.0,  0.5,   -4.0,   -6.0,  -2.0], &[]),
     lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [ 0.1,  0.1, 0.05,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
     lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [ 0.1,  0.1, 0.05,  -12.0,  -20.0,  -2.0], &[])),
-    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0, -100.0, -100.0, -10.0], &[])),
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0, -100.0, -100.0,   0.0], &[])),
     lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,   -2.0,   -3.0,  -2.0], LR2_GUTS)),
     lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
     lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,  -12.0,  -20.0,  -2.0], &[])),
@@ -651,6 +653,21 @@ mod tests {
                 .abs()
                 < 1e-3
         );
+    }
+
+    #[test]
+    fn lr2_hazard_is_lr2s_death_gauge() {
+        let mut g = Gauge::new(GaugeType::Hazard, &LR2[5], 300.0, 1000);
+        for _ in 0..50 {
+            g.update(Judge::Miss, 1.0);
+        }
+        assert_eq!(g.value(), 100.0);
+        g.update(Judge::Bad, 1.0);
+        assert!(g.is_dead());
+        // beatoraja's HAZARD still pays for an empty POOR
+        let mut b = Gauge::new(GaugeType::Hazard, &SEVEN[5], 300.0, 1000);
+        b.update(Judge::Miss, 1.0);
+        assert_eq!(b.value(), 90.0);
     }
 
     #[test]

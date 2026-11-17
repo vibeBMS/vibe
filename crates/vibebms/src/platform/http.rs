@@ -134,17 +134,6 @@ pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send 
     send(ehttp::Request::get(url), on_done)
 }
 
-/// Send a request built by an IR client.
-pub fn ir_send(
-    req: vibebms_ir::HttpRequest,
-    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
-) {
-    send(
-        request(req.method, &req.url, &req.headers, req.body),
-        on_done,
-    )
-}
-
 /// GET `url`, its body given to `sink` as it comes; then `on_done` with how
 /// it ended and where its redirects ended when the answer says so (the
 /// vibeBMS proxy's `X-Final-Url`, a refusal's too). It reports to
@@ -244,14 +233,14 @@ pub fn stream(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::sync::mpsc;
 
     /// A server giving `answers` in turn, one per connection; each request
     /// as it came (head and body) is sent back.
-    fn serve(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
+    pub(crate) fn serve(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", l.local_addr().unwrap());
         let (tx, rx) = mpsc::channel();

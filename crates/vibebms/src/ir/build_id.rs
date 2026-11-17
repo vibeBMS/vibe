@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::OnceLock;
+use vibebms_core::record::ClientId;
 
 /// The manifest of every published build.
 pub const BUILDS_URL: &str =
@@ -85,6 +86,15 @@ pub fn exe_sha256() -> Option<&'static str> {
             .ok()
     })
     .as_deref()
+}
+
+/// This build, as a play's record names it.
+pub fn client() -> ClientId {
+    ClientId {
+        name: "vibeBMS".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        exe_sha256: exe_sha256().map(str::to_string),
+    }
 }
 
 /// The SHA-256 of the file `p`, lower-case hexadecimal.

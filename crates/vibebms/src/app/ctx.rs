@@ -31,6 +31,10 @@ pub enum AppEvent {
     OpenUrl(String),
     /// Skins were added or replaced.
     SkinsChanged,
+    /// An IR account was checked (who it is, whether its key holds): the
+    /// configuration keeps it. (The outbox's progress is read as it is
+    /// shown.)
+    IrChanged,
 }
 
 /// Shared state available to every scene.
@@ -71,8 +75,7 @@ pub struct Lib {
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
 
-/// Downloads, and the self-update.
-#[derive(Default)]
+/// Downloads, the self-update and the internet ranking.
 pub struct Net {
     /// How links resolve and songs install (bmseeker's settings with the
     /// player's), made again when those settings change.
@@ -85,6 +88,7 @@ pub struct Net {
     pub updater: crate::update::Updater,
     /// Download pages to show in the in-app browser (song, then chart).
     pub browse: Option<Vec<String>>,
+    pub ir: crate::ir::IrService,
 }
 
 /// The mixer, and the sound set's sounds played on it.
@@ -157,17 +161,24 @@ impl Skins {
 
 impl Ctx {
     /// A context with nothing loaded yet.
-    pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
-        let hosts = crate::hosts::context(&config);
+    pub fn new(paths: Paths, mut config: Config, mixer: Mixer, view: View) -> Ctx {
+        let mut net = Net {
+            hosts: crate::hosts::context(&config),
+            archives: Default::default(),
+            song_fetch: Default::default(),
+            updater: Default::default(),
+            browse: None,
+            ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
+        };
+        if net.ir.take_old_tokens(&mut config.ir) {
+            config.save(&paths.config_file());
+        }
         Ctx {
             paths,
             config,
             lib: Lib::default(),
             tables: Tables::default(),
-            net: Net {
-                hosts,
-                ..Default::default()
-            },
+            net,
             audio: Audio {
                 mixer,
                 sounds: Default::default(),
@@ -358,6 +369,8 @@ impl Ctx {
         events.extend(self.net.song_fetch.poll());
         events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
         events.extend(self.skins.store.poll(&self.paths));
+        let now = crate::platform::unix_ms();
+        events.extend(self.net.ir.poll(now, &mut self.config.ir));
         self.handle(events);
         self.poll_scan();
         let events = self.tables.poll(&self.paths, &self.config.tables);
@@ -376,6 +389,7 @@ impl Ctx {
                     crate::platform::open_url(&url);
                 }
                 AppEvent::SkinsChanged => self.skins.files_changed(),
+                AppEvent::IrChanged => self.save_config(),
             }
         }
         if !pages.is_empty() {

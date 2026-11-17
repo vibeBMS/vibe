@@ -80,9 +80,9 @@ impl<'a> SelectState<'a> {
     }
 
     /// IR ranking of the selected chart, once loaded.
-    fn ranking(&self) -> Option<&[vibebms_ir::IrScore]> {
+    fn ranking(&self) -> Option<&[vibebms_ir::lamps::RankEntry]> {
         match self.rank? {
-            Rank::Done(v) => Some(v),
+            Rank::Done(v) => Some(&v.entries),
             _ => None,
         }
     }
@@ -235,7 +235,7 @@ impl SkinState for SelectState<'_> {
             },
             10 | 310..=313 => return speed_number(p, &self.bpms, id),
             180 => self.ranking()?.len() as i64,
-            380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,
+            380..=389 => self.ranking()?.get((id - 380) as usize)?.ex as i64,
             390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
             350..=368 => return song_number(song?, id),
             1163 => song?.length_ms / 60000,

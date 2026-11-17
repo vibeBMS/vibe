@@ -1,0 +1,1 @@
+{"success": true, "description": "Status check successful.", "body": {"serverTime": 1623331110661, "startTime": 1623331000000, "whoami": 1, "version": "v2.0.0 (Mysterons)", "permissions": ["submit_score", "customise_score"]}}
