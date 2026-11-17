@@ -1,0 +1,38 @@
+name: build vibeBMS
+description: >-
+  The release executable for one target, stamped with the CI version, as the
+  artifact vibeBMS-<name> (with version.txt for the nightly's latest.json).
+
+inputs:
+  name:
+    description: Artifact suffix, e.g. linux-x64
+    required: true
+  target:
+    description: Rust target triple
+    required: true
+  cache-key:
+    description: rust-cache key (the target and the runner image)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/rust-setup
+      with:
+        targets: ${{ inputs.target }}
+        # the runner image too: a build cached on another image (ubuntu-24.04
+        # before 22.04) restored as fresh but without its crates' files
+        cache-key: ${{ inputs.cache-key }}
+    - run: cargo build --release -p vibebms --target ${{ inputs.target }}
+      shell: bash
+    # the version it was built with, for the nightly's latest.json
+    - run: echo "$VIBEBMS_VERSION" > target/${{ inputs.target }}/release/version.txt
+      shell: bash
+    # the executable alone (the downloads job links it in the run summary)
+    - uses: actions/upload-artifact@v7
+      with:
+        name: vibeBMS-${{ inputs.name }}
+        path: |
+          target/${{ inputs.target }}/release/vibebms
+          target/${{ inputs.target }}/release/vibebms.exe
+          target/${{ inputs.target }}/release/version.txt
