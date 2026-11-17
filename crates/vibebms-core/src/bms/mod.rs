@@ -22,9 +22,11 @@ mod source;
 
 use crate::chart::Chart;
 use crate::encoding::decode_text;
+use crate::rng::JavaRandom;
 use crate::ChartError;
 use md5::{Digest, Md5};
 use sha2::Sha256;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct ParseOptions {
@@ -110,11 +112,73 @@ fn gcd(a: u64, b: u64) -> u64 {
 pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, ChartError> {
     let pms = ext.eq_ignore_ascii_case("pms");
     let text = decode_text(bytes);
-    let mut src = source::read(&text, opts);
+    let mut src = source::read(&text, opts, None);
     src.meta.md5 = md5_hex(bytes);
     src.meta.sha256 = sha256_hex(bytes);
     let placed = place::place(&src, pms);
     Ok(build::build(src, placed, pms))
+}
+
+/// What the stages of a NONSTOP course share as each is read (S-OLR2b
+/// 3.3, 3.7): the `#BPMxx` and `#STOPxx` definitions (a later stage's
+/// replaces an earlier one's of the same number, the others stay) and
+/// one `#RANDOM` sequence, seeded once. The open `#IF` blocks are each
+/// stage's own.
+pub struct Shared {
+    bpm: HashMap<u32, f64>,
+    stop: HashMap<u32, f64>,
+    rng: JavaRandom,
+}
+
+impl Shared {
+    pub fn new(seed: i64) -> Shared {
+        Shared {
+            bpm: HashMap::new(),
+            stop: HashMap::new(),
+            rng: JavaRandom::new(seed),
+        }
+    }
+}
+
+/// What a NONSTOP course needs of a stage beyond its chart.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StageFacts {
+    /// The beat each measure starts at, to the one after the last.
+    pub measure_beats: Vec<f64>,
+    /// It has a `#RANK` line (read) and a `#BPM` header line.
+    pub rank_given: bool,
+    pub bpm_given: bool,
+}
+
+/// A NONSTOP course's stage: its chart read on from `shared`.
+pub fn parse_stage(
+    bytes: &[u8],
+    ext: &str,
+    shared: &mut Shared,
+) -> Result<(Chart, StageFacts), ChartError> {
+    let pms = ext.eq_ignore_ascii_case("pms");
+    let text = decode_text(bytes);
+    let mut src = source::read(&text, &ParseOptions::default(), Some(&mut shared.rng));
+    src.meta.md5 = md5_hex(bytes);
+    src.meta.sha256 = sha256_hex(bytes);
+    for (defs, own) in [(&shared.bpm, &mut src.bpm), (&shared.stop, &mut src.stop)] {
+        for (k, v) in defs {
+            own.entry(*k).or_insert(*v);
+        }
+    }
+    shared.bpm.clone_from(&src.bpm);
+    shared.stop.clone_from(&src.stop);
+    let placed = place::place(&src, pms);
+    let facts = StageFacts {
+        measure_beats: placed.measure_start.clone(),
+        rank_given: src.rank_given,
+        bpm_given: src.bpm_given,
+    };
+    let chart = build::build(src, placed, pms);
+    if chart.notes.is_empty() {
+        return Err(ChartError::Empty);
+    }
+    Ok((chart, facts))
 }
 
 #[cfg(test)]

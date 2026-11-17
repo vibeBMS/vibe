@@ -16,6 +16,7 @@ use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
 use std::borrow::Cow;
 use std::cell::OnceCell;
+use vibebms_core::course::CourseKind;
 use vibebms_core::engine::Engine;
 use vibebms_core::judge::Judge;
 use vibebms_core::score::Score;
@@ -149,9 +150,15 @@ pub struct PlayState<'a> {
 impl<'a> PlayState<'a> {
     pub fn new(s: &'a PlayScene, ctx: &'a Ctx, now: Instant) -> PlayState<'a> {
         let p = &ctx.config.play;
-        let side_play = |side| match s.session.vs {
-            true => Cow::Owned(p.for_side(side)),
-            false => Cow::Borrowed(p),
+        let side_play = |side| {
+            let mut p = match s.session.vs {
+                true => Cow::Owned(p.for_side(side)),
+                false => Cow::Borrowed(p),
+            };
+            if let Some(c) = &s.req.course {
+                c.view(&mut p);
+            }
+            p
         };
         PlayState {
             s,
@@ -159,7 +166,7 @@ impl<'a> PlayState<'a> {
             now,
             engine: s.session.engine(),
             best: ctx.best_key(
-                &s.req.song.sha256,
+                &s.req.record_key(),
                 s.facts.score_ln as i32,
                 s.facts.rules.judge,
             ),
@@ -306,9 +313,9 @@ impl<'a> PlayState<'a> {
             // a difficulty table lists the chart
             1008 => self.table().is_some(),
             // course stage 1..4, the last stage, a grade course
-            280..=283 => course.is_some_and(|c| c.index == (id - 280) as usize),
-            289 => course.is_some_and(|c| c.index + 1 == c.songs.len()),
-            293 => course.is_some_and(|c| !c.constraints.is_empty()),
+            280..=283 => s.course_stage(self.now) == Some((id - 280) as usize),
+            289 => course.is_some_and(|c| s.course_stage(self.now) == Some(c.songs.len() - 1)),
+            293 => course.is_some_and(|c| c.kind() == CourseKind::Class),
             271 => p.lane_cover || p.sudden > 0.0,
             P2_COVER => {
                 let p = self.side_play(1);
@@ -560,7 +567,7 @@ impl SkinState for PlayState<'_> {
             100 => lr2_score(sc?),
             102 => percent_parts(sc?.current_rate()).0,
             103 => percent_parts(sc?.current_rate()).1,
-            104 => e?.combo() as i64,
+            104 => self.s.course_combo(e?.combo(), e?) as i64,
             107 => e?.gauge.value() as i64,
             407 => ((e?.gauge.value() * 10.0) as i64) % 10,
             114 => sc?.count(Judge::Poor) as i64 + sc?.count(Judge::Miss) as i64,
@@ -611,7 +618,18 @@ impl SkinState for PlayState<'_> {
                 .songs
                 .get((id - 150) as usize)?
                 .full_title(),
-            _ => return chart_text(&ChartText::of_meta(&s.session.chart.meta, &s.req.song), id),
+            // a NONSTOP course: its stage's
+            _ => match s.session.stage_at(s.session.chart_us(self.now)) {
+                Some(k) => {
+                    return chart_text(
+                        &ChartText::of_song(s.req.course.as_ref()?.songs.get(k)?),
+                        id,
+                    )
+                }
+                None => {
+                    return chart_text(&ChartText::of_meta(&s.session.chart.meta, &s.req.song), id)
+                }
+            },
         })
     }
 
@@ -755,8 +773,8 @@ impl Hooks for PlayHooks<'_> {
             return;
         }
         let mut shown = false;
-        for t in s.bga.textures(&s.session, self.st.now) {
-            d.image_fit(t, rect, 1.0);
+        for (t, alpha) in s.bga.textures(&s.session, self.st.now) {
+            d.image_fit(t, rect, alpha);
             shown = true;
         }
         // charts without BGA show their stage file instead
@@ -778,15 +796,19 @@ impl Hooks for PlayHooks<'_> {
         match self.st.s.session.side(side).map(|s| &s.engine) {
             Some(e) => {
                 let g = e.gauge.current();
-                (g.value(), g.elem.border, g.ty.is_survival(), g.ty as usize)
+                let ty = crate::scene::skinvals::skin_gauge(g.ty);
+                (g.value(), g.elem.border, g.ty.is_survival(), ty)
             }
             None => (0.0, 80.0, false, 2),
         }
     }
 
     fn judge(&self, side: usize) -> Option<(usize, u32)> {
-        self.st
-            .last_judge(side)
-            .map(|j| (j.judge as usize, j.combo))
+        let j = self.st.last_judge(side)?;
+        let combo = match self.st.engine {
+            Some(e) if side == 0 => self.st.s.course_combo(j.combo, e),
+            _ => j.combo,
+        };
+        Some((j.judge as usize, combo))
     }
 }

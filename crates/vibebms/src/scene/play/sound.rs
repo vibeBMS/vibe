@@ -11,6 +11,11 @@ pub(super) fn voice(sound: SoundId, side: usize, vs: bool) -> u64 {
     sound as u64 + 1 + if vs { (side as u64) << 32 } else { 0 }
 }
 
+/// The mixer group of a NONSTOP course's stage `k`.
+fn group(k: usize) -> u8 {
+    (k as u8 + 1).min(vibebms_audio::GROUPS)
+}
+
 #[derive(Default)]
 pub(super) struct Audio {
     bank: SoundBank,
@@ -19,6 +24,9 @@ pub(super) struct Audio {
     auto_i: usize,
     /// Keysounds of auto lanes: (time, sound, side).
     auto_notes: Vec<(i64, SoundId, usize)>,
+    /// A NONSTOP course's stages' volumes as last set (each stage a
+    /// mixer group).
+    stage_volume: Vec<f32>,
 }
 
 impl Audio {
@@ -28,6 +36,23 @@ impl Audio {
             bgm_i: 0,
             auto_i: 0,
             auto_notes,
+            stage_volume: Vec::new(),
+        }
+    }
+
+    /// A NONSTOP course's stages faded in and out at chart time `t`
+    /// (S-OLR2b 3.1): each stage's sounds are a mixer group.
+    pub fn fade(&mut self, m: &Mixer, s: &Session, t: i64) {
+        let Some(ns) = &s.nonstop else {
+            return;
+        };
+        self.stage_volume.resize(ns.stages.len(), -1.0);
+        for (k, v) in self.stage_volume.iter_mut().enumerate() {
+            let now = ns.volume(k, t);
+            if (now - *v).abs() > 0.002 || (now != *v && (now == 0.0 || now == 1.0)) {
+                *v = now;
+                m.set_group_volume(group(k), now);
+            }
         }
     }
 
@@ -49,6 +74,10 @@ impl Audio {
                 offset: m.us_to_frames(slice.start).max(0) as usize,
                 end: slice.end.map(|e| m.us_to_frames(e).max(0) as usize),
                 looping: false,
+                group: s
+                    .nonstop
+                    .as_ref()
+                    .map_or(0, |n| group(n.stage_of_sound(sound))),
             },
         );
     }

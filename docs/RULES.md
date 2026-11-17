@@ -122,8 +122,12 @@ effectively disables it; vibeBMS keeps only the positive part.
 | CLASS | 100 | – | 0.1, 0.1, 0.04, -2, -3, -2 | ×0.6 below 32 % |
 | EX-CLASS | 100 | – | 0.1, 0.1, 0.04, -6, -10, -2 | LR2 damage; ×0.6 below 32 % |
 | EXHARD-CLASS | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | |
+| P-ATTACK | 100 | – | 0.1, -1, -100, -100, -100, -100 | ×0.6 below 32 % |
+| G-ATTACK | 100 | – | -10, -1, 0.1, -6, -10, -2 | LR2 damage on PG, POOR, empty POOR; ×0.6 below 32 % |
 
-The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %; GROOVE and EASY never fall below 2 %.
+The survival gauges (HARD to EXHARD-CLASS, P-ATTACK, G-ATTACK) empty when they fall below 2 %; GROOVE and EASY
+never fall below 2 %. The × 0.6 rule takes only BAD, POOR and empty POOR: G-ATTACK's PGREAT and the attack gauges'
+GREAT are never reduced.
 LR2 damage [S-OLR2 3.4]: damage × the larger of a TOTAL factor, 10 / floor((TOTAL − 80) / 16) with the step at
 least 1 (10 below 112, 5 from 112, 3.33 from 128, 2.5 from 144, 2 from 160, 1.67 from 176, 1.43 from 192, 1.25 from
 208, 1.11 from 224, 1 from 240), and a note-count factor g(n): 10 below 20 notes, 10 − 0.2 (n − 20) to 29, then
@@ -141,12 +145,83 @@ TOTAL [S-OLR2 3.3]: `#TOTAL` is read as an integer, its fraction dropped (`250.9
 floor(160 + 0.16 × (n + clamp(n − 400, 0, 200))), n the notes (mines not counted, an LN once): 192 at 200 notes,
 256 at 500, 352 at 1000.
 
+P-ATTACK and G-ATTACK [S-OLR2 3.2, S-OLR2b 1] are the LR2 set's alone. P-ATTACK dies on a GOOD or worse and on an
+empty POOR (−100, or −60 at 30 % shown or less, more than the gauge then holds), so a P-ATTACK clear is always a FULL
+COMBO; G-ATTACK heals only on a GOOD (+0.1) and pays −10 × the LR2 damage factor for a PGREAT, as for a POOR. Both
+start at 100, empty below 2 %, have no border and clear (HARD CLEAR) at any value they live at; mines take their value.
+The gauge option cycles them in LR2's order under the LR2 set: GROOVE, HARD, HAZARD, EASY, P-ATTACK, G-ATTACK, then the
+set's ASSIST EASY and EX-HARD (vibeBMS's); the other sets do not offer them, and play one chosen under the LR2 set as
+HARD. A play adds the attack gauge it is on to the set's nine (it is simulated with them); every other play has the
+nine as before. They are drawn as HARD (no colour of their own, no 80 % border, the "clear" colours on every segment
+[S-OLR2b 1.3]): a skin's gauge type for them is HARD's (beatoraja's index 3, `skinvals::skin_gauge`), LR2's skin
+options 122 and 123 are P-ATTACK and G-ATTACK, 119 (survival) and 43 hold for both.
+
 HAZARD is LR2's DEATH gauge: no gains, a BAD or POOR ends the play, an empty POOR costs nothing [S8, S-OLR2 3.5],
 and it clears as GROOVE does, at 80 %. CLASS is LR2's class (dan) course gauge for GROOVE and EASY, EX-CLASS its
-gauge for HARD (with HARD's damage) [S-OLR2 3.6]; in a course every gauge starts at 100, has no 2 % floor and the
-×0.6 rule; LR2's expert and NONSTOP course gauges have no counterpart, vibeBMS's courses being dan courses. ASSIST
-EASY, EX-HARD and EXHARD-CLASS are not LR2's [S8]: the set offers them, but the vibe-LR2 profile does not take them
-(gap A10).
+gauge for HARD (with HARD's damage) [S-OLR2 3.6]; a class course switches EASY and G-ATTACK to GROOVE, so the class row is
+GROOVE's only [S-OLR2b 5.1]. ASSIST EASY, EX-HARD and EXHARD-CLASS are not LR2's [S8]: the set offers them, but the
+vibe-LR2 profile does not take them (gap A10). LR2's course gauges are below ("LR2 courses").
+
+### LR2 courses
+
+LR2's three course kinds [S-OLR2b; S-OLR2 3.6]. vibeBMS's difficulty-table courses are class courses; the player's own
+are made in the settings' COURSES page (a chart added with C in the song select), drawn by RANDOM MIX (expert and
+NONSTOP, LR2's settings) or imported from an LR2 `song.db` (its `expert`, `nonstop` and `grade` tables, read by
+`lr2db`, a small SQLite reader of vibeBMS's own that builds for the web too; LR2's `.lr2folder` course folders only
+name those tables, and carry no course). At most 5 stages.
+
+Identity [S-OLR2b 2.3]: LR2's packed course string, a 32-character header (a join digit per join, the kind digit at
+11, zeros) and the stages' MD5s. Its characters 29 to 32 are in LR2 the start of the MD5 of the player's password;
+vibeBMS has none and writes `0000`, so a course is the same for every player and strings can be exchanged (an LR2
+player's string is read whatever those four are; written again it has `0000`). Records are kept under it, as a
+song's.
+
+Gauges under the LR2 set (`GrooveGauge::new_in`): every gauge starts at 100, has no 2 % floor for judgements
+(GROOVE and EASY empty below 2 % too), takes the × 0.6 rule and clears at any value it lives at (no 80 % in a course
+[S-OLR2b, correcting S-OLR2 3.1]); a mine still stops GROOVE and EASY at 2 % [S-OLR2 3.6, inferred]. Expert and
+NONSTOP: GROOVE 0.1, 0.1, 0.04, −1.5, −2, −1.5; EASY 0.12, 0.12, 0.048, −1.2, −1.6, −1.2; HARD, HAZARD and the attack
+gauges as single play. Class: CLASS (GROOVE's) and EX-CLASS (HARD's) above, HAZARD and P-ATTACK as single play. Under
+the other gauge sets every course plays the set's dan gauges, as vibeBMS's table courses always did.
+
+- **Class** [S-OLR2b 5]: under the LR2 gauge set a class course forces LR2's settings for its stages
+  (`RuleOptions::for_course`): EASY and G-ATTACK play GROOVE, no lane option, BATTLE, DP FLIP, AUTO SCRATCH, LEGACY
+  NOTE, NO MINE or EXPAND JUDGE, no lane cover, SUDDEN or HIDDEN; hi-speed and timing as set. LR2 changes the
+  player's own settings and keeps them changed (inferred); vibeBMS changes them for the course only. Under the other
+  sets a table course's constraints apply as before (`grade_mirror`, `gauge_lr2`, an LN mode).
+- **Expert** [S-OLR2b 4]: a play per stage, its stage result between; the gauges carried over with their exact
+  values, the course combo (shown in play) and the course's totals (empty POORs in, mines out), and the seed of the
+  first stage; failing a stage (or quitting it) ends the course. A stage's lamp: LR2's rule with the course gauges.
+  Each stage goes into its chart's own record partly: best EX and counts (strictly higher), max combo, min BP, the
+  lamp only to FULL COMBO, no play count. The course's result follows the last stage (or the failed one): its lamp is
+  FAILED below 2 or unfinished, else FULL COMBO when the course's max combo is its notes, else the gauge's lamp when
+  it ends strictly above 2 (2.0 fails), no lamp cap; under the other sets the worst stage's. The notes of stages not
+  played count as not judged (min BP). No retry. Class courses are expert courses with the settings above.
+- **NONSTOP** [S-OLR2b 3]: the stages joined into one chart (`nonstop::join`) and played as one: stage N+1's bar
+  line nearest its first note (a half rounding down; gap 1: 0.5 to 1.5 measures before it; gap 2: its start) is put
+  on stage N's bar line nearest stage N's last note (a tie: the earlier; gap 2: the first more than 5 s on); stage N's
+  bar lines and BPM changes end there; stage N+1's notes at or before stage N's last note + 100 ms are background
+  sounds, but one within 100 ms of it on a lane stage N left free in its last 100 ms. Tempo-matched joins play stage
+  N+1 at stage N's BPM at the join over its own `#BPM` (its sounds at that speed and pitch, resampled); a stage with no
+  `#BPM` line is not matched. Each stage's sound fades in before its join and out after the next (the six join
+  types' times; linear, squared: each stage a mixer volume group) and the BGA of two stages cross-fades over 3 s each
+  side. `#BPMxx` and `#STOPxx` are shared (a later stage's replaces one of the same number), the `#RANDOM` sequence is
+  seeded once (a retry keeps it). The scroll goes by time, as a 150 BPM chart at the hi-speed set (HS-FIX off; a STOP
+  still holds it; no lamp cap). Windows: the first stage's `#RANK` as usual; a later stage's `#RANK` switches them
+  from that stage's start to LR2's NONSTOP table (0 → 12 / 24 / 60, 1 → 15 / 30 / 80, 3 → 21 / 60 / 120, other → 18 /
+  40 / 100, BAD 200 ms); a stage without `#RANK` keeps them. TOTAL: the last `#TOTAL` in stage order (below 1 or
+  none: the default of all stages' notes); the HARD factor from it and the notes. One combo, one gauge, a fail ends
+  it. One result on the normal result screen, with the normal lamp caps, saved as a song's under the course's
+  identity; its replay is kept as LR2 names it, by the MD5 of the identity. Retry plays the course again.
+
+Deliberately not as LR2 [S-OLR2b marks each ambiguous or an artefact]: a NONSTOP stage's mines keep their own value
+(LR2 adds 1296 a stage: an instant fail, or 2 % on GROOVE / EASY); every NONSTOP stage is placed by the second stage's
+rule (LR2 places the third and later ones a stage's trim earlier); the current stage (skin options 280-283, the
+title shown) advances at every join (LR2: at gap joins only); the open `#IF` state is each stage's own (LR2 carries it
+on); an expert course's score is recomputed from its totals, its notes the sum of all stages' (LR2 `main`'s rule).
+Not followed: LR2's maniac judge options (vibeBMS has none); the audio pitch option (none); the `ir` course flag is
+kept, but nothing is sent to an internet ranking (a course play is no IR's); a NONSTOP stage whose `#BPMxx` came before
+its `#BPM` line is scaled with it; a NONSTOP mine converted by the overlap clean-up is dropped, not played; replays of
+an expert stage are kept (with the gauges it started from) but the song select does not list them.
 
 ### IIDX set (approximation)
 Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 30 %, EX-HARD -10, -18, -10.
@@ -194,8 +269,8 @@ counts and the player's totals: no EX score, BP or combo best, no best replay (M
 
 A play whose rules are the vibe-LR2 profile's gets LR2's lamp instead, one of its five [S-OLR2 7.2]: FAILED if the
 gauge emptied; else FULL COMBO if the max combo equals the notes, whatever the gauge ends at (a GROOVE full combo
-at 40 % is one; empty POORs and mines keep the combo); else HARD (HARD), CLEAR (GROOVE, HAZARD at 80 % or more),
-EASY (EASY at 80 % or more), or FAILED. Any assist caps it at EASY, a full combo included. It is the lamp kept
+at 40 % is one; empty POORs and mines keep the combo); else HARD (HARD, P-ATTACK, G-ATTACK), CLEAR (GROOVE, HAZARD at
+80 % or more; in a course at any value they live at), EASY (EASY at 80 % or more), or FAILED. Any assist caps it at EASY, a full combo included. It is the lamp kept
 and the one IR is sent. The EX score (2 × PGREAT + GREAT) and the DJ level (k / 9 of the max EX) are LR2's
 [S-OLR2 7.1]; LR2's 200 000-point score is not shown.
 
@@ -205,7 +280,7 @@ The vibe-LR2 rule profile (`crates/vibebms-ir/src/rule.rs`) is sent to a third-p
 plays no open gap of its equivalence list reaches. A gap closes when a source establishes LR2's behaviour and the
 engine follows it under the LR2 preset (or the profile leaves the case out); a gap is narrowed when its reach is
 cut down to the plays it can change, which are then refused with the gap's reason. Nothing here comes from the
-source of beatoraja, LR2oraja or bmz-player, or from LR2's binary: S-OLR2 is a behaviour specification (facts, no
+source of beatoraja, LR2oraja or bmz-player, or from LR2's binary: S-OLR2 (and S-OLR2b) is a behaviour specification (facts, no
 code) that someone else wrote from a reading of OpenLR2, a decompilation-based rewrite of LR2, and vibeBMS was
 written from it alone (clean room). `tools/lr2-measure/` holds test charts and steps for a player with LR2 to
 check it.
@@ -221,8 +296,16 @@ check it.
 | A7 | default TOTAL | closed: `#TOTAL` an integer; missing or below 1, floor(160 + 0.16 (n + clamp(n − 400, 0, 200))) [S-OLR2; the formula as S13 gives it, without the floor] |
 | A8 | mines, scratch long note ends | closed: the value as percent on every gauge, held as it passes or pressed up to GREAT early, one POOR [S-OLR2; S14 has the damage and the press, with GOOD for GREAT]. S9 and S15 (value / 2 %, nanasi's) and S10's GROOVE readings (−8, −8, −10, −12, −16 % for 1, 2, 3, 5, 10 %) do not fit; S-OLR2 notes that LR2 may show a mine as 2 POORs on screen while it counts 1, which may be what S10 saw. Scratch LN ends: LN mode only, judged as keys' [S4, S7]. GAUGE AUTO SHIFT: the profile takes none |
 | A9 | origin of the LR2 golden vectors | closed: recorded in `judge_golden.rs` and `gauge_golden.rs`; the documented behaviour has its own tests (`lr2_*_as_measured`, `lr2_hard_low_gauge_rule`, `lr2_combo_and_empty_poor_in_every_mode`, `windows_lr2`, `s14_lr2_release_window`, `lr2_note_choice_and_bad_chain`, `lr2_long_notes`, `lr2_mines`) |
-| A10 | gauges LR2 does not have | closed: the LR2 set offers ASSIST EASY and EX-HARD (and EXHARD-CLASS in courses), which LR2 has not [S8, S-OLR2]; the set keeps them, but the profile takes only EASY, NORMAL, HARD, HAZARD and CLASS, so a play on the others is local rules |
+| A10 | gauges LR2 does not have | closed: the LR2 set offers ASSIST EASY and EX-HARD (and EXHARD-CLASS in courses), which LR2 has not [S8, S-OLR2]; the set keeps them, but the profile takes only EASY, NORMAL, HARD, HAZARD, P-ATTACK, G-ATTACK, CLASS and EX-CLASS, so a play on the others is local rules |
 | A11 | the note a press takes among several in reach | closed: the lane's earliest unresolved object, then the BAD chain [S-OLR2]. The note choice option has no effect under the LR2 judge, and the profile takes any. The earlier sources described beatoraja's "combo" choice as "reportedly" LR2's [S4, S17]; S-OLR2 does not support that. `tools/lr2-measure`'s A11 charts check it (`a11-1`: POOR ≈ 0 with the chain, 16 without) |
+
+What rests on S-OLR2b alone (`docs/LR2_COURSES.md`; no other source describes them): P-ATTACK's and G-ATTACK's
+values (S8 and S14 only name them), their option order and look; everything under "LR2 courses" (the course
+kinds, the packed string, the expert / NONSTOP gauge values, the joins, fades, tempo match, time-based scroll,
+NONSTOP windows and TOTAL, the course lamps and saving, the class settings, RANDOM MIX, `song.db`'s tables). It
+corrects S-OLR2: the 80 % clear is outside courses only; the class row is GROOVE's only; "strictly above 2" is for
+the expert / class course lamp only (a stage's and a NONSTOP play's lamp need 2); NONSTOP's `#RANK` table changes
+only 1P, keeps the windows for a stage without `#RANK`, and switches at the stage's start.
 
 What rests on S-OLR2 alone, with no measurement of LR2 behind it: the note choice and the BAD chain (A11); the
 empty POOR's 200 ms lower edge (A2); non-numeric and out-of-range `#RANK` (A3; S13 and S16 only hedge `#RANK 4`);
@@ -252,8 +335,10 @@ Not followed, and why no gap covers it:
   mine just behind a note not yet judged waits for that note; vibeBMS resolves each at its own time. It differs
   only when an LN head is within 200 ms minus GOOD, or a mine within 200 ms, after an unjudged note of its lane.
 - Objects that start inside an LN of their lane are dropped by LR2; vibeBMS drops notes there, not mines.
-- P-ATTACK and G-ATTACK, battle, LR2's expert and NONSTOP courses (with their own gauge values, `#RANK` table and
-  mine offsets) and negative BPM: vibeBMS does not offer them, and the profile takes no course play.
+- Battle and negative BPM: vibeBMS does not offer them. LR2's courses are followed (above, "LR2 courses"), but no
+  IR takes a course play. Of the IR adapters, Bokutachi cannot file a P-ATTACK or G-ATTACK play (Tachi's BMS gauges
+  are EASY, NORMAL, HARD, EX-HARD) and refuses it; BMS-IR reads LR2's attack gauges (its change log: P-ATTACK apart
+  from the clear, G-ATTACK clears shown as G-A); rianIR is not known to and refuses them.
 
 Bokutachi takes LR2 and LR2oraja plays into its BMS 7K and 14K rankings [S18]. With no open gap reaching every
 vibe-LR2 play, vibeBMS's Bokutachi BMS adapter is on (`BOKUTACHI_BMS`); nothing is sent until Tachi lists
@@ -273,6 +358,10 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   gauges, scores and lamps), written by someone else from a reading of OpenLR2 branch `LR2Beta3-v100201`, a
   decompilation-based rewrite of LR2: facts only, no code, each rule labelled clear, inferred or ambiguous, with
   predictions for `tools/lr2-measure`. Not a measurement of LR2.
+
+- **S-OLR2b** `docs/LR2_COURSES.md`: a supplementary clean-room behaviour specification of LR2 beta3 100201 by the
+  same method and author as S-OLR2 (P-ATTACK and G-ATTACK, the course kinds and their data, NONSTOP courses, expert
+  and class courses), with its corrections to S-OLR2. Not a measurement of LR2.
 
 - **S1** yoshi_65c816, "LR2の仕様まとめ" (LR2 rules summary), archived
   <https://web.archive.org/web/20190210133959/http://2nd.geocities.jp/yoshi_65c816/bms/LR2.html>. Measured. Empty

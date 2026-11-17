@@ -40,7 +40,7 @@ impl Area {
 /// The gauge's built-in colour (above or below the border).
 fn gauge_color(t: GaugeType, above: bool) -> Color {
     rgba(match t {
-        GaugeType::Hard | GaugeType::Class => 0xff5060ff,
+        GaugeType::Hard | GaugeType::Class | GaugeType::PAttack | GaugeType::GAttack => 0xff5060ff,
         GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass => 0xffd34aff,
         GaugeType::Hazard => 0xff963cff,
         _ if above => 0xff5c96ff,
@@ -53,9 +53,11 @@ fn gauge_color(t: GaugeType, above: bool) -> Color {
 /// The gauge over the play: `log` sampled every 500 ms, shown in 2% steps
 /// as a stepped line whose colour changes across the border, over a
 /// background split at the border.
-pub fn gauge(d: &mut Draw, a: &Area, g: &GaugeGraph, log: &[f32], ty: GaugeType) {
+/// `course`: a course's play, whose gauges have no border (S-OLR2b 1.3).
+pub fn gauge(d: &mut Draw, a: &Area, g: &GaugeGraph, log: &[f32], ty: GaugeType, course: bool) {
     let r = a.r;
     let border = match ty {
+        _ if course => 0.0,
         GaugeType::AssistEasy | GaugeType::Easy => 60.0,
         GaugeType::Normal => 80.0,
         _ => 0.0,
@@ -64,7 +66,7 @@ pub fn gauge(d: &mut Draw, a: &Area, g: &GaugeGraph, log: &[f32], ty: GaugeType)
     let [line_hi, bg_hi, line_lo, bg_lo] = match &g.colors {
         Some(c) if c.len() >= 24 => {
             // beatoraja's colours per gauge kind (and its table for class gauges)
-            let k = [0, 1, 2, 3, 4, 5, 3, 4, 5][ty as usize];
+            let k = [0, 1, 2, 3, 4, 5, 3, 4, 5][crate::scene::skinvals::skin_gauge(ty)];
             [0, 1, 2, 3].map(|i| a.tint(c[k * 4 + i]))
         }
         _ => {

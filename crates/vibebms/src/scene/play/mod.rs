@@ -35,35 +35,119 @@ use session::{Out, Show};
 use std::sync::Arc;
 use vibebms_audio::Bus;
 use vibebms_core::chart::Chart;
+use vibebms_core::course::{CourseDef, CourseKind, CourseTotals};
+use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::Judge;
+use vibebms_core::play::RuleOptions;
 use vibebms_core::record::{ChartFacts, InputSource, RuleFacts};
 use vibebms_core::score::{ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 
-/// A dan/course in progress.
+/// A course in progress (`docs/LR2_COURSES.md`): an expert or class
+/// course a stage at a time, a NONSTOP course as one play.
 #[derive(Clone, Debug)]
 pub struct CourseRun {
     pub name: String,
+    /// Its kind, joins and stages (its identity, `CourseDef::id`).
+    pub def: CourseDef,
     pub songs: Vec<Song>,
+    /// The stage played (expert, class).
     pub index: usize,
+    /// A table course's constraints (`ln`, `gauge_lr2`, `grade_mirror`, ...).
     pub constraints: Vec<String>,
+    /// The gauges as the last stage left them.
     pub gauge_values: Option<Vec<f32>>,
     pub stages: Vec<(String, Score, ClearType)>,
+    /// What the stages played add up to, and the course combo.
+    pub totals: CourseTotals,
+    /// The seed every stage is read and arranged with (set at the first).
+    pub seed: Option<i64>,
+    /// The gauge the last stage ended on, and its value.
+    pub last_gauge: Option<(GaugeType, f32)>,
 }
 
 impl CourseRun {
-    pub fn new(name: String, songs: Vec<Song>, constraints: Vec<String>) -> CourseRun {
+    pub fn new(
+        name: String,
+        def: CourseDef,
+        songs: Vec<Song>,
+        constraints: Vec<String>,
+    ) -> CourseRun {
         CourseRun {
             name,
+            def,
             songs,
             index: 0,
             constraints,
             gauge_values: None,
             stages: Vec::new(),
+            totals: CourseTotals::default(),
+            seed: None,
+            last_gauge: None,
         }
     }
+
     pub fn has(&self, c: &str) -> bool {
         self.constraints.iter().any(|x| x.eq_ignore_ascii_case(c))
+    }
+
+    pub fn kind(&self) -> CourseKind {
+        self.def.kind
+    }
+
+    pub fn nonstop(&self) -> bool {
+        self.kind() == CourseKind::Nonstop
+    }
+
+    /// The course from its start again (a NONSTOP play retried).
+    pub fn restart(&self) -> CourseRun {
+        CourseRun::new(
+            self.name.clone(),
+            self.def.clone(),
+            self.songs.clone(),
+            self.constraints.clone(),
+        )
+    }
+
+    /// The rules a stage plays under on the player's `rules`: the course
+    /// kind's (`RuleOptions::for_course`), then a table course's
+    /// constraints (an LN mode, the LR2 gauges).
+    pub fn rules(&self, rules: &RuleOptions) -> RuleOptions {
+        let mut r = rules.clone();
+        if self.has("gauge_lr2") {
+            r.gauge_preset = GaugePreset::Lr2;
+        }
+        let mut r = r.for_course(self.kind());
+        for (c, ln) in [("ln", LnType::Ln), ("cn", LnType::Cn), ("hcn", LnType::Hcn)] {
+            if self.has(c) {
+                r.ln_mode = ln;
+                break;
+            }
+        }
+        r
+    }
+
+    /// The lane options a stage may have (`play::build_chart`'s `course`):
+    /// a class course MIRROR at most (with a table's `grade_mirror`), the
+    /// others any.
+    pub fn lanes(&self) -> Option<bool> {
+        (self.kind() == CourseKind::Class).then(|| self.has("grade_mirror"))
+    }
+
+    /// LR2's settings forced on the player's view: a class course under
+    /// the LR2 gauges has no lane cover or HIDDEN (S-OLR2b 5.1); a NONSTOP
+    /// course scrolls at the hi-speed set, HS-FIX off (3.3).
+    pub fn view(&self, p: &mut std::borrow::Cow<'_, crate::config::PlayConfig>) {
+        match self.kind() {
+            CourseKind::Class if self.rules(&p.rules).gauge_preset == GaugePreset::Lr2 => {
+                let p = p.to_mut();
+                p.sudden = 0.0;
+                p.hidden = 0.0;
+                p.lane_cover = false;
+            }
+            CourseKind::Nonstop => p.to_mut().hs_fix = crate::config::HsFix::Off,
+            _ => {}
+        }
     }
 }
 
@@ -80,6 +164,31 @@ pub struct PlayRequest {
 }
 
 impl PlayRequest {
+    /// What its records are kept under: a NONSTOP course's identity (it is
+    /// recorded as one song, S-OLR2b 3.8), else the chart's SHA-256.
+    pub fn record_key(&self) -> std::borrow::Cow<'_, str> {
+        match &self.course {
+            Some(c) if c.nonstop() => c.def.id().into(),
+            _ => self.song.sha256.as_str().into(),
+        }
+    }
+
+    /// What its replays are kept under: a NONSTOP course's by the MD5 of
+    /// its identity (as LR2 names them), an expert or class course's
+    /// stage by that and its number, else the chart's SHA-256.
+    pub fn replay_key(&self) -> String {
+        match &self.course {
+            Some(c) => {
+                let id = vibebms_core::bms::md5_hex(c.def.id().as_bytes());
+                match c.nonstop() {
+                    true => id,
+                    false => format!("{id}-{}", c.index + 1),
+                }
+            }
+            None => self.song.sha256.clone(),
+        }
+    }
+
     /// VS: two players here, one per side.
     pub fn is_vs(&self) -> bool {
         matches!(self.vs, Some(Versus::Local))
@@ -189,6 +298,10 @@ pub(crate) struct Facts {
     /// The chart and the rules its judge was given (the play's record).
     pub chart: ChartFacts,
     pub rules: RuleFacts,
+    /// The seed of its `#RANDOM` and lane options.
+    pub seed: i64,
+    /// The gauges' values a course's stage started from.
+    pub gauge_in: Option<Vec<f32>>,
 }
 
 pub struct PlayScene {
@@ -226,6 +339,8 @@ impl PlayScene {
                 best_ex: None,
                 chart: ChartFacts::default(),
                 rules: RuleFacts::default(),
+                seed: 0,
+                gauge_in: None,
             },
             session: Session::new(Chart::default(), Vec::new(), req.is_vs(), now),
             audio: Default::default(),
@@ -239,6 +354,25 @@ impl PlayScene {
             out: Vec::new(),
             released: Vec::new(),
             req,
+        }
+    }
+
+    /// The course stage playing at `now` (NONSTOP: at every join).
+    pub(crate) fn course_stage(&self, now: Instant) -> Option<usize> {
+        let c = self.req.course.as_ref()?;
+        match self.session.stage_at(self.session.chart_us(now)) {
+            Some(k) => Some(k),
+            None => Some(c.index),
+        }
+    }
+
+    /// The combo shown for the stage's `combo` on judge `e`: in an expert
+    /// or class course the course's, run on from the stages before until
+    /// this one breaks it (S-OLR2b 4.2).
+    pub(crate) fn course_combo(&self, combo: u32, e: &vibebms_core::engine::Engine) -> u32 {
+        match &self.req.course {
+            Some(c) if !c.nonstop() && e.score.combo_breaks == 0 => c.totals.combo + combo,
+            _ => combo,
         }
     }
 
@@ -317,6 +451,7 @@ impl PlayScene {
             self.feed(ctx, e, None);
         }
         self.released = released;
+        self.audio.fade(&ctx.audio.mixer, &self.session, t);
         self.audio.schedule(&ctx.audio.mixer, &self.session, t);
         let skin = self.skin.as_ref().map(|s| &s.skin);
         let show = Show {

@@ -1,7 +1,7 @@
 //! Deciding on a bar: into a folder, to the play of a chart or a course,
 //! or getting a chart that is not in the library.
 
-use super::tree::{event, table, Bar, Missing, Node};
+use super::tree::{event, table, Bar, CourseBar, Missing, Node};
 use super::SelectScene;
 use crate::app::{Ctx, Next};
 use crate::config::Versus;
@@ -61,43 +61,50 @@ impl SelectScene {
                 self.fetch(ctx, m);
                 Next::Stay
             }
-            Some(Bar::Course { table: url, course }) => {
-                let Some(c) = table(ctx, &url)
-                    .and_then(|t| t.header.courses.get(course))
-                    .cloned()
-                else {
-                    return Next::Stay;
-                };
-                let mut songs = Vec::new();
-                for k in 0..c.md5.len().max(c.sha256.len()) {
-                    let md5 = c.md5.get(k).map_or("", String::as_str);
-                    let sha = c.sha256.get(k).map_or("", String::as_str);
-                    let Some(i) = self.find(&md5.to_lowercase(), &sha.to_lowercase()) else {
-                        ctx.toast(format!(
-                            "Course {}: chart #{} is not installed",
-                            c.name,
-                            k + 1
-                        ));
-                        return Next::Stay;
-                    };
-                    songs.push(ctx.lib.songs[i].clone());
+            Some(Bar::Course(CourseBar::RandomMix(kind))) => {
+                let seed = crate::platform::unix_ms();
+                let mix = ctx.config.random_mix.clone();
+                let songs = ctx.lib.songs.clone();
+                match ctx
+                    .lib
+                    .courses
+                    .random_mix(kind, &mix, &songs, mix.mode, seed)
+                {
+                    Ok(id) => {
+                        ctx.lib.version += 1;
+                        self.rebuild(ctx);
+                        if let Some(i) = self
+                            .bars
+                            .iter()
+                            .position(|b| matches!(b, Bar::Course(CourseBar::Mine(x)) if *x == id))
+                        {
+                            self.cursor = i;
+                        }
+                        ctx.toast(format!("{}: a new course", crate::courses::RANDOM_MIX));
+                    }
+                    Err(e) => ctx.toast(e),
                 }
-                if songs.is_empty() {
-                    return Next::Stay;
-                }
-                let run = CourseRun::new(c.name.clone(), songs, c.constraint.clone());
-                let song = run.songs[0].clone();
-                self.launch(
-                    ctx,
-                    PlayRequest {
-                        song,
-                        autoplay,
-                        course: Some(run),
-                        replay: None,
-                        vs: None,
-                    },
-                )
+                Next::Stay
             }
+            Some(Bar::Course(c)) => match course_run(ctx, &c) {
+                Ok(run) => {
+                    let song = run.songs[0].clone();
+                    self.launch(
+                        ctx,
+                        PlayRequest {
+                            song,
+                            autoplay,
+                            course: Some(run),
+                            replay: None,
+                            vs: None,
+                        },
+                    )
+                }
+                Err(e) => {
+                    ctx.toast(e);
+                    Next::Stay
+                }
+            },
             None => Next::Stay,
         }
     }
@@ -106,6 +113,30 @@ impl SelectScene {
     fn launch(&mut self, ctx: &mut Ctx, req: PlayRequest) -> Next {
         self.stop_sounds(ctx);
         Next::Push(crate::scene::decide::start(ctx, req))
+    }
+
+    /// The chosen chart as the next stage of the course being edited (the
+    /// settings' COURSES).
+    pub(super) fn add_to_course(&mut self, ctx: &mut Ctx) {
+        let Some((_, song)) = self.selected_song(ctx) else {
+            return;
+        };
+        let stage = crate::courses::Stage::of(song);
+        let st = &mut ctx.lib.courses;
+        let Some(c) = st.editing.and_then(|id| st.get_mut(id)) else {
+            ctx.toast("No course open in the editor (settings, COURSES)");
+            return;
+        };
+        let msg = if c.stages.len() >= vibebms_core::course::MAX_STAGES {
+            format!("{} has its {} stages", c.title, c.stages.len())
+        } else {
+            c.stages.push(stage);
+            let msg = format!("{}: stage {} added", c.title, c.stages.len());
+            st.save();
+            ctx.lib.version += 1;
+            msg
+        };
+        ctx.toast(msg);
     }
 
     /// Watch the chosen chart's replay: its best play's, else its latest.
@@ -239,4 +270,101 @@ impl SelectScene {
             ),
         });
     }
+}
+
+/// The title of a course bar.
+pub(crate) fn course_title(ctx: &Ctx, c: &CourseBar) -> String {
+    match c {
+        CourseBar::Table(url, i) => table(ctx, url)
+            .and_then(|t| t.header.courses.get(*i))
+            .map(|c| c.name.clone())
+            .unwrap_or_default(),
+        CourseBar::Mine(id) => ctx
+            .lib
+            .courses
+            .get(*id)
+            .map(|c| format!("{} ({} stages)", c.title, c.stages.len()))
+            .unwrap_or_default(),
+        CourseBar::RandomMix(_) => crate::courses::RANDOM_MIX.into(),
+    }
+}
+
+/// A course's record (its identity's, in any LN mode, under the rule
+/// mode chosen: the best).
+pub(crate) fn course_best<'a>(ctx: &'a Ctx, id: &str) -> Option<&'a crate::library::BestScore> {
+    let rule = ctx.config.play.judge_preset;
+    (0..3)
+        .filter_map(|ln| ctx.best_key(id, ln, rule))
+        .max_by_key(|b| b.clear)
+}
+
+/// The lamp of a course bar's course (`None`: not played, or RANDOM MIX).
+pub(crate) fn course_lamp(ctx: &Ctx, c: &CourseBar) -> Option<vibebms_core::score::ClearType> {
+    let def = match c {
+        CourseBar::Mine(id) => ctx.lib.courses.get(*id)?.def(),
+        CourseBar::Table(..) => course_run(ctx, c).ok()?.def,
+        CourseBar::RandomMix(_) => return None,
+    };
+    course_best(ctx, &def.id()).map(|b| b.clear)
+}
+
+/// The course of a bar, ready to play: its stages found in the library
+/// (else why it cannot be played).
+pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> {
+    use crate::courses::find;
+    use vibebms_core::course::{CourseDef, CourseKind, MAX_STAGES};
+    let songs = &ctx.lib.songs;
+    let (name, mut def, stages, constraints): (
+        String,
+        CourseDef,
+        Vec<(String, String)>,
+        Vec<String>,
+    ) = match c {
+        CourseBar::Table(url, i) => {
+            let tc = table(ctx, url)
+                .and_then(|t| t.header.courses.get(*i))
+                .ok_or("no such course")?;
+            let n = tc.md5.len().max(tc.sha256.len());
+            let stages = (0..n)
+                .map(|k| {
+                    let get =
+                        |v: &Vec<String>| v.get(k).map_or(String::new(), |s| s.to_lowercase());
+                    (get(&tc.md5), get(&tc.sha256))
+                })
+                .collect();
+            let def = CourseDef {
+                kind: CourseKind::Class,
+                ..Default::default()
+            };
+            (tc.name.clone(), def, stages, tc.constraint.clone())
+        }
+        CourseBar::Mine(id) => {
+            let mc = ctx.lib.courses.get(*id).ok_or("no such course")?;
+            let stages = mc
+                .stages
+                .iter()
+                .map(|s| (s.md5.clone(), s.sha256.clone()))
+                .collect();
+            (mc.title.clone(), mc.def(), stages, Vec::new())
+        }
+        CourseBar::RandomMix(_) => return Err("not a course".into()),
+    };
+    if stages.is_empty() {
+        return Err(format!(
+            "Course {name}: no stages yet (add charts in the settings' COURSES)"
+        ));
+    }
+    if stages.len() > MAX_STAGES {
+        return Err(format!("Course {name}: more than {MAX_STAGES} stages"));
+    }
+    let mut found = Vec::new();
+    for (k, (md5, sha)) in stages.iter().enumerate() {
+        let Some(s) = find(songs, md5, sha) else {
+            return Err(format!("Course {name}: stage {} is not installed", k + 1));
+        };
+        found.push(s.clone());
+    }
+    // a table course's identity: its charts' MD5s
+    def.stages = found.iter().map(|s| s.md5.to_lowercase()).collect();
+    Ok(CourseRun::new(name, def, found, constraints))
 }

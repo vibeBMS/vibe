@@ -449,6 +449,32 @@ impl Library {
         }
     }
 
+    /// A stage of an expert or class course into its chart's record
+    /// `key`, partly (S-OLR2b 4.4): the best EX score with its counts
+    /// (strictly higher), max combo, min BP and min CB, the lamp only to
+    /// FULL COMBO; no play count (the course's result counts the play).
+    pub fn record_stage(&mut self, key: &RecordKey, s: &Score, clear: ClearType) -> BestScore {
+        let mut b = self
+            .scores
+            .get(key)
+            .cloned()
+            .unwrap_or_else(BestScore::none);
+        if s.ex_score() > b.ex_score {
+            b.ex_score = s.ex_score();
+            b.judges = Judge::ALL.map(|j| s.count(j));
+        }
+        if clear >= ClearType::FullCombo {
+            b.clear = b.clear.max(ClearType::FullCombo);
+        }
+        b.notes = s.total_notes;
+        b.max_combo = b.max_combo.max(s.max_combo);
+        b.min_bp = b.min_bp.min(s.miss_count());
+        b.min_cb = b.min_cb.min(combo_breaks(s));
+        self.scores.insert(key.clone(), b.clone());
+        self.save_scores();
+        b
+    }
+
     /// Merge a play into the record `key` and the totals (`play_ms`: how
     /// long it was played). Returns the updated record. A course's record
     /// is one too, under the course's identity.

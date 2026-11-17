@@ -456,6 +456,7 @@ impl App {
             &ctx.paths.scores,
             |sha, ln| crate::replay::rule_of_old(&root, sha, ln, crate::replay::Slot::Best),
         ));
+        ctx.lib.courses = crate::courses::CourseStore::open(&ctx.paths.scores);
         ctx.reload_library();
         ctx.load_cached_tables();
         // the web build's first scan comes once the songs kept in the

@@ -286,7 +286,11 @@ impl Hooks for ResultHooks<'_> {
             reveal: (s.host.ms(self.st.now) as f32 / dur as f32).clamp(0.0, 1.0),
         };
         match graph {
-            Graph::Gauge(g) => graphs::gauge(d, &a, g, &data.gauge_log, data.gauge_type),
+            Graph::Gauge(g) => {
+                let course = data.record.rules.gauge_set == vibebms_core::gauge::GaugePreset::Lr2
+                    && data.course.is_some();
+                graphs::gauge(d, &a, g, &data.gauge_log, data.gauge_type, course)
+            }
             Graph::Notes(g) => graphs::notes(d, &a, g, &data.notes_graph[g.kind.min(2)], None),
             Graph::Bpm(g) => {
                 graphs::bpm(d, &a, g, &data.bpm_log, data.length_us, data.meta.main_bpm)

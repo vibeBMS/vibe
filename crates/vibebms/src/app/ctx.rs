@@ -63,6 +63,8 @@ pub struct Ctx {
 #[derive(Default)]
 pub struct Lib {
     pub db: Option<Library>,
+    /// The player's courses.
+    pub courses: crate::courses::CourseStore,
     /// Sorted by title, then level.
     pub songs: Arc<Vec<Song>>,
     pub scores: HashMap<RecordKey, BestScore>,

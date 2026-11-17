@@ -15,11 +15,19 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     let p = &ctx.config.play;
     vec![
         Row::adjust("Gauge", p.gauge.label(), |c, d| {
-            c.config.play.gauge = cycle(&GaugeType::SELECTABLE, c.config.play.gauge, d)
+            c.config.play.gauge = cycle(
+                c.config.play.gauge_preset.selectable(),
+                c.config.play.gauge,
+                d,
+            )
         }),
         // the second player's own in VS
         Row::adjust("VS 2P gauge", p.p2.gauge.label(), |c, d| {
-            c.config.play.p2.gauge = cycle(&GaugeType::SELECTABLE, c.config.play.p2.gauge, d)
+            c.config.play.p2.gauge = cycle(
+                c.config.play.gauge_preset.selectable(),
+                c.config.play.p2.gauge,
+                d,
+            )
         }),
         Row::adjust("VS 2P auto scratch", onoff(p.p2.auto_scratch), |c, _| {
             c.config.play.p2.auto_scratch ^= true
@@ -37,8 +45,14 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             *s = cycle(&GaugeAutoShift::ALL, *s, d)
         }),
         Row::adjust("Gauge rules", p.gauge_preset.label(), |c, d| {
-            let g = &mut c.config.play.gauge_preset;
-            *g = cycle(&GaugePreset::ALL, *g, d)
+            let p = &mut c.config.play;
+            p.gauge_preset = cycle(&GaugePreset::ALL, p.gauge_preset, d);
+            // the attack gauges are the LR2 set's
+            for g in [&mut p.rules.gauge, &mut p.p2.gauge] {
+                if !p.rules.gauge_preset.has(*g) {
+                    *g = GaugeType::Hard;
+                }
+            }
         }),
         Row::adjust("Judge windows", p.judge_preset.label(), |c, d| {
             let j = &mut c.config.play.judge_preset;

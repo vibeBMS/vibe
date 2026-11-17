@@ -162,6 +162,7 @@ mod tests {
             clear: ClearType::Easy,
             ghost: vec![Judge::PGreat, Judge::Great, Judge::Poor],
             ops: vec![Op::Update(5), Op::Input(10, 1, 0, true)],
+            course: None,
         };
         let load = |slot| load(&root, "ab", 0, JudgePreset::Beatoraja, slot);
         save(&r, &root, Slot::Best).unwrap();
@@ -208,6 +209,7 @@ mod tests {
             clear: ClearType::Easy,
             ghost: Vec::new(),
             ops: Vec::new(),
+            course: None,
         };
         r.play.judge_preset = JudgePreset::Lr2;
         save(&r, &root, Slot::Best).unwrap();
