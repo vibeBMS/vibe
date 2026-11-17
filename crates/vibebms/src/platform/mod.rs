@@ -4,6 +4,8 @@
 //! in-memory file system fed by the browser's folder picker, runs background
 //! jobs on the event loop and uses the browser's `fetch` for HTTP.
 
+#[cfg(target_os = "android")]
+pub mod android;
 mod drive;
 pub mod http;
 #[cfg(target_arch = "wasm32")]

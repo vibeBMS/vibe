@@ -57,12 +57,23 @@ pub struct ChartFacts {
     pub judge_rank: JudgeRank,
     /// The TOTAL the gauge used.
     pub total: f64,
+    /// The chart gives its `#TOTAL` (else `total` is the gauge set's
+    /// default). Missing in older records: taken as not given.
+    #[serde(default)]
+    pub total_given: bool,
+    /// The chart has mines. Missing in older records: taken as having them.
+    #[serde(default = "yes")]
+    pub mines: bool,
     /// Its long notes as written.
     pub ln: LnProfile,
     /// `#RANDOM` / `#SWITCH`, and the branches this play took.
     pub has_random: bool,
     pub random_selections: Vec<u32>,
     pub length_us: i64,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl ChartFacts {
@@ -80,6 +91,8 @@ impl ChartFacts {
             difficulty: m.difficulty,
             judge_rank: m.judge_rank,
             total,
+            total_given: m.total.is_some() && m.total_rate.is_none(),
+            mines: m.has_mine,
             ln,
             has_random: m.has_random,
             random_selections: m.random_selections.clone(),
@@ -333,6 +346,26 @@ mod tests {
         rec.result.score.max_combo = 3;
         let json = serde_json::to_string(&rec).unwrap();
         assert_eq!(serde_json::from_str::<PlayRecord>(&json).unwrap(), rec);
+    }
+
+    #[test]
+    fn chart_facts_say_what_the_lr2_gaps_ask() {
+        let rules = RuleOptions::default();
+        let facts = |text: &str| {
+            let p = build_chart(Path::new("c.bme"), text.as_bytes(), &rules, 5, None).unwrap();
+            ChartFacts::new(&p.chart, p.chart.mode(), p.ln_profile, 0.0)
+        };
+        let plain = facts("#PLAYER 1\n#BPM 120\n#00111:01\n");
+        assert!(!plain.total_given && !plain.mines);
+        let both = facts("#PLAYER 1\n#BPM 120\n#TOTAL 300\n#00111:01\n#00112:000A\n#001D2:0A\n");
+        assert!(both.total_given && both.mines);
+        // an older record: no #TOTAL, mines, as far as it can tell
+        let mut json = serde_json::to_value(&both).unwrap();
+        let o = json.as_object_mut().unwrap();
+        o.remove("total_given");
+        o.remove("mines");
+        let old: ChartFacts = serde_json::from_value(json).unwrap();
+        assert!(!old.total_given && old.mines);
     }
 
     #[test]

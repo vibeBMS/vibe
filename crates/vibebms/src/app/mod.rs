@@ -3,6 +3,7 @@
 mod cli;
 mod ctx;
 mod events;
+mod pacing;
 mod tables;
 
 pub use ctx::{AppEvent, Ctx};
@@ -113,7 +114,12 @@ struct Running {
     cursor: (f32, f32),
     frame_count: u32,
     fps_since: Instant,
+    /// When to start the next frame (a frame rate cap, or with vsync when
+    /// its image will be free).
     next_frame: Instant,
+    pacer: pacing::Pacer,
+    /// The display's refresh rate (Hz; 0: not known).
+    refresh_hz: f64,
     /// A redraw asked for and not drawn yet (the web: asking again would
     /// wake the event loop again at once, and it would spin).
     redraw_pending: bool,
@@ -199,6 +205,21 @@ pub fn run() {
 }
 
 impl Running {
+    /// The display paces the frames, uncapped, at a rate it tells (the
+    /// web's browser paces them itself).
+    fn vsync_paced(&self) -> bool {
+        self.gfx.vsync()
+            && self.ctx.config.display.max_fps == 0
+            && self.refresh_hz > 0.0
+            && !crate::platform::IS_WEB
+    }
+
+    /// The window may be on another display: its refresh rate.
+    fn display_changed(&mut self) {
+        self.refresh_hz = refresh_hz(&self.window);
+        self.pacer.set_refresh(self.refresh_hz);
+    }
+
     /// Ask for a frame (on the web, once until it is drawn).
     fn redraw(&mut self) {
         self.redraw_pending = crate::platform::IS_WEB;
@@ -283,6 +304,9 @@ impl Running {
             Some(top) => top.update(&mut self.ctx, &mut self.gfx, now),
             None => Next::Quit,
         };
+        // scenes are drawn for when the frame will be shown, updated
+        // (judged, sounds scheduled) for now
+        let shown = self.pacer.frame(now, self.gfx.frames_ahead());
         self.apply(el, next);
 
         self.batch.clear();
@@ -294,7 +318,7 @@ impl Running {
         };
         self.ctx.input.text_input = false;
         if let Some(top) = self.scenes.last_mut() {
-            top.draw(&mut self.ctx, &mut d, now);
+            top.draw(&mut self.ctx, &mut d, shown);
         }
         // the on-screen keyboard (iOS, Android) while a text field is edited
         if self.ctx.input.text_input != self.ime_on {
@@ -304,8 +328,15 @@ impl Running {
             }
         }
         draw_overlay(&mut self.ctx, &mut d, now);
-        if let Err(e) = self.gfx.render(&self.batch, theme::BACKGROUND) {
-            log::warn!("render: {e}");
+        let waited = self
+            .gfx
+            .render(&self.batch, theme::BACKGROUND)
+            .unwrap_or_else(|e| {
+                log::warn!("render: {e}");
+                Duration::ZERO
+            });
+        if self.vsync_paced() {
+            self.next_frame = self.pacer.next_start(waited);
         }
         self.frame_count += 1;
         let el_t = now.duration_since(self.fps_since);
@@ -445,6 +476,10 @@ impl App {
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
         scenes.extend(cli::play_scene(&mut ctx));
         let now = Instant::now();
+        let refresh_hz = refresh_hz(&window);
+        log::info!("display: {refresh_hz:.1} Hz");
+        let mut pacer = pacing::Pacer::default();
+        pacer.set_refresh(refresh_hz);
         self.run = Some(Running {
             window,
             gfx,
@@ -462,6 +497,8 @@ impl App {
             frame_count: 0,
             fps_since: now,
             next_frame: now,
+            pacer,
+            refresh_hz,
             redraw_pending: false,
             ime_on: false,
             downloads: Default::default(),
@@ -556,19 +593,10 @@ impl ApplicationHandler<UserEvent> for App {
             r.downloads.browse(el, &r.window, &mut r.ctx, pages);
         }
         r.downloads.poll(&mut r.ctx);
-        let realtime = r.scenes.last().map(|s| s.realtime()).unwrap_or(false);
+        let realtime = r.scenes.last().is_some_and(|s| s.realtime());
         let fps = r.ctx.config.display.max_fps;
         let now = Instant::now();
-        if fps > 0 || !realtime {
-            // menus: cap at the display rate (or 120) to save power; play: user cap
-            let cap = if fps > 0 { fps } else { 120 };
-            let interval = Duration::from_secs_f64(1.0 / cap as f64);
-            if now >= r.next_frame && !r.redraw_pending {
-                r.next_frame = (r.next_frame + interval).max(now);
-                r.redraw()
-            }
-            el.set_control_flow(ControlFlow::WaitUntil(r.next_frame));
-        } else if crate::platform::IS_WEB {
+        if crate::platform::IS_WEB && fps == 0 {
             // the browser paces the redraws (requestAnimationFrame); Poll
             // there makes winit post a task again and again between frames
             // (Firefox: ~34000 a second, each with an AbortController), which
@@ -578,9 +606,30 @@ impl ApplicationHandler<UserEvent> for App {
             if !r.redraw_pending {
                 r.redraw();
             }
-        } else {
+        } else if r.vsync_paced() {
+            // the next frame when its image is about to be free
+            // (`Running::frame`), waiting for input meanwhile rather than
+            // in the GPU's queue
+            if now >= r.next_frame {
+                r.redraw();
+            }
+            el.set_control_flow(ControlFlow::WaitUntil(r.next_frame));
+        } else if fps == 0 && realtime {
+            // play without vsync: as many frames as the GPU makes
             el.set_control_flow(ControlFlow::Poll);
             r.window.request_redraw();
+        } else {
+            // the user's cap, or in menus the display's rate
+            let cap = match fps {
+                0 if r.refresh_hz > 0.0 => r.refresh_hz,
+                0 => 120.0,
+                f => f as f64,
+            };
+            if now >= r.next_frame && !r.redraw_pending {
+                r.next_frame = (r.next_frame + Duration::from_secs_f64(1.0 / cap)).max(now);
+                r.redraw()
+            }
+            el.set_control_flow(ControlFlow::WaitUntil(r.next_frame));
         }
     }
 
@@ -591,6 +640,20 @@ impl ApplicationHandler<UserEvent> for App {
         // "Restart now" after an update (scores are saved as they are made)
         crate::update::relaunch_if_asked();
     }
+}
+
+/// The refresh rate (Hz) of the window's display, 0 when it is not known;
+/// on Android the highest the display has, asked for.
+fn refresh_hz(window: &Window) -> f64 {
+    // (winit does not know it there)
+    #[cfg(target_os = "android")]
+    if let Some(hz) = crate::platform::android::use_highest_refresh_rate() {
+        return hz;
+    }
+    window
+        .current_monitor()
+        .and_then(|m| m.refresh_rate_millihertz())
+        .map_or(0.0, |m| m as f64 / 1000.0)
 }
 
 /// Size to render at, in device pixels (as pointer positions are). On the

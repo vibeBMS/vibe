@@ -33,7 +33,9 @@ impl Running {
                 self.ctx.view.height = h as f32;
                 self.ctx.view.scale = self.window.scale_factor() as f32;
                 self.ctx.view.screen = crate::platform::screen::detect(&self.window);
+                self.display_changed();
             }
+            WindowEvent::Moved(_) => self.display_changed(),
             WindowEvent::RedrawRequested => {
                 self.redraw_pending = false;
                 self.frame(el)

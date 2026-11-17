@@ -79,8 +79,8 @@ pub struct Gate {
     pub wall_time: bool,
 }
 
-/// Bokutachi BMS 7K/14K (vibe-LR2): off until the LR2 equivalence work
-/// (IR-14) is done.
+/// Bokutachi BMS 7K/14K (vibe-LR2): off while an open LR2 gap reaches
+/// every play (A11, the note choice: `tools/lr2-measure`).
 pub const BOKUTACHI_BMS: bool = false;
 
 /// Tachi's game configs take only `LR2`/`lr2oraja` (BMS) and `beatoraja`
@@ -303,10 +303,13 @@ mod tests {
         r
     }
 
-    /// `base` under LR2 rules, 7 keys.
+    /// `base` under LR2 rules, 7 keys, on a chart that gives its #TOTAL.
     fn lr2() -> PlayRecord {
         let mut r = base();
         r.chart.mode = PlayMode::Beat7K;
+        r.chart.total = 300.0;
+        r.chart.total_given = true;
+        r.result.score.total_notes = 1000;
         r.rules.judge = JudgePreset::Lr2;
         r.rules.gauge_set = GaugePreset::Lr2;
         r
@@ -473,6 +476,20 @@ mod tests {
                 &VIBE_JSON,
                 Refusal::LocalRules,
             ),
+            (
+                "LR2, ASSIST EASY",
+                lr2(),
+                |r| r.rules.gauge = GaugeType::AssistEasy,
+                &VIBE_JSON,
+                Refusal::LocalRules,
+            ),
+            (
+                "LR2, EX-HARD",
+                lr2(),
+                |r| r.rules.gauge = GaugeType::ExHard,
+                &VIBE_JSON,
+                Refusal::LocalRules,
+            ),
             ("touch", base(), |r| r.device.touch = 1, bok, Refusal::Touch),
             (
                 "touch controls shown",
@@ -495,12 +512,37 @@ mod tests {
                 bok,
                 Refusal::NotTaken(Profile::VibeBeatoraja, PlayMode::Beat5K),
             ),
+            ("LR2 gap", lr2(), |_| {}, bok, Refusal::OpenGap("A11")),
             (
-                "LR2 gap",
+                "LR2, #RANK 4",
                 lr2(),
-                |_| {},
+                |r| r.chart.judge_rank = JudgeRank::Rank(4),
                 bok,
-                Refusal::OpenGap(Profile::VibeLr2.open_gaps().next().unwrap().id),
+                Refusal::OpenGap("A3"),
+            ),
+            (
+                "LR2, HARD on 100 notes",
+                lr2(),
+                |r| {
+                    r.rules.gauge = GaugeType::Hard;
+                    r.result.score.total_notes = 100;
+                },
+                bok,
+                Refusal::OpenGap("A4"),
+            ),
+            (
+                "LR2, no #TOTAL",
+                lr2(),
+                |r| r.chart.total_given = false,
+                bok,
+                Refusal::OpenGap("A7"),
+            ),
+            (
+                "LR2, mines",
+                lr2(),
+                |r| r.chart.mines = true,
+                bok,
+                Refusal::OpenGap("A8"),
             ),
             (
                 "5-key EX-HARD",
@@ -604,8 +646,51 @@ mod tests {
             ids,
             ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11"]
         );
-        assert!(lr2.iter().all(|g| g.reaches == Reach::Every));
-        assert!(BOKUTACHI_BMS || lr2.iter().any(|g| !g.closed));
+        // on only when no open gap reaches every play (the others refuse
+        // just the plays they reach)
+        let every = lr2.iter().any(|g| !g.closed && g.reaches == Reach::Every);
+        assert!(!(BOKUTACHI_BMS && every));
+        // every open gap says why, in words
+        for g in EQUIVALENCE.iter().filter(|g| !g.closed) {
+            assert!(g.reason.ends_with("isn't confirmed"), "{}", g.id);
+            assert_eq!(crate::rule::gap(g.id).map(|x| x.id), Some(g.id));
+        }
+    }
+
+    /// The narrowed LR2 gaps reach only the plays they can change.
+    #[test]
+    fn the_lr2_reaches_are_narrow() {
+        let hits = |id: &str, edit: fn(&mut PlayRecord)| {
+            let mut r = lr2();
+            edit(&mut r);
+            crate::rule::gap(id).unwrap().reaches.hits(&r)
+        };
+        // #RANK 0 .. 3 are LR2's; 4, 5 and -1 are not known
+        assert!(!hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(3)));
+        assert!(hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(5)));
+        assert!(hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(-1)));
+        // HARD below 125 notes, unless TOTAL's factor is already 10
+        let hard = |n: u32, t: f64| {
+            move |r: &mut PlayRecord| {
+                r.rules.gauge = GaugeType::Hard;
+                r.result.score.total_notes = n;
+                r.chart.total = t;
+            }
+        };
+        let few = |n, t| {
+            let mut r = lr2();
+            hard(n, t)(&mut r);
+            Reach::HardFewNotes.hits(&r)
+        };
+        assert!(few(124, 300.0) && few(1, 120.0));
+        assert!(!few(125, 300.0) && !few(124, 119.0) && !few(0, 300.0));
+        assert!(!hits("A4", |r| r.result.score.total_notes = 50));
+        // no #TOTAL: every gauge but HAZARD (DEATH) gains or loses by it
+        assert!(!hits("A7", |r| {
+            r.chart.total_given = false;
+            r.rules.gauge = GaugeType::Hazard;
+        }));
+        assert!(!hits("A8", |_| {}));
     }
 
     /// A made-up record: any mix of rules, devices and flags.
