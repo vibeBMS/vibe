@@ -52,7 +52,8 @@ pub struct InputEvent {
     pub pressed: bool,
 }
 
-/// How a press picks between several notes in reach.
+/// How a press picks between several notes in reach (not under the LR2
+/// judge, which has LR2's own rule).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum JudgeAlgorithm {
     /// Move on to the next note once the current one is beyond GOOD (late)
@@ -996,7 +997,7 @@ impl Engine {
     /// earliest unresolved object (S-OLR2 1.1, 1.2), then the BAD chain
     /// (1.3); mines (4).
     fn lr2_press(&mut self, lane: usize, key: u8, t: i64) {
-        let Some(i) = self.lr2_cursor(lane, None) else {
+        let Some(i) = self.lr2_cursor(lane, t, None) else {
             self.empty_press_sound(lane, t);
             return;
         };
@@ -1043,7 +1044,7 @@ impl Engine {
     /// finished at once, a mine within GREAT goes off (S-OLR2 1.3).
     fn bad_chain(&mut self, lane: usize, mut prev: usize, t: i64) {
         let ty = self.note_type(lane);
-        while let Some(i) = self.lr2_cursor(lane, Some(prev)) {
+        while let Some(i) = self.lr2_cursor(lane, t, Some(prev)) {
             let d = lr2_diff(self.notes[i].time, t);
             match self.notes[i].kind {
                 Kind::Mine(_) => {
@@ -1073,19 +1074,19 @@ impl Engine {
         }
     }
 
-    /// The lane's earliest unresolved object (after note `after`): a note
-    /// not judged, a mine neither passed nor set off.
-    fn lr2_cursor(&self, lane: usize, after: Option<usize>) -> Option<usize> {
+    /// The lane's earliest object unresolved at `t` (after note `after`): a
+    /// note not judged, a mine not set off whose time is not past.
+    fn lr2_cursor(&self, lane: usize, t: i64, after: Option<usize>) -> Option<usize> {
         let l = &self.lanes[lane];
-        // before both every note is judged and every mine passed
-        let mut k = l.swept.min(l.passed);
+        // before both every note is judged and every mine past
+        let past = l.notes.partition_point(|&i| self.notes[i].time < t);
+        let mut k = l.swept.min(past);
         if let Some(a) = after {
             k += l.notes[k..].iter().position(|&i| i == a)? + 1;
         }
-        l.notes[k..].iter().enumerate().find_map(|(j, &i)| {
+        l.notes[k..].iter().copied().find(|&i| {
             let n = &self.notes[i];
-            let open = n.state.is_none() && (!n.is_mine() || k + j >= l.passed);
-            open.then_some(i)
+            n.state.is_none() && (!n.is_mine() || n.time >= t)
         })
     }
 

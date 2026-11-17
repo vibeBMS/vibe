@@ -1647,6 +1647,10 @@ fn lr2_mines() {
     e.update(2_100 * MS);
     assert_eq!(drain(&mut e), [mine_ev(0, 10.0), snd(20, 0)]);
     assert_eq!((e.score.count(MISS), e.combo()), (1, 0));
+    // pressed at its own time, the engine advanced to it first: set off
+    let mut e = m(vec![]);
+    key_synced(&mut e, 0, 0, 2 * SEC, true);
+    assert_eq!(drain(&mut e), [mine_ev(0, 10.0), snd(20, 0)]);
     // VERY HARD (GREAT 24): the BAD chain reaches a mine 20 ms ahead
     let mut e = lr2_engine(
         0,
