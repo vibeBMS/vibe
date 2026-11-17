@@ -6,14 +6,14 @@
 //! late (drawing, input) breaks the sound.
 //!
 //! The worklet's frame count is the mixer's clock; it reports it with the
-//! context time, so the page knows the frame playing now, the frame heard
-//! now (the context's output timestamp), and the frame a moment on the
-//! judge's clock comes on (`FrameClock`, fitted to the reports as to cpal's
-//! callbacks).
+//! context time, so the page knows the frame heard now (the context's
+//! output timestamp, which follows the device's clock) and, from there,
+//! the frame a moment on the judge's clock comes on (`Clock`). The reports
+//! themselves reach the page too late and too unevenly (it draws between
+//! them) to time sounds by.
 
 use super::worklet::{self, Wire};
 use super::{us_since, Device, Output};
-use crate::clock::{FrameClock, Obs};
 use crate::decode::Sample;
 use crate::voice::{Bus, Cmd, Due};
 use crate::AudioConfig;
@@ -73,18 +73,94 @@ class VibeMix extends AudioWorkletProcessor {
 registerProcessor("vibe-mix", VibeMix);
 "#;
 
-/// The worklet's last report: `frame` at context time `at`.
-#[derive(Clone, Copy)]
-struct Report {
-    frame: f64,
-    at: f64,
+/// The worklet's frames against the page's clocks.
+struct Clock {
+    ctx: web_sys::AudioContext,
+    rate: f64,
+    epoch: Instant,
+    /// The worklet's last report: frame, at this context time (s).
+    last: Option<(f64, f64)>,
+    /// The frame heard at the epoch (the output timestamp's mapping, which
+    /// follows the device), averaged over the reports.
+    heard0: Mean,
+    /// Frames from the one heard to the one mixed (where a sound played now
+    /// starts), averaged: the page sees the mixed one only to a device
+    /// buffer.
+    ahead: Mean,
 }
 
-struct Reports {
-    last: Option<Report>,
-    /// The worklet's frames on the judge's clock.
-    fit: FrameClock,
-    epoch: Instant,
+/// A mean of the last `n` values or so (an exponential one once full).
+struct Mean {
+    value: f64,
+    count: f64,
+    n: f64,
+}
+
+impl Mean {
+    fn new(n: f64) -> Mean {
+        Mean {
+            value: 0.0,
+            count: 0.0,
+            n,
+        }
+    }
+
+    fn add(&mut self, x: f64) {
+        self.count = (self.count + 1.0).min(self.n);
+        self.value += (x - self.value) / self.count;
+    }
+}
+
+impl Clock {
+    fn report(&mut self, frame: f64, at: f64) {
+        self.last = Some((frame, at));
+        let heard = self.frame_of(self.heard_time());
+        let heard0 = heard - us_since(self.epoch, Instant::now()) * self.rate / 1e6;
+        // the worklet skipped frames (it starts late), or the device's
+        // clock was reset: a new mapping
+        if (heard0 - self.heard0.value).abs() > self.rate / 100.0 {
+            self.heard0.count = 0.0;
+        }
+        self.heard0.add(heard0);
+        self.ahead
+            .add(self.frame_of(self.ctx.current_time()) - heard);
+    }
+
+    /// The worklet's frame of context time `t` (after a report).
+    fn frame_of(&self, t: f64) -> f64 {
+        let (frame, at) = self.last.unwrap_or_default();
+        frame + (t - at) * self.rate
+    }
+
+    /// The context time now heard: getOutputTimestamp, else currentTime
+    /// less the output latency.
+    fn heard_time(&self) -> f64 {
+        let ctx: &JsValue = self.ctx.as_ref();
+        js_sys::Reflect::get(ctx, &JsValue::from_str("getOutputTimestamp"))
+            .ok()
+            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| f.call0(ctx).ok())
+            .and_then(|ts| {
+                let ctx_t = js_f64(&ts, "contextTime")?;
+                let perf_t = js_f64(&ts, "performanceTime")?;
+                let perf_now = web_sys::window()?.performance()?.now();
+                (ctx_t > 0.0).then(|| ctx_t + (perf_now - perf_t) / 1000.0)
+            })
+            .unwrap_or_else(|| {
+                let lat = js_f64(ctx, "outputLatency")
+                    .filter(|l| *l > 0.0)
+                    .or_else(|| js_f64(ctx, "baseLatency"))
+                    .unwrap_or(0.0);
+                self.ctx.current_time() - lat
+            })
+    }
+
+    /// The frame a sound due `us` after the epoch starts on (None until
+    /// the worklet reports).
+    fn frame_at(&self, us: f64) -> Option<f64> {
+        self.last?;
+        Some(self.heard0.value + self.ahead.value + us * self.rate / 1e6)
+    }
 }
 
 /// The node's message handler, kept alive with it.
@@ -100,9 +176,8 @@ struct Sent {
 
 pub(crate) struct WebOut {
     ctx: web_sys::AudioContext,
-    rate: u32,
     node: Rc<RefCell<Option<web_sys::AudioWorkletNode>>>,
-    reports: Rc<RefCell<Reports>>,
+    clock: Rc<RefCell<Clock>>,
     sent: Rc<RefCell<Sent>>,
     /// Messages before the node is up (the module loads first).
     early: Rc<RefCell<Vec<JsValue>>>,
@@ -133,19 +208,22 @@ impl WebOut {
                 .map_err(|e| format!("{e:?}"))?
         };
         let node: Rc<RefCell<Option<web_sys::AudioWorkletNode>>> = Rc::default();
-        let reports = Rc::new(RefCell::new(Reports {
-            last: None,
-            fit: FrameClock::new(rate),
+        let clock = Rc::new(RefCell::new(Clock {
+            ctx: ctx.clone(),
+            rate: rate as f64,
             epoch,
+            last: None,
+            heard0: Mean::new(64.0),
+            ahead: Mean::new(512.0),
         }));
         let early: Rc<RefCell<Vec<JsValue>>> = Rc::default();
         let message: OnMessage = Rc::default();
         let max_voices = cfg.max_voices.max(16);
         let ready = {
-            let (ctx, node, reports, early, message) = (
+            let (ctx, node, clock, early, message) = (
                 ctx.clone(),
                 node.clone(),
-                reports.clone(),
+                clock.clone(),
                 early.clone(),
                 message.clone(),
             );
@@ -162,12 +240,12 @@ impl WebOut {
                     Err(e) => return log::warn!("audio worklet: {e:?}"),
                 };
                 let _ = n.connect_with_audio_node(&ctx.destination());
-                let reports = reports.clone();
+                let clock = clock.clone();
                 let on = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
                     move |e: web_sys::MessageEvent| {
                         let a: js_sys::Array = e.data().unchecked_into();
                         if let (Some(frame), Some(at)) = (a.get(0).as_f64(), a.get(1).as_f64()) {
-                            reports.borrow_mut().observe(Report { frame, at });
+                            clock.borrow_mut().report(frame, at);
                         }
                     },
                 );
@@ -213,9 +291,8 @@ impl WebOut {
         }
         let out = WebOut {
             ctx,
-            rate,
             node,
-            reports,
+            clock,
             sent,
             early,
             _ready: ready,
@@ -267,51 +344,6 @@ impl WebOut {
         self.post(m.into());
         id
     }
-
-    /// The frame the worklet is mixing now (estimated from its last report).
-    fn current_frame(&self, r: Report) -> f64 {
-        r.frame + (self.ctx.current_time() - r.at).max(0.0) * self.rate as f64
-    }
-
-    /// The frame being heard now: the frame of the context time now coming
-    /// out of the speakers.
-    fn heard_frame(&self, r: Report) -> f64 {
-        let ctx: &JsValue = self.ctx.as_ref();
-        // the context time now heard: getOutputTimestamp, else currentTime
-        // less the output latency
-        let now = js_sys::Reflect::get(ctx, &JsValue::from_str("getOutputTimestamp"))
-            .ok()
-            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-            .and_then(|f| f.call0(ctx).ok())
-            .and_then(|ts| {
-                let ctx_t = js_f64(&ts, "contextTime")?;
-                let perf_t = js_f64(&ts, "performanceTime")?;
-                let perf_now = web_sys::window()?.performance()?.now();
-                (ctx_t > 0.0).then(|| ctx_t + (perf_now - perf_t) / 1000.0)
-            })
-            .unwrap_or_else(|| {
-                let lat = js_f64(ctx, "outputLatency")
-                    .filter(|l| *l > 0.0)
-                    .or_else(|| js_f64(ctx, "baseLatency"))
-                    .unwrap_or(0.0);
-                self.ctx.current_time() - lat
-            });
-        r.frame + (now - r.at) * self.rate as f64
-    }
-}
-
-impl Reports {
-    fn observe(&mut self, r: Report) {
-        self.last = Some(r);
-        // the quantum starts at context time `at`: the stream's clock
-        let obs = Obs {
-            frame: r.frame as u64,
-            frames: 128,
-            stream_us: Some(r.at * 1e6),
-            now_us: us_since(self.epoch, Instant::now()),
-        };
-        self.fit.observe(obs);
-    }
 }
 
 impl Output for WebOut {
@@ -322,18 +354,17 @@ impl Output for WebOut {
             if let Some(Due::Us(us)) = v.due {
                 // the worklet counts frames only; until it reports, they
                 // are not known: now
-                let r = self.reports.borrow();
-                let frame = || r.fit.frame_at(us).round().max(0.0) as u64;
-                v.due = r.last.map(|_| Due::Frame(frame()));
+                let frame = self.clock.borrow().frame_at(us);
+                v.due = frame.map(|f| Due::Frame(f.round().max(0.0) as u64));
             }
         }
         self.post(wire(&worklet::encode(&cmd, id)));
     }
 
     fn latency_us(&self) -> Option<i64> {
-        let r = self.reports.borrow().last?;
-        let ahead = self.current_frame(r) - self.heard_frame(r);
-        Some((ahead.max(0.0) * 1_000_000.0 / self.rate.max(1) as f64) as i64)
+        let c = self.clock.borrow();
+        c.last?;
+        Some((c.ahead.value.max(0.0) * 1e6 / c.rate) as i64)
     }
 
     fn resume(&self) {
