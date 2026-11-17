@@ -223,7 +223,8 @@ impl Dst {
             if t > end {
                 return None;
             }
-        } else if end > 0 && t > self.loop_ms {
+        } else if end > 0 && end > start && t > self.loop_ms {
+            // (one keyframe: nothing to loop, it stays from its time on)
             t = if end == self.loop_ms {
                 self.loop_ms
             } else {
@@ -1096,5 +1097,15 @@ mod tests {
         d.ops.clear();
         d.acc = 1;
         assert_eq!(d.eval(500, &St).unwrap().rect.x, 25.0);
+        // a single keyframe at 30 ms, loop 0: shown from 30 ms on (LR2)
+        let mut one = Dst {
+            loop_ms: 0,
+            ..Default::default()
+        };
+        one.add_key(key(30, 7.0));
+        assert!(one.eval(10, &St).is_none());
+        for t in [30, 59, 60, 1000, 123_457] {
+            assert_eq!(one.eval(t, &St).unwrap().rect.x, 7.0, "{t}");
+        }
     }
 }
