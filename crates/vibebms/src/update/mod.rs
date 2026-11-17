@@ -490,6 +490,8 @@ pub fn managed_location(exe: &Path) -> Option<&'static str> {
         "/gnu/store/",
         "/snap/",
         "/var/lib/flatpak/",
+        // inside a Flatpak (platform/flatpak): `flatpak install` updates it
+        "/app/",
         "/opt/homebrew/",
         "/home/linuxbrew/",
     ];
@@ -791,6 +793,7 @@ mod tests {
             "/usr/local/bin/vibebms",
             "/nix/store/abc-vibebms/bin/vibebms",
             "/snap/vibebms/1/vibebms",
+            "/app/bin/vibebms",
             "/opt/homebrew/bin/vibebms",
             "/usr/local/Cellar/vibebms/1/bin/vibebms",
             "/opt/homebrew/Caskroom/vibebms/1/vibeBMS.app/Contents/MacOS/vibebms",
@@ -804,6 +807,7 @@ mod tests {
         }
         for p in [
             "/home/me/games/vibeBMS/vibebms",
+            "/home/me/app/vibebms",
             "/opt/vibeBMS/vibebms",
             "/Applications/vibeBMS.app/Contents/MacOS/vibebms",
             "/Users/me/Games/vibeBMS Nightly.app/Contents/MacOS/vibebms",
