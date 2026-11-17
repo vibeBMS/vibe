@@ -465,8 +465,8 @@ impl App {
         ctx.tables.links.start(&ctx.paths.cache);
         ctx.net.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
         ctx.net.archives.refresh(false);
-        ctx.skin_store = crate::skinstore::SkinStore::load(&ctx.paths);
-        ctx.skin_store.refresh(false);
+        ctx.skins.store = crate::skinstore::SkinStore::load(&ctx.paths);
+        ctx.skins.store.refresh(false);
         // a newer nightly (desktop CI builds), in the background
         ctx.net.updater.check(ctx.config.check_updates);
         // tests: open the download browser on this page at start

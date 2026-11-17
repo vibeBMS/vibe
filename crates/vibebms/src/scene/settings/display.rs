@@ -31,7 +31,7 @@ pub(super) fn step_skin_option(ctx: &mut Ctx, t: SkinType, i: usize, d: i32) {
         return;
     };
     let value = value.to_string();
-    if let Some(o) = ctx.skin_custom_options(&path).get(i) {
+    if let Some(o) = ctx.skins.custom_options(&path).get(i) {
         skinned::step_option(ctx, &value, o, d);
     }
 }
@@ -42,7 +42,7 @@ pub(super) fn step_skin_offset(ctx: &mut Ctx, t: SkinType, i: usize, field: usiz
         return;
     };
     let value = value.to_string();
-    if let Some(o) = ctx.skin_custom_offsets(&path).get(i) {
+    if let Some(o) = ctx.skins.custom_offsets(&path).get(i) {
         skinned::step_offset(ctx, &value, &o.name, field, d);
     }
 }
@@ -120,7 +120,7 @@ fn skin_rows(ctx: &Ctx, t: SkinType, v: &mut Vec<Row>) {
         return;
     };
     let picked = c.skin_options.get(value);
-    for (i, o) in ctx.skin_custom_options(&path).iter().enumerate() {
+    for (i, o) in ctx.skins.custom_options(&path).iter().enumerate() {
         let k = o.chosen(picked.and_then(|m| m.get(&o.name)).map(String::as_str));
         v.push(Row::new(
             format!("    {}", o.name),
@@ -129,7 +129,7 @@ fn skin_rows(ctx: &Ctx, t: SkinType, v: &mut Vec<Row>) {
         ));
     }
     let set = c.skin_offsets.get(value);
-    for (i, o) in ctx.skin_custom_offsets(&path).iter().enumerate() {
+    for (i, o) in ctx.skins.custom_offsets(&path).iter().enumerate() {
         let cur = set
             .and_then(|m| m.get(&o.name))
             .copied()

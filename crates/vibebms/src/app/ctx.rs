@@ -4,9 +4,12 @@ use crate::config::{Config, TouchMode};
 use crate::library::{BestScore, Library, ScanProgress, Song};
 use crate::paths::Paths;
 use crate::platform::{Instant, Job};
+use crate::skin::{CustomOffset, CustomOption};
 use bmseeker::table::DifficultyTable;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 #[cfg(test)]
@@ -33,13 +36,8 @@ pub struct Ctx {
     /// The window and the screen.
     pub view: View,
     pub input: Input,
-    /// The skin catalog and the skins downloaded from it.
-    pub skin_store: crate::skinstore::SkinStore,
-    /// Custom options read from skin files (path -> options).
-    skin_options_cache:
-        std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
-    skin_offsets_cache:
-        std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
+    /// The skin catalog, and what was read of skin files.
+    pub skins: Skins,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -118,6 +116,40 @@ pub struct Input {
     pub pointer: Option<(f32, f32)>,
 }
 
+/// The skin catalog and its downloads, and the custom options and offsets
+/// read from skin files (by path; read again once skins change).
+#[derive(Default)]
+pub struct Skins {
+    pub store: crate::skinstore::SkinStore,
+    options: RefCell<HashMap<PathBuf, Rc<[CustomOption]>>>,
+    offsets: RefCell<HashMap<PathBuf, Rc<[CustomOffset]>>>,
+}
+
+impl Skins {
+    /// Custom options of a skin file.
+    pub fn custom_options(&self, path: &Path) -> Rc<[CustomOption]> {
+        self.options
+            .borrow_mut()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| crate::skin::custom_options(path).into())
+            .clone()
+    }
+
+    pub fn custom_offsets(&self, path: &Path) -> Rc<[CustomOffset]> {
+        self.offsets
+            .borrow_mut()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| crate::skin::custom_offsets(path).into())
+            .clone()
+    }
+
+    /// Skins were added, replaced or deleted: what was read of them goes.
+    pub fn files_changed(&mut self) {
+        self.options.get_mut().clear();
+        self.offsets.get_mut().clear();
+    }
+}
+
 impl Ctx {
     /// A context with nothing loaded yet.
     pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
@@ -134,9 +166,7 @@ impl Ctx {
             toasts: Vec::new(),
             view,
             input: Input::default(),
-            skin_store: Default::default(),
-            skin_options_cache: Default::default(),
-            skin_offsets_cache: Default::default(),
+            skins: Skins::default(),
         }
     }
 
@@ -422,7 +452,7 @@ impl Ctx {
             self.toast(t);
         }
         // skins downloaded
-        let skins = self.skin_store.poll(&self.paths);
+        let skins = self.skins.store.poll(&self.paths);
         for t in skins.toasts {
             self.toast(t);
         }
@@ -431,7 +461,7 @@ impl Ctx {
             crate::platform::open_url(p);
         }
         if skins.changed {
-            self.skins_changed();
+            self.skins.files_changed();
         }
         // a work's link that needs a person on its page
         if !pages.is_empty() {
@@ -547,29 +577,6 @@ impl Ctx {
         self.audio.sounds.stop(&self.audio.mixer, s);
     }
 
-    /// Skins were added, replaced or deleted: what was read of them goes.
-    pub fn skins_changed(&mut self) {
-        self.skin_options_cache.borrow_mut().clear();
-        self.skin_offsets_cache.borrow_mut().clear();
-    }
-
-    /// Custom options of a skin file (cached).
-    pub fn skin_custom_options(&self, path: &std::path::Path) -> Vec<crate::skin::CustomOption> {
-        self.skin_options_cache
-            .borrow_mut()
-            .entry(path.to_path_buf())
-            .or_insert_with(|| crate::skin::custom_options(path))
-            .clone()
-    }
-
-    pub fn skin_custom_offsets(&self, path: &std::path::Path) -> Vec<crate::skin::CustomOffset> {
-        self.skin_offsets_cache
-            .borrow_mut()
-            .entry(path.to_path_buf())
-            .or_insert_with(|| crate::skin::custom_offsets(path))
-            .clone()
-    }
-
     /// The user's offset values for the skin configured as `value`.
     pub fn skin_user_offsets(&self, value: &str) -> HashMap<String, [i32; 6]> {
         self.config
@@ -586,7 +593,7 @@ impl Ctx {
         value: &str,
         path: &std::path::Path,
     ) -> crate::skin::UserSettings {
-        let opts = self.skin_custom_options(path);
+        let opts = self.skins.custom_options(path);
         let chosen = self.config.skin_options.get(value);
         crate::skin::UserSettings {
             options: crate::skin::user_options(&opts, chosen),

@@ -79,12 +79,14 @@ pub fn items(ctx: &Ctx, kind: SkinType, value: &str) -> Vec<Item> {
         return Vec::new();
     };
     let mut v: Vec<Item> = ctx
-        .skin_custom_options(&p)
-        .into_iter()
+        .skins
+        .custom_options(&p)
+        .iter()
         .filter(|o| !o.labels.is_empty())
+        .cloned()
         .map(Item::Option)
         .collect();
-    for o in ctx.skin_custom_offsets(&p) {
+    for o in ctx.skins.custom_offsets(&p).iter() {
         for f in 0..6 {
             if o.fields[f] {
                 v.push(Item::Offset(o.clone(), f));
