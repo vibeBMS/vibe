@@ -8,11 +8,11 @@
 //!   (`JudgeProperty` / `JudgeWindowRule`).
 //! * `Lr2` preset: the classic LR2 per-#RANK windows (±8/24/40 … ±21/60/120,
 //!   BAD ±200 ms).
-//! * `Iidx` preset: DX MODE's windows (as bmz-player documents LR2oraja
-//!   Endless Dream's): PG ±16.67, GR ±33.33, GD ±116.67, BAD ±200 ms, an
-//!   empty POOR up to 500 ms early, frames of the 120 Hz LIGHTNING MODEL
-//!   cabinet with input timing quantised to them; 9 keys pop'n's (POP)
-//!   windows in ms. Konami does not publish them, see `docs/RULES.md`.
+//! * `Iidx` preset: the arcade game's windows as community sources give
+//!   them: PG ±16.67, GR ±33.33, GD ±116.67, BAD ±250 ms, frames of the
+//!   120 Hz LIGHTNING MODEL cabinet with input timing quantised to them;
+//!   9 keys pop'n's (POP) windows in ms. Konami does not publish them, see
+//!   `docs/RULES.md`.
 
 use crate::chart::JudgeRank;
 use crate::mode::RuleFamily;
@@ -457,12 +457,12 @@ pub fn lr2_nonstop_rules(fam: RuleFamily, rank: JudgeRank) -> JudgeRules {
     }
 }
 
-/// IIDX (DX MODE) windows in 120 Hz frames (late, early): PG, GR, GD, BAD,
-/// empty POOR (500 ms early, 200 late); a CN / BSS end has PGREAT to the
-/// GOOD window, then BAD.
+/// IIDX (arcade) windows in 120 Hz frames (late, early): PG, GR, GD, BAD,
+/// empty POOR (not known for the arcade: 500 ms early, 150 late); a CN /
+/// BSS end has PGREAT to the GOOD window, then BAD.
 pub const IIDX_HZ: u32 = 120;
-const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-24, 24), (-24, 60)];
-const IIDX_LN_END_FRAMES: [(i64, i64); 4] = [(-14, 14), (-14, 14), (-14, 14), (-24, 24)];
+const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-30, 30), (-18, 60)];
+const IIDX_LN_END_FRAMES: [(i64, i64); 4] = [(-14, 14), (-14, 14), (-14, 14), (-30, 30)];
 /// 9 keys under the IIDX preset: pop'n's (POP) windows in µs, not frames.
 const POP_NOTE: [(i64, i64); 5] = [
     (-25_000, 25_000),
@@ -485,7 +485,7 @@ fn iidx(frames: &[(i64, i64)]) -> Vec<(i64, i64)> {
         .collect()
 }
 
-/// The IIDX preset's windows: DX MODE's, 9 keys POP's.
+/// The IIDX preset's windows: the arcade's, 9 keys POP's.
 fn iidx_windows(pms: bool) -> JudgeWindows {
     let (note, ln_end, ln_margin, frame_hz) = if pms {
         (POP_NOTE.to_vec(), POP_LN_END.to_vec(), PMS.ln_margin, None)
@@ -544,8 +544,8 @@ pub fn judge_rules(
     };
     let (combo, vanish, miss_one) = match preset {
         JudgePreset::Lr2 => (LR2_COMBO, LR2_VANISH, false),
-        // DX MODE: 9 keys as PMS, every other mode as 7 keys (an empty
-        // POOR keeps the combo in 5 keys too)
+        // 9 keys as PMS, every other mode as 7 keys (an empty POOR keeps
+        // the combo in 5 keys too)
         JudgePreset::Iidx if !f.pms_rule => (SEVEN.combo, SEVEN.vanish, SEVEN.miss_one),
         _ => (f.combo, f.vanish, f.miss_one),
     };
@@ -734,11 +734,12 @@ mod tests {
         let w = &r.windows;
         assert_eq!(w.note[0], (-16_667, 16_667));
         assert_eq!(w.note[1], (-33_333, 33_333));
-        assert_eq!(w.note[3], (-200_000, 200_000));
-        assert_eq!(w.note[4], (-200_000, 500_000));
+        assert_eq!(w.note[3], (-250_000, 250_000));
+        assert_eq!(w.note[4], (-150_000, 500_000));
         // a CN end: PGREAT within the GOOD window
         assert_eq!(w.judge(NoteType::LongEnd, -110_000), Some(Judge::PGreat));
         assert_eq!(w.judge(NoteType::LongEnd, 150_000), Some(Judge::Bad));
+        assert_eq!(w.judge(NoteType::LongEnd, -250_000), Some(Judge::Bad));
         // 20 ms snaps to 2 frames (16.67 ms) -> PGREAT; 21 ms snaps to 3 frames -> GREAT
         assert_eq!(
             w.judge(NoteType::Note, w.quantize(20_000)),
