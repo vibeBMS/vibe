@@ -327,6 +327,16 @@ mod imp {
         });
     }
 
+    /// Forget the files below `dir` read from the browser's storage (it
+    /// changed there: they are mounted again).
+    pub fn unmount(dir: &Path) {
+        FS.with(|fs| {
+            fs.borrow_mut()
+                .files
+                .retain(|k, n| !(k.starts_with(dir) && matches!(n.data, Data::File(_))))
+        });
+    }
+
     /// Remove the folder `dir` and everything below it (here and in the
     /// browser's storage); the library is read again.
     pub fn remove_dir(dir: &Path) {
