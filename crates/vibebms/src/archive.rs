@@ -601,7 +601,12 @@ fn fetch_work(
             } else {
                 name(f)
             };
-            n += crate::import::unpack_into(&bmseeker::fs::Disk, tmp, &name, &dest)?;
+            n += crate::import::unpack_into(
+                &bmseeker::fs::Disk,
+                bmseeker::unpack::Blob::File(tmp.clone()),
+                &name,
+                &dest,
+            )?;
         }
         Ok((rel, n))
     })();
