@@ -5,6 +5,7 @@
 //! the same note. Kept as gzipped JSON.
 
 use crate::engine::Op;
+use crate::judge::Judge;
 use crate::play::RuleOptions;
 use crate::score::ClearType;
 use serde::de::DeserializeOwned;
@@ -87,14 +88,11 @@ impl<P: DeserializeOwned> Replay<P> {
     }
 }
 
-/// EX score of judgements (PG 2, GR 1).
+/// EX score of judgements (as kept: `Judge` indices).
 pub fn ex_of(judges: &[u8]) -> u32 {
     judges
         .iter()
-        .map(|j| match j {
-            0 => 2,
-            1 => 1,
-            _ => 0,
-        })
+        .filter_map(|j| Judge::of(*j as usize))
+        .map(Judge::ex)
         .sum()
 }

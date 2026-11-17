@@ -5,6 +5,7 @@
 //! bodies; the application sends them with its own HTTP stack.
 
 use serde::{Deserialize, Serialize};
+use vibebms_core::judge::{BAD, GOOD, GREAT, MISS, PGREAT, POOR};
 use vibebms_core::score::{ClearType, Score};
 
 /// The chart a request is about.
@@ -75,18 +76,18 @@ impl ScoreSubmission {
             md5: chart.md5.clone(),
             lntype: chart.ln_type.clone(),
             clear,
-            epg: c(0, 0),
-            lpg: c(0, 1),
-            egr: c(1, 0),
-            lgr: c(1, 1),
-            egd: c(2, 0),
-            lgd: c(2, 1),
-            ebd: c(3, 0),
-            lbd: c(3, 1),
-            epr: c(4, 0),
-            lpr: c(4, 1),
-            ems: c(5, 0),
-            lms: c(5, 1),
+            epg: c(PGREAT, 0),
+            lpg: c(PGREAT, 1),
+            egr: c(GREAT, 0),
+            lgr: c(GREAT, 1),
+            egd: c(GOOD, 0),
+            lgd: c(GOOD, 1),
+            ebd: c(BAD, 0),
+            lbd: c(BAD, 1),
+            epr: c(POOR, 0),
+            lpr: c(POOR, 1),
+            ems: c(MISS, 0),
+            lms: c(MISS, 1),
             maxcombo: s.max_combo,
             notes: s.total_notes,
             passnotes: s.passed,
