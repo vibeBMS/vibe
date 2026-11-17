@@ -155,7 +155,6 @@ pub struct PlayScene {
     pub(crate) poor_until: Option<Instant>,
     /// The last judge of each judge region (`judge_region`).
     pub(crate) last_judge: [Option<(usize, i64, Instant, u32)>; 3],
-    pub(crate) bombs: Vec<(u8, Instant, usize)>,
     pub(crate) next_sample: i64,
     pub(crate) lane_notes: Vec<Vec<usize>>,
     pub(crate) lane_cursor: Vec<usize>,
@@ -668,7 +667,6 @@ impl PlayScene {
             bga: [None; 4],
             poor_until: None,
             last_judge: [None; 3],
-            bombs: Vec::new(),
             next_sample: 0,
             lane_notes: Vec::new(),
             lane_cursor: Vec::new(),
@@ -1765,9 +1763,6 @@ impl Scene for PlayScene {
                     if let Some(j) = self.lane_judge.get_mut(lane as usize) {
                         *j = Some(judge);
                     }
-                    if judge <= GREAT {
-                        self.bombs.push((lane, now, judge));
-                    }
                     // the skin's bomb timers (#JUDGETIMER: up to which judge)
                     let bomb_upto = self
                         .skin
@@ -1785,7 +1780,7 @@ impl Scene for PlayScene {
                         self.poor_until = Some(now + Duration::from_millis(500));
                     }
                 }
-                EngineEvent::Mine { lane, .. } => self.bombs.push((lane, now, 9)),
+                EngineEvent::Mine { .. } => {}
                 EngineEvent::Failed => failed = true,
             }
         }
@@ -1807,8 +1802,6 @@ impl Scene for PlayScene {
             }
             self.bga_i += 1;
         }
-        self.bombs
-            .retain(|b| now.duration_since(b.1) < Duration::from_millis(250));
         if failed {
             self.stage = Stage::Ending {
                 since: now,
