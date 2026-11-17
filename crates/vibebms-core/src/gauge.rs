@@ -284,29 +284,34 @@ fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
 // specification (TOTAL steps and note-count breakpoints), not from another
 // program's code.
 
-/// Damage multiplier of the beatoraja-preset five-key EX-HARD gauge: the
-/// larger of a TOTAL step factor and a note-count factor (single precision).
-fn five_key_damage_factor(total: f64, notes: usize) -> f32 {
-    const TOTAL_STEPS: [(f64, f32); 9] = [
-        (240.0, 1.0),
-        (230.0, 1.11),
-        (210.0, 1.25),
-        (200.0, 1.5),
-        (180.0, 1.666),
-        (160.0, 2.0),
-        (150.0, 2.5),
-        (130.0, 3.333),
-        (120.0, 5.0),
-    ];
-    let by_total = if total.is_nan() {
-        1.0
-    } else {
-        TOTAL_STEPS
-            .iter()
-            .find(|(t, _)| total >= *t)
-            .map_or(10.0, |(_, f)| *f)
-    };
+/// The TOTAL factor of both: LR2's HARD POOR damage as measured at each
+/// multiple of 10, over 10, LR2 dropping the ones digit (docs/RULES.md,
+/// source S1); below 120, 10.
+const TOTAL_STEPS: [(f64, f32); 9] = [
+    (240.0, 1.0),
+    (230.0, 1.11),
+    (210.0, 1.25),
+    (200.0, 1.5),
+    (180.0, 1.666),
+    (160.0, 2.0),
+    (150.0, 2.5),
+    (130.0, 3.333),
+    (120.0, 5.0),
+];
 
+fn total_factor(total: f64) -> f32 {
+    if total.is_nan() {
+        return 1.0;
+    }
+    TOTAL_STEPS
+        .iter()
+        .find(|(t, _)| total >= *t)
+        .map_or(10.0, |(_, f)| *f)
+}
+
+/// Damage multiplier of the beatoraja-preset five-key EX-HARD gauge: the
+/// larger of the TOTAL factor and a note-count factor (single precision).
+fn five_key_damage_factor(total: f64, notes: usize) -> f32 {
     // breakpoints 1000, 500, 250, ... (halved), slopes 0.002, 0.004, ...
     // (doubled) per note fewer
     let by_notes = if notes >= 1000 {
@@ -325,19 +330,13 @@ fn five_key_damage_factor(total: f64, notes: usize) -> f32 {
             hi = lo;
         }
     };
-    by_total.max(by_notes)
+    total_factor(total).max(by_notes)
 }
 
 /// Damage multiplier of the LR2-preset HARD and EX-HARD gauges: the larger
-/// of a TOTAL factor and a note-count factor, computed in double precision
-/// and rounded to single precision.
+/// of the TOTAL factor and a note-count factor, computed in double
+/// precision and rounded to single precision.
 fn lr2_damage_factor(total: f64, n: f64) -> f32 {
-    let by_total = if total.is_nan() {
-        1.0
-    } else {
-        let k = ((total / 16.0).floor() - 5.0).clamp(1.0, 10.0);
-        10.0 / k
-    };
     let by_notes = if n >= 1000.0 {
         1.0
     } else if n >= 500.0 {
@@ -355,7 +354,15 @@ fn lr2_damage_factor(total: f64, n: f64) -> f32 {
     } else {
         10.0
     };
-    f64::max(by_total, by_notes) as f32
+    f64::max(total_factor(total) as f64, by_notes) as f32
+}
+
+/// The LR2-preset HARD damage of a chart with `notes` notes and `total`
+/// is not LR2's as measured: below 125 notes S1 gives only the graph's
+/// ends, and the note-count factor is then the larger unless the TOTAL
+/// factor is already the most, 10 (docs/RULES.md, gap A4).
+pub fn lr2_hard_damage_unconfirmed(total: f64, notes: u32) -> bool {
+    (1..125).contains(&notes) && total_factor(total) < 10.0
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -645,9 +652,11 @@ mod tests {
         assert!((g.change_for(Judge::Poor) + 30.0).abs() < 1e-4);
         let big = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 2000);
         assert_eq!(big.change_for(Judge::Poor), -10.0);
-        // TOTAL 200: floor(200 / 16) - 5 = 7 -> x10/7
-        let low = Gauge::new(GaugeType::Hard, &LR2[3], 200.0, 2000);
-        assert!((low.change_for(Judge::Poor) + 100.0 / 7.0).abs() < 1e-3);
+        // TOTAL 200 and 209 (the ones digit dropped): x1.5
+        for t in [200.0, 209.0] {
+            let low = Gauge::new(GaugeType::Hard, &LR2[3], t, 2000);
+            assert!((low.change_for(Judge::Poor) + 15.0).abs() < 1e-3);
+        }
         assert!(
             (Gauge::new(GaugeType::Hard, &LR2[3], 100.0, 2000).change_for(Judge::Poor) + 100.0)
                 .abs()

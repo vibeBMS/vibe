@@ -103,13 +103,17 @@ effectively disables it; vibeBMS keeps only the positive part.
 | EX-CLASS | 100 | – | 0.1, 0.1, 0.05, -6, -10, -2 | ×0.6 below 32 % |
 | EXHARD-CLASS | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | |
 
-The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %. LR2 damage: damage × max(10 /
-clamp(⌊TOTAL / 16⌋ − 5, 1, 10), note-count factor), the note-count factor rising from 1 at 1000 notes to 10 at 20
-(1 + 0.002·(1000 − n) below 1000, 2 + 0.004·(500 − n) below 500, 3 + 0.008·(250 − n) below 250, …).
+The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %. LR2 damage: damage × the larger of a
+TOTAL factor and a note-count factor. The TOTAL factor is S1's measured POOR damage over 10 at the multiple of 10
+at or below TOTAL, LR2 dropping the ones digit [S1]: 1 from 240, 1.11 from 230, 1.25 from 210, 1.5 from 200, 1.666
+from 180, 2 from 160, 2.5 from 150, 3.333 from 130, 5 from 120, 10 below (the table S2 and S4 give). The note-count
+factor rises from 1 at 1000 notes to 10 at 20 (1 + 0.002·(1000 − n) below 1000, 2 + 0.004·(500 − n) below 500, 3 +
+0.008·(250 − n) below 250, …).
 
-EASY, NORMAL (GROOVE), HARD, HAZARD and CLASS (dan) are LR2's gauges; their values, the 32 % rule and the 2 % floor
-are as LR2 is documented [S1, S3, S7, S8]. LR2's HARD damage factor is confirmed only in part (gap A4). ASSIST
-EASY, EX-HARD, EX-CLASS and EXHARD-CLASS are not LR2's [S8].
+EASY, NORMAL (GROOVE), HARD, HAZARD and CLASS (dan) are LR2's gauges; their values, the 32 % rule, the 2 % floor and
+the HARD damage factor from 125 notes up are as LR2 is documented [S1, S3, S7, S8]; below 125 notes the note-count
+factor is vibeBMS's guess (gap A4). ASSIST EASY, EX-HARD, EX-CLASS and EXHARD-CLASS are not LR2's [S8]: the set
+offers them, but the vibe-LR2 profile does not take them (gap A10).
 
 ### IIDX set (approximation)
 Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 30 %, EX-HARD -10, -18, -10.
@@ -143,31 +147,38 @@ counts and the player's totals: no EX score, BP or combo best, no best replay (M
 
 ## LR2 equivalence (the vibe-LR2 profile)
 
-The vibe-LR2 rule profile (`crates/vibebms-ir/src/rule.rs`) is sent to an IR as LR2 rules only when every gap of
-its equivalence list is closed. A gap closes when public documentation of LR2's behaviour establishes the rule and
-the engine follows it under the LR2 preset (or the profile leaves the case out). Nothing here comes from the source
-of beatoraja, LR2oraja or bmz-player, or from LR2's binary.
+The vibe-LR2 rule profile (`crates/vibebms-ir/src/rule.rs`) is sent to a third-party IR as LR2 rules only for
+plays no open gap of its equivalence list reaches. A gap closes when public documentation of LR2's behaviour
+establishes the rule and the engine follows it under the LR2 preset (or the profile leaves the case out); a gap is
+narrowed when its reach is cut down to the plays it can change, which are then refused with the gap's reason.
+Nothing here comes from the source of beatoraja, LR2oraja or bmz-player, or from LR2's binary.
+`tools/lr2-measure/` holds test charts and steps for a player with LR2 to settle the open gaps.
 
 | gap | what | state |
 |---|---|---|
 | A1 | judge and gauge presets were separate settings | closed: the profile takes only the LR2 judge with the LR2 gauge set |
 | A2 | empty POOR window and its combo and note rules | closed: 0 .. +1000 ms, early only [S1, S2, S3, S4]; keeps the combo, never takes the note [S4] |
-| A3 | `#RANK 4`, out-of-range `#RANK`, `#DEFEXRANK`, bmson | open: `#RANK 0..3` and a missing `#RANK` are LR2's [S5, S8, S9]; LR2 has no `#DEFEXRANK` [S9] or bmson, and the profile leaves both out; what LR2 does with `#RANK 4` or an out-of-range value is not documented (vibeBMS: NORMAL) |
-| A4 | HARD gauge damage factor and the 30 % rule | open. Confirmed: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the TOTAL and note-count factors, × 0.6 below 32 %, empty below 2 % [S1, S3, S7]; the TOTAL factor at TOTAL 100 .. 300 in steps of 10 but 200; the note-count factor from 250 notes up and at 125 and 0 [S1]. Not confirmed: TOTAL 200 (S1 measured POOR 15, vibeBMS 14.29) and every TOTAL between the measured ones (vibeBMS steps every 16, S2 / S4 give beatoraja's table, which steps differently); the note-count curve below 125 notes. HAZARD is now LR2's DEATH gauge [S8] |
+| A3 | `#RANK 4`, out-of-range `#RANK`, `#DEFEXRANK`, bmson | narrowed to charts whose `#RANK` is not 0 .. 3: `#RANK 0..3` and a missing `#RANK` are LR2's [S5, S8, S9]; LR2 has no `#DEFEXRANK` [S9] or bmson, and the profile leaves both out. `#RANK 4`: LR2 does not play it VERY EASY [S9 does not list LR2 among its players, S16], and "it appears" LR2 plays it NORMAL [S13], as vibeBMS does; one hedged source, so still refused. Other values: undocumented (vibeBMS: NORMAL). A `#RANK` vibeBMS cannot read as a number plays NORMAL and is not refused (LR2's handling unknown; no such chart is known) |
+| A4 | HARD gauge damage factor and the 30 % rule | narrowed to HARD on charts of 1 .. 124 notes and TOTAL 120 or more. Confirmed: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the TOTAL and note-count factors, × 0.6 below 32 %, empty below 2 % [S1, S3, S7]; the TOTAL factor at every TOTAL: S1 measured each multiple of 10 from 100 to 300 (200 included: 15) and says LR2 drops the ones digit, so a TOTAL between takes the measured value below it [S1]; vibeBMS now does (it stepped every 16 and took 14.29 at 200). The note-count factor from 125 notes up: S1's slopes to 250, then its graph's mark at 125 with the slope doubled again as S1's "…" says [S1]. Not confirmed: the note-count factor below 125 notes, where S1 gives only the graph (not readable: the archived image does not load) and its marks 40 at 125 and 100 at 0; it can decide only when the TOTAL factor is below 10 (TOTAL 120 or more). HAZARD is LR2's DEATH gauge [S8] |
 | A5 | LN mode and typed CN / HCN | closed: LR2 has only LNs without a tail judgement [S8]; the profile takes LN mode and no typed CN / HCN; a release inside GOOD keeps the head's judgement, earlier is a BAD [S4, S7] |
 | A6 | combo, note consumption and one-POOR rules | closed: LR2's in every key mode [S4, S8] (5/10 keys and PMS had beatoraja's) |
-| A7 | default TOTAL | open: vibeBMS's 160 + (n + clamp(n − 400, 0, 200)) × 0.16 is LR2oraja's [S11]; LR2's own is given only as "160?" [S9]. Reaches charts without `#TOTAL` |
-| A8 | mines, scratch long note ends | open for mines: vibeBMS takes a mine's value as percent of the gauge; S9 says value / 2 %, S10 measured damage that follows neither, and an end on survival gauges. Scratch LN ends: LN mode only under the profile, judged as keys' [S4, S7]. GAUGE AUTO SHIFT: the profile takes none |
+| A7 | default TOTAL | narrowed to charts without `#TOTAL` (or with one of 0 or less), on every gauge but HAZARD: vibeBMS takes 160 + (n + clamp(n − 400, 0, 200)) × 0.16, which LR2oraja's README says it changed to "to match that of LR2", with a graph labelled "LR2 / LR2oraja" [S13, S11]; S9 gives LR2's as "160?", which the formula is at n = 0. Neither says how LR2's was established |
+| A8 | mines, scratch long note ends | narrowed to charts with mines: vibeBMS takes a mine's value as percent of the gauge, as S14 gives for LR2 (`ZZ`: FAILED on survival gauges, 2 % on EASY and GROOVE; the same damage on every gauge; a mine goes off held through or within the GOOD window); S9 and S15 say value / 2 %, which is nanasi's (S15 is its column); S10 measured on GROOVE −8, −8, −10, −12, −16 % for 1, 2, 3, 5, 10 % and an end on survival gauges. S10's five readings fit "the value as percent plus 6 %" (a POOR's damage) to the 2 % steps LR2 shows, but nothing says a POOR comes with a mine. vibeBMS sets a mine off only when its key is down as the mine passes; S14 also has a press within the GOOD window set it off. Scratch LN ends: LN mode only under the profile, judged as keys' [S4, S7]. GAUGE AUTO SHIFT: the profile takes none |
 | A9 | origin of the LR2 golden vectors | closed: recorded in `judge_golden.rs` and `gauge_golden.rs`; the documented behaviour has its own tests (`lr2_*_as_measured`, `lr2_hard_low_gauge_rule`, `lr2_combo_and_empty_poor_in_every_mode`, `windows_lr2`, `s14_lr2_release_window`) |
-| A10 | gauges LR2 does not have | open: the LR2 set offers ASSIST EASY and EX-HARD (and EX-CLASS, EXHARD-CLASS in courses), which LR2 has not [S8]; the profile does not restrict the gauge yet |
-| A11 | the note a press takes among several in reach | open: the profile plays vibeBMS's Combo choice; S4 says only that it is "reportedly" close to LR2's |
+| A10 | gauges LR2 does not have | closed: the LR2 set offers ASSIST EASY and EX-HARD (and EX-CLASS, EXHARD-CLASS in courses), which LR2 has not [S8]; the set keeps them, but the profile takes only EASY, NORMAL, HARD, HAZARD and CLASS, so a play on the others is local rules |
+| A11 | the note a press takes among several in reach | open, every play: the profile plays vibeBMS's Combo choice. S4 says beatoraja's "combo" choice is "reportedly" close to LR2's, and beatoraja 0.3.7 named that choice "LR2風" (LR2 style: notes in the GOOD window first) [S17]; neither measured LR2. S4's description of the combo choice (the note a GOOD or better can take; when both or neither can, the lower one) differs from vibeBMS's Combo in one case: when both notes are late beyond GOOD, vibeBMS takes the later one. `tools/lr2-measure/` tells the candidates apart |
 
 One more difference no gap covers, because it is not a rule: LR2 judges on frames, so its windows are those
 above only with vertical sync off [S4].
 
+Bokutachi takes LR2 and LR2oraja plays into its BMS 7K and 14K rankings [S18]: it treats LR2oraja's rules (LR2's
+windows and gauges in a beatoraja, with beatoraja's note choices) as LR2's. What it asks of the note choice is
+not written down; that is the question for its maintainer.
+
 The beatoraja profile's gaps stay open: no public description was found of beatoraja's 5-key EX-HARD note-count
 term (B1) or of how beatoraja ends a back-spin scratch CN / HCN played on a keyboard (B3), and beatoraja's source
-is not read.
+is not read. (S4's description of beatoraja's combo choice, above under A11, also differs from vibeBMS's Combo when
+both notes are late beyond GOOD; it is not on the list, being one reading of one source.)
 
 ### Sources
 
@@ -178,11 +189,14 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   POOR only on early presses; no POOR from presses after a note is hit. Gauge per PG, GR, GD, POOR, BAD, empty POOR
   (t = TOTAL, n = notes): GROOVE t/n, t/n, t/2n, −6, −4, −2; EASY ×1.2 gains, −4.8, −3.2, −1.6; HARD 0.1, 0.1, 0.05,
   −10, −6, −2; dan 0.1, 0.1, 0.05?, −3, −2, −2. The gauge is kept with decimals and shown in 2 % steps. HARD damage
-  grows for low TOTAL or few notes: POOR damage measured at TOTAL ≥ 240: 10, 230: 11.1, 220 and 210: 12.5, 200: 15,
-  190 and 180: 16.66, 170 and 160: 20, 150: 25, 140 and 130: 33.33, 120: 50, ≤ 110: 100 (the author guesses steps of
-  10). Below 1000 notes POOR damage grows 0.02 % a note down to 500 and 0.04 % a note down to 250, then as a graph
-  (`file/tn_graph.png`; its marks: 125 notes 40, 0 notes 100). The larger of the two is taken; BAD is POOR × 0.6,
-  empty POOR POOR × 0.2. At 30 % (as shown) or less, HARD damage × 0.6.
+  grows for low TOTAL or few notes (measured with 1000 notes or more): POOR damage at TOTAL ≥ 240: 10, 230: 11.1,
+  220 and 210: 12.5, 200: 15, 190 and 180: 16.66, 170 and 160: 20, 150: 25, 140 and 130: 33.33, 120: 50, ≤ 110: 100.
+  "10刻みで設定されている？1の位以下は切り捨て" (set in steps of 10?; the ones digit and below are dropped); it
+  names a script that sets TOTAL 159 to get 150's damage. Below 1000 notes POOR damage grows 0.02 % a note down to
+  500 and 0.04 % a note down to 250, "…という補正" (and so on), then as a graph (`file/tn_graph.png`; its marks: 125
+  notes 40, 0 notes 100; the archived image would not load for this pass). The larger of the two is taken; BAD is
+  POOR × 0.6, empty POOR POOR × 0.2. At 30 % (as shown) or less, HARD damage × 0.6. Re-read 2026-11 from the
+  archived page itself (captures of 2013-09 and 2019-02 agree).
 - **S2** 園田うき, "beatoraja vs Lunatic Rave2(LR2)", 2019,
   <https://www.ukitouchtypist.org/2019/09/17/beatoraja-vs-lunatic-rave2/>. LR2 EASY ±21 / ±60 / ±120 / ±200, empty POOR
   +1000; NORMAL ±18 / ±40 / ±100 / ±200, +1000. EASY and HARD gauges as S1; HARD × 0.6 at 30 % and below. Its LR2
@@ -212,10 +226,11 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   empty POOR costs nothing), P-ATTACK, G-ATTACK; "LR2 has no ASSISTED-EASY and EX-HARD". A chart without a judge
   rank plays NORMAL. A full combo in any gauge is a FULL COMBO. LR2 cannot change the LN type; LNs have no tail
   judgement.
-- **S9** hitkey, "BMS command memo", <https://hitkey.nekokan.dyndns.info/cmds.htm> (archived 2022-10-06; read
-  through a summarising fetch, so these points want a second look): LR2 applies `#RANK 2` when `#RANK` is missing;
-  LR2 is not among the players listed for `#DEFEXRANK`; LR2's default `#TOTAL` is given as "160?"; mines take
-  value / 2 % of the gauge and `ZZ` fails the stage.
+- **S9** hitkey, "BMS command memo", <https://hitkey.nekokan.dyndns.info/cmds.htm> (read in full 2026-11): LR2
+  applies `#RANK 2` when `#RANK` is missing; LR2 is not among the players listed for `#RANK 4` (nanasi, fgt++,
+  iBMSC, Angolmois, Sonorous, TechnicalGroove) or `#DEFEXRANK`; LR2's default `#TOTAL` is given as "`160`? (Note:
+  NORMAL Gauge)"; landmines (`#xxxD1-E9`, LR2 among their players) take value / 2 % of the gauge and `ZZ` fails the
+  stage (not said to be measured in LR2); "LR2 cannot process duplication of land-mine channels well".
 - **S10** Obj Tech Lovers, "Guidance chapter 4-7",
   <https://nekokan.dyndns.info/~otlovers/guidance/guidance_4b.html>. Measured in LR2 from a 20 % GROOVE gauge, one
   mine: damage 1 % → −8 %, 2 % → −8 %, 3 % → −10 %, 5 % → −12 %, 10 % → −16 % ("the flow is a mystery"); on survival
@@ -228,3 +243,35 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   <https://github.com/zkldi/Tachi/blob/main/docs/src/game-support/games/bms-7K.md>. BMS 7K lamps: NO PLAY, FAILED,
   ASSIST CLEAR, EASY CLEAR, CLEAR, HARD CLEAR, EX HARD CLEAR, FULL COMBO; judgements pgreat .. poor. It states no rule
   set.
+- **S13** wcko87, LR2oraja README, <https://github.com/wcko87/lr2oraja> (README prose only), and its linked graph
+  "beatoraja vs LR2 default #TOTAL calculation", <https://imgur.com/a/X9PnxsP>. "VERYEASY judge in LR2oraja is set to
+  75%, the same as NORMAL judge. It appears that LR2 treats VERYEASY judge as NORMAL judge." "The default TOTAL
+  calculation formula has been changed to match that of LR2": `160 + (N + clamp(N-400, 0, 200))*0.16`; the graph
+  labels that line "LR2 / LR2oraja #TOTAL" (gradient 0.16, doubled between 400 and 600 notes). How LR2's was
+  established is not said.
+- **S14** aigue, "地雷オブジェに関するアレコレ" (all about mine objects), <http://losak.web.fc2.com/jirai.html>.
+  "LR2における地雷オブジェの具体的な仕様": channels D1-D9 / E1-E9, `#WAV00` the explosion; damage (%) = the value
+  (decimal), e.g. `0U` = 30 %; `ZZ` forces FAILED whatever the gauge, but "即死ダメージはEASYかGROOVEなら2%になるだけ"
+  (on EASY or GROOVE it only takes the gauge to 2 %); no difference in damage between EASY, GROOVE, SURVIVAL,
+  P-ATTACK, G-ATTACK and DEATH; a mine goes off when its key is on and it is within the GOOD window, or the key is
+  held as it passes; mines do not count in TOTAL NOTES. Credits S15 for its explanation. Not said to be measured.
+- **S15** Toy Musical, column 3 "踏むと爆発するアレ", <https://tm1.toymusical.net/column/3.html> (a nanasi-groove
+  game's column): the same spec as S14 but damage (%) = value / 2 (`0K` = 10 %).
+- **S16** a comment on PABAT! 2021, "ROADBLOCKER - Deadline Hater",
+  <https://k-bms.com/party_pabat/party.jsp?board_num=21&num=2&order=reg&odtype=a>: "#RANK 4 (Very Easy) doesn't work
+  correctly on LR2. Use #RANK 3 instead."
+- **S17** Ryuya, "LR2の後継機(?)beatorajaの起動・設定・実際にプレイするまでの手順", 2017 (beatoraja 0.3.7),
+  <https://5pmeternal.hatenablog.com/entry/2017/02/15/150245>: beatoraja's judge algorithm options were "LR2風
+  (GOOD範囲内のノーツを優先、コンボが切れにくい)" (LR2 style: notes in the GOOD window first), "IIDX風
+  (最も近い未処理ノーツを優先)" (the nearest unjudged note) and "最下ノーツ最優先" (always the lowest). Describes
+  beatoraja's options, not a measurement of LR2.
+- **S18** BMS Community, "resources", <https://bms-community.github.io/resources>: Bokutachi "Supports beatoraja (PMS
+  only), LR2oraja (including Endless Dream) and LR2."
+
+S4 (re-read 2026-11) describes beatoraja's three note choices: コンボ優先 takes the note a GOOD or better can take,
+and when both or neither can, the lower; "LR2に近い処理（らしい）" (reportedly close to LR2). スコア優先 the same with
+GREAT; 最下ノーツ優先 always the lower.
+
+Searched without a further find (2026-11): LR2 仕様, ゲージ 減少量, TOTAL 未定義, 地雷 ダメージ, 判定 優先 ノーツ,
+#RANK 4 in LR2, Tachi's docs on LR2. A summarising search pointed at bmz-player's `docs/rule.md` for `#RANK 4`;
+it was not opened (bmz-player is off limits here).
