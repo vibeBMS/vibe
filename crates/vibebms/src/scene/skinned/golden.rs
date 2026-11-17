@@ -11,8 +11,7 @@ use crate::scene::play::{load_chart, make_engine, PlayRequest, PlayScene, Role, 
 use crate::scene::play_skin::SceneState;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use crate::scene::result_skin::ResultState;
-use crate::scene::select::{Bar, Node, SelectScene};
-use crate::scene::select_skin::SelectState;
+use crate::scene::select::{Bar, Node, SelectScene, SelectState};
 use crate::skin::SkinState;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
@@ -257,8 +256,7 @@ fn skin_values_stay_the_same() {
     ];
     for (cursor, name) in [(0, "select-song"), (1, "select-folder")] {
         select.cursor = cursor;
-        let now = Instant::now();
-        dump(&mut out, name, &SelectState::new(&select, &ctx, now));
+        dump(&mut out, name, &SelectState::new(&select, &ctx));
     }
 
     let decide = DecideScene::new(request());

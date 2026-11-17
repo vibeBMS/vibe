@@ -9,7 +9,6 @@ pub mod play_skin;
 pub mod result;
 pub mod result_skin;
 pub mod select;
-pub mod select_skin;
 pub mod settings;
 pub mod skin_host;
 pub mod skinned;
