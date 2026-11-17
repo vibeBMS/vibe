@@ -118,6 +118,8 @@ pub struct ResultScene {
     pub(crate) d: ResultData,
     pub(crate) before: Option<BestScore>,
     pub(crate) after: Option<BestScore>,
+    /// (average, standard deviation) of the timing log (ms).
+    pub(crate) timing_stats: (f64, f64),
     ir_rx: Option<Receiver<String>>,
     ir_status: String,
     pub(crate) created: Instant,
@@ -229,6 +231,7 @@ impl ResultScene {
         }
         ctx.play_sound(result_sound(&d).0);
         ResultScene {
+            timing_stats: super::graphs::timing_stats(&d.timing_log),
             d,
             before,
             after,

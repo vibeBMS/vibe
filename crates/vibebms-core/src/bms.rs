@@ -974,8 +974,8 @@ mod tests {
         assert_eq!(l0.end_time(), 4_000_000 + 3_000_000);
         let l1 = lns.iter().find(|n| n.lane == 1).unwrap();
         assert_eq!(l1.end_time() - l1.time, 2_000_000);
-        assert_eq!(c.total_judgements(LnType::Ln), 3);
-        assert_eq!(c.total_judgements(LnType::Cn), 5);
+        assert_eq!(c.total_judgements_of(LnType::Ln, None), 3);
+        assert_eq!(c.total_judgements_of(LnType::Cn, None), 5);
     }
 
     #[test]

@@ -5,38 +5,27 @@ use crate::mode::PlayMode;
 use crate::rng::JavaRandom;
 use serde::{Deserialize, Serialize};
 
-/// Arrangement option per player side (same order as beatoraja).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum LaneOption {
-    #[default]
-    Off,
-    Mirror,
-    Random,
-    RRandom,
-    SRandom,
-    Spiral,
-    HRandom,
-    AllScratch,
-    /// RANDOM including the scratch lane.
-    RandomEx,
-    /// S-RANDOM including the scratch lane.
-    SRandomEx,
+crate::choices! {
+    /// Arrangement option per player side (same order as beatoraja).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum LaneOption {
+        #[default]
+        Off => "OFF",
+        Mirror => "MIRROR",
+        Random => "RANDOM",
+        RRandom => "R-RANDOM",
+        SRandom => "S-RANDOM",
+        Spiral => "SPIRAL",
+        HRandom => "H-RANDOM",
+        AllScratch => "ALL-SCR",
+        /// RANDOM including the scratch lane.
+        RandomEx => "RANDOM+",
+        /// S-RANDOM including the scratch lane.
+        SRandomEx => "S-RANDOM+",
+    }
 }
 
 impl LaneOption {
-    pub const ALL: [LaneOption; 10] = [
-        LaneOption::Off,
-        LaneOption::Mirror,
-        LaneOption::Random,
-        LaneOption::RRandom,
-        LaneOption::SRandom,
-        LaneOption::Spiral,
-        LaneOption::HRandom,
-        LaneOption::AllScratch,
-        LaneOption::RandomEx,
-        LaneOption::SRandomEx,
-    ];
-
     /// beatoraja's assist level of the option: the ones that move notes
     /// to or from the scratch, or that spread notes out, are Light Assist.
     pub fn assist(self) -> crate::score::Assist {
@@ -48,21 +37,6 @@ impl LaneOption {
             | LaneOption::RandomEx
             | LaneOption::SRandomEx => Assist::Light,
             _ => Assist::None,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LaneOption::Off => "OFF",
-            LaneOption::Mirror => "MIRROR",
-            LaneOption::Random => "RANDOM",
-            LaneOption::RRandom => "R-RANDOM",
-            LaneOption::SRandom => "S-RANDOM",
-            LaneOption::Spiral => "SPIRAL",
-            LaneOption::HRandom => "H-RANDOM",
-            LaneOption::AllScratch => "ALL-SCR",
-            LaneOption::RandomEx => "RANDOM+",
-            LaneOption::SRandomEx => "S-RANDOM+",
         }
     }
 }
@@ -113,12 +87,8 @@ pub fn battle(chart: &mut Chart) {
     chart.meta.mode = Some(dp);
 }
 
-/// LEGACY NOTE: turn long notes into normal notes (assist).
-pub fn legacy_note(chart: &mut Chart) {
-    legacy_note_of(chart, None);
-}
-
-/// LEGACY NOTE on one player's lanes (`None`: all).
+/// LEGACY NOTE (assist): turn the long notes of one player's lanes
+/// (`None`: all) into normal notes.
 pub fn legacy_note_of(chart: &mut Chart, player: Option<usize>) {
     let mode = chart.mode();
     for n in &mut chart.notes {
@@ -128,11 +98,7 @@ pub fn legacy_note_of(chart: &mut Chart, player: Option<usize>) {
     }
 }
 
-pub fn remove_mines(chart: &mut Chart) {
-    remove_mines_of(chart, None);
-}
-
-/// NO MINE on one player's lanes (`None`: all).
+/// NO MINE: remove the mines of one player's lanes (`None`: all).
 pub fn remove_mines_of(chart: &mut Chart, player: Option<usize>) {
     let mode = chart.mode();
     chart.notes.retain(|n| {

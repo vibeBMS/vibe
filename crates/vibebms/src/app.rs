@@ -696,9 +696,48 @@ impl Ctx {
 
     /// The record of `sha256` under the LN mode `ln` (as filed).
     pub fn best_key(&self, sha256: &str, ln: i32) -> Option<&BestScore> {
-        self.scores.get(&(sha256.to_string(), ln))
+        self.scores.get(&(sha256, ln) as &dyn ScoreKey)
     }
 }
+
+/// A key of `Ctx::scores`, so that skins (which ask for the record per
+/// value, many times a frame) look one up without making a `String`.
+trait ScoreKey {
+    fn key(&self) -> (&str, i32);
+}
+
+impl ScoreKey for (String, i32) {
+    fn key(&self) -> (&str, i32) {
+        (&self.0, self.1)
+    }
+}
+
+impl ScoreKey for (&str, i32) {
+    fn key(&self) -> (&str, i32) {
+        *self
+    }
+}
+
+impl<'a> std::borrow::Borrow<dyn ScoreKey + 'a> for (String, i32) {
+    fn borrow(&self) -> &(dyn ScoreKey + 'a) {
+        self
+    }
+}
+
+// (hashes as `(String, i32)` does)
+impl std::hash::Hash for dyn ScoreKey + '_ {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.key().hash(h)
+    }
+}
+
+impl PartialEq for dyn ScoreKey + '_ {
+    fn eq(&self, o: &Self) -> bool {
+        self.key() == o.key()
+    }
+}
+
+impl Eq for dyn ScoreKey + '_ {}
 
 struct Running {
     window: Arc<Window>,

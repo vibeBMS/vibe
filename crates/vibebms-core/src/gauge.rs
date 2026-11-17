@@ -10,35 +10,26 @@ use crate::mode::RuleFamily;
 use crate::score::ClearType;
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
-)]
-pub enum GaugeType {
-    AssistEasy = 0,
-    Easy = 1,
-    #[default]
-    Normal = 2,
-    Hard = 3,
-    ExHard = 4,
-    Hazard = 5,
-    /// Dan (段位) gauges.
-    Class = 6,
-    ExClass = 7,
-    ExHardClass = 8,
+crate::choices! {
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+    )]
+    pub enum GaugeType {
+        AssistEasy = 0 => "ASSIST EASY",
+        Easy = 1 => "EASY",
+        #[default]
+        Normal = 2 => "NORMAL",
+        Hard = 3 => "HARD",
+        ExHard = 4 => "EX-HARD",
+        Hazard = 5 => "HAZARD",
+        /// Dan (段位) gauges.
+        Class = 6 => "CLASS",
+        ExClass = 7 => "EX-CLASS",
+        ExHardClass = 8 => "EXHARD-CLASS",
+    }
 }
 
 impl GaugeType {
-    pub const ALL: [GaugeType; 9] = [
-        GaugeType::AssistEasy,
-        GaugeType::Easy,
-        GaugeType::Normal,
-        GaugeType::Hard,
-        GaugeType::ExHard,
-        GaugeType::Hazard,
-        GaugeType::Class,
-        GaugeType::ExClass,
-        GaugeType::ExHardClass,
-    ];
     /// Gauges selectable for normal play.
     pub const SELECTABLE: [GaugeType; 6] = [
         GaugeType::AssistEasy,
@@ -48,20 +39,6 @@ impl GaugeType {
         GaugeType::ExHard,
         GaugeType::Hazard,
     ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            GaugeType::AssistEasy => "ASSIST EASY",
-            GaugeType::Easy => "EASY",
-            GaugeType::Normal => "NORMAL",
-            GaugeType::Hard => "HARD",
-            GaugeType::ExHard => "EX-HARD",
-            GaugeType::Hazard => "HAZARD",
-            GaugeType::Class => "CLASS",
-            GaugeType::ExClass => "EX-CLASS",
-            GaugeType::ExHardClass => "EXHARD-CLASS",
-        }
-    }
 
     pub fn is_survival(self) -> bool {
         !matches!(
@@ -99,58 +76,32 @@ impl GaugeType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum GaugePreset {
-    /// beatoraja gauges for the chart's key mode.
-    #[default]
-    Beatoraja,
-    /// beatoraja's LR2-compatible gauge set.
-    Lr2,
-    /// IIDX-like gauges (approximation).
-    Iidx,
-}
-
-impl GaugePreset {
-    pub const ALL: [GaugePreset; 3] = [GaugePreset::Beatoraja, GaugePreset::Lr2, GaugePreset::Iidx];
-    pub fn label(self) -> &'static str {
-        match self {
-            GaugePreset::Beatoraja => "beatoraja",
-            GaugePreset::Lr2 => "LR2",
-            GaugePreset::Iidx => "IIDX",
-        }
+crate::choices! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum GaugePreset {
+        /// beatoraja gauges for the chart's key mode.
+        #[default]
+        Beatoraja => "beatoraja",
+        /// beatoraja's LR2-compatible gauge set.
+        Lr2 => "LR2",
+        /// IIDX-like gauges (approximation).
+        Iidx => "IIDX",
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum GaugeAutoShift {
-    #[default]
-    None,
-    /// Keep playing after the gauge empties (result is FAILED).
-    Continue,
-    /// HARD/EX-HARD drop to NORMAL when emptied.
-    SurvivalToGroove,
-    /// Start at EX-HARD and step down, keeping the best clear.
-    BestClear,
-    /// Start at the selected gauge and step down.
-    SelectToUnder,
-}
-
-impl GaugeAutoShift {
-    pub const ALL: [GaugeAutoShift; 5] = [
-        GaugeAutoShift::None,
-        GaugeAutoShift::Continue,
-        GaugeAutoShift::SurvivalToGroove,
-        GaugeAutoShift::BestClear,
-        GaugeAutoShift::SelectToUnder,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            GaugeAutoShift::None => "OFF",
-            GaugeAutoShift::Continue => "CONTINUE",
-            GaugeAutoShift::SurvivalToGroove => "HARD→GROOVE",
-            GaugeAutoShift::BestClear => "BEST CLEAR",
-            GaugeAutoShift::SelectToUnder => "SELECT TO UNDER",
-        }
+crate::choices! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum GaugeAutoShift {
+        #[default]
+        None => "OFF",
+        /// Keep playing after the gauge empties (result is FAILED).
+        Continue => "CONTINUE",
+        /// HARD/EX-HARD drop to NORMAL when emptied.
+        SurvivalToGroove => "HARD→GROOVE",
+        /// Start at EX-HARD and step down, keeping the best clear.
+        BestClear => "BEST CLEAR",
+        /// Start at the selected gauge and step down.
+        SelectToUnder => "SELECT TO UNDER",
     }
 }
 
@@ -208,439 +159,77 @@ const fn lr2(g: GaugeElement) -> GaugeElement {
 }
 
 use Modifier::*;
-const HARD_GUTS: &[(f32, f32)] = &[
-    (10.0, 0.4),
-    (20.0, 0.5),
-    (30.0, 0.6),
-    (40.0, 0.7),
-    (50.0, 0.8),
-];
-const CLASS_GUTS: &[(f32, f32)] = &[
-    (5.0, 0.4),
-    (10.0, 0.5),
-    (15.0, 0.6),
-    (20.0, 0.7),
-    (25.0, 0.8),
-];
+#[rustfmt::skip]
+const HARD_GUTS: &[(f32, f32)] = &[(10.0, 0.4), (20.0, 0.5), (30.0, 0.6), (40.0, 0.7), (50.0, 0.8)];
+#[rustfmt::skip]
+const CLASS_GUTS: &[(f32, f32)] = &[(5.0, 0.4), (10.0, 0.5), (15.0, 0.6), (20.0, 0.7), (25.0, 0.8)];
 const LR2_GUTS: &[(f32, f32)] = &[(32.0, 0.6)];
 const IIDX_GUTS: &[(f32, f32)] = &[(30.0, 0.5)];
 
+// One row per GaugeType, in its order: e(modifier, min, max, init, border,
+// [PG, GR, GD, BD, POOR, empty POOR], guts).
+
 // beatoraja GaugeProperty values
+#[rustfmt::skip]
 const FIVE: [GaugeElement; 9] = [
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        50.0,
-        [1.0, 1.0, 0.5, -1.5, -3.0, -0.5],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        75.0,
-        [1.0, 1.0, 0.5, -1.5, -4.5, -1.0],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        75.0,
-        [1.0, 1.0, 0.5, -3.0, -6.0, -2.0],
-        &[],
-    ),
-    e(
-        Some(LimitIncrement),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.0, 0.0, 0.0, -5.0, -10.0, -5.0],
-        &[],
-    ),
-    e(
-        Some(ModifyDamage),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.0, 0.0, 0.0, -10.0, -20.0, -10.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.0, 0.0, 0.0, -100.0, -100.0, -100.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.01, 0.01, 0.0, -0.5, -1.0, -0.5],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.01, 0.01, 0.0, -1.0, -2.0, -1.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.01, 0.01, 0.0, -2.5, -5.0, -2.5],
-        &[],
-    ),
+    e(Some(Total),          2.0, 100.0, 20.0,  50.0, [ 1.0,  1.0, 0.5,   -1.5,   -3.0,   -0.5], &[]),
+    e(Some(Total),          2.0, 100.0, 20.0,  75.0, [ 1.0,  1.0, 0.5,   -1.5,   -4.5,   -1.0], &[]),
+    e(Some(Total),          2.0, 100.0, 20.0,  75.0, [ 1.0,  1.0, 0.5,   -3.0,   -6.0,   -2.0], &[]),
+    e(Some(LimitIncrement), 0.0, 100.0, 100.0, 0.0,  [ 0.0,  0.0, 0.0,   -5.0,  -10.0,   -5.0], &[]),
+    e(Some(ModifyDamage),   0.0, 100.0, 100.0, 0.0,  [ 0.0,  0.0, 0.0,  -10.0,  -20.0,  -10.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [ 0.0,  0.0, 0.0, -100.0, -100.0, -100.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.01, 0.01, 0.0,   -0.5,   -1.0,   -0.5], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.01, 0.01, 0.0,   -1.0,   -2.0,   -1.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.01, 0.01, 0.0,   -2.5,   -5.0,   -2.5], &[]),
 ];
+#[rustfmt::skip]
 const SEVEN: [GaugeElement; 9] = [
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        60.0,
-        [1.0, 1.0, 0.5, -1.5, -3.0, -0.5],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        80.0,
-        [1.0, 1.0, 0.5, -1.5, -4.5, -1.0],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        80.0,
-        [1.0, 1.0, 0.5, -3.0, -6.0, -2.0],
-        &[],
-    ),
-    e(
-        Some(LimitIncrement),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.12, 0.03, -5.0, -10.0, -5.0],
-        HARD_GUTS,
-    ),
-    e(
-        Some(LimitIncrement),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -8.0, -16.0, -8.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -100.0, -100.0, -10.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.12, 0.06, -1.5, -3.0, -1.5],
-        CLASS_GUTS,
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.12, 0.03, -3.0, -6.0, -3.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -5.0, -10.0, -5.0],
-        &[],
-    ),
+    e(Some(Total),          2.0, 100.0, 20.0,  60.0, [ 1.0,  1.0,  0.5,   -1.5,   -3.0,  -0.5], &[]),
+    e(Some(Total),          2.0, 100.0, 20.0,  80.0, [ 1.0,  1.0,  0.5,   -1.5,   -4.5,  -1.0], &[]),
+    e(Some(Total),          2.0, 100.0, 20.0,  80.0, [ 1.0,  1.0,  0.5,   -3.0,   -6.0,  -2.0], &[]),
+    e(Some(LimitIncrement), 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.03,   -5.0,  -10.0,  -5.0], HARD_GUTS),
+    e(Some(LimitIncrement), 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,   -8.0,  -16.0,  -8.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0, -100.0, -100.0, -10.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.06,   -1.5,   -3.0,  -1.5], CLASS_GUTS),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.03,   -3.0,   -6.0,  -3.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,   -5.0,  -10.0,  -5.0], &[]),
 ];
+#[rustfmt::skip]
 const PMS: [GaugeElement; 9] = [
-    e(
-        Some(Total),
-        2.0,
-        120.0,
-        30.0,
-        65.0,
-        [1.0, 1.0, 0.5, -1.0, -2.0, -2.0],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        120.0,
-        30.0,
-        85.0,
-        [1.0, 1.0, 0.5, -1.0, -3.0, -3.0],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        120.0,
-        30.0,
-        85.0,
-        [1.0, 1.0, 0.5, -2.0, -6.0, -6.0],
-        &[],
-    ),
-    e(
-        Some(LimitIncrement),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.12, 0.03, -5.0, -10.0, -10.0],
-        HARD_GUTS,
-    ),
-    e(
-        Some(LimitIncrement),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -10.0, -15.0, -15.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -100.0, -100.0, -100.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.12, 0.06, -1.5, -3.0, -3.0],
-        CLASS_GUTS,
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.12, 0.03, -3.0, -6.0, -6.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -5.0, -10.0, -10.0],
-        &[],
-    ),
+    e(Some(Total),          2.0, 120.0, 30.0,  65.0, [ 1.0,  1.0,  0.5,   -1.0,   -2.0,   -2.0], &[]),
+    e(Some(Total),          2.0, 120.0, 30.0,  85.0, [ 1.0,  1.0,  0.5,   -1.0,   -3.0,   -3.0], &[]),
+    e(Some(Total),          2.0, 120.0, 30.0,  85.0, [ 1.0,  1.0,  0.5,   -2.0,   -6.0,   -6.0], &[]),
+    e(Some(LimitIncrement), 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.03,   -5.0,  -10.0,  -10.0], HARD_GUTS),
+    e(Some(LimitIncrement), 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,  -10.0,  -15.0,  -15.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0, -100.0, -100.0, -100.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.06,   -1.5,   -3.0,   -3.0], CLASS_GUTS),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.12, 0.03,   -3.0,   -6.0,   -6.0], &[]),
+    e(None,                 0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,   -5.0,  -10.0,  -10.0], &[]),
 ];
+#[rustfmt::skip]
 const LR2: [GaugeElement; 9] = [
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        60.0,
-        [1.2, 1.2, 0.6, -3.2, -4.8, -1.6],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        80.0,
-        [1.2, 1.2, 0.6, -3.2, -4.8, -1.6],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        20.0,
-        80.0,
-        [1.0, 1.0, 0.5, -4.0, -6.0, -2.0],
-        &[],
-    ),
-    lr2(e(
-        Some(Lr2Damage),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.1, 0.1, 0.05, -6.0, -10.0, -2.0],
-        LR2_GUTS,
-    )),
-    lr2(e(
-        Some(Lr2Damage),
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.1, 0.1, 0.05, -12.0, -20.0, -2.0],
-        &[],
-    )),
-    lr2(e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.15, 0.06, 0.0, -100.0, -100.0, -10.0],
-        &[],
-    )),
-    lr2(e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.10, 0.10, 0.05, -2.0, -3.0, -2.0],
-        LR2_GUTS,
-    )),
-    lr2(e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.10, 0.10, 0.05, -6.0, -10.0, -2.0],
-        LR2_GUTS,
-    )),
-    lr2(e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.10, 0.10, 0.05, -12.0, -20.0, -2.0],
-        &[],
-    )),
+    e(    Some(Total),     2.0, 100.0, 20.0,  60.0, [ 1.2,  1.2,  0.6,   -3.2,   -4.8,  -1.6], &[]),
+    e(    Some(Total),     2.0, 100.0, 20.0,  80.0, [ 1.2,  1.2,  0.6,   -3.2,   -4.8,  -1.6], &[]),
+    e(    Some(Total),     2.0, 100.0, 20.0,  80.0, [ 1.0,  1.0,  0.5,   -4.0,   -6.0,  -2.0], &[]),
+    lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [ 0.1,  0.1, 0.05,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
+    lr2(e(Some(Lr2Damage), 0.0, 100.0, 100.0, 0.0,  [ 0.1,  0.1, 0.05,  -12.0,  -20.0,  -2.0], &[])),
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0, -100.0, -100.0, -10.0], &[])),
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,   -2.0,   -3.0,  -2.0], LR2_GUTS)),
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
+    lr2(e(None,            0.0, 100.0, 100.0, 0.0,  [0.10, 0.10, 0.05,  -12.0,  -20.0,  -2.0], &[])),
 ];
 // IIDX-like approximation (groove gauges start at 22%, HARD damage halves below 30%)
+#[rustfmt::skip]
 const IIDX: [GaugeElement; 9] = [
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        22.0,
-        60.0,
-        [1.0, 1.0, 0.5, -1.6, -4.8, -1.6],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        22.0,
-        80.0,
-        [1.0, 1.0, 0.5, -1.6, -4.8, -1.6],
-        &[],
-    ),
-    e(
-        Some(Total),
-        2.0,
-        100.0,
-        22.0,
-        80.0,
-        [1.0, 1.0, 0.5, -2.0, -6.0, -2.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.16, 0.16, 0.0, -5.0, -9.0, -5.0],
-        IIDX_GUTS,
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.16, 0.16, 0.0, -10.0, -18.0, -10.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.16, 0.16, 0.0, -100.0, -100.0, -10.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.16, 0.16, 0.04, -1.5, -2.5, -1.5],
-        IIDX_GUTS,
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.16, 0.16, 0.0, -3.0, -6.0, -3.0],
-        &[],
-    ),
-    e(
-        None,
-        0.0,
-        100.0,
-        100.0,
-        0.0,
-        [0.16, 0.16, 0.0, -5.0, -10.0, -5.0],
-        &[],
-    ),
+    e(Some(Total), 2.0, 100.0, 22.0,  60.0, [ 1.0,  1.0,  0.5,   -1.6,   -4.8,  -1.6], &[]),
+    e(Some(Total), 2.0, 100.0, 22.0,  80.0, [ 1.0,  1.0,  0.5,   -1.6,   -4.8,  -1.6], &[]),
+    e(Some(Total), 2.0, 100.0, 22.0,  80.0, [ 1.0,  1.0,  0.5,   -2.0,   -6.0,  -2.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -5.0,   -9.0,  -5.0], IIDX_GUTS),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,  -10.0,  -18.0, -10.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0, -100.0, -100.0, -10.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -1.5,   -2.5,  -1.5], IIDX_GUTS),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -3.0,   -6.0,  -3.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -5.0,  -10.0,  -5.0], &[]),
 ];
 
 pub fn gauge_elements(preset: GaugePreset, fam: RuleFamily) -> &'static [GaugeElement; 9] {
@@ -831,6 +420,16 @@ impl Gauge {
     }
 }
 
+/// The gauges GAUGE AUTO SHIFT steps down through, strongest first.
+const SHIFT_ORDER: [GaugeType; 6] = [
+    GaugeType::Hazard,
+    GaugeType::ExHard,
+    GaugeType::Hard,
+    GaugeType::Normal,
+    GaugeType::Easy,
+    GaugeType::AssistEasy,
+];
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GrooveGauge {
     pub gauges: Vec<Gauge>,
@@ -922,16 +521,11 @@ impl GrooveGauge {
                 self.current = GaugeType::Normal;
             }
             GaugeAutoShift::BestClear | GaugeAutoShift::SelectToUnder => {
-                let order = [
-                    GaugeType::Hazard,
-                    GaugeType::ExHard,
-                    GaugeType::Hard,
-                    GaugeType::Normal,
-                    GaugeType::Easy,
-                    GaugeType::AssistEasy,
-                ];
-                if let Some(pos) = order.iter().position(|t| *t == self.current) {
-                    if let Some(t) = order[pos + 1..].iter().find(|t| !self.get(**t).is_dead()) {
+                if let Some(pos) = SHIFT_ORDER.iter().position(|t| *t == self.current) {
+                    if let Some(t) = SHIFT_ORDER[pos + 1..]
+                        .iter()
+                        .find(|t| !self.get(**t).is_dead())
+                    {
                         self.current = *t;
                     }
                 }
@@ -954,16 +548,8 @@ impl GrooveGauge {
                 } else {
                     self.selected
                 };
-                let order = [
-                    GaugeType::Hazard,
-                    GaugeType::ExHard,
-                    GaugeType::Hard,
-                    GaugeType::Normal,
-                    GaugeType::Easy,
-                    GaugeType::AssistEasy,
-                ];
-                let pos = order.iter().position(|t| *t == start).unwrap_or(0);
-                order[pos..]
+                let pos = SHIFT_ORDER.iter().position(|t| *t == start).unwrap_or(0);
+                SHIFT_ORDER[pos..]
                     .iter()
                     .copied()
                     .find(|t| self.get(*t).is_qualified())

@@ -155,7 +155,6 @@ pub struct PlayScene {
     pub(crate) poor_until: Option<Instant>,
     /// The last judge of each judge region (`judge_region`).
     pub(crate) last_judge: [Option<(usize, i64, Instant, u32)>; 3],
-    pub(crate) bombs: Vec<(u8, Instant, usize)>,
     pub(crate) next_sample: i64,
     pub(crate) lane_notes: Vec<Vec<usize>>,
     pub(crate) lane_cursor: Vec<usize>,
@@ -441,11 +440,11 @@ pub(crate) fn load_chart(
     }
     if play.legacy_note {
         facts.legacy_note = chart.meta.has_long;
-        lane_option::legacy_note(&mut chart);
+        lane_option::legacy_note_of(&mut chart, None);
     }
     if play.no_mine {
         let n = chart.notes.len();
-        lane_option::remove_mines(&mut chart);
+        lane_option::remove_mines_of(&mut chart, None);
         facts.no_mine = chart.notes.len() != n;
     }
     Ok((chart, facts, ln_profile))
@@ -600,22 +599,21 @@ impl PlayScene {
                 };
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
-                let resolve = |name: &str| {
-                    crate::platform::vfs::find_by_stem(&dir, name, crate::platform::vfs::AUDIO_EXTS)
-                };
+                let index = crate::platform::vfs::DirIndex::new(&dir);
+                let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
                 let read = |p: &Path| crate::platform::vfs::read(p).ok();
                 let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
                 // an image or a video (shown when ffmpeg is installed)
                 let (images, videos) = if play.bga {
-                    use crate::platform::vfs::{find_by_stem, IMAGE_EXTS};
+                    use crate::platform::vfs::IMAGE_EXTS;
                     use crate::video::{is_video, VIDEO_EXTS};
                     chart
                         .images
                         .iter()
-                        .map(|f| match find_by_stem(&dir, f, IMAGE_EXTS) {
+                        .map(|f| match index.find(f, IMAGE_EXTS) {
                             Some(p) if is_video(&p) => (None, Some(p)),
                             Some(p) => (crate::gfx::load_rgba(&p, true), None),
-                            None => (None, find_by_stem(&dir, f, VIDEO_EXTS)),
+                            None => (None, index.find(f, VIDEO_EXTS)),
                         })
                         .unzip()
                 } else {
@@ -668,7 +666,6 @@ impl PlayScene {
             bga: [None; 4],
             poor_until: None,
             last_judge: [None; 3],
-            bombs: Vec::new(),
             next_sample: 0,
             lane_notes: Vec::new(),
             lane_cursor: Vec::new(),
@@ -960,6 +957,12 @@ impl PlayScene {
             opts.push("LEGACY".into());
         }
         self.options_label = opts.join(" / ");
+        // a song from an older library: its note counts and densities
+        // (skin numbers 350-365) from the chart
+        let song = &mut self.req.song;
+        if song.note_kinds.iter().all(|n| *n == 0) {
+            (song.note_kinds, song.density) = crate::library::chart_info(&chart);
+        }
         self.chart = chart;
         self.bank = bank;
         self.skin = super::play_skin::load_play_skin(ctx, gfx, self);
@@ -1014,10 +1017,10 @@ impl PlayScene {
         );
     }
 
-    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, auto: &[bool], side: usize) {
+    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, side: usize) {
         match ev {
             EngineEvent::Sound { sound, lane } => {
-                if !auto.get(lane as usize).copied().unwrap_or(false) {
+                if !self.sides[side].engine.is_auto(lane as usize) {
                     self.play_sound(ctx, sound, None, Bus::Key, side);
                 }
             }
@@ -1681,7 +1684,6 @@ impl Scene for PlayScene {
         self.run_feeds(t, now);
         // (side, event): a side whose players all failed ends the play
         let mut events: Vec<(usize, EngineEvent)> = Vec::new();
-        let mut autos: Vec<Vec<bool>> = Vec::new();
         let sample = t >= self.next_sample;
         let mut finished = true;
         for (k, side) in self.sides.iter_mut().enumerate() {
@@ -1694,11 +1696,6 @@ impl Scene for PlayScene {
                 engine.update(t - offset);
             }
             events.extend(engine.drain_events().map(|e| (k, e)));
-            autos.push(
-                (0..self.mode.lane_count())
-                    .map(|l| engine.is_auto(l))
-                    .collect(),
-            );
             if sample {
                 side.gauge_log.push(engine.gauge.value());
             }
@@ -1723,14 +1720,13 @@ impl Scene for PlayScene {
         }
         let mut failed = false;
         for (k, ev) in events {
-            let auto = &autos[k];
             let ghost = self.sides[k].ghost();
             match ev {
                 // the opponent is silent, its failing ends nothing
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } | EngineEvent::Failed
                     if ghost => {}
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } => {
-                    self.sound_event(ctx, ev, auto, k)
+                    self.sound_event(ctx, ev, k)
                 }
                 // VS: a player who fails stops; the play ends when both have
                 EngineEvent::Failed if self.vs => {
@@ -1755,7 +1751,7 @@ impl Scene for PlayScene {
                     let p = &mut ctx.config.play;
                     if p.timing_auto_adjust
                         && k == 0
-                        && !auto.get(lane as usize).copied().unwrap_or(true)
+                        && !self.sides[k].engine.is_auto(lane as usize)
                         && judge <= GOOD
                         && diff.abs() <= 150_000
                     {
@@ -1764,9 +1760,6 @@ impl Scene for PlayScene {
                     }
                     if let Some(j) = self.lane_judge.get_mut(lane as usize) {
                         *j = Some(judge);
-                    }
-                    if judge <= GREAT {
-                        self.bombs.push((lane, now, judge));
                     }
                     // the skin's bomb timers (#JUDGETIMER: up to which judge)
                     let bomb_upto = self
@@ -1785,7 +1778,7 @@ impl Scene for PlayScene {
                         self.poor_until = Some(now + Duration::from_millis(500));
                     }
                 }
-                EngineEvent::Mine { lane, .. } => self.bombs.push((lane, now, 9)),
+                EngineEvent::Mine { .. } => {}
                 EngineEvent::Failed => failed = true,
             }
         }
@@ -1807,8 +1800,6 @@ impl Scene for PlayScene {
             }
             self.bga_i += 1;
         }
-        self.bombs
-            .retain(|b| now.duration_since(b.1) < Duration::from_millis(250));
         if failed {
             self.stage = Stage::Ending {
                 since: now,
@@ -1972,12 +1963,11 @@ impl Scene for PlayScene {
                 }
                 let e = &mut side.engine;
                 e.update(t - offsets[k]);
-                let auto: Vec<bool> = (0..self.mode.lane_count()).map(|l| e.is_auto(l)).collect();
-                sounds.push((k, e.take_sounds(), auto));
+                sounds.push((k, e.take_sounds()));
             }
-            for (k, evs, auto) in sounds {
+            for (k, evs) in sounds {
                 for ev in evs {
-                    self.sound_event(ctx, ev, &auto, k);
+                    self.sound_event(ctx, ev, k);
                 }
             }
         }

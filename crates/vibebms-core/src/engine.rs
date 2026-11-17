@@ -221,6 +221,8 @@ struct Lane {
     /// The last body `Volume` sent for the body note was 0.
     body_quiet: bool,
     keys: [bool; 2],
+    /// The keys once the inputs being handled have acted.
+    after: [bool; 2],
 }
 
 impl Lane {
@@ -469,11 +471,14 @@ impl Engine {
     /// Take the `Sound` and `Volume` events; the rest stay for
     /// `drain_events`.
     pub fn take_sounds(&mut self) -> Vec<EngineEvent> {
-        let (sounds, rest): (Vec<_>, Vec<_>) = self
-            .events
-            .drain(..)
-            .partition(|e| matches!(e, EngineEvent::Sound { .. } | EngineEvent::Volume { .. }));
-        self.events = rest;
+        let mut sounds = Vec::new();
+        self.events.retain(|e| {
+            let sound = matches!(e, EngineEvent::Sound { .. } | EngineEvent::Volume { .. });
+            if sound {
+                sounds.push(e.clone());
+            }
+            !sound
+        });
         sounds
     }
 
@@ -492,29 +497,29 @@ impl Engine {
                 l.passed = l.notes.partition_point(|&i| self.notes[i].time <= p);
             }
         }
+        // taken while handled, then given back to keep its buffer
         let mut queue = std::mem::take(&mut self.queue);
         queue.sort_by_key(|e| e.time);
-        let mut start = 0;
-        while start < queue.len() {
-            let t = queue[start].time;
-            let end = start + queue[start..].iter().take_while(|e| e.time == t).count();
-            let group = &queue[start..end];
+        for group in queue.chunk_by(|a, b| a.time == b.time) {
+            let t = group[0].time;
             let m = now.min(self.prev().max(t));
-            // the key states once this group has acted
-            let mut after: Vec<[bool; 2]> = self.lanes.iter().map(|l| l.keys).collect();
-            for e in group {
-                after[e.lane as usize][(e.key & 1) as usize] = e.pressed;
+            for l in &mut self.lanes {
+                l.after = l.keys;
             }
-            self.advance(m, Some((t, &after)));
-            for (l, keys) in self.lanes.iter_mut().zip(&after) {
-                l.keys = *keys;
+            for e in group {
+                self.lanes[e.lane as usize].after[(e.key & 1) as usize] = e.pressed;
+            }
+            self.advance(m, Some(t));
+            for l in &mut self.lanes {
+                l.keys = l.after;
             }
             for e in group {
                 self.handle(e);
             }
             self.settle(m);
-            start = end;
         }
+        queue.clear();
+        self.queue = queue;
         self.advance(now, None);
         self.settle(now);
     }
@@ -524,16 +529,17 @@ impl Engine {
     }
 
     /// Advance phase over (P, t]. `group`: the time of the inputs about to
-    /// be handled and the key states after them, which notes exactly at
-    /// that time see (and a HCN body let go at `t`); everything before
+    /// be handled. Notes exactly at that time, and a HCN body let go at
+    /// `t`, see the keys after them (`Lane::after`); everything before
     /// sees the keys as they were.
-    fn advance(&mut self, t: i64, group: Option<(i64, &[[bool; 2]])>) {
+    fn advance(&mut self, t: i64, group: Option<i64>) {
         let p = self.prev();
         if t < p {
             return;
         }
         for lane in 0..self.lanes.len() {
             let pressed_before = self.lanes[lane].pressed();
+            let pressed_after = self.lanes[lane].after.contains(&true);
             let auto = self.lanes[lane].auto;
             while let Some(&i) = self.lanes[lane].notes.get(self.lanes[lane].passed) {
                 if self.notes[i].time > t {
@@ -541,9 +547,10 @@ impl Engine {
                 }
                 self.lanes[lane].passed += 1;
                 let time = self.notes[i].time;
-                let pressed = match group {
-                    Some((gt, after)) if gt == time => after[lane][0] || after[lane][1],
-                    _ => pressed_before,
+                let pressed = if group == Some(time) {
+                    pressed_after
+                } else {
+                    pressed_before
                 };
                 self.pass_note(lane, i, pressed && !auto);
             }
@@ -568,9 +575,10 @@ impl Engine {
             // ticks over (P, t] follow the keys as they were; a lane let go
             // at t (by the inputs about to be handled) damages the body at
             // once
-            let pressed_at_t = match group {
-                Some((_, after)) => after[lane][0] || after[lane][1],
-                None => pressed_before,
+            let pressed_at_t = if group.is_some() {
+                pressed_after
+            } else {
+                pressed_before
             };
             let l = &self.lanes[lane];
             let (rising, let_go) = l.body.map_or((false, false), |b| {

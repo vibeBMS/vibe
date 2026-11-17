@@ -2,18 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Key mode of a chart.
-///
-/// Lanes are numbered per player as `[key1 .. keyN, scratch]`; for double play
-/// the second player's lanes follow the first player's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub enum PlayMode {
-    Beat5K,
-    Beat7K,
-    Beat10K,
-    Beat14K,
-    /// pop'n music style 9 buttons, no scratch.
-    Popn9K,
+crate::choices! {
+    /// Key mode of a chart.
+    ///
+    /// Lanes are numbered per player as `[key1 .. keyN, scratch]`; for double play
+    /// the second player's lanes follow the first player's.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+    pub enum PlayMode {
+        Beat5K => "5KEYS",
+        Beat7K => "7KEYS",
+        Beat10K => "10KEYS",
+        Beat14K => "14KEYS",
+        /// pop'n music style 9 buttons, no scratch.
+        Popn9K => "9KEYS",
+    }
 }
 
 /// Rule family used to pick judge/gauge constants.
@@ -25,14 +27,6 @@ pub enum RuleFamily {
 }
 
 impl PlayMode {
-    pub const ALL: [PlayMode; 5] = [
-        PlayMode::Beat5K,
-        PlayMode::Beat7K,
-        PlayMode::Beat10K,
-        PlayMode::Beat14K,
-        PlayMode::Popn9K,
-    ];
-
     pub fn players(self) -> usize {
         match self {
             PlayMode::Beat10K | PlayMode::Beat14K => 2,
@@ -83,16 +77,6 @@ impl PlayMode {
             PlayMode::Beat5K | PlayMode::Beat10K => RuleFamily::FiveKeys,
             PlayMode::Beat7K | PlayMode::Beat14K => RuleFamily::SevenKeys,
             PlayMode::Popn9K => RuleFamily::Pms,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            PlayMode::Beat5K => "5KEYS",
-            PlayMode::Beat7K => "7KEYS",
-            PlayMode::Beat10K => "10KEYS",
-            PlayMode::Beat14K => "14KEYS",
-            PlayMode::Popn9K => "9KEYS",
         }
     }
 

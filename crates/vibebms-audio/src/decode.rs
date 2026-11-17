@@ -12,21 +12,30 @@ use symphonia::core::probe::Hint;
 /// Decoded PCM at the mixer's sample rate.
 #[derive(Debug, Default)]
 pub struct Sample {
+    /// 1 or 2 (interleaved).
     pub channels: u16,
     pub frames: usize,
     pub data: Vec<i16>,
 }
 
 impl Sample {
+    /// Add frames `from..` times `gain` to `out`, interleaved stereo (as
+    /// many frames as it holds).
     #[inline]
-    pub fn frame(&self, i: usize) -> (f32, f32) {
-        const S: f32 = 1.0 / 32768.0;
+    pub fn mix_into(&self, from: usize, out: &mut [f32], gain: f32) {
+        let g = gain / 32768.0;
         if self.channels == 1 {
-            let v = self.data[i] as f32 * S;
-            (v, v)
+            let data = &self.data[from..from + out.len() / 2];
+            for (o, &s) in out.chunks_exact_mut(2).zip(data) {
+                let v = s as f32 * g;
+                o[0] += v;
+                o[1] += v;
+            }
         } else {
-            let b = i * self.channels as usize;
-            (self.data[b] as f32 * S, self.data[b + 1] as f32 * S)
+            let data = &self.data[from * 2..from * 2 + out.len()];
+            for (o, &s) in out.iter_mut().zip(data) {
+                *o += s as f32 * g;
+            }
         }
     }
 }

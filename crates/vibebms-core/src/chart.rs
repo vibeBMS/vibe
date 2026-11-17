@@ -233,14 +233,10 @@ impl Chart {
         self.meta.mode.unwrap_or(PlayMode::Beat7K)
     }
 
-    /// Number of judgements a full play produces (LN counts once, CN/HCN twice).
-    pub fn total_judgements(&self, default_ln: LnType) -> usize {
-        self.total_judgements_of(default_ln, None)
-    }
-
-    /// The judgements of one player's lanes (`None`: every lane): a side
-    /// of a battle chart counts as its single play chart. Notes on lanes
-    /// the mode does not have are not played, so not counted.
+    /// Number of judgements a full play produces (LN counts once, CN/HCN
+    /// twice), of one player's lanes (`None`: every lane): a side of a
+    /// battle chart counts as its single play chart. Notes on lanes the
+    /// mode does not have are not played, so not counted.
     pub fn total_judgements_of(&self, default_ln: LnType, player: Option<usize>) -> usize {
         let mode = self.mode();
         let lanes = mode.lane_count();
@@ -287,17 +283,13 @@ impl Chart {
 
     /// `#TOTAL` or beatoraja's default: `max(260, 7.605 n / (0.01 n + 6.5))`.
     pub fn total(&self, default_ln: LnType) -> f64 {
-        self.total_for(default_ln, GaugePreset::Beatoraja)
+        self.total_of(default_ln, GaugePreset::Beatoraja, None)
     }
 
-    /// TOTAL under a gauge preset: `#TOTAL`, else the preset's default
-    /// (LR2: `160 + (n + clamp(n - 400, 0, 200)) × 0.16`, otherwise
-    /// beatoraja's). A bmson `total` is a percentage of that default.
-    pub fn total_for(&self, default_ln: LnType, preset: GaugePreset) -> f64 {
-        self.total_of(default_ln, preset, None)
-    }
-
-    /// TOTAL for one player's lanes (`total_judgements_of`).
+    /// TOTAL under a gauge preset for one player's lanes (as
+    /// `total_judgements_of`): `#TOTAL`, else the preset's default (LR2:
+    /// `160 + (n + clamp(n - 400, 0, 200)) × 0.16`, otherwise beatoraja's).
+    /// A bmson `total` is a percentage of that default.
     pub fn total_of(&self, default_ln: LnType, preset: GaugePreset, player: Option<usize>) -> f64 {
         let n = self.total_judgements_of(default_ln, player).max(1) as f64;
         let default = match preset {
@@ -363,20 +355,20 @@ mod tests {
         let mut c = crate::bms::parse_bms(src.as_bytes(), "bme", &Default::default()).unwrap();
         let n = c.notes[0].clone();
         c.notes = (0..1000).map(|_| n.clone()).collect();
-        assert!((c.total_for(LnType::Ln, GaugePreset::Lr2) - 352.0).abs() < 1e-9);
-        let b = c.total_for(LnType::Ln, GaugePreset::Beatoraja);
+        assert!((c.total_of(LnType::Ln, GaugePreset::Lr2, None) - 352.0).abs() < 1e-9);
+        let b = c.total_of(LnType::Ln, GaugePreset::Beatoraja, None);
         assert!((b - 7605.0 / 16.5).abs() < 1e-9);
         // a written #TOTAL wins
         c.meta.total = Some(300.0);
-        assert_eq!(c.total_for(LnType::Ln, GaugePreset::Lr2), 300.0);
+        assert_eq!(c.total_of(LnType::Ln, GaugePreset::Lr2, None), 300.0);
         // bmson: a percentage of the preset's default
         c.meta.total_rate = Some(50.0);
-        assert!((c.total_for(LnType::Ln, GaugePreset::Lr2) - 176.0).abs() < 1e-9);
+        assert!((c.total_of(LnType::Ln, GaugePreset::Lr2, None) - 176.0).abs() < 1e-9);
         // 300 notes: 160 + 300 x 0.16
         c.meta.total_rate = None;
         c.meta.total = None;
         c.notes.truncate(300);
-        assert!((c.total_for(LnType::Ln, GaugePreset::Lr2) - 208.0).abs() < 1e-9);
+        assert!((c.total_of(LnType::Ln, GaugePreset::Lr2, None) - 208.0).abs() < 1e-9);
     }
 
     #[test]

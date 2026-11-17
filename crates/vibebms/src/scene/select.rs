@@ -30,6 +30,10 @@ use winit::keyboard::KeyCode;
 
 const PREVIEW_KEY: u64 = u64::MAX - 1;
 
+/// Time constant (s) of the list easing toward the cursor: 30 % of the
+/// way per frame at 60 Hz, as it went by frames before.
+const SCROLL_TAU: f32 = 0.0467;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Node {
     Root,
@@ -113,8 +117,12 @@ pub struct SelectScene {
     pub(crate) bars: Vec<Bar>,
     pub(crate) cursor: usize,
     pub(crate) scroll: f32,
+    /// When `scroll` last eased toward the cursor.
+    scrolled_at: Instant,
     pub(crate) search_edit: Option<String>,
     bar_rects: Vec<(Rect, usize)>,
+    /// The skin's distance between bars on screen (`SelectHooks::pitch`).
+    bar_pitch: Option<f32>,
     drag: Option<(u64, f32, f32, bool)>,
     pub(crate) last_move: Instant,
     held_nav: Option<(Nav, Instant, Instant)>,
@@ -171,6 +179,21 @@ fn vs_hint(ctx: &mut Ctx) {
     }
 }
 
+/// The select options (skin texts `9100 + i`, values `9000 + i`).
+pub(crate) const OPTION_NAMES: [&str; 11] = [
+    "RANDOM",
+    "GAUGE",
+    "AUTO SHIFT",
+    "LN MODE",
+    "HI-SPEED −",
+    "HI-SPEED +",
+    "SIDE",
+    "JUDGE",
+    "AUTOPLAY",
+    "SETTINGS",
+    "BATTLE",
+];
+
 fn lower(s: &str) -> String {
     s.to_lowercase()
 }
@@ -210,10 +233,12 @@ impl SelectScene {
             bars: Vec::new(),
             cursor: 0,
             scroll: 0.0,
+            scrolled_at: Instant::now(),
             search_edit: None,
             #[cfg(target_arch = "wasm32")]
             delete_armed: None,
             bar_rects: Vec::new(),
+            bar_pitch: None,
             drag: None,
             last_move: Instant::now(),
             held_nav: None,
@@ -870,49 +895,38 @@ impl SelectScene {
         Next::Stay
     }
 
-    /// The option panel; `bpm` is the selected chart's main BPM (for its
-    /// green number).
-    pub(crate) fn option_items(ctx: &Ctx, bpm: Option<Bpms>) -> Vec<(String, String)> {
+    /// The value of option `i` (see `OPTION_NAMES`); `bpm` is the
+    /// selected chart's main BPM (for its green number).
+    pub(crate) fn option_value(ctx: &Ctx, bpm: Option<Bpms>, i: usize) -> Option<String> {
         let p = &ctx.config.play;
-        vec![
-            ("RANDOM".into(), p.random_1p.label().into()),
-            ("GAUGE".into(), p.gauge.label().into()),
-            ("AUTO SHIFT".into(), p.gauge_auto_shift.label().into()),
-            ("LN MODE".into(), format!("{:?}", p.ln_mode).to_uppercase()),
-            (
-                "HI-SPEED −".into(),
-                format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(Bpms::flat(150.0)))),
-            ),
-            (
-                "HI-SPEED +".into(),
-                match (bpm, p.hs_fix) {
-                    (b, fix) if fix != HsFix::Off => {
-                        format!("GN {} FIX", p.green(&b.unwrap_or(Bpms::flat(150.0))))
-                    }
-                    (Some(b), _) => format!("GN {}", p.green(&b)),
-                    (None, _) => format!("{:.2}", p.hispeed),
-                },
-            ),
-            ("SIDE".into(), format!("{:?}", p.side)),
-            ("JUDGE".into(), p.judge_preset.label().into()),
-            (
-                "AUTOPLAY".into(),
-                if p.autoplay { "ON" } else { "OFF" }.into(),
-            ),
-            ("SETTINGS".into(), "OPEN".into()),
-            (
-                "BATTLE".into(),
-                match super::option_panel::battle_index(p) {
-                    2 => "BATTLE",
-                    3 => "BATTLE AS",
-                    4 => "G-BEST",
-                    5 => "G-LAST",
-                    6 => "VS",
-                    _ => "OFF",
+        Some(match i {
+            0 => p.random_1p.label().into(),
+            1 => p.gauge.label().into(),
+            2 => p.gauge_auto_shift.label().into(),
+            3 => format!("{:?}", p.ln_mode).to_uppercase(),
+            4 => format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(Bpms::flat(150.0)))),
+            5 => match (bpm, p.hs_fix) {
+                (b, fix) if fix != HsFix::Off => {
+                    format!("GN {} FIX", p.green(&b.unwrap_or(Bpms::flat(150.0))))
                 }
-                .into(),
-            ),
-        ]
+                (Some(b), _) => format!("GN {}", p.green(&b)),
+                (None, _) => format!("{:.2}", p.hispeed),
+            },
+            6 => format!("{:?}", p.side),
+            7 => p.judge_preset.label().into(),
+            8 => if p.autoplay { "ON" } else { "OFF" }.into(),
+            9 => "OPEN".into(),
+            10 => match super::option_panel::battle_index(p) {
+                2 => "BATTLE",
+                3 => "BATTLE AS",
+                4 => "G-BEST",
+                5 => "G-LAST",
+                6 => "VS",
+                _ => "OFF",
+            }
+            .into(),
+            _ => return None,
+        })
     }
 
     /// The sound set's BGM while no song preview plays, and the option
@@ -1364,17 +1378,23 @@ impl Scene for SelectScene {
                 self.step(ctx, if nav == Nav::Up { -1 } else { 1 });
             }
         }
-        // the list wraps around: scroll the short way to the cursor
+        // the list wraps around: scroll the short way to the cursor, the
+        // same share of the way per second at any frame rate
         let n = self.bars.len().max(1) as f32;
         let target = self.cursor as f32;
         let mut diff = (target - self.scroll).rem_euclid(n);
         if diff > n * 0.5 {
             diff -= n;
         }
+        let dt = now
+            .saturating_duration_since(self.scrolled_at)
+            .as_secs_f32();
+        self.scrolled_at = now;
         if diff.abs() < 0.01 {
             self.scroll = target;
         } else {
-            self.scroll = (self.scroll + diff * 0.3).rem_euclid(n);
+            let k = 1.0 - (-dt / SCROLL_TAU).exp();
+            self.scroll = (self.scroll + diff * k).rem_euclid(n);
         }
         self.update_preview(ctx);
         self.update_sounds(ctx);
@@ -1639,7 +1659,8 @@ impl Scene for SelectScene {
                 Phase::Move => {
                     if let Some((did, sy, ss, moved)) = self.drag.as_mut() {
                         if *did == *id {
-                            let bh = 46.0 * ctx.ui();
+                            // the list follows the finger
+                            let bh = self.bar_pitch.unwrap_or(46.0 * ctx.ui());
                             let dy = *y - *sy;
                             if dy.abs() > 8.0 {
                                 *moved = true;
@@ -1714,21 +1735,23 @@ impl Scene for SelectScene {
 impl SelectScene {
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let (bars, clicks) = {
+        let (bars, pitch, clicks) = {
             let st = SelectState { s: self, ctx, now };
             let mut hooks = SelectHooks {
                 st: &st,
                 banner: self.banner.as_ref().and_then(|b| b.1),
                 bars: Vec::new(),
+                pitch: None,
                 clicks: Vec::new(),
             };
             let ms = now.saturating_duration_since(self.created).as_millis() as i64;
             if let Some(sk) = self.skin.as_ref() {
                 sk.draw(d, view, ms, &st, &mut hooks);
             }
-            (hooks.bars, hooks.clicks)
+            (hooks.bars, hooks.pitch, hooks.clicks)
         };
         self.bar_rects = bars;
+        self.bar_pitch = pitch;
         self.skin_clicks = clicks;
         // search box (typing is not part of skins)
         if let Some(q) = &self.search_edit {

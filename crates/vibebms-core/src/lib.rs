@@ -12,6 +12,34 @@
 //! * [`lane_option`]: RANDOM / MIRROR / S-RANDOM / H-RANDOM / ... and assist options
 //! * [`engine`]: the real-time judge engine (normal notes, LN / CN / HCN, mines, BSS)
 
+/// An enum of options picked from a list, with `ALL` (in declaration
+/// order) and `label()`, so the list cannot drift from the enum:
+/// `choices! { pub enum X { A => "A", B = 1 => "B" } }`.
+#[macro_export]
+macro_rules! choices {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $($(#[$vmeta:meta])* $variant:ident $(= $disc:literal)? => $label:literal,)+
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($(#[$vmeta])* $variant $(= $disc)?,)+
+        }
+
+        impl $name {
+            pub const ALL: [$name; [$($name::$variant),+].len()] = [$($name::$variant),+];
+
+            pub fn label(self) -> &'static str {
+                match self {
+                    $($name::$variant => $label,)+
+                }
+            }
+        }
+    };
+}
+
 pub mod bms;
 pub mod bmson;
 pub mod bot;
