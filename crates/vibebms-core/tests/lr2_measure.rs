@@ -10,6 +10,7 @@ use vibebms_core::engine::{Engine, JudgeAlgorithm, Op};
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::{Judge, JudgePreset};
 use vibebms_core::play::{build_chart, build_engine, RuleOptions};
+use vibebms_core::score::{Assist, ClearType};
 
 const MS: i64 = 1000;
 /// The first trial (two measures at BPM 150) and a trial's length.
@@ -229,21 +230,50 @@ fn the_a4_t200_readings_are_vibebms_total_factor() {
     );
 }
 
-/// README, A8: vibeBMS's GROOVE gauge after each mine, key 1 held through
-/// them from the rest before the first; `ZZ` leaves 2 %.
+/// README, A8: vibeBMS's gauge after each mine (from 100 % after the eight
+/// key-7 notes), with S-OLR2's lamp and POOR count.
 #[test]
 fn the_a8_readings_are_vibebms_mines() {
-    let r = rules(JudgeAlgorithm::Combo, GaugeType::Normal);
-    let c = chart("a8-mines.bme", &r);
-    let (mut e, _) = build_engine(&c, &r, None, false);
-    let mut steps: Vec<Step> = (0..8)
-        .map(|i| Step::Press(LEAD + i * 100 * MS, KEY7, 0))
-        .collect();
-    steps.push(Step::Hold(LEAD + TRIAL, KEY1, 0));
     // the mines are at the start of trials 2 .. 5
-    steps.extend((2..6).map(|k| Step::Read(LEAD + k * TRIAL + 1000 * MS)));
-    let got = run(&mut e, steps, c.length());
-    assert_eq!(got, [96.0, 76.0, 26.0, 2.0]);
+    let mine = |k: i64| LEAD + k * TRIAL;
+    let play = |gauge, keys: Vec<Step>| {
+        let r = rules(JudgeAlgorithm::Combo, gauge);
+        let c = chart("a8-mines.bme", &r);
+        let (mut e, _) = build_engine(&c, &r, None, false);
+        let mut steps: Vec<Step> = (0..8)
+            .map(|i| Step::Press(LEAD + i * 100 * MS, KEY7, 0))
+            .collect();
+        steps.extend(keys);
+        steps.extend((2..6).map(|k| Step::Read(mine(k) + 1000 * MS)));
+        let got = run(&mut e, steps, c.length());
+        let died = e.is_failed();
+        let lamp = e.score.lr2_clear_type(died, None, Assist::None);
+        (got, e.score.count(Judge::Miss), lamp)
+    };
+    // 1: GROOVE, key 1 held from the rest before the first: `ZZ` leaves
+    // 2 %, a FULL COMBO all the same; one POOR a mine
+    let hold = || vec![Step::Hold(LEAD + TRIAL, KEY1, 0)];
+    assert_eq!(
+        play(GaugeType::Normal, hold()),
+        (vec![96.0, 76.0, 26.0, 2.0], 4, ClearType::FullCombo)
+    );
+    // 2: taps (NORMAL: GREAT 40 ms): 40 ms early and on time set a mine
+    // off, 41 ms early or after it nothing
+    let taps = |early: [i64; 4]| {
+        (2..6)
+            .zip(early)
+            .map(|(k, ms)| Step::Press(mine(k) - ms * MS, KEY1, 0))
+            .collect()
+    };
+    assert_eq!(
+        play(GaugeType::Normal, taps([40, 0, 41, -10])).0,
+        [96.0, 76.0, 76.0, 76.0]
+    );
+    // 3: HARD, held: the same damage, FAILED at `ZZ`
+    assert_eq!(
+        play(GaugeType::Hard, hold()),
+        (vec![96.0, 76.0, 26.0, 0.0], 4, ClearType::Failed)
+    );
 }
 
 /// README, A3: a `#RANK` chart's counts against the references of `#RANK`

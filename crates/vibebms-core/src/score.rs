@@ -311,6 +311,18 @@ mod tests {
         assert_eq!(DjLevel::from_rate(1600, 1800), DjLevel::AAA);
         assert_eq!(DjLevel::from_rate(1599, 1800), DjLevel::AA);
         assert_eq!(DjLevel::from_rate(0, 1800), DjLevel::F);
+        // LR2's (S-OLR2 7.1): k = floor(9 EX / 2n), at most 8, at least 1
+        // when EX > 0; 8 AAA .. 2 E, 1 or 0 F
+        for n in 1..60u32 {
+            for ex in 0..=2 * n {
+                let mut k = (9 * ex / (2 * n)).min(8);
+                if ex > 0 {
+                    k = k.max(1);
+                }
+                let lr2 = DjLevel::ALL[k.saturating_sub(1) as usize];
+                assert_eq!(DjLevel::from_rate(ex, 2 * n), lr2, "{ex} of {n}");
+            }
+        }
     }
 
     #[test]

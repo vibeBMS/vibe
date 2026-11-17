@@ -79,9 +79,10 @@ pub struct Gate {
     pub wall_time: bool,
 }
 
-/// Bokutachi BMS 7K/14K (vibe-LR2): off while an open LR2 gap reaches
-/// every play (A11, the note choice: `tools/lr2-measure`).
-pub const BOKUTACHI_BMS: bool = false;
+/// Bokutachi BMS 7K/14K (vibe-LR2): on, as no open LR2 gap reaches every
+/// play (A4 refuses the plays it reaches); Tachi still has to list
+/// vibeBMS (`TACHI_ACCEPTS_VIBE`).
+pub const BOKUTACHI_BMS: bool = true;
 
 /// Tachi's game configs take only `LR2`/`lr2oraja` (BMS) and `beatoraja`
 /// (PMS) as a score's client, and vibeBMS names no other client: Bokutachi
@@ -335,6 +336,15 @@ mod tests {
             eligible(&lr2(), ProviderKind::VibeJson),
             Ok(Profile::VibeLr2)
         );
+        // vibe-LR2 7K goes to Bokutachi once Tachi lists vibeBMS, whatever
+        // the note choice option (the LR2 judge has its own)
+        let mut lowest = lr2();
+        lowest.rules.algorithm = JudgeAlgorithm::Lowest;
+        assert_eq!(passes(&lowest, &live(&BOKUTACHI)), Ok(Profile::VibeLr2));
+        assert_eq!(
+            eligible(&lowest, ProviderKind::Bokutachi),
+            Err(Refusal::OperatorPending)
+        );
     }
 
     #[test]
@@ -456,13 +466,6 @@ mod tests {
                 Refusal::LocalRules,
             ),
             (
-                "LR2, note choice",
-                lr2(),
-                |r| r.rules.algorithm = JudgeAlgorithm::Lowest,
-                &VIBE_JSON,
-                Refusal::LocalRules,
-            ),
-            (
                 "LR2, GAS",
                 lr2(),
                 |r| r.rules.gas = GaugeAutoShift::BestClear,
@@ -512,14 +515,6 @@ mod tests {
                 bok,
                 Refusal::NotTaken(Profile::VibeBeatoraja, PlayMode::Beat5K),
             ),
-            ("LR2 gap", lr2(), |_| {}, bok, Refusal::OpenGap("A11")),
-            (
-                "LR2, #RANK 4",
-                lr2(),
-                |r| r.chart.judge_rank = JudgeRank::Rank(4),
-                bok,
-                Refusal::OpenGap("A3"),
-            ),
             (
                 "LR2, HARD on 25 notes",
                 lr2(),
@@ -529,20 +524,6 @@ mod tests {
                 },
                 bok,
                 Refusal::OpenGap("A4"),
-            ),
-            (
-                "LR2, no #TOTAL",
-                lr2(),
-                |r| r.chart.total_given = false,
-                bok,
-                Refusal::OpenGap("A7"),
-            ),
-            (
-                "LR2, mines",
-                lr2(),
-                |r| r.chart.mines = true,
-                bok,
-                Refusal::OpenGap("A8"),
             ),
             (
                 "5-key EX-HARD",
@@ -665,10 +646,6 @@ mod tests {
             edit(&mut r);
             crate::rule::gap(id).unwrap().reaches.hits(&r)
         };
-        // #RANK 0 .. 3 are LR2's; 4, 5 and -1 are not known
-        assert!(!hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(3)));
-        assert!(hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(5)));
-        assert!(hits("A3", |r| r.chart.judge_rank = JudgeRank::Rank(-1)));
         // HARD on 21 to 29 notes, unless TOTAL's factor is as large
         let hard = |n: u32, t: f64| {
             move |r: &mut PlayRecord| {
@@ -685,13 +662,7 @@ mod tests {
         assert!(few(21, 300.0) && few(29, 300.0) && few(25, 112.0));
         assert!(!few(20, 300.0) && !few(30, 300.0) && !few(124, 300.0));
         assert!(!few(25, 111.0) && !few(0, 300.0));
-        assert!(!hits("A4", |r| r.result.score.total_notes = 50));
-        // no #TOTAL: every gauge but HAZARD (DEATH) gains or loses by it
-        assert!(!hits("A7", |r| {
-            r.chart.total_given = false;
-            r.rules.gauge = GaugeType::Hazard;
-        }));
-        assert!(!hits("A8", |_| {}));
+        assert!(!hits("A4", |r| r.result.score.total_notes = 25));
     }
 
     /// A made-up record: any mix of rules, devices and flags.
