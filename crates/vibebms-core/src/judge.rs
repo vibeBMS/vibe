@@ -570,6 +570,23 @@ mod tests {
         assert_eq!(normal.windows.judge(NoteType::Note, -1_000_000), None);
     }
 
+    /// beatoraja preset: a chart without `#RANK` (the parser's default), an
+    /// out-of-range one and one that is not a number all judge NORMAL (the
+    /// PMS rule's 70 %); a bmson `judge_rank` of 0 or less 100 %
+    /// (docs/RULES.md: why a missing `#RANK` stays NORMAL).
+    #[test]
+    fn beatoraja_rank_fallbacks() {
+        for fam in [RuleFamily::FiveKeys, RuleFamily::SevenKeys, RuleFamily::Pms] {
+            let w = |rank| judge_rules(JudgePreset::Beatoraja, fam, rank, None).windows;
+            let normal = w(JudgeRank::Rank(2));
+            assert_eq!(w(JudgeRank::default()), normal);
+            for odd in [JudgeRank::Rank(-1), JudgeRank::Rank(5), JudgeRank::NoNumber] {
+                assert_eq!(w(odd), normal, "{fam:?} {odd:?}");
+            }
+            assert_eq!(w(JudgeRank::Bmson(0.0)), w(JudgeRank::Bmson(100.0)));
+        }
+    }
+
     #[test]
     fn pms_rule_keeps_pg_and_bad_fixed() {
         let hard = judge_rules(

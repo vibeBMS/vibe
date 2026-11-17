@@ -25,6 +25,13 @@ PMS has a 200 ms LN release margin.
 applied to PG..BAD (empty POOR fixed). `#DEFEXRANK n` = n % of NORMAL. bmson `judge_rank` is used directly.
 For PMS, PG and BAD are fixed and GR/GD scale 33/50/70/100/133 %, clamped between PG and BAD.
 Custom judge (PG/GR/GD %) is applied afterwards and clamped to BAD.
+A chart without `#RANK` plays NORMAL, as one whose `#RANK` is out of range (below 0, above 4) or not a number;
+a bmson `judge_rank` of 0 or less is 100 %. bmz-player's documentation (`docs/rule.md`, "Beatoraja") says
+beatoraja judges a chart without `#RANK` at 100 % (EASY) instead. That is the only public description found:
+beatoraja's own manual (`manual/extension.txt`) covers `#RANK 4` and `#DEFEXRANK` but not a missing `#RANK`, and
+the community write-ups read for this list (S2, S3, S4, S13, the mBMplay patch notes, beatoraja issue 468,
+the BMS-making wikis) say nothing about it. One source is not enough to change how every chart without `#RANK`
+judges, so vibeBMS keeps NORMAL here until a second, independent description (or a measurement) agrees.
 
 Other rules: empty POOR does not consume the note; in 7 keys it keeps the combo, in 5 keys/PMS it breaks it;
 PMS notes can only produce one POOR. Note selection algorithms Combo / Duration / Lowest as in beatoraja.
