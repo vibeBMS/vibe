@@ -218,6 +218,7 @@ fn load_bmfont(path: &Path) -> Option<(BitmapFont, Vec<PathBuf>)> {
 }
 
 /// A `filepath` customisation: name, path (with a `*`), default file.
+#[derive(Clone)]
 struct FilePath {
     name: String,
     path: String,
@@ -330,29 +331,76 @@ fn offsets_of(sk: &Value) -> Vec<CustomOffset> {
         .collect()
 }
 
+/// What a skin says of itself before it is built, from its table as read
+/// without the user's settings.
+struct Header {
+    kind: Option<i64>,
+    name: String,
+    size: (f32, f32),
+    props: Vec<Property>,
+    /// Every `offset`'s name, and the ones the user may adjust.
+    offset_names: Vec<String>,
+    offsets: Vec<CustomOffset>,
+    filepaths: Vec<FilePath>,
+}
+
+impl Header {
+    fn of(v: &Value) -> Header {
+        Header {
+            kind: v.get("type").and_then(Value::as_i64),
+            name: s(v, "name").to_string(),
+            size: (i(v, "w", 1280) as f32, i(v, "h", 720) as f32),
+            props: properties(v),
+            offset_names: arr(v.get("offset"))
+                .iter()
+                .map(|o| s(o, "name").to_string())
+                .collect(),
+            offsets: offsets_of(v),
+            filepaths: filepaths(v),
+        }
+    }
+}
+
+/// A skin file's header, read once per version of the file: a Lua skin
+/// runs for it.
+fn header_of(path: &Path) -> Result<std::sync::Arc<Header>, String> {
+    type Cache = HashMap<(PathBuf, (i64, i64)), std::sync::Arc<Header>>;
+    static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+    let key = (path.to_path_buf(), vfs::stamp(path));
+    let cached = |c: &mut Option<Cache>| c.get_or_insert_default().get(&key).cloned();
+    if let Some(h) = CACHE.lock().ok().as_deref_mut().and_then(cached) {
+        return Ok(h);
+    }
+    let h = std::sync::Arc::new(Header::of(&read_skin(path, None, None)?.0));
+    if let Ok(mut c) = CACHE.lock() {
+        c.get_or_insert_default().insert(key, h.clone());
+    }
+    Ok(h)
+}
+
 /// The `offset` list of a skin: positions the user may adjust.
 pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
-    read_value(path).map(|v| offsets_of(&v)).unwrap_or_default()
+    header_of(path).map(|h| h.offsets.clone()).unwrap_or_default()
 }
 
 /// The `property` list of a skin as custom options, then its `filepath`
 /// choices.
 pub fn custom_options(path: &Path) -> Vec<CustomOption> {
-    let Ok(v) = read_value(path) else {
+    let Ok(h) = header_of(path) else {
         return Vec::new();
     };
     let dir = path.parent().unwrap_or(Path::new(""));
-    let mut out: Vec<CustomOption> = properties(&v).iter().filter_map(to_custom).collect();
-    for f in filepaths(&v) {
+    let mut out: Vec<CustomOption> = h.props.iter().filter_map(to_custom).collect();
+    for f in &h.filepaths {
         let labels = filepath_files(dir, &f.path);
-        let chosen = filepath_chosen(dir, &f, &HashMap::new());
+        let chosen = filepath_chosen(dir, f, &HashMap::new());
         if labels.len() > 1 {
             out.push(CustomOption {
                 default: labels
                     .iter()
                     .position(|l| Some(l) == chosen.as_ref())
                     .unwrap_or(0),
-                name: f.name,
+                name: f.name.clone(),
                 first_id: 0,
                 labels,
                 ops: Vec::new(),
@@ -362,19 +410,20 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     out
 }
 
-pub fn read_value(path: &Path) -> Result<Value, String> {
-    read_skin(path, None, None).map(|v| v.0)
-}
-
 /// What a Lua skin's `skin_config` is made from: chosen option per
 /// property name, the skin's header, the user's offsets by name, the
 /// user's files by `filepath` name.
 type SkinConfig<'a> = (
     &'a HashMap<String, i64>,
-    &'a Value,
+    &'a Header,
     &'a HashMap<String, [i32; 6]>,
     &'a HashMap<String, String>,
 );
+
+fn is_lua(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("luaskin") || e.eq_ignore_ascii_case("lua"))
+}
 
 /// A skin's table, with the Lua state it ran in (Lua skins).
 fn read_skin(
@@ -382,11 +431,7 @@ fn read_skin(
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
 ) -> Result<(Value, Option<script::Script>), String> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    if ext == "luaskin" || ext == "lua" {
+    if is_lua(path) {
         return lua::eval(path, skin_config, state).map(|(v, s)| (v, Some(s)));
     }
     let text = vfs::read(path)
@@ -515,17 +560,15 @@ fn add_missing_commas(text: &str) -> String {
     out
 }
 
-/// (type, name) without building the skin.
-/// A JSON skin's size (w, h), without loading it.
+/// A skin's size (w, h), without building it.
 pub fn size(path: &Path) -> Option<(f32, f32)> {
-    let v = read_value(path).ok()?;
-    Some((i(&v, "w", 1280) as f32, i(&v, "h", 720) as f32))
+    header_of(path).ok().map(|h| h.size)
 }
 
+/// (type, name) without building the skin.
 pub fn header(path: &Path) -> Option<(SkinType, String)> {
-    let v = read_value(path).ok()?;
-    let t = v.get("type")?.as_i64()?;
-    Some((SkinType::from_id(t as i32), s(&v, "name").to_string()))
+    let h = header_of(path).ok()?;
+    Some((SkinType::from_id(h.kind? as i32), h.name.clone()))
 }
 
 struct Ctx<'a> {
@@ -1065,12 +1108,17 @@ pub fn load_with(
 ) -> Result<Skin, String> {
     let (user_options, offsets) = (&user.options, &user.offsets);
     let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
-    // pass 1: header + defaults
-    let (raw, mut lua_state) = read_skin(path, None, None)?;
-    let props = properties(&raw);
+    // pass 1: header + defaults (a Lua skin's run without settings is kept)
+    let (header, json) = if is_lua(path) {
+        (header_of(path)?, None)
+    } else {
+        let v = read_skin(path, None, None)?.0;
+        (std::sync::Arc::new(Header::of(&v)), Some(v))
+    };
+    let props = &header.props;
     let mut enabled: HashSet<i64> = HashSet::new();
     let mut by_name = HashMap::new();
-    for (name, items, def) in &props {
+    for (name, items, def) in props {
         // a user choice overrides the default
         let chosen = items
             .iter()
@@ -1082,16 +1130,9 @@ pub fn load_with(
         }
     }
     // pass 2 (Lua): run again with skin_config
-    let raw = if path
-        .extension()
-        .map(|e| e.eq_ignore_ascii_case("luaskin"))
-        .unwrap_or(false)
-    {
-        let (v, s) = read_skin(path, Some((&by_name, &raw, offsets, &user.files)), state)?;
-        lua_state = s;
-        v
-    } else {
-        raw
+    let (raw, lua_state) = match json {
+        Some(v) => (v, None),
+        None => read_skin(path, Some((&by_name, &header, offsets, &user.files)), state)?,
     };
     let sk = preprocess(raw, &enabled, &dir, 0);
     let fps = filepaths(&sk);
@@ -1440,16 +1481,16 @@ mod lua {
             // custom offsets (the user's values) and the files `filepath`
             // customisations pick
             let offsets = lua.create_table().map_err(e)?;
-            for o in arr(header.get("offset")) {
+            for name in &header.offset_names {
                 let t = lua.create_table().map_err(e)?;
-                let v = user_offsets.get(s(o, "name")).copied().unwrap_or_default();
+                let v = user_offsets.get(name).copied().unwrap_or_default();
                 for (k, x) in ["x", "y", "w", "h", "r", "a"].iter().zip(v) {
                     t.set(*k, x).map_err(e)?;
                 }
-                offsets.set(s(o, "name"), t).map_err(e)?;
+                offsets.set(name.as_str(), t).map_err(e)?;
             }
             cfg.set("offset", offsets).map_err(e)?;
-            let fps = filepaths(header);
+            let fps = header.filepaths.clone();
             let files = lua.create_table().map_err(e)?;
             for f in &fps {
                 if let Some(name) = filepath_chosen(&dir, f, user_files) {
@@ -1630,7 +1671,7 @@ mod tests {
                 {"name": "Back", "path": "bg/*.png", "def": "two"}
             ]}"#;
         std::fs::write(dir.join("s.json"), json).unwrap();
-        let v = read_value(&dir.join("s.json")).unwrap();
+        let v = read_skin(&dir.join("s.json"), None, None).unwrap().0;
         let fps = filepaths(&v);
         let mut user = HashMap::new();
         // defaults, with or without the extension
@@ -2105,7 +2146,7 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
             &dir.join("play.luaskin"),
             Some((
                 &HashMap::new(),
-                &Value::Null,
+                &Header::of(&Value::Null),
                 &HashMap::new(),
                 &HashMap::new(),
             )),
@@ -2211,6 +2252,31 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
         std::fs::remove_dir_all(&root).ok();
         // the wildcard source follows the filepath default too
         assert!(s.images[0].as_ref().unwrap().ends_with("judge/b.png"));
+    }
+
+    #[test]
+    fn a_lua_skin_runs_once_without_settings() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lonce-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // a run without settings names its property at random
+        let lua = r#"
+            local s = { type = 0, name = "O", w = 100, h = 100, property = {
+              { name = skin_config and "x" or tostring(math.random()), item = { { name = "a", op = 900 } } } } }
+            if not skin_config then return s end
+            s.source = { { id = 1, path = "a.png" } }
+            s.image = { { id = "i", src = 1, x = 0, y = 0, w = 1, h = 1 } }
+            s.destination = { { id = "i", dst = { { x = 0, y = 0, w = 1, h = 1 } } } }
+            return s
+        "#;
+        let p = dir.join("play.luaskin");
+        std::fs::write(&p, lua).unwrap();
+        let name = custom_options(&p)[0].name.clone();
+        let sz = |_: &Path| Some((1, 1));
+        let s = load(&p, &HashMap::new(), &sz).unwrap();
+        assert_eq!(s.custom_options[0].name, name);
+        assert_eq!(header(&p), Some((SkinType::Play7, "O".into())));
+        assert_eq!(custom_options(&p)[0].name, name);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
