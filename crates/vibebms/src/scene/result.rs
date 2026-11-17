@@ -570,7 +570,7 @@ fn course_result(last: &ResultData) -> ResultData {
         },
         meta: vibebms_core::ChartMeta {
             title: c.name.clone(),
-            subtitle: subtitle.clone(),
+            subtitle: String::new(),
             artist: artist.clone(),
             ..last.meta.clone()
         },

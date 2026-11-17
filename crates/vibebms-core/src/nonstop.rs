@@ -31,7 +31,6 @@ const BGA_FADE: i64 = 3_000_000;
 /// Where a stage is in the joined chart.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StageSpan {
-    pub title: String,
     /// When its own chart starts (its measure 0), in the joined chart's
     /// time: its `#RANK` takes effect then (3.5).
     pub start: i64,
@@ -338,7 +337,6 @@ pub fn join(
             prev.fade_out = join.fade_out();
         }
         spans.push(StageSpan {
-            title: c.meta.title.clone(),
             start: to(0),
             join: at,
             ratio,
