@@ -958,6 +958,12 @@ impl PlayScene {
             opts.push("LEGACY".into());
         }
         self.options_label = opts.join(" / ");
+        // a song from an older library: its note counts and densities
+        // (skin numbers 350-365) from the chart
+        let song = &mut self.req.song;
+        if song.note_kinds.iter().all(|n| *n == 0) {
+            (song.note_kinds, song.density) = crate::library::chart_info(&chart);
+        }
         self.chart = chart;
         self.bank = bank;
         self.skin = super::play_skin::load_play_skin(ctx, gfx, self);

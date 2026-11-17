@@ -742,17 +742,8 @@ impl SkinState for SceneState<'_> {
                     sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64 - b
                 }
             }
-            350..=368 => {
-                if (350..=354).contains(&id) && s.req.song.note_kinds.iter().all(|n| *n == 0) {
-                    // a song from an older library: count the chart's
-                    let (k, _) = crate::library::chart_info(&s.chart);
-                    return Some(k[(id - 350) as usize]);
-                }
-                if id == 368 {
-                    return Some(s.total as i64);
-                }
-                return super::skinned::song_number(&s.req.song, id);
-            }
+            368 => s.total as i64,
+            350..=367 => return super::skinned::song_number(&s.req.song, id),
             400 => super::skinned::judge_rank_number(m),
             150 | 170 => self.pace().best,
             121 | 151 => self.pace().target,
