@@ -145,7 +145,6 @@ pub struct PlayScene {
     pub(crate) zones: Vec<Zone>,
     pub(crate) zones_key: (u32, u32, bool, bool),
     pub(crate) start: Instant,
-    pub(crate) base_frame: i64,
     pub(crate) bgm_i: usize,
     pub(crate) auto_i: usize,
     pub(crate) bga_i: usize,
@@ -658,7 +657,6 @@ impl PlayScene {
             zones: Vec::new(),
             zones_key: (0, 0, false, false),
             start: Instant::now(),
-            base_frame: 0,
             bgm_i: 0,
             auto_i: 0,
             bga_i: 0,
@@ -972,12 +970,6 @@ impl PlayScene {
         let lead = Duration::from_millis(lead_ms.unwrap_or(1500) as u64);
         let now = Instant::now();
         self.start = now + lead;
-        // the song's sounds start where a key pressed at their moment would
-        // start its sound: keysounds and the song stay together (both heard
-        // the output latency later; the judge offset is for that). Native
-        // output turns each moment into a frame as it comes (the device's
-        // clock may drift from the judge's); the web counts frames from here
-        self.base_frame = ctx.mixer.frame_in(lead.as_micros() as i64);
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
         self.skin_panel = self
@@ -1008,7 +1000,6 @@ impl PlayScene {
                 key: self.voice(sound, side),
                 volume: vol,
                 bus,
-                start_frame: at.map(|t| (self.base_frame + m.us_to_frames(t)).max(0) as u64),
                 at: at.map(|t| self.instant_at(t)),
                 offset: m.us_to_frames(slice.start).max(0) as usize,
                 end: slice.end.map(|e| m.us_to_frames(e).max(0) as usize),
