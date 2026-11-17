@@ -5,7 +5,7 @@ use super::tree::{event, table, Bar, Missing, Node};
 use super::SelectScene;
 use crate::app::{Ctx, Next};
 use crate::config::Versus;
-use crate::replay::{Replay, Slot};
+use crate::replay::{self, Slot};
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
 
 impl SelectScene {
@@ -116,7 +116,7 @@ impl SelectScene {
         let song = song.clone();
         let ln = song.score_ln(ctx.config.play.ln_mode) as i32;
         let fixed = song.fixed_ln();
-        let load = |slot| Replay::load_filed(&ctx.paths.root, &song.sha256, ln, fixed, slot);
+        let load = |slot| replay::load_filed(&ctx.paths.root, &song.sha256, ln, fixed, slot);
         let Some(r) = load(Slot::Best).or_else(|| load(Slot::Last)) else {
             ctx.toast(format!("No replay of {}", song.title));
             return Next::Stay;

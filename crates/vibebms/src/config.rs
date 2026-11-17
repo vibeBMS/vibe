@@ -4,11 +4,8 @@
 //! option is editable from the in-game settings screen.
 
 use serde::{Deserialize, Serialize};
-use vibebms_core::engine::JudgeAlgorithm;
-use vibebms_core::gauge::{GaugeAutoShift, GaugePreset, GaugeType};
-use vibebms_core::judge::JudgePreset;
-use vibebms_core::lane_option::{DoubleOption, LaneOption};
-use vibebms_core::LnType;
+use vibebms_core::gauge::GaugeType;
+use vibebms_core::play::RuleOptions;
 use vibebms_ir::IrConfig;
 use winit::keyboard::KeyCode;
 
@@ -205,24 +202,14 @@ impl Target {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct PlayConfig {
-    pub gauge: GaugeType,
-    pub gauge_auto_shift: GaugeAutoShift,
-    pub gauge_preset: GaugePreset,
-    pub judge_preset: JudgePreset,
-    pub judge_algorithm: JudgeAlgorithm,
-    pub random_1p: LaneOption,
-    pub random_2p: LaneOption,
-    pub dp_option: DoubleOption,
-    /// Play SP charts on both sides (BATTLE).
-    pub battle: bool,
+    /// What makes the chart and judges it (read through the play options:
+    /// `p.gauge` is `p.rules.gauge`).
+    #[serde(flatten)]
+    pub rules: RuleOptions,
     /// G-BATTLE / VS for this session (not saved, not in replays).
     #[serde(skip)]
     pub versus: Versus,
     pub side: Side,
-    pub ln_mode: LnType,
-    pub auto_scratch: bool,
-    pub legacy_note: bool,
-    pub no_mine: bool,
     pub autoplay: bool,
     pub hispeed_mode: HiSpeedMode,
     /// Scroll speed: at 1.0 the lane shows one measure (4 beats) of the
@@ -244,11 +231,6 @@ pub struct PlayConfig {
     pub visual_offset_ms: i32,
     pub bga: bool,
     pub show_fast_slow: bool,
-    /// EXPAND JUDGE (beatoraja custom judge): the judge windows scaled by
-    /// `judge_rates` (PG, GR, GD in percent). Wider than 100 % is an assist
-    /// (ASSIST EASY, the score is not saved).
-    pub expand_judge: bool,
-    pub judge_rates: [i64; 3],
     /// JUDGE AREA: the judge windows drawn above the judge line.
     pub judge_area: bool,
     /// MARK NOTE: a note hit early keeps falling to the line, marked.
@@ -259,8 +241,6 @@ pub struct PlayConfig {
     /// Move the judge timing toward where you hit (beatoraja notes display
     /// timing auto adjust).
     pub timing_auto_adjust: bool,
-    /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
-    pub hran_threshold_bpm: u32,
     /// The score the pacemaker and the result compare against.
     pub target: Target,
     /// The second player's own options in VS.
@@ -462,24 +442,32 @@ impl PlayConfig {
     }
 }
 
+impl std::ops::Deref for PlayConfig {
+    type Target = RuleOptions;
+
+    fn deref(&self) -> &RuleOptions {
+        &self.rules
+    }
+}
+
+impl std::ops::DerefMut for PlayConfig {
+    fn deref_mut(&mut self) -> &mut RuleOptions {
+        &mut self.rules
+    }
+}
+
+impl AsRef<RuleOptions> for PlayConfig {
+    fn as_ref(&self) -> &RuleOptions {
+        &self.rules
+    }
+}
+
 impl Default for PlayConfig {
     fn default() -> Self {
         PlayConfig {
-            gauge: GaugeType::Normal,
-            gauge_auto_shift: GaugeAutoShift::None,
-            gauge_preset: GaugePreset::Beatoraja,
-            judge_preset: JudgePreset::Beatoraja,
-            judge_algorithm: JudgeAlgorithm::Combo,
-            random_1p: LaneOption::Off,
-            random_2p: LaneOption::Off,
-            dp_option: DoubleOption::Off,
-            battle: false,
+            rules: RuleOptions::default(),
             versus: Versus::Off,
             side: Side::P1,
-            ln_mode: LnType::Ln,
-            auto_scratch: false,
-            legacy_note: false,
-            no_mine: false,
             autoplay: false,
             hispeed_mode: HiSpeedMode::Floating,
             hispeed: 2.5,
@@ -493,13 +481,10 @@ impl Default for PlayConfig {
             visual_offset_ms: 0,
             bga: true,
             show_fast_slow: true,
-            expand_judge: false,
-            judge_rates: [400, 400, 100],
             judge_area: false,
             mark_notes: false,
             bpm_guide: false,
             timing_auto_adjust: false,
-            hran_threshold_bpm: 120,
             target: Target::Best,
             p2: SideOptions::blank(),
         }
@@ -1091,6 +1076,23 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    /// Files written before the rules were split from the play options
+    /// read the same and are written again with the same settings.
+    #[test]
+    fn a_config_of_before_reads_whole() {
+        for old in [
+            include_str!("../tests/data/config_default.toml"),
+            include_str!("../tests/data/config_changed.toml"),
+        ] {
+            let c: Config = toml::from_str(old).unwrap();
+            let again = toml::to_string_pretty(&c).unwrap();
+            assert_eq!(
+                toml::from_str::<toml::Value>(&again).unwrap(),
+                toml::from_str::<toml::Value>(old).unwrap()
+            );
+        }
     }
 
     #[test]

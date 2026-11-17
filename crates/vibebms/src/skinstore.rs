@@ -584,7 +584,12 @@ fn install_staged(
         let format = bmseeker::unpack::sniff_file(a).ok_or("the download is not an archive")?;
         let dir = staging.join(i.to_string());
         let name = format!("skin.{}", format.ext());
-        crate::import::unpack_into(&bmseeker::fs::Disk, a, &name, &dir)?;
+        crate::import::unpack_into(
+            &bmseeker::fs::Disk,
+            bmseeker::unpack::Blob::File(a.clone()),
+            &name,
+            &dir,
+        )?;
         let placed = place(entry, &files_below(&dir));
         moves.extend(placed.into_iter().map(|(from, to)| (dir.join(from), to)));
     }

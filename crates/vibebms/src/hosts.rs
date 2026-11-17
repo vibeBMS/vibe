@@ -2,6 +2,8 @@
 //! proxy the web build reaches those hosts through.
 
 pub use bmseeker::hosts::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use bmseeker::native::{fetch_files, Native};
 
 /// The CORS proxy the web build reaches download hosts and difficulty
 /// tables through (none sends CORS headers): vibeBMS/proxy `worker.js`.
@@ -65,10 +67,14 @@ pub fn context() -> &'static Context {
 }
 
 /// Whether `url`'s host sends CORS headers (a web page reads it itself):
-/// BMS SEARCH's API, GitHub's raw files (the event mirror's lists).
+/// BMS SEARCH's API, GitHub's raw files (the event mirror's lists),
+/// Konmai's (a chart's package by its MD5).
 pub fn sends_cors(url: &str) -> bool {
     let host = url.split('/').nth(2).unwrap_or("").to_ascii_lowercase();
-    host == "api.bmssearch.net" || host == "raw.githubusercontent.com"
+    matches!(
+        host.as_str(),
+        "api.bmssearch.net" | "raw.githubusercontent.com" | "bms.alvorna.com"
+    )
 }
 
 /// `url` as the web build fetches it.

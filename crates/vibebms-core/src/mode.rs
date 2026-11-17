@@ -7,9 +7,12 @@ crate::choices! {
     ///
     /// Lanes are numbered per player as `[key1 .. keyN, scratch]`; for double play
     /// the second player's lanes follow the first player's.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+    #[derive(
+        Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord,
+    )]
     pub enum PlayMode {
         Beat5K => "5KEYS",
+        #[default]
         Beat7K => "7KEYS",
         Beat10K => "10KEYS",
         Beat14K => "14KEYS",

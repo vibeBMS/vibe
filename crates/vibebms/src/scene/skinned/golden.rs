@@ -7,8 +7,7 @@ use crate::app::Ctx;
 use crate::library::{BestScore, Song};
 use crate::platform::{Duration, Instant};
 use crate::scene::decide::{DecideScene, DecideState};
-use crate::scene::play::{load_chart, make_engine, PlayRequest, PlayScene, Role, Rules, SideState};
-use crate::scene::play_skin::SceneState;
+use crate::scene::play::{ghost_ex, PlayRequest, PlayScene, PlayState, Role, Session, SideState};
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use crate::scene::result_skin::ResultState;
 use crate::scene::select::{Bar, Node, SelectScene, SelectState};
@@ -19,6 +18,7 @@ use std::sync::Arc;
 use vibebms_core::bot;
 use vibebms_core::engine::Engine;
 use vibebms_core::gauge::GaugeType;
+use vibebms_core::play::{build_chart, build_engine, RuleOptions};
 use vibebms_core::score::{Assist, ClearType};
 use vibebms_core::LnType;
 
@@ -35,7 +35,7 @@ fn song() -> Song {
         genre: "TEST".into(),
         level: "11".into(),
         difficulty: 4,
-        mode: "7KEYS".into(),
+        mode: vibebms_core::PlayMode::Beat7K,
         min_bpm: 120.0,
         max_bpm: 180.0,
         main_bpm: 150.0,
@@ -140,41 +140,47 @@ fn request() -> PlayRequest {
 /// stopped halfway.
 fn play(ctx: &mut Ctx, battle: bool) -> (PlayScene, Instant) {
     let mut scene = PlayScene::new(ctx, request());
-    let p = crate::config::PlayConfig {
+    let rules = RuleOptions {
         battle,
-        ..ctx.config.play.clone()
+        ..ctx.config.play.rules.clone()
     };
     let text = bot::chart_text(7, 21);
-    let (chart, _, _) =
-        load_chart(Path::new("song/chart.bme"), text.as_bytes(), &p, 7, None).unwrap();
+    let chart = build_chart(
+        Path::new("song/chart.bme"),
+        text.as_bytes(),
+        &rules,
+        7,
+        None,
+    )
+    .unwrap()
+    .chart;
     let half = chart.length() / 2;
-    let rules = Rules::of(&p);
     let players: &[Option<usize>] = if battle { &[Some(0), Some(1)] } else { &[None] };
     let mut ghost = Vec::new();
+    let mut sides = Vec::new();
     for (k, player) in players.iter().enumerate() {
-        let (mut e, total) = make_engine(&chart, &rules, *player);
+        let (mut e, total) = build_engine(&chart, &rules, *player, false);
         let inputs = bot::inputs(&chart, *player, 99 + k as i64);
         bot::drive(&mut e, &inputs, half);
         if k == 0 {
             // the best play's ghost: another play of the whole chart
-            let (mut g, _) = make_engine(&chart, &rules, *player);
+            let (mut g, _) = build_engine(&chart, &rules, *player, false);
             bot::drive(
                 &mut g,
                 &bot::inputs(&chart, *player, 5),
                 chart.length() + 2_000_000,
             );
             ghost = g.ghost.clone();
-            scene.total = total;
+            scene.facts.total = total;
         }
-        scene.sides.push(side(e));
+        sides.push(side(e));
     }
-    scene.mode = chart.mode();
-    scene.skin_mode = scene.mode;
-    scene.input_mode = scene.mode;
-    scene.score_ln = LnType::Ln;
-    scene.best_ghost = Some(ghost);
-    scene.chart = chart;
-    let now = scene.start + Duration::from_micros(half as u64);
+    scene.facts.skin_mode = chart.mode();
+    scene.facts.input_mode = chart.mode();
+    scene.facts.score_ln = LnType::Ln;
+    scene.facts.best_ex = Some(ghost_ex(&ghost));
+    scene.session = Session::new(chart, sides, false, scene.session.start);
+    let now = scene.session.start + Duration::from_micros(half as u64);
     (scene, now)
 }
 
@@ -192,8 +198,9 @@ fn side(engine: Engine) -> SideState {
 
 /// The result of a play scene's first side (and its second).
 fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
-    let e = play.engine().unwrap();
-    let p2 = play.opponent().map(|o| SideResult {
+    let ses = &play.session;
+    let e = ses.engine().unwrap();
+    let p2 = ses.opponent().map(|o| SideResult {
         name: "2P".into(),
         score: o.engine.score.clone(),
         ex: o.engine.score.ex_score(),
@@ -207,11 +214,11 @@ fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
     });
     let d = ResultData {
         request: request(),
-        title: play.chart.meta.title.clone(),
-        subtitle: play.chart.meta.subtitle.clone(),
-        artist: play.chart.meta.artist.clone(),
-        level: play.chart.meta.level.clone(),
-        mode: play.mode,
+        title: ses.chart.meta.title.clone(),
+        subtitle: ses.chart.meta.subtitle.clone(),
+        artist: ses.chart.meta.artist.clone(),
+        level: ses.chart.meta.level.clone(),
+        mode: ses.mode,
         ln: LnType::Ln,
         score: e.score.clone(),
         clear: ClearType::Normal,
@@ -222,8 +229,8 @@ fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
         windows: e.windows().note.clone(),
         judge_log: e.judge_log.clone(),
         notes_graph: Default::default(),
-        meta: play.chart.meta.clone(),
-        length_us: play.chart.length(),
+        meta: ses.chart.meta.clone(),
+        length_us: ses.chart.length(),
         bpm_log: Vec::new(),
         // (not recorded)
         autoplay: true,
@@ -264,7 +271,7 @@ fn skin_values_stay_the_same() {
 
     for (battle, name) in [(false, "play"), (true, "play-battle")] {
         let (scene, now) = play(&mut ctx, battle);
-        dump(&mut out, name, &SceneState::new(&scene, &ctx, now));
+        dump(&mut out, name, &PlayState::new(&scene, &ctx, now));
         let res = result(&mut ctx, &scene);
         let now = Instant::now();
         let res_name = if battle { "result-battle" } else { "result" };

@@ -15,7 +15,9 @@
 
 use crate::chart::{Chart, LnType, NoteKind, SoundId, NO_SOUND};
 use crate::gauge::GrooveGauge;
-use crate::judge::{JudgeRules, JudgeWindows, NoteType, BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+use crate::judge::{
+    Judge, JudgeRules, JudgeWindows, NoteType, BAD, GOOD, GREAT, MISS, PGREAT, POOR,
+};
 use crate::mode::PlayMode;
 use crate::score::Score;
 use serde::{Deserialize, Serialize};
@@ -147,6 +149,16 @@ impl PlayNote {
             Kind::Long(_) => self.end_state != 0,
             Kind::Mine(_) => false,
         }
+    }
+
+    /// The head's judgement, once judged.
+    pub fn head_judge(&self) -> Option<Judge> {
+        Judge::of((self.state as usize).checked_sub(1)?)
+    }
+
+    /// The tail's judgement, once judged.
+    pub fn tail_judge(&self) -> Option<Judge> {
+        Judge::of((self.end_state as usize).checked_sub(1)?)
     }
 
     /// A CN or HCN (head and tail judged separately).
@@ -582,8 +594,7 @@ impl Engine {
             };
             let l = &self.lanes[lane];
             let (rising, let_go) = l.body.map_or((false, false), |b| {
-                let es = self.notes[b].end_state;
-                let good_tail = (1..=GOOD as u8 + 1).contains(&es);
+                let good_tail = self.notes[b].tail_judge().is_some_and(|j| j <= Judge::Good);
                 (
                     pressed_before || good_tail || auto,
                     !(pressed_at_t || good_tail || auto),
@@ -677,8 +688,7 @@ impl Engine {
                     self.lanes[lane].counter += HCN_TICK;
                 }
             }
-            let es = self.notes[b].end_state;
-            if es == BAD as u8 + 1 || es == POOR as u8 + 1 {
+            if matches!(self.notes[b].tail_judge(), Some(Judge::Bad | Judge::Poor)) {
                 let quiet = !rising;
                 if quiet != self.lanes[lane].body_quiet {
                     self.lanes[lane].body_quiet = quiet;
