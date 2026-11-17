@@ -291,7 +291,8 @@ mod imp {
     }
 
     /// Write `p`'s data to the browser's storage (if it is kept there);
-    /// once written, `p` is read from there (its bytes leave memory).
+    /// once written, `p` is read from there (its bytes leave memory; a
+    /// chart's stay).
     fn keep(p: &Path, data: &Data) {
         let to = p.to_path_buf();
         let swap = move |file: web_sys::File| {
@@ -300,7 +301,14 @@ mod imp {
                     if n.size == file.size() as i64 {
                         // its time as the stored file will have it
                         n.mtime = (file.last_modified() / 1000.0) as i64;
-                        n.data = Data::File(file);
+                        // a chart's bytes stay (it is small, and the
+                        // library's scan may be about to read it: a file
+                        // swapped out here is not read until read in again)
+                        let resident_chart =
+                            matches!(n.data, Data::Bytes(_)) && crate::library::is_chart(&to);
+                        if !resident_chart {
+                            n.data = Data::File(file);
+                        }
                     }
                 }
             })
