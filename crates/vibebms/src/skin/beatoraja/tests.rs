@@ -415,7 +415,6 @@ fn builtin_perspective_skins_load_and_reflow() {
                 let mut re = sk.clone();
                 re.reflow(rw, rh);
                 let fans = crate::perspective::layout(mode, false, rw, rh, &Default::default());
-                let top = crate::perspective::top_of_lanes(portrait, mode.is_double());
                 for o in &re.objects {
                     let (Some(k), Some(a)) = (o.dst.keys.first(), o.dst.anchor) else {
                         continue;
@@ -423,7 +422,7 @@ fn builtin_perspective_skins_load_and_reflow() {
                     let r = k.rect;
                     // the background, and what is shown over the lanes
                     // (judgements, READY, the hi-speed panel)
-                    if r.w >= rw || a[1] == 0.5 || (a[0] == 0.5 && r.y >= top) {
+                    if r.w >= rw || a[1] == 0.5 || o.dst.timer != 0 {
                         continue;
                     }
                     for f in &fans {

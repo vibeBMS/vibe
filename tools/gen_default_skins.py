@@ -1860,6 +1860,18 @@ def persp_stats(sk, img, f, x, y, w, h):
     sk.number("n_green", 313, 4, x + w - 12 - gw * 4, y + (h - gh) // 2)
 
 
+def rate_best_panel(sk, img, f, x, y, w, h):
+    """The score rate and the difference to the personal best, in two rows."""
+    panel(img, (x, y, w, h), "SCORE", f)
+    r = x + w - 14
+    rh = (h - 24) // 2
+    for i, label in enumerate(("RATE", "BEST")):
+        draw_label(img, f, x + 12, y + 24 + i * rh + rh // 2, label, 13, TEXT, anchor="lm")
+    rate_number(sk, img, f, r, y + 24 + (rh - sk.num("n_mid", 102, 3)[2]) // 2)
+    sw, sh = sk.num("n_signed", 152, 5)[1:]
+    sk.number("n_signed", 152, 5, r - sw * 5, y + 24 + rh + (rh - sh) // 2)
+
+
 def persp(fonts, parts, mode, portrait):
     """Touch perspective skin for 5/7 keys, 9 buttons or double play."""
     double = mode in ("14", "10")
@@ -1914,10 +1926,12 @@ def persp(fonts, parts, mode, portrait):
         pl.start((466, 94, 348, 112), (0.5, 0))
         gauge_block(sk, pl.img, f, 470, 96, 340)
         persp_stats(sk, pl.img, f, 470, 156, 340, 42)
-        pl.start((12, 96, 176, 148), (0, 0))
-        score_panel(sk, pl.img, f, 12, 96, 176, 148)
-        pl.start((1092, 96, 176, 152), (1, 0))
-        judge_panel(sk, pl.img, f, 1092, 96, 176, 152)
+        # between the fans' far ends the judge table; the top-left corner
+        # beside them only has room for the rate and the best's difference
+        pl.start((520, 212, 240, 152), (0.5, 0))
+        judge_panel(sk, pl.img, f, 520, 212, 240, 152)
+        pl.start((12, 96, 200, 80), (0, 0))
+        rate_best_panel(sk, pl.img, f, 12, 96, 200, 80)
     # judgements over each fan, the hi-speed panel and READY
     sk.anchor = (0.5, 0.5)
     centres = [W // 4, W * 3 // 4] if double else [W // 2]
