@@ -130,7 +130,6 @@ impl SelectState<'_> {
     pub fn static_option(&self, id: i32) -> Option<bool> {
         let p = &self.ctx.config.play;
         let song = self.song();
-        let best = self.best();
         let bar = self.s.bars.get(self.s.cursor);
         Some(match id {
             1 => matches!(bar, Some(Bar::Folder { .. })),
@@ -145,7 +144,7 @@ impl SelectState<'_> {
             43 => p.gauge.is_survival(),
             1046 => matches!(p.gauge, GaugeType::ExHard | GaugeType::ExHardClass),
             100..=105 | 1100..=1104 => {
-                let c = best.map(|b| b.clear).unwrap_or(ClearType::NoPlay);
+                let c = self.best().map(|b| b.clear).unwrap_or(ClearType::NoPlay);
                 song.is_some() && super::skinned::lamp_option(c, id).unwrap_or(false)
             }
             150..=155 => song.map(|s| s.difficulty == id - 150).unwrap_or(false),
@@ -175,7 +174,8 @@ impl SelectState<'_> {
             191 => song.map(|s| !s.stagefile.is_empty()).unwrap_or(false),
             192 => song.map(|s| s.banner.is_empty()).unwrap_or(true),
             193 => song.map(|s| !s.banner.is_empty()).unwrap_or(false),
-            320..=327 => best
+            320..=327 => self
+                .best()
                 .map(|b| rank_index(DjLevel::from_rate(b.ex_score, b.notes * 2)) == id - 320)
                 .unwrap_or(false),
             400 => p.hispeed_mode == HiSpeedMode::Constant,
@@ -202,15 +202,15 @@ impl SkinState for SelectState<'_> {
     }
 
     fn option(&self, id: i32) -> bool {
-        let rank = self.song().and_then(|s| self.s.ranking.get(&s.sha256));
+        let rank = || self.song().and_then(|s| self.s.ranking.get(&s.sha256));
         let v = match id.abs() {
             21..=26 => self.s.panel == (id.abs() - 20) as usize,
             n @ 1500..=1819 => {
                 super::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
-            601 => matches!(rank, Some(super::select::Rank::Loading(_))),
-            602 => matches!(rank, Some(super::select::Rank::Done(_))),
-            604 => matches!(rank, Some(super::select::Rank::Error)),
+            601 => matches!(rank(), Some(super::select::Rank::Loading(_))),
+            602 => matches!(rank(), Some(super::select::Rank::Done(_))),
+            604 => matches!(rank(), Some(super::select::Rank::Error)),
             n => self.static_option(n).unwrap_or(false),
         };
         v != (id < 0)
@@ -298,7 +298,6 @@ impl SkinState for SelectState<'_> {
 
     fn text(&self, id: i32) -> Option<String> {
         let song = self.song();
-        let opts = SelectScene::option_items(self.ctx, song.map(Bpms::of_song));
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
             // folders and courses show their name as the title
@@ -347,10 +346,11 @@ impl SkinState for SelectState<'_> {
             1031 => song?.sha256.clone(),
             1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
-                opts.get((n - OPTION_TEXT) as usize)?.1.clone()
+                let bpm = song.map(Bpms::of_song);
+                SelectScene::option_value(self.ctx, bpm, (n - OPTION_TEXT) as usize)?
             }
             n if (OPTION_NAME..OPTION_NAME + 100).contains(&n) => {
-                opts.get((n - OPTION_NAME) as usize)?.0.clone()
+                (*super::select::OPTION_NAMES.get((n - OPTION_NAME) as usize)?).into()
             }
             _ => return None,
         })
@@ -452,20 +452,14 @@ impl Hooks for SelectHooks<'_> {
         let frac = pos - base;
         let slot_frame = |k: isize, on: bool| {
             let k = k.clamp(0, slots as isize - 1) as usize;
-            let d = if on {
-                sl.on
-                    .get(k)
-                    .cloned()
-                    .flatten()
-                    .or(sl.off.get(k).cloned().flatten())
+            let (first, other) = if on {
+                (&sl.on, &sl.off)
             } else {
-                sl.off
-                    .get(k)
-                    .cloned()
-                    .flatten()
-                    .or(sl.on.get(k).cloned().flatten())
-            }?;
-            d.eval(now, st)
+                (&sl.off, &sl.on)
+            };
+            let d = first.get(k).and_then(Option::as_ref);
+            d.or_else(|| other.get(k).and_then(Option::as_ref))?
+                .eval(now, st)
         };
         // the cursor in unwrapped list coordinates nearest to the scroll position
         let cur = {

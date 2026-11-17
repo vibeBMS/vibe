@@ -171,6 +171,21 @@ fn vs_hint(ctx: &mut Ctx) {
     }
 }
 
+/// The select options (skin texts `9100 + i`, values `9000 + i`).
+pub(crate) const OPTION_NAMES: [&str; 11] = [
+    "RANDOM",
+    "GAUGE",
+    "AUTO SHIFT",
+    "LN MODE",
+    "HI-SPEED −",
+    "HI-SPEED +",
+    "SIDE",
+    "JUDGE",
+    "AUTOPLAY",
+    "SETTINGS",
+    "BATTLE",
+];
+
 fn lower(s: &str) -> String {
     s.to_lowercase()
 }
@@ -870,49 +885,38 @@ impl SelectScene {
         Next::Stay
     }
 
-    /// The option panel; `bpm` is the selected chart's main BPM (for its
-    /// green number).
-    pub(crate) fn option_items(ctx: &Ctx, bpm: Option<Bpms>) -> Vec<(String, String)> {
+    /// The value of option `i` (see `OPTION_NAMES`); `bpm` is the
+    /// selected chart's main BPM (for its green number).
+    pub(crate) fn option_value(ctx: &Ctx, bpm: Option<Bpms>, i: usize) -> Option<String> {
         let p = &ctx.config.play;
-        vec![
-            ("RANDOM".into(), p.random_1p.label().into()),
-            ("GAUGE".into(), p.gauge.label().into()),
-            ("AUTO SHIFT".into(), p.gauge_auto_shift.label().into()),
-            ("LN MODE".into(), format!("{:?}", p.ln_mode).to_uppercase()),
-            (
-                "HI-SPEED −".into(),
-                format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(Bpms::flat(150.0)))),
-            ),
-            (
-                "HI-SPEED +".into(),
-                match (bpm, p.hs_fix) {
-                    (b, fix) if fix != HsFix::Off => {
-                        format!("GN {} FIX", p.green(&b.unwrap_or(Bpms::flat(150.0))))
-                    }
-                    (Some(b), _) => format!("GN {}", p.green(&b)),
-                    (None, _) => format!("{:.2}", p.hispeed),
-                },
-            ),
-            ("SIDE".into(), format!("{:?}", p.side)),
-            ("JUDGE".into(), p.judge_preset.label().into()),
-            (
-                "AUTOPLAY".into(),
-                if p.autoplay { "ON" } else { "OFF" }.into(),
-            ),
-            ("SETTINGS".into(), "OPEN".into()),
-            (
-                "BATTLE".into(),
-                match super::option_panel::battle_index(p) {
-                    2 => "BATTLE",
-                    3 => "BATTLE AS",
-                    4 => "G-BEST",
-                    5 => "G-LAST",
-                    6 => "VS",
-                    _ => "OFF",
+        Some(match i {
+            0 => p.random_1p.label().into(),
+            1 => p.gauge.label().into(),
+            2 => p.gauge_auto_shift.label().into(),
+            3 => format!("{:?}", p.ln_mode).to_uppercase(),
+            4 => format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(Bpms::flat(150.0)))),
+            5 => match (bpm, p.hs_fix) {
+                (b, fix) if fix != HsFix::Off => {
+                    format!("GN {} FIX", p.green(&b.unwrap_or(Bpms::flat(150.0))))
                 }
-                .into(),
-            ),
-        ]
+                (Some(b), _) => format!("GN {}", p.green(&b)),
+                (None, _) => format!("{:.2}", p.hispeed),
+            },
+            6 => format!("{:?}", p.side),
+            7 => p.judge_preset.label().into(),
+            8 => if p.autoplay { "ON" } else { "OFF" }.into(),
+            9 => "OPEN".into(),
+            10 => match super::option_panel::battle_index(p) {
+                2 => "BATTLE",
+                3 => "BATTLE AS",
+                4 => "G-BEST",
+                5 => "G-LAST",
+                6 => "VS",
+                _ => "OFF",
+            }
+            .into(),
+            _ => return None,
+        })
     }
 
     /// The sound set's BGM while no song preview plays, and the option
