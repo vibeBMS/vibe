@@ -9,7 +9,7 @@ fn remove_folder(c: &mut Ctx, i: usize) {
     }
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[cfg(desktop)]
 fn browse(c: &mut Ctx, _: usize) {
     if let Some(p) = rfd::FileDialog::new().set_title("BMS folder").pick_folder() {
         let s = p.to_string_lossy().into_owned();
@@ -40,7 +40,7 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
             Act::Run(remove_folder, i),
         ));
     }
-    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    #[cfg(desktop)]
     v.push(Row::new(
         "Browse for a BMS folder…",
         "📂",
