@@ -15,6 +15,9 @@ pub enum Bus {
     System = 2,
 }
 
+/// Volume groups a voice may be in (`PlayOptions::group`), besides none.
+pub const GROUPS: u8 = 8;
+
 /// When a scheduled voice starts.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Due {
@@ -39,6 +42,7 @@ pub(crate) struct Voice {
     pub key: u64,
     pub bus: Bus,
     pub looping: bool,
+    pub group: u8,
 }
 
 impl Voice {
@@ -59,6 +63,7 @@ impl Voice {
             key: o.key,
             bus: o.bus,
             looping: o.looping,
+            group: o.group.min(GROUPS),
         }
     }
 
@@ -110,12 +115,15 @@ pub(crate) enum Cmd {
     StopBus(Bus),
     BusVolume(Bus, f32),
     Master(f32),
+    GroupVolume(u8, f32),
 }
 
 pub(crate) struct State {
     pub voices: Vec<Voice>,
     pub frame: u64,
     bus: [f32; 3],
+    /// Group 0 (none) is always 1.
+    group: [f32; GROUPS as usize + 1],
     master: f32,
     mix: Vec<f32>,
     max_voices: usize,
@@ -133,6 +141,7 @@ impl State {
             voices: Vec::with_capacity(cfg.max_voices),
             frame: 0,
             bus: [cfg.key_volume, cfg.bgm_volume, cfg.system_volume],
+            group: [1.0; GROUPS as usize + 1],
             master: cfg.master,
             mix: vec![0.0; 8192],
             max_voices: cfg.max_voices.max(16),
@@ -185,6 +194,8 @@ impl State {
                 .retain(|v| v.bus != b || retire(&self.retired, v)),
             Cmd::BusVolume(b, v) => self.bus[b as usize] = v,
             Cmd::Master(v) => self.master = v,
+            Cmd::GroupVolume(g, v) if (1..=GROUPS).contains(&g) => self.group[g as usize] = v,
+            Cmd::GroupVolume(..) => {}
         }
     }
 
@@ -216,9 +227,9 @@ impl State {
         }
         let mix = &mut self.mix[..frames * 2];
         mix.fill(0.0);
-        let (bus, master, retired) = (self.bus, self.master, &self.retired);
+        let (bus, group, master, retired) = (self.bus, self.group, self.master, &self.retired);
         self.voices.retain_mut(|v| {
-            let g = v.vol * bus[v.bus as usize] * master;
+            let g = v.vol * bus[v.bus as usize] * group[v.group as usize] * master;
             v.render(mix, now, g) || retire(retired, v)
         });
         self.frame = end_frame;
@@ -269,6 +280,22 @@ pub(crate) mod tests {
             ..Default::default()
         };
         Voice::new(s.clone(), &o, due)
+    }
+
+    #[test]
+    fn group_volumes_scale_their_voices() {
+        let mut st = state();
+        let s = sample(16, 16384);
+        let o = |group| PlayOptions {
+            group,
+            ..Default::default()
+        };
+        st.apply(Cmd::GroupVolume(2, 0.25));
+        st.apply(Cmd::Play(Voice::new(s.clone(), &o(2), None)));
+        assert!((st.render(4, None)[0] - 0.125).abs() < 1e-3);
+        st.apply(Cmd::GroupVolume(2, 1.0));
+        st.apply(Cmd::Play(Voice::new(s, &o(0), None)));
+        assert!((st.render(4, None)[0] - 1.0).abs() < 1e-3);
     }
 
     #[test]
