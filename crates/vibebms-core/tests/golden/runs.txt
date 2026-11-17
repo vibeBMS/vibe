@@ -9,9 +9,9 @@ timing_log: a252d1b432cf1577
 notes: 31ec09dc2dcd07b9 damaged 09612b07b5ecb5a5
 end: combo 0 failed false finished true held [] ops 3629
 [Beat5K Ln Lr2 Duration Normal]
-score: ex 366 counts [[69, 61], [52, 54], [38, 36], [9, 9], [3, 8], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 55 breaks 30 total 339 passed 339
-events: 708 c12e654b8da918cf
-gauge history: 40093e0f01a38962
+score: ex 366 counts [[69, 61], [52, 54], [38, 36], [9, 9], [3, 8], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 55 breaks 29 total 339 passed 339
+events: 708 56abd50adde6687e
+gauge history: f1399dc3b209155e
 gauge: Normal: 42c80000 42c80000 426277cf ~0 ~0 00000000 4245ccb8 00000000 00000000
 ghost: bbd2e3376e8be395 339
 judge_log: 7b83d622d6f427bf
@@ -39,7 +39,7 @@ timing_log: 7566a2bb178b2ab2
 notes: 8e5b89f1a802e6ce damaged 09612b07b5ecb5a5
 end: combo 0 failed true finished true held [] ops 3569
 [Beat5K Cn Lr2 Duration Hard]
-score: ex 489 counts [[85, 101], [61, 56], [29, 34], [6, 5], [7, 7], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 50 breaks 26 total 391 passed 391
+score: ex 489 counts [[85, 101], [61, 56], [29, 34], [6, 5], [7, 7], [1, 0]] just [0, 0, 0, 0, 0, 0] max_combo 50 breaks 25 total 391 passed 391
 events: 793 88ecd94d48d893ff
 gauge history: 1981500cc9d2ea72
 gauge: Hard: 42c80000 42c80000 4271991a ~0 ~0 00000000 4234994d 00000000 00000000
@@ -69,9 +69,9 @@ timing_log: 116a2d8c0688f300
 notes: da5026827f865f81 damaged 74b10406b98a6671
 end: combo 2 failed true finished true held [] ops 3620
 [Beat5K Hcn Lr2 Duration ExHard]
-score: ex 464 counts [[87, 87], [55, 61], [28, 18], [1, 5], [8, 8], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 52 breaks 24 total 358 passed 358
-events: 719 ea054b304c7dca6a
-gauge history: f0fe1f9702f4fab4
+score: ex 464 counts [[87, 87], [55, 61], [28, 18], [1, 5], [8, 8], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 52 breaks 22 total 358 passed 358
+events: 719 d24f7b804177ce94
+gauge history: c74523570cee7cef
 gauge: ExHard: 42c80000 42c80000 42bff262 ~0 ~0 00000000 42483310 00000000 00000000
 ghost: e10d5bbf64615bcd 358
 judge_log: 219444c9b55bc436
@@ -189,9 +189,9 @@ timing_log: b675d4dd79aa514a
 notes: 91ea0aaa4581a1cb damaged 09612b07b5ecb5a5
 end: combo 3 failed false finished true held [] ops 5188
 [Beat10K Ln Lr2 Duration Normal]
-score: ex 582 counts [[97, 91], [129, 77], [87, 74], [35, 18], [0, 18], [7, 0]] just [0, 0, 0, 0, 0, 0] max_combo 34 breaks 78 total 626 passed 626
-events: 1399 5e1fdbc7110c5a40
-gauge history: b18e4faf7b0c032c
+score: ex 582 counts [[97, 91], [129, 77], [87, 74], [35, 18], [0, 18], [7, 0]] just [0, 0, 0, 0, 0, 0] max_combo 34 breaks 71 total 626 passed 626
+events: 1399 ae12cd710d40fca8
+gauge history: 6092502195549d2e
 gauge: Normal: 413859a6 413859a6 40a89568 ~0 ~0 00000000 00000000 00000000 00000000
 ghost: aae46ca70151fa7a 626
 judge_log: 537d11955f7b7c66
@@ -219,9 +219,9 @@ timing_log: 665a81bd7f23d594
 notes: c7588e8613c2c71d damaged 78dd3fe445b5aba7
 end: combo 1 failed true finished true held [] ops 5551
 [Beat10K Cn Lr2 Duration Hard]
-score: ex 920 counts [[179, 161], [123, 117], [51, 57], [12, 8], [20, 19], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 33 breaks 63 total 747 passed 747
-events: 1522 dda3e7dcf0bda8ad
-gauge history: 41e5b469575a0a5a
+score: ex 920 counts [[179, 161], [123, 117], [51, 57], [12, 8], [20, 19], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 42 breaks 59 total 747 passed 747
+events: 1522 5c1341ad2ceb8c60
+gauge history: ecc20fc90c0c6b6f
 gauge: Hard: 428159e2 428159e2 401ab097 ~0 ~0 00000000 410f3204 00000000 00000000
 ghost: 7a498e9fb82b42f3 747
 judge_log: 6656bddc0ba1d514
@@ -249,9 +249,9 @@ timing_log: 954fb0350bc41833
 notes: 6b70fa5014083fe1 damaged ff9d9e61043f062c
 end: combo 35 failed true finished true held [] ops 5516
 [Beat10K Hcn Lr2 Duration ExHard]
-score: ex 822 counts [[138, 157], [127, 105], [67, 63], [22, 8], [11, 21], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 42 breaks 66 total 719 passed 719
-events: 1471 7b1a6ce91d5bec72
-gauge history: 70a00745677eca40
+score: ex 822 counts [[138, 157], [127, 105], [67, 63], [22, 8], [11, 21], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 44 breaks 62 total 719 passed 719
+events: 1471 dee601dadbefb609
+gauge history: 363d1ccc5cf504d9
 gauge: ExHard: 42881db0 42881db0 41b1b2ce ~0 ~0 00000000 40f7ff10 00000000 00000000
 ghost: 4c93f5fcf21d218f 719
 judge_log: 0f6249e19051a7fd
@@ -369,14 +369,14 @@ timing_log: 187ae53de9d3368a
 notes: 48d00950ddd4f4e6 damaged 09612b07b5ecb5a5
 end: combo 6 failed false finished true held [] ops 4566
 [Popn9K Ln Lr2 Duration Normal]
-score: ex 573 counts [[95, 109], [102, 63], [37, 61], [11, 11], [7, 14], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 63 breaks 45 total 510 passed 510
-events: 1052 dc350e003f24973e
-gauge history: 32afd458ea77e675
-gauge: Normal: 42bf9ea8 42bf9ea8 41b523c9 ~0 ~0 00000000 41e198ea 00000000 00000000
-ghost: 4e9627b51ca3d906 510
-judge_log: f64afd06dd3276d0
-timing_log: 7b4b8bbfd9dbdbef
-notes: 7503a6908f7fa8e0 damaged 99a8045f494e632c
+score: ex 573 counts [[95, 109], [102, 63], [37, 61], [11, 11], [7, 14], [2, 0]] just [0, 0, 0, 0, 0, 0] max_combo 63 breaks 43 total 510 passed 510
+events: 1055 323eaf02ddb51b95
+gauge history: dfbca062ea7a5b92
+gauge: Normal: 42bf9ea8 42bf9ea8 41b523c7 ~0 ~0 00000000 41e198ea 00000000 00000000
+ghost: e192c62042f8e5a0 510
+judge_log: 2b4e6a0d236ba802
+timing_log: eef2dd6b747fcec3
+notes: 723f68bc5813837b damaged 99a8045f494e632c
 end: combo 1 failed false finished true held [] ops 4393
 [Popn9K Ln Iidx Lowest Normal]
 score: ex 396 counts [[62, 55], [58, 66], [66, 97], [11, 6], [0, 12], [0, 0]] just [19, 0, 0, 0, 0, 0] max_combo 60 breaks 29 total 452 passed 452
@@ -399,14 +399,14 @@ timing_log: d7dabd5814c8bd2d
 notes: eb5fc844397adb79 damaged 09612b07b5ecb5a5
 end: combo 2 failed true finished true held [] ops 4490
 [Popn9K Cn Lr2 Duration Hard]
-score: ex 660 counts [[118, 122], [87, 93], [38, 43], [9, 7], [16, 11], [3, 0]] just [0, 0, 0, 0, 0, 0] max_combo 40 breaks 46 total 543 passed 543
-events: 1116 2afe138b745f1782
-gauge history: d0eb93918e89e584
-gauge: Hard: 42aff81e 42aff81e 41810030 ~0 ~0 00000000 4199ff7f 00000000 00000000
-ghost: 1a2ed6ccc8b9c25f 543
-judge_log: 87ebafe33aeb6dea
-timing_log: 6c6c2ab1ff6746de
-notes: b23ec7583c5f1529 damaged 09612b07b5ecb5a5
+score: ex 657 counts [[118, 121], [87, 92], [38, 43], [10, 7], [16, 11], [4, 0]] just [0, 0, 0, 0, 0, 0] max_combo 47 breaks 44 total 543 passed 543
+events: 1116 8d4bb358b73fb1ee
+gauge history: 1268e5f0b7380d02
+gauge: Hard: 42a5df6e 42a5df6e 41810030 ~0 ~0 00000000 418865ea 00000000 00000000
+ghost: bb9e4c24a89928c9 543
+judge_log: 1c61be8115ebb83e
+timing_log: 3d1dea99002d85ab
+notes: 930a9c07c1191137 damaged 09612b07b5ecb5a5
 end: combo 3 failed true finished true held [] ops 4411
 [Popn9K Cn Iidx Lowest Hard]
 score: ex 665 counts [[119, 109], [59, 48], [43, 74], [5, 2], [11, 9], [0, 0]] just [51, 0, 0, 0, 0, 0] max_combo 51 breaks 27 total 530 passed 530
@@ -433,10 +433,10 @@ score: ex 700 counts [[119, 131], [98, 102], [35, 38], [8, 6], [14, 16], [0, 0]]
 events: 1126 bc68827b832b2cc2
 gauge history: 93ac0bc7c9339175
 gauge: ExHard: 42a8c40b 42a8c40b 41a5d0b8 ~0 ~0 00000000 418798fd 00000000 00000000
-ghost: da1dcf985e434325 567
+ghost: efaae2b0d251df19 567
 judge_log: 993887926a23df9c
 timing_log: fbd8cc19bdfa9201
-notes: 19cf410a25aa9de3 damaged baee7fba94acd366
+notes: aaab6e8deeca6619 damaged baee7fba94acd366
 end: combo 0 failed true finished true held [] ops 4500
 [Popn9K Hcn Iidx Lowest ExHard]
 score: ex 818 counts [[143, 145], [80, 76], [42, 44], [0, 3], [7, 20], [0, 0]] just [43, 0, 0, 0, 0, 0] max_combo 60 breaks 30 total 603 passed 603

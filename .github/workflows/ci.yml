@@ -147,26 +147,33 @@ jobs:
             out/vibebms-macos-universal.app.zip
             out/version.txt
 
-  # the Flatpak: the linux-x64 executable as it is, on the GNOME runtime (it
-  # has WebKitGTK 4.1), as a bundle (tools/package_flatpak.sh, platform/flatpak)
+  # the Flatpak: each Linux executable as it is, on the GNOME runtime (it
+  # has WebKitGTK 4.1), as a bundle per architecture (a bundle holds one;
+  # tools/package_flatpak.sh, platform/flatpak)
   flatpak:
-    name: package Flatpak (x86_64)
+    name: package Flatpak (${{ matrix.arch }})
     needs: build
-    # the linux-x64 build can have succeeded when another build failed
+    # this architecture's build can have succeeded when another build failed
     if: always() && !cancelled()
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, os: ubuntu-24.04, loader: /lib64/ld-linux-x86-64.so.2 }
+          - { arch: arm64, os: ubuntu-24.04-arm, loader: /lib/ld-linux-aarch64.so.1 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: vibeBMS-linux-x64
+          name: vibeBMS-linux-${{ matrix.arch }}
           path: art
       - name: the build
         id: builds
         run: |
           if [ ! -f art/vibebms ]; then
-            echo "::warning::no linux-x64 build: no Flatpak this time"
+            echo "::warning::no linux-${{ matrix.arch }} build: no Flatpak this time"
             exit 0
           fi
           echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -194,15 +201,15 @@ jobs:
       - if: steps.builds.outputs.ok
         name: check
         run: |
-          flatpak install --user --noninteractive out/vibeBMS-linux-x64.flatpak
-          flatpak run --command=/lib64/ld-linux-x86-64.so.2 "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
+          flatpak install --user --noninteractive out/vibeBMS-linux-${{ matrix.arch }}.flatpak
+          flatpak run --command=${{ matrix.loader }} "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
           grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
           ! grep 'not found' out/libs.txt
       - if: steps.builds.outputs.ok
         uses: actions/upload-artifact@v4
         with:
-          name: vibeBMS-linux-x64-flatpak
-          path: out/vibeBMS-linux-x64.flatpak
+          name: vibeBMS-linux-${{ matrix.arch }}-flatpak
+          path: out/vibeBMS-linux-${{ matrix.arch }}.flatpak
 
   # Linux without the download browser (no WebKitGTK / GTK), built against
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
@@ -473,8 +480,10 @@ jobs:
           for f in vibeBMS-macos-universal.dmg vibebms-macos-universal.app.zip; do
             [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
           done
-          f=vibeBMS-linux-x64.flatpak
-          [ -f "art/vibeBMS-linux-x64-flatpak/$f" ] && cp "art/vibeBMS-linux-x64-flatpak/$f" "out/$f"
+          for a in x64 arm64; do
+            f="vibeBMS-linux-$a.flatpak"
+            [ -f "art/vibeBMS-linux-$a-flatpak/$f" ] && cp "art/vibeBMS-linux-$a-flatpak/$f" "out/$f"
+          done
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
           [ -d art/vibeBMS-web ] && (cd art/vibeBMS-web && zip -qr ../../out/vibeBMS-web.zip .)
@@ -639,7 +648,7 @@ jobs:
             echo "- Linux / macOS executables: \`chmod +x vibebms-*\`; on macOS also \`xattr -d com.apple.quarantine vibebms-*\`."
             echo "- Linux: \`vibebms-linux-*\` needs glibc 2.35 and WebKitGTK 4.1 (\`libwebkit2gtk-4.1-0\`, for the download browser);"
             echo "  \`vibebms-linux-*-portable\` has no download browser and starts with glibc 2.28 and ALSA."
-            echo "- Linux Flatpak (x64): \`flatpak install --user vibeBMS-linux-x64.flatpak\` (it fetches the GNOME runtime from Flathub),"
+            echo "- Linux Flatpak (x64, arm64): \`flatpak install --user vibeBMS-linux-x64.flatpak\` (or \`-arm64\`; it fetches the GNOME runtime from Flathub),"
             echo "  then start \"vibeBMS Nightly\" or \`flatpak run io.github.vibebms.nightly\`. It does not update itself: install a newer"
             echo "  bundle the same way. Its data is in \`~/.var/app/io.github.vibebms.nightly/data/vibeBMS\`."
             echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
