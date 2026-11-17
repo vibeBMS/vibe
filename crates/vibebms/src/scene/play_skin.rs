@@ -199,7 +199,10 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
                     skin.reflow(w, h);
                 }
                 crate::skin::lr2::keep_images(&skin);
-                return Some(LoadedSkin::load(skin, gfx));
+                // the chart's lead-in starts now: the skin must be there
+                let mut sk = LoadedSkin::load(skin, gfx);
+                sk.wait(gfx);
+                return Some(sk);
             }
             Ok(_) => log::warn!("{}: not a {} skin", path.display(), mode.label()),
             Err(e) => log::warn!("skin: {e}"),

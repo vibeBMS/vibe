@@ -3,9 +3,9 @@
 //! image indices, slider / graph rates and click events.
 //!
 //! Each script value gets a synthetic id (`SCRIPT_ID + n`) in the namespace
-//! of what it replaces (option, timer, number, ...). Once per frame
-//! [`Runtime::update`] evaluates every script against the scene's
-//! [`SkinState`], and [`Overlay`] answers those ids from the results.
+//! of what it replaces (option, timer, number, ...). [`Overlay`] answers
+//! those ids, running a script against the scene's [`SkinState`] when its
+//! value is first read in a frame ([`Runtime::update`] starts one).
 //! Scripts reach the game through beatoraja's `main_state`, `timer_util`
 //! and `event_util` modules (as globals in JSON skins).
 
@@ -85,9 +85,16 @@ pub struct Overlay<'a> {
 }
 
 impl Overlay<'_> {
-    fn val(&self, id: i32) -> Option<Val> {
-        let rt = self.rt?;
-        script_index(id).map(|k| rt.value(k))
+    /// `f` of script `id`'s value (`None`: not a script).
+    fn val<R>(&self, id: i32, f: impl FnOnce(&Val) -> R) -> Option<R> {
+        let (rt, k) = (self.rt?, script_index(id)?);
+        // scripts see the state under the skin's values, as in `update`
+        let st = Overlay {
+            st: self.st,
+            rt: None,
+            offsets: self.offsets,
+        };
+        Some(rt.value(k, &st, f))
     }
 }
 
@@ -96,43 +103,30 @@ impl SkinState for Overlay<'_> {
         if let Some(us) = self.rt.and_then(|rt| rt.timer_override(id)) {
             return us;
         }
-        match self.val(id) {
-            Some(v) => match v.int() {
-                Some(us) if us != i64::MIN => Some(us.div_euclid(1000)),
-                _ => None,
-            },
+        match self.val(id, Val::int) {
+            Some(Some(us)) if us != i64::MIN => Some(us.div_euclid(1000)),
+            Some(_) => None,
             None => self.st.timer(id),
         }
     }
     fn option(&self, id: i32) -> bool {
-        match self.val(id.abs()) {
-            Some(v) => v.truthy() == (id > 0),
+        match self.val(id.abs(), Val::truthy) {
+            Some(on) => on == (id > 0),
             None => self.st.option(id),
         }
     }
     fn number(&self, id: i32) -> Option<i64> {
-        match self.val(id) {
-            Some(v) => v.int(),
-            None => self.st.number(id),
-        }
+        self.val(id, Val::int).unwrap_or_else(|| self.st.number(id))
     }
     fn text(&self, id: i32) -> Option<String> {
-        match self.val(id) {
-            Some(v) => Some(v.text()),
-            None => self.st.text(id),
-        }
+        self.val(id, Val::text).or_else(|| self.st.text(id))
     }
     fn rate(&self, id: i32) -> f32 {
-        match self.val(id) {
-            Some(v) => v.num() as f32,
-            None => self.st.rate(id),
-        }
+        self.val(id, |v| v.num() as f32)
+            .unwrap_or_else(|| self.st.rate(id))
     }
     fn button(&self, id: i32) -> Option<i64> {
-        match self.val(id) {
-            Some(v) => v.int(),
-            None => self.st.button(id),
-        }
+        self.val(id, Val::int).unwrap_or_else(|| self.st.button(id))
     }
     fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
         self.st.distribution(rank)
@@ -150,11 +144,12 @@ pub use lua::*;
 /// The Lua runtime (on the web, Lua comes from vibebms-lua-web).
 mod lua {
     use super::*;
-    use mlua::{Function, Lua, Table, Value as LV};
+    use mlua::{Function, IntoLuaMulti, Lua, Table, Value as LV};
     use serde_json::Value;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
+    use std::rc::Rc;
 
     /// Marker a Lua function is replaced with in the skin table.
     const FN_MARK: &str = "\u{1}fn:";
@@ -703,7 +698,7 @@ end
     /// The Lua state of a skin while it loads.
     pub struct Script {
         lua: Lua,
-        vb: Table,
+        frame: Rc<Frame>,
         fns: Option<Table>,
     }
 
@@ -751,7 +746,8 @@ end
                 .set_name("vibebms guard")
                 .call::<()>((expired_fn, TOO_LONG))?;
             let vb = lua.create_table()?;
-            defaults(&lua, &vb, 0)?;
+            let frame = Rc::new(Frame::default());
+            install(&lua, &vb, &frame)?;
             // `require`, `dofile`, `loadfile` and `io` read files of the skin's theme
             // folder (the parent of the skin file's folder) only
             let root = crate::platform::vfs::normalize(dir.parent().unwrap_or(dir));
@@ -834,8 +830,12 @@ end
             lua.load(IO).set_name("vibebms io").call::<()>(read)?;
             lua.load(PRELUDE)
                 .set_name("vibebms prelude")
-                .call::<()>((vb.clone(), global))?;
-            Ok(Script { lua, vb, fns: None })
+                .call::<()>((vb, global))?;
+            Ok(Script {
+                lua,
+                frame,
+                fns: None,
+            })
         }
 
         pub fn lua(&self) -> &Lua {
@@ -850,13 +850,10 @@ end
             f: impl FnOnce() -> mlua::Result<R>,
         ) -> mlua::Result<R> {
             let Some(st) = st else { return f() };
-            let timers = RefCell::new(HashMap::new());
-            let exec = RefCell::new(Vec::new());
-            let r = self.lua.scope(|s| {
-                bind(s, &self.vb, st, &timers, &exec, 0)?;
-                f()
-            });
-            let _ = defaults(&self.lua, &self.vb, 0);
+            let r = self.frame.with(st, f);
+            // what scripts set while the skin is built is not kept
+            self.frame.set_timers.borrow_mut().clear();
+            self.frame.exec.borrow_mut().clear();
             r
         }
 
@@ -876,146 +873,169 @@ end
         }
     }
 
-    /// State access functions before / outside a frame.
-    fn defaults(lua: &Lua, vb: &Table, now_us: i64) -> mlua::Result<()> {
-        let zero = lua.create_function(|_, _: mlua::MultiValue| Ok(0))?;
-        for k in [
-            "number",
-            "float_number",
-            "event_index",
-            "rate",
-            "exscore",
-            "rate_best",
-            "exscore_best",
-            "rate_rival",
-            "exscore_rival",
-            "gauge",
-            "gauge_type",
-            "judge",
-            "set_timer",
-            "event_exec",
-        ] {
-            vb.set(k, zero.clone())?;
-        }
-        vb.set(
-            "option",
-            lua.create_function(|_, _: mlua::MultiValue| Ok(false))?,
-        )?;
-        vb.set(
-            "text",
-            lua.create_function(|_, _: mlua::MultiValue| Ok(""))?,
-        )?;
-        vb.set(
-            "offset",
-            lua.create_function(|lua, _: mlua::MultiValue| lua.create_table())?,
-        )?;
-        vb.set(
-            "timer",
-            lua.create_function(|_, _: mlua::MultiValue| Ok(i64::MIN))?,
-        )?;
-        vb.set("time", lua.create_function(move |_, ()| Ok(now_us))?)?;
-        Ok(())
+    type StatePtr = *const (dyn SkinState + 'static);
+
+    /// What the state functions (`main_state`) answer from: the scene's
+    /// state while a frame runs (or a skin is built), and what scripts set.
+    #[derive(Default)]
+    struct Frame {
+        st: Cell<Option<StatePtr>>,
+        now_us: Cell<i64>,
+        /// Timers set by scripts (`set_timer`, `customTimers`), µs.
+        set_timers: RefCell<HashMap<i32, i64>>,
+        /// Game events scripts asked for (`main_state.event_exec`).
+        exec: RefCell<Vec<i32>>,
     }
 
-    /// The state access functions `vb` holds while a scope lasts.
-    fn bind<'scope, 'env: 'scope>(
-        s: &'scope mlua::Scope<'scope, 'env>,
-        vb: &Table,
-        st: &'scope dyn SkinState,
-        set_timers: &'scope RefCell<HashMap<i32, i64>>,
-        exec: &'scope RefCell<Vec<i32>>,
-        now_us: i64,
-    ) -> mlua::Result<()> {
-        let timer = move |id: i32| -> i64 {
-            if let Some(us) = set_timers.borrow().get(&id) {
-                return *us;
+    impl Frame {
+        /// Run `f` with the state functions answering from `st`.
+        fn with<R>(&self, st: &dyn SkinState, f: impl FnOnce() -> R) -> R {
+            struct Restore<'a>(&'a Cell<Option<StatePtr>>, Option<StatePtr>);
+            impl Drop for Restore<'_> {
+                fn drop(&mut self) {
+                    self.0.set(self.1);
+                }
             }
-            st.timer(id)
+            // SAFETY: only the lifetime is erased; the pointer is put back
+            // (also on unwinding) before the borrow of `st` ends, and is
+            // only read by `state` in the meantime
+            let p = unsafe { std::mem::transmute::<*const (dyn SkinState + '_), StatePtr>(st) };
+            let _restore = Restore(&self.st, self.st.replace(Some(p)));
+            f()
+        }
+
+        /// The state of the `with` running now.
+        fn state(&self) -> Option<&dyn SkinState> {
+            // SAFETY: set only while `with` runs, whose `st` outlives every
+            // call of the state functions made in it
+            self.st.get().map(|p| unsafe { &*p })
+        }
+    }
+
+    /// The state access functions `vb` holds. Outside a frame they are
+    /// inert and take any arguments; `inert` is their answer then.
+    fn install(lua: &Lua, vb: &Table, frame: &Rc<Frame>) -> mlua::Result<()> {
+        fn put<A: mlua::FromLuaMulti, R: IntoLuaMulti>(
+            lua: &Lua,
+            vb: &Table,
+            frame: &Rc<Frame>,
+            name: &str,
+            inert: fn(&Lua) -> mlua::Result<LV>,
+            f: impl Fn(&Lua, &dyn SkinState, &Frame, A) -> mlua::Result<R> + 'static,
+        ) -> mlua::Result<()> {
+            let frame = frame.clone();
+            let func =
+                lua.create_function(move |lua, args: mlua::MultiValue| match frame.state() {
+                    Some(st) => {
+                        f(lua, st, &frame, A::from_lua_multi(args, lua)?)?.into_lua_multi(lua)
+                    }
+                    None => inert(lua)?.into_lua_multi(lua),
+                })?;
+            vb.set(name, func)
+        }
+        let zero: fn(&Lua) -> mlua::Result<LV> = |_| Ok(LV::Integer(0));
+        let num = |st: &dyn SkinState, id: i32| st.number(id).unwrap_or(0);
+        let notes = move |st: &dyn SkinState| (num(st, 74).max(1) * 2) as f64;
+        put(lua, vb, frame, "number", zero, move |_, st, _, id: i32| {
+            Ok(num(st, id))
+        })?;
+        put(lua, vb, frame, "float_number", zero, |_, st, _, id: i32| {
+            Ok(st.rate(id) as f64)
+        })?;
+        let no: fn(&Lua) -> mlua::Result<LV> = |_| Ok(LV::Boolean(false));
+        put(lua, vb, frame, "option", no, |_, st, _, id: i32| {
+            Ok(st.option(id))
+        })?;
+        let empty: fn(&Lua) -> mlua::Result<LV> = |lua| lua.create_string("").map(LV::String);
+        put(lua, vb, frame, "text", empty, |_, st, _, id: i32| {
+            Ok(st.text(id).unwrap_or_default())
+        })?;
+        put(lua, vb, frame, "event_index", zero, |_, st, _, id: i32| {
+            Ok(st.button(id).unwrap_or(0))
+        })?;
+        let off: fn(&Lua) -> mlua::Result<LV> = |_| Ok(LV::Integer(i64::MIN));
+        put(lua, vb, frame, "timer", off, |_, st, fr, id: i32| {
+            if let Some(us) = fr.set_timers.borrow().get(&id) {
+                return Ok(*us);
+            }
+            Ok(st
+                .timer(id)
                 .map(|t| t.saturating_mul(1000))
-                .unwrap_or(i64::MIN)
-        };
+                .unwrap_or(i64::MIN))
+        })?;
+        let fr = frame.clone();
         vb.set(
-            "number",
-            s.create_function(move |_, id: i32| Ok(st.number(id).unwrap_or(0)))?,
+            "time",
+            lua.create_function(move |_, ()| Ok(fr.now_us.get()))?,
         )?;
-        vb.set(
-            "float_number",
-            s.create_function(move |_, id: i32| Ok(st.rate(id) as f64))?,
-        )?;
-        vb.set(
-            "option",
-            s.create_function(move |_, id: i32| Ok(st.option(id)))?,
-        )?;
-        vb.set(
-            "text",
-            s.create_function(move |_, id: i32| Ok(st.text(id).unwrap_or_default()))?,
-        )?;
-        vb.set(
-            "event_index",
-            s.create_function(move |_, id: i32| Ok(st.button(id).unwrap_or(0)))?,
-        )?;
-        vb.set("timer", s.create_function(move |_, id: i32| Ok(timer(id)))?)?;
-        vb.set("time", s.create_function(move |_, ()| Ok(now_us))?)?;
-        vb.set(
+        let no_offset: fn(&Lua) -> mlua::Result<LV> = |lua| lua.create_table().map(LV::Table);
+        put(
+            lua,
+            vb,
+            frame,
             "offset",
-            s.create_function(move |lua, id: i32| {
+            no_offset,
+            |lua, st, _, id: i32| {
                 let t = lua.create_table()?;
                 let o = st.offset(id).unwrap_or_default();
                 for (k, v) in ["x", "y", "w", "h", "r", "a"].iter().zip(o) {
                     t.set(*k, v)?;
                 }
                 Ok(t)
-            })?,
+            },
         )?;
-        vb.set(
+        put(
+            lua,
+            vb,
+            frame,
             "set_timer",
-            s.create_function(move |_, (id, v): (i32, i64)| {
-                set_timers.borrow_mut().insert(id, v);
+            zero,
+            |_, _, fr, (id, v): (i32, i64)| {
+                fr.set_timers.borrow_mut().insert(id, v);
                 Ok(true)
-            })?,
+            },
         )?;
-        vb.set(
-            "event_exec",
-            s.create_function(move |_, id: i32| {
-                exec.borrow_mut().push(id);
-                Ok(true)
-            })?,
-        )?;
-        let num = move |id: i32| st.number(id).unwrap_or(0);
-        let notes = move || (num(74).max(1) * 2) as f64;
-        vb.set("exscore", s.create_function(move |_, ()| Ok(num(71)))?)?;
-        vb.set(
-            "rate",
-            s.create_function(move |_, ()| Ok(num(71) as f64 / notes()))?,
-        )?;
-        vb.set(
-            "exscore_best",
-            s.create_function(move |_, ()| Ok(num(150)))?,
-        )?;
-        vb.set(
-            "rate_best",
-            s.create_function(move |_, ()| Ok(num(150) as f64 / notes()))?,
-        )?;
+        put(lua, vb, frame, "event_exec", zero, |_, _, fr, id: i32| {
+            fr.exec.borrow_mut().push(id);
+            Ok(true)
+        })?;
+        put(lua, vb, frame, "exscore", zero, move |_, st, _, ()| {
+            Ok(num(st, 71))
+        })?;
+        put(lua, vb, frame, "rate", zero, move |_, st, _, ()| {
+            Ok(num(st, 71) as f64 / notes(st))
+        })?;
+        put(lua, vb, frame, "exscore_best", zero, move |_, st, _, ()| {
+            Ok(num(st, 150))
+        })?;
+        put(lua, vb, frame, "rate_best", zero, move |_, st, _, ()| {
+            Ok(num(st, 150) as f64 / notes(st))
+        })?;
         // the rival: the target (a battle's opponent)
-        vb.set(
+        put(
+            lua,
+            vb,
+            frame,
             "exscore_rival",
-            s.create_function(move |_, ()| Ok(num(121)))?,
+            zero,
+            move |_, st, _, ()| Ok(num(st, 121)),
         )?;
+        put(lua, vb, frame, "rate_rival", zero, move |_, st, _, ()| {
+            Ok(num(st, 121) as f64 / notes(st))
+        })?;
+        put(lua, vb, frame, "gauge", zero, move |_, st, _, ()| {
+            Ok(num(st, 107))
+        })?;
+        put(lua, vb, frame, "judge", zero, move |_, st, _, j: i32| {
+            Ok(match j {
+                0..=4 => num(st, 110 + j),
+                _ => num(st, 420),
+            })
+        })?;
         vb.set(
-            "rate_rival",
-            s.create_function(move |_, ()| Ok(num(121) as f64 / notes()))?,
-        )?;
-        vb.set("gauge", s.create_function(move |_, ()| Ok(num(107)))?)?;
-        vb.set(
-            "judge",
-            s.create_function(move |_, j: i32| {
-                Ok(match j {
-                    0..=4 => num(110 + j),
-                    _ => num(420),
-                })
-            })?,
-        )?;
-        Ok(())
+            "gauge_type",
+            lua.create_function(|_, _: mlua::MultiValue| Ok(0))?,
+        )
     }
 
     struct Entry {
@@ -1138,14 +1158,13 @@ end
             let n = self.entries.len();
             Some(std::rc::Rc::new(Runtime {
                 lua: s.lua,
-                vb: s.vb,
+                frame: s.frame,
                 entries: self.entries,
                 timers: self.timers,
                 events: RefCell::new(self.events),
-                cache: RefCell::new(vec![Val::Nil; n]),
-                set_timers: RefCell::new(HashMap::new()),
+                cache: RefCell::new(vec![(0, Val::Nil); n]),
+                generation: Cell::new(0),
                 queued: RefCell::new(Vec::new()),
-                exec: RefCell::new(Vec::new()),
                 failed: RefCell::new(HashSet::new()),
             }))
         }
@@ -1154,17 +1173,17 @@ end
     /// A loaded skin's scripts.
     pub struct Runtime {
         lua: Lua,
-        vb: Table,
+        frame: Rc<Frame>,
         entries: Vec<Entry>,
         timers: Vec<(i32, Function)>,
         events: RefCell<Vec<CustomEvent>>,
-        cache: RefCell<Vec<Val>>,
-        /// Timers set by scripts (`set_timer`, `customTimers`), µs.
-        set_timers: RefCell<HashMap<i32, i64>>,
+        /// Values with the frame they are of: a value is worked out when
+        /// first read in a frame, so what is not drawn does not run.
+        cache: RefCell<Vec<(u64, Val)>>,
+        /// The frame (counted by `update`).
+        generation: Cell<u64>,
         /// Clicked script events, run on the next frame.
         queued: RefCell<Vec<usize>>,
-        /// Game events scripts asked for (`main_state.event_exec`).
-        exec: RefCell<Vec<i32>>,
         failed: RefCell<HashSet<usize>>,
     }
 
@@ -1186,13 +1205,42 @@ end
     }
 
     impl Runtime {
-        pub(super) fn value(&self, k: usize) -> Val {
-            self.cache.borrow().get(k).cloned().unwrap_or_default()
+        /// `f` of script `k`'s value this frame, `st` the state it reads.
+        pub(super) fn value<R>(
+            &self,
+            k: usize,
+            st: &dyn SkinState,
+            f: impl FnOnce(&Val) -> R,
+        ) -> R {
+            let Some(e) = self.entries.get(k).filter(|e| e.kind != ScriptKind::Event) else {
+                return f(&Val::Nil);
+            };
+            let now = self.generation.get();
+            if self.cache.borrow()[k].0 != now {
+                let v = self.frame.with(st, || self.eval(k, e));
+                self.cache.borrow_mut()[k] = (now, v);
+            }
+            f(&self.cache.borrow()[k].1)
+        }
+
+        fn eval(&self, k: usize, e: &Entry) -> Val {
+            match e.f.call::<LV>(()) {
+                Ok(v) => val(v),
+                Err(err) => {
+                    self.warn(k, &err);
+                    if e.kind == ScriptKind::Timer {
+                        Val::Int(i64::MIN)
+                    } else {
+                        Val::Nil
+                    }
+                }
+            }
         }
 
         /// A timer scripts control: `Some(None)` = off.
         pub(super) fn timer_override(&self, id: i32) -> Option<Option<i64>> {
-            self.set_timers
+            self.frame
+                .set_timers
                 .borrow()
                 .get(&id)
                 .map(|us| (*us != i64::MIN).then(|| us.div_euclid(1000)))
@@ -1212,7 +1260,7 @@ end
 
         /// Game events requested by scripts since the last call.
         pub fn take_events(&self) -> Vec<i32> {
-            std::mem::take(&mut *self.exec.borrow_mut())
+            std::mem::take(&mut *self.frame.exec.borrow_mut())
         }
 
         fn warn(&self, k: usize, e: &mlua::Error) {
@@ -1221,13 +1269,15 @@ end
             }
         }
 
-        /// Evaluate every script for this frame (`now` = scene ms).
+        /// Start a frame (`now` = scene ms): run clicked and custom events,
+        /// custom timers and timer scripts (they watch for changes, so they
+        /// run every frame); other values are worked out when read.
         pub fn update(&self, st: &dyn SkinState, now: i64) {
             arm(&self.lua, FRAME_TIME);
             let now_us = now.saturating_mul(1000);
-            let r = self.lua.scope(|s| {
-                bind(s, &self.vb, st, &self.set_timers, &self.exec, now_us)?;
-                // clicked events, then custom events and timers, then values
+            self.frame.now_us.set(now_us);
+            self.generation.set(self.generation.get() + 1);
+            self.frame.with(st, || {
                 let queued = std::mem::take(&mut *self.queued.borrow_mut());
                 for k in queued {
                     if let Err(e) = self.entries[k].f.call::<()>(()) {
@@ -1249,40 +1299,25 @@ end
                                     log::debug!("skin custom event: {e}");
                                 }
                             }
-                            None => self.exec.borrow_mut().push(ev.exec),
+                            None => self.frame.exec.borrow_mut().push(ev.exec),
                         }
                     }
                 }
                 for (id, f) in &self.timers {
                     let v = f.call::<LV>(()).map(|v| val(v).int()).ok().flatten();
-                    self.set_timers
+                    self.frame
+                        .set_timers
                         .borrow_mut()
                         .insert(*id, v.unwrap_or(i64::MIN));
                 }
-                let mut cache = self.cache.borrow_mut();
+                let now = self.generation.get();
                 for (k, e) in self.entries.iter().enumerate() {
-                    if e.kind == ScriptKind::Event {
-                        continue;
+                    if e.kind == ScriptKind::Timer {
+                        let v = self.eval(k, e);
+                        self.cache.borrow_mut()[k] = (now, v);
                     }
-                    cache[k] = match e.f.call::<LV>(()) {
-                        Ok(v) => val(v),
-                        Err(err) => {
-                            self.warn(k, &err);
-                            if e.kind == ScriptKind::Timer {
-                                Val::Int(i64::MIN)
-                            } else {
-                                Val::Nil
-                            }
-                        }
-                    };
                 }
-                Ok(())
             });
-            if let Err(e) = r {
-                log::warn!("skin scripts: {e}");
-            }
-            // the scoped functions are gone: back to inert ones
-            let _ = defaults(&self.lua, &self.vb, now_us);
         }
     }
 
@@ -1345,6 +1380,88 @@ end
             assert_eq!(read("own.txt").as_deref(), Some("own"));
             assert_eq!(read("link.txt"), None);
             std::fs::remove_dir_all(&dir).ok();
+        }
+
+        struct St;
+        impl SkinState for St {
+            fn timer(&self, id: i32) -> Option<i64> {
+                (id == 41).then_some(2)
+            }
+            fn option(&self, id: i32) -> bool {
+                id == 1
+            }
+            fn number(&self, id: i32) -> Option<i64> {
+                Some(id as i64 * 10)
+            }
+            fn text(&self, _: i32) -> Option<String> {
+                Some("t".into())
+            }
+            fn rate(&self, _: i32) -> f32 {
+                0.5
+            }
+        }
+
+        #[test]
+        fn state_functions_answer_from_the_state_only_while_it_is_given() {
+            let s = Script::new(Path::new("/nonexistent/theme/skin"), true).unwrap();
+            type Seen = (i64, bool, String, i64, Option<i64>, LV);
+            let read = || -> mlua::Result<Seen> {
+                let code =
+                    "return number(7), option(1), text(1), timer(41), offset(3).x, set_timer(5, 9)";
+                s.lua().load(code).eval()
+            };
+            let inert = (0, false, String::new(), i64::MIN, None, LV::Integer(0));
+            assert_eq!(read().unwrap(), inert);
+            let seen = s.with_state(Some(&St), read).unwrap();
+            assert_eq!(
+                seen,
+                (70, true, "t".into(), 2000, Some(0), LV::Boolean(true))
+            );
+            assert_eq!(read().unwrap(), inert);
+            // a timer set while the skin was built is not kept
+            let t = s.with_state(Some(&St), || s.lua().load("return timer(5)").eval::<i64>());
+            assert_eq!(t.unwrap(), i64::MIN);
+        }
+
+        #[test]
+        fn values_run_when_read_and_timers_every_frame() {
+            let dir = Path::new("/nonexistent/theme/skin");
+            let s = Script::new(dir, true).unwrap();
+            s.lua()
+                .load("calls, ticks = 0, 0 function count() calls = calls + 1 return calls end")
+                .exec()
+                .unwrap();
+            let mut b = Builder::new(Some(s), dir);
+            let s = |code: &str| Value::String(code.into());
+            let counted = b.register(&s("count()"), ScriptKind::Int).unwrap();
+            let timer = b.register(&s("timer(900)"), ScriptKind::Int).unwrap();
+            b.register(
+                &s("(function() ticks = ticks + 1 return 0 end)()"),
+                ScriptKind::Timer,
+            );
+            b.custom_timer(900, &s("1234000"));
+            let rt = b.finish().unwrap();
+            let offsets = HashMap::new();
+            let ov = Overlay {
+                st: &St,
+                rt: Some(&rt),
+                offsets: &offsets,
+            };
+            let global = |k: &str| rt.lua.globals().get::<i64>(k).unwrap();
+            // (a timer script runs once as it is read, in case it makes the
+            // timer function)
+            let ticks = global("ticks");
+            rt.update(&St, 0);
+            rt.update(&St, 16);
+            // not read: not run; timers run every frame
+            assert_eq!((global("calls"), global("ticks")), (0, ticks + 2));
+            assert_eq!(ov.number(counted), Some(1));
+            assert_eq!(ov.number(counted), Some(1));
+            // what custom timers set this frame is seen by the values
+            assert_eq!(ov.number(timer), Some(1234000));
+            rt.update(&St, 32);
+            assert_eq!(ov.number(counted), Some(2));
+            assert_eq!(global("ticks"), ticks + 3);
         }
 
         #[test]

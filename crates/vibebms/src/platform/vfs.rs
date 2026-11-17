@@ -553,6 +553,28 @@ pub fn read(p: &Path) -> io::Result<Vec<u8>> {
     }
 }
 
+/// The first `n` bytes of a file (all of it when shorter); natively the
+/// rest is not read.
+pub fn read_head(p: &Path, n: usize) -> io::Result<Vec<u8>> {
+    if let Some(b) = builtin(p) {
+        return Ok(b[..n.min(b.len())].to_vec());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    match std::fs::File::open(p) {
+        Ok(f) => {
+            let mut b = Vec::new();
+            io::Read::read_to_end(&mut io::Read::take(f, n as u64), &mut b)?;
+            return Ok(b);
+        }
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        // perhaps in a `.dxa`
+        Err(_) => {}
+    }
+    let mut b = read(p)?;
+    b.truncate(n);
+    Ok(b)
+}
+
 pub fn read_to_string(p: &Path) -> io::Result<String> {
     String::from_utf8(read(p)?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }

@@ -46,9 +46,9 @@ fn colors(f: &[&str], first: usize, defaults: &[&str]) -> Vec<[f32; 4]> {
         .collect()
 }
 
-fn src(v: &[i64; 22], image_sizes: &[Option<(u32, u32)>]) -> Option<Src> {
+fn src(v: &[i64; 22], images: &ImageFiles) -> Option<Src> {
     let img = v[2] as usize;
-    let (iw, ih) = image_sizes.get(img).copied().flatten()?;
+    let (iw, ih) = images.size(img)?;
     let (x, y) = (v[3] as f32, v[4] as f32);
     let w = if v[5] < 0 { iw as f32 } else { v[5] as f32 };
     let h = if v[6] < 0 { ih as f32 } else { v[6] as f32 };
@@ -146,8 +146,7 @@ struct Loader<'a> {
     static_option: &'a dyn Fn(i32) -> Option<bool>,
     files: HashMap<String, String>,
     skin: Skin,
-    sizes: Vec<Option<(u32, u32)>>,
-    image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
+    images: ImageFiles<'a>,
     cur: Option<usize>,
     pending_line: Option<Src>,
     /// beatoraja `#IMAGESET` images, chosen from by `#SRC_IMAGESET`.
@@ -291,7 +290,9 @@ impl Loader<'_> {
     fn lane_src(&mut self, v: &[i64; 22], which: usize) {
         let mode = self.mode();
         let Some(l) = lane_of(mode, v[1]) else { return };
-        let Some(s) = src(v, &self.sizes) else { return };
+        let Some(s) = src(v, &self.images) else {
+            return;
+        };
         if self.skin.lanes.len() < mode.lane_count() {
             self.skin
                 .lanes
@@ -435,20 +436,16 @@ impl Loader<'_> {
             // the image the previous screen's skin had at this index (a
             // result skin going on with the play skin's background)
             "#IMAGE" if s1.eq_ignore_ascii_case("CONTINUE") => {
-                let i = self.skin.images.len();
+                let i = self.images.len();
                 let p = LAST_IMAGES
                     .lock()
                     .ok()
                     .and_then(|l| l.get(i).cloned().flatten());
-                let size = p.as_deref().and_then(|p| (self.image_size)(p));
-                self.sizes.push(size);
-                self.skin.images.push(p.filter(|_| size.is_some()));
+                self.images.push(p);
             }
             "#IMAGE" => {
                 let p = self.path(s1);
-                let size = (self.image_size)(&p);
-                self.sizes.push(size);
-                self.skin.images.push(size.map(|_| p));
+                self.images.push(Some(p));
             }
             "#TRANSCOLOR" => {
                 let c = |n: i64| n.clamp(0, 255) as u8;
@@ -462,13 +459,13 @@ impl Loader<'_> {
                 self.cur = None;
                 if v[2] >= 100 {
                     self.push(Kind::RefImage(v[2] as i32));
-                } else if let Some(s) = src(&v, &self.sizes) {
+                } else if let Some(s) = src(&v, &self.images) {
                     self.push(Kind::Image(s));
                 }
             }
             // beatoraja: a list of images, and an object showing the one a
             // skin value picks (`#SRC_IMAGESET,cycle,timer,value,n,set...`)
-            "#IMAGESET" => self.imagesets.push(src(&v, &self.sizes)),
+            "#IMAGESET" => self.imagesets.push(src(&v, &self.images)),
             "#SRC_IMAGESET" => {
                 self.cur = None;
                 let n = v[4].clamp(0, 16) as usize;
@@ -493,7 +490,7 @@ impl Loader<'_> {
             // ...,panel,x2,y2,w2,h2 (relative to the destination)
             "#SRC_ONMOUSE" => {
                 self.cur = None;
-                if let Some(s_) = src(&v, &self.sizes) {
+                if let Some(s_) = src(&v, &self.images) {
                     self.push(Kind::Image(s_));
                     let i = self.skin.objects.len() - 1;
                     self.skin.objects[i].dst.hover = Some(Rect::new(
@@ -511,7 +508,7 @@ impl Loader<'_> {
                 // gr,x,y,w,h,divx,divy,cycle,timer,type,click,panel: one frame
                 // per button value, clicking fires the button type
                 self.cur = None;
-                let Some(s_) = src(&v, &self.sizes) else {
+                let Some(s_) = src(&v, &self.images) else {
                     return;
                 };
                 let srcs = s_
@@ -540,7 +537,7 @@ impl Loader<'_> {
             }
             "#SRC_NUMBER" | "#SRC_NOWCOMBO_1P" | "#SRC_NOWCOMBO_2P" | "#SRC_NOWCOMBO_3P" => {
                 self.cur = None;
-                let Some(mut s) = src(&v, &self.sizes) else {
+                let Some(mut s) = src(&v, &self.images) else {
                     return;
                 };
                 let n = s.frames.len();
@@ -588,11 +585,10 @@ impl Loader<'_> {
             "#LR2FONT" => {
                 // a missing font keeps its index (`CONTINUE` placeholders)
                 let p = self.path(s1);
-                let font = load_font(&p, self.image_size).map(|(f, imgs)| {
-                    let base = self.skin.images.len();
+                let font = load_font(&p, self.images.measure).map(|(f, imgs)| {
+                    let base = self.images.len();
                     for (path, size) in imgs {
-                        self.sizes.push(size);
-                        self.skin.images.push(size.map(|_| path));
+                        self.images.push_measured(path, size);
                     }
                     let mut f = f;
                     for g in f.glyphs.values_mut() {
@@ -618,7 +614,7 @@ impl Loader<'_> {
             }
             "#SRC_BARGRAPH" => {
                 self.cur = None;
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     self.push(Kind::Bar {
                         src: s,
                         id: v[11] as i32 + 100,
@@ -630,7 +626,7 @@ impl Loader<'_> {
             "#SRC_SLIDER_REFNUMBER" => {
                 // ...,muki,range,number,disable,min,max
                 self.cur = None;
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     self.push(Kind::Slider {
                         src: s,
                         id: v[13] as i32,
@@ -643,7 +639,7 @@ impl Loader<'_> {
             "#SRC_BARGRAPH_REFNUMBER" => {
                 // ...,number,muki,min,max
                 self.cur = None;
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     self.push(Kind::Bar {
                         src: s,
                         id: v[11] as i32,
@@ -654,7 +650,7 @@ impl Loader<'_> {
             }
             "#SRC_SLIDER" => {
                 self.cur = None;
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     self.push(Kind::Slider {
                         src: s,
                         id: v[13] as i32,
@@ -667,7 +663,7 @@ impl Loader<'_> {
             // _EX: beatoraja's 8 images (EX gauges second), same layout
             "#SRC_GROOVEGAUGE" | "#SRC_GROOVEGAUGE_EX" => {
                 self.cur = None;
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     let parts = if v[13] > 0 {
                         v[13] as usize
                     } else if self.mode() == vibebms_core::PlayMode::Popn9K {
@@ -712,7 +708,7 @@ impl Loader<'_> {
                 let Some(t) = MAP.get(v[1].max(0) as usize).copied() else {
                     return;
                 };
-                let sz = src(&v, &self.sizes);
+                let sz = src(&v, &self.images);
                 let sl = self.songlist();
                 if sl.body.len() <= t {
                     sl.body.resize(t + 1, None);
@@ -746,7 +742,7 @@ impl Loader<'_> {
                 }
             }
             "#SRC_BAR_LEVEL" => {
-                let Some(s_) = src(&v, &self.sizes) else {
+                let Some(s_) = src(&v, &self.images) else {
                     return;
                 };
                 let n = s_.frames.len();
@@ -782,7 +778,7 @@ impl Loader<'_> {
                 let Some(k) = MAP.get(v[1].max(0) as usize).copied() else {
                     return;
                 };
-                let s_ = src(&v, &self.sizes);
+                let s_ = src(&v, &self.images);
                 let sl = self.songlist();
                 if sl.lamp.len() <= k {
                     sl.lamp.resize(k + 1, None);
@@ -901,11 +897,11 @@ impl Loader<'_> {
             }))),
             "#SRC_JUDGELINE" => {
                 self.cur = None;
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     self.push(Kind::JudgeLine(s));
                 }
             }
-            "#SRC_LINE" => self.pending_line = src(&v, &self.sizes),
+            "#SRC_LINE" => self.pending_line = src(&v, &self.images),
             "#DST_LINE" => {
                 if let Some(s) = self.pending_line.take() {
                     let mut d = Dst::default();
@@ -935,7 +931,7 @@ impl Loader<'_> {
             // disappear line (,..,line,line follows LIFT)
             "#SRC_HIDDEN" | "#SRC_LIFT" => {
                 self.cur = None;
-                if let Some(src) = src(&v, &self.sizes) {
+                if let Some(src) = src(&v, &self.images) {
                     let given = |i: usize| f.get(i).is_some_and(|x| !x.trim().is_empty());
                     self.push(Kind::Cover {
                         src,
@@ -999,7 +995,7 @@ impl Loader<'_> {
                 if v[1] > 5 {
                     return;
                 }
-                if let Some(s) = src(&v, &self.sizes) {
+                if let Some(s) = src(&v, &self.images) {
                     let js = &mut self.skin.judges[side];
                     js.judge[(5 - v[1]) as usize] = Some((s, Dst::default()));
                     js.shift = v[11] != 1;
@@ -1116,38 +1112,8 @@ pub fn load_with(
         options: user_options.clone(),
         static_option,
         files: HashMap::new(),
-        skin: Skin {
-            path: path.to_path_buf(),
-            name: String::new(),
-            author: String::new(),
-            kind: SkinType::Play7,
-            width: 640.0,
-            height: 480.0,
-            images: Vec::new(),
-            objects: Vec::new(),
-            lanes: Vec::new(),
-            judges: Default::default(),
-            bar_lines: Vec::new(),
-            songlist: None,
-            custom_options: Vec::new(),
-            scene_ms: 0,
-            input_ms: 0,
-            fadeout_ms: 0,
-            note_expansion: None,
-            note_fall_y: None,
-            judge_timer: None,
-            play_start_ms: None,
-            close_ms: None,
-            finish_margin_ms: 0,
-            script: None,
-            fonts: Vec::new(),
-            trans_color: None,
-            offsets: HashMap::new(),
-            skin_select: None,
-            perspective: false,
-        },
-        sizes: Vec::new(),
-        image_size,
+        skin: Skin::new(path, SkinType::Play7, 640.0, 480.0),
+        images: ImageFiles::new(image_size),
         cur: None,
         pending_line: None,
         imagesets: Vec::new(),
@@ -1168,12 +1134,11 @@ pub fn load_with(
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
     }
-    let known = l.options.clone();
-    resolve_static_ops(&mut l.skin, &known);
+    let mut skin = l.skin;
+    skin.images = l.images.finish();
+    resolve_static_ops(&mut skin, &l.options);
     if !l.resolution_set {
-        let (w, h) = guess_resolution(&l.skin);
-        l.skin.width = w;
-        l.skin.height = h;
+        (skin.width, skin.height) = guess_resolution(&skin);
     }
     // text is anchored at x: its left edge, centre or right edge by align
     let anchor = |d: &mut Dst, align: i32| {
@@ -1182,19 +1147,19 @@ pub fn load_with(
             key.rect.x -= key.rect.w * k;
         }
     };
-    for o in &mut l.skin.objects {
+    for o in &mut skin.objects {
         if let Kind::Text { align, .. } = o.kind {
             anchor(&mut o.dst, align);
         }
     }
-    if let Some((d, align, ..)) = l.skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
+    if let Some((d, align, ..)) = skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
         anchor(d, *align);
     }
     // beatoraja's own key config skin is empty: its screen draws the rows
-    if l.skin.objects.is_empty() && l.skin.kind != SkinType::KeyConfig {
+    if skin.objects.is_empty() && skin.kind != SkinType::KeyConfig {
         return Err(format!("{}: no drawable objects", path.display()));
     }
-    Ok(l.skin)
+    Ok(skin)
 }
 
 /// Screen size of a skin without `#RESOLUTION`: HD-patched LR2 builds run
@@ -1821,8 +1786,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vibebms-skin-{}", std::process::id()));
         let theme = dir.join("MySkin");
         std::fs::create_dir_all(&theme).unwrap();
-        let csv = "#INFORMATION,0,Test,me\n#CUSTOMOPTION,Lane,900,Dark,Light\n#IMAGE,LR2files\\Theme\\MySkin\\a.png\n#IMAGE,missing.png\n\
-#IF,901\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n#DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n#ELSE\n#SRC_IMAGE,0,0,0,0,20,20,2,1,100,0\n#DST_IMAGE,0,0,5,5,20,20,0,255,255,255,255,0,0,0,0,-1,41,32\n#DST_IMAGE,0,1000,50,5,20,20\n#ENDIF\n\
+        let csv = "#INFORMATION,0,Test,me\n#CUSTOMOPTION,Lane,900,Dark,Light\n#IMAGE,LR2files\\Theme\\MySkin\\a.png\n#IMAGE,missing.png\n#IMAGE,unused.png\n\
+#SRC_IMAGE,0,1,0,0,10,10,1,1,0,0\n#IF,901\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n#DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n#ELSE\n#SRC_IMAGE,0,0,0,0,20,20,2,1,100,0\n#DST_IMAGE,0,0,5,5,20,20,0,255,255,255,255,0,0,0,0,-1,41,32\n#DST_IMAGE,0,1000,50,5,20,20\n#ENDIF\n\
 #SRC_NUMBER,0,0,0,0,110,10,11,1,0,0,101,0,6\n#DST_NUMBER,0,0,100,100,8,10,0,255,255,255,255\n\
 #SRC_NOTE,1,0,0,0,10,4,1,1,0,0\n#SRC_NOTE,0,0,0,0,20,4,1,1,0,0\n#DST_NOTE,0,0,30,0,20,400,0,255,255,255,255\n#DST_NOTE,1,0,50,0,10,400,0,255,255,255,255\n\
 #SRC_NOWJUDGE_1P,5,0,0,0,40,10,1,1,0,0\n#DST_NOWJUDGE_1P,5,0,60,200,40,10,0,255,255,255,255,0,0,0,0,-1,46\n";
@@ -1843,8 +1808,10 @@ mod tests {
         .unwrap();
         assert_eq!(s.name, "Test");
         assert_eq!(s.kind, SkinType::Play7);
-        assert_eq!(s.images.len(), 2);
+        // a missing image is left out; one nothing draws from is not looked at
+        assert_eq!(s.images.len(), 3);
         assert!(s.images[1].is_none());
+        assert!(s.images[2].is_some());
         // option 900 (Dark) is the default, so the #ELSE branch is used
         let Kind::Image(src) = &s.objects[0].kind else {
             panic!()
