@@ -1,11 +1,14 @@
 //! Where the mixer's frames go: a cpal stream (`cpal`, silent by the wall
-//! clock while there is no device: `null`), or on the web an AudioWorklet
-//! (`web`, the worklet's side in `worklet`).
+//! clock while there is no device: `null`; on Windows a WASAPI stream of
+//! its own first: `wasapi`), or on the web an AudioWorklet (`web`, the
+//! worklet's side in `worklet`).
 
 pub(crate) mod cpal;
 #[cfg(target_os = "ios")]
 mod ios;
 mod null;
+#[cfg(any(windows, test))]
+mod wasapi;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod web;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -28,6 +31,11 @@ pub(crate) trait Output {
         None
     }
     fn resume(&self) {}
+    /// A message for the player about the output (exclusive mode asked
+    /// for and not had), once.
+    fn take_notice(&mut self) -> Option<String> {
+        None
+    }
 }
 
 /// What an output opened.

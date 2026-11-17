@@ -211,6 +211,8 @@ impl Ctx {
             bgm_volume: 0.0,
             system_volume: 0.0,
             max_voices: 16,
+            #[cfg(windows)]
+            exclusive: false,
         });
         let view = View {
             width: 1280.0,
