@@ -339,12 +339,7 @@ impl Ctx {
         if let Some(lib) = &mut self.lib.db {
             let mut songs = lib.songs();
             lib.merge_fixed_ln(&songs);
-            songs.sort_by(|a, b| {
-                a.title
-                    .to_lowercase()
-                    .cmp(&b.title.to_lowercase())
-                    .then(a.level_num().cmp(&b.level_num()))
-            });
+            songs.sort_by_cached_key(|s| (s.title.to_lowercase(), s.level_num()));
             self.lib.songs = Arc::new(songs);
             self.lib.scores = lib.scores();
         }
@@ -423,17 +418,16 @@ impl Ctx {
         self.finish_scan(true);
     }
 
-    /// Play a system sound of the chosen sound set.
+    /// Play a system sound of the chosen sound set (loaded when the choice
+    /// has changed: a string compare otherwise).
     pub fn play_sound(&mut self, s: crate::sysound::Sound) {
-        let v = self
+        let set = self
             .config
             .skins
             .get("SOUND_SET")
-            .cloned()
-            .unwrap_or_default();
-        self.audio
-            .sounds
-            .sync(&v, &self.paths.root, self.audio.mixer.sample_rate);
+            .map_or("", String::as_str);
+        let rate = self.audio.mixer.sample_rate;
+        self.audio.sounds.sync(set, &self.paths.root, rate);
         self.audio.sounds.play(&self.audio.mixer, s);
     }
 
