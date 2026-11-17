@@ -378,22 +378,35 @@ thread_local! {
 /// Hold the Web Lock `vibebms-library` shared while the library is read
 /// (`false`: let go of it), so BMSeeker writes nothing meanwhile.
 pub fn hold_library(on: bool) {
-    let held = HELD.with(|h| h.borrow_mut().take());
-    if let Some(release) = held {
+    if let Some(release) = HELD.with(|h| h.borrow_mut().take()) {
         let _ = release.call0(&JsValue::NULL);
     }
     if on {
-        let take = js_sys::Function::new_no_args(
-            "if (!navigator.locks) return () => {};\n\
-             let release;\n\
-             const held = new Promise((r) => (release = r));\n\
-             navigator.locks.request('vibebms-library', { mode: 'shared' }, () => held);\n\
-             return () => release();",
-        );
-        if let Ok(release) = take.call0(&JsValue::NULL) {
-            HELD.with(|h| *h.borrow_mut() = release.dyn_into().ok());
-        }
+        let release = ask_library_lock();
+        HELD.with(|h| *h.borrow_mut() = release);
     }
+}
+
+/// `navigator.locks.request("vibebms-library", {mode: "shared"}, cb)`,
+/// `cb`'s promise settled by the function this gives (None: no Locks API).
+fn ask_library_lock() -> Option<js_sys::Function> {
+    let nav = web_sys::window()?.navigator();
+    let locks = js_sys::Reflect::get(&nav, &"locks".into())
+        .ok()
+        .filter(|l| !l.is_undefined() && !l.is_null())?;
+    let request: js_sys::Function = js_sys::Reflect::get(&locks, &"request".into())
+        .ok()?
+        .dyn_into()
+        .ok()?;
+    let opts = js_sys::Object::new();
+    js_sys::Reflect::set(&opts, &"mode".into(), &"shared".into()).ok()?;
+    let mut release = None;
+    let held = js_sys::Promise::new(&mut |resolve, _| release = Some(resolve));
+    let cb = Closure::once_into_js(move |_lock: JsValue| -> JsValue { held.into() });
+    request
+        .call3(&locks, &"vibebms-library".into(), &opts, &cb)
+        .ok()?;
+    release
 }
 
 fn list_all(
