@@ -10,35 +10,26 @@ use crate::mode::RuleFamily;
 use crate::score::ClearType;
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
-)]
-pub enum GaugeType {
-    AssistEasy = 0,
-    Easy = 1,
-    #[default]
-    Normal = 2,
-    Hard = 3,
-    ExHard = 4,
-    Hazard = 5,
-    /// Dan (段位) gauges.
-    Class = 6,
-    ExClass = 7,
-    ExHardClass = 8,
+crate::choices! {
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+    )]
+    pub enum GaugeType {
+        AssistEasy = 0 => "ASSIST EASY",
+        Easy = 1 => "EASY",
+        #[default]
+        Normal = 2 => "NORMAL",
+        Hard = 3 => "HARD",
+        ExHard = 4 => "EX-HARD",
+        Hazard = 5 => "HAZARD",
+        /// Dan (段位) gauges.
+        Class = 6 => "CLASS",
+        ExClass = 7 => "EX-CLASS",
+        ExHardClass = 8 => "EXHARD-CLASS",
+    }
 }
 
 impl GaugeType {
-    pub const ALL: [GaugeType; 9] = [
-        GaugeType::AssistEasy,
-        GaugeType::Easy,
-        GaugeType::Normal,
-        GaugeType::Hard,
-        GaugeType::ExHard,
-        GaugeType::Hazard,
-        GaugeType::Class,
-        GaugeType::ExClass,
-        GaugeType::ExHardClass,
-    ];
     /// Gauges selectable for normal play.
     pub const SELECTABLE: [GaugeType; 6] = [
         GaugeType::AssistEasy,
@@ -48,20 +39,6 @@ impl GaugeType {
         GaugeType::ExHard,
         GaugeType::Hazard,
     ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            GaugeType::AssistEasy => "ASSIST EASY",
-            GaugeType::Easy => "EASY",
-            GaugeType::Normal => "NORMAL",
-            GaugeType::Hard => "HARD",
-            GaugeType::ExHard => "EX-HARD",
-            GaugeType::Hazard => "HAZARD",
-            GaugeType::Class => "CLASS",
-            GaugeType::ExClass => "EX-CLASS",
-            GaugeType::ExHardClass => "EXHARD-CLASS",
-        }
-    }
 
     pub fn is_survival(self) -> bool {
         !matches!(
@@ -99,58 +76,32 @@ impl GaugeType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum GaugePreset {
-    /// beatoraja gauges for the chart's key mode.
-    #[default]
-    Beatoraja,
-    /// beatoraja's LR2-compatible gauge set.
-    Lr2,
-    /// IIDX-like gauges (approximation).
-    Iidx,
-}
-
-impl GaugePreset {
-    pub const ALL: [GaugePreset; 3] = [GaugePreset::Beatoraja, GaugePreset::Lr2, GaugePreset::Iidx];
-    pub fn label(self) -> &'static str {
-        match self {
-            GaugePreset::Beatoraja => "beatoraja",
-            GaugePreset::Lr2 => "LR2",
-            GaugePreset::Iidx => "IIDX",
-        }
+crate::choices! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum GaugePreset {
+        /// beatoraja gauges for the chart's key mode.
+        #[default]
+        Beatoraja => "beatoraja",
+        /// beatoraja's LR2-compatible gauge set.
+        Lr2 => "LR2",
+        /// IIDX-like gauges (approximation).
+        Iidx => "IIDX",
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum GaugeAutoShift {
-    #[default]
-    None,
-    /// Keep playing after the gauge empties (result is FAILED).
-    Continue,
-    /// HARD/EX-HARD drop to NORMAL when emptied.
-    SurvivalToGroove,
-    /// Start at EX-HARD and step down, keeping the best clear.
-    BestClear,
-    /// Start at the selected gauge and step down.
-    SelectToUnder,
-}
-
-impl GaugeAutoShift {
-    pub const ALL: [GaugeAutoShift; 5] = [
-        GaugeAutoShift::None,
-        GaugeAutoShift::Continue,
-        GaugeAutoShift::SurvivalToGroove,
-        GaugeAutoShift::BestClear,
-        GaugeAutoShift::SelectToUnder,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            GaugeAutoShift::None => "OFF",
-            GaugeAutoShift::Continue => "CONTINUE",
-            GaugeAutoShift::SurvivalToGroove => "HARD→GROOVE",
-            GaugeAutoShift::BestClear => "BEST CLEAR",
-            GaugeAutoShift::SelectToUnder => "SELECT TO UNDER",
-        }
+crate::choices! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum GaugeAutoShift {
+        #[default]
+        None => "OFF",
+        /// Keep playing after the gauge empties (result is FAILED).
+        Continue => "CONTINUE",
+        /// HARD/EX-HARD drop to NORMAL when emptied.
+        SurvivalToGroove => "HARD→GROOVE",
+        /// Start at EX-HARD and step down, keeping the best clear.
+        BestClear => "BEST CLEAR",
+        /// Start at the selected gauge and step down.
+        SelectToUnder => "SELECT TO UNDER",
     }
 }
 

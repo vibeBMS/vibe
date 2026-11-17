@@ -51,72 +51,45 @@ impl AssistFacts {
     }
 }
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
-)]
-pub enum ClearType {
-    #[default]
-    NoPlay = 0,
-    Failed = 1,
-    AssistEasy = 2,
-    LightAssistEasy = 3,
-    Easy = 4,
-    Normal = 5,
-    Hard = 6,
-    ExHard = 7,
-    FullCombo = 8,
-    Perfect = 9,
-    Max = 10,
+crate::choices! {
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+    )]
+    pub enum ClearType {
+        #[default]
+        NoPlay = 0 => "NO PLAY",
+        Failed = 1 => "FAILED",
+        AssistEasy = 2 => "ASSIST",
+        LightAssistEasy = 3 => "L-ASSIST",
+        Easy = 4 => "EASY",
+        Normal = 5 => "CLEAR",
+        Hard = 6 => "HARD",
+        ExHard = 7 => "EX-HARD",
+        FullCombo = 8 => "FULL COMBO",
+        Perfect = 9 => "PERFECT",
+        Max = 10 => "MAX",
+    }
 }
 
 impl ClearType {
-    pub fn label(self) -> &'static str {
-        match self {
-            ClearType::NoPlay => "NO PLAY",
-            ClearType::Failed => "FAILED",
-            ClearType::AssistEasy => "ASSIST",
-            ClearType::LightAssistEasy => "L-ASSIST",
-            ClearType::Easy => "EASY",
-            ClearType::Normal => "CLEAR",
-            ClearType::Hard => "HARD",
-            ClearType::ExHard => "EX-HARD",
-            ClearType::FullCombo => "FULL COMBO",
-            ClearType::Perfect => "PERFECT",
-            ClearType::Max => "MAX",
-        }
-    }
-
+    /// The lamp of id `id` (its discriminant), clamped to the known ones.
     pub fn from_id(id: i64) -> ClearType {
-        use ClearType::*;
-        [
-            NoPlay,
-            Failed,
-            AssistEasy,
-            LightAssistEasy,
-            Easy,
-            Normal,
-            Hard,
-            ExHard,
-            FullCombo,
-            Perfect,
-            Max,
-        ]
-        .get(id.clamp(0, 10) as usize)
-        .copied()
-        .unwrap_or(NoPlay)
+        ClearType::ALL[id.clamp(0, ClearType::ALL.len() as i64 - 1) as usize]
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub enum DjLevel {
-    F,
-    E,
-    D,
-    C,
-    B,
-    A,
-    AA,
-    AAA,
+crate::choices! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+    pub enum DjLevel {
+        F => "F",
+        E => "E",
+        D => "D",
+        C => "C",
+        B => "B",
+        A => "A",
+        AA => "AA",
+        AAA => "AAA",
+    }
 }
 
 impl DjLevel {
@@ -136,19 +109,6 @@ impl DjLevel {
             _ if r >= m * 3 => DjLevel::D,
             _ if r >= m * 2 => DjLevel::E,
             _ => DjLevel::F,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            DjLevel::F => "F",
-            DjLevel::E => "E",
-            DjLevel::D => "D",
-            DjLevel::C => "C",
-            DjLevel::B => "B",
-            DjLevel::A => "A",
-            DjLevel::AA => "AA",
-            DjLevel::AAA => "AAA",
         }
     }
 }

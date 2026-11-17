@@ -26,22 +26,13 @@ pub const POOR: usize = 4;
 /// Empty poor / 空POOR (pressed with no note in range).
 pub const MISS: usize = 5;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum JudgePreset {
-    #[default]
-    Beatoraja,
-    Lr2,
-    Iidx,
-}
-
-impl JudgePreset {
-    pub const ALL: [JudgePreset; 3] = [JudgePreset::Beatoraja, JudgePreset::Lr2, JudgePreset::Iidx];
-    pub fn label(self) -> &'static str {
-        match self {
-            JudgePreset::Beatoraja => "beatoraja",
-            JudgePreset::Lr2 => "LR2",
-            JudgePreset::Iidx => "IIDX",
-        }
+crate::choices! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum JudgePreset {
+        #[default]
+        Beatoraja => "beatoraja",
+        Lr2 => "LR2",
+        Iidx => "IIDX",
     }
 }
 
