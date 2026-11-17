@@ -107,8 +107,9 @@ pub trait Hooks {
     fn ref_image(&self, id: i32) -> Option<TexId> {
         None
     }
-    /// (value, border, survival, gauge type in beatoraja order).
-    fn gauge(&self) -> (f32, f32, bool, usize) {
+    /// A side's gauge: (value, border, survival, gauge type in beatoraja
+    /// order).
+    fn gauge(&self, side: usize) -> (f32, f32, bool, usize) {
         (0.0, 80.0, false, 2)
     }
     /// Current judgement for a side: (judge 0..5, combo).
@@ -818,9 +819,10 @@ impl LoadedSkin {
                     step,
                     parts,
                     split,
+                    side,
                     ..
                 } => {
-                    let (value, border, survival, ty) = hooks.gauge();
+                    let (value, border, survival, ty) = hooks.gauge(*side);
                     let n = *parts as f32;
                     let per = 100.0 / n;
                     // as beatoraja: whole cells, at least one while alive,

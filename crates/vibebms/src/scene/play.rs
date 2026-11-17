@@ -253,6 +253,25 @@ pub(crate) struct SideState {
     pub role: Role,
     /// The gauge every 500 ms (the result's graph).
     pub gauge_log: Vec<f32>,
+    /// When its gauge last rose (skin timers 42 / 43), and its value then.
+    pub gauge_up: Option<Instant>,
+    pub last_gauge: f32,
+    /// When its last note was judged (timers 143 / 144).
+    pub finished: Option<Instant>,
+}
+
+impl SideState {
+    fn new(engine: Engine, role: Role) -> SideState {
+        let last_gauge = engine.gauge.value();
+        SideState {
+            engine,
+            role,
+            gauge_log: Vec::new(),
+            gauge_up: None,
+            last_gauge,
+            finished: None,
+        }
+    }
 }
 
 impl SideState {
@@ -800,25 +819,20 @@ impl PlayScene {
             Some(r) => Role::Replay(Feed::new(r, 0)),
             None => Role::Player,
         };
-        self.sides = vec![SideState {
-            engine,
-            role,
-            gauge_log: Vec::new(),
-        }];
+        self.sides = vec![SideState::new(engine, role)];
         // the opponent: its replay's own rules on the second side
         if let Some(g) = &ghost {
             let mut r = Rules::of(&g.play);
             r.autoplay = false;
             let (engine, _) = make_engine(&chart, &r, Some(1));
             let lpp = self.input_mode.lanes_per_player() as u8;
-            self.sides.push(SideState {
+            self.sides.push(SideState::new(
                 engine,
-                role: Role::Ghost {
+                Role::Ghost {
                     feed: Feed::new(g.clone(), lpp),
                     desync: false,
                 },
-                gauge_log: Vec::new(),
-            });
+            ));
         }
         // each lane's notes in its judge
         let mut lane_notes = vec![Vec::new(); lanes];
@@ -1327,6 +1341,16 @@ impl PlayScene {
         })
     }
 
+    /// A battle's second side (G-BATTLE's opponent, VS's 2P).
+    pub(crate) fn opponent(&self) -> Option<&SideState> {
+        self.sides.get(1)
+    }
+
+    /// A side for skin values: 2P is the opponent, else the one judge.
+    pub(crate) fn side(&self, side: usize) -> Option<&SideState> {
+        self.sides.get(side).or(self.sides.first())
+    }
+
     /// G-BATTLE's opponent went out of step with its replay.
     pub(crate) fn ghost_desync(&self) -> bool {
         self.sides
@@ -1528,7 +1552,16 @@ impl Scene for PlayScene {
             if sample {
                 side.gauge_log.push(engine.gauge.value());
             }
-            finished &= ghost || engine.is_finished(t - offset);
+            let g = engine.gauge.value();
+            if g > side.last_gauge {
+                side.gauge_up = Some(now);
+            }
+            side.last_gauge = g;
+            let done = engine.is_finished(t - offset);
+            if done && side.finished.is_none() {
+                side.finished = Some(now);
+            }
+            finished &= ghost || done;
         }
         if sample {
             // every 500 ms of play time, like beatoraja

@@ -461,7 +461,14 @@ impl Scene for ResultScene {
         };
         self.clicks = clicks;
         // a battle's outcome (skins without a second side show it so)
-        if let (Some(p2), Some(o)) = (&self.d.p2, self.d.outcome()) {
+        let shown = self.skin.as_ref().is_some_and(|s| {
+            s.skin.objects.iter().any(|o| {
+                o.dst
+                    .ops
+                    .contains(&crate::scene::result_skin::OPTION_BATTLE)
+            })
+        });
+        if let (Some(p2), Some(o), false) = (&self.d.p2, self.d.outcome(), shown) {
             let ui = ctx.ui();
             let what = if p2.desync {
                 format!("{} (out of step)", p2.name)

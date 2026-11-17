@@ -177,6 +177,17 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported. Text outline and shadow are
   drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the text in half its colour
   at the offset), distance-field `.fnt` fonts (font `type` 1 / 2) the outline, shadow colour and softness too.
+- **Battle skins** (types 12 / 13, "7KEYS BATTLE" / "5KEYS BATTLE" in `SETTINGS › DISPLAY`; a 14 / 10 key skin
+  can be chosen there too): drawn when both sides of a battle are shown (G-BATTLE, VS). The built-in ones have a
+  gauge per side and the opponent as the target. LR2 `#SRC_GROOVEGAUGE` with 1 in its first field (vibeBMS JSON:
+  a gauge destination's `"side": 1`) is the second side's gauge. When there is an opponent: numbers 120-136 are
+  its values as LR2's 2P (score, EX, rate, combo, max combo, notes, gauge, next rank, PG..POOR, total rate),
+  108 is 1P minus 2P and 121 / 151 / 128 / 153 / bar graphs 114 / 115 its EX score as the target; timers 43 / 45
+  / 49 / 144 its gauge rising, full, full combo and last note (42 / 143 the first side's); options 44 / 45 its
+  groove / survival gauge, 56 / 57 its AUTO SCRATCH, 210-217 its DJ level, 352 / 353 / 354 the first side
+  winning / losing / level. A skin's 2P judge region shows the opponent's judgements; a single play skin shown
+  over a battle (a phone held upright) never does. Results: numbers 120-136 and options 352-354 likewise,
+  vibeBMS option 9350 "a battle", text 9351 the opponent's name, numbers 9376 / 9370 its miss count and lamp.
 - Player totals for skins (numbers 17-19, 30-37, 333): plays and clears are summed over the charts' records;
   judgements and time played are counted after every recorded play (not autoplay or replays). Judgements from
   before vibeBMS kept them count each chart's best play only; time played starts at zero.

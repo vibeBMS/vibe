@@ -27,12 +27,14 @@ use std::collections::HashMap;
 use winit::keyboard::KeyCode;
 
 /// The skin types offered, in the order PgUp / PgDn walk them.
-pub const TYPES: [SkinType; 12] = [
+pub const TYPES: [SkinType; 14] = [
     SkinType::Play7,
     SkinType::Play5,
     SkinType::Play14,
     SkinType::Play10,
     SkinType::Play9,
+    SkinType::Battle7,
+    SkinType::Battle5,
     SkinType::Select,
     SkinType::Decide,
     SkinType::Result,

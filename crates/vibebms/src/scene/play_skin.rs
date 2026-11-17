@@ -65,6 +65,24 @@ pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool, touch: bool) -> Pa
         .join(name + ".json")
 }
 
+/// The built-in battle skin (both sides' gauges and scores) for a double
+/// play mode.
+pub fn battle_skin(mode: PlayMode, touch: bool) -> PathBuf {
+    let name = format!(
+        "play{}_battle{}.json",
+        mode.keys_per_player() * 2,
+        if touch { "_touch" } else { "" }
+    );
+    PathBuf::from(crate::platform::vfs::BUILTIN)
+        .join("skins/default")
+        .join(name)
+}
+
+/// The battle skin type of a double play mode.
+pub fn battle_type(mode: PlayMode) -> Option<SkinType> {
+    skin_type(mode).battle_pair()
+}
+
 /// `config.skins` value of the built-in touch perspective skin.
 pub const PERSPECTIVE: &str = "builtin:perspective";
 
@@ -126,21 +144,32 @@ pub fn aspect(ctx: &Ctx, mode: PlayMode) -> f32 {
 /// built-in default when it is missing, broken or of another type.
 pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<LoadedSkin> {
     let mode = scene.skin_mode;
-    let default = default_skin(
-        mode,
-        ctx.config.play.side == crate::config::Side::P2,
-        ctx.height > ctx.width,
-        ctx.touch_enabled(),
-    );
+    // a battle with both sides shown: the battle skin slot (types 12 / 13,
+    // double play skins too), else the built-in battle skin
+    let battle = scene.opponent().is_some() && mode.is_double();
+    let kind = match battle {
+        true => battle_type(mode).unwrap_or(skin_type(mode)),
+        false => skin_type(mode),
+    };
+    let default = if battle {
+        battle_skin(mode, ctx.touch_enabled())
+    } else {
+        default_skin(
+            mode,
+            ctx.config.play.side == crate::config::Side::P2,
+            ctx.height > ctx.width,
+            ctx.touch_enabled(),
+        )
+    };
     let value = ctx
         .config
         .skins
-        .get(mode.label())
+        .get(kind.key().unwrap_or(mode.label()))
         .cloned()
         .unwrap_or_default();
     // (a battle's sides play on a flat skin)
-    let battle = scene.input_mode != scene.mode;
-    let configured = if value == PERSPECTIVE && battle {
+    let flat = scene.input_mode != scene.mode;
+    let configured = if value == PERSPECTIVE && flat {
         None
     } else if value == PERSPECTIVE {
         Some(perspective_skin(mode, ctx.portrait()))
@@ -162,7 +191,9 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
             Some(&st),
             &crate::skin::image_size,
         ) {
-            Ok(mut skin) if skin.kind == skin_type(mode) => {
+            Ok(mut skin)
+                if skin.kind == kind || (battle && skin.kind.battle_pair() == Some(kind)) =>
+            {
                 // perspective skins fill the screen: widened or made taller
                 if skin.perspective {
                     let aspect = ctx.width / ctx.height.max(1.0);
@@ -248,13 +279,40 @@ impl SceneState<'_> {
 
     /// EX score minus the next DJ level's border at the notes judged so far.
     fn diff_next_rank(&self) -> Option<i64> {
-        let sc = &self.engine()?.score;
-        let max = sc.passed as i64 * 2;
-        let ex = sc.ex_score() as i64;
-        (2..=9)
-            .map(|k| (max * k + 8) / 9)
-            .find(|t| *t > ex)
-            .map(|t| ex - t)
+        diff_next_rank(&self.engine()?.score)
+    }
+
+    /// A battle's opponent (the second side's judge).
+    fn opp(&self) -> Option<&vibebms_core::engine::Engine> {
+        self.s.opponent().map(|o| &o.engine)
+    }
+
+    /// The second side's values (LR2 2P numbers) when there is one.
+    fn opponent_number(&self, id: i32) -> Option<i64> {
+        let o = self.opp()?;
+        let sc = &o.score;
+        let rate = |r: f64| (r * 10000.0).round() as i64;
+        let ex = self.s.opponent_ex()?;
+        Some(match id {
+            // 1P - 2P
+            108 => self.engine()?.score.ex_score() as i64 - ex,
+            120 => lr2_score(sc),
+            122 => rate(sc.current_rate()) / 100,
+            123 => rate(sc.current_rate()) % 100,
+            124 => o.combo() as i64,
+            125 => sc.max_combo as i64,
+            126 => sc.total_notes as i64,
+            127 => o.gauge.value() as i64,
+            129 => diff_next_rank(sc)?,
+            130 => sc.count(PGREAT) as i64,
+            131 => sc.count(GREAT) as i64,
+            132 => sc.count(GOOD) as i64,
+            133 => sc.count(BAD) as i64,
+            134 => (sc.count(POOR) + sc.count(MISS)) as i64,
+            135 => rate(ex as f64 / sc.max_ex().max(1) as f64) / 100,
+            136 => rate(ex as f64 / sc.max_ex().max(1) as f64) % 100,
+            _ => return None,
+        })
     }
 
     fn ms(&self, t: Instant) -> i64 {
@@ -412,12 +470,27 @@ impl SkinState for SceneState<'_> {
                 .engine()
                 .filter(|e| e.gauge.current().is_max())
                 .map(|_| 0),
+            // a battle's second side: its gauge full, its notes ended (with a
+            // full combo)
+            45 => s
+                .opponent()
+                .filter(|o| o.engine.gauge.current().is_max())
+                .map(|_| 0),
+            // a side's gauge rose
+            42 => s.sides.first()?.gauge_up.map(|t| self.ms(t)),
+            43 => s.opponent()?.gauge_up.map(|t| self.ms(t)),
             143 => s.finished_instant.map(|t| self.ms(t)),
+            144 => s.opponent()?.finished.map(|t| self.ms(t)),
             // the last note judged with no combo broken
             48 => {
-                let sc = &self.engine()?.score;
-                let full = sc.combo_breaks == 0 && (3..=5).all(|j| sc.count(j) == 0);
+                let full = full_combo(&self.engine()?.score);
                 s.finished_instant.filter(|_| full).map(|t| self.ms(t))
+            }
+            49 => {
+                let o = s.opponent()?;
+                o.finished
+                    .filter(|_| full_combo(&o.engine.score))
+                    .map(|t| self.ms(t))
             }
             50..=69 => lane_t(50, &s.bomb_at),
             70..=89 => {
@@ -514,6 +587,36 @@ impl SkinState for SceneState<'_> {
                 270 => self.s.panel_open(),
                 // a judgement of the kind has happened
                 2241..=2246 => sc.count((abs - 2241) as usize) > 0,
+                // the second side's gauge (groove / survival), AUTO
+                // SCRATCH and DJ level; the first side winning, losing,
+                // level with the second
+                44 | 45 => {
+                    let g = self.s.side(1).map(|o| o.engine.gauge.current_type());
+                    g.is_some_and(|g| g.is_survival() == (abs == 45))
+                }
+                56 | 57 => {
+                    let o = self.s.side(1).map(|o| &o.engine);
+                    o.is_some_and(|o| {
+                        let lane = self.s.mode().scratch_lane(1).unwrap_or(0);
+                        o.is_auto(lane) == (abs == 57)
+                    })
+                }
+                210..=217 => self.opp().is_some_and(|o| {
+                    let sc = &o.score;
+                    vibebms_core::score::DjLevel::from_rate(sc.ex_score(), sc.passed * 2) as i32
+                        == 7 - (abs - 210)
+                }),
+                352..=354 => match self.s.opponent_ex() {
+                    Some(theirs) => {
+                        let mine = sc.ex_score() as i64;
+                        match abs {
+                            352 => mine > theirs,
+                            353 => mine < theirs,
+                            _ => mine == theirs,
+                        }
+                    }
+                    None => false,
+                },
                 241..=246 => lj.map(|j| j.0 == (abs - 241) as usize).unwrap_or(false),
                 1242 => lj.map(|j| j.1 > 0).unwrap_or(false),
                 1243 => lj.map(|j| j.1 < 0).unwrap_or(false),
@@ -528,6 +631,9 @@ impl SkinState for SceneState<'_> {
             return Some(v);
         }
         if let Some(v) = super::skinned::player_number(self.ctx, id) {
+            return Some(v);
+        }
+        if let Some(v) = self.opponent_number(id) {
             return Some(v);
         }
         let s = self.s;
@@ -564,15 +670,7 @@ impl SkinState for SceneState<'_> {
             91 => m.min_bpm.round() as i64,
             92 => m.main_bpm.round() as i64,
             96 => m.level.trim().parse::<f64>().ok()? as i64,
-            100 => {
-                let sc = sc?;
-                let n = sc.total_notes.max(1) as i64;
-                (sc.count(PGREAT) as i64 * 150_000
-                    + sc.count(GREAT) as i64 * 100_000
-                    + sc.count(GOOD) as i64 * 20_000)
-                    / n
-                    + sc.max_combo as i64 * 50_000 / n
-            }
+            100 => lr2_score(sc?),
             102 => rate(sc?.current_rate()) / 100,
             103 => rate(sc?.current_rate()) % 100,
             104 => e?.combo() as i64,
@@ -730,6 +828,31 @@ impl SkinState for SceneState<'_> {
             _ => 0.0,
         }
     }
+}
+
+/// LR2's score (200,000 for all PGREAT and the full combo).
+fn lr2_score(sc: &vibebms_core::score::Score) -> i64 {
+    let n = sc.total_notes.max(1) as i64;
+    (sc.count(PGREAT) as i64 * 150_000
+        + sc.count(GREAT) as i64 * 100_000
+        + sc.count(GOOD) as i64 * 20_000)
+        / n
+        + sc.max_combo as i64 * 50_000 / n
+}
+
+/// EX score minus the next DJ level's border at the notes judged so far.
+fn diff_next_rank(sc: &vibebms_core::score::Score) -> Option<i64> {
+    let max = sc.passed as i64 * 2;
+    let ex = sc.ex_score() as i64;
+    (2..=9)
+        .map(|k| (max * k + 8) / 9)
+        .find(|t| *t > ex)
+        .map(|t| ex - t)
+}
+
+/// Whether a full combo stands (no BAD or worse, no combo broken).
+fn full_combo(sc: &vibebms_core::score::Score) -> bool {
+    sc.combo_breaks == 0 && (3..=5).all(|j| sc.count(j) == 0)
 }
 
 /// Slider / graph value of the hi-speed position (vibeBMS).
@@ -1134,8 +1257,8 @@ impl Hooks for SceneHooks<'_> {
         }
     }
 
-    fn gauge(&self) -> (f32, f32, bool, usize) {
-        match self.st.s.engine() {
+    fn gauge(&self, side: usize) -> (f32, f32, bool, usize) {
+        match self.st.s.side(side).map(|s| &s.engine) {
             Some(e) => {
                 let g = e.gauge.current();
                 (g.value(), g.elem.border, g.ty.is_survival(), g.ty as usize)

@@ -1325,6 +1325,7 @@ pub fn load_with(
                     step: (0.0, 0.0),
                     parts,
                     split: true,
+                    side: i(d, "side", 0).clamp(0, 1) as usize,
                 }
             })
         } else if let Some(c) = cx
@@ -1766,6 +1767,36 @@ mod tests {
                 if mode.is_double() {
                     assert!(sk.judges[1].judge.iter().all(Option::is_some));
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_battle_skins_load() {
+        use crate::scene::play_skin::battle_skin;
+        use vibebms_core::PlayMode;
+        for (mode, kind) in [
+            (PlayMode::Beat14K, SkinType::Battle7),
+            (PlayMode::Beat10K, SkinType::Battle5),
+        ] {
+            for touch in [false, true] {
+                let path = battle_skin(mode, touch);
+                let sk = load(&path, &HashMap::new(), &crate::skin::image_size)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                assert_eq!(sk.kind, kind);
+                assert_eq!(sk.kind.battle_pair().and_then(|t| t.mode()), Some(mode));
+                assert_eq!(sk.lanes.len(), mode.lane_count());
+                // a gauge for each side, a judge region for each
+                let sides: Vec<usize> = sk
+                    .objects
+                    .iter()
+                    .filter_map(|o| match o.kind {
+                        Kind::Gauge { side, .. } => Some(side),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(sides, vec![0, 1], "{}", path.display());
+                assert!(sk.judges[1].judge.iter().all(Option::is_some));
             }
         }
     }

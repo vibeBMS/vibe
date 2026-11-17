@@ -231,12 +231,14 @@ fn kept_songs(ctx: &Ctx, v: &mut Vec<Item>) {
 }
 
 /// `config.skins` keys, in menu order.
-const SKIN_KEYS: [&str; 12] = [
+const SKIN_KEYS: [&str; 14] = [
     "7KEYS",
     "5KEYS",
     "14KEYS",
     "10KEYS",
     "9KEYS",
+    "7KEYS BATTLE",
+    "5KEYS BATTLE",
     "SELECT",
     "DECIDE",
     "RESULT",
@@ -789,12 +791,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ];
             // built-in default skin / skins in <root>/skins
             type Adjust = fn(&mut Ctx, i32);
-            const MODES: [(&str, Adjust); 12] = [
+            const MODES: [(&str, Adjust); 14] = [
                 ("7KEYS", |c, d| cycle_skin(c, d, "7KEYS")),
                 ("5KEYS", |c, d| cycle_skin(c, d, "5KEYS")),
                 ("14KEYS", |c, d| cycle_skin(c, d, "14KEYS")),
                 ("10KEYS", |c, d| cycle_skin(c, d, "10KEYS")),
                 ("9KEYS", |c, d| cycle_skin(c, d, "9KEYS")),
+                ("7KEYS BATTLE", |c, d| cycle_skin(c, d, "7KEYS BATTLE")),
+                ("5KEYS BATTLE", |c, d| cycle_skin(c, d, "5KEYS BATTLE")),
                 ("SELECT", |c, d| cycle_skin(c, d, "SELECT")),
                 ("DECIDE", |c, d| cycle_skin(c, d, "DECIDE")),
                 ("RESULT", |c, d| cycle_skin(c, d, "RESULT")),
@@ -808,7 +812,7 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     "" => "DEFAULT".into(),
                     p => skin_label(ctx, p),
                 };
-                let label = if m.ends_with("KEYS") {
+                let label = if m.contains("KEYS") {
                     format!("Play skin ({m})")
                 } else if m == "SOUND_SET" {
                     "Sound set".into()
@@ -2035,6 +2039,8 @@ fn skin_type_of(key: &str) -> Option<crate::skin::SkinType> {
         Play14,
         Play10,
         Play9,
+        Battle7,
+        Battle5,
         Select,
         Decide,
         Result,
