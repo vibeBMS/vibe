@@ -3,6 +3,7 @@
 //! web through the vibeBMS proxy, unpacked / placed in memory. A link that
 //! leads to a page instead opens it in the browser.
 
+use crate::app::AppEvent;
 use crate::library::Song;
 use bmseeker::progress::{Progress, Stage};
 use std::path::Path;
@@ -181,25 +182,69 @@ impl SongFetch {
         true
     }
 
-    /// The songs that finished since the last call (their titles), with
-    /// what became of their links.
-    pub fn poll(&mut self) -> Vec<(String, Vec<Done>)> {
+    /// What the songs that finished since the last call brought.
+    pub fn poll(&mut self) -> Vec<AppEvent> {
         let done: Vec<(SongId, Vec<Done>)> = self
             .rx
             .as_ref()
             .map(|rx| rx.try_iter().collect())
             .unwrap_or_default();
-        for (id, d) in &done {
-            if let Some(i) = self.busy.iter().position(|(b, _)| b == id) {
+        let mut out = Vec::new();
+        for (id, d) in done {
+            if let Some(i) = self.busy.iter().position(|(b, _)| *b == id) {
                 let (id, p) = self.busy.remove(i);
                 // in the library: until it is read again
-                if bmseeker::install::got(d) {
+                if bmseeker::install::got(&d) {
                     p.set_stage(Stage::Adding);
                     self.adding.push((id, p));
                 }
             }
+            out.extend(d.into_iter().flat_map(|d| events(&id.title, d)));
         }
-        done.into_iter().map(|(id, d)| (id.title, d)).collect()
+        out
+    }
+}
+
+/// What to tell of a link of the song `title`, and do.
+fn events(title: &str, d: Done) -> Vec<AppEvent> {
+    let name = |p: &Path| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let toast = |s: String| vec![AppEvent::Toast(s)];
+    match d {
+        Done::Added(dir, n) => vec![
+            AppEvent::Toast(format!("Added {} ({n} files)", name(&dir))),
+            AppEvent::Rescan,
+        ],
+        // (files its folder lacked may have come in)
+        Done::Owned(dir) => vec![
+            AppEvent::Toast(format!("{title}: already installed ({})", name(&dir))),
+            AppEvent::Rescan,
+        ],
+        Done::Placed(p) => {
+            let dir = p.parent().map(name).unwrap_or_default();
+            vec![
+                AppEvent::Toast(format!("{} → {dir}", name(&p))),
+                AppEvent::Rescan,
+            ]
+        }
+        Done::Waiting(p) => toast(format!("{}: download its song too", name(&p))),
+        Done::Page(url) => vec![
+            AppEvent::Toast(format!("{title}: no direct download, opening its page")),
+            AppEvent::Browse(url),
+        ],
+        // (cancelled: said when it was)
+        Done::Failed(e) if e.cancelled() => Vec::new(),
+        Done::Failed(Failure::NoChartLink) => toast(format!(
+            "{title}: the song is in the library, but none of this chart's links works"
+        )),
+        Done::Failed(e) => toast(format!("{title}: download failed ({e})")),
+        other => {
+            log::warn!("{title}: {other:?}");
+            Vec::new()
+        }
     }
 }
 

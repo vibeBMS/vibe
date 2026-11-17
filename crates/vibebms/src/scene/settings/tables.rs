@@ -8,7 +8,7 @@ fn toggle(c: &mut Ctx, i: usize) {
         t.enabled ^= true;
     }
     c.load_cached_tables();
-    c.refresh_tables(false);
+    c.tables.refresh(&c.config.tables, false);
 }
 
 fn remove(c: &mut Ctx, i: usize) {
@@ -29,7 +29,7 @@ fn restore_defaults(c: &mut Ctx, _: usize) {
         }
     }
     c.load_cached_tables();
-    c.refresh_tables(false);
+    c.tables.refresh(&c.config.tables, false);
 }
 
 pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
@@ -60,7 +60,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         Row::new(
             "Update all tables",
             "↻",
-            Act::Run(|c, _| c.refresh_tables(true), 0),
+            Act::Run(|c, _| c.tables.refresh(&c.config.tables, true), 0),
         ),
         Row::adjust(
             "Third-party sources (mirrors, Ginger / Konmai MD5 lookups)",

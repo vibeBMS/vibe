@@ -12,6 +12,7 @@
 //! archive of a whole `LR2files` keeps its themes' names). A beatoraja
 //! skin's paths are its own: it goes to `skins/<folder>/` too.
 
+use crate::app::AppEvent;
 use crate::archive::{safe_name, Fail};
 use crate::platform::Job;
 use bmseeker::progress::Progress;
@@ -182,16 +183,6 @@ pub struct SkinStore {
     busy: Vec<(String, Installing)>,
 }
 
-/// What [`SkinStore::poll`] reports.
-#[derive(Default)]
-pub struct Polled {
-    pub toasts: Vec<String>,
-    /// Skins were added or replaced.
-    pub changed: bool,
-    /// Pages to open (a link that is not a file).
-    pub pages: Vec<String>,
-}
-
 fn cache_file(paths: &crate::paths::Paths) -> PathBuf {
     paths.cache.join("skin-catalog.json")
 }
@@ -357,8 +348,8 @@ impl SkinStore {
     }
 
     /// What happened since the last frame.
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Polled {
-        let mut out = Polled::default();
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
+        let mut out = Vec::new();
         if let Some(r) = self.fetching.as_mut().and_then(Job::poll) {
             self.fetching = None;
             match r {
@@ -391,24 +382,28 @@ impl SkinStore {
             let name = e.map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
             match r {
                 Ok(folders) => {
-                    out.toasts.push(format!(
+                    out.push(AppEvent::Toast(format!(
                         "Installed {name} in skins/{}: choose it in DISPLAY",
                         folders.join(", skins/")
-                    ));
+                    )));
                     let version = e.map(|e| e.version.clone()).unwrap_or_default();
                     self.installed.insert(id, Installed { version, folders });
                     self.save_record(paths);
-                    out.changed = true;
+                    out.push(AppEvent::SkinsChanged);
                 }
                 Err(Fail::Page(url)) => {
-                    out.toasts
-                        .push(format!("{name}: no direct download, opening its page"));
-                    out.pages.push(url);
+                    out.push(AppEvent::Toast(format!(
+                        "{name}: no direct download, opening its page"
+                    )));
+                    // (not the in-app browser: what it downloads goes to the library)
+                    out.push(AppEvent::OpenUrl(url));
                 }
                 Err(Fail::Msg(e)) if e == bmseeker::progress::CANCELLED => {
-                    out.toasts.push(format!("{name}: cancelled"))
+                    out.push(AppEvent::Toast(format!("{name}: cancelled")))
                 }
-                Err(Fail::Msg(e)) => out.toasts.push(format!("{name}: download failed ({e})")),
+                Err(Fail::Msg(e)) => {
+                    out.push(AppEvent::Toast(format!("{name}: download failed ({e})")))
+                }
             }
         }
         out

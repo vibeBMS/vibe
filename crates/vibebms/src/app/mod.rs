@@ -2,8 +2,9 @@
 
 mod cli;
 mod ctx;
+mod tables;
 
-pub use ctx::{Ctx, TableMsg};
+pub use ctx::{AppEvent, Ctx};
 
 use crate::config::Config;
 use crate::gfx::text::{Align, Text};
@@ -461,7 +462,7 @@ impl App {
         if !crate::platform::IS_WEB {
             ctx.start_scan();
         }
-        ctx.refresh_tables(false);
+        ctx.tables.refresh(&ctx.config.tables, false);
         ctx.tables.links.start(&ctx.paths.cache);
         ctx.net.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
         ctx.net.archives.refresh(false);

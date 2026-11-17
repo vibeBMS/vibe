@@ -1,11 +1,11 @@
 //! The state every scene shares, and the background work it polls.
 
+use super::tables::Tables;
 use crate::config::{Config, TouchMode};
 use crate::library::{BestScore, Library, ScanProgress, Song};
 use crate::paths::Paths;
-use crate::platform::{Instant, Job};
+use crate::platform::Instant;
 use crate::skin::{CustomOffset, CustomOption};
-use bmseeker::table::DifficultyTable;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -16,9 +16,21 @@ use std::sync::Arc;
 use vibebms_audio::AudioConfig;
 use vibebms_audio::Mixer;
 
-pub enum TableMsg {
-    Loaded(Box<DifficultyTable>),
-    Failed(String, String),
+/// What a background subsystem's `poll` reports, for the app to act on.
+#[derive(Debug, PartialEq)]
+pub enum AppEvent {
+    Toast(String),
+    /// Files came into the library: scan it again.
+    Rescan,
+    /// What the music select lists changed (an event's works, a table).
+    LibraryChanged,
+    /// A download page that needs a person: in the in-app browser where
+    /// there is one (what it downloads goes to the library).
+    Browse(String),
+    /// A page for the system's browser.
+    OpenUrl(String),
+    /// Skins were added or replaced.
+    SkinsChanged,
 }
 
 /// Shared state available to every scene.
@@ -32,10 +44,11 @@ pub struct Ctx {
     /// Downloads and the other network work the player starts.
     pub net: Net,
     pub audio: Audio,
-    pub toasts: Vec<(String, Instant)>,
     /// The window and the screen.
     pub view: View,
     pub input: Input,
+    /// Messages shown for a few seconds, and when each came.
+    pub toasts: Vec<(String, Instant)>,
     /// The skin catalog, and what was read of skin files.
     pub skins: Skins,
 }
@@ -56,17 +69,6 @@ pub struct Lib {
     scan_again: bool,
     /// Web: picked charts being read before the scan.
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
-}
-
-/// The difficulty tables read, and the links that fill theirs.
-#[derive(Default)]
-pub struct Tables {
-    /// In the configuration's order.
-    pub list: Vec<DifficultyTable>,
-    /// Tables being fetched.
-    pub job: Option<Job<TableMsg>>,
-    /// Links for table songs whose own are missing or dead.
-    pub links: crate::links::LinkLists,
 }
 
 /// Downloads, and the self-update.
@@ -163,9 +165,9 @@ impl Ctx {
                 mixer,
                 sounds: Default::default(),
             },
-            toasts: Vec::new(),
             view,
             input: Input::default(),
+            toasts: Vec::new(),
             skins: Skins::default(),
         }
     }
@@ -269,6 +271,14 @@ impl Ctx {
         roots
     }
 
+    /// The app's own folders, which the scan skips.
+    fn internal_dirs(&self) -> HashSet<PathBuf> {
+        crate::paths::INTERNAL_DIRS
+            .iter()
+            .map(|d| self.paths.root.join(d))
+            .collect()
+    }
+
     /// A scan that has ended: its songs into the list (always before another
     /// starts, or the songs it found would be lost: the next one finds no
     /// change). `again`: start the scan asked for meanwhile.
@@ -302,8 +312,7 @@ impl Ctx {
             .lib
             .scan
             .as_ref()
-            .map(|s| !s.done.load(Ordering::Acquire))
-            .unwrap_or(false)
+            .is_some_and(|s| !s.done.load(Ordering::Acquire))
         {
             // it may have passed what just came in: again after it
             self.lib.scan_again = true;
@@ -313,10 +322,7 @@ impl Ctx {
         self.lib.scan = Some(progress.clone());
         let db = self.paths.songs_cache();
         let roots = self.scan_roots();
-        let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
-            .iter()
-            .map(|d| self.paths.root.join(d))
-            .collect();
+        let skip = self.internal_dirs();
         crate::platform::spawn("scan", move || {
             crate::library::scan(db, roots, skip, progress)
         });
@@ -339,131 +345,38 @@ impl Ctx {
         self.lib.version += 1;
     }
 
-    fn table_cache_file(&self, url: &str) -> PathBuf {
-        let h = vibebms_core::bms::md5_hex(url.as_bytes());
-        self.paths.tables.join(format!("{h}.json"))
-    }
-
-    /// The tables' missing or dead links filled from the other links known
-    /// for their charts (the other tables', the Stella uploader's).
-    pub fn fill_links(&mut self) {
-        self.tables.links.rebuild(&self.tables.list);
-        for t in &mut self.tables.list {
-            self.tables.links.known.fill(&mut t.entries);
-        }
+    /// The enabled tables from their caches.
+    pub fn load_cached_tables(&mut self) {
+        self.tables.load_cached(&self.paths, &self.config.tables);
         self.lib.version += 1;
     }
 
-    pub fn load_cached_tables(&mut self) {
-        self.tables.list.clear();
-        for t in self.config.tables.iter().filter(|t| t.enabled) {
-            let f = self.table_cache_file(&t.url);
-            if let Some(dt) = crate::platform::vfs::read(&f)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<DifficultyTable>(&b).ok())
-            {
-                self.tables.list.push(dt);
-            }
-        }
-        self.fill_links();
-    }
-
-    /// Fetch tables in the background. `force` refetches even fresh caches.
-    pub fn refresh_tables(&mut self, force: bool) {
-        if self.tables.job.is_some() {
-            return;
-        }
-        let now = crate::platform::unix_now();
-        let todo: Vec<(String, String)> = self
-            .config
-            .tables
-            .iter()
-            .filter(|t| t.enabled)
-            .filter(|t| {
-                force
-                    || !self.tables.list.iter().any(|dt| {
-                        dt.source_url == t.url && now.saturating_sub(dt.fetched_at) < 86_400
-                    })
-            })
-            .map(|t| (t.name.clone(), t.url.clone()))
-            .collect();
-        if todo.is_empty() {
-            return;
-        }
-        self.tables.job = Some(Job::start(|tx, _| {
-            for (name, url) in todo {
-                let tx = tx.clone();
-                crate::platform::load_table(&url, move |r| {
-                    let _ = tx.send(match r {
-                        Ok(t) => TableMsg::Loaded(Box::new(t)),
-                        Err(e) => TableMsg::Failed(name, e),
-                    });
-                });
-            }
-        }));
-    }
-
+    /// What the background work did since the last frame.
     pub fn poll_jobs(&mut self) {
-        let (toasts, mut rescan, changed, mut pages) = self.net.archives.poll(&self.paths);
-        for t in toasts {
-            self.toast(t);
-        }
-        // difficulty-table songs
-        for (title, done) in self.net.song_fetch.poll() {
-            use crate::songfetch::Done;
-            for d in done {
-                let name = |p: &std::path::Path| {
-                    p.file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                };
-                match d {
-                    Done::Added(dir, n) => {
-                        self.toast(format!("Added {} ({n} files)", name(&dir)));
-                        rescan = true;
-                    }
-                    // (files its folder lacked may have come in)
-                    Done::Owned(dir) => {
-                        self.toast(format!("{title}: already installed ({})", name(&dir)));
-                        rescan = true;
-                    }
-                    Done::Placed(p) => {
-                        let dir = p.parent().map(name).unwrap_or_default();
-                        self.toast(format!("{} → {dir}", name(&p)));
-                        rescan = true;
-                    }
-                    Done::Waiting(p) => self.toast(format!("{}: download its song too", name(&p))),
-                    Done::Page(url) => {
-                        self.toast(format!("{title}: no direct download, opening its page"));
-                        pages.push(url);
-                    }
-                    // (cancelled: said when it was)
-                    Done::Failed(e) if e.cancelled() => {}
-                    Done::Failed(crate::songfetch::Failure::NoChartLink) => self.toast(format!(
-                        "{title}: the song is in the library, but none of this chart's links works"
-                    )),
-                    Done::Failed(e) => self.toast(format!("{title}: download failed ({e})")),
-                    other => log::warn!("{title}: {other:?}"),
+        let mut events = self.net.archives.poll(&self.paths);
+        events.extend(self.net.song_fetch.poll());
+        events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
+        events.extend(self.skins.store.poll(&self.paths));
+        self.handle(events);
+        self.poll_scan();
+        let events = self.tables.poll(&self.paths, &self.config.tables);
+        self.handle(events);
+    }
+
+    fn handle(&mut self, events: Vec<AppEvent>) {
+        let (mut rescan, mut pages) = (false, Vec::new());
+        for e in events {
+            match e {
+                AppEvent::Toast(t) => self.toast(t),
+                AppEvent::Rescan => rescan = true,
+                AppEvent::LibraryChanged => self.lib.version += 1,
+                AppEvent::Browse(url) => pages.push(url),
+                AppEvent::OpenUrl(url) => {
+                    crate::platform::open_url(&url);
                 }
+                AppEvent::SkinsChanged => self.skins.files_changed(),
             }
         }
-        // the self-update
-        for t in self.net.updater.poll() {
-            self.toast(t);
-        }
-        // skins downloaded
-        let skins = self.skins.store.poll(&self.paths);
-        for t in skins.toasts {
-            self.toast(t);
-        }
-        // (not the in-app browser: what it downloads goes to the library)
-        for p in &skins.pages {
-            crate::platform::open_url(p);
-        }
-        if skins.changed {
-            self.skins.files_changed();
-        }
-        // a work's link that needs a person on its page
         if !pages.is_empty() {
             if super::IN_APP_BROWSER {
                 self.net.browse = Some(pages);
@@ -473,35 +386,26 @@ impl Ctx {
                 }
             }
         }
-        if changed {
-            self.lib.version += 1;
-        }
         if rescan {
             #[cfg(not(target_arch = "wasm32"))]
             self.ensure_scanned("bms");
             self.start_scan();
         }
+    }
+
+    /// The scan, and on the web the files picked or kept in the browser.
+    fn poll_scan(&mut self) {
         #[cfg(target_arch = "wasm32")]
         for m in crate::platform::opfs::take_notes() {
             self.toast(m);
         }
         // web: newly picked files -> read the chart files, then scan
         if crate::platform::vfs::take_added() {
-            let skip: HashSet<PathBuf> = crate::paths::INTERNAL_DIRS
-                .iter()
-                .map(|d| self.paths.root.join(d))
-                .collect();
-            let charts = crate::library::find_charts(&self.scan_roots(), &skip);
+            let charts = crate::library::find_charts(&self.scan_roots(), &self.internal_dirs());
             self.toast(format!("Reading {} charts…", charts.len()));
             self.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(charts));
         }
-        if self
-            .lib
-            .prefetch
-            .as_ref()
-            .map(|p| p.finished())
-            .unwrap_or(false)
-        {
+        if self.lib.prefetch.as_ref().is_some_and(|p| p.finished()) {
             self.lib.prefetch = None;
             // charts picked without their song's folder go into it
             #[cfg(target_arch = "wasm32")]
@@ -511,52 +415,6 @@ impl Ctx {
             self.start_scan();
         }
         self.finish_scan(true);
-        if self.tables.links.poll() {
-            self.fill_links();
-        }
-        let mut loaded = false;
-        for m in Job::drain_slot(&mut self.tables.job) {
-            match m {
-                TableMsg::Loaded(t) => {
-                    let t = *t;
-                    loaded = true;
-                    if let Ok(j) = serde_json::to_vec(&t) {
-                        let _ =
-                            crate::platform::vfs::write(&self.table_cache_file(&t.source_url), &j);
-                    }
-                    // (cached as the table has them; filled below)
-                    self.toast(format!(
-                        "Table updated: {} ({} charts)",
-                        t.header.name,
-                        t.entries.len()
-                    ));
-                    if let Some(old) = self
-                        .tables
-                        .list
-                        .iter_mut()
-                        .find(|o| o.source_url == t.source_url)
-                    {
-                        *old = t;
-                    } else {
-                        self.tables.list.push(t);
-                    }
-                    // keep config order
-                    let order: Vec<String> =
-                        self.config.tables.iter().map(|t| t.url.clone()).collect();
-                    self.tables.list.sort_by_key(|t| {
-                        order
-                            .iter()
-                            .position(|u| *u == t.source_url)
-                            .unwrap_or(usize::MAX)
-                    });
-                    self.lib.version += 1;
-                }
-                TableMsg::Failed(n, e) => self.toast(format!("Table {n}: {e}")),
-            }
-        }
-        if loaded {
-            self.fill_links();
-        }
     }
 
     /// Play a system sound of the chosen sound set.

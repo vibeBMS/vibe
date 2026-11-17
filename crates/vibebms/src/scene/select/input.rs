@@ -177,7 +177,7 @@ impl SelectScene {
             KeyCode::KeyP => return self.watch_replay(ctx),
             KeyCode::F12 => {
                 ctx.start_scan();
-                ctx.refresh_tables(true);
+                ctx.tables.refresh(&ctx.config.tables, true);
             }
             KeyCode::Slash | KeyCode::F10 => self.search_edit = Some(TextInput::default()),
             KeyCode::PageUp => self.step(ctx, -10),

@@ -398,7 +398,7 @@ impl SettingsScene {
                         url: s,
                         enabled: true,
                     });
-                    ctx.refresh_tables(false);
+                    ctx.tables.refresh(&ctx.config.tables, false);
                 }
             }
             TextField::IrUrl => ctx.config.ir_server.url = s,

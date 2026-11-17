@@ -6,6 +6,7 @@
 //! mirror and unpacks into `bms/<EVENT>/` on choosing it, or opens its
 //! author's download page.
 
+use crate::app::AppEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -370,18 +371,15 @@ impl Archives {
         })
     }
 
-    /// Messages since the last frame: (toasts, the library changed, the
-    /// indexes changed, pages to open in the browser).
-    #[allow(clippy::type_complexity)]
-    pub fn poll(&mut self, paths: &crate::paths::Paths) -> (Vec<String>, bool, bool, Vec<String>) {
+    /// What happened since the last frame.
+    pub fn poll(&mut self, paths: &crate::paths::Paths) -> Vec<AppEvent> {
         let msgs: Vec<Msg> = self
             .rx
             .as_ref()
             .map(|rx| rx.try_iter().collect())
             .unwrap_or_default();
-        let (mut toasts, mut rescan, mut changed) = (Vec::new(), false, false);
-        let mut pages = Vec::new();
-        let mut new_events = false;
+        let mut out = Vec::new();
+        let (mut changed, mut new_events) = (false, false);
         for m in msgs {
             match m {
                 Msg::Catalog(url, Ok(entries)) => {
@@ -408,13 +406,16 @@ impl Archives {
                     }
                 }
                 Msg::Index(url, Err(e)) => log::warn!("archive index {url}: {e}"),
-                Msg::Status(s) => toasts.push(s),
+                Msg::Status(s) => out.push(AppEvent::Toast(s)),
                 Msg::Done(event, num, r) => {
                     let k = key(&event, num);
                     self.busy.retain(|b| *b != k);
                     match r {
                         Ok((dir, n)) => {
-                            toasts.push(format!("Added {} ({n} files)", dir.display()));
+                            out.push(AppEvent::Toast(format!(
+                                "Added {} ({n} files)",
+                                dir.display()
+                            )));
                             self.installed.insert(k, dir);
                             if let Ok(j) = serde_json::to_vec_pretty(&self.installed) {
                                 let _ = crate::platform::vfs::create_dir_all(&Self::dir(paths));
@@ -423,14 +424,18 @@ impl Archives {
                                     &j,
                                 );
                             }
-                            rescan = true;
+                            out.push(AppEvent::Rescan);
                             changed = true;
                         }
                         Err(Fail::Page(url)) => {
-                            toasts.push("No direct download: opening its page".into());
-                            pages.push(url);
+                            out.push(AppEvent::Toast(
+                                "No direct download: opening its page".into(),
+                            ));
+                            out.push(AppEvent::Browse(url));
                         }
-                        Err(Fail::Msg(e)) => toasts.push(format!("Download failed: {e}")),
+                        Err(Fail::Msg(e)) => {
+                            out.push(AppEvent::Toast(format!("Download failed: {e}")))
+                        }
                     }
                 }
             }
@@ -441,7 +446,10 @@ impl Archives {
             self.refresh(false);
             changed = true;
         }
-        (toasts, rescan, changed, pages)
+        if changed {
+            out.push(AppEvent::LibraryChanged);
+        }
+        out
     }
 }
 
