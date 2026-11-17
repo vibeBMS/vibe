@@ -160,16 +160,11 @@ impl<T> Job<T> {
         }
     }
 
-    /// Everything the work sent since the last call.
-    pub fn drain(&mut self) -> Vec<T> {
-        std::iter::from_fn(|| self.poll()).collect()
-    }
-
     /// What the job in `slot` sent since the last call; the slot is
     /// emptied once the job is over.
     pub fn drain_slot(slot: &mut Option<Job<T>>) -> Vec<T> {
         let Some(job) = slot else { return Vec::new() };
-        let out = job.drain();
+        let out = std::iter::from_fn(|| job.poll()).collect();
         if job.over {
             *slot = None;
         }
