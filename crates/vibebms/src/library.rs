@@ -191,6 +191,38 @@ impl Totals {
     }
 }
 
+/// The player's favourites: charts by SHA-256, songs by their folder
+/// (every chart in it, those added later too).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Favorites {
+    pub charts: std::collections::BTreeSet<String>,
+    pub songs: std::collections::BTreeSet<String>,
+}
+
+impl Favorites {
+    /// The folder that makes a chart's song.
+    fn song_of(s: &Song) -> String {
+        Path::new(&s.path)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
+    pub fn chart(&self, s: &Song) -> bool {
+        self.charts.contains(&s.sha256)
+    }
+
+    pub fn song(&self, s: &Song) -> bool {
+        self.songs.contains(&Self::song_of(s))
+    }
+
+    /// A favourite as a chart or as its song's.
+    pub fn has(&self, s: &Song) -> bool {
+        self.chart(s) || self.song(s)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct SongRecord {
     #[serde(flatten)]
@@ -242,6 +274,19 @@ pub struct Library {
     scores: HashMap<RecordKey, BestScore>,
     totals_file: PathBuf,
     totals: Totals,
+    favorites_file: PathBuf,
+    favorites: Favorites,
+}
+
+fn save_json(path: &Path, v: &impl Serialize, what: &str) {
+    match serde_json::to_vec_pretty(v) {
+        Ok(j) => {
+            if let Err(e) = vfs::write(path, &j) {
+                log::error!("saving {what}: {e}");
+            }
+        }
+        Err(e) => log::error!("saving {what}: {e}"),
+    }
 }
 
 fn load_songs(file: &Path) -> Vec<SongRecord> {
@@ -326,12 +371,19 @@ impl Library {
             }
             totals.judges = Some(j);
         }
+        let favorites_file = data.join("favorites.json");
+        let favorites = vfs::read(&favorites_file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
         let lib = Library {
             songs_file: cache.join("songs.json"),
             scores_file,
             scores,
             totals_file,
             totals,
+            favorites_file,
+            favorites,
         };
         if migrated {
             lib.save_scores();
@@ -341,6 +393,25 @@ impl Library {
 
     pub fn totals(&self) -> &Totals {
         &self.totals
+    }
+
+    pub fn favorites(&self) -> &Favorites {
+        &self.favorites
+    }
+
+    /// Make `s` (`song`: its song) a favourite, or one no more; whether it
+    /// is now.
+    pub fn toggle_favorite(&mut self, s: &Song, song: bool) -> bool {
+        let (set, key) = match song {
+            true => (&mut self.favorites.songs, Favorites::song_of(s)),
+            false => (&mut self.favorites.charts, s.sha256.clone()),
+        };
+        let on = !set.remove(&key);
+        if on {
+            set.insert(key);
+        }
+        save_json(&self.favorites_file, &self.favorites, "favourites");
+        on
     }
 
     pub fn songs_file(&self) -> &Path {
@@ -376,14 +447,7 @@ impl Library {
             .collect();
         let order = |r: &ScoreRecord| (r.ln, r.rule.map(|p| p as u8));
         v.sort_by(|a, b| a.sha256.cmp(&b.sha256).then(order(a).cmp(&order(b))));
-        match serde_json::to_vec_pretty(&v) {
-            Ok(j) => {
-                if let Err(e) = vfs::write(&self.scores_file, &j) {
-                    log::error!("saving scores: {e}");
-                }
-            }
-            Err(e) => log::error!("saving scores: {e}"),
-        }
+        save_json(&self.scores_file, &v, "scores");
     }
 
     /// Records of charts whose long notes all have their type, filed
@@ -446,14 +510,7 @@ impl Library {
             *t += s.count(k) as u64;
         }
         self.totals.play_ms += play_ms;
-        match serde_json::to_vec_pretty(&self.totals) {
-            Ok(v) => {
-                if let Err(e) = vfs::write(&self.totals_file, &v) {
-                    log::error!("saving totals: {e}");
-                }
-            }
-            Err(e) => log::error!("saving totals: {e}"),
-        }
+        save_json(&self.totals_file, &self.totals, "totals");
     }
 
     /// A stage of an expert or class course into its chart's record
@@ -1214,6 +1271,35 @@ mod tests {
         // two records as one: each best on its own
         let m = s[&bea].merge(&s[&lr2]);
         assert_eq!((m.ex_score, m.min_bp, m.min_cb), (18, 0, 0));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Favourite charts and songs (a song: every chart in its folder),
+    /// kept with the records.
+    #[test]
+    fn favorites_are_kept() {
+        let dir = std::env::temp_dir().join(format!("vibebms-fav-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let chart = |path: &str, sha: &str| Song {
+            path: path.into(),
+            sha256: sha.into(),
+            ..Default::default()
+        };
+        let (a, b, c) = (
+            chart("/bms/x/a.bms", "a"),
+            chart("/bms/x/b.bms", "b"),
+            chart("/bms/y/c.bms", "c"),
+        );
+        let mut lib = open(&dir);
+        assert!(lib.toggle_favorite(&a, false));
+        assert!(lib.toggle_favorite(&b, true));
+        let f = open(&dir).favorites().clone();
+        assert!(f.chart(&a) && !f.chart(&b) && f.song(&a) && f.song(&b));
+        assert!(f.has(&a) && f.has(&b) && !f.has(&c));
+        // off again
+        assert!(!lib.toggle_favorite(&a, true));
+        assert!(!lib.toggle_favorite(&a, false));
+        assert_eq!(*open(&dir).favorites(), Favorites::default());
         std::fs::remove_dir_all(&dir).ok();
     }
 

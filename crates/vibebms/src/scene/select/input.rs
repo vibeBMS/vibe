@@ -167,6 +167,10 @@ impl SelectScene {
                 return self.option(ctx, SelectOption::DifficultyFilter)
             }
             KeyCode::Digit3 | KeyCode::Numpad3 => return self.option(ctx, SelectOption::LnMode),
+            // 8 favourite song, 9 favourite chart (bmz's F8 / F9: hi-speed
+            // and judge here)
+            KeyCode::Digit8 | KeyCode::Numpad8 => self.toggle_favorite(ctx, true),
+            KeyCode::Digit9 | KeyCode::Numpad9 => self.toggle_favorite(ctx, false),
             KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13),
             KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14),
             KeyCode::F2 => return self.option(ctx, SelectOption::Random),

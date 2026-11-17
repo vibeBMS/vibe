@@ -183,7 +183,11 @@ impl<'a> SelectState<'a> {
                 let s = ctx.lib.songs.get(*k)?;
                 BarInfo {
                     kind: BAR_SONG,
-                    title: s.full_title(),
+                    // a favourite: marked
+                    title: match super::tree::favorite(ctx, s) {
+                        true => format!("♥ {}", s.full_title()),
+                        false => s.full_title(),
+                    },
                     level: Some(s.level_num()),
                     difficulty: s.difficulty.clamp(0, 6) as usize,
                     lamp: Some(
@@ -374,7 +378,7 @@ impl SkinState for SelectState<'_> {
             1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
                 let o = SelectOption::ALL.get((n - OPTION_TEXT) as usize)?;
-                o.value(self.ctx, song.map(Bpms::of_song))
+                o.value(self.ctx, song.map(Bpms::of_song), song)
             }
             n if (OPTION_NAME..OPTION_NAME + 100).contains(&n) => SelectOption::ALL
                 .get((n - OPTION_NAME) as usize)?

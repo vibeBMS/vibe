@@ -16,6 +16,8 @@ pub(crate) enum Node {
     Root,
     Folder(String),
     All,
+    /// The player's favourite charts and songs' charts.
+    Favorites,
     /// A table, by its URL (`ctx.tables.list` is re-sorted as tables arrive).
     Table(String),
     Level(String, String),
@@ -85,6 +87,11 @@ pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 pub(crate) fn shown(ctx: &Ctx, s: &Song) -> bool {
     let f = &ctx.config.select;
     f.key_filter.keeps(s.mode) && f.difficulty_filter.keeps(s.difficulty)
+}
+
+/// `s` is a favourite chart, or of a favourite song.
+pub(crate) fn favorite(ctx: &Ctx, s: &Song) -> bool {
+    ctx.lib.db.as_ref().is_some_and(|l| l.favorites().has(s))
 }
 
 /// Charts (indices into the library) in the order chosen; ties by title,
@@ -178,6 +185,15 @@ impl SelectScene {
                     node: Node::All,
                     count: songs.iter().filter(|s| shown(s)).count(),
                 }];
+                bars.push(Bar::Folder {
+                    label: "FAVORITE".into(),
+                    sub: "♥".into(),
+                    node: Node::Favorites,
+                    count: songs
+                        .iter()
+                        .filter(|s| shown(s) && favorite(ctx, s))
+                        .count(),
+                });
                 let mut folders: Vec<(String, usize)> = Vec::new();
                 let mut idx: HashMap<&str, usize> = HashMap::new();
                 for s in songs.iter().filter(|s| shown(s)) {
@@ -241,6 +257,11 @@ impl SelectScene {
                 bars
             }
             Node::All => sorted((0..songs.len()).collect()),
+            Node::Favorites => sorted(
+                (0..songs.len())
+                    .filter(|i| favorite(ctx, &songs[*i]))
+                    .collect(),
+            ),
             Node::Folder(f) => sorted(
                 (0..songs.len())
                     .filter(|i| &songs[*i].folder == f)
@@ -444,6 +465,7 @@ impl SelectScene {
         match n {
             Node::Root => "ROOT".into(),
             Node::All => "ALL SONGS".into(),
+            Node::Favorites => "FAVORITE".into(),
             Node::Folder(f) => Path::new(f)
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
@@ -577,6 +599,45 @@ mod tests {
                 ..
             }
         )));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The FAVORITE folder: favourite charts and the charts of favourite
+    /// songs, filtered and sorted as any; their bars marked.
+    #[test]
+    fn favorite_folder() {
+        let root = std::env::temp_dir().join(format!("vibebms-favs-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut c = song("c", PlayMode::Beat7K, 2, "1", 0);
+        c.path = "/bms/other/c.bms".into();
+        ctx.lib.songs = Arc::new(vec![
+            song("a", PlayMode::Beat7K, 4, "12", 1),
+            song("b", PlayMode::Beat14K, 2, "3", 3),
+            c,
+        ]);
+        let mut lib = crate::library::Library::open(&root, &root, |_, _| None);
+        lib.toggle_favorite(&ctx.lib.songs[2], false);
+        // a and b are of one song (folder)
+        lib.toggle_favorite(&ctx.lib.songs[1], true);
+        ctx.lib.db = Some(lib);
+        let s = SelectScene::new(&mut ctx);
+        assert_eq!(titles(&s, &ctx, &Node::Favorites).join(""), "abc");
+        ctx.config.select.key_filter = KeyFilter::K7;
+        assert_eq!(titles(&s, &ctx, &Node::Favorites).join(""), "ac");
+        let fav = s.build(&ctx, &Node::Root, true);
+        assert!(matches!(
+            &fav[1],
+            Bar::Folder {
+                node: Node::Favorites,
+                count: 2,
+                ..
+            }
+        ));
+        let mut s = s;
+        s.bars = vec![Bar::Song(0)];
+        let st = super::super::SelectState::new(&s, &ctx);
+        assert_eq!(st.bar(0).unwrap().title, "♥ a");
         std::fs::remove_dir_all(&root).ok();
     }
 }
