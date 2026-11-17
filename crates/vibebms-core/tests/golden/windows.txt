@@ -578,35 +578,35 @@ Iidx SevenKeys Bmson(150.0) None -> w232
 Iidx SevenKeys Bmson(200.0) None -> w232
 Iidx SevenKeys Bmson(10000.0) None -> w232
 Iidx SevenKeys Bmson(1000000000.0) None -> w232
-Iidx Pms Rank(-1) None -> w232
-Iidx Pms Rank(0) None -> w232
-Iidx Pms Rank(1) None -> w232
-Iidx Pms Rank(2) None -> w232
-Iidx Pms Rank(3) None -> w232
-Iidx Pms Rank(4) None -> w232
-Iidx Pms Rank(5) None -> w232
-Iidx Pms DefExRank(NaN) None -> w232
-Iidx Pms DefExRank(-5.0) None -> w232
-Iidx Pms DefExRank(0.0) None -> w232
-Iidx Pms DefExRank(0.5) None -> w232
-Iidx Pms DefExRank(1.0) None -> w232
-Iidx Pms DefExRank(50.0) None -> w232
-Iidx Pms DefExRank(80.0) None -> w232
-Iidx Pms DefExRank(99.9) None -> w232
-Iidx Pms DefExRank(100.0) None -> w232
-Iidx Pms DefExRank(120.0) None -> w232
-Iidx Pms DefExRank(133.0) None -> w232
-Iidx Pms DefExRank(300.0) None -> w232
-Iidx Pms DefExRank(1e300) None -> w232
-Iidx Pms Bmson(-1.0) None -> w232
-Iidx Pms Bmson(0.0) None -> w232
-Iidx Pms Bmson(0.5) None -> w232
-Iidx Pms Bmson(33.3) None -> w232
-Iidx Pms Bmson(100.0) None -> w232
-Iidx Pms Bmson(150.0) None -> w232
-Iidx Pms Bmson(200.0) None -> w232
-Iidx Pms Bmson(10000.0) None -> w232
-Iidx Pms Bmson(1000000000.0) None -> w232
+Iidx Pms Rank(-1) None -> w233
+Iidx Pms Rank(0) None -> w233
+Iidx Pms Rank(1) None -> w233
+Iidx Pms Rank(2) None -> w233
+Iidx Pms Rank(3) None -> w233
+Iidx Pms Rank(4) None -> w233
+Iidx Pms Rank(5) None -> w233
+Iidx Pms DefExRank(NaN) None -> w233
+Iidx Pms DefExRank(-5.0) None -> w233
+Iidx Pms DefExRank(0.0) None -> w233
+Iidx Pms DefExRank(0.5) None -> w233
+Iidx Pms DefExRank(1.0) None -> w233
+Iidx Pms DefExRank(50.0) None -> w233
+Iidx Pms DefExRank(80.0) None -> w233
+Iidx Pms DefExRank(99.9) None -> w233
+Iidx Pms DefExRank(100.0) None -> w233
+Iidx Pms DefExRank(120.0) None -> w233
+Iidx Pms DefExRank(133.0) None -> w233
+Iidx Pms DefExRank(300.0) None -> w233
+Iidx Pms DefExRank(1e300) None -> w233
+Iidx Pms Bmson(-1.0) None -> w233
+Iidx Pms Bmson(0.0) None -> w233
+Iidx Pms Bmson(0.5) None -> w233
+Iidx Pms Bmson(33.3) None -> w233
+Iidx Pms Bmson(100.0) None -> w233
+Iidx Pms Bmson(150.0) None -> w233
+Iidx Pms Bmson(200.0) None -> w233
+Iidx Pms Bmson(10000.0) None -> w233
+Iidx Pms Bmson(1000000000.0) None -> w233
 
 [w0]
 note ±15000 ±37500 ±75000 ±112500 -150000..500000
@@ -2233,8 +2233,15 @@ scratch_ln_end ±200000 ±200000 ±200000 ±200000
 margins 0 0 hz None
 
 [w232]
-note ±16667 ±33333 ±116667 ±250000 -150000..500000
-scratch ±16667 ±33333 ±116667 ±250000 -150000..500000
-ln_end ±116667 ±158333 ±200000 ±250000
-scratch_ln_end ±116667 ±158333 ±200000 ±250000
+note ±16667 ±33333 ±116667 ±200000 -200000..500000
+scratch ±16667 ±33333 ±116667 ±200000 -200000..500000
+ln_end ±116667 ±116667 ±116667 ±200000
+scratch_ln_end ±116667 ±116667 ±116667 ±200000
 margins 0 0 hz Some(120)
+
+[w233]
+note ±25000 ±50000 ±87500 ±100000 -112500..500000
+scratch ±25000 ±50000 ±87500 ±100000 -112500..500000
+ln_end ±120000 ±150000 ±217000 ±283000
+scratch_ln_end ±120000 ±150000 ±217000 ±283000
+margins 200000 0 hz None

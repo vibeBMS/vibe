@@ -284,7 +284,8 @@ fn replays_judge_as_before() {
         (0x32364c7127b745df, 558),
         // the LR2 judge as docs/LR2_BEHAVIOUR.md has it (replay format 5)
         (0x1bdbeee50682a22e, 434),
-        (0xbcd1d1647dd9fff4, 434),
+        // the IIDX preset as DX MODE (replay format 6)
+        (0x52a5b377829180bb, 434),
         (0xffe1584f208e5414, 550),
         (0x47dc09ae4c89eab1, 468),
         (0xe4283ac5977abf9e, 950),
