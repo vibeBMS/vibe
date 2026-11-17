@@ -112,8 +112,8 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     } else {
         130.0
     };
-    let bpms = crate::config::Bpms::of_meta(&s.chart.meta);
-    let dur_us = p.duration_at(&bpms, main_bpm, true) * 1000.0;
+    let bpms = scene.bpms_at(now);
+    let dur_us = p.duration_with(scene.hs_shown(0, now), main_bpm, true) * 1000.0;
     let beats = dur_us / 1_000_000.0 * main_bpm / 60.0;
     let depth = |pos: f64, time: i64| -> f32 {
         match p.hispeed_mode {

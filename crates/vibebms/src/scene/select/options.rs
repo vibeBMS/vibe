@@ -6,7 +6,8 @@ use super::input::PanelKey;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
 use crate::config::{
-    Bpms, DifficultyFilter, HsFix, KeyFilter, RandomSelect, Side, SortMode, Versus, HISPEED_STEP,
+    Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
+    HISPEED_STEP,
 };
 use crate::input::Repeat;
 use crate::library::{Favorites, Song};
@@ -113,11 +114,12 @@ impl SelectOption {
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
             SelectOption::LnMode => format!("{:?}", p.ln_mode).to_uppercase(),
-            SelectOption::HiSpeedDown => {
-                format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(REFERENCE_BPMS)))
-            }
+            SelectOption::HiSpeedDown => match p.hs_type {
+                HsType::Normal => format!("NHS {}", p.hs_level),
+                _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(REFERENCE_BPMS))),
+            },
             SelectOption::HiSpeedUp => match bpm {
-                _ if p.hs_fix != HsFix::Off => {
+                _ if p.hs_fix != HsFix::Off || p.hs_type == HsType::Floating => {
                     format!("GN {} FIX", p.green(&bpm.unwrap_or(REFERENCE_BPMS)))
                 }
                 Some(b) => format!("GN {}", p.green(&b)),

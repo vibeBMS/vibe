@@ -1,6 +1,6 @@
 use super::{percent, Act, Row, TextField};
 use crate::app::Ctx;
-use crate::config::{HiSpeedMode, HsFix, Side, Target, HISPEED_STEP};
+use crate::config::{HiSpeedMode, HsFix, HsType, Side, Target, HISPEED_STEP};
 use crate::scene::option_panel::{cycle, dp_index, onoff, set_dp_index};
 use crate::scene::select::REFERENCE_BPMS;
 use vibebms_core::lane_option::{DoubleOption, LaneOption};
@@ -76,13 +76,22 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 c.config.play.hispeed_mode = cycle(&all, c.config.play.hispeed_mode, d)
             },
         ),
+        Row::adjust("Hi-speed type", p.hs_type.label(), |c, d| {
+            let t = cycle(&HsType::ALL, c.config.play.hs_type, d);
+            c.config.play.set_hs_type(t, &REFERENCE_BPMS)
+        }),
         Row::adjust(
             "Hi-speed",
-            format!(
-                "{:.2}  (GN {} at 150 BPM)",
-                p.hispeed_at(bpms),
-                p.green(bpms)
-            ),
+            match p.hs_type {
+                HsType::Normal => {
+                    format!("LEVEL {}  (GN {} at 150 BPM)", p.hs_level, p.green(bpms))
+                }
+                _ => format!(
+                    "{:.2}  (GN {} at 150 BPM)",
+                    p.hispeed_shown(bpms),
+                    p.green(bpms)
+                ),
+            },
             |c, d| {
                 c.config
                     .play
@@ -95,6 +104,17 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             |c, d| {
                 let f = cycle(&HsFix::ALL, c.config.play.hs_fix, d);
                 c.config.play.set_hs_fix(f, &REFERENCE_BPMS)
+            },
+        ),
+        Row::adjust(
+            "Hi-speed change while playing",
+            match p.hs_anim_ms {
+                0 => "AT ONCE".to_string(),
+                ms => format!("{ms} ms"),
+            },
+            |c, d| {
+                let ms = &mut c.config.play.hs_anim_ms;
+                *ms = (*ms as i32 + d * 50).clamp(0, 1000) as u32
             },
         ),
         Row::adjust("Lane cover", onoff(p.lane_cover), |c, _| {

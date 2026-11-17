@@ -3,7 +3,7 @@
 
 use super::skin::PlayState;
 use crate::app::Draw;
-use crate::config::{HiSpeedMode, PlayConfig};
+use crate::config::HiSpeedMode;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::Rect;
 use crate::skin::render::{LoadedSkin, Xf};
@@ -38,8 +38,9 @@ pub(super) fn draw(
     } else {
         130.0
     };
-    let bpms = crate::config::Bpms::of_meta(&s.chart.meta);
-    let dur_of = |p: &PlayConfig| p.duration_at(&bpms, main_bpm, true) * 1000.0;
+    // (each player's hi-speed as eased to a change)
+    let dur_of =
+        |side: usize| per[side].duration_with(ps.s.hs_shown(side, ps.now), main_bpm, true) * 1000.0;
     let ident = crate::skin::Frame {
         rect: Rect::default(),
         color: [1.0; 4],
@@ -80,8 +81,9 @@ pub(super) fn draw(
             continue;
         };
         let notes = engine.notes();
-        let p = per[s.mode.player_of_lane(lane).min(1)];
-        let dur_us = dur_of(p);
+        let side = s.mode.player_of_lane(lane).min(1);
+        let p = per[side];
+        let dur_us = dur_of(side);
         let r = xf.rect(lr);
         let judge_y = r.bottom() - p.lift * r.h;
         let top = r.y
@@ -296,7 +298,7 @@ pub(super) fn draw(
     // bar lines span each lane group
     for (i, (src, dst)) in skin.skin.bar_lines.iter().enumerate() {
         let p = per[i.min(1)];
-        let dur_us = dur_of(p);
+        let dur_us = dur_of(i.min(1));
         if let Some(fr) = dst.eval(now, st) {
             let field = xf.rect(fr.rect);
             let judge_y = field.bottom() - p.lift * field.h;

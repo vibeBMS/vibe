@@ -40,6 +40,7 @@ pub(crate) const REFERENCE_BPMS: Bpms = Bpms {
     min: 150.0,
     max: 150.0,
     main: 150.0,
+    now: None,
 };
 
 /// Time constant (s) of the list easing toward the cursor: 30 % of the

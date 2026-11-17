@@ -150,16 +150,6 @@ pub struct PlayState<'a> {
 impl<'a> PlayState<'a> {
     pub fn new(s: &'a PlayScene, ctx: &'a Ctx, now: Instant) -> PlayState<'a> {
         let p = &ctx.config.play;
-        let side_play = |side| {
-            let mut p = match s.session.vs {
-                true => Cow::Owned(p.for_side(side)),
-                false => Cow::Borrowed(p),
-            };
-            if let Some(c) = &s.req.course {
-                c.view(&mut p);
-            }
-            p
-        };
         PlayState {
             s,
             ctx,
@@ -171,8 +161,8 @@ impl<'a> PlayState<'a> {
                 s.facts.rules.judge,
             ),
             chart: ChartFacts::of_meta(&s.session.chart.meta, s.facts.skin_mode),
-            bpms: crate::config::Bpms::of_meta(&s.session.chart.meta),
-            play: [side_play(0), side_play(1)],
+            bpms: s.bpms_at(now),
+            play: [s.side_config(p, 0), s.side_config(p, 1)],
             opp_ex: s.session.opponent_ex(),
             lane_h: s
                 .skin
@@ -331,7 +321,7 @@ impl<'a> PlayState<'a> {
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
     fn hispeed(&self) -> f64 {
-        self.ctx.config.play.hispeed_at(&self.bpms) as f64
+        self.ctx.config.play.hispeed_shown(&self.bpms) as f64
     }
 }
 

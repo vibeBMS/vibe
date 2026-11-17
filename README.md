@@ -82,9 +82,23 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   changes and stops shown), judge timing auto-adjust. As in beatoraja, EXPAND JUDGE over 100% makes the play
   ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; such plays keep only their lamp and
   play count (see Clear lamps in `docs/RULES.md`).
-- Hi-speed: you set the multiplier (in steps of 0.25); the green number (how long notes are visible) follows from it,
-  the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the opposite: the green number
-  stays and the multiplier follows each chart's BPM.
+- Hi-speed (`SETTINGS › PLAY › Hi-speed type`):
+  - CLASSIC (default): you set the multiplier (in steps of 0.25); the green number (how long notes are visible)
+    follows from it, the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the
+    opposite: the green number stays and the multiplier follows each chart's BPM.
+  - NORMAL: IIDX's normal hi-speed, levels 1 to 20 that are green numbers of the whole lane (1200, 1000, 800,
+    700, 650 … 300, 280, 260, as bmz-player documents IIDX's), at the HS-FIX BPM (MAIN without HS-FIX); the hi-speed
+    keys step a level.
+  - FLOATING: IIDX's floating hi-speed. The green number is kept: through the lane cover and LIFT, and while
+    playing through the chart's BPM changes (the multiplier follows the BPM of the moment; before the start, the
+    HS-FIX BPM). The hi-speed keys set a new green number.
+  - LR2: the multiplier, as LR2 has it; with HS-FIX it is the speed at 150 BPM (the notes of a chart's HS-FIX BPM
+    move as a 150 BPM chart's at that setting), the setting is what the screen and skins show, and the lane cover
+    leaves it as it is.
+
+  A change made while playing reaches the notes over 150 ms, easing out (`Hi-speed change while playing`, 0 to
+  1000 ms; 0: at once), and the new hi-speed and green number show over the note field for a moment. A change the
+  chart makes (FLOATING through a BPM change) is not eased.
 - Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
   turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
   default; see [docs/RULES.md](docs/RULES.md) "Input filters").
