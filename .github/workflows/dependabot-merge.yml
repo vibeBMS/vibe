@@ -1,0 +1,40 @@
+name: Dependabot merge
+
+# Merges a Dependabot pull request once CI has passed on its head commit,
+# unless it holds a major update (those wait for a person: CI cannot check
+# everything a new major version may change).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
+          if [ -z "$pr" ]; then echo "no open pull request at $SHA"; exit 0; fi
+          # Dependabot lists each update with its type in the commit message
+          if gh api "repos/$REPO/commits/$SHA" --jq .commit.message | grep -q "update-type: version-update:semver-major"; then
+            echo "#$pr holds a major update: left for review"
+            exit 0
+          fi
+          gh pr merge -R "$REPO" "$pr" --squash --delete-branch --match-head-commit "$SHA"
