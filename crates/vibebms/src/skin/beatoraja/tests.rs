@@ -1,0 +1,845 @@
+use super::files::skin_path;
+use super::*;
+
+/// [`load_with`] with only options chosen.
+fn load(
+    path: &Path,
+    user_options: &HashMap<i32, bool>,
+    image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
+) -> Result<Skin, String> {
+    let user = UserSettings {
+        options: user_options.clone(),
+        ..Default::default()
+    };
+    load_with(path, &user, None, image_size)
+}
+
+#[test]
+fn lua_runs_like_beatoraja() {
+    // skins written for LuaJ (Lua 5.2) and beatoraja's restricted io / os
+    let dir = std::env::temp_dir().join(format!("vibebms-lcompat-{}", std::process::id()));
+    let skin = dir.join("theme").join("play");
+    std::fs::create_dir_all(skin.join("parts")).unwrap();
+    std::fs::write(skin.join("parts").join("list.txt"), "a\nb\n").unwrap();
+    std::fs::write(skin.join("parts").join("p.lua"), "return 7").unwrap();
+    let lua = r#"
+        local main_state = require("main_state")
+        local n = 0
+        for l in io.lines("skin/othername/play/parts/list.txt") do n = n + 1 end
+        local f = io.open("parts/list.txt", "r")
+        local first = f:read("*l")
+        f:close()
+        local w = io.open("log.txt", "w")
+        w:write("x")
+        w:close()
+        return {
+            lines = n, first = first, written = io.open("log.txt") == nil,
+            part = dofile("skin/othername/play/parts/p.lua"),
+            band = bit32.band(0xff, 0x0f), shift = bit32.lshift(1, 4),
+            random = math.random(1.0, 1.5), fmt = string.format("%d", 2.7),
+            date = type(os.date("%Y")), time = type(os.time()),
+            opt = main_state.option(150), num = main_state.number(71),
+        }"#;
+    std::fs::write(skin.join("t.luaskin"), lua).unwrap();
+    struct St;
+    impl SkinState for St {
+        fn timer(&self, _: i32) -> Option<i64> {
+            None
+        }
+        fn option(&self, id: i32) -> bool {
+            id == 150
+        }
+        fn number(&self, id: i32) -> Option<i64> {
+            (id == 71).then_some(1234)
+        }
+        fn text(&self, _: i32) -> Option<String> {
+            None
+        }
+        fn rate(&self, _: i32) -> f32 {
+            0.0
+        }
+    }
+    let (v, _) = read_skin(&skin.join("t.luaskin"), None, Some(&St)).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let want = serde_json::json!({
+        "lines": 2, "first": "a", "written": true, "part": 7, "band": 15, "shift": 16,
+        "random": 1, "fmt": "2", "date": "string", "time": "number", "opt": true,
+        "num": 1234,
+    });
+    assert_eq!(v, want);
+}
+
+/// Every example of the path resolution's specification (§5.2).
+#[test]
+fn skin_path_rules() {
+    let dir = std::env::temp_dir().join(format!("vibebms-skinpath-{}", std::process::id()));
+    for d in ["bomb/a", "bomb/b", "bg", "lane", "parts", "img", "plain"] {
+        std::fs::create_dir_all(dir.join(d)).unwrap();
+    }
+    for f in [
+        "bomb/a/x.png",
+        "bomb/b/x.png",
+        "bg/one.png",
+        "bg/two.png",
+        "lane/lane_blue.png",
+        "lane/lane_red.png",
+        "parts/a.png",
+        "parts/b.PNG",
+        "parts/c.jpg",
+        "img/f1.png",
+        "img/f2.txt",
+        "plain/file.png",
+    ] {
+        std::fs::write(dir.join(f), b"").unwrap();
+    }
+    let v = serde_json::json!({"filepath": [
+        {"name": "Gone", "path": "gone/*.png", "def": "x"},
+        {"name": "Bomb", "path": "bomb\\*|1|", "def": "b"},
+        {"name": "Back", "path": "bg/*.png", "def": "two"},
+        {"name": "Lane", "path": "lane/lane_*.png", "def": "lane_blue.png"},
+        {"name": "Plain", "path": "plain/file.png", "def": ""},
+    ]});
+    let fps = filepaths(&v);
+    // an entry without a `*` is no entry
+    assert_eq!(fps.len(), 4);
+    let none = HashMap::new();
+    let with = |k: &str, val: &str| HashMap::from([(k.to_string(), val.to_string())]);
+    let p = |files: &HashMap<String, String>, path: &str| skin_path(&dir, &fps, files, path);
+    assert_eq!(p(&none, "bomb/*|1|/x.png"), dir.join("bomb/b/x.png"));
+    assert_eq!(p(&none, "bomb\\*|1|\\x.png"), dir.join("bomb/b/x.png"));
+    assert_eq!(
+        p(&with("Bomb", "A"), "bomb/*|1|/x.png"),
+        dir.join("bomb/a/x.png")
+    );
+    assert_eq!(p(&none, "bg/*.png"), dir.join("bg/two.png"));
+    assert_eq!(
+        p(&with("Back", "three"), "bg/*.png"),
+        dir.join("bg/one.png")
+    );
+    assert_eq!(
+        p(&with("Back", "ONE.png"), "bg/*.png"),
+        dir.join("bg/one.png")
+    );
+    assert_eq!(
+        p(&with("Lane", "LANE_RED.PNG"), "lane/lane_*.png"),
+        dir.join("lane/lane_red.png")
+    );
+    assert_eq!(p(&none, "lane/lane_*.png"), dir.join("lane/lane_blue.png"));
+    // no candidates: the entry is skipped, then the wildcard rule finds
+    // nothing either: the path as given
+    assert_eq!(p(&none, "gone/*.png"), dir.join("gone/*.png"));
+    // a wildcard without an entry: one of the matching files, at random
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..200 {
+        let got = p(&none, "parts/*.png");
+        assert!(
+            got == dir.join("parts/a.png") || got == dir.join("parts/b.PNG"),
+            "{got:?}"
+        );
+        seen.insert(got);
+    }
+    assert_eq!(p(&none, "img/*|frame|.png"), dir.join("img/f1.png"));
+    assert_eq!(p(&none, "parts/none_*.gif"), dir.join("parts/none_*.gif"));
+    // no wildcard: the path with its letter case as on disk
+    assert_eq!(p(&none, "Plain\\File.PNG"), dir.join("plain/file.png"));
+    assert_eq!(p(&none, "plain/missing.png"), dir.join("plain/missing.png"));
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(!seen.is_empty());
+}
+
+#[test]
+fn filepath_choices() {
+    let dir = std::env::temp_dir().join(format!("vibebms-fpath-{}", std::process::id()));
+    for d in ["bomb/a", "bomb/b", "bg"] {
+        std::fs::create_dir_all(dir.join(d)).unwrap();
+    }
+    for f in ["bomb/a/x.png", "bomb/b/x.png", "bg/one.png", "bg/two.png"] {
+        std::fs::write(dir.join(f), b"").unwrap();
+    }
+    let json = r#"{"type": 0, "name": "F",
+        "filepath": [
+            {"name": "Bomb", "path": "bomb/*|1|", "def": "b"},
+            {"name": "Back", "path": "bg/*.png", "def": "two"}
+        ]}"#;
+    std::fs::write(dir.join("s.json"), json).unwrap();
+    let v = read_skin(&dir.join("s.json"), None, None).unwrap().0;
+    let fps = filepaths(&v);
+    let mut user = HashMap::new();
+    // defaults, with or without the extension
+    let p = skin_path(&dir, &fps, &user, "bomb/*|1|/x.png");
+    assert_eq!(p, dir.join("bomb/b/x.png"));
+    assert_eq!(
+        skin_path(&dir, &fps, &user, "bg/*.png"),
+        dir.join("bg/two.png")
+    );
+    user.insert("Bomb".to_string(), "a".to_string());
+    assert_eq!(
+        skin_path(&dir, &fps, &user, "bomb/*|1|/x.png"),
+        dir.join("bomb/a/x.png")
+    );
+    let opts = custom_options(&dir.join("s.json"));
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(opts.len(), 2);
+    assert_eq!(
+        (opts[0].labels.clone(), opts[0].default),
+        (vec!["a".into(), "b".into()], 1)
+    );
+    assert_eq!(
+        opts[1].labels,
+        vec!["one.png".to_string(), "two.png".into()]
+    );
+    assert!(opts[1].ops.is_empty());
+}
+
+#[test]
+fn nested_branches() {
+    let v = serde_json::json!([
+        {"if": [1], "values": [
+            {"id": "a"},
+            {"if": [2], "values": [{"id": "b"}, {"if": [-3], "values": [{"id": "c"}]}]},
+            {"if": [3], "values": [{"id": "d"}]}
+        ]}
+    ]);
+    let en: HashSet<i64> = [1, 2].into();
+    let out = preprocess(v, &en, Path::new(""), 0);
+    let ids: Vec<&str> = out.as_array().unwrap().iter().map(|x| s(x, "id")).collect();
+    assert_eq!(ids, ["a", "b", "c"]);
+}
+
+#[test]
+fn double_braces_read_as_one() {
+    let t = "{\"a\": [{\"if\": [1], \"value\": {{\"x\": 2, \"s\": \"{{\"}}], \"b\": {\"c\": 1}}";
+    let v: Value = json5::from_str(&merge_double_braces(t)).unwrap();
+    assert_eq!(v["a"][0]["value"]["x"], 2);
+    assert_eq!(v["a"][0]["value"]["s"], "{{");
+    assert_eq!(v["b"]["c"], 1);
+}
+
+#[test]
+fn lenient_json_commas() {
+    let t = "{\"a\": [ {\"x\":1}\n {\"y\":\"s\"}\n ],\n \"b\": 2 // c\n , d: true\n e: 'q'\n f: 00, g: -007, h: 0.05, i: \"007\"\n}";
+    let v: Value = json5::from_str(&add_missing_commas(t)).unwrap();
+    assert_eq!(v["a"].as_array().unwrap().len(), 2);
+    assert_eq!(v["d"], Value::Bool(true));
+    assert_eq!(v["e"], Value::String("q".into()));
+    assert_eq!((v["f"].as_i64(), v["g"].as_i64()), (Some(0), Some(-7)));
+    assert_eq!(
+        (v["h"].as_f64(), &v["i"]),
+        (Some(0.05), &Value::String("007".into()))
+    );
+    // already valid JSON is unchanged
+    let ok = "{\"a\": 1,\n \"b\": [1,\n 2]}";
+    assert_eq!(add_missing_commas(ok), ok);
+}
+
+#[test]
+fn builtin_result_skin_loads() {
+    let path = crate::scene::skinned::default_skin(SkinType::Result, false).unwrap();
+    let sk = load(&path, &HashMap::new(), &crate::skin::image_size).unwrap();
+    assert_eq!(sk.kind, SkinType::Result);
+    assert!(sk.images.iter().all(Option::is_some));
+    let graphs = sk
+        .objects
+        .iter()
+        .filter(|o| {
+            matches!(
+                &o.kind,
+                Kind::Graph(Graph::Gauge(GaugeGraph { colors: None, .. }))
+                    | Kind::Graph(Graph::Timing(TimingGraph { colors: None, .. }))
+            )
+        })
+        .count();
+    // our own skin asks for the built-in graph look
+    assert_eq!(graphs, 2);
+    assert!(sk
+        .objects
+        .iter()
+        .any(|o| matches!(&o.kind, Kind::ImageSet { srcs, id: 370 } if srcs.len() == 11)));
+}
+
+#[test]
+fn graph_colors() {
+    let g: Value = json5::from_str(r#"{"id": "g", "exHardBGColor": "102030"}"#).unwrap();
+    let c = gauge_colors(&g);
+    assert_eq!(c.len(), 24);
+    // normal gauge: line above the border red, below green (defaults)
+    assert_eq!(c[8], [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(c[10], [0.0, 1.0, 0.0, 1.0]);
+    assert_eq!(c[4 * 4 + 1], hex_color("102030"));
+    let list: Vec<String> = (0..24).map(|k| format!("{:02x}000080", k)).collect();
+    let g = serde_json::json!({ "color": list });
+    assert_eq!(gauge_colors(&g)[5], [5.0 / 255.0, 0.0, 0.0, 128.0 / 255.0]);
+}
+
+#[test]
+fn builtin_select_skins_load() {
+    for portrait in [false, true] {
+        let path = crate::scene::skinned::default_skin(SkinType::Select, portrait).unwrap();
+        let sk = load(&path, &HashMap::new(), &crate::skin::image_size).unwrap();
+        assert_eq!(sk.kind, SkinType::Select);
+        let sl = sk.songlist.as_ref().expect("songlist");
+        assert!(sl.off.len() > 10 && sl.off.len() == sl.on.len());
+        assert_eq!(sl.body.iter().flatten().count(), 8);
+        assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
+        // the 11 option buttons and the folder back button are clickable
+        assert_eq!(sk.objects.iter().filter(|o| o.act.is_some()).count(), 12);
+        let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();
+        assert!(load(&path, &HashMap::new(), &crate::skin::image_size).is_ok());
+    }
+}
+
+#[test]
+fn builtin_default_skins_load() {
+    use crate::scene::play_skin::default_skin;
+    use vibebms_core::PlayMode;
+    let size = |p: &Path| {
+        let b = vfs::read(p).ok()?;
+        image::ImageReader::new(std::io::Cursor::new(b))
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()
+    };
+    for mode in PlayMode::ALL {
+        for (p2, portrait, touch) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+            (true, false, true),
+        ] {
+            let path = default_skin(mode, p2, portrait, touch);
+            let sk = load(&path, &HashMap::new(), &size)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            assert_eq!(sk.kind.mode(), Some(mode), "{}", path.display());
+            assert_eq!(sk.lanes.len(), mode.lane_count());
+            assert!(sk
+                .lanes
+                .iter()
+                .all(|l| l.rect.is_some() && l.note.is_some()));
+            assert!(sk.images.iter().all(Option::is_some), "{}", path.display());
+            assert!(sk.judges[0].judge.iter().all(Option::is_some));
+            assert_eq!(sk.bar_lines.len(), mode.players(), "{}", path.display());
+            if mode.is_double() {
+                assert!(sk.judges[1].judge.iter().all(Option::is_some));
+            }
+        }
+    }
+}
+
+#[test]
+fn builtin_battle_skins_load() {
+    use crate::scene::play_skin::battle_skin;
+    use vibebms_core::PlayMode;
+    for (mode, kind) in [
+        (PlayMode::Beat14K, SkinType::Battle7),
+        (PlayMode::Beat10K, SkinType::Battle5),
+    ] {
+        for touch in [false, true] {
+            let path = battle_skin(mode, touch);
+            let sk = load(&path, &HashMap::new(), &crate::skin::image_size)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            assert_eq!(sk.kind, kind);
+            assert_eq!(sk.kind.battle_pair().and_then(|t| t.mode()), Some(mode));
+            assert_eq!(sk.lanes.len(), mode.lane_count());
+            // a gauge for each side, a judge region for each
+            let sides: Vec<usize> = sk
+                .objects
+                .iter()
+                .filter_map(|o| match o.kind {
+                    Kind::Gauge { side, .. } => Some(side),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(sides, vec![0, 1], "{}", path.display());
+            assert!(sk.judges[1].judge.iter().all(Option::is_some));
+        }
+    }
+}
+
+#[test]
+fn builtin_perspective_skins_load_and_reflow() {
+    use crate::scene::play_skin::perspective_skin;
+    use vibebms_core::PlayMode;
+    let size = |p: &Path| {
+        let b = vfs::read(p).ok()?;
+        image::ImageReader::new(std::io::Cursor::new(b))
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()
+    };
+    for mode in PlayMode::ALL {
+        for portrait in [false, true] {
+            let path = perspective_skin(mode, portrait);
+            let mut sk = load(&path, &HashMap::new(), &size)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            assert!(sk.perspective, "{}", path.display());
+            assert_eq!(sk.kind.mode(), Some(mode));
+            assert_eq!(sk.lanes.len(), mode.lane_count());
+            assert_eq!(sk.width > sk.height, !portrait);
+            assert!(sk.images.iter().all(Option::is_some), "{}", path.display());
+            assert!(sk.objects.iter().any(|o| matches!(o.kind, Kind::Notes)));
+            assert!(sk.objects.iter().all(|o| o.dst.anchor.is_some()));
+            // START / SELECT's corners are left free
+            let (w, h) = (sk.width, sk.height);
+            for right in [false, true] {
+                for [x, y, bw, bh] in crate::perspective::system_buttons(w, h, right) {
+                    let b = Rect::new(x, y, bw, bh);
+                    for o in &sk.objects {
+                        let Some(k) = o.dst.keys.first() else {
+                            continue;
+                        };
+                        let r = k.rect;
+                        let full = r.w >= w && r.h >= h;
+                        let apart = r.right() <= b.x
+                            || r.x >= b.right()
+                            || r.bottom() <= b.y
+                            || r.y >= b.bottom();
+                        assert!(full || apart, "{}: {r:?}", path.display());
+                    }
+                }
+            }
+            // a taller screen: the background stretches, the bottom
+            // half's objects come down with the lanes
+            let bg = sk.objects[0].dst.keys[0].rect;
+            let judge = sk.judges[0].judge[0].as_ref().unwrap().1.keys[2].rect;
+            sk.reflow(w, h + 200.0);
+            assert_eq!(sk.height, h + 200.0);
+            let bg2 = sk.objects[0].dst.keys[0].rect;
+            assert_eq!((bg2.y, bg2.h), (bg.y, bg.h + 200.0));
+            let judge2 = sk.judges[0].judge[0].as_ref().unwrap().1.keys[2].rect;
+            assert_eq!(judge2.y, judge.y + 100.0);
+        }
+    }
+}
+
+const JSON: &str = r#"{
+  // comments and trailing commas are accepted like beatoraja's parser
+  type: 0, name: "JS", w: 1280, h: 720,
+  property: [{ name: "Lane", item: [{name: "A", op: 900}, {name: "B", op: 901}], def: "B" }],
+  source: [{ id: "s", path: "p*.png" }],
+  image: [
+    { id: "bg", src: "s", x: 0, y: 0, w: 10, h: 10 },
+    { id: "n1", src: "s", x: 0, y: 0, w: 4, h: 2 },
+    { id: "j0", src: "s", x: 0, y: 0, w: 8, h: 4 },
+  ],
+  value: [{ id: "v", src: "s", x: 0, y: 0, w: 100, h: 10, divx: 10, digit: 4, ref: 101 }],
+  note: { id: "notes", note: ["n1","n1","n1","n1","n1","n1","n1","n1"], dst: [
+    {x:10,y:100,w:20,h:500},{x:30,y:100,w:20,h:500},{x:50,y:100,w:20,h:500},{x:70,y:100,w:20,h:500},
+    {x:90,y:100,w:20,h:500},{x:110,y:100,w:20,h:500},{x:130,y:100,w:20,h:500},{x:150,y:100,w:20,h:500}] },
+  judge: [{ id: "judge", index: 0, images: [{ id: "j0", loop: -1, timer: 46, dst: [{x: 0, y: 300, w: 80, h: 40}] }] }],
+  destination: [
+    { if: [900], value: { id: "bg", dst: [{ x: 0, y: 0, w: 1280, h: 720 }] } },
+    { if: [901], value: { id: "bg", dst: [{ time: 0, x: 0, y: 0, w: 640, h: 360 }, { time: 500, x: 100 }] } },
+    { id: "notes" },
+    { id: "v", op: [32], dst: [{ x: 20, y: 20, w: 16, h: 24 }] },
+    { id: "judge" },
+  ],
+}"#;
+
+#[test]
+fn loads_json_skin() {
+    let dir = std::env::temp_dir().join(format!("vibebms-bskin-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("play.json"), JSON).unwrap();
+    std::fs::write(dir.join("parts.png"), b"x").unwrap();
+    let sz = |_: &Path| Some((256, 256));
+    let s = load(&dir.join("play.json"), &HashMap::new(), &sz).unwrap();
+    assert_eq!(s.kind, SkinType::Play7);
+    assert!(s.images[0].as_ref().unwrap().ends_with("parts.png"));
+    // def "B" (901) selected: animated bg, inherits y/w/h in the 2nd key, y flipped
+    let bg = &s.objects[0];
+    assert_eq!(bg.dst.keys.len(), 2);
+    assert_eq!(bg.dst.keys[1].rect, Rect::new(100.0, 360.0, 640.0, 360.0));
+    assert!(matches!(s.objects[1].kind, Kind::Notes));
+    assert_eq!(
+        s.lanes[0].rect.unwrap(),
+        Rect::new(10.0, 120.0, 20.0, 500.0)
+    );
+    assert!(matches!(
+        s.objects[2].kind,
+        Kind::Number {
+            id: 101,
+            keta: 4,
+            digits: 10,
+            ..
+        }
+    ));
+    assert_eq!(s.objects[2].dst.ops, vec![32]);
+    assert!(s.judges[0].judge[0].is_some());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn bmfont_texts() {
+    let dir = std::env::temp_dir().join(format!("vibebms-bmf-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fnt = "info face=\"My Font\" size=-32 bold=0\ncommon lineHeight=36 base=29 pages=1\n\
+page id=0 file=\"f_0.png\"\nchars count=1\n\
+char id=65 x=2 y=3 width=20 height=24 xoffset=1 yoffset=5 xadvance=22 page=0 chnl=15\n";
+    std::fs::write(dir.join("f.fnt"), fnt).unwrap();
+    let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+        "font": [{"id": 0, "path": "f.fnt"}],
+        "text": [{"id": "t", "ref": 10, "font": 0, "size": 24}],
+        "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+    std::fs::write(dir.join("r.json"), json).unwrap();
+    let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(matches!(
+        &s.objects[0].kind,
+        Kind::Text {
+            font: Some(0),
+            size: Some(24.0),
+            ..
+        }
+    ));
+    let f = &s.fonts[0];
+    assert_eq!((f.size, f.em), (36.0, 32.0));
+    // glyphs scale by the text's size over the font's (beatoraja), not
+    // by the destination height over the line height
+    use crate::skin::render::bmfont_scale;
+    assert_eq!(bmfont_scale(f, 10.0, Some(24.0)), 0.75);
+    assert_eq!(bmfont_scale(f, 18.0, None), 0.5);
+    let lr2 = BitmapFont {
+        size: 20.0,
+        ..Default::default()
+    };
+    assert_eq!(bmfont_scale(&lr2, 10.0, Some(24.0)), 0.5);
+    let (img, rect) = f.glyphs[&'A'];
+    assert!(s.images[img].as_ref().unwrap().ends_with("f_0.png"));
+    assert_eq!(
+        (rect, f.metrics[&'A']),
+        ([2.0, 3.0, 20.0, 24.0], [1.0, 5.0, 22.0])
+    );
+}
+
+#[test]
+fn text_outline_and_shadow() {
+    let dir = std::env::temp_dir().join(format!("vibebms-tfx-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fnt = "info face=\"F\" size=32\ncommon lineHeight=32 base=29 pages=1\n\
+page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoffset=0 xadvance=22 page=0\n";
+    std::fs::write(dir.join("d.fnt"), fnt).unwrap();
+    let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+        "font": [{"id": 0, "path": "f.ttf"}, {"id": 1, "path": "d.fnt", "type": 1}],
+        "text": [{"id": "t", "ref": 10, "font": 0, "outlineColor": "000000ff",
+                  "outlineWidth": 0.4, "shadowColor": "ff0000", "shadowOffsetX": 4,
+                  "shadowOffsetY": -2.5, "shadowSmoothness": 0.5},
+                 {"id": "u", "ref": 10, "font": 1}],
+        "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                        {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+    std::fs::write(dir.join("r.json"), json).unwrap();
+    let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let Kind::Text { fx, .. } = &s.objects[0].kind else {
+        panic!()
+    };
+    assert_eq!(
+        *fx,
+        TextFx {
+            outline_color: [0.0, 0.0, 0.0, 1.0],
+            outline_width: 0.4,
+            shadow_color: [1.0, 0.0, 0.0, 1.0],
+            shadow_offset: (4.0, -2.5),
+            shadow_smoothness: 0.5,
+        }
+    );
+    assert!(fx.has_shadow());
+    let st = fx.sdf();
+    assert!((st.outline_distance - 0.3).abs() < 1e-6);
+    assert_eq!(st.shadow_smoothing, 0.25);
+    // nothing given: beatoraja's defaults (transparent white, no shadow)
+    let Kind::Text { fx, font, .. } = &s.objects[1].kind else {
+        panic!()
+    };
+    assert_eq!(*fx, TextFx::default());
+    assert!(!fx.has_shadow());
+    assert_eq!(fx.sdf().outline_distance, 0.5);
+    // a font of type 1 is a distance field
+    assert!(s.fonts[font.unwrap()].sdf);
+}
+
+#[test]
+fn constant_texts() {
+    let dir = std::env::temp_dir().join(format!("vibebms-ctext-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
+        "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}],
+        "text": [{"id": "t", "constantText": "A\nB", "ref": 10, "font": 0},
+                 {"id": "u", "ref": 10, "font": 1}],
+        "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                        {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+    std::fs::write(dir.join("r.json"), json).unwrap();
+    let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let Kind::Text { constant, face, .. } = &s.objects[0].kind else {
+        panic!()
+    };
+    assert_eq!(constant.as_deref(), Some("A\nB"));
+    // TrueType fonts are drawn with, bitmap ones are not
+    assert!(face.as_ref().is_some_and(|p| p.ends_with("f.TTF")));
+    assert!(matches!(&s.objects[1].kind, Kind::Text { face: None, .. }));
+}
+
+struct ScriptSt {
+    flag: bool,
+}
+impl SkinState for ScriptSt {
+    fn timer(&self, id: i32) -> Option<i64> {
+        (id == 41).then_some(500)
+    }
+    fn option(&self, id: i32) -> bool {
+        id == 5 && self.flag
+    }
+    fn number(&self, id: i32) -> Option<i64> {
+        (id == 71).then_some(21)
+    }
+    fn text(&self, _: i32) -> Option<String> {
+        None
+    }
+    fn rate(&self, _: i32) -> f32 {
+        0.0
+    }
+}
+
+#[test]
+fn lua_skin_scripts() {
+    use crate::skin::script::Overlay;
+    let dir = std::env::temp_dir().join(format!("vibebms-lscript-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lua = r#"
+        local main_state = require("main_state")
+        local timer_util = require("timer_util")
+        local s = { type = 0, name = "S", w = 100, h = 100 }
+        if not skin_config then return s end
+        s.source = { { id = 1, path = "a.png" } }
+        s.image = { { id = "img", src = 1, x = 0, y = 0, w = 10, h = 10, act = function() main_state.event_exec(15) end } }
+        -- a stray positional entry must not turn the table into an array
+        s.image[2] = { id = "img2", src = 1, x = 0, y = 0, w = 10, h = 10, 12345 }
+        s.value = { { id = "num", src = 1, x = 0, y = 0, w = 100, h = 10, divx = 10, digit = 3,
+                      value = function() return main_state.number(71) * 2 end } }
+        s.text = { { id = "txt", font = 0, size = 10, value = function() return "ex " .. main_state.number(71) end } }
+        local on = timer_util.timer_observe_boolean(function() return main_state.option(5) end)
+        s.destination = {
+          { id = "img", timer = on, dst = { { x = 0, y = 0, w = 10, h = 10 } } },
+          { id = "num", draw = function() return main_state.timer_is_on(41) end, dst = { { x = 0, y = 0, w = 10, h = 10 } } },
+          { id = "txt", dst = { { x = 0, y = 0, w = 10, h = 10 } } },
+        }
+        return s
+    "#;
+    std::fs::write(dir.join("play.luaskin"), lua).unwrap();
+    let sz = |_: &Path| Some((100, 20));
+    let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
+    let raw = read_skin(
+        &dir.join("play.luaskin"),
+        Some((
+            &HashMap::new(),
+            &Header::of(&Value::Null),
+            &HashMap::new(),
+            &HashMap::new(),
+        )),
+        None,
+    )
+    .unwrap()
+    .0;
+    assert_eq!(raw["image"][1]["id"], "img2");
+    // what the sandbox keeps out
+    let escape = r#"
+        local ok = os.execute == nil and os.remove == nil and os.getenv == nil
+            and io.popen("ls") == nil and io.open("/etc/passwd") == nil
+            and io.open("../../x.txt") == nil and debug.sethook == nil and string.dump == nil
+            and package.loadlib == nil and package.searchpath == nil
+            and load("\27Lua", "b", "b") == nil
+        package.path = "/etc/?"
+        return ok and not pcall(require, "passwd") and not pcall(dofile, "../../x.lua")
+            and loadfile("/etc/passwd") == nil and loadfile("../../x.lua") == nil
+            and loadfile("play.luaskin") ~= nil"#;
+    std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
+    let (v, _) = read_skin(&dir.join("esc.luaskin"), None, None).unwrap();
+    assert_eq!(v, Value::Bool(true));
+    // endless loops are stopped
+    std::fs::write(dir.join("loop.luaskin"), "while true do end").unwrap();
+    assert!(read_skin(&dir.join("loop.luaskin"), None, None).is_err());
+    std::fs::remove_dir_all(&dir).ok();
+    let rt = s.script.clone().expect("scripts");
+    let (img, num, txt) = (&s.objects[0], &s.objects[1], &s.objects[2]);
+    let Kind::Number { id: num_id, .. } = num.kind else {
+        panic!("number")
+    };
+    let Kind::Text { id: txt_id, .. } = txt.kind else {
+        panic!("text")
+    };
+    let st = ScriptSt { flag: false };
+    rt.update(&st, 100);
+    let sc = Overlay {
+        st: &st,
+        rt: Some(&rt),
+        offsets: &HashMap::new(),
+    };
+    assert_eq!(sc.number(num_id), Some(42));
+    assert_eq!(sc.text(txt_id).as_deref(), Some("ex 21"));
+    assert!(num.dst.ops.iter().all(|o| sc.option(*o)));
+    assert_eq!(sc.timer(img.dst.timer), None);
+    // the observed condition turns on at 300 ms: the timer starts there
+    let st = ScriptSt { flag: true };
+    rt.update(&st, 300);
+    rt.update(&st, 400);
+    let sc = Overlay {
+        st: &st,
+        rt: Some(&rt),
+        offsets: &HashMap::new(),
+    };
+    assert_eq!(sc.timer(img.dst.timer), Some(300));
+    // click: the script runs on the next frame and asks for event 15
+    let (act, _) = img.act.unwrap();
+    assert!(rt.click(act));
+    rt.update(&st, 500);
+    assert_eq!(rt.take_events(), vec![15]);
+}
+
+#[test]
+fn lua_skin_config_files() {
+    let root = std::env::temp_dir().join(format!("vibebms-lcfg-{}", std::process::id()));
+    let dir = root.join("play");
+    std::fs::create_dir_all(dir.join("judge")).unwrap();
+    for f in ["a.png", "b.png"] {
+        std::fs::write(dir.join("judge").join(f), b"x").unwrap();
+    }
+    std::fs::write(dir.join("judge/b.lua"), "return { w = 77 }").unwrap();
+    std::fs::write(root.join("outside.txt"), "return 1").unwrap();
+    let lua = r#"
+        local header = { type = 0, name = "C", w = 100, h = 100,
+          filepath = { { name = "Judge", path = "judge/*.png", def = "b" } },
+          offset = { { name = "Lift", id = 40, x = false, y = true } } }
+        if not skin_config then return header end
+        local o = skin_config.offset["Lift"]
+        local p = string.match(skin_config.get_path("judge/" .. skin_config.file_path["Judge"]), "(.+)%.png$") .. ".lua"
+        local ok, setting = pcall(dofile, p)
+        local escaped = pcall(dofile, "../outside.txt")
+        header.source = { { id = 1, path = "judge/*.png" } }
+        header.image = { { id = "i", src = 1, x = 0, y = 0, w = -1, h = -1 } }
+        header.destination = { { id = "i", dst = { { x = o.y, y = 0, w = setting.w, h = escaped and 1 or 2 } } } }
+        return header
+    "#;
+    std::fs::write(dir.join("play.luaskin"), lua).unwrap();
+    let sz = |_: &Path| Some((10, 10));
+    let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
+    let r = s.objects[0].dst.keys[0].rect;
+    assert_eq!((r.x, r.w, r.h), (0.0, 77.0, 2.0));
+    // the user's offset values reach the script and the skin
+    let mut offs = HashMap::new();
+    offs.insert("Lift".to_string(), [0, 7, 0, 0, 0, 0]);
+    let user = UserSettings {
+        offsets: offs,
+        ..Default::default()
+    };
+    let s2 = load_with(&dir.join("play.luaskin"), &user, None, &sz).unwrap();
+    assert_eq!(s2.objects[0].dst.keys[0].rect.x, 7.0);
+    assert_eq!(s2.offsets[&40], [0.0, 7.0, 0.0, 0.0, 0.0, 0.0]);
+    assert_eq!(custom_offsets(&dir.join("play.luaskin")).len(), 1);
+    std::fs::remove_dir_all(&root).ok();
+    // the wildcard source follows the filepath default too
+    assert!(s.images[0].as_ref().unwrap().ends_with("judge/b.png"));
+}
+
+#[test]
+fn a_lua_skin_runs_once_without_settings() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lonce-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // a run without settings names its property at random
+    let lua = r#"
+        local s = { type = 0, name = "O", w = 100, h = 100, property = {
+          { name = skin_config and "x" or tostring(math.random()), item = { { name = "a", op = 900 } } } } }
+        if not skin_config then return s end
+        s.source = { { id = 1, path = "a.png" } }
+        s.image = { { id = "i", src = 1, x = 0, y = 0, w = 1, h = 1 } }
+        s.destination = { { id = "i", dst = { { x = 0, y = 0, w = 1, h = 1 } } } }
+        return s
+    "#;
+    let p = dir.join("play.luaskin");
+    std::fs::write(&p, lua).unwrap();
+    let name = custom_options(&p)[0].name.clone();
+    let sz = |_: &Path| Some((1, 1));
+    let s = load(&p, &HashMap::new(), &sz).unwrap();
+    assert_eq!(s.custom_options[0].name, name);
+    assert_eq!(header(&p), Some((SkinType::Play7, "O".into())));
+    assert_eq!(custom_options(&p)[0].name, name);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn json_skin_scripts() {
+    use crate::skin::script::Overlay;
+    let dir = std::env::temp_dir().join(format!("vibebms-jscript-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let json = r#"{
+        "type": 0, "name": "J", "w": 100, "h": 100,
+        "source": [{"id": 1, "path": "a.png"}],
+        "value": [{"id": "n", "src": 1, "x": 0, "y": 0, "w": 100, "h": 10, "divx": 10, "digit": 3,
+                   "value": "number(71) + 1"}],
+        "customTimers": [{"id": 10001, "timer": "timer_observe_boolean(function() return option(5) end)"}],
+        "destination": [{"id": "n", "op": [32, "option(5)"], "timer": 10001,
+                         "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]
+    }"#;
+    std::fs::write(dir.join("play.json"), json).unwrap();
+    let sz = |_: &Path| Some((100, 20));
+    let s = load(&dir.join("play.json"), &HashMap::new(), &sz).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let rt = s.script.clone().expect("scripts");
+    let o = &s.objects[0];
+    let Kind::Number { id, .. } = o.kind else {
+        panic!("number")
+    };
+    assert_eq!(o.dst.ops.len(), 2);
+    assert_eq!(o.dst.ops[0], 32);
+    let st = ScriptSt { flag: true };
+    rt.update(&st, 250);
+    let sc = Overlay {
+        st: &st,
+        rt: Some(&rt),
+        offsets: &HashMap::new(),
+    };
+    assert_eq!(sc.number(id), Some(22));
+    assert!(sc.option(o.dst.ops[1]));
+    assert_eq!(sc.timer(10001), Some(250));
+    let st = ScriptSt { flag: false };
+    rt.update(&st, 300);
+    let sc = Overlay {
+        st: &st,
+        rt: Some(&rt),
+        offsets: &HashMap::new(),
+    };
+    assert!(!sc.option(o.dst.ops[1]));
+    assert_eq!(sc.timer(10001), None);
+}
+
+#[test]
+fn loads_lua_skin() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lskin-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lua = r#"
+        local main_state = require("main_state")
+        local header = { type = 0, name = "LuaSkin", w = 1280, h = 720,
+          property = { { name = "Mode", item = { { name = "X", op = 910 }, { name = "Y", op = 911 } } } } }
+        if not skin_config then return header end
+        header.source = { { id = 1, path = "a.png" } }
+        header.image = { { id = "bg", src = 1, x = 0, y = 0, w = -1, h = -1 } }
+        local dst = { { x = 0, y = 0, w = 1280, h = 720 } }
+        if skin_config.option["Mode"] == 911 then dst[1].w = 10 end
+        header.destination = { { id = "bg", dst = dst, draw = function() return main_state.option(1) end } }
+        return header
+    "#;
+    std::fs::write(dir.join("play.luaskin"), lua).unwrap();
+    let sz = |_: &Path| Some((64, 32));
+    assert_eq!(header(&dir.join("play.luaskin")).unwrap().1, "LuaSkin");
+    let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
+    assert_eq!(s.objects.len(), 1);
+    assert_eq!(s.objects[0].dst.keys[0].rect.w, 1280.0);
+    let mut opt = HashMap::new();
+    opt.insert(911, true);
+    let s = load(&dir.join("play.luaskin"), &opt, &sz).unwrap();
+    assert_eq!(s.objects[0].dst.keys[0].rect.w, 10.0);
+    std::fs::remove_dir_all(&dir).ok();
+}
