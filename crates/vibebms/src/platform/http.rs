@@ -244,14 +244,14 @@ pub fn stream(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::sync::mpsc;
 
     /// A server giving `answers` in turn, one per connection; each request
     /// as it came (head and body) is sent back.
-    fn serve(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
+    pub(crate) fn serve(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", l.local_addr().unwrap());
         let (tx, rx) = mpsc::channel();

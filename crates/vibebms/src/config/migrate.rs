@@ -82,7 +82,7 @@ fn ir_server(v: &mut toml::Value) {
     }
     let flag = |k: &str| old.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
     let account: toml::Table = [
-        ("provider", "vibe-json".into()),
+        ("provider", "vibe-json:0".into()),
         ("name", text("name").into()),
         ("url", text("url").into()),
         ("enabled", flag("enabled").into()),
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn the_ir_server_becomes_an_account() {
-        use crate::config::Provider;
+        use vibebms_ir::ProviderId;
         let old =
             "[ir_server]\nenabled = true\nname = \"Mine\"\nurl = \"https://ir.example/api/\"\n\
                    token = \"s3cr3t\"\nauto_submit = false\n";
@@ -140,9 +140,9 @@ mod tests {
         let a = &c.ir.accounts[0];
         assert_eq!(
             (a.provider, a.name.as_str(), a.enabled, a.submit),
-            (Provider::VibeJson, "Mine", true, false)
+            (ProviderId::VibeJson(0), "Mine", true, false)
         );
-        assert_eq!(a.key(), "vibe-json https://ir.example/api");
+        assert_eq!(a.title(), "Mine");
         assert_eq!(a.old_token.0, "s3cr3t");
         assert_eq!(format!("{a:?}").matches("s3cr3t").count(), 0);
         // never written

@@ -1,13 +1,21 @@
+//! The IR page: when plays are sent, whose rankings show, each account
+//! (a pasted key, on / off, send plays), and the outbox.
+
 use super::{Act, Row, TextField};
 use crate::app::Ctx;
-use crate::config::{IrAccount, Provider, SubmitPolicy};
+use crate::config::{provider_name, IrAccount, SubmitPolicy};
 use crate::ir::creds;
-use crate::platform::{store, IS_WEB};
+use crate::platform::{store, unix_ms, IS_WEB};
 use crate::scene::option_panel::{cycle, onoff};
+use vibebms_ir::outbox::State;
+use vibebms_ir::ProviderId;
 
-/// The providers with an account of their own (vibeBMS IRs are listed
-/// after them, as many as the player adds).
-const PROVIDERS: [Provider; 1] = [Provider::Bokutachi];
+/// The providers with an account of their own, before the vibeBMS IR
+/// servers (as many as the player adds).
+const PROVIDERS: [ProviderId; 1] = [ProviderId::Bokutachi];
+
+/// The outbox items listed at most.
+const LISTED: usize = 50;
 
 fn toggle_enabled(c: &mut Ctx, i: usize) {
     if let Some(a) = c.config.ir.accounts.get_mut(i) {
@@ -21,23 +29,28 @@ fn toggle_submit(c: &mut Ctx, i: usize) {
     }
 }
 
-fn turn_on(c: &mut Ctx, p: usize) {
-    c.config.ir.account_mut(PROVIDERS[p]).enabled = true;
+fn add_provider(c: &mut Ctx, n: usize) {
+    c.config.ir.accounts.push(IrAccount {
+        provider: PROVIDERS[n],
+        ..Default::default()
+    });
 }
 
-/// Forget the account's key (a vibeBMS IR: the account too).
+/// Forget the account's key (a vibeBMS IR server: the server, and its
+/// plays waiting).
 fn remove(c: &mut Ctx, i: usize) {
-    let Some(a) = c.config.ir.accounts.get(i) else {
+    let Some(a) = c.config.ir.accounts.get_mut(i) else {
         return;
     };
-    let (key, server) = (a.key(), a.provider == Provider::VibeJson);
-    if let Err(e) = c.net.ir.creds.set(&key, None) {
+    let p = a.provider;
+    a.user.clear();
+    a.user_id.clear();
+    if let Err(e) = c.net.ir.keys.set(p, None) {
         c.toast(format!("Credentials: {e}"));
     }
-    if server {
+    if matches!(p, ProviderId::VibeJson(_)) {
         c.config.ir.accounts.remove(i);
-    } else {
-        c.config.ir.accounts[i].user.clear();
+        c.net.ir.forget(p);
     }
 }
 
@@ -48,24 +61,38 @@ fn step_policy(c: &mut Ctx, d: i32) {
 /// The next enabled account as the rankings' source.
 fn step_primary(c: &mut Ctx, d: i32) {
     let ir = &mut c.config.ir;
-    let on: Vec<usize> = (0..ir.accounts.len())
-        .filter(|&i| ir.accounts[i].enabled)
+    let on: Vec<ProviderId> = (ir.accounts.iter())
+        .filter(|a| a.enabled)
+        .map(|a| a.provider)
         .collect();
-    let now = ir
-        .primary()
-        .and_then(|p| ir.accounts.iter().position(|a| std::ptr::eq(a, p)));
-    if let Some(now) = now {
-        ir.primary = ir.accounts[cycle(&on, now, d)].key();
+    if let Some(now) = ir.primary().map(|a| a.provider) {
+        ir.primary = Some(cycle(&on, now, d));
     }
 }
 
-/// What the account is, as far as is known here.
-fn state(ctx: &Ctx, a: &IrAccount) -> String {
-    let key = ctx.net.ir.creds.get(&a.key()).is_some();
+/// The `n`-th item listed.
+fn item_id(c: &Ctx, n: usize) -> Option<String> {
+    c.net.ir.items().nth(n).map(|i| i.id.clone())
+}
+
+fn retry_item(c: &mut Ctx, n: usize) {
+    if let Some(id) = item_id(c, n) {
+        c.net.ir.retry(&id, unix_ms());
+    }
+}
+
+fn remove_item(c: &mut Ctx, n: usize) {
+    if let Some(id) = item_id(c, n) {
+        c.net.ir.remove(&id);
+    }
+}
+
+/// What the account's key is, as far as is known here.
+fn key_state(ctx: &Ctx, a: &IrAccount) -> String {
     match () {
+        _ if !ctx.net.ir.keys.has(a.provider) => "none: paste one".into(),
         _ if !a.user.is_empty() => format!("connected as {}", a.user),
-        _ if key => "key kept".into(),
-        _ => "no API key".into(),
+        _ => "kept".into(),
     }
 }
 
@@ -86,23 +113,22 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             "",
         ));
     }
-    for (p, &provider) in PROVIDERS.iter().enumerate() {
-        let Some(i) = ir.accounts.iter().position(|a| a.provider == provider) else {
-            v.push(Row::new(
-                provider.name(),
-                onoff(false),
-                Act::Run(turn_on, p),
-            ));
-            continue;
-        };
-        account_rows(ctx, &mut v, i);
+    for (n, &p) in PROVIDERS.iter().enumerate() {
+        match ir.accounts.iter().position(|a| a.provider == p) {
+            Some(i) => account_rows(ctx, &mut v, i),
+            None => v.push(Row::new(
+                provider_name(p),
+                "add +",
+                Act::Run(add_provider, n),
+            )),
+        }
     }
     v.push(Row::note(
-        "    Bokutachi takes plays under beatoraja rules (PMS) for now, LR2 rules (7K/14K) later; never touch plays",
+        "    Bokutachi: only plays under beatoraja rules (PMS), later LR2 rules (7K/14K); never touch plays",
         "",
     ));
     for (i, a) in ir.accounts.iter().enumerate() {
-        if a.provider == Provider::VibeJson {
+        if matches!(a.provider, ProviderId::VibeJson(_)) {
             account_rows(ctx, &mut v, i);
         }
     }
@@ -111,10 +137,8 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         "+",
         Act::Text(TextField::AddIrServer),
     ));
-    v.extend([
-        Row::note("BMS-IR, rianIR", "waiting for their operators"),
-        Row::note("vibeBMS IR protocol: docs/IR_PROTOCOL.md", ""),
-    ]);
+    v.push(Row::note("BMS-IR, rianIR", "waiting for their operators"));
+    outbox_rows(ctx, &mut v);
     v
 }
 
@@ -125,7 +149,7 @@ fn account_rows(ctx: &Ctx, v: &mut Vec<Row>, i: usize) {
         onoff(a.enabled),
         Act::Run(toggle_enabled, i),
     ));
-    if a.provider == Provider::VibeJson {
+    if matches!(a.provider, ProviderId::VibeJson(_)) {
         v.push(Row::new(
             "    Name",
             a.name.clone(),
@@ -138,27 +162,62 @@ fn account_rows(ctx: &Ctx, v: &mut Vec<Row>, i: usize) {
         ));
     }
     v.push(Row::new(
-        "    API key (paste)",
-        state(ctx, a),
+        "    API key",
+        key_state(ctx, a),
         Act::Text(TextField::IrKey(i)),
     ));
-    if a.provider == Provider::Bokutachi && IS_WEB {
+    if a.provider == ProviderId::Bokutachi {
         v.push(Row::note(
-            "    Plays in the browser are not sent to Bokutachi",
+            "    Bokutachi support comes in a later build",
             "",
         ));
+        if IS_WEB {
+            v.push(Row::note(
+                "    Plays in the browser are not sent to Bokutachi",
+                "",
+            ));
+        }
     }
     v.push(Row::new(
         "    Send plays",
         onoff(a.submit),
         Act::Run(toggle_submit, i),
     ));
-    let forget = if a.provider == Provider::VibeJson {
+    let forget = if matches!(a.provider, ProviderId::VibeJson(_)) {
         "    Remove this server"
     } else {
         "    Forget the key"
     };
     v.push(Row::new(forget, "×", Act::Run(remove, i)));
+}
+
+/// "Outbox: 3 waiting, 1 failed", Send now, and the items, newest first.
+fn outbox_rows(ctx: &Ctx, v: &mut Vec<Row>) {
+    let ir = &ctx.net.ir;
+    let (mut waiting, mut failed) = (0, 0);
+    for i in ir.items() {
+        waiting += !i.state.is_final() as usize;
+        failed += i.state.failed() as usize;
+    }
+    v.push(Row::new(
+        format!("Outbox: {waiting} waiting, {failed} failed"),
+        "send now ↻",
+        Act::Run(|c, _| c.net.ir.send_now(unix_ms()), 0),
+    ));
+    for (n, i) in ir.items().take(LISTED).enumerate() {
+        let to =
+            (ctx.config.ir.account(i.provider)).map_or(provider_name(i.provider), IrAccount::title);
+        v.push(Row::note(
+            format!("    {} → {to}", i.summary.title),
+            ir.item_words(i),
+        ));
+        if i.state.failed() {
+            v.push(Row::new("        Retry", "↻", Act::Run(retry_item, n)));
+        }
+        if i.state != State::Done {
+            v.push(Row::new("        Discard", "×", Act::Run(remove_item, n)));
+        }
+    }
 }
 
 /// A text the player entered for the IR page.
@@ -171,19 +230,8 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             }
         }
         TextField::IrUrl(i) => {
-            let Some(a) = ir.accounts.get_mut(i) else {
-                return;
-            };
-            // the key goes with the server
-            let old = a.key();
-            a.url = s;
-            let new = a.key();
-            let creds = &mut ctx.net.ir.creds;
-            if let Some(k) = creds.get(&old).filter(|_| old != new).map(str::to_string) {
-                let r = creds.set(&new, Some(k)).and_then(|_| creds.set(&old, None));
-                if let Err(e) = r {
-                    ctx.toast(format!("Credentials: {e}"));
-                }
+            if let Some(a) = ir.accounts.get_mut(i) {
+                a.url = s;
             }
         }
         TextField::IrKey(i) => {
@@ -191,20 +239,21 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
                 return;
             };
             a.user.clear();
-            let key = a.key();
-            if let Err(e) = ctx
-                .net
-                .ir
-                .creds
-                .set(&key, Some(s).filter(|s| !s.is_empty()))
-            {
+            a.user_id.clear();
+            let p = a.provider;
+            if let Err(e) = ctx.net.ir.keys.set(p, Some(s).filter(|s| !s.is_empty())) {
                 ctx.toast(format!("Credentials: {e}"));
             }
+            ctx.net.ir.verify(&ctx.config.ir, p);
         }
-        TextField::AddIrServer if !s.is_empty() => ir.accounts.push(IrAccount {
-            url: s,
-            ..Default::default()
-        }),
+        TextField::AddIrServer if !s.is_empty() => {
+            let Some(n) = ir.free_slot() else { return };
+            ir.accounts.push(IrAccount {
+                provider: ProviderId::VibeJson(n),
+                url: s,
+                ..Default::default()
+            });
+        }
         _ => {}
     }
 }

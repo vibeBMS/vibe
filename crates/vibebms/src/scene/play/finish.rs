@@ -8,8 +8,7 @@ use crate::replay::Replay;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::record::{
-    self, thin_gauge_log, ClientId, CourseStage, DeviceFacts, Platform, PlayFlags, PlayRecord,
-    PlayResult,
+    self, thin_gauge_log, CourseStage, DeviceFacts, Platform, PlayFlags, PlayRecord, PlayResult,
 };
 use vibebms_core::score::{Assist, ClearType};
 
@@ -94,10 +93,7 @@ impl PlayScene {
                 gauge_log: thin_gauge_log(&gauge_log),
                 play_ms: last_us.max(0) as u64 / 1000,
             },
-            client: ClientId {
-                name: "vibeBMS".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-            },
+            client: crate::ir::build_id::client(),
             ended_ms,
             wall_ms,
             course: self.req.course.as_ref().map(|c| CourseStage {

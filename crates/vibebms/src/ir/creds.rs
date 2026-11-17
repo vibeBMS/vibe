@@ -17,15 +17,16 @@ use crate::paths::Paths;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io;
+use vibebms_ir::provider::Creds;
+use vibebms_ir::{ProviderId, Secret};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Doc {
-    /// Account (`IrAccount::key`) -> its key.
-    keys: BTreeMap<String, String>,
+    keys: BTreeMap<ProviderId, String>,
 }
 
 /// The accounts' keys.
-pub struct Creds {
+pub struct Keys {
     at: imp::Place,
     doc: Doc,
 }
@@ -33,8 +34,8 @@ pub struct Creds {
 /// Where the keys are, said to the player.
 pub const KEPT: &str = imp::KEPT;
 
-impl Creds {
-    pub fn open(paths: &Paths) -> Creds {
+impl Keys {
+    pub fn open(paths: &Paths) -> Keys {
         let at = imp::place(paths);
         let doc = match imp::read(&at) {
             Ok(Some(t)) => serde_json::from_str(&t).unwrap_or_else(|e| {
@@ -47,18 +48,24 @@ impl Creds {
                 Doc::default()
             }
         };
-        Creds { at, doc }
+        Keys { at, doc }
     }
 
-    pub fn get(&self, account: &str) -> Option<&str> {
-        self.doc.keys.get(account).map(String::as_str)
+    /// The credentials of `p`'s account, for its requests.
+    pub fn get(&self, p: ProviderId) -> Option<Creds> {
+        let k = self.doc.keys.get(&p)?;
+        Some(Creds::token(Secret::new(k.as_str())))
     }
 
-    /// Keep `key` for `account` (`None`: forget it).
-    pub fn set(&mut self, account: &str, key: Option<String>) -> io::Result<()> {
+    pub fn has(&self, p: ProviderId) -> bool {
+        self.doc.keys.contains_key(&p)
+    }
+
+    /// Keep `key` for `p`'s account (`None`: forget it).
+    pub fn set(&mut self, p: ProviderId, key: Option<String>) -> io::Result<()> {
         match key {
-            Some(k) => self.doc.keys.insert(account.to_string(), k),
-            None => self.doc.keys.remove(account),
+            Some(k) => self.doc.keys.insert(p, k),
+            None => self.doc.keys.remove(&p),
         };
         let text = serde_json::to_string(&self.doc).map_err(io::Error::other)?;
         imp::write(&self.at, &text)
@@ -202,15 +209,15 @@ mod tests {
     fn keys_are_kept_apart_and_private() {
         let root = std::env::temp_dir().join(format!("vibebms-creds-{}", std::process::id()));
         let paths = Paths::at(root.clone());
-        let mut c = Creds::open(&paths);
-        assert_eq!(c.get("bokutachi"), None);
-        c.set("bokutachi", Some("k1".into())).unwrap();
-        c.set("vibe-json https://ir.example", Some("k2".into()))
-            .unwrap();
-        c.set("vibe-json https://ir.example", None).unwrap();
-        let again = Creds::open(&paths);
-        assert_eq!(again.get("bokutachi"), Some("k1"));
-        assert_eq!(again.get("vibe-json https://ir.example"), None);
+        let mut c = Keys::open(&paths);
+        let (tachi, mine) = (ProviderId::Bokutachi, ProviderId::VibeJson(2));
+        assert!(c.get(tachi).is_none());
+        c.set(tachi, Some("k1".into())).unwrap();
+        c.set(mine, Some("k2".into())).unwrap();
+        c.set(mine, None).unwrap();
+        let again = Keys::open(&paths);
+        assert_eq!(again.get(tachi).unwrap().token.expose(), "k1");
+        assert!(!again.has(mine));
         let file = root.join("config/credentials.json");
         #[cfg(unix)]
         {
@@ -220,7 +227,7 @@ mod tests {
         }
         // a broken file: no keys
         std::fs::write(&file, "{").unwrap();
-        assert_eq!(Creds::open(&paths).get("bokutachi"), None);
+        assert!(!Keys::open(&paths).has(tachi));
         std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -11,7 +11,7 @@ mod play;
 mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
-pub use ir::{IrAccount, IrSettings, OldToken, Provider, SubmitPolicy};
+pub use ir::{provider_name, IrAccount, IrSettings, OldToken, SubmitPolicy};
 pub use keys::{KeyConfig, LaneKeys, SideKeys};
 pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
 pub use touch::{
@@ -448,18 +448,19 @@ mod tests {
             third_party_mirrors: !THIRD_PARTY_DEFAULT,
             name_song_folders: true,
             ir: IrSettings {
-                primary: "bokutachi".into(),
+                primary: Some(vibebms_ir::ProviderId::Bokutachi),
                 submit: SubmitPolicy::Ask,
                 accounts: vec![
                     IrAccount {
                         name: "Test IR".into(),
                         url: "https://ir.example.org/api".into(),
                         submit: false,
-                        user: "TESTER (7)".into(),
+                        user: "TESTER".into(),
+                        user_id: "7".into(),
                         ..Default::default()
                     },
                     IrAccount {
-                        provider: Provider::Bokutachi,
+                        provider: vibebms_ir::ProviderId::Bokutachi,
                         enabled: false,
                         ..Default::default()
                     },

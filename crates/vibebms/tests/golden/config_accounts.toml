@@ -388,12 +388,13 @@ primary = "bokutachi"
 submit = "ask"
 
 [[ir.accounts]]
-provider = "vibe-json"
+provider = "vibe-json:0"
 name = "Test IR"
 url = "https://ir.example.org/api"
 enabled = true
 submit = false
-user = "TESTER (7)"
+user = "TESTER"
+user_id = "7"
 
 [[ir.accounts]]
 provider = "bokutachi"
@@ -402,6 +403,7 @@ url = ""
 enabled = false
 submit = true
 user = ""
+user_id = ""
 
 [skins]
 7KEYS = "skins/a/play7.lr2skin"

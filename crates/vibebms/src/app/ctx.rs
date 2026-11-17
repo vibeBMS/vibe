@@ -31,6 +31,10 @@ pub enum AppEvent {
     OpenUrl(String),
     /// Skins were added or replaced.
     SkinsChanged,
+    /// An IR account was checked (who it is, whether its key holds): the
+    /// configuration keeps it. (The outbox's progress is read as it is
+    /// shown.)
+    IrChanged,
 }
 
 /// Shared state available to every scene.
@@ -365,6 +369,8 @@ impl Ctx {
         events.extend(self.net.song_fetch.poll());
         events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
         events.extend(self.skins.store.poll(&self.paths));
+        let now = crate::platform::unix_ms();
+        events.extend(self.net.ir.poll(now, &mut self.config.ir));
         self.handle(events);
         self.poll_scan();
         let events = self.tables.poll(&self.paths, &self.config.tables);
@@ -383,6 +389,7 @@ impl Ctx {
                     crate::platform::open_url(&url);
                 }
                 AppEvent::SkinsChanged => self.skins.files_changed(),
+                AppEvent::IrChanged => self.save_config(),
             }
         }
         if !pages.is_empty() {

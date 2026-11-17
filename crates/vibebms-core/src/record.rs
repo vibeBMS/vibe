@@ -258,6 +258,9 @@ pub fn thin_gauge_log(log: &[f32]) -> Vec<f32> {
 pub struct ClientId {
     pub name: String,
     pub version: String,
+    /// The SHA-256 of the executable that played it, where there is one of
+    /// its own to hash (the desktop builds).
+    pub exe_sha256: Option<String>,
 }
 
 /// A course's stage.

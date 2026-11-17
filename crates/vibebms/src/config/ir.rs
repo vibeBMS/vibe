@@ -3,15 +3,16 @@
 //! store (`ir::creds`), so a shared configuration carries none.
 
 use serde::{Deserialize, Serialize};
-use vibebms_ir::eligibility::ProviderKind;
+use vibebms_ir::ProviderId;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IrSettings {
-    /// The account whose rankings the music select shows (`IrAccount::key`;
-    /// empty: the first enabled one).
-    pub primary: String,
+    /// The account whose rankings the music select shows (`None`: the
+    /// first enabled one).
+    pub primary: Option<ProviderId>,
     pub submit: SubmitPolicy,
+    /// One per provider (vibeBMS IRs: one per slot).
     pub accounts: Vec<IrAccount>,
 }
 
@@ -39,53 +40,20 @@ impl SubmitPolicy {
     }
 }
 
-/// An IR the player uses.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Provider {
-    /// A server of vibeBMS's own protocol (`docs/IR_PROTOCOL.md`).
-    #[default]
-    #[serde(rename = "vibe-json")]
-    VibeJson,
-    #[serde(rename = "bokutachi")]
-    Bokutachi,
-    #[serde(rename = "bmsir")]
-    BmsIr,
-    #[serde(rename = "rianir")]
-    RianIr,
-}
-
-impl Provider {
-    pub fn kind(self) -> ProviderKind {
-        match self {
-            Provider::VibeJson => ProviderKind::VibeJson,
-            Provider::Bokutachi => ProviderKind::Bokutachi,
-            Provider::BmsIr => ProviderKind::BmsIr,
-            Provider::RianIr => ProviderKind::RianIr,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Provider::VibeJson => "vibeBMS IR",
-            Provider::Bokutachi => "Bokutachi",
-            Provider::BmsIr => "BMS-IR",
-            Provider::RianIr => "rianIR",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IrAccount {
-    pub provider: Provider,
+    pub provider: ProviderId,
     /// A vibeBMS IR's name and its API's base URL.
     pub name: String,
     pub url: String,
     pub enabled: bool,
     /// Its plays are sent (as `IrSettings::submit` says).
     pub submit: bool,
-    /// Who the server says the account is (shown only).
+    /// Who the server says the account is (its name, its id), once the
+    /// key was checked.
     pub user: String,
+    pub user_id: String,
     /// A key a configuration of before kept (`[ir_server]`'s token): moved
     /// to the credentials store as the app starts, never written here.
     #[serde(skip_serializing)]
@@ -95,39 +63,35 @@ pub struct IrAccount {
 impl Default for IrAccount {
     fn default() -> Self {
         IrAccount {
-            provider: Provider::default(),
+            provider: ProviderId::VibeJson(0),
             name: String::new(),
             url: String::new(),
             enabled: true,
             submit: true,
             user: String::new(),
+            user_id: String::new(),
             old_token: OldToken::default(),
         }
     }
 }
 
+/// The name of a provider, for people.
+pub fn provider_name(p: ProviderId) -> &'static str {
+    match p {
+        ProviderId::VibeJson(_) => "vibeBMS IR",
+        ProviderId::Bokutachi => "Bokutachi",
+        ProviderId::BmsIr => "BMS-IR",
+        ProviderId::RianIr => "rianIR",
+    }
+}
+
 impl IrAccount {
-    /// What names the account in the credentials store and as the
-    /// primary: the provider, a vibeBMS IR's URL with it.
-    pub fn key(&self) -> String {
-        match self.provider {
-            Provider::VibeJson => format!("vibe-json {}", self.base_url()),
-            Provider::Bokutachi => "bokutachi".into(),
-            Provider::BmsIr => "bmsir".into(),
-            Provider::RianIr => "rianir".into(),
-        }
-    }
-
-    /// `url` without spaces or a final `/`.
-    pub fn base_url(&self) -> &str {
-        self.url.trim().trim_end_matches('/')
-    }
-
     pub fn title(&self) -> &str {
+        let url = self.url.trim().trim_end_matches('/');
         match self.provider {
-            Provider::VibeJson if !self.name.is_empty() => &self.name,
-            Provider::VibeJson if !self.url.is_empty() => self.base_url(),
-            p => p.name(),
+            ProviderId::VibeJson(_) if !self.name.is_empty() => &self.name,
+            ProviderId::VibeJson(_) if !url.is_empty() => url,
+            p => provider_name(p),
         }
     }
 }
@@ -144,27 +108,23 @@ impl std::fmt::Debug for OldToken {
 }
 
 impl IrSettings {
+    pub fn account(&self, p: ProviderId) -> Option<&IrAccount> {
+        self.accounts.iter().find(|a| a.provider == p)
+    }
+
+    pub fn account_mut(&mut self, p: ProviderId) -> Option<&mut IrAccount> {
+        self.accounts.iter_mut().find(|a| a.provider == p)
+    }
+
     /// The account the music select's rankings come from.
     pub fn primary(&self) -> Option<&IrAccount> {
         let on = || self.accounts.iter().filter(|a| a.enabled);
-        on().find(|a| a.key() == self.primary)
+        on().find(|a| Some(a.provider) == self.primary)
             .or_else(|| on().next())
     }
 
-    /// The account of `p` (one of each but vibeBMS IRs), made when there
-    /// is none.
-    pub fn account_mut(&mut self, p: Provider) -> &mut IrAccount {
-        let i = match self.accounts.iter().position(|a| a.provider == p) {
-            Some(i) => i,
-            None => {
-                self.accounts.push(IrAccount {
-                    provider: p,
-                    enabled: false,
-                    ..Default::default()
-                });
-                self.accounts.len() - 1
-            }
-        };
-        &mut self.accounts[i]
+    /// A slot no vibeBMS IR account has.
+    pub fn free_slot(&self) -> Option<u8> {
+        (0..=u8::MAX).find(|&n| self.account(ProviderId::VibeJson(n)).is_none())
     }
 }
