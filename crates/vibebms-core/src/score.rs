@@ -1,6 +1,6 @@
 //! Score bookkeeping: EX score, combo, clear lamp, DJ level.
 
-use crate::judge::{BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+use crate::judge::Judge;
 use serde::{Deserialize, Serialize};
 
 /// Options that help the player (beatoraja assist levels): the lamp is
@@ -135,29 +135,39 @@ pub struct Score {
 impl Score {
     /// Record a judgement; `diff` > 0 is early (FAST), < 0 late (SLOW) and
     /// exactly 0 counts as neither.
-    pub fn add(&mut self, judge: usize, diff: i64) {
+    pub fn add(&mut self, judge: Judge, diff: i64) {
+        let j = judge as usize;
         match diff.signum() {
-            1 => self.counts[judge][0] += 1,
-            -1 => self.counts[judge][1] += 1,
-            _ => self.just[judge] += 1,
+            1 => self.counts[j][0] += 1,
+            -1 => self.counts[j][1] += 1,
+            _ => self.just[j] += 1,
         }
     }
 
-    pub fn count(&self, judge: usize) -> u32 {
-        self.counts[judge][0] + self.counts[judge][1] + self.just[judge]
+    pub fn count(&self, judge: Judge) -> u32 {
+        let j = judge as usize;
+        self.counts[j][0] + self.counts[j][1] + self.just[j]
     }
 
     /// GREAT to BAD hit early (a PGREAT is neither FAST nor SLOW).
     pub fn fast(&self) -> u32 {
-        (GREAT..=BAD).map(|j| self.counts[j][0]).sum()
+        self.great_to_bad(0)
     }
 
     pub fn slow(&self) -> u32 {
-        (GREAT..=BAD).map(|j| self.counts[j][1]).sum()
+        self.great_to_bad(1)
+    }
+
+    /// GREAT to BAD counted early (`side` 0) or late (1).
+    fn great_to_bad(&self, side: usize) -> u32 {
+        [Judge::Great, Judge::Good, Judge::Bad]
+            .into_iter()
+            .map(|j| self.counts[j as usize][side])
+            .sum()
     }
 
     pub fn ex_score(&self) -> u32 {
-        self.count(PGREAT) * 2 + self.count(GREAT)
+        Judge::ALL.into_iter().map(|j| self.count(j) * j.ex()).sum()
     }
 
     pub fn max_ex(&self) -> u32 {
@@ -183,9 +193,9 @@ impl Score {
 
     /// Miss count (BAD + POOR + empty POOR + notes never reached).
     pub fn miss_count(&self) -> u32 {
-        self.count(BAD)
-            + self.count(POOR)
-            + self.count(MISS)
+        self.count(Judge::Bad)
+            + self.count(Judge::Poor)
+            + self.count(Judge::Miss)
             + self.total_notes.saturating_sub(self.passed)
     }
 
@@ -205,9 +215,9 @@ impl Score {
             Assist::None => {}
         }
         let all = self.passed >= self.total_notes && self.total_notes > 0;
-        if all && self.count(BAD) + self.count(POOR) == 0 {
-            if self.count(GOOD) == 0 {
-                if self.count(GREAT) == 0 {
+        if all && self.count(Judge::Bad) + self.count(Judge::Poor) == 0 {
+            if self.count(Judge::Good) == 0 {
+                if self.count(Judge::Great) == 0 {
                     return ClearType::Max;
                 }
                 return ClearType::Perfect;
@@ -281,17 +291,17 @@ mod tests {
             passed: 2,
             ..Default::default()
         };
-        s.add(0, 1);
-        s.add(1, -1);
+        s.add(Judge::PGreat, 1);
+        s.add(Judge::Great, -1);
         assert_eq!(s.ex_score(), 3);
         assert_eq!(
             s.clear_type(Some(ClearType::Normal), Assist::None),
             ClearType::Perfect
         );
         s.counts[1] = [0, 0];
-        s.add(2, 1);
-        s.add(0, 0);
-        assert_eq!((s.count(0), s.fast() + s.slow()), (2, 1));
+        s.add(Judge::Good, 1);
+        s.add(Judge::PGreat, 0);
+        assert_eq!((s.count(Judge::PGreat), s.fast() + s.slow()), (2, 1));
         assert_eq!(
             s.clear_type(Some(ClearType::Hard), Assist::None),
             ClearType::FullCombo

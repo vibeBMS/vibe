@@ -134,7 +134,11 @@ fn autoplay_plays_every_chart_through() {
                 }
                 let what = format!("{keys}K {ln:?} {random:?} {player:?}");
                 assert!(e.score.total_notes > 0, "{what}");
-                assert!(e.ghost.iter().all(|j| *j == 0), "{what}: {:?}", e.ghost);
+                assert!(
+                    e.ghost.iter().all(|j| *j == Judge::PGreat),
+                    "{what}: {:?}",
+                    e.ghost
+                );
                 assert!(e.is_finished(end) && !e.is_failed(), "{what}");
             }
         }

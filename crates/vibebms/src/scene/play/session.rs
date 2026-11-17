@@ -7,7 +7,7 @@ use crate::replay::Replay;
 use std::sync::Arc;
 use vibebms_core::chart::{BgaLayer, Chart, SoundId};
 use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op};
-use vibebms_core::judge::GOOD;
+use vibebms_core::judge::Judge;
 use vibebms_core::PlayMode;
 
 /// Who plays a side.
@@ -110,13 +110,13 @@ pub(crate) struct Lane {
     /// When its bomb was last lit (timers 50-69).
     pub bomb: Option<Instant>,
     /// Its last judgement (skin values 500-519).
-    pub judge: Option<usize>,
+    pub judge: Option<Judge>,
 }
 
 /// A judge region's last judgement.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LastJudge {
-    pub judge: usize,
+    pub judge: Judge,
     /// µs; > 0: early.
     pub diff: i64,
     pub at: Instant,
@@ -143,7 +143,7 @@ pub(crate) enum Out {
 #[derive(Clone, Copy)]
 pub(crate) struct Show {
     /// Judgements up to this one light the bomb (`#JUDGETIMER`).
-    pub bomb_upto: usize,
+    pub bomb_upto: Judge,
     /// beatoraja judge regions: three for a PMS skin with a third judge
     /// display (keys 1-3, 4-6 and 7-9), else one per player.
     pub three_regions: bool,
@@ -421,7 +421,11 @@ impl Session {
                 let lane = lane as usize;
                 // timing auto adjust (beatoraja): PG..GOOD within 150 ms
                 // move the timing a ms per 30 ms off
-                if k == 0 && !side.engine.is_auto(lane) && judge <= GOOD && diff.abs() <= 150_000 {
+                if k == 0
+                    && !side.engine.is_auto(lane)
+                    && judge <= Judge::Good
+                    && diff.abs() <= 150_000
+                {
                     let d = (diff + if diff >= 0 { 15_000 } else { -15_000 }) / 30_000;
                     out.push(Out::Adjust(d as i32));
                 }
@@ -563,11 +567,10 @@ mod tests {
     use vibebms_core::bot;
     use vibebms_core::chart::NoteKind;
     use vibebms_core::gauge::GaugeType;
-    use vibebms_core::judge::GREAT;
     use vibebms_core::play::{build_chart, build_engine, RuleOptions};
 
     const SHOW: Show = Show {
-        bomb_upto: GREAT,
+        bomb_upto: Judge::Great,
         three_regions: false,
     };
 
@@ -613,11 +616,11 @@ mod tests {
         let (failed, t) = run(&mut s, &mut out, |_, _| {});
         assert!(!failed);
         let e = s.engine().unwrap();
-        assert!(e.score.total_notes > 0 && e.ghost.iter().all(|j| *j == 0));
+        assert!(e.score.total_notes > 0 && e.ghost.iter().all(|j| *j == Judge::PGreat));
         assert!(s.finished_at.is_some_and(|ft| ft < t - 1_000_000));
         // auto lanes' keysounds are scheduled ahead, they adjust nothing
         assert_eq!(out, []);
-        assert_eq!(s.last_judge[0].map(|j| j.judge), Some(0));
+        assert_eq!(s.last_judge[0].map(|j| j.judge), Some(Judge::PGreat));
         // the gauge every 500 ms from the chart's start (frames 1/60 s apart)
         let samples = t / 500_000 + 1;
         assert!((s.sides[0].gauge_log.len() as i64 - samples).abs() <= 1);
@@ -658,7 +661,7 @@ mod tests {
             }
         });
         let e = s.engine().unwrap();
-        let hits = e.ghost.iter().filter(|j| **j as usize == GREAT).count();
+        let hits = e.ghost.iter().filter(|j| **j == Judge::Great).count();
         assert_eq!(hits, keys.len() / 2);
         let adjust: Vec<i32> = out
             .iter()
@@ -698,7 +701,7 @@ mod tests {
         let (one, two) = (&s.sides[0], &s.sides[1]);
         assert!(one.failed.is_some() && two.failed.is_none());
         assert!(one.engine.score.passed < one.engine.score.total_notes);
-        assert!(two.engine.ghost.iter().all(|j| *j == 0));
+        assert!(two.engine.ghost.iter().all(|j| *j == Judge::PGreat));
         assert!(s.finished_at.is_some());
     }
 }

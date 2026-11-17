@@ -15,9 +15,7 @@
 
 use crate::chart::{Chart, LnType, NoteKind, SoundId, NO_SOUND};
 use crate::gauge::GrooveGauge;
-use crate::judge::{
-    Judge, JudgeRules, JudgeWindows, NoteType, BAD, GOOD, GREAT, MISS, PGREAT, POOR,
-};
+use crate::judge::{Judge, JudgeRules, JudgeWindows, NoteType};
 use crate::mode::PlayMode;
 use crate::score::Score;
 use serde::{Deserialize, Serialize};
@@ -71,7 +69,7 @@ pub enum JudgeAlgorithm {
 pub enum EngineEvent {
     Judge {
         lane: u8,
-        judge: usize,
+        judge: Judge,
         diff: i64,
         combo: u32,
         tail: bool,
@@ -108,10 +106,10 @@ pub struct PlayNote {
     pub sound: SoundId,
     pub end_sound: SoundId,
     kind: Kind,
-    /// 0 = head not judged, else judgement + 1.
-    pub state: u8,
-    /// The same for the tail.
-    pub end_state: u8,
+    /// The head's judgement, once judged.
+    pub state: Option<Judge>,
+    /// The tail's judgement, once judged.
+    pub end_state: Option<Judge>,
     /// The head's last recorded diff.
     pub play_time: Option<i64>,
     /// The tail's last recorded diff.
@@ -145,29 +143,15 @@ impl PlayNote {
     /// Fully judged: a long note's tail, a normal note's head; a mine never.
     pub fn is_done(&self) -> bool {
         match self.kind {
-            Kind::Normal => self.state != 0,
-            Kind::Long(_) => self.end_state != 0,
+            Kind::Normal => self.state.is_some(),
+            Kind::Long(_) => self.end_state.is_some(),
             Kind::Mine(_) => false,
         }
-    }
-
-    /// The head's judgement, once judged.
-    pub fn head_judge(&self) -> Option<Judge> {
-        Judge::of((self.state as usize).checked_sub(1)?)
-    }
-
-    /// The tail's judgement, once judged.
-    pub fn tail_judge(&self) -> Option<Judge> {
-        Judge::of((self.end_state as usize).checked_sub(1)?)
     }
 
     /// A CN or HCN (head and tail judged separately).
     fn is_charge(&self) -> bool {
         matches!(self.kind, Kind::Long(LnType::Cn | LnType::Hcn))
-    }
-
-    fn head_judged(&self) -> bool {
-        self.state != 0
     }
 }
 
@@ -192,7 +176,7 @@ pub struct EngineConfig {
 const HCN_TICK: i64 = 200_000;
 
 /// Index of the empty POOR window in a note or scratch table.
-const EMPTY_POOR: usize = 4;
+const EMPTY_POOR: usize = Judge::Poor as usize;
 
 /// Which judgement slot of a note.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -217,9 +201,9 @@ struct Lane {
     /// The long note being held.
     held: Option<usize>,
     /// An early release waiting to be judged: (input time, judgement).
-    pending: Option<(i64, usize)>,
+    pending: Option<(i64, Judge)>,
     /// LN mode: the held note's head judgement and diff.
-    head: (usize, i64),
+    head: (Judge, i64),
     /// Scratch: the key that started the hold.
     hold_key: Option<u8>,
     /// The HCN whose body is at the judge line.
@@ -249,9 +233,9 @@ pub struct Engine {
     /// (note time, diff) of every PGREAT..BAD.
     pub timing_log: Vec<(i64, i64)>,
     /// (note time, judgement, sign of diff) of every judgement.
-    pub judge_log: Vec<(i64, u8, i8)>,
+    pub judge_log: Vec<(i64, Judge, i8)>,
     /// Every consuming judgement, in order.
-    pub ghost: Vec<u8>,
+    pub ghost: Vec<Judge>,
     cfg: EngineConfig,
     mode: PlayMode,
     notes: Vec<PlayNote>,
@@ -326,8 +310,8 @@ impl Engine {
                 sound: n.sound,
                 end_sound,
                 kind,
-                state: 0,
-                end_state: 0,
+                state: None,
+                end_state: None,
                 play_time: None,
                 end_play_time: None,
                 chart_index: i,
@@ -577,8 +561,8 @@ impl Engine {
             if auto {
                 if let Some(h) = self.lanes[lane].held {
                     let n = &self.notes[h];
-                    if n.is_charge() && n.end_time <= t && n.end_state == 0 {
-                        self.judge(h, Slot::Tail, PGREAT, 0, true);
+                    if n.is_charge() && n.end_time <= t && n.end_state.is_none() {
+                        self.judge(h, Slot::Tail, Judge::PGreat, 0, true);
                         self.sound(lane, self.notes[h].end_sound);
                         self.release_hold(lane);
                     }
@@ -594,7 +578,7 @@ impl Engine {
             };
             let l = &self.lanes[lane];
             let (rising, let_go) = l.body.map_or((false, false), |b| {
-                let good_tail = self.notes[b].tail_judge().is_some_and(|j| j <= Judge::Good);
+                let good_tail = self.notes[b].end_state.is_some_and(|j| j <= Judge::Good);
                 (
                     pressed_before || good_tail || auto,
                     !(pressed_at_t || good_tail || auto),
@@ -628,19 +612,19 @@ impl Engine {
             }
             return;
         }
-        if !self.lanes[lane].auto || self.notes[i].head_judged() {
+        if !self.lanes[lane].auto || self.notes[i].state.is_some() {
             return;
         }
         match kind {
             Kind::Normal => {
                 self.sound(lane, self.notes[i].sound);
-                self.judge(i, Slot::Head, PGREAT, 0, true);
+                self.judge(i, Slot::Head, Judge::PGreat, 0, true);
             }
             Kind::Long(ty) => {
                 // a long note still held ends where the next one starts
                 if let Some(h) = self.lanes[lane].held {
                     if self.notes[h].is_charge() {
-                        self.judge(h, Slot::Tail, PGREAT, 0, true);
+                        self.judge(h, Slot::Tail, Judge::PGreat, 0, true);
                     } else {
                         let (j, d) = self.lanes[lane].head;
                         self.ln_final(h, j, d);
@@ -650,9 +634,9 @@ impl Engine {
                 }
                 self.sound(lane, self.notes[i].sound);
                 if ty == LnType::Ln {
-                    self.lanes[lane].head = (PGREAT, 0);
+                    self.lanes[lane].head = (Judge::PGreat, 0);
                 } else {
-                    self.judge(i, Slot::Head, PGREAT, 0, true);
+                    self.judge(i, Slot::Head, Judge::PGreat, 0, true);
                 }
                 self.lanes[lane].held = Some(i);
             }
@@ -666,7 +650,7 @@ impl Engine {
             let Some(b) = self.lanes[lane].body else {
                 continue;
             };
-            if !self.notes[b].head_judged() {
+            if self.notes[b].state.is_none() {
                 continue;
             }
             let rising = self.lanes[lane].rising;
@@ -677,18 +661,18 @@ impl Engine {
                 let l = &mut self.lanes[lane];
                 l.counter = l.counter.saturating_add(dt);
                 while self.lanes[lane].counter > HCN_TICK {
-                    self.gauge.update(GREAT, 0.5);
+                    self.gauge.update(Judge::Great, 0.5);
                     self.lanes[lane].counter -= HCN_TICK;
                 }
             } else {
                 let l = &mut self.lanes[lane];
                 l.counter = l.counter.saturating_sub(dt);
                 while self.lanes[lane].counter < -HCN_TICK {
-                    self.gauge.update(BAD, 0.5);
+                    self.gauge.update(Judge::Bad, 0.5);
                     self.lanes[lane].counter += HCN_TICK;
                 }
             }
-            if matches!(self.notes[b].tail_judge(), Some(Judge::Bad | Judge::Poor)) {
+            if matches!(self.notes[b].end_state, Some(Judge::Bad | Judge::Poor)) {
                 let quiet = !rising;
                 if quiet != self.lanes[lane].body_quiet {
                     self.lanes[lane].body_quiet = quiet;
@@ -715,9 +699,9 @@ impl Engine {
                 let pending = self.lanes[lane].pending;
                 if !self.notes[h].is_charge() {
                     match pending {
-                        Some((rt, BAD)) if rt.saturating_add(margin) <= m => {
+                        Some((rt, Judge::Bad)) if rt.saturating_add(margin) <= m => {
                             self.mute(h);
-                            self.ln_final(h, BAD, end.saturating_sub(rt));
+                            self.ln_final(h, Judge::Bad, end.saturating_sub(rt));
                             self.sound(lane, self.notes[h].end_sound);
                             self.release_hold(lane);
                         }
@@ -742,7 +726,7 @@ impl Engine {
                 }
             }
 
-            let bad_late = self.lane_table(lane)[BAD].0;
+            let bad_late = self.lane_table(lane)[Judge::Bad as usize].0;
             let limit = m.saturating_add(bad_late);
             let mut k = self.lanes[lane].swept;
             while let Some(&i) = self.lanes[lane].notes.get(k) {
@@ -751,21 +735,21 @@ impl Engine {
                     break;
                 }
                 k += 1;
-                if n.head_judged() {
+                if n.state.is_some() {
                     continue;
                 }
                 let diff = n.time.saturating_sub(m);
                 let kind = n.kind;
                 match kind {
-                    Kind::Normal => self.judge(i, Slot::Head, POOR, diff, true),
+                    Kind::Normal => self.judge(i, Slot::Head, Judge::Poor, diff, true),
                     Kind::Long(LnType::Ln) => {
                         if self.lanes[lane].held != Some(i) {
-                            self.ln_final(i, POOR, diff);
+                            self.ln_final(i, Judge::Poor, diff);
                         }
                     }
                     Kind::Long(_) => {
-                        self.judge(i, Slot::Head, POOR, diff, true);
-                        self.judge(i, Slot::Tail, POOR, diff, true);
+                        self.judge(i, Slot::Head, Judge::Poor, diff, true);
+                        self.judge(i, Slot::Tail, Judge::Poor, diff, true);
                     }
                     Kind::Mine(_) => {}
                 }
@@ -775,7 +759,7 @@ impl Engine {
             let mut s = l.swept;
             while let Some(&i) = l.notes.get(s) {
                 let n = &self.notes[i];
-                if n.is_mine() || n.head_judged() {
+                if n.is_mine() || n.state.is_some() {
                     s += 1;
                 } else {
                     break;
@@ -785,9 +769,9 @@ impl Engine {
 
             if let Some(h) = self.lanes[lane].held {
                 let n = &self.notes[h];
-                if n.is_charge() && n.end_state == 0 && n.end_time < limit {
+                if n.is_charge() && n.end_state.is_none() && n.end_time < limit {
                     let diff = n.end_time.saturating_sub(m);
-                    self.judge(h, Slot::Tail, POOR, diff, true);
+                    self.judge(h, Slot::Tail, Judge::Poor, diff, true);
                     self.release_hold(lane);
                 }
             }
@@ -821,7 +805,7 @@ impl Engine {
         };
         let d = self.quantize(self.notes[i].time.saturating_sub(t));
         self.sound(lane, self.notes[i].sound);
-        let consume = self.cfg.rules.vanish[j];
+        let consume = self.cfg.rules.vanish[j as usize];
         match self.notes[i].kind {
             Kind::Long(LnType::Ln) => {
                 if consume {
@@ -857,18 +841,18 @@ impl Engine {
     }
 
     /// The note a press at `t` on `lane` judges, and how.
-    fn select(&self, lane: usize, t: i64) -> Option<(usize, usize)> {
+    fn select(&self, lane: usize, t: i64) -> Option<(usize, Judge)> {
         let w = &self.cfg.rules.windows;
         let ty = self.note_type(lane);
         let table = w.table(ty);
         let (late, early) = self.reach;
-        let good = table.get(GOOD).copied().unwrap_or((0, 0));
+        let good = table.get(Judge::Good as usize).copied().unwrap_or((0, 0));
         let empty = table.get(EMPTY_POOR).copied();
         let notes = &self.lanes[lane].notes;
         // a quantised diff is within half a frame of the raw one
         let from = late.saturating_sub(20_000);
         let start = notes.partition_point(|&i| self.notes[i].time.saturating_sub(t) < from);
-        let mut choice: Option<(usize, usize)> = None;
+        let mut choice: Option<(usize, Judge)> = None;
         for &i in &notes[start..] {
             let n = &self.notes[i];
             let raw = n.time.saturating_sub(t);
@@ -879,11 +863,11 @@ impl Engine {
             if d < late || n.is_mine() {
                 continue;
             }
-            let judged = n.head_judged();
+            let judged = n.state.is_some();
             if let Some((c, _)) = choice {
                 let cur = &self.notes[c];
                 let cur_raw = cur.time.saturating_sub(t);
-                let competes = cur.head_judged()
+                let competes = cur.state.is_some()
                     || match self.cfg.algorithm {
                         JudgeAlgorithm::Combo => !judged && cur_raw < good.0 && raw <= good.1,
                         JudgeAlgorithm::Duration => !judged && raw.abs() < cur_raw.abs(),
@@ -899,22 +883,24 @@ impl Engine {
                 continue;
             }
             let j = if judged {
-                empty.filter(|(l, e)| *l <= d && d <= *e).map(|_| MISS)
+                empty
+                    .filter(|(l, e)| *l <= d && d <= *e)
+                    .map(|_| Judge::Miss)
             } else {
                 match w.judge(ty, d) {
-                    k if k <= BAD => Some(k),
-                    EMPTY_POOR if table.len() > EMPTY_POOR => Some(MISS),
-                    _ => None,
+                    // the empty POOR window
+                    Some(Judge::Poor) => Some(Judge::Miss),
+                    j => j,
                 }
             };
             match j {
                 None => {}
-                Some(MISS) => {
+                Some(Judge::Miss) => {
                     let closer = choice.is_none_or(|(c, _)| {
                         raw.abs() < self.notes[c].time.saturating_sub(t).abs()
                     });
                     if closer {
-                        choice = Some((i, MISS));
+                        choice = Some((i, Judge::Miss));
                     }
                 }
                 Some(k) => choice = Some((i, k)),
@@ -930,13 +916,16 @@ impl Engine {
         let scratch = self.lanes[lane].scratch;
         let end = self.notes[h].end_time;
         let d = self.quantize(end.saturating_sub(t));
-        let r = self.windows().judge(self.end_type(lane), d).min(POOR);
+        let r = self
+            .windows()
+            .judge(self.end_type(lane), d)
+            .unwrap_or(Judge::Poor);
         let charge = self.notes[h].is_charge();
         let keyboard = self.cfg.scratch_release_ends_bss || !scratch;
         let counts = if keyboard {
             !self.lanes[lane].pressed()
         } else {
-            self.lanes[lane].hold_key == Some(key) && (!charge || r == POOR)
+            self.lanes[lane].hold_key == Some(key) && (!charge || r == Judge::Poor)
         };
         if !counts {
             return;
@@ -945,7 +934,7 @@ impl Engine {
             self.lanes[lane].hold_key = None;
         }
         if charge {
-            if r >= BAD && d > 0 {
+            if r >= Judge::Bad && d > 0 {
                 self.lanes[lane].pending = Some((t, r));
             } else {
                 self.judge(h, Slot::Tail, r, d, true);
@@ -957,7 +946,7 @@ impl Engine {
             let j = r.max(hj);
             let dd = if hd.abs() > d.abs() { hd } else { d };
             if dd > 0 {
-                self.lanes[lane].pending = Some((t, j.min(BAD)));
+                self.lanes[lane].pending = Some((t, j.min(Judge::Bad)));
             } else {
                 self.ln_final(h, j, dd);
                 self.sound(lane, self.notes[h].end_sound);
@@ -969,7 +958,10 @@ impl Engine {
     /// The other scratch key pressed while holding a charge note ends it.
     fn back_spin(&mut self, lane: usize, h: usize, t: i64) {
         let d = self.quantize(self.notes[h].end_time.saturating_sub(t));
-        let r = self.windows().judge(NoteType::LongScratchEnd, d).min(POOR);
+        let r = self
+            .windows()
+            .judge(NoteType::LongScratchEnd, d)
+            .unwrap_or(Judge::Poor);
         self.sound(lane, self.notes[h].end_sound);
         self.judge(h, Slot::Tail, r, d, true);
         self.release_hold(lane);
@@ -984,7 +976,7 @@ impl Engine {
         let before = l.notes.partition_point(|&i| self.notes[i].time < t);
         let visible = l.notes[..before].iter().rev().copied().find(|&i| {
             let n = &self.notes[i];
-            !(n.is_long() && n.head_judged())
+            !(n.is_long() && n.state.is_some())
         });
         let hidden = l.hidden[..l.hidden.partition_point(|h| h.0 < t)].last();
         let sound = match (visible, hidden) {
@@ -1012,22 +1004,22 @@ impl Engine {
     // ----- judgements --------------------------------------------------------
 
     /// Record judgement `j` with `diff` on a note's head or tail.
-    fn judge(&mut self, i: usize, slot: Slot, j: usize, diff: i64, consume: bool) {
+    fn judge(&mut self, i: usize, slot: Slot, j: Judge, diff: i64, consume: bool) {
         let n = &mut self.notes[i];
         if consume {
             match slot {
-                Slot::Head => n.state = j as u8 + 1,
-                Slot::Tail => n.end_state = j as u8 + 1,
+                Slot::Head => n.state = Some(j),
+                Slot::Tail => n.end_state = Some(j),
             }
             self.score.passed += 1;
-            self.ghost.push(j as u8);
+            self.ghost.push(j);
         }
         let timing = match slot {
             Slot::Head => &mut n.play_time,
             Slot::Tail => &mut n.end_play_time,
         };
         // PMS: a note gives at most one POOR
-        if self.cfg.rules.miss_one && j == POOR && timing.is_some() {
+        if self.cfg.rules.miss_one && j == Judge::Poor && timing.is_some() {
             return;
         }
         *timing = Some(diff);
@@ -1036,12 +1028,12 @@ impl Engine {
             Slot::Tail => (n.lane, n.end_time),
         };
         self.score.add(j, diff);
-        if j <= BAD {
+        if j <= Judge::Bad {
             self.timing_log.push((time, diff));
         }
-        self.judge_log.push((time, j as u8, diff.signum() as i8));
-        if self.cfg.rules.combo[j] {
-            if j != MISS {
+        self.judge_log.push((time, j, diff.signum() as i8));
+        if self.cfg.rules.combo[j as usize] {
+            if j != Judge::Miss {
                 self.combo += 1;
                 self.score.max_combo = self.score.max_combo.max(self.combo);
             }
@@ -1061,7 +1053,7 @@ impl Engine {
     }
 
     /// An LN-mode note's one judgement: on the head, the tail done with it.
-    fn ln_final(&mut self, i: usize, j: usize, diff: i64) {
+    fn ln_final(&mut self, i: usize, j: Judge, diff: i64) {
         self.judge(i, Slot::Head, j, diff, true);
         self.notes[i].end_state = self.notes[i].state;
     }

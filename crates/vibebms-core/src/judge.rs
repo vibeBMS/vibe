@@ -15,13 +15,15 @@
 
 use crate::chart::JudgeRank;
 use crate::mode::RuleFamily;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 crate::choices! {
     /// A judgement, best first. Scores, logs, ghosts and replays keep its
-    /// index (`as usize`, the constants below).
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// index (`as usize`; serialised as that number).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum Judge {
+        #[default]
         PGreat => "PGREAT",
         Great => "GREAT",
         Good => "GOOD",
@@ -49,12 +51,18 @@ impl Judge {
     }
 }
 
-pub const PGREAT: usize = Judge::PGreat as usize;
-pub const GREAT: usize = Judge::Great as usize;
-pub const GOOD: usize = Judge::Good as usize;
-pub const BAD: usize = Judge::Bad as usize;
-pub const POOR: usize = Judge::Poor as usize;
-pub const MISS: usize = Judge::Miss as usize;
+impl Serialize for Judge {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u8(*self as u8)
+    }
+}
+
+impl<'de> Deserialize<'de> for Judge {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Judge, D::Error> {
+        let i = u8::deserialize(d)?;
+        Judge::of(i as usize).ok_or_else(|| D::Error::custom(format!("no judgement {i}")))
+    }
+}
 
 crate::choices! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -116,12 +124,14 @@ impl JudgeWindows {
         }
     }
 
-    /// Index of the first window containing `diff`, or `table.len()` if none.
-    pub fn judge(&self, t: NoteType, diff: i64) -> usize {
-        let tab = self.table(t);
-        tab.iter()
-            .position(|(l, e)| diff >= *l && diff <= *e)
-            .unwrap_or(tab.len())
+    /// The judgement of the first window containing `diff` (a note
+    /// table's fifth window is the empty POOR's).
+    pub fn judge(&self, t: NoteType, diff: i64) -> Option<Judge> {
+        Judge::ALL
+            .into_iter()
+            .zip(self.table(t))
+            .find(|(_, (l, e))| diff >= *l && diff <= *e)
+            .map(|(j, _)| j)
     }
 
     /// Smallest late bound / largest early bound over note and scratch tables.
@@ -443,7 +453,8 @@ pub fn judge_rules(
             // LR2 judges a long note's release with the GOOD window for
             // PG..GD (LR2oraja: the LN end table is GOOD-wide at every
             // #RANK), BAD as usual
-            let ln_end = vec![note[GOOD], note[GOOD], note[GOOD], note[BAD]];
+            let good = note[Judge::Good as usize];
+            let ln_end = vec![good, good, good, note[Judge::Bad as usize]];
             JudgeWindows {
                 note: note.clone(),
                 scratch: note,
@@ -504,9 +515,15 @@ mod tests {
             None,
         );
         assert_eq!(d.windows.note, normal.windows.note);
-        assert_eq!(normal.windows.judge(NoteType::Note, 10_000), PGREAT);
-        assert_eq!(normal.windows.judge(NoteType::Note, -40_000), GREAT);
-        assert_eq!(normal.windows.judge(NoteType::Note, -1_000_000), 5);
+        assert_eq!(
+            normal.windows.judge(NoteType::Note, 10_000),
+            Some(Judge::PGreat)
+        );
+        assert_eq!(
+            normal.windows.judge(NoteType::Note, -40_000),
+            Some(Judge::Great)
+        );
+        assert_eq!(normal.windows.judge(NoteType::Note, -1_000_000), None);
     }
 
     #[test]
@@ -574,10 +591,13 @@ mod tests {
         );
         let w = &r.windows;
         // released 25 ms early: still PGREAT (not the ±18 ms note window)
-        assert_eq!(w.judge(NoteType::LongEnd, 25_000), PGREAT);
-        assert_eq!(w.judge(NoteType::LongEnd, -100_000), PGREAT);
-        assert_eq!(w.judge(NoteType::LongEnd, 150_000), BAD);
-        assert_eq!(w.judge(NoteType::LongScratchEnd, 99_000), PGREAT);
+        assert_eq!(w.judge(NoteType::LongEnd, 25_000), Some(Judge::PGreat));
+        assert_eq!(w.judge(NoteType::LongEnd, -100_000), Some(Judge::PGreat));
+        assert_eq!(w.judge(NoteType::LongEnd, 150_000), Some(Judge::Bad));
+        assert_eq!(
+            w.judge(NoteType::LongScratchEnd, 99_000),
+            Some(Judge::PGreat)
+        );
         // VERY HARD: a CN tail 30 ms off is a PGREAT (GOOD there is ±40 ms)
         let vh = judge_rules(
             JudgePreset::Lr2,
@@ -585,8 +605,14 @@ mod tests {
             JudgeRank::Rank(0),
             None,
         );
-        assert_eq!(vh.windows.judge(NoteType::LongEnd, -30_000), PGREAT);
-        assert_eq!(vh.windows.judge(NoteType::LongEnd, -50_000), BAD);
+        assert_eq!(
+            vh.windows.judge(NoteType::LongEnd, -30_000),
+            Some(Judge::PGreat)
+        );
+        assert_eq!(
+            vh.windows.judge(NoteType::LongEnd, -50_000),
+            Some(Judge::Bad)
+        );
         assert_eq!(vh.windows.note[0], (-8_000, 8_000));
     }
 
@@ -603,8 +629,14 @@ mod tests {
         assert_eq!(w.note[1], (-33_333, 33_333));
         assert_eq!(w.note[3], (-250_000, 250_000));
         // 20 ms snaps to 2 frames (16.67 ms) -> PGREAT; 21 ms snaps to 3 frames -> GREAT
-        assert_eq!(w.judge(NoteType::Note, w.quantize(20_000)), PGREAT);
-        assert_eq!(w.judge(NoteType::Note, w.quantize(-21_000)), GREAT);
+        assert_eq!(
+            w.judge(NoteType::Note, w.quantize(20_000)),
+            Some(Judge::PGreat)
+        );
+        assert_eq!(
+            w.judge(NoteType::Note, w.quantize(-21_000)),
+            Some(Judge::Great)
+        );
         assert_eq!(w.quantize(4_000), 0);
         assert_eq!(w.quantize(-4_200), -8_333);
     }

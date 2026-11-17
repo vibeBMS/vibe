@@ -9,7 +9,7 @@ use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use vibebms_core::chart::{ChartMeta, JudgeRank};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
-use vibebms_core::judge::{JudgePreset, BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+use vibebms_core::judge::{Judge, JudgePreset};
 use vibebms_core::lane_option::LaneOption;
 use vibebms_core::score::{ClearType, DjLevel, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -222,26 +222,26 @@ pub fn table_text((name, level): &(String, String), id: i32) -> Option<String> {
 /// A play's own score: EX score, notes, combo, judgements (fast / slow),
 /// combo breaks, rate 115 / 116 (155 / 156).
 pub fn score_number(sc: &Score, id: i32) -> Option<i64> {
-    let c = |j: usize| sc.count(j) as i64;
+    let c = |j: Judge| sc.count(j) as i64;
     Some(match id {
         71 | 101 | 171 => sc.ex_score() as i64,
         72 => sc.max_ex() as i64,
         74 | 106 => sc.total_notes as i64,
         75 | 105 | 174 => sc.max_combo as i64,
-        110 => c(PGREAT),
-        111 => c(GREAT),
-        112 => c(GOOD),
-        113 => c(BAD),
+        110 => c(Judge::PGreat),
+        111 => c(Judge::Great),
+        112 => c(Judge::Good),
+        113 => c(Judge::Bad),
         115 | 155 => percent_parts(sc.rate()).0,
         116 | 156 => percent_parts(sc.rate()).1,
         410..=419 => sc.counts[((id - 410) / 2) as usize][((id - 410) % 2) as usize] as i64,
-        420 => c(MISS),
-        421 | 422 => sc.counts[MISS][(id - 421) as usize] as i64,
+        420 => c(Judge::Miss),
+        421 | 422 => sc.counts[Judge::Miss as usize][(id - 421) as usize] as i64,
         423 => sc.fast() as i64,
         424 => sc.slow() as i64,
         425 => sc.combo_breaks as i64,
-        426 => c(POOR) + c(MISS),
-        427 => c(BAD) + c(POOR) + c(MISS),
+        426 => c(Judge::Poor) + c(Judge::Miss),
+        427 => c(Judge::Bad) + c(Judge::Poor) + c(Judge::Miss),
         _ => return None,
     })
 }
@@ -285,9 +285,9 @@ pub fn decimals2(v: f64) -> (i64, i64) {
 /// LR2's score (200,000 for all PGREAT and the full combo).
 pub fn lr2_score(sc: &Score) -> i64 {
     let n = sc.total_notes.max(1) as i64;
-    (sc.count(PGREAT) as i64 * 150_000
-        + sc.count(GREAT) as i64 * 100_000
-        + sc.count(GOOD) as i64 * 20_000)
+    (sc.count(Judge::PGreat) as i64 * 150_000
+        + sc.count(Judge::Great) as i64 * 100_000
+        + sc.count(Judge::Good) as i64 * 20_000)
         / n
         + sc.max_combo as i64 * 50_000 / n
 }

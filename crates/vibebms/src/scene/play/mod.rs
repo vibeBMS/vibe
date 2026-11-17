@@ -35,7 +35,7 @@ use session::{Out, Show};
 use std::sync::Arc;
 use vibebms_audio::Bus;
 use vibebms_core::chart::Chart;
-use vibebms_core::judge::GREAT;
+use vibebms_core::judge::Judge;
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 
@@ -310,7 +310,7 @@ impl PlayScene {
         self.audio.schedule(&ctx.audio.mixer, &self.session, t);
         let skin = self.skin.as_ref().map(|s| &s.skin);
         let show = Show {
-            bomb_upto: skin.and_then(|s| s.judge_timer).unwrap_or(GREAT),
+            bomb_upto: skin.and_then(|s| s.judge_timer).unwrap_or(Judge::Great),
             three_regions: self.session.mode == PlayMode::Popn9K
                 && skin.is_some_and(|s| s.judges[2].judge.iter().any(Option::is_some)),
         };

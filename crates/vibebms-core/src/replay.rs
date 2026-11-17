@@ -39,8 +39,9 @@ pub struct Replay<P = RuleOptions> {
     pub ex_score: u32,
     #[serde(with = "crate::by_label")]
     pub clear: ClearType,
-    /// The judgements in the order the notes were passed (PG 0 .. MISS 5).
-    pub ghost: Vec<u8>,
+    /// The judgements in the order the notes were passed (kept as their
+    /// numbers, PG 0 .. MISS 5).
+    pub ghost: Vec<Judge>,
     pub ops: Vec<Op>,
 }
 
@@ -53,7 +54,10 @@ impl<P> Replay<P> {
 
     /// The EX score of the first `n` judgements.
     pub fn ex_at(&self, n: usize) -> u32 {
-        ex_of(&self.ghost[..n.min(self.ghost.len())])
+        self.ghost[..n.min(self.ghost.len())]
+            .iter()
+            .map(|j| j.ex())
+            .sum()
     }
 }
 
@@ -86,13 +90,4 @@ impl<P: DeserializeOwned> Replay<P> {
         let r: Replay<P> = serde_json::from_slice(&json).ok()?;
         (OLDEST..=VERSION).contains(&r.version).then_some(r)
     }
-}
-
-/// EX score of judgements (as kept: `Judge` indices).
-pub fn ex_of(judges: &[u8]) -> u32 {
-    judges
-        .iter()
-        .filter_map(|j| Judge::of(*j as usize))
-        .map(Judge::ex)
-        .sum()
 }

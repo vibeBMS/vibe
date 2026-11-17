@@ -277,7 +277,7 @@ fn beatoraja_extensions() {
     assert_eq!(s.note_expansion, Some((115.0, 112.0)));
     assert_eq!(
         (s.note_fall_y, s.judge_timer, s.play_start_ms, s.close_ms),
-        (Some(919.0), Some(2), Some(2000), Some(3000))
+        (Some(919.0), Judge::of(2), Some(2000), Some(3000))
     );
     assert!(s.judges[2].judge[0].is_some());
     let _ = std::fs::remove_dir_all(&dir);

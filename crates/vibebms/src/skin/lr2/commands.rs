@@ -164,7 +164,7 @@ impl Loader<'_> {
             "#STRETCH" => self.stretch = v[1] as i32,
             "#PLAYSTART" => self.skin.play_start_ms = Some(v[1].clamp(0, 10_000)),
             "#CLOSE" => self.skin.close_ms = Some(v[1].clamp(0, 10_000)),
-            "#JUDGETIMER" => self.skin.judge_timer = Some(v[1].clamp(0, 3) as usize),
+            "#JUDGETIMER" => self.skin.judge_timer = Judge::of(v[1].clamp(0, 3) as usize),
             "#CUSTOMOFFSET" => {
                 if let Ok(id) = f.get(2).unwrap_or(&"").trim().parse::<i32>() {
                     let v = self.user_offsets.get(s1).copied().unwrap_or_default();

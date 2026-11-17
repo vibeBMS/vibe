@@ -25,9 +25,10 @@ use vibebms_core::engine::{
     Engine, EngineConfig, EngineEvent, InputEvent, JudgeAlgorithm, Op, PlayNote,
 };
 use vibebms_core::gauge::{GaugeAutoShift, GaugePreset, GaugeType, GrooveGauge};
-use vibebms_core::judge::{
-    judge_rules, JudgePreset, JudgeRules, JudgeWindows, NoteType, BAD, GOOD, GREAT, MISS, PGREAT,
-    POOR,
+use vibebms_core::judge::{judge_rules, Judge, JudgePreset, JudgeRules, JudgeWindows, NoteType};
+// the judgements by the names the expected data uses
+use vibebms_core::judge::Judge::{
+    Bad as BAD, Good as GOOD, Great as GREAT, Miss as MISS, PGreat as PGREAT, Poor as POOR,
 };
 use vibebms_core::mode::PlayMode;
 
@@ -233,7 +234,7 @@ fn drain_no_volume(e: &mut Engine) -> Vec<EngineEvent> {
 }
 
 /// Head judgement event.
-fn jh(lane: u8, judge: usize, diff: i64, combo: u32) -> EngineEvent {
+fn jh(lane: u8, judge: Judge, diff: i64, combo: u32) -> EngineEvent {
     EngineEvent::Judge {
         lane,
         judge,
@@ -244,7 +245,7 @@ fn jh(lane: u8, judge: usize, diff: i64, combo: u32) -> EngineEvent {
 }
 
 /// Tail judgement event.
-fn jt(lane: u8, judge: usize, diff: i64, combo: u32) -> EngineEvent {
+fn jt(lane: u8, judge: Judge, diff: i64, combo: u32) -> EngineEvent {
     EngineEvent::Judge {
         lane,
         judge,
@@ -266,10 +267,35 @@ fn mine_ev(lane: u8, damage: f32) -> EngineEvent {
     EngineEvent::Mine { lane, damage }
 }
 
+// The expected data states judgements as numbers: a judgement's index
+// (PGREAT 0 .. MISS 5), a note's state 0 = not judged, else index + 1.
+
+fn state(j: Option<Judge>) -> u8 {
+    j.map_or(0, |j| j as u8 + 1)
+}
+
 fn note_states(e: &Engine) -> Vec<(u8, u8, Option<i64>, Option<i64>)> {
     e.notes()
         .iter()
-        .map(|n| (n.state, n.end_state, n.play_time, n.end_play_time))
+        .map(|n| {
+            (
+                state(n.state),
+                state(n.end_state),
+                n.play_time,
+                n.end_play_time,
+            )
+        })
+        .collect()
+}
+
+fn ghost(e: &Engine) -> Vec<u8> {
+    e.ghost.iter().map(|&j| j as u8).collect()
+}
+
+fn judge_log(e: &Engine) -> Vec<(i64, u8, i8)> {
+    e.judge_log
+        .iter()
+        .map(|&(t, j, s)| (t, j as u8, s))
         .collect()
 }
 
@@ -304,13 +330,13 @@ fn s01_perfect_and_timing() {
     assert_eq!(s.max_combo, 3);
     assert_eq!(s.combo_breaks, 1);
     assert_eq!((s.total_notes, s.passed), (4, 4));
-    assert_eq!(s.just[PGREAT], 1);
-    assert_eq!(s.counts[GREAT], [0, 1]);
-    assert_eq!(s.counts[GOOD], [1, 0]);
-    assert_eq!(s.counts[POOR], [0, 1]);
-    assert_eq!(e.ghost, [0, 1, 2, 4]);
+    assert_eq!(s.just[PGREAT as usize], 1);
+    assert_eq!(s.counts[GREAT as usize], [0, 1]);
+    assert_eq!(s.counts[GOOD as usize], [1, 0]);
+    assert_eq!(s.counts[POOR as usize], [0, 1]);
+    assert_eq!(ghost(&e), [0, 1, 2, 4]);
     assert_eq!(
-        e.judge_log,
+        judge_log(&e),
         [
             (2 * SEC, 0, 0),
             (2_500 * MS, 1, -1),
@@ -367,10 +393,10 @@ fn s02_empty_poor() {
         assert_eq!(e.score.combo_breaks, u32::from(!keeps));
         assert_eq!(e.score.count(MISS), 1);
         assert_eq!(e.score.passed, 1);
-        assert!(e.ghost == [0], "an empty POOR is not in the ghost");
+        assert!(ghost(&e) == [0], "an empty POOR is not in the ghost");
         assert_eq!(e.gauge.value(), g - 2.0);
         assert_eq!(e.timing_log.len(), 1, "no timing for an empty POOR");
-        assert_eq!(e.judge_log[1], (2 * SEC, MISS as u8, 1));
+        assert_eq!(judge_log(&e)[1], (2 * SEC, MISS as u8, 1));
         // the note is still there
         release(&mut e, 0, 1_610 * MS);
         press(&mut e, 0, 2 * SEC);
@@ -394,7 +420,7 @@ fn s03a_ln_held_through() {
     press(&mut e, 0, 2 * SEC);
     assert_eq!(drain(&mut e), [snd(10, 0)]);
     assert_eq!(e.holding(0), Some(0));
-    assert_eq!(e.notes()[0].state, 0, "no judgement until the end");
+    assert_eq!(state(e.notes()[0].state), 0, "no judgement until the end");
     e.update(3 * SEC);
     assert_eq!(drain(&mut e), NONE);
     e.update(3 * SEC + 1);
@@ -402,9 +428,9 @@ fn s03a_ln_held_through() {
     assert_eq!(e.holding(0), None);
     assert_eq!(note_states(&e), [(1, 1, Some(0), None)]);
     assert!(e.notes()[0].is_done());
-    assert_eq!(e.ghost, [0]);
+    assert_eq!(ghost(&e), [0]);
     assert_eq!(e.timing_log, [(2 * SEC, 0)]);
-    assert_eq!(e.judge_log, [(2 * SEC, 0, 0)]);
+    assert_eq!(judge_log(&e), [(2 * SEC, 0, 0)]);
     assert!(e.is_finished(3 * SEC + 1));
 }
 
@@ -521,7 +547,7 @@ fn s04ab_cn_release_judges_the_tail() {
             "release at {rel}"
         );
         assert_eq!(e.holding(0), None);
-        assert_eq!(e.ghost, [0, judge as u8]);
+        assert_eq!(ghost(&e), [0, judge as u8]);
         assert_eq!(e.notes()[0].end_play_time, Some(diff));
         assert_eq!(e.timing_log[1], (3 * SEC, diff));
     }
@@ -607,7 +633,7 @@ fn s04e_cn_never_pressed() {
         drain(&mut e),
         [jh(0, POOR, -300_000, 0), jt(0, POOR, -300_000, 0)]
     );
-    assert_eq!(e.ghost, [4, 4]);
+    assert_eq!(ghost(&e), [4, 4]);
     assert_eq!(e.score.count(POOR), 2);
     assert_eq!(e.score.combo_breaks, 2);
     assert!(e.notes()[0].is_done());
@@ -862,7 +888,7 @@ fn s07_pms_bad_then_silent_poor() {
     assert_eq!(drain(&mut e), [snd(10, 0)]);
     e.update(2_300 * MS);
     assert_eq!(drain(&mut e), NONE);
-    assert_eq!(e.ghost, [4]);
+    assert_eq!(ghost(&e), [4]);
     assert_eq!(e.score.passed, 1);
     assert_eq!(e.score.count(POOR), 0);
     assert_eq!(e.score.count(BAD), 1);
@@ -888,7 +914,7 @@ fn s07_pms_bad_then_hit() {
             jh(0, GREAT, -40_000, 1)
         ]
     );
-    assert_eq!(e.ghost, [1]);
+    assert_eq!(ghost(&e), [1]);
     assert_eq!(e.score.passed, 1);
 }
 
@@ -937,7 +963,7 @@ fn s07_pms_cn_head_bad_then_missed() {
             ..
         }
     ));
-    assert_eq!(e.ghost, [4, 4]);
+    assert_eq!(ghost(&e), [4, 4]);
     assert_eq!(e.score.passed, 2);
     assert_eq!(e.score.count(POOR), 1);
 }
@@ -1279,7 +1305,7 @@ fn s13_autoplay_timing() {
     assert_eq!(drain(&mut e), NONE);
     e.update(3 * SEC);
     assert_eq!(drain(&mut e), [jt(0, PGREAT, 0, 3), snd(50, 0)]);
-    assert_eq!(e.ghost, [0, 0, 0]);
+    assert_eq!(ghost(&e), [0, 0, 0]);
     assert!(e.is_finished(3 * SEC + 1));
 }
 
@@ -1483,7 +1509,7 @@ fn selection_worked_example_2() {
     drain(&mut e);
     press(&mut e, 0, 2_200 * MS);
     assert_eq!(drain(&mut e), [snd(11, 0), jh(0, MISS, 300_000, 1)]);
-    assert_eq!(e.notes()[1].state, 0);
+    assert_eq!(state(e.notes()[1].state), 0);
 }
 
 /// An empty POOR prefers the closer of a hit note behind and a note
@@ -1708,8 +1734,8 @@ fn q04_missed_cn_tail_uses_the_head_diff() {
         drain(&mut e),
         [jh(0, POOR, -300_000, 0), jt(0, POOR, -300_000, 0)]
     );
-    assert_eq!(e.judge_log, [(2 * SEC, 4, -1), (3 * SEC, 4, -1)]);
-    assert_eq!(e.score.counts[POOR], [0, 2]);
+    assert_eq!(judge_log(&e), [(2 * SEC, 4, -1), (3 * SEC, 4, -1)]);
+    assert_eq!(e.score.counts[POOR as usize], [0, 2]);
     assert_eq!(note_states(&e), [(5, 5, Some(-300_000), Some(-300_000))]);
     // found after the end: still the head's diff
     let mut e = engine(&c, &Setup::ln(LnType::Hcn));
@@ -1874,7 +1900,7 @@ fn q09_touching_cns_under_autoplay() {
             snd(51, 0)
         ]
     );
-    assert_eq!(e.ghost, [0, 0, 0, 0]);
+    assert_eq!(ghost(&e), [0, 0, 0, 0]);
 }
 
 /// §9 Q9 in LN mode.
@@ -1933,7 +1959,7 @@ fn q09_separate_lns_under_autoplay() {
             t += 16_667;
         }
         let n = if ln == LnType::Ln { 2 } else { 4 };
-        assert_eq!(e.ghost, vec![0; n], "{ln:?}");
+        assert_eq!(ghost(&e), vec![0; n], "{ln:?}");
     }
 }
 
@@ -2527,7 +2553,7 @@ fn first_update_window() {
     );
     e.update(SEC);
     // the note before 0 is not passed: never played, swept as a miss
-    assert_eq!(e.ghost, [0, 4]);
+    assert_eq!(ghost(&e), [0, 4]);
 }
 
 /// Charts with hostile values (huge or zero measure lengths, zero or
@@ -2704,7 +2730,7 @@ fn battle_side_takes_only_its_lanes() {
         press(&mut e, (base + 10) % 16, 2_100 * MS);
         assert_eq!(drain(&mut e), NONE);
         e.update(4 * SEC);
-        assert_eq!(e.ghost, [0, 4, 4]);
+        assert_eq!(ghost(&e), [0, 4, 4]);
         assert!(e.is_finished(4 * SEC));
     }
 }
@@ -3167,8 +3193,9 @@ fn gauge_key(g: &GrooveGauge) -> String {
     let mut s = format!("{:?}:", g.current_type());
     for x in &g.gauges {
         let lr2 = x.elem.death > 0.0 && matches!(x.ty, GaugeType::Hard | GaugeType::ExHard);
-        let five_ex =
-            x.ty == GaugeType::ExHard && x.elem.values[POOR] == -20.0 && x.elem.death == 0.0;
+        let five_ex = x.ty == GaugeType::ExHard
+            && x.elem.values[POOR as usize] == -20.0
+            && x.elem.death == 0.0;
         let approx = lr2 || five_ex;
         if approx {
             let _ = write!(s, " ~{}", (x.value() * 1000.0).round() as i64);
@@ -3194,6 +3221,23 @@ struct Digest {
     gauge: u64,
 }
 
+/// An event's `Debug` text with its judgement as a number, as recorded.
+fn event_text(v: &EngineEvent) -> String {
+    match v {
+        EngineEvent::Judge {
+            lane,
+            judge,
+            diff,
+            combo,
+            tail,
+        } => format!(
+            "Judge {{ lane: {lane:?}, judge: {:?}, diff: {diff:?}, combo: {combo:?}, tail: {tail:?} }}",
+            *judge as usize
+        ),
+        v => format!("{v:?}"),
+    }
+}
+
 fn fnv(h: u64, s: &str) -> u64 {
     let mut h = if h == 0 { 0xcbf2_9ce4_8422_2325 } else { h };
     for b in s.bytes() {
@@ -3204,7 +3248,7 @@ fn fnv(h: u64, s: &str) -> u64 {
 
 impl Digest {
     fn event(&mut self, v: &EngineEvent) {
-        self.events = fnv(self.events, &format!("{v:?};"));
+        self.events = fnv(self.events, &format!("{};", event_text(v)));
         self.count += 1;
     }
     fn put(&mut self, _k: &str, v: &str) {
@@ -3248,13 +3292,13 @@ fn run_summary(name: &str, c: &Chart, s: &Setup, seed: u64) -> String {
     let _ = writeln!(
         out,
         "ghost: {:016x} {}",
-        fnv(0, &format!("{:?}", e.ghost)),
+        fnv(0, &format!("{:?}", ghost(&e))),
         e.ghost.len()
     );
     let _ = writeln!(
         out,
         "judge_log: {:016x}",
-        fnv(0, &format!("{:?}", e.judge_log))
+        fnv(0, &format!("{:?}", judge_log(&e)))
     );
     let _ = writeln!(
         out,
@@ -3769,10 +3813,12 @@ fn windows_seven_key_ranks() {
         None,
     )
     .windows;
-    assert_eq!(w.judge(NoteType::Note, -300_000), BAD);
-    assert_eq!(w.judge(NoteType::Note, -351_000), 5);
-    assert_eq!(w.judge(NoteType::Note, 400_000), 4);
-    assert_eq!(w.judge(NoteType::LongEnd, 400_000), 4);
+    // the window's index, the table's length for none (as recorded)
+    let index = |t, d| w.judge(t, d).map_or(w.table(t).len(), |j| j as usize);
+    assert_eq!(index(NoteType::Note, -300_000), BAD as usize);
+    assert_eq!(index(NoteType::Note, -351_000), 5);
+    assert_eq!(index(NoteType::Note, 400_000), 4);
+    assert_eq!(index(NoteType::LongEnd, 400_000), 4);
 }
 
 /// §2.4: five-key rows and the scratch LN end GOOD (Q5).
