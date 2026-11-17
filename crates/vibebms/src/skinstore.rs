@@ -673,7 +673,7 @@ fn web_install(
 ) {
     use bmseeker::install::job::Files;
     let cx = crate::hosts::context().with_progress(progress.clone());
-    let job = Files::new(sources(&e), PathBuf::new(), &cx).failures_are_pages();
+    let job = Files::new(sources(&e), PathBuf::new(), &cx);
     crate::platform::run_job(job, Some(progress.clone()), move |r| {
         let got = match r {
             Ok(got) => got,

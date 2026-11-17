@@ -498,8 +498,7 @@ fn web_fetch_files(
     done: impl FnOnce(Result<usize, Fail>) + Send + 'static,
 ) {
     use bmseeker::install::job::Files;
-    let job =
-        Files::new(sources(&files), PathBuf::new(), crate::hosts::context()).failures_are_pages();
+    let job = Files::new(sources(&files), PathBuf::new(), crate::hosts::context());
     crate::platform::run_job(job, None, move |r| {
         let got = match r {
             Ok(got) => got,

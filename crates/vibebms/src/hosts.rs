@@ -40,12 +40,19 @@ pub fn install_context() -> Context {
 }
 
 /// What the app resolves links with: bmseeker's default settings and hosts
-/// (third parties' copies too, when [`set_third_party`]).
+/// (third parties' copies too, when [`set_third_party`]); on the web a
+/// download that fails is a page (the proxy passes archives only).
 pub fn context() -> &'static Context {
     use std::sync::LazyLock;
-    static OWN: LazyLock<Context> = LazyLock::new(|| Context::new(Default::default()));
+    fn new(config: bmseeker::config::Config) -> Context {
+        Context {
+            failures_are_pages: crate::platform::IS_WEB,
+            ..Context::new(config)
+        }
+    }
+    static OWN: LazyLock<Context> = LazyLock::new(|| new(Default::default()));
     static ALL: LazyLock<Context> = LazyLock::new(|| {
-        Context::new(bmseeker::config::Config {
+        new(bmseeker::config::Config {
             third_party: true,
             ..Default::default()
         })
