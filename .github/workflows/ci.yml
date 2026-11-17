@@ -562,6 +562,53 @@ jobs:
             | {channels: ($ch + {nightly: {version: $version, files: ($old + $new)}})}
           ' prev/latest.json > out/latest.json
           cat out/latest.json
+      # every published build's executables, for IR operators who accept a
+      # client by its executable's SHA-256 (docs/BUILDING.md,
+      # crates/vibebms/src/ir/build_id.rs): appended to the previous
+      # builds.json, nightlies kept 90 days (500 at most), releases always.
+      # Files inside a package are hashed as they run: the macOS app's
+      # executable and the Android libraries.
+      - name: builds.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p prev
+          if ! gh release download nightly -p builds.json -D prev --clobber 2>/dev/null \
+            || ! jq -e '.builds | type == "array"' prev/builds.json >/dev/null 2>&1; then
+            echo '{"builds": []}' > prev/builds.json
+          fi
+          files='{}'
+          add() { # <name> <file>
+            files="$(jq -c --arg n "$1" --arg sha "$(sha256sum "$2" | cut -d' ' -f1)" \
+              --argjson size "$(stat -c %s "$2")" '. + {($n): {sha256: $sha, size: $size}}' <<< "$files")"
+          }
+          for f in out/vibebms-linux-* out/vibebms-macos-arm64 out/vibebms-macos-x64 out/vibebms-windows-*.exe; do
+            [ -f "$f" ] && add "${f#out/}" "$f"
+          done
+          inner="$(mktemp)"
+          for pkg in vibebms-macos-universal.app.zip vibeBMS.apk; do
+            [ -f "out/$pkg" ] || continue
+            while IFS= read -r f; do
+              unzip -p "out/$pkg" "$f" > "$inner"
+              add "$pkg/$f" "$inner"
+            done < <(unzip -Z1 "out/$pkg" | grep -E '\.app/Contents/MacOS/vibebms$|^lib/[^/]+/libvibebms_android\.so$')
+          done
+          jq --arg version "$VERSION" --arg commit "$GITHUB_SHA" --argjson files "$files" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg since "$(date -u -d '90 days ago' +%Y-%m-%dT%H:%M:%SZ)" '
+            def nightly: (.version // "-") | test("-");
+            # a run done again replaces its entry; a run that built nothing adds none
+            .builds
+            | if $files == {} then . else
+                [.[] | select(.version != $version)] + [{version: $version, commit: $commit, date: $date, files: $files}]
+              end
+            | ([.[] | select(nightly)] | length - 500) as $over
+            | {v: 1, builds: (reduce .[] as $b ({n: 0, out: []};
+                if ($b | nightly) then
+                  .n += 1 | if .n > $over and $b.date >= $since then .out += [$b] else . end
+                else .out += [$b] end) | .out)}
+          ' prev/builds.json > out/builds.json
+          jq -c '.builds[-1]' out/builds.json
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}

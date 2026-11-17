@@ -10,6 +10,7 @@ pub mod hosts;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod import;
 pub mod input;
+pub mod ir;
 pub mod library;
 pub mod links;
 pub mod paths;

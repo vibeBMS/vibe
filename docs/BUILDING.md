@@ -169,3 +169,45 @@ bundle that is not vibeBMS's own, an app Homebrew Cask installed, or in a folder
 offers updates (its package manager updates it). Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
 local builds (`-dev`, no metadata), releases (there is no release channel yet) and the web, Android and iOS builds
 never do.
+
+### Build manifest (`builds.json`)
+The nightly release also has a `builds.json`: every build the `nightly` job published, the oldest first, with the
+SHA-256 of each executable as it runs. IR operators such as BMS-IR and rianIR accept a client by the hash of its
+executable, and this is the list to import (`crates/vibebms/src/ir/build_id.rs` hashes the running desktop
+executable to find itself in it). `latest.json` stays as it is, for the self-update.
+
+```json
+{
+  "v": 1,
+  "builds": [
+    {
+      "version": "0.1.0-nightly.200+abc1234",
+      "commit": "<40 hex digits>",
+      "date": "2026-11-17T12:34:56Z",
+      "files": {
+        "vibebms-linux-x64": { "sha256": "<64 hex digits>", "size": 31457280 },
+        "vibebms-windows-x64.exe": { "sha256": "<64 hex digits>", "size": 28311552 },
+        "vibebms-macos-universal.app.zip/vibeBMS Nightly.app/Contents/MacOS/vibebms": { "sha256": "<64 hex digits>", "size": 62914560 },
+        "vibeBMS.apk/lib/arm64-v8a/libvibebms_android.so": { "sha256": "<64 hex digits>", "size": 33554432 }
+      }
+    }
+  ]
+}
+```
+
+- One entry per run: its version, the full commit, when it was published (UTC) and its files. Only the files this run
+  built are in it (a build that failed is in an earlier entry). A run done again replaces its own entry.
+- `files` has the desktop executables of the release (`vibebms-linux-*`, `vibebms-macos-arm64`, `-x64`,
+  `vibebms-windows-*.exe`) and, named `<file in the release>/<path inside it>`, the macOS app's universal executable
+  (from the app's zip; the `.dmg` has the same app) and the Android library for each ABI (`lib/<abi>/` in the APK).
+  The Flatpak runs `vibebms-linux-x64` unchanged, so that entry is its hash too.
+- Not in it: the web build (no executable: any page can claim any hash) and the iOS app (signing it, by AltStore or
+  the App Store, rewrites the executable, so it has no hash of its own).
+- The job downloads the previous `builds.json` (`gh release download`), appends, and keeps nightlies for 90 days (the
+  newest 500 at most) and releases (a version without `-`) for good.
+- The hash is of the file people run: the executables are published as built, and the self-update writes the same
+  bytes. A step that changed a file after it was hashed (code signing, notarization) would have to run before this
+  one. The macOS app's executable carries its ad-hoc signature; the self-update signs the app ad hoc again, which
+  is expected to give the same bytes (not yet checked).
+- A local or a distribution's build is not in it: an IR that accepts clients by hash does not accept it. A hash says
+  which build a client is, but proves nothing about an open-source client's plays.

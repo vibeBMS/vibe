@@ -5,7 +5,8 @@
 //!
 //! The writing is done by a worker (`createSyncAccessHandle`: the way to
 //! write OPFS that every browser with it has, Safari included); it also
-//! lists and removes. Its requests run one after another.
+//! lists and removes, and keeps `platform::store`'s files. Its requests run
+//! one after another.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -16,13 +17,27 @@ use wasm_bindgen::JsCast;
 /// The worker: `[id, op, path, data]` in, `[id, ok, value]` out. `list`:
 /// every file below `path` as `[relative path, File]`; `write`: `data` (an
 /// ArrayBuffer or a Blob) into `path`, answering with its File; `remove`:
-/// `path` and what is below it.
+/// `path` and what is below it. For the store, `data` a string: `read`:
+/// the text of `path` (null when there is none); `append`: `data` at its
+/// end; `replace`: `data` as all of it, the old text kept if the page
+/// closes meanwhile.
 const WORKER: &str = r#"
 let root = null;
 async function dir(parts, create) {
   let d = root || (root = await navigator.storage.getDirectory());
   for (const n of parts) d = await d.getDirectoryHandle(n, { create });
   return d;
+}
+async function put(fh, bytes) {
+  const h = await fh.createSyncAccessHandle();
+  // (older WebKit made truncate / flush / close asynchronous: awaited)
+  try {
+    await h.truncate(0);
+    h.write(bytes, { at: 0 });
+    await h.flush();
+  } finally {
+    await h.close();
+  }
 }
 async function list(d, prefix, out) {
   for await (const [name, h] of d.entries()) {
@@ -42,17 +57,50 @@ async function run(id, op, path, data) {
   if (op === "write") {
     const name = parts.pop();
     const fh = await (await dir(parts, true)).getFileHandle(name, { create: true });
-    const buf = data instanceof Blob ? await data.arrayBuffer() : data;
-    const h = await fh.createSyncAccessHandle();
-    // (older WebKit made truncate / flush / close asynchronous: awaited)
+    await put(fh, new Uint8Array(data instanceof Blob ? await data.arrayBuffer() : data));
+    return await fh.getFile();
+  }
+  if (op === "read") {
+    const name = parts.pop();
     try {
-      await h.truncate(0);
-      h.write(new Uint8Array(buf), { at: 0 });
+      const fh = await (await dir(parts, false)).getFileHandle(name);
+      return await (await fh.getFile()).text();
+    } catch (e) {
+      if (e.name === "NotFoundError") return null;
+      throw e;
+    }
+  }
+  if (op === "append") {
+    const name = parts.pop();
+    const fh = await (await dir(parts, true)).getFileHandle(name, { create: true });
+    const h = await fh.createSyncAccessHandle();
+    try {
+      let at = await h.getSize();
+      // a line the page closed on halfway is ended first
+      const last = new Uint8Array(1);
+      if (at > 0 && (h.read(last, { at: at - 1 }), last[0] !== 10)) h.write(new Uint8Array([10]), { at: at++ });
+      h.write(new TextEncoder().encode(data), { at });
       await h.flush();
     } finally {
       await h.close();
     }
-    return await fh.getFile();
+    return null;
+  }
+  if (op === "replace") {
+    // written beside it, then moved over it; a browser whose move() does
+    // not replace a file has it written in place
+    const name = parts.pop();
+    const d = await dir(parts, true);
+    const bytes = new TextEncoder().encode(data);
+    const tmp = await d.getFileHandle(name + ".tmp~", { create: true });
+    await put(tmp, bytes);
+    try {
+      await tmp.move(name);
+    } catch (e) {
+      await put(await d.getFileHandle(name, { create: true }), bytes);
+      await d.removeEntry(name + ".tmp~");
+    }
+    return null;
   }
   if (op === "remove") {
     const name = parts.pop();
@@ -395,6 +443,56 @@ pub fn remove(p: &Path) {
             refresh_status();
         }),
     );
+}
+
+/// The worker is there (this browser has OPFS): the store's files are
+/// kept in it.
+pub fn has_worker() -> bool {
+    WORKER_H.with(|w| w.borrow().is_some())
+}
+
+/// The text of the store's file `name` ("" when there is none).
+pub fn read_text(name: &str, done: impl FnOnce(Result<String, String>) + 'static) {
+    // (called here when it cannot be sent)
+    let done = std::rc::Rc::new(Cell::new(Some(done)));
+    let answer = done.clone();
+    let sent = send(
+        "read",
+        name,
+        JsValue::NULL,
+        None,
+        Box::new(move |r| {
+            if let Some(f) = answer.take() {
+                f(r.map(|v| v.as_string().unwrap_or_default()));
+            }
+        }),
+    );
+    if !sent {
+        if let Some(f) = done.take() {
+            f(Err("the storage worker is gone".into()));
+        }
+    }
+}
+
+/// Add `text` to the end of the store's file `name` (`replace`: put it in
+/// the file's place). A failure is logged and told to the player.
+pub fn write_text(name: &str, text: &str, replace: bool) {
+    let what = name.to_string();
+    let sent = send(
+        if replace { "replace" } else { "append" },
+        name,
+        text.into(),
+        None,
+        Box::new(move |r| {
+            if let Err(e) = r {
+                log::warn!("store: {what}: {e}");
+                note(format!("Could not save {what}: {e}"));
+            }
+        }),
+    );
+    if !sent {
+        note(format!("Could not save {name}"));
+    }
 }
 
 thread_local! {
