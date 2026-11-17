@@ -12,5 +12,3 @@ vibebms-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-web-time = "1"
-

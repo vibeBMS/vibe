@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use vibebms_core::score::{ClearType, Score};
-use vibebms_core::{LnProfile, LnType};
+use vibebms_core::{LnProfile, LnType, PlayMode};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -29,7 +29,8 @@ pub struct Song {
     pub genre: String,
     pub level: String,
     pub difficulty: i32,
-    pub mode: String,
+    #[serde(with = "vibebms_core::by_label")]
+    pub mode: PlayMode,
     pub min_bpm: f64,
     pub max_bpm: f64,
     pub main_bpm: f64,
@@ -588,7 +589,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         genre: m.genre.clone(),
         level: m.level.clone(),
         difficulty: m.difficulty,
-        mode: c.mode().label().to_string(),
+        mode: c.mode(),
         min_bpm: m.min_bpm,
         max_bpm: m.max_bpm,
         main_bpm: m.main_bpm,
@@ -678,10 +679,7 @@ pub fn scan(
     let results: Mutex<Vec<SongRecord>> = Mutex::new(Vec::new());
     crate::platform::parallel_for(todo.len(), |i| {
         let (f, folder, stamp) = &todo[i];
-        let opts = vibebms_core::bms::ParseOptions {
-            random_seed: Some(0),
-            ..Default::default()
-        };
+        let opts = vibebms_core::bms::ParseOptions::default();
         // (a file that cannot be read now is tried again next time)
         let parsed = vfs::read(f).map(|b| {
             // a parser bug on one file skips that file
@@ -1044,7 +1042,7 @@ mod tests {
         let s = lib.songs();
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].title, "A");
-        assert_eq!(s[0].mode, "7KEYS");
+        assert_eq!(s[0].mode, PlayMode::Beat7K);
         assert!(s[0].folder.ends_with("pack"));
         // rescan is incremental
         let p2 = Arc::new(ScanProgress::default());

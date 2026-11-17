@@ -154,7 +154,7 @@ impl ResultScene {
         // every play of its own keeps its replay as the chart's latest
         // (a BATTLE play's would replace a single play's: it is not kept)
         if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
-            if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Last) {
+            if let Err(e) = crate::replay::save(r, &ctx.paths.root, crate::replay::Slot::Last) {
                 log::warn!("replay: {e}");
             }
         }
@@ -185,7 +185,7 @@ impl ResultScene {
                 .as_ref()
                 .filter(|r| r.keepable() && ranked && d.score.ex_score() > best_before)
             {
-                if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Best) {
+                if let Err(e) = crate::replay::save(r, &ctx.paths.root, crate::replay::Slot::Best) {
                     log::warn!("replay: {e}");
                 }
             }
@@ -197,7 +197,12 @@ impl ResultScene {
                     sha256: song.sha256.clone(),
                     ln_type: format!("{:?}", d.ln).to_uppercase(),
                 };
-                let mut sub = vibebms_ir::ScoreSubmission::from_score(&chart, &d.score, d.clear);
+                let mut sub = vibebms_ir::ScoreSubmission::from_score(
+                    &chart,
+                    &d.score,
+                    d.clear,
+                    crate::platform::unix_now(),
+                );
                 sub.option = d.options.clone();
                 sub.seed = d.seed;
                 sub.gauge = d.gauge_type.label().into();

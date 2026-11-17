@@ -290,6 +290,7 @@ mod tests {
     use vibebms_core::gauge::{GaugeAutoShift, GaugePreset, GaugeType};
     use vibebms_core::judge::JudgePreset;
     use vibebms_core::lane_option::{DoubleOption, LaneOption};
+    use vibebms_core::play::RuleOptions;
     use vibebms_core::LnType;
     use winit::keyboard::KeyCode;
 
@@ -311,21 +312,26 @@ mod tests {
             bms_dirs: vec!["/music/bms".into(), "relative/dir".into()],
             scan_root: false,
             play: PlayConfig {
-                gauge: GaugeType::ExHard,
-                gauge_auto_shift: GaugeAutoShift::BestClear,
-                gauge_preset: GaugePreset::Lr2,
-                judge_preset: JudgePreset::Iidx,
-                judge_algorithm: JudgeAlgorithm::Duration,
-                random_1p: LaneOption::SRandom,
-                random_2p: LaneOption::Mirror,
-                dp_option: DoubleOption::Flip,
-                battle: true,
+                rules: RuleOptions {
+                    gauge: GaugeType::ExHard,
+                    gauge_auto_shift: GaugeAutoShift::BestClear,
+                    gauge_preset: GaugePreset::Lr2,
+                    judge_preset: JudgePreset::Iidx,
+                    judge_algorithm: JudgeAlgorithm::Duration,
+                    random_1p: LaneOption::SRandom,
+                    random_2p: LaneOption::Mirror,
+                    dp_option: DoubleOption::Flip,
+                    battle: true,
+                    ln_mode: LnType::Hcn,
+                    auto_scratch: true,
+                    legacy_note: true,
+                    no_mine: true,
+                    expand_judge: true,
+                    judge_rates: [200, 150, 75],
+                    hran_threshold_bpm: 150,
+                },
                 versus: Versus::Off,
                 side: Side::P2,
-                ln_mode: LnType::Hcn,
-                auto_scratch: true,
-                legacy_note: true,
-                no_mine: true,
                 autoplay: true,
                 hispeed_mode: HiSpeedMode::Constant,
                 hispeed: 3.75,
@@ -339,13 +345,10 @@ mod tests {
                 visual_offset_ms: 7,
                 bga: false,
                 show_fast_slow: false,
-                expand_judge: true,
-                judge_rates: [200, 150, 75],
                 judge_area: true,
                 mark_notes: true,
                 bpm_guide: true,
                 timing_auto_adjust: true,
-                hran_threshold_bpm: 150,
                 target: Target::RateAAPlus,
                 p2: SideOptions {
                     gauge: GaugeType::Hazard,
@@ -504,6 +507,23 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    /// Files written before the rules were split from the play options
+    /// read the same and are written again with the same settings.
+    #[test]
+    fn a_config_of_before_reads_whole() {
+        for old in [
+            include_str!("../../tests/data/config_default.toml"),
+            include_str!("../../tests/data/config_changed.toml"),
+        ] {
+            let c: Config = toml::from_str(old).unwrap();
+            let again = toml::to_string_pretty(&c).unwrap();
+            assert_eq!(
+                toml::from_str::<toml::Value>(&again).unwrap(),
+                toml::from_str::<toml::Value>(old).unwrap()
+            );
+        }
     }
 
     #[test]

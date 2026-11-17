@@ -7,7 +7,7 @@ use crate::app::Ctx;
 use crate::library::{BestScore, Song};
 use crate::platform::{Duration, Instant};
 use crate::scene::decide::{DecideScene, DecideState};
-use crate::scene::play::{load_chart, make_engine, PlayRequest, PlayScene, Role, Rules, SideState};
+use crate::scene::play::{PlayRequest, PlayScene, Role, SideState};
 use crate::scene::play_skin::SceneState;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use crate::scene::result_skin::ResultState;
@@ -20,6 +20,7 @@ use std::sync::Arc;
 use vibebms_core::bot;
 use vibebms_core::engine::Engine;
 use vibebms_core::gauge::GaugeType;
+use vibebms_core::play::{build_chart, build_engine, RuleOptions};
 use vibebms_core::score::{Assist, ClearType};
 use vibebms_core::LnType;
 
@@ -36,7 +37,7 @@ fn song() -> Song {
         genre: "TEST".into(),
         level: "11".into(),
         difficulty: 4,
-        mode: "7KEYS".into(),
+        mode: vibebms_core::PlayMode::Beat7K,
         min_bpm: 120.0,
         max_bpm: 180.0,
         main_bpm: 150.0,
@@ -141,24 +142,30 @@ fn request() -> PlayRequest {
 /// stopped halfway.
 fn play(ctx: &mut Ctx, battle: bool) -> (PlayScene, Instant) {
     let mut scene = PlayScene::new(ctx, request());
-    let p = crate::config::PlayConfig {
+    let rules = RuleOptions {
         battle,
-        ..ctx.config.play.clone()
+        ..ctx.config.play.rules.clone()
     };
     let text = bot::chart_text(7, 21);
-    let (chart, _, _) =
-        load_chart(Path::new("song/chart.bme"), text.as_bytes(), &p, 7, None).unwrap();
+    let chart = build_chart(
+        Path::new("song/chart.bme"),
+        text.as_bytes(),
+        &rules,
+        7,
+        None,
+    )
+    .unwrap()
+    .chart;
     let half = chart.length() / 2;
-    let rules = Rules::of(&p);
     let players: &[Option<usize>] = if battle { &[Some(0), Some(1)] } else { &[None] };
     let mut ghost = Vec::new();
     for (k, player) in players.iter().enumerate() {
-        let (mut e, total) = make_engine(&chart, &rules, *player);
+        let (mut e, total) = build_engine(&chart, &rules, *player, false);
         let inputs = bot::inputs(&chart, *player, 99 + k as i64);
         bot::drive(&mut e, &inputs, half);
         if k == 0 {
             // the best play's ghost: another play of the whole chart
-            let (mut g, _) = make_engine(&chart, &rules, *player);
+            let (mut g, _) = build_engine(&chart, &rules, *player, false);
             bot::drive(
                 &mut g,
                 &bot::inputs(&chart, *player, 5),
