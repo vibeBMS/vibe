@@ -334,12 +334,48 @@ struct RawObj {
 
 const SCRATCH: usize = 100;
 
+/// How a `.pms` file places its 9 buttons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PmsLayout {
+    /// Buttons 1-5 on 11-15, 6-9 on 22-25.
+    Standard,
+    /// "BME-type": buttons 1-9 on 11, 12, 13, 14, 15, 18, 19, 16, 17 (LR2,
+    /// pomu2, PMSee-V).
+    Bme,
+}
+
+/// The layout a `.pms` file uses: BME-type when it has more objects on the
+/// 1P channels x6-x9 than on the 2P channels x2-x5 (the other channels
+/// are then dropped).
+fn pms_layout(lines: &[(u32, [u8; 2], String)]) -> PmsLayout {
+    let (mut bme, mut std) = (0usize, 0usize);
+    for (_, ch, data) in lines {
+        let objs = data
+            .as_bytes()
+            .chunks_exact(2)
+            .filter(|p| *p != b"00")
+            .count();
+        match (ch[0], ch[1]) {
+            (b'1' | b'3' | b'5' | b'D', b'6'..=b'9') => bme += objs,
+            (b'2' | b'4' | b'6' | b'E', b'2'..=b'5') => std += objs,
+            _ => {}
+        }
+    }
+    if bme > std {
+        PmsLayout::Bme
+    } else {
+        PmsLayout::Standard
+    }
+}
+
 /// Map the second channel character to a key index.
-fn map_key(c: u8, pms: bool, player: usize) -> Option<usize> {
-    if pms {
-        return match (player, c) {
-            (0, b'1'..=b'5') => Some((c - b'1') as usize),
-            (1, b'2'..=b'5') => Some((c - b'2') as usize + 5),
+fn map_key(c: u8, pms: Option<PmsLayout>, player: usize) -> Option<usize> {
+    if let Some(layout) = pms {
+        return match (layout, player, c) {
+            (_, 0, b'1'..=b'5') => Some((c - b'1') as usize),
+            (PmsLayout::Standard, 1, b'2'..=b'5') => Some((c - b'2') as usize + 5),
+            (PmsLayout::Bme, 0, b'8' | b'9') => Some((c - b'8') as usize + 5),
+            (PmsLayout::Bme, 0, b'6' | b'7') => Some((c - b'6') as usize + 7),
             _ => None,
         };
     }
@@ -527,6 +563,7 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     let mut bgm_raw: Vec<(f64, u32)> = Vec::new();
     let mut bga_raw: Vec<(f64, BgaLayer, u32)> = Vec::new();
     let mut objs: Vec<RawObj> = Vec::new();
+    let pms_layout = pms.then(|| pms_layout(&lines));
 
     for (measure, ch, data) in &lines {
         let db = data.as_bytes();
@@ -596,7 +633,16 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
                         _ => continue,
                     };
                     let Some(id) = id() else { continue };
-                    match map_key(ch[1], pms, player) {
+                    // the other PMS layout's channels
+                    let conflict = match pms_layout {
+                        Some(PmsLayout::Bme) => player == 1 && (b'2'..=b'5').contains(&ch[1]),
+                        Some(PmsLayout::Standard) => player == 0 && (b'6'..=b'9').contains(&ch[1]),
+                        None => false,
+                    };
+                    if conflict {
+                        continue;
+                    }
+                    match map_key(ch[1], pms_layout, player) {
                         Some(key) => objs.push(RawObj {
                             player: if pms { 0 } else { player },
                             key,
@@ -890,6 +936,36 @@ mod tests {
         let p = parse_bms(b"#00111:01\n#00125:01", "pms", &ParseOptions::default()).unwrap();
         assert_eq!(p.mode(), PlayMode::Popn9K);
         assert!(p.notes.iter().any(|n| n.lane == 8));
+    }
+
+    #[test]
+    fn pms_bme_type_layout() {
+        let lanes = |src: &str| {
+            let c = parse_bms(src.as_bytes(), "pms", &ParseOptions::default()).unwrap();
+            let mut v: Vec<u8> = c.notes.iter().map(|n| n.lane).collect();
+            v.sort_unstable();
+            (v, c.bgm.len())
+        };
+        // buttons 1-9 on 11 12 13 14 15 18 19 16 17
+        let bme = "#WAV01 a.wav\n#00111:01\n#00112:01\n#00113:01\n#00114:01\n#00115:01\n\
+            #00118:01\n#00119:01\n#00116:01\n#00117:01\n";
+        assert_eq!(lanes(bme), ((0..9).collect(), 0));
+        let c = parse_bms(bme.as_bytes(), "pms", &ParseOptions::default()).unwrap();
+        let lane_of = |ch: &str| {
+            let src = format!("#WAV01 a.wav\n#001{ch}:01\n#00216:01\n#00217:01\n");
+            let c = parse_bms(src.as_bytes(), "pms", &ParseOptions::default()).unwrap();
+            c.notes.iter().find(|n| n.time < 3_000_000).map(|n| n.lane)
+        };
+        assert_eq!(c.mode(), PlayMode::Popn9K);
+        assert_eq!(lane_of("18"), Some(5));
+        assert_eq!(lane_of("19"), Some(6));
+        assert_eq!(lane_of("16"), Some(7));
+        assert_eq!(lane_of("17"), Some(8));
+        // a stray 2P object in a BME-type file is dropped (not a note, no BGM)
+        assert_eq!(lanes(&format!("{bme}#00122:01\n")), ((0..9).collect(), 0));
+        // standard layout: 22-25 are buttons 6-9; a stray 16 is dropped
+        let std = "#WAV01 a.wav\n#00111:01\n#00122:01\n#00125:01\n#00216:01\n";
+        assert_eq!(lanes(std), (vec![0, 5, 8], 0));
     }
 
     #[test]
