@@ -172,7 +172,17 @@ local names = { "option", "number", "float_number", "text", "offset", "timer",
   "gauge", "gauge_type", "judge" }
 local ms = { timer_off_value = OFF }
 for _, k in ipairs(names) do ms[k] = function(...) return vb[k](...) end end
--- anything else (input, audio, volume, http ...) is a harmless no-op
+-- no network from skins: what beatoraja answers with it off (a skin
+-- polling a request sees it fail instead of waiting for ever)
+ms.open_url = function() return false end
+ms.http_get = function() return nil, "HTTP disabled" end
+ms.http_get_lines = ms.http_get
+ms.http_get_async = function() return nil, "HTTP disabled" end
+ms.http_poll = function()
+  return { status = "failed", status_code = 0, error = "HTTP disabled", lines = {} }
+end
+ms.http_cancel = function() return false end
+-- anything else (input, audio, volume ...) is a harmless no-op
 setmetatable(ms, { __index = function() return function() return 0 end end })
 ms.timer_is_on = function(id) return vb.timer(id) ~= OFF end
 ms.timer_is_off = function(id) return vb.timer(id) == OFF end
@@ -1276,6 +1286,23 @@ end
             )
             .unwrap();
             assert_eq!(v, "5;7;one,two,three;Abc;3;1x, 22y;trim;2;3|s;2");
+        }
+
+        #[test]
+        fn http_answers_as_beatoraja_with_the_network_off() {
+            let v: String = eval(
+                r#"local ms = require("main_state")
+                local id, e = ms.http_get_async("https://example.com")
+                local p = ms.http_poll(1)
+                local s, e2 = http_get("https://example.com")
+                return table.concat({ tostring(id), e, p.status, p.status_code, p.error, #p.lines,
+                  tostring(ms.http_cancel(1)), tostring(s), e2, tostring(ms.open_url("x")) }, ";")"#,
+            )
+            .unwrap();
+            assert_eq!(
+                v,
+                "nil;HTTP disabled;failed;0;HTTP disabled;0;false;nil;HTTP disabled;false"
+            );
         }
 
         #[test]
