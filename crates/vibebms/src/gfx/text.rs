@@ -26,7 +26,11 @@ struct Glyph {
 }
 
 pub struct Text {
-    fonts: Vec<fontdue::Font>,
+    /// The UI fonts in fallback order: a character is drawn with the first
+    /// that has it.
+    fonts: Vec<Slot>,
+    /// Where the system fonts in `fonts` are read from.
+    db: fontdb::Database,
     /// Fonts skins bring (by file), drawn with when `face` is set.
     faces: Vec<fontdue::Font>,
     face_of: HashMap<std::path::PathBuf, Option<u16>>,
@@ -34,10 +38,28 @@ pub struct Text {
     face: u16,
     cache: HashMap<(u16, char, u16), Option<Glyph>>,
     font_of: HashMap<char, Option<u16>>,
+    /// Reused by `draw_scaled`.
+    line: Vec<Glyph>,
     cx: u32,
     cy: u32,
     shelf_h: u32,
     pub generation: u64,
+}
+
+/// A UI font. CJK fonts take long to parse (tens of thousands of glyphs) and
+/// most fallbacks are never needed, so they are parsed when first drawn with.
+enum Slot {
+    Ready(fontdue::Font),
+    /// Not parsed yet: what to parse, and the characters it maps (as
+    /// fontdue would).
+    Pending(Source, Vec<char>),
+    /// fontdue could not parse it.
+    Failed,
+}
+
+enum Source {
+    System(fontdb::ID),
+    Embedded,
 }
 
 /// Inter (SIL OFL 1.1, see assets/fonts/OFL.txt).
@@ -72,14 +94,48 @@ const PREFERRED_FAMILIES: &[&str] = &[
     "Unifont",
 ];
 
+fn settings(collection_index: u32) -> fontdue::FontSettings {
+    fontdue::FontSettings {
+        collection_index,
+        scale: 32.0,
+        ..Default::default()
+    }
+}
+
+impl Slot {
+    /// A font to parse when needed; `None` when fontdue could not parse it.
+    /// The characters are read as fontdue reads them, without the outlines.
+    fn pending(source: Source, data: &[u8], index: u32) -> Option<Slot> {
+        let face = ttf_parser::Face::parse(data, index).ok()?;
+        let glyphs = face.number_of_glyphs();
+        // fontdue fails on a glyph id out of range
+        let mut in_range = glyphs > 0;
+        let mut chars = Vec::new();
+        for t in face.tables().cmap.into_iter().flat_map(|c| c.subtables) {
+            t.codepoints(|cp| {
+                let g = t.glyph_index(cp).filter(|g| g.0 != 0);
+                if let (Some(g), Some(c)) = (g, char::from_u32(cp)) {
+                    in_range &= g.0 < glyphs;
+                    chars.push(c);
+                }
+            });
+        }
+        chars.sort_unstable();
+        chars.dedup();
+        in_range.then_some(Slot::Pending(source, chars))
+    }
+
+    fn system(db: &fontdb::Database, id: fontdb::ID) -> Option<Slot> {
+        db.with_face_data(id, |data, index| {
+            Slot::pending(Source::System(id), data, index)
+        })
+        .flatten()
+    }
+}
+
 impl Text {
     pub fn new(extra_dirs: &[&Path]) -> Text {
         let mut fonts = Vec::new();
-        let settings = |i: u32| fontdue::FontSettings {
-            collection_index: i,
-            scale: 32.0,
-            ..Default::default()
-        };
         // user supplied fonts first
         for dir in extra_dirs {
             let Ok(rd) = crate::platform::vfs::read_dir(dir) else {
@@ -103,7 +159,7 @@ impl Text {
                     match fontdue::Font::from_bytes(data, settings(0)) {
                         Ok(f) => {
                             log::info!("font: {}", p.display());
-                            fonts.push(f)
+                            fonts.push(Slot::Ready(f))
                         }
                         Err(e) => log::warn!("font {}: {e}", p.display()),
                     }
@@ -133,12 +189,7 @@ impl Text {
                 if !used.insert(id) {
                     continue;
                 }
-                let f = db
-                    .with_face_data(id, |data, index| {
-                        fontdue::Font::from_bytes(data, settings(index)).ok()
-                    })
-                    .flatten();
-                if let Some(f) = f {
+                if let Some(f) = Slot::system(&db, id) {
                     log::info!("font: {fam}");
                     fonts.push(f);
                 }
@@ -149,31 +200,22 @@ impl Text {
         }
         if fonts.is_empty() {
             // anything at all
-            if let Some(face) = db.faces().next() {
-                if let Some(f) = db
-                    .with_face_data(face.id, |d, i| {
-                        fontdue::Font::from_bytes(d, settings(i)).ok()
-                    })
-                    .flatten()
-                {
-                    fonts.push(f);
-                }
-            }
+            fonts.extend(db.faces().next().and_then(|f| Slot::system(&db, f.id)));
         }
         // bundled Latin fallback (always available, e.g. in the web build)
-        if let Ok(f) = fontdue::Font::from_bytes(EMBEDDED_FONT, settings(0)) {
-            fonts.push(f);
-        }
+        fonts.extend(Slot::pending(Source::Embedded, EMBEDDED_FONT, 0));
         if fonts.is_empty() {
             log::error!("no usable font found; text will not be displayed. Put a .ttf into the fonts/ folder.");
         }
         Text {
             fonts,
+            db,
             faces: Vec::new(),
             face_of: HashMap::new(),
             face: 0,
             cache: HashMap::new(),
             font_of: HashMap::new(),
+            line: Vec::new(),
             cx: 8,
             cy: 0,
             shelf_h: 8,
@@ -183,15 +225,9 @@ impl Text {
 
     /// Add a fallback font at runtime (e.g. downloaded by the web build).
     pub fn add_font(&mut self, data: Vec<u8>) {
-        match fontdue::Font::from_bytes(
-            data,
-            fontdue::FontSettings {
-                scale: 32.0,
-                ..Default::default()
-            },
-        ) {
+        match fontdue::Font::from_bytes(data, settings(0)) {
             Ok(f) => {
-                self.fonts.push(f);
+                self.fonts.push(Slot::Ready(f));
                 // glyphs drawn with a stand-in so far: draw them again
                 self.font_of.retain(|_, v| v.is_some());
                 self.reset_atlas();
@@ -206,15 +242,9 @@ impl Text {
             return *f;
         }
         let font = crate::platform::vfs::read(path).ok().and_then(|data| {
-            fontdue::Font::from_bytes(
-                data,
-                fontdue::FontSettings {
-                    scale: 32.0,
-                    ..Default::default()
-                },
-            )
-            .map_err(|e| log::warn!("font {}: {e}", path.display()))
-            .ok()
+            fontdue::Font::from_bytes(data, settings(0))
+                .map_err(|e| log::warn!("font {}: {e}", path.display()))
+                .ok()
         });
         let id = font.map(|f| {
             self.faces.push(f);
@@ -229,14 +259,50 @@ impl Text {
         self.face = face;
     }
 
+    /// Parse UI font `i` if it is pending; whether it can be drawn with.
+    fn load(&mut self, i: usize) -> bool {
+        if let Slot::Pending(source, _) = &self.fonts[i] {
+            let font = match source {
+                Source::System(id) => self
+                    .db
+                    .with_face_data(*id, |data, index| {
+                        fontdue::Font::from_bytes(data, settings(index)).ok()
+                    })
+                    .flatten(),
+                Source::Embedded => fontdue::Font::from_bytes(EMBEDDED_FONT, settings(0)).ok(),
+            };
+            self.fonts[i] = match font {
+                Some(f) => Slot::Ready(f),
+                None => {
+                    log::warn!("font {i}: could not be read");
+                    Slot::Failed
+                }
+            };
+        }
+        matches!(self.fonts[i], Slot::Ready(_))
+    }
+
+    fn ready(&self, i: usize) -> Option<&fontdue::Font> {
+        match &self.fonts[i] {
+            Slot::Ready(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    fn has(&self, i: usize, c: char) -> bool {
+        match &self.fonts[i] {
+            Slot::Ready(f) => f.lookup_glyph_index(c) != 0,
+            Slot::Pending(_, chars) => chars.binary_search(&c).is_ok(),
+            Slot::Failed => false,
+        }
+    }
+
     fn font_for(&mut self, c: char) -> Option<u16> {
         if let Some(f) = self.font_of.get(&c) {
             return *f;
         }
-        let f = self
-            .fonts
-            .iter()
-            .position(|f| f.lookup_glyph_index(c) != 0)
+        let f = (0..self.fonts.len())
+            .find(|&i| self.has(i, c) && self.load(i))
             .map(|i| i as u16);
         self.font_of.insert(c, f);
         f
@@ -265,12 +331,11 @@ impl Text {
         if let Some(g) = self.cache.get(&(face, c, px)) {
             return *g;
         }
-        let font = match self.face_font(c) {
-            Some(f) => f,
-            None => {
-                let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
-                &self.fonts[fi as usize]
-            }
+        let font = if face != 0 {
+            &self.faces[face as usize - 1]
+        } else {
+            let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
+            self.ready(fi as usize)?
         };
         let (m, bitmap) = font.rasterize(c, px as f32);
         let (w, h) = (m.width as u32, m.height as u32);
@@ -311,12 +376,17 @@ impl Text {
         Some(g)
     }
 
-    fn ascent(&self, px: f32) -> f32 {
+    fn ascent(&mut self, px: f32) -> f32 {
         let face = (self.face as usize)
             .checked_sub(1)
             .and_then(|i| self.faces.get(i));
-        face.or(self.fonts.first())
-            .and_then(|f| f.horizontal_line_metrics(px))
+        let font = match face {
+            Some(f) => Some(f),
+            None => (0..self.fonts.len())
+                .find(|&i| self.load(i))
+                .and_then(|i| self.ready(i)),
+        };
+        font.and_then(|f| f.horizontal_line_metrics(px))
             .map(|m| m.ascent)
             .unwrap_or(px * 0.8)
     }
@@ -364,11 +434,28 @@ impl Text {
             return 0.0;
         }
         let px = size.round().clamp(4.0, 400.0) as u16;
-        let gen = self.generation;
-        let glyphs: Vec<Glyph> = s.chars().filter_map(|c| self.glyph(gfx, c, px)).collect();
-        if self.generation != gen {
-            // atlas was reset mid-string; rasterize again
-            return self.draw_scaled(gfx, batch, s, x, y, size, color, align, max_w);
+        let mut glyphs = std::mem::take(&mut self.line);
+        // glyphs before an atlas reset are gone from it: rasterize them
+        // again, once (when the atlas cannot hold the string, the glyphs
+        // after the last reset are drawn)
+        let mut gone = 0;
+        for _ in 0..2 {
+            glyphs.clear();
+            gone = 0;
+            let mut gen = self.generation;
+            for c in s.chars() {
+                let Some(g) = self.glyph(gfx, c, px) else {
+                    continue;
+                };
+                if self.generation != gen {
+                    gen = self.generation;
+                    gone = glyphs.len();
+                }
+                glyphs.push(g);
+            }
+            if gone == 0 {
+                break;
+            }
         }
         let width: f32 = glyphs.iter().map(|g| g.advance).sum();
         let sx = if width > max_w && width > 0.0 {
@@ -383,8 +470,8 @@ impl Text {
             Align::Right => x - drawn,
         };
         let base = y + self.ascent(px as f32);
-        for g in glyphs {
-            if g.w > 0.0 {
+        for (i, g) in glyphs.iter().enumerate() {
+            if g.w > 0.0 && i >= gone {
                 let r = Rect::new(
                     (pen + g.xmin * sx).round(),
                     (base - g.ymin - g.h).round(),
@@ -395,6 +482,7 @@ impl Text {
             }
             pen += g.advance * sx;
         }
+        self.line = glyphs;
         drawn
     }
 
@@ -423,5 +511,22 @@ impl Text {
             align,
         );
         self.draw(gfx, batch, s, x, y, size, color, align)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_fonts_know_the_characters_fontdue_maps() {
+        let Some(Slot::Pending(_, chars)) = Slot::pending(Source::Embedded, EMBEDDED_FONT, 0)
+        else {
+            panic!("the embedded font is readable");
+        };
+        let font = fontdue::Font::from_bytes(EMBEDDED_FONT, settings(0)).unwrap();
+        let mut mapped: Vec<char> = font.chars().keys().copied().collect();
+        mapped.sort_unstable();
+        assert_eq!(chars, mapped);
     }
 }
