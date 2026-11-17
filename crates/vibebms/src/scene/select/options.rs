@@ -284,6 +284,7 @@ impl SelectScene {
     /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids).
     pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32) -> Next {
         use super::skin::{EVENT_BACK, EVENT_REPLAY, OPTION_EVENT};
+        let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let done = match act {
             1..=9 => {
@@ -308,7 +309,7 @@ impl SelectScene {
                 true
             }
             77 => {
-                option_panel::turn(p, 1, -1, &REFERENCE_BPMS);
+                option_panel::turn(p, 1, -1, &rivals);
                 true
             }
             72 => {
@@ -387,11 +388,12 @@ impl SelectScene {
     /// A key or turntable step with a panel held.
     pub(super) fn panel_input(&mut self, ctx: &mut Ctx, k: PanelKey) {
         let b = self.bpms(ctx);
+        let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let said = match k {
             PanelKey::Key(i) => option_panel::key(p, self.panel, i, &b),
-            PanelKey::Up => option_panel::turn(p, self.panel, 1, &b),
-            PanelKey::Down => option_panel::turn(p, self.panel, -1, &b),
+            PanelKey::Up => option_panel::turn(p, self.panel, 1, &rivals),
+            PanelKey::Down => option_panel::turn(p, self.panel, -1, &rivals),
         };
         if let PanelKey::Key(i) = k {
             if option_panel::repeats(self.panel, i) {

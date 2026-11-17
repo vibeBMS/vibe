@@ -66,6 +66,10 @@ auto_scratch = true
 judge_offset_ms = 9
 hs_level = 12
 
+[play.target_rival]
+provider = "bmsir"
+player = "100005"
+
 [select]
 sort = "MissCount"
 key_filter = "K14"

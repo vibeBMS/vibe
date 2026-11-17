@@ -453,7 +453,7 @@ pub fn config_button(ctx: &Ctx, id: i32) -> Option<i64> {
             match p.target {
                 Target::RateMaxMinus | Target::Max => 9,
                 Target::RankNext => 10,
-                Target::Best => 11,
+                Target::Best | Target::Rival => 11,
                 t => index_of(&Target::ALL, t),
             }
         }

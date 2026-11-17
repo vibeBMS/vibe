@@ -1,8 +1,9 @@
 use super::{percent, Act, Row, TextField};
 use crate::app::Ctx;
-use crate::config::{HiSpeedMode, HsFix, HsType, Side, Target, HISPEED_STEP};
+use crate::config::{HiSpeedMode, HsFix, HsType, Side, HISPEED_STEP};
 use crate::scene::option_panel::{cycle, dp_index, onoff, set_dp_index};
 use crate::scene::select::REFERENCE_BPMS;
+use crate::scene::target;
 use vibebms_core::lane_option::{DoubleOption, LaneOption};
 use vibebms_core::LnType;
 
@@ -158,9 +159,14 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             c.config.play.autoplay ^= true
         }),
         Row::adjust("BGA", onoff(p.bga), |c, _| c.config.play.bga ^= true),
-        Row::adjust("Target score", p.target.label(), |c, d| {
-            c.config.play.target = cycle(&Target::ALL, c.config.play.target, d)
-        }),
+        Row::adjust(
+            "Target score",
+            target::label(p, &target::rivals(ctx)),
+            |c, d| {
+                let rivals = target::rivals(c);
+                target::step(&mut c.config.play, &rivals, d);
+            },
+        ),
         Row::adjust("FAST/SLOW display", onoff(p.show_fast_slow), |c, _| {
             c.config.play.show_fast_slow ^= true
         }),

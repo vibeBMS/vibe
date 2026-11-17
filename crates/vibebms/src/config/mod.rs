@@ -392,6 +392,10 @@ mod tests {
                 bpm_guide: true,
                 timing_auto_adjust: true,
                 target: Target::RateAAPlus,
+                target_rival: Some(PlayerKey {
+                    provider: vibebms_ir::ProviderId::BmsIr,
+                    player: "100005".into(),
+                }),
                 p2: SideOptions {
                     gauge: GaugeType::Hazard,
                     hispeed: 1.5,
@@ -580,6 +584,7 @@ mod tests {
         (c.play.hs_type, c.play.hs_level, c.play.hs_anim_ms) =
             (d.hs_type, d.hs_level, d.hs_anim_ms);
         c.play.p2.hs_level = d.hs_level;
+        c.play.target_rival = None;
         c.ir = IrSettings {
             accounts: vec![IrAccount {
                 name: "Test IR".into(),

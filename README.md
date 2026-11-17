@@ -133,7 +133,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   reached.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
-  rank A–AAA, MAX- / MAX).
+  rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
+  (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the
+  share of the notes judged, as the IRs give no per-note data; skins get the rival's name as text 1 and the target's
+  name as text 3, its EX score as the target's numbers.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA

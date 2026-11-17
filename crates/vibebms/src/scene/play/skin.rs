@@ -221,7 +221,14 @@ impl<'a> PlayState<'a> {
                 target_now: ex,
             };
         }
-        let target = self.ctx.config.play.target.score(sc.max_ex(), best as u32) as i64;
+        let song = &self.s.req.song;
+        let target = crate::scene::target::score(
+            self.ctx,
+            &song.md5,
+            &song.sha256,
+            sc.max_ex(),
+            best as u32,
+        ) as i64;
         let target_now = if self.ctx.config.play.target == crate::config::Target::Best {
             best_now
         } else {
@@ -599,6 +606,10 @@ impl SkinState for PlayState<'_> {
         let s = self.s;
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
+            // the IR rival TARGET chose, the target's name
+            1 => crate::scene::target::name(self.ctx).1?,
+            // (a battle's target is the opponent: the result names it)
+            3 if self.opp_ex.is_none() => crate::scene::target::name(self.ctx).0,
             1001..=1003 => return table_text(self.table()?, id),
             // course stages' titles
             150..=159 => s

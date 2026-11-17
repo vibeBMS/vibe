@@ -102,6 +102,8 @@ vibebms_core::choices! {
         RankNext => "NEXT RANK",
         #[default]
         Best => "BEST",
+        /// An IR rival's EX score (`target_rival`; `scene::target`).
+        Rival => "RIVAL",
     }
 }
 
@@ -112,6 +114,8 @@ impl Target {
         match self {
             Target::Best => best,
             Target::Max => max_ex,
+            // (the IR's: `scene::target::score`)
+            Target::Rival => 0,
             // the first step from 15/27 up that the best has not reached
             Target::RankNext => (15..27).map(at).find(|t| best < *t).unwrap_or(max_ex),
             t => at(17 + Target::ALL.iter().position(|x| *x == t).unwrap_or(0) as u64),
@@ -166,8 +170,10 @@ pub struct PlayConfig {
     /// Move the judge timing toward where you hit (beatoraja notes display
     /// timing auto adjust).
     pub timing_auto_adjust: bool,
-    /// The score the pacemaker and the result compare against.
+    /// The score the pacemaker and the result compare against, and the
+    /// IR rival when it is one.
     pub target: Target,
+    pub target_rival: Option<super::PlayerKey>,
     /// The second player's own options in VS.
     pub p2: SideOptions,
 }
@@ -286,7 +292,7 @@ impl Serialize for PlayConfig {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let (p, r) = (self, &self.rules);
-        let mut st = s.serialize_struct("PlayConfig", 39)?;
+        let mut st = s.serialize_struct("PlayConfig", 40)?;
         macro_rules! fields {
             ($($o:ident.$f:ident),* $(,)?) => {
                 $(st.serialize_field(stringify!($f), &$o.$f)?;)*
@@ -341,7 +347,7 @@ impl Serialize for PlayConfig {
                 })*
             };
         }
-        set_fields!(hs_type, hs_level, hs_anim_ms);
+        set_fields!(hs_type, hs_level, hs_anim_ms, target_rival);
         st.end()
     }
 }
@@ -393,6 +399,7 @@ impl Default for PlayConfig {
             bpm_guide: false,
             timing_auto_adjust: false,
             target: Target::Best,
+            target_rival: None,
             p2: SideOptions::blank(),
         }
     }
