@@ -719,6 +719,17 @@ impl Scene for SettingsScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::Instant;
+
+    fn key(code: KeyCode) -> InputEv {
+        InputEv::Key {
+            code,
+            pressed: true,
+            repeat: false,
+            time: Instant::now(),
+            text: None,
+        }
+    }
 
     #[test]
     fn rows_adjust_or_act() {
@@ -733,5 +744,33 @@ mod tests {
         assert!(!r.act.adjusts());
         assert_eq!(Page::Play.step(-1), Page::System);
         assert_eq!(Page::System.step(1), Page::Play);
+    }
+
+    #[test]
+    fn every_page_has_rows_and_keys_change_them() {
+        let root = std::env::temp_dir().join(format!("vibebms-settings-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SettingsScene::at(&mut ctx, Page::Play);
+        for p in Page::ALL {
+            s.show(&ctx, p);
+            assert!(!s.rows.is_empty(), "{p:?}");
+        }
+        // PLAY: the third row is RANDOM (2P); → steps it and the row shows it
+        s.show(&ctx, Page::Play);
+        s.input(&mut ctx, &key(KeyCode::ArrowDown));
+        s.input(&mut ctx, &key(KeyCode::ArrowDown));
+        let before = ctx.config.play.random_2p;
+        s.input(&mut ctx, &key(KeyCode::ArrowRight));
+        assert_ne!(ctx.config.play.random_2p, before);
+        assert!(s.rows[2].value.contains(ctx.config.play.random_2p.label()));
+        // KEY CONFIG: Enter waits for a key, the key binds, on to the next row
+        s.show(&ctx, Page::Keys);
+        s.input(&mut ctx, &key(KeyCode::Enter));
+        assert!(s.learn.on());
+        s.input(&mut ctx, &key(KeyCode::KeyQ));
+        assert_eq!(ctx.config.keys.p1.keys[0].keys, vec![KeyCode::KeyQ]);
+        assert!(!s.learn.on());
+        assert_eq!(s.list.sel, 1);
+        std::fs::remove_dir_all(&root).ok();
     }
 }
