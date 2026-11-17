@@ -9,6 +9,16 @@
 //! * LR2-preset HARD and EX-HARD (every key mode).
 //!
 //! Values are compared to within 1e-4 (relative), as §3 allows.
+//!
+//! Where the LR2 vectors come from (gap A9; S-ids are the sources in
+//! `docs/RULES.md`, "LR2 equivalence"):
+//! * `lr2_damage_examples`, `lr2_damage_total_factor`,
+//!   `lr2_damage_note_factor`, `lr2_damage_only_hard_and_ex_hard` and the
+//!   LR2 rows of `damage_grid` pin vibeBMS's rule (specification §3.2),
+//!   recorded from its code. That rule agrees with LR2 where the
+//!   `lr2_*_as_measured` tests say, and is unconfirmed elsewhere (gap A4).
+//! * `lr2_*_as_measured` and `lr2_hard_low_gauge_rule` are LR2's own
+//!   behaviour as documented in public sources, each test naming its own.
 
 use std::path::PathBuf;
 
@@ -218,7 +228,9 @@ fn lr2_damage_examples() {
     }
 }
 
-/// §3.2: TOTAL factor 10 / clamp(⌊TOTAL / 16⌋ − 5, 1, 10).
+/// §3.2: TOTAL factor 10 / clamp(⌊TOTAL / 16⌋ − 5, 1, 10). vibeBMS's rule:
+/// S1's measurements in LR2 agree at every multiple of 10 but 200
+/// (`lr2_hard_total_factor_as_measured`); between them it is unconfirmed.
 #[test]
 fn lr2_damage_total_factor() {
     let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
@@ -251,7 +263,9 @@ fn lr2_damage_total_factor() {
 }
 
 /// §3.2: the note-count factor, with its jump at 30 (8 from below, 7 at
-/// 30).
+/// 30). vibeBMS's rule: from 250 notes up, and at 125 and 0, as S1 measured
+/// in LR2 (`lr2_hard_note_factor_as_measured`); the segments below 125 are
+/// unconfirmed.
 #[test]
 fn lr2_damage_note_factor() {
     let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
@@ -315,7 +329,8 @@ fn lr2_damage_only_hard_and_ex_hard() {
 }
 
 /// Both modifiers over a grid of TOTAL and note counts, against the
-/// fixture recorded from the old code.
+/// fixture recorded from the old code (vibeBMS's rule, not LR2
+/// measurements).
 #[test]
 fn damage_grid() {
     let totals = [
@@ -361,5 +376,112 @@ fn damage_grid() {
             wv.iter().zip(&gv).all(|(a, b)| close(*b, *a)),
             "{wk}: got {gv:?}, want {wv:?}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LR2 as documented (gap A9). S-ids: docs/RULES.md, "LR2 equivalence".
+// ---------------------------------------------------------------------------
+
+fn changes(g: &Gauge) -> [f32; 6] {
+    [PGREAT, GREAT, GOOD, BAD, POOR, MISS].map(|j| g.change_for(j))
+}
+
+/// S1, S3 (and S2, S6 for EASY and HARD): LR2's gauges per PG, GR, GD,
+/// BAD, POOR, empty POOR; t / n gains for GROOVE, × 1.2 for EASY. S8:
+/// GROOVE starts at 20 %, clears at 80 % and never falls below 2 %.
+#[test]
+fn lr2_gauge_values_as_measured() {
+    let (t, n) = (300.0, 1000);
+    for fam in [RuleFamily::FiveKeys, RuleFamily::SevenKeys, RuleFamily::Pms] {
+        for (ty, want) in [
+            (GaugeType::Normal, [0.3, 0.3, 0.15, -4.0, -6.0, -2.0]),
+            (GaugeType::Easy, [0.36, 0.36, 0.18, -3.2, -4.8, -1.6]),
+            (GaugeType::Hard, [0.1, 0.1, 0.05, -6.0, -10.0, -2.0]),
+            (GaugeType::Class, [0.1, 0.1, 0.05, -2.0, -3.0, -2.0]),
+        ] {
+            let e = elem(GaugePreset::Lr2, fam, ty);
+            let got = changes(&Gauge::new(ty, e, t, n));
+            assert!(
+                got.iter().zip(&want).all(|(a, b)| close(*a, *b)),
+                "{fam:?} {ty:?}: {got:?}"
+            );
+        }
+        for ty in [GaugeType::Normal, GaugeType::Easy] {
+            let e = elem(GaugePreset::Lr2, fam, ty);
+            assert_eq!((e.init, e.border, e.min), (20.0, 80.0, 2.0), "{ty:?}");
+        }
+    }
+}
+
+/// HARD damage × 0.6 at 30 % or less as LR2 shows it (S1, S2, S3, S6); LR2
+/// shows the gauge in 2 % steps (S1), so that is below 32 %, as S7 says.
+/// S7: HARD empties below 2 %.
+#[test]
+fn lr2_hard_low_gauge_rule() {
+    let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
+    let after = |from: f32, j| {
+        let mut g = Gauge::new(GaugeType::Hard, e, 300.0, 1000);
+        g.set_value(from);
+        g.update(j, 1.0);
+        g.value()
+    };
+    assert!(close(after(32.0, POOR), 22.0));
+    // S3's table at 30 %: BAD -3.6, POOR -6, empty POOR -1.2
+    assert!(close(after(31.9, POOR), 25.9));
+    assert!(close(after(30.0, BAD), 26.4));
+    assert!(close(after(30.0, MISS), 28.8));
+    assert!(close(after(3.3, MISS), 2.1));
+    assert_eq!(after(3.0, MISS), 0.0);
+}
+
+/// S1: HARD POOR damage measured in LR2 at TOTAL in steps of 10 (1000
+/// notes or more), given to the digits shown there. S1 also measured 15 at
+/// TOTAL 200, where vibeBMS takes 100 / 7 = 14.29: not confirmed (gap A4).
+#[test]
+fn lr2_hard_total_factor_as_measured() {
+    let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
+    for (total, poor) in [
+        (300.0, 10.0),
+        (240.0, 10.0),
+        (230.0, 11.1),
+        (220.0, 12.5),
+        (210.0, 12.5),
+        (190.0, 16.66),
+        (180.0, 16.66),
+        (170.0, 20.0),
+        (160.0, 20.0),
+        (150.0, 25.0),
+        (140.0, 33.33),
+        (130.0, 33.33),
+        (120.0, 50.0),
+        (110.0, 100.0),
+        (100.0, 100.0),
+    ] {
+        let got = -damage(e, GaugeType::Hard, total, 5000)[1];
+        assert!((got - poor).abs() < 0.02, "TOTAL {total}: {got}");
+    }
+}
+
+/// S1: below 1000 notes LR2's HARD POOR damage grows 0.02 % a note down to
+/// 500 and 0.04 % a note down to 250; S1's graph marks 125 notes at 40 and
+/// 0 notes at 100 (TOTAL high enough not to matter).
+#[test]
+fn lr2_hard_note_factor_as_measured() {
+    let e = elem(GaugePreset::Lr2, RuleFamily::SevenKeys, GaugeType::Hard);
+    for (n, poor) in [
+        (2000, 10.0),
+        (1000, 10.0),
+        (999, 10.02),
+        (750, 15.0),
+        (500, 20.0),
+        (499, 20.04),
+        (375, 25.0),
+        (250, 30.0),
+        (125, 40.0),
+        (0, 100.0),
+    ] {
+        let got = -damage(e, GaugeType::Hard, 300.0, n)[1];
+        assert!(close(got, poor), "{n} notes: {got}");
     }
 }

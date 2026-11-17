@@ -489,7 +489,13 @@ mod tests {
                 bok,
                 Refusal::NotTaken(Profile::VibeBeatoraja, PlayMode::Beat5K),
             ),
-            ("LR2 gap", lr2(), |_| {}, bok, Refusal::OpenGap("A1")),
+            (
+                "LR2 gap",
+                lr2(),
+                |_| {},
+                bok,
+                Refusal::OpenGap(Profile::VibeLr2.open_gaps().next().unwrap().id),
+            ),
             (
                 "5-key EX-HARD",
                 base(),
@@ -582,14 +588,18 @@ mod tests {
     }
 
     #[test]
-    fn every_lr2_gap_is_open() {
+    fn bokutachi_bms_waits_for_the_lr2_gaps() {
         let lr2: Vec<&Gap> = EQUIVALENCE
             .iter()
             .filter(|g| g.profile == Profile::VibeLr2)
             .collect();
         let ids: Vec<&str> = lr2.iter().map(|g| g.id).collect();
-        assert_eq!(ids, ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]);
-        assert!(lr2.iter().all(|g| !g.closed && g.reaches == Reach::Every));
+        assert_eq!(
+            ids,
+            ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11"]
+        );
+        assert!(lr2.iter().all(|g| g.reaches == Reach::Every));
+        assert!(BOKUTACHI_BMS || lr2.iter().any(|g| !g.closed));
     }
 
     /// A made-up record: any mix of rules, devices and flags.
