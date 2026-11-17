@@ -247,6 +247,10 @@ jobs:
           mkdir -p "$app"
           cp target/aarch64-apple-ios/release/vibebms "$app/"
           cp platform/ios/Info.plist platform/ios/*.png "$app/"
+          # each channel is its own app (io.github.vibebms.nightly, "vibeBMS Nightly")
+          plutil -replace CFBundleIdentifier -string "$VIBEBMS_APP_ID" "$app/Info.plist"
+          plutil -replace CFBundleName -string "$VIBEBMS_APP_NAME" "$app/Info.plist"
+          plutil -replace CFBundleDisplayName -string "$VIBEBMS_APP_NAME" "$app/Info.plist"
           # iOS takes numbers only: the version (0.1.0) and the run number
           plutil -replace CFBundleShortVersionString -string "$VIBEBMS_BASE_VERSION" "$app/Info.plist"
           plutil -replace CFBundleVersion -string "$VIBEBMS_BUILD" "$app/Info.plist"
@@ -429,12 +433,12 @@ jobs:
               --arg version "$BASE_VERSION" --arg build "$GITHUB_RUN_NUMBER" --arg full "$VERSION" \
               --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --argjson size "$(stat -c %s out/vibeBMS-unsigned.ipa)" '{
-              name: "vibeBMS nightly",
-              identifier: "io.github.vibebms.nightly",
+              name: "vibeBMS",
+              identifier: "io.github.vibebms.source",
               website: "https://github.com/\($repo)",
               apps: [{
-                name: "vibeBMS",
-                bundleIdentifier: "io.github.vibebms",
+                name: "vibeBMS Nightly",
+                bundleIdentifier: "io.github.vibebms.nightly",
                 developerName: "vibeBMS",
                 subtitle: "BMS player",
                 localizedDescription: "A cross-platform BMS player. Nightly builds of the default branch.",
@@ -463,7 +467,9 @@ jobs:
             fi
             jq --slurpfile prev prev/altstore.json '
               (.apps[0].bundleIdentifier) as $id
-              | .apps += [$prev[0].apps[] | select(.bundleIdentifier != $id)]
+              | (.apps[0].versions[0].downloadURL) as $url
+              | .apps += [$prev[0].apps[]
+                  | select(.bundleIdentifier != $id and ((.versions[0].downloadURL // "") != $url))]
             ' out/altstore.new.json > out/altstore.json
             rm out/altstore.new.json
           fi

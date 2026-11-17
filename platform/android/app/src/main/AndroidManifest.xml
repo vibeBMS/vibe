@@ -8,7 +8,7 @@
         android:required="false" />
 
     <application
-        android:label="vibeBMS"
+        android:label="${appName}"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:hardwareAccelerated="true">

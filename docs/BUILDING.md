@@ -45,7 +45,8 @@ gradle -p platform/android assembleRelease    # Gradle 8.9+; or open platform/an
 ```
 The release APK is signed with `VIBEBMS_KEYSTORE` / `VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS`
 when set, else with the debug key. Output: `platform/android/app/build/outputs/apk/release/`.
-Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over USB).
+Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over USB); the nightly APK is its own app,
+`io.github.vibebms.nightly`, with its data in `Android/data/io.github.vibebms.nightly/files`.
 Touch controls turn on automatically. Songs a difficulty table lists can be downloaded in the
 app's browser (`Browser.java`), as on the desktop.
 
@@ -83,6 +84,11 @@ CI builds are nightlies of it: `tools/ci_version.sh` rewrites it to `<version>-n
 e.g. `0.1.0-nightly.192+e129ac9`, so `CARGO_PKG_VERSION` names the build. The run number only grows:
 Android's `versionCode` and the iOS `CFBundleVersion` are that number (iOS's `CFBundleShortVersionString`
 is the plain `0.1.0`, as it takes numbers only). After a release, Cargo.toml moves on to the next version (e.g. `0.1.1-dev`).
+
+Builds belong to a channel (`VIBEBMS_CHANNEL`, `nightly` for now; `preview`, `beta` or `stable` could follow): the
+version says it (`-<channel>.<run>`; a stable build is the plain version), and on Android and iOS each channel is its
+own app, `io.github.vibebms.<channel>` named "vibeBMS <Channel>" (stable: `io.github.vibebms`, "vibeBMS"), so they
+install side by side. `latest.json` and the AltStore source have a part per channel.
 
 ### Self-update (`latest.json`)
 The nightly release has a `latest.json` that the desktop executables read on start (when they are nightlies, and

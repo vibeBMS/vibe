@@ -13,10 +13,13 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "io.github.vibebms"
+        // each channel is its own app (tools/ci_version.sh): CI's nightly
+        // is io.github.vibebms.nightly, "vibeBMS Nightly"
+        applicationId = System.getenv("VIBEBMS_APP_ID") ?: "io.github.vibebms"
+        manifestPlaceholders["appName"] = System.getenv("VIBEBMS_APP_NAME") ?: "vibeBMS"
         minSdk = 26
         targetSdk = 34
-        // CI builds: the run number and <version>-nightly.<run>+<commit> (tools/ci_version.sh)
+        // CI builds: the run number and <version>-<channel>.<run>+<commit>
         versionCode = (System.getenv("VIBEBMS_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VIBEBMS_VERSION_NAME") ?: "0.1.0"
     }
