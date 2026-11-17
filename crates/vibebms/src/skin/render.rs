@@ -31,8 +31,8 @@ pub type Rgba = (u32, u32, Vec<u8>);
 fn decode(path: &std::path::Path, key: Option<[u8; 3]>) -> Option<Rgba> {
     let (w, h, mut px) = crate::gfx::load_rgba(path, false)?;
     if let Some(k) = key {
-        if px.chunks_exact(4).all(|p| p[3] == 255) {
-            for p in px.chunks_exact_mut(4) {
+        if px.as_chunks::<4>().0.iter().all(|p| p[3] == 255) {
+            for p in px.as_chunks_mut::<4>().0 {
                 if p[..3] == k {
                     p[3] = 0;
                 }

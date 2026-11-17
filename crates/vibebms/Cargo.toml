@@ -38,14 +38,15 @@ winit = { version = "0.30", features = ["serde"] }
 wgpu = { version = "24", features = ["webgl"] }
 bytemuck = { version = "1", features = ["derive"] }
 fontdue = "0.9"
-fontdb = "0.16"
+fontdb = "0.24"
 # the characters of a fallback font before fontdue parses it (the version fontdue reads with)
 ttf-parser = { version = "0.25", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
 web-time = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 ehttp = { version = "0.7", features = ["streaming"] }
-toml = "0.8"
+# (preserve_order: `Config::to_toml` writes the keys in their order)
+toml = { version = "1", features = ["preserve_order"] }
 json5 = "1"
 flate2 = "1"
 # download pages of charts a difficulty table lists but the library lacks

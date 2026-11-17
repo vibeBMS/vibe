@@ -205,16 +205,13 @@ impl Text {
         }
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
-        // fontdb treats these as plain Unix and looks in /usr/share/fonts
+        // fontdb loads no system fonts on Android
         #[cfg(target_os = "android")]
         db.load_fonts_dir("/system/fonts");
+        // the simulator's own iOS file system (fontdb loads the host's)
         #[cfg(target_os = "ios")]
-        {
-            db.load_fonts_dir("/System/Library/Fonts");
-            // the simulator's own iOS file system
-            if let Some(sim) = std::env::var_os("IPHONE_SIMULATOR_ROOT") {
-                db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
-            }
+        if let Some(sim) = std::env::var_os("IPHONE_SIMULATOR_ROOT") {
+            db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
         }
         let mut used = std::collections::HashSet::new();
         for fam in PREFERRED_FAMILIES {

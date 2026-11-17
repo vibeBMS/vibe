@@ -45,7 +45,9 @@ fn pms_layout(lines: &[Line]) -> PmsLayout {
     for Line { ch, data, .. } in lines {
         let objs = data
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .filter(|p| *p != b"00")
             .count();
         match (ch[0], ch[1]) {

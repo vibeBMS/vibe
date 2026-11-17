@@ -50,16 +50,22 @@ pub fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let rgba = match f {
         4 => raw,
         3 => raw
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2], 255])
             .collect(),
         1 => raw.iter().flat_map(|&a| [255, 255, 255, a]).collect(),
         2 => raw
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[0], p[0], p[1]])
             .collect(),
         5 => raw
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|p| {
                 let v = u16::from_be_bytes([p[0], p[1]]);
                 let c = |x: u16, bits: u32| ((x as u32 * 255) / ((1 << bits) - 1)) as u8;
@@ -67,7 +73,9 @@ pub fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
             })
             .collect(),
         _ => raw
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|p| {
                 let v = u16::from_be_bytes([p[0], p[1]]);
                 let c = |x: u16| (x & 15) as u8 * 17;

@@ -283,8 +283,15 @@ impl Config {
         root.try_into().unwrap_or_default()
     }
 
+    /// The file's text. Through a `toml::Value` so that an `f32` is written
+    /// as the `f64` it widens to (`0.800000011920929`), as the files
+    /// written so far have it (toml 1 writes `0.8`).
+    pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
+        toml::to_string_pretty(&toml::Value::try_from(self)?)
+    }
+
     pub fn save(&self, path: &std::path::Path) {
-        match toml::to_string_pretty(self) {
+        match self.to_toml() {
             Ok(s) => {
                 if let Err(e) = crate::platform::vfs::write(path, s.as_bytes()) {
                     log::error!("saving config: {e}");
@@ -514,13 +521,13 @@ mod tests {
         );
         let c = full_config();
         if std::env::var_os("GOLDEN_BLESS").is_some() {
-            std::fs::write(&toml_path, toml::to_string_pretty(&c).unwrap()).unwrap();
+            std::fs::write(&toml_path, c.to_toml().unwrap()).unwrap();
             std::fs::write(&json_path, serde_json::to_vec(&c.play).unwrap()).unwrap();
         }
         let s = std::fs::read_to_string(&toml_path).unwrap();
         let read: Config = toml::from_str(&s).unwrap();
         assert_eq!(read, c);
-        assert_eq!(toml::to_string_pretty(&read).unwrap(), s);
+        assert_eq!(read.to_toml().unwrap(), s);
         assert_eq!(Config::load(&toml_path), c);
         let j = std::fs::read(&json_path).unwrap();
         let play: PlayConfig = serde_json::from_slice(&j).unwrap();
@@ -551,7 +558,7 @@ mod tests {
     #[test]
     fn roundtrip_toml() {
         let c = Config::default();
-        let s = toml::to_string_pretty(&c).unwrap();
+        let s = c.to_toml().unwrap();
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
         // partial files fill in defaults
@@ -577,8 +584,7 @@ mod tests {
             migrate(&mut old);
             let c: Config = old.clone().try_into().unwrap();
             assert_eq!(c.ir, IrSettings::default());
-            let mut again: toml::Value =
-                toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+            let mut again: toml::Value = toml::from_str(&c.to_toml().unwrap()).unwrap();
             again.as_table_mut().unwrap().remove("ir");
             assert_eq!(again, old);
         }
@@ -626,7 +632,7 @@ mod tests {
             ..Config::default()
         };
         c.skins.insert("7KEYS".into(), "builtin:perspective".into());
-        let s = toml::to_string_pretty(&c).unwrap();
+        let s = c.to_toml().unwrap();
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
         // older files have no [perspective]: the defaults
@@ -666,7 +672,7 @@ mod tests {
                 ],
             },
         );
-        let s = toml::to_string_pretty(&c).unwrap();
+        let s = c.to_toml().unwrap();
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
         // a configuration from before custom layouts: its style stays
