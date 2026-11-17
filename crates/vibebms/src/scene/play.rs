@@ -149,7 +149,8 @@ pub struct PlayScene {
     pub(crate) bgm_i: usize,
     pub(crate) auto_i: usize,
     pub(crate) bga_i: usize,
-    pub(crate) auto_notes: Vec<(i64, SoundId)>,
+    /// Keysounds of auto lanes: (time, sound, side).
+    pub(crate) auto_notes: Vec<(i64, SoundId, usize)>,
     pub(crate) bga: [Option<u32>; 4],
     pub(crate) poor_until: Option<Instant>,
     /// The last judge of each judge region (`judge_region`).
@@ -176,8 +177,13 @@ pub struct PlayScene {
     /// The best play's judgements in order (its replay), the pacemaker for
     /// MY BEST at the same note.
     pub(crate) best_ghost: Option<Vec<u8>>,
-    /// START / SELECT: the hi-speed panel.
-    ctl: Control,
+    /// START / SELECT: the hi-speed panel (VS: each player's).
+    ctl: [Control; 2],
+    /// VS: two players here, one per side.
+    pub(crate) vs: bool,
+    /// VS: the first two controllers swapped (the 1P controller pressed
+    /// while loading was the second one).
+    swap_pads: bool,
     /// The skin draws the panel itself (objects on timer 21).
     skin_panel: bool,
     pub(crate) assist: Assist,
@@ -258,6 +264,8 @@ pub(crate) struct SideState {
     pub last_gauge: f32,
     /// When its last note was judged (timers 143 / 144).
     pub finished: Option<Instant>,
+    /// VS: when the side failed (it plays no more, the other goes on).
+    pub failed: Option<Instant>,
 }
 
 impl SideState {
@@ -270,6 +278,7 @@ impl SideState {
             gauge_up: None,
             last_gauge,
             finished: None,
+            failed: None,
         }
     }
 }
@@ -284,6 +293,12 @@ impl SideState {
     }
 }
 
+/// A sound's mixer voice: VS keeps each side's keysounds apart (a side's
+/// keysound, or its HCN muting, never cuts the other's).
+fn voice(sound: SoundId, side: usize, vs: bool) -> u64 {
+    sound as u64 + 1 + if vs { (side as u64) << 32 } else { 0 }
+}
+
 /// The single play mode of a double play mode (a battle chart's side).
 pub(crate) fn single_mode(mode: PlayMode) -> PlayMode {
     match mode {
@@ -291,6 +306,25 @@ pub(crate) fn single_mode(mode: PlayMode) -> PlayMode {
         PlayMode::Beat10K => PlayMode::Beat5K,
         m => m,
     }
+}
+
+/// Why VS cannot be played on `song` here (`None`: it can): a 5 or 7 key
+/// chart; with touch controls, a tablet-sized screen (two control sets).
+pub fn vs_refusal(ctx: &Ctx, song: &Song) -> Option<&'static str> {
+    if !matches!(song.mode.as_str(), "7KEYS" | "5KEYS") {
+        return Some("VS needs a 5 or 7 key chart");
+    }
+    vs_touch_too_small(ctx).then_some(VS_TOUCH_TOO_SMALL)
+}
+
+pub const VS_TOUCH_TOO_SMALL: &str =
+    "VS on a touch screen needs a tablet: this screen is too small for two players";
+
+/// Touch controls on a screen too small for two control sets (a phone:
+/// its short side under 12 cm).
+pub fn vs_touch_too_small(ctx: &Ctx) -> bool {
+    let short_mm = ctx.width.min(ctx.height) / ctx.px_per_mm().max(0.1);
+    ctx.touch_enabled() && short_mm < 120.0
 }
 
 /// The screen has room for both sides of a battle: not a phone held
@@ -529,6 +563,17 @@ impl PlayScene {
             _ => None,
         };
         let replay_seed = req.replay.as_ref().or(ghost.as_ref()).map(|r| r.seed);
+        // VS: the single play chart on both sides, each side's own lane
+        // option (RANDOM, RANDOM 2P)
+        let play = if matches!(req.vs, Some(Versus::Local)) {
+            PlayConfig {
+                battle: true,
+                dp_option: DoubleOption::Off,
+                ..play
+            }
+        } else {
+            play
+        };
         let play_ln = play.ln_mode;
         let rate = ctx.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
@@ -593,6 +638,7 @@ impl PlayScene {
             let _ = tx.send(r);
         };
         let mode = PlayMode::Beat7K;
+        let vs = matches!(req.vs, Some(Versus::Local));
         PlayScene {
             req,
             stage: Stage::Loading,
@@ -635,7 +681,9 @@ impl PlayScene {
             seed: 0,
             error: None,
             best_ghost: None,
-            ctl: Control::default(),
+            ctl: Default::default(),
+            vs,
+            swap_pads: false,
             skin_panel: false,
             assist: Assist::None,
             unranked: None,
@@ -759,9 +807,15 @@ impl PlayScene {
         // that changes BPM are assists (only the lamp is kept)
         facts.wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
         facts.bpm_guide = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
+        // VS: each side is a single play (with its own lane option)
+        if self.vs {
+            facts.battle = false;
+            facts.lane.truncate(1);
+        }
         self.unranked = course
             .map(|_| "COURSE")
-            .or(self.req.replay.as_ref().map(|_| "REPLAY"));
+            .or(self.req.replay.as_ref().map(|_| "REPLAY"))
+            .or(self.vs.then_some("VS"));
         // LN mode: course constraints may force one
         if let Some(c) = course {
             if c.has("ln") {
@@ -784,7 +838,6 @@ impl PlayScene {
             rules.gas = vibebms_core::gauge::GaugeAutoShift::None;
         }
         let lanes = self.mode.lane_count();
-        let auto_lanes = rules.auto_lanes(self.mode);
         // AUTO SCRATCH is an assist when it plays scored notes
         facts.auto_scratch = p.auto_scratch
             && chart
@@ -792,15 +845,15 @@ impl PlayScene {
                 .iter()
                 .any(|n| n.is_playable() && self.mode.is_scratch(n.lane as usize));
         self.assist = facts.level();
-        // G-BATTLE: the player judges the first side alone
-        let side = ghost.as_ref().map(|_| 0);
+        // G-BATTLE, VS: the player judges the first side alone
+        let side = (ghost.is_some() || self.vs).then_some(0);
         let (mut engine, total) = make_engine(&chart, &rules, side);
         self.total = total;
         if let Some(v) = course.and_then(|c| c.gauge_values.as_ref()) {
             engine.gauge.set_values(v);
         }
         // a play of its own (not a course stage): kept as a replay
-        if self.req.replay.is_none() && !self.req.autoplay && course.is_none() {
+        if self.req.replay.is_none() && !self.req.autoplay && course.is_none() && !self.vs {
             engine.record();
         }
         // the best play's ghost: MY BEST's pacemaker at the same note
@@ -820,6 +873,14 @@ impl PlayScene {
             None => Role::Player,
         };
         self.sides = vec![SideState::new(engine, role)];
+        // VS: the second player with their own options
+        if self.vs {
+            let mut r = Rules::of(&p.for_side(1));
+            r.ln = self.ln;
+            r.autoplay = self.req.autoplay;
+            let (engine, _) = make_engine(&chart, &r, Some(1));
+            self.sides.push(SideState::new(engine, Role::Player));
+        }
         // the opponent: its replay's own rules on the second side
         if let Some(g) = &ghost {
             let mut r = Rules::of(&g.play);
@@ -849,23 +910,22 @@ impl PlayScene {
         self.lane_judge = vec![None; lanes];
         // keysounds of auto lanes are scheduled ahead like BGM for exact
         // timing (the players' lanes: an opponent is silent)
-        let heard = |lane: usize| {
-            self.sides
-                .iter()
-                .any(|s| !s.ghost() && s.engine.judges(lane as u8))
-        };
+        let sides = &self.sides;
         self.auto_notes = chart
             .notes
             .iter()
-            .filter(|n| {
-                auto_lanes.get(n.lane as usize).copied().unwrap_or(false)
-                    && heard(n.lane as usize)
-                    && n.is_playable()
-                    && n.sound != NO_SOUND
+            .filter(|n| n.is_playable() && n.sound != NO_SOUND)
+            .filter_map(|n| {
+                let lane = n.lane as usize;
+                let k = sides.iter().position(|s| {
+                    !s.ghost() && s.engine.judges(n.lane) && s.engine.is_auto(lane)
+                })?;
+                Some((n.time, n.sound, k))
             })
-            .map(|n| (n.time, n.sound))
             .collect();
-        self.mapper = Some(LaneMapper::new(&ctx.config.keys, self.input_mode));
+        let mut mapper = LaneMapper::new(&ctx.config.keys, self.input_mode);
+        mapper.swap_pads = self.swap_pads;
+        self.mapper = Some(mapper);
         self.bga_tex = images
             .into_iter()
             .map(|i| i.map(|(w, h, px)| gfx.create_texture(w, h, &px)))
@@ -889,6 +949,9 @@ impl PlayScene {
         }
         if ghost.is_some() {
             opts.push("G-BATTLE".into());
+        }
+        if self.vs {
+            opts.push("VS".into());
         }
         if p.auto_scratch {
             opts.push("AUTO-SCR".into());
@@ -923,7 +986,11 @@ impl PlayScene {
         }
     }
 
-    fn play_sound(&self, ctx: &Ctx, sound: SoundId, at: Option<i64>, bus: Bus) {
+    fn voice(&self, sound: SoundId, side: usize) -> u64 {
+        voice(sound, side, self.vs)
+    }
+
+    fn play_sound(&self, ctx: &Ctx, sound: SoundId, at: Option<i64>, bus: Bus, side: usize) {
         let Some(slice) = self.chart.sounds.get(sound as usize) else {
             return;
         };
@@ -935,7 +1002,7 @@ impl PlayScene {
         m.play(
             sample,
             PlayOptions {
-                key: sound as u64 + 1,
+                key: self.voice(sound, side),
                 volume: vol,
                 bus,
                 start_frame: at.map(|t| (self.base_frame + m.us_to_frames(t)).max(0) as u64),
@@ -947,14 +1014,16 @@ impl PlayScene {
         );
     }
 
-    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, auto: &[bool]) {
+    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, auto: &[bool], side: usize) {
         match ev {
             EngineEvent::Sound { sound, lane } => {
                 if !auto.get(lane as usize).copied().unwrap_or(false) {
-                    self.play_sound(ctx, sound, None, Bus::Key);
+                    self.play_sound(ctx, sound, None, Bus::Key, side);
                 }
             }
-            EngineEvent::Volume { sound, volume } => ctx.mixer.set_volume(sound as u64 + 1, volume),
+            EngineEvent::Volume { sound, volume } => {
+                ctx.mixer.set_volume(self.voice(sound, side), volume)
+            }
             _ => {}
         }
     }
@@ -966,16 +1035,16 @@ impl PlayScene {
                 break;
             }
             if b.time >= t - 100_000 {
-                self.play_sound(ctx, b.sound, Some(b.time), Bus::Bgm);
+                self.play_sound(ctx, b.sound, Some(b.time), Bus::Bgm, 0);
             }
             self.bgm_i += 1;
         }
-        while let Some(&(time, s)) = self.auto_notes.get(self.auto_i) {
+        while let Some(&(time, s, side)) = self.auto_notes.get(self.auto_i) {
             if time > horizon {
                 break;
             }
             if time >= t - 100_000 {
-                self.play_sound(ctx, s, Some(time), Bus::Key);
+                self.play_sound(ctx, s, Some(time), Bus::Key, side);
             }
             self.auto_i += 1;
         }
@@ -1009,17 +1078,34 @@ impl PlayScene {
         }
     }
 
-    fn feed(&mut self, ev: LaneEv, offset: i64) {
+    /// The judge offset of a side (µs; a replay's times have it in them).
+    fn offset_of(&self, ctx: &Ctx, side: usize) -> i64 {
+        let p = &ctx.config.play;
+        match side {
+            _ if self.req.replay.is_some() => 0,
+            1 if self.vs => p.p2.judge_offset_ms as i64 * 1000,
+            _ => p.judge_offset_ms as i64 * 1000,
+        }
+    }
+
+    fn feed(&mut self, ctx: &Ctx, ev: LaneEv) {
         if self.req.replay.is_some() {
             return;
         }
         self.touched |= ev.pressed;
-        let t = self.chart_us(ev.time) - offset;
-        let side = self
+        // the player side judging the lane (one that failed plays no more)
+        let Some(k) = self
             .sides
-            .iter_mut()
-            .find(|s| s.player() && s.engine.judges(ev.lane));
-        if let Some(e) = side.map(|s| &mut s.engine) {
+            .iter()
+            .position(|s| s.player() && s.engine.judges(ev.lane))
+        else {
+            return;
+        };
+        if self.sides[k].failed.is_some() {
+            return;
+        }
+        let t = self.chart_us(ev.time) - self.offset_of(ctx, k);
+        if let Some(e) = self.sides.get_mut(k).map(|s| &mut s.engine) {
             e.input(InputEvent {
                 time: t,
                 lane: ev.lane,
@@ -1084,10 +1170,17 @@ impl PlayScene {
         if !ctx.touch_enabled() || self.perspective() {
             return Vec::new();
         }
-        let t = &ctx.config.touch;
+        let t = &self.touch_config(ctx);
         let area = touch::controls_area(ctx.width, ctx.height, t);
         let side2 = ctx.config.play.side == Side::P2;
         touch::player_areas(self.input_mode, area, t, side2, ctx.px_per_mm())
+    }
+
+    /// The touch settings for this play (VS: two control sets).
+    fn touch_config(&self, ctx: &Ctx) -> crate::config::TouchConfig {
+        let mut t = ctx.config.touch.clone();
+        t.allow_dp |= self.vs;
+        t
     }
 
     /// Where the play skin goes (above the touch controls) and, with touch
@@ -1096,7 +1189,7 @@ impl PlayScene {
         &self,
         ctx: &Ctx,
         areas: &[(Rect, usize, bool)],
-    ) -> (Rect, Option<[touch::Zone; 2]>) {
+    ) -> (Rect, Option<Vec<touch::Zone>>) {
         let screen = Rect::new(
             0.0,
             0.0,
@@ -1122,7 +1215,7 @@ impl PlayScene {
             };
             return (
                 screen,
-                Some([zone(touch::START, b[0]), zone(touch::SELECT, b[1])]),
+                Some(vec![zone(touch::START, b[0]), zone(touch::SELECT, b[1])]),
             );
         }
         if areas.is_empty() {
@@ -1133,10 +1226,19 @@ impl PlayScene {
             .as_ref()
             .map(|s| s.skin.width / s.skin.height.max(1.0))
             .unwrap_or(16.0 / 9.0);
+        if self.vs {
+            // VS: 1P's buttons on the left, 2P's on the right
+            let mm = ctx.px_per_mm();
+            let (view, one) = touch::system_buttons(screen, aspect, mm, false);
+            let (view, mut two) = touch::system_buttons(view, aspect, mm, true);
+            two[0].lane = touch::START2;
+            two[1].lane = touch::SELECT2;
+            return (view, Some(one.into_iter().chain(two).collect()));
+        }
         let side2 = ctx.config.play.side == Side::P2;
         let right = touch::system_right(&ctx.config.touch, self.input_mode, side2, ctx.portrait());
         let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm(), right);
-        (view, Some(buttons))
+        (view, Some(buttons.to_vec()))
     }
 
     fn rebuild_zones(&mut self, ctx: &Ctx, areas: &[(Rect, usize, bool)]) {
@@ -1161,7 +1263,7 @@ impl PlayScene {
         if !areas.is_empty() {
             self.zones = touch::zones(
                 self.input_mode,
-                &ctx.config.touch,
+                &self.touch_config(ctx),
                 touch::controls_area(ctx.width, ctx.height, &ctx.config.touch),
                 ctx.config.play.side == Side::P2,
                 ctx.portrait(),
@@ -1206,6 +1308,12 @@ impl PlayScene {
             c.stages
                 .push((self.chart.meta.title.clone(), score.clone(), clear));
         }
+        // a battle's sides are single plays
+        let played_mode = if self.sides.len() > 1 {
+            single_mode(self.mode)
+        } else {
+            self.mode
+        };
         let data = ResultData {
             request: PlayRequest {
                 course: None,
@@ -1216,7 +1324,7 @@ impl PlayScene {
             subtitle: self.chart.meta.subtitle.clone(),
             artist: self.chart.meta.artist.clone(),
             level: self.chart.meta.level.clone(),
-            mode: self.input_mode,
+            mode: played_mode,
             ln: self.score_ln,
             score,
             clear,
@@ -1226,7 +1334,7 @@ impl PlayScene {
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
-            notes_graph: super::graphs::columns(e.notes(), self.input_mode, self.chart.length()),
+            notes_graph: super::graphs::columns(e.notes(), played_mode, self.chart.length()),
             meta: self.chart.meta.clone(),
             length_us: self.chart.length(),
             bpm_log: self
@@ -1358,73 +1466,101 @@ impl PlayScene {
             .any(|s| matches!(s.role, Role::Ghost { desync: true, .. }))
     }
 
+    /// The player side a key or button belongs to (VS: each player's
+    /// START / SELECT and keys; else the one player's).
+    fn control_side(&self, lane: u8) -> usize {
+        if !self.vs {
+            return 0;
+        }
+        match lane {
+            touch::START | touch::SELECT => 0,
+            touch::START2 | touch::SELECT2 => 1,
+            l => self.mode.player_of_lane(l as usize).min(1),
+        }
+    }
+
     /// START / SELECT and what they do to the keys: `true` when the event
     /// was taken (it does not reach the judge).
     fn control(&mut self, ctx: &mut Ctx, e: &LaneEv) -> bool {
+        // the second player's START / SELECT do nothing out of VS
+        if !self.vs && matches!(e.lane, touch::START2 | touch::SELECT2) {
+            return true;
+        }
         let bpm = &Bpms::of_meta(&self.chart.meta);
-        let p = &mut ctx.config.play;
-        let c = &mut self.ctl;
-        let was_open = c.open();
-        match e.lane {
-            touch::START => {
-                c.start = e.pressed;
-                if e.pressed {
-                    let twice = c
-                        .last_start
-                        .is_some_and(|t| e.time.duration_since(t) < Duration::from_millis(500));
-                    if twice {
-                        // show / hide the lane cover
-                        if p.lane_cover || p.sudden > 0.0 {
-                            c.stash = p.sudden;
-                            p.lane_cover = false;
-                            p.sudden = 0.0;
-                        } else {
-                            p.lane_cover = true;
-                            p.sudden = if c.stash > 0.0 { c.stash } else { 0.2 };
-                        }
-                    }
-                    c.last_start = (!twice).then_some(e.time);
-                }
-            }
-            touch::SELECT => c.select = e.pressed,
-            _ if !c.open() => return false,
-            // releases go on to the judge (the key may have been down first)
-            _ if !e.pressed => {
-                if self.mode.is_scratch(e.lane as usize) {
-                    c.scratch = None;
-                }
-                return false;
-            }
-            lane if self.mode.is_scratch(lane as usize) => {
-                let dir = if e.sub == 0 { -1 } else { 1 };
-                c.turn(p, dir, bpm);
-                c.scratch = Some((dir, e.time));
-            }
-            lane => {
-                let blue = lane as usize % self.mode.lanes_per_player() % 2 == 1;
-                // START: 0.25 steps, SELECT: 0.01; white slower, black faster
-                let step = if c.start { HISPEED_STEP } else { 0.01 };
-                p.add_hispeed(if blue { step } else { -step }, bpm);
-            }
+        let side = self.control_side(e.lane);
+        // the side's own options (VS: the second player's)
+        let mut p = ctx.config.play.for_side(side);
+        let taken = control(&mut self.ctl[side], self.mode, &mut p, bpm, e);
+        if taken {
+            ctx.config.play.set_side(side, &p);
         }
-        c.both_since = (c.start && c.select).then(|| c.both_since.unwrap_or(e.time));
-        match (was_open, c.open()) {
-            (false, true) => (c.opened, c.closed) = (Some(e.time), None),
-            (true, false) => (c.opened, c.closed) = (None, Some(e.time)),
-            _ => {}
-        }
-        true
+        taken
     }
 
     /// When the hi-speed panel opened and last closed (skin timers 21 / 31).
     pub(crate) fn panel_timers(&self) -> (Option<Instant>, Option<Instant>) {
-        (self.ctl.opened, self.ctl.closed)
+        (self.ctl[0].opened, self.ctl[0].closed)
     }
 
     /// The hi-speed / lane cover panel is up (START or SELECT held).
     pub(crate) fn panel_open(&self) -> bool {
-        self.ctl.open()
+        self.ctl[0].open()
     }
+}
+
+/// What START / SELECT and the keys do to `p` with them held (one player's
+/// `Control`): `true` when the event was taken.
+fn control(c: &mut Control, mode: PlayMode, p: &mut PlayConfig, bpm: &Bpms, e: &LaneEv) -> bool {
+    let was_open = c.open();
+    match e.lane {
+        touch::START | touch::START2 => {
+            c.start = e.pressed;
+            if e.pressed {
+                let twice = c
+                    .last_start
+                    .is_some_and(|t| e.time.duration_since(t) < Duration::from_millis(500));
+                if twice {
+                    // show / hide the lane cover
+                    if p.lane_cover || p.sudden > 0.0 {
+                        c.stash = p.sudden;
+                        p.lane_cover = false;
+                        p.sudden = 0.0;
+                    } else {
+                        p.lane_cover = true;
+                        p.sudden = if c.stash > 0.0 { c.stash } else { 0.2 };
+                    }
+                }
+                c.last_start = (!twice).then_some(e.time);
+            }
+        }
+        touch::SELECT | touch::SELECT2 => c.select = e.pressed,
+        _ if !c.open() => return false,
+        // releases go on to the judge (the key may have been down first)
+        _ if !e.pressed => {
+            if mode.is_scratch(e.lane as usize) {
+                c.scratch = None;
+            }
+            return false;
+        }
+        lane if mode.is_scratch(lane as usize) => {
+            let dir = if e.sub == 0 { -1 } else { 1 };
+            c.turn(p, dir, bpm);
+            c.scratch = Some((dir, e.time));
+        }
+        lane => {
+            let blue = lane as usize % mode.lanes_per_player() % 2 == 1;
+            // START: 0.25 steps, SELECT: 0.01; white slower, black faster
+            let step = if c.start { HISPEED_STEP } else { 0.01 };
+            p.add_hispeed(if blue { step } else { -step }, bpm);
+        }
+    }
+    c.both_since = (c.start && c.select).then(|| c.both_since.unwrap_or(e.time));
+    match (was_open, c.open()) {
+        (false, true) => (c.opened, c.closed) = (Some(e.time), None),
+        (true, false) => (c.opened, c.closed) = (None, Some(e.time)),
+        _ => {}
+    }
+    true
 }
 
 impl Scene for PlayScene {
@@ -1437,18 +1573,22 @@ impl Scene for PlayScene {
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         // the turntable keeps turning the panel's value while held
-        if let Some((dir, last)) = self.ctl.scratch.filter(|_| self.ctl.open()) {
-            if now.duration_since(last) >= Duration::from_millis(50) {
-                self.ctl
-                    .turn(&mut ctx.config.play, dir, &Bpms::of_meta(&self.chart.meta));
-                self.ctl.scratch = Some((dir, now));
+        for side in 0..2 {
+            let c = &mut self.ctl[side];
+            if let Some((dir, last)) = c.scratch.filter(|_| c.open()) {
+                if now.duration_since(last) >= Duration::from_millis(50) {
+                    let mut p = ctx.config.play.for_side(side);
+                    c.turn(&mut p, dir, &Bpms::of_meta(&self.chart.meta));
+                    c.scratch = Some((dir, now));
+                    ctx.config.play.set_side(side, &p);
+                }
             }
         }
-        if self
-            .ctl
-            .both_since
-            .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(1))
-        {
+        // START + SELECT held for a second (either player's): quit
+        if self.ctl.iter().any(|c| {
+            c.both_since
+                .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(1))
+        }) {
             self.quit = true;
         }
         // a perspective skin has the screen's shape: made again when the
@@ -1515,12 +1655,10 @@ impl Scene for PlayScene {
             }
             Stage::Playing => {}
         }
-        // a replay's times have the judge offset in them
-        let offset = if self.req.replay.is_some() {
-            0
-        } else {
-            ctx.config.play.judge_offset_ms as i64 * 1000
-        };
+        // each side's judge offset (a replay's times have it in them)
+        let offsets: Vec<i64> = (0..self.sides.len())
+            .map(|k| self.offset_of(ctx, k))
+            .collect();
         let t = self.chart_us(now);
         // release turntables that stopped
         let mut evs = Vec::new();
@@ -1528,7 +1666,7 @@ impl Scene for PlayScene {
             m.tick(now, &mut evs);
         }
         for e in evs {
-            self.feed(e, offset);
+            self.feed(ctx, e);
         }
         self.schedule_audio(ctx, t);
         self.run_feeds(t, now);
@@ -1539,8 +1677,11 @@ impl Scene for PlayScene {
         let mut finished = true;
         for (k, side) in self.sides.iter_mut().enumerate() {
             let (player, ghost) = (side.player(), side.ghost());
+            let offset = offsets[k];
+            let out = side.failed.is_some();
             let engine = &mut side.engine;
-            if player {
+            // (a side that failed in VS plays no more)
+            if player && !out {
                 engine.update(t - offset);
             }
             events.extend(engine.drain_events().map(|e| (k, e)));
@@ -1561,7 +1702,7 @@ impl Scene for PlayScene {
             if done && side.finished.is_none() {
                 side.finished = Some(now);
             }
-            finished &= ghost || done;
+            finished &= ghost || out || done;
         }
         if sample {
             // every 500 ms of play time, like beatoraja
@@ -1580,7 +1721,16 @@ impl Scene for PlayScene {
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } | EngineEvent::Failed
                     if ghost => {}
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } => {
-                    self.sound_event(ctx, ev, auto)
+                    self.sound_event(ctx, ev, auto, k)
+                }
+                // VS: a player who fails stops; the play ends when both have
+                EngineEvent::Failed if self.vs => {
+                    self.sides[k].failed.get_or_insert(now);
+                    failed = self
+                        .sides
+                        .iter()
+                        .filter(|s| s.player())
+                        .all(|s| s.failed.is_some());
                 }
                 EngineEvent::Judge {
                     lane,
@@ -1681,7 +1831,6 @@ impl Scene for PlayScene {
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
-        let offset = ctx.config.play.judge_offset_ms as i64 * 1000;
         let mut lane_evs = Vec::new();
         match ev {
             InputEv::Key {
@@ -1729,6 +1878,15 @@ impl Scene for PlayScene {
                 }
             }
             InputEv::Pad { id, pressed, time } => {
+                // VS: a button pressed while loading picks the 1P controller
+                if self.vs && *pressed && matches!(self.stage, Stage::Loading) && *id < 2_000_000 {
+                    let swap = *id >= 1_000_000;
+                    if swap != self.swap_pads {
+                        self.swap_pads = swap;
+                        ctx.toast(format!("1P: controller {}", swap as u8 + 1));
+                    }
+                    return Next::Stay;
+                }
                 if let Some((lane, sub)) = self.mapper.as_ref().and_then(|m| m.pad(*id)) {
                     lane_evs.push(LaneEv {
                         lane,
@@ -1787,7 +1945,7 @@ impl Scene for PlayScene {
                 continue;
             }
             if matches!(self.stage, Stage::Playing) {
-                self.feed(e, offset);
+                self.feed(ctx, e);
                 fed = true;
             }
         }
@@ -1795,16 +1953,22 @@ impl Scene for PlayScene {
             // judge now and start the keys' sounds without waiting for the
             // next frame; the rest of the events wait for it
             let t = self.chart_us(Instant::now());
+            let offsets: Vec<i64> = (0..self.sides.len())
+                .map(|k| self.offset_of(ctx, k))
+                .collect();
             let mut sounds = Vec::new();
-            for side in self.sides.iter_mut().filter(|s| s.player()) {
+            for (k, side) in self.sides.iter_mut().enumerate() {
+                if !side.player() || side.failed.is_some() {
+                    continue;
+                }
                 let e = &mut side.engine;
-                e.update(t - offset);
+                e.update(t - offsets[k]);
                 let auto: Vec<bool> = (0..self.mode.lane_count()).map(|l| e.is_auto(l)).collect();
-                sounds.push((e.take_sounds(), auto));
+                sounds.push((k, e.take_sounds(), auto));
             }
-            for (evs, auto) in sounds {
+            for (k, evs, auto) in sounds {
                 for ev in evs {
-                    self.sound_event(ctx, ev, &auto);
+                    self.sound_event(ctx, ev, &auto, k);
                 }
             }
         }
@@ -1864,6 +2028,23 @@ impl Scene for PlayScene {
                 Align::Center,
                 w * 0.9,
             );
+            if self.vs {
+                // which controller is 1P (a button on it now picks it)
+                let pads = if ctx.config.keys.p1.keys.iter().any(|k| !k.pad.is_empty()) {
+                    "  ·  press a button on the 1P controller"
+                } else {
+                    ""
+                };
+                d.text_fit(
+                    &format!("VS  ·  1P left, 2P right{pads}"),
+                    w * 0.5,
+                    h * 0.22,
+                    20.0 * ui,
+                    theme::ACCENT,
+                    Align::Center,
+                    w * 0.9,
+                );
+            }
             if let Some(c) = &self.req.course {
                 d.text(
                     &format!("{}  STAGE {}/{}", c.name, c.index + 1, c.songs.len()),
@@ -1934,7 +2115,7 @@ impl PlayScene {
 
     /// The hi-speed panel for skins without their own, beside the note
     /// field (between the fields in double play), never over the lanes.
-    fn draw_panel(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant) {
+    fn draw_panel(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant, who: usize) {
         let ui = ctx.ui();
         let fields = self.fields(view);
         let (Some(first), Some(last)) = (fields.first(), fields.last()) else {
@@ -1954,7 +2135,10 @@ impl PlayScene {
         }
         let right = (last.right(), view.right(), Side::Right);
         let left = (view.x, first.x, Side::Left);
-        if first.x - view.x > view.right() - last.right() {
+        if self.vs {
+            // VS: each player's beside their own field
+            spaces.insert(0, if who == 0 { left } else { right });
+        } else if first.x - view.x > view.right() - last.right() {
             spaces.extend([left, right]);
         } else {
             spaces.extend([right, left]);
@@ -1982,9 +2166,9 @@ impl PlayScene {
         let h = (first.h * 0.7).min(340.0 * ui);
         let r = Rect::new(x, first.y + first.h * 0.12, w, h);
         ui::panel(d, r);
-        let p = &ctx.config.play;
+        let p = &ctx.config.play.for_side(who);
         let st = super::play_skin::SceneState { s: self, ctx, now };
-        let hs = st.hispeed() as f32;
+        let hs = p.hispeed_at(&st.bpms());
         let cx = r.x + w * 0.5;
         let small = (11.0 * ui).min(w * 0.12);
         let mut y = r.y + 10.0 * ui;
@@ -2039,7 +2223,8 @@ impl PlayScene {
             theme::TEXT,
             &mut y,
         );
-        let hint = match (self.ctl.start, self.ctl.select) {
+        let c = &self.ctl[who];
+        let hint = match (c.start, c.select) {
             (true, true) => ["HOLD:", "QUIT"],
             (true, false) => ["WHITE -0.25 / BLUE +0.25", "TURNTABLE: COVER"],
             _ => ["WHITE -0.01 / BLUE +0.01", "TURNTABLE: HI-SPEED"],
@@ -2047,7 +2232,7 @@ impl PlayScene {
         for h in hint {
             line(d, h, small * 0.8, theme::TEXT_DIM, &mut y);
         }
-        if let Some(t) = self.ctl.both_since {
+        if let Some(t) = c.both_since {
             let k = now.duration_since(t).as_secs_f32().min(1.0);
             d.b.rect(
                 Rect::new(r.x, r.bottom() - 4.0 * ui, r.w * k, 4.0 * ui),
@@ -2078,7 +2263,7 @@ impl PlayScene {
             }
             // (the perspective lanes draw their own touch areas)
             let shown = if self.perspective() {
-                let first = self.zones.iter().position(|z| z.lane >= touch::START);
+                let first = self.zones.iter().position(|z| z.lane >= touch::SYSTEM);
                 &self.zones[first.unwrap_or(self.zones.len())..]
             } else {
                 &self.zones[..]
@@ -2087,12 +2272,11 @@ impl PlayScene {
         }
         if ctx.touch_enabled() {
             let ui = ctx.ui();
-            for z in self.zones.iter().filter(|z| z.lane >= touch::START) {
+            for z in self.zones.iter().filter(|z| z.lane >= touch::SYSTEM) {
                 if let touch::Shape::Rect(r) = z.shape {
-                    let label = if z.lane == touch::START {
-                        "START"
-                    } else {
-                        "SELECT"
+                    let label = match z.lane {
+                        touch::START | touch::START2 => "START",
+                        _ => "SELECT",
                     };
                     let size = (r.w * 0.22).min(14.0 * ui);
                     d.text_fit(
@@ -2107,8 +2291,29 @@ impl PlayScene {
                 }
             }
         }
-        if self.ctl.open() && !self.skin_panel {
-            self.draw_panel(ctx, d, view, now);
+        for who in 0..2 {
+            // (a skin's own panel is the first player's)
+            if self.ctl[who].open() && (!self.skin_panel || who == 1) {
+                self.draw_panel(ctx, d, view, now, who);
+            }
+        }
+        // VS: a player who failed plays no more
+        if self.vs {
+            let ui = ctx.ui();
+            let fields = self.fields(view);
+            for (side, f) in self.sides.iter().zip(&fields) {
+                if side.failed.is_some() {
+                    d.b.rect(*f, with_alpha(rgba(0x000000ff), 0.6));
+                    d.text(
+                        "FAILED",
+                        f.x + f.w * 0.5,
+                        f.y + f.h * 0.4,
+                        32.0 * ui,
+                        theme::ACCENT,
+                        Align::Center,
+                    );
+                }
+            }
         }
         if self.ghost_desync() {
             let ui = ctx.ui();
@@ -2518,6 +2723,42 @@ mod tests {
         r.save(&root, crate::replay::Slot::Best).unwrap();
         r.save(&root, crate::replay::Slot::Last).unwrap();
         println!("EX {} of {}", r.ex_score, e.score.max_ex());
+    }
+
+    #[test]
+    fn vs_players_have_their_own_voices_and_controls() {
+        // a keysound and an HCN mute of one side never reach the other's
+        assert_ne!(voice(3, 0, true), voice(3, 1, true));
+        assert_eq!(voice(3, 0, true), voice(3, 0, false));
+        assert_eq!(voice(3, 1, false), voice(3, 0, false));
+        // each player's START + keys change their own hi-speed
+        let bpm = Bpms::flat(150.0);
+        let now = Instant::now();
+        let mut p = PlayConfig::default();
+        p.p2.hispeed = 3.0;
+        let mut c = [Control::default(), Control::default()];
+        let ev = |lane, pressed| LaneEv {
+            lane,
+            sub: 0,
+            pressed,
+            time: now,
+        };
+        let mode = PlayMode::Beat14K;
+        let mut two = p.for_side(1);
+        assert!(control(
+            &mut c[1],
+            mode,
+            &mut two,
+            &bpm,
+            &ev(touch::START2, true)
+        ));
+        // a blue key of 2P: +0.25
+        assert!(control(&mut c[1], mode, &mut two, &bpm, &ev(9, true)));
+        p.set_side(1, &two);
+        assert_eq!((p.hispeed, p.p2.hispeed), (2.5, 3.25));
+        // 1P's panel is not open: its key goes to the judge
+        let mut one = p.for_side(0);
+        assert!(!control(&mut c[0], mode, &mut one, &bpm, &ev(1, true)));
     }
 
     #[test]

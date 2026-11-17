@@ -194,7 +194,7 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("GAUGE: {}", p.gauge.label())
         }
         (1, 3) => {
-            let label = step_battle(p, battle_choices(false), 1);
+            let label = step_battle(p, battle_choices(true), 1);
             format!("DP OPTION: {label}")
         }
         (1, 4) => {
@@ -307,6 +307,8 @@ mod tests {
         assert_eq!(p.versus, Versus::GhostBest);
         key(&mut p, 1, 3, &b);
         assert_eq!(p.versus, Versus::GhostLast);
+        key(&mut p, 1, 3, &b);
+        assert_eq!(p.versus, Versus::Local);
         key(&mut p, 1, 3, &b);
         assert_eq!((battle_index(&p), p.versus), (0, Versus::Off));
         key(&mut p, 1, 4, &b);

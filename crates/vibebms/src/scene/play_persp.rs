@@ -163,7 +163,7 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
         // the touch area (what a touch hits) and the scratch's swipe marks
         if ctx.touch_enabled() {
             let opacity = ctx.config.touch.opacity;
-            for z in s.zones.iter().filter(|z| z.lane < crate::touch::START) {
+            for z in s.zones.iter().filter(|z| z.lane < crate::touch::SYSTEM) {
                 let (Shape::Quad(q), Some(l)) =
                     (z.shape, f.lanes.iter().find(|l| l.lane == z.lane as usize))
                 else {

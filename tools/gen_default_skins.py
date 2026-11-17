@@ -992,7 +992,7 @@ def note_def(sk, all_lanes):
 
 
 def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, keys_h,
-          judge_at, translucent=False, part="all", tt=None):
+          judge_at, translucent=False, part="all", tt=None, own=False):
     """Note field, keys, beams, bombs and judgement for one player.
 
     `part` "under" draws what goes below the notes and "over" the rest, so
@@ -1004,7 +1004,7 @@ def field(sk, mode, player, side, fx, top, lane_h, scratch_w, key_w, keys_y, key
         field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent)
     if part in ("all", "over"):
         field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
-                   lanes_out, tt)
+                   lanes_out, tt, own)
 
 
 def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, translucent):
@@ -1033,29 +1033,38 @@ def field_under(sk, mode, player, fx, fw, top, lane_h, keys_h, lanes_out, transl
                                   "dst": [sk.key(fx, top, fw, lane_h, fixed=True, time=0)]})
 
 
+# vibeBMS ids of the second player's own lane cover (VS): its SUDDEN+ as a
+# slider, shown, its white and green numbers
+P2_SUDDEN, P2_COVER, P2_WHITE, P2_GREEN, P2_COVER_OFFSET = 9404, 9271, 9014, 9313, 9004
+
+
 def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judge_at,
-               lanes_out, tt=None):
+               lanes_out, tt=None, own=False):
+    """`own`: the 2P field shows the second player's own cover (VS)."""
     judge_y = top + lane_h
     if player == 0:
         sk.put("notes", fx, top, fw, lane_h, fixed=True)
+    own = own and player == 1
+    sud, shown, white, green = ((P2_SUDDEN, P2_COVER, P2_WHITE, P2_GREEN) if own
+                                else (4, 271, 14, 313))
     # lane cover (SUDDEN+): slides down from above the field
     cov = f"cover{player}"
     if cov not in sk._ids:
         sk._ids.add(cov)
         x, y, w, h = sk.parts.items["cover"]
         sk.j["slider"].append({"id": cov, "src": "parts", "x": x, "y": y, "w": w, "h": h,
-                               "angle": 2, "range": lane_h, "type": 4})
-    sk.put(cov, fx, top - lane_h, fw, lane_h, op=[271], fixed=True)
+                               "angle": 2, "range": lane_h, "type": sud})
+    sk.put(cov, fx, top - lane_h, fw, lane_h, op=[shown], fixed=True)
     # white (cover, 1/1000) and green numbers on the cover's lower edge
-    cw, ch = sk.num("n_small", 14, 4)[1:]
-    gw_ = sk.num("n_green", 313, 4)[1] * 4
+    cw, ch = sk.num("n_small", white, 4)[1:]
+    gw_ = sk.num("n_green", green, 4)[1] * 4
     ny = top - ch - 10
     mid = fx + fw // 2
-    for d in (sk.put(sk.num("n_small", 14, 4)[0], mid - 8 - cw * 4, ny, cw, ch, op=[271],
+    for d in (sk.put(sk.num("n_small", white, 4)[0], mid - 8 - cw * 4, ny, cw, ch, op=[shown],
                      fixed=True),
-              sk.put(sk.num("n_green", 313, 4)[0], mid + 8, ny - 1, gw_ // 4, 22, op=[271],
+              sk.put(sk.num("n_green", green, 4)[0], mid + 8, ny - 1, gw_ // 4, 22, op=[shown],
                      fixed=True)):
-        d["offset"] = 4
+        d["offset"] = P2_COVER_OFFSET if own else 4
     # judge line
     sk.put(sk.img("judgeline"), fx, judge_y - 4, fw, 8, fixed=True)
     # bombs + hold glow
@@ -1704,7 +1713,8 @@ def land_dp(fonts, parts, mode, touch=False, battle=False):
         tts = [(f1 + 20, H - 8 - size // 2, size), (f2 + fw - 20, H - 8 - size // 2, size)]
     for part in ("under", "over"):
         field(sk, mode, 0, 0, f1, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[0])
-        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[1])
+        field(sk, mode, 1, 1, f2, 0, lane_h, sw, kw, keys_y, keys_h, 0.6, part=part, tt=tts[1],
+              own=battle)
     # progress in the gap
     gx = W // 2 - 6
     d.rounded_rectangle((gx + 2, 4, gx + 10, lane_h - 4), 3, fill=(24, 28, 42, 255))

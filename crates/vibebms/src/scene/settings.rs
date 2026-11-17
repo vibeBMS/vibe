@@ -501,6 +501,21 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             it("Gauge", p.gauge.label(), |c, d| {
                 c.config.play.gauge = cyc(&GaugeType::SELECTABLE, c.config.play.gauge, d)
             }),
+            // the second player's own in VS
+            it("VS 2P gauge", p.p2.gauge.label(), |c, d| {
+                c.config.play.p2.gauge = cyc(&GaugeType::SELECTABLE, c.config.play.p2.gauge, d)
+            }),
+            it("VS 2P auto scratch", onoff(p.p2.auto_scratch), |c, _| {
+                c.config.play.p2.auto_scratch = !c.config.play.p2.auto_scratch
+            }),
+            it(
+                "VS 2P judge offset (ms)",
+                format!("{:+}", p.p2.judge_offset_ms),
+                |c, d| {
+                    c.config.play.p2.judge_offset_ms =
+                        (c.config.play.p2.judge_offset_ms + d).clamp(-500, 500)
+                },
+            ),
             it("Gauge auto shift", p.gauge_auto_shift.label(), |c, d| {
                 c.config.play.gauge_auto_shift =
                     cyc(&GaugeAutoShift::ALL, c.config.play.gauge_auto_shift, d)
@@ -609,6 +624,16 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                 label: "SELECT".into(),
                 value: keys_label(&k.select),
                 act: Act::Bind(Slot::Select),
+            });
+            v.push(Item {
+                label: "2P START (VS)".into(),
+                value: keys_label(&k.p2_start),
+                act: Act::Bind(Slot::Start2),
+            });
+            v.push(Item {
+                label: "2P SELECT (VS)".into(),
+                value: keys_label(&k.p2_select),
+                act: Act::Bind(Slot::Select2),
             });
             v.push(it(
                 "Any gamepad axis = turntable",

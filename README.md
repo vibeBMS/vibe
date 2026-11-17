@@ -145,6 +145,17 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   lane option counting for the assist level). Replays of BATTLE or LEGACY NOTE plays, of another LN mode, or
   without inputs cannot be opponents. On a phone held upright the single play skin is shown and the opponent
   is only the pacemaker. The results name the winner by EX score; RETRY plays the same battle again.
+- **VS**: two players here, one per side of a 5 or 7 key chart (the BATTLE row's last value, or DP OPTION's).
+  Each has their own keys (1P / 2P key config), START / SELECT (2P: `P` / `O` by default, `2P START` / `2P
+  SELECT` in the key config), hi-speed, lane cover, LIFT, HIDDEN+, gauge, AUTO SCRATCH and judge offset
+  (`[play.p2]` in the config; each player's START panel changes their own) and lane option (RANDOM / RANDOM
+  2P). Each side has its own judge, gauge, score and keysound voices (one side's keysounds or HCN muting never
+  cut the other's); a player who fails stops (FAILED over their side) and the other plays on; the play ends
+  when both have finished or failed. The results show both sides and the winner. Nothing is saved: no
+  scores, lamps, replays or play counts. Controllers: press a button on the 1P controller while the chart
+  loads (the order they were connected in can swap them). On one keyboard, many keyboards miss keys when
+  several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
+  player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
 - **Audio**: low-latency output (ASIO/JACK feature flags), keysounds scheduled to the sample, WAV/OGG/MP3/FLAC.
 

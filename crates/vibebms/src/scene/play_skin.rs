@@ -417,6 +417,10 @@ impl SceneState<'_> {
                 .as_ref()
                 .is_some_and(|c| !c.constraints.is_empty()),
             271 => p.lane_cover || p.sudden > 0.0,
+            P2_COVER => {
+                let p = self.side_play(1);
+                p.lane_cover || p.sudden > 0.0
+            }
             272 => p.lift > 0.0,
             273 => p.hidden > 0.0,
             290 => s.req.course.is_some(),
@@ -433,6 +437,14 @@ impl SceneState<'_> {
 
     fn engine(&self) -> Option<&vibebms_core::engine::Engine> {
         self.s.engine()
+    }
+
+    /// A player's options (VS: the second player's own).
+    fn side_play(&self, side: usize) -> crate::config::PlayConfig {
+        match self.s.vs {
+            true => self.ctx.config.play.for_side(side),
+            false => self.ctx.config.play.clone(),
+        }
     }
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
@@ -540,7 +552,10 @@ impl SkinState for SceneState<'_> {
     }
 
     fn offset(&self, id: i32) -> Option<[f32; 6]> {
-        let p = &self.ctx.config.play;
+        // (the second player's own cover in VS)
+        let two = id == P2_COVER_OFFSET;
+        let p = &self.side_play(two as usize);
+        let id = if two { OFFSET_LANECOVER } else { id };
         // lane height in skin pixels (the first lane of the note field)
         let lane_h = self
             .s
@@ -650,6 +665,8 @@ impl SkinState for SceneState<'_> {
             311 => (self.hispeed() * 100.0).round() as i64 % 100,
             12 => p.judge_offset_ms as i64,
             14 => (p.sudden * 1000.0) as i64,
+            P2_WHITE => (self.side_play(1).sudden * 1000.0) as i64,
+            P2_GREEN => self.side_play(1).green(&self.bpms()),
             312 => p.duration_ms(&self.bpms()).round() as i64,
             313 => p.green(&self.bpms()),
             // duration / green number with the lane cover on / off
@@ -807,6 +824,7 @@ impl SkinState for SceneState<'_> {
         match id {
             6 | 101 => prog,
             4 => self.ctx.config.play.sudden,
+            P2_SUDDEN => self.side_play(1).sudden,
             // vibeBMS: hi-speed 0.5 .. 10.0 as 0 .. 1 (the hi-speed panel)
             HISPEED_RATE => ((self.hispeed() as f32 - 0.5) / 9.5).clamp(0.0, 1.0),
             102 => 1.0,
@@ -854,6 +872,15 @@ fn diff_next_rank(sc: &vibebms_core::score::Score) -> Option<i64> {
 fn full_combo(sc: &vibebms_core::score::Score) -> bool {
     sc.combo_breaks == 0 && (3..=5).all(|j| sc.count(j) == 0)
 }
+
+/// vibeBMS ids of the second player's own lane cover in VS (the first
+/// player's: 4, 271, 14, 313 and offset 4): its SUDDEN+, shown, white and
+/// green numbers, its cover offset.
+pub const P2_SUDDEN: i32 = 9404;
+pub const P2_COVER: i32 = 9271;
+pub const P2_WHITE: i32 = 9014;
+pub const P2_GREEN: i32 = 9313;
+pub const P2_COVER_OFFSET: i32 = 9004;
 
 /// Slider / graph value of the hi-speed position (vibeBMS).
 pub const HISPEED_RATE: i32 = 9400;
@@ -912,7 +939,13 @@ impl Hooks for SceneHooks<'_> {
         if s.engine().is_none() {
             return;
         }
-        let p = &self.st.ctx.config.play;
+        let base = &self.st.ctx.config.play;
+        // each player's hi-speed, covers and LIFT (VS: the second's own)
+        let per: [crate::config::PlayConfig; 2] = [0, 1].map(|k| match s.vs {
+            true => base.for_side(k),
+            false => base.clone(),
+        });
+        let p = base;
         let t_vis = s.chart_us(self.st.now) + p.visual_offset_ms as i64 * 1000;
         let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
         let pulse = note_pulse(skin.skin.note_expansion, &s.chart.timing, t_vis);
@@ -926,7 +959,7 @@ impl Hooks for SceneHooks<'_> {
             130.0
         };
         let bpms = crate::config::Bpms::of_meta(&s.chart.meta);
-        let dur_us = p.duration_at(&bpms, main_bpm, true) * 1000.0;
+        let dur_of = |p: &crate::config::PlayConfig| p.duration_at(&bpms, main_bpm, true) * 1000.0;
         let ident = crate::skin::Frame {
             rect: Rect::default(),
             color: [1.0; 4],
@@ -977,6 +1010,8 @@ impl Hooks for SceneHooks<'_> {
                 continue;
             };
             let notes = engine.notes();
+            let p = &per[s.mode.player_of_lane(lane).min(1)];
+            let dur_us = dur_of(p);
             let r = xf.rect(lr);
             let judge_y = r.bottom() - p.lift * r.h;
             let top = r.y
@@ -1208,7 +1243,9 @@ impl Hooks for SceneHooks<'_> {
             }
         }
         // bar lines span each lane group
-        for (src, dst) in &skin.skin.bar_lines {
+        for (i, (src, dst)) in skin.skin.bar_lines.iter().enumerate() {
+            let p = &per[i.min(1)];
+            let dur_us = dur_of(p);
             if let Some(fr) = dst.eval(now, st) {
                 let field = xf.rect(fr.rect);
                 let judge_y = field.bottom() - p.lift * field.h;

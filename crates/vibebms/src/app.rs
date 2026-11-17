@@ -1120,6 +1120,16 @@ impl App {
                             ctx.toast(e);
                             None
                         }
+                        // --vs: two players here
+                        None if args.iter().any(|a| a == "--vs") => {
+                            match crate::scene::play::vs_refusal(&ctx, &song) {
+                                Some(why) => {
+                                    ctx.toast(why.to_string());
+                                    None
+                                }
+                                None => Some(crate::scene::play::Versus::Local),
+                            }
+                        }
                         None => None,
                     };
                     let req = crate::scene::play::PlayRequest {

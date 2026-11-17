@@ -155,6 +155,22 @@ pub struct SelectScene {
 /// Clear lamp counts (by clear type) and DJ rank counts (AAA..F, no play).
 pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 
+/// What VS needs of the controls, said when it is chosen.
+fn vs_hint(ctx: &mut Ctx) {
+    if super::play::vs_touch_too_small(ctx) {
+        ctx.toast(super::play::VS_TOUCH_TOO_SMALL.to_string());
+        return;
+    }
+    let pads = ctx.config.keys.p2.keys.iter().any(|k| !k.pad.is_empty());
+    if !ctx.touch_enabled() && !pads {
+        ctx.toast(
+            "VS: 1P and 2P keys on one keyboard; many keyboards miss keys when several are held \
+             (rollover)"
+                .to_string(),
+        );
+    }
+}
+
 fn lower(s: &str) -> String {
     s.to_lowercase()
 }
@@ -643,6 +659,13 @@ impl SelectScene {
                         ctx.toast(e);
                         return Next::Stay;
                     }
+                    None if ctx.config.play.versus == Versus::Local => {
+                        if let Some(why) = super::play::vs_refusal(ctx, &song) {
+                            ctx.toast(why);
+                            return Next::Stay;
+                        }
+                        Some(super::play::Versus::Local)
+                    }
                     None => None,
                 };
                 ctx.mixer.stop(PREVIEW_KEY);
@@ -831,11 +854,14 @@ impl SelectScene {
             9 => return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx))),
             10 => {
                 // OFF, BATTLE, BATTLE AS, G-BATTLE (MY BEST, LAST), VS
-                let all = super::option_panel::battle_choices(false);
+                let all = super::option_panel::battle_choices(true);
                 let row: Vec<i64> = all.iter().copied().filter(|i| *i != 1).collect();
                 let label = super::option_panel::step_battle(p, &row, 1);
                 // (skins other than the default show no such row)
                 ctx.toast(format!("BATTLE: {label}"));
+                if ctx.config.play.versus == Versus::Local {
+                    vs_hint(ctx);
+                }
             }
             _ => {}
         }

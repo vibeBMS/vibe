@@ -54,6 +54,8 @@ pub fn slots(mode: usize) -> Vec<Slot> {
     v.extend([
         Slot::Start,
         Slot::Select,
+        Slot::Start2,
+        Slot::Select2,
         Slot::ScratchAxis(0),
         Slot::ScratchAxis(1),
     ]);
@@ -70,6 +72,8 @@ pub fn lr2_button(s: Slot) -> i32 {
         Slot::ScratchAxis(sd) => 116 + 20 * sd as i32,
         Slot::Start => 112,
         Slot::Select => 113,
+        Slot::Start2 => 132,
+        Slot::Select2 => 133,
     }
 }
 
@@ -89,6 +93,8 @@ pub fn lr2_index(mode: usize, s: Slot) -> i64 {
         (_, Slot::ScratchDown(sd)) => sd as i64 * per + k as i64 + 2,
         (_, Slot::Start) => k as i64 + 3,
         (_, Slot::Select) => k as i64 + 4,
+        (_, Slot::Start2) => per + k as i64 + 3,
+        (_, Slot::Select2) => per + k as i64 + 4,
         (_, Slot::ScratchAxis(sd)) => 2 * per + 1 + sd as i64,
         (_, Slot::Pms(_)) => 0,
     }
@@ -104,6 +110,8 @@ fn lv_text_slot(mode: usize, s: Slot) -> Option<i32> {
         Slot::ScratchDown(sd) => 20 * sd as i32 + 10,
         Slot::Start => 11,
         Slot::Select => 12,
+        Slot::Start2 => 31,
+        Slot::Select2 => 32,
         Slot::ScratchAxis(sd) => 20 * sd as i32 + 13,
         Slot::Pms(_) => return None,
     })
@@ -823,9 +831,12 @@ mod tests {
     #[test]
     fn beatoraja_rows() {
         let r = slots(0);
-        assert_eq!(r.len(), 22);
+        assert_eq!(r.len(), 24);
         assert_eq!(r[7], Slot::ScratchUp(0));
         assert_eq!(r[18], Slot::Start);
+        // the second player's START / SELECT (VS)
+        assert_eq!(r[20], Slot::Start2);
+        assert_eq!(lr2_index(0, Slot::Start2), 21);
         assert_eq!(slots(1).len(), 11);
         assert_eq!(slots(2)[5], Slot::ScratchUp(0));
     }
