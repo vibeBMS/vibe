@@ -31,11 +31,11 @@
 //! installed, or one in a folder that cannot be written to, does nothing:
 //! it neither checks nor offers (its package manager updates it).
 
+use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
 /// What the check reads.
@@ -326,7 +326,7 @@ pub struct Updater {
     /// The executable being replaced (Linux renames a replaced one's
     /// `/proc/self/exe` to "… (deleted)": it is found before).
     exe: Option<PathBuf>,
-    rx: Option<Receiver<Msg>>,
+    job: Option<Job<Msg>>,
 }
 
 impl Updater {
@@ -334,29 +334,28 @@ impl Updater {
     /// itself ([`self_updating`]) and `enabled` (the "Check for updates"
     /// setting).
     pub fn check(&mut self, enabled: bool) {
-        if !enabled || self.rx.is_some() || !self_updating() {
+        if !enabled || self.job.is_some() || !self_updating() {
             return;
         }
         let (Some(current), Some(asset)) = (Version::current(), asset_name()) else {
             return;
         };
-        let (tx, rx) = channel();
-        self.rx = Some(rx);
         self.status = Status::Checking;
-        crate::platform::http_get(LATEST_URL, move |r| {
-            let r = r
-                .and_then(|b| Latest::parse(&b, NIGHTLY))
-                .map(|l| l.offer(&asset, &current));
-            let _ = tx.send(Msg::Checked(r));
-        });
+        self.job = Some(Job::get(LATEST_URL, move |r| {
+            Msg::Checked(
+                r.and_then(|b| Latest::parse(&b, NIGHTLY))
+                    .map(|l| l.offer(&asset, &current)),
+            )
+        }));
     }
 
     /// What finished. Returns what to tell the player (the update's end).
     pub fn poll(&mut self) -> Vec<String> {
         let mut out = Vec::new();
-        let Some(rx) = &self.rx else { return out };
-        let Ok(msg) = rx.try_recv() else { return out };
-        self.rx = None;
+        let Some(msg) = self.job.as_mut().and_then(Job::poll) else {
+            return out;
+        };
+        self.job = None;
         match msg {
             Msg::Checked(Ok(Some(o))) => {
                 log::info!("update available: {} ({})", o.version, o.url);
@@ -417,14 +416,11 @@ impl Updater {
     fn start_install(&mut self, o: Offer, exe: PathBuf) {
         let progress = Arc::new(Progress::default());
         progress.total.store(o.size, Ordering::Relaxed);
-        let (tx, rx) = channel();
-        self.rx = Some(rx);
         self.exe = Some(exe.clone());
         self.status = Status::Downloading(o.clone(), progress.clone());
-        crate::platform::spawn("update", move || {
-            let r = install(&o, &exe, &progress);
-            let _ = tx.send(Msg::Installed(r));
-        });
+        self.job = Some(Job::spawn("update", move |_| {
+            Msg::Installed(install(&o, &exe, &progress))
+        }));
     }
 
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
@@ -571,60 +567,56 @@ pub fn download(
 ) -> Result<(), String> {
     use sha2::{Digest, Sha256};
     use std::io::Write;
-    use std::ops::ControlFlow;
     use std::sync::Mutex;
+    // (why the sink stopped the download, if it did)
     struct St {
         file: std::fs::File,
         hash: Sha256,
         n: u64,
-        result: Option<Result<(), String>>,
+        error: Option<String>,
     }
     let file = std::fs::File::create(to).map_err(|e| format!("cannot write the update: {e}"))?;
     let st = Arc::new(Mutex::new(St {
         file,
         hash: Sha256::new(),
         n: 0,
-        result: None,
+        error: None,
     }));
-    let (st2, progress2) = (st.clone(), progress.clone());
-    ehttp::streaming::fetch_streaming_blocking(
-        ehttp::Request::get(url),
-        Box::new(move |part| {
-            use ehttp::streaming::Part;
-            let mut g = st2.lock().unwrap_or_else(|e| e.into_inner());
-            let fail = |g: &mut St, e: String| {
-                g.result = Some(Err(e));
-                ControlFlow::Break(())
+    let (sink, progress) = (st.clone(), progress.clone());
+    let (tx, rx) = std::sync::mpsc::channel();
+    crate::platform::stream(
+        url,
+        None,
+        move |c| {
+            let mut g = sink.lock().unwrap_or_else(|e| e.into_inner());
+            g.n += c.len() as u64;
+            let e = if g.n > size {
+                "the download is larger than it should be".to_string()
+            } else {
+                g.hash.update(c);
+                match g.file.write_all(c) {
+                    Ok(()) => {
+                        progress.done.store(g.n, Ordering::Relaxed);
+                        return Ok(());
+                    }
+                    Err(e) => format!("cannot write the update ({e})"),
+                }
             };
-            match part {
-                Err(e) => fail(&mut g, format!("download failed ({e})")),
-                Ok(Part::Response(r)) if !r.ok => {
-                    fail(&mut g, format!("download failed (HTTP {})", r.status))
-                }
-                Ok(Part::Response(_)) => ControlFlow::Continue(()),
-                Ok(Part::Chunk(c)) if c.is_empty() => {
-                    g.result = Some(Ok(()));
-                    ControlFlow::Break(())
-                }
-                Ok(Part::Chunk(c)) => {
-                    g.n += c.len() as u64;
-                    if g.n > size {
-                        return fail(&mut g, "the download is larger than it should be".into());
-                    }
-                    g.hash.update(&c);
-                    if let Err(e) = g.file.write_all(&c) {
-                        return fail(&mut g, format!("cannot write the update ({e})"));
-                    }
-                    progress2.done.store(g.n, Ordering::Relaxed);
-                    ControlFlow::Continue(())
-                }
-            }
-        }),
+            g.error = Some(e.clone());
+            Err(e)
+        },
+        move |r, _| {
+            let _ = tx.send(r);
+        },
     );
+    let r = rx
+        .recv()
+        .map_err(|_| "the download ended early".to_string())?;
     let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
-    g.result
-        .take()
-        .unwrap_or_else(|| Err("the download ended early".into()))?;
+    if let Some(e) = g.error.take() {
+        return Err(e);
+    }
+    r.map_err(|e| format!("download failed ({e})"))?;
     if g.n != size {
         return Err(format!(
             "the download is {} bytes, not {size}: try again later",

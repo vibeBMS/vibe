@@ -6,13 +6,12 @@ use crate::gfx::{rgba, with_alpha, Batch, Gfx, Rect, TexId};
 use crate::input::{InputEv, Phase};
 use crate::library::{BestScore, Library, ScanProgress, Song};
 use crate::paths::Paths;
-use crate::platform::{Duration, Instant};
+use crate::platform::{Duration, Instant, Job};
 use crate::theme;
 use bmseeker::table::DifficultyTable;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{AudioConfig, Mixer};
 use winit::application::ApplicationHandler;
@@ -127,7 +126,6 @@ pub trait Scene {
 pub enum TableMsg {
     Loaded(Box<DifficultyTable>),
     Failed(String, String),
-    Done,
 }
 
 /// Shared state available to every scene.
@@ -154,7 +152,7 @@ pub struct Ctx {
     pub tables: Vec<DifficultyTable>,
     pub mixer: Mixer,
     pub scan: Option<Arc<ScanProgress>>,
-    pub table_rx: Option<Receiver<TableMsg>>,
+    pub table_job: Option<Job<TableMsg>>,
     /// Scan again once the running scan ends (files came in during it).
     scan_again: bool,
     pub toasts: Vec<(String, Instant)>,
@@ -217,7 +215,7 @@ impl Ctx {
             tables: Vec::new(),
             mixer,
             scan: None,
-            table_rx: None,
+            table_job: None,
             scan_again: false,
             toasts: Vec::new(),
             touch_seen: false,
@@ -418,13 +416,10 @@ impl Ctx {
 
     /// Fetch tables in the background. `force` refetches even fresh caches.
     pub fn refresh_tables(&mut self, force: bool) {
-        if self.table_rx.is_some() {
+        if self.table_job.is_some() {
             return;
         }
-        let now = crate::platform::SystemTime::now()
-            .duration_since(crate::platform::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = crate::platform::unix_now();
         let todo: Vec<(String, String)> = self
             .config
             .tables
@@ -441,21 +436,17 @@ impl Ctx {
         if todo.is_empty() {
             return;
         }
-        let (tx, rx) = channel();
-        self.table_rx = Some(rx);
-        let remaining = Arc::new(std::sync::atomic::AtomicUsize::new(todo.len()));
-        for (name, url) in todo {
-            let (tx, remaining) = (tx.clone(), remaining.clone());
-            crate::platform::load_table(&url, move |r| {
-                let _ = tx.send(match r {
-                    Ok(t) => TableMsg::Loaded(Box::new(t)),
-                    Err(e) => TableMsg::Failed(name, e),
+        self.table_job = Some(Job::start(|tx, _| {
+            for (name, url) in todo {
+                let tx = tx.clone();
+                crate::platform::load_table(&url, move |r| {
+                    let _ = tx.send(match r {
+                        Ok(t) => TableMsg::Loaded(Box::new(t)),
+                        Err(e) => TableMsg::Failed(name, e),
+                    });
                 });
-                if remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
-                    let _ = tx.send(TableMsg::Done);
-                }
-            });
-        }
+            }
+        }));
     }
 
     pub fn poll_jobs(&mut self) {
@@ -568,15 +559,8 @@ impl Ctx {
         if self.links.poll() {
             self.fill_links();
         }
-        let mut done = false;
         let mut loaded = false;
-        let mut msgs = Vec::new();
-        if let Some(rx) = &self.table_rx {
-            while let Ok(m) = rx.try_recv() {
-                msgs.push(m);
-            }
-        }
-        for m in msgs {
+        for m in Job::drain_slot(&mut self.table_job) {
             match m {
                 TableMsg::Loaded(t) => {
                     let t = *t;
@@ -612,14 +596,10 @@ impl Ctx {
                     self.library_version += 1;
                 }
                 TableMsg::Failed(n, e) => self.toast(format!("Table {n}: {e}")),
-                TableMsg::Done => done = true,
             }
         }
         if loaded {
             self.fill_links();
-        }
-        if done {
-            self.table_rx = None;
         }
     }
 
@@ -750,7 +730,7 @@ struct Running {
     gilrs: Option<gilrs::Gilrs>,
     last_touch: Option<Instant>,
     /// Fonts downloaded in the background (web build).
-    font_rx: Option<Receiver<Vec<u8>>>,
+    font_job: Option<Job<Vec<u8>>>,
     mouse_down: bool,
     cursor: (f32, f32),
     frame_count: u32,
@@ -941,10 +921,8 @@ impl Running {
 
     fn frame(&mut self, el: &ActiveEventLoop) {
         let now = Instant::now();
-        if let Some(rx) = &self.font_rx {
-            while let Ok(f) = rx.try_recv() {
-                self.text.add_font(f);
-            }
+        for f in Job::drain_slot(&mut self.font_job) {
+            self.text.add_font(f);
         }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
@@ -998,27 +976,27 @@ impl Running {
 }
 
 /// Web build: fonts listed in `fonts/fonts.txt` next to index.html.
-fn web_fonts() -> Option<Receiver<Vec<u8>>> {
+fn web_fonts() -> Option<Job<Vec<u8>>> {
     if !crate::platform::IS_WEB {
         return None;
     }
-    let (tx, rx) = channel();
-    crate::platform::http_get("fonts/fonts.txt", move |r| {
-        let Ok(list) = r else { return };
-        for name in String::from_utf8_lossy(&list)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        {
-            let tx = tx.clone();
-            crate::platform::http_get(&format!("fonts/{name}"), move |r| {
-                if let Ok(b) = r {
-                    let _ = tx.send(b);
-                }
-            });
-        }
-    });
-    Some(rx)
+    Some(Job::start(|tx, _| {
+        crate::platform::http_get("fonts/fonts.txt", move |r| {
+            let Ok(list) = r else { return };
+            for name in String::from_utf8_lossy(&list)
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            {
+                let tx = tx.clone();
+                crate::platform::http_get(&format!("fonts/{name}"), move |r| {
+                    if let Ok(b) = r {
+                        let _ = tx.send(b);
+                    }
+                });
+            }
+        });
+    }))
 }
 
 fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
@@ -1095,7 +1073,7 @@ impl App {
             tables: Vec::new(),
             mixer,
             scan: None,
-            table_rx: None,
+            table_job: None,
             scan_again: false,
             toasts: Vec::new(),
             touch_seen: false,
@@ -1221,7 +1199,7 @@ impl App {
                 .map_err(|e| log::warn!("gamepads unavailable: {e}"))
                 .ok(),
             last_touch: None,
-            font_rx: web_fonts(),
+            font_job: web_fonts(),
             mouse_down: false,
             cursor: (0.0, 0.0),
             frame_count: 0,
