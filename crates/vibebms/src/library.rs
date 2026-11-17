@@ -325,6 +325,47 @@ impl Library {
         }
     }
 
+    /// An assisted play (`AssistFacts`): its lamp, the play and clear
+    /// counts and the totals, but no best score, combo or BP.
+    pub fn record_assisted(
+        &mut self,
+        sha256: &str,
+        ln: i32,
+        s: &Score,
+        clear: ClearType,
+        play_ms: u64,
+    ) -> BestScore {
+        let key = (sha256.to_string(), ln);
+        let mut b = self.scores.get(&key).cloned().unwrap_or(BestScore {
+            min_bp: u32::MAX,
+            ..Default::default()
+        });
+        b.clear = b.clear.max(clear);
+        b.play_count += 1;
+        b.clear_count += (clear > ClearType::Failed) as u32;
+        b.last_played = crate::platform::unix_now() as i64;
+        self.scores.insert(key, b.clone());
+        self.save_scores();
+        self.add_totals(s, play_ms);
+        b
+    }
+
+    fn add_totals(&mut self, s: &Score, play_ms: u64) {
+        let j = self.totals.judges.get_or_insert_default();
+        for (k, t) in j.iter_mut().enumerate() {
+            *t += s.count(k) as u64;
+        }
+        self.totals.play_ms += play_ms;
+        match serde_json::to_vec_pretty(&self.totals) {
+            Ok(v) => {
+                if let Err(e) = vfs::write(&self.totals_file, &v) {
+                    log::error!("saving totals: {e}");
+                }
+            }
+            Err(e) => log::error!("saving totals: {e}"),
+        }
+    }
+
     /// Merge a play into the best score and the totals (`play_ms`: how
     /// long it was played). Returns the updated best.
     pub fn record_play(
@@ -354,19 +395,7 @@ impl Library {
         b.last_played = crate::platform::unix_now() as i64;
         self.scores.insert(key, b.clone());
         self.save_scores();
-        let j = self.totals.judges.get_or_insert_default();
-        for (k, t) in j.iter_mut().enumerate() {
-            *t += s.count(k) as u64;
-        }
-        self.totals.play_ms += play_ms;
-        match serde_json::to_vec_pretty(&self.totals) {
-            Ok(v) => {
-                if let Err(e) = vfs::write(&self.totals_file, &v) {
-                    log::error!("saving totals: {e}");
-                }
-            }
-            Err(e) => log::error!("saving totals: {e}"),
-        }
+        self.add_totals(s, play_ms);
         b
     }
 }
@@ -800,9 +829,22 @@ mod tests {
         };
         let b = lib.record_play(&s[0].sha256, 0, &worse, ClearType::Failed, 0);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 2));
+        // an assisted play: lamp and counts only, never the best score
+        let mut great = Score {
+            total_notes: 2,
+            passed: 2,
+            ..Default::default()
+        };
+        great.add(0, 1);
+        great.add(0, 1);
+        let b = lib.record_assisted(&s[0].sha256, 0, &great, ClearType::AssistEasy, 0);
+        assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 3));
+        let b = lib.record_assisted("other", 0, &great, ClearType::LightAssistEasy, 0);
+        assert_eq!((b.ex_score, b.min_bp, b.max_combo), (0, u32::MAX, 0));
+        assert_eq!((b.clear, b.clear_count), (ClearType::LightAssistEasy, 1));
         // persisted
         let lib2 = Library::open(&cache, &cache);
-        assert_eq!(lib2.scores().len(), 1);
+        assert_eq!(lib2.scores().len(), 2);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

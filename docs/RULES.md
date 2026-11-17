@@ -94,5 +94,14 @@ Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 
   under the player's mode are merged into the chart's when the library loads.
 
 ## Clear lamps
-FAILED < ASSIST (assist options) < L-ASSIST (ASSIST EASY gauge) < EASY < CLEAR < HARD < EX-HARD < FULL COMBO
-(no BAD/POOR; HAZARD survival) < PERFECT (no GOOD) < MAX (all PGREAT). DJ level thresholds at n/9 of max EX.
+FAILED < ASSIST (assist options) < L-ASSIST (light assist options, ASSIST EASY gauge) < EASY < CLEAR < HARD <
+EX-HARD < FULL COMBO (no BAD/POOR; HAZARD survival) < PERFECT (no GOOD) < MAX (all PGREAT). DJ level thresholds
+at n/9 of max EX.
+
+Assists (as beatoraja's `BMSPlayer`; an option counts only when it took effect, `AssistFacts` in `score.rs`):
+* ASSIST: AUTO SCRATCH on a chart with scratch notes, LEGACY NOTE on a chart with long notes, EXPAND JUDGE over 100 %.
+* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, BATTLE, NO MINE that removed mines, BPM GUIDE on a
+  chart that changes BPM.
+
+An assisted play that is not FAILED gets that lamp whatever the gauge. It keeps only the lamp, the play and clear
+counts and the player's totals: no EX score, BP or combo best, no best replay (MY BEST ghost), nothing sent to IR.

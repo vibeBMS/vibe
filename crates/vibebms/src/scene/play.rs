@@ -22,7 +22,7 @@ use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent, Op};
 use vibebms_core::gauge::GrooveGauge;
 use vibebms_core::judge::{judge_rules, GOOD, GREAT};
 use vibebms_core::lane_option::{self, DoubleOption, LaneOption};
-use vibebms_core::score::{Assist, ClearType, Score};
+use vibebms_core::score::{Assist, AssistFacts, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
 
@@ -73,8 +73,8 @@ struct Loaded {
     videos: Vec<Option<PathBuf>>,
     stagefile: Option<Rgba>,
     seed: i64,
-    /// Why the play is not the chart as written (it is then not recorded).
-    altered: Option<&'static str>,
+    /// What the options did to the chart (for the assist level).
+    facts: AssistFacts,
     /// The chart's long notes as written (before options).
     ln_profile: vibebms_core::LnProfile,
 }
@@ -247,10 +247,10 @@ impl PlayScene {
                 .map_err(|e| e.to_string())?;
                 let ln_profile = chart.ln_profile();
                 // chart transforms (options)
-                let mut altered = None;
+                let mut facts = AssistFacts::default();
                 if play.battle && !chart.mode().is_double() {
                     lane_option::battle(&mut chart);
-                    altered = Some("BATTLE");
+                    facts.battle = true;
                 }
                 let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
                 let allowed = |o: LaneOption| {
@@ -261,6 +261,7 @@ impl PlayScene {
                     }
                 };
                 lane_option::apply(&mut chart, 0, allowed(play.random_1p), seed, thr);
+                facts.lane.push(allowed(play.random_1p));
                 if chart.mode().is_double() {
                     lane_option::apply(
                         &mut chart,
@@ -269,19 +270,19 @@ impl PlayScene {
                         seed.wrapping_add(1),
                         thr,
                     );
+                    facts.lane.push(allowed(play.random_2p));
                     if play.dp_option == DoubleOption::Flip {
                         lane_option::flip(&mut chart);
                     }
                 }
                 if play.legacy_note {
+                    facts.legacy_note = chart.meta.has_long;
                     lane_option::legacy_note(&mut chart);
                 }
                 if play.no_mine {
                     let n = chart.notes.len();
                     lane_option::remove_mines(&mut chart);
-                    if chart.notes.len() != n {
-                        altered = altered.or(Some("NO MINE"));
-                    }
+                    facts.no_mine = chart.notes.len() != n;
                 }
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
@@ -316,7 +317,7 @@ impl PlayScene {
                     videos,
                     stagefile,
                     seed,
-                    altered,
+                    facts,
                     ln_profile,
                 }))
             })();
@@ -445,7 +446,7 @@ impl PlayScene {
             videos,
             stagefile,
             seed,
-            altered,
+            mut facts,
             ln_profile,
         } = *l;
         self.seed = seed;
@@ -454,13 +455,11 @@ impl PlayScene {
         let p = replay_play.as_ref().unwrap_or(&ctx.config.play);
         let course = self.req.course.as_ref();
         // beatoraja: windows wider than standard and a BPM guide on a chart
-        // that changes BPM are assists, and their scores are not kept
-        let wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
-        let guided = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
-        self.unranked = altered
-            .or(wide_judge.then_some("EXPAND JUDGE"))
-            .or(guided.then_some("BPM GUIDE"))
-            .or(course.map(|_| "COURSE"))
+        // that changes BPM are assists (only the lamp is kept)
+        facts.wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
+        facts.bpm_guide = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
+        self.unranked = course
+            .map(|_| "COURSE")
             .or(self.req.replay.as_ref().map(|_| "REPLAY"));
         // LN mode: course constraints may force one
         if let Some(c) = course {
@@ -505,13 +504,13 @@ impl PlayScene {
         let auto_lanes: Vec<bool> = (0..lanes)
             .map(|l| self.req.autoplay || (p.auto_scratch && self.mode.is_scratch(l)))
             .collect();
-        self.assist = if p.auto_scratch || p.legacy_note || wide_judge {
-            Assist::Full
-        } else if guided {
-            Assist::Light
-        } else {
-            Assist::None
-        };
+        // AUTO SCRATCH is an assist when it plays scored notes
+        facts.auto_scratch = p.auto_scratch
+            && chart
+                .notes
+                .iter()
+                .any(|n| n.is_playable() && self.mode.is_scratch(n.lane as usize));
+        self.assist = facts.level();
         let cfg = EngineConfig {
             rules,
             default_ln: self.ln,
@@ -918,7 +917,7 @@ impl PlayScene {
                 .collect(),
             autoplay: self.req.autoplay,
             unranked: self.unranked,
-            assist: self.assist != Assist::None,
+            assist: self.assist,
             options: self.options_label.clone(),
             judge: format!(
                 "{} / {}",

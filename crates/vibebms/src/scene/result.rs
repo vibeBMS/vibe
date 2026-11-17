@@ -18,7 +18,7 @@ use crate::sysound::Sound;
 use crate::theme;
 use std::sync::mpsc::{channel, Receiver};
 use vibebms_core::gauge::GaugeType;
-use vibebms_core::score::{ClearType, Score};
+use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
 
@@ -50,8 +50,9 @@ pub struct ResultData {
     /// Why the play is not recorded (options that change the chart or
     /// the judge, a course stage).
     pub unranked: Option<&'static str>,
-    /// Assist options were on (the lamp is ASSIST; scores are not sent).
-    pub assist: bool,
+    /// Assist options took effect: only the lamp (ASSIST / L-ASSIST) and
+    /// the play count are kept, nothing is sent.
+    pub assist: Assist,
     pub options: String,
     pub judge: String,
     pub seed: i64,
@@ -108,13 +109,21 @@ impl ResultScene {
         if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
             ir_status = format!("{why}: not saved");
         } else if recorded(d.autoplay, d.unranked) {
+            let ranked = d.assist == Assist::None;
             if let Some(lib) = ctx.lib.as_mut() {
                 // played up to the last judgement (as beatoraja counts it)
                 let last_us = d.judge_log.iter().map(|j| j.0).max().unwrap_or(0);
                 let play_ms = last_us.max(0) as u64 / 1000;
-                let b = lib.record_play(&song.sha256, ln, &d.score, d.clear, play_ms);
+                let b = if ranked {
+                    lib.record_play(&song.sha256, ln, &d.score, d.clear, play_ms)
+                } else {
+                    lib.record_assisted(&song.sha256, ln, &d.score, d.clear, play_ms)
+                };
                 ctx.scores.insert((song.sha256.clone(), ln), b.clone());
                 after = Some(b);
+            }
+            if !ranked {
+                ir_status = format!("{}: lamp only", d.clear.label());
             }
             // a new best EX score: its replay is the chart's best (MY BEST's
             // ghost)
@@ -122,14 +131,14 @@ impl ResultScene {
             if let Some(r) = d
                 .replay
                 .as_ref()
-                .filter(|_| d.score.ex_score() > best_before)
+                .filter(|_| ranked && d.score.ex_score() > best_before)
             {
                 if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Best) {
                     log::warn!("replay: {e}");
                 }
             }
             let cfg = &ctx.config.ir_server;
-            let send = cfg.auto_submit && !d.assist;
+            let send = cfg.auto_submit && ranked;
             if let Some(client) = vibebms_ir::JsonIr::new(cfg).filter(|_| send) {
                 let chart = vibebms_ir::ChartRef {
                     md5: song.md5.clone(),

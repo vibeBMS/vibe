@@ -65,7 +65,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - beatoraja's assist options: EXPAND JUDGE (wider windows; PG/GR/GD ratios in the settings), JUDGE AREA (the judge
   windows drawn above the judge line), MARK NOTE (notes hit early stay grey down to the judge line), BPM GUIDE (BPM
   changes and stops shown), judge timing auto-adjust. As in beatoraja, EXPAND JUDGE over 100% makes the play
-  ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; their records are not saved.
+  ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; such plays keep only their lamp and
+  play count (see Clear lamps in `docs/RULES.md`).
 - Hi-speed: you set the multiplier (in steps of 0.25); the green number (how long notes are visible) follows from it,
   the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the opposite: the green number
   stays and the multiplier follows each chart's BPM.
@@ -89,8 +90,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE, assists, floating / fixed hi-speed,
-  SUDDEN+ / HIDDEN+ / LIFT. BATTLE, mines removed, custom judging and plays in a course leave no record for the song,
-  and assisted plays are not sent to IR.
+  SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
+  a course leave no record for the song.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX).
