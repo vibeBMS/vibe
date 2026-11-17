@@ -22,7 +22,9 @@ mod imp {
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        let tmp = p.with_extension("tmp~");
+        // `a.json` and `a.toml` must not share one
+        let mut tmp = p.as_os_str().to_owned();
+        tmp.push(".tmp~");
         std::fs::write(&tmp, data)?;
         std::fs::rename(&tmp, p)
     }
@@ -92,6 +94,7 @@ mod imp {
     use super::*;
     use std::cell::RefCell;
     use std::collections::BTreeMap;
+    use std::ops::Bound;
     use std::rc::Rc;
     use wasm_bindgen::prelude::*;
 
@@ -180,26 +183,39 @@ mod imp {
         Ok(())
     }
 
+    /// The files at and below `p`: paths order by component, so they are
+    /// one run of the map.
+    fn below<'a>(
+        files: &'a BTreeMap<PathBuf, Node>,
+        p: &'a Path,
+    ) -> impl Iterator<Item = (&'a PathBuf, &'a Node)> {
+        files
+            .range::<Path, _>((Bound::Included(p), Bound::Unbounded))
+            .take_while(move |(k, _)| k.starts_with(p))
+    }
+
     pub fn read_dir(p: &Path) -> io::Result<Vec<Entry>> {
         FS.with(|fs| {
             let fs = fs.borrow();
             let mut out: Vec<Entry> = Vec::new();
-            let mut seen = std::collections::HashSet::new();
-            for k in fs.files.keys() {
-                if let Ok(rest) = k.strip_prefix(p) {
-                    let mut comps = rest.components();
-                    let Some(first) = comps.next() else { continue };
-                    let child = p.join(first.as_os_str());
-                    let is_dir = comps.next().is_some();
-                    if seen.insert(child.clone()) {
-                        out.push(Entry {
-                            path: child,
-                            is_dir,
-                        });
-                    }
+            let mut any = false;
+            for (k, _) in below(&fs.files, p) {
+                any = true;
+                let Ok(rest) = k.strip_prefix(p) else {
+                    continue;
+                };
+                let mut comps = rest.components();
+                let Some(first) = comps.next() else { continue };
+                // a folder's files are one run too
+                if out.last().is_some_and(|e| e.path.ends_with(first)) {
+                    continue;
                 }
+                out.push(Entry {
+                    path: p.join(first.as_os_str()),
+                    is_dir: comps.next().is_some(),
+                });
             }
-            if out.is_empty() && !fs.files.keys().any(|k| k.starts_with(p)) {
+            if !any {
                 return Err(not_found(p));
             }
             Ok(out)
@@ -218,7 +234,7 @@ mod imp {
     }
 
     pub fn is_dir(p: &Path) -> bool {
-        FS.with(|fs| fs.borrow().files.keys().any(|k| k != p && k.starts_with(p)))
+        FS.with(|fs| below(&fs.borrow().files, p).any(|(k, _)| k != p))
     }
 
     pub fn stamp(p: &Path) -> (i64, i64) {
@@ -237,10 +253,8 @@ mod imp {
 
     pub fn unloaded_under(dir: &Path) -> Vec<PathBuf> {
         FS.with(|fs| {
-            fs.borrow()
-                .files
-                .iter()
-                .filter(|(k, n)| k.starts_with(dir) && matches!(n.data, Data::File(_)))
+            below(&fs.borrow().files, dir)
+                .filter(|(_, n)| matches!(n.data, Data::File(_)))
                 .map(|(k, _)| k.clone())
                 .collect()
         })
