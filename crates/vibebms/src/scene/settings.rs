@@ -732,6 +732,32 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                         (c.config.touch.scratch_threshold_deg + d as f32).clamp(1.0, 45.0)
                 },
             ),
+            it(
+                "Perspective (touch perspective skin)",
+                format!("{:.0}%", c.perspective.strength * 100.0),
+                |c, d| {
+                    let v = &mut c.config.perspective.strength;
+                    *v = (*v + d as f32 * 0.05).clamp(0.0, crate::config::PERSPECTIVE_MAX)
+                },
+            ),
+            it(
+                "    Lane length",
+                format!("{:.0}%", c.perspective.length * 100.0),
+                |c, d| {
+                    let (lo, hi) = crate::config::LENGTH_RANGE;
+                    let v = &mut c.config.perspective.length;
+                    *v = (*v + d as f32 * 0.05).clamp(lo, hi)
+                },
+            ),
+            it(
+                "    Touch area height",
+                format!("{:.0}%", c.perspective.touch_height * 100.0),
+                |c, d| {
+                    let (lo, hi) = crate::config::TOUCH_HEIGHT_RANGE;
+                    let v = &mut c.config.perspective.touch_height;
+                    *v = (*v + d as f32 * 0.01).clamp(lo, hi)
+                },
+            ),
             it("Play side (1P/2P)", format!("{:?}", p.side), |c, _| {
                 c.config.play.side = if c.config.play.side == Side::P1 {
                     Side::P2
@@ -1956,6 +1982,9 @@ impl SettingsScene {
 
 /// Display name of a configured skin (its header name, else the file stem).
 fn skin_label(ctx: &Ctx, value: &str) -> String {
+    if value == super::play_skin::PERSPECTIVE {
+        return "TOUCH PERSPECTIVE".into();
+    }
     let Some(p) = super::play_skin::configured_path(ctx, value) else {
         return "DEFAULT".into();
     };
@@ -1989,6 +2018,10 @@ fn cycle_skin(c: &mut Ctx, d: i32, mode: &str) {
                 && t == crate::skin::SkinType::Result)
     };
     let mut opts: Vec<String> = vec![String::new()];
+    // play skins: the built-in perspective one too
+    if want.and_then(|t| t.mode()).is_some() {
+        opts.push(super::play_skin::PERSPECTIVE.into());
+    }
     for (p, t, _) in crate::skin::lr2::find_skins(&c.paths.skins) {
         if fits(t) {
             let rel = p

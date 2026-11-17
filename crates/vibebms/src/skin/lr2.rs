@@ -1133,6 +1133,7 @@ pub fn load_with(
             fonts: Vec::new(),
             trans_color: None,
             offsets: HashMap::new(),
+            perspective: false,
         },
         sizes: Vec::new(),
         image_size,

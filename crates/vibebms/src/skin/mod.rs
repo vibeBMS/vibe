@@ -171,6 +171,10 @@ pub struct Dst {
     /// Drawn only while the mouse is over this rect (relative to the
     /// destination, y down; LR2 `#SRC_ONMOUSE`, beatoraja `mouseRect`).
     pub hover: Option<Rect>,
+    /// vibeBMS `anchor` [x, y, w, h]: when the skin is widened or made
+    /// taller (`Skin::reflow`), the share of the added width / height the
+    /// object moves right / down by and grows by.
+    pub anchor: Option<[f32; 4]>,
 }
 
 /// beatoraja offset ids.
@@ -748,9 +752,38 @@ pub struct Skin {
     pub trans_color: Option<[u8; 3]>,
     /// User values of the skin's offsets (x, y, w, h, angle, alpha) by id.
     pub offsets: HashMap<i32, [f32; 6]>,
+    /// vibeBMS `perspective`: the note field is drawn as lanes in
+    /// perspective (`scene::play_persp`), filling the canvas.
+    pub perspective: bool,
 }
 
 impl Skin {
+    /// Widen or heighten the canvas to `w` x `h`, moving the objects with
+    /// an `anchor` (the others stay where they are).
+    pub fn reflow(&mut self, w: f32, h: f32) {
+        let (dw, dh) = (w - self.width, h - self.height);
+        let shift = |d: &mut Dst| {
+            if let Some([ax, ay, sw, sh]) = d.anchor {
+                for k in &mut d.keys {
+                    k.rect.x += ax * dw;
+                    k.rect.y += ay * dh;
+                    k.rect.w += sw * dw;
+                    k.rect.h += sh * dh;
+                }
+            }
+        };
+        for o in &mut self.objects {
+            shift(&mut o.dst);
+        }
+        for j in &mut self.judges {
+            for (_, d) in j.judge.iter_mut().flatten() {
+                shift(d);
+            }
+        }
+        self.width = w;
+        self.height = h;
+    }
+
     /// Which images something of the skin draws from (a skin may list
     /// more: for options not chosen, or never used).
     pub fn used_images(&self) -> Vec<bool> {

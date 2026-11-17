@@ -713,9 +713,52 @@ impl PlayScene {
         }
     }
 
+    /// The skin draws the lanes in perspective: they are the touch
+    /// controls (no strip of controls under the play screen).
+    pub(crate) fn perspective(&self) -> bool {
+        self.skin.as_ref().is_some_and(|s| s.skin.perspective)
+    }
+
+    /// The perspective skin's fans on the screen when it is drawn in `view`.
+    pub(crate) fn persp_fans(&self, ctx: &Ctx, view: Rect) -> Vec<crate::perspective::Fan> {
+        let Some(sk) = self.skin.as_ref() else {
+            return Vec::new();
+        };
+        let xf = crate::skin::render::Xf::fit(sk.skin.width, sk.skin.height, view);
+        let side2 = ctx.config.play.side == Side::P2;
+        crate::perspective::layout(
+            self.mode,
+            side2,
+            sk.skin.width,
+            sk.skin.height,
+            &ctx.config.perspective,
+        )
+        .iter()
+        .map(|f| f.transformed(xf.sx, xf.ox, xf.oy))
+        .collect()
+    }
+
+    /// The top of the perspective lanes' touch area: the share of the
+    /// screen set, at least a little above the judge line.
+    pub(crate) fn persp_touch_top(
+        &self,
+        ctx: &Ctx,
+        fans: &[crate::perspective::Fan],
+        view: Rect,
+    ) -> f32 {
+        let (lo, hi) = crate::config::TOUCH_HEIGHT_RANGE;
+        let share = ctx.config.perspective.touch_height.clamp(lo, hi);
+        let judge = crate::perspective::Depths::of(&ctx.config.play).judge;
+        let line = fans
+            .iter()
+            .map(|f| f.y(judge))
+            .fold(view.bottom(), f32::min);
+        (view.bottom() - share * view.h).min(line - 0.03 * view.h)
+    }
+
     /// Screen areas of the touch controls: (rect, player, scratch on the right).
     fn touch_areas(&self, ctx: &Ctx) -> Vec<(Rect, usize, bool)> {
-        if !ctx.touch_enabled() {
+        if !ctx.touch_enabled() || self.perspective() {
             return Vec::new();
         }
         let t = &ctx.config.touch;
@@ -737,6 +780,27 @@ impl PlayScene {
             ctx.width,
             areas.first().map(|t| t.0.y).unwrap_or(ctx.height),
         );
+        if self.perspective() {
+            // START / SELECT in the top corner the skin leaves for them
+            let Some(sk) = self.skin.as_ref().filter(|_| ctx.touch_enabled()) else {
+                return (screen, None);
+            };
+            let xf = crate::skin::render::Xf::fit(sk.skin.width, sk.skin.height, screen);
+            let side2 = ctx.config.play.side == Side::P2;
+            let right = touch::system_right(&ctx.config.touch, self.mode, side2, ctx.portrait());
+            let b = crate::perspective::system_buttons(sk.skin.width, sk.skin.height, right);
+            let zone = |lane, [x, y, w, h]: [f32; 4]| touch::Zone {
+                shape: touch::Shape::Rect(xf.rect(Rect::new(x, y, w, h))),
+                lane,
+                scratch: false,
+                black: false,
+                color: None,
+            };
+            return (
+                screen,
+                Some([zone(touch::START, b[0]), zone(touch::SELECT, b[1])]),
+            );
+        }
         if areas.is_empty() {
             return (screen, None);
         }
@@ -758,11 +822,18 @@ impl PlayScene {
             ctx.touch_enabled(),
             self.skin.is_some(),
         );
-        if key == self.zones_key && !self.zones.is_empty() {
+        // the perspective lanes follow the settings (LIFT, the touch area)
+        if key == self.zones_key && !self.zones.is_empty() && !self.perspective() {
             return;
         }
         self.zones_key = key;
         self.zones.clear();
+        if self.perspective() && ctx.touch_enabled() {
+            let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+            let fans = self.persp_fans(ctx, view);
+            let top = self.persp_touch_top(ctx, &fans, view);
+            self.zones = touch::fan_zones(self.mode, &fans, top);
+        }
         if !areas.is_empty() {
             self.zones = touch::zones(
                 self.mode,
@@ -970,6 +1041,18 @@ impl Scene for PlayScene {
             .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(1))
         {
             self.quit = true;
+        }
+        // a perspective skin has the screen's shape: made again when the
+        // screen turns or is resized
+        if let Some(sk) = self.skin.as_ref().filter(|s| s.skin.perspective) {
+            let aspect = ctx.width / ctx.height.max(1.0);
+            if (sk.skin.width / sk.skin.height - aspect).abs() > aspect * 0.01 {
+                let new = super::play_skin::load_play_skin(ctx, gfx, self);
+                if let Some(mut old) = std::mem::replace(&mut self.skin, new) {
+                    old.free(gfx);
+                }
+                self.zones.clear();
+            }
         }
         // no game events are run from play skin scripts yet
         if let Some(sk) = self.skin.as_mut() {
@@ -1556,7 +1639,14 @@ impl PlayScene {
             for (area, _, _) in &areas {
                 d.b.rect(*area, rgba(0x05060aff));
             }
-            self.touch.draw(d.b, &self.zones, ctx.config.touch.opacity);
+            // (the perspective lanes draw their own touch areas)
+            let shown = if self.perspective() {
+                let first = self.zones.iter().position(|z| z.lane >= touch::START);
+                &self.zones[first.unwrap_or(self.zones.len())..]
+            } else {
+                &self.zones[..]
+            };
+            self.touch.draw(d.b, shown, ctx.config.touch.opacity);
         }
         if ctx.touch_enabled() {
             let ui = ctx.ui();
