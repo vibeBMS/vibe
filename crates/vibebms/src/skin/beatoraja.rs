@@ -267,51 +267,7 @@ fn filepath_chosen(dir: &Path, f: &FilePath, files: &HashMap<String, String>) ->
 /// `filepath` whose path starts it puts the chosen file in place of its
 /// `*`; another `*` picks one of the matching files at random.
 fn skin_path(dir: &Path, fps: &[FilePath], files: &HashMap<String, String>, path: &str) -> PathBuf {
-    let path = path.replace('\\', "/");
-    for f in fps {
-        let Some(foot) = path.strip_prefix(f.path.as_str()) else {
-            continue;
-        };
-        let Some(name) = filepath_chosen(dir, f, files) else {
-            continue;
-        };
-        let key = &f.path;
-        let wild = key.rfind('*').unwrap_or(key.len());
-        let base = key[..wild].rfind('/').map(|i| i + 1).unwrap_or(0);
-        // old skins' defaults hold only what follows the `*`
-        let lead = &key[base..wild];
-        let end = if name.to_lowercase().starts_with(&lead.to_lowercase()) {
-            base
-        } else {
-            wild
-        };
-        return vfs::resolve_case(&dir.join(format!("{}{name}{foot}", &key[..end])));
-    }
-    let Some(star) = path.rfind('*') else {
-        return vfs::resolve_case(&dir.join(&path));
-    };
-    let ext = match (path.find('|'), path.rfind('|')) {
-        (Some(a), Some(b)) if a > star => format!("{}{}", &path[star + 1..a], &path[b + 1..]),
-        _ => path[star + 1..].to_string(),
-    }
-    .to_lowercase();
-    let folder = vfs::resolve_case(&dir.join(&path[..path[..star].rfind('/').unwrap_or(0)]));
-    let mut all: Vec<PathBuf> = vfs::read_dir(&folder)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|e| e.path)
-        .filter(|p| p.to_string_lossy().to_lowercase().ends_with(&ext))
-        .collect();
-    all.sort();
-    if all.is_empty() {
-        return dir.join(&path);
-    }
-    let pick = crate::platform::SystemTime::now()
-        .duration_since(crate::platform::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as usize)
-        .unwrap_or(0)
-        % all.len();
-    all.swap_remove(pick)
+    todo!("clean-room rewrite: see spec §5")
 }
 
 fn offsets_of(sk: &Value) -> Vec<CustomOffset> {

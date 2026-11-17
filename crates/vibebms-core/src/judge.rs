@@ -242,78 +242,8 @@ impl WindowRule {
     }
 
     fn create(&self, org: &[(i64, i64)], judgerank: i64, rate: WindowRate) -> Vec<(i64, i64)> {
-        let n = org.len();
-        let pct: Vec<i64> = (0..n)
-            .map(|i| {
-                if self.fixed.get(i).copied().unwrap_or(true) {
-                    100
-                } else {
-                    judgerank
-                }
-            })
-            .collect();
-        let mut j: Vec<(i64, i64)> = (0..n)
-            .map(|i| {
-                if self.fixed.get(i).copied().unwrap_or(true) {
-                    org[i]
-                } else {
-                    (org[i].0 * pct[i] / 100, org[i].1 * pct[i] / 100)
-                }
-            })
-            .collect();
-        // keep scaled windows between neighbouring fixed windows
-        let mut fixmin: Option<usize> = None;
-        for i in 0..n.min(4) {
-            if self.fixed[i] {
-                fixmin = Some(i);
-                continue;
-            }
-            let fixmax = (i + 1..4).find(|k| self.fixed[*k]);
-            for side in 0..2 {
-                let get = |w: (i64, i64)| if side == 0 { w.0 } else { w.1 };
-                let mut v = get(j[i]);
-                if let Some(m) = fixmin {
-                    if v.abs() < get(j[m]).abs() {
-                        v = get(j[m]);
-                    }
-                }
-                if let Some(m) = fixmax {
-                    if m < n && v.abs() > get(j[m]).abs() {
-                        v = get(j[m]);
-                    }
-                }
-                if side == 0 {
-                    j[i].0 = v
-                } else {
-                    j[i].1 = v
-                }
-            }
-        }
-        // custom window rate for PG/GR/GD, clamped to BAD and monotonic
-        if n >= 4 {
-            for i in 0..3 {
-                for side in 0..2 {
-                    let bad = if side == 0 { j[3].0 } else { j[3].1 };
-                    let mut v = if side == 0 { j[i].0 } else { j[i].1 } * rate[i] / 100;
-                    if v.abs() > bad.abs() {
-                        v = bad;
-                    }
-                    if i > 0 {
-                        let prev = if side == 0 { j[i - 1].0 } else { j[i - 1].1 };
-                        if v.abs() < prev.abs() {
-                            v = prev;
-                        }
-                    }
-                    if side == 0 {
-                        j[i].0 = v
-                    } else {
-                        j[i].1 = v
-                    }
-                }
-            }
-        }
-        j
-    }
+        todo!("clean-room rewrite: see spec §2")
+}
 }
 
 /// LR2 windows (µs) of PG, GR, GD by judge rank 0 / 25 (VERY HARD) / 50

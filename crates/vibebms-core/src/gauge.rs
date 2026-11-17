@@ -672,55 +672,10 @@ fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
             }
         }
         Lr2Damage => {
-            if f >= 0.0 {
-                return f;
-            }
-            let fix1 = 10.0 / ((total / 16.0).floor() - 5.0).clamp(1.0, 10.0);
-            let n = notes as f64;
-            let fix2 = if n <= 20.0 {
-                10.0
-            } else if n < 30.0 {
-                8.0 + 0.2 * (30.0 - n)
-            } else if n < 60.0 {
-                5.0 + 0.2 * (60.0 - n) / 3.0
-            } else if n < 125.0 {
-                4.0 + (125.0 - n) / 65.0
-            } else if n < 250.0 {
-                3.0 + 0.008 * (250.0 - n)
-            } else if n < 500.0 {
-                2.0 + 0.004 * (500.0 - n)
-            } else if n < 1000.0 {
-                1.0 + 0.002 * (1000.0 - n)
-            } else {
-                1.0
-            };
-            f * fix1.max(fix2) as f32
+            todo!("clean-room rewrite: see spec §3")
         }
         ModifyDamage => {
-            if f >= 0.0 {
-                return f;
-            }
-            const FIX1_TOTAL: [f64; 10] = [
-                240.0, 230.0, 210.0, 200.0, 180.0, 160.0, 150.0, 130.0, 120.0, 0.0,
-            ];
-            const FIX1_TABLE: [f32; 10] = [1.0, 1.11, 1.25, 1.5, 1.666, 2.0, 2.5, 3.333, 5.0, 10.0];
-            let mut i = 0;
-            while i < FIX1_TOTAL.len() - 1 && total < FIX1_TOTAL[i] {
-                i += 1;
-            }
-            let mut fix2 = 1.0f32;
-            let mut note = 1000i64;
-            let mut m = 0.002f32;
-            let n = notes as i64;
-            // LR2: damage grows for charts with fewer than 1000 notes.
-            // (beatoraja's loop condition also adds negative terms; only the
-            // positive part reflects LR2 so we clamp at 0.)
-            while note > n && note > 1 {
-                fix2 += m * (note - n.max(note / 2)).max(0) as f32;
-                note /= 2;
-                m *= 2.0;
-            }
-            f * FIX1_TABLE[i].max(fix2)
+            todo!("clean-room rewrite: see spec §3")
         }
     }
 }

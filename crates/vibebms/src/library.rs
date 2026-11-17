@@ -470,61 +470,7 @@ pub fn find_charts(roots: &[PathBuf], skip: &HashSet<PathBuf>) -> Vec<PathBuf> {
 /// long notes held through it; the average leaves out the quietest
 /// seconds; the end is the busiest 5 s after the gauge could last fill.
 pub fn chart_info(c: &vibebms_core::Chart) -> ([i64; 5], [f64; 3]) {
-    let mode = c.mode();
-    let scratch = |l: u8| (0..mode.players()).any(|p| mode.scratch_lane(p) == Some(l as usize));
-    let mut kinds = [0i64; 5];
-    kinds[4] = c
-        .notes
-        .iter()
-        .filter(|n| matches!(n.kind, vibebms_core::chart::NoteKind::Mine { .. }))
-        .count() as i64;
-    let notes: Vec<_> = c.notes.iter().filter(|n| n.is_playable()).collect();
-    let last = notes.iter().map(|n| n.end_time()).max().unwrap_or(0).max(0);
-    // a chart beatoraja would not analyse (over an hour): no densities
-    if last > 3_600_000_000 {
-        return (kinds, [0.0; 3]);
-    }
-    let mut secs = vec![0i64; (last / 1_000_000 + 2) as usize];
-    let total = c.total(vibebms_core::LnType::Ln);
-    let mut border = if total > 0.0 {
-        (notes.len() as f64 * (1.0 - 100.0 / total)) as i64
-    } else {
-        0
-    };
-    let mut border_pos = 0usize;
-    for n in &notes {
-        let s = (n.time.max(0) / 1_000_000) as usize;
-        kinds[usize::from(n.is_long()) + 2 * usize::from(scratch(n.lane))] += 1;
-        let e = if n.is_long() {
-            ((n.end_time().max(0) / 1_000_000) as usize).min(secs.len() - 1)
-        } else {
-            s
-        };
-        for v in &mut secs[s..=e.max(s)] {
-            *v += 1;
-        }
-        border -= 1;
-        if border == 0 {
-            border_pos = s;
-        }
-    }
-    let bd = notes.len() as i64 / secs.len() as i64 / 4;
-    let peak = secs.iter().copied().max().unwrap_or(0) as f64;
-    let busy: Vec<i64> = secs.iter().copied().filter(|v| *v >= bd).collect();
-    let avg = if busy.is_empty() {
-        0.0
-    } else {
-        busy.iter().sum::<i64>() as f64 / busy.len() as f64
-    };
-    let d = 5.min(secs.len().saturating_sub(border_pos + 1));
-    let end = if d > 0 {
-        (border_pos..secs.len() - d)
-            .map(|i| secs[i..i + d].iter().sum::<i64>() as f64 / d as f64)
-            .fold(0.0, f64::max)
-    } else {
-        0.0
-    };
-    (kinds, [avg, peak, end])
+    todo!("clean-room rewrite: see spec §4")
 }
 
 pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> Song {

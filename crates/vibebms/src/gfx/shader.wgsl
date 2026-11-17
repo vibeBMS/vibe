@@ -44,16 +44,6 @@ const SMOOTHING: f32 = 0.0625;
 
 @fragment
 fn fs_sdf(i: VsOut) -> @location(0) vec4<f32> {
-    let dist = textureSample(tex, samp, i.uv).a;
-    let fill = smoothstep(0.5 - SMOOTHING, 0.5 + SMOOTHING, dist);
-    let c = mix(sdf.outline_color, i.color, fill);
-    let a = smoothstep(sdf.outline_distance - SMOOTHING, sdf.outline_distance + SMOOTHING, dist);
-    let main = vec4<f32>(c.rgb, c.a * a);
-    let off = sdf.shadow_offset / vec2<f32>(textureDimensions(tex));
-    let sd = textureSample(tex, samp, i.uv - off).a;
-    // no smoothing: a hard edge (smoothstep needs low < high)
-    let s = max(sdf.shadow_smoothing, 0.0001);
-    let sa = smoothstep(0.5 - s, 0.5 + s, sd);
-    let shadow = vec4<f32>(sdf.shadow_color.rgb, sdf.shadow_color.a * sa);
-    return mix(shadow, main, main.a);
+    // clean-room rewrite: see spec §6
+    return vec4<f32>(0.0);
 }
