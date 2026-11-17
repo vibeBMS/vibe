@@ -7,6 +7,7 @@
 use super::skin::PlayState;
 use crate::app::Draw;
 use crate::config::HiSpeedMode;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Blend, Color};
 use crate::perspective::{Depths, Fan, FanLane};
 use crate::platform::Instant;
@@ -358,9 +359,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
                     &text,
                     x,
                     y - size * 1.4,
-                    size,
-                    crate::theme::TEXT,
-                    crate::gfx::text::Align::Center,
+                    TextStyle::new(size, crate::theme::TEXT, Align::Center),
                 );
             }
         }

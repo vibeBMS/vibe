@@ -6,7 +6,7 @@ use super::skin::{PlayHooks, PlayState};
 use super::{PlayScene, Stage};
 use crate::app::{Ctx, Draw};
 use crate::config::Bpms;
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Rect};
 use crate::platform::Instant;
 use crate::scene::skinvals::ms_since;
@@ -51,14 +51,11 @@ impl PlayScene {
                         _ => "SELECT",
                     };
                     let size = (r.w * 0.22).min(14.0 * ui);
-                    d.text_fit(
+                    d.text(
                         label,
                         r.x + r.w * 0.5,
                         r.y + (r.h - size) * 0.5,
-                        size,
-                        theme::TEXT,
-                        Align::Center,
-                        r.w * 0.9,
+                        TextStyle::new(size, theme::TEXT, Align::Center).fit(r.w * 0.9),
                     );
                 }
             }
@@ -79,9 +76,7 @@ impl PlayScene {
                         "FAILED",
                         f.x + f.w * 0.5,
                         f.y + f.h * 0.4,
-                        32.0 * ui,
-                        theme::ACCENT,
-                        Align::Center,
+                        TextStyle::new(32.0 * ui, theme::ACCENT, Align::Center),
                     );
                 }
             }
@@ -96,9 +91,7 @@ impl PlayScene {
                 what,
                 view.x + view.w * 0.5,
                 y,
-                16.0 * ui,
-                theme::ACCENT,
-                Align::Center,
+                TextStyle::new(16.0 * ui, theme::ACCENT, Align::Center),
             );
             y += 20.0 * ui;
         }
@@ -172,7 +165,12 @@ impl PlayScene {
         let small = (11.0 * ui).min(w * 0.12);
         let mut y = r.y + 10.0 * ui;
         let line = |d: &mut Draw, s: &str, size: f32, color, y: &mut f32| {
-            d.text_fit(s, cx, *y, size, color, Align::Center, w - 8.0 * ui);
+            d.text(
+                s,
+                cx,
+                *y,
+                TextStyle::new(size, color, Align::Center).fit(w - 8.0 * ui),
+            );
             *y += size * 1.3;
         };
         line(d, "HI-SPEED", small, theme::TEXT_DIM, &mut y);
@@ -188,7 +186,12 @@ impl PlayScene {
         let bottom_rows = 4.0 * small * 1.3 + 10.0 * ui;
         let (t0, t1) = (y + small * 1.4, r.bottom() - bottom_rows - small * 1.6);
         if t1 - t0 > 20.0 * ui {
-            d.text("10.0", cx, y, small * 0.85, theme::TEXT_DIM, Align::Center);
+            d.text(
+                "10.0",
+                cx,
+                y,
+                TextStyle::new(small * 0.85, theme::TEXT_DIM, Align::Center),
+            );
             d.b.rect(
                 Rect::new(cx - 2.0 * ui, t0, 4.0 * ui, t1 - t0),
                 with_alpha(theme::TEXT_DIM, 0.4),
@@ -203,9 +206,7 @@ impl PlayScene {
                 "0.5",
                 cx,
                 t1 + 3.0 * ui,
-                small * 0.85,
-                theme::TEXT_DIM,
-                Align::Center,
+                TextStyle::new(small * 0.85, theme::TEXT_DIM, Align::Center),
             );
         }
         let mut y = r.bottom() - bottom_rows;

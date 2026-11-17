@@ -2,7 +2,7 @@
 //! saving best scores and IR submission.
 
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
@@ -455,9 +455,7 @@ impl Scene for ResultScene {
                 ),
                 12.0 * ui,
                 ctx.view.height - 48.0 * ui,
-                16.0 * ui,
-                theme::ACCENT,
-                Align::Left,
+                TextStyle::new(16.0 * ui, theme::ACCENT, Align::Left),
             );
         }
         if !self.ir_status.is_empty() {
@@ -466,9 +464,7 @@ impl Scene for ResultScene {
                 &self.ir_status,
                 12.0 * ui,
                 ctx.view.height - 26.0 * ui,
-                14.0 * ui,
-                theme::ACCENT,
-                Align::Left,
+                TextStyle::new(14.0 * ui, theme::ACCENT, Align::Left),
             );
         }
     }

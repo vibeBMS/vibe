@@ -8,7 +8,7 @@ mod tables;
 pub use ctx::{AppEvent, Ctx};
 
 use crate::config::Config;
-use crate::gfx::text::{Align, Text};
+use crate::gfx::text::{Align, Text, TextStyle};
 use crate::gfx::{rgba, with_alpha, Batch, Gfx, Rect, TexId};
 use crate::input::{InputEv, Phase};
 use crate::library::Library;
@@ -39,43 +39,8 @@ pub struct Draw<'a> {
 }
 
 impl Draw<'_> {
-    pub fn text(
-        &mut self,
-        s: &str,
-        x: f32,
-        y: f32,
-        size: f32,
-        color: [f32; 4],
-        align: Align,
-    ) -> f32 {
-        self.text
-            .draw(self.gfx, self.b, s, x, y, size, color, align)
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub fn text_fit(
-        &mut self,
-        s: &str,
-        x: f32,
-        y: f32,
-        size: f32,
-        color: [f32; 4],
-        align: Align,
-        max_w: f32,
-    ) -> f32 {
-        self.text
-            .draw_scaled(self.gfx, self.b, s, x, y, size, color, align, max_w)
-    }
-    pub fn text_shadow(
-        &mut self,
-        s: &str,
-        x: f32,
-        y: f32,
-        size: f32,
-        color: [f32; 4],
-        align: Align,
-    ) -> f32 {
-        self.text
-            .draw_shadow(self.gfx, self.b, s, x, y, size, color, align)
+    pub fn text(&mut self, s: &str, x: f32, y: f32, style: TextStyle) -> f32 {
+        self.text.draw(self.gfx, self.b, s, x, y, style)
     }
     pub fn measure(&mut self, s: &str, size: f32) -> f32 {
         self.text.measure(self.gfx, s, size)
@@ -390,21 +355,17 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
             msg,
             r.x + 12.0 * ui,
             r.y + 7.0 * ui,
-            size,
-            with_alpha(theme::TEXT, a),
-            Align::Left,
+            TextStyle::new(size, with_alpha(theme::TEXT, a), Align::Left),
         );
         y += r.h + 6.0 * ui;
     }
     if ctx.config.display.show_fps {
         let s = format!("{:.0} FPS", ctx.view.fps);
-        d.text_shadow(
+        d.text(
             &s,
             6.0,
             ctx.view.height - 22.0,
-            16.0,
-            theme::TEXT_DIM,
-            Align::Left,
+            TextStyle::new(16.0, theme::TEXT_DIM, Align::Left).shadow(),
         );
     }
 }

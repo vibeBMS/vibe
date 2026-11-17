@@ -1,6 +1,6 @@
 use super::HitMap;
 use crate::app::{Ctx, Draw};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Rect};
 use crate::input::{InputEv, Phase};
 use crate::theme;
@@ -86,14 +86,11 @@ impl TextInput {
         self.buttons.push(r, true);
         d.b.rect(r, with_alpha(theme::PANEL, 0.97));
         d.b.rect_outline(r, 2.0, theme::ACCENT);
-        d.text_fit(
+        d.text(
             &format!("{label}{}_", self.buf),
             r.x + 12.0 * ui,
             r.y + 10.0 * ui,
-            20.0 * ui,
-            theme::TEXT,
-            Align::Left,
-            r.w - 24.0 * ui,
+            TextStyle::new(20.0 * ui, theme::TEXT, Align::Left).fit(r.w - 24.0 * ui),
         );
     }
 
@@ -116,18 +113,13 @@ impl TextInput {
             &format!("{title}  (Enter = OK, Esc = cancel)"),
             r.x + 14.0 * ui,
             r.y + 10.0 * ui,
-            15.0 * ui,
-            theme::TEXT_DIM,
-            Align::Left,
+            TextStyle::new(15.0 * ui, theme::TEXT_DIM, Align::Left),
         );
-        d.text_fit(
+        d.text(
             &format!("{shown}_"),
             r.x + 14.0 * ui,
             r.y + 42.0 * ui,
-            22.0 * ui,
-            theme::TEXT,
-            Align::Left,
-            r.w - 28.0 * ui,
+            TextStyle::new(22.0 * ui, theme::TEXT, Align::Left).fit(r.w - 28.0 * ui),
         );
         let (bw, bh) = (120.0 * ui, 36.0 * ui);
         let by = r.y + r.h - bh - 12.0 * ui;

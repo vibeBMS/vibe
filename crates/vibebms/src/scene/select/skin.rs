@@ -13,7 +13,7 @@ use super::tree::{table, Bar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
 use crate::scene::skinvals::*;
@@ -354,11 +354,14 @@ fn download_progress(d: &mut Draw, r: Rect, p: &bmseeker::progress::Progress, no
         &label,
         x + 1.0,
         y + 1.0,
-        size,
-        [0.0, 0.0, 0.0, 0.8],
-        Align::Right,
+        TextStyle::new(size, [0.0, 0.0, 0.0, 0.8], Align::Right),
     );
-    d.text(&label, x, y, size, [0.92, 0.96, 1.0, 1.0], Align::Right);
+    d.text(
+        &label,
+        x,
+        y,
+        TextStyle::new(size, [0.92, 0.96, 1.0, 1.0], Align::Right),
+    );
 }
 
 fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {

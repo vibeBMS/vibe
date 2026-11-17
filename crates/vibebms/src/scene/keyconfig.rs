@@ -21,7 +21,7 @@ use super::keybind::{self, Learn, Learned, Slot};
 use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::{skinned, skinvals};
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
@@ -578,14 +578,11 @@ impl Scene for KeyConfigScene {
                     ""
                 }
             );
-            d.text_fit(
+            d.text(
                 &what,
                 r.x + r.w * 0.5,
                 r.y + 18.0 * ui,
-                17.0 * ui,
-                theme::TEXT,
-                Align::Center,
-                r.w - 16.0 * ui,
+                TextStyle::new(17.0 * ui, theme::TEXT, Align::Center).fit(r.w - 16.0 * ui),
             );
         }
         self.back_rect = ui::back_button(d, w, ui);
@@ -605,18 +602,33 @@ impl KeyConfigScene {
         let (tx, ty) = p(80.0, 50.0);
         let title = format!("<--  {}  -->", MODES[self.mode]);
         let tw = d.measure(&title, size);
-        d.text(&title, tx, ty, size, [0.3, 1.0, 1.0, 1.0], Align::Left);
+        d.text(
+            &title,
+            tx,
+            ty,
+            TextStyle::new(size, [0.3, 1.0, 1.0, 1.0], Align::Left),
+        );
         self.mode_rects = [
             Rect::new(tx, ty, tw * 0.25, size * 1.4),
             Rect::new(tx + tw * 0.75, ty, tw * 0.25, size * 1.4),
         ];
         for (i, name) in DEVICES.iter().enumerate() {
             let (x, y) = p(200.0 + 170.0 * i as f32, 80.0);
-            d.text(name, x, y, size, [1.0, 1.0, 0.3, 1.0], Align::Left);
+            d.text(
+                name,
+                x,
+                y,
+                TextStyle::new(size, [1.0, 1.0, 0.3, 1.0], Align::Left),
+            );
         }
         let hint = "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back";
         let (hx, hy) = p(760.0, 80.0);
-        d.text(hint, hx, hy, size * 0.8, [1.0, 0.65, 0.2, 1.0], Align::Left);
+        d.text(
+            hint,
+            hx,
+            hy,
+            TextStyle::new(size * 0.8, [1.0, 0.65, 0.2, 1.0], Align::Left),
+        );
         let sel = self.list.sel;
         self.list
             .fit(sel as f32, sel as f32 + 1.0, ROWS as f32, rows.len() as f32);
@@ -639,21 +651,23 @@ impl KeyConfigScene {
             } else if i % 2 == 0 {
                 d.b.rect(row, with_alpha(theme::PANEL, 0.25));
             }
-            d.text(&s.label(), x, y + 2.0 * sy, size, theme::TEXT, Align::Left);
+            d.text(
+                &s.label(),
+                x,
+                y + 2.0 * sy,
+                TextStyle::new(size, theme::TEXT, Align::Left),
+            );
             for dev in 0..3 {
                 if dev == 2 && s.side_of_scratch().is_none() {
                     continue;
                 }
                 let v = keybind::device_label(keys, *s, dev).unwrap_or_else(|| "----".into());
                 let (cx, _) = p(202.0 + 170.0 * dev as f32, 0.0);
-                d.text_fit(
+                d.text(
                     &v,
                     cx,
                     y + 2.0 * sy,
-                    size,
-                    theme::TEXT,
-                    Align::Left,
-                    155.0 * sx,
+                    TextStyle::new(size, theme::TEXT, Align::Left).fit(155.0 * sx),
                 );
             }
         }

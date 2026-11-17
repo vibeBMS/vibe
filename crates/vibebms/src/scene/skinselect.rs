@@ -18,7 +18,7 @@ use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::skinned;
 use super::skinvals::{self, ms_since};
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
@@ -635,9 +635,7 @@ impl Scene for SkinSelectScene {
                 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back",
                 w * 0.5,
                 r.y + 4.0 * ui,
-                15.0 * ui,
-                with_alpha(theme::TEXT, a),
-                Align::Center,
+                TextStyle::new(15.0 * ui, with_alpha(theme::TEXT, a), Align::Center),
             );
         }
         self.back_rect = ui::back_button(d, w, ui);

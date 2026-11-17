@@ -4,7 +4,7 @@
 use super::{PlayRequest, Versus};
 use crate::app::{Ctx, Draw};
 use crate::config::PlayConfig;
-use crate::gfx::text::Align;
+use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Rect};
 use crate::platform::vfs::Prefetch;
 use crate::platform::{Instant, Job};
@@ -164,7 +164,12 @@ impl Loading {
         let (w, h) = (ctx.view.width, ctx.view.height);
         let s = &req.song;
         let line = |d: &mut Draw, text: &str, y: f32, size: f32, color| {
-            d.text_fit(text, w * 0.5, y, size * ui, color, Align::Center, w * 0.9);
+            d.text(
+                text,
+                w * 0.5,
+                y,
+                TextStyle::new(size * ui, color, Align::Center).fit(w * 0.9),
+            );
         };
         line(d, &s.genre, h * 0.3, 18.0, theme::TEXT_DIM);
         line(d, &s.full_title(), h * 0.36, 34.0, theme::TEXT);
@@ -184,9 +189,7 @@ impl Loading {
                 &format!("{}  STAGE {}/{}", c.name, c.index + 1, c.songs.len()),
                 w * 0.5,
                 h * 0.22,
-                22.0 * ui,
-                theme::ACCENT,
-                Align::Center,
+                TextStyle::new(22.0 * ui, theme::ACCENT, Align::Center),
             );
         }
         let total = self.total_files.load(Ordering::Relaxed).max(1);
@@ -200,9 +203,7 @@ impl Loading {
             &format!("LOADING{dots}  {done}/{total}"),
             w * 0.5,
             bar.y + 16.0 * ui,
-            16.0 * ui,
-            theme::TEXT_DIM,
-            Align::Center,
+            TextStyle::new(16.0 * ui, theme::TEXT_DIM, Align::Center),
         );
     }
 }
