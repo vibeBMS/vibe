@@ -12,7 +12,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
-use bmseeker::install::{chart_link, chart_name, Batch, Entry, Step, Tries};
+use bmseeker::install::{Batch, Entry, Step};
 pub use bmseeker::install::{Done, Failure};
 use bmseeker::install::{Role, When};
 
@@ -67,7 +67,7 @@ fn no_chart_link(done: Vec<Done>, have_song: bool) -> Vec<Done> {
 /// their songs' folders, or waiting; a song added, the charts that waited
 /// for it into its folder. `check`: found by name, only if it holds the
 /// chart `q.md5`.
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(test)]
 fn take_in(
     root: &Path,
     lib: &mut bmseeker::library::Library,
@@ -217,16 +217,10 @@ impl SongFetch {
         });
         #[cfg(target_arch = "wasm32")]
         {
-            let groups = steps
+            let steps = steps
                 .into_iter()
-                .map(|step| Group {
-                    // BMS SEARCH: the song's, the chart's with the song in
-                    ask: md5 && (step.role == Role::Song || have_song),
-                    step,
-                    tries: Default::default(),
-                    tried: Vec::new(),
-                    checked: Vec::new(),
-                })
+                // BMS SEARCH: the song's, the chart's with the song in
+                .map(|step| (md5 && (step.role == Role::Song || have_song), step))
                 .collect();
             let w = Web {
                 root,
@@ -236,7 +230,7 @@ impl SongFetch {
                 progress,
                 last: Vec::new(),
             };
-            web(w, groups, Vec::new(), move |done| {
+            web(w, steps, Vec::new(), move |done| {
                 let _ = tx.send((id, no_chart_link(done, have_song)));
             });
         }
@@ -265,19 +259,6 @@ impl SongFetch {
     }
 }
 
-/// The web build's download for one step: its links to try in turn
-/// (those tried, what they came to), whether BMS SEARCH is still to be
-/// asked once they are tried, and the links it found by name (what they
-/// bring is checked to hold the chart).
-#[cfg(target_arch = "wasm32")]
-struct Group {
-    step: Step,
-    tries: Tries,
-    tried: Vec<String>,
-    ask: bool,
-    checked: Vec<String>,
-}
-
 /// What the web build's steps share: the entry, the library (as the player
 /// read it, and what came in since), the files had, the song's progress
 /// and what the last step came to.
@@ -291,109 +272,52 @@ struct Web {
     last: Vec<Done>,
 }
 
-/// The web build: the links one after another through the vibeBMS proxy,
-/// unpacked / placed in memory; a step's next link tried when one does not
-/// download.
+/// The web build: each step a bmseeker `Install` run in the page (its
+/// links through the vibeBMS proxy, unpacked / placed in memory; with
+/// `ask`, BMS SEARCH's links after its own), one after another.
 #[cfg(target_arch = "wasm32")]
 fn web(
     mut w: Web,
-    mut groups: Vec<Group>,
+    mut steps: Vec<(bool, Step)>,
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
-    use crate::archive::{web_fetch, Fail};
-    use crate::hosts::via_proxy;
-    if groups.is_empty() {
+    use bmseeker::install::job::Install;
+    if steps.is_empty() {
         return finish(done);
     }
     if w.progress.cancelled() {
         done.push(Done::Failed(bmseeker::net::NetError::Cancelled.into()));
         return finish(done);
     }
-    let mut g = groups.remove(0);
+    let (ask, step) = steps.remove(0);
     // not needed now (the song brought the chart; the chart did not wait)
-    if g.tried.is_empty() && !g.step.due(&w.e, &w.lib, &w.last) {
-        return web(w, groups, done, finish);
+    if !step.due(&w.e, &w.lib, &w.last) {
+        return web(w, steps, done, finish);
     }
-    let q = w.e.query(g.step.role);
-    // its links tried: BMS SEARCH's next, else the end
-    if g.step.links.is_empty() {
-        if std::mem::take(&mut g.ask) {
-            // the lists' links are in the step already: BMS SEARCH's
-            let cx = crate::hosts::context();
-            let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
-            w.progress.set_stage(Stage::Finding);
-            // through the proxy (but BMS SEARCH, which sends CORS headers)
-            crate::platform::run_task(sources.find_all(&q), true, move |found| {
-                for (source, l) in found {
-                    if g.tried.contains(&l) || g.step.links.contains(&l) {
-                        continue;
-                    }
-                    // found by name: what it brings is checked
-                    if sources.checked(source) {
-                        g.checked.push(l.clone());
-                    }
-                    g.step.links.push(l);
-                }
-                groups.insert(0, g);
-                web(w, groups, done, finish)
-            });
-        } else {
-            w.last = g.tries.end();
-            done.extend(w.last.iter().cloned());
-            web(w, groups, done, finish)
-        }
-        return;
-    }
-    let link = g.step.links.remove(0);
-    g.tried.push(link.clone());
-    // found by name: the chart it brings must be the one
-    let check = g.checked.contains(&link) && w.e.md5.len() == 32;
-    // a file this song's downloads have had already
-    let key = Batch::key(&link, &q);
-    if w.batch.has(&key) {
-        let had = vec![Done::Failed(bmseeker::install::DOWNLOADED.into())];
-        g.tries.record(had);
-        groups.insert(0, g);
-        return web(w, groups, done, finish);
-    }
-    // this link's outcome: the file in, or the step again (its next link)
-    let next = move |got: Vec<Done>, mut w: Web, mut groups: Vec<Group>, mut done: Vec<Done>| {
-        w.batch.tried(key, &got);
-        match g.tries.record(got) {
-            Some(got) => {
-                done.extend(got.iter().cloned());
-                w.last = got;
-            }
-            None => groups.insert(0, g),
-        }
-        web(w, groups, done, finish)
+    let cx = crate::hosts::install_context().with_progress(w.progress.clone());
+    let sources = match ask {
+        true => bmseeker::sources::Sources::from_config(&cx.config, Vec::new()),
+        false => Default::default(),
     };
-    if chart_link(&link) {
-        let name = chart_name(&link);
-        w.progress.set_stage(Stage::Finding);
-        let p = Some(w.progress.clone());
-        crate::platform::http_get_progress(&via_proxy(&link), p, move |r| {
-            let got = match r {
-                // (a page where a chart was expected)
-                Ok(b) if !b.trim_ascii_start().starts_with(b"<") => {
-                    take_in(&w.root, &mut w.lib, b, &q, check, Some(name))
-                }
-                _ => vec![Done::Page(link)],
-            };
-            next(got, w, groups, done)
-        });
-        return;
-    }
-    let want_song = (!q.diff).then(|| q.want.clone());
-    web_fetch(link, want_song, Some(w.progress.clone()), move |r| {
-        w.progress.set_stage(Stage::Unpacking);
-        let got = match r {
-            Ok(bytes) => take_in(&w.root, &mut w.lib, bytes, &q, check, None),
-            Err(Fail::Page(url)) => vec![Done::Page(url)],
-            Err(Fail::Msg(e)) => vec![Done::Failed(e.into())],
-        };
-        next(got, w, groups, done)
+    let lib = std::mem::replace(&mut w.lib, bmseeker::library::Library::new(&w.root));
+    let job = Install::new(
+        Arc::new(crate::placement::Vfs),
+        w.root.join("downloads"),
+        lib,
+        std::mem::take(&mut w.batch),
+        w.e.query(step.role),
+        step.links,
+        sources,
+        &cx,
+    )
+    .failures_are_pages();
+    crate::platform::run_job(job, Some(w.progress.clone()), move |out| {
+        w.lib = out.lib;
+        w.batch = out.batch;
+        done.extend(out.done.iter().cloned());
+        w.last = out.done;
+        web(w, steps, done, finish)
     });
 }
 

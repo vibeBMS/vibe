@@ -542,38 +542,6 @@ fn web_fetch_files(
     });
 }
 
-/// The archive `link` leads to (for the song `want`): bmseeker's
-/// `Acquire` run in the page (`platform::run_job`: its requests and the
-/// file itself through the proxy, reporting to `progress`, if any). A
-/// file that does not come gives way to the next of the links its page
-/// named; a server's passing failure is tried again; what the proxy
-/// refuses (not an archive) is a page.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn web_fetch(
-    link: String,
-    want: Option<crate::hosts::Want>,
-    progress: Option<std::sync::Arc<bmseeker::progress::Progress>>,
-    done: impl FnOnce(Result<Vec<u8>, Fail>) + Send + 'static,
-) {
-    use crate::hosts::Fetch;
-    use bmseeker::install::job::Acquire;
-    let cx = match &progress {
-        Some(p) => crate::hosts::context().with_progress(p.clone()),
-        None => crate::hosts::context().clone(),
-    };
-    let job = Acquire::new(&link, want, false, PathBuf::new(), &cx).failures_are_pages();
-    crate::platform::run_job(job, progress, move |r| {
-        done(match r {
-            Ok(got) => match got.blob {
-                bmseeker::unpack::Blob::Bytes(b) => Ok(b),
-                bmseeker::unpack::Blob::File(_) => Err(Fail::Msg("not in memory".into())),
-            },
-            Err(Fetch::Page) => Err(Fail::Page(link)),
-            Err(Fetch::Failed(e)) => Err(e.into()),
-        })
-    });
-}
-
 /// Download a work's files (bmseeker's `Files`, a status for each after
 /// the first) and unpack them into `bms/<event>/<archive>` (add-ons into
 /// the same folder). Returns that folder (relative to the data root) and
