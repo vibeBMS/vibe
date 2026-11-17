@@ -471,10 +471,10 @@ fn work_stem(files: &[File]) -> String {
 
 /// A work's files as bmseeker's `Files` takes them: a mirror's file as it
 /// is, an author's link through the hosts.
-fn sources(files: &[File]) -> Vec<bmseeker::install::job::Source> {
+fn sources(files: &[File]) -> Vec<bmseeker::install::job::FileLink> {
     files
         .iter()
-        .map(|f| bmseeker::install::job::Source {
+        .map(|f| bmseeker::install::job::FileLink {
             url: f.url.clone(),
             plain: !f.original.is_empty(),
         })
@@ -517,10 +517,11 @@ fn web_fetch_files(
             let bmseeker::unpack::Blob::Bytes(bytes) = g.blob else {
                 continue;
             };
-            n += match crate::hosts::sniff_bytes(&bytes) {
+            n += match bmseeker::unpack::sniff(&bytes) {
                 // into the main archive's folder
-                Some(ext) => {
-                    crate::platform::vfs::add_archive_at(&dir, &format!("{stem}.{ext}"), bytes)
+                Some(format) => {
+                    let name = format!("{stem}.{}", format.ext());
+                    crate::platform::vfs::add_archive_at(&dir, &name, bytes)
                 }
                 // a file on its own (a BGA movie)
                 None => {
@@ -602,12 +603,13 @@ fn fetch_work(
         for (f, tmp) in files.iter().zip(&tmps) {
             let name = if f.original.is_empty() {
                 // an author's link: its own bytes tell the format
-                let ext = crate::hosts::sniff(tmp).unwrap_or("zip");
+                let ext =
+                    bmseeker::unpack::sniff_file(tmp).map_or("zip", bmseeker::unpack::Format::ext);
                 format!("{}.{ext}", name(f))
             } else {
                 name(f)
             };
-            n += crate::import::unpack_into(tmp, &name, &dest)?;
+            n += crate::import::unpack_into(&bmseeker::fs::Disk, tmp, &name, &dest)?;
         }
         Ok((rel, n))
     })();

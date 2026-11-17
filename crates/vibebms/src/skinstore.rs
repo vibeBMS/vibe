@@ -602,9 +602,10 @@ fn install_staged(
 ) -> Result<Vec<String>, String> {
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     for (i, a) in archives.iter().enumerate() {
-        let ext = crate::hosts::sniff(a).ok_or("the download is not an archive")?;
+        let format = bmseeker::unpack::sniff_file(a).ok_or("the download is not an archive")?;
         let dir = staging.join(i.to_string());
-        crate::import::unpack_into(a, &format!("skin.{ext}"), &dir)?;
+        let name = format!("skin.{}", format.ext());
+        crate::import::unpack_into(&bmseeker::fs::Disk, a, &name, &dir)?;
         let placed = place(entry, &files_below(&dir));
         moves.extend(placed.into_iter().map(|(from, to)| (dir.join(from), to)));
     }
@@ -628,10 +629,10 @@ fn install_staged(
 }
 
 /// Entry `e`'s archives as bmseeker's `Files` takes them (authors' links).
-fn sources(e: &SkinEntry) -> Vec<bmseeker::install::job::Source> {
+fn sources(e: &SkinEntry) -> Vec<bmseeker::install::job::FileLink> {
     e.downloads
         .iter()
-        .map(|u| bmseeker::install::job::Source {
+        .map(|u| bmseeker::install::job::FileLink {
             url: u.clone(),
             plain: false,
         })

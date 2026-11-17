@@ -172,7 +172,7 @@ impl Downloads {
             if let Some((chart, _)) = report.ask {
                 ctx.toast(format!(
                     "{}: several songs could be it; it stays in downloads",
-                    import::file_name(&chart)
+                    bmseeker::fs::file_name(&chart)
                 ));
             }
             if report.rescan {

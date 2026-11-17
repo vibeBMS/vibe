@@ -381,13 +381,13 @@ impl Downloads {
         if let Some((chart, _)) = done.ask {
             ctx.toast(format!(
                 "{}: several songs could be it; it stays in downloads",
-                import::file_name(&chart)
+                bmseeker::fs::file_name(&chart)
             ));
         }
         #[cfg(not(target_os = "ios"))]
         if let Some((chart, folders)) = done.ask {
             // several songs could be it: let the user pick the folder
-            let name = import::file_name(&chart);
+            let name = bmseeker::fs::file_name(&chart);
             let mut dialog =
                 rfd::FileDialog::new().set_title(format!("Which song folder is {name} for?"));
             if let Some((d, _)) = folders.first() {
@@ -395,7 +395,7 @@ impl Downloads {
             }
             if let Some(dir) = dialog.pick_folder() {
                 if crate::placement::bring(&chart, &dir).is_some() {
-                    ctx.toast(format!("{name} → {}", import::file_name(&dir)));
+                    ctx.toast(format!("{name} → {}", bmseeker::fs::file_name(&dir)));
                     rescan = true;
                 }
             }

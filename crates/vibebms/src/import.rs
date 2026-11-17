@@ -2,15 +2,18 @@
 //! files, and what it tells the user.
 
 use crate::placement::Vfs;
+use bmseeker::fs::file_name;
 pub use bmseeker::import::*;
+use bmseeker::library::Library;
 use std::path::{Path, PathBuf};
 
 pub fn import(file: &Path, library: &Path) -> Result<Imported, String> {
-    bmseeker::import::import(&Vfs, file, library)
+    let req = bmseeker::install::Request::default();
+    bmseeker::import::import(&Vfs, file, &mut Library::new(library), &req)
 }
 
 pub fn place_waiting(downloads: &Path, library: &Path) -> Vec<PathBuf> {
-    bmseeker::import::place_waiting(&Vfs, downloads, library)
+    bmseeker::install::place_waiting(&Vfs, downloads, &mut Library::new(library))
 }
 
 /// What a finished import means for the browser.

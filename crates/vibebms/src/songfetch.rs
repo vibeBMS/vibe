@@ -12,7 +12,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
-use bmseeker::install::{Batch, Entry, Step};
+use bmseeker::install::{Batch, Entry, EntryStep};
 pub use bmseeker::install::{Done, Failure};
 use bmseeker::install::{Role, When};
 
@@ -158,18 +158,23 @@ impl SongFetch {
         mut e: bmseeker::install::Entry,
         addons: Vec<String>,
     ) -> bool {
-        use bmseeker::install::{entry_steps, Step};
+        use bmseeker::install::{entry_steps, EntryStep};
         let md5 = e.md5.len() == 32;
         e.song.retain(|u| is_link(u));
         e.chart.retain(|u| is_link(u));
         let lib = crate::placement::library(root, &self.songs);
         let have_song = bmseeker::install::entry::has_song(&e, &lib);
         let mut steps = entry_steps(&e, &lib);
-        steps.extend(addons.into_iter().filter(|u| is_link(u)).map(|a| Step {
-            links: vec![a],
-            role: Role::Diff,
-            when: When::Missing,
-        }));
+        steps.extend(
+            addons
+                .into_iter()
+                .filter(|u| is_link(u))
+                .map(|a| EntryStep {
+                    links: vec![a],
+                    role: Role::Diff,
+                    when: When::Missing,
+                }),
+        );
         // none of its own: BMS SEARCH's (the chart's only with the song in)
         steps.retain(|s| !s.links.is_empty() || md5);
         if steps.is_empty() || self.is_busy(&e.want.title, &e.want.artist) {
@@ -201,7 +206,7 @@ impl SongFetch {
                     continue;
                 }
                 // the lists' links are in the step's already: BMS SEARCH after
-                last = bmseeker::install::links_seen(
+                last = bmseeker::install::run(
                     &root.join("downloads"),
                     &mut lib,
                     &e.query(step.role),
@@ -278,7 +283,7 @@ struct Web {
 #[cfg(target_arch = "wasm32")]
 fn web(
     mut w: Web,
-    mut steps: Vec<(bool, Step)>,
+    mut steps: Vec<(bool, EntryStep)>,
     mut done: Vec<Done>,
     finish: impl FnOnce(Vec<Done>) + Send + 'static,
 ) {
@@ -324,6 +329,7 @@ fn web(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bmseeker::testkit::zip;
 
     fn root(name: &str) -> std::path::PathBuf {
         let d =
@@ -339,55 +345,6 @@ mod tests {
 
     const OURS: &str = "#TITLE Song [X]\n#ARTIST alpha / obj: b\n#WAV01 01.wav\n";
     const SONG: &str = "#TITLE Song\n#ARTIST alpha\n#WAV01 01.wav\n";
-
-    /// A zip (stored) of `files` (name, contents), as a host would serve it.
-    fn zip(files: &[(&str, &str)]) -> Vec<u8> {
-        fn crc32(b: &[u8]) -> u32 {
-            let mut c = !0u32;
-            for &x in b {
-                c ^= x as u32;
-                for _ in 0..8 {
-                    c = if c & 1 != 0 {
-                        (c >> 1) ^ 0xEDB8_8320
-                    } else {
-                        c >> 1
-                    };
-                }
-            }
-            !c
-        }
-        let (mut out, mut dir) = (Vec::new(), Vec::new());
-        for (name, body) in files {
-            let (n, b) = (name.as_bytes(), body.as_bytes());
-            let at = out.len() as u32;
-            // version, flags, stored, time, date (1980-01-01), crc, sizes
-            let mut head = vec![20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0];
-            head.extend(crc32(b).to_le_bytes());
-            head.extend((b.len() as u32).to_le_bytes());
-            head.extend((b.len() as u32).to_le_bytes());
-            head.extend((n.len() as u16).to_le_bytes());
-            head.extend([0, 0]);
-            out.extend(b"PK\x03\x04");
-            out.extend(&head);
-            out.extend(n);
-            out.extend(b);
-            dir.extend(b"PK\x01\x02\x14\x00");
-            dir.extend(&head);
-            // comment, disk, attributes, offset
-            dir.extend([0u8; 10]);
-            dir.extend(at.to_le_bytes());
-            dir.extend(n);
-        }
-        let start = out.len() as u32;
-        out.extend(&dir);
-        out.extend(b"PK\x05\x06\x00\x00\x00\x00");
-        out.extend((files.len() as u16).to_le_bytes());
-        out.extend((files.len() as u16).to_le_bytes());
-        out.extend((dir.len() as u32).to_le_bytes());
-        out.extend(start.to_le_bytes());
-        out.extend([0, 0]);
-        out
-    }
 
     fn query(md5: &str, diff: bool) -> bmseeker::sources::Query {
         bmseeker::sources::Query {
@@ -537,7 +494,7 @@ mod tests {
         }];
         let pack = |artist: &str| {
             let chart = format!("#TITLE Song [B]\n#ARTIST {artist}\n#WAV01 01.wav\n");
-            zip(&[("b.bms", &chart), ("01.ogg", "x")])
+            zip(&[("b.bms", chart.as_str()), ("01.ogg", "x")])
         };
         let mut q = query("", false);
         for songs in [&[][..], &read] {

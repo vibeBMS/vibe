@@ -96,15 +96,6 @@ pub fn chart_info(path: &Path) -> Option<ChartInfo> {
     bmseeker::placement::chart_info(&Vfs, path)
 }
 
-pub fn locate(chart: &Path, library: &Path) -> Option<Located> {
-    bmseeker::placement::locate(&Vfs, chart, library)
-}
-
-/// A chart that came on its own (the files beside it are not its).
-pub fn locate_loose(chart: &Path, library: &Path) -> Option<Located> {
-    bmseeker::placement::locate_loose(&Vfs, chart, library)
-}
-
 /// The library below `<root>/bms` as bmseeker sees it, its charts as the
 /// player's library has them (their hashes, titles and artists: a web
 /// page cannot read its library's charts when it likes).
@@ -119,9 +110,10 @@ pub fn library(root: &Path, songs: &[crate::library::Song]) -> bmseeker::library
     bmseeker::library::Library::from_catalog(&root.join("bms"), owned)
 }
 
-/// [`locate_loose`] in `lib`.
-pub fn locate_loose_in(chart: &Path, lib: &bmseeker::library::Library) -> Option<Located> {
-    bmseeker::placement::locate_in(&Vfs, chart, lib, false, Rules::default()).map(|(l, _)| l)
+/// Where in `lib` a chart that came on its own belongs (the files beside
+/// it are not its).
+pub fn locate_loose(chart: &Path, lib: &bmseeker::library::Library) -> Option<Located> {
+    bmseeker::placement::locate(&Vfs, chart, lib, false, Rules::default()).map(|(l, _)| l)
 }
 
 /// Move `file` into `dir` (smart overwrite: `bmseeker::placement::bring`).
@@ -140,17 +132,9 @@ mod tests {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
         let d = std::env::temp_dir().join(format!("vibebms-vfs-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
-        // a RAR5 (stored) of song/a.bms and song/01.ogg ("ogg"), both of
-        // 2020-01-02 03:04:05 UTC
-        let rar: [u8; 117] = [
-            82, 97, 114, 33, 26, 7, 1, 0, 51, 146, 181, 229, 10, 1, 5, 6, 0, 5, 1, 1, 128, 128, 0,
-            66, 98, 211, 59, 32, 2, 2, 136, 0, 6, 136, 0, 164, 131, 2, 165, 93, 13, 94, 221, 184,
-            73, 19, 128, 0, 1, 10, 115, 111, 110, 103, 47, 97, 46, 98, 109, 115, 35, 84, 73, 84,
-            76, 69, 32, 65, 227, 107, 162, 118, 33, 2, 2, 131, 0, 6, 131, 0, 164, 131, 2, 165, 93,
-            13, 94, 148, 92, 160, 69, 128, 0, 1, 11, 115, 111, 110, 103, 47, 48, 49, 46, 111, 103,
-            103, 111, 103, 103, 29, 119, 86, 81, 3, 5, 4, 0,
-        ];
-        let got = unpack(Blob::Bytes(rar.to_vec()), &Vfs, &d, BUDGET).unwrap();
+        // (both of 2020-01-02 03:04:05 UTC)
+        let rar = bmseeker::testkit::SONG_RAR.to_vec();
+        let got = unpack(Blob::Bytes(rar), &Vfs, &d, BUDGET).unwrap();
         assert_eq!(got.len(), 2);
         assert_eq!(Vfs.stamp(&d.join("song/01.ogg")), Some((1_577_934_245, 3)));
         assert!(Vfs.keeps_times());

@@ -66,5 +66,5 @@ pub fn sends_cors(url: &str) -> bool {
 
 /// `url` as the web build fetches it.
 pub fn via_proxy(url: &str) -> String {
-    format!("{WEB_PROXY}?url={}", url_encode(url))
+    format!("{WEB_PROXY}?url={}", bmseeker::net::url_encode(url))
 }

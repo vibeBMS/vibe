@@ -136,7 +136,7 @@ pub fn place_picked_charts(root: &Path, songs: &[crate::library::Song]) -> Vec<S
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match placement::locate_loose_in(&path, &lib) {
+        match placement::locate_loose(&path, &lib) {
             Some(Located::Move(dir)) => {
                 if placement::bring(&path, &dir).is_some() {
                     out.push(format!(
