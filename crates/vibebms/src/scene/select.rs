@@ -1331,6 +1331,10 @@ impl Scene for SelectScene {
         if self.version != ctx.library_version {
             self.rebuild(ctx);
         }
+        // a newer nightly was found (once)
+        if let Some(n) = ctx.updater.take_notice() {
+            ctx.toast(n);
+        }
         // a held green number key (panel 3): 1 ms steps, 10 ms after 50
         if let Some((k, next, n)) = self.panel_repeat {
             if now >= next && self.holding() {

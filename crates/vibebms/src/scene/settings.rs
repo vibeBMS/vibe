@@ -25,7 +25,7 @@ use vibebms_core::lane_option::{DoubleOption, LaneOption};
 use vibebms_core::LnType;
 use winit::keyboard::KeyCode;
 
-const CATEGORIES: [&str; 10] = [
+const CATEGORIES: [&str; 11] = [
     "PLAY",
     "JUDGE & GAUGE",
     "KEY CONFIG",
@@ -36,10 +36,13 @@ const CATEGORIES: [&str; 10] = [
     "TABLES",
     "IR",
     "SKINS",
+    "SYSTEM",
 ];
 
 /// The skin catalog's page.
 const SKINS_CAT: usize = 9;
+/// The version and the self-update.
+const SYSTEM_CAT: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TextField {
@@ -90,6 +93,10 @@ enum Act {
     SkinPage(usize),
     /// Delete catalog skin `.0`, on a second press.
     SkinDelete(usize),
+    /// Download and install the update found (or open the release page).
+    UpdateNow,
+    /// Leave and start the updated executable.
+    RestartNow,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1102,8 +1109,85 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
             ]
         }
         SKINS_CAT => skin_items(ctx),
+        SYSTEM_CAT => system_items(ctx),
         _ => Vec::new(),
     }
+}
+
+/// The version, and on the desktop the self-update.
+fn system_items(ctx: &Ctx) -> Vec<Item> {
+    use crate::update::{Status, Version, SUPPORTED, VERSION};
+    let mut v = vec![Item {
+        label: "Version".into(),
+        value: format!("vibeBMS {VERSION}"),
+        act: Act::None,
+    }];
+    if !SUPPORTED {
+        return v;
+    }
+    v.push(it(
+        "Check for updates (on start)",
+        onoff(ctx.config.check_updates),
+        |c, _| {
+            c.config.check_updates = !c.config.check_updates;
+            if matches!(c.updater.status, Status::Idle | Status::CheckFailed(_)) {
+                c.updater.check(c.config.check_updates);
+            }
+        },
+    ));
+    let note = |label: String| Item {
+        label,
+        value: String::new(),
+        act: Act::None,
+    };
+    match Version::current() {
+        Some(cur) if cur.is_nightly() => {}
+        Some(cur) if cur.dev => {
+            v.push(note(
+                "A local build: only the nightly builds update themselves".into(),
+            ));
+            return v;
+        }
+        _ => {
+            v.push(note("Only the nightly builds update themselves".into()));
+            return v;
+        }
+    }
+    match &ctx.updater.status {
+        Status::Idle => {}
+        Status::Checking => v.push(note("Checking for updates…".into())),
+        Status::UpToDate => v.push(note("vibeBMS is up to date".into())),
+        Status::CheckFailed(e) => v.push(note(format!("Could not check for updates: {e}"))),
+        Status::Available(o) | Status::Failed(o, _) => {
+            let refused = o.refusal.is_some();
+            v.push(Item {
+                label: format!("Update available: {} ({})", o.version, mb(o.size)),
+                value: if refused {
+                    "release page ↗".into()
+                } else if matches!(ctx.updater.status, Status::Failed(..)) {
+                    "try again ↵".into()
+                } else {
+                    "Update now ↵".into()
+                },
+                act: Act::UpdateNow,
+            });
+            if let Some(why) = &o.refusal {
+                v.push(note(format!("    {why}: update it from the release page")));
+            }
+            if let Status::Failed(_, e) = &ctx.updater.status {
+                v.push(note(format!("    The update failed: {e}")));
+            }
+        }
+        Status::Downloading(o, p) => {
+            v.push(note(format!("Downloading {}… {}%", o.version, p.percent())))
+        }
+        Status::Installed(ver) => v.push(Item {
+            label: format!("Updated to {ver}"),
+            value: "Restart now ↵".into(),
+            act: Act::RestartNow,
+        }),
+    }
+    v
 }
 
 /// `n` bytes as MB for people.
@@ -1314,6 +1398,8 @@ pub struct SettingsScene {
     open_editor: bool,
     /// A skinned screen was asked for (`Act::OpenScreen`).
     open_screen: Option<usize>,
+    /// Leave the app ("Restart now" after an update).
+    quit: bool,
 }
 
 impl SettingsScene {
@@ -1335,6 +1421,7 @@ impl SettingsScene {
             back_rect: Rect::default(),
             open_editor: false,
             open_screen: None,
+            quit: false,
         }
     }
 
@@ -1366,6 +1453,17 @@ impl SettingsScene {
                 if !matches!(item.act, Act::SkinDelete(_)) {
                     return;
                 }
+            }
+            Act::UpdateNow => {
+                if let Some(msg) = ctx.updater.install() {
+                    ctx.toast(msg);
+                }
+                return;
+            }
+            Act::RestartNow => {
+                ctx.updater.relaunch_on_exit();
+                self.quit = true;
+                return;
             }
             Act::KeepSongs => {
                 #[cfg(target_arch = "wasm32")]
@@ -1585,6 +1683,9 @@ impl Scene for SettingsScene {
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         let next = self.input_inner(ctx, ev);
+        if std::mem::take(&mut self.quit) {
+            return Next::Quit;
+        }
         if std::mem::take(&mut self.open_editor) {
             return Next::Push(Box::new(super::touch_layout::TouchLayoutScene::new(ctx)));
         }
@@ -1912,7 +2013,7 @@ impl SettingsScene {
 
         let portrait = ctx.portrait();
         let (cat_r, item_r) = if portrait {
-            let ch = 2.0 * 40.0 * ui;
+            let ch = CATEGORIES.len().div_ceil(5) as f32 * 40.0 * ui;
             (
                 Rect::new(0.0, header, w, ch),
                 Rect::new(0.0, header + ch, w, h - header - ch),

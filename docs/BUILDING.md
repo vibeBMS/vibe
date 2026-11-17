@@ -83,3 +83,38 @@ CI builds are nightlies of it: `tools/ci_version.sh` rewrites it to `<version>-n
 e.g. `0.1.0-nightly.192+e129ac9`, so `CARGO_PKG_VERSION` names the build. The run number only grows:
 Android's `versionCode` and the iOS `CFBundleVersion` are that number (iOS's `CFBundleShortVersionString`
 is the plain `0.1.0`, as it takes numbers only). After a release, Cargo.toml moves on to the next version (e.g. `0.1.1-dev`).
+
+### Self-update (`latest.json`)
+The nightly release has a `latest.json` that the desktop executables read on start (when they are nightlies, and
+"Check for updates" in `SETTINGS › SYSTEM` is on):
+
+```json
+{
+  "version": "0.1.0-nightly.200+abc1234",
+  "files": {
+    "vibebms-linux-x64": { "version": "0.1.0-nightly.200+abc1234", "sha256": "<64 hex digits>", "size": 31457280 },
+    "vibebms-windows-x64.exe": { "version": "0.1.0-nightly.198+0f1e2d3", "sha256": "<64 hex digits>", "size": 28311552 }
+  }
+}
+```
+
+`version` is the release's (the run that published it); `files` has an entry for each desktop executable in the
+release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`, `-arm64-portable`, `vibebms-macos-arm64`, `-x64`,
+`vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with, its SHA-256 and its size in bytes. Each
+desktop build job writes its `VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `nightly` job reads it. A
+build that failed keeps its previous file in the release, so the job starts from the previous `latest.json` (`gh
+release download`) and replaces only the entries of the files it uploads: a file's version can be older than the
+release's.
+
+An executable picks its own file by its OS and architecture, and on Linux by whether it was built with the
+`browser` feature (the `-portable` builds are `--no-default-features`). It offers the update when that file's
+commit differs from its own and its run number (`nightly.<run>`) is higher; were the file a release (`0.1.0`, no
+`-nightly`), semver order would decide, so a release is newer than its own nightlies.
+
+"Update now" downloads the file next to the executable, checks its size and SHA-256 and puts it in the running
+executable's place (the `self-replace` crate: an atomic rename on Unix that keeps the permissions; on Windows the
+running executable is renamed away first); "Restart now" starts it with the same arguments. An executable under
+`/usr` (or another package manager's folder), inside a `.app` bundle, or in a folder it cannot write to opens the
+release page instead. Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
+local builds (`-dev`, no metadata), releases (there is no release channel yet) and the web, Android and iOS builds
+never do.

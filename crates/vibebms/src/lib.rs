@@ -31,6 +31,7 @@ pub mod sysound;
 pub mod theme;
 pub mod touch;
 pub mod ui;
+pub mod update;
 pub mod video;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

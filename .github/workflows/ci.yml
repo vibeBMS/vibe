@@ -83,6 +83,9 @@ jobs:
       - run: ./tools/ci_version.sh
         shell: bash
       - run: cargo build --release -p vibebms --target ${{ matrix.target }}
+      # the version it was built with, for the nightly's latest.json
+      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
+        shell: bash
       # the executable alone (the downloads job links it in the run summary)
       - uses: actions/upload-artifact@v4
         with:
@@ -90,6 +93,7 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/vibebms
             target/${{ matrix.target }}/release/vibebms.exe
+            target/${{ matrix.target }}/release/version.txt
 
   # Linux without the download browser (no WebKitGTK / GTK), built against
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
@@ -126,10 +130,15 @@ jobs:
           v=$(objdump -T target/${{ matrix.target }}/release/vibebms | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
           echo "newest glibc symbol: $v"
           [ "$(printf '%s\nGLIBC_2.28\n' "$v" | sort -V | tail -1)" = "GLIBC_2.28" ]
+      # the version it was built with, for the nightly's latest.json
+      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
+        shell: bash
       - uses: actions/upload-artifact@v4
         with:
           name: vibeBMS-${{ matrix.name }}
-          path: target/${{ matrix.target }}/release/vibebms
+          path: |
+            target/${{ matrix.target }}/release/vibebms
+            target/${{ matrix.target }}/release/version.txt
 
   web:
     name: build web (wasm32)
@@ -444,6 +453,38 @@ jobs:
             }' > out/altstore.json
           fi
           ls -l out
+      # what the desktop executables' self-update reads (crates/vibebms/src/
+      # update.rs, docs/BUILDING.md): the release's version and, for each
+      # executable, the version it was built with, its SHA-256 and size. A
+      # build that failed keeps its previous file, so its entry is kept from
+      # the previous latest.json.
+      - name: latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p prev
+          if ! gh release download nightly -p latest.json -D prev --clobber 2>/dev/null \
+            || ! jq -e 'type == "object"' prev/latest.json >/dev/null 2>&1; then
+            echo '{}' > prev/latest.json
+          fi
+          new='{}'
+          for f in out/vibebms-*; do
+            [ -f "$f" ] || continue
+            name="${f#out/}"
+            t="${name#vibebms-}"
+            t="${t%.exe}"
+            v="$VERSION"
+            [ -s "art/vibeBMS-$t/version.txt" ] && v="$(tr -d '[:space:]' < "art/vibeBMS-$t/version.txt")"
+            new="$(jq -c --arg n "$name" --arg v "$v" \
+              --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$f")" \
+              '. + {($n): {version: $v, sha256: $sha, size: $size}}' <<< "$new")"
+          done
+          jq --arg version "$VERSION" --argjson new "$new" '{
+            version: $version,
+            files: ((if (.files | type) == "object" then .files else {} end) + $new)
+          }' prev/latest.json > out/latest.json
+          cat out/latest.json
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}

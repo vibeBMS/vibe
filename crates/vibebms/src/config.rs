@@ -868,6 +868,9 @@ pub struct Config {
     pub name_song_folders: bool,
     /// Internet ranking server (an older `ir` list is ignored).
     pub ir_server: IrConfig,
+    /// Look for a newer nightly build on start (desktop CI builds; see
+    /// `update`).
+    pub check_updates: bool,
     /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
     pub skins: std::collections::BTreeMap<String, String>,
     /// Skin custom options: skin (as in `skins`) -> option name -> chosen label.
@@ -905,6 +908,7 @@ impl Default for Config {
             third_party_mirrors: THIRD_PARTY_DEFAULT,
             name_song_folders: false,
             ir_server: IrConfig::default(),
+            check_updates: true,
             skins: Default::default(),
             skin_options: Default::default(),
             skin_offsets: Default::default(),

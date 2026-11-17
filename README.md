@@ -29,7 +29,13 @@ agent (Claude Code); a person set the direction and checked the results by playi
 Builds of the latest commit, for every platform, are on the
 [Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease: the executables, the Android `.apk` and
 the unsigned iOS `.ipa` as they are, the web build as a zip. On Linux, `vibebms-linux-*-portable` starts on older
-systems (glibc 2.28) and without WebKitGTK, but has no download browser. Or build it yourself:
+systems (glibc 2.28) and without WebKitGTK, but has no download browser.
+
+The desktop executables from there look for a newer nightly on start (`SETTINGS › SYSTEM › Check for updates`).
+When there is one, the song select says so and `SETTINGS › SYSTEM` updates in place ("Update now", then "Restart
+now"); a copy a package manager installed, or in a folder that cannot be written to, links to the release page.
+
+Or build it yourself:
 
 ```sh
 cargo run --release                                  # song select

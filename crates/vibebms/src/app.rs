@@ -187,6 +187,8 @@ pub struct Ctx {
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
     /// The chosen sound set's sounds.
     pub sounds: crate::sysound::SystemSounds,
+    /// The desktop executable's self-update.
+    pub updater: crate::update::Updater,
 }
 
 impl Ctx {
@@ -237,6 +239,7 @@ impl Ctx {
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
             sounds: Default::default(),
+            updater: Default::default(),
         }
     }
 
@@ -494,6 +497,10 @@ impl Ctx {
                     other => log::warn!("{title}: {other:?}"),
                 }
             }
+        }
+        // the self-update
+        for t in self.updater.poll() {
+            self.toast(t);
         }
         // skins downloaded
         let skins = self.skin_store.poll(&self.paths);
@@ -1068,6 +1075,7 @@ impl App {
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
             sounds: Default::default(),
+            updater: Default::default(),
         };
         ctx.reload_library();
         ctx.load_cached_tables();
@@ -1082,6 +1090,8 @@ impl App {
         ctx.archives.refresh(false);
         ctx.skin_store = crate::skinstore::SkinStore::load(&ctx.paths);
         ctx.skin_store.refresh(false);
+        // a newer nightly (desktop CI builds), in the background
+        ctx.updater.check(ctx.config.check_updates);
         // tests: open the download browser on this page at start
         #[cfg(not(target_arch = "wasm32"))]
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
@@ -1461,6 +1471,8 @@ impl ApplicationHandler<UserEvent> for App {
         if let Some(r) = self.run.as_mut() {
             r.ctx.save_config();
         }
+        // "Restart now" after an update (scores are saved as they are made)
+        crate::update::relaunch_if_asked();
     }
 }
 
