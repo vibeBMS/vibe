@@ -30,6 +30,10 @@ use winit::keyboard::KeyCode;
 
 const PREVIEW_KEY: u64 = u64::MAX - 1;
 
+/// Time constant (s) of the list easing toward the cursor: 30 % of the
+/// way per frame at 60 Hz, as it went by frames before.
+const SCROLL_TAU: f32 = 0.0467;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Node {
     Root,
@@ -113,6 +117,8 @@ pub struct SelectScene {
     pub(crate) bars: Vec<Bar>,
     pub(crate) cursor: usize,
     pub(crate) scroll: f32,
+    /// When `scroll` last eased toward the cursor.
+    scrolled_at: Instant,
     pub(crate) search_edit: Option<String>,
     bar_rects: Vec<(Rect, usize)>,
     drag: Option<(u64, f32, f32, bool)>,
@@ -225,6 +231,7 @@ impl SelectScene {
             bars: Vec::new(),
             cursor: 0,
             scroll: 0.0,
+            scrolled_at: Instant::now(),
             search_edit: None,
             #[cfg(target_arch = "wasm32")]
             delete_armed: None,
@@ -1368,17 +1375,23 @@ impl Scene for SelectScene {
                 self.step(ctx, if nav == Nav::Up { -1 } else { 1 });
             }
         }
-        // the list wraps around: scroll the short way to the cursor
+        // the list wraps around: scroll the short way to the cursor, the
+        // same share of the way per second at any frame rate
         let n = self.bars.len().max(1) as f32;
         let target = self.cursor as f32;
         let mut diff = (target - self.scroll).rem_euclid(n);
         if diff > n * 0.5 {
             diff -= n;
         }
+        let dt = now
+            .saturating_duration_since(self.scrolled_at)
+            .as_secs_f32();
+        self.scrolled_at = now;
         if diff.abs() < 0.01 {
             self.scroll = target;
         } else {
-            self.scroll = (self.scroll + diff * 0.3).rem_euclid(n);
+            let k = 1.0 - (-dt / SCROLL_TAU).exp();
+            self.scroll = (self.scroll + diff * k).rem_euclid(n);
         }
         self.update_preview(ctx);
         self.update_sounds(ctx);
