@@ -70,7 +70,12 @@ impl CpalOut {
         };
         match open_stream(cfg, &out.mix, &out.lost, epoch) {
             Ok((stream, dev)) => {
-                log::info!("audio: {} {} Hz, buffer {} frames", dev.name, dev.rate, dev.buffer);
+                log::info!(
+                    "audio: {} {} Hz, buffer {} frames",
+                    dev.name,
+                    dev.rate,
+                    dev.buffer
+                );
                 out.rate = dev.rate;
                 out.stream = Some(stream);
                 (out, dev)
@@ -121,9 +126,18 @@ impl Output for CpalOut {
         };
         match open_stream(&cfg, &self.mix, &self.lost, self.epoch) {
             Ok((stream, dev)) => {
-                log::info!("audio: reopened {} {} Hz, buffer {} frames", dev.name, dev.rate, dev.buffer);
+                log::info!(
+                    "audio: reopened {} {} Hz, buffer {} frames",
+                    dev.name,
+                    dev.rate,
+                    dev.buffer
+                );
                 if dev.rate != self.rate {
-                    log::warn!("audio: {} Hz now, sounds were decoded for {} Hz", dev.rate, self.rate);
+                    log::warn!(
+                        "audio: {} Hz now, sounds were decoded for {} Hz",
+                        dev.rate,
+                        self.rate
+                    );
                 }
                 self.stream = Some(stream);
                 self.silent = None;
@@ -340,7 +354,11 @@ mod tests {
         let f = out.mix.lock().unwrap().state.frame;
         assert!(f >= before + out.rate as u64 / 100, "{before} -> {f}");
         // a sound played meanwhile is taken (and rendered) by the clock
-        out.send(Cmd::Play(Voice::new(sample(10, 1), &PlayOptions::default(), None)));
+        out.send(Cmd::Play(Voice::new(
+            sample(10, 1),
+            &PlayOptions::default(),
+            None,
+        )));
         std::thread::sleep(Duration::from_millis(5));
         out.keep_alive();
         assert!(voices(&out).is_empty());
@@ -358,7 +376,11 @@ mod tests {
         let mut out = silent();
         let rate = out.rate as u64;
         let o = PlayOptions::default();
-        out.send(Cmd::Play(Voice::new(sample(20 * rate as usize, 1), &o, None)));
+        out.send(Cmd::Play(Voice::new(
+            sample(20 * rate as usize, 1),
+            &o,
+            None,
+        )));
         out.keep_alive();
         let f = out.mix.lock().unwrap().state.frame;
         out.silent = Some(Silent {
@@ -383,7 +405,11 @@ mod tests {
         let at = since + Duration::from_millis(20);
         let due = Due::Us(us_since(out.epoch, at));
         let o = PlayOptions::default();
-        out.send(Cmd::Play(Voice::new(sample(rate as usize, 1), &o, Some(due))));
+        out.send(Cmd::Play(Voice::new(
+            sample(rate as usize, 1),
+            &o,
+            Some(due),
+        )));
         while Instant::now() < at + Duration::from_millis(30) {
             std::thread::sleep(Duration::from_millis(5));
             out.keep_alive();
@@ -391,6 +417,9 @@ mod tests {
         let start = voices(&out)[0].0 as f64;
         // (the last silent buffer may be short: half of it, or less)
         let want = base as f64 + 0.020 * rate;
-        assert!((want..=want + SILENT_BUFFER as f64 / 2.0 + 1.0).contains(&start), "{start} vs {want}");
+        assert!(
+            (want..=want + SILENT_BUFFER as f64 / 2.0 + 1.0).contains(&start),
+            "{start} vs {want}"
+        );
     }
 }

@@ -13,7 +13,7 @@ pub mod decode;
 mod out;
 mod voice;
 
-pub use decode::{decode_bytes, decode_file, Sample, SoundBank};
+pub use decode::{decode_bytes, decode_file, parallel_for, Sample, SoundBank};
 pub use voice::Bus;
 
 use out::{us_since, Device, Output};
@@ -137,7 +137,8 @@ impl Mixer {
 
     pub fn play(&self, sample: &Arc<Sample>, o: PlayOptions) {
         let due = o.at.map(|t| Due::Us(us_since(self.epoch, t)));
-        self.out.send(Cmd::Play(Voice::new(sample.clone(), &o, due)));
+        self.out
+            .send(Cmd::Play(Voice::new(sample.clone(), &o, due)));
     }
 
     pub fn set_volume(&self, key: u64, vol: f32) {

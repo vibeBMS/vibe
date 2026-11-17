@@ -19,32 +19,9 @@ pub fn spawn<F: FnOnce() + Send + 'static>(name: &str, f: F) {
     }
 }
 
-/// Call `f(i)` for `i in 0..n`, on up to 8 threads natively (each taking
-/// the next `i` when it is free).
+/// Call `f(i)` for `i in 0..n`, on up to 8 threads natively.
 pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, f: F) {
-    let threads = if cfg!(target_arch = "wasm32") {
-        1
-    } else {
-        std::thread::available_parallelism()
-            .map_or(4, |t| t.get())
-            .clamp(1, 8)
-            .min(n)
-    };
-    if threads <= 1 {
-        return (0..n).for_each(f);
-    }
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    std::thread::scope(|s| {
-        for _ in 0..threads {
-            s.spawn(|| loop {
-                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if i >= n {
-                    break;
-                }
-                f(i);
-            });
-        }
-    });
+    vibebms_audio::parallel_for(n, 8, f)
 }
 
 /// Run `f` once `d` has passed (on a thread natively, the page's timer on the web).

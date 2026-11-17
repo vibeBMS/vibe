@@ -121,7 +121,12 @@ fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32) -> Result<Sample, String
                 let b = buf.as_mut().unwrap();
                 b.copy_interleaved_ref(decoded);
                 conv.get_or_insert_with(|| {
-                    Convert::new(spec.channels.count() as u16, spec.rate, rate, params.n_frames)
+                    Convert::new(
+                        spec.channels.count() as u16,
+                        spec.rate,
+                        rate,
+                        params.n_frames,
+                    )
                 })
                 .push(b.samples());
             }
@@ -277,6 +282,34 @@ impl Convert {
     }
 }
 
+/// Call `f(i)` for `i in 0..n`, on up to `max_threads` threads natively
+/// (each taking the next `i` when it is free); in turn on the web.
+pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, max_threads: usize, f: F) {
+    let threads = if cfg!(target_arch = "wasm32") {
+        1
+    } else {
+        std::thread::available_parallelism()
+            .map_or(4, |t| t.get())
+            .clamp(1, max_threads.max(1))
+            .min(n)
+    };
+    if threads <= 1 {
+        return (0..n).for_each(f);
+    }
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                if i >= n {
+                    break;
+                }
+                f(i);
+            });
+        }
+    });
+}
+
 /// All sound files of a chart, decoded in parallel.
 #[derive(Default)]
 pub struct SoundBank {
@@ -305,35 +338,12 @@ impl SoundBank {
                 }
             }
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            for (i, slot) in slots.iter_mut().enumerate() {
-                *slot = load_one(i);
-                progress.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let threads = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4)
-                .clamp(1, 16);
-            let next = AtomicUsize::new(0);
-            let results = std::sync::Mutex::new(&mut slots);
-            std::thread::scope(|s| {
-                for _ in 0..threads {
-                    s.spawn(|| loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= n {
-                            break;
-                        }
-                        let r = load_one(i);
-                        results.lock().unwrap()[i] = r;
-                        progress.fetch_add(1, Ordering::Relaxed);
-                    });
-                }
-            });
-        }
+        let results = std::sync::Mutex::new(&mut slots);
+        parallel_for(n, 16, |i| {
+            let r = load_one(i);
+            results.lock().unwrap()[i] = r;
+            progress.fetch_add(1, Ordering::Relaxed);
+        });
         SoundBank { samples: slots }
     }
 
@@ -428,8 +438,15 @@ mod tests {
 
     #[test]
     fn packets_convert_as_the_whole_file_did() {
-        let rates = [(44_100, 44_100), (0, 44_100), (22_050, 44_100), (48_000, 44_100)];
-        let rates = rates.into_iter().chain([(192_000, 44_100), (8_000, 48_000), (44_100, 48_000)]);
+        let rates = [
+            (44_100, 44_100),
+            (0, 44_100),
+            (22_050, 44_100),
+            (48_000, 44_100),
+        ];
+        let rates = rates
+            .into_iter()
+            .chain([(192_000, 44_100), (8_000, 48_000), (44_100, 48_000)]);
         for (sr, rate) in rates {
             for ch in [1u16, 2, 6] {
                 let frames = 1500 + ch as usize;
@@ -458,13 +475,20 @@ mod tests {
     #[test]
     fn files_decode_as_the_whole_file_did() {
         let ogg = include_bytes!("../tests/data/tone.ogg").to_vec();
-        let files = [(wav(22_050, 3000, 2), "wav"), (wav(44_100, 5000, 1), "wav"), (ogg, "ogg")];
+        let files = [
+            (wav(22_050, 3000, 2), "wav"),
+            (wav(44_100, 5000, 1), "wav"),
+            (ogg, "ogg"),
+        ];
         for (bytes, ext) in files {
             let (ch, sr, pcm) = decode_whole(bytes.clone(), ext);
             assert!(!pcm.is_empty());
             for rate in [sr, 44_100, 48_000] {
                 let s = decode_bytes(bytes.clone(), ext, rate).unwrap();
-                assert!(s.data == convert_whole(ch, sr, &pcm, rate), "{ext} {sr} -> {rate}");
+                assert!(
+                    s.data == convert_whole(ch, sr, &pcm, rate),
+                    "{ext} {sr} -> {rate}"
+                );
                 let s = (ext == "wav").then(|| decode_wav_fallback(&bytes, rate).unwrap());
                 assert!(s.is_none_or(|s| s.data == convert_whole(ch, sr, &pcm, rate)));
             }

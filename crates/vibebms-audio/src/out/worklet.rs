@@ -250,8 +250,16 @@ mod tests {
             };
             [
                 play(&s, None, o(1, 0.9, Bus::Key, 0, None, false)),
-                play(&s, Some(Due::Frame(70)), o(1, 1.5, Bus::Bgm, 10, Some(90), true)),
-                play(&s, Some(Due::Frame(200)), o(2, 0.4, Bus::System, 250, None, false)),
+                play(
+                    &s,
+                    Some(Due::Frame(70)),
+                    o(1, 1.5, Bus::Bgm, 10, Some(90), true),
+                ),
+                play(
+                    &s,
+                    Some(Due::Frame(200)),
+                    o(2, 0.4, Bus::System, 250, None, false),
+                ),
                 Cmd::BusVolume(Bus::Key, 1.0),
                 Cmd::BusVolume(Bus::Bgm, 0.6),
                 Cmd::BusVolume(Bus::System, 1.0),
@@ -272,7 +280,11 @@ mod tests {
             let got = w.render(128);
             let (l, r) = got.split_at(128);
             for f in 0..128 {
-                assert_eq!((l[f], r[f]), (want[2 * f], want[2 * f + 1]), "quantum {q} frame {f}");
+                assert_eq!(
+                    (l[f], r[f]),
+                    (want[2 * f], want[2 * f + 1]),
+                    "quantum {q} frame {f}"
+                );
             }
         }
         assert_eq!(w.frame(), 512);
