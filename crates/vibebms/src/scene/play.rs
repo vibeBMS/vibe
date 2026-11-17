@@ -217,6 +217,123 @@ fn adjust_cover(p: &mut PlayConfig, d: f32) {
     }
 }
 
+/// The chart a play is judged on: read with `seed` (its `#RANDOM`) and
+/// arranged by the play's options, what they did (for the assist level)
+/// and its long notes as written. `course`: in a course, whether it
+/// allows MIRROR (no other lane option).
+pub(crate) fn load_chart(
+    path: &Path,
+    bytes: &[u8],
+    play: &PlayConfig,
+    seed: i64,
+    course: Option<bool>,
+) -> Result<(Chart, AssistFacts, vibebms_core::LnProfile), String> {
+    let mut chart = vibebms_core::load_chart_bytes(
+        path,
+        bytes,
+        &vibebms_core::bms::ParseOptions {
+            random_seed: Some(seed),
+            random_selections: None,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let ln_profile = chart.ln_profile();
+    // chart transforms (options)
+    let mut facts = AssistFacts::default();
+    if play.battle && !chart.mode().is_double() {
+        lane_option::battle(&mut chart);
+        facts.battle = true;
+    }
+    let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
+    let allowed = |o: LaneOption| match course {
+        Some(mirror) if !(mirror && o == LaneOption::Mirror) => LaneOption::Off,
+        _ => o,
+    };
+    lane_option::apply(&mut chart, 0, allowed(play.random_1p), seed, thr);
+    facts.lane.push(allowed(play.random_1p));
+    if chart.mode().is_double() {
+        lane_option::apply(
+            &mut chart,
+            1,
+            allowed(play.random_2p),
+            seed.wrapping_add(1),
+            thr,
+        );
+        facts.lane.push(allowed(play.random_2p));
+        if play.dp_option == DoubleOption::Flip {
+            lane_option::flip(&mut chart);
+        }
+    }
+    if play.legacy_note {
+        facts.legacy_note = chart.meta.has_long;
+        lane_option::legacy_note(&mut chart);
+    }
+    if play.no_mine {
+        let n = chart.notes.len();
+        lane_option::remove_mines(&mut chart);
+        facts.no_mine = chart.notes.len() != n;
+    }
+    Ok((chart, facts, ln_profile))
+}
+
+/// What judges a side: the play options' rules, as a course may change
+/// them.
+#[derive(Clone, Debug)]
+pub(crate) struct Rules {
+    pub judge: vibebms_core::judge::JudgePreset,
+    pub judge_rates: Option<[i64; 3]>,
+    pub gauge_preset: vibebms_core::gauge::GaugePreset,
+    pub gauge: vibebms_core::gauge::GaugeType,
+    pub gas: vibebms_core::gauge::GaugeAutoShift,
+    pub ln: LnType,
+    pub algorithm: vibebms_core::engine::JudgeAlgorithm,
+    pub auto_scratch: bool,
+    pub autoplay: bool,
+}
+
+impl Rules {
+    pub fn of(p: &PlayConfig) -> Rules {
+        Rules {
+            judge: p.judge_preset,
+            judge_rates: p.expand_judge.then_some(p.judge_rates),
+            gauge_preset: p.gauge_preset,
+            gauge: p.gauge,
+            gas: p.gauge_auto_shift,
+            ln: p.ln_mode,
+            algorithm: p.judge_algorithm,
+            auto_scratch: p.auto_scratch,
+            autoplay: false,
+        }
+    }
+
+    /// The lanes played automatically (autoplay, AUTO SCRATCH).
+    pub fn auto_lanes(&self, mode: PlayMode) -> Vec<bool> {
+        (0..mode.lane_count())
+            .map(|l| self.autoplay || (self.auto_scratch && mode.is_scratch(l)))
+            .collect()
+    }
+}
+
+/// The judge of `player`'s lanes (`None`: all) of `chart` under `r`, and
+/// the TOTAL its gauge uses.
+pub(crate) fn make_engine(chart: &Chart, r: &Rules, player: Option<usize>) -> (Engine, f64) {
+    let mode = chart.mode();
+    let fam = mode.family();
+    let rules = judge_rules(r.judge, fam, chart.meta.judge_rank, r.judge_rates);
+    let total = chart.total_of(r.ln, r.gauge_preset, player);
+    let notes = chart.total_judgements_of(r.ln, player);
+    let gauge = GrooveGauge::new(r.gauge_preset, fam, r.gauge, r.gas, total, notes);
+    let cfg = EngineConfig {
+        rules,
+        default_ln: r.ln,
+        algorithm: r.algorithm,
+        auto_lanes: r.auto_lanes(mode),
+        scratch_release_ends_bss: true,
+        player,
+    };
+    (Engine::new(chart, cfg, gauge), total)
+}
+
 impl PlayScene {
     pub fn new(ctx: &mut Ctx, req: PlayRequest) -> PlayScene {
         let progress = Arc::new(AtomicUsize::new(0));
@@ -248,54 +365,8 @@ impl PlayScene {
                         .unwrap_or(1)
                 });
                 let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
-                let mut chart = vibebms_core::load_chart_bytes(
-                    &path,
-                    &bytes,
-                    &vibebms_core::bms::ParseOptions {
-                        random_seed: Some(seed),
-                        random_selections: None,
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-                let ln_profile = chart.ln_profile();
-                // chart transforms (options)
-                let mut facts = AssistFacts::default();
-                if play.battle && !chart.mode().is_double() {
-                    lane_option::battle(&mut chart);
-                    facts.battle = true;
-                }
-                let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
-                let allowed = |o: LaneOption| {
-                    if in_course && !(course_mirror && o == LaneOption::Mirror) {
-                        LaneOption::Off
-                    } else {
-                        o
-                    }
-                };
-                lane_option::apply(&mut chart, 0, allowed(play.random_1p), seed, thr);
-                facts.lane.push(allowed(play.random_1p));
-                if chart.mode().is_double() {
-                    lane_option::apply(
-                        &mut chart,
-                        1,
-                        allowed(play.random_2p),
-                        seed.wrapping_add(1),
-                        thr,
-                    );
-                    facts.lane.push(allowed(play.random_2p));
-                    if play.dp_option == DoubleOption::Flip {
-                        lane_option::flip(&mut chart);
-                    }
-                }
-                if play.legacy_note {
-                    facts.legacy_note = chart.meta.has_long;
-                    lane_option::legacy_note(&mut chart);
-                }
-                if play.no_mine {
-                    let n = chart.notes.len();
-                    lane_option::remove_mines(&mut chart);
-                    facts.no_mine = chart.notes.len() != n;
-                }
+                let lanes = in_course.then_some(course_mirror);
+                let (chart, facts, ln_profile) = load_chart(&path, &bytes, &play, seed, lanes)?;
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
                 let resolve = |name: &str| {
@@ -490,39 +561,18 @@ impl PlayScene {
             }
         }
         self.score_ln = ln_profile.score_ln(self.ln);
-        let fam = self.mode.family();
-        let gauge_preset = if course.map(|c| c.has("gauge_lr2")).unwrap_or(false) {
-            vibebms_core::gauge::GaugePreset::Lr2
-        } else {
-            p.gauge_preset
-        };
-        let rules = judge_rules(
-            p.judge_preset,
-            fam,
-            chart.meta.judge_rank,
-            p.expand_judge.then_some(p.judge_rates),
-        );
-        let total = chart.total_for(self.ln, gauge_preset);
-        self.total = total;
-        let notes = chart.total_judgements(self.ln);
-        let gauge_type = if course.is_some() {
-            p.gauge.to_class()
-        } else {
-            p.gauge
-        };
-        let gas = if course.is_some() {
-            vibebms_core::gauge::GaugeAutoShift::None
-        } else {
-            p.gauge_auto_shift
-        };
-        let mut gauge = GrooveGauge::new(gauge_preset, fam, gauge_type, gas, total, notes);
-        if let Some(v) = course.and_then(|c| c.gauge_values.as_ref()) {
-            gauge.set_values(v);
+        let mut rules = Rules::of(p);
+        rules.ln = self.ln;
+        rules.autoplay = self.req.autoplay;
+        if course.map(|c| c.has("gauge_lr2")).unwrap_or(false) {
+            rules.gauge_preset = vibebms_core::gauge::GaugePreset::Lr2;
+        }
+        if course.is_some() {
+            rules.gauge = p.gauge.to_class();
+            rules.gas = vibebms_core::gauge::GaugeAutoShift::None;
         }
         let lanes = self.mode.lane_count();
-        let auto_lanes: Vec<bool> = (0..lanes)
-            .map(|l| self.req.autoplay || (p.auto_scratch && self.mode.is_scratch(l)))
-            .collect();
+        let auto_lanes = rules.auto_lanes(self.mode);
         // AUTO SCRATCH is an assist when it plays scored notes
         facts.auto_scratch = p.auto_scratch
             && chart
@@ -530,15 +580,11 @@ impl PlayScene {
                 .iter()
                 .any(|n| n.is_playable() && self.mode.is_scratch(n.lane as usize));
         self.assist = facts.level();
-        let cfg = EngineConfig {
-            rules,
-            default_ln: self.ln,
-            algorithm: p.judge_algorithm,
-            auto_lanes: auto_lanes.clone(),
-            scratch_release_ends_bss: true,
-            player: None,
-        };
-        let mut engine = Engine::new(&chart, cfg, gauge);
+        let (mut engine, total) = make_engine(&chart, &rules, None);
+        self.total = total;
+        if let Some(v) = course.and_then(|c| c.gauge_values.as_ref()) {
+            engine.gauge.set_values(v);
+        }
         // a play of its own (not a course stage): kept as a replay
         if self.req.replay.is_none() && !self.req.autoplay && course.is_none() {
             engine.record();
@@ -1720,7 +1766,234 @@ impl PlayScene {
 
 #[cfg(test)]
 mod tests {
-    use super::settled_log;
+    use super::*;
+    use vibebms_core::bot;
+    use vibebms_core::gauge::{GaugePreset, GaugeType};
+    use vibebms_core::judge::JudgePreset;
+
+    /// FNV-1a over what a play leaves: judgements, logs, score, gauge.
+    fn digest(e: &Engine) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        let mut put = |v: i64| {
+            for b in v.to_le_bytes() {
+                h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+            }
+        };
+        for g in &e.ghost {
+            put(*g as i64);
+        }
+        for (t, j, s) in &e.judge_log {
+            put(*t);
+            put(*j as i64 * 3 + *s as i64);
+        }
+        for (t, d) in &e.timing_log {
+            put(*t);
+            put(*d);
+        }
+        let sc = &e.score;
+        for j in 0..6 {
+            put(sc.counts[j][0] as i64);
+            put(sc.counts[j][1] as i64);
+            put(sc.just[j] as i64);
+        }
+        put(sc.max_combo as i64);
+        put(sc.combo_breaks as i64);
+        put(sc.total_notes as i64);
+        put(e.gauge.value().to_bits() as i64);
+        put(e.is_failed() as i64);
+        h
+    }
+
+    /// Plays made up chart `keys` with `play` and the bot, then watches
+    /// the replay as the play scene does (the replay's options and seed
+    /// make the chart and the rules): both must judge the same. The
+    /// digest of the play.
+    fn play_and_watch(keys: usize, play: &PlayConfig) -> (u64, u32) {
+        let text = bot::chart_text(keys, keys as i64 * 7);
+        let path = Path::new("song/chart.bme");
+        let seed = 4242;
+        let (chart, _, _) = load_chart(path, text.as_bytes(), play, seed, None).unwrap();
+        let (mut e, _) = make_engine(&chart, &Rules::of(play), None);
+        e.record();
+        let inputs = bot::inputs(&chart, None, 99);
+        bot::drive(&mut e, &inputs, chart.length() + 2_000_000);
+        // the replay as saved and loaded
+        let r = Replay {
+            version: crate::replay::VERSION,
+            sha256: String::new(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 0,
+            seed,
+            play: play.clone(),
+            ex_score: e.score.ex_score(),
+            clear: String::new(),
+            ghost: e.ghost.clone(),
+            ops: e.recorded().to_vec(),
+        };
+        let r: Replay = serde_json::from_slice(&serde_json::to_vec(&r).unwrap()).unwrap();
+        let (chart, _, _) = load_chart(path, text.as_bytes(), &r.play, r.seed, None).unwrap();
+        let (mut w, _) = make_engine(&chart, &Rules::of(&r.play), None);
+        for op in &r.ops {
+            w.apply(*op);
+        }
+        assert_eq!(w.ghost, r.ghost);
+        assert_eq!(digest(&w), digest(&e));
+        (digest(&e), e.score.ex_score())
+    }
+
+    /// Replays of plays with these options judge the same as before the
+    /// play scene took several judges (the digests were taken then).
+    #[test]
+    fn replays_judge_as_before() {
+        let d = PlayConfig::default;
+        let cases: Vec<(usize, PlayConfig)> = vec![
+            (7, d()),
+            (5, d()),
+            (14, d()),
+            (10, d()),
+            (
+                7,
+                PlayConfig {
+                    random_1p: LaneOption::Random,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    random_1p: LaneOption::SRandom,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    random_1p: LaneOption::HRandom,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    random_1p: LaneOption::AllScratch,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    ln_mode: LnType::Cn,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    ln_mode: LnType::Hcn,
+                    gauge: GaugeType::Hard,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    judge_preset: JudgePreset::Lr2,
+                    gauge_preset: GaugePreset::Lr2,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    judge_preset: JudgePreset::Iidx,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    auto_scratch: true,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    legacy_note: true,
+                    no_mine: true,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    expand_judge: true,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    judge_algorithm: vibebms_core::engine::JudgeAlgorithm::Duration,
+                    gauge: GaugeType::ExHard,
+                    ..d()
+                },
+            ),
+            (
+                7,
+                PlayConfig {
+                    battle: true,
+                    ..d()
+                },
+            ),
+            (
+                5,
+                PlayConfig {
+                    battle: true,
+                    auto_scratch: true,
+                    random_2p: LaneOption::Mirror,
+                    ..d()
+                },
+            ),
+            (
+                14,
+                PlayConfig {
+                    random_1p: LaneOption::Random,
+                    random_2p: LaneOption::RRandom,
+                    dp_option: DoubleOption::Flip,
+                    ..d()
+                },
+            ),
+        ];
+        let got: Vec<(u64, u32)> = cases.iter().map(|(k, p)| play_and_watch(*k, p)).collect();
+        let want = [
+            (0x6e7befe494f86dc7, 474),
+            (0xbf6ca1516b2dc3a6, 336),
+            (0x758a4f4820ee6ab0, 932),
+            (0x941e7fce3f15bed2, 654),
+            (0x5fc6086c2dda718e, 480),
+            (0x40624123b4d9a015, 470),
+            (0xce76d9ba6ff28c18, 471),
+            (0x8cd4c2f2d3cbd667, 493),
+            (0xd42210a62c598fbb, 558),
+            (0x32364c7127b745df, 558),
+            (0x7ba9f6a676c617c1, 441),
+            (0xbcd1d1647dd9fff4, 434),
+            (0xffe1584f208e5414, 550),
+            (0x47dc09ae4c89eab1, 468),
+            (0xe4283ac5977abf9e, 950),
+            (0xbf481f7d42daafcf, 473),
+            (0x4135924bdf310df1, 945),
+            (0xe349c363d5d76f7b, 780),
+            (0x6a8d0564b558f304, 947),
+        ];
+        if want.len() != got.len() {
+            panic!("digests: {got:x?}");
+        }
+        assert_eq!(got, want);
+    }
 
     #[test]
     fn gauge_graph_ends_with_the_final_gauge() {

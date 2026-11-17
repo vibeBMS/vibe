@@ -7,21 +7,36 @@ use crate::chart::{Chart, NoteKind};
 use crate::engine::{Engine, InputEvent};
 use crate::rng::JavaRandom;
 
-/// A chart in BMS text: `keys` 5 or 7 (with scratch), notes, long notes
-/// (`#LNTYPE 1`, no LN mode of their own), mines, a BPM change and a stop.
+/// A chart in BMS text: `keys` 5, 7, 10 or 14 (with scratch), notes, long
+/// notes (`#LNTYPE 1`, no LN mode of their own), mines, a BPM change and a
+/// stop.
 pub fn chart_text(keys: usize, seed: i64) -> String {
     let mut rng = JavaRandom::new(seed);
-    let chans: Vec<&str> = if keys == 5 {
+    let side: Vec<&str> = if keys % 5 == 0 {
         vec!["1", "2", "3", "4", "5", "6"]
     } else {
         vec!["1", "2", "3", "4", "5", "8", "9", "6"]
     };
-    let mut s = String::from(
-        "#PLAYER 1\n#BPM 150\n#LNTYPE 1\n#WAV01 a.wav\n#WAV02 b.wav\n#WAV03 c.wav\n\
+    // (note channel's first digit, long note's, mine's)
+    let sides: &[(char, char, char)] = if keys >= 10 {
+        &[('1', '5', 'D'), ('2', '6', 'E')]
+    } else {
+        &[('1', '5', 'D')]
+    };
+    let mut s = format!(
+        "#PLAYER {}\n#BPM 150\n#LNTYPE 1\n#WAV01 a.wav\n#WAV02 b.wav\n#WAV03 c.wav\n\
          #BPM01 180\n#STOP01 48\n#00203:96\n#00508:01\n#00609:01\n",
+        if keys >= 10 { 3 } else { 1 }
     );
+    let chans: Vec<(String, String, String)> = sides
+        .iter()
+        .flat_map(|(n, l, m)| {
+            side.iter()
+                .map(move |c| (format!("{n}{c}"), format!("{l}{c}"), format!("{m}{c}")))
+        })
+        .collect();
     for m in 1..24i32 {
-        for c in &chans {
+        for (c, lc, mc) in &chans {
             // notes: 8th / 16th rows, sparse to dense
             let steps = if m % 3 == 0 { 16 } else { 8 };
             let mut row = String::new();
@@ -33,7 +48,7 @@ pub fn chart_text(keys: usize, seed: i64) -> String {
                     "00"
                 });
             }
-            s.push_str(&format!("#{m:03}1{c}:{row}\n"));
+            s.push_str(&format!("#{m:03}{c}:{row}\n"));
             // long notes: start and end on the LN channel
             if rng.next_int_bounded(4) == 0 {
                 let mut ln = ["00"; 8];
@@ -41,11 +56,11 @@ pub fn chart_text(keys: usize, seed: i64) -> String {
                 let b = a + 1 + rng.next_int_bounded((7 - a) as i32) as usize;
                 ln[a] = "02";
                 ln[b] = "02";
-                s.push_str(&format!("#{m:03}5{c}:{}\n", ln.concat()));
+                s.push_str(&format!("#{m:03}{lc}:{}\n", ln.concat()));
             }
             // a mine now and then
             if rng.next_int_bounded(9) == 0 {
-                s.push_str(&format!("#{m:03}D{c}:000A\n"));
+                s.push_str(&format!("#{m:03}{mc}:000A\n"));
             }
         }
     }
