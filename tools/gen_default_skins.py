@@ -1088,9 +1088,12 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
         sk.put(sk.img(f"key_{k}"), x + 2, ky, w - 4, kh, fixed=True)
         sk.put(sk.img(f"keyp_{k}"), x + 2, ky, w - 4, kh, timer=on, fixed=True)
     # judgement + combo
+    judge_block(sk, player, fx + fw // 2, top + int(lane_h * judge_at))
+
+
+def judge_block(sk, player, jcx, jtop):
+    """Judgement and combo centred at jcx, timing and FAST / SLOW above them."""
     jx, jy, jw, jh = sk.parts.items["j_gr"]
-    jcx = fx + fw // 2
-    jtop = top + int(lane_h * judge_at)
     timer = 46 if player == 0 else 47
     imgs = []
     for key in ["j_pg", "j_gr", "j_gd", "j_bd", "j_pr", "j_pr"]:

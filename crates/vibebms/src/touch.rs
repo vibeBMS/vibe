@@ -15,7 +15,15 @@ use vibebms_core::PlayMode;
 #[derive(Clone, Copy, Debug)]
 pub enum Shape {
     Rect(Rect),
-    Circle { cx: f32, cy: f32, r: f32 },
+    Circle {
+        cx: f32,
+        cy: f32,
+        r: f32,
+    },
+    /// A convex four-cornered shape (top-left, top-right, bottom-right,
+    /// bottom-left): a lane of the perspective skin. Its scratch is played
+    /// with sideways swipes.
+    Quad([[f32; 2]; 4]),
 }
 
 /// Pseudo lanes of the START and SELECT buttons (the hi-speed panel).
@@ -47,6 +55,7 @@ impl Zone {
                 dx.hypot(dy)
             }
             Shape::Circle { cx, cy, r } => ((x - cx).hypot(y - cy) - r).max(0.0),
+            Shape::Quad(q) => quad_distance(&q, x, y),
         }
     }
 
@@ -56,6 +65,10 @@ impl Zone {
         match self.shape {
             Shape::Rect(r) => r.w.min(r.h) * 0.5,
             Shape::Circle { r, .. } => r * 0.5,
+            Shape::Quad(q) => {
+                let w = (q[2][0] - q[3][0]).abs().min((q[1][0] - q[0][0]).abs());
+                w.min((q[3][1] - q[0][1]).abs()) * 0.5
+            }
         }
     }
 
@@ -64,7 +77,37 @@ impl Zone {
         match self.shape {
             Shape::Rect(r) => r,
             Shape::Circle { cx, cy, r } => Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
+            Shape::Quad(q) => {
+                let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+                for [x, y] in q {
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+                Rect::new(x0, y0, x1 - x0, y1 - y0)
+            }
         }
+    }
+}
+
+/// How far (x, y) is outside a convex quad (0 inside or on its edge).
+fn quad_distance(q: &[[f32; 2]; 4], x: f32, y: f32) -> f32 {
+    let mut inside = true;
+    let mut best = f32::MAX;
+    for i in 0..4 {
+        let [ax, ay] = q[i];
+        let [bx, by] = q[(i + 1) % 4];
+        let (ex, ey) = (bx - ax, by - ay);
+        // corners go clockwise on the screen (y down): inside is on the right
+        if ex * (y - ay) - ey * (x - ax) < 0.0 {
+            inside = false;
+        }
+        let len2 = (ex * ex + ey * ey).max(1e-9);
+        let t = (((x - ax) * ex + (y - ay) * ey) / len2).clamp(0.0, 1.0);
+        best = best.min((x - ax - ex * t).hypot(y - ay - ey * t));
+    }
+    if inside {
+        0.0
+    } else {
+        best
     }
 }
 
@@ -466,6 +509,24 @@ pub fn flip(l: &mut TouchLayout) {
     }
 }
 
+/// The perspective skin's lanes as touch zones: each lane's shape from the
+/// bottom of the screen up to `top` (as drawn).
+pub fn fan_zones(mode: PlayMode, fans: &[crate::perspective::Fan], top: f32) -> Vec<Zone> {
+    fans.iter()
+        .flat_map(|f| f.touch_quads(top))
+        .map(|(l, q)| {
+            let k = l.lane % mode.lanes_per_player();
+            Zone {
+                shape: Shape::Quad(q),
+                lane: l.lane as u8,
+                scratch: l.scratch,
+                black: !l.scratch && k % 2 == 1,
+                color: (mode == PlayMode::Popn9K).then(|| crate::gfx::rgba(POPN_COLORS[k.min(8)])),
+            }
+        })
+        .collect()
+}
+
 /// Whether START / SELECT go on the right of the screen: the side chosen,
 /// else the scratch side, which moves the note field towards the middle
 /// (left for 1P and double play, right for 2P).
@@ -545,6 +606,7 @@ struct Ptr {
     lane: u8,
     sub: u8,
     last_angle: f32,
+    last_x: f32,
     last_y: f32,
     accum: f32,
     dir: i8,
@@ -652,6 +714,7 @@ impl TouchInput {
                         lane: z.lane,
                         sub: 0,
                         last_angle: angle,
+                        last_x: x,
                         last_y: y,
                         accum: 0.0,
                         dir: 0,
@@ -681,9 +744,12 @@ impl TouchInput {
                         }
                         // keyboard style scratch: vertical swipes, ~3 px per "degree"
                         Shape::Rect(_) => ((y - p.last_y) / 3.0, 0.0),
+                        // perspective scratch lane: sideways swipes
+                        Shape::Quad(_) => ((x - p.last_x) / 3.0, 0.0),
                     };
                     let p = self.ptrs.get_mut(&id).unwrap();
                     p.last_angle = nangle;
+                    p.last_x = x;
                     p.last_y = y;
                     if delta.signum() != p.accum.signum() {
                         p.accum = 0.0;
@@ -753,6 +819,19 @@ impl TouchInput {
                 Shape::Rect(r) => {
                     batch.rect(r, fill);
                     batch.rect_outline(r, 2.0, edge);
+                }
+                Shape::Quad(q) => {
+                    batch.quad4(q, [fill; 4]);
+                    for i in 0..4 {
+                        let (a, b) = (q[i], q[(i + 1) % 4]);
+                        let (nx, ny) = (b[1] - a[1], a[0] - b[0]);
+                        let n = nx.hypot(ny).max(1e-3);
+                        let (nx, ny) = (nx / n * 2.0, ny / n * 2.0);
+                        batch.quad4(
+                            [a, b, [b[0] + nx, b[1] + ny], [a[0] + nx, a[1] + ny]],
+                            [edge; 4],
+                        );
+                    }
                 }
                 Shape::Circle { cx, cy, r } if !z.scratch => {
                     batch.circle(cx, cy, r, 0.0, fill, 48);
@@ -849,11 +928,13 @@ mod tests {
             .map(|z| match z.shape {
                 Shape::Rect(r) => r.right(),
                 Shape::Circle { cx, r, .. } => cx - r,
+                Shape::Quad(_) => unreachable!(),
             })
             .collect();
         let width_of = |z: &Zone| match z.shape {
             Shape::Rect(r) => r.w,
             Shape::Circle { r, .. } => r * 2.0,
+            Shape::Quad(_) => unreachable!(),
         };
         // the real key width (29 mm at 4 px per mm), the set centred
         let key = z
@@ -886,6 +967,105 @@ mod tests {
                 Shape::Rect(k) => (k.w - 116.0).abs() < 0.5 && k.right() <= 850.5,
                 _ => false,
             }));
+    }
+
+    fn fans() -> Vec<crate::perspective::Fan> {
+        let cfg = crate::config::PerspectiveConfig::default();
+        crate::perspective::layout(PlayMode::Beat7K, false, 720.0, 1280.0, &cfg)
+    }
+
+    #[test]
+    fn fan_zones_hit_what_is_drawn() {
+        let fans = fans();
+        let f = &fans[0];
+        let top = 1280.0 * 0.7;
+        let zones = fan_zones(PlayMode::Beat7K, &fans, top);
+        assert_eq!(zones.len(), 8);
+        assert!(zones[0].scratch && zones[0].lane == 7);
+        let mut hits = 0;
+        for i in 0..=72 {
+            for j in 0..=40 {
+                let (x, y) = (i as f32 * 10.0, top + j as f32 * (1280.0 - top) / 40.0);
+                let drawn = f.lane_at(x, y).map(|i| f.lanes[i].lane as u8);
+                // what the zones hit, as drawn (no nearest-key fallback)
+                let hit = zones
+                    .iter()
+                    .rposition(|z| z.hit(x, y))
+                    .map(|i| zones[i].lane);
+                // the lane edges themselves may go either way
+                let edge = f.locate(x, y).is_some_and(|(u, _)| {
+                    f.lanes
+                        .iter()
+                        .any(|l| (u - l.u0).abs() < 1e-4 || (u - l.u1).abs() < 1e-4)
+                });
+                if !edge {
+                    assert_eq!(drawn, hit, "at {x}, {y}");
+                }
+                hits += usize::from(hit.is_some());
+            }
+        }
+        assert!(hits > 1500, "{hits}");
+        // above the touch area nothing is hit
+        assert!(pick(&zones, 360.0, top - 80.0).is_none());
+        // the gap beside the scratch plays the key next to it
+        let gap = f.point((f.lanes[0].u1 + f.lanes[1].u0) * 0.5, f.d_bottom() * 0.5);
+        assert_eq!(f.lane_at(gap[0], gap[1]), None);
+        let z = pick(&zones, gap[0], gap[1]).unwrap();
+        assert_eq!(zones[z].lane, 0);
+    }
+
+    #[test]
+    fn fan_lanes_slide_and_scratch_swipes() {
+        let fans = fans();
+        let f = &fans[0];
+        let zones = fan_zones(PlayMode::Beat7K, &fans, 1280.0 * 0.7);
+        let now = Instant::now();
+        let mut t = TouchInput::default();
+        let mut out = Vec::new();
+        let at = |u: f32| f.point(u, f.d_bottom() * 0.5);
+        // a finger on key 1 slides to key 2
+        let (l1, l2) = (f.lanes[1], f.lanes[2]);
+        let p = at((l1.u0 + l1.u1) * 0.5);
+        t.pointer(&zones, 1, Phase::Down, p[0], p[1], now, 6.0, &mut out);
+        let p = at((l2.u0 + l2.u1) * 0.5);
+        t.pointer(&zones, 1, Phase::Move, p[0], p[1], now, 6.0, &mut out);
+        let evs: Vec<(u8, bool)> = out.iter().map(|e| (e.lane, e.pressed)).collect();
+        assert_eq!(evs, [(0, true), (0, false), (1, true)]);
+        // the scratch: a tap presses it; swiping back and forth sideways
+        // turns it the other way (another press)
+        out.clear();
+        let sc = f.lanes[0];
+        let p = at((sc.u0 + sc.u1) * 0.5);
+        t.pointer(&zones, 2, Phase::Down, p[0], p[1], now, 6.0, &mut out);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].lane == 7 && out[0].pressed && out[0].sub == 0);
+        for dx in [30.0, 60.0, 30.0, 0.0] {
+            t.pointer(
+                &zones,
+                2,
+                Phase::Move,
+                p[0] + dx - 30.0,
+                p[1],
+                now,
+                6.0,
+                &mut out,
+            );
+        }
+        let subs: Vec<(u8, bool)> = out.iter().map(|e| (e.sub, e.pressed)).collect();
+        assert_eq!(subs, [(0, true), (0, false), (1, true)]);
+        // vertical moves in the scratch lane do nothing
+        out.clear();
+        t.pointer(
+            &zones,
+            2,
+            Phase::Move,
+            p[0] - 30.0,
+            p[1] - 40.0,
+            now,
+            6.0,
+            &mut out,
+        );
+        assert!(out.is_empty());
     }
 
     #[test]

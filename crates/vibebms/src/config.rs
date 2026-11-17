@@ -604,6 +604,35 @@ impl Default for TouchConfig {
     }
 }
 
+/// The touch perspective play skin: lanes narrow toward the far end.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct PerspectiveConfig {
+    /// How much narrower the far end is than the judge line (0: flat, the
+    /// far end as wide; 0.9: a tenth as wide).
+    pub strength: f32,
+    /// How far up the lanes reach: share of the room above the judge line.
+    pub length: f32,
+    /// Touch area: share of the screen height from the bottom in which the
+    /// lanes are played (with touch controls).
+    pub touch_height: f32,
+}
+
+/// Limits of `PerspectiveConfig`.
+pub const PERSPECTIVE_MAX: f32 = 0.9;
+pub const LENGTH_RANGE: (f32, f32) = (0.4, 1.0);
+pub const TOUCH_HEIGHT_RANGE: (f32, f32) = (0.1, 0.6);
+
+impl Default for PerspectiveConfig {
+    fn default() -> Self {
+        PerspectiveConfig {
+            strength: 0.65,
+            length: 1.0,
+            touch_height: 0.3,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PresentMode {
     /// Lowest latency available (Mailbox > Immediate > VSync).
@@ -703,6 +732,8 @@ pub struct Config {
     pub play: PlayConfig,
     pub keys: KeyConfig,
     pub touch: TouchConfig,
+    /// The touch perspective play skin.
+    pub perspective: PerspectiveConfig,
     pub display: DisplayConfig,
     pub audio: AudioSettings,
     pub tables: Vec<TableConfig>,
@@ -733,6 +764,7 @@ impl Default for Config {
             play: PlayConfig::default(),
             keys: KeyConfig::default(),
             touch: TouchConfig::default(),
+            perspective: PerspectiveConfig::default(),
             display: DisplayConfig::default(),
             audio: AudioSettings::default(),
             tables: bmseeker::table::DEFAULT_TABLES
@@ -865,6 +897,28 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    #[test]
+    fn perspective_roundtrip() {
+        let mut c = Config {
+            perspective: PerspectiveConfig {
+                strength: 0.4,
+                length: 0.8,
+                touch_height: 0.25,
+            },
+            ..Config::default()
+        };
+        c.skins.insert("7KEYS".into(), "builtin:perspective".into());
+        let s = toml::to_string_pretty(&c).unwrap();
+        let d: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c, d);
+        // older files have no [perspective]: the defaults
+        let d: Config = toml::from_str("[perspective]\nstrength = 0.0\n").unwrap();
+        assert_eq!(d.perspective.strength, 0.0);
+        assert_eq!(d.perspective.length, PerspectiveConfig::default().length);
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.perspective, PerspectiveConfig::default());
     }
 
     #[test]
