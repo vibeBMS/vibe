@@ -210,14 +210,16 @@ pub const EQUIVALENCE: &[Gap] = &[
     Gap {
         id: "A3",
         profile: Profile::VibeLr2,
-        what: "#DEFEXRANK / bmson judge rank interpolated between LR2's rows (the profile takes #RANK only)",
+        what: "#RANK 4 and out-of-range #RANK played NORMAL: LR2's handling undocumented \
+               (#DEFEXRANK and bmson are left out by the profile)",
         closed: false,
         reaches: Reach::Every,
     },
     Gap {
         id: "A4",
         profile: Profile::VibeLr2,
-        what: "HARD / EX-HARD damage factor and the 32 % rule (TOTAL 80..260, 20..1000 notes)",
+        what: "HARD damage factor: vibeBMS's TOTAL steps of 16 match LR2's measurements at \
+               multiples of 10 but 200, and its note-count curve below 125 notes is unconfirmed",
         closed: false,
         reaches: Reach::Every,
     },
@@ -238,14 +240,16 @@ pub const EQUIVALENCE: &[Gap] = &[
     Gap {
         id: "A7",
         profile: Profile::VibeLr2,
-        what: "default TOTAL: 160 + (n + clamp(n - 400, 0, 200)) * 0.16",
+        what: "default TOTAL 160 + (n + clamp(n - 400, 0, 200)) * 0.16 is LR2oraja's; LR2's own \
+               is undocumented (\"160?\")",
         closed: false,
         reaches: Reach::Every,
     },
     Gap {
         id: "A8",
         profile: Profile::VibeLr2,
-        what: "mine damage and scratch long note ends not described",
+        what: "mine damage: vibeBMS takes the value as percent, LR2's measured damage follows no \
+               known rule (scratch LN ends are as keys': closed)",
         closed: false,
         reaches: Reach::Every,
     },
@@ -254,6 +258,21 @@ pub const EQUIVALENCE: &[Gap] = &[
         profile: Profile::VibeLr2,
         what: "origin of the LR2 judge and gauge golden vectors not recorded",
         closed: true,
+        reaches: Reach::Every,
+    },
+    Gap {
+        id: "A10",
+        profile: Profile::VibeLr2,
+        what: "the LR2 gauge set offers ASSIST EASY and EX-HARD, which LR2 does not have",
+        closed: false,
+        reaches: Reach::Every,
+    },
+    Gap {
+        id: "A11",
+        profile: Profile::VibeLr2,
+        what: "the note a press takes among several in reach: vibeBMS's Combo choice, only \
+               reportedly close to LR2's",
+        closed: false,
         reaches: Reach::Every,
     },
     Gap {

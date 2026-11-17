@@ -107,6 +107,10 @@ The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %. LR2 d
 clamp(⌊TOTAL / 16⌋ − 5, 1, 10), note-count factor), the note-count factor rising from 1 at 1000 notes to 10 at 20
 (1 + 0.002·(1000 − n) below 1000, 2 + 0.004·(500 − n) below 500, 3 + 0.008·(250 − n) below 250, …).
 
+EASY, NORMAL (GROOVE), HARD, HAZARD and CLASS (dan) are LR2's gauges; their values, the 32 % rule and the 2 % floor
+are as LR2 is documented [S1, S3, S7, S8]. LR2's HARD damage factor is confirmed only in part (gap A4). ASSIST
+EASY, EX-HARD, EX-CLASS and EXHARD-CLASS are not LR2's [S8].
+
 ### IIDX set (approximation)
 Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 30 %, EX-HARD -10, -18, -10.
 **Approximate values**, adjust in `gauge.rs`.
@@ -148,13 +152,22 @@ of beatoraja, LR2oraja or bmz-player, or from LR2's binary.
 |---|---|---|
 | A1 | judge and gauge presets were separate settings | closed: the profile takes only the LR2 judge with the LR2 gauge set |
 | A2 | empty POOR window and its combo and note rules | closed: 0 .. +1000 ms, early only [S1, S2, S3, S4]; keeps the combo, never takes the note [S4] |
-| A3 | `#RANK 4`, out-of-range `#RANK`, `#DEFEXRANK`, bmson | open |
-| A4 | HARD gauge damage factor and the 30 % rule | open |
+| A3 | `#RANK 4`, out-of-range `#RANK`, `#DEFEXRANK`, bmson | open: `#RANK 0..3` and a missing `#RANK` are LR2's [S5, S8, S9]; LR2 has no `#DEFEXRANK` [S9] or bmson, and the profile leaves both out; what LR2 does with `#RANK 4` or an out-of-range value is not documented (vibeBMS: NORMAL) |
+| A4 | HARD gauge damage factor and the 30 % rule | open. Confirmed: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the TOTAL and note-count factors, × 0.6 below 32 %, empty below 2 % [S1, S3, S7]; the TOTAL factor at TOTAL 100 .. 300 in steps of 10 but 200; the note-count factor from 250 notes up and at 125 and 0 [S1]. Not confirmed: TOTAL 200 (S1 measured POOR 15, vibeBMS 14.29) and every TOTAL between the measured ones (vibeBMS steps every 16, S2 / S4 give beatoraja's table, which steps differently); the note-count curve below 125 notes. HAZARD is now LR2's DEATH gauge [S8] |
 | A5 | LN mode and typed CN / HCN | closed: LR2 has only LNs without a tail judgement [S8]; the profile takes LN mode and no typed CN / HCN; a release inside GOOD keeps the head's judgement, earlier is a BAD [S4, S7] |
 | A6 | combo, note consumption and one-POOR rules | closed: LR2's in every key mode [S4, S8] (5/10 keys and PMS had beatoraja's) |
-| A7 | default TOTAL | open |
-| A8 | mines, scratch long note ends | open |
+| A7 | default TOTAL | open: vibeBMS's 160 + (n + clamp(n − 400, 0, 200)) × 0.16 is LR2oraja's [S11]; LR2's own is given only as "160?" [S9]. Reaches charts without `#TOTAL` |
+| A8 | mines, scratch long note ends | open for mines: vibeBMS takes a mine's value as percent of the gauge; S9 says value / 2 %, S10 measured damage that follows neither, and an end on survival gauges. Scratch LN ends: LN mode only under the profile, judged as keys' [S4, S7]. GAUGE AUTO SHIFT: the profile takes none |
 | A9 | origin of the LR2 golden vectors | closed: recorded in `judge_golden.rs` and `gauge_golden.rs`; the documented behaviour has its own tests (`lr2_*_as_measured`, `lr2_hard_low_gauge_rule`, `lr2_combo_and_empty_poor_in_every_mode`, `windows_lr2`, `s14_lr2_release_window`) |
+| A10 | gauges LR2 does not have | open: the LR2 set offers ASSIST EASY and EX-HARD (and EX-CLASS, EXHARD-CLASS in courses), which LR2 has not [S8]; the profile does not restrict the gauge yet |
+| A11 | the note a press takes among several in reach | open: the profile plays vibeBMS's Combo choice; S4 says only that it is "reportedly" close to LR2's |
+
+One more difference no gap covers, because it is not a rule: LR2 judges on frames, so its windows are those
+above only with vertical sync off [S4].
+
+The beatoraja profile's gaps stay open: no public description was found of beatoraja's 5-key EX-HARD note-count
+term (B1) or of how beatoraja ends a back-spin scratch CN / HCN played on a keyboard (B3), and beatoraja's source
+is not read.
 
 ### Sources
 
