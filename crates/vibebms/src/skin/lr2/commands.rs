@@ -505,25 +505,22 @@ impl Loader<'_> {
                     add_dst(d, &v);
                 }
             }
-            "#SRC_BAR_LAMP" => {
-                // LR2 lamps: no play, failed, easy, clear, hard, full combo, ...
-                const MAP: [usize; 8] = [0, 1, 4, 5, 6, 8, 9, 10];
-                let Some(k) = MAP.get(v[1].max(0) as usize).copied() else {
+            "#SRC_BAR_LAMP" | "#SRC_BAR_MY_LAMP" | "#SRC_BAR_RIVAL_LAMP" => {
+                let Some(k) = LR2_LAMPS.get(v[1].max(0) as usize).copied() else {
                     return true;
                 };
                 let s_ = src(&v, &self.images);
-                let sl = self.songlist();
-                if sl.lamp.len() <= k {
-                    sl.lamp.resize(k + 1, None);
+                let lamps = bar_lamps(self.songlist(), cmd);
+                if lamps.len() <= k {
+                    lamps.resize(k + 1, None);
                 }
-                sl.lamp[k] = s_.map(|s_| (s_, Dst::default()));
+                lamps[k] = s_.map(|s_| (s_, Dst::default()));
             }
-            "#DST_BAR_LAMP" => {
-                const MAP: [usize; 8] = [0, 1, 4, 5, 6, 8, 9, 10];
-                let Some(k) = MAP.get(v[1].max(0) as usize).copied() else {
+            "#DST_BAR_LAMP" | "#DST_BAR_MY_LAMP" | "#DST_BAR_RIVAL_LAMP" => {
+                let Some(k) = LR2_LAMPS.get(v[1].max(0) as usize).copied() else {
                     return true;
                 };
-                if let Some(Some((_, d))) = self.songlist().lamp.get_mut(k) {
+                if let Some(Some((_, d))) = bar_lamps(self.songlist(), cmd).get_mut(k) {
                     add_dst(d, &v);
                 }
             }
@@ -782,5 +779,20 @@ impl Loader<'_> {
             }
             c => log::debug!("lr2 skin: {c} is not supported"),
         }
+    }
+}
+
+/// LR2's bar lamps (no play, failed, easy, clear, hard, full combo, ...)
+/// as clear types.
+const LR2_LAMPS: [usize; 8] = [0, 1, 4, 5, 6, 8, 9, 10];
+
+/// The bar lamps a `#SRC_BAR_*LAMP` / `#DST_BAR_*LAMP` command sets.
+fn bar_lamps<'a>(sl: &'a mut SongListSkin, cmd: &str) -> &'a mut Vec<Option<(Src, Dst)>> {
+    if cmd.ends_with("_MY_LAMP") {
+        &mut sl.my_lamp
+    } else if cmd.ends_with("_RIVAL_LAMP") {
+        &mut sl.rival_lamp
+    } else {
+        &mut sl.lamp
     }
 }

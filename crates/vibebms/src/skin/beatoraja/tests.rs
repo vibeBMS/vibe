@@ -281,6 +281,8 @@ fn builtin_select_skins_load() {
         assert!(sl.off.len() > 10 && sl.off.len() == sl.on.len());
         assert_eq!(sl.body.iter().flatten().count(), 8);
         assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
+        // the IR lamp beside the player's
+        assert!(sl.my_lamp.len() == 11 && sl.rival_lamp.len() == 11);
         // the 11 option buttons and the folder back button are clickable
         assert_eq!(sk.objects.iter().filter(|o| o.act.is_some()).count(), 12);
         let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();

@@ -11,7 +11,7 @@ mod play;
 mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
-pub use ir::{provider_name, IrAccount, IrSettings, OldToken, SubmitPolicy};
+pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
 pub use keys::{KeyConfig, LaneKeys, SideKeys};
 pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
 pub use touch::{
@@ -465,6 +465,7 @@ mod tests {
                         ..Default::default()
                     },
                 ],
+                ..Default::default()
             },
             check_updates: false,
             skins: BTreeMap::from([

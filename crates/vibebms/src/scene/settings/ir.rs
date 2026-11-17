@@ -4,7 +4,7 @@
 
 use super::{Act, Row, TextField};
 use crate::app::Ctx;
-use crate::config::{provider_name, IrAccount, SubmitPolicy};
+use crate::config::{provider_name, Beside, IrAccount, PlayerKey, SubmitPolicy};
 use crate::ir::creds;
 use crate::platform::{store, unix_ms, IS_WEB};
 use crate::scene::option_panel::{cycle, onoff};
@@ -110,6 +110,40 @@ fn refresh_lamps(c: &mut Ctx, i: usize) {
     }
 }
 
+/// The choices of whose IR lamps show beside the player's: theirs, each
+/// rival, none.
+fn beside_choices(ctx: &Ctx) -> Vec<Beside> {
+    let mut v = vec![Beside::Mine];
+    for a in ctx.config.ir.accounts.iter().filter(|a| a.enabled) {
+        v.extend(a.rivals.iter().map(|r| {
+            Beside::Player(PlayerKey {
+                provider: a.provider,
+                player: r.clone(),
+            })
+        }));
+    }
+    v.push(Beside::Off);
+    v
+}
+
+fn step_beside(c: &mut Ctx, d: i32) {
+    let choices = beside_choices(c);
+    let n = choices.len() as i32;
+    let at = choices.iter().position(|b| *b == c.config.ir.beside);
+    c.config.ir.beside = match at {
+        Some(i) => choices[(i as i32 + d).rem_euclid(n) as usize].clone(),
+        None => Beside::Mine,
+    };
+}
+
+fn beside_label(ctx: &Ctx) -> String {
+    match &ctx.config.ir.beside {
+        Beside::Mine => "yours on the IR".into(),
+        Beside::Off => "none".into(),
+        Beside::Player(k) => player_label(ctx, k.provider, &k.player),
+    }
+}
+
 /// A player as people know them: their name on the IR, else the id.
 fn player_label(ctx: &Ctx, p: ProviderId, player: &str) -> String {
     match ctx.net.ir.player_name(p, player) {
@@ -169,6 +203,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             ir.primary().map_or("—", IrAccount::title),
             step_primary,
         ),
+        Row::adjust("IR lamps beside yours", beside_label(ctx), step_beside),
         Row::note(format!("API keys are kept {}", creds::KEPT), ""),
     ];
     if ctx.net.ir.reads_only() {

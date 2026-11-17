@@ -20,7 +20,7 @@ pub mod lamps;
 pub mod store;
 
 use crate::app::AppEvent;
-use crate::config::{IrAccount, IrSettings, SubmitPolicy};
+use crate::config::{Beside, IrAccount, IrSettings, SubmitPolicy};
 use crate::paths::Paths;
 use crate::platform::{http, Job, IS_WEB};
 use lamps::{LampCache, SetKey};
@@ -362,6 +362,21 @@ impl IrService {
     /// Whether `player`'s lamps on `p` have been read.
     pub fn has_lamps(&self, p: ProviderId, player: &str) -> bool {
         self.lamps.has(p, player)
+    }
+
+    /// Whose IR lamps show beside the player's (`IrSettings::beside`), once
+    /// some of theirs were read.
+    pub fn beside<'a>(&self, ir: &'a IrSettings) -> Option<(ProviderId, &'a str)> {
+        let read = |&(p, player): &(ProviderId, &str)| self.lamps.has(p, player);
+        match &ir.beside {
+            Beside::Off => None,
+            Beside::Player(k) => Some((k.provider, k.player.as_str())).filter(read),
+            // the rankings' account first
+            Beside::Mine => (ir.primary().into_iter())
+                .chain(ir.accounts.iter().filter(|a| a.enabled))
+                .map(|a| (a.provider, a.user_id.as_str()))
+                .find(read),
+        }
     }
 
     /// The name `p` gives `player`.
@@ -1062,6 +1077,7 @@ mod tests {
         let md5 = "02c4d238c7ab99ae088bae519d92dc06";
         let lamp = ir.lamp(p, "100002", md5, "").unwrap();
         assert_eq!(lamp.clear, vibebms_core::score::ClearType::Perfect);
+        assert_eq!(ir.beside(&s), Some((p, "100002")));
         assert!(!seen
             .recv()
             .unwrap()

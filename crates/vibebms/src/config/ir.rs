@@ -14,6 +14,35 @@ pub struct IrSettings {
     pub submit: SubmitPolicy,
     /// One per provider (vibeBMS IRs: one per slot).
     pub accounts: Vec<IrAccount>,
+    /// Whose IR lamps the music select shows beside the player's own.
+    #[serde(skip_serializing_if = "Beside::is_mine")]
+    pub beside: Beside,
+}
+
+/// Whose IR lamps show beside the player's (skins with a rival lamp show
+/// them there; the others show the player's own only).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Beside {
+    /// The player's own on the IR (of the first account that reads them).
+    #[default]
+    Mine,
+    Off,
+    /// A rival's (or the player's own) on one account.
+    Player(PlayerKey),
+}
+
+impl Beside {
+    fn is_mine(&self) -> bool {
+        *self == Beside::Mine
+    }
+}
+
+/// A player on an IR account.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PlayerKey {
+    pub provider: ProviderId,
+    pub player: String,
 }
 
 /// When a play goes to the outbox.
@@ -155,7 +184,10 @@ mod tests {
             ..Default::default()
         };
         let text = toml::to_string_pretty(&plain).unwrap();
-        assert!(!text.contains("tables"), "{text}");
+        assert!(
+            !text.contains("beside") && !text.contains("tables"),
+            "{text}"
+        );
         let s = IrSettings {
             accounts: vec![IrAccount {
                 provider: ProviderId::BmsIr,
@@ -165,9 +197,15 @@ mod tests {
                 rivals: vec!["100005".into()],
                 ..Default::default()
             }],
+            beside: Beside::Player(PlayerKey {
+                provider: ProviderId::BmsIr,
+                player: "100005".into(),
+            }),
             ..Default::default()
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<IrSettings>(&text).unwrap(), s, "{text}");
+        let off: IrSettings = toml::from_str("beside = \"off\"").unwrap();
+        assert_eq!(off.beside, Beside::Off);
     }
 }

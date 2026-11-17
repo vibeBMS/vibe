@@ -2306,15 +2306,16 @@ def select_layout(fonts, parts, portrait=False):
         iid, cw, ch = sk.num("n_mid", 96, 2)
         level.append({"id": iid, "dst": [rel(lw - 28 - 2 * cw, 8, cw, ch, r=col[0], g=col[1],
                                                  b=col[2])]})
-    lamp = []
-    for k, col in enumerate(LAMP_COLORS):
-        lamp.append({"id": sk.img("lampcell"), "dst": [rel(18, 6, 8, 32, r=col[0], g=col[1],
-                                                           b=col[2])]})
+    def lamps(x, w):
+        return [{"id": sk.img("lampcell"), "dst": [rel(x, 6, w, 32, r=c[0], g=c[1], b=c[2])]}
+                for c in LAMP_COLORS]
+    # with a rival (or the player's IR lamps) beside: a thin second lamp
     sk.j["songlist"] = {
         "id": "songlist", "center": center, "clickable": list(range(slots)),
         "listoff": off, "liston": on,
         "text": [{"id": "bartext", "dst": [rel(36, 11, lw - 120, 22)]}],
-        "level": level, "lamp": lamp,
+        "level": level, "lamp": lamps(18, 8), "playerlamp": lamps(18, 8),
+        "rivallamp": lamps(28, 4),
     }
     sk.put("songlist", 0, 0, sk.w, sk.h, fixed=True)
     cw_, ch_ = parts.items["barcursor"][2:]
@@ -2371,6 +2372,11 @@ def select_layout(fonts, parts, portrait=False):
     sk.number("n_mid", 75, 5, 470, 462, op=[5])
     draw_label(img, f, 590, 448, "PLAYS", 11)
     sk.number("n_small", 77, 4, 590, 466, op=[5])
+    # the IR: the lamp beside and the rank (vibeBMS text 9200), the top three
+    sk.label_text(9200, 240, 366, 300, 13, align=2, color=DIM)
+    for i in range(3):
+        sk.label_text(120 + i, 316, 384 + 15 * i, 150, 12, color=DIM)
+        sk.number("n_small", 380 + i, 4, 476, 384 + 15 * i, scale=0.6, op=[602])
     # a chart the table lists that is not installed
     for key, y_ in (("nosong", 378), ("nosong_hint", 420)):
         w_, h_ = parts.items[key][2:]
