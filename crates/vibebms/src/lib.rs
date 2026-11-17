@@ -4,6 +4,7 @@ pub mod app;
 pub mod archive;
 pub mod browser;
 pub mod config;
+pub mod formats;
 pub mod gfx;
 pub mod hosts;
 #[cfg(not(target_arch = "wasm32"))]

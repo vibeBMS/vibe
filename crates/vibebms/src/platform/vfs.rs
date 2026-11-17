@@ -548,7 +548,7 @@ pub fn read(p: &Path) -> io::Result<Vec<u8>> {
             if e.kind() != io::ErrorKind::NotFound {
                 return Err(e);
             }
-            super::dxa::read(p, &|q| imp::read(q).ok()).ok_or(e)
+            crate::formats::dxa::read(p, &|q| imp::read(q).ok()).ok_or(e)
         }),
     }
 }

@@ -134,7 +134,7 @@ impl<'a> ImageFiles<'a> {
 }
 
 fn image_size_of(b: &[u8], p: &std::path::Path) -> Option<(u32, u32)> {
-    if let Some(s) = crate::gfx::dds::size(b).or_else(|| crate::gfx::cim::size(b)) {
+    if let Some(s) = crate::formats::dds::size(b).or_else(|| crate::formats::cim::size(b)) {
         return Some(s);
     }
     let r = image::ImageReader::new(std::io::Cursor::new(b))

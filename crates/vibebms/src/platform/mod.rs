@@ -5,7 +5,6 @@
 //! jobs on the event loop and uses the browser's `fetch` for HTTP.
 
 mod drive;
-pub mod dxa;
 mod http;
 #[cfg(target_arch = "wasm32")]
 pub mod opfs;
