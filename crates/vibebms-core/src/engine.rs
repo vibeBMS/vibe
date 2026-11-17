@@ -998,13 +998,18 @@ mod tests {
     use crate::mode::RuleFamily;
 
     fn engine(src: &str, ln: LnType, auto: bool) -> (Chart, Engine) {
+        engine_with(src, ln, auto, JudgePreset::Beatoraja, JudgeRank::Rank(3))
+    }
+
+    fn engine_with(
+        src: &str,
+        ln: LnType,
+        auto: bool,
+        preset: JudgePreset,
+        rank: JudgeRank,
+    ) -> (Chart, Engine) {
         let chart = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
-        let rules = judge_rules(
-            JudgePreset::Beatoraja,
-            RuleFamily::SevenKeys,
-            JudgeRank::Rank(3),
-            None,
-        );
+        let rules = judge_rules(preset, RuleFamily::SevenKeys, rank, None);
         let total = chart.total(ln);
         let gauge = GrooveGauge::new(
             GaugePreset::Beatoraja,
@@ -1162,6 +1167,24 @@ mod tests {
         release(&mut e, 0, 2_500_000); // 500 ms early
         e.update(2_600_000);
         assert_eq!(judges(&mut e), vec![BAD]);
+    }
+
+    #[test]
+    fn lr2_ln_release_keeps_the_head_judgement() {
+        // LR2 #RANK NORMAL: a release 25 ms early is outside the ±18 ms
+        // PGREAT note window but inside the release window
+        let (_, mut e) = engine_with(LN, LnType::Ln, false, JudgePreset::Lr2, JudgeRank::Rank(2));
+        e.update(1_000_000);
+        press(&mut e, 0, 2_000_000);
+        release(&mut e, 0, 3_000_000 - 25_000);
+        e.update(3_100_000);
+        assert_eq!(judges(&mut e), vec![PGREAT]);
+        // CN at VERY HARD: the tail 30 ms late is a PGREAT too
+        let (_, mut e) = engine_with(LN, LnType::Cn, false, JudgePreset::Lr2, JudgeRank::Rank(0));
+        e.update(1_000_000);
+        press(&mut e, 0, 2_000_000);
+        release(&mut e, 0, 3_030_000);
+        assert_eq!(judges(&mut e), vec![PGREAT, PGREAT]);
     }
 
     #[test]

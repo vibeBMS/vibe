@@ -382,7 +382,10 @@ pub fn judge_rules(
         }
         JudgePreset::Lr2 => {
             let note = us(&lr2_windows(rank));
-            let ln_end = note[..4].to_vec();
+            // LR2 judges a long note's release with the GOOD window for
+            // PG..GD (LR2oraja: the LN end table is GOOD-wide at every
+            // #RANK), BAD as usual
+            let ln_end = vec![note[GOOD], note[GOOD], note[GOOD], note[BAD]];
             JudgeWindows {
                 note: note.clone(),
                 scratch: note,
@@ -472,6 +475,32 @@ mod tests {
         assert_eq!(r.windows.note[0], (-18_000, 18_000));
         assert_eq!(r.windows.note[2], (-100_000, 100_000));
         assert_eq!(r.windows.note[3], (-200_000, 200_000));
+    }
+
+    #[test]
+    fn lr2_ln_end_uses_good_window() {
+        let r = judge_rules(
+            JudgePreset::Lr2,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(2),
+            None,
+        );
+        let w = &r.windows;
+        // released 25 ms early: still PGREAT (not the ±18 ms note window)
+        assert_eq!(w.judge(NoteType::LongEnd, 25_000), PGREAT);
+        assert_eq!(w.judge(NoteType::LongEnd, -100_000), PGREAT);
+        assert_eq!(w.judge(NoteType::LongEnd, 150_000), BAD);
+        assert_eq!(w.judge(NoteType::LongScratchEnd, 99_000), PGREAT);
+        // VERY HARD: a CN tail 30 ms off is a PGREAT (GOOD there is ±40 ms)
+        let vh = judge_rules(
+            JudgePreset::Lr2,
+            RuleFamily::SevenKeys,
+            JudgeRank::Rank(0),
+            None,
+        );
+        assert_eq!(vh.windows.judge(NoteType::LongEnd, -30_000), PGREAT);
+        assert_eq!(vh.windows.judge(NoteType::LongEnd, -50_000), BAD);
+        assert_eq!(vh.windows.note[0], (-8_000, 8_000));
     }
 
     #[test]

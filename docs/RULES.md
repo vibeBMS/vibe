@@ -40,6 +40,9 @@ PMS notes can only produce one POOR. Note selection algorithms Combo / Duration 
 
 LR2 has no `#DEFEXRANK`; it is treated as a percentage of NORMAL. Empty POOR window uses the beatoraja value.
 
+LN / CN releases (LR2oraja): PG, GR and GD share the #RANK's GOOD window (±40 / ±60 / ±100 / ±120 ms),
+BAD ±200 ms. An LN keeps its head judgement when released inside the GOOD window.
+
 ### IIDX (approximation)
 
 Counted in frames of the 120 Hz LIGHTNING MODEL cabinet: PG ±2F, GR ±4F, GD ±14F, BAD ±30F
