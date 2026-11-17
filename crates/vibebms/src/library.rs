@@ -691,7 +691,11 @@ pub fn scan(
         progress.parsed.fetch_add(1, Ordering::Relaxed);
     });
     let new = results.into_inner().unwrap();
-    let removed = known.keys().filter(|k| !seen.contains(*k)).count();
+    // (records read again count too: their file may be gone)
+    let removed = known_records
+        .iter()
+        .filter(|r| !seen.contains(&r.song.path))
+        .count();
     let changed = !new.is_empty() || removed > 0;
     if changed {
         let updated: HashSet<String> = new.iter().map(|r| r.song.path.clone()).collect();
@@ -1078,5 +1082,30 @@ mod tests {
         assert_eq!(Library::open(&cache, &cache).songs().len(), 0);
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&moved).ok();
+    }
+
+    #[test]
+    fn old_records_of_deleted_charts_go() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-old-{}", std::process::id()));
+        let songs = dir.join("pack");
+        std::fs::create_dir_all(&songs).unwrap();
+        let cache = dir.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        // a record from before judge ranks were kept (read again when
+        // seen), its chart deleted since
+        let gone = songs.join("gone.bme").to_string_lossy().into_owned();
+        let old = serde_json::json!([{ "path": gone, "title": "Gone", "mtime": 1, "size": 1 }]);
+        std::fs::write(cache.join("songs.json"), old.to_string()).unwrap();
+        assert_eq!(Library::open(&cache, &cache).songs().len(), 1);
+        let p = Arc::new(ScanProgress::default());
+        scan(
+            cache.join("songs.json"),
+            vec![songs],
+            [cache.clone()].into_iter().collect(),
+            p.clone(),
+        );
+        assert!(p.changed.load(Ordering::Relaxed));
+        assert!(Library::open(&cache, &cache).songs().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
