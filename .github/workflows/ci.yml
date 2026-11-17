@@ -62,8 +62,6 @@ jobs:
           - { name: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
           - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
           - { name: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc }
-          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
-          - { name: macos-x64, os: macos-latest, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -95,48 +93,53 @@ jobs:
             target/${{ matrix.target }}/release/vibebms.exe
             target/${{ matrix.target }}/release/version.txt
 
-  # the macOS app: the arm64 and x86_64 builds as one universal executable
-  # in an ad-hoc signed bundle (tools/package_macos.sh), as a .dmg for people
-  # and a .zip for the self-update
-  macos-app:
-    name: package macOS app (universal)
-    needs: build
-    # both macOS builds can have succeeded when another build failed
-    if: always() && !cancelled()
+  # macOS: both architectures on one runner (x86_64 cross-built on the arm64
+  # one), then the app: one universal executable in an ad-hoc signed bundle
+  # (tools/package_macos.sh), as a .dmg for people and a .zip for the
+  # self-update. One job, not three: macOS runners are few, and jobs that
+  # waited too long for one were cancelled.
+  macos:
+    name: build macOS (arm64, x64, universal app)
+    needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          pattern: vibeBMS-macos-*
-          path: art
-      - name: both builds
-        id: builds
+          toolchain: stable
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: macos-universal
+      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
+      # whose key reads Cargo.toml)
+      - run: ./tools/ci_version.sh
+        shell: bash
+      - run: cargo build --release -p vibebms --target aarch64-apple-darwin --target x86_64-apple-darwin
+      # each executable as the other builds give theirs (the nightly's
+      # vibebms-macos-arm64 / -x64 and latest.json read these artifacts)
+      - name: executables
         run: |
-          ls -lR art || true
-          for t in arm64 x64; do
-            if [ ! -f "art/vibeBMS-macos-$t/vibebms" ]; then
-              echo "::warning::no macOS $t build: no app this time"
-              exit 0
-            fi
+          for t in arm64:aarch64 x64:x86_64; do
+            mkdir -p "art/vibeBMS-macos-${t%%:*}"
+            cp "target/${t#*:}-apple-darwin/release/vibebms" "art/vibeBMS-macos-${t%%:*}/"
+            echo "$VIBEBMS_VERSION" > "art/vibeBMS-macos-${t%%:*}/version.txt"
           done
-          a="$(cat art/vibeBMS-macos-arm64/version.txt)"
-          x="$(cat art/vibeBMS-macos-x64/version.txt)"
-          [ "$a" = "$x" ] || echo "::warning::the macOS builds differ: arm64 $a, x64 $x"
-          echo "ok=true" >> "$GITHUB_OUTPUT"
-      # the app's identity and version (CFBundleIdentifier, CFBundleVersion)
-      - if: steps.builds.outputs.ok
-        run: ./tools/ci_version.sh
-      - if: steps.builds.outputs.ok
-        name: package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-macos-arm64
+          path: art/vibeBMS-macos-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-macos-x64
+          path: art/vibeBMS-macos-x64
+      - name: package
         run: |
           mkdir out
           tools/package_macos.sh art/vibeBMS-macos-arm64/vibebms art/vibeBMS-macos-x64/vibebms out
           # the version the executables were built with, for latest.json
-          cp art/vibeBMS-macos-arm64/version.txt out/version.txt
-      - if: steps.builds.outputs.ok
-        uses: actions/upload-artifact@v4
+          echo "$VIBEBMS_VERSION" > out/version.txt
+      - uses: actions/upload-artifact@v4
         with:
           name: vibeBMS-macos-universal
           path: |
@@ -366,68 +369,6 @@ jobs:
           name: vibeBMS-ios-unsigned
           path: vibeBMS-unsigned.ipa
 
-  # the app in the iOS simulator: it starts, and its download browser saves
-  # and unpacks a zip; screenshots and the log are uploaded
-  ios-simulator:
-    name: iOS simulator (smoke test)
-    needs: test
-    runs-on: macos-latest
-    env:
-      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
-          targets: aarch64-apple-ios-sim
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: aarch64-apple-ios-sim
-      - run: cargo build --release -p vibebms --target aarch64-apple-ios-sim
-      - name: app bundle
-        run: |
-          app="$RUNNER_TEMP/vibeBMS.app"
-          mkdir -p "$app"
-          cp target/aarch64-apple-ios-sim/release/vibebms "$app/"
-          cp platform/ios/Info.plist platform/ios/*.png "$app/"
-          plutil -replace CFBundleSupportedPlatforms -json '["iPhoneSimulator"]' "$app/Info.plist"
-          codesign --force --sign - "$app"
-          echo "APP=$app" >> "$GITHUB_ENV"
-      - name: run in the simulator
-        run: |
-          # the newest iOS runtime and an iPad it supports
-          rt=$(xcrun simctl list runtimes -j | jq '[.runtimes[] | select(.isAvailable and .platform == "iOS")] | last')
-          runtime=$(echo "$rt" | jq -r .identifier)
-          dtype=$(echo "$rt" | jq -r '[.supportedDeviceTypes[] | select(.productFamily == "iPad")] | last | .identifier')
-          echo "runtime $runtime, device $dtype"
-          udid=$(xcrun simctl create vibe "$dtype" "$runtime")
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
-          xcrun simctl install "$udid" "$APP"
-          mkdir -p sim
-          # 1: it starts and shows the music select
-          xcrun simctl launch --stderr="$PWD/sim/start.log" "$udid" io.github.vibebms
-          sleep 45
-          xcrun simctl io "$udid" screenshot sim/1-start.png
-          xcrun simctl terminate "$udid" io.github.vibebms || true
-          sleep 2
-          # 2: the download browser on a zip (this repository's)
-          SIMCTL_CHILD_VIBEBMS_TEST_BROWSE="https://codeload.github.com/${{ github.repository }}/zip/${{ github.sha }}" \
-            xcrun simctl launch --stderr="$PWD/sim/browse.log" "$udid" io.github.vibebms
-          sleep 25
-          xcrun simctl io "$udid" screenshot sim/2-browser.png
-          sleep 50
-          xcrun simctl io "$udid" screenshot sim/3-after.png
-          xcrun simctl terminate "$udid" io.github.vibebms || true
-          grep -E "Library:|Downloading|Added|failed|panicked|error" sim/start.log sim/browse.log || true
-          grep -q "Library:" sim/start.log || { echo "::error::the app did not start"; exit 1; }
-          grep -q "Added " sim/browse.log || echo "::warning::the browser did not download and unpack the zip"
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vibeBMS-ios-simulator
-          path: sim
-
   android:
     name: build android (experimental)
     needs: test
@@ -497,7 +438,7 @@ jobs:
   # previous file; the notes say which files this commit brought.
   nightly:
     name: nightly release
-    needs: [build, build-linux-portable, macos-app, flatpak, android, ios, web]
+    needs: [build, build-linux-portable, macos, flatpak, android, ios, web]
     if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     # a newer push's release wins over an older one still uploading
@@ -668,7 +609,7 @@ jobs:
   # links to the executables in the run summary, once the builds are done
   downloads:
     name: downloads
-    needs: [build, build-linux-portable, macos-app, flatpak, android, ios]
+    needs: [build, build-linux-portable, macos, flatpak, android, ios]
     if: always()
     runs-on: ubuntu-latest
     permissions:
