@@ -93,7 +93,7 @@ impl Target {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct PlayConfig {
     /// What makes the chart and judges it (read through the play options:
@@ -233,6 +233,61 @@ impl PlayConfig {
             *self = p.clone();
             self.p2 = p2;
         }
+    }
+}
+
+/// Written field by field in the order they had before the rules moved to
+/// `RuleOptions` (a flattened derive writes the rules first): saved
+/// configurations and replays keep their bytes. A new field goes here too.
+impl Serialize for PlayConfig {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let (p, r) = (self, &self.rules);
+        let mut st = s.serialize_struct("PlayConfig", 36)?;
+        macro_rules! fields {
+            ($($o:ident.$f:ident),* $(,)?) => {
+                $(st.serialize_field(stringify!($f), &$o.$f)?;)*
+            };
+        }
+        fields!(
+            r.gauge,
+            r.gauge_auto_shift,
+            r.gauge_preset,
+            r.judge_preset,
+            r.judge_algorithm,
+            r.random_1p,
+            r.random_2p,
+            r.dp_option,
+            r.battle,
+            p.side,
+            r.ln_mode,
+            r.auto_scratch,
+            r.legacy_note,
+            r.no_mine,
+            p.autoplay,
+            p.hispeed_mode,
+            p.hispeed,
+            p.hs_fix,
+            p.fixed_duration_ms,
+            p.sudden,
+            p.hidden,
+            p.lift,
+            p.lane_cover,
+            p.judge_offset_ms,
+            p.visual_offset_ms,
+            p.bga,
+            p.show_fast_slow,
+            r.expand_judge,
+            r.judge_rates,
+            p.judge_area,
+            p.mark_notes,
+            p.bpm_guide,
+            p.timing_auto_adjust,
+            r.hran_threshold_bpm,
+            p.target,
+            p.p2,
+        );
+        st.end()
     }
 }
 
