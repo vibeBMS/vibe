@@ -7,6 +7,8 @@ mod preview;
 mod skin;
 mod tree;
 
+#[cfg(test)]
+pub(crate) use options::SelectOption;
 pub use preview::resolve_image;
 pub(crate) use skin::SelectState;
 pub(crate) use tree::{Bar, Node};

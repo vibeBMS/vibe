@@ -17,7 +17,7 @@ use super::preview::Rank;
 use super::tree::{table, Bar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
-use crate::config::{Bpms, HiSpeedMode};
+use crate::config::{Bpms, HiSpeedMode, KeyFilter, SortMode};
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
@@ -321,7 +321,16 @@ impl SkinState for SelectState<'_> {
     }
 
     fn button(&self, id: i32) -> Option<i64> {
-        config_button(self.ctx, id).or_else(|| self.number(id))
+        use crate::scene::option_panel::index_of;
+        let sel = &self.ctx.config.select;
+        Some(match id {
+            // LR2 / beatoraja: difficulty filter, key mode filter (in
+            // beatoraja's order), sort
+            10 => sel.difficulty_filter as i64,
+            11 => index_of(&KeyFilter::ALL, sel.key_filter),
+            12 => index_of(&SortMode::ALL, sel.sort),
+            _ => return config_button(self.ctx, id).or_else(|| self.number(id)),
+        })
     }
 
     fn text(&self, id: i32) -> Option<String> {

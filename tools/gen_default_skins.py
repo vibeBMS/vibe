@@ -2270,6 +2270,10 @@ LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (7
                (255, 255, 255)]
 
 
+# vibeBMS's select options (skin texts 9000 + i / 9100 + i, events 9000 + i)
+SELECT_OPTIONS = 14
+
+
 def select_layout(fonts, parts, portrait=False):
     W, H = 1280, 720
     sk = Skin(5, "vibeBMS Default Select", *((720, 1280) if portrait else (W, H)), parts)
@@ -2388,17 +2392,17 @@ def select_layout(fonts, parts, portrait=False):
         sk.put(sk.img(key), 30, y_, w_, h_, op=[2, -5])
     # options: clickable buttons (vibeBMS option ids 9000 + i)
     panel(img, (16, 506, 660, 154), "OPTIONS", f)
-    for i in range(11):
-        bx, by = 22 + (i % 6) * 109, 530 + (i // 6) * 64
+    for i in range(SELECT_OPTIONS):
+        bx, by = 22 + (i % 6) * 109, 524 + (i // 6) * 45
         bid = f"optbtn{i}"
         if bid not in sk._ids:
             sk._ids.add(bid)
             x_, y_, w_, h_ = parts.items["optbtn"]
             sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
                                   "act": 9000 + i})
-        sk.put(bid, bx, by, 104, 60)
-        sk.label_text(9100 + i, bx + 5, by + 8, 94, 12, align=1, color=DIM)
-        sk.label_text(9000 + i, bx + 5, by + 28, 94, 20, align=1)
+        sk.put(bid, bx, by, 104, 43)
+        sk.label_text(9100 + i, bx + 5, by + 4, 94, 10, align=1, color=DIM)
+        sk.label_text(9000 + i, bx + 5, by + 18, 94, 18, align=1)
     # footer
     panel(img, (16, 668, 660, 40))
     bw_, bh_ = parts.items["btn_back"][2:]

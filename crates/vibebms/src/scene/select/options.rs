@@ -5,7 +5,9 @@
 use super::input::PanelKey;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
-use crate::config::{Bpms, HsFix, Side, Versus, HISPEED_STEP};
+use crate::config::{
+    Bpms, DifficultyFilter, HsFix, KeyFilter, Side, SortMode, Versus, HISPEED_STEP,
+};
 use crate::input::Repeat;
 use crate::platform::{Duration, Instant};
 use crate::scene::option_panel::{self, cycle, onoff};
@@ -35,10 +37,13 @@ pub(crate) enum SelectOption {
     Autoplay,
     Settings,
     Battle,
+    Sort,
+    KeyFilter,
+    DifficultyFilter,
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 11] = [
+    pub const ALL: [SelectOption; 14] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -50,6 +55,9 @@ impl SelectOption {
         SelectOption::Autoplay,
         SelectOption::Settings,
         SelectOption::Battle,
+        SelectOption::Sort,
+        SelectOption::KeyFilter,
+        SelectOption::DifficultyFilter,
     ];
 
     pub fn name(self) -> &'static str {
@@ -65,13 +73,20 @@ impl SelectOption {
             SelectOption::Autoplay => "AUTOPLAY",
             SelectOption::Settings => "SETTINGS",
             SelectOption::Battle => "BATTLE",
+            SelectOption::Sort => "SORT",
+            SelectOption::KeyFilter => "KEY MODE",
+            SelectOption::DifficultyFilter => "DIFFICULTY",
         }
     }
 
     /// Its value; `bpm` is the selected chart's (for its green number).
     pub fn value(self, ctx: &Ctx, bpm: Option<Bpms>) -> String {
         let p = &ctx.config.play;
+        let sel = &ctx.config.select;
         match self {
+            SelectOption::Sort => sel.sort.label().into(),
+            SelectOption::KeyFilter => sel.key_filter.label().into(),
+            SelectOption::DifficultyFilter => sel.difficulty_filter.label().into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -123,6 +138,23 @@ impl SelectScene {
     /// Change option `o` (the next value).
     pub(super) fn option(&mut self, ctx: &mut Ctx, o: SelectOption) -> Next {
         let bpm = self.bpms(ctx);
+        let sel = &mut ctx.config.select;
+        // the list: its order, what it shows, the records it is sorted by
+        let relist = match o {
+            SelectOption::Sort => {
+                sel.sort = cycle(&SortMode::ALL, sel.sort, 1);
+                true
+            }
+            SelectOption::KeyFilter => {
+                sel.key_filter = cycle(&KeyFilter::ALL, sel.key_filter, 1);
+                true
+            }
+            SelectOption::DifficultyFilter => {
+                sel.difficulty_filter = cycle(&DifficultyFilter::ALL, sel.difficulty_filter, 1);
+                true
+            }
+            _ => matches!(o, SelectOption::Judge | SelectOption::LnMode),
+        };
         let p = &mut ctx.config.play;
         match o {
             SelectOption::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, 1),
@@ -152,6 +184,13 @@ impl SelectScene {
                     vs_hint(ctx);
                 }
             }
+            SelectOption::Sort | SelectOption::KeyFilter | SelectOption::DifficultyFilter => {
+                // (skins without these show nothing of it)
+                ctx.toast(format!("{}: {}", o.name(), o.value(ctx, None)));
+            }
+        }
+        if relist {
+            self.rebuild(ctx);
         }
         ctx.play_sound(Sound::OptionChange);
         ctx.save_config();
@@ -234,6 +273,10 @@ impl SelectScene {
                 Next::Push(crate::scene::keyconfig::open(ctx))
             }
             14 => Next::Push(crate::scene::skinselect::open(ctx, None)),
+            // LR2 / beatoraja: the difficulty and key mode filters, the sort
+            10 => self.option(ctx, SelectOption::DifficultyFilter),
+            11 => self.option(ctx, SelectOption::KeyFilter),
+            12 => self.option(ctx, SelectOption::Sort),
             42 => self.option(ctx, SelectOption::Random),
             40 => self.option(ctx, SelectOption::Gauge),
             308 => self.option(ctx, SelectOption::LnMode),

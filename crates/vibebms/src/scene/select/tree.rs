@@ -3,6 +3,8 @@
 
 use super::SelectScene;
 use crate::app::Ctx;
+use crate::config::SortMode;
+use crate::library::Song;
 use crate::scene::skinvals::rank_index;
 use std::collections::HashMap;
 use std::path::Path;
@@ -79,6 +81,50 @@ pub(crate) struct Missing {
 /// Clear lamp counts (by clear type) and DJ rank counts (AAA..F, no play).
 pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 
+/// The key mode and difficulty filters keep `s`.
+pub(crate) fn shown(ctx: &Ctx, s: &Song) -> bool {
+    let f = &ctx.config.select;
+    f.key_filter.keeps(s.mode) && f.difficulty_filter.keeps(s.difficulty)
+}
+
+/// Charts (indices into the library) in the order chosen; ties by title,
+/// difficulty and level.
+fn sort_songs(ctx: &Ctx, v: &mut [usize]) {
+    let songs = &ctx.lib.songs;
+    let ln = ctx.config.play.ln_mode;
+    let sort = ctx.config.select.sort;
+    // the record under the LN and rule modes chosen
+    let best = |s: &Song| ctx.best(s, ln);
+    let first = |s: &Song| -> i64 {
+        match sort {
+            SortMode::Title | SortMode::Artist => 0,
+            SortMode::Level => s.level_num(),
+            SortMode::Clear => best(s).map_or(0, |b| b.clear as i64),
+            // (not played: below 0 %)
+            SortMode::Score => best(s).map_or(-1, |b| (b.rate() * 1e6) as i64),
+            SortMode::MissCount => best(s).map_or(u32::MAX, |b| b.min_bp) as i64,
+            SortMode::LastPlayed => -best(s).map_or(0, |b| b.last_played),
+            SortMode::Added => -s.added,
+            SortMode::Bpm => (s.main_bpm * 1000.0) as i64,
+            SortMode::Notes => s.notes,
+        }
+    };
+    v.sort_by_cached_key(|i| {
+        let s = &songs[*i];
+        let artist = match sort {
+            SortMode::Artist => s.artist.to_lowercase(),
+            _ => String::new(),
+        };
+        (
+            first(s),
+            artist,
+            s.title.to_lowercase(),
+            s.difficulty,
+            s.level_num(),
+        )
+    });
+}
+
 /// The table at `url` (see [`Node::Table`]).
 pub(crate) fn table<'a>(ctx: &'a Ctx, url: &str) -> Option<&'a bmseeker::table::DifficultyTable> {
     ctx.tables.list.iter().find(|t| t.source_url == url)
@@ -111,16 +157,15 @@ impl SelectScene {
         }
     }
 
-    /// The bars of `node`; songs sorted by title, difficulty and level
-    /// when `sort`.
+    /// The bars of `node`: the charts the key mode and difficulty filters
+    /// keep, in the order chosen when `sort`.
     fn build(&self, ctx: &Ctx, node: &Node, sort: bool) -> Vec<Bar> {
         let songs = &ctx.lib.songs;
-        let sorted = |mut v: Vec<usize>| -> Vec<Bar> {
+        let shown = |s: &Song| shown(ctx, s);
+        let sorted = |v: Vec<usize>| -> Vec<Bar> {
+            let mut v: Vec<usize> = v.into_iter().filter(|i| shown(&songs[*i])).collect();
             if sort {
-                v.sort_by_cached_key(|i| {
-                    let s = &songs[*i];
-                    (s.title.to_lowercase(), s.difficulty, s.level_num())
-                });
+                sort_songs(ctx, &mut v);
             }
             v.into_iter().map(Bar::Song).collect()
         };
@@ -131,11 +176,11 @@ impl SelectScene {
                     label: "ALL SONGS".into(),
                     sub: String::new(),
                     node: Node::All,
-                    count: songs.len(),
+                    count: songs.iter().filter(|s| shown(s)).count(),
                 }];
                 let mut folders: Vec<(String, usize)> = Vec::new();
                 let mut idx: HashMap<&str, usize> = HashMap::new();
-                for s in songs.iter() {
+                for s in songs.iter().filter(|s| shown(s)) {
                     match idx.get(s.folder.as_str()) {
                         Some(i) => folders[*i].1 += 1,
                         None => {
@@ -288,9 +333,9 @@ impl SelectScene {
                     .entries
                     .iter()
                     .filter(|e| &e.level == l)
-                    .map(|e| match self.find(&e.md5, &e.sha256) {
-                        Some(i) => Bar::Song(i),
-                        None => Bar::Missing(Missing {
+                    .filter_map(|e| match self.find(&e.md5, &e.sha256) {
+                        Some(i) => shown(&songs[i]).then_some(Bar::Song(i)),
+                        None => Some(Bar::Missing(Missing {
                             title: e.title.clone(),
                             artist: e.artist.clone(),
                             md5: e.md5.clone(),
@@ -299,7 +344,7 @@ impl SelectScene {
                             url: e.url.clone(),
                             url_diff: e.url_diff.clone(),
                             ..Missing::default()
-                        }),
+                        })),
                     })
                     .collect()
             }
@@ -425,5 +470,113 @@ impl SelectScene {
             .collect();
         parts.push(self.node_name(ctx, &self.node));
         parts.join(" › ")
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::config::{DifficultyFilter, KeyFilter};
+    use crate::library::{BestScore, RecordKey};
+    use std::sync::Arc;
+    use vibebms_core::judge::JudgePreset;
+    use vibebms_core::score::ClearType;
+    use vibebms_core::PlayMode;
+
+    fn song(title: &str, mode: PlayMode, difficulty: i32, level: &str, added: i64) -> Song {
+        Song {
+            path: format!("/bms/{title}.bms"),
+            folder: "/bms".into(),
+            sha256: title.into(),
+            title: title.into(),
+            artist: format!("artist {}", 9 - added),
+            mode,
+            difficulty,
+            level: level.into(),
+            added,
+            ..Default::default()
+        }
+    }
+
+    fn titles(s: &SelectScene, ctx: &Ctx, node: &Node) -> Vec<String> {
+        s.build(ctx, node, true)
+            .iter()
+            .filter_map(|b| match b {
+                Bar::Song(i) => Some(ctx.lib.songs[*i].title.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The sorts (ties by title) and the filters, which the root's counts
+    /// follow; records are the rule mode's chosen.
+    #[test]
+    fn sorts_and_filters() {
+        let root = std::env::temp_dir().join(format!("vibebms-sort-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.songs = Arc::new(vec![
+            song("a", PlayMode::Beat7K, 4, "12", 1),
+            song("b", PlayMode::Beat7K, 2, "3", 3),
+            song("c", PlayMode::Beat14K, 4, "7", 2),
+            song("d", PlayMode::Popn9K, 5, "3", 0),
+        ]);
+        let mut rec = |id: &str, clear, ex, bp, rule| {
+            let b = BestScore {
+                clear,
+                ex_score: ex,
+                notes: 100,
+                min_bp: bp,
+                ..Default::default()
+            };
+            ctx.lib.scores.insert(RecordKey::new(id, 0, rule), b);
+        };
+        rec("a", ClearType::Hard, 150, 5, JudgePreset::Beatoraja);
+        rec("b", ClearType::Easy, 180, 20, JudgePreset::Beatoraja);
+        rec("c", ClearType::FullCombo, 100, 0, JudgePreset::Lr2);
+        let s = SelectScene::new(&mut ctx);
+        let mut order = |sort| {
+            ctx.config.select.sort = sort;
+            titles(&s, &ctx, &Node::All).join("")
+        };
+        assert_eq!(order(SortMode::Title), "abcd");
+        assert_eq!(order(SortMode::Level), "bdca");
+        // not played (c's record is LR2's), then EASY, HARD
+        assert_eq!(order(SortMode::Clear), "cdba");
+        assert_eq!(order(SortMode::Score), "cdab");
+        assert_eq!(order(SortMode::MissCount), "abcd");
+        assert_eq!(order(SortMode::Added), "bcad");
+        assert_eq!(order(SortMode::Artist), "bcad");
+        ctx.config.play.judge_preset = JudgePreset::Lr2;
+        ctx.config.select.sort = SortMode::Clear;
+        assert_eq!(titles(&s, &ctx, &Node::All).join(""), "abdc");
+        ctx.config.select.sort = SortMode::Title;
+        ctx.config.select.key_filter = KeyFilter::K7;
+        assert_eq!(titles(&s, &ctx, &Node::All).join(""), "ab");
+        ctx.config.select.difficulty_filter = DifficultyFilter::Another;
+        assert_eq!(titles(&s, &ctx, &Node::All).join(""), "a");
+        let counts: Vec<usize> = s
+            .build(&ctx, &Node::Root, true)
+            .iter()
+            .filter_map(|b| match b {
+                Bar::Folder {
+                    node: Node::All | Node::Folder(_),
+                    count,
+                    ..
+                } => Some(*count),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(counts, [1, 1]);
+        // nothing left: no folder of it
+        ctx.config.select.key_filter = KeyFilter::K5;
+        let folders = s.build(&ctx, &Node::Root, true);
+        assert!(!folders.iter().any(|b| matches!(
+            b,
+            Bar::Folder {
+                node: Node::Folder(_),
+                ..
+            }
+        )));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

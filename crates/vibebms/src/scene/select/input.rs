@@ -160,6 +160,12 @@ impl SelectScene {
         match code {
             // beatoraja number keys: 3 LN mode, 6 key config (7 skin
             // select: beatoraja's F12 rescans here)
+            // 1 key mode filter, 2 sort (as beatoraja), 4 difficulty filter
+            KeyCode::Digit1 | KeyCode::Numpad1 => return self.option(ctx, SelectOption::KeyFilter),
+            KeyCode::Digit2 | KeyCode::Numpad2 => return self.option(ctx, SelectOption::Sort),
+            KeyCode::Digit4 | KeyCode::Numpad4 => {
+                return self.option(ctx, SelectOption::DifficultyFilter)
+            }
             KeyCode::Digit3 | KeyCode::Numpad3 => return self.option(ctx, SelectOption::LnMode),
             KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13),
             KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14),

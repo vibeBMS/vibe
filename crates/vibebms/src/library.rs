@@ -59,6 +59,10 @@ pub struct Song {
     /// The long notes by type (`LnProfile::bits`); `None` in libraries
     /// scanned before it was stored.
     pub ln_profile: Option<u8>,
+    /// When its file was last changed (s; the scan's stamp): when it came,
+    /// for the NEW sort.
+    #[serde(skip)]
+    pub added: i64,
 }
 
 impl Song {
@@ -347,7 +351,10 @@ impl Library {
         load_songs(&self.songs_file)
             .into_iter()
             .filter(|r| r.skipped_by.is_none())
-            .map(|r| r.song)
+            .map(|r| Song {
+                added: r.mtime,
+                ..r.song
+            })
             .collect()
     }
 
@@ -710,6 +717,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         stagefile: m.stagefile.clone(),
         banner: m.banner.clone(),
         preview: m.preview.clone(),
+        added: 0,
     }
 }
 

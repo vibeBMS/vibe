@@ -283,8 +283,12 @@ fn builtin_select_skins_load() {
         assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
         // the IR lamp beside the player's
         assert!(sl.my_lamp.len() == 11 && sl.rival_lamp.len() == 11);
-        // the 11 option buttons and the folder back button are clickable
-        assert_eq!(sk.objects.iter().filter(|o| o.act.is_some()).count(), 12);
+        // the option buttons and the folder back button are clickable
+        let buttons = crate::scene::select::SelectOption::ALL.len() + 1;
+        assert_eq!(
+            sk.objects.iter().filter(|o| o.act.is_some()).count(),
+            buttons
+        );
         let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();
         assert!(load(&path, &HashMap::new(), &crate::skin::image_size).is_ok());
     }
