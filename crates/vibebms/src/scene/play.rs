@@ -126,6 +126,8 @@ pub struct PlayScene {
     pub(crate) ln: LnType,
     /// The LN mode the play is filed under (`LnProfile::score_ln`).
     pub(crate) score_ln: LnType,
+    /// The TOTAL the gauge uses.
+    pub(crate) total: f64,
     pub(crate) seed: i64,
     pub(crate) error: Option<String>,
     /// The replay's next op (watching one).
@@ -361,6 +363,7 @@ impl PlayScene {
             mode,
             ln: play_ln,
             score_ln: LnType::Ln,
+            total: 0.0,
             seed: 0,
             error: None,
             replay_at: 0,
@@ -401,10 +404,6 @@ impl PlayScene {
         } else {
             self.mode.player_of_lane(lane).min(1)
         }
-    }
-
-    pub(crate) fn ln_mode(&self) -> LnType {
-        self.ln
     }
 
     pub(crate) fn ending_at(&self) -> Option<Instant> {
@@ -484,7 +483,8 @@ impl PlayScene {
             chart.meta.judge_rank,
             p.expand_judge.then_some(p.judge_rates),
         );
-        let total = chart.total(self.ln);
+        let total = chart.total_for(self.ln, gauge_preset);
+        self.total = total;
         let notes = chart.total_judgements(self.ln);
         let gauge_type = if course.is_some() {
             p.gauge.to_class()

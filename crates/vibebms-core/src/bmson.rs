@@ -380,6 +380,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     } else {
         default_total
     });
+    chart.meta.total_rate = Some(info.total);
     chart.compute_bpm_stats();
     Ok(chart)
 }

@@ -316,20 +316,51 @@ impl WindowRule {
     }
 }
 
-/// LR2 windows (ms) for #RANK 0..=3: PG, GR, GD; BAD is ±200 for all ranks.
-const LR2_WINDOWS: [[i64; 3]; 4] = [[8, 24, 40], [15, 30, 60], [18, 40, 100], [21, 60, 120]];
+/// LR2 windows (µs) of PG, GR, GD by judge rank 0 / 25 (VERY HARD) / 50
+/// (HARD) / 75 (NORMAL) / 100 % (EASY); BAD is ±200 ms at every rank.
+const LR2_WINDOWS: [[i64; 5]; 3] = [
+    [0, 8_000, 15_000, 18_000, 21_000],
+    [0, 24_000, 30_000, 40_000, 60_000],
+    [0, 40_000, 60_000, 100_000, 120_000],
+];
+const LR2_BAD: i64 = 200_000;
 
+/// The judge rank in percent as LR2oraja takes it: `#RANK` 0..3 are 25 to
+/// 100, `#RANK 4` and out-of-range values NORMAL (75); `#DEFEXRANK` is a
+/// percentage of NORMAL; bmson `judge_rank` is used as is.
+fn lr2_rank(rank: JudgeRank) -> i64 {
+    match rank {
+        JudgeRank::Rank(n) if (0..4).contains(&n) => 25 * (n as i64 + 1),
+        JudgeRank::Rank(_) => 75,
+        JudgeRank::DefExRank(v) if v >= 1.0 => (v.min(10_000.0) as i64) * 75 / 100,
+        JudgeRank::DefExRank(_) => 75,
+        JudgeRank::Bmson(v) if v > 0.0 => (v.min(10_000.0) as i64).max(1),
+        JudgeRank::Bmson(_) => 100,
+    }
+}
+
+/// An LR2 window at judge rank `pct`: between the ranks of the table it
+/// is interpolated, from EASY up it grows in proportion.
+fn lr2_window(row: &[i64; 5], pct: i64) -> i64 {
+    if pct >= 100 {
+        return row[4] * pct / 100;
+    }
+    let i = (pct / 25) as usize;
+    row[i] + (pct - 25 * i as i64) * (row[i + 1] - row[i]) / 25
+}
+
+/// LR2 windows in µs: PG, GR, GD, BAD and empty POOR (up to 1 s early,
+/// none late).
 fn lr2_windows(rank: JudgeRank) -> Vec<(i64, i64)> {
-    let (w, scale) = match rank {
-        JudgeRank::Rank(n) => (LR2_WINDOWS[n.clamp(0, 3) as usize], 100),
-        // LR2 has no DEFEXRANK; scale NORMAL like beatoraja does.
-        JudgeRank::DefExRank(v) => (LR2_WINDOWS[2], v.clamp(10.0, 200.0) as i64),
-        JudgeRank::Bmson(v) => (LR2_WINDOWS[3], v.clamp(10.0, 200.0) as i64),
-    };
-    let s = |ms: i64| (ms * scale / 100).min(200);
-    let mut v: Vec<(i64, i64)> = w.iter().map(|ms| (-s(*ms), s(*ms))).collect();
-    v.push((-200, 200));
-    v.push((-150, 500));
+    let pct = lr2_rank(rank);
+    let mut v: Vec<(i64, i64)> = Vec::new();
+    for row in &LR2_WINDOWS {
+        let prev = v.last().map_or(0, |w: &(i64, i64)| w.1);
+        let w = lr2_window(row, pct).clamp(prev, LR2_BAD);
+        v.push((-w, w));
+    }
+    v.push((-LR2_BAD, LR2_BAD));
+    v.push((0, 1_000_000));
     v
 }
 
@@ -381,7 +412,7 @@ pub fn judge_rules(
             }
         }
         JudgePreset::Lr2 => {
-            let note = us(&lr2_windows(rank));
+            let note = lr2_windows(rank);
             // LR2 judges a long note's release with the GOOD window for
             // PG..GD (LR2oraja: the LN end table is GOOD-wide at every
             // #RANK), BAD as usual
@@ -475,6 +506,35 @@ mod tests {
         assert_eq!(r.windows.note[0], (-18_000, 18_000));
         assert_eq!(r.windows.note[2], (-100_000, 100_000));
         assert_eq!(r.windows.note[3], (-200_000, 200_000));
+        // empty POOR: up to 1 s early, never late
+        assert_eq!(r.windows.note[4], (0, 1_000_000));
+        let lr2 = |rank| {
+            judge_rules(JudgePreset::Lr2, RuleFamily::SevenKeys, rank, None)
+                .windows
+                .note
+        };
+        assert_eq!(
+            lr2(JudgeRank::Rank(0))[..3],
+            [(-8_000, 8_000), (-24_000, 24_000), (-40_000, 40_000)]
+        );
+        assert_eq!(lr2(JudgeRank::Rank(3))[2], (-120_000, 120_000));
+        // #RANK 4 and out of range: NORMAL
+        assert_eq!(lr2(JudgeRank::Rank(4)), r.windows.note);
+        assert_eq!(lr2(JudgeRank::Rank(-1)), r.windows.note);
+        assert_eq!(lr2(JudgeRank::Rank(12)), r.windows.note);
+        // #DEFEXRANK 100 is NORMAL; 120 is 90 %: 60 % of the way to EASY
+        assert_eq!(lr2(JudgeRank::DefExRank(100.0)), r.windows.note);
+        let d = lr2(JudgeRank::DefExRank(120.0));
+        assert_eq!(
+            d[..3],
+            [(-19_800, 19_800), (-52_000, 52_000), (-112_000, 112_000)]
+        );
+        // bmson 200 %: EASY doubled, kept inside BAD
+        let b = lr2(JudgeRank::Bmson(200.0));
+        assert_eq!(
+            b[..3],
+            [(-42_000, 42_000), (-120_000, 120_000), (-200_000, 200_000)]
+        );
     }
 
     #[test]

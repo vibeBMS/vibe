@@ -617,7 +617,7 @@ impl SkinState for SceneState<'_> {
                     return Some(k[(id - 350) as usize]);
                 }
                 if id == 368 {
-                    return Some(s.chart.total(s.ln_mode()) as i64);
+                    return Some(s.total as i64);
                 }
                 return super::skinned::song_number(&s.req.song, id);
             }
