@@ -1,0 +1,33 @@
+# Weekly dependency updates. Minor and patch releases of each ecosystem come
+# as one grouped pull request; a major release gets its own.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Seoul
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /platform/android
+    schedule:
+      interval: monthly
+      timezone: Asia/Seoul
+    groups:
+      gradle:
+        patterns: ["*"]
