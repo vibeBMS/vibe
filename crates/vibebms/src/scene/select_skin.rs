@@ -244,7 +244,7 @@ impl SkinState for SelectState<'_> {
             })?,
             77 => b(|b| b.play_count as i64)?,
             78 => b(|b| b.clear_count as i64)?,
-            79 => b(|b| (b.play_count - b.clear_count) as i64)?,
+            79 => b(|b| b.play_count.saturating_sub(b.clear_count) as i64)?,
             80..=84 => song.map(|_| {
                 best.map(|b| b.judges[(id - 80) as usize] as i64)
                     .unwrap_or(0)

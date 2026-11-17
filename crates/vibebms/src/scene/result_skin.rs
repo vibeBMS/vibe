@@ -230,7 +230,7 @@ impl SkinState for ResultState<'_> {
             77 => after.map(|b| b.play_count as i64).unwrap_or(0),
             78 => after.map(|b| b.clear_count as i64).unwrap_or(0),
             79 => after
-                .map(|b| (b.play_count - b.clear_count) as i64)
+                .map(|b| b.play_count.saturating_sub(b.clear_count) as i64)
                 .unwrap_or(0),
             90 => m.max_bpm.round() as i64,
             91 => m.min_bpm.round() as i64,
