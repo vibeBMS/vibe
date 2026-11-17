@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Package the Linux executable as a Flatpak bundle (platform/flatpak):
-#   <out>/vibeBMS-linux-x64.flatpak    `flatpak install` takes it and fetches the
+#   <out>/vibeBMS-linux-<x64|arm64>.flatpak   `flatpak install` takes it and fetches the
 #                                      runtime (org.gnome.Platform) from Flathub
 #
 #   tools/package_flatpak.sh <vibebms> <out dir>
 #
-# <vibebms> is the `browser` build (vibebms-linux-x64): the runtime has its
+# <vibebms> is the `browser` build of this machine's architecture (vibebms-linux-x64
+# or -arm64): the runtime has its
 # WebKitGTK 4.1. The identity comes from tools/ci_version.sh (VIBEBMS_APP_ID,
 # VIBEBMS_APP_NAME, VIBEBMS_VERSION, VIBEBMS_CHANNEL, which is the branch);
 # a local run is io.github.vibebms.dev. Needs flatpak and flatpak-builder; the

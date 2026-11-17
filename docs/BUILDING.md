@@ -27,8 +27,8 @@ links it), hence the two builds.
 Optional JACK output: `cargo build --release --features jack` (needs `libjack-dev`).
 
 ### Flatpak
-`tools/package_flatpak.sh <vibebms> <out dir>` packages an x86_64 `browser` build as it is (no build from source)
-into `<out dir>/vibeBMS-linux-x64.flatpak`, with the manifest, desktop entry and AppStream data in `platform/flatpak`
+`tools/package_flatpak.sh <vibebms> <out dir>` packages a `browser` build of the machine's architecture as it is (no build from source)
+into `<out dir>/vibeBMS-linux-x64.flatpak` (or `-arm64`; a bundle holds one architecture, so CI makes one per architecture), with the manifest, desktop entry and AppStream data in `platform/flatpak`
 and the icons from `assets/logo`. It fills in the channel's app id, name and version (`tools/ci_version.sh`; a local
 run is `io.github.vibebms.dev`, "vibeBMS Dev", on the branch `dev`), checks the desktop entry and AppStream data
 (`desktop-file-validate`, `appstreamcli`, when installed), builds with `flatpak-builder` and bundles with
@@ -42,7 +42,7 @@ browser links; the Freedesktop runtime has no WebKitGTK. Its permissions: networ
 PulseAudio, all devices (game controllers) and the home folder (BMS folders added in `SETTINGS › LIBRARY`). CI builds
 the nightly's (`io.github.vibebms.nightly`, "vibeBMS Nightly", branch `nightly`) from `vibebms-linux-x64`, caches the
 runtime and SDK, checks that the bundle installs and that every library the executable links resolves in the runtime,
-and adds the bundle to the nightly release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak`; a
+and adds the bundle to the nightly release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak` (or `-arm64`); a
 newer bundle installs over it the same way (it does not update itself: the self-update stays off under `/app`).
 Inside the Flatpak the executable's folder (`/app/bin`) is read-only, so the data root is `$XDG_DATA_HOME/vibeBMS`,
 which Flatpak makes `~/.var/app/<app id>/data/vibeBMS`. Video BGA needs an `ffmpeg` executable, which the runtime does
@@ -200,7 +200,7 @@ executable to find itself in it). `latest.json` stays as it is, for the self-upd
 - `files` has the desktop executables of the release (`vibebms-linux-*`, `vibebms-macos-arm64`, `-x64`,
   `vibebms-windows-*.exe`) and, named `<file in the release>/<path inside it>`, the macOS app's universal executable
   (from the app's zip; the `.dmg` has the same app) and the Android library for each ABI (`lib/<abi>/` in the APK).
-  The Flatpak runs `vibebms-linux-x64` unchanged, so that entry is its hash too.
+  The Flatpaks run `vibebms-linux-x64` / `-arm64` unchanged, so those entries are their hashes too.
 - Not in it: the web build (no executable: any page can claim any hash) and the iOS app (signing it, by AltStore or
   the App Store, rewrites the executable, so it has no hash of its own).
 - The job downloads the previous `builds.json` (`gh release download`), appends, and keeps nightlies for 90 days (the
