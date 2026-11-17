@@ -337,7 +337,7 @@ impl SkinStore {
         #[cfg(target_arch = "wasm32")]
         {
             let skins = paths.skins.clone();
-            web_install(e, skins, old, progress, 0, Vec::new(), move |r| {
+            web_install(e, skins, old, progress, move |r| {
                 let _ = tx.send(Msg::Done(id, r));
             });
         }
@@ -631,8 +631,27 @@ fn install_staged(
     Ok(folders)
 }
 
-/// Download entry `e`'s archives (this thread's progress tells how far)
-/// and install them.
+/// Entry `e`'s archives as bmseeker's `Files` takes them (authors' links).
+fn sources(e: &SkinEntry) -> Vec<bmseeker::install::job::Source> {
+    e.downloads
+        .iter()
+        .map(|u| bmseeker::install::job::Source {
+            url: u.clone(),
+            plain: false,
+        })
+        .collect()
+}
+
+/// What an archive that did not come is.
+fn missed(m: bmseeker::install::job::Missed) -> Fail {
+    match m.fetch {
+        crate::hosts::Fetch::Page => Fail::Page(m.url),
+        crate::hosts::Fetch::Failed(e) => e.into(),
+    }
+}
+
+/// Download entry `e`'s archives (bmseeker's `Files`; this thread's
+/// progress tells how far) and install them.
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_and_install(
     root: &Path,
@@ -640,24 +659,22 @@ fn fetch_and_install(
     e: &SkinEntry,
     old: &[String],
 ) -> Result<Vec<String>, Fail> {
-    use crate::hosts::{context, fetch, Fetch};
+    use bmseeker::install::job::Files;
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
     let stem = format!(".skin-{}", safe_name(&e.id));
-    let mut got = Vec::new();
-    let r = (|| {
-        for (i, url) in e.downloads.iter().enumerate() {
-            let tmp = downloads.join(format!("{stem}-{i}.part"));
-            got.push(tmp.clone());
-            match fetch(url, None, &tmp, context()) {
-                Ok(()) => {}
-                Err(Fetch::Page) => return Err(Fail::Page(url.clone())),
-                Err(Fetch::Failed(m)) => return Err(m.into()),
-            }
+    let slots = downloads.join(&stem);
+    let got: Vec<PathBuf> = (0..e.downloads.len())
+        .map(|i| Files::slot(&slots, i))
+        .collect();
+    let fetched = crate::hosts::fetch_files(sources(e), &slots, crate::hosts::context());
+    let r = match fetched {
+        Ok(_) => {
+            bmseeker::progress::stage(bmseeker::progress::Stage::Unpacking);
+            install_files(&got, skins, &downloads.join(&stem), e, old).map_err(Fail::Msg)
         }
-        bmseeker::progress::stage(bmseeker::progress::Stage::Unpacking);
-        install_files(&got, skins, &downloads.join(&stem), e, old).map_err(Fail::Msg)
-    })();
+        Err(m) => Err(missed(m)),
+    };
     for f in &got {
         let _ = std::fs::remove_file(f);
     }
@@ -665,19 +682,45 @@ fn fetch_and_install(
 }
 
 /// The web build: entry `e`'s archives one after another through the
-/// vibeBMS proxy, unpacked in memory; then the old folders go and the
-/// files are kept in the browser's storage.
+/// vibeBMS proxy (bmseeker's `Files` in the page), unpacked in memory;
+/// then the old folders go and the files are kept in the browser's
+/// storage.
 #[cfg(target_arch = "wasm32")]
 fn web_install(
     e: SkinEntry,
     skins: PathBuf,
     old: Vec<String>,
     progress: Arc<Progress>,
-    i: usize,
-    mut placed: Vec<(PathBuf, Vec<u8>)>,
     done: impl FnOnce(Result<Vec<String>, Fail>) + Send + 'static,
 ) {
-    let Some(url) = e.downloads.get(i).cloned() else {
+    use bmseeker::install::job::Files;
+    let cx = crate::hosts::context().with_progress(progress.clone());
+    let job = Files::new(sources(&e), PathBuf::new(), &cx).failures_are_pages();
+    crate::platform::run_job(job, Some(progress.clone()), move |r| {
+        let got = match r {
+            Ok(got) => got,
+            Err(m) => return done(Err(missed(m))),
+        };
+        progress.set_stage(bmseeker::progress::Stage::Unpacking);
+        let mut placed: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        for g in got {
+            let bmseeker::unpack::Blob::Bytes(bytes) = g.blob else {
+                continue;
+            };
+            let mut files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+            if let Err(m) =
+                bmseeker::unpack::unpack_bytes(bytes, |rel, data| files.push((rel, data)))
+            {
+                return done(Err(Fail::Msg(m)));
+            }
+            let names: Vec<PathBuf> = files.iter().map(|(r, _)| r.clone()).collect();
+            let mut by: std::collections::HashMap<PathBuf, Vec<u8>> = files.into_iter().collect();
+            for (from, to) in place(&e, &names) {
+                if let Some(data) = by.remove(&from) {
+                    placed.push((to, data));
+                }
+            }
+        }
         if !placed.iter().any(|(to, _)| is_skin_file(to)) {
             return done(Err(Fail::Msg("the archive holds no skin".into())));
         }
@@ -692,28 +735,7 @@ fn web_install(
         for (to, data) in placed {
             crate::platform::vfs::store(&skins.join(to), data);
         }
-        return done(Ok(folders));
-    };
-    let p = progress.clone();
-    crate::archive::web_fetch(url, None, Some(progress.clone()), move |r| match r {
-        Err(f) => done(Err(f)),
-        Ok(bytes) => {
-            p.set_stage(bmseeker::progress::Stage::Unpacking);
-            let mut files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-            if let Err(m) =
-                bmseeker::unpack::unpack_bytes(bytes, |rel, data| files.push((rel, data)))
-            {
-                return done(Err(Fail::Msg(m)));
-            }
-            let names: Vec<PathBuf> = files.iter().map(|(r, _)| r.clone()).collect();
-            let mut by: std::collections::HashMap<PathBuf, Vec<u8>> = files.into_iter().collect();
-            for (from, to) in place(&e, &names) {
-                if let Some(data) = by.remove(&from) {
-                    placed.push((to, data));
-                }
-            }
-            web_install(e, skins, old, progress, i + 1, placed, done)
-        }
+        done(Ok(folders))
     });
 }
 

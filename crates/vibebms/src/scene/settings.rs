@@ -1006,6 +1006,14 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     crate::hosts::set_third_party(c.config.third_party_mirrors);
                 },
             ));
+            v.push(it(
+                "Name song folders after their charts ([artist] title)",
+                onoff(c.name_song_folders),
+                |c, _| {
+                    c.config.name_song_folders = !c.config.name_song_folders;
+                    crate::hosts::set_folder_naming(c.config.name_song_folders);
+                },
+            ));
             v.push(Item {
                 label: "Restore default tables".into(),
                 value: "↵".into(),

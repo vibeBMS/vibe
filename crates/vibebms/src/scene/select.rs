@@ -691,20 +691,26 @@ impl SelectScene {
                         song.push(u);
                     }
                 }
-                // its separate chart's links, then add-ons each
-                let mut links = vec![(song, false), (ctx.links.links.chart_links(&e), true)];
-                links.extend(addons.into_iter().map(|a| (vec![a], true)));
-                // the song is in the library (another of its charts): only
-                // this chart, the song not again
+                // its separate chart's links; add-ons each after
+                let entry = bmseeker::install::Entry {
+                    md5: md5.clone(),
+                    want: crate::hosts::Want {
+                        title: title.clone(),
+                        artist: artist.clone(),
+                    },
+                    org_md5,
+                    song,
+                    chart: ctx.links.links.chart_links(&e),
+                    ..Default::default()
+                };
+                // the song is in the library (another of its charts): what
+                // to say when nothing can be tried
                 let have_song = !md5.is_empty()
                     && ctx.songs.iter().any(|s| {
                         crate::placement::same_name(&s.title, &title)
                             && crate::placement::same_artist(&s.artist, &artist)
                     });
-                if ctx
-                    .song_fetch
-                    .start(&root, &title, &artist, &md5, org_md5, links, have_song)
-                {
+                if ctx.song_fetch.start(&root, entry, addons) {
                     ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
                     return Next::Stay;
                 }

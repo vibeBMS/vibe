@@ -743,6 +743,10 @@ pub struct Config {
     /// dead sites and uploaders, the community archive (bmseeker's
     /// `third_party`).
     pub third_party_mirrors: bool,
+    /// A song downloaded into the library gets a folder named after its
+    /// charts (`[artist] title`, as BeMusicSeeker names one), not after
+    /// the song's title (bmseeker's `folder_naming`).
+    pub name_song_folders: bool,
     /// Internet ranking server (an older `ir` list is ignored).
     pub ir_server: IrConfig,
     /// Play skin per key mode ("7KEYS" -> path of an .lr2skin, relative to the data folder).
@@ -780,6 +784,7 @@ impl Default for Config {
                 .map(|s| s.to_string())
                 .collect(),
             third_party_mirrors: THIRD_PARTY_DEFAULT,
+            name_song_folders: false,
             ir_server: IrConfig::default(),
             skins: Default::default(),
             skin_options: Default::default(),

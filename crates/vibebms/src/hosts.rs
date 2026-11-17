@@ -15,6 +15,30 @@ pub fn set_third_party(on: bool) {
     THIRD_PARTY.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+static FOLDER_NAMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a song's folder is named after its charts (the "Name song
+/// folders after their charts" setting: bmseeker's `folder_naming`).
+pub fn set_folder_naming(on: bool) {
+    FOLDER_NAMING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// What a song's download installs with: [`context`], its folder named as
+/// [`set_folder_naming`] says.
+pub fn install_context() -> Context {
+    let cx = context();
+    if !FOLDER_NAMING.load(std::sync::atomic::Ordering::Relaxed) {
+        return cx.clone();
+    }
+    Context {
+        config: std::sync::Arc::new(bmseeker::config::Config {
+            folder_naming: true,
+            ..(*cx.config).clone()
+        }),
+        ..cx.clone()
+    }
+}
+
 /// What the app resolves links with: bmseeker's default settings and hosts
 /// (third parties' copies too, when [`set_third_party`]).
 pub fn context() -> &'static Context {
