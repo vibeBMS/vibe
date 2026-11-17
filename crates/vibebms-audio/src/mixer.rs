@@ -2,7 +2,7 @@ use crate::clock::{FrameClock, Obs};
 use crate::decode::Sample;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
@@ -91,6 +91,48 @@ struct Voice {
     looping: bool,
 }
 
+impl Voice {
+    /// Add the voice's part of the buffer starting at frame `now` to `mix`
+    /// (interleaved stereo) at `gain`; false once it is done.
+    fn render(&mut self, mix: &mut [f32], now: u64, gain: f32) -> bool {
+        let end_frame = now + (mix.len() / 2) as u64;
+        if self.start_at >= end_frame {
+            return true;
+        }
+        if self.cut_at <= now {
+            return false;
+        }
+        let first = self.start_at.saturating_sub(now) as usize;
+        let last = (self.cut_at.min(end_frame) - now) as usize;
+        let mut i = first;
+        while i < last {
+            if self.pos >= self.end {
+                if self.looping && self.end > self.start {
+                    self.pos = self.start;
+                } else {
+                    return false;
+                }
+            }
+            let n = (last - i).min(self.end - self.pos);
+            if gain != 0.0 {
+                self.sample
+                    .mix_into(self.pos, &mut mix[i * 2..(i + n) * 2], gain);
+            }
+            self.pos += n;
+            i += n;
+        }
+        self.cut_at > end_frame && (self.pos < self.end || self.looping)
+    }
+}
+
+/// Hands a voice's sample back to the main thread to drop (it may be the
+/// last reference: freeing megabytes in the audio callback could make it
+/// late); false, for `retain`.
+fn retire(to: &SyncSender<Arc<Sample>>, v: &Voice) -> bool {
+    let _ = to.try_send(v.sample.clone());
+    false
+}
+
 enum Cmd {
     Play(Voice),
     Volume(u64, f32),
@@ -112,10 +154,17 @@ struct State {
     clock: FrameClock,
     /// What `Voice::at_us` counts from.
     epoch: Instant,
+    retired: SyncSender<Arc<Sample>>,
 }
 
 impl State {
-    fn new(rx: Receiver<Cmd>, cfg: &AudioConfig, frame: Arc<AtomicU64>, epoch: Instant) -> State {
+    fn new(
+        rx: Receiver<Cmd>,
+        retired: SyncSender<Arc<Sample>>,
+        cfg: &AudioConfig,
+        frame: Arc<AtomicU64>,
+        epoch: Instant,
+    ) -> State {
         State {
             rx,
             voices: Vec::with_capacity(cfg.max_voices),
@@ -125,8 +174,9 @@ impl State {
             mix: vec![0.0; 8192],
             max_voices: cfg.max_voices.max(16),
             shared_frame: frame,
-            clock: FrameClock::new(44_100),
+            clock: FrameClock::new(SILENT_RATE),
             epoch,
+            retired,
         }
     }
 
@@ -151,16 +201,19 @@ impl State {
     fn handle(&mut self) {
         while let Ok(c) = self.rx.try_recv() {
             match c {
-                Cmd::Play(v) => {
+                Cmd::Play(mut v) => {
                     if v.at_us.is_none() {
-                        self.cut_key(v.key, v.start_at.max(self.frame), None);
+                        // played now (or late): it starts here, which is
+                        // what the eviction below goes by
+                        v.start_at = v.start_at.max(self.frame);
+                        self.cut_key(v.key, v.start_at, None);
                     }
                     if self.voices.len() >= self.max_voices {
                         // drop the voice that started first
                         if let Some(i) =
                             (0..self.voices.len()).min_by_key(|i| self.voices[*i].start_at)
                         {
-                            self.voices.swap_remove(i);
+                            retire(&self.retired, &self.voices.swap_remove(i));
                         }
                     }
                     self.voices.push(v);
@@ -170,23 +223,21 @@ impl State {
                     .iter_mut()
                     .filter(|v| v.key == k)
                     .for_each(|v| v.vol = vol),
-                Cmd::Stop(k) => self.voices.retain(|v| v.key != k),
-                Cmd::StopBus(b) => self.voices.retain(|v| v.bus != b),
+                Cmd::Stop(k) => self
+                    .voices
+                    .retain(|v| v.key != k || retire(&self.retired, v)),
+                Cmd::StopBus(b) => self
+                    .voices
+                    .retain(|v| v.bus != b || retire(&self.retired, v)),
                 Cmd::BusVolume(b, v) => self.bus[b as usize] = v,
                 Cmd::Master(v) => self.master = v,
             }
         }
     }
 
-    /// Render `frames` stereo frames into `self.mix`.
-    #[cfg(test)]
-    fn render(&mut self, frames: usize) {
-        self.render_obs(frames, None);
-    }
-
     /// Render `frames` stereo frames into `self.mix`, with what the
     /// callback knows of the time (see `clock`).
-    fn render_obs(&mut self, frames: usize, obs: Option<Obs>) {
+    fn render(&mut self, frames: usize, obs: Option<Obs>) {
         if let Some(o) = obs {
             self.clock.observe(o);
         }
@@ -212,39 +263,10 @@ impl State {
         }
         let mix = &mut self.mix[..frames * 2];
         mix.fill(0.0);
-        let bus = self.bus;
-        let master = self.master;
+        let (bus, master, retired) = (self.bus, self.master, &self.retired);
         self.voices.retain_mut(|v| {
-            if v.start_at >= end_frame {
-                return true;
-            }
-            if v.cut_at <= now {
-                return false;
-            }
-            let first = v.start_at.saturating_sub(now) as usize;
-            let last = (v.cut_at.min(end_frame) - now) as usize;
             let g = v.vol * bus[v.bus as usize] * master;
-            let mut i = first;
-            while i < last {
-                if v.pos >= v.end {
-                    if v.looping && v.end > v.start {
-                        v.pos = v.start;
-                    } else {
-                        return false;
-                    }
-                }
-                let n = (last - i).min(v.end - v.pos);
-                if g != 0.0 {
-                    for k in 0..n {
-                        let (l, r) = v.sample.frame(v.pos + k);
-                        mix[(i + k) * 2] += l * g;
-                        mix[(i + k) * 2 + 1] += r * g;
-                    }
-                }
-                v.pos += n;
-                i += n;
-            }
-            v.cut_at > end_frame && (v.pos < v.end || v.looping)
+            v.render(mix, now, g) || retire(retired, v)
         });
         self.frame = end_frame;
         self.shared_frame.store(self.frame, Ordering::Release);
@@ -279,12 +301,14 @@ pub struct Mixer {
     pub sample_rate: u32,
     pub buffer_frames: u32,
     pub device_name: String,
-    _stream: Option<cpal::Stream>,
+    stream: Option<cpal::Stream>,
     /// The mixer: rendered by the stream's callback, or here while there
     /// is no stream.
     state: Arc<Mutex<State>>,
     /// The stream reported its device gone.
     lost: Arc<AtomicBool>,
+    /// Samples of the voices that ended, to drop here.
+    retired: Receiver<Arc<Sample>>,
     cfg: AudioConfig,
     /// Null output (no device): frames advance with wall-clock time from
     /// this moment and frame.
@@ -296,26 +320,34 @@ pub struct Mixer {
     web: Option<crate::web::WebOut>,
 }
 
+/// The rate and buffer of the silent output when no device opens.
+const SILENT_RATE: u32 = 44_100;
+const SILENT_BUFFER: u32 = 512;
+
 /// How long to wait between tries to reopen a lost output.
 const RETRY: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl Mixer {
     pub fn new(cfg: &AudioConfig) -> Mixer {
         let (tx, rx) = channel();
+        // room for the voices that end between two `keep_alive` calls
+        let (retire, retired) = sync_channel(cfg.max_voices.max(16) * 2);
         let frame = Arc::new(AtomicU64::new(0));
         let epoch = Instant::now();
-        let state = Arc::new(Mutex::new(State::new(rx, cfg, frame.clone(), epoch)));
+        let state = State::new(rx, retire, cfg, frame.clone(), epoch);
+        let state = Arc::new(Mutex::new(state));
         let lost = Arc::new(AtomicBool::new(false));
         let mut m = Mixer {
             tx,
             frame,
             epoch,
-            sample_rate: 44100,
-            buffer_frames: 512,
+            sample_rate: SILENT_RATE,
+            buffer_frames: SILENT_BUFFER,
             device_name: String::new(),
-            _stream: None,
+            stream: None,
             state,
             lost,
+            retired,
             cfg: cfg.clone(),
             null_start: None,
             retry_at: None,
@@ -345,7 +377,7 @@ impl Mixer {
                 m.sample_rate = rate;
                 m.buffer_frames = buf;
                 m.device_name = name;
-                m._stream = Some(stream);
+                m.stream = Some(stream);
             }
             Err(e) => {
                 log::warn!("audio output unavailable ({e}); using silent output");
@@ -359,7 +391,7 @@ impl Mixer {
 
     /// Render by the wall clock from here on (no stream).
     fn go_silent(&mut self) {
-        self._stream = None;
+        self.stream = None;
         let rate = self.sample_rate;
         let mut st = self.state.lock().unwrap();
         st.clock = FrameClock::new(rate);
@@ -371,11 +403,12 @@ impl Mixer {
     /// meanwhile the mixer goes on silently with the clock, so the play
     /// does not stall.
     pub fn keep_alive(&mut self) {
+        self.retired.try_iter().for_each(drop);
         #[cfg(target_arch = "wasm32")]
         if self.web.is_some() {
             return;
         }
-        if self.lost.swap(false, Ordering::AcqRel) && self._stream.is_some() {
+        if self.lost.swap(false, Ordering::AcqRel) && self.stream.is_some() {
             log::warn!("audio: the output device is gone; reopening");
             self.go_silent();
             self.retry_at = Some(Instant::now());
@@ -401,7 +434,7 @@ impl Mixer {
                 }
                 self.buffer_frames = buf;
                 self.device_name = name;
-                self._stream = Some(stream);
+                self.stream = Some(stream);
                 self.null_start = None;
                 self.retry_at = None;
             }
@@ -419,20 +452,24 @@ impl Mixer {
             return w.current_frame();
         }
         if let Some((start, base)) = self.null_start {
-            let target = base + (start.elapsed().as_secs_f64() * self.sample_rate as f64) as u64;
+            let rate = self.sample_rate as u64;
+            let target = base + (start.elapsed().as_secs_f64() * rate as f64) as u64;
             let mut s = self.state.lock().unwrap();
+            // after a long time unasked (a hidden window) only the last
+            // second is rendered: the sounds pause over the rest
+            s.frame = s.frame.max(target.saturating_sub(rate));
             let start_us = s.us(start);
             while s.frame < target {
                 let n = ((target - s.frame) as usize).min(4096);
                 // the frames are the clock here
-                let t = start_us + (s.frame - base) as f64 * 1e6 / self.sample_rate as f64;
+                let t = start_us + (s.frame - base) as f64 * 1e6 / rate as f64;
                 let obs = Obs {
                     frame: s.frame,
                     frames: n,
                     stream_us: Some(t),
                     now_us: t,
                 };
-                s.render_obs(n, Some(obs));
+                s.render(n, Some(obs));
             }
             return s.frame;
         }
@@ -522,7 +559,7 @@ impl Mixer {
         if let Some(w) = &self.web {
             w.resume();
         }
-        if let Some(s) = &self._stream {
+        if let Some(s) = &self.stream {
             let _ = s.play();
         }
     }
@@ -676,7 +713,7 @@ where
                     stream_us: cb.duration_since(&base).map(|d| d.as_secs_f64() * 1e6),
                     now_us: st.us(Instant::now()),
                 };
-                st.render_obs(frames, Some(obs));
+                st.render(frames, Some(obs));
                 for f in 0..frames {
                     let l = soft_clip(st.mix[f * 2]);
                     let r = soft_clip(st.mix[f * 2 + 1]);
@@ -718,7 +755,14 @@ mod tests {
             max_voices: 64,
             ..Default::default()
         };
-        let st = State::new(rx, &cfg, Arc::new(AtomicU64::new(0)), Instant::now());
+        let (retire, _) = sync_channel(1);
+        let st = State::new(
+            rx,
+            retire,
+            &cfg,
+            Arc::new(AtomicU64::new(0)),
+            Instant::now(),
+        );
         (tx, st)
     }
 
@@ -751,10 +795,10 @@ mod tests {
         let (tx, mut st) = state();
         let s = sample(10, 16384);
         tx.send(Cmd::Play(voice(&s, 5, 0))).unwrap();
-        st.render(8);
+        st.render(8, None);
         assert_eq!(st.mix[2 * 4], 0.0);
         assert!((st.mix[2 * 5] - 0.5).abs() < 1e-3);
-        st.render(8);
+        st.render(8, None);
         // frames 8..15 continue the voice (frames 3..9 of sample at 8..12)
         assert!((st.mix[2 * 6] - 0.5).abs() < 1e-3);
         assert_eq!(st.mix[2 * 7], 0.0);
@@ -793,7 +837,7 @@ mod tests {
                     stream_us: Some(t + 1e9),
                     now_us: t + 300.0,
                 };
-                st.render_obs(buf, Some(obs));
+                st.render(buf, Some(obs));
                 due.retain(|(k, d)| match st.voices.iter().find(|v| v.key == *k) {
                     Some(v) if v.at_us.is_none() => {
                         let heard = v.start_at as f64 * 1e6 / true_rate;
@@ -817,13 +861,13 @@ mod tests {
     #[test]
     fn a_late_deadline_starts_now_from_its_beginning() {
         let (tx, mut st) = state();
-        st.render(480);
+        st.render(480, None);
         let s = sample(100, 16384);
         let mut v = voice(&s, u64::MAX, 3);
         // due at frame 0 (long past)
         v.at_us = Some(0.0);
         tx.send(Cmd::Play(v)).unwrap();
-        st.render(10);
+        st.render(10, None);
         assert_eq!(st.voices[0].start_at, 480);
         assert_eq!(st.voices[0].pos, 10);
         assert!((st.mix[0] - 0.5).abs() < 1e-3);
@@ -839,9 +883,9 @@ mod tests {
         tx.send(Cmd::Play(v)).unwrap();
         // the same sound played now does not cancel the scheduled one
         tx.send(Cmd::Play(voice(&s, 0, 9))).unwrap();
-        st.render(100);
+        st.render(100, None);
         assert_eq!(st.voices.len(), 2);
-        st.render(400);
+        st.render(400, None);
         // the scheduled one started and cut the first there
         assert_eq!(st.voices.len(), 1);
         assert_eq!(st.voices[0].start_at, 441);
@@ -868,7 +912,7 @@ mod tests {
         m.current_frame();
         assert!(m.state.lock().unwrap().voices.is_empty());
         m.keep_alive();
-        match m._stream {
+        match m.stream {
             Some(_) => assert!(m.null_start.is_none() && m.retry_at.is_none()),
             None => {
                 assert!(m.retry_at.is_some_and(|t| t > Instant::now()));
@@ -883,10 +927,121 @@ mod tests {
         let s = sample(100, 16384);
         tx.send(Cmd::Play(voice(&s, 0, 7))).unwrap();
         tx.send(Cmd::Play(voice(&s, 10, 7))).unwrap();
-        st.render(20);
+        st.render(20, None);
         // before frame 10 one voice, afterwards still exactly one voice
         assert!((st.mix[2 * 5] - 0.5).abs() < 1e-3);
         assert!((st.mix[2 * 15] - 0.5).abs() < 1e-3);
         assert_eq!(st.voices.len(), 1);
+    }
+
+    /// Mono and stereo voices (sliced, looping, scheduled) over buffers of
+    /// odd sizes sum to what reading them frame by frame gives.
+    #[test]
+    fn render_equals_the_frame_by_frame_sum() {
+        let (tx, mut st) = state();
+        let pcm = |ch: u16, frames: usize| {
+            Arc::new(Sample {
+                channels: ch,
+                frames,
+                data: (0..frames * ch as usize)
+                    .map(|i| (i * 7919 % 65536) as u16 as i16)
+                    .collect(),
+            })
+        };
+        let (mono, stereo) = (pcm(1, 300), pcm(2, 250));
+        // (sample, start_at, slice, looping, volume)
+        let voices = [
+            (&mono, 0u64, 0..300, false, 1.0),
+            (&stereo, 0, 20..200, false, 0.7),
+            (&mono, 50, 10..90, true, 0.3),
+            (&stereo, 123, 0..61, true, 1.3),
+        ];
+        for (s, start_at, r, looping, vol) in voices.iter().cloned() {
+            let mut v = voice(s, start_at, 0);
+            (v.pos, v.start, v.end, v.looping, v.vol) = (r.start, r.start, r.end, looping, vol);
+            tx.send(Cmd::Play(v)).unwrap();
+        }
+        let mut t = 0;
+        for buf in [37, 64, 100, 1, 128, 77, 200] {
+            st.render(buf, None);
+            for f in 0..buf {
+                let (mut l, mut r) = (0.0f32, 0.0f32);
+                for (s, start_at, range, looping, vol) in voices.iter().cloned() {
+                    let Some(k) = (t + f).checked_sub(start_at as usize) else {
+                        continue;
+                    };
+                    if !looping && k >= range.len() {
+                        continue;
+                    }
+                    let i = range.start + k % range.len();
+                    let ch = s.channels as usize;
+                    let at = |c: usize| s.data[i * ch + c.min(ch - 1)] as f32 / 32768.0 * vol;
+                    l += at(0);
+                    r += at(1);
+                }
+                let got = (st.mix[2 * f], st.mix[2 * f + 1]);
+                assert_eq!(got, (l, r), "frame {}", t + f);
+            }
+            t += buf;
+        }
+    }
+
+    /// With all voices in use, the one that started first makes room,
+    /// whether it was played now or scheduled.
+    #[test]
+    fn a_full_mixer_drops_the_voice_that_started_first() {
+        let (tx, mut st) = state();
+        let s = sample(1000, 16384);
+        st.render(100, None);
+        let mut v = voice(&s, u64::MAX, 1);
+        v.at_us = Some(0.0);
+        tx.send(Cmd::Play(v)).unwrap();
+        st.render(100, None);
+        assert_eq!(st.voices[0].start_at, 100);
+        for key in 2..=64 {
+            tx.send(Cmd::Play(voice(&s, 0, key))).unwrap();
+        }
+        st.render(100, None);
+        tx.send(Cmd::Play(voice(&s, 0, 65))).unwrap();
+        st.render(1, None);
+        let mut keys: Vec<u64> = st.voices.iter().map(|v| v.key).collect();
+        keys.sort();
+        assert_eq!(keys, (2..=65).collect::<Vec<_>>());
+    }
+
+    /// A sample whose last reference was a voice is dropped by whoever
+    /// reads `retired`, not in the callback.
+    #[test]
+    fn the_samples_of_ended_voices_go_back() {
+        let (tx, mut st) = state();
+        let (retire, retired) = sync_channel(4);
+        st.retired = retire;
+        tx.send(Cmd::Play(voice(&sample(10, 1), 0, 0))).unwrap();
+        tx.send(Cmd::Play(voice(&sample(1000, 1), 0, 4))).unwrap();
+        st.render(20, None);
+        tx.send(Cmd::Stop(4)).unwrap();
+        st.render(1, None);
+        assert!(st.voices.is_empty());
+        let back: Vec<_> = retired.try_iter().collect();
+        assert_eq!(
+            back.iter().map(|s| s.frames).collect::<Vec<_>>(),
+            [10, 1000]
+        );
+        assert!(back.iter().all(|s| Arc::strong_count(s) == 1));
+    }
+
+    /// Silent output not asked for ten seconds renders only the last one.
+    #[test]
+    fn a_long_silent_gap_renders_only_its_last_second() {
+        let mut m = Mixer::new(&AudioConfig::default());
+        m.go_silent();
+        let rate = m.sample_rate as u64;
+        let s = sample(20 * rate as usize, 1);
+        m.play(&s, PlayOptions::default());
+        let f = m.current_frame();
+        m.null_start = Some((Instant::now() - std::time::Duration::from_secs(10), f));
+        assert!(m.current_frame() >= f + 10 * rate);
+        let pos = m.state.lock().unwrap().voices[0].pos as u64;
+        assert!((rate..rate + 4096).contains(&pos), "{pos}");
     }
 }
