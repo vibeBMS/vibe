@@ -85,7 +85,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the opposite: the green number
   stays and the multiplier follows each chart's BPM.
 - Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
-  turntables work.
+  turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
+  default; see [docs/RULES.md](docs/RULES.md) "Input filters").
 - Touch (`SETTINGS › TOUCH`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
   them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the

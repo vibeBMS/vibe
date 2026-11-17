@@ -13,7 +13,7 @@ mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
 pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
-pub use keys::{KeyConfig, LaneKeys, SideKeys};
+pub use keys::{InputTuning, KeyConfig, LaneKeys, SideKeys};
 pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
 pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
 pub use touch::{
@@ -415,6 +415,11 @@ mod tests {
                 p2_start: lk(KeyCode::Numpad1, 202),
                 p2_select: lk(KeyCode::Numpad2, 203),
                 any_axis_is_scratch: false,
+                tuning: InputTuning {
+                    turntable_dead_band: 12,
+                    turntable_stop_ms: 150,
+                    chatter_ms: 8,
+                },
             },
             touch: TouchConfig {
                 mode: TouchMode::On,
@@ -561,8 +566,10 @@ mod tests {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/config.toml");
         let mut c = full_config();
-        // (written before song select's order and filters were kept)
+        // (written before song select's order and filters, and the input
+        // tuning, were kept)
         c.select = SelectConfig::default();
+        c.keys.tuning = InputTuning::default();
         c.ir = IrSettings {
             accounts: vec![IrAccount {
                 name: "Test IR".into(),

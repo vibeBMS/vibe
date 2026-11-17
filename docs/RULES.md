@@ -318,10 +318,24 @@ factor at the multiples of 10 [S1], the note-count factor from 125 notes up [S1]
 the combo rules [S4]. Mine damage has S14 (not said to be measured) and contradicting readings (S10). The kit's
 tables give S-OLR2's predictions, which are vibeBMS's rows.
 
+Input filters (`SETTINGS › KEY CONFIG`, kept in `[keys.tuning]`):
+- **Key chatter filter** (off by default; 1–50 ms): a key or controller button press that comes sooner than this
+  after the last press of its lane (and turntable direction) let through is dropped, and so is the release that
+  ends it, so presses and releases still pair. It goes by the inputs' own timestamps, not by when a frame sees
+  them, so a press is never moved in time: the presses let through are judged at their own times as without it.
+  What it changes in judging: a dropped press hits no note and is no empty POOR; two notes of one lane closer than
+  the setting cannot both be hit (16th notes at 300 BPM are 50 ms apart; keep it well under the charts' fastest
+  jacks); a bounce while a long note is held is a release and a press far from the last press, which it does not
+  drop. Touch and analog turntables are not filtered. A replay keeps the presses the judge got, so it is watched
+  the same whatever the setting.
+- **Analog turntable**: a movement between two reports smaller than the dead band (default 0.004 of the axis's
+  −1..1 range; higher is less sensitive) is not a turn, and a turntable that has not moved for the stop time
+  (default 100 ms) is let go, its release at the time it last moved plus that time.
+
 Not followed, and why no gap covers it:
 - The judging clock. LR2 judges a press on the first game tick that sees it, ticks at most every 2 ms with its
   threaded loop (else once a frame), and has an input debounce; vibeBMS judges each press at its own time, LR2 at
-  an unbounded tick rate, and has no debounce. This is deliberate. LR2's tick only delays when a press is seen,
+  an unbounded tick rate, and has no debounce by default (the chatter filter below is off). This is deliberate. LR2's tick only delays when a press is seen,
   by less than one tick (2 ms or more, a frame without the threaded loop), as a device's latency does: it changes
   a judgement only at a window's edge, by the player's setup, not by a scoring rule, and the measured windows
   (S5, taken with vertical sync off) already carry it. Windows are still compared in whole milliseconds as LR2

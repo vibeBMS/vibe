@@ -328,6 +328,11 @@ keys = [
 ]
 pad = [203]
 
+[keys.tuning]
+turntable_dead_band = 12
+turntable_stop_ms = 150
+chatter_ms = 8
+
 [touch]
 mode = "On"
 style = "Custom"

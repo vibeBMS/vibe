@@ -81,6 +81,16 @@ pub struct LaneMapper {
     axes: HashMap<u64, u8>,
     any_axis: Vec<u8>,
     axis: HashMap<u64, AxisState>,
+    /// An axis movement smaller than this is not a turn.
+    dead_band: f32,
+    /// A turntable that stops this long is let go.
+    stop: Duration,
+    /// The chatter filter (`InputTuning::chatter_ms`; zero: off), the
+    /// last press of each lane key it let through and the releases still
+    /// to drop.
+    chatter: Duration,
+    last_press: HashMap<(u8, u8), Instant>,
+    dropped: HashMap<(u8, u8), u32>,
     pub mode: PlayMode,
     /// The first two controllers swapped (VS: the 1P controller is the one
     /// connected second).
@@ -96,8 +106,6 @@ fn swapped(id: u64) -> u64 {
     }
 }
 
-const AXIS_RELEASE: Duration = Duration::from_millis(100);
-
 impl LaneMapper {
     pub fn new(cfg: &KeyConfig, mode: PlayMode) -> LaneMapper {
         let mut m = LaneMapper {
@@ -106,6 +114,11 @@ impl LaneMapper {
             axes: HashMap::new(),
             any_axis: Vec::new(),
             axis: HashMap::new(),
+            dead_band: cfg.tuning.turntable_dead_band as f32 / 1000.0,
+            stop: Duration::from_millis(cfg.tuning.turntable_stop_ms as u64),
+            chatter: Duration::from_millis(cfg.tuning.chatter_ms as u64),
+            last_press: HashMap::new(),
+            dropped: HashMap::new(),
             mode,
             swap_pads: false,
         };
@@ -197,7 +210,7 @@ impl LaneMapper {
         } else if d < -1.0 {
             d += 2.0;
         }
-        if d.abs() < 0.004 {
+        if d.abs() < self.dead_band {
             return;
         }
         let dir = if d > 0.0 { 1 } else { -1 };
@@ -224,16 +237,52 @@ impl LaneMapper {
     /// Release turntables that stopped moving.
     pub fn tick(&mut self, now: Instant, out: &mut Vec<LaneEv>) {
         for st in self.axis.values_mut() {
-            if st.dir != 0 && now.duration_since(st.last_move) > AXIS_RELEASE {
+            if st.dir != 0 && now.duration_since(st.last_move) > self.stop {
                 out.push(LaneEv {
                     lane: st.lane,
                     sub: if st.dir > 0 { 0 } else { 1 },
                     pressed: false,
-                    time: st.last_move + AXIS_RELEASE,
+                    time: st.last_move + self.stop,
                 });
                 st.dir = 0;
             }
         }
+    }
+
+    /// The chatter filter on a key's or button's event: `false` for a
+    /// press that came sooner than the minimum after the last press of
+    /// its lane key let through (by the events' own times), and for the
+    /// release that ends such a press, so presses and releases still pair.
+    pub fn passes(&mut self, e: &LaneEv) -> bool {
+        if self.chatter.is_zero() {
+            return true;
+        }
+        let k = (e.lane, e.sub);
+        if !e.pressed {
+            return match self.dropped.get_mut(&k) {
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    false
+                }
+                _ => true,
+            };
+        }
+        let soon = self
+            .last_press
+            .get(&k)
+            .is_some_and(|t| e.time.saturating_duration_since(*t) < self.chatter);
+        if soon {
+            *self.dropped.entry(k).or_default() += 1;
+        } else {
+            self.last_press.insert(k, e.time);
+        }
+        !soon
+    }
+
+    /// Everything was let go (the window lost the focus): no release is
+    /// still to drop.
+    pub fn released_all(&mut self) {
+        self.dropped.clear();
     }
 }
 
@@ -432,6 +481,67 @@ mod tests {
         m.tick(t + Duration::from_millis(200), &mut out);
         assert_eq!(out.len(), 1);
         assert!(!out[0].pressed);
+    }
+
+    /// The turntable's dead band and stop time are settings.
+    #[test]
+    fn turntable_tuning() {
+        let mut cfg = KeyConfig::default();
+        cfg.tuning.turntable_dead_band = 20;
+        cfg.tuning.turntable_stop_ms = 300;
+        let mut m = LaneMapper::new(&cfg, PlayMode::Beat7K);
+        let t = Instant::now();
+        let mut out = Vec::new();
+        m.axis(5, 0.0, t, &mut out);
+        m.axis(5, 0.015, t, &mut out);
+        assert!(out.is_empty());
+        m.axis(5, 0.04, t, &mut out);
+        assert_eq!(out.len(), 1);
+        out.clear();
+        m.tick(t + Duration::from_millis(200), &mut out);
+        assert!(out.is_empty());
+        m.tick(t + Duration::from_millis(301), &mut out);
+        assert_eq!(out[0].time, t + Duration::from_millis(300));
+    }
+
+    /// A press sooner than the chatter time after the last press of its
+    /// lane key let through is dropped with its release (by the events'
+    /// times, whenever they arrive); other lane keys are apart.
+    #[test]
+    fn chatter_filter() {
+        let mut cfg = KeyConfig::default();
+        let t = Instant::now();
+        let ev = |lane, pressed, ms| LaneEv {
+            lane,
+            sub: 0,
+            pressed,
+            time: t + Duration::from_millis(ms),
+        };
+        let mut off = LaneMapper::new(&cfg, PlayMode::Beat7K);
+        assert!(off.passes(&ev(0, true, 0)) && off.passes(&ev(0, true, 1)));
+        cfg.tuning.chatter_ms = 10;
+        let mut m = LaneMapper::new(&cfg, PlayMode::Beat7K);
+        let seq = [
+            (0, true, 0),
+            (0, false, 3),
+            // a bounce: dropped, and its release
+            (0, true, 6),
+            (1, true, 7),
+            (0, false, 8),
+            // 10 ms after the last press let through: a press
+            (0, true, 10),
+            (0, false, 60),
+        ];
+        let passed: Vec<bool> = seq
+            .iter()
+            .map(|&(l, p, ms)| m.passes(&ev(l, p, ms)))
+            .collect();
+        assert_eq!(passed, [true, true, false, true, false, true, true]);
+        // a dropped press whose release never came (the focus left)
+        assert!(m.passes(&ev(2, true, 1000)));
+        assert!(!m.passes(&ev(2, true, 1001)));
+        m.released_all();
+        assert!(m.passes(&ev(2, false, 1100)));
     }
 
     #[test]
