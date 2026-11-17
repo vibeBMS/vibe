@@ -243,7 +243,7 @@ impl Running {
                     }
             )
         {
-            self.ctx.mixer.resume();
+            self.ctx.audio.mixer.resume();
         }
         let Some(top) = self.scenes.last_mut() else {
             return;
@@ -293,8 +293,8 @@ impl Running {
         }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
-        self.ctx.mixer.keep_alive();
-        self.ctx.sounds.poll(&self.ctx.mixer);
+        self.ctx.audio.mixer.keep_alive();
+        self.ctx.audio.sounds.poll(&self.ctx.audio.mixer);
         #[cfg(target_arch = "wasm32")]
         crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
         if let Some(fs) = self.ctx.view.want_fullscreen.take() {

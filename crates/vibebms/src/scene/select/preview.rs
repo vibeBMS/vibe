@@ -93,7 +93,7 @@ impl SelectScene {
 
     /// The preview and the BGM stop (another screen comes).
     pub(super) fn stop_sounds(&mut self, ctx: &mut Ctx) {
-        ctx.mixer.stop(PREVIEW_KEY);
+        ctx.audio.mixer.stop(PREVIEW_KEY);
         self.preview_for = None;
         self.stop_bgm(ctx);
     }
@@ -109,12 +109,12 @@ impl SelectScene {
                     looping: true,
                     ..Default::default()
                 };
-                ctx.mixer.play(&s, opts);
+                ctx.audio.mixer.play(&s, opts);
             }
         }
         // its file read: decoded (off the main thread natively)
         if let Some((_, p)) = self.preview_fetch.take_if(|(f, _)| f.finished()) {
-            let rate = ctx.mixer.sample_rate;
+            let rate = ctx.audio.mixer.sample_rate;
             let (tx, rx) = channel();
             self.preview_rx = Some(rx);
             crate::platform::spawn("preview", move || {

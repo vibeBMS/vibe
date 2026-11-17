@@ -77,7 +77,7 @@ impl Loading {
         } else {
             play
         };
-        let rate = ctx.mixer.sample_rate;
+        let rate = ctx.audio.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
         let course_mirror = req
             .course

@@ -196,7 +196,7 @@ impl SelectScene {
     fn moved(&mut self, ctx: &mut Ctx) {
         self.last_move = Instant::now();
         if self.preview_for.take().is_some() {
-            ctx.mixer.stop(preview::PREVIEW_KEY);
+            ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         }
         self.preview_rx = None;
         self.preview_fetch = None;
@@ -328,7 +328,7 @@ impl Scene for SelectScene {
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
-        ctx.mixer.stop(preview::PREVIEW_KEY);
+        ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         self.stop_bgm(ctx);
         self.host.free(gfx);
         if let Some((_, Some(t))) = self.banner.take() {

@@ -28,7 +28,7 @@ pub struct Ctx {
     pub tables: Tables,
     /// Downloads and the other network work the player starts.
     pub net: Net,
-    pub mixer: Mixer,
+    pub audio: Audio,
     pub toasts: Vec<(String, Instant)>,
     /// The window and the screen.
     pub view: View,
@@ -43,8 +43,6 @@ pub struct Ctx {
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
     skin_offsets_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
-    /// The chosen sound set's sounds.
-    pub sounds: crate::sysound::SystemSounds,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -89,6 +87,12 @@ pub struct Net {
     pub browse: Option<Vec<String>>,
 }
 
+/// The mixer, and the sound set's sounds played on it.
+pub struct Audio {
+    pub mixer: Mixer,
+    pub sounds: crate::sysound::SystemSounds,
+}
+
 /// The window and the screen it is on.
 pub struct View {
     /// The window's size in device pixels.
@@ -113,7 +117,10 @@ impl Ctx {
             lib: Lib::default(),
             tables: Tables::default(),
             net: Net::default(),
-            mixer,
+            audio: Audio {
+                mixer,
+                sounds: Default::default(),
+            },
             toasts: Vec::new(),
             view,
             touch_seen: false,
@@ -121,7 +128,6 @@ impl Ctx {
             skin_store: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
-            sounds: Default::default(),
         }
     }
 
@@ -522,13 +528,14 @@ impl Ctx {
             .get("SOUND_SET")
             .cloned()
             .unwrap_or_default();
-        self.sounds
-            .sync(&v, &self.paths.root, self.mixer.sample_rate);
-        self.sounds.play(&self.mixer, s);
+        self.audio
+            .sounds
+            .sync(&v, &self.paths.root, self.audio.mixer.sample_rate);
+        self.audio.sounds.play(&self.audio.mixer, s);
     }
 
     pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
-        self.sounds.stop(&self.mixer, s);
+        self.audio.sounds.stop(&self.audio.mixer, s);
     }
 
     /// Skins were added, replaced or deleted: what was read of them goes.
