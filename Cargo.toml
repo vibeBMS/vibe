@@ -38,6 +38,11 @@ lto = "fat"
 codegen-units = 1
 strip = true
 
+# line numbers in backtraces, no variables for a debugger: links faster and
+# keeps target/ smaller (debug = true when a debugger needs them)
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 2
 

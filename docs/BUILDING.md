@@ -9,6 +9,11 @@ cargo test --workspace           # engine/parser/gauge/etc. tests
 
 Copy the executable anywhere; it keeps all its data next to itself.
 
+While working on the code, `--no-default-features` (e.g. `cargo test --workspace --no-default-features`) leaves
+out the in-app browser (wry and, on Linux, the GTK and WebKitGTK bindings), which a clean build spends a good part
+of its time on. Debug builds keep line tables only (`[profile.dev]` in `Cargo.toml`): set `debug = true` there to
+see variables in a debugger.
+
 ## Linux
 Packages: `libasound2-dev libudev-dev libwebkit2gtk-4.1-dev` (Debian/Ubuntu) and a Vulkan or GL driver.
 Runtime also loads `libxkbcommon-x11` (X11) or Wayland libraries.
