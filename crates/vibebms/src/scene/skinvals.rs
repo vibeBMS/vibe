@@ -312,13 +312,16 @@ pub fn play_option(autoplay: bool, bga: bool, gauge: GaugeType, id: i32) -> Opti
     })
 }
 
-/// The gauge in use (vibeBMS ids 118-125).
+/// The gauge in use (vibeBMS ids 118-125; 122 and 123 LR2's P-ATTACK and
+/// G-ATTACK).
 pub fn gauge_type_option(g: GaugeType, id: i32) -> Option<bool> {
     Some(match id {
         118 => g == GaugeType::Normal,
         119 => matches!(g, GaugeType::Hard | GaugeType::Class),
         120 => g == GaugeType::Hazard,
         121 => g == GaugeType::Easy,
+        122 => g == GaugeType::PAttack,
+        123 => g == GaugeType::GAttack,
         124 => g == GaugeType::AssistEasy,
         125 => matches!(
             g,
@@ -468,9 +471,21 @@ pub fn gauge_index(g: GaugeType) -> i64 {
         GaugeType::AssistEasy => 0,
         GaugeType::Easy => 1,
         GaugeType::Normal => 2,
-        GaugeType::Hard | GaugeType::Class => 3,
+        GaugeType::Hard | GaugeType::Class | GaugeType::PAttack | GaugeType::GAttack => 3,
         GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass => 4,
         GaugeType::Hazard => 5,
+    }
+}
+
+/// The gauge type a skin draws `g` as (`Hooks::gauge`): its own, in
+/// beatoraja's order with the class gauges after; LR2's attack gauges as
+/// HARD, as LR2 draws them (no colour of their own, no border; S-OLR2b
+/// 1.3).
+pub fn skin_gauge(g: GaugeType) -> usize {
+    if g.is_attack() {
+        GaugeType::Hard as usize
+    } else {
+        g as usize
     }
 }
 

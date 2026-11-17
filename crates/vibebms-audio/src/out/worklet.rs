@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 /// A command on its way to the worklet: an opcode and its arguments (a
 /// played sample by its id there).
-pub(crate) type Wire = [f64; 9];
+pub(crate) type Wire = [f64; 10];
 
 const PLAY: u8 = 0;
 const VOLUME: u8 = 1;
@@ -21,9 +21,10 @@ const STOP_BUS: u8 = 3;
 const BUS_VOLUME: u8 = 4;
 const MASTER: u8 = 5;
 const FREE: u8 = 6;
+const GROUP_VOLUME: u8 = 7;
 
 fn wire(op: u8, args: &[f64]) -> Wire {
-    let mut w = [0.0; 9];
+    let mut w = [0.0; 10];
     w[0] = op as f64;
     w[1..=args.len()].copy_from_slice(args);
     w
@@ -47,6 +48,7 @@ pub(crate) fn encode(c: &Cmd, sample: u32) -> Wire {
                 v.key as f64,
                 v.bus as u32 as f64,
                 v.looping as u32 as f64,
+                v.group as f64,
             ];
             wire(PLAY, &args)
         }
@@ -55,6 +57,7 @@ pub(crate) fn encode(c: &Cmd, sample: u32) -> Wire {
         Cmd::StopBus(b) => wire(STOP_BUS, &[*b as u32 as f64]),
         Cmd::BusVolume(b, v) => wire(BUS_VOLUME, &[*b as u32 as f64, *v as f64]),
         Cmd::Master(v) => wire(MASTER, &[*v as f64]),
+        Cmd::GroupVolume(g, v) => wire(GROUP_VOLUME, &[*g as f64, *v as f64]),
     }
 }
 
@@ -128,6 +131,7 @@ impl Worklet {
                     key: w[6] as u64,
                     bus: bus(w[7]),
                     looping: w[8] != 0.0,
+                    group: w[9] as u8,
                     at: None,
                 };
                 let due = (w[4] >= 0.0).then_some(Due::Frame(w[4] as u64));
@@ -138,6 +142,7 @@ impl Worklet {
             STOP_BUS => Cmd::StopBus(bus(w[1])),
             BUS_VOLUME => Cmd::BusVolume(bus(w[1]), w[2] as f32),
             MASTER => Cmd::Master(w[1] as f32),
+            GROUP_VOLUME => Cmd::GroupVolume(w[1] as u8, w[2] as f32),
             FREE => {
                 self.samples.remove(&(w[1] as u32));
                 return;
@@ -186,8 +191,19 @@ mod exports {
 
     #[wasm_bindgen]
     #[allow(clippy::too_many_arguments)]
-    pub fn vibe_mix_cmd(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, h: f64, i: f64) {
-        with(|w| w.command(&[a, b, c, d, e, f, g, h, i]));
+    pub fn vibe_mix_cmd(
+        a: f64,
+        b: f64,
+        c: f64,
+        d: f64,
+        e: f64,
+        f: f64,
+        g: f64,
+        h: f64,
+        i: f64,
+        j: f64,
+    ) {
+        with(|w| w.command(&[a, b, c, d, e, f, g, h, i, j]));
     }
 
     #[wasm_bindgen]
@@ -247,6 +263,7 @@ mod tests {
                 end,
                 looping,
                 at: None,
+                group: 0,
             };
             [
                 play(&s, None, o(1, 0.9, Bus::Key, 0, None, false)),

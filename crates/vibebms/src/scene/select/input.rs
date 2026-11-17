@@ -175,6 +175,7 @@ impl SelectScene {
             #[cfg(target_arch = "wasm32")]
             KeyCode::Delete => self.delete_kept(ctx),
             KeyCode::KeyP => return self.watch_replay(ctx),
+            KeyCode::KeyC => self.add_to_course(ctx),
             KeyCode::F12 => {
                 ctx.start_scan();
                 ctx.tables.refresh(&ctx.config.tables, true);

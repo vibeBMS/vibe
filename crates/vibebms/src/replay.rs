@@ -132,6 +132,7 @@ mod tests {
             clear: ClearType::Easy,
             ghost: vec![Judge::PGreat, Judge::Great, Judge::Poor],
             ops: vec![Op::Update(5), Op::Input(10, 1, 0, true)],
+            course: None,
         };
         save(&r, &root, Slot::Best).unwrap();
         let back = load(&root, "ab", 0, Slot::Best).unwrap();

@@ -4,6 +4,7 @@
 //! equivalence gap reaches never go to a third-party IR.
 
 use crate::rule::{open_gap, profile_of, Profile};
+use vibebms_core::gauge::GaugeType;
 use vibebms_core::record::{DeviceFacts, Platform, PlayRecord, VERSION};
 use vibebms_core::score::{Assist, ClearType};
 use vibebms_core::PlayMode;
@@ -50,6 +51,9 @@ pub enum Refusal {
     MixedDevices,
     /// The play's real time does not fit the chart's length.
     WallTime,
+    /// The service has no such gauge (Tachi's BMS gauges: no P-ATTACK or
+    /// G-ATTACK).
+    Gauge(GaugeType),
 }
 
 /// A profile and the key modes a provider takes it in.
@@ -77,6 +81,8 @@ pub struct Gate {
     pub random_charts: bool,
     /// The play's real time must fit the chart's length (rianIR's check).
     pub wall_time: bool,
+    /// LR2's P-ATTACK and G-ATTACK gauges can be sent.
+    pub attack_gauges: bool,
 }
 
 /// Bokutachi BMS 7K/14K (vibe-LR2): on, as no open LR2 gap reaches every
@@ -120,6 +126,7 @@ pub const VIBE_JSON: Gate = Gate {
     live: true,
     random_charts: true,
     wall_time: false,
+    attack_gauges: true,
 };
 
 /// Tachi's `bms` 7K/14K under LR2 rules, `pms` (Keyboard / Controller)
@@ -144,6 +151,9 @@ pub const BOKUTACHI: Gate = Gate {
     live: TACHI_ACCEPTS_VIBE,
     random_charts: false,
     wall_time: false,
+    // Tachi's BMS gauges (EASY, NORMAL, HARD, EX-HARD) have no attack
+    // gauge to file such a play under
+    attack_gauges: false,
 };
 
 /// Two client kinds, as BMS-IR lists other players: vibe-LR2 and
@@ -168,6 +178,9 @@ pub const BMS_IR: Gate = Gate {
     live: false,
     random_charts: true,
     wall_time: false,
+    // BMS-IR reads LR2's attack gauges from its scores (its change log:
+    // P-ATTACK kept apart from the clear, G-ATTACK clears shown as G-A)
+    attack_gauges: true,
 };
 
 /// The profile is sent as the play's rules; what it takes is the
@@ -179,6 +192,8 @@ pub const RIAN_IR: Gate = Gate {
     live: false,
     random_charts: true,
     wall_time: true,
+    // what it does with them is not known
+    attack_gauges: false,
 };
 
 impl ProviderKind {
@@ -229,6 +244,8 @@ fn passes(rec: &PlayRecord, g: &Gate) -> Result<Profile, Refusal> {
         .iter()
         .find(|t| t.profile == profile && t.modes.contains(&mode))
         .ok_or(Refusal::NotTaken(profile, mode))?;
+    let gauge = rec.rules.gauge;
+    gate(gauge.is_attack() && !g.attack_gauges, Refusal::Gauge(gauge))?;
     if let Some(gap) = open_gap(profile, rec).filter(|_| g.third_party) {
         return Err(Refusal::OpenGap(gap.id));
     }
@@ -524,6 +541,13 @@ mod tests {
                 },
                 bok,
                 Refusal::OpenGap("A4"),
+            ),
+            (
+                "LR2, P-ATTACK",
+                lr2(),
+                |r| r.rules.gauge = GaugeType::PAttack,
+                bok,
+                Refusal::Gauge(GaugeType::PAttack),
             ),
             (
                 "5-key EX-HARD",

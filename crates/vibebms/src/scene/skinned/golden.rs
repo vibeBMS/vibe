@@ -241,6 +241,7 @@ fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
         p2,
         replay: None,
         record: Default::default(),
+        course_total: false,
     };
     ResultScene::new(ctx, d)
 }

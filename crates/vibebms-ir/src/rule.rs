@@ -61,8 +61,9 @@ const ALGORITHMS: &[JudgeAlgorithm] = &[
     JudgeAlgorithm::Lowest,
 ];
 
-/// LR2: its judge by `#RANK` and its gauges (the set's ASSIST EASY,
-/// EX-HARD and EX dan gauges are not LR2's); every long note an LN (LR2
+/// LR2: its judge by `#RANK` and its gauges, P-ATTACK and G-ATTACK and the
+/// class course gauges among them (the set's ASSIST EASY, EX-HARD and
+/// EXHARD-CLASS are not LR2's); every long note an LN (LR2
 /// has no CN or HCN, nor `#DEFEXRANK`); any note choice option, which the
 /// LR2 judge does not take (it has LR2's own); no GAUGE AUTO SHIFT (LR2
 /// has none); no PMS (left out: LR2 plays it by the same rules, S-OLR2 8,
@@ -75,7 +76,10 @@ const VIBE_LR2: ProfileRules = ProfileRules {
         GaugeType::Normal,
         GaugeType::Hard,
         GaugeType::Hazard,
+        GaugeType::PAttack,
+        GaugeType::GAttack,
         GaugeType::Class,
+        GaugeType::ExClass,
     ],
     ln_modes: &[LnType::Ln],
     typed_charge_notes: false,
@@ -91,7 +95,7 @@ const VIBE_LR2: ProfileRules = ProfileRules {
 const VIBE_BEATORAJA: ProfileRules = ProfileRules {
     judge: JudgePreset::Beatoraja,
     gauge_set: GaugePreset::Beatoraja,
-    gauges: &GaugeType::ALL,
+    gauges: &GaugeType::STANDARD,
     ln_modes: &[LnType::Ln, LnType::Cn, LnType::Hcn],
     typed_charge_notes: true,
     ex_rank: true,
@@ -302,7 +306,7 @@ pub const EQUIVALENCE: &[Gap] = &[
     Gap {
         id: "A10",
         profile: Profile::VibeLr2,
-        what: "the LR2 gauge set offers ASSIST EASY, EX-HARD and EX dan gauges, which LR2 does \
+        what: "the LR2 gauge set offers ASSIST EASY, EX-HARD and EXHARD-CLASS, which LR2 does \
                not have: the profile takes none of them",
         closed: true,
         reaches: Reach::Every,

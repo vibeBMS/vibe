@@ -11,7 +11,7 @@ use crate::platform::{Duration, Instant};
 use crate::scene::option_panel::{self, cycle, onoff};
 use crate::scene::skin_host::Tap;
 use crate::sysound::Sound;
-use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
+use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::LaneOption;
 use vibebms_core::LnType;
@@ -126,7 +126,7 @@ impl SelectScene {
         let p = &mut ctx.config.play;
         match o {
             SelectOption::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, 1),
-            SelectOption::Gauge => p.gauge = cycle(&GaugeType::SELECTABLE, p.gauge, 1),
+            SelectOption::Gauge => p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, 1),
             SelectOption::AutoShift => {
                 p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, 1)
             }
