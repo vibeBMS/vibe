@@ -94,6 +94,7 @@ pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Ar
         &ctx.paths.root,
         &song.sha256,
         song.score_ln(ln) as i32,
+        ctx.config.play.judge_preset,
         song.fixed_ln(),
         slot,
     )

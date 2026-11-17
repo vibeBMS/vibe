@@ -450,7 +450,12 @@ impl App {
             want_present_mode: false,
         };
         let mut ctx = Ctx::new(self.paths.clone(), config, mixer, view);
-        ctx.lib.db = Some(Library::open(&ctx.paths.cache, &ctx.paths.scores));
+        let root = ctx.paths.root.clone();
+        ctx.lib.db = Some(Library::open(
+            &ctx.paths.cache,
+            &ctx.paths.scores,
+            |sha, ln| crate::replay::rule_of_old(&root, sha, ln, crate::replay::Slot::Best),
+        ));
         ctx.reload_library();
         ctx.load_cached_tables();
         // the web build's first scan comes once the songs kept in the

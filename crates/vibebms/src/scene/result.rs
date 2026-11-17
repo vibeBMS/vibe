@@ -6,7 +6,7 @@ use crate::config::SubmitPolicy;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
-use crate::library::BestScore;
+use crate::library::{BestScore, RecordKey};
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::result_skin::{
@@ -19,6 +19,7 @@ use crate::sysound::Sound;
 use crate::theme;
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::Judge;
+use vibebms_core::judge::JudgePreset;
 use vibebms_core::record::PlayRecord;
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -143,6 +144,12 @@ enum Leave {
 }
 
 impl ResultData {
+    /// The rule mode the play is filed under (its judge preset; see
+    /// `RecordKey`).
+    pub fn rule(&self) -> JudgePreset {
+        self.record.rules.judge
+    }
+
     /// A battle's outcome for the first side.
     pub fn outcome(&self) -> Option<Outcome> {
         let p2 = self.p2.as_ref()?;
@@ -154,8 +161,8 @@ impl ResultScene {
     pub fn new(ctx: &mut Ctx, mut d: ResultData) -> ResultScene {
         ctx.net.ir.record(&mut d.record);
         let song = &d.request.song;
-        let ln = d.ln as i32;
-        let before = ctx.best_key(&song.sha256, ln).cloned();
+        let key = RecordKey::new(&song.sha256, d.ln as i32, d.rule());
+        let before = ctx.best_key(&key.id, key.ln, key.rule).cloned();
         let mut after = None;
         let mut note = String::new();
         // every play of its own keeps its replay as the chart's latest
@@ -172,11 +179,11 @@ impl ResultScene {
             if let Some(lib) = ctx.lib.db.as_mut() {
                 let play_ms = d.record.result.play_ms;
                 let b = if ranked {
-                    lib.record_play(&song.sha256, ln, &d.score, d.clear, play_ms)
+                    lib.record_play(&key, &d.score, d.clear, play_ms)
                 } else {
-                    lib.record_assisted(&song.sha256, ln, &d.score, d.clear, play_ms)
+                    lib.record_assisted(&key, &d.score, d.clear, play_ms)
                 };
-                ctx.lib.scores.insert((song.sha256.clone(), ln), b.clone());
+                ctx.lib.scores.insert(key, b.clone());
                 after = Some(b);
             }
             if !ranked {

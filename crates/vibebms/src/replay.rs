@@ -1,9 +1,10 @@
-//! The replays kept (`vibebms_core::replay`): each chart (by SHA-256 and LN
-//! mode) keeps its latest play's replay and its best EX score's, in
-//! `<root>/scores/replays/`.
+//! The replays kept (`vibebms_core::replay`): each chart (by SHA-256, LN
+//! mode and rule mode, as its record) keeps its latest play's replay and
+//! its best EX score's, in `<root>/scores/replays/`.
 
 use crate::config::PlayConfig;
 use std::path::{Path, PathBuf};
+use vibebms_core::judge::JudgePreset;
 pub use vibebms_core::replay::VERSION;
 
 /// A replay with the play options it was played with (rules and view).
@@ -32,31 +33,60 @@ pub fn dir(root: &Path) -> PathBuf {
     root.join("scores").join("replays")
 }
 
-fn file(root: &Path, sha256: &str, ln: i32, slot: Slot) -> PathBuf {
-    dir(root).join(format!("{sha256}_{ln}_{}.json.gz", slot.name()))
+/// The file of a replay: `<sha256>_<ln>_<rule>_<slot>`; replays from
+/// before rule modes have no `<rule>` (`rule: None`).
+fn file(root: &Path, sha256: &str, ln: i32, rule: Option<JudgePreset>, slot: Slot) -> PathBuf {
+    let rule = match rule {
+        Some(JudgePreset::Beatoraja) => "beatoraja_",
+        Some(JudgePreset::Lr2) => "lr2_",
+        Some(JudgePreset::Iidx) => "iidx_",
+        None => "",
+    };
+    dir(root).join(format!("{sha256}_{ln}_{rule}{}.json.gz", slot.name()))
 }
 
-/// Keep `r` as `slot` of its chart.
+/// Keep `r` as `slot` of its chart (under the rule mode it was played
+/// in).
 pub fn save(r: &Replay, root: &Path, slot: Slot) -> Result<(), String> {
     let bytes = r.encode()?;
-    let path = file(root, &r.sha256, r.ln, slot);
+    let path = file(root, &r.sha256, r.ln, Some(r.play.judge_preset), slot);
     if !crate::platform::IS_WEB {
         crate::platform::vfs::create_dir_all(&dir(root)).map_err(|e| e.to_string())?;
     }
     write(&path, bytes)
 }
 
-/// The chart's replay `slot`, if there is one.
-pub fn load(root: &Path, sha256: &str, ln: i32, slot: Slot) -> Option<Replay> {
-    Replay::decode(&crate::platform::vfs::read(&file(root, sha256, ln, slot)).ok()?)
+fn read(path: &Path) -> Option<Replay> {
+    Replay::decode(&crate::platform::vfs::read(path).ok()?)
 }
 
-/// The replay `slot` filed under LN mode `ln`. `fixed`: the chart's long
-/// notes all have their type, and replays from before vibe filed them
-/// under the chart's mode may be under any (the best EX score's, or the
-/// latest, of those).
-pub fn load_filed(root: &Path, sha256: &str, ln: i32, fixed: bool, slot: Slot) -> Option<Replay> {
-    if let Some(r) = load(root, sha256, ln, slot) {
+/// The chart's replay `slot` under rule mode `rule`, if there is one: a
+/// replay from before rule modes counts when it was played in `rule`.
+pub fn load(root: &Path, sha256: &str, ln: i32, rule: JudgePreset, slot: Slot) -> Option<Replay> {
+    read(&file(root, sha256, ln, Some(rule), slot)).or_else(|| {
+        read(&file(root, sha256, ln, None, slot)).filter(|r| r.play.judge_preset == rule)
+    })
+}
+
+/// The rule mode of a chart's replay `slot` from before rule modes
+/// (`Library::open` files the record of before under its best play's).
+pub fn rule_of_old(root: &Path, sha256: &str, ln: i32, slot: Slot) -> Option<JudgePreset> {
+    read(&file(root, sha256, ln, None, slot)).map(|r| r.play.judge_preset)
+}
+
+/// The replay `slot` filed under LN mode `ln` and rule mode `rule`.
+/// `fixed`: the chart's long notes all have their type, and replays from
+/// before vibe filed them under the chart's mode may be under any (the
+/// best EX score's, or the latest, of those).
+pub fn load_filed(
+    root: &Path,
+    sha256: &str,
+    ln: i32,
+    rule: JudgePreset,
+    fixed: bool,
+    slot: Slot,
+) -> Option<Replay> {
+    if let Some(r) = load(root, sha256, ln, rule, slot) {
         return Some(r);
     }
     if !fixed {
@@ -64,7 +94,7 @@ pub fn load_filed(root: &Path, sha256: &str, ln: i32, fixed: bool, slot: Slot) -
     }
     (0..3)
         .filter(|k| *k != ln)
-        .filter_map(|k| load(root, sha256, k, slot))
+        .filter_map(|k| load(root, sha256, k, rule, slot))
         .max_by_key(|r| match slot {
             Slot::Best => (r.ex_score as i64, r.date),
             Slot::Last => (r.date, r.ex_score as i64),
@@ -133,12 +163,13 @@ mod tests {
             ghost: vec![Judge::PGreat, Judge::Great, Judge::Poor],
             ops: vec![Op::Update(5), Op::Input(10, 1, 0, true)],
         };
+        let load = |slot| load(&root, "ab", 0, JudgePreset::Beatoraja, slot);
         save(&r, &root, Slot::Best).unwrap();
-        let back = load(&root, "ab", 0, Slot::Best).unwrap();
+        let back = load(Slot::Best).unwrap();
         assert_eq!(back.ops, r.ops);
         assert_eq!(back.seed, 42);
         assert_eq!(back.ex_at(2), 3);
-        assert!(load(&root, "ab", 0, Slot::Last).is_none());
+        assert!(load(Slot::Last).is_none());
         assert!(!back.older_engine());
         // an older judge's replay still loads (its ghost paces), marked
         let old = Replay {
@@ -146,7 +177,7 @@ mod tests {
             ..r.clone()
         };
         save(&old, &root, Slot::Last).unwrap();
-        let back = load(&root, "ab", 0, Slot::Last).unwrap();
+        let back = load(Slot::Last).unwrap();
         assert!(back.older_engine());
         assert_eq!(back.ghost, r.ghost);
         // a format not known: not loaded
@@ -155,7 +186,62 @@ mod tests {
             ..r.clone()
         };
         save(&future, &root, Slot::Last).unwrap();
-        assert!(load(&root, "ab", 0, Slot::Last).is_none());
+        assert!(load(Slot::Last).is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Each rule mode keeps its own replays; one from before rule modes
+    /// counts for the rule it was played in.
+    #[test]
+    fn replays_per_rule_mode() {
+        let root = std::env::temp_dir().join(format!("vibebms-replay-rule-{}", std::process::id()));
+        let mut r = Replay {
+            version: VERSION,
+            sha256: "ab".into(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 1,
+            seed: 1,
+            play: PlayConfig::default(),
+            ex_score: 3,
+            clear: ClearType::Easy,
+            ghost: Vec::new(),
+            ops: Vec::new(),
+        };
+        r.play.judge_preset = JudgePreset::Lr2;
+        save(&r, &root, Slot::Best).unwrap();
+        let get = |rule| load(&root, "ab", 0, rule, Slot::Best).map(|r| r.ex_score);
+        assert_eq!(get(JudgePreset::Lr2), Some(3));
+        assert_eq!(get(JudgePreset::Beatoraja), None);
+        // an IIDX play of before, in the file of before
+        let old = Replay {
+            ex_score: 9,
+            play: PlayConfig {
+                rules: vibebms_core::play::RuleOptions {
+                    judge_preset: JudgePreset::Iidx,
+                    ..Default::default()
+                },
+                ..PlayConfig::default()
+            },
+            ..r.clone()
+        };
+        let path = file(&root, "ab", 0, None, Slot::Best);
+        std::fs::write(&path, old.encode().unwrap()).unwrap();
+        assert_eq!(get(JudgePreset::Iidx), Some(9));
+        assert_eq!(get(JudgePreset::Beatoraja), None);
+        assert_eq!(get(JudgePreset::Lr2), Some(3));
+        assert_eq!(
+            rule_of_old(&root, "ab", 0, Slot::Best),
+            Some(JudgePreset::Iidx)
+        );
+        // a newer IIDX play replaces it
+        let new = Replay {
+            ex_score: 10,
+            ..old
+        };
+        save(&new, &root, Slot::Best).unwrap();
+        assert_eq!(get(JudgePreset::Iidx), Some(10));
         let _ = std::fs::remove_dir_all(root);
     }
 

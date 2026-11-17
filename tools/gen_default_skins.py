@@ -2362,14 +2362,19 @@ def select_layout(fonts, parts, portrait=False):
     rw, rh = parts.items["rank0"][2:]
     for k in range(8):
         sk.put(sk.img(f"rank{k}"), 676 - 16 - rw // 2, 362, rw // 2, rh // 2, op=[320 + k])
-    for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 200), ("MISS", 350), ("COMBO", 470))):
+    for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 165), ("MIN BP", 296),
+                                    ("MIN CB", 386), ("COMBO", 476))):
         draw_label(img, f, x, 448, label, 11)
     sk.number("n_mid", 71, 5, 30, 462, op=[5])
-    sk.number("n_mid", 102, 3, 200, 462, op=[5])
-    sk.put(sk.img("white"), 200 + 21 * 3 + 1, 484, 4, 4, op=[5])
-    sk.number("n_mid", 103, 2, 200 + 21 * 3 + 6, 462, zeropad=True, op=[5])
-    sk.number("n_mid", 76, 4, 350, 462, op=[5])
-    sk.number("n_mid", 75, 5, 470, 462, op=[5])
+    sk.number("n_mid", 102, 3, 165, 462, op=[5])
+    sk.put(sk.img("white"), 165 + 21 * 3 + 1, 484, 4, 4, op=[5])
+    sk.number("n_mid", 103, 2, 165 + 21 * 3 + 6, 462, zeropad=True, op=[5])
+    sk.number("n_mid", 76, 4, 296, 462, op=[5])
+    # the record's min CB (vibeBMS number 9425)
+    sk.number("n_mid", 9425, 4, 386, 462, op=[5])
+    sk.number("n_mid", 75, 5, 476, 462, op=[5])
+    # the judge preset the record is of (option 7's value)
+    sk.label_text(9007, 134, 364, 100, 12, color=DIM)
     draw_label(img, f, 590, 448, "PLAYS", 11)
     sk.number("n_small", 77, 4, 590, 466, op=[5])
     # the IR: the lamp beside and the rank (vibeBMS text 9200), the top three

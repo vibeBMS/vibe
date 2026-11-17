@@ -165,6 +165,19 @@ Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 
   notes all have their type (`#LNMODE`, bmson `t`) under that type (with several types, the strongest:
   HCN > CN > LN), whatever the player's LN mode; otherwise under the player's LN mode. Records such charts had
   under the player's mode are merged into the chart's when the library loads.
+* They are filed by rule mode too, the judge preset played with (beatoraja, LR2 or IIDX): each has its own best
+  EX score, lamp, min BP, min CB, play counts and replays, and song select shows those of the judge preset chosen
+  now. (The gauge set is not part of it: a play with LR2's windows and beatoraja's gauges is an LR2 play.) Course
+  records are filed the same way under the course's identity. The IR lamps are the IR's and stay as they are.
+  Records from before rule modes are filed under the rule of their best EX play's replay, where it can be read when
+  the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
+  the default preset; replays from before count for the preset they were played with.
+
+## Best scores
+The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
+the max combo, the min BP (BAD + POOR + empty POOR + notes not reached, skin number 76) and the min CB (combo
+breaks, the notes a failed play never reached counted; vibeBMS skin number 9425, as 425 is the play's). An
+assisted play keeps its lamp and counts only. Records from before the min CB was kept show 0 until a play sets it.
 
 ## Clear lamps
 FAILED < ASSIST (assist options) < L-ASSIST (light assist options, ASSIST EASY gauge) < EASY < CLEAR < HARD <

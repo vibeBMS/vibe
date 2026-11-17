@@ -101,6 +101,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP and `#SCROLL`, LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
+  Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
+  those of the preset chosen.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
@@ -149,7 +151,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (`archives`).
 - **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
-  it judges exactly the same. Each chart keeps its latest play's and its best EX score's (`scores/replays/`; in the
+  it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
   web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
   else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
   kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
@@ -245,7 +247,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   sets their volume.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
-  (parent folder) and 9901 (watch the chart's replay). A graph with
+  (parent folder) and 9901 (watch the chart's replay); number 9425 is the record's min CB (fewest combo breaks). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
   using timer 21, the app draws a hi-speed panel beside the lanes.

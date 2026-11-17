@@ -145,6 +145,7 @@ select-song 9107: t="JUDGE"
 select-song 9108: t="AUTOPLAY"
 select-song 9109: t="SETTINGS"
 select-song 9110: t="BATTLE"
+select-song 9425: n=30 b=30
 select-folder 1: o
 select-folder 2: t="PLAYER"
 select-folder 10: n=250 b=250 t="GOLDEN"
@@ -342,6 +343,7 @@ decide 1402: b=0
 decide 1403: b=0
 decide 1404: b=0
 decide 1405: b=12
+decide 9425: n=30 b=30
 play 2: t="PLAYER"
 play 6: r=0.5
 play 10: n=250 b=250 t=""
@@ -673,6 +675,7 @@ result 2243: o
 result 2244: o
 result 2245: o
 result 2246: o
+result 9425: n=30 b=30
 play-battle 2: t="PLAYER"
 play-battle 6: r=0.5
 play-battle 10: n=250 b=250 t=""
@@ -1034,3 +1037,4 @@ result-battle 9350: o
 result-battle 9351: t="2P"
 result-battle 9370: n=1 b=1
 result-battle 9376: n=355 b=355
+result-battle 9425: n=30 b=30

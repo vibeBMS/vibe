@@ -112,6 +112,7 @@ impl PlayScene {
                 &ctx.paths.root,
                 &self.req.song.sha256,
                 score_ln as i32,
+                rules.judge_preset,
                 ln_profile.has_long() && !ln_profile.undefined,
                 Slot::Best,
             )

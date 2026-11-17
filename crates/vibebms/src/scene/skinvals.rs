@@ -246,20 +246,21 @@ pub fn score_number(sc: &Score, id: i32) -> Option<i64> {
     })
 }
 
-/// A chart's record (0 for none): EX score, combo, miss count, plays,
-/// clears, fails, judgements, rate and lamp.
+/// vibeBMS number: the record's fewest combo breaks (as 425 is the
+/// play's).
+pub const BEST_MIN_CB: i32 = 9425;
+
+/// A chart's record (0 for none): EX score, combo, miss count, combo
+/// breaks, plays, clears, fails, judgements, rate and lamp.
 pub fn best_number(b: Option<&BestScore>, id: i32) -> Option<i64> {
     let v = |f: fn(&BestScore) -> i64| b.map_or(0, f);
+    // (u32::MAX: no play counted)
+    let known = |n: u32| if n == u32::MAX { 0 } else { n as i64 };
     Some(match id {
         71 | 150 | 170 => v(|b| b.ex_score as i64),
         75 | 173 => v(|b| b.max_combo as i64),
-        76 | 176 => v(|b| {
-            if b.min_bp == u32::MAX {
-                0
-            } else {
-                b.min_bp as i64
-            }
-        }),
+        76 | 176 => b.map_or(0, |b| known(b.min_bp)),
+        BEST_MIN_CB => b.map_or(0, |b| known(b.min_cb)),
         77 => v(|b| b.play_count as i64),
         78 => v(|b| b.clear_count as i64),
         79 => v(|b| b.play_count.saturating_sub(b.clear_count) as i64),

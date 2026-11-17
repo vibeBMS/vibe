@@ -295,7 +295,9 @@ impl SkinState for SelectState<'_> {
             20 => self.ctx.view.fps as i64,
             12 => p.judge_offset_ms as i64,
             // a selected song's record (0 when never played)
-            71 | 75..=84 | 102 | 103 if song.is_some() => return best_number(self.best, id),
+            71 | 75..=84 | 102 | 103 | BEST_MIN_CB if song.is_some() => {
+                return best_number(self.best, id)
+            }
             370 => return best_number(self.best, id),
             72 => song?.notes * 2,
             74 => song?.notes,

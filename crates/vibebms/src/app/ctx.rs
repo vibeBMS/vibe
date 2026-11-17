@@ -2,7 +2,7 @@
 
 use super::tables::Tables;
 use crate::config::{Config, TouchMode};
-use crate::library::{BestScore, Library, ScanProgress, Song};
+use crate::library::{BestScore, Library, RecordKey, ScanProgress, Song};
 use crate::paths::Paths;
 use crate::platform::Instant;
 use crate::skin::{CustomOffset, CustomOption};
@@ -15,6 +15,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use vibebms_audio::AudioConfig;
 use vibebms_audio::Mixer;
+use vibebms_core::judge::JudgePreset;
 
 /// What a background subsystem's `poll` reports, for the app to act on.
 #[derive(Debug, PartialEq)]
@@ -64,7 +65,7 @@ pub struct Lib {
     pub db: Option<Library>,
     /// Sorted by title, then level.
     pub songs: Arc<Vec<Song>>,
-    pub scores: HashMap<(String, i32), BestScore>,
+    pub scores: HashMap<RecordKey, BestScore>,
     /// Counts changes to what the music select lists (the songs, tables,
     /// events).
     pub version: u64,
@@ -471,45 +472,51 @@ impl Ctx {
     }
 
     /// The chart's record with the player's LN mode `pref` (filed under
-    /// the chart's own when its long notes all have their type).
+    /// the chart's own when its long notes all have their type) under
+    /// the player's rule mode.
     pub fn best(&self, song: &Song, pref: vibebms_core::LnType) -> Option<&BestScore> {
-        self.best_key(&song.sha256, song.score_ln(pref) as i32)
+        let rule = self.config.play.judge_preset;
+        self.best_key(&song.sha256, song.score_ln(pref) as i32, rule)
     }
 
-    /// The record of `sha256` under the LN mode `ln` (as filed).
-    pub fn best_key(&self, sha256: &str, ln: i32) -> Option<&BestScore> {
-        self.lib.scores.get(&(sha256, ln) as &dyn ScoreKey)
+    /// The record of `id` (a chart's SHA-256, a course's identity) under
+    /// the LN mode `ln` (as filed) and rule mode `rule`.
+    pub fn best_key(&self, id: &str, ln: i32, rule: JudgePreset) -> Option<&BestScore> {
+        self.lib.scores.get(&(id, ln, rule) as &dyn ScoreKey)
     }
 }
 
 /// A key of `Lib::scores`, so that skins (which ask for the record per
 /// value, many times a frame) look one up without making a `String`.
 trait ScoreKey {
-    fn key(&self) -> (&str, i32);
+    fn key(&self) -> (&str, i32, JudgePreset);
 }
 
-impl ScoreKey for (String, i32) {
-    fn key(&self) -> (&str, i32) {
-        (&self.0, self.1)
+impl ScoreKey for RecordKey {
+    fn key(&self) -> (&str, i32, JudgePreset) {
+        (&self.id, self.ln, self.rule)
     }
 }
 
-impl ScoreKey for (&str, i32) {
-    fn key(&self) -> (&str, i32) {
+impl ScoreKey for (&str, i32, JudgePreset) {
+    fn key(&self) -> (&str, i32, JudgePreset) {
         *self
     }
 }
 
-impl<'a> std::borrow::Borrow<dyn ScoreKey + 'a> for (String, i32) {
+impl<'a> std::borrow::Borrow<dyn ScoreKey + 'a> for RecordKey {
     fn borrow(&self) -> &(dyn ScoreKey + 'a) {
         self
     }
 }
 
-// (hashes as `(String, i32)` does)
+// (hashes as `RecordKey` does: its fields in order)
 impl std::hash::Hash for dyn ScoreKey + '_ {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        self.key().hash(h)
+        let (id, ln, rule) = self.key();
+        id.hash(h);
+        ln.hash(h);
+        rule.hash(h);
     }
 }
 
