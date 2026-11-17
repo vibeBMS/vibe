@@ -5,7 +5,11 @@
   </picture>
 </p>
 
-A cross-platform BMS player modelled on Lunatic Rave 2 and beatoraja.
+A cross-platform BMS player modelled on [Lunatic Rave 2](http://www.lr2.sakura.ne.jp/) and
+[beatoraja](https://github.com/exch-bms2/beatoraja) and its variants
+([LR2oraja](https://github.com/wcko87/lr2oraja),
+[LR2oraja Endless Dream](https://github.com/seraxis/lr2oraja-endlessdream)), with ideas from
+[bmz-player](https://github.com/hyrorre/bmz-player).
 Written in Rust with wgpu and cpal, it runs on Windows, macOS and Linux (x64/ARM) and in web browsers (wasm),
 and has an on-screen controller for touch devices such as iPads and Android tablets.
 
