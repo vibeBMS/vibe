@@ -6,7 +6,7 @@ use crate::gfx::text::Align;
 use crate::gfx::{Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::BestScore;
-use crate::platform::{Duration, Instant};
+use crate::platform::{Duration, Instant, Job};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::result_skin::{
     ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY,
@@ -16,7 +16,6 @@ use crate::scene::skinned;
 use crate::skin::SkinType;
 use crate::sysound::Sound;
 use crate::theme;
-use std::sync::mpsc::{channel, Receiver};
 use vibebms_core::gauge::GaugeType;
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -120,7 +119,7 @@ pub struct ResultScene {
     pub(crate) after: Option<BestScore>,
     /// (average, standard deviation) of the timing log (ms).
     pub(crate) timing_stats: (f64, f64),
-    ir_rx: Option<Receiver<String>>,
+    ir_job: Option<Job<String>>,
     ir_status: String,
     pub(crate) host: SkinHost,
     /// The chart's stage file (skin reference image 100).
@@ -149,7 +148,7 @@ impl ResultScene {
         let ln = d.ln as i32;
         let before = ctx.best_key(&song.sha256, ln).cloned();
         let mut after = None;
-        let mut ir_rx = None;
+        let mut ir_job = None;
         let mut ir_status = String::new();
         // every play of its own keeps its replay as the chart's latest
         // (a BATTLE play's would replace a single play's: it is not kept)
@@ -212,11 +211,10 @@ impl ResultScene {
                 } else {
                     "KEYBOARD/CONTROLLER".into()
                 };
-                let (tx, rx) = channel();
-                ir_rx = Some(rx);
                 ir_status = format!("{}: sending…", cfg.name);
                 let name = cfg.name.clone();
-                match client.submit_request(&sub) {
+                let req = client.submit_request(&sub);
+                ir_job = Some(Job::start(|tx, _| match req {
                     Ok(req) => crate::platform::ir_send(req, move |r| {
                         let _ = tx.send(match r {
                             Ok(_) => format!("{name}: submitted"),
@@ -226,7 +224,7 @@ impl ResultScene {
                     Err(e) => {
                         let _ = tx.send(format!("{name}: {e}"));
                     }
-                }
+                }));
             }
         }
         ctx.play_sound(result_sound(&d).0);
@@ -235,7 +233,7 @@ impl ResultScene {
             d,
             before,
             after,
-            ir_rx,
+            ir_job,
             ir_status,
             host: SkinHost::new(),
             stage_tex: None,
@@ -321,11 +319,9 @@ impl ResultScene {
 
 impl Scene for ResultScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if let Some(rx) = &self.ir_rx {
-            if let Ok(m) = rx.try_recv() {
-                self.ir_status = m;
-                self.ir_rx = None;
-            }
+        if let Some(m) = self.ir_job.as_mut().and_then(Job::poll) {
+            self.ir_status = m;
+            self.ir_job = None;
         }
         if self.host.first_update() {
             if !self.d.meta.stagefile.is_empty() {

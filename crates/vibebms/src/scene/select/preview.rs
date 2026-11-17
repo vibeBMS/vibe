@@ -7,11 +7,10 @@ use crate::app::Ctx;
 use crate::gfx::Gfx;
 use crate::library::Song;
 use crate::platform::vfs::{self, Prefetch};
-use crate::platform::Duration;
+use crate::platform::{Duration, Job};
 use crate::skin::render::ImageJobs;
 use crate::sysound::Sound;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions};
 use vibebms_ir::IrScore;
@@ -26,7 +25,7 @@ const BANNER_AFTER: Duration = Duration::from_millis(120);
 
 /// A chart's IR ranking.
 pub(crate) enum Rank {
-    Loading(Receiver<Result<Vec<IrScore>, String>>),
+    Loading(Job<Result<Vec<IrScore>, String>>),
     Done(Vec<IrScore>),
     Error,
 }
@@ -99,8 +98,8 @@ impl SelectScene {
     }
 
     pub(super) fn update_preview(&mut self, ctx: &mut Ctx) {
-        if let Some(Ok(s)) = self.preview_rx.as_ref().map(Receiver::try_recv) {
-            self.preview_rx = None;
+        if let Some(s) = self.preview_job.as_mut().and_then(Job::poll) {
+            self.preview_job = None;
             if let Some(s) = s {
                 let opts = PlayOptions {
                     key: PREVIEW_KEY,
@@ -115,19 +114,16 @@ impl SelectScene {
         // its file read: decoded (off the main thread natively)
         if let Some((_, p)) = self.preview_fetch.take_if(|(f, _)| f.finished()) {
             let rate = ctx.audio.mixer.sample_rate;
-            let (tx, rx) = channel();
-            self.preview_rx = Some(rx);
-            crate::platform::spawn("preview", move || {
+            self.preview_job = Some(Job::spawn("preview", move |_| {
                 let ext = p
                     .extension()
                     .map(|e| e.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
-                let s = vfs::read(&p)
+                vfs::read(&p)
                     .ok()
                     .and_then(|bytes| vibebms_audio::decode_bytes(bytes, &ext, rate).ok())
-                    .map(Arc::new);
-                let _ = tx.send(s);
-            });
+                    .map(Arc::new)
+            }));
             return;
         }
         if !ctx.config.audio.preview
@@ -147,8 +143,8 @@ impl SelectScene {
 
     pub(super) fn update_ranking(&mut self, ctx: &mut Ctx) {
         for r in self.ranking.values_mut() {
-            if let Rank::Loading(rx) = r {
-                if let Ok(res) = rx.try_recv() {
+            if let Rank::Loading(job) = r {
+                if let Some(res) = job.poll() {
                     *r = match res {
                         Ok(v) => Rank::Done(v),
                         Err(e) => {
@@ -176,11 +172,12 @@ impl SelectScene {
             sha256: song.sha256.clone(),
             ln_type: format!("{:?}", ctx.config.play.ln_mode).to_uppercase(),
         };
-        let (tx, rx) = channel();
-        self.ranking.insert(song.sha256.clone(), Rank::Loading(rx));
-        crate::platform::ir_send(client.ranking_request(&chart), move |body| {
-            let _ = tx.send(body.and_then(|b| vibebms_ir::JsonIr::parse_ranking(&b)));
+        let job = Job::start(|tx, _| {
+            crate::platform::ir_send(client.ranking_request(&chart), move |body| {
+                let _ = tx.send(body.and_then(|b| vibebms_ir::JsonIr::parse_ranking(&b)));
+            })
         });
+        self.ranking.insert(song.sha256.clone(), Rank::Loading(job));
     }
 
     pub(super) fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {

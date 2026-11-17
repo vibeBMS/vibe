@@ -16,7 +16,7 @@ use crate::config::Bpms;
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::input::{AxisStepper, InputEv, Nav, Repeat};
 use crate::library::Song;
-use crate::platform::Instant;
+use crate::platform::{Instant, Job};
 use crate::scene::skin_host::SkinHost;
 use crate::scene::skinned;
 use crate::skin::SkinType;
@@ -27,7 +27,6 @@ use skin::SelectHooks;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use tree::Distribution;
 use vibebms_audio::Sample;
@@ -71,7 +70,7 @@ pub struct SelectScene {
     md5_map: HashMap<String, usize>,
     sha_map: HashMap<String, usize>,
     preview_for: Option<String>,
-    preview_rx: Option<Receiver<Option<Arc<Sample>>>>,
+    preview_job: Option<Job<Option<Arc<Sample>>>>,
     /// The preview's file being read (the web: from the browser's storage)
     /// before it is decoded.
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
@@ -121,7 +120,7 @@ impl SelectScene {
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
             preview_for: None,
-            preview_rx: None,
+            preview_job: None,
             preview_fetch: None,
             banner: None,
             banner_job: None,
@@ -198,7 +197,7 @@ impl SelectScene {
         if self.preview_for.take().is_some() {
             ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         }
-        self.preview_rx = None;
+        self.preview_job = None;
         self.preview_fetch = None;
     }
 
