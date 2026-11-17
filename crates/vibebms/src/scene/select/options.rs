@@ -403,7 +403,9 @@ impl SelectScene {
         if let Some(msg) = said {
             ctx.play_sound(Sound::OptionChange);
             // the skin shows the change on its panel; without one, a toast
-            if !self.skin_has_panels() {
+            // (an IR rival as TARGET too: no skin lists them)
+            let rival = ctx.config.play.target == crate::config::Target::Rival;
+            if !self.skin_has_panels() || rival {
                 ctx.toast(msg);
             }
             ctx.save_config();
