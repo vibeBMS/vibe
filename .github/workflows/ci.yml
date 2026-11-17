@@ -430,29 +430,56 @@ jobs:
   # the "nightly" prerelease: the default branch's latest builds, each file
   # as it is (no zip but the web build's). A build that failed keeps its
   # previous file; the notes say which files this commit brought.
+  # The run's downloads (a summary with each build's artifact link, on every
+  # run) and, for a push to the default branch, the rolling nightly release
   nightly:
-    name: nightly release
+    name: downloads & nightly
     needs: [build-linux, build-windows, build-linux-portable, macos, flatpak, android, ios, web]
-    if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: always()
     runs-on: ubuntu-latest
-    # a newer push's release wins over an older one still uploading
+    env:
+      RELEASE: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    # a newer push's release wins over an older one still uploading (only
+    # releases share the group: other runs must not cancel them)
     concurrency:
-      group: nightly-release
+      group: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'nightly-release' || format('downloads-{0}', github.run_id) }}
       cancel-in-progress: true
     permissions:
+      actions: read
       contents: write
     steps:
+      - name: links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "### Downloads"
+            echo
+            echo "| build | |"
+            echo "|---|---|"
+            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
+              --jq '.artifacts[] | select(.name | test("^vibeBMS-(linux|windows|macos|android|ios-unsigned)")) | "\(.name)\t\(.id)\t\(.size_in_bytes)"' |
+              sort | while IFS=$'\t' read -r name id size; do
+                echo "| ${name#vibeBMS-} | [download]($RUN/artifacts/$id) ($((size / 1048576)) MB) |"
+              done
+            echo
+            echo "Linux / macOS: \`chmod +x vibebms\` after unzipping; on macOS also \`xattr -d com.apple.quarantine vibebms\`."
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v8
+        if: env.RELEASE == 'true'
         with:
           pattern: vibeBMS-*
           path: art
       # the version the builds were given (tools/ci_version.sh)
       - name: version
+        if: env.RELEASE == 'true'
         run: |
           base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | sed 's/[-+].*//')"
           echo "BASE_VERSION=$base" >> "$GITHUB_ENV"
           echo "VERSION=$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
       - name: files
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -528,6 +555,7 @@ jobs:
       # build that failed keeps its previous file, so its entry is kept from
       # the previous latest.json.
       - name: latest.json
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -565,6 +593,7 @@ jobs:
       # Files inside a package are hashed as they run: the macOS app's
       # executable and the Android libraries.
       - name: builds.json
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -606,6 +635,7 @@ jobs:
           ' prev/builds.json > out/builds.json
           jq -c '.builds[-1]' out/builds.json
       - name: release
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -650,29 +680,3 @@ jobs:
           gh release upload nightly out/* --clobber
 
   # links to the executables in the run summary, once the builds are done
-  downloads:
-    name: downloads
-    needs: [build-linux, build-windows, build-linux-portable, macos, flatpak, android, ios]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-    steps:
-      - name: links
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          {
-            echo "### Downloads"
-            echo
-            echo "| build | |"
-            echo "|---|---|"
-            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
-              --jq '.artifacts[] | select(.name | test("^vibeBMS-(linux|windows|macos|android|ios-unsigned)")) | "\(.name)\t\(.id)\t\(.size_in_bytes)"' |
-              sort | while IFS=$'\t' read -r name id size; do
-                echo "| ${name#vibeBMS-} | [download]($RUN/artifacts/$id) ($((size / 1048576)) MB) |"
-              done
-            echo
-            echo "Linux / macOS: \`chmod +x vibebms\` after unzipping; on macOS also \`xattr -d com.apple.quarantine vibebms\`."
-          } >> "$GITHUB_STEP_SUMMARY"
