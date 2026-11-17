@@ -62,7 +62,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
             Act::Run(|c, _| c.refresh_tables(true), 0),
         ),
         Row::adjust(
-            "Third-party mirrors (darksabun, hexlataia, kyouko archive)",
+            "Third-party sources (mirrors, Ginger / Konmai MD5 lookups)",
             onoff(c.third_party_mirrors),
             |c, _| {
                 c.config.third_party_mirrors ^= true;
