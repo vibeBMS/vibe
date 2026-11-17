@@ -401,6 +401,16 @@ impl Scene for ResultScene {
         self.host.skin.is_some()
     }
 
+    fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
+        let d = &self.d;
+        vec![
+            d.title.clone(),
+            crate::screenshot::difficulty(d.request.song.difficulty),
+            d.clear.label().into(),
+            d.score.ex_score().to_string(),
+        ]
+    }
+
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         match ev {
             InputEv::Key {

@@ -311,6 +311,18 @@ impl Scene for SelectScene {
         self.host.skin.is_some()
     }
 
+    /// The selected chart, its lamp and EX score.
+    fn screenshot_label(&self, ctx: &Ctx) -> Vec<String> {
+        let Some((_, s)) = self.selected_song(ctx) else {
+            return Vec::new();
+        };
+        let mut v = vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)];
+        if let Some(b) = ctx.best(s, ctx.config.play.ln_mode) {
+            v.extend([b.clear.label().to_string(), b.ex_score.to_string()]);
+        }
+        v
+    }
+
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         // the library read again since the last frame (an earlier input
         // rescanned): the bars' song indices are of the old list

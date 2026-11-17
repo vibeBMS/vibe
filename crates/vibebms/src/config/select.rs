@@ -83,7 +83,7 @@ vibebms_core::choices! {
         #[default]
         Any => "ANY",
         /// Below CLEAR (not played, FAILED, ASSIST, EASY).
-        NotCleared => "NOT CLEARED",
+        NotCleared => "NOT CLEAR",
         /// Below HARD CLEAR.
         NotHard => "NOT HARD",
         /// Below FULL COMBO.

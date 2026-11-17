@@ -51,6 +51,12 @@ impl Running {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
+                // Print Screen (F13 on Apple keyboards): a screenshot. Windows
+                // sends only its release.
+                if !pressed && matches!(code, KeyCode::PrintScreen | KeyCode::F13) {
+                    self.ctx.view.want_screenshot = true;
+                    return;
+                }
                 if pressed && !event.repeat && (code == KeyCode::F11) {
                     self.ctx.config.display.fullscreen = !self.ctx.config.display.fullscreen;
                     self.ctx.view.want_fullscreen = Some(self.ctx.config.display.fullscreen);

@@ -30,6 +30,11 @@ pub struct Gfx {
     vbuf: wgpu::Buffer,
     vcap: u64,
     pub present_modes: Vec<wgpu::PresentMode>,
+    /// The surface's images can be copied from (screenshots).
+    can_copy: bool,
+    /// A screenshot of the next frame is wanted; one being read.
+    capture_next: bool,
+    capture: Option<super::capture::Pending>,
     pub adapter_name: String,
     /// Told before each present (Wayland paces frames by it).
     window: Arc<winit::window::Window>,
@@ -276,6 +281,9 @@ impl Gfx {
             vbuf,
             vcap,
             present_modes: caps.present_modes.clone(),
+            can_copy: caps.usages.contains(wgpu::TextureUsages::COPY_SRC),
+            capture_next: false,
+            capture: None,
             adapter_name: format!("{} ({:?})", info.name, info.backend),
             window,
         };
@@ -318,6 +326,33 @@ impl Gfx {
         self.config.present_mode = m;
         self.config.desired_maximum_frame_latency = frame_latency(m);
         self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Copy the next frame for a screenshot ([`Self::take_capture`]);
+    /// `false` where the surface's images cannot be copied or read. The
+    /// surface is made copyable the first time (not before: it may cost
+    /// some GPUs' compression of it).
+    pub fn request_capture(&mut self) -> bool {
+        if !self.can_copy || !super::capture::readable(self.config.format) {
+            return false;
+        }
+        let copy = wgpu::TextureUsages::COPY_SRC;
+        if !self.config.usage.contains(copy) {
+            self.config.usage |= copy;
+            self.surface.configure(&self.device, &self.config);
+        }
+        self.capture_next = true;
+        true
+    }
+
+    /// The screenshot's image once it has been read back (without waiting
+    /// for the GPU: some frames after it was asked for).
+    pub fn take_capture(&mut self) -> Option<Result<::image::RgbaImage, String>> {
+        let r = self.capture.as_ref()?;
+        let _ = self.device.poll(wgpu::Maintain::Poll);
+        let img = r.take()?;
+        self.capture = None;
+        Some(img)
     }
 
     /// The display paces the frames (each waits for a vblank).
@@ -433,7 +468,17 @@ impl Gfx {
                 pass.draw(c.start..c.start + c.count, 0..1);
             }
         }
+        let capture = match std::mem::take(&mut self.capture_next) {
+            true if self.capture.is_none() => {
+                super::capture::copy(&self.device, &mut enc, &frame.texture)
+            }
+            _ => None,
+        };
         self.queue.submit(Some(enc.finish()));
+        if let Some(c) = capture {
+            c.start();
+            self.capture = Some(c);
+        }
         // winit: on Wayland the next redraw request follows the compositor's
         // frame callback only when told a frame is about to be shown
         self.window.pre_present_notify();

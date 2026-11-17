@@ -2,6 +2,7 @@
 //! texture. Works on Vulkan / Metal / DX12 / GL(ES).
 
 mod batch;
+mod capture;
 mod device;
 mod image;
 pub mod text;

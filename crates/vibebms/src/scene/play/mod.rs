@@ -495,6 +495,10 @@ impl Scene for PlayScene {
     fn realtime(&self) -> bool {
         true
     }
+    fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
+        let s = &self.req.song;
+        vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)]
+    }
     fn full_screen(&self) -> bool {
         true
     }

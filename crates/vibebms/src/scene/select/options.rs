@@ -44,10 +44,11 @@ pub(crate) enum SelectOption {
     FavoriteChart,
     FavoriteSong,
     RandomSelect,
+    Screenshot,
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 17] = [
+    pub const ALL: [SelectOption; 18] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -65,6 +66,7 @@ impl SelectOption {
         SelectOption::FavoriteChart,
         SelectOption::FavoriteSong,
         SelectOption::RandomSelect,
+        SelectOption::Screenshot,
     ];
 
     pub fn name(self) -> &'static str {
@@ -86,6 +88,7 @@ impl SelectOption {
             SelectOption::FavoriteChart => "FAV CHART",
             SelectOption::FavoriteSong => "FAV SONG",
             SelectOption::RandomSelect => "RANDOM SELECT",
+            SelectOption::Screenshot => "SCREENSHOT",
         }
     }
 
@@ -105,6 +108,7 @@ impl SelectOption {
             SelectOption::KeyFilter => sel.key_filter.label().into(),
             SelectOption::DifficultyFilter => sel.difficulty_filter.label().into(),
             SelectOption::RandomSelect => sel.random.label().into(),
+            SelectOption::Screenshot => "SAVE".into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -212,6 +216,10 @@ impl SelectScene {
             | SelectOption::RandomSelect => {
                 // (skins without these show nothing of it)
                 ctx.toast(format!("{}: {}", o.name(), o.value(ctx, None, None)));
+            }
+            SelectOption::Screenshot => {
+                ctx.view.want_screenshot = true;
+                return Next::Stay;
             }
             SelectOption::FavoriteChart | SelectOption::FavoriteSong => {
                 self.toggle_favorite(ctx, o == SelectOption::FavoriteSong)

@@ -113,6 +113,8 @@ pub struct View {
     /// Asked of the window by a scene (taken by the event loop).
     pub want_fullscreen: Option<bool>,
     pub want_present_mode: bool,
+    /// A screenshot of the next frame is wanted (`screenshot`).
+    pub want_screenshot: bool,
 }
 
 /// What the input devices have told.
@@ -218,6 +220,7 @@ impl Ctx {
             gpu_name: String::new(),
             want_fullscreen: None,
             want_present_mode: false,
+            want_screenshot: false,
         };
         Ctx::new(Paths::at(root), Config::default(), mixer, view)
     }
