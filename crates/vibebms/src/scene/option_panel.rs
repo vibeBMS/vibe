@@ -91,16 +91,34 @@ fn onoff(b: bool) -> &'static str {
     }
 }
 
-/// DP OPTION as beatoraja lists it: OFF, FLIP, BATTLE.
+/// DP OPTION as beatoraja lists it (skin button 54): OFF, FLIP, BATTLE,
+/// BATTLE AS (BATTLE with AUTO SCRATCH on both sides).
 pub fn dp_index(p: &PlayConfig) -> i64 {
-    if p.battle {
-        2
-    } else {
-        p.dp_option as i64
+    match (p.battle, p.auto_scratch) {
+        (true, true) => 3,
+        (true, false) => 2,
+        _ => p.dp_option as i64,
     }
 }
 
-const DP_LABELS: [&str; 3] = ["OFF", "FLIP", "BATTLE"];
+pub const DP_LABELS: [&str; 4] = ["OFF", "FLIP", "BATTLE", "BATTLE AS"];
+
+/// Set DP OPTION to `i` (as `dp_index`): BATTLE AS turns AUTO SCRATCH on,
+/// leaving it turns it off again.
+pub fn set_dp_index(p: &mut PlayConfig, i: i64) {
+    if dp_index(p) == 3 && i != 3 {
+        p.auto_scratch = false;
+    }
+    p.battle = i >= 2;
+    if i == 3 {
+        p.auto_scratch = true;
+    }
+    p.dp_option = if i == 1 {
+        DoubleOption::Flip
+    } else {
+        DoubleOption::Off
+    };
+}
 
 /// Keys that repeat while held: panel 3's green number (keys 4 and 6).
 pub fn repeats(panel: usize, key: usize) -> bool {
@@ -126,13 +144,8 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("GAUGE: {}", p.gauge.label())
         }
         (1, 3) => {
-            let i = (dp_index(p) + 1) % 3;
-            p.battle = i == 2;
-            p.dp_option = if i == 1 {
-                DoubleOption::Flip
-            } else {
-                DoubleOption::Off
-            };
+            let i = (dp_index(p) + 1) % 4;
+            set_dp_index(p, i);
             format!("DP OPTION: {}", DP_LABELS[i as usize])
         }
         (1, 4) => {
@@ -232,13 +245,15 @@ mod tests {
         assert_eq!(p.random_1p, LaneOption::Mirror);
         key(&mut p, 1, 1, &b);
         assert_eq!(p.random_1p, LaneOption::Off);
-        // DP OPTION: OFF -> FLIP -> BATTLE -> OFF
+        // DP OPTION: OFF -> FLIP -> BATTLE -> BATTLE AS -> OFF
         key(&mut p, 1, 3, &b);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Flip, false));
         key(&mut p, 1, 3, &b);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Off, true));
         key(&mut p, 1, 3, &b);
-        assert_eq!(dp_index(&p), 0);
+        assert_eq!((dp_index(&p), p.auto_scratch), (3, true));
+        key(&mut p, 1, 3, &b);
+        assert_eq!((dp_index(&p), p.auto_scratch, p.battle), (0, false, false));
         key(&mut p, 1, 4, &b);
         assert_eq!(p.hs_fix, HsFix::Start);
         let d = p.duration_ms(&b);

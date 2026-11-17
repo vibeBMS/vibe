@@ -101,7 +101,8 @@ impl ResultScene {
         let mut ir_rx = None;
         let mut ir_status = String::new();
         // every play of its own keeps its replay as the chart's latest
-        if let Some(r) = d.replay.as_ref() {
+        // (a BATTLE play's would replace a single play's: it is not kept)
+        if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
             if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Last) {
                 log::warn!("replay: {e}");
             }
@@ -131,7 +132,7 @@ impl ResultScene {
             if let Some(r) = d
                 .replay
                 .as_ref()
-                .filter(|_| ranked && d.score.ex_score() > best_before)
+                .filter(|r| r.keepable() && ranked && d.score.ex_score() > best_before)
             {
                 if let Err(e) = r.save(&ctx.paths.root, crate::replay::Slot::Best) {
                     log::warn!("replay: {e}");

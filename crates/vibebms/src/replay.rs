@@ -65,6 +65,13 @@ fn file(root: &Path, sha256: &str, ln: i32, slot: Slot) -> PathBuf {
 }
 
 impl Replay {
+    /// Whether it may be kept as a chart's latest or best replay (the
+    /// material of ghosts and G-BATTLE opponents): not a BATTLE play (a
+    /// single play chart on both sides, judged as one).
+    pub fn keepable(&self) -> bool {
+        !self.play.battle
+    }
+
     /// The EX score of the first `n` judgements.
     pub fn ex_at(&self, n: usize) -> u32 {
         ex_of(&self.ghost[..n.min(self.ghost.len())])

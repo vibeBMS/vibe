@@ -368,9 +368,25 @@ fn items(ctx: &Ctx, cat: usize) -> Vec<Item> {
                     )
                 },
             ),
-            it("Battle (SP on both sides)", onoff(p.battle), |c, _| {
-                c.config.play.battle = !c.config.play.battle
-            }),
+            it(
+                "Battle (SP on both sides)",
+                match super::option_panel::dp_index(p) {
+                    2 => "BATTLE",
+                    3 => "BATTLE AS",
+                    _ => "OFF",
+                },
+                |c, d| {
+                    // OFF, BATTLE, BATTLE AS (AUTO SCRATCH on both sides)
+                    let p = &mut c.config.play;
+                    let i = super::option_panel::dp_index(p).max(1) - 1;
+                    let i = (i + d as i64).rem_euclid(3);
+                    let flip = p.dp_option;
+                    super::option_panel::set_dp_index(p, if i == 0 { 0 } else { i + 1 });
+                    if i == 0 {
+                        p.dp_option = flip;
+                    }
+                },
+            ),
             it("Play side", format!("{:?}", p.side), |c, _| {
                 c.config.play.side = if c.config.play.side == Side::P1 {
                     Side::P2

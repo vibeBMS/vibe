@@ -551,6 +551,7 @@ impl PlayScene {
                 ln_profile.has_long() && !ln_profile.undefined,
                 crate::replay::Slot::Best,
             )
+            .filter(|r| r.keepable())
             .map(|r| r.ghost);
         }
         let mut lane_notes = vec![Vec::new(); lanes];

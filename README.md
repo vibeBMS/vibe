@@ -90,7 +90,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
-- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE, assists, floating / fixed hi-speed,
+- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
+  both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
   a course leave no record for the song.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
@@ -131,7 +132,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's (`scores/replays/`; in the
   web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
-  else its latest); a replay is not recorded. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
+  else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
+  kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
   score at the same note, not the best score spread evenly over the chart.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
 - **Audio**: low-latency output (ASIO/JACK feature flags), keysounds scheduled to the sample, WAV/OGG/MP3/FLAC.
