@@ -21,6 +21,18 @@ pub struct LoadedSkin {
 }
 
 /// 0..1 of a bar or slider: a rate, or a number within `minmax`.
+/// A part `r` (an image's region `uv`) of an object drawn at `whole`:
+/// with the object's blend, turned with it about its centre.
+fn part(d: &mut Draw, t: TexId, r: Rect, uv: [f32; 4], fr: &Frame, whole: Rect) {
+    let pivot = (
+        (whole.x + whole.w * fr.center.0 - r.x) / r.w,
+        (whole.y + whole.h * fr.center.1 - r.y) / r.h,
+    );
+    d.b.set_blend(fr.blend);
+    d.b.quad_rot(t, r, uv, fr.color, fr.angle, pivot);
+    d.b.set_blend(crate::gfx::Blend::Alpha);
+}
+
 fn value(st: &dyn SkinState, id: i32, minmax: Option<(f32, f32)>) -> f32 {
     match minmax {
         Some((lo, hi)) if hi != lo => {
@@ -297,7 +309,7 @@ impl LoadedSkin {
                 Some(s) if !rank => {
                     if let Some(f) = s.frames.get(set * 11 + k).or(s.frames.get(k)) {
                         if let Some((t, uv)) = self.uv(d, s, *f) {
-                            d.b.quad(t, seg, uv, fr.color);
+                            part(d, t, seg, uv, fr, r);
                         }
                     }
                 }
@@ -734,7 +746,7 @@ impl LoadedSkin {
                 Kind::RefImage(REF_SKIN_PREVIEW) => hooks.preview(d, r, fr.color),
                 Kind::RefImage(id) => {
                     if let Some(t) = hooks.ref_image(*id) {
-                        d.b.quad(t, r, [0.0, 0.0, 1.0, 1.0], fr.color);
+                        part(d, t, r, [0.0, 0.0, 1.0, 1.0], &fr, r);
                     }
                 }
                 Kind::Number {
@@ -793,7 +805,7 @@ impl LoadedSkin {
                         )
                     };
                     if let Some((t, uv)) = self.uv(d, src, ff) {
-                        d.b.quad(t, rr, uv, fr.color);
+                        part(d, t, rr, uv, &fr, r);
                     }
                 }
                 Kind::Slider {
@@ -867,7 +879,7 @@ impl LoadedSkin {
                             fr.rect.h,
                         ));
                         if let Some((t, uv)) = self.uv(d, src, *f) {
-                            d.b.quad(t, pr, uv, fr.color);
+                            part(d, t, pr, uv, &fr, r);
                         }
                     }
                 }
