@@ -615,9 +615,14 @@ pub struct ScanProgress {
     pub done: AtomicBool,
     pub changed: AtomicBool,
     pub current: Mutex<String>,
+    /// Charts the scan could not read (on the web: not in memory, as when
+    /// the browser's storage swapped a stored file in after it was read).
+    /// They got no record, so they are read again; the app reads them in
+    /// and scans once more.
+    pub unread: Mutex<Vec<PathBuf>>,
 }
 
-fn is_chart(p: &Path) -> bool {
+pub(crate) fn is_chart(p: &Path) -> bool {
     p.extension()
         .and_then(|e| e.to_str())
         .map(|e| {
@@ -911,7 +916,8 @@ pub fn scan(
                 Some(entry(song, Some(VERSION.to_string())))
             }
             Err(e) => {
-                log::debug!("skip {}: {e}", f.display());
+                log::debug!("not read {}: {e}", f.display());
+                progress.unread.lock().unwrap().push(f.clone());
                 None
             }
         };
@@ -1455,6 +1461,45 @@ mod tests {
         assert_eq!(open(&cache).songs().len(), 0);
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&moved).ok();
+    }
+
+    /// A chart that cannot be read when the scan comes to it (on the web:
+    /// its bytes not in memory) gets no record, not one as a skipped
+    /// chart: it is listed as unread and read by the next scan.
+    #[cfg(unix)]
+    #[test]
+    fn a_chart_not_read_yet_is_read_by_the_next_scan() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-unread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let songs = dir.join("pack");
+        std::fs::create_dir_all(&songs).unwrap();
+        let cache = dir.join("cache");
+        // (a chart whose file cannot be read: a link to nothing yet)
+        let chart = songs.join("a.bme");
+        let target = dir.join("a.bme.data");
+        std::os::unix::fs::symlink(&target, &chart).unwrap();
+        let run = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(
+                cache.join("songs.json"),
+                vec![songs.clone()],
+                [cache.clone()].into_iter().collect(),
+                p.clone(),
+            );
+            p
+        };
+        let p = run();
+        assert_eq!(*p.unread.lock().unwrap(), vec![chart.clone()]);
+        assert!(!p.changed.load(Ordering::Relaxed));
+        assert!(load_songs(&cache.join("songs.json")).is_empty());
+        std::fs::write(&target, "#TITLE A\n#BPM 150\n#00111:01\n").unwrap();
+        let p = run();
+        assert!(p.unread.lock().unwrap().is_empty());
+        assert!(p.changed.load(Ordering::Relaxed));
+        let s = Library::open(&cache, &cache, |_, _| None).songs();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].title, "A");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

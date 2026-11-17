@@ -74,6 +74,10 @@ pub struct Lib {
     pub scan: Option<Arc<ScanProgress>>,
     /// Scan again once the running scan ends (files came in during it).
     scan_again: bool,
+    /// The charts a scan could not read are being read in for one more
+    /// scan (once: if that one cannot read them either, they wait for the
+    /// next scan).
+    reading_unread: bool,
     /// Web: picked charts being read before the scan.
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
@@ -312,12 +316,17 @@ impl Ctx {
             return;
         }
         let changed = s.changed.load(Ordering::Acquire);
+        let unread = std::mem::take(&mut *s.unread.lock().unwrap());
         self.lib.scan = None;
         if changed || self.lib.songs.is_empty() {
             self.reload_library();
         }
-        let n = self.lib.songs.len();
-        self.toast(format!("Library: {n} charts"));
+        self.read_unread(unread);
+        // (with charts being read in, another scan follows: the count then)
+        if self.lib.prefetch.is_none() {
+            let n = self.lib.songs.len();
+            self.toast(format!("Library: {n} charts"));
+        }
         if !again {
             return;
         }
@@ -326,7 +335,41 @@ impl Ctx {
         } else {
             // what was downloaded before it started is in now
             self.net.song_fetch.scanned();
+            if self.lib.prefetch.is_none() {
+                // web: the charts kept in memory for this scan leave it
+                crate::platform::vfs::release_charts();
+            }
         }
+    }
+
+    /// Charts the scan could not read (web: a chart whose bytes left
+    /// memory for the browser's stored copy after it was read in, before
+    /// the scan): read them in, then scan again (`poll_scan`). Only once
+    /// in a row, so a chart that cannot be read at all does not keep the
+    /// library scanning; only on the web, where reading in is what helps.
+    fn read_unread(&mut self, unread: Vec<std::path::PathBuf>) {
+        // natively a file the scan could not read stays unreadable until it
+        // changes (and then the next scan reads it): nothing to read in
+        if unread.is_empty() || !cfg!(target_arch = "wasm32") {
+            if !unread.is_empty() {
+                log::warn!("scan: {} charts could not be read", unread.len());
+            }
+            self.lib.reading_unread = false;
+            return;
+        }
+        // (a read already under way scans again when it is done)
+        if self.lib.prefetch.is_some() {
+            return;
+        }
+        if std::mem::take(&mut self.lib.reading_unread) {
+            log::warn!("scan: {} charts could not be read", unread.len());
+            return;
+        }
+        log::info!("scan: {} charts not read yet: reading them", unread.len());
+        self.lib.reading_unread = true;
+        #[cfg(target_arch = "wasm32")]
+        crate::platform::opfs::hold_library(true);
+        self.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(unread));
     }
 
     pub fn start_scan(&mut self) {
