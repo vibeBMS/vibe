@@ -5,8 +5,8 @@
 
 use super::imports::Imports;
 use crate::app::Ctx;
-use jni::objects::{JClass, JObject, JString, JValue};
-use jni::JNIEnv;
+use crate::platform::android::{app_class, with_java};
+use jni::objects::{JString, JValue};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use winit::event::WindowEvent;
@@ -21,47 +21,9 @@ pub struct Downloads {
     imports: Imports,
 }
 
-/// Run `f` with the JVM and the activity (the app's NativeActivity).
-fn with_java<R>(
-    f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>,
-) -> Result<R, String> {
-    let ctx = ndk_context::android_context();
-    // SAFETY: android-activity sets the context to the process' JavaVM and
-    // the activity (a global reference that lives as long as the process)
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| e.to_string())?;
-    let mut env = vm
-        .attach_current_thread_permanently()
-        .map_err(|e| e.to_string())?;
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
-    let r = f(&mut env, &activity);
-    if env.exception_check().unwrap_or(false) {
-        let _ = env.exception_describe();
-        let _ = env.exception_clear();
-    }
-    r.map_err(|e| e.to_string())
-}
-
-/// The Browser class (through the activity's class loader: this thread is
-/// not a Java one, and the system loader does not know app classes).
-fn browser_class<'a>(env: &mut JNIEnv<'a>, activity: &JObject) -> jni::errors::Result<JClass<'a>> {
-    let loader = env
-        .call_method(activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
-        .l()?;
-    let name = env.new_string("io.github.vibebms.Browser")?;
-    let class = env
-        .call_method(
-            &loader,
-            "loadClass",
-            "(Ljava/lang/String;)Ljava/lang/Class;",
-            &[JValue::Object(&name)],
-        )?
-        .l()?;
-    Ok(JClass::from(class))
-}
-
 fn open(url: &str, dir: &std::path::Path) -> Result<(), String> {
     with_java(|env, activity| {
-        let class = browser_class(env, activity)?;
+        let class = app_class(env, activity, "Browser")?;
         let url = env.new_string(url)?;
         let dir = env.new_string(dir.to_string_lossy())?;
         // run on each page (a OneDrive share downloads without a press)
@@ -84,7 +46,7 @@ fn open(url: &str, dir: &std::path::Path) -> Result<(), String> {
 /// The browser's events since the last call.
 fn events() -> Vec<String> {
     with_java(|env, activity| {
-        let class = browser_class(env, activity)?;
+        let class = app_class(env, activity, "Browser")?;
         let mut out = Vec::new();
         loop {
             let ev = env

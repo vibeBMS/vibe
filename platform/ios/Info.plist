@@ -23,6 +23,9 @@
     <key>LSRequiresIPhoneOS</key><true/>
     <key>UIRequiresFullScreen</key><true/>
     <key>UIStatusBarHidden</key><true/>
+    <!-- ProMotion iPhones show more than 60 frames a second only with this
+         (iPads do without it) -->
+    <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <!-- expose Documents/ in the Files app so users can copy BMS in -->
     <key>UIFileSharingEnabled</key><true/>
     <key>LSSupportsOpeningDocumentsInPlace</key><true/>

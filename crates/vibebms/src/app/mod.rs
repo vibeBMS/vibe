@@ -636,8 +636,14 @@ impl ApplicationHandler<UserEvent> for App {
     }
 }
 
-/// The refresh rate (Hz) of the window's display, 0 when it is not known.
+/// The refresh rate (Hz) of the window's display, 0 when it is not known;
+/// on Android the highest the display has, asked for.
 fn refresh_hz(window: &Window) -> f64 {
+    // (winit does not know it there)
+    #[cfg(target_os = "android")]
+    if let Some(hz) = crate::platform::android::use_highest_refresh_rate() {
+        return hz;
+    }
     window
         .current_monitor()
         .and_then(|m| m.refresh_rate_millihertz())
