@@ -7,6 +7,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer commit on the same branch or pull request cancels the older run:
+# hosted runners are limited (20 jobs, 5 of them macOS, across the
+# organization), and only the newest commit's builds matter. A publish cut
+# off this way is redone by the newer run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
