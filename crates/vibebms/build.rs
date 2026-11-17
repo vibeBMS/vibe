@@ -10,7 +10,6 @@ fn main() {
     // their own lists.
     let os = var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let desktop = var("CARGO_CFG_WINDOWS").is_ok() || os == "macos" || os == "linux";
-    let wasm = var("CARGO_CFG_TARGET_ARCH").is_ok_and(|a| a == "wasm32");
     let browser = var("CARGO_FEATURE_BROWSER").is_ok();
     let groups = [
         // the executables that update themselves (`update`)
@@ -22,8 +21,9 @@ fn main() {
             "in_app_browser",
             os == "android" || (browser && (desktop || os == "ios")),
         ),
-        // game controllers through gilrs (`input::gamepad`)
-        ("gamepads", !wasm && os != "android" && os != "ios"),
+        // game controllers through gilrs (`input::gamepad`; the web through
+        // the browser's Gamepad API)
+        ("gamepads", os != "android" && os != "ios"),
     ];
     for (name, on) in groups {
         println!("cargo::rustc-check-cfg=cfg({name})");
