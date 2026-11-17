@@ -4,6 +4,9 @@
 //! The client is HTTP-free: it builds [`HttpRequest`]s and parses response
 //! bodies; the application sends them with its own HTTP stack.
 
+pub mod eligibility;
+pub mod rule;
+
 use serde::{Deserialize, Serialize};
 use vibebms_core::judge::{BAD, GOOD, GREAT, MISS, PGREAT, POOR};
 use vibebms_core::score::{ClearType, Score};
