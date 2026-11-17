@@ -1069,10 +1069,13 @@ fn mb(n: u64) -> String {
 /// The skin catalog: each skin, what it is, and what can be done with it.
 fn skin_items(ctx: &Ctx) -> Vec<Item> {
     let store = &ctx.skin_store;
+    // the browser leaves out what it cannot install (Lua skins, the largest)
+    let shown =
+        |e: &crate::skinstore::SkinEntry| !crate::platform::IS_WEB || e.web_refusal().is_none();
     let mut v = vec![Item {
         label: format!(
             "Skin catalog: {} skins, installed into {}",
-            store.catalog.skins.len(),
+            store.catalog.skins.iter().filter(|e| shown(e)).count(),
             ctx.paths.skins.display()
         ),
         value: if store.is_fetching() {
@@ -1084,7 +1087,7 @@ fn skin_items(ctx: &Ctx) -> Vec<Item> {
     }];
     if crate::platform::IS_WEB {
         v.push(Item {
-            label: "In the browser: no Lua skins, none over 400 MB".into(),
+            label: "Lua skins and skins over 400 MB are in the desktop and mobile apps".into(),
             value: String::new(),
             act: Act::None,
         });
@@ -1092,6 +1095,9 @@ fn skin_items(ctx: &Ctx) -> Vec<Item> {
     let armed = store.armed.as_ref();
     for (i, e) in store.catalog.skins.iter().enumerate() {
         use crate::skinstore::State;
+        if !shown(e) {
+            continue;
+        }
         let state = store.state(&ctx.paths.skins, e);
         let size = if e.size > 0 {
             format!(" ({})", mb(e.size))
@@ -1249,6 +1255,12 @@ pub struct SettingsScene {
     /// middle lowers it, right of it raises it.
     value_spans: Vec<(f32, f32)>,
     scroll: f32,
+    /// The rows scroll to keep the chosen one in view (after keys or a
+    /// controller; not after the wheel or a drag).
+    follow: bool,
+    /// A press on the rows: (pointer, where it went down, the scroll then,
+    /// whether it has moved far enough to scroll instead of tap).
+    drag: Option<(u64, f32, f32, f32, bool)>,
     axis_seen: std::collections::HashMap<u64, f32>,
     /// Turntable positions last seen (it moves the selection).
     axis_last: std::collections::HashMap<u64, f32>,
@@ -1271,6 +1283,8 @@ impl SettingsScene {
             item_rects: Vec::new(),
             value_spans: Vec::new(),
             scroll: 0.0,
+            follow: true,
+            drag: None,
             axis_seen: Default::default(),
             axis_last: Default::default(),
             back_rect: Rect::default(),
@@ -1446,6 +1460,7 @@ impl SettingsScene {
     /// a blue key lowers a value or goes back to the categories, START
     /// goes back to them too, SELECT leaves.
     fn nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
+        self.follow = true;
         let adjust = || {
             matches!(
                 items(ctx, self.cat).get(self.sel).map(|it| it.act),
@@ -1620,6 +1635,9 @@ impl SettingsScene {
             return Next::Stay;
         }
         let n = items(ctx, self.cat).len();
+        if matches!(ev, InputEv::Key { pressed: true, .. }) {
+            self.follow = true;
+        }
         match ev {
             InputEv::Key {
                 code,
@@ -1711,9 +1729,45 @@ impl SettingsScene {
                 }
             }
             InputEv::Wheel { dy } => {
+                self.follow = false;
                 self.scroll = (self.scroll - dy * 40.0).max(0.0);
             }
+            // the rows: a drag scrolls them, a tap (lifted where it went
+            // down) acts on the row
             InputEv::Pointer {
+                id,
+                phase: Phase::Move,
+                y,
+                ..
+            } => {
+                if let Some((d, _, y0, s0, moved)) = self.drag.as_mut() {
+                    if *d == *id {
+                        if !*moved && (*y - *y0).abs() > 10.0 * ctx.ui() {
+                            *moved = true;
+                        }
+                        if *moved {
+                            self.follow = false;
+                            self.scroll = (*s0 - (*y - *y0)).max(0.0);
+                        }
+                    }
+                }
+            }
+            InputEv::Pointer {
+                id,
+                phase: Phase::Up,
+                ..
+            } => {
+                if let Some((d, x, y, _, moved)) = self.drag {
+                    if d == *id {
+                        self.drag = None;
+                        if !moved {
+                            self.tap_row(ctx, x, y);
+                        }
+                    }
+                }
+            }
+            InputEv::Pointer {
+                id,
                 phase: Phase::Down,
                 x,
                 y,
@@ -1728,41 +1782,49 @@ impl SettingsScene {
                     self.sel = 0;
                     self.scroll = 0.0;
                     self.focus_items = false;
-                } else if let Some(i) = ui::hit(&self.item_rects, *x, *y) {
-                    self.focus_items = true;
-                    self.sel = i;
-                    let r = self
-                        .item_rects
-                        .iter()
-                        .find(|(_, k)| *k == i)
-                        .map(|(r, _)| *r)
-                        .unwrap_or_default();
-                    // the value's middle (it is drawn at the row's right)
-                    let mid = self
-                        .item_rects
-                        .iter()
-                        .position(|(_, k)| *k == i)
-                        .and_then(|p| self.value_spans.get(p))
-                        .map_or(r.x + r.w * 0.78, |(a, b)| (a + b) * 0.5);
-                    let d = if *x < mid { -1 } else { 1 };
-                    let list = items(ctx, self.cat);
-                    let is_adjust = matches!(
-                        list.get(i).map(|it| it.act),
-                        Some(Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..))
-                    );
-                    let value_area = *x > r.x + r.w * 0.55;
-                    if is_adjust && value_area {
-                        self.activate(ctx, d, false);
-                    } else if !is_adjust {
-                        self.activate(ctx, 0, true);
-                    } else {
-                        self.activate(ctx, 1, false);
-                    }
+                } else if ui::hit(&self.item_rects, *x, *y).is_some() {
+                    self.drag = Some((*id, *x, *y, self.scroll, false));
                 }
             }
             _ => {}
         }
         Next::Stay
+    }
+
+    /// A tap on the rows at (`x`, `y`): the row's action, by where on it.
+    fn tap_row(&mut self, ctx: &mut Ctx, x: f32, y: f32) {
+        let (x, y) = (&x, &y);
+        if let Some(i) = ui::hit(&self.item_rects, *x, *y) {
+            self.focus_items = true;
+            self.sel = i;
+            let r = self
+                .item_rects
+                .iter()
+                .find(|(_, k)| *k == i)
+                .map(|(r, _)| *r)
+                .unwrap_or_default();
+            // the value's middle (it is drawn at the row's right)
+            let mid = self
+                .item_rects
+                .iter()
+                .position(|(_, k)| *k == i)
+                .and_then(|p| self.value_spans.get(p))
+                .map_or(r.x + r.w * 0.78, |(a, b)| (a + b) * 0.5);
+            let d = if *x < mid { -1 } else { 1 };
+            let list = items(ctx, self.cat);
+            let is_adjust = matches!(
+                list.get(i).map(|it| it.act),
+                Some(Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..))
+            );
+            let value_area = *x > r.x + r.w * 0.55;
+            if is_adjust && value_area {
+                self.activate(ctx, d, false);
+            } else if !is_adjust {
+                self.activate(ctx, 0, true);
+            } else {
+                self.activate(ctx, 1, false);
+            }
+        }
     }
 
     fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
@@ -1848,14 +1910,18 @@ impl SettingsScene {
         }
         let list = items(ctx, self.cat);
         let rh = 40.0 * ui;
-        // keep selection visible
+        // keep the chosen row in view after keys; never past the last row
         let sel_y = self.sel as f32 * rh;
-        if sel_y - self.scroll > item_r.h - rh * 2.0 {
-            self.scroll = sel_y - item_r.h + rh * 2.0;
+        if self.follow {
+            if sel_y - self.scroll > item_r.h - rh * 2.0 {
+                self.scroll = sel_y - item_r.h + rh * 2.0;
+            }
+            if sel_y < self.scroll {
+                self.scroll = sel_y;
+            }
         }
-        if sel_y < self.scroll {
-            self.scroll = sel_y;
-        }
+        let content = 16.0 * ui + list.len() as f32 * rh;
+        self.scroll = self.scroll.clamp(0.0, (content - item_r.h).max(0.0));
         self.item_rects.clear();
         self.value_spans.clear();
         d.b.set_clip(Some(item_r));

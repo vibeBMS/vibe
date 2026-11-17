@@ -47,7 +47,8 @@ pub struct SkinEntry {
     pub author: String,
     /// "lr2" or "beatoraja".
     pub kind: String,
-    /// A beatoraja skin written in Lua (`.luaskin`): not in the web build.
+    /// A beatoraja skin written in Lua (`.luaskin`): not in the web build
+    /// (Lua is compiled in everywhere else, iOS and Android too).
     pub lua: bool,
     /// See [`SCENES`].
     pub scenes: Vec<String>,
@@ -117,9 +118,9 @@ impl SkinEntry {
     /// Why the web build cannot install it, if it cannot.
     pub fn web_refusal(&self) -> Option<&'static str> {
         if self.lua {
-            Some("a Lua skin: it needs the desktop app")
+            Some("a Lua skin: it needs the desktop or mobile app")
         } else if self.size > WEB_MAX_BYTES {
-            Some("too large for the browser: use the desktop app")
+            Some("too large for the browser: use the desktop or mobile app")
         } else {
             None
         }
