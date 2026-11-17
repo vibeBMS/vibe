@@ -1,7 +1,7 @@
 # vibeBMS JSON IR protocol (version 2)
 
 A minimal REST protocol so that any IR server can accept vibeBMS scores. Configure it in
-`SETTINGS › IR` (base URL, API token). All bodies are UTF-8 JSON. The client is
+`SETTINGS › ONLINE` (base URL, API token). All bodies are UTF-8 JSON. The client is
 `crates/vibebms-ir/src/providers/vibe_json.rs`.
 
 Authentication: `Authorization: Bearer <token>` on every request when a token is set. Servers

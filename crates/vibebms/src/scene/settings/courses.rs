@@ -1,8 +1,9 @@
-//! The course editor: the player's courses (made, renamed, reordered,
+//! COURSES: the player's courses (made, renamed, reordered,
 //! deleted; their kind, joins and stages), LR2's imported, and RANDOM MIX's
 //! settings. Charts are added from the song select (its C key).
 
-use super::{Act, Row, TextField};
+use super::row::{Act, Row, Rows};
+use super::{Sub, TextField};
 use crate::app::Ctx;
 use crate::courses::Course;
 use crate::scene::option_panel::cycle;
@@ -36,12 +37,6 @@ fn new_course(c: &mut Ctx, _: usize) {
     });
     c.lib.courses.editing = Some(id);
     changed(c);
-}
-
-fn choose(c: &mut Ctx, id: usize) {
-    let id = id as u64;
-    let st = &mut c.lib.courses;
-    st.editing = (st.editing != Some(id)).then_some(id);
 }
 
 fn delete(c: &mut Ctx, _: usize) {
@@ -132,44 +127,72 @@ fn mix(c: &mut Ctx) -> &mut crate::courses::RandomMix {
     &mut c.config.random_mix
 }
 
-pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
+pub(super) fn rows(b: &mut Rows) {
+    let ctx = b.ctx;
     let st = &ctx.lib.courses;
-    let mut v = vec![
-        Row::new("New course", "+", Act::Run(new_course, 0)),
-        Row::new(
-            "Import LR2's courses (its folder or song.db)…",
-            "+",
-            Act::Text(TextField::ImportLr2),
-        ),
-    ];
-    #[cfg(desktop)]
-    v.push(Row::new(
-        "Browse for LR2's folder…",
-        "📂",
-        Act::Run(browse, 0),
-    ));
+    b.header("MY COURSES");
+    b.push(
+        Row::new("courses.new", "New course", "+", Act::Run(new_course, 0))
+            .desc("An empty course; add charts from the song select with C."),
+    );
     for kind in [CourseKind::Expert, CourseKind::Nonstop, CourseKind::Class] {
         for c in st.of_kind(kind) {
-            let open = st.editing == Some(c.id);
-            v.push(Row::new(
-                format!("{} · {} ({} stages)", kind.label(), c.title, c.stages.len()),
-                if open { "close ▾" } else { "edit ›" },
-                Act::Run(choose, c.id as usize),
-            ));
-            if open {
-                editor(c, &mut v);
-            }
+            let editing = st.editing == Some(c.id);
+            b.push(
+                Row::sub(
+                    "courses.course",
+                    c.title.clone(),
+                    if editing {
+                        "C adds here · edit"
+                    } else {
+                        "edit"
+                    },
+                    Sub::Course(c.id),
+                )
+                .desc(format!("{} · {} stages", kind.label(), c.stages.len())),
+            );
         }
     }
+    b.header("IMPORT");
+    b.push(
+        Row::new(
+            "courses.import_lr2",
+            "Import LR2's courses…",
+            "+",
+            Act::Text(TextField::ImportLr2),
+        )
+        .desc("From LR2's folder or its song.db: type or paste the path.")
+        .keys("lr2 song.db expert grade class"),
+    );
+    #[cfg(desktop)]
+    b.push(
+        Row::new(
+            "courses.browse_lr2",
+            "Browse for LR2's folder…",
+            "browse",
+            Act::Run(browse, 0),
+        )
+        .desc("Pick LR2's folder; its courses are imported."),
+    );
     let m = &ctx.config.random_mix;
     let n = |v: i64| if v > 0 { v.to_string() } else { "none".into() };
-    v.extend([
-        Row::note("RANDOM MIX (expert and NONSTOP course folders)", ""),
-        Row::adjust("  Stages", m.stages.to_string(), |c, d| {
-            let s = &mut mix(c).stages;
-            *s = (*s as i32 + d).clamp(0, MAX_STAGES as i32) as u32
-        }),
-        Row::adjust("  Key mode", m.mode.label(), |c, d| {
+    b.group(
+        "courses.random_mix",
+        "RANDOM MIX",
+        "The charts RANDOM MIX picks from: levels, BPMs and how NONSTOP stages join",
+    );
+    b.extend([
+        Row::adjust(
+            "random_mix.stages",
+            "Stages",
+            m.stages.to_string(),
+            |c, d| {
+                let s = &mut mix(c).stages;
+                *s = (*s as i32 + d).clamp(0, MAX_STAGES as i32) as u32
+            },
+        )
+        .desc("How many charts a RANDOM MIX course has."),
+        Row::adjust("random_mix.mode", "Key mode", m.mode.label(), |c, d| {
             let all = [
                 PlayMode::Beat7K,
                 PlayMode::Beat5K,
@@ -178,79 +201,146 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 PlayMode::Popn9K,
             ];
             mix(c).mode = cycle(&all, mix(c).mode, d)
-        }),
-        Row::adjust("  Lowest level", n(m.min_level), |c, d| {
-            mix(c).min_level = (mix(c).min_level + d as i64).max(0)
-        }),
-        Row::adjust("  Highest level", n(m.max_level), |c, d| {
-            mix(c).max_level = (mix(c).max_level + d as i64).max(0)
-        }),
-        Row::adjust("  Lowest BPM", n(m.min_bpm as i64), |c, d| {
-            mix(c).min_bpm = (mix(c).min_bpm + 10.0 * d as f64).max(0.0)
-        }),
-        Row::adjust("  Highest BPM", n(m.max_bpm as i64), |c, d| {
-            mix(c).max_bpm = (mix(c).max_bpm + 10.0 * d as f64).max(0.0)
-        }),
-        Row::adjust("  BPM range", n(m.bpm_range as i64), |c, d| {
-            mix(c).bpm_range = (mix(c).bpm_range + 5.0 * d as f64).max(0.0)
-        }),
-        Row::adjust("  Optimum level", n(m.optimum_level), |c, d| {
-            mix(c).optimum_level = (mix(c).optimum_level + d as i64).max(0)
-        }),
-        Row::adjust("  NONSTOP join", m.join.label(), |c, d| {
+        })
+        .desc("The key mode of the charts picked."),
+        Row::adjust(
+            "random_mix.min_level",
+            "Lowest level",
+            n(m.min_level),
+            |c, d| mix(c).min_level = (mix(c).min_level + d as i64).max(0),
+        )
+        .desc("No chart below this level (none: no limit)."),
+        Row::adjust(
+            "random_mix.max_level",
+            "Highest level",
+            n(m.max_level),
+            |c, d| mix(c).max_level = (mix(c).max_level + d as i64).max(0),
+        )
+        .desc("No chart above this level (none: no limit)."),
+        Row::adjust(
+            "random_mix.min_bpm",
+            "Lowest BPM",
+            n(m.min_bpm as i64),
+            |c, d| mix(c).min_bpm = (mix(c).min_bpm + 10.0 * d as f64).max(0.0),
+        )
+        .desc("No chart slower than this (none: no limit)."),
+        Row::adjust(
+            "random_mix.max_bpm",
+            "Highest BPM",
+            n(m.max_bpm as i64),
+            |c, d| mix(c).max_bpm = (mix(c).max_bpm + 10.0 * d as f64).max(0.0),
+        )
+        .desc("No chart faster than this (none: no limit)."),
+        Row::adjust(
+            "random_mix.bpm_range",
+            "BPM range",
+            n(m.bpm_range as i64),
+            |c, d| mix(c).bpm_range = (mix(c).bpm_range + 5.0 * d as f64).max(0.0),
+        )
+        .desc("How far apart the charts' BPMs may be."),
+        Row::adjust(
+            "random_mix.optimum_level",
+            "Optimum level",
+            n(m.optimum_level),
+            |c, d| mix(c).optimum_level = (mix(c).optimum_level + d as i64).max(0),
+        )
+        .desc("The level picked most often."),
+        Row::adjust("random_mix.join", "NONSTOP join", m.join.label(), |c, d| {
             mix(c).join = cycle(&Join::ALL, mix(c).join, d)
-        }),
+        })
+        .desc("How the stages of a NONSTOP course join."),
     ]);
-    v
 }
 
-/// The rows of the course being edited.
-fn editor(c: &Course, v: &mut Vec<Row>) {
-    v.push(Row::new(
-        "    Title",
-        c.title.clone(),
-        Act::Text(TextField::CourseTitle),
-    ));
-    v.push(Row::adjust("    Kind", c.kind.label(), |c, d| {
-        edit(c, |course, _| {
-            course.kind = cycle(&CourseKind::ALL, course.kind, d)
+/// COURSES › a course: its title, kind, stages and joins, its place in
+/// the list. It is the course C adds charts to in the song select.
+pub(super) fn editor(b: &mut Rows, id: u64) {
+    let Some(c) = b.ctx.lib.courses.get(id) else {
+        return;
+    };
+    b.header("COURSE");
+    b.push(
+        Row::new(
+            "course.title",
+            "Title",
+            c.title.clone(),
+            Act::Text(TextField::CourseTitle),
+        )
+        .desc("Its name in the song select."),
+    );
+    b.push(
+        Row::adjust("course.kind", "Kind", c.kind.label(), |c, d| {
+            edit(c, |course, _| {
+                course.kind = cycle(&CourseKind::ALL, course.kind, d)
+            })
         })
-    }));
+        .desc("EXPERT, NONSTOP or CLASS."),
+    );
     if c.ir {
-        v.push(Row::note("    (an LR2 internet-ranking course)", ""));
+        b.push(Row::note("course.ir", "An LR2 internet-ranking course", ""));
     }
+    b.header(format!("STAGES · {} OF {MAX_STAGES}", c.stages.len()));
     let def = c.def();
     for (k, s) in c.stages.iter().enumerate() {
         let name = if s.title.is_empty() { &s.md5 } else { &s.title };
-        v.push(Row::new(
-            format!("    {}. {name}", k + 1),
-            "remove ×",
-            Act::Run(remove_stage, k),
-        ));
+        b.push(
+            Row::new(
+                "course.stage",
+                format!("{}. {name}", k + 1),
+                "remove ×",
+                Act::Run(remove_stage, k),
+            )
+            .desc("Enter: take it out of the course."),
+        );
         if k > 0 {
-            v.push(Row::new("        move up", "↑", Act::Run(stage_up, k)));
+            b.push(
+                Row::new("course.stage_up", "Move up", "↑", Act::Run(stage_up, k))
+                    .desc(format!("Swap stages {k} and {}.", k + 1)),
+            );
         }
         if let Some(j) = def.joins.get(k) {
-            v.push(Row::new(
-                format!("        join {} → {}", k + 1, k + 2),
-                j.label(),
-                Act::Run(join, k),
-            ));
+            b.push(
+                Row::new(
+                    "course.join",
+                    format!("Join {} → {}", k + 1, k + 2),
+                    j.label(),
+                    Act::Run(join, k),
+                )
+                .desc("How the two stages join (NONSTOP)."),
+            );
         }
     }
     if c.stages.len() < MAX_STAGES {
-        v.push(Row::note(
-            "    Add a chart: choose it in the song select, press Insert (or C when no key uses it)",
+        b.push(Row::note(
+            "course.add",
+            "Add a chart: choose it in the song select, press Insert (or C when no key uses it)",
             "",
         ));
     }
-    v.push(Row::new("    Move up the list", "↑", Act::Run(shift, 1)));
-    v.push(Row::new("    Move down the list", "↓", Act::Run(shift, 0)));
-    v.push(Row::new(
-        "    Delete this course",
-        "delete ×",
-        Act::Run(delete, 0),
-    ));
+    b.header("IN THE LIST");
+    b.extend([
+        Row::new(
+            "course.shift_up",
+            "Move up the list",
+            "↑",
+            Act::Run(shift, 1),
+        )
+        .desc("Its place among the courses of its kind."),
+        Row::new(
+            "course.shift_down",
+            "Move down the list",
+            "↓",
+            Act::Run(shift, 0),
+        )
+        .desc("Its place among the courses of its kind."),
+        Row::new(
+            "course.delete",
+            "Delete this course",
+            "delete ×",
+            Act::Run(delete, 0),
+        )
+        .desc("It cannot be undone."),
+    ]);
 }
 
 /// The title of the course being edited.

@@ -127,9 +127,9 @@ pub fn open(ctx: &mut Ctx, kind: Option<SkinType>) -> Box<dyn Scene> {
         Box::new(SkinSelectScene::new(kind))
     } else {
         let page = if kind == Some(SkinType::SoundSet) {
-            Page::Audio
-        } else {
             Page::Display
+        } else {
+            Page::Skins
         };
         Box::new(super::settings::SettingsScene::at(ctx, page))
     }
@@ -489,7 +489,7 @@ impl Scene for SkinSelectScene {
             let Some(skin) = skin else {
                 return Next::Replace(Box::new(super::settings::SettingsScene::at(
                     ctx,
-                    Page::Display,
+                    Page::Skins,
                 )));
             };
             if self.kind.is_none() {

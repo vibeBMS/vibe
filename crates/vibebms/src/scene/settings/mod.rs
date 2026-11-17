@@ -1,111 +1,297 @@
 //! In-game settings: every option lives here (no external launcher).
 //!
-//! Keyboard: ↑↓ select, ←→ change, Enter activate, Esc back.
-//! Mouse/touch: tap a category, tap the left/right half of a value to change it.
-//! Controller: the turntable selects, white keys decide / raise, blue keys
-//! lower / go back, SELECT leaves.
+//! A top level of eight pages as cards; each page has sections and
+//! foldable groups, and long lists open sub-pages (with a breadcrumb).
+//! Search (`/`) finds any row, and points to the options that live in the
+//! song select instead.
+//!
+//! Keyboard: arrows move (←→ change a value), Enter opens or acts, Esc
+//! goes back a level. Mouse / touch: tap a card, a page, a row (the left
+//! or right half of a value lowers or raises it), the search field, BACK.
+//! Controller: the turntable moves, white keys decide / raise, blue keys
+//! lower / go back, START goes to the pages, SELECT leaves.
 
-mod audio;
+mod controls;
 mod courses;
 mod display;
-mod ir;
-mod judge;
-mod keys;
+mod draw;
+mod gameplay;
 mod library;
-mod play;
+mod online;
+mod per_play;
+mod row;
+mod search;
 mod skins;
 mod system;
-mod tables;
-mod touch;
 #[cfg(target_arch = "wasm32")]
 mod web_storage;
 
-use super::keybind::{self, Learn, Learned, Slot};
+use super::keybind::{self, Learn, Learned};
 use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{with_alpha, Gfx, Rect};
+use crate::gfx::Gfx;
 use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::{Duration, Instant};
 use crate::skin::SkinType;
-use crate::theme;
-use crate::ui::{self, Armed, HitMap, ListView, TextEvent, TextInput};
+use crate::ui::{self, Armed, ListView, TextEvent, TextInput};
+use controls::KeySet;
+use row::{Act, Folds, Kind, Row, Rows};
+use std::cell::RefCell;
+use std::collections::HashSet;
+use vibebms_core::course::CourseKind;
+use vibebms_ir::ProviderId;
 use winit::keyboard::KeyCode;
 
-/// A row's height (UI units).
-const ROW_H: f32 = 40.0;
 /// How often the rows are built again while nothing is done to them: they
 /// show what goes on meanwhile (downloads, scans, update checks).
 const REFRESH: Duration = Duration::from_millis(250);
+/// The changes the top level lists.
+const RECENT: usize = 3;
 
-/// The categories, in menu order.
+/// The pages, in menu order.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Page {
-    Play,
-    Judge,
-    Keys,
-    Touch,
+    Gameplay,
+    Controls,
     Display,
-    Audio,
-    Library,
-    Tables,
-    Courses,
-    Ir,
     Skins,
+    Library,
+    Courses,
+    Online,
     System,
 }
 
 impl Page {
-    const ALL: [Page; 12] = [
-        Page::Play,
-        Page::Judge,
-        Page::Keys,
-        Page::Touch,
+    const ALL: [Page; 8] = [
+        Page::Gameplay,
+        Page::Controls,
         Page::Display,
-        Page::Audio,
-        Page::Library,
-        Page::Tables,
-        Page::Courses,
-        Page::Ir,
         Page::Skins,
+        Page::Library,
+        Page::Courses,
+        Page::Online,
         Page::System,
     ];
 
     fn name(self) -> &'static str {
         match self {
-            Page::Play => "PLAY",
-            Page::Judge => "JUDGE & GAUGE",
-            Page::Keys => "KEY CONFIG",
-            Page::Touch => "TOUCH",
-            Page::Display => "DISPLAY",
-            Page::Audio => "AUDIO",
-            Page::Library => "LIBRARY",
-            Page::Tables => "TABLES",
-            Page::Courses => "COURSES",
-            Page::Ir => "IR",
+            Page::Gameplay => "GAMEPLAY",
+            Page::Controls => "CONTROLS",
+            Page::Display => "DISPLAY & AUDIO",
             Page::Skins => "SKINS",
+            Page::Library => "LIBRARY",
+            Page::Courses => "COURSES",
+            Page::Online => "ONLINE",
             Page::System => "SYSTEM",
         }
     }
 
-    fn rows(self, ctx: &Ctx, armed: &Armed<Confirm>) -> Vec<Row> {
+    /// Its card on the top level: initials, what it covers, a sentence.
+    fn about(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            Page::Play => play::rows(ctx),
-            Page::Judge => judge::rows(ctx),
-            Page::Keys => keys::rows(ctx),
-            Page::Touch => touch::rows(ctx),
-            Page::Display => display::rows(ctx),
-            Page::Audio => audio::rows(ctx),
-            Page::Library => library::rows(ctx, armed),
-            Page::Tables => tables::rows(ctx),
-            Page::Courses => courses::rows(ctx),
-            Page::Ir => ir::rows(ctx),
-            Page::Skins => skins::rows(ctx, armed),
-            Page::System => system::rows(ctx),
+            Page::Gameplay => (
+                "GP",
+                "RULES, TIMING",
+                "Judge windows, gauge rules, judge and visual offsets: how every play is judged.",
+            ),
+            Page::Controls => (
+                "KB",
+                "KEYS, PADS, TOUCH",
+                "Keyboard and controller bindings, the turntable, the touch layout and its size.",
+            ),
+            Page::Display => (
+                "AV",
+                "SCREEN, SOUND",
+                "Full screen, frame rate, UI scale; volumes, song preview, the sound set, latency.",
+            ),
+            Page::Skins => (
+                "SK",
+                "LOOK OF EACH SCREEN",
+                "Pick a skin per screen and set its options; install skins from the catalog.",
+            ),
+            Page::Library => (
+                "LB",
+                "SONGS, TABLES",
+                "Song folders and rescans, difficulty tables, download sources.",
+            ),
+            Page::Courses => (
+                "CR",
+                "YOUR COURSES",
+                "Make and edit courses, import LR2 courses, RANDOM MIX rules.",
+            ),
+            Page::Online => (
+                "IR",
+                "IR, RANKINGS, RIVALS",
+                "Accounts on Bokutachi, BMS-IR and vibeBMS IR servers; sending scores; the outbox.",
+            ),
+            Page::System => (
+                "SY",
+                "PROFILE, UPDATES",
+                "Player name, version and updates, where your data is kept.",
+            ),
+        }
+    }
+
+    fn rows(self, b: &mut Rows) {
+        match self {
+            Page::Gameplay => gameplay::rows(b),
+            Page::Controls => controls::rows(b),
+            Page::Display => display::rows(b),
+            Page::Skins => skins::rows(b),
+            Page::Library => library::rows(b),
+            Page::Courses => courses::rows(b),
+            Page::Online => online::rows(b),
+            Page::System => system::rows(b),
+        }
+    }
+
+    /// The live state its card shows.
+    fn chips(self, ctx: &Ctx) -> Vec<String> {
+        let c = &ctx.config;
+        match self {
+            Page::Gameplay => vec![
+                format!("{} judge", c.play.judge_preset.label()),
+                format!("offset {}", row::ms(c.play.judge_offset_ms)),
+            ],
+            Page::Controls => {
+                let k = &c.keys.p1;
+                let pad = k.keys.iter().chain([&k.scratch_up, &k.scratch_down]);
+                let pad = pad.into_iter().any(|l| !l.pad.is_empty()) || !k.scratch_axis.is_empty();
+                let touch = format!("{:?}", c.touch.mode).to_uppercase();
+                vec![
+                    if pad { "controller" } else { "keyboard" }.into(),
+                    format!("touch {touch}"),
+                ]
+            }
+            Page::Display => display::chips(ctx),
+            Page::Skins => skins::chips(ctx),
+            Page::Library => library::chips(ctx),
+            Page::Courses => {
+                let st = &ctx.lib.courses;
+                let n: usize = [CourseKind::Expert, CourseKind::Nonstop, CourseKind::Class]
+                    .into_iter()
+                    .map(|k| st.of_kind(k).len())
+                    .sum();
+                vec![format!("{n} courses")]
+            }
+            Page::Online => online::chips(ctx),
+            Page::System => vec![crate::update::VERSION.to_string()],
         }
     }
 
     fn step(self, d: i32) -> Page {
         crate::scene::option_panel::cycle(&Page::ALL, self, d)
+    }
+}
+
+/// The pages long lists open.
+#[derive(Clone, Debug, PartialEq)]
+enum Sub {
+    ExpandJudge,
+    Keys(KeySet),
+    /// A screen's skin: its options and offsets.
+    Skin(SkinType),
+    Catalog,
+    /// A catalog skin, by id.
+    CatalogSkin(String),
+    /// A difficulty table, by URL.
+    Table(String),
+    Course(u64),
+    Account(ProviderId),
+    Outbox,
+    #[cfg(target_arch = "wasm32")]
+    Storage,
+}
+
+impl Sub {
+    fn title(&self, ctx: &Ctx) -> String {
+        match self {
+            Sub::ExpandJudge => "EXPANDED JUDGE WINDOWS".into(),
+            Sub::Keys(k) => k.title().into(),
+            Sub::Skin(t) => skins::screen_name(*t).to_uppercase(),
+            Sub::Catalog => "GET SKINS".into(),
+            Sub::CatalogSkin(id) => {
+                skins::entry(ctx, id).map_or_else(String::new, |e| e.1.name.clone())
+            }
+            Sub::Table(url) => (ctx.config.tables.iter())
+                .find(|t| t.url == *url)
+                .map_or_else(String::new, |t| {
+                    if t.name.is_empty() {
+                        t.url.clone()
+                    } else {
+                        t.name.clone()
+                    }
+                }),
+            Sub::Course(id) => ctx
+                .lib
+                .courses
+                .get(*id)
+                .map_or_else(String::new, |c| c.title.clone()),
+            Sub::Account(p) => ctx
+                .config
+                .ir
+                .account(*p)
+                .map_or("", |a| a.title())
+                .to_string(),
+            Sub::Outbox => "OUTBOX".into(),
+            #[cfg(target_arch = "wasm32")]
+            Sub::Storage => "STORAGE".into(),
+        }
+    }
+
+    fn rows(&self, b: &mut Rows) {
+        match self {
+            Sub::ExpandJudge => gameplay::expand_judge(b),
+            Sub::Keys(k) => controls::keys(b, *k),
+            Sub::Skin(t) => skins::skin(b, *t),
+            Sub::Catalog => skins::catalog(b),
+            Sub::CatalogSkin(id) => skins::catalog_skin(b, id),
+            Sub::Table(url) => library::table(b, url),
+            Sub::Course(id) => courses::editor(b, *id),
+            Sub::Account(p) => online::account(b, *p),
+            Sub::Outbox => online::outbox(b),
+            #[cfg(target_arch = "wasm32")]
+            Sub::Storage => web_storage::rows(b),
+        }
+    }
+
+    /// What it shows is still there (a removed account, table, course or
+    /// skin closes its page).
+    fn exists(&self, ctx: &Ctx) -> bool {
+        match self {
+            Sub::CatalogSkin(id) => skins::entry(ctx, id).is_some(),
+            Sub::Table(url) => ctx.config.tables.iter().any(|t| t.url == *url),
+            Sub::Course(id) => ctx.lib.courses.get(*id).is_some(),
+            Sub::Account(p) => ctx.config.ir.account(*p).is_some(),
+            _ => true,
+        }
+    }
+}
+
+/// What is on the screen: the cards, a page, or a sub-page.
+#[derive(Clone, Debug, PartialEq)]
+enum View {
+    Top,
+    Page(Page),
+    Sub(Sub),
+}
+
+impl View {
+    fn rows(&self, ctx: &Ctx, armed: &Armed<Confirm>, folds: Folds) -> Vec<Row> {
+        let mut b = Rows::new(ctx, armed, folds);
+        match self {
+            View::Top => {}
+            View::Page(p) => p.rows(&mut b),
+            View::Sub(s) => s.rows(&mut b),
+        }
+        b.v
+    }
+
+    fn title(&self, ctx: &Ctx) -> String {
+        match self {
+            View::Top => String::new(),
+            View::Page(p) => p.name().into(),
+            View::Sub(s) => s.title(ctx),
+        }
     }
 }
 
@@ -145,63 +331,13 @@ impl TextField {
 }
 
 /// The screens rows open.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Screen {
     KeyConfig,
     SkinSelect,
     /// The skin select on the sound sets.
     SoundSets,
     TouchLayout,
-}
-
-/// What choosing a row does.
-#[derive(Clone, Copy)]
-enum Act {
-    None,
-    /// Change a value by a step (←→; Enter and taps step up).
-    Adjust(fn(&mut Ctx, i32)),
-    /// Do `.0` for item `.1` of the page's list (a folder, a table, ...).
-    Run(fn(&mut Ctx, usize), usize),
-    Text(TextField),
-    Bind(Slot),
-    Open(Screen),
-    /// The skin chosen for a type: the default, then the installed ones.
-    CycleSkin(SkinType),
-    /// Custom option `.1` of the skin chosen for `.0`.
-    SkinOption(SkinType, usize),
-    /// Field `.2` (x, y, w, h, angle, alpha) of offset `.1` of that skin.
-    SkinOffset(SkinType, usize, usize),
-    /// Install catalog skin `.0` (an installed one again on a second
-    /// press; a downloading one: cancel).
-    SkinGet(usize),
-    /// Delete catalog skin `.0`, on a second press.
-    SkinDelete(usize),
-    /// Web: delete kept song folder `.0` (see `web_storage`), on a second
-    /// press.
-    #[cfg(target_arch = "wasm32")]
-    DeleteKept(usize),
-    /// Leave and start the updated executable.
-    Restart,
-}
-
-impl Act {
-    /// ←→ step the value (else they do nothing, and Enter acts).
-    fn adjusts(self) -> bool {
-        matches!(
-            self,
-            Act::Adjust(_) | Act::CycleSkin(_) | Act::SkinOption(..) | Act::SkinOffset(..)
-        )
-    }
-
-    /// The act waits for a second press ([`Confirm`]).
-    fn confirms(self) -> bool {
-        match self {
-            Act::SkinGet(_) | Act::SkinDelete(_) => true,
-            #[cfg(target_arch = "wasm32")]
-            Act::DeleteKept(_) => true,
-            _ => false,
-        }
-    }
 }
 
 /// A row pressed once that a second press confirms.
@@ -214,65 +350,63 @@ enum Confirm {
     DeleteKept(usize),
 }
 
-struct Row {
-    label: String,
-    /// Shown at the right (with ◀ ▶ around it when ←→ change it).
-    value: String,
-    act: Act,
+/// What the player did in settings this session: the groups opened, the
+/// last changes (the top level lists them).
+#[derive(Default)]
+struct Session {
+    open: HashSet<&'static str>,
+    recent: Vec<String>,
 }
 
-impl Row {
-    fn new(label: impl Into<String>, value: impl Into<String>, act: Act) -> Row {
-        let value = value.into();
-        Row {
-            label: label.into(),
-            value: if act.adjusts() {
-                format!("◀ {value} ▶")
-            } else {
-                value
-            },
-            act,
-        }
-    }
-
-    fn adjust(label: impl Into<String>, value: impl Into<String>, f: fn(&mut Ctx, i32)) -> Row {
-        Row::new(label, value, Act::Adjust(f))
-    }
-
-    /// A line that only says something.
-    fn note(label: impl Into<String>, value: impl Into<String>) -> Row {
-        Row::new(label, value, Act::None)
-    }
+thread_local! {
+    static SESSION: RefCell<Session> = RefCell::default();
 }
 
-/// `v` (0..1) in percent.
-fn percent(v: f32) -> String {
-    format!("{:.0}%", v * 100.0)
+/// Search as it is typed: the field, and where each result is.
+struct Search {
+    input: TextInput,
+    /// For each row shown, the views down to it (none: a pointer to the
+    /// song select).
+    paths: Vec<Vec<View>>,
 }
 
-/// `n` bytes as MB for people.
-fn mb(n: u64) -> String {
-    format!("{} MB", (n + (1 << 19)) >> 20)
+/// What a tap lands on.
+#[derive(Clone)]
+enum Target {
+    Back,
+    Home,
+    Search,
+    Page(Page),
+    /// Row `.0`; the middle of its value at `.1` (a tap left of it
+    /// lowers the value).
+    Row(usize, f32),
+    Link(Act),
 }
 
 pub struct SettingsScene {
-    page: Page,
+    view: View,
+    /// The views above this one, each with its selection and scroll.
+    parents: Vec<(View, usize, f32)>,
     rows: Vec<Row>,
     /// When `rows` were built.
     built: Instant,
-    /// The rows (scrolled in pixels).
+    /// The rows (scrolled in pixels), or on the top level the cards.
     list: ListView,
-    focus_rows: bool,
+    /// On a page, the rail of pages has the focus (else its rows).
+    rail: bool,
+    search: Option<Search>,
     edit: Option<(TextField, TextInput)>,
     learn: Learn,
     armed: Armed<Confirm>,
-    page_rects: HitMap<Page>,
-    /// Each row and the middle of its value: a tap left of it lowers the
-    /// value, right of it raises it.
-    row_rects: HitMap<(usize, f32)>,
+    /// What was drawn where (the last frame).
+    hits: ui::HitMap<Target>,
+    lay: draw::Layout,
+    status: draw::Status,
+    /// Cards per line on the top level; cells per line in a grid.
+    card_cols: usize,
+    grid_cols: usize,
     /// The turntable moves the selection.
     axis: AxisStepper,
-    back_rect: Rect,
     /// Where an act asked to go (another screen, or out of the app).
     then: Option<Next>,
 }
@@ -280,18 +414,22 @@ pub struct SettingsScene {
 impl SettingsScene {
     pub fn new(ctx: &mut Ctx) -> SettingsScene {
         let mut s = SettingsScene {
-            page: Page::Play,
+            view: View::Top,
+            parents: Vec::new(),
             rows: Vec::new(),
             built: Instant::now(),
             list: ListView::new(),
-            focus_rows: false,
+            rail: false,
+            search: None,
             edit: None,
             learn: Learn::default(),
             armed: Armed::default(),
-            page_rects: HitMap::default(),
-            row_rects: HitMap::default(),
+            hits: ui::HitMap::default(),
+            lay: draw::Layout::default(),
+            status: draw::Status::default(),
+            card_cols: 4,
+            grid_cols: 3,
             axis: AxisStepper::default(),
-            back_rect: Rect::default(),
             then: None,
         };
         s.refresh(ctx);
@@ -301,29 +439,159 @@ impl SettingsScene {
     /// Opened on `page` (its rows chosen).
     pub fn at(ctx: &mut Ctx, page: Page) -> SettingsScene {
         let mut s = SettingsScene::new(ctx);
-        s.focus_rows = true;
-        s.show(ctx, page);
+        s.open_page(ctx, page);
         s
     }
 
     fn refresh(&mut self, ctx: &Ctx) {
-        self.rows = self.page.rows(ctx, &self.armed);
         self.built = Instant::now();
+        self.status = draw::Status::read(ctx);
+        if let Some(s) = self.search.as_mut() {
+            let (rows, paths) = search::find(ctx, &self.armed, &s.input.buf);
+            self.rows = rows;
+            s.paths = paths;
+            self.list.sel = self.list.sel.min(self.rows.len().saturating_sub(1));
+            return;
+        }
+        if let View::Sub(s) = &self.view {
+            if !s.exists(ctx) {
+                return self.pop(ctx);
+            }
+        }
+        SESSION.with(|s| {
+            self.rows = self
+                .view
+                .rows(ctx, &self.armed, Folds::Session(&s.borrow().open));
+        });
+        if self.view != View::Top && !self.rows.get(self.list.sel).is_some_and(Row::focusable) {
+            self.list.sel = self.next_focusable(self.list.sel, 1);
+        }
     }
 
-    fn show(&mut self, ctx: &Ctx, page: Page) {
-        self.page = page;
+    /// The first focusable row from `i` on, in direction `d` (wrapping).
+    fn next_focusable(&self, i: usize, d: i32) -> usize {
+        let n = self.rows.len();
+        (0..n)
+            .map(|k| (i as i32 + d * k as i32).rem_euclid(n.max(1) as i32) as usize)
+            .find(|&k| self.rows[k].focusable())
+            .unwrap_or(0)
+    }
+
+    fn show(&mut self, ctx: &Ctx, view: View) {
+        self.view = view;
         self.list.sel = 0;
+        self.list.scroll = 0.0;
+        self.list.follow = true;
+        self.armed.clear();
         self.refresh(ctx);
     }
 
+    /// A page from the top level (its rows chosen).
+    fn open_page(&mut self, ctx: &Ctx, page: Page) {
+        self.search = None;
+        self.parents = vec![(
+            View::Top,
+            Page::ALL.iter().position(|p| *p == page).unwrap_or(0),
+            0.0,
+        )];
+        self.rail = false;
+        self.show(ctx, View::Page(page));
+    }
+
+    /// Down into `sub`.
+    fn push(&mut self, ctx: &mut Ctx, sub: Sub) {
+        if let Sub::Course(id) = sub {
+            // the course C adds charts to in the song select
+            ctx.lib.courses.editing = Some(id);
+        }
+        let here = std::mem::replace(&mut self.view, View::Top);
+        self.parents.push((here, self.list.sel, self.list.scroll));
+        self.show(ctx, View::Sub(sub));
+    }
+
+    /// Up to the parent, on the row it was left from.
+    fn pop(&mut self, ctx: &Ctx) {
+        let left = self.page();
+        let Some((view, sel, scroll)) = self.parents.pop() else {
+            return;
+        };
+        self.show(ctx, view);
+        self.list.scroll = scroll;
+        self.list.sel = match self.view {
+            // the card of the page left (the rail may have moved)
+            View::Top => left.map_or(sel, |p| Page::ALL.iter().position(|q| *q == p).unwrap_or(0)),
+            _ => sel.min(self.rows.len().saturating_sub(1)),
+        };
+    }
+
+    /// The page shown or the one the sub-page is under.
+    fn page(&self) -> Option<Page> {
+        std::iter::once(&self.view)
+            .chain(self.parents.iter().map(|p| &p.0))
+            .find_map(|v| match v {
+                View::Page(p) => Some(*p),
+                _ => None,
+            })
+    }
+
+    /// Back a level: search closes, a sub-page goes to its parent, the
+    /// rows to the rail, the rail to the top level, the top level leaves.
+    fn back(&mut self, ctx: &mut Ctx) -> Next {
+        if self.search.take().is_some() {
+            self.list.sel = 0;
+            self.refresh(ctx);
+            return Next::Stay;
+        }
+        match self.view {
+            View::Top => return Self::leave(ctx),
+            View::Page(_) if !self.rail => self.rail = true,
+            _ => self.pop(ctx),
+        }
+        Next::Stay
+    }
+
+    fn leave(ctx: &mut Ctx) -> Next {
+        ctx.save_config();
+        Next::Pop
+    }
+
+    fn row(&self) -> Option<&Row> {
+        self.rows.get(self.list.sel)
+    }
+
     fn act(&self) -> Act {
-        self.rows.get(self.list.sel).map_or(Act::None, |r| r.act)
+        self.row().map_or(Act::None, |r| r.act)
+    }
+
+    /// Fold or unfold group `id`.
+    fn fold(&mut self, ctx: &Ctx, id: &'static str) {
+        SESSION.with(|s| {
+            let open = &mut s.borrow_mut().open;
+            if !open.remove(id) {
+                open.insert(id);
+            }
+        });
+        self.refresh(ctx);
     }
 
     /// Choose the selected row: ←→ (`d`), or Enter / a tap (`enter`).
     fn activate(&mut self, ctx: &mut Ctx, d: i32, enter: bool) {
-        let act = self.act();
+        let Some(row) = self.row() else {
+            return;
+        };
+        if let Kind::Group { id, .. } = row.kind {
+            return self.fold(ctx, id);
+        }
+        if enter && self.search.is_some() {
+            return self.jump(ctx);
+        }
+        let act = row.act;
+        if let Some(sub) = row.open.clone() {
+            if enter || (d > 0 && !act.adjusts()) {
+                self.armed.clear();
+                return self.push(ctx, sub);
+            }
+        }
         if !act.confirms() {
             self.armed.clear();
         }
@@ -331,10 +599,10 @@ impl SettingsScene {
         match act {
             Act::None => return,
             Act::Adjust(f) => f(ctx, step),
-            Act::Run(f, i) => f(ctx, i),
-            Act::CycleSkin(t) => display::cycle_skin(ctx, t, step),
-            Act::SkinOption(t, i) => display::step_skin_option(ctx, t, i, step),
-            Act::SkinOffset(t, i, f) => display::step_skin_offset(ctx, t, i, f, step),
+            Act::Run(f, i) | Act::Toggle(f, i) => f(ctx, i),
+            Act::CycleSkin(t) => skins::cycle_skin(ctx, t, step),
+            Act::SkinOption(t, i) => skins::step_skin_option(ctx, t, i, step),
+            Act::SkinOffset(t, i, f) => skins::step_skin_offset(ctx, t, i, f, step),
             Act::SkinGet(i) => skins::get(ctx, &mut self.armed, i),
             Act::SkinDelete(i) => skins::delete(ctx, &mut self.armed, i),
             #[cfg(target_arch = "wasm32")]
@@ -343,7 +611,7 @@ impl SettingsScene {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
                     TextField::CourseTitle => courses::title(ctx),
-                    tf => ir::current(ctx, tf),
+                    tf => online::current(ctx, tf),
                 };
                 self.edit = Some((tf, TextInput::new(cur)));
             }
@@ -367,43 +635,181 @@ impl SettingsScene {
             }
         }
         ctx.save_config();
+        let changed = act
+            .adjusts()
+            .then(|| self.row().map(|r| (r.id, r.label.clone())));
         self.refresh(ctx);
-    }
-
-    /// Move the selection by `d` rows (or categories, when they have the
-    /// focus).
-    fn step(&mut self, ctx: &Ctx, d: i32) {
-        if self.focus_rows {
-            self.list.step(d, self.rows.len());
-        } else {
-            self.show(ctx, self.page.step(d));
+        if let Some(Some(key)) = changed {
+            self.remember(key);
         }
     }
 
-    fn leave(ctx: &mut Ctx) -> Next {
-        ctx.save_config();
-        Next::Pop
+    /// Row (`id`, `label`) changed: the top level lists it.
+    fn remember(&self, (id, label): (&'static str, String)) {
+        let Some(r) = self.rows.iter().find(|r| r.id == id && r.label == label) else {
+            return;
+        };
+        let line = format!("{} {}", r.label, r.value);
+        SESSION.with(|s| {
+            let recent = &mut s.borrow_mut().recent;
+            recent.retain(|l| !l.starts_with(&r.label));
+            recent.insert(0, line);
+            recent.truncate(RECENT);
+        });
+    }
+
+    /// Search's chosen result: its page (and sub-page), the row chosen.
+    fn jump(&mut self, ctx: &mut Ctx) {
+        let Some(s) = self.search.as_ref() else {
+            return;
+        };
+        let Some(path) = s.paths.get(self.list.sel).cloned() else {
+            return;
+        };
+        let Some(row) = self.rows.get(self.list.sel).cloned() else {
+            return;
+        };
+        let Some(View::Page(page)) = path.first() else {
+            return;
+        };
+        if let Some(g) = row.group {
+            SESSION.with(|s| s.borrow_mut().open.insert(g));
+        }
+        self.open_page(ctx, *page);
+        for v in &path[1..] {
+            if let View::Sub(sub) = v {
+                self.push(ctx, sub.clone());
+            }
+        }
+        if let Some(i) = (self.rows.iter()).position(|r| r.id == row.id && r.label == row.label) {
+            self.list.select(i);
+        }
+    }
+
+    fn open_search(&mut self, ctx: &Ctx) {
+        if self.search.is_none() {
+            self.search = Some(Search {
+                input: TextInput::default(),
+                paths: Vec::new(),
+            });
+            self.list.sel = 0;
+            self.list.scroll = 0.0;
+            self.refresh(ctx);
+        }
+    }
+
+    /// Move the selection by `d`: cards, pages or rows (in a grid, a cell
+    /// at a time).
+    fn step(&mut self, ctx: &Ctx, d: i32) {
+        self.list.follow = true;
+        match self.view {
+            View::Top if self.search.is_none() => {
+                self.list.sel =
+                    (self.list.sel as i32 + d).rem_euclid(Page::ALL.len() as i32) as usize
+            }
+            View::Page(p) if self.rail && self.search.is_none() => {
+                self.show(ctx, View::Page(p.step(d)));
+                self.rail = true;
+            }
+            _ => {
+                let n = self.rows.len().max(1) as i32;
+                let from = (self.list.sel as i32 + d).rem_euclid(n) as usize;
+                self.list.sel = self.next_focusable(from, d.signum());
+            }
+        }
+    }
+
+    /// The run of grid cells around row `i`: its first row and length.
+    fn grid(&self, i: usize) -> Option<(usize, usize)> {
+        let cell = |k: usize| matches!(self.rows.get(k).map(|r| &r.kind), Some(Kind::Cell { .. }));
+        if !cell(i) {
+            return None;
+        }
+        let start = (0..=i).rev().take_while(|&k| cell(k)).last()?;
+        let len = (start..self.rows.len()).take_while(|&k| cell(k)).count();
+        Some((start, len))
+    }
+
+    /// An arrow key: ←→ `dx`, ↑↓ `dy`. The cards and a grid move in two
+    /// directions; on the rail ↑↓ choose the page and → goes to its rows;
+    /// on the rows ↑↓ move and ←→ change the value.
+    fn arrow(&mut self, ctx: &mut Ctx, dx: i32, dy: i32) {
+        self.list.follow = true;
+        if self.view == View::Top {
+            let cols = self.card_cols as i32;
+            let n = Page::ALL.len() as i32;
+            let to = self.list.sel as i32 + if dx != 0 { dx } else { dy * cols };
+            self.list.sel = to.rem_euclid(n) as usize;
+            return;
+        }
+        if !self.on_rows() {
+            match (dx, dy) {
+                (0, dy) => self.step(ctx, dy),
+                (1, _) => self.rail = false,
+                _ => {}
+            }
+            return;
+        }
+        if let Some((start, len)) = self.grid(self.list.sel) {
+            let (cols, at) = (self.grid_cols as i32, (self.list.sel - start) as i32);
+            let to = if dx != 0 { at + dx } else { at + dy * cols };
+            if (0..len as i32).contains(&to) {
+                self.list.sel = start + to as usize;
+            } else if dy != 0 {
+                // out of the grid, on to the rows around it
+                self.list.sel = if dy < 0 { start } else { start + len - 1 };
+                self.step(ctx, dy);
+            }
+            return;
+        }
+        match (dx, dy) {
+            (0, dy) => self.step(ctx, dy),
+            (dx, _) => self.activate(ctx, dx, false),
+        }
     }
 
     /// A controller (or the keys bound to the lanes), as on the music
     /// select: the turntable moves, a white key decides (raises a value),
-    /// a blue key lowers a value or goes back to the categories, START
-    /// goes back to them too, SELECT leaves.
+    /// a blue key lowers a value or goes back, START goes to the pages,
+    /// SELECT leaves.
     fn nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
-        self.list.follow = true;
-        let adjust = self.act().adjusts();
+        let on_rows = self.on_rows();
+        let adjust = on_rows && self.act().adjusts() && !self.in_grid();
         match nav {
             Nav::Up => self.step(ctx, -1),
             Nav::Down => self.step(ctx, 1),
-            Nav::Decide if !self.focus_rows => self.focus_rows = true,
+            Nav::Decide if !on_rows => self.enter(ctx),
             Nav::Decide if adjust => self.activate(ctx, 1, false),
             Nav::Decide => self.activate(ctx, 0, true),
-            Nav::Close if self.focus_rows && adjust => self.activate(ctx, -1, false),
-            Nav::Close | Nav::Option => self.focus_rows = false,
-            Nav::Back if self.focus_rows => self.focus_rows = false,
-            Nav::Back | Nav::Settings => return Self::leave(ctx),
+            Nav::Close if adjust => self.activate(ctx, -1, false),
+            Nav::Option if matches!(self.view, View::Page(_)) => self.rail = true,
+            Nav::Close | Nav::Back | Nav::Option => return self.back(ctx),
+            Nav::Settings => return Self::leave(ctx),
         }
         Next::Stay
+    }
+
+    /// The rows (or search's results) have the focus: not the cards, not
+    /// the rail.
+    fn on_rows(&self) -> bool {
+        self.search.is_some()
+            || match self.view {
+                View::Top => false,
+                View::Page(_) => !self.rail,
+                View::Sub(_) => true,
+            }
+    }
+
+    fn in_grid(&self) -> bool {
+        self.grid(self.list.sel).is_some()
+    }
+
+    /// Enter off the rows: the card's page, or from the rail its rows.
+    fn enter(&mut self, ctx: &Ctx) {
+        match self.view {
+            View::Top => self.open_page(ctx, Page::ALL[self.list.sel.min(Page::ALL.len() - 1)]),
+            _ => self.rail = false,
+        }
     }
 
     fn commit_text(&mut self, ctx: &mut Ctx, tf: TextField, s: String) {
@@ -432,7 +838,7 @@ impl SettingsScene {
             }
             TextField::CourseTitle => courses::rename(ctx, s),
             TextField::ImportLr2 => courses::import(ctx, &s),
-            tf => ir::commit(ctx, tf, s),
+            tf => online::commit(ctx, tf, s),
         }
         ctx.save_config();
         self.refresh(ctx);
@@ -457,6 +863,48 @@ impl SettingsScene {
         self.refresh(ctx);
     }
 
+    /// Keys while search is open: they type, except those that move,
+    /// change, jump or close.
+    fn search_input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Option<Next> {
+        let s = self.search.as_mut()?;
+        if let InputEv::Key {
+            code,
+            pressed: true,
+            ..
+        } = ev
+        {
+            match code {
+                KeyCode::Escape => return Some(self.back(ctx)),
+                KeyCode::ArrowUp => self.step(ctx, -1),
+                KeyCode::ArrowDown => self.step(ctx, 1),
+                KeyCode::ArrowLeft => self.activate(ctx, -1, false),
+                KeyCode::ArrowRight => self.activate(ctx, 1, false),
+                KeyCode::Enter | KeyCode::NumpadEnter => self.activate(ctx, 0, true),
+                KeyCode::Backspace if s.input.buf.is_empty() => return Some(self.back(ctx)),
+                _ => return self.type_search(ctx, ev),
+            }
+            return Some(Next::Stay);
+        }
+        match ev {
+            InputEv::Text(_) => self.type_search(ctx, ev),
+            _ => None,
+        }
+    }
+
+    fn type_search(&mut self, ctx: &Ctx, ev: &InputEv) -> Option<Next> {
+        let s = self.search.as_mut()?;
+        let before = s.input.buf.clone();
+        if let TextEvent::Cancel = s.input.input(ev) {
+            return None;
+        }
+        if s.input.buf != before {
+            self.list.sel = 0;
+            self.list.scroll = 0.0;
+            self.refresh(ctx);
+        }
+        Some(Next::Stay)
+    }
+
     fn input_inner(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         if self.learn.on() {
             self.learn_input(ctx, ev);
@@ -478,32 +926,39 @@ impl SettingsScene {
             }
             return Next::Stay;
         }
+        if let Some(next) = self.search_input(ctx, ev) {
+            return next;
+        }
         if matches!(ev, InputEv::Key { pressed: true, .. }) {
             self.list.follow = true;
         }
+        let on_rows = self.on_rows();
         match ev {
             InputEv::Key {
                 code,
                 pressed: true,
+                text,
                 ..
             } => match code {
-                KeyCode::Escape | KeyCode::Backspace if self.focus_rows => self.focus_rows = false,
-                KeyCode::Escape | KeyCode::Backspace | KeyCode::F1 | KeyCode::Tab => {
-                    return Self::leave(ctx)
+                _ if *code == KeyCode::Slash || text.as_deref() == Some("/") => {
+                    self.open_search(ctx)
                 }
-                KeyCode::ArrowUp => self.step(ctx, -1),
-                KeyCode::ArrowDown => self.step(ctx, 1),
-                KeyCode::ArrowLeft if self.focus_rows => self.activate(ctx, -1, false),
-                KeyCode::ArrowRight if self.focus_rows => self.activate(ctx, 1, false),
-                KeyCode::ArrowLeft => {}
-                KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space if self.focus_rows => {
+                KeyCode::Escape | KeyCode::Backspace => return self.back(ctx),
+                KeyCode::F1 | KeyCode::Tab => return Self::leave(ctx),
+                KeyCode::ArrowUp => self.arrow(ctx, 0, -1),
+                KeyCode::ArrowDown => self.arrow(ctx, 0, 1),
+                KeyCode::ArrowLeft => self.arrow(ctx, -1, 0),
+                KeyCode::ArrowRight => self.arrow(ctx, 1, 0),
+                KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space if on_rows => {
                     self.activate(ctx, 0, true)
                 }
-                KeyCode::ArrowRight | KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
-                    self.focus_rows = true
+                KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => self.enter(ctx),
+                KeyCode::PageUp | KeyCode::PageDown => {
+                    if let (Some(p), View::Page(_)) = (self.page(), &self.view) {
+                        let d = if *code == KeyCode::PageUp { -1 } else { 1 };
+                        self.show(ctx, View::Page(p.step(d)));
+                    }
                 }
-                KeyCode::PageUp => self.show(ctx, self.page.step(-1)),
-                KeyCode::PageDown => self.show(ctx, self.page.step(1)),
                 // keys bound to the lanes (a controller seen as a keyboard)
                 other => {
                     if let Some(nav) = nav_from_key(*other, &ctx.config.keys) {
@@ -525,9 +980,16 @@ impl SettingsScene {
                     _ => return self.nav(ctx, Nav::Up),
                 }
             }
-            InputEv::Wheel { dy } => self.list.wheel(-dy * ROW_H),
-            // the rows: a drag scrolls them, a tap (lifted where it went
-            // down) acts on the row
+            _ => return self.pointer(ctx, ev),
+        }
+        Next::Stay
+    }
+
+    /// The mouse and touches: a drag scrolls the rows, a tap (lifted where
+    /// it went down) acts on what is under it.
+    fn pointer(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        match ev {
+            InputEv::Wheel { dy } => self.list.wheel(-dy * draw::ROW_H * ctx.ui()),
             InputEv::Pointer {
                 id,
                 phase: Phase::Move,
@@ -551,18 +1013,27 @@ impl SettingsScene {
                 x,
                 y,
                 ..
-            } => {
-                if self.back_rect.contains(*x, *y) {
-                    return Self::leave(ctx);
+            } => match self.hits.at(*x, *y).cloned() {
+                Some(Target::Back) => return self.back(ctx),
+                Some(Target::Home) => {
+                    self.search = None;
+                    self.parents.clear();
+                    let sel = self
+                        .page()
+                        .map_or(0, |p| Page::ALL.iter().position(|q| *q == p).unwrap_or(0));
+                    self.show(ctx, View::Top);
+                    self.list.sel = sel;
                 }
-                if let Some(&p) = self.page_rects.at(*x, *y) {
-                    self.show(ctx, p);
-                    self.list.scroll = 0.0;
-                    self.focus_rows = false;
-                } else if self.row_rects.at(*x, *y).is_some() {
-                    self.list.press(*id, *x, *y);
+                Some(Target::Search) => self.open_search(ctx),
+                Some(Target::Page(p)) => self.open_page(ctx, p),
+                Some(Target::Link(Act::Run(f, i))) => {
+                    f(ctx, i);
+                    ctx.save_config();
+                    self.refresh(ctx);
                 }
-            }
+                Some(Target::Row(..)) => self.list.press(*id, *x, *y),
+                Some(Target::Link(_)) | None => {}
+            },
             _ => {}
         }
         Next::Stay
@@ -570,153 +1041,24 @@ impl SettingsScene {
 
     /// A tap on the rows at (`x`, `y`): the row's action, by where on it.
     fn tap_row(&mut self, ctx: &mut Ctx, x: f32, y: f32) {
-        let Some((r, &(i, mid))) = self.row_rects.hit(x, y) else {
+        let Some((r, Target::Row(i, mid))) = self.hits.hit(x, y).map(|(r, t)| (r, t.clone()))
+        else {
             return;
         };
-        self.focus_rows = true;
+        self.rail = false;
         self.list.sel = i;
-        if !self.act().adjusts() {
-            self.activate(ctx, 0, true);
-        } else if x > r.x + r.w * 0.55 {
+        let Some(row) = self.row() else {
+            return;
+        };
+        let adjusts = row.act.adjusts() && !matches!(row.kind, Kind::Cell { .. });
+        let on_value = x > r.x + r.w * 0.55;
+        if adjusts && on_value {
             // on the value: its left half lowers it
             self.activate(ctx, if x < mid { -1 } else { 1 }, false);
-        } else {
+        } else if adjusts && row.open.is_none() && self.search.is_none() {
             self.activate(ctx, 1, false);
-        }
-    }
-
-    fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw) {
-        let ui = ctx.ui();
-        let (w, h) = (ctx.view.width, ctx.view.height);
-        d.b.gradient(
-            Rect::new(0.0, 0.0, w, h),
-            ui::lift(theme::BACKGROUND, 0.04),
-            theme::BACKGROUND,
-        );
-        let header = 48.0 * ui;
-        d.b.rect(Rect::new(0.0, 0.0, w, header), theme::PANEL);
-        d.b.rect(
-            Rect::new(0.0, header - 2.0, w, 2.0),
-            with_alpha(theme::ACCENT, 0.6),
-        );
-        d.text(
-            "SETTINGS",
-            16.0 * ui,
-            12.0 * ui,
-            TextStyle::new(22.0 * ui, theme::ACCENT, Align::Left),
-        );
-        d.text(
-            "↑↓ select  ←→ change  Enter edit  Esc back",
-            w * 0.5,
-            15.0 * ui,
-            TextStyle::new(15.0 * ui, theme::TEXT_DIM, Align::Center),
-        );
-        self.back_rect = ui::back_button(d, w, ui);
-        let rh = ROW_H * ui;
-        let portrait = ctx.portrait();
-        // portrait: the categories in rows of five over the list
-        let per_line = 5;
-        let (cat_r, list_r) = if portrait {
-            let ch = Page::ALL.len().div_ceil(per_line) as f32 * rh;
-            (
-                Rect::new(0.0, header, w, ch),
-                Rect::new(0.0, header + ch, w, h - header - ch),
-            )
         } else {
-            let cw = 220.0 * ui;
-            (
-                Rect::new(0.0, header, cw, h - header),
-                Rect::new(cw, header, w - cw, h - header),
-            )
-        };
-        self.page_rects.clear();
-        for (i, p) in Page::ALL.into_iter().enumerate() {
-            let r = if portrait {
-                let bw = w / per_line as f32;
-                Rect::new(
-                    (i % per_line) as f32 * bw + 2.0,
-                    cat_r.y + (i / per_line) as f32 * rh + 2.0,
-                    bw - 4.0,
-                    rh - 4.0 * ui,
-                )
-            } else {
-                Rect::new(
-                    cat_r.x + 8.0 * ui,
-                    cat_r.y + 8.0 * ui + i as f32 * (rh + 4.0 * ui),
-                    cat_r.w - 16.0 * ui,
-                    rh,
-                )
-            };
-            ui::button(d, r, p.name(), ui * 0.95, p == self.page);
-            if p == self.page && !self.focus_rows {
-                // keyboard focus on the categories: accent tab on the left
-                d.b.rect(
-                    Rect::new(r.x - 4.0, r.y + 6.0, 3.0, r.h - 12.0),
-                    theme::ACCENT,
-                );
-            }
-            self.page_rects.push(r, p);
-        }
-        // keep the chosen row in view after keys (with one below it); never
-        // past the last row
-        let sel_y = self.list.sel as f32 * rh;
-        let content = 16.0 * ui + self.rows.len() as f32 * rh;
-        self.list.fit(sel_y, sel_y + rh * 2.0, list_r.h, content);
-        self.row_rects.clear();
-        d.b.set_clip(Some(list_r));
-        let size = 17.0 * ui;
-        for (i, row) in self.rows.iter().enumerate() {
-            let y = list_r.y + 8.0 * ui + i as f32 * rh - self.list.scroll;
-            if y + rh < list_r.y || y > list_r.bottom() {
-                continue;
-            }
-            let r = Rect::new(list_r.x + 10.0 * ui, y, list_r.w - 20.0 * ui, rh - 4.0);
-            ui::row(d, r, i == self.list.sel && self.focus_rows);
-            let ty = r.y + (r.h - size) * 0.5;
-            d.text(
-                &row.label,
-                r.x + 12.0 * ui,
-                ty,
-                TextStyle::new(size, theme::TEXT, Align::Left).fit(r.w * 0.55),
-            );
-            let color = match row.act {
-                Act::None => theme::TEXT_DIM,
-                _ => theme::ACCENT,
-            };
-            let right = r.right() - 12.0 * ui;
-            let drawn = d.text(
-                &row.value,
-                right,
-                ty,
-                TextStyle::new(size, color, Align::Right).fit(r.w * 0.42),
-            );
-            self.row_rects.push(r, (i, right - drawn * 0.5));
-        }
-        d.b.set_clip(None);
-        if let Some((tf, t)) = self.edit.as_mut() {
-            t.draw_modal(ctx, d, tf.title(), matches!(tf, TextField::IrKey(_)));
-        }
-        if let Some(slot) = self.learn.slot {
-            let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);
-            ui::modal(d, w, h, r);
-            let what = if matches!(slot, Slot::ScratchAxis(_)) {
-                "Spin the turntable"
-            } else {
-                "Press a key or controller button"
-            };
-            let x = r.x + r.w * 0.5;
-            d.text(
-                what,
-                x,
-                r.y + 18.0 * ui,
-                TextStyle::new(22.0 * ui, theme::TEXT, Align::Center),
-            );
-            d.text(
-                "Esc = cancel, Delete = clear",
-                x,
-                r.y + 54.0 * ui,
-                TextStyle::new(15.0 * ui, theme::TEXT_DIM, Align::Center),
-            );
+            self.activate(ctx, 0, true);
         }
     }
 }
@@ -735,65 +1077,10 @@ impl Scene for SettingsScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
-        self.draw_inner(ctx, d)
+        self.place(ctx);
+        self.draw_all(ctx, d)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::platform::Instant;
-
-    fn key(code: KeyCode) -> InputEv {
-        InputEv::Key {
-            code,
-            pressed: true,
-            repeat: false,
-            time: Instant::now(),
-            text: None,
-        }
-    }
-
-    #[test]
-    fn rows_adjust_or_act() {
-        let r = Row::adjust("Lane cover", "ON", |c, _| c.config.play.lane_cover ^= true);
-        assert_eq!(r.value, "◀ ON ▶");
-        let r = Row::new(
-            "Rescan library",
-            "10 charts",
-            Act::Run(|c, _| c.start_scan(), 0),
-        );
-        assert_eq!(r.value, "10 charts");
-        assert!(!r.act.adjusts());
-        assert_eq!(Page::Play.step(-1), Page::System);
-        assert_eq!(Page::System.step(1), Page::Play);
-    }
-
-    #[test]
-    fn every_page_has_rows_and_keys_change_them() {
-        let root = std::env::temp_dir().join(format!("vibebms-settings-{}", std::process::id()));
-        let mut ctx = Ctx::for_test(root.clone());
-        let mut s = SettingsScene::at(&mut ctx, Page::Play);
-        for p in Page::ALL {
-            s.show(&ctx, p);
-            assert!(!s.rows.is_empty(), "{p:?}");
-        }
-        // PLAY: the third row is RANDOM (2P); → steps it and the row shows it
-        s.show(&ctx, Page::Play);
-        s.input(&mut ctx, &key(KeyCode::ArrowDown));
-        s.input(&mut ctx, &key(KeyCode::ArrowDown));
-        let before = ctx.config.play.random_2p;
-        s.input(&mut ctx, &key(KeyCode::ArrowRight));
-        assert_ne!(ctx.config.play.random_2p, before);
-        assert!(s.rows[2].value.contains(ctx.config.play.random_2p.label()));
-        // KEY CONFIG: Enter waits for a key, the key binds, on to the next row
-        s.show(&ctx, Page::Keys);
-        s.input(&mut ctx, &key(KeyCode::Enter));
-        assert!(s.learn.on());
-        s.input(&mut ctx, &key(KeyCode::KeyQ));
-        assert_eq!(ctx.config.keys.p1.keys[0].keys, vec![KeyCode::KeyQ]);
-        assert!(!s.learn.on());
-        assert_eq!(s.list.sel, 1);
-        std::fs::remove_dir_all(&root).ok();
-    }
-}
+mod tests;

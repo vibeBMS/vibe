@@ -82,7 +82,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   changes and stops shown), judge timing auto-adjust. As in beatoraja, EXPAND JUDGE over 100% makes the play
   ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; such plays keep only their lamp and
   play count (see Clear lamps in `docs/RULES.md`).
-- Hi-speed (`SETTINGS › PLAY › Hi-speed type`):
+- Hi-speed (`SETTINGS › GAMEPLAY › Hi-speed type`):
   - CLASSIC (default): you set the multiplier (in steps of 0.25); the green number (how long notes are visible)
     follows from it, the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the
     opposite: the green number stays and the multiplier follows each chart's BPM.
@@ -99,10 +99,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   A change made while playing reaches the notes over 150 ms, easing out (`Hi-speed change while playing`, 0 to
   1000 ms; 0: at once), and the new hi-speed and green number show over the note field for a moment. A change the
   chart makes (FLOATING through a BPM change) is not eased.
-- Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
+- Controllers (IIDX controllers included) are set in `SETTINGS › CONTROLS` by pressing their buttons. Analog
   turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
   default; see [docs/RULES.md](docs/RULES.md) "Input filters").
-- Touch (`SETTINGS › TOUCH`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
+- Touch (`SETTINGS › CONTROLS`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
   them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
   turntable changes sides; custom layouts are otherwise used as placed, whatever the play side), and sets the height of
@@ -125,13 +125,13 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
   a course leave no record for the song.
-- **Display** (`SETTINGS › DISPLAY › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
+- **Display** (`SETTINGS › DISPLAY & AUDIO › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
   for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
   macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
   the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
   reached.
-- **Song preview** (`SETTINGS › AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
+- **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
   the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
   keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
   of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
@@ -158,10 +158,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   opens; a downloaded chart goes into its song's folder (the folder with the same title and artist, as the library
   was last read, that holds every sound it needs; when unsure, the app asks). Downloads are kept in `downloads/`. Android and iOS use the in-app
   browser too (over the game screen); the web build opens the system browser.
-- **Third-party mirrors** (`SETTINGS › TABLES`, off by default): other people's copies of dead uploaders and sites
+- **Third-party mirrors** (`SETTINGS › LIBRARY`, off by default): other people's copies of dead uploaders and sites
   (darksabun.club, bms.hexlataia.xyz) and the community archive (bms.kyouko.moe). What is found there by name only
   goes into the library if it holds the chart wanted (by its MD5).
-- **Name song folders after their charts** (`SETTINGS › TABLES`, off by default): a song downloaded into the library
+- **Name song folders after their charts** (`SETTINGS › LIBRARY`, off by default): a song downloaded into the library
   gets a folder named `[artist] title` from what its charts share, as BeMusicSeeker names one (a folder its archive
   wraps everything in left out), instead of the song's title; a song the library has under another folder name (a
   chart of the same title and artist) goes into that folder.
@@ -207,12 +207,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 
 ## Skins
 
-Play, song select and results are all drawn by skins, chosen in `SETTINGS › DISPLAY`.
+Play, song select and results are all drawn by skins, chosen in `SETTINGS › SKINS`.
 
 - **Built-in default skins**: landscape and portrait layouts for every mode, original art drawn from shapes and
   the Inter font by `tools/gen_default_skins.py`. Edit the script and run it to make
   `crates/vibebms/assets/builtin/skins/default/` again.
-- **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › DISPLAY` like the others):
+- **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › SKINS` like the others):
   each player's lanes are a fan seen in perspective, narrow at the far end and wider toward the judge line, notes
   growing as they come. Laid out like the mobile perspective games (BanG Dream!, Project SEKAI, Arcaea): the lanes
   reach the screen's bottom corners, so the judge line spans about 85 % of the width in portrait and landscape
@@ -224,7 +224,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   line (the lit band), in columns that fill the width: the outer lanes reach the screen's edges (in double play,
   the middle) and the gap beside the scratch is shared by its neighbours; fingers can slide between lanes, the
   scratch lane takes taps and sideways swipes (a change of direction is a new scratch), and START / SELECT sit in a
-  top corner. There is no strip of controls: the play screen fills the screen. `SETTINGS › TOUCH` sets the
+  top corner. There is no strip of controls: the play screen fills the screen. `SETTINGS › CONTROLS` sets the
   perspective (0 % is flat), how far up the lanes reach and the touch area's height (`[perspective]` in the
   config). The skin's canvas takes the screen's shape: objects in the JSON carry a vibeBMS `"anchor": [x, y, w, h]`
   (the share of the added width or height they move and grow by), and `"perspective": true` makes the game draw the
@@ -238,7 +238,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported. Text outline and shadow are
   drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the text in half its colour
   at the offset), distance-field `.fnt` fonts (font `type` 1 / 2) the outline, shadow colour and softness too.
-- **Battle skins** (types 12 / 13, "7KEYS BATTLE" / "5KEYS BATTLE" in `SETTINGS › DISPLAY`; a 14 / 10 key skin
+- **Battle skins** (types 12 / 13, "7KEYS BATTLE" / "5KEYS BATTLE" in `SETTINGS › SKINS`; a 14 / 10 key skin
   can be chosen there too): drawn when both sides of a battle are shown (G-BATTLE, VS). The built-in ones have a
   gauge per side and the opponent as the target. LR2 `#SRC_GROOVEGAUGE` with 1 in its first field (vibeBMS JSON:
   a gauge destination's `"side": 1`) is the second side's gauge. When there is an opponent: numbers 120-136 are
@@ -252,27 +252,27 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
 - Player totals for skins (numbers 17-19, 30-37, 333): plays and clears are summed over the charts' records;
   judgements and time played are counted after every recorded play (not autoplay or replays). Judgements from
   before vibeBMS kept them count each chart's best play only; time played starts at zero.
-- **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS` lists the skins in
+- **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS › GET SKINS` lists the skins in
   [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
   downloads, unpacks and installs one into `skins/` from its author's own link (Google Drive, Dropbox, MEGA, GitHub,
   plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
   homepage and the terms its author states. The web build keeps them in the browser's storage, but does not unpack
   skins over 400 MB.
-- A skin's custom options and offsets appear under it in `SETTINGS › DISPLAY`.
+- A skin's custom options and offsets are on its screen's page in `SETTINGS › SKINS` (Enter on the screen's row).
 - **Key config, skin select and sound set** (skin types 8, 9 and 10): with a KEY_CONFIG skin chosen, key `6` in song
-  select (or the skin's key config button, or `SETTINGS › KEY CONFIG`) opens the key config screen it draws: ↑↓ or
+  select (or the skin's key config button, or `SETTINGS › CONTROLS`) opens the key config screen it draws: ↑↓ or
   the turntable pick a key, ←→ the mode (7 / 14 keys, 9 keys, 5 / 10 keys), Enter, a white key or a tap on the key
   waits for a key, controller button or turntable axis to bind, Delete clears it, Esc / SELECT / BACK leaves (it
   saves as it goes). beatoraja's rows are drawn over beatoraja skins as beatoraja does; LR2 skins use their key
   buttons (101-136, 140-143, slots 150-159; Lunatic Vibes' texts 300-384 too). Without such a skin, `6` opens the
-  settings' KEY CONFIG. With a SKIN_SELECT skin chosen, key `7` (or the skin button) opens the skin select screen:
+  settings' CONTROLS. With a SKIN_SELECT skin chosen, key `7` (or the skin button) opens the skin select screen:
   ↑↓ the skin or one of its options, ←→ change it, PgUp / PgDn the skin type, with the skin's preview (beatoraja
-  `skinpreview`, LR2 image 105); without one, `7` opens `SETTINGS › DISPLAY`. Mouse and touch use the skins'
+  `skinpreview`, LR2 image 105); without one, `7` opens `SETTINGS › SKINS`. Mouse and touch use the skins'
   buttons, and both screens have a BACK button.
-- **Sound sets** (`SETTINGS › AUDIO`, or SOUND SET in the skin select screen): the song select music, the decide
+- **Sound sets** (`SETTINGS › DISPLAY & AUDIO`, or SOUND SET in the skin select screen): the song select music, the decide
   jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
   `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
-  under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › AUDIO › System volume`
+  under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
   sets their volume.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900

@@ -1,5 +1,5 @@
 //! The key config screen drawn by a KEY_CONFIG skin (LR2 / beatoraja skin
-//! type 8), when one is chosen; without one the settings' KEY CONFIG page
+//! type 8), when one is chosen; without one the settings' CONTROLS page
 //! is used.
 //!
 //! Rows are the bindings of a key mode (7 KEYS with 2P = 14 keys, 9 KEYS,
@@ -120,14 +120,14 @@ fn lv_text_slot(mode: usize, s: Slot) -> Option<i32> {
 }
 
 /// The screen to open for the key config: the skinned one when a
-/// KEY_CONFIG skin is chosen, else the settings' KEY CONFIG page.
+/// KEY_CONFIG skin is chosen, else the settings' CONTROLS page.
 pub fn open(ctx: &mut Ctx) -> Box<dyn Scene> {
     if skinned::configured_skin(ctx, SkinType::KeyConfig).is_some() {
         Box::new(KeyConfigScene::new())
     } else {
         Box::new(super::settings::SettingsScene::at(
             ctx,
-            super::settings::Page::Keys,
+            super::settings::Page::Controls,
         ))
     }
 }
@@ -424,7 +424,7 @@ impl Scene for KeyConfigScene {
                 // no usable skin: the settings' page instead
                 return Next::Replace(Box::new(super::settings::SettingsScene::at(
                     ctx,
-                    super::settings::Page::Keys,
+                    super::settings::Page::Controls,
                 )));
             };
             let ext = skin.skin.path.extension().map(|e| e.to_ascii_lowercase());

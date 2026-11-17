@@ -1,4 +1,4 @@
-//! Key bindings as the settings' KEY CONFIG and the key config screen edit
+//! Key bindings as the settings' CONTROLS and the key config screen edit
 //! them: which binding a row is, its label, and learning a key into it.
 
 use crate::config::{KeyConfig, LaneKeys, SideKeys};
