@@ -1,63 +1,67 @@
-//! Real-time judge engine.
+//! The real-time judge engine: normal notes, long notes (LN / CN / HCN),
+//! mines, back-spin scratch ends, autoplay lanes and battle sides.
 //!
-//! The behaviour follows beatoraja's judge manager closely (note selection
-//! algorithms, LN/CN/HCN handling, back-spin scratch, mines, empty POOR,
-//! PMS "miss once" rule) but is an independent implementation.
+//! This file was written from a behaviour specification of vibe's judge
+//! rules (note selection, release and miss handling, HCN body ticks, event
+//! order), not from another program's code.
 //!
-//! Usage: push [`InputEvent`]s with their precise timestamps (µs, chart time,
-//! offset-corrected) via [`Engine::input`], then call [`Engine::update`] every
-//! frame with the current chart time and drain [`Engine::drain_events`].
+//! Time is in microseconds of chart time. A timing difference ("diff") is
+//! always `note time - input time`: positive is early (FAST).
+//!
+//! The engine is driven with [`Engine::input`] (queued) and
+//! [`Engine::update`] (which handles the queued inputs, each at its own
+//! timestamp in time order, then advances to `now`). Its output is a list
+//! of [`EngineEvent`]s plus the score, logs, ghost and gauge.
 
 use crate::chart::{Chart, LnType, NoteKind, SoundId, NO_SOUND};
 use crate::gauge::GrooveGauge;
-use crate::judge::*;
+use crate::judge::{JudgeRules, JudgeWindows, NoteType, BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+use crate::mode::PlayMode;
 use crate::score::Score;
 use serde::{Deserialize, Serialize};
 
-/// HCN gauge tick interval (µs).
-const HCN_TICK: i64 = 200_000;
-
-/// What drove an engine: its inputs and the times it was advanced to, in
-/// order. The same ops into an engine made the same way (chart, seed,
-/// rules) judge the same: a replay.
+/// One recorded call: `update(now)` or `input(..)`. Saved replays are a
+/// list of these (a bare number, or `[time, lane, key, pressed]`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Op {
-    /// `update(time)`.
     Update(i64),
-    /// `input`: time, lane, key, pressed.
     Input(i64, u8, u8, bool),
 }
 
 impl Op {
-    /// The op with its input's lane moved by `by` (a single play's replay
-    /// fed to the second side of a battle chart).
+    /// The op with an input's lane moved by `by` (wrapping); updates are
+    /// unchanged. Moves a single play's replay onto a battle chart's 2P side.
     pub fn shifted(self, by: u8) -> Op {
         match self {
-            Op::Input(t, lane, key, pressed) => Op::Input(t, lane.wrapping_add(by), key, pressed),
+            Op::Input(time, lane, key, pressed) => {
+                Op::Input(time, lane.wrapping_add(by), key, pressed)
+            }
             op => op,
         }
     }
 }
 
+/// A key going down or up. `key` is the physical key within the lane
+/// (scratch: 0 = up, 1 = down).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputEvent {
-    /// Chart time in µs.
     pub time: i64,
     pub lane: u8,
-    /// Physical key index within the lane (scratch: 0 = up, 1 = down).
     pub key: u8,
     pub pressed: bool,
 }
 
+/// How a press picks between several notes in reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum JudgeAlgorithm {
-    /// Prefer the next note if the earlier one can no longer get GOOD.
+    /// Move on to the next note once the current one is beyond GOOD (late)
+    /// and the next one is within GOOD (early).
     #[default]
     Combo,
-    /// Prefer the note closest in time.
+    /// The closest unjudged note.
     Duration,
-    /// Always the earliest note.
+    /// Always the earliest note in reach.
     Lowest,
 }
 
@@ -74,7 +78,6 @@ pub enum EngineEvent {
         sound: SoundId,
         lane: u8,
     },
-    /// Mute / unmute a keysound (HCN body, early LN release).
     Volume {
         sound: SoundId,
         volume: f32,
@@ -83,18 +86,18 @@ pub enum EngineEvent {
         lane: u8,
         damage: f32,
     },
-    /// Survival gauge emptied (play should stop unless GAS=Continue).
     Failed,
 }
 
+/// What a play note is (long notes with their effective LN type).
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum PKind {
+enum Kind {
     Normal,
     Long(LnType),
     Mine(f32),
 }
 
-/// Runtime state of a note.
+/// A note as the engine plays it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayNote {
     pub lane: u8,
@@ -102,140 +105,206 @@ pub struct PlayNote {
     pub end_time: i64,
     pub sound: SoundId,
     pub end_sound: SoundId,
-    kind: PKind,
-    /// 0 = unjudged, otherwise judge + 1.
+    kind: Kind,
+    /// 0 = head not judged, else judgement + 1.
     pub state: u8,
+    /// The same for the tail.
     pub end_state: u8,
+    /// The head's last recorded diff.
     pub play_time: Option<i64>,
+    /// The tail's last recorded diff.
     pub end_play_time: Option<i64>,
-    /// Index into `Chart::notes`.
+    /// Index into the chart's notes.
     pub chart_index: usize,
 }
 
 impl PlayNote {
-    /// A hell charge note (its LN type after the chart and the player's).
     pub fn is_hcn(&self) -> bool {
-        matches!(self.kind, PKind::Long(LnType::Hcn))
+        self.kind == Kind::Long(LnType::Hcn)
     }
 
     pub fn is_long(&self) -> bool {
-        matches!(self.kind, PKind::Long(_))
+        matches!(self.kind, Kind::Long(_))
     }
+
     pub fn is_mine(&self) -> bool {
-        matches!(self.kind, PKind::Mine(_))
+        matches!(self.kind, Kind::Mine(_))
     }
+
+    /// The effective LN type of a long note (the chart's, else the
+    /// configured LN mode); `None` for other notes.
     pub fn ln_type(&self) -> Option<LnType> {
         match self.kind {
-            PKind::Long(t) => Some(t),
+            Kind::Long(t) => Some(t),
             _ => None,
         }
     }
-    /// Note is fully resolved (for rendering: hide it).
+
+    /// Fully judged: a long note's tail, a normal note's head; a mine never.
     pub fn is_done(&self) -> bool {
         match self.kind {
-            PKind::Long(_) => self.end_state != 0,
-            PKind::Mine(_) => false,
-            PKind::Normal => self.state != 0,
+            Kind::Normal => self.state != 0,
+            Kind::Long(_) => self.end_state != 0,
+            Kind::Mine(_) => false,
         }
     }
-}
 
-#[derive(Clone, Debug, Default)]
-struct LaneState {
-    cursor: usize,
-    processing: Option<usize>,
-    passing: Option<usize>,
-    increase: bool,
-    passing_count: i64,
-    release_time: Option<i64>,
-    ln_end_judge: Option<usize>,
-    ln_start_judge: usize,
-    ln_start_dur: i64,
-    sc_key: Option<u8>,
-    keys: [bool; 2],
-    auto_hold: bool,
+    /// A CN or HCN (head and tail judged separately).
+    fn is_charge(&self) -> bool {
+        matches!(self.kind, Kind::Long(LnType::Cn | LnType::Hcn))
+    }
+
+    fn head_judged(&self) -> bool {
+        self.state != 0
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
     pub rules: JudgeRules,
-    /// LN behaviour for charts that do not specify one.
+    /// LN mode for long notes the chart leaves untyped.
     pub default_ln: LnType,
     pub algorithm: JudgeAlgorithm,
-    /// Lanes played automatically (autoplay, AUTO-SCRATCH).
+    /// Lanes played by the engine (AUTO SCRATCH, autoplay).
     pub auto_lanes: Vec<bool>,
-    /// If true, releasing the scratch ends a back-spin scratch like a normal
-    /// key (keyboard / touch). If false the opposite direction must be
-    /// spun (turntable controllers, beatoraja behaviour).
+    /// Releasing every key of a scratch lane ends a long note there (the
+    /// keyboard's way); `false` is the turntable's way, where only the
+    /// key that started the hold counts.
     pub scratch_release_ends_bss: bool,
-    /// Judge only this player's lanes (one side of a battle chart: its
-    /// notes, inputs and note count are that player's alone). `None`:
-    /// every lane.
+    /// Battle: the player whose lanes this engine judges (`None`: all).
     pub player: Option<usize>,
 }
 
+/// HCN body: one gauge tick for every full 200 ms (strictly more) held or
+/// let go.
+const HCN_TICK: i64 = 200_000;
+
+/// Index of the empty POOR window in a note or scratch table.
+const EMPTY_POOR: usize = 4;
+
+/// Which judgement slot of a note.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Head,
+    Tail,
+}
+
+/// Per-lane state.
+#[derive(Clone, Debug, Default)]
+struct Lane {
+    scratch: bool,
+    auto: bool,
+    /// The lane's notes (indices into `Engine::notes`), in time order.
+    notes: Vec<usize>,
+    /// Invisible notes (time, sound), for empty-press keysounds only.
+    hidden: Vec<(i64, SoundId)>,
+    /// How many of `notes` the advance phase has passed (time <= P).
+    passed: usize,
+    /// How many of `notes` the miss sweep need never look at again.
+    swept: usize,
+    /// The long note being held.
+    held: Option<usize>,
+    /// An early release waiting to be judged: (input time, judgement).
+    pending: Option<(i64, usize)>,
+    /// LN mode: the held note's head judgement and diff.
+    head: (usize, i64),
+    /// Scratch: the key that started the hold.
+    hold_key: Option<u8>,
+    /// The HCN whose body is at the judge line.
+    body: Option<usize>,
+    /// HCN body time banked (µs, signed).
+    counter: i64,
+    rising: bool,
+    /// The body is let go at the step time (keys after the inputs being
+    /// handled): it is damaged.
+    let_go: bool,
+    /// The last body `Volume` sent for the body note was 0.
+    body_quiet: bool,
+    keys: [bool; 2],
+}
+
+impl Lane {
+    fn pressed(&self) -> bool {
+        self.keys[0] || self.keys[1]
+    }
+}
+
 pub struct Engine {
-    mode: crate::mode::PlayMode,
-    notes: Vec<PlayNote>,
-    lane_notes: Vec<Vec<usize>>,
-    lane_hidden: Vec<Vec<(i64, SoundId)>>,
-    lanes: Vec<LaneState>,
-    scratch: Vec<bool>,
-    cfg: EngineConfig,
-    judge_start: i64,
-    judge_end: i64,
-    prev_time: i64,
     pub gauge: GrooveGauge,
     pub score: Score,
-    combo: u32,
-    events: Vec<EngineEvent>,
-    queue: Vec<InputEvent>,
-    failed: bool,
-    /// (chart time, diff) of every PG..BAD judgement, for timing graphs.
+    /// (note time, diff) of every PGREAT..BAD.
     pub timing_log: Vec<(i64, i64)>,
-    /// Every judgement in order: (note time us, judge, sign of the error).
+    /// (note time, judgement, sign of diff) of every judgement.
     pub judge_log: Vec<(i64, u8, i8)>,
-    /// Judgement in order of resolution (ghost data).
+    /// Every consuming judgement, in order.
     pub ghost: Vec<u8>,
+    cfg: EngineConfig,
+    mode: PlayMode,
+    notes: Vec<PlayNote>,
+    lanes: Vec<Lane>,
+    damaged: Vec<bool>,
     last_time: i64,
-    /// Hell charge notes released while passing the line.
-    hcn_released: std::collections::HashSet<usize>,
-    /// The ops so far, when recording ([`Engine::record`]).
+    /// Searched range of diffs: earliest late bound, latest early bound.
+    reach: (i64, i64),
+    /// The previous step's time (P); `None` before the first update.
+    prev: Option<i64>,
+    queue: Vec<InputEvent>,
+    combo: u32,
+    failed: bool,
     recorded: Option<Vec<Op>>,
+    events: Vec<EngineEvent>,
 }
 
 impl Engine {
     pub fn new(chart: &Chart, cfg: EngineConfig, gauge: GrooveGauge) -> Self {
         let mode = chart.mode();
-        let lanes = mode.lane_count();
+        let lane_count = mode.lane_count();
+        let mut lanes: Vec<Lane> = (0..lane_count)
+            .map(|l| Lane {
+                scratch: mode.is_scratch(l),
+                auto: cfg.auto_lanes.get(l).copied().unwrap_or(false),
+                ..Lane::default()
+            })
+            .collect();
+
+        let takes = |lane: usize| {
+            lane < lane_count && cfg.player.is_none_or(|p| mode.player_of_lane(lane) == p)
+        };
+        let mut order: Vec<usize> = (0..chart.notes.len()).collect();
+        order.sort_by_key(|&i| (chart.notes[i].time, chart.notes[i].lane));
+
         let mut notes = Vec::new();
-        let mut lane_notes = vec![Vec::new(); lanes];
-        let mut lane_hidden = vec![Vec::new(); lanes];
-        let mine = |lane: usize| cfg.player.is_none_or(|p| mode.player_of_lane(lane) == p);
-        for (ci, n) in chart.notes.iter().enumerate() {
+        let mut total = 0u32;
+        for i in order {
+            let n = &chart.notes[i];
             let lane = n.lane as usize;
-            if lane >= lanes || !mine(lane) {
+            if !takes(lane) {
                 continue;
             }
             let (kind, end_time, end_sound) = match &n.kind {
-                NoteKind::Normal => (PKind::Normal, n.time, NO_SOUND),
+                NoteKind::Normal => (Kind::Normal, n.time, NO_SOUND),
                 NoteKind::Long {
                     end_time,
                     end_sound,
                     ln_type,
                     ..
                 } => (
-                    PKind::Long(ln_type.unwrap_or(cfg.default_ln)),
+                    Kind::Long(ln_type.unwrap_or(cfg.default_ln)),
                     *end_time,
                     *end_sound,
                 ),
-                NoteKind::Mine { damage } => (PKind::Mine(*damage), n.time, NO_SOUND),
+                NoteKind::Mine { damage } => (Kind::Mine(*damage), n.time, NO_SOUND),
                 NoteKind::Invisible => {
-                    lane_hidden[lane].push((n.time, n.sound));
+                    lanes[lane].hidden.push((n.time, n.sound));
                     continue;
                 }
             };
-            lane_notes[lane].push(notes.len());
+            total += match kind {
+                Kind::Normal | Kind::Long(LnType::Ln) => 1,
+                Kind::Long(_) => 2,
+                Kind::Mine(_) => 0,
+            };
+            lanes[lane].notes.push(notes.len());
             notes.push(PlayNote {
                 lane: n.lane,
                 time: n.time,
@@ -247,46 +316,38 @@ impl Engine {
                 end_state: 0,
                 play_time: None,
                 end_play_time: None,
-                chart_index: ci,
+                chart_index: i,
             });
         }
-        let (judge_start, judge_end) = cfg.rules.windows.extent();
-        let total = chart.total_judgements_of(cfg.default_ln, cfg.player) as u32;
-        let mut auto = cfg.auto_lanes.clone();
-        auto.resize(lanes, false);
-        let cfg = EngineConfig {
-            auto_lanes: auto,
-            ..cfg
-        };
         let last_time = notes.iter().map(|n| n.end_time).max().unwrap_or(0);
+        let reach = cfg.rules.windows.extent();
+        let score = Score {
+            total_notes: total,
+            ..Score::default()
+        };
         Engine {
-            mode,
-            notes,
-            lane_notes,
-            lane_hidden,
-            lanes: vec![LaneState::default(); lanes],
-            scratch: (0..lanes).map(|l| mode.is_scratch(l)).collect(),
-            cfg,
-            judge_start,
-            judge_end,
-            prev_time: i64::MIN / 4,
             gauge,
-            score: Score {
-                total_notes: total,
-                ..Default::default()
-            },
-            combo: 0,
-            events: Vec::new(),
-            queue: Vec::new(),
-            failed: false,
+            score,
             timing_log: Vec::new(),
             judge_log: Vec::new(),
             ghost: Vec::new(),
-            recorded: None,
+            damaged: vec![false; notes.len()],
+            cfg,
+            mode,
+            notes,
+            lanes,
             last_time,
-            hcn_released: Default::default(),
+            reach,
+            prev: None,
+            queue: Vec::new(),
+            combo: 0,
+            failed: false,
+            recorded: None,
+            events: Vec::new(),
         }
     }
+
+    // ----- accessors ------------------------------------------------------
 
     pub fn notes(&self) -> &[PlayNote] {
         &self.notes
@@ -304,72 +365,61 @@ impl Engine {
         &self.cfg.rules
     }
 
-    /// The hell charge note passing the judge line on a lane, and whether
-    /// it is held there (released, its gauge drains).
+    pub fn windows(&self) -> &JudgeWindows {
+        &self.cfg.rules.windows
+    }
+
+    /// The HCN whose body is at the line on `lane`, and whether the lane
+    /// is held (any key down, or an auto lane).
     pub fn hcn_passing(&self, lane: usize) -> Option<(usize, bool)> {
         let l = self.lanes.get(lane)?;
-        let p = l.passing?;
-        Some((p, l.keys.iter().any(|k| *k) || self.is_auto(lane)))
+        l.body.map(|b| (b, l.auto || l.pressed()))
     }
 
-    /// A hell charge note that was released while passing the line (it
-    /// is drawn "reactive" when held again).
+    /// Note `i` is a HCN that was let go while its body was at the line.
     pub fn hcn_damaged(&self, i: usize) -> bool {
-        self.hcn_released.contains(&i)
+        self.damaged.get(i).copied().unwrap_or(false)
     }
 
-    /// Index (into [`Engine::notes`]) of the long note currently held on a lane.
+    /// The long note held on `lane`.
     pub fn holding(&self, lane: usize) -> Option<usize> {
-        self.lanes.get(lane).and_then(|l| l.processing)
+        self.lanes.get(lane).and_then(|l| l.held)
     }
 
-    /// The lane is one this engine judges (`EngineConfig::player`).
+    /// Whether this engine judges `lane` (its player's lanes in battle).
     pub fn judges(&self, lane: u8) -> bool {
         self.cfg
             .player
             .is_none_or(|p| self.mode.player_of_lane(lane as usize) == p)
     }
 
-    /// The player whose lanes it judges (`None`: all).
     pub fn player(&self) -> Option<usize> {
         self.cfg.player
     }
 
     pub fn is_auto(&self, lane: usize) -> bool {
-        self.cfg.auto_lanes.get(lane).copied().unwrap_or(false)
+        self.lanes.get(lane).is_some_and(|l| l.auto)
     }
 
-    /// All notes have been judged and `now` is past the last note.
+    /// Past the last note's end and every judgement made.
     pub fn is_finished(&self, now: i64) -> bool {
         now > self.last_time && self.score.passed >= self.score.total_notes
     }
 
-    pub fn input(&mut self, ev: InputEvent) {
-        if let Some(r) = self.recorded.as_mut() {
-            r.push(Op::Input(ev.time, ev.lane, ev.key, ev.pressed));
-        }
-        if (ev.lane as usize) < self.lanes.len()
-            && self.judges(ev.lane)
-            && !self.is_auto(ev.lane as usize)
-        {
-            self.queue.push(ev);
-        }
-    }
+    // ----- recording ------------------------------------------------------
 
-    /// Keep the ops from now on (for a replay).
+    /// Start keeping the ops given to this engine (idempotent).
     pub fn record(&mut self) {
         self.recorded.get_or_insert_with(Vec::new);
     }
 
-    /// The ops recorded so far.
     pub fn recorded(&self) -> &[Op] {
         self.recorded.as_deref().unwrap_or(&[])
     }
 
-    /// Run `op` (from a replay).
     pub fn apply(&mut self, op: Op) {
         match op {
-            Op::Update(t) => self.update(t),
+            Op::Update(now) => self.update(now),
             Op::Input(time, lane, key, pressed) => self.input(InputEvent {
                 time,
                 lane,
@@ -379,22 +429,34 @@ impl Engine {
         }
     }
 
-    /// The (lane, key) held now (as the inputs so far left them).
+    // ----- input and output ---------------------------------------------
+
+    /// Queue a key event; it takes effect at the next `update`.
+    pub fn input(&mut self, ev: InputEvent) {
+        if let Some(r) = &mut self.recorded {
+            r.push(Op::Input(ev.time, ev.lane, ev.key, ev.pressed));
+        }
+        let lane = ev.lane as usize;
+        if lane < self.lanes.len() && self.judges(ev.lane) && !self.lanes[lane].auto {
+            self.queue.push(ev);
+        }
+    }
+
+    /// The (lane, key) pairs down, the queued inputs included.
     pub fn held(&self) -> Vec<(u8, u8)> {
         let mut out: Vec<(u8, u8)> = Vec::new();
-        for (l, st) in self.lanes.iter().enumerate() {
-            for (k, down) in st.keys.iter().enumerate() {
+        for (lane, l) in self.lanes.iter().enumerate() {
+            for (key, down) in l.keys.iter().enumerate() {
                 if *down {
-                    out.push((l as u8, k as u8));
+                    out.push((lane as u8, key as u8));
                 }
             }
         }
-        // presses not taken yet count too, a release after them undoes them
-        for ev in &self.queue {
-            let key = (ev.lane, ev.key);
-            out.retain(|k| *k != key);
-            if ev.pressed {
-                out.push(key);
+        for e in &self.queue {
+            let pair = (e.lane, e.key & 1);
+            out.retain(|p| *p != pair);
+            if e.pressed {
+                out.push(pair);
             }
         }
         out
@@ -404,614 +466,586 @@ impl Engine {
         self.events.drain(..)
     }
 
-    /// Takes the sound events (`Sound`, `Volume`) out, in order, leaving
-    /// the others for `drain_events`: a key's sound can start as soon as
-    /// its input is judged, before the next frame.
+    /// Take the `Sound` and `Volume` events; the rest stay for
+    /// `drain_events`.
     pub fn take_sounds(&mut self) -> Vec<EngineEvent> {
-        let (sounds, rest) = std::mem::take(&mut self.events)
-            .into_iter()
+        let (sounds, rest): (Vec<_>, Vec<_>) = self
+            .events
+            .drain(..)
             .partition(|e| matches!(e, EngineEvent::Sound { .. } | EngineEvent::Volume { .. }));
         self.events = rest;
         sounds
     }
 
-    /// Advance the engine to chart time `now` (µs).
+    // ----- time ------------------------------------------------------------
+
+    /// Handle the queued inputs, each at its own time (in time order), then
+    /// advance to `now`.
     pub fn update(&mut self, now: i64) {
-        if let Some(r) = self.recorded.as_mut() {
+        if let Some(r) = &mut self.recorded {
             r.push(Op::Update(now));
         }
-        if self.prev_time == i64::MIN / 4 {
-            self.prev_time = now.min(0) - 1;
-        }
-        let mut q = std::mem::take(&mut self.queue);
-        q.sort_by_key(|e| e.time);
-        let mut from = 0;
-        while from < q.len() {
-            let mut to = from + 1;
-            while to < q.len() && q[to].time == q[from].time {
-                to += 1;
+        if self.prev.is_none() {
+            let p = now.min(0).saturating_sub(1);
+            self.prev = Some(p);
+            for l in &mut self.lanes {
+                l.passed = l.notes.partition_point(|&i| self.notes[i].time <= p);
             }
-            for e in &q[from..to] {
-                self.lanes[e.lane as usize].keys[(e.key & 1) as usize] = e.pressed;
+        }
+        let mut queue = std::mem::take(&mut self.queue);
+        queue.sort_by_key(|e| e.time);
+        let mut start = 0;
+        while start < queue.len() {
+            let t = queue[start].time;
+            let end = start + queue[start..].iter().take_while(|e| e.time == t).count();
+            let group = &queue[start..end];
+            let m = now.min(self.prev().max(t));
+            // the key states once this group has acted
+            let mut after: Vec<[bool; 2]> = self.lanes.iter().map(|l| l.keys).collect();
+            for e in group {
+                after[e.lane as usize][(e.key & 1) as usize] = e.pressed;
             }
-            let checkpoint = now.min(self.prev_time.max(q[from].time));
-            self.advance_passing(checkpoint);
-            for e in &q[from..to] {
-                self.process_key(*e, checkpoint);
+            self.advance(m, Some((t, &after)));
+            for (l, keys) in self.lanes.iter_mut().zip(&after) {
+                l.keys = *keys;
             }
-            self.finish_time(checkpoint);
-            from = to;
+            for e in group {
+                self.handle(e);
+            }
+            self.settle(m);
+            start = end;
         }
-        self.advance_passing(now);
-        self.finish_time(now);
+        self.advance(now, None);
+        self.settle(now);
     }
 
-    pub fn windows(&self) -> &JudgeWindows {
-        &self.cfg.rules.windows
+    fn prev(&self) -> i64 {
+        self.prev.unwrap_or(i64::MIN)
     }
 
-    fn note_type(&self, lane: usize) -> NoteType {
-        if self.scratch[lane] {
-            NoteType::Scratch
-        } else {
-            NoteType::Note
-        }
-    }
-
-    fn sound(&mut self, sound: SoundId, lane: usize) {
-        if sound != NO_SOUND {
-            self.events.push(EngineEvent::Sound {
-                sound,
-                lane: lane as u8,
-            });
-        }
-    }
-
-    fn reset_release(&mut self, lane: usize) {
-        let l = &mut self.lanes[lane];
-        l.release_time = None;
-        l.ln_end_judge = None;
-    }
-
-    fn advance_passing(&mut self, t: i64) {
-        let prev = self.prev_time;
-        if t < prev {
+    /// Advance phase over (P, t]. `group`: the time of the inputs about to
+    /// be handled and the key states after them, which notes exactly at
+    /// that time see (and a HCN body let go at `t`); everything before
+    /// sees the keys as they were.
+    fn advance(&mut self, t: i64, group: Option<(i64, &[[bool; 2]])>) {
+        let p = self.prev();
+        if t < p {
             return;
         }
         for lane in 0..self.lanes.len() {
-            let auto = self.is_auto(lane);
-            let pressed = self.lanes[lane].keys.iter().any(|k| *k);
-            let cursor = self.lanes[lane].cursor;
-            let count = self.lane_notes[lane].len();
-            for k in cursor..count {
-                let i = self.lane_notes[lane][k];
-                let n = &self.notes[i];
-                if n.time > t {
+            let pressed_before = self.lanes[lane].pressed();
+            let auto = self.lanes[lane].auto;
+            while let Some(&i) = self.lanes[lane].notes.get(self.lanes[lane].passed) {
+                if self.notes[i].time > t {
                     break;
                 }
-                if n.time <= prev {
-                    continue;
-                }
-                match n.kind {
-                    PKind::Long(LnType::Hcn) => self.lanes[lane].passing = Some(i),
-                    PKind::Mine(damage) if pressed => {
-                        self.gauge.add_value(-damage);
-                        let s = n.sound;
-                        self.events.push(EngineEvent::Mine {
-                            lane: lane as u8,
-                            damage,
-                        });
-                        self.sound(s, lane);
-                        self.check_failed();
-                    }
-                    _ => {}
-                }
-                if auto {
-                    let n = &self.notes[i];
-                    match n.kind {
-                        PKind::Normal if n.state == 0 => {
-                            let s = n.sound;
-                            self.sound(s, lane);
-                            self.judge_note(i, false, PGREAT, 0, true);
-                        }
-                        PKind::Long(lt)
-                            if n.state == 0 && self.lanes[lane].processing.is_none() =>
-                        {
-                            let s = n.sound;
-                            self.sound(s, lane);
-                            if lt == LnType::Ln {
-                                self.lanes[lane].ln_start_judge = PGREAT;
-                                self.lanes[lane].ln_start_dur = 0;
-                            } else {
-                                self.judge_note(i, false, PGREAT, 0, true);
-                            }
-                            self.lanes[lane].processing = Some(i);
-                            self.lanes[lane].auto_hold = true;
-                        }
-                        _ => {}
-                    }
-                }
+                self.lanes[lane].passed += 1;
+                let time = self.notes[i].time;
+                let pressed = match group {
+                    Some((gt, after)) if gt == time => after[lane][0] || after[lane][1],
+                    _ => pressed_before,
+                };
+                self.pass_note(lane, i, pressed && !auto);
             }
-            if let Some(p) = self.lanes[lane].passing {
-                if self.notes[p].end_time <= t {
-                    self.lanes[lane].passing = None;
-                    self.lanes[lane].passing_count = 0;
-                }
+            if self.lanes[lane]
+                .body
+                .is_some_and(|b| self.notes[b].end_time <= t)
+            {
+                let l = &mut self.lanes[lane];
+                l.body = None;
+                l.counter = 0;
             }
             if auto {
-                if let Some(p) = self.lanes[lane].processing {
-                    let n = &self.notes[p];
-                    if n.ln_type() != Some(LnType::Ln) && n.end_time <= t && n.end_state == 0 {
-                        let s = n.end_sound;
-                        self.judge_note(p, true, PGREAT, 0, true);
-                        self.sound(s, lane);
-                        self.lanes[lane].processing = None;
-                        self.lanes[lane].auto_hold = false;
+                if let Some(h) = self.lanes[lane].held {
+                    let n = &self.notes[h];
+                    if n.is_charge() && n.end_time <= t && n.end_state == 0 {
+                        self.judge(h, Slot::Tail, PGREAT, 0, true);
+                        self.sound(lane, self.notes[h].end_sound);
+                        self.release_hold(lane);
                     }
                 }
             }
+            // ticks over (P, t] follow the keys as they were; a lane let go
+            // at t (by the inputs about to be handled) damages the body at
+            // once
+            let pressed_at_t = match group {
+                Some((_, after)) => after[lane][0] || after[lane][1],
+                None => pressed_before,
+            };
             let l = &self.lanes[lane];
-            let next_increase = match l.passing {
-                Some(p) => pressed || (1..=3).contains(&self.notes[p].end_state) || auto,
-                None => false,
-            };
-            self.lanes[lane].increase = next_increase;
+            let (rising, let_go) = l.body.map_or((false, false), |b| {
+                let es = self.notes[b].end_state;
+                let good_tail = (1..=GOOD as u8 + 1).contains(&es);
+                (
+                    pressed_before || good_tail || auto,
+                    !(pressed_at_t || good_tail || auto),
+                )
+            });
+            let l = &mut self.lanes[lane];
+            l.rising = rising;
+            l.let_go = let_go;
         }
-        // HCN gauge ticks
-        let dt = t - prev;
+        self.body_pass(t.saturating_sub(p));
+        self.prev = Some(t);
+    }
+
+    /// A note's time is reached in the advance phase.
+    fn pass_note(&mut self, lane: usize, i: usize, pressed: bool) {
+        let kind = self.notes[i].kind;
+        if kind == Kind::Long(LnType::Hcn) {
+            let l = &mut self.lanes[lane];
+            l.body = Some(i);
+            l.body_quiet = false;
+        }
+        if let Kind::Mine(damage) = kind {
+            if pressed {
+                self.gauge.add_value(-damage);
+                self.events.push(EngineEvent::Mine {
+                    lane: lane as u8,
+                    damage,
+                });
+                self.sound(lane, self.notes[i].sound);
+                self.check_failed();
+            }
+            return;
+        }
+        if !self.lanes[lane].auto || self.notes[i].head_judged() {
+            return;
+        }
+        match kind {
+            Kind::Normal => {
+                self.sound(lane, self.notes[i].sound);
+                self.judge(i, Slot::Head, PGREAT, 0, true);
+            }
+            Kind::Long(ty) => {
+                // a long note still held ends where the next one starts
+                if let Some(h) = self.lanes[lane].held {
+                    if self.notes[h].is_charge() {
+                        self.judge(h, Slot::Tail, PGREAT, 0, true);
+                    } else {
+                        let (j, d) = self.lanes[lane].head;
+                        self.ln_final(h, j, d);
+                    }
+                    self.sound(lane, self.notes[h].end_sound);
+                    self.release_hold(lane);
+                }
+                self.sound(lane, self.notes[i].sound);
+                if ty == LnType::Ln {
+                    self.lanes[lane].head = (PGREAT, 0);
+                } else {
+                    self.judge(i, Slot::Head, PGREAT, 0, true);
+                }
+                self.lanes[lane].held = Some(i);
+            }
+            Kind::Mine(_) => {}
+        }
+    }
+
+    /// HCN bodies at the line: gauge ticks, the body's volume.
+    fn body_pass(&mut self, dt: i64) {
         for lane in 0..self.lanes.len() {
-            let Some(p) = self.lanes[lane].passing else {
+            let Some(b) = self.lanes[lane].body else {
                 continue;
             };
-            if self.notes[p].state == 0 {
+            if !self.notes[b].head_judged() {
                 continue;
             }
-            let snd = self.notes[p].sound;
-            if !self.lanes[lane].increase {
-                self.hcn_released.insert(p);
+            let rising = self.lanes[lane].rising;
+            if !rising || self.lanes[lane].let_go {
+                self.damaged[b] = true;
             }
-            if self.lanes[lane].increase {
-                self.lanes[lane].passing_count += dt;
-                while self.lanes[lane].passing_count > HCN_TICK {
+            if rising {
+                let l = &mut self.lanes[lane];
+                l.counter = l.counter.saturating_add(dt);
+                while self.lanes[lane].counter > HCN_TICK {
                     self.gauge.update(GREAT, 0.5);
-                    self.lanes[lane].passing_count -= HCN_TICK;
-                }
-                if self.notes[p].end_state > 3 {
-                    self.events.push(EngineEvent::Volume {
-                        sound: snd,
-                        volume: 1.0,
-                    });
+                    self.lanes[lane].counter -= HCN_TICK;
                 }
             } else {
-                self.lanes[lane].passing_count -= dt;
-                while self.lanes[lane].passing_count < -HCN_TICK {
+                let l = &mut self.lanes[lane];
+                l.counter = l.counter.saturating_sub(dt);
+                while self.lanes[lane].counter < -HCN_TICK {
                     self.gauge.update(BAD, 0.5);
-                    self.lanes[lane].passing_count += HCN_TICK;
+                    self.lanes[lane].counter += HCN_TICK;
                 }
-                if self.notes[p].end_state > 3 {
+            }
+            let es = self.notes[b].end_state;
+            if es == BAD as u8 + 1 || es == POOR as u8 + 1 {
+                let quiet = !rising;
+                if quiet != self.lanes[lane].body_quiet {
+                    self.lanes[lane].body_quiet = quiet;
                     self.events.push(EngineEvent::Volume {
-                        sound: snd,
-                        volume: 0.0,
+                        sound: self.notes[b].sound,
+                        volume: if quiet { 0.0 } else { 1.0 },
                     });
                 }
             }
             self.check_failed();
         }
-        self.prev_time = t;
     }
 
-    fn compare(&self, t1: usize, t2: usize, ptime: i64, nt: NoteType) -> bool {
-        let a = &self.notes[t1];
-        let b = &self.notes[t2];
-        let w = self.windows();
-        match self.cfg.algorithm {
-            JudgeAlgorithm::Combo => {
-                b.state == 0
-                    && a.time < ptime + w.time(nt, GOOD, false)
-                    && b.time <= ptime + w.time(nt, GOOD, true)
-            }
-            JudgeAlgorithm::Duration => {
-                (a.time - ptime).abs() > (b.time - ptime).abs() && b.state == 0
-            }
-            JudgeAlgorithm::Lowest => false,
-        }
-    }
-
-    fn process_key(&mut self, ev: InputEvent, mtime: i64) {
-        let lane = ev.lane as usize;
-        let ptime = ev.time;
-        let sc = self.scratch[lane];
-        if ev.pressed {
-            if let Some(p) = self.lanes[lane].processing {
-                let lt = self.notes[p].ln_type().unwrap_or(LnType::Ln);
-                let other_dir = self.lanes[lane]
-                    .sc_key
-                    .map(|k| k != ev.key)
-                    .unwrap_or(false);
-                if lt != LnType::Ln && sc && other_dir {
-                    // back-spin scratch: spinning the other way ends the note
-                    let dm = self.windows().quantize(self.notes[p].end_time - ptime);
-                    let j = self.windows().judge(NoteType::LongScratchEnd, dm);
-                    let s = self.notes[p].end_sound;
-                    self.sound(s, lane);
-                    self.judge_note(p, true, j.min(POOR), dm, true);
-                    self.lanes[lane].processing = None;
-                    self.lanes[lane].sc_key = None;
+    /// Settle phase at `m`: pending releases and ends of held notes, the
+    /// miss sweep, charge notes held too long.
+    fn settle(&mut self, m: i64) {
+        let w = &self.cfg.rules.windows;
+        let (ln_margin, scratch_margin) = (w.ln_margin, w.scratch_ln_margin);
+        for lane in 0..self.lanes.len() {
+            let scratch = self.lanes[lane].scratch;
+            let margin = if scratch { scratch_margin } else { ln_margin };
+            if let Some(h) = self.lanes[lane].held {
+                let end = self.notes[h].end_time;
+                let pending = self.lanes[lane].pending;
+                if !self.notes[h].is_charge() {
+                    match pending {
+                        Some((rt, BAD)) if rt.saturating_add(margin) <= m => {
+                            self.mute(h);
+                            self.ln_final(h, BAD, end.saturating_sub(rt));
+                            self.sound(lane, self.notes[h].end_sound);
+                            self.release_hold(lane);
+                        }
+                        _ if end < m => {
+                            let (j, d) = match pending {
+                                Some((rt, j)) => (j, end.saturating_sub(rt)),
+                                None => self.lanes[lane].head,
+                            };
+                            self.ln_final(h, j, d);
+                            self.sound(lane, self.notes[h].end_sound);
+                            self.release_hold(lane);
+                        }
+                        _ => {}
+                    }
+                } else if let Some((rt, j)) = pending {
+                    if rt.saturating_add(margin) <= m {
+                        self.mute(h);
+                        self.judge(h, Slot::Tail, j, end.saturating_sub(rt), true);
+                        self.sound(lane, self.notes[h].end_sound);
+                        self.release_hold(lane);
+                    }
                 }
-                self.reset_release(lane);
-                return;
             }
-            let nt = self.note_type(lane);
-            let w = self.windows().clone();
-            let mut best: Option<(usize, usize)> = None;
-            let cursor = self.lanes[lane].cursor;
-            for k in cursor..self.lane_notes[lane].len() {
-                let i = self.lane_notes[lane][k];
+
+            let bad_late = self.lane_table(lane)[BAD].0;
+            let limit = m.saturating_add(bad_late);
+            let mut k = self.lanes[lane].swept;
+            while let Some(&i) = self.lanes[lane].notes.get(k) {
                 let n = &self.notes[i];
-                let dm = self.cfg.rules.windows.quantize(n.time - ptime);
-                if dm >= self.judge_end {
+                if n.time >= limit {
                     break;
                 }
-                if dm < self.judge_start || n.is_mine() {
+                k += 1;
+                if n.head_judged() {
                     continue;
                 }
-                let replace = match best {
-                    None => true,
-                    Some((b, _)) => self.notes[b].state != 0 || self.compare(b, i, ptime, nt),
-                };
-                if !replace {
-                    continue;
+                let diff = n.time.saturating_sub(m);
+                let kind = n.kind;
+                match kind {
+                    Kind::Normal => self.judge(i, Slot::Head, POOR, diff, true),
+                    Kind::Long(LnType::Ln) => {
+                        if self.lanes[lane].held != Some(i) {
+                            self.ln_final(i, POOR, diff);
+                        }
+                    }
+                    Kind::Long(_) => {
+                        self.judge(i, Slot::Head, POOR, diff, true);
+                        self.judge(i, Slot::Tail, POOR, diff, true);
+                    }
+                    Kind::Mine(_) => {}
                 }
+            }
+            // move the sweep's start past what it need never see again
+            let l = &self.lanes[lane];
+            let mut s = l.swept;
+            while let Some(&i) = l.notes.get(s) {
                 let n = &self.notes[i];
-                if self.cfg.rules.miss_one
-                    && (n.state != 0
-                        || (n.play_time.is_some()
-                            && (dm > w.time(nt, GOOD, true) || dm < w.time(nt, GOOD, false))))
-                {
-                    continue;
-                }
-                let judge = if n.state != 0 {
-                    if dm >= w.time(nt, 4, false) && dm <= w.time(nt, 4, true) {
-                        MISS
-                    } else {
-                        6
-                    }
+                if n.is_mine() || n.head_judged() {
+                    s += 1;
                 } else {
-                    let j = w.judge(nt, dm);
-                    if j >= 4 {
-                        j + 1
-                    } else {
-                        j
-                    }
-                };
-                if judge < 6 {
-                    let closer = best
-                        .map(|(b, _)| (self.notes[b].time - ptime).abs() > (n.time - ptime).abs())
-                        .unwrap_or(true);
-                    if judge < 4 || closer {
-                        best = Some((i, judge));
-                    }
-                } else {
-                    best = None;
+                    break;
                 }
             }
-            match best {
-                Some((i, judge)) => {
-                    let dm = self.windows().quantize(self.notes[i].time - ptime);
-                    let s = self.notes[i].sound;
-                    self.sound(s, lane);
-                    let vanish = self.cfg.rules.vanish[judge];
-                    match self.notes[i].kind {
-                        PKind::Long(LnType::Ln) => {
-                            if vanish {
-                                let l = &mut self.lanes[lane];
-                                l.ln_start_judge = judge;
-                                l.ln_start_dur = dm;
-                                l.processing = Some(i);
-                                l.release_time = None;
-                                l.ln_end_judge = None;
-                                if sc {
-                                    l.sc_key = Some(ev.key);
-                                }
-                            } else {
-                                self.judge_note(i, false, judge, dm, false);
-                            }
-                        }
-                        PKind::Long(_) => {
-                            if vanish {
-                                let l = &mut self.lanes[lane];
-                                l.processing = Some(i);
-                                l.release_time = None;
-                                l.ln_end_judge = None;
-                                if sc {
-                                    l.sc_key = Some(ev.key);
-                                }
-                            }
-                            self.judge_note(i, false, judge, dm, vanish);
-                        }
-                        _ => self.judge_note(i, false, judge, dm, vanish),
-                    }
-                }
-                None => self.empty_press_sound(lane, ptime),
-            }
-        } else {
-            let Some(p) = self.lanes[lane].processing else {
-                return;
-            };
-            let mut dm = self.windows().quantize(self.notes[p].end_time - ptime);
-            let mut judge = self.windows().judge(
-                if sc {
-                    NoteType::LongScratchEnd
-                } else {
-                    NoteType::LongEnd
-                },
-                dm,
-            );
-            let lt = self.notes[p].ln_type().unwrap_or(LnType::Ln);
-            let any_held = self.lanes[lane].keys.iter().any(|k| *k);
-            if lt != LnType::Ln {
-                let release = if sc && !self.cfg.scratch_release_ends_bss {
-                    if judge != 4 || Some(ev.key) != self.lanes[lane].sc_key {
-                        false
-                    } else {
-                        self.lanes[lane].sc_key = None;
-                        true
-                    }
-                } else {
-                    !any_held
-                };
-                if release {
-                    if judge >= 3 && dm > 0 {
-                        self.lanes[lane].release_time = Some(mtime);
-                        self.lanes[lane].ln_end_judge = Some(judge);
-                    } else {
-                        let s = self.notes[p].end_sound;
-                        self.judge_note(p, true, judge, dm, true);
-                        self.sound(s, lane);
-                        self.lanes[lane].processing = None;
-                        self.reset_release(lane);
-                    }
-                }
-            } else {
-                let release = if sc && !self.cfg.scratch_release_ends_bss {
-                    if Some(ev.key) != self.lanes[lane].sc_key {
-                        false
-                    } else {
-                        self.lanes[lane].sc_key = None;
-                        true
-                    }
-                } else {
-                    !any_held
-                };
-                if release {
-                    judge = judge.max(self.lanes[lane].ln_start_judge);
-                    if self.lanes[lane].ln_start_dur.abs() > dm.abs() {
-                        dm = self.lanes[lane].ln_start_dur;
-                    }
-                    if dm > 0 {
-                        self.lanes[lane].release_time = Some(ptime);
-                        self.lanes[lane].ln_end_judge = Some(judge.min(3));
-                    } else {
-                        let s = self.notes[p].end_sound;
-                        self.judge_ln_mode(p, judge, dm);
-                        self.sound(s, lane);
-                        self.lanes[lane].processing = None;
-                        self.reset_release(lane);
-                    }
+            self.lanes[lane].swept = s;
+
+            if let Some(h) = self.lanes[lane].held {
+                let n = &self.notes[h];
+                if n.is_charge() && n.end_state == 0 && n.end_time < limit {
+                    let diff = n.end_time.saturating_sub(m);
+                    self.judge(h, Slot::Tail, POOR, diff, true);
+                    self.release_hold(lane);
                 }
             }
         }
     }
 
-    /// Keysound for a press that hit no note: the latest note before the
-    /// press (visible or invisible), or the lane's first note.
-    fn empty_press_sound(&mut self, lane: usize, ptime: i64) {
-        if self.lanes[lane].passing.is_some() {
+    // ----- inputs ----------------------------------------------------------
+
+    fn handle(&mut self, e: &InputEvent) {
+        let lane = e.lane as usize;
+        let key = e.key & 1;
+        if e.pressed {
+            self.press(lane, key, e.time);
+        } else {
+            self.release(lane, key, e.time);
+        }
+    }
+
+    fn press(&mut self, lane: usize, key: u8, t: i64) {
+        if let Some(h) = self.lanes[lane].held {
+            let l = &mut self.lanes[lane];
+            l.pending = None;
+            if self.notes[h].is_charge() && l.scratch && l.hold_key.is_some_and(|k| k != key) {
+                self.back_spin(lane, h, t);
+            }
             return;
         }
-        let ln = &self.lane_notes[lane];
-        let mut cand: Option<(i64, SoundId, bool)> = ln.first().map(|&i| {
-            (
-                self.notes[i].time,
-                self.notes[i].sound,
-                self.notes[i].is_mine(),
-            )
-        });
-        let hidden = &self.lane_hidden[lane];
-        let h = hidden.partition_point(|(t, _)| *t < ptime);
-        if h > 0 {
-            cand = Some((hidden[h - 1].0, hidden[h - 1].1, false));
+        let Some((i, j)) = self.select(lane, t) else {
+            self.empty_press_sound(lane, t);
+            return;
+        };
+        let d = self.quantize(self.notes[i].time.saturating_sub(t));
+        self.sound(lane, self.notes[i].sound);
+        let consume = self.cfg.rules.vanish[j];
+        match self.notes[i].kind {
+            Kind::Long(LnType::Ln) => {
+                if consume {
+                    self.start_hold(lane, i, key);
+                    self.lanes[lane].head = (j, d);
+                } else {
+                    self.judge(i, Slot::Head, j, d, false);
+                }
+            }
+            Kind::Long(_) => {
+                if consume {
+                    self.start_hold(lane, i, key);
+                }
+                self.judge(i, Slot::Head, j, d, consume);
+            }
+            Kind::Normal => self.judge(i, Slot::Head, j, d, consume),
+            Kind::Mine(_) => {}
         }
-        let v = ln.partition_point(|&i| self.notes[i].time < ptime);
-        for k in (0..v).rev() {
-            let n = &self.notes[ln[k]];
-            if n.is_long() && n.state != 0 {
+    }
+
+    fn start_hold(&mut self, lane: usize, i: usize, key: u8) {
+        let l = &mut self.lanes[lane];
+        l.held = Some(i);
+        l.pending = None;
+        l.hold_key = l.scratch.then_some(key);
+    }
+
+    fn release_hold(&mut self, lane: usize) {
+        let l = &mut self.lanes[lane];
+        l.held = None;
+        l.pending = None;
+        l.hold_key = None;
+    }
+
+    /// The note a press at `t` on `lane` judges, and how.
+    fn select(&self, lane: usize, t: i64) -> Option<(usize, usize)> {
+        let w = &self.cfg.rules.windows;
+        let ty = self.note_type(lane);
+        let table = w.table(ty);
+        let (late, early) = self.reach;
+        let good = table.get(GOOD).copied().unwrap_or((0, 0));
+        let empty = table.get(EMPTY_POOR).copied();
+        let notes = &self.lanes[lane].notes;
+        // a quantised diff is within half a frame of the raw one
+        let from = late.saturating_sub(20_000);
+        let start = notes.partition_point(|&i| self.notes[i].time.saturating_sub(t) < from);
+        let mut choice: Option<(usize, usize)> = None;
+        for &i in &notes[start..] {
+            let n = &self.notes[i];
+            let raw = n.time.saturating_sub(t);
+            let d = w.quantize(raw);
+            if d > early {
+                break;
+            }
+            if d < late || n.is_mine() {
                 continue;
             }
-            if cand.map(|c| c.0 <= n.time).unwrap_or(true) {
-                cand = Some((n.time, n.sound, n.is_mine()));
+            let judged = n.head_judged();
+            if let Some((c, _)) = choice {
+                let cur = &self.notes[c];
+                let cur_raw = cur.time.saturating_sub(t);
+                let competes = cur.head_judged()
+                    || match self.cfg.algorithm {
+                        JudgeAlgorithm::Combo => !judged && cur_raw < good.0 && raw <= good.1,
+                        JudgeAlgorithm::Duration => !judged && raw.abs() < cur_raw.abs(),
+                        JudgeAlgorithm::Lowest => false,
+                    };
+                if !competes {
+                    continue;
+                }
             }
-            break;
-        }
-        if let Some((_, s, mine)) = cand {
-            if !mine {
-                self.sound(s, lane);
+            if self.cfg.rules.miss_one
+                && (judged || (n.play_time.is_some() && !(good.0 <= d && d <= good.1)))
+            {
+                continue;
             }
-        }
-    }
-
-    fn judge_ln_mode(&mut self, i: usize, judge: usize, dm: i64) {
-        self.judge_note(i, false, judge, dm, true);
-        self.notes[i].end_state = self.notes[i].state;
-    }
-
-    fn finish_time(&mut self, mtime: i64) {
-        for lane in 0..self.lanes.len() {
-            let sc = self.scratch[lane];
-            let nt = self.note_type(lane);
-            let margin = if sc {
-                self.windows().scratch_ln_margin
+            let j = if judged {
+                empty.filter(|(l, e)| *l <= d && d <= *e).map(|_| MISS)
             } else {
-                self.windows().ln_margin
+                match w.judge(ty, d) {
+                    k if k <= BAD => Some(k),
+                    EMPTY_POOR if table.len() > EMPTY_POOR => Some(MISS),
+                    _ => None,
+                }
             };
-            if let Some(p) = self.lanes[lane].processing {
-                let lt = self.notes[p].ln_type().unwrap_or(LnType::Ln);
-                let end = self.notes[p].end_time;
-                let rt = self.lanes[lane].release_time;
-                let ej = self.lanes[lane].ln_end_judge;
-                if lt == LnType::Ln {
-                    if let (Some(rt), Some(ej)) = (rt, ej) {
-                        if ej >= 3 && rt + margin <= mtime {
-                            let (s, es) = (self.notes[p].sound, self.notes[p].end_sound);
-                            self.events.push(EngineEvent::Volume {
-                                sound: s,
-                                volume: 0.0,
-                            });
-                            self.judge_ln_mode(p, ej, end - rt);
-                            self.sound(es, lane);
-                            self.lanes[lane].processing = None;
-                            self.reset_release(lane);
-                            continue_after_processing(self, lane, mtime, nt);
-                            continue;
-                        }
-                    }
-                    if end < mtime {
-                        let (judge, dur) = match (ej, rt) {
-                            (Some(j), Some(r)) => (j, end - r),
-                            _ => (
-                                self.lanes[lane].ln_start_judge,
-                                self.lanes[lane].ln_start_dur,
-                            ),
-                        };
-                        let es = self.notes[p].end_sound;
-                        self.judge_ln_mode(p, judge, dur);
-                        self.sound(es, lane);
-                        self.lanes[lane].processing = None;
-                        self.lanes[lane].auto_hold = false;
-                        self.reset_release(lane);
-                    }
-                } else if let (Some(rt), Some(ej)) = (rt, ej) {
-                    if rt + margin <= mtime {
-                        if ej >= 3 {
-                            let s = self.notes[p].sound;
-                            self.events.push(EngineEvent::Volume {
-                                sound: s,
-                                volume: 0.0,
-                            });
-                        }
-                        let es = self.notes[p].end_sound;
-                        self.judge_note(p, true, ej, end - rt, true);
-                        self.sound(es, lane);
-                        self.lanes[lane].processing = None;
-                        self.reset_release(lane);
+            match j {
+                None => {}
+                Some(MISS) => {
+                    let closer = choice.is_none_or(|(c, _)| {
+                        raw.abs() < self.notes[c].time.saturating_sub(t).abs()
+                    });
+                    if closer {
+                        choice = Some((i, MISS));
                     }
                 }
+                Some(k) => choice = Some((i, k)),
             }
-            continue_after_processing(self, lane, mtime, nt);
         }
-
-        /// Miss sweep and cursor advance for one lane.
-        fn continue_after_processing(e: &mut Engine, lane: usize, mtime: i64, nt: NoteType) {
-            let bad_late = e.windows().time(nt, BAD, false);
-            let cursor = e.lanes[lane].cursor;
-            for k in cursor..e.lane_notes[lane].len() {
-                let i = e.lane_notes[lane][k];
-                let n = &e.notes[i];
-                if n.time >= mtime + bad_late {
-                    break;
-                }
-                let dm = n.time - mtime;
-                match n.kind {
-                    PKind::Normal if n.state == 0 => e.judge_note(i, false, POOR, dm, true),
-                    PKind::Long(lt) if n.state == 0 => {
-                        if lt != LnType::Ln {
-                            e.judge_note(i, false, POOR, dm, true);
-                            e.judge_note(i, true, POOR, dm, true);
-                        } else if e.lanes[lane].processing != Some(i) {
-                            e.judge_ln_mode(i, POOR, dm);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            // charge note held too long past its end
-            if let Some(p) = e.lanes[lane].processing {
-                let n = &e.notes[p];
-                if n.ln_type() != Some(LnType::Ln)
-                    && n.end_state == 0
-                    && n.end_time < mtime + bad_late
-                {
-                    let dm = n.end_time - mtime;
-                    e.judge_note(p, true, POOR, dm, true);
-                    e.lanes[lane].processing = None;
-                    e.lanes[lane].sc_key = None;
-                    e.lanes[lane].auto_hold = false;
-                    e.reset_release(lane);
-                }
-            }
-            // advance cursor past resolved notes
-            let limit = mtime + e.judge_start - 100_000;
-            let ln = &e.lane_notes[lane];
-            let mut c = e.lanes[lane].cursor;
-            while c < ln.len() {
-                let n = &e.notes[ln[c]];
-                let resolved = n.is_mine() || n.is_done();
-                if n.end_time < limit && resolved {
-                    c += 1;
-                } else {
-                    break;
-                }
-            }
-            e.lanes[lane].cursor = c;
-        }
+        choice
     }
 
-    fn judge_note(&mut self, i: usize, tail: bool, judge: usize, diff: i64, vanish: bool) {
-        if vanish {
-            if tail {
-                self.notes[i].end_state = judge as u8 + 1;
-            } else {
-                self.notes[i].state = judge as u8 + 1;
-            }
-            self.score.passed += 1;
-            self.ghost.push(judge as u8);
-        }
-        let n = &mut self.notes[i];
-        let pt = if tail {
-            &mut n.end_play_time
-        } else {
-            &mut n.play_time
+    fn release(&mut self, lane: usize, key: u8, t: i64) {
+        let Some(h) = self.lanes[lane].held else {
+            return;
         };
-        if self.cfg.rules.miss_one && judge == POOR && pt.is_some() {
+        let scratch = self.lanes[lane].scratch;
+        let end = self.notes[h].end_time;
+        let d = self.quantize(end.saturating_sub(t));
+        let r = self.windows().judge(self.end_type(lane), d).min(POOR);
+        let charge = self.notes[h].is_charge();
+        let keyboard = self.cfg.scratch_release_ends_bss || !scratch;
+        let counts = if keyboard {
+            !self.lanes[lane].pressed()
+        } else {
+            self.lanes[lane].hold_key == Some(key) && (!charge || r == POOR)
+        };
+        if !counts {
             return;
         }
-        *pt = Some(diff);
-        let lane = n.lane;
-        let time = if tail { n.end_time } else { n.time };
-        self.score.add(judge, diff);
-        if judge < POOR {
+        if !keyboard {
+            self.lanes[lane].hold_key = None;
+        }
+        if charge {
+            if r >= BAD && d > 0 {
+                self.lanes[lane].pending = Some((t, r));
+            } else {
+                self.judge(h, Slot::Tail, r, d, true);
+                self.sound(lane, self.notes[h].end_sound);
+                self.release_hold(lane);
+            }
+        } else {
+            let (hj, hd) = self.lanes[lane].head;
+            let j = r.max(hj);
+            let dd = if hd.abs() > d.abs() { hd } else { d };
+            if dd > 0 {
+                self.lanes[lane].pending = Some((t, j.min(BAD)));
+            } else {
+                self.ln_final(h, j, dd);
+                self.sound(lane, self.notes[h].end_sound);
+                self.release_hold(lane);
+            }
+        }
+    }
+
+    /// The other scratch key pressed while holding a charge note ends it.
+    fn back_spin(&mut self, lane: usize, h: usize, t: i64) {
+        let d = self.quantize(self.notes[h].end_time.saturating_sub(t));
+        let r = self.windows().judge(NoteType::LongScratchEnd, d).min(POOR);
+        self.sound(lane, self.notes[h].end_sound);
+        self.judge(h, Slot::Tail, r, d, true);
+        self.release_hold(lane);
+    }
+
+    /// The keysound of a press that judges nothing.
+    fn empty_press_sound(&mut self, lane: usize, t: i64) {
+        let l = &self.lanes[lane];
+        if l.body.is_some() {
+            return;
+        }
+        let before = l.notes.partition_point(|&i| self.notes[i].time < t);
+        let visible = l.notes[..before].iter().rev().copied().find(|&i| {
+            let n = &self.notes[i];
+            !(n.is_long() && n.head_judged())
+        });
+        let hidden = l.hidden[..l.hidden.partition_point(|h| h.0 < t)].last();
+        let sound = match (visible, hidden) {
+            (Some(v), Some(&(ht, hs))) => {
+                if self.notes[v].time >= ht {
+                    self.visible_sound(v)
+                } else {
+                    Some(hs)
+                }
+            }
+            (Some(v), None) => self.visible_sound(v),
+            (None, Some(&(_, hs))) => Some(hs),
+            (None, None) => l.notes.first().and_then(|&v| self.visible_sound(v)),
+        };
+        if let Some(s) = sound {
+            self.sound(lane, s);
+        }
+    }
+
+    fn visible_sound(&self, i: usize) -> Option<SoundId> {
+        let n = &self.notes[i];
+        (!n.is_mine()).then_some(n.sound)
+    }
+
+    // ----- judgements --------------------------------------------------------
+
+    /// Record judgement `j` with `diff` on a note's head or tail.
+    fn judge(&mut self, i: usize, slot: Slot, j: usize, diff: i64, consume: bool) {
+        let n = &mut self.notes[i];
+        if consume {
+            match slot {
+                Slot::Head => n.state = j as u8 + 1,
+                Slot::Tail => n.end_state = j as u8 + 1,
+            }
+            self.score.passed += 1;
+            self.ghost.push(j as u8);
+        }
+        let timing = match slot {
+            Slot::Head => &mut n.play_time,
+            Slot::Tail => &mut n.end_play_time,
+        };
+        // PMS: a note gives at most one POOR
+        if self.cfg.rules.miss_one && j == POOR && timing.is_some() {
+            return;
+        }
+        *timing = Some(diff);
+        let (lane, time) = match slot {
+            Slot::Head => (n.lane, n.time),
+            Slot::Tail => (n.lane, n.end_time),
+        };
+        self.score.add(j, diff);
+        if j <= BAD {
             self.timing_log.push((time, diff));
         }
-        self.judge_log
-            .push((time, judge as u8, diff.signum() as i8));
-        let keep = self.cfg.rules.combo[judge];
-        if keep && judge < MISS {
-            self.combo += 1;
-            self.score.max_combo = self.score.max_combo.max(self.combo);
-        }
-        if !keep {
+        self.judge_log.push((time, j as u8, diff.signum() as i8));
+        if self.cfg.rules.combo[j] {
+            if j != MISS {
+                self.combo += 1;
+                self.score.max_combo = self.score.max_combo.max(self.combo);
+            }
+        } else {
             self.combo = 0;
             self.score.combo_breaks += 1;
         }
-        self.gauge.update(judge, 1.0);
+        self.gauge.update(j, 1.0);
         self.events.push(EngineEvent::Judge {
             lane,
-            judge,
+            judge: j,
             diff,
             combo: self.combo,
-            tail,
+            tail: slot == Slot::Tail,
         });
         self.check_failed();
+    }
+
+    /// An LN-mode note's one judgement: on the head, the tail done with it.
+    fn ln_final(&mut self, i: usize, j: usize, diff: i64) {
+        self.judge(i, Slot::Head, j, diff, true);
+        self.notes[i].end_state = self.notes[i].state;
     }
 
     fn check_failed(&mut self) {
@@ -1020,430 +1054,48 @@ impl Engine {
             self.events.push(EngineEvent::Failed);
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bms::{parse_bms, ParseOptions};
-    use crate::chart::JudgeRank;
-    use crate::gauge::{GaugeAutoShift, GaugePreset, GaugeType};
-    use crate::mode::RuleFamily;
-
-    fn engine(src: &str, ln: LnType, auto: bool) -> (Chart, Engine) {
-        engine_with(src, ln, auto, JudgePreset::Beatoraja, JudgeRank::Rank(3))
-    }
-
-    fn engine_with(
-        src: &str,
-        ln: LnType,
-        auto: bool,
-        preset: JudgePreset,
-        rank: JudgeRank,
-    ) -> (Chart, Engine) {
-        let chart = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
-        let rules = judge_rules(preset, RuleFamily::SevenKeys, rank, None);
-        let total = chart.total(ln);
-        let gauge = GrooveGauge::new(
-            GaugePreset::Beatoraja,
-            RuleFamily::SevenKeys,
-            GaugeType::Normal,
-            GaugeAutoShift::None,
-            total,
-            chart.total_judgements(ln),
-        );
-        let cfg = EngineConfig {
-            rules,
-            default_ln: ln,
-            algorithm: JudgeAlgorithm::Combo,
-            auto_lanes: vec![auto; 8],
-            scratch_release_ends_bss: true,
-            player: None,
-        };
-        let e = Engine::new(&chart, cfg, gauge);
-        (chart, e)
-    }
-
-    #[test]
-    fn hostile_charts_play_through() {
-        for head in [
-            "#00102:1e300",
-            "#00102:0",
-            "#BPM 0",
-            "#BPM -120",
-            "#BPM01 0\n#00108:01",
-            "#STOP01 1e300\n#00109:01",
-            "#STOP01 -1e9\n#00109:01",
-            "#DEFEXRANK 1e300",
-        ] {
-            let src = format!("#BPM 120\n{head}\n#00111:0101\n#00211:01\n#00251:0101");
-            let (c, mut e) = engine(&src, LnType::Ln, true);
-            let end = c.length().clamp(0, 600_000_000);
-            for t in (0..end).step_by(50_000) {
-                e.update(t);
-            }
+    /// Play a keysound (nothing for a note without one).
+    fn sound(&mut self, lane: usize, sound: SoundId) {
+        if sound != NO_SOUND {
+            self.events.push(EngineEvent::Sound {
+                sound,
+                lane: lane as u8,
+            });
         }
     }
 
-    fn press(e: &mut Engine, lane: u8, t: i64) {
-        e.input(InputEvent {
-            time: t,
-            lane,
-            key: 0,
-            pressed: true,
+    /// Mute a long note's head keysound.
+    fn mute(&mut self, i: usize) {
+        self.events.push(EngineEvent::Volume {
+            sound: self.notes[i].sound,
+            volume: 0.0,
         });
-        e.update(t);
-    }
-    fn release(e: &mut Engine, lane: u8, t: i64) {
-        e.input(InputEvent {
-            time: t,
-            lane,
-            key: 0,
-            pressed: false,
-        });
-        e.update(t);
     }
 
-    fn judges(e: &mut Engine) -> Vec<usize> {
-        e.drain_events()
-            .filter_map(|ev| match ev {
-                EngineEvent::Judge { judge, .. } => Some(judge),
-                _ => None,
-            })
-            .collect()
+    // ----- tables ------------------------------------------------------------
+
+    fn quantize(&self, diff: i64) -> i64 {
+        self.cfg.rules.windows.quantize(diff)
     }
 
-    // 120 BPM: measure 1 starts at 2 s; notes every beat on key 1
-    const FOUR: &str = "#BPM 120\n#WAV01 a.wav\n#00111:01010101\n";
-
-    #[test]
-    fn perfect_and_timing() {
-        let (_, mut e) = engine(FOUR, LnType::Ln, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        release(&mut e, 0, 2_050_000);
-        press(&mut e, 0, 2_500_000 + 40_000); // GREAT (late)
-        press(&mut e, 0, 3_000_000 - 100_000); // GOOD (early)
-        e.update(5_000_000); // last note missed
-        assert_eq!(judges(&mut e), vec![PGREAT, GREAT, GOOD, POOR]);
-        assert_eq!(e.score.ex_score(), 3);
-        assert_eq!(e.combo(), 0);
-        assert_eq!(e.score.max_combo, 3);
-        assert_eq!(e.score.combo_breaks, 1);
-        assert!(e.is_finished(5_000_000));
-        assert_eq!(e.score.count(1), 1);
-        assert_eq!(e.score.counts[1][1], 1); // late
-    }
-
-    #[test]
-    fn empty_poor_does_not_consume_note() {
-        let (_, mut e) = engine(FOUR, LnType::Ln, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000 - 400_000); // way early -> empty poor
-        release(&mut e, 0, 2_000_000 - 390_000);
-        press(&mut e, 0, 2_000_000);
-        assert_eq!(judges(&mut e), vec![MISS, PGREAT]);
-        assert_eq!(e.combo(), 1); // 7K: empty poor keeps combo
-        assert_eq!(e.score.combo_breaks, 0);
-    }
-
-    #[test]
-    fn empty_poor_between_notes() {
-        let (_, mut e) = engine(FOUR, LnType::Ln, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        release(&mut e, 0, 2_050_000);
-        let before = e.gauge.value();
-        // 300 ms before the next note: past BAD's early edge (220 ms)
-        press(&mut e, 0, 2_500_000 - 300_000);
-        release(&mut e, 0, 2_500_000 - 290_000);
-        let after = e.gauge.value();
-        press(&mut e, 0, 2_500_000);
-        assert_eq!(judges(&mut e), vec![PGREAT, MISS, PGREAT]);
-        // the note stayed, the combo went on, the gauge lost less than a POOR
-        assert_eq!(e.combo(), 2);
-        assert!(
-            before - after > 0.0 && before - after <= 2.0,
-            "{before} -> {after}"
-        );
-        assert_eq!(e.score.count(MISS), 1);
-        assert_eq!(e.score.count(POOR), 0);
-    }
-
-    #[test]
-    fn autoplay_all_pgreat() {
-        let (_, mut e) = engine(FOUR, LnType::Ln, true);
-        let mut t = 0;
-        while t < 4_000_000 {
-            e.update(t);
-            t += 16_667;
+    fn note_type(&self, lane: usize) -> NoteType {
+        if self.lanes[lane].scratch {
+            NoteType::Scratch
+        } else {
+            NoteType::Note
         }
-        assert_eq!(judges(&mut e), vec![PGREAT; 4]);
-        assert_eq!(e.score.ex_score(), 8);
     }
 
-    // LN on key 1 from 2.0 s to 3.0 s
-    const LN: &str = "#BPM 120\n#WAV01 a.wav\n#00151:0101\n";
-    const HCN: &str = "#BPM 120\n#TOTAL 1\n#WAV01 a.wav\n#00151:0101\n";
-
-    #[test]
-    fn ln_mode_hold_and_early_release() {
-        let (_, mut e) = engine(LN, LnType::Ln, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_010_000);
-        e.update(3_100_000);
-        assert_eq!(judges(&mut e), vec![PGREAT]);
-        assert_eq!(e.score.total_notes, 1);
-
-        let (_, mut e) = engine(LN, LnType::Ln, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        release(&mut e, 0, 2_500_000); // 500 ms early
-        e.update(2_600_000);
-        assert_eq!(judges(&mut e), vec![BAD]);
-    }
-
-    #[test]
-    fn lr2_ln_release_keeps_the_head_judgement() {
-        // LR2 #RANK NORMAL: a release 25 ms early is outside the ±18 ms
-        // PGREAT note window but inside the release window
-        let (_, mut e) = engine_with(LN, LnType::Ln, false, JudgePreset::Lr2, JudgeRank::Rank(2));
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        release(&mut e, 0, 3_000_000 - 25_000);
-        e.update(3_100_000);
-        assert_eq!(judges(&mut e), vec![PGREAT]);
-        // CN at VERY HARD: the tail 30 ms late is a PGREAT too
-        let (_, mut e) = engine_with(LN, LnType::Cn, false, JudgePreset::Lr2, JudgeRank::Rank(0));
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        release(&mut e, 0, 3_030_000);
-        assert_eq!(judges(&mut e), vec![PGREAT, PGREAT]);
-    }
-
-    #[test]
-    fn charge_note_head_and_tail() {
-        let (_, mut e) = engine(LN, LnType::Cn, false);
-        assert_eq!(e.score.total_notes, 2);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        release(&mut e, 0, 3_150_000);
-        assert_eq!(judges(&mut e), vec![PGREAT, GREAT]);
-
-        // held too long -> tail POOR
-        let (_, mut e) = engine(LN, LnType::Cn, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        e.update(3_400_000);
-        assert_eq!(judges(&mut e), vec![PGREAT, POOR]);
-
-        // never pressed -> two POORs
-        let (_, mut e) = engine(LN, LnType::Cn, false);
-        e.update(4_000_000);
-        assert_eq!(judges(&mut e), vec![POOR, POOR]);
-    }
-
-    #[test]
-    fn hell_charge_gauge_ticks() {
-        let (_, mut e) = engine(HCN, LnType::Hcn, false);
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000);
-        let before = e.gauge.value();
-        let mut t = 2_000_000;
-        while t < 2_900_000 {
-            t += 16_667;
-            e.update(t);
+    fn end_type(&self, lane: usize) -> NoteType {
+        if self.lanes[lane].scratch {
+            NoteType::LongScratchEnd
+        } else {
+            NoteType::LongEnd
         }
-        assert!(e.gauge.value() > before, "holding HCN must raise the gauge");
-        release(&mut e, 0, 2_900_000);
-        let mid = e.gauge.value();
-        let _ = judges(&mut e);
-        // let go of the body: gauge drains until the end
-        let (_, mut e2) = engine(HCN, LnType::Hcn, false);
-        e2.update(1_000_000);
-        press(&mut e2, 0, 2_000_000);
-        release(&mut e2, 0, 2_050_000);
-        let start = e2.gauge.value();
-        let mut t = 2_050_000;
-        while t < 2_900_000 {
-            t += 16_667;
-            e2.update(t);
-        }
-        assert!(e2.gauge.value() < start);
-        assert!(mid > 0.0);
     }
 
-    #[test]
-    fn mines_damage_when_held() {
-        let (_, mut e) = engine(
-            "#BPM 120\n#WAV00 boom.wav\n#001D1:0A\n#00112:01\n",
-            LnType::Ln,
-            false,
-        );
-        e.update(1_000_000);
-        press(&mut e, 0, 1_900_000);
-        let g = e.gauge.value();
-        e.update(2_100_000);
-        let mines: Vec<_> = e
-            .drain_events()
-            .filter(|ev| matches!(ev, EngineEvent::Mine { .. }))
-            .collect();
-        assert_eq!(mines.len(), 1);
-        assert!(e.gauge.value() < g);
-    }
-
-    #[test]
-    fn combo_algorithm_picks_next_note_for_dense_jacks() {
-        // notes 50 ms apart (16ths at 300 BPM); pressing late for the first
-        // note should not steal the second.
-        let (_, mut e) = engine("#BPM 300\n#00111:0101010101010101\n", LnType::Ln, false);
-        e.update(0);
-        let first = 800_000;
-        press(&mut e, 0, first + 10_000);
-        release(&mut e, 0, first + 20_000);
-        press(&mut e, 0, first + 100_000 + 5_000);
-        assert_eq!(judges(&mut e), vec![PGREAT, PGREAT]);
-    }
-
-    #[test]
-    fn replays_judge_the_same() {
-        let (_, mut e) = engine(FOUR, LnType::Ln, false);
-        e.record();
-        e.update(1_000_000);
-        press(&mut e, 0, 2_000_000 + 10_000);
-        e.update(2_020_000);
-        // a late input: stamped before the last update
-        press(&mut e, 0, 2_500_000 - 50_000);
-        e.update(2_480_000);
-        release(&mut e, 0, 2_490_000);
-        e.update(3_100_000);
-        e.update(5_000_000);
-        let ops = e.recorded().to_vec();
-        let (_, mut r) = engine(FOUR, LnType::Ln, false);
-        for op in ops {
-            r.apply(op);
-        }
-        assert_eq!(r.ghost, e.ghost);
-        assert_eq!(r.judge_log, e.judge_log);
-        assert_eq!(r.score.ex_score(), e.score.ex_score());
-        assert!(!e.ghost.is_empty());
-    }
-    type Outcome = (Score, Vec<u8>, Vec<(i64, u8, i8)>, Vec<(i64, i64)>, u32);
-
-    /// One engine's result: what replays and records are made of.
-    fn result(e: &Engine) -> Outcome {
-        (
-            e.score.clone(),
-            e.ghost.clone(),
-            e.judge_log.clone(),
-            e.timing_log.clone(),
-            (e.gauge.value() * 1000.0) as u32,
-        )
-    }
-
-    fn side_engine(chart: &Chart, ln: LnType, player: Option<usize>, auto_sc: bool) -> Engine {
-        let mode = chart.mode();
-        let fam = mode.family();
-        let rules = judge_rules(JudgePreset::Beatoraja, fam, chart.meta.judge_rank, None);
-        let total = chart.total_of(ln, GaugePreset::Beatoraja, player);
-        let gauge = GrooveGauge::new(
-            GaugePreset::Beatoraja,
-            fam,
-            GaugeType::Normal,
-            GaugeAutoShift::None,
-            total,
-            chart.total_judgements_of(ln, player),
-        );
-        let cfg = EngineConfig {
-            rules,
-            default_ln: ln,
-            algorithm: JudgeAlgorithm::Combo,
-            auto_lanes: (0..mode.lane_count())
-                .map(|l| auto_sc && mode.is_scratch(l))
-                .collect(),
-            scratch_release_ends_bss: true,
-            player,
-        };
-        Engine::new(chart, cfg, gauge)
-    }
-
-    #[test]
-    fn a_battle_side_judges_as_its_single_play_chart() {
-        use crate::lane_option::{apply, battle, LaneOption};
-        let mut checked = 0;
-        for keys in [7, 5] {
-            let src = crate::bot::chart_text(keys, keys as i64);
-            let base = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
-            let lpp = base.mode().lanes_per_player() as u8;
-            for (k, opt) in LaneOption::ALL.iter().enumerate() {
-                let ln = [LnType::Ln, LnType::Cn, LnType::Hcn][k % 3];
-                let auto_sc = k % 4 == 3;
-                let seed = 1000 + k as i64;
-                let mut sp = base.clone();
-                apply(&mut sp, 0, *opt, seed, 125_000);
-                let mut bt = base.clone();
-                apply(&mut bt, 0, *opt, seed, 125_000);
-                battle(&mut bt);
-                let inputs = crate::bot::inputs(&sp, None, seed);
-                let end = sp.length() + 2_000_000;
-                let mut a = side_engine(&sp, ln, None, auto_sc);
-                let mut b = side_engine(&bt, ln, Some(0), auto_sc);
-                a.record();
-                b.record();
-                crate::bot::drive(&mut a, &inputs, end);
-                crate::bot::drive(&mut b, &inputs, end);
-                assert!(a.score.ex_score() > 0 && a.score.count(POOR) > 0);
-                assert_eq!(result(&a), result(&b), "{keys}K {opt:?}");
-                assert_eq!(a.recorded(), b.recorded());
-                assert!(b.is_finished(end));
-                // the play's ops on the second side judge the same
-                let mut c = side_engine(&bt, ln, Some(1), auto_sc);
-                for op in a.recorded() {
-                    c.apply(op.shifted(lpp));
-                }
-                assert_eq!(result(&a), result(&c), "2P {keys}K {opt:?}");
-                // and the second side's notes are the single play chart's
-                let mut bt = base.clone();
-                battle(&mut bt);
-                apply(&mut bt, 1, *opt, seed, 125_000);
-                let key = |n: &crate::chart::Note| (n.time, n.lane, n.sound, n.end_time());
-                let mut two: Vec<_> = bt.notes.iter().filter(|n| n.lane >= lpp).map(key).collect();
-                let mut one: Vec<_> = {
-                    let mut c = base.clone();
-                    apply(&mut c, 0, *opt, seed, 125_000);
-                    c.notes
-                        .iter()
-                        .map(|n| (n.time, n.lane + lpp, n.sound, n.end_time()))
-                        .collect()
-                };
-                two.sort();
-                one.sort();
-                assert_eq!(one, two, "{keys}K {opt:?} on 2P");
-                checked += 1;
-            }
-        }
-        assert_eq!(checked, 20);
-    }
-
-    #[test]
-    fn a_side_takes_only_its_lanes() {
-        let src = crate::bot::chart_text(7, 3);
-        let mut c = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
-        let n = c.total_judgements(LnType::Cn);
-        crate::lane_option::battle(&mut c);
-        assert_eq!(c.total_judgements_of(LnType::Cn, Some(1)), n);
-        assert_eq!(c.total_judgements(LnType::Cn), 2 * n);
-        let mut e = side_engine(&c, LnType::Cn, Some(1), false);
-        assert!(e.notes().iter().all(|n| n.lane >= 8));
-        assert!(e.judges(9) && !e.judges(2));
-        e.record();
-        e.input(InputEvent {
-            time: 0,
-            lane: 2,
-            key: 0,
-            pressed: true,
-        });
-        assert!(e.held().is_empty());
-        assert_eq!(e.score.total_notes as usize, n);
+    fn lane_table(&self, lane: usize) -> &[(i64, i64)] {
+        self.cfg.rules.windows.table(self.note_type(lane))
     }
 }

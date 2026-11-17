@@ -672,57 +672,98 @@ fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
             }
         }
         Lr2Damage => {
-            if f >= 0.0 {
-                return f;
-            }
-            let fix1 = 10.0 / ((total / 16.0).floor() - 5.0).clamp(1.0, 10.0);
-            let n = notes as f64;
-            let fix2 = if n <= 20.0 {
-                10.0
-            } else if n < 30.0 {
-                8.0 + 0.2 * (30.0 - n)
-            } else if n < 60.0 {
-                5.0 + 0.2 * (60.0 - n) / 3.0
-            } else if n < 125.0 {
-                4.0 + (125.0 - n) / 65.0
-            } else if n < 250.0 {
-                3.0 + 0.008 * (250.0 - n)
-            } else if n < 500.0 {
-                2.0 + 0.004 * (500.0 - n)
-            } else if n < 1000.0 {
-                1.0 + 0.002 * (1000.0 - n)
+            if f < 0.0 {
+                f * lr2_damage_factor(total, notes as f64)
             } else {
-                1.0
-            };
-            f * fix1.max(fix2) as f32
+                f
+            }
         }
         ModifyDamage => {
-            if f >= 0.0 {
-                return f;
+            if f < 0.0 {
+                f * five_key_damage_factor(total, notes)
+            } else {
+                f
             }
-            const FIX1_TOTAL: [f64; 10] = [
-                240.0, 230.0, 210.0, 200.0, 180.0, 160.0, 150.0, 130.0, 120.0, 0.0,
-            ];
-            const FIX1_TABLE: [f32; 10] = [1.0, 1.11, 1.25, 1.5, 1.666, 2.0, 2.5, 3.333, 5.0, 10.0];
-            let mut i = 0;
-            while i < FIX1_TOTAL.len() - 1 && total < FIX1_TOTAL[i] {
-                i += 1;
-            }
-            let mut fix2 = 1.0f32;
-            let mut note = 1000i64;
-            let mut m = 0.002f32;
-            let n = notes as i64;
-            // LR2: damage grows for charts with fewer than 1000 notes.
-            // (beatoraja's loop condition also adds negative terms; only the
-            // positive part reflects LR2 so we clamp at 0.)
-            while note > n && note > 1 {
-                fix2 += m * (note - n.max(note / 2)).max(0) as f32;
-                note /= 2;
-                m *= 2.0;
-            }
-            f * FIX1_TABLE[i].max(fix2)
         }
     }
+}
+
+// The two damage multipliers below were written from a behaviour
+// specification (TOTAL steps and note-count breakpoints), not from another
+// program's code.
+
+/// Damage multiplier of the beatoraja-preset five-key EX-HARD gauge: the
+/// larger of a TOTAL step factor and a note-count factor (single precision).
+fn five_key_damage_factor(total: f64, notes: usize) -> f32 {
+    const TOTAL_STEPS: [(f64, f32); 9] = [
+        (240.0, 1.0),
+        (230.0, 1.11),
+        (210.0, 1.25),
+        (200.0, 1.5),
+        (180.0, 1.666),
+        (160.0, 2.0),
+        (150.0, 2.5),
+        (130.0, 3.333),
+        (120.0, 5.0),
+    ];
+    let by_total = if total.is_nan() {
+        1.0
+    } else {
+        TOTAL_STEPS
+            .iter()
+            .find(|(t, _)| total >= *t)
+            .map_or(10.0, |(_, f)| *f)
+    };
+
+    // breakpoints 1000, 500, 250, ... (halved), slopes 0.002, 0.004, ...
+    // (doubled) per note fewer
+    let by_notes = if notes >= 1000 {
+        1.0
+    } else {
+        // below 1 the factor stays at its value for 1
+        let n = notes.max(1);
+        let (mut hi, mut factor, mut slope) = (1000usize, 1.0f32, 0.002f32);
+        loop {
+            let lo = hi / 2;
+            if n >= lo {
+                break factor + slope * (hi - n) as f32;
+            }
+            factor += slope * (hi - lo) as f32;
+            slope *= 2.0;
+            hi = lo;
+        }
+    };
+    by_total.max(by_notes)
+}
+
+/// Damage multiplier of the LR2-preset HARD and EX-HARD gauges: the larger
+/// of a TOTAL factor and a note-count factor, computed in double precision
+/// and rounded to single precision.
+fn lr2_damage_factor(total: f64, n: f64) -> f32 {
+    let by_total = if total.is_nan() {
+        1.0
+    } else {
+        let k = ((total / 16.0).floor() - 5.0).clamp(1.0, 10.0);
+        10.0 / k
+    };
+    let by_notes = if n >= 1000.0 {
+        1.0
+    } else if n >= 500.0 {
+        1.0 + 0.002 * (1000.0 - n)
+    } else if n >= 250.0 {
+        2.0 + 0.004 * (500.0 - n)
+    } else if n >= 125.0 {
+        3.0 + 0.008 * (250.0 - n)
+    } else if n >= 60.0 {
+        4.0 + (125.0 - n) / 65.0
+    } else if n >= 30.0 {
+        5.0 + (60.0 - n) / 15.0
+    } else if n > 20.0 {
+        8.0 + 0.2 * (30.0 - n)
+    } else {
+        10.0
+    };
+    f64::max(by_total, by_notes) as f32
 }
 
 #[derive(Clone, Debug, PartialEq)]

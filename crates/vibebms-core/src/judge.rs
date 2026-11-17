@@ -241,78 +241,92 @@ impl WindowRule {
         pct.clamp(1, 10_000)
     }
 
+    // Written from a behaviour specification (window scaling by rank
+    // percentage, then the custom rates), not from another program's code.
+    /// Scale a base table (µs) by the rank percentage `judgerank` and the
+    /// custom rates `rate` (PG, GR, GD in percent).
     fn create(&self, org: &[(i64, i64)], judgerank: i64, rate: WindowRate) -> Vec<(i64, i64)> {
-        let n = org.len();
-        let pct: Vec<i64> = (0..n)
-            .map(|i| {
+        // only PG..BAD take part in the ordering rules; empty POOR never does
+        let ordered = org.len().min(4);
+        let mut out: Vec<(i64, i64)> = org
+            .iter()
+            .enumerate()
+            .map(|(i, &(late, early))| {
                 if self.fixed.get(i).copied().unwrap_or(true) {
-                    100
+                    (late, early)
                 } else {
-                    judgerank
+                    (late * judgerank / 100, early * judgerank / 100)
                 }
             })
             .collect();
-        let mut j: Vec<(i64, i64)> = (0..n)
-            .map(|i| {
-                if self.fixed.get(i).copied().unwrap_or(true) {
-                    org[i]
-                } else {
-                    (org[i].0 * pct[i] / 100, org[i].1 * pct[i] / 100)
-                }
-            })
-            .collect();
-        // keep scaled windows between neighbouring fixed windows
-        let mut fixmin: Option<usize> = None;
-        for i in 0..n.min(4) {
+
+        // a scaled window stays between its fixed neighbours
+        for i in 0..ordered {
             if self.fixed[i] {
-                fixmin = Some(i);
                 continue;
             }
-            let fixmax = (i + 1..4).find(|k| self.fixed[*k]);
-            for side in 0..2 {
-                let get = |w: (i64, i64)| if side == 0 { w.0 } else { w.1 };
-                let mut v = get(j[i]);
-                if let Some(m) = fixmin {
-                    if v.abs() < get(j[m]).abs() {
-                        v = get(j[m]);
+            let before = (0..i).rev().find(|&j| self.fixed[j]);
+            let after = (i + 1..ordered).find(|&j| self.fixed[j]);
+            for side in [Side::Late, Side::Early] {
+                let mut v = side.get(out[i]);
+                if let Some(j) = before {
+                    let b = side.get(out[j]);
+                    if v.abs() < b.abs() {
+                        v = b;
                     }
                 }
-                if let Some(m) = fixmax {
-                    if m < n && v.abs() > get(j[m]).abs() {
-                        v = get(j[m]);
+                if let Some(j) = after {
+                    let a = side.get(out[j]);
+                    if v.abs() > a.abs() {
+                        v = a;
                     }
                 }
-                if side == 0 {
-                    j[i].0 = v
-                } else {
-                    j[i].1 = v
-                }
+                side.set(&mut out[i], v);
             }
         }
-        // custom window rate for PG/GR/GD, clamped to BAD and monotonic
-        if n >= 4 {
+
+        // custom rates for PG, GR, GD; always keep PG <= GR <= GD <= BAD
+        if ordered == 4 {
             for i in 0..3 {
-                for side in 0..2 {
-                    let bad = if side == 0 { j[3].0 } else { j[3].1 };
-                    let mut v = if side == 0 { j[i].0 } else { j[i].1 } * rate[i] / 100;
+                for side in [Side::Late, Side::Early] {
+                    let mut v = side.get(out[i]) * rate[i] / 100;
+                    let bad = side.get(out[3]);
                     if v.abs() > bad.abs() {
                         v = bad;
                     }
                     if i > 0 {
-                        let prev = if side == 0 { j[i - 1].0 } else { j[i - 1].1 };
+                        let prev = side.get(out[i - 1]);
                         if v.abs() < prev.abs() {
                             v = prev;
                         }
                     }
-                    if side == 0 {
-                        j[i].0 = v
-                    } else {
-                        j[i].1 = v
-                    }
+                    side.set(&mut out[i], v);
                 }
             }
         }
-        j
+        out
+    }
+}
+
+/// One side of a `(late, early)` window.
+#[derive(Clone, Copy)]
+enum Side {
+    Late,
+    Early,
+}
+
+impl Side {
+    fn get(self, w: (i64, i64)) -> i64 {
+        match self {
+            Side::Late => w.0,
+            Side::Early => w.1,
+        }
+    }
+    fn set(self, w: &mut (i64, i64), v: i64) {
+        match self {
+            Side::Late => w.0 = v,
+            Side::Early => w.1 = v,
+        }
     }
 }
 

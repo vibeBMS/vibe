@@ -13,8 +13,13 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use vibebms_core::engine::Op;
 
-/// The replay format.
-pub const VERSION: u32 = 1;
+/// The replay format. 2: the judge handles every input at its own time
+/// (a replay of 1 may judge a little otherwise when played again).
+pub const VERSION: u32 = 2;
+
+/// The oldest format still loaded: its ghost still paces a play, but
+/// watching it or playing it again (G-BATTLE) runs it on this judge.
+const OLDEST: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Replay {
@@ -72,6 +77,12 @@ impl Replay {
         !self.play.battle
     }
 
+    /// Recorded with an older judge: played again, it may judge otherwise
+    /// than it did (its ghost is what it did).
+    pub fn older_engine(&self) -> bool {
+        self.version < VERSION
+    }
+
     /// The EX score of the first `n` judgements.
     pub fn ex_at(&self, n: usize) -> u32 {
         ex_of(&self.ghost[..n.min(self.ghost.len())])
@@ -98,7 +109,7 @@ impl Replay {
             .read_to_end(&mut json)
             .ok()?;
         let r: Replay = serde_json::from_slice(&json).ok()?;
-        (r.version == VERSION).then_some(r)
+        (OLDEST..=VERSION).contains(&r.version).then_some(r)
     }
 
     /// The replay `slot` filed under LN mode `ln`. `fixed`: the chart's
@@ -201,6 +212,23 @@ mod tests {
         assert_eq!(back.ops, r.ops);
         assert_eq!(back.seed, 42);
         assert_eq!(back.ex_at(2), 3);
+        assert!(Replay::load(&root, "ab", 0, Slot::Last).is_none());
+        assert!(!back.older_engine());
+        // an older judge's replay still loads (its ghost paces), marked
+        let old = Replay {
+            version: 1,
+            ..r.clone()
+        };
+        old.save(&root, Slot::Last).unwrap();
+        let back = Replay::load(&root, "ab", 0, Slot::Last).unwrap();
+        assert!(back.older_engine());
+        assert_eq!(back.ghost, r.ghost);
+        // a format not known: not loaded
+        let future = Replay {
+            version: VERSION + 1,
+            ..r.clone()
+        };
+        future.save(&root, Slot::Last).unwrap();
         assert!(Replay::load(&root, "ab", 0, Slot::Last).is_none());
         let _ = std::fs::remove_dir_all(root);
     }

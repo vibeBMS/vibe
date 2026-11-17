@@ -239,11 +239,14 @@ impl Chart {
     }
 
     /// The judgements of one player's lanes (`None`: every lane): a side
-    /// of a battle chart counts as its single play chart.
+    /// of a battle chart counts as its single play chart. Notes on lanes
+    /// the mode does not have are not played, so not counted.
     pub fn total_judgements_of(&self, default_ln: LnType, player: Option<usize>) -> usize {
         let mode = self.mode();
+        let lanes = mode.lane_count();
         self.notes
             .iter()
+            .filter(|n| (n.lane as usize) < lanes)
             .filter(|n| player.is_none_or(|p| mode.player_of_lane(n.lane as usize) == p))
             .map(|n| match &n.kind {
                 NoteKind::Normal => 1,

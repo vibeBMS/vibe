@@ -1077,3 +1077,24 @@ fn choose_present_mode(
         P::Immediate => pick(&[W::Immediate, W::Mailbox, W::Fifo]),
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    /// The shader parses and validates (with naga, as wgpu checks it when
+    /// it makes the pipelines), distance-field stage included.
+    #[test]
+    fn shader_validates() {
+        use wgpu::naga;
+        let module = naga::front::wgsl::parse_str(include_str!("shader.wgsl"))
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(include_str!("shader.wgsl"))));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::default(),
+        )
+        .validate(&module)
+        .expect("the shader validates");
+        for name in ["vs_main", "fs_main", "fs_sdf"] {
+            assert!(module.entry_points.iter().any(|e| e.name == name), "{name}");
+        }
+    }
+}

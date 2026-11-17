@@ -1466,6 +1466,15 @@ impl PlayScene {
             .any(|s| matches!(s.role, Role::Ghost { desync: true, .. }))
     }
 
+    /// A replay played again here (watched, or G-BATTLE's opponent) was
+    /// recorded with an older judge.
+    fn older_replay(&self) -> bool {
+        self.sides.iter().any(|s| match &s.role {
+            Role::Replay(f) | Role::Ghost { feed: f, .. } => f.replay.older_engine(),
+            Role::Player => false,
+        })
+    }
+
     /// The player side a key or button belongs to (VS: each player's
     /// START / SELECT and keys; else the one player's).
     fn control_side(&self, lane: u8) -> usize {
@@ -2315,16 +2324,22 @@ impl PlayScene {
                 }
             }
         }
-        if self.ghost_desync() {
-            let ui = ctx.ui();
+        let ui = ctx.ui();
+        let notices = [
+            (self.ghost_desync(), "GHOST DESYNC"),
+            (self.older_replay(), "REPLAY OF AN OLDER ENGINE"),
+        ];
+        let mut y = view.y + 8.0 * ui;
+        for (_, what) in notices.iter().filter(|(on, _)| *on) {
             d.text(
-                "GHOST DESYNC",
+                what,
                 view.x + view.w * 0.5,
-                view.y + 8.0 * ui,
+                y,
                 16.0 * ui,
                 theme::ACCENT,
                 Align::Center,
             );
+            y += 20.0 * ui;
         }
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
@@ -2434,6 +2449,51 @@ mod tests {
         assert_eq!(w.ghost, r.ghost);
         assert_eq!(digest(&w), digest(&e));
         (digest(&e), e.score.ex_score())
+    }
+
+    /// Autoplay through the scene's chart and judge making, frame by
+    /// frame: every key mode and LN mode, with the lane options, battle
+    /// and HCN bodies; every note PGREAT, the play finished.
+    #[test]
+    fn autoplay_plays_every_chart_through() {
+        for keys in [5, 7, 10, 14] {
+            for (ln, random) in [
+                (LnType::Ln, LaneOption::Off),
+                (LnType::Cn, LaneOption::SRandom),
+                (LnType::Hcn, LaneOption::HRandom),
+            ] {
+                let play = PlayConfig {
+                    ln_mode: ln,
+                    random_1p: random,
+                    battle: keys < 10 && ln == LnType::Cn,
+                    ..PlayConfig::default()
+                };
+                let text = bot::chart_text(keys, keys as i64 * 3);
+                let path = Path::new("song/chart.bme");
+                let (chart, _, _) = load_chart(path, text.as_bytes(), &play, 9, None).unwrap();
+                let mut r = Rules::of(&play);
+                r.autoplay = true;
+                let players = if chart.mode().is_double() && play.battle {
+                    vec![Some(0), Some(1)]
+                } else {
+                    vec![None]
+                };
+                for player in players {
+                    let (mut e, _) = make_engine(&chart, &r, player);
+                    let end = chart.length() + 2_000_000;
+                    let mut t = -1_000_000;
+                    while t < end {
+                        e.update(t);
+                        e.drain_events().count();
+                        t += 16_667;
+                    }
+                    let what = format!("{keys}K {ln:?} {random:?} {player:?}");
+                    assert!(e.score.total_notes > 0, "{what}");
+                    assert!(e.ghost.iter().all(|j| *j == 0), "{what}: {:?}", e.ghost);
+                    assert!(e.is_finished(end) && !e.is_failed(), "{what}");
+                }
+            }
+        }
     }
 
     /// Replays of plays with these options judge the same as before the
