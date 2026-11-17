@@ -2,7 +2,7 @@ use crate::clock::{FrameClock, Obs};
 use crate::decode::Sample;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
@@ -91,6 +91,48 @@ struct Voice {
     looping: bool,
 }
 
+impl Voice {
+    /// Add the voice's part of the buffer starting at frame `now` to `mix`
+    /// (interleaved stereo) at `gain`; false once it is done.
+    fn render(&mut self, mix: &mut [f32], now: u64, gain: f32) -> bool {
+        let end_frame = now + (mix.len() / 2) as u64;
+        if self.start_at >= end_frame {
+            return true;
+        }
+        if self.cut_at <= now {
+            return false;
+        }
+        let first = self.start_at.saturating_sub(now) as usize;
+        let last = (self.cut_at.min(end_frame) - now) as usize;
+        let mut i = first;
+        while i < last {
+            if self.pos >= self.end {
+                if self.looping && self.end > self.start {
+                    self.pos = self.start;
+                } else {
+                    return false;
+                }
+            }
+            let n = (last - i).min(self.end - self.pos);
+            if gain != 0.0 {
+                self.sample
+                    .mix_into(self.pos, &mut mix[i * 2..(i + n) * 2], gain);
+            }
+            self.pos += n;
+            i += n;
+        }
+        self.cut_at > end_frame && (self.pos < self.end || self.looping)
+    }
+}
+
+/// Hands a voice's sample back to the main thread to drop (it may be the
+/// last reference: freeing megabytes in the audio callback could make it
+/// late); false, for `retain`.
+fn retire(to: &SyncSender<Arc<Sample>>, v: &Voice) -> bool {
+    let _ = to.try_send(v.sample.clone());
+    false
+}
+
 enum Cmd {
     Play(Voice),
     Volume(u64, f32),
@@ -112,10 +154,17 @@ struct State {
     clock: FrameClock,
     /// What `Voice::at_us` counts from.
     epoch: Instant,
+    retired: SyncSender<Arc<Sample>>,
 }
 
 impl State {
-    fn new(rx: Receiver<Cmd>, cfg: &AudioConfig, frame: Arc<AtomicU64>, epoch: Instant) -> State {
+    fn new(
+        rx: Receiver<Cmd>,
+        retired: SyncSender<Arc<Sample>>,
+        cfg: &AudioConfig,
+        frame: Arc<AtomicU64>,
+        epoch: Instant,
+    ) -> State {
         State {
             rx,
             voices: Vec::with_capacity(cfg.max_voices),
@@ -127,6 +176,7 @@ impl State {
             shared_frame: frame,
             clock: FrameClock::new(44_100),
             epoch,
+            retired,
         }
     }
 
@@ -163,7 +213,7 @@ impl State {
                         if let Some(i) =
                             (0..self.voices.len()).min_by_key(|i| self.voices[*i].start_at)
                         {
-                            self.voices.swap_remove(i);
+                            retire(&self.retired, &self.voices.swap_remove(i));
                         }
                     }
                     self.voices.push(v);
@@ -173,8 +223,12 @@ impl State {
                     .iter_mut()
                     .filter(|v| v.key == k)
                     .for_each(|v| v.vol = vol),
-                Cmd::Stop(k) => self.voices.retain(|v| v.key != k),
-                Cmd::StopBus(b) => self.voices.retain(|v| v.bus != b),
+                Cmd::Stop(k) => self
+                    .voices
+                    .retain(|v| v.key != k || retire(&self.retired, v)),
+                Cmd::StopBus(b) => self
+                    .voices
+                    .retain(|v| v.bus != b || retire(&self.retired, v)),
                 Cmd::BusVolume(b, v) => self.bus[b as usize] = v,
                 Cmd::Master(v) => self.master = v,
             }
@@ -209,35 +263,10 @@ impl State {
         }
         let mix = &mut self.mix[..frames * 2];
         mix.fill(0.0);
-        let bus = self.bus;
-        let master = self.master;
+        let (bus, master, retired) = (self.bus, self.master, &self.retired);
         self.voices.retain_mut(|v| {
-            if v.start_at >= end_frame {
-                return true;
-            }
-            if v.cut_at <= now {
-                return false;
-            }
-            let first = v.start_at.saturating_sub(now) as usize;
-            let last = (v.cut_at.min(end_frame) - now) as usize;
             let g = v.vol * bus[v.bus as usize] * master;
-            let mut i = first;
-            while i < last {
-                if v.pos >= v.end {
-                    if v.looping && v.end > v.start {
-                        v.pos = v.start;
-                    } else {
-                        return false;
-                    }
-                }
-                let n = (last - i).min(v.end - v.pos);
-                if g != 0.0 {
-                    v.sample.mix_into(v.pos, &mut mix[i * 2..(i + n) * 2], g);
-                }
-                v.pos += n;
-                i += n;
-            }
-            v.cut_at > end_frame && (v.pos < v.end || v.looping)
+            v.render(mix, now, g) || retire(retired, v)
         });
         self.frame = end_frame;
         self.shared_frame.store(self.frame, Ordering::Release);
@@ -278,6 +307,8 @@ pub struct Mixer {
     state: Arc<Mutex<State>>,
     /// The stream reported its device gone.
     lost: Arc<AtomicBool>,
+    /// Samples of the voices that ended, to drop here.
+    retired: Receiver<Arc<Sample>>,
     cfg: AudioConfig,
     /// Null output (no device): frames advance with wall-clock time from
     /// this moment and frame.
@@ -295,9 +326,12 @@ const RETRY: std::time::Duration = std::time::Duration::from_secs(3);
 impl Mixer {
     pub fn new(cfg: &AudioConfig) -> Mixer {
         let (tx, rx) = channel();
+        // room for the voices that end between two `keep_alive` calls
+        let (retire, retired) = sync_channel(cfg.max_voices.max(16) * 2);
         let frame = Arc::new(AtomicU64::new(0));
         let epoch = Instant::now();
-        let state = Arc::new(Mutex::new(State::new(rx, cfg, frame.clone(), epoch)));
+        let state = State::new(rx, retire, cfg, frame.clone(), epoch);
+        let state = Arc::new(Mutex::new(state));
         let lost = Arc::new(AtomicBool::new(false));
         let mut m = Mixer {
             tx,
@@ -309,6 +343,7 @@ impl Mixer {
             _stream: None,
             state,
             lost,
+            retired,
             cfg: cfg.clone(),
             null_start: None,
             retry_at: None,
@@ -364,6 +399,7 @@ impl Mixer {
     /// meanwhile the mixer goes on silently with the clock, so the play
     /// does not stall.
     pub fn keep_alive(&mut self) {
+        self.retired.try_iter().for_each(drop);
         #[cfg(target_arch = "wasm32")]
         if self.web.is_some() {
             return;
@@ -711,7 +747,14 @@ mod tests {
             max_voices: 64,
             ..Default::default()
         };
-        let st = State::new(rx, &cfg, Arc::new(AtomicU64::new(0)), Instant::now());
+        let (retire, _) = sync_channel(1);
+        let st = State::new(
+            rx,
+            retire,
+            &cfg,
+            Arc::new(AtomicU64::new(0)),
+            Instant::now(),
+        );
         (tx, st)
     }
 
@@ -956,5 +999,26 @@ mod tests {
         let mut keys: Vec<u64> = st.voices.iter().map(|v| v.key).collect();
         keys.sort();
         assert_eq!(keys, (2..=65).collect::<Vec<_>>());
+    }
+
+    /// A sample whose last reference was a voice is dropped by whoever
+    /// reads `retired`, not in the callback.
+    #[test]
+    fn the_samples_of_ended_voices_go_back() {
+        let (tx, mut st) = state();
+        let (retire, retired) = sync_channel(4);
+        st.retired = retire;
+        tx.send(Cmd::Play(voice(&sample(10, 1), 0, 0))).unwrap();
+        tx.send(Cmd::Play(voice(&sample(1000, 1), 0, 4))).unwrap();
+        st.render(20, None);
+        tx.send(Cmd::Stop(4)).unwrap();
+        st.render(1, None);
+        assert!(st.voices.is_empty());
+        let back: Vec<_> = retired.try_iter().collect();
+        assert_eq!(
+            back.iter().map(|s| s.frames).collect::<Vec<_>>(),
+            [10, 1000]
+        );
+        assert!(back.iter().all(|s| Arc::strong_count(s) == 1));
     }
 }
