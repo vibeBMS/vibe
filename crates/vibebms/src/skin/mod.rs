@@ -85,6 +85,54 @@ pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     })
 }
 
+/// A skin's image files while it loads, each measured when something first
+/// draws from it (a skin may list images for options not chosen, or
+/// videos, which take a process to measure).
+struct ImageFiles<'a> {
+    paths: Vec<Option<PathBuf>>,
+    sizes: Vec<std::cell::OnceCell<Option<(u32, u32)>>>,
+    measure: &'a dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
+}
+
+impl<'a> ImageFiles<'a> {
+    fn new(measure: &'a dyn Fn(&std::path::Path) -> Option<(u32, u32)>) -> Self {
+        ImageFiles {
+            paths: Vec::new(),
+            sizes: Vec::new(),
+            measure,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.paths.len()
+    }
+
+    fn push(&mut self, p: Option<PathBuf>) {
+        self.paths.push(p);
+        self.sizes.push(Default::default());
+    }
+
+    /// An image measured already: kept only when it is there.
+    fn push_measured(&mut self, p: PathBuf, size: Option<(u32, u32)>) {
+        self.paths.push(size.map(|_| p));
+        self.sizes.push(size.into());
+    }
+
+    fn size(&self, i: usize) -> Option<(u32, u32)> {
+        let p = self.paths.get(i)?.as_deref();
+        *self.sizes[i].get_or_init(|| p.and_then(self.measure))
+    }
+
+    /// The paths, without the images found missing.
+    fn finish(self) -> Vec<Option<PathBuf>> {
+        self.paths
+            .into_iter()
+            .zip(self.sizes)
+            .map(|(p, s)| p.filter(|_| s.get() != Some(&None)))
+            .collect()
+    }
+}
+
 fn image_size_of(b: &[u8], p: &std::path::Path) -> Option<(u32, u32)> {
     if let Some(s) = crate::gfx::dds::size(b).or_else(|| crate::gfx::cim::size(b)) {
         return Some(s);

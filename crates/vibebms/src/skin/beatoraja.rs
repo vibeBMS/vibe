@@ -525,15 +525,13 @@ pub fn header(path: &Path) -> Option<(SkinType, String)> {
 
 struct Ctx<'a> {
     sk: &'a Value,
-    image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
     /// `.fnt` fonts read so far (index in the skin's fonts).
     bitmap_fonts: HashMap<PathBuf, Option<usize>>,
     dir: &'a Path,
     fps: &'a [FilePath],
     files: &'a HashMap<String, String>,
     h: f32,
-    images: Vec<Option<PathBuf>>,
-    sizes: Vec<Option<(u32, u32)>>,
+    images: ImageFiles<'a>,
     source_index: HashMap<String, usize>,
     scripts: RefCell<script::Builder>,
 }
@@ -563,7 +561,7 @@ impl Ctx<'_> {
             Some(Value::Number(n)) => n.to_string(),
             _ => return None,
         })?;
-        let (iw, ih) = self.sizes.get(img).copied().flatten()?;
+        let (iw, ih) = self.images.size(img)?;
         let (x, y) = (i(def, "x", 0) as f32, i(def, "y", 0) as f32);
         let w = match i(def, "w", -1) {
             n if n <= 0 => iw as f32,
@@ -684,9 +682,8 @@ impl Ctx<'_> {
             font.sdf = sdf;
             let base = self.images.len();
             for page in pages {
-                let size = (self.image_size)(&page);
-                self.sizes.push(size);
-                self.images.push(size.map(|_| page));
+                let size = (self.images.measure)(&page);
+                self.images.push_measured(page, size);
             }
             for g in font.glyphs.values_mut() {
                 g.0 += base;
@@ -1101,23 +1098,19 @@ pub fn load_with(
     // sources (filepath customisation: first file matching the wildcard)
     let mut cx = Ctx {
         sk: &sk,
-        image_size,
         bitmap_fonts: HashMap::new(),
         dir: &dir,
         fps: &fps,
         files: &user.files,
         h,
-        images: Vec::new(),
-        sizes: Vec::new(),
+        images: ImageFiles::new(image_size),
         source_index: HashMap::new(),
         scripts: RefCell::new(script::Builder::new(lua_state, &dir)),
     };
     for src in arr(sk.get("source")) {
         let p = skin_path(&dir, &fps, &user.files, s(src, "path"));
-        let size = image_size(&p);
         cx.source_index.insert(id_of(src), cx.images.len());
-        cx.sizes.push(size);
-        cx.images.push(size.map(|_| p));
+        cx.images.push(Some(p));
     }
 
     let mut skin = Skin {
@@ -1436,7 +1429,7 @@ pub fn load_with(
         let v = offsets.get(&o.name).copied().unwrap_or_default();
         skin.offsets.insert(o.id, v.map(|x| x as f32));
     }
-    skin.images = cx.images;
+    skin.images = cx.images.finish();
     // beatoraja's own key config skin is empty: its screen draws the rows
     if skin.objects.is_empty() && skin.kind != SkinType::KeyConfig {
         return Err(format!("{}: no drawable objects", path.display()));
