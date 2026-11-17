@@ -583,8 +583,7 @@ mod tests {
             migrate(&mut old);
             let c: Config = old.clone().try_into().unwrap();
             assert_eq!(c.ir, IrSettings::default());
-            let mut again: toml::Value =
-                toml::from_str(&c.to_toml().unwrap()).unwrap();
+            let mut again: toml::Value = toml::from_str(&c.to_toml().unwrap()).unwrap();
             again.as_table_mut().unwrap().remove("ir");
             assert_eq!(again, old);
         }
