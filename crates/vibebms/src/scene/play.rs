@@ -1014,10 +1014,10 @@ impl PlayScene {
         );
     }
 
-    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, auto: &[bool], side: usize) {
+    fn sound_event(&self, ctx: &Ctx, ev: EngineEvent, side: usize) {
         match ev {
             EngineEvent::Sound { sound, lane } => {
-                if !auto.get(lane as usize).copied().unwrap_or(false) {
+                if !self.sides[side].engine.is_auto(lane as usize) {
                     self.play_sound(ctx, sound, None, Bus::Key, side);
                 }
             }
@@ -1681,7 +1681,6 @@ impl Scene for PlayScene {
         self.run_feeds(t, now);
         // (side, event): a side whose players all failed ends the play
         let mut events: Vec<(usize, EngineEvent)> = Vec::new();
-        let mut autos: Vec<Vec<bool>> = Vec::new();
         let sample = t >= self.next_sample;
         let mut finished = true;
         for (k, side) in self.sides.iter_mut().enumerate() {
@@ -1694,11 +1693,6 @@ impl Scene for PlayScene {
                 engine.update(t - offset);
             }
             events.extend(engine.drain_events().map(|e| (k, e)));
-            autos.push(
-                (0..self.mode.lane_count())
-                    .map(|l| engine.is_auto(l))
-                    .collect(),
-            );
             if sample {
                 side.gauge_log.push(engine.gauge.value());
             }
@@ -1723,14 +1717,13 @@ impl Scene for PlayScene {
         }
         let mut failed = false;
         for (k, ev) in events {
-            let auto = &autos[k];
             let ghost = self.sides[k].ghost();
             match ev {
                 // the opponent is silent, its failing ends nothing
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } | EngineEvent::Failed
                     if ghost => {}
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } => {
-                    self.sound_event(ctx, ev, auto, k)
+                    self.sound_event(ctx, ev, k)
                 }
                 // VS: a player who fails stops; the play ends when both have
                 EngineEvent::Failed if self.vs => {
@@ -1755,7 +1748,7 @@ impl Scene for PlayScene {
                     let p = &mut ctx.config.play;
                     if p.timing_auto_adjust
                         && k == 0
-                        && !auto.get(lane as usize).copied().unwrap_or(true)
+                        && !self.sides[k].engine.is_auto(lane as usize)
                         && judge <= GOOD
                         && diff.abs() <= 150_000
                     {
@@ -1972,12 +1965,11 @@ impl Scene for PlayScene {
                 }
                 let e = &mut side.engine;
                 e.update(t - offsets[k]);
-                let auto: Vec<bool> = (0..self.mode.lane_count()).map(|l| e.is_auto(l)).collect();
-                sounds.push((k, e.take_sounds(), auto));
+                sounds.push((k, e.take_sounds()));
             }
-            for (k, evs, auto) in sounds {
+            for (k, evs) in sounds {
                 for ev in evs {
-                    self.sound_event(ctx, ev, &auto, k);
+                    self.sound_event(ctx, ev, k);
                 }
             }
         }
