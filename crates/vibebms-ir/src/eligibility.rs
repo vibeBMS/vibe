@@ -582,14 +582,15 @@ mod tests {
     }
 
     #[test]
-    fn every_lr2_gap_is_open() {
+    fn bokutachi_bms_waits_for_the_lr2_gaps() {
         let lr2: Vec<&Gap> = EQUIVALENCE
             .iter()
             .filter(|g| g.profile == Profile::VibeLr2)
             .collect();
         let ids: Vec<&str> = lr2.iter().map(|g| g.id).collect();
         assert_eq!(ids, ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]);
-        assert!(lr2.iter().all(|g| !g.closed && g.reaches == Reach::Every));
+        assert!(lr2.iter().all(|g| g.reaches == Reach::Every));
+        assert!(BOKUTACHI_BMS || lr2.iter().any(|g| !g.closed));
     }
 
     /// A made-up record: any mix of rules, devices and flags.

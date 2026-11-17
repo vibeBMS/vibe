@@ -189,8 +189,9 @@ pub fn open_gap(p: Profile, rec: &PlayRecord) -> Option<&'static Gap> {
 }
 
 /// Each difference the IR design found (its section 2.4), by profile. A gap
-/// closes (`closed: true`) when golden vectors of known origin show the
-/// rule matches; IR-14 works through the LR2 list.
+/// closes (`closed: true`) when public documentation establishes the rule
+/// and the engine follows it, or the profile leaves the case out; the
+/// sources and each gap's state are in `docs/RULES.md`.
 pub const EQUIVALENCE: &[Gap] = &[
     Gap {
         id: "A1",
@@ -203,7 +204,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         id: "A2",
         profile: Profile::VibeLr2,
         what: "empty POOR window (up to 1000 ms early, never late) and its combo and note rules",
-        closed: false,
+        closed: true,
         reaches: Reach::Every,
     },
     Gap {
@@ -230,8 +231,8 @@ pub const EQUIVALENCE: &[Gap] = &[
     Gap {
         id: "A6",
         profile: Profile::VibeLr2,
-        what: "combo, note consumption and one-POOR rules taken from the key mode as for beatoraja",
-        closed: false,
+        what: "combo, note consumption and one-POOR rules: LR2's in every key mode",
+        closed: true,
         reaches: Reach::Every,
     },
     Gap {

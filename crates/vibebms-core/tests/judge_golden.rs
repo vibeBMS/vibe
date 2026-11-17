@@ -3710,16 +3710,26 @@ fn windows_base_tables() {
             None
         )
     );
-    // the flags come with the family whatever the preset
-    for preset in [JudgePreset::Lr2, JudgePreset::Iidx] {
-        for mode in [PlayMode::Beat5K, PlayMode::Beat7K, PlayMode::Popn9K] {
-            let a = rules(preset, mode, JudgeRank::Rank(2), None);
-            let b = rules(JudgePreset::Beatoraja, mode, JudgeRank::Rank(2), None);
-            assert_eq!(
-                (a.combo, a.vanish, a.miss_one),
-                (b.combo, b.vanish, b.miss_one)
-            );
-        }
+    for mode in [PlayMode::Beat5K, PlayMode::Beat7K, PlayMode::Popn9K] {
+        // IIDX: the flags come with the family
+        let a = rules(JudgePreset::Iidx, mode, JudgeRank::Rank(2), None);
+        let b = rules(JudgePreset::Beatoraja, mode, JudgeRank::Rank(2), None);
+        assert_eq!(
+            (a.combo, a.vanish, a.miss_one),
+            (b.combo, b.vanish, b.miss_one)
+        );
+        // LR2: its own in every mode (gap A6; docs/RULES.md, sources 4 and
+        // 5): BAD and POOR break the combo, an empty POOR keeps it and
+        // never takes the note, a BAD takes it
+        let l = rules(JudgePreset::Lr2, mode, JudgeRank::Rank(2), None);
+        assert_eq!(
+            (l.combo, l.vanish, l.miss_one),
+            (
+                [true, true, true, false, false, true],
+                [true, true, true, true, true, false],
+                false
+            )
+        );
     }
 }
 
