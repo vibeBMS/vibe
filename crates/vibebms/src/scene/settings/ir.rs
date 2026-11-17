@@ -124,12 +124,12 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         }
     }
     v.push(Row::note(
-        "    Bokutachi: vibe-beatoraja PMS plays; 7K/14K once vibe-LR2 is equal",
-        "never touch plays",
+        "    Sending waits for Bokutachi to accept vibeBMS as a client",
+        "PBs, rankings: read",
     ));
     v.push(Row::note(
         "    Its key: boku.tachi.ac, Profile, API Keys",
-        "with submit_score",
+        "any key reads",
     ));
     for (i, a) in ir.accounts.iter().enumerate() {
         if matches!(a.provider, ProviderId::VibeJson(_)) {

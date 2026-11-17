@@ -454,6 +454,9 @@ impl IrService {
                 .find(|i| i.play_id == rec.play_id && i.provider == a.provider);
             let words = match (item, eligible(rec, a.provider.kind())) {
                 (Some(i), _) => self.item_words(i),
+                (None, Err(Refusal::OperatorPending)) => {
+                    format!("not sent: waiting for {} to accept vibeBMS", a.title())
+                }
                 (None, Err(r)) => format!("not sent: {}", refusal_words(r)),
                 _ if provider(a).is_none() => "not in this build yet".into(),
                 _ if ir.submit == SubmitPolicy::Off || !a.submit => "not sending".into(),
