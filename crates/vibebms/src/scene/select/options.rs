@@ -3,12 +3,14 @@
 //! panels (`option_panel`).
 
 use super::input::PanelKey;
+use super::skin::{panel_of_op, PANELS};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
     HISPEED_STEP,
 };
+use crate::gfx::Rect;
 use crate::input::Repeat;
 use crate::library::{Favorites, Song};
 use crate::platform::{Duration, Instant};
@@ -159,44 +161,45 @@ fn vs_hint(ctx: &mut Ctx) {
 }
 
 impl SelectScene {
-    /// Change option `o` (the next value).
-    pub(super) fn option(&mut self, ctx: &mut Ctx, o: SelectOption) -> Next {
+    /// Change option `o`: the next value, the one before for `d` = -1 (a
+    /// tap on a value's left half).
+    pub(super) fn option(&mut self, ctx: &mut Ctx, o: SelectOption, d: i32) -> Next {
         let bpm = self.bpms(ctx);
         let sel = &mut ctx.config.select;
         // the list: its order, what it shows, the records it is sorted by
         let relist = match o {
             SelectOption::Sort => {
-                sel.sort = cycle(&SortMode::ALL, sel.sort, 1);
+                sel.sort = cycle(&SortMode::ALL, sel.sort, d);
                 true
             }
             SelectOption::KeyFilter => {
-                sel.key_filter = cycle(&KeyFilter::ALL, sel.key_filter, 1);
+                sel.key_filter = cycle(&KeyFilter::ALL, sel.key_filter, d);
                 true
             }
             SelectOption::DifficultyFilter => {
-                sel.difficulty_filter = cycle(&DifficultyFilter::ALL, sel.difficulty_filter, 1);
+                sel.difficulty_filter = cycle(&DifficultyFilter::ALL, sel.difficulty_filter, d);
                 true
             }
             SelectOption::RandomSelect => {
-                sel.random = cycle(&RandomSelect::ALL, sel.random, 1);
+                sel.random = cycle(&RandomSelect::ALL, sel.random, d);
                 false
             }
             _ => matches!(o, SelectOption::Judge | SelectOption::LnMode),
         };
         let p = &mut ctx.config.play;
         match o {
-            SelectOption::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, 1),
-            SelectOption::Gauge => p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, 1),
+            SelectOption::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, d),
+            SelectOption::Gauge => p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, d),
             SelectOption::AutoShift => {
-                p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, 1)
+                p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d)
             }
             SelectOption::LnMode => {
-                p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode, 1)
+                p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode, d)
             }
-            SelectOption::HiSpeedDown => p.add_hispeed(-HISPEED_STEP, &bpm),
-            SelectOption::HiSpeedUp => p.add_hispeed(HISPEED_STEP, &bpm),
-            SelectOption::Side => p.side = cycle(&[Side::P1, Side::P2], p.side, 1),
-            SelectOption::Judge => p.judge_preset = cycle(&JudgePreset::ALL, p.judge_preset, 1),
+            SelectOption::HiSpeedDown => p.add_hispeed(-HISPEED_STEP * d as f32, &bpm),
+            SelectOption::HiSpeedUp => p.add_hispeed(HISPEED_STEP * d as f32, &bpm),
+            SelectOption::Side => p.side = cycle(&[Side::P1, Side::P2], p.side, d),
+            SelectOption::Judge => p.judge_preset = cycle(&JudgePreset::ALL, p.judge_preset, d),
             SelectOption::Autoplay => p.autoplay ^= true,
             SelectOption::Settings => {
                 return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx)))
@@ -205,7 +208,7 @@ impl SelectScene {
                 // OFF, BATTLE, BATTLE AS, G-BATTLE (MY BEST, LAST), VS
                 let all = option_panel::battle_choices(true);
                 let row: Vec<i64> = all.iter().copied().filter(|i| *i != 1).collect();
-                let label = option_panel::step_battle(p, &row, 1);
+                let label = option_panel::step_battle(p, &row, d);
                 // (skins other than the default show no such row)
                 ctx.toast(format!("BATTLE: {label}"));
                 if ctx.config.play.versus == Versus::Local {
@@ -255,7 +258,7 @@ impl SelectScene {
         self.rebuild(ctx);
     }
 
-    /// Open / close a skin panel (1..=6; 0 closes the open one).
+    /// Open / close a skin panel (1..=`PANELS`; 0 closes the open one).
     pub(crate) fn toggle_panel(&mut self, n: usize) {
         let now = Instant::now();
         if self.panel > 0 {
@@ -264,7 +267,7 @@ impl SelectScene {
         self.panel = if n == self.panel || n == 0 {
             0
         } else {
-            n.min(6)
+            n.min(PANELS)
         };
         if self.panel > 0 {
             self.panel_on[self.panel - 1] = Some(now);
@@ -277,12 +280,13 @@ impl SelectScene {
             s.skin
                 .objects
                 .iter()
-                .any(|o| o.dst.ops.iter().any(|op| (21..=26).contains(op)))
+                .any(|o| o.dst.ops.iter().any(|op| panel_of_op(*op).is_some()))
         })
     }
 
-    /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids).
-    pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32) -> Next {
+    /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids);
+    /// `d` -1: the value before (a tap on its left half), else the next.
+    pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32, d: i32) -> Next {
         use super::skin::{EVENT_BACK, EVENT_REPLAY, OPTION_EVENT};
         let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
@@ -292,7 +296,7 @@ impl SelectScene {
                 true
             }
             43 => {
-                p.random_2p = cycle(&LaneOption::ALL, p.random_2p, 1);
+                p.random_2p = cycle(&LaneOption::ALL, p.random_2p, d);
                 true
             }
             // beatoraja option buttons: as the panel keys that change them
@@ -305,11 +309,11 @@ impl SelectScene {
                     78 => (3, 1),
                     n => (2, (n - 301) as usize),
                 };
-                option_panel::key(p, panel, key, &REFERENCE_BPMS);
+                option_panel::key(p, panel, key, &REFERENCE_BPMS, d);
                 true
             }
             77 => {
-                option_panel::turn(p, 1, -1, &rivals);
+                option_panel::turn(p, 1, -d, &rivals);
                 true
             }
             72 => {
@@ -333,12 +337,11 @@ impl SelectScene {
             }
             14 => Next::Push(crate::scene::skinselect::open(ctx, None)),
             // LR2 / beatoraja: the difficulty and key mode filters, the sort
-            10 => self.option(ctx, SelectOption::DifficultyFilter),
-            11 => self.option(ctx, SelectOption::KeyFilter),
-            12 => self.option(ctx, SelectOption::Sort),
-            42 => self.option(ctx, SelectOption::Random),
-            40 => self.option(ctx, SelectOption::Gauge),
-            308 => self.option(ctx, SelectOption::LnMode),
+            10 => self.option(ctx, SelectOption::DifficultyFilter, d),
+            11 => self.option(ctx, SelectOption::KeyFilter, d),
+            12 => self.option(ctx, SelectOption::Sort, d),
+            42 => self.option(ctx, SelectOption::Random, d),
+            308 => self.option(ctx, SelectOption::LnMode, d),
             EVENT_BACK => {
                 self.back(ctx);
                 Next::Stay
@@ -346,7 +349,7 @@ impl SelectScene {
             EVENT_REPLAY => self.watch_replay(ctx),
             n if (OPTION_EVENT..OPTION_EVENT + 100).contains(&n) => {
                 match SelectOption::ALL.get((n - OPTION_EVENT) as usize) {
-                    Some(o) => self.option(ctx, *o),
+                    Some(o) => self.option(ctx, *o, d),
                     None => Next::Stay,
                 }
             }
@@ -391,7 +394,7 @@ impl SelectScene {
         let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let said = match k {
-            PanelKey::Key(i) => option_panel::key(p, self.panel, i, &b),
+            PanelKey::Key(i) => option_panel::key(p, self.panel, i, &b, 1),
             PanelKey::Up => option_panel::turn(p, self.panel, 1, &rivals),
             PanelKey::Down => option_panel::turn(p, self.panel, -1, &rivals),
         };
@@ -433,12 +436,16 @@ impl SelectScene {
         }
     }
 
-    /// A tap on the skin at (`x`, `y`).
+    /// A tap on the skin at (`x`, `y`). Drawn smaller than 0.7 pt per skin
+    /// pixel (a phone), its buttons take taps within 44 pt.
     pub(super) fn tap(&mut self, ctx: &mut Ctx, x: f32, y: f32) -> Option<Next> {
-        match self.host.tap(x, y) {
+        let v = &ctx.view;
+        let pt = self.host.xf(Rect::new(0.0, 0.0, v.width, v.height)).sx / v.scale.max(0.1);
+        let slop = if pt < 0.7 { 44.0 * v.scale } else { 0.0 };
+        match self.host.tap(x, y, slop) {
             Tap::Miss => None,
             Tap::Script => Some(Next::Stay),
-            Tap::Event(act, _) => Some(self.skin_event(ctx, act)),
+            Tap::Event(act, d) => Some(self.skin_event(ctx, act, d)),
         }
     }
 }

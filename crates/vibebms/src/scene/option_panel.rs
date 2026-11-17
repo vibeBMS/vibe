@@ -184,28 +184,31 @@ pub fn repeat(p: &mut PlayConfig, key: usize, step: f64, b: &Bpms) -> String {
 }
 
 /// Key `key` (0 = key 1) pressed with panel `panel` open: change the option
-/// and name it with its new value.
-pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<String> {
+/// (the other way for `d` = -1: a tap on a value's left half) and name it
+/// with its new value.
+pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms, d: i32) -> Option<String> {
     Some(match (panel, key) {
         (1, 0 | 1) => {
-            p.random_1p = cycle(&LaneOption::ALL, p.random_1p, if key == 0 { 1 } else { -1 });
+            let d = if key == 0 { d } else { -d };
+            p.random_1p = cycle(&LaneOption::ALL, p.random_1p, d);
             format!("RANDOM: {}", p.random_1p.label())
         }
         (1, 2) => {
-            p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, 1);
+            p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, d);
             format!("GAUGE: {}", p.gauge.label())
         }
         (1, 3) => {
-            let label = step_battle(p, battle_choices(true), 1);
+            let label = step_battle(p, battle_choices(true), d);
             format!("DP OPTION: {label}")
         }
         (1, 4) => {
-            let f = cycle(&HsFix::ALL, p.hs_fix, 1);
+            let f = cycle(&HsFix::ALL, p.hs_fix, d);
             p.set_hs_fix(f, b);
             format!("HS-FIX: {}", f.label())
         }
         (1, 5 | 6) => {
-            p.random_2p = cycle(&LaneOption::ALL, p.random_2p, if key == 6 { 1 } else { -1 });
+            let d = if key == 6 { d } else { -d };
+            p.random_2p = cycle(&LaneOption::ALL, p.random_2p, d);
             format!("RANDOM 2P: {}", p.random_2p.label())
         }
         (2, 0) => {
@@ -247,7 +250,7 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("BGA: {}", onoff(p.bga))
         }
         (3, 1) => {
-            p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, 1);
+            p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d);
             format!("GAUGE AUTO SHIFT: {}", p.gauge_auto_shift.label())
         }
         (3, 2) => {
@@ -255,12 +258,12 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
             format!("TIMING AUTO ADJUST: {}", onoff(p.timing_auto_adjust))
         }
         (3, 3 | 5) => {
-            p.add_duration(if key == 5 { 1.0 } else { -1.0 }, b);
+            p.add_duration(if key == 5 { d } else { -d } as f64, b);
             hispeed_label(p, b)
         }
         (3, 4 | 6) => {
             p.judge_offset_ms =
-                (p.judge_offset_ms + if key == 6 { 1 } else { -1 }).clamp(-500, 500);
+                (p.judge_offset_ms + if key == 6 { d } else { -d }).clamp(-500, 500);
             format!("JUDGE TIMING: {:+} ms", p.judge_offset_ms)
         }
         _ => return None,
@@ -290,34 +293,34 @@ mod tests {
         let b = Bpms::flat(150.0);
         assert_eq!(panel_of(true, false), 1);
         assert_eq!(panel_of(true, true), 3);
-        key(&mut p, 1, 0, &b);
+        key(&mut p, 1, 0, &b, 1);
         assert_eq!(p.random_1p, LaneOption::Mirror);
-        key(&mut p, 1, 1, &b);
+        key(&mut p, 1, 1, &b, 1);
         assert_eq!(p.random_1p, LaneOption::Off);
         // DP OPTION: OFF -> FLIP -> BATTLE -> BATTLE AS -> G-BATTLE (MY
         // BEST, LAST) -> OFF
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Flip, false));
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Off, true));
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!((dp_index(&p), p.auto_scratch), (3, true));
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!((dp_index(&p), p.auto_scratch, p.battle), (0, false, false));
         assert_eq!(p.versus, Versus::GhostBest);
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!(p.versus, Versus::GhostLast);
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!(p.versus, Versus::Local);
-        key(&mut p, 1, 3, &b);
+        key(&mut p, 1, 3, &b, 1);
         assert_eq!((battle_index(&p), p.versus), (0, Versus::Off));
-        key(&mut p, 1, 4, &b);
+        key(&mut p, 1, 4, &b, 1);
         assert_eq!(p.hs_fix, HsFix::Start);
         let d = p.duration_ms(&b);
-        key(&mut p, 3, 5, &b);
+        key(&mut p, 3, 5, &b, 1);
         assert!((p.duration_ms(&b) - d - 1.0).abs() < 1e-3);
-        key(&mut p, 2, 0, &b);
+        key(&mut p, 2, 0, &b, 1);
         assert!(p.expand_judge);
-        assert!(key(&mut p, 2, 7, &b).is_none());
+        assert!(key(&mut p, 2, 7, &b, 1).is_none());
     }
 }

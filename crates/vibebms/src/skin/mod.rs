@@ -473,6 +473,15 @@ pub const BAR_NOGRADE: usize = 4;
 pub const BAR_COMMAND: usize = 5;
 pub const BAR_SEARCH: usize = 6;
 pub const BAR_NOSONG: usize = 7;
+/// vibeBMS's bar types after beatoraja's: NONSTOP and CLASS courses (and
+/// folders of them), mirrored events, FAVORITE, the folders made of the
+/// records. A skin without a body for one draws the bar as the beatoraja
+/// type it was before (`BarInfo::base`).
+pub const BAR_NONSTOP: usize = 8;
+pub const BAR_CLASS: usize = 9;
+pub const BAR_EVENT: usize = 10;
+pub const BAR_FAVORITE: usize = 11;
+pub const BAR_VIRTUAL: usize = 12;
 
 /// A number font: source frames, glyph count (10/11/12), digits, align.
 #[derive(Clone, Debug)]
@@ -514,6 +523,8 @@ pub struct SongListSkin {
     pub rival_lamp: Vec<Option<(Src, Dst)>>,
     /// Lamp / rank distribution on folder bars.
     pub graph: Option<(Dst, Option<Src>, bool)>,
+    /// vibeBMS `count`: the charts of a folder bar, the stages of a course.
+    pub count: Option<(NumberFont, Dst)>,
 }
 
 /// A graph drawn by the scene, with the look the skin asks for.

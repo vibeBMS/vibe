@@ -14,7 +14,7 @@
 
 use super::options::SelectOption;
 use super::preview::Rank;
-use super::tree::{table, Bar, Node};
+use super::tree::{table, Bar, CourseBar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
@@ -25,6 +25,7 @@ use crate::scene::skinvals::*;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::*;
 use std::cell::OnceCell;
+use vibebms_core::course::CourseKind;
 use vibebms_core::score::{ClearType, DjLevel};
 use vibebms_ir::lamps::RankView;
 use vibebms_ir::ProviderId;
@@ -40,6 +41,30 @@ pub const EVENT_BACK: i32 = 9900;
 pub const EVENT_REPLAY: i32 = 9901;
 /// vibeBMS text: the selected chart on the IR ("IR HARD   #12 / 345").
 pub const TEXT_IR: i32 = 9200;
+
+/// Skin panels: LR2's 1-6 (ops 21-26, timers 21-26 opened and 31-36
+/// closed), then vibeBMS's 7-9 (ops 9027-9029, timers 9027-9029 and
+/// 9037-9039). The default skin's are PLAY OPTION, ASSIST, SYSTEM OPTION,
+/// SCORE STATUS, PLAYER STATUS, EFFECTS, TAG EDITOR and HELP.
+pub const PANELS: usize = 9;
+
+/// The panel option (and opened timer) `id` shows.
+pub fn panel_of_op(id: i32) -> Option<usize> {
+    match id {
+        21..=26 => Some((id - 20) as usize),
+        9027..=9029 => Some((id - 9020) as usize),
+        _ => None,
+    }
+}
+
+/// The panel closed timer `id` counts from.
+fn panel_of_closed_timer(id: i32) -> Option<usize> {
+    match id {
+        31..=36 => Some((id - 30) as usize),
+        9037..=9039 => Some((id - 9030) as usize),
+        _ => None,
+    }
+}
 
 /// The select screen's values in one frame: what the selected bar is
 /// looked up once.
@@ -62,13 +87,42 @@ pub struct SelectState<'a> {
 
 /// What a bar shows.
 pub struct BarInfo {
+    /// Its `BAR_*` type, and the beatoraja one (0-7) for skins without a
+    /// body for vibeBMS's types.
     pub kind: usize,
+    pub base: usize,
     pub title: String,
     pub level: Option<i64>,
     pub difficulty: usize,
     pub lamp: Option<ClearType>,
     /// The lamp of the player chosen beside (a song's, while one is).
     pub rival: Option<ClearType>,
+    /// A folder's charts, a course's stages.
+    pub count: Option<i64>,
+}
+
+/// A course's bar type.
+fn course_kind(k: CourseKind) -> usize {
+    match k {
+        CourseKind::Expert => BAR_GRADE,
+        CourseKind::Nonstop => BAR_NONSTOP,
+        CourseKind::Class => BAR_CLASS,
+    }
+}
+
+/// A folder's bar type, and the beatoraja one.
+fn folder_kind(node: &Node) -> (usize, usize) {
+    match node {
+        Node::Table(_) | Node::Level(..) => (BAR_TABLE, BAR_TABLE),
+        Node::Search(_) => (BAR_SEARCH, BAR_SEARCH),
+        Node::Archive(_) => (BAR_EVENT, BAR_FOLDER),
+        Node::Favorites => (BAR_FAVORITE, BAR_FOLDER),
+        Node::Smart(_) => (BAR_VIRTUAL, BAR_FOLDER),
+        Node::MyCourses(k) => (course_kind(*k), BAR_FOLDER),
+        Node::Courses(_) => (BAR_CLASS, BAR_FOLDER),
+        Node::Close(inner) => folder_kind(inner),
+        Node::Root | Node::Folder(_) | Node::All => (BAR_FOLDER, BAR_FOLDER),
+    }
 }
 
 impl<'a> SelectState<'a> {
@@ -166,23 +220,29 @@ impl<'a> SelectState<'a> {
 
     pub fn bar(&self, i: usize) -> Option<BarInfo> {
         let ctx = self.ctx;
+        let plain = |kind, base, title| BarInfo {
+            kind,
+            base,
+            title,
+            level: None,
+            difficulty: 0,
+            lamp: None,
+            rival: None,
+            count: None,
+        };
         Some(match self.s.bars.get(i)? {
-            Bar::Folder { label, node, .. } => BarInfo {
-                kind: match node {
-                    Node::Table(_) | Node::Level(..) => BAR_TABLE,
-                    Node::Search(_) => BAR_SEARCH,
-                    _ => BAR_FOLDER,
-                },
-                title: label.clone(),
-                level: None,
-                difficulty: 0,
-                lamp: None,
-                rival: None,
-            },
+            Bar::Folder {
+                label, node, count, ..
+            } => {
+                let (kind, base) = folder_kind(node);
+                BarInfo {
+                    count: Some(*count as i64),
+                    ..plain(kind, base, label.clone())
+                }
+            }
             Bar::Song(k) => {
                 let s = ctx.lib.songs.get(*k)?;
                 BarInfo {
-                    kind: BAR_SONG,
                     // a favourite: marked
                     title: match super::tree::favorite(ctx, s) {
                         true => format!("♥ {}", s.full_title()),
@@ -196,22 +256,18 @@ impl<'a> SelectState<'a> {
                             .unwrap_or(ClearType::NoPlay),
                     ),
                     rival: self.rival_lamp(s),
+                    ..plain(BAR_SONG, BAR_SONG, String::new())
                 }
             }
-            Bar::Random => BarInfo {
-                kind: BAR_COMMAND,
-                title: match ctx.config.select.random {
+            Bar::Random => plain(
+                BAR_COMMAND,
+                BAR_COMMAND,
+                match ctx.config.select.random {
                     RandomSelect::Any => "RANDOM SELECT".into(),
                     r => format!("RANDOM SELECT ({})", r.label()),
                 },
-                level: None,
-                difficulty: 0,
-                lamp: None,
-                rival: None,
-            },
+            ),
             Bar::Missing(m) => BarInfo {
-                kind: BAR_NOSONG,
-                title: m.title.clone(),
                 // the table's level ("★12" -> 12)
                 level: m
                     .level
@@ -220,18 +276,35 @@ impl<'a> SelectState<'a> {
                     .collect::<String>()
                     .parse()
                     .ok(),
-                difficulty: 0,
-                lamp: None,
-                rival: None,
+                ..plain(BAR_NOSONG, BAR_NOSONG, m.title.clone())
             },
-            Bar::Course(c) => BarInfo {
-                kind: BAR_GRADE,
-                title: super::launch::course_title(ctx, c),
-                level: None,
-                difficulty: 0,
-                lamp: super::launch::course_lamp(ctx, c),
-                rival: None,
-            },
+            Bar::Course(c) => {
+                let (kind, stages) = match c {
+                    CourseBar::Mine(id) => ctx
+                        .lib
+                        .courses
+                        .get(*id)
+                        .map_or((CourseKind::Expert, None), |c| {
+                            (c.kind, Some(c.stages.len()))
+                        }),
+                    CourseBar::Table(url, k) => (
+                        CourseKind::Class,
+                        table(ctx, url)
+                            .and_then(|t| t.header.courses.get(*k))
+                            .map(|c| c.md5.len().max(c.sha256.len())),
+                    ),
+                    CourseBar::RandomMix(kind) => (*kind, None),
+                };
+                BarInfo {
+                    lamp: super::launch::course_lamp(ctx, c),
+                    count: stages.map(|n| n as i64),
+                    ..plain(
+                        course_kind(kind),
+                        BAR_GRADE,
+                        super::launch::course_title(ctx, c),
+                    )
+                }
+            }
         })
     }
 
@@ -269,19 +342,25 @@ impl SkinState for SelectState<'_> {
         let s = self.s;
         match id {
             10 | 11 => Some(s.host.ms(s.last_move)),
-            21..=26 => s.panel_on[(id - 21) as usize]
-                .filter(|_| s.panel == (id - 20) as usize)
-                .map(|t| s.host.ms(t)),
-            31..=36 => s.panel_off[(id - 31) as usize]
-                .filter(|_| s.panel != (id - 30) as usize)
-                .map(|t| s.host.ms(t)),
-            _ => s.host.timer(id),
+            _ => {
+                if let Some(n) = panel_of_op(id) {
+                    s.panel_on[n - 1]
+                        .filter(|_| s.panel == n)
+                        .map(|t| s.host.ms(t))
+                } else if let Some(n) = panel_of_closed_timer(id) {
+                    s.panel_off[n - 1]
+                        .filter(|_| s.panel != n)
+                        .map(|t| s.host.ms(t))
+                } else {
+                    s.host.timer(id)
+                }
+            }
         }
     }
 
     fn option(&self, id: i32) -> bool {
         let v = match id.abs() {
-            21..=26 => self.s.panel == (id.abs() - 20) as usize,
+            n @ (21..=26 | 9027..=9029) => panel_of_op(n) == Some(self.s.panel),
             n @ 1500..=1819 => {
                 crate::scene::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
@@ -533,9 +612,13 @@ impl Hooks for SelectHooks<'_> {
                 continue;
             };
             let sr = xf.rect(r);
+            let kind = match info.kind < sl.body.len() {
+                true => info.kind,
+                false => info.base,
+            };
             if let Some(body) = sl
                 .body
-                .get(info.kind)
+                .get(kind)
                 .or(sl.body.first())
                 .and_then(|b| b.as_ref())
             {
@@ -567,8 +650,14 @@ impl Hooks for SelectHooks<'_> {
                     d.text.set_face(0);
                 }
             }
-            if let (Some(lv), Some(Some((font, dst)))) = (info.level, sl.level.get(info.difficulty))
-            {
+            let numbers = [
+                (
+                    info.level,
+                    sl.level.get(info.difficulty).and_then(Option::as_ref),
+                ),
+                (info.count, sl.count.as_ref()),
+            ];
+            for (n, (font, dst)) in numbers.iter().filter_map(|(n, f)| n.zip(*f)) {
                 if let Some((lr, f)) = sub(dst) {
                     skin.number(
                         d,
@@ -577,7 +666,7 @@ impl Hooks for SelectHooks<'_> {
                         font.keta,
                         font.align,
                         None,
-                        lv,
+                        n,
                         now,
                         st,
                         lr,

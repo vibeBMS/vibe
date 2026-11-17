@@ -26,7 +26,7 @@ use crate::skin::SkinType;
 use crate::ui::{HitMap, TextInput};
 use input::{Drag, PanelKey};
 use preview::Rank;
-use skin::SelectHooks;
+use skin::{SelectHooks, PANELS};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,10 +93,10 @@ pub struct SelectScene {
     /// The sound set's BGM is playing; the panel its sounds last saw.
     bgm_on: bool,
     sound_panel: usize,
-    /// Open skin panel (1..=6) and when panels last opened / closed.
+    /// Open skin panel (1..=`PANELS`) and when panels last opened / closed.
     panel: usize,
-    panel_on: [Option<Instant>; 6],
-    panel_off: [Option<Instant>; 6],
+    panel_on: [Option<Instant>; PANELS],
+    panel_off: [Option<Instant>; PANELS],
     /// START / SELECT held: the option panels (see `option_panel`).
     start_held: bool,
     select_held: bool,
@@ -143,8 +143,8 @@ impl SelectScene {
             bgm_on: false,
             sound_panel: 0,
             panel: 0,
-            panel_on: [None; 6],
-            panel_off: [None; 6],
+            panel_on: [None; PANELS],
+            panel_off: [None; PANELS],
             start_held: false,
             select_held: false,
             num5_held: false,
@@ -312,7 +312,7 @@ impl Scene for SelectScene {
         }
         // events skin scripts asked for
         for ev in self.host.tick(gfx) {
-            let next = self.skin_event(ctx, ev);
+            let next = self.skin_event(ctx, ev, 1);
             if !matches!(next, Next::Stay) {
                 return next;
             }

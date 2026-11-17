@@ -94,7 +94,7 @@ impl SelectScene {
             }
             // skins with panels open the option panel, others cycle RANDOM
             Nav::Option if self.skin_has_panels() => self.toggle_panel(1),
-            Nav::Option => return self.option(ctx, SelectOption::Random),
+            Nav::Option => return self.option(ctx, SelectOption::Random, 1),
         }
         Next::Stay
     }
@@ -161,31 +161,33 @@ impl SelectScene {
             // beatoraja number keys: 3 LN mode, 6 key config (7 skin
             // select: beatoraja's F12 rescans here)
             // 1 key mode filter, 2 sort (as beatoraja), 4 difficulty filter
-            KeyCode::Digit1 | KeyCode::Numpad1 => return self.option(ctx, SelectOption::KeyFilter),
-            KeyCode::Digit2 | KeyCode::Numpad2 => return self.option(ctx, SelectOption::Sort),
-            KeyCode::Digit4 | KeyCode::Numpad4 => {
-                return self.option(ctx, SelectOption::DifficultyFilter)
+            KeyCode::Digit1 | KeyCode::Numpad1 => {
+                return self.option(ctx, SelectOption::KeyFilter, 1)
             }
-            KeyCode::Digit3 | KeyCode::Numpad3 => return self.option(ctx, SelectOption::LnMode),
+            KeyCode::Digit2 | KeyCode::Numpad2 => return self.option(ctx, SelectOption::Sort, 1),
+            KeyCode::Digit4 | KeyCode::Numpad4 => {
+                return self.option(ctx, SelectOption::DifficultyFilter, 1)
+            }
+            KeyCode::Digit3 | KeyCode::Numpad3 => return self.option(ctx, SelectOption::LnMode, 1),
             // 8 favourite song, 9 favourite chart (bmz's F8 / F9: hi-speed
             // and judge here)
             KeyCode::Digit8 | KeyCode::Numpad8 => self.toggle_favorite(ctx, true),
             // which charts RANDOM SELECT draws from
             KeyCode::Digit0 | KeyCode::Numpad0 => {
-                return self.option(ctx, SelectOption::RandomSelect)
+                return self.option(ctx, SelectOption::RandomSelect, 1)
             }
             KeyCode::Digit9 | KeyCode::Numpad9 => self.toggle_favorite(ctx, false),
-            KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13),
-            KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14),
-            KeyCode::F2 => return self.option(ctx, SelectOption::Random),
-            KeyCode::F3 => return self.option(ctx, SelectOption::Gauge),
-            KeyCode::F4 => return self.option(ctx, SelectOption::LnMode),
+            KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13, 1),
+            KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14, 1),
+            KeyCode::F2 => return self.option(ctx, SelectOption::Random, 1),
+            KeyCode::F3 => return self.option(ctx, SelectOption::Gauge, 1),
+            KeyCode::F4 => return self.option(ctx, SelectOption::LnMode, 1),
             KeyCode::F5 => return self.decide(ctx, true),
-            KeyCode::F6 => return self.option(ctx, SelectOption::Side),
-            KeyCode::F7 => return self.option(ctx, SelectOption::HiSpeedDown),
-            KeyCode::F8 => return self.option(ctx, SelectOption::HiSpeedUp),
-            KeyCode::F9 => return self.option(ctx, SelectOption::Judge),
-            KeyCode::F1 => return self.option(ctx, SelectOption::Battle),
+            KeyCode::F6 => return self.option(ctx, SelectOption::Side, 1),
+            KeyCode::F7 => return self.option(ctx, SelectOption::HiSpeedDown, 1),
+            KeyCode::F8 => return self.option(ctx, SelectOption::HiSpeedUp, 1),
+            KeyCode::F9 => return self.option(ctx, SelectOption::Judge, 1),
+            KeyCode::F1 => return self.option(ctx, SelectOption::Battle, 1),
             #[cfg(target_arch = "wasm32")]
             KeyCode::Delete => self.delete_kept(ctx),
             // letter shortcuts give way to a lane or 2P key bound to the same

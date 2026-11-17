@@ -580,7 +580,7 @@ impl Scene for SkinSelectScene {
                 if self.back_rect.contains(*x, *y) {
                     return self.leave(ctx);
                 }
-                if let Tap::Event(act, dir) = self.host.tap(*x, *y) {
+                if let Tap::Event(act, dir) = self.host.tap(*x, *y, 0.0) {
                     self.event(ctx, act, dir);
                 }
             }

@@ -453,7 +453,7 @@ impl Scene for ResultScene {
                     return self.send_asked(ctx);
                 }
                 // skin buttons, else a tap anywhere continues
-                return match self.host.tap(*x, *y) {
+                return match self.host.tap(*x, *y, 0.0) {
                     Tap::Script => Next::Stay,
                     Tap::Event(EVENT_RETRY, _) => self.leave(ctx, Leave::Retry),
                     Tap::Event(EVENT_REPLAY, _) => self.watch(ctx),

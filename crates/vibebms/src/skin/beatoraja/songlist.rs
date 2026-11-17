@@ -69,30 +69,29 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
         out.text_fx = def.map(text_fx).unwrap_or_default();
         out.text_size = def.and_then(text_size);
     }
-    out.level = arr(sl.get("level"))
-        .iter()
-        .map(|d| {
-            let v = cx.find("value", &id_of(d))?;
-            match cx.number_kind(v)? {
-                Kind::Number {
+    let number = |d: &Value| {
+        let v = cx.find("value", &id_of(d))?;
+        match cx.number_kind(v)? {
+            Kind::Number {
+                src,
+                digits,
+                keta,
+                align,
+                ..
+            } => Some((
+                NumberFont {
                     src,
                     digits,
                     keta,
                     align,
-                    ..
-                } => Some((
-                    NumberFont {
-                        src,
-                        digits,
-                        keta,
-                        align,
-                    },
-                    rel(d),
-                )),
-                _ => None,
-            }
-        })
-        .collect();
+                },
+                rel(d),
+            )),
+            _ => None,
+        }
+    };
+    out.level = arr(sl.get("level")).iter().map(number).collect();
+    out.count = sl.get("count").filter(|c| c.is_object()).and_then(number);
     if let Some(g) = sl.get("graph").filter(|g| g.is_object()) {
         if let Some(def) = cx.find("graph", &id_of(g)) {
             out.graph = Some((rel(g), cx.src(def), i(def, "type", -1) == -2));

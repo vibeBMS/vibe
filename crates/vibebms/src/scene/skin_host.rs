@@ -139,10 +139,11 @@ impl SkinHost {
         }
     }
 
-    /// The clickable object at (`x`, `y`): a script's, else its event.
-    pub fn tap(&self, x: f32, y: f32) -> Tap {
+    /// The clickable object at (`x`, `y`) (or within `slop` px of a
+    /// smaller one: `HitMap::hit_near`): a script's, else its event.
+    pub fn tap(&self, x: f32, y: f32, slop: f32) -> Tap {
         let clicks = self.clicks.borrow();
-        let Some((r, c)) = clicks.hit(x, y) else {
+        let Some((r, c)) = clicks.hit_near(x, y, slop) else {
             return Tap::Miss;
         };
         if self.skin.as_ref().is_some_and(|s| s.click(c.act)) {
@@ -247,10 +248,10 @@ mod tests {
             c.push(Rect::new(0.0, 0.0, 100.0, 100.0), Click { act: 1, mode: 0 });
             c.push(Rect::new(0.0, 0.0, 100.0, 50.0), Click { act: 2, mode: 2 });
         }
-        assert_eq!(host.tap(10.0, 10.0), Tap::Event(2, -1));
-        assert_eq!(host.tap(90.0, 10.0), Tap::Event(2, 1));
-        assert_eq!(host.tap(10.0, 80.0), Tap::Event(1, 1));
-        assert_eq!(host.tap(10.0, 120.0), Tap::Miss);
+        assert_eq!(host.tap(10.0, 10.0, 0.0), Tap::Event(2, -1));
+        assert_eq!(host.tap(90.0, 10.0, 0.0), Tap::Event(2, 1));
+        assert_eq!(host.tap(10.0, 80.0, 0.0), Tap::Event(1, 1));
+        assert_eq!(host.tap(10.0, 120.0, 0.0), Tap::Miss);
         assert_eq!(host.rect_of(1).map(|r| r.h), Some(100.0));
     }
 

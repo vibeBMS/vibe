@@ -525,7 +525,7 @@ impl Scene for KeyConfigScene {
                 if self.back_rect.contains(*x, *y) {
                     return self.leave(ctx);
                 }
-                match self.host.tap(*x, *y) {
+                match self.host.tap(*x, *y, 0.0) {
                     Tap::Miss => {}
                     Tap::Script => return Next::Stay,
                     Tap::Event(act, _) => {
