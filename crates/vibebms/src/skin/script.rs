@@ -525,6 +525,148 @@ return fns
     /// When running scripts are stopped.
     struct Deadline(std::time::Instant);
 
+    const TOO_LONG: &str = "skin script ran too long";
+
+    fn expired(lua: &Lua) -> bool {
+        lua.app_data_ref::<Deadline>()
+            .is_some_and(|d| std::time::Instant::now() > d.0)
+    }
+
+    /// `pcall`, `xpcall` and `coroutine.resume` / `wrap` would catch the
+    /// error that stops a script past its time and let it go on: past it,
+    /// they pass the error on.
+    const GUARD: &str = r#"
+local expired, too_long = ...
+local pcall0, xpcall0, create, resume0 = pcall, xpcall, coroutine.create, coroutine.resume
+local function check(...)
+  if expired() then error(too_long, 0) end
+  return ...
+end
+pcall = function(...) return check(pcall0(...)) end
+xpcall = function(...) return check(xpcall0(...)) end
+coroutine.resume = function(...) return check(resume0(...)) end
+coroutine.wrap = function(f)
+  local co = create(f)
+  return function(...)
+    local r = table.pack(check(resume0(co, ...)))
+    if r[1] then return table.unpack(r, 2, r.n) end
+    error(r[2], 0)
+  end
+end
+"#;
+
+    /// `string.find`, `match`, `gmatch` and `gsub` by `luapat` (a step
+    /// budget per call; Lua's own run in C where the hook cannot stop them).
+    fn install_patterns(lua: &Lua) -> mlua::Result<()> {
+        use super::super::luapat::{self, Cap};
+        fn text(lua: &Lua, v: LV, n: usize, f: &str) -> mlua::Result<Vec<u8>> {
+            let tn = v.type_name();
+            match lua.coerce_string(v)? {
+                Some(s) => Ok(s.as_bytes().to_vec()),
+                None => Err(mlua::Error::runtime(format!(
+                    "bad argument #{n} to '{f}' (string expected, got {tn})"
+                ))),
+            }
+        }
+        fn caps(lua: &Lua, c: &[Cap]) -> mlua::Result<Vec<LV>> {
+            c.iter()
+                .map(|c| match c {
+                    Cap::Str(b) => lua.create_string(b).map(LV::String),
+                    Cap::Pos(n) => Ok(LV::Integer(*n)),
+                })
+                .collect()
+        }
+        fn err(e: String) -> mlua::Error {
+            mlua::Error::runtime(e)
+        }
+        fn truthy(v: &LV) -> bool {
+            !matches!(v, LV::Nil | LV::Boolean(false))
+        }
+        let string: Table = lua.globals().get("string")?;
+        for (name, is_find) in [("find", true), ("match", false)] {
+            let f =
+                lua.create_function(move |lua, (s, p, init, plain): (LV, LV, Option<i64>, LV)| {
+                    let (s, p) = (text(lua, s, 1, name)?, text(lua, p, 2, name)?);
+                    let hit = luapat::find(&s, &p, init.unwrap_or(1), truthy(&plain), is_find)
+                        .map_err(err)?;
+                    let mut out = Vec::new();
+                    match hit {
+                        None => out.push(LV::Nil),
+                        Some((a, b, c)) => {
+                            if is_find {
+                                out.push(LV::Integer(a as i64));
+                                out.push(LV::Integer(b as i64));
+                            }
+                            out.extend(caps(lua, &c)?);
+                        }
+                    }
+                    Ok(mlua::MultiValue::from_iter(out))
+                })?;
+            string.set(name, f)?;
+        }
+        let gmatch = lua.create_function(|lua, (s, p, init): (LV, LV, Option<i64>)| {
+            let (s, p) = (text(lua, s, 1, "gmatch")?, text(lua, p, 2, "gmatch")?);
+            let pos = luapat::gmatch_start(init.unwrap_or(1), s.len());
+            let state = RefCell::new((pos, None));
+            lua.create_function(move |lua, ()| {
+                let mut st = state.borrow_mut();
+                let (pos, last) = &mut *st;
+                match luapat::gmatch_next(&s, &p, pos, last).map_err(err)? {
+                    Some(c) => Ok(mlua::MultiValue::from_iter(caps(lua, &c)?)),
+                    None => Ok(mlua::MultiValue::from_iter([LV::Nil])),
+                }
+            })
+        })?;
+        string.set("gmatch", gmatch)?;
+        let gsub = lua.create_function(|lua, (s, p, repl, n): (LV, LV, LV, Option<i64>)| {
+            let (s, p) = (text(lua, s, 1, "gsub")?, text(lua, p, 2, "gsub")?);
+            // what a function or a table gives for a match: nil / false keep it
+            let value = |v: LV| -> Result<Option<Vec<u8>>, String> {
+                match v {
+                    LV::Nil | LV::Boolean(false) => Ok(None),
+                    LV::String(_) | LV::Integer(_) | LV::Number(_) => lua
+                        .coerce_string(v)
+                        .map_err(|e| e.to_string())
+                        .map(|s| s.map(|s| s.as_bytes().to_vec())),
+                    v => Err(format!("invalid replacement value (a {})", v.type_name())),
+                }
+            };
+            let (out, count) = match repl {
+                LV::String(_) | LV::Integer(_) | LV::Number(_) => {
+                    let r = text(lua, repl, 3, "gsub")?;
+                    luapat::gsub(&s, &p, luapat::Repl::Str(&r), n)
+                }
+                LV::Table(t) => {
+                    let mut f = |c: &[Cap]| {
+                        let k = caps(lua, &c[..1]).map_err(|e| e.to_string())?;
+                        value(t.get(k.into_iter().next()).map_err(|e| e.to_string())?)
+                    };
+                    luapat::gsub(&s, &p, luapat::Repl::Call(&mut f), n)
+                }
+                LV::Function(fun) => {
+                    let mut f = |c: &[Cap]| {
+                        let args = caps(lua, c).map_err(|e| e.to_string())?;
+                        let r: LV = fun
+                            .call(mlua::MultiValue::from_iter(args))
+                            .map_err(|e| e.to_string())?;
+                        value(r)
+                    };
+                    luapat::gsub(&s, &p, luapat::Repl::Call(&mut f), n)
+                }
+                v => {
+                    return Err(err(format!(
+                        "bad argument #3 to 'gsub' (string/function/table expected, got {})",
+                        v.type_name()
+                    )))
+                }
+            }
+            .map_err(err)?;
+            Ok((lua.create_string(out)?, count))
+        })?;
+        string.set("gsub", gsub)?;
+        Ok(())
+    }
+
     fn arm(lua: &Lua, budget: std::time::Duration) {
         lua.set_app_data(Deadline(std::time::Instant::now() + budget));
     }
@@ -558,13 +700,13 @@ return fns
                 | mlua::StdLib::PACKAGE;
             let lua = Lua::new_with(libs, mlua::LuaOptions::default())?;
             lua.set_memory_limit(MEMORY_LIMIT)?;
-            lua.set_hook(
+            // global: coroutines the scripts create run under it too (a
+            // thread hook is dropped in them)
+            lua.set_global_hook(
                 mlua::HookTriggers::new().every_nth_instruction(10_000),
-                |lua, _| match lua.app_data_ref::<Deadline>() {
-                    Some(d) if std::time::Instant::now() > d.0 => {
-                        Err(mlua::Error::runtime("skin script ran too long"))
-                    }
-                    _ => Ok(mlua::VmState::Continue),
+                |lua, _| match expired(lua) {
+                    true => Err(mlua::Error::runtime(TOO_LONG)),
+                    false => Ok(mlua::VmState::Continue),
                 },
             )?;
             arm(&lua, LOAD_TIME);
@@ -579,6 +721,11 @@ return fns
             )
             .call::<()>(())?;
             lua.load(COMPAT).set_name("vibebms compat").call::<()>(())?;
+            install_patterns(&lua)?;
+            let expired_fn = lua.create_function(|lua, ()| Ok(expired(lua)))?;
+            lua.load(GUARD)
+                .set_name("vibebms guard")
+                .call::<()>((expired_fn, TOO_LONG))?;
             let vb = lua.create_table()?;
             defaults(&lua, &vb, 0)?;
             // `require`, `dofile`, `loadfile` and `io` read files of the skin's theme
@@ -1103,6 +1250,53 @@ return fns
             }
             // the scoped functions are gone: back to inert ones
             let _ = defaults(&self.lua, &self.vb, now_us);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn eval<T: mlua::FromLuaMulti>(code: &str) -> mlua::Result<T> {
+            let s = Script::new(Path::new("/nonexistent/theme/skin"), true).unwrap();
+            s.lua().load(code).eval::<T>()
+        }
+
+        #[test]
+        fn string_patterns_as_lua() {
+            let v: String = eval(
+                r#"local a, b = ("hello world"):find("o w")
+                local t = {}
+                for w in ("one two  three"):gmatch("%a+") do t[#t + 1] = w end
+                local g, n = ("abc"):gsub("%w", { a = "A", c = false })
+                local f = string.gsub("x=1, y=22", "(%w+)=(%w+)", function(k, v) return v .. k end)
+                return table.concat({ a, b, table.concat(t, ","), g, n, f,
+                  string.match("  trim  ", "^%s*(.-)%s*$"), ("x"):rep(3):find("xx", 2, true),
+                  string.format("%d|%s", 3.0, "s"), tostring(("ab"):match("()b")) }, ";")"#,
+            )
+            .unwrap();
+            assert_eq!(v, "5;7;one,two,three;Abc;3;1x, 22y;trim;2;3|s;2");
+        }
+
+        #[test]
+        fn a_runaway_pattern_is_stopped() {
+            let r: mlua::Result<LV> = eval(r#"return ("a"):rep(5000):find(".-.-.-.-.-x")"#);
+            assert!(r.unwrap_err().to_string().contains("too long"));
+        }
+
+        #[test]
+        fn coroutines_and_pcall_do_not_outlive_the_time() {
+            let t = std::time::Instant::now();
+            for code in [
+                "local co = coroutine.create(function() while true do end end) coroutine.resume(co)",
+                "coroutine.wrap(function() while true do end end)()",
+                "while true do pcall(function() for i = 1, 1e7 do end end) end",
+                "while true do coroutine.resume(coroutine.create(function() for i = 1, 1e7 do end end)) end",
+            ] {
+                let r: mlua::Result<()> = eval(code);
+                assert!(r.unwrap_err().to_string().contains("too long"), "{code}");
+            }
+            assert!(t.elapsed() < std::time::Duration::from_secs(20));
         }
     }
 }
