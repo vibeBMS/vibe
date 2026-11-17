@@ -151,9 +151,12 @@ impl State {
     fn handle(&mut self) {
         while let Ok(c) = self.rx.try_recv() {
             match c {
-                Cmd::Play(v) => {
+                Cmd::Play(mut v) => {
                     if v.at_us.is_none() {
-                        self.cut_key(v.key, v.start_at.max(self.frame), None);
+                        // played now (or late): it starts here, which is
+                        // what the eviction below goes by
+                        v.start_at = v.start_at.max(self.frame);
+                        self.cut_key(v.key, v.start_at, None);
                     }
                     if self.voices.len() >= self.max_voices {
                         // drop the voice that started first
@@ -925,10 +928,33 @@ mod tests {
                     l += at(0);
                     r += at(1);
                 }
-                let at = (st.mix[2 * f], st.mix[2 * f + 1]);
-                assert_eq!(at, (l, r), "frame {}", t + f);
+                let got = (st.mix[2 * f], st.mix[2 * f + 1]);
+                assert_eq!(got, (l, r), "frame {}", t + f);
             }
             t += buf;
         }
+    }
+
+    /// With all voices in use, the one that started first makes room,
+    /// whether it was played now or scheduled.
+    #[test]
+    fn a_full_mixer_drops_the_voice_that_started_first() {
+        let (tx, mut st) = state();
+        let s = sample(1000, 16384);
+        st.render(100, None);
+        let mut v = voice(&s, u64::MAX, 1);
+        v.at_us = Some(0.0);
+        tx.send(Cmd::Play(v)).unwrap();
+        st.render(100, None);
+        assert_eq!(st.voices[0].start_at, 100);
+        for key in 2..=64 {
+            tx.send(Cmd::Play(voice(&s, 0, key))).unwrap();
+        }
+        st.render(100, None);
+        tx.send(Cmd::Play(voice(&s, 0, 65))).unwrap();
+        st.render(1, None);
+        let mut keys: Vec<u64> = st.voices.iter().map(|v| v.key).collect();
+        keys.sort();
+        assert_eq!(keys, (2..=65).collect::<Vec<_>>());
     }
 }
