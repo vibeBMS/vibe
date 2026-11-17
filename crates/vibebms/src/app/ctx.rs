@@ -71,8 +71,7 @@ pub struct Lib {
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
 }
 
-/// Downloads, and the self-update.
-#[derive(Default)]
+/// Downloads, the self-update and the internet ranking.
 pub struct Net {
     /// How links resolve and songs install (bmseeker's settings with the
     /// player's), made again when those settings change.
@@ -85,6 +84,7 @@ pub struct Net {
     pub updater: crate::update::Updater,
     /// Download pages to show in the in-app browser (song, then chart).
     pub browse: Option<Vec<String>>,
+    pub ir: crate::ir::IrService,
 }
 
 /// The mixer, and the sound set's sounds played on it.
@@ -158,16 +158,20 @@ impl Skins {
 impl Ctx {
     /// A context with nothing loaded yet.
     pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
-        let hosts = crate::hosts::context(&config);
+        let net = Net {
+            hosts: crate::hosts::context(&config),
+            archives: Default::default(),
+            song_fetch: Default::default(),
+            updater: Default::default(),
+            browse: None,
+            ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
+        };
         Ctx {
             paths,
             config,
             lib: Lib::default(),
             tables: Tables::default(),
-            net: Net {
-                hosts,
-                ..Default::default()
-            },
+            net,
             audio: Audio {
                 mixer,
                 sounds: Default::default(),

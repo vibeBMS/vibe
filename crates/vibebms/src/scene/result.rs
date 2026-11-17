@@ -147,7 +147,8 @@ impl ResultData {
 }
 
 impl ResultScene {
-    pub fn new(ctx: &mut Ctx, d: ResultData) -> ResultScene {
+    pub fn new(ctx: &mut Ctx, mut d: ResultData) -> ResultScene {
+        ctx.net.ir.record(&mut d.record);
         let song = &d.request.song;
         let ln = d.ln as i32;
         let before = ctx.best_key(&song.sha256, ln).cloned();

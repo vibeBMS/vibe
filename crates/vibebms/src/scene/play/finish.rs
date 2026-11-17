@@ -70,6 +70,7 @@ impl PlayScene {
         let last_us = e.judge_log.iter().map(|j| j.0).max().unwrap_or(0);
         let record = PlayRecord {
             v: record::VERSION,
+            play_id: String::new(),
             chart: std::mem::take(&mut self.facts.chart),
             rules: std::mem::take(&mut self.facts.rules),
             device: DeviceFacts {

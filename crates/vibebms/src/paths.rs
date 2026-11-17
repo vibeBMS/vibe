@@ -9,6 +9,8 @@
 //! <root>/cache/songs.json        (scan cache, safe to delete)
 //! <root>/scores/scores.json      (your records)
 //! <root>/scores/player.json      (totals over all plays)
+//! <root>/scores/history/         (every play, a file per month: `ir::store`)
+//! <root>/scores/outbox/          (IR submissions waiting to be sent)
 //! <root>/cache/tables/*.json
 //! <root>/fonts/*.ttf|otf|ttc        (optional font overrides)
 //! <root>/<any folder with BMS files> (scanned automatically)
@@ -24,6 +26,9 @@ pub struct Paths {
     pub tables: PathBuf,
     pub fonts: PathBuf,
     pub scores: PathBuf,
+    /// Made as they are first written (`platform::store`).
+    pub history: PathBuf,
+    pub outbox: PathBuf,
     pub skins: PathBuf,
 }
 
@@ -64,6 +69,8 @@ impl Paths {
             tables: root.join("cache").join("tables"),
             fonts: root.join("fonts"),
             scores: root.join("scores"),
+            history: root.join("scores").join("history"),
+            outbox: root.join("scores").join("outbox"),
             skins: root.join("skins"),
             root,
         };
