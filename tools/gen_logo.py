@@ -6,11 +6,12 @@ a 1P controller: key 1 (white) beside the disc, key 2 (blue) raised. The
 wordmark is "vibe" + "BMS" in Inter (SIL OFL 1.1), converted to outlines so
 the SVGs need no font.
 
-    pip install fonttools cairosvg
+    pip install fonttools cairosvg pillow
     python3 tools/gen_logo.py [--fonts DIR]   # DIR holds Inter-ExtraBold.otf, Inter-SemiBold.otf
 
 Writes assets/logo/ (SVGs and PNG icons), the web page's icons, the window
-icon, the Android launcher icons and the iOS home screen icons.
+icon, the Android launcher icons, the iOS home screen icons and the macOS
+app icon.
 """
 
 import argparse
@@ -117,6 +118,21 @@ def png(svg, path, size):
     cairosvg.svg2png(bytestring=svg.encode(), write_to=path, output_width=size, output_height=size)
 
 
+def macos_icon():
+    """The macOS app icon (.icns): the rounded icon on Apple's grid, 824 of
+    1024 pixels with a transparent margin."""
+    import io
+
+    from PIL import Image
+
+    body = Image.open(io.BytesIO(cairosvg.svg2png(bytestring=icon().encode(), output_width=824, output_height=824)))
+    canvas = Image.new("RGBA", (1024, 1024))
+    canvas.paste(body, (100, 100))
+    path = os.path.join(ROOT, "platform", "macos", "vibeBMS.icns")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    canvas.save(path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fonts", default="/usr/share/fonts/opentype/inter")
@@ -153,6 +169,7 @@ def main():
     for name, n in (("AppIcon60x60@2x", 120), ("AppIcon60x60@3x", 180),
                     ("AppIcon76x76@2x", 152), ("AppIcon83.5x83.5@2x", 167)):
         png(square, os.path.join(ROOT, "platform", "ios", f"{name}.png"), n)
+    macos_icon()
     print("wrote", out)
 
 

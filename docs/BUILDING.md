@@ -35,8 +35,16 @@ Steinberg's licence agreement, so release builds leave it out.
 
 ## macOS (Apple Silicon / Intel)
 `cargo build --release` (native) or `--target x86_64-apple-darwin` / `aarch64-apple-darwin`.
-Universal binary: build both and `lipo -create -output vibebms a/vibebms b/vibebms`.
-Put the binary in a folder next to your BMS; inside an `.app` bundle the data root is the folder that contains the `.app`.
+The app: build both, then `tools/package_macos.sh <arm64 vibebms> <x86_64 vibebms> <out dir>` makes
+`vibeBMS Dev.app` (one universal executable from `lipo`, the icon `platform/macos/vibeBMS.icns`, signed ad hoc),
+`vibeBMS-macos-universal.dmg` (the app and a link to Applications) and `vibebms-macos-universal.app.zip` (what the
+self-update downloads). CI does the same for the nightly (`vibeBMS Nightly.app`, `io.github.vibebms.nightly`; the
+identity comes from `tools/ci_version.sh`). The app is not notarized: its first launch needs right-click → Open, or
+System Settings → Privacy & Security → Open Anyway.
+
+A bare executable keeps its data next to itself. The app keeps it in the folder that contains the `.app`, except in an
+`Applications` folder or where that folder cannot be written to (a disk image), where it uses
+`~/Library/Application Support/vibeBMS`.
 
 ## Android (experimental)
 The APK is a Gradle project (`platform/android`) around the Rust library, which
@@ -116,21 +124,26 @@ The nightly release has a `latest.json` that the desktop executables read on sta
 It has a part per channel: the `nightly` job writes `nightly` and keeps any other (a `stable` part is kept for the
 releases to come; nothing reads it yet). In a channel, `version` is the release's (the run that published it); `files` has an entry for each desktop executable in the
 release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`, `-arm64-portable`, `vibebms-macos-arm64`, `-x64`,
-`vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with, its SHA-256 and its size in bytes. Each
+`vibebms-macos-universal.app.zip`, `vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with, its SHA-256 and its size in bytes. Each
 desktop build job writes its `VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `nightly` job reads it. A
 build that failed keeps its previous file in the release, so the job starts from the previous `latest.json` (`gh
 release download`) and replaces only the entries of the files it uploads: a file's version can be older than the
 release's.
 
-An executable picks its own file by its OS and architecture, and on Linux by whether it was built with the
-`browser` feature (the `-portable` builds are `--no-default-features`). It offers the update when that file's
+An executable picks its own file by its OS and architecture, on Linux by whether it was built with the
+`browser` feature (the `-portable` builds are `--no-default-features`), and on macOS by whether it runs in the app
+(`<name>.app/Contents/MacOS/vibebms`: the app's zip, the same for both architectures). It offers the update when that file's
 commit differs from its own and its run number (`nightly.<run>`) is higher; were the file a release (`0.1.0`, no
 `-nightly`), semver order would decide, so a release is newer than its own nightlies.
 
 "Update now" downloads the file next to the executable, checks its size and SHA-256 and puts it in the running
 executable's place (the `self-replace` crate: an atomic rename on Unix that keeps the permissions; on Windows the
-running executable is renamed away first); "Restart now" starts it with the same arguments. An executable under
-`/usr` (or another package manager's folder), inside a `.app` bundle, or in a folder it cannot write to does nothing:
-it neither checks nor offers updates (its package manager updates it). Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
+running executable is renamed away first). The macOS app downloads its zip next to the `.app`, checks it the same
+way, unpacks it with `ditto` (which keeps the signature and modes), moves the old app aside, puts the new one in its
+place (the old one back if that fails), deletes the old one and signs the app ad hoc again (`codesign --force --deep
+-s -`, when `codesign` is there). "Restart now" starts it with the same arguments. An executable under `/usr` (or
+another package manager's folder: Homebrew's Cellar and Caskroom, Setapp, MacPorts), in an app bundle that is not
+vibeBMS's own, an app Homebrew Cask installed, or in a folder it cannot write to does nothing: it neither checks nor
+offers updates (its package manager updates it). Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
 local builds (`-dev`, no metadata), releases (there is no release channel yet) and the web, Android and iOS builds
 never do.

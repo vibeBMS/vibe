@@ -26,10 +26,12 @@
 //! says so and `SETTINGS › SYSTEM` offers to update. The update downloads
 //! the file next to the executable, checks its size and SHA-256, and puts it
 //! in the running executable's place (`self-replace`: on Windows a running
-//! executable cannot be overwritten, but can be renamed); "Restart now"
-//! then starts it with the same arguments. An executable a package manager
-//! installed, or one in a folder that cannot be written to, does nothing:
-//! it neither checks nor offers (its package manager updates it).
+//! executable cannot be overwritten, but can be renamed); the macOS app
+//! (`tools/package_macos.sh`) downloads the app's zip and puts the new app in
+//! the bundle's place. "Restart now" then starts it with the same arguments.
+//! An executable a package manager installed, or one in a folder that
+//! cannot be written to, does nothing: it neither checks nor offers (its
+//! package manager updates it).
 
 #[cfg(desktop)]
 mod desktop;
@@ -186,8 +188,9 @@ impl std::fmt::Display for Version {
 
 /// The nightly release's file built for `os` / `arch` (`std::env::consts`
 /// names); `browser`: built with the download browser (the Linux builds
-/// without it are the `-portable` ones).
-pub fn asset_for(os: &str, arch: &str, browser: bool) -> Option<String> {
+/// without it are the `-portable` ones); `app`: the macOS app, whose zip
+/// is the same for both architectures.
+pub fn asset_for(os: &str, arch: &str, browser: bool, app: bool) -> Option<String> {
     let arch = match arch {
         "x86_64" => "x64",
         "aarch64" => "arm64",
@@ -196,6 +199,7 @@ pub fn asset_for(os: &str, arch: &str, browser: bool) -> Option<String> {
     Some(match os {
         "linux" if browser => format!("vibebms-linux-{arch}"),
         "linux" => format!("vibebms-linux-{arch}-portable"),
+        "macos" if app => "vibebms-macos-universal.app.zip".into(),
         "macos" => format!("vibebms-macos-{arch}"),
         "windows" => format!("vibebms-windows-{arch}.exe"),
         _ => return None,
@@ -208,7 +212,25 @@ pub fn asset_name() -> Option<String> {
         std::env::consts::OS,
         std::env::consts::ARCH,
         cfg!(feature = "browser"),
+        exe_path().is_some_and(|e| app_bundle(&e).is_some()),
     )
+}
+
+/// The app `exe` is the executable of, by the macOS bundle layout
+/// (`<name>.app/Contents/MacOS/<exe>`).
+pub fn app_bundle(exe: &Path) -> Option<&Path> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let app = contents.parent()?;
+    let ok = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app";
+    ok.then_some(app)
+}
+
+/// The app `exe` runs in, on macOS: the bundle is what an update replaces.
+fn own_app(exe: &Path) -> Option<&Path> {
+    app_bundle(exe).filter(|_| cfg!(target_os = "macos"))
 }
 
 /// One executable in `latest.json`.
@@ -455,11 +477,11 @@ pub fn exe_path() -> Option<PathBuf> {
 /// it is.
 pub fn managed_location(exe: &Path) -> Option<&'static str> {
     let s = exe.to_string_lossy().replace('\\', "/");
-    // an app bundle (the nightly's macOS executables come without one)
-    if exe
+    // an app bundle other than vibeBMS's own (`tools/package_macos.sh`)
+    let in_app = exe
         .components()
-        .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"))
-    {
+        .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"));
+    if in_app && app_bundle(exe).is_none() {
         return Some("vibeBMS is inside an app bundle");
     }
     const UNIX: &[&str] = &[
@@ -471,13 +493,33 @@ pub fn managed_location(exe: &Path) -> Option<&'static str> {
         "/opt/homebrew/",
         "/home/linuxbrew/",
     ];
-    if UNIX.iter().any(|p| s.starts_with(p)) || s.contains("/Cellar/") {
+    const MACOS: &[&str] = &[
+        "/Cellar/",
+        "/Caskroom/",
+        "/Applications/Setapp/",
+        "/Applications/MacPorts/",
+    ];
+    if UNIX.iter().any(|p| s.starts_with(p)) || MACOS.iter().any(|p| s.contains(p)) {
         return Some("vibeBMS was installed by a package manager");
     }
     if s.contains("/WindowsApps/") || s.contains("/scoop/apps/") {
         return Some("vibeBMS was installed by a package manager");
     }
     None
+}
+
+/// Whether Homebrew Cask installed vibeBMS (it moves the app to
+/// /Applications and keeps its record in a Caskroom).
+fn homebrew_cask() -> bool {
+    ["/opt/homebrew/Caskroom", "/usr/local/Caskroom"]
+        .iter()
+        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten())
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .starts_with("vibebms")
+        })
 }
 
 /// Whether a file can be made in `dir`.
@@ -515,7 +557,12 @@ pub fn install_refusal(exe: &Path) -> Option<String> {
     if let Some(why) = managed_location(exe) {
         return Some(why.into());
     }
-    match exe.parent() {
+    let app = own_app(exe);
+    if app.is_some() && homebrew_cask() {
+        return Some("vibeBMS was installed by Homebrew".into());
+    }
+    // the app is replaced whole, in the folder it is in
+    match app.unwrap_or(exe).parent() {
         Some(dir) if dir_writable(dir) => None,
         _ => Some("vibeBMS's folder cannot be written to".into()),
     }
@@ -626,7 +673,7 @@ mod tests {
 
     #[test]
     fn asset_names() {
-        let a = |os, arch, b| asset_for(os, arch, b);
+        let a = |os, arch, b| asset_for(os, arch, b, false);
         assert_eq!(
             a("linux", "x86_64", true).as_deref(),
             Some("vibebms-linux-x64")
@@ -658,6 +705,17 @@ mod tests {
         assert_eq!(
             a("windows", "aarch64", false).as_deref(),
             Some("vibebms-windows-arm64.exe")
+        );
+        // the macOS app: one zip for both
+        for arch in ["aarch64", "x86_64"] {
+            assert_eq!(
+                asset_for("macos", arch, true, true).as_deref(),
+                Some("vibebms-macos-universal.app.zip")
+            );
+        }
+        assert_eq!(
+            asset_for("linux", "x86_64", true, true).as_deref(),
+            Some("vibebms-linux-x64")
         );
         assert_eq!(a("android", "aarch64", true), None);
         assert_eq!(a("ios", "aarch64", true), None);
@@ -735,7 +793,11 @@ mod tests {
             "/snap/vibebms/1/vibebms",
             "/opt/homebrew/bin/vibebms",
             "/usr/local/Cellar/vibebms/1/bin/vibebms",
-            "/Applications/vibeBMS.app/Contents/MacOS/vibebms",
+            "/opt/homebrew/Caskroom/vibebms/1/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Users/me/Caskroom/vibebms/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Applications/Setapp/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Applications/Other.app/Contents/Resources/vibebms",
+            "/Applications/Other.app/Contents/MacOS/bin/vibebms",
             "C:\\Program Files\\WindowsApps\\vibeBMS\\vibebms.exe",
         ] {
             assert!(managed_location(Path::new(p)).is_some(), "{p}");
@@ -743,9 +805,28 @@ mod tests {
         for p in [
             "/home/me/games/vibeBMS/vibebms",
             "/opt/vibeBMS/vibebms",
+            "/Applications/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Users/me/Games/vibeBMS Nightly.app/Contents/MacOS/vibebms",
             "C:\\Games\\vibeBMS\\vibebms.exe",
         ] {
             assert_eq!(managed_location(Path::new(p)), None, "{p}");
+        }
+    }
+
+    #[test]
+    fn app_bundles() {
+        let exe = Path::new("/Applications/vibeBMS Nightly.app/Contents/MacOS/vibebms");
+        assert_eq!(
+            app_bundle(exe),
+            Some(Path::new("/Applications/vibeBMS Nightly.app"))
+        );
+        for p in [
+            "/Applications/vibeBMS.app/Contents/Resources/vibebms",
+            "/Applications/vibeBMS/Contents/MacOS/vibebms",
+            "/home/me/vibeBMS/vibebms",
+            "vibebms",
+        ] {
+            assert_eq!(app_bundle(Path::new(p)), None, "{p}");
         }
     }
 

@@ -100,15 +100,18 @@ fn default_root() -> PathBuf {
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    // macOS bundle: <root>/vibeBMS.app/Contents/MacOS/vibebms -> <root>
+    // macOS bundle: <root>/vibeBMS.app/Contents/MacOS/vibebms -> <root>;
+    // in an Applications folder, or where it cannot write (a disk image, App
+    // Translocation), the user's Application Support
     #[cfg(target_os = "macos")]
-    {
-        let s = dir.to_string_lossy();
-        if s.ends_with(".app/Contents/MacOS") {
-            if let Some(r) = dir.parent().and_then(Path::parent).and_then(Path::parent) {
-                return r.to_path_buf();
+    if let Some(r) = crate::update::app_bundle(&exe).and_then(Path::parent) {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        return match home {
+            Some(h) if r.ends_with("Applications") || !crate::platform::vfs::writable(r) => {
+                h.join("Library/Application Support/vibeBMS")
             }
-        }
+            _ => r.to_path_buf(),
+        };
     }
     // `cargo run`: use the workspace root instead of target/debug
     let s = dir.to_string_lossy().replace('\\', "/");

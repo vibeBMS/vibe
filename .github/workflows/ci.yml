@@ -95,6 +95,55 @@ jobs:
             target/${{ matrix.target }}/release/vibebms.exe
             target/${{ matrix.target }}/release/version.txt
 
+  # the macOS app: the arm64 and x86_64 builds as one universal executable
+  # in an ad-hoc signed bundle (tools/package_macos.sh), as a .dmg for people
+  # and a .zip for the self-update
+  macos-app:
+    name: package macOS app (universal)
+    needs: build
+    # both macOS builds can have succeeded when another build failed
+    if: always() && !cancelled()
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: vibeBMS-macos-*
+          path: art
+      - name: both builds
+        id: builds
+        run: |
+          ls -lR art || true
+          for t in arm64 x64; do
+            if [ ! -f "art/vibeBMS-macos-$t/vibebms" ]; then
+              echo "::warning::no macOS $t build: no app this time"
+              exit 0
+            fi
+          done
+          a="$(cat art/vibeBMS-macos-arm64/version.txt)"
+          x="$(cat art/vibeBMS-macos-x64/version.txt)"
+          [ "$a" = "$x" ] || echo "::warning::the macOS builds differ: arm64 $a, x64 $x"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      # the app's identity and version (CFBundleIdentifier, CFBundleVersion)
+      - if: steps.builds.outputs.ok
+        run: ./tools/ci_version.sh
+      - if: steps.builds.outputs.ok
+        name: package
+        run: |
+          mkdir out
+          tools/package_macos.sh art/vibeBMS-macos-arm64/vibebms art/vibeBMS-macos-x64/vibebms out
+          # the version the executables were built with, for latest.json
+          cp art/vibeBMS-macos-arm64/version.txt out/version.txt
+      - if: steps.builds.outputs.ok
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-macos-universal
+          path: |
+            out/vibeBMS-macos-universal.dmg
+            out/vibebms-macos-universal.app.zip
+            out/version.txt
+
   # Linux without the download browser (no WebKitGTK / GTK), built against
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
   # older and more distributions (RHEL 8, Debian 10, Ubuntu 20.04) and needs
@@ -391,7 +440,7 @@ jobs:
   # previous file; the notes say which files this commit brought.
   nightly:
     name: nightly release
-    needs: [build, build-linux-portable, android, ios, web]
+    needs: [build, build-linux-portable, macos-app, android, ios, web]
     if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     # a newer push's release wins over an older one still uploading
@@ -422,6 +471,9 @@ jobs:
           done
           for t in windows-x64 windows-arm64; do
             [ -f "art/vibeBMS-$t/vibebms.exe" ] && cp "art/vibeBMS-$t/vibebms.exe" "out/vibebms-$t.exe"
+          done
+          for f in vibeBMS-macos-universal.dmg vibebms-macos-universal.app.zip; do
+            [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
           done
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
@@ -475,7 +527,7 @@ jobs:
           fi
           ls -l out
       # what the desktop executables' self-update reads (crates/vibebms/src/
-      # update.rs, docs/BUILDING.md): the release's version and, for each
+      # update/, docs/BUILDING.md): the release's version and, for each
       # executable, the version it was built with, its SHA-256 and size. A
       # build that failed keeps its previous file, so its entry is kept from
       # the previous latest.json.
@@ -495,6 +547,7 @@ jobs:
             name="${f#out/}"
             t="${name#vibebms-}"
             t="${t%.exe}"
+            t="${t%.app.zip}"
             v="$VERSION"
             [ -s "art/vibeBMS-$t/version.txt" ] && v="$(tr -d '[:space:]' < "art/vibeBMS-$t/version.txt")"
             new="$(jq -c --arg n "$name" --arg v "$v" \
@@ -533,7 +586,10 @@ jobs:
             echo
             echo "Files from this commit: $(cd out && ls | sed 's/^/`/; s/$/`/' | paste -sd ' ')"
             echo
-            echo "- Linux / macOS: \`chmod +x vibebms-*\`; on macOS also \`xattr -d com.apple.quarantine vibebms-*\`."
+            echo "- macOS: \`vibeBMS-macos-universal.dmg\` has the app (Apple silicon and Intel): drag it to Applications."
+            echo "  It is not notarized: open it the first time with right-click → Open, or in"
+            echo "  System Settings → Privacy & Security → Open Anyway."
+            echo "- Linux / macOS executables: \`chmod +x vibebms-*\`; on macOS also \`xattr -d com.apple.quarantine vibebms-*\`."
             echo "- Linux: \`vibebms-linux-*\` needs glibc 2.35 and WebKitGTK 4.1 (\`libwebkit2gtk-4.1-0\`, for the download browser);"
             echo "  \`vibebms-linux-*-portable\` has no download browser and starts with glibc 2.28 and ALSA."
             echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
@@ -550,7 +606,7 @@ jobs:
   # links to the executables in the run summary, once the builds are done
   downloads:
     name: downloads
-    needs: [build, build-linux-portable, android, ios]
+    needs: [build, build-linux-portable, macos-app, android, ios]
     if: always()
     runs-on: ubuntu-latest
     permissions:

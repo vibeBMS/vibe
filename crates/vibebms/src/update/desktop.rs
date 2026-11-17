@@ -1,29 +1,114 @@
 //! Putting an update in place (the desktop executables).
 
-use super::{Offer, Progress};
-use std::path::Path;
+use super::{own_app, Offer, Progress};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-/// Download `o` next to `exe`, check it and put it in the running
-/// executable's place.
+/// Download `o` next to `exe` (next to the macOS app it runs in), check it
+/// and put it in the running executable's (the app's) place.
 pub fn install(o: &Offer, exe: &Path, progress: &Arc<Progress>) -> Result<(), String> {
-    let dir = exe.parent().ok_or("the executable has no folder")?;
+    let app = own_app(exe);
+    let dir = app
+        .unwrap_or(exe)
+        .parent()
+        .ok_or("the executable has no folder")?;
     // what an update that was cut short left
-    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+    for e in fs::read_dir(dir).into_iter().flatten().flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
         if n.starts_with(".vibebms-update-") && n.ends_with(".tmp") {
-            let _ = std::fs::remove_file(e.path());
+            let p = e.path();
+            let _ = fs::remove_file(&p).or_else(|_| fs::remove_dir_all(&p));
         }
     }
-    let tmp = dir.join(format!(".vibebms-update-{}.tmp", std::process::id()));
+    let tmp = temp(dir, "");
     let r = download(&o.url, &tmp, o.size, &o.sha256, progress).and_then(|()| {
-        replace_running(&tmp)?;
-        log::info!("updated {} to {}", exe.display(), o.version);
+        match app {
+            Some(app) => replace_app(&tmp, app, exe)?,
+            None => replace_running(&tmp)?,
+        }
+        log::info!("updated {} to {}", app.unwrap_or(exe).display(), o.version);
         Ok(())
     });
-    let _ = std::fs::remove_file(&tmp);
+    let _ = fs::remove_file(&tmp);
     r
+}
+
+/// A name for this update's own temporary file or folder in `dir` (what an
+/// update cut short leaves is deleted by the next).
+fn temp(dir: &Path, what: &str) -> PathBuf {
+    dir.join(format!(".vibebms-update-{}{what}.tmp", std::process::id()))
+}
+
+/// Put the app in `zip` (`tools/package_macos.sh`) in the place of `app`,
+/// whose executable `exe` is running, and sign it ad hoc again.
+fn replace_app(zip: &Path, app: &Path, exe: &Path) -> Result<(), String> {
+    let dir = app.parent().ok_or("the app has no folder")?;
+    let unpacked = temp(dir, "-new");
+    let _ = fs::remove_dir_all(&unpacked);
+    let r = (|| {
+        // ditto keeps the app's modes and signature as they are
+        run(std::process::Command::new("ditto")
+            .args(["-x", "-k"])
+            .arg(zip)
+            .arg(&unpacked))
+        .map_err(|e| format!("cannot unpack the update ({e})"))?;
+        let new = fs::read_dir(&unpacked)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "app"))
+            .ok_or("the update has no app in it")?;
+        let name = exe.file_name().ok_or("the executable has no name")?;
+        let new_exe = new.join("Contents/MacOS").join(name);
+        if !new_exe.is_file() {
+            return Err(format!("the update has no {}", new_exe.display()));
+        }
+        swap_app(&new, app)?;
+        sign(app);
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&unpacked);
+    r
+}
+
+/// `new` in the place of `app`: the old app is moved aside first, put back
+/// if `new` cannot take its place, deleted once it has (the running
+/// executable keeps running from the deleted file).
+fn swap_app(new: &Path, app: &Path) -> Result<(), String> {
+    let old = temp(app.parent().ok_or("the app has no folder")?, "-old");
+    let _ = fs::remove_dir_all(&old);
+    fs::rename(app, &old).map_err(|e| format!("cannot move vibeBMS aside ({e})"))?;
+    if let Err(e) = fs::rename(new, app) {
+        let _ = fs::rename(&old, app);
+        return Err(format!("cannot put the update in place ({e})"));
+    }
+    let _ = fs::remove_dir_all(&old);
+    Ok(())
+}
+
+/// Sign `app` ad hoc again (the signature covers the whole bundle), when
+/// `codesign` is there; the app starts without it too.
+fn sign(app: &Path) {
+    let r = run(std::process::Command::new("codesign")
+        .args(["--force", "--deep", "-s", "-"])
+        .arg(app));
+    match r {
+        Ok(()) => log::info!("signed {} ad hoc", app.display()),
+        Err(e) => log::warn!("codesign {}: {e}", app.display()),
+    }
+}
+
+/// Run `cmd`; its error output when it fails.
+fn run(cmd: &mut std::process::Command) -> Result<(), String> {
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 
 /// Download `url` into `to`; it must be `size` bytes whose SHA-256 is
@@ -176,6 +261,37 @@ mod tests {
         let e = download(&serve(Vec::new(), "404 Not Found"), &to, 4, sha, &p).unwrap_err();
         assert!(e.contains("404"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apps_are_swapped() {
+        let dir = std::env::temp_dir().join(format!("vibebms-update-app-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (app, new) = (dir.join("vibeBMS.app"), dir.join("unpacked/vibeBMS.app"));
+        for (a, v) in [(&app, "old"), (&new, "new")] {
+            fs::create_dir_all(a.join("Contents/MacOS")).unwrap();
+            fs::write(a.join("Contents/MacOS/vibebms"), v).unwrap();
+        }
+        swap_app(&new, &app).unwrap();
+        assert_eq!(
+            fs::read(app.join("Contents/MacOS/vibebms")).unwrap(),
+            b"new"
+        );
+        assert!(!new.exists());
+        // nothing is left beside it
+        let names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+        // a new app that is not there: the old one stays
+        let e = swap_app(&dir.join("missing.app"), &app).unwrap_err();
+        assert!(e.contains("in place"), "{e}");
+        assert_eq!(
+            fs::read(app.join("Contents/MacOS/vibebms")).unwrap(),
+            b"new"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Set by [`replacing_a_running_executable`] for the copy it starts.
