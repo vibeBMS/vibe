@@ -429,6 +429,15 @@ impl PlayScene {
             .collect()
     }
 
+    /// The moment of chart time `t` (µs).
+    fn instant_at(&self, t: i64) -> Instant {
+        if t >= 0 {
+            self.start + Duration::from_micros(t as u64)
+        } else {
+            self.start - Duration::from_micros(t.unsigned_abs())
+        }
+    }
+
     pub(crate) fn chart_us(&self, t: Instant) -> i64 {
         if t >= self.start {
             t.duration_since(self.start).as_micros() as i64
@@ -592,9 +601,11 @@ impl PlayScene {
         let lead = Duration::from_millis(lead_ms.unwrap_or(1500) as u64);
         let now = Instant::now();
         self.start = now + lead;
-        // the song's sounds start where a key pressed at `self.start` would
+        // the song's sounds start where a key pressed at their moment would
         // start its sound: keysounds and the song stay together (both heard
-        // the output latency later; the judge offset is for that)
+        // the output latency later; the judge offset is for that). Native
+        // output turns each moment into a frame as it comes (the device's
+        // clock may drift from the judge's); the web counts frames from here
         self.base_frame = ctx.mixer.frame_in(lead.as_micros() as i64);
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
@@ -623,6 +634,7 @@ impl PlayScene {
                 volume: vol,
                 bus,
                 start_frame: at.map(|t| (self.base_frame + m.us_to_frames(t)).max(0) as u64),
+                at: at.map(|t| self.instant_at(t)),
                 offset: m.us_to_frames(slice.start).max(0) as usize,
                 end: slice.end.map(|e| m.us_to_frames(e).max(0) as usize),
                 looping: false,

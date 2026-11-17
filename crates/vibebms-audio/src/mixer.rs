@@ -1,3 +1,4 @@
+use crate::clock::{FrameClock, Obs};
 use crate::decode::Sample;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -45,8 +46,14 @@ pub struct PlayOptions {
     pub key: u64,
     pub volume: f32,
     pub bus: Bus,
-    /// Absolute mixer frame to start at (`None` = immediately).
+    /// Absolute mixer frame to start at (`None` = immediately). The web
+    /// build schedules by it.
     pub start_frame: Option<u64>,
+    /// Start so it sounds together with a key pressed at this moment (on
+    /// the clock the judge uses); turned into a frame in the audio callback
+    /// so a device clock that drifts does not move it. Native output only:
+    /// it takes the place of `start_frame` there.
+    pub at: Option<Instant>,
     /// Slice inside the sample (frames).
     pub offset: usize,
     pub end: Option<usize>,
@@ -60,6 +67,7 @@ impl Default for PlayOptions {
             volume: 1.0,
             bus: Bus::Key,
             start_frame: None,
+            at: None,
             offset: 0,
             end: None,
             looping: false,
@@ -73,6 +81,9 @@ struct Voice {
     start: usize,
     end: usize,
     start_at: u64,
+    /// A deadline (µs since the mixer's epoch) not yet turned into
+    /// `start_at`.
+    at_us: Option<f64>,
     cut_at: u64,
     vol: f32,
     key: u64,
@@ -98,17 +109,51 @@ struct State {
     mix: Vec<f32>,
     max_voices: usize,
     shared_frame: Arc<AtomicU64>,
+    clock: FrameClock,
+    /// What `Voice::at_us` counts from.
+    epoch: Instant,
 }
 
 impl State {
+    fn new(rx: Receiver<Cmd>, cfg: &AudioConfig, frame: Arc<AtomicU64>, epoch: Instant) -> State {
+        State {
+            rx,
+            voices: Vec::with_capacity(cfg.max_voices),
+            frame: 0,
+            bus: [cfg.key_volume, cfg.bgm_volume, cfg.system_volume],
+            master: cfg.master,
+            mix: vec![0.0; 8192],
+            max_voices: cfg.max_voices.max(16),
+            shared_frame: frame,
+            clock: FrameClock::new(44_100),
+            epoch,
+        }
+    }
+
+    /// µs on the judge's clock since the epoch.
+    fn us(&self, t: Instant) -> f64 {
+        us_since(self.epoch, t)
+    }
+
+    /// A voice of key `key` starts at `at`: the others of that key that
+    /// start before end there (one voice per key).
+    fn cut_key(&mut self, key: u64, at: u64, except: Option<usize>) {
+        if key == 0 {
+            return;
+        }
+        for (i, o) in self.voices.iter_mut().enumerate() {
+            if o.key == key && o.at_us.is_none() && o.start_at <= at && Some(i) != except {
+                o.cut_at = o.cut_at.min(at);
+            }
+        }
+    }
+
     fn handle(&mut self) {
         while let Ok(c) = self.rx.try_recv() {
             match c {
                 Cmd::Play(v) => {
-                    if v.key != 0 {
-                        for o in self.voices.iter_mut().filter(|o| o.key == v.key) {
-                            o.cut_at = o.cut_at.min(v.start_at.max(self.frame));
-                        }
+                    if v.at_us.is_none() {
+                        self.cut_key(v.key, v.start_at.max(self.frame), None);
                     }
                     if self.voices.len() >= self.max_voices {
                         // drop the voice that started first
@@ -134,15 +179,39 @@ impl State {
     }
 
     /// Render `frames` stereo frames into `self.mix`.
+    #[cfg(test)]
     fn render(&mut self, frames: usize) {
+        self.render_obs(frames, None);
+    }
+
+    /// Render `frames` stereo frames into `self.mix`, with what the
+    /// callback knows of the time (see `clock`).
+    fn render_obs(&mut self, frames: usize, obs: Option<Obs>) {
+        if let Some(o) = obs {
+            self.clock.observe(o);
+        }
         self.handle();
         if self.mix.len() < frames * 2 {
             self.mix.resize(frames * 2, 0.0);
         }
-        let mix = &mut self.mix[..frames * 2];
-        mix.fill(0.0);
         let now = self.frame;
         let end_frame = now + frames as u64;
+        // deadlines due in this buffer get their frame; one already past
+        // starts now, from its beginning
+        for i in 0..self.voices.len() {
+            let Some(us) = self.voices[i].at_us else {
+                continue;
+            };
+            let f = self.clock.frame_at(us);
+            if f < end_frame as f64 {
+                let at = (f.round().max(0.0) as u64).max(now);
+                self.voices[i].start_at = at;
+                self.voices[i].at_us = None;
+                self.cut_key(self.voices[i].key, at, Some(i));
+            }
+        }
+        let mix = &mut self.mix[..frames * 2];
+        mix.fill(0.0);
         let bus = self.bus;
         let master = self.master;
         self.voices.retain_mut(|v| {
@@ -182,6 +251,14 @@ impl State {
     }
 }
 
+fn us_since(epoch: Instant, t: Instant) -> f64 {
+    if t >= epoch {
+        t.duration_since(epoch).as_secs_f64() * 1e6
+    } else {
+        -(epoch.duration_since(t).as_secs_f64() * 1e6)
+    }
+}
+
 #[inline]
 fn soft_clip(x: f32) -> f32 {
     // transparent below ~0.8, smooth limiting above
@@ -197,6 +274,8 @@ fn soft_clip(x: f32) -> f32 {
 pub struct Mixer {
     tx: Sender<Cmd>,
     frame: Arc<AtomicU64>,
+    /// What deadlines (`PlayOptions::at`) are counted from.
+    epoch: Instant,
     pub sample_rate: u32,
     pub buffer_frames: u32,
     pub device_name: String,
@@ -213,16 +292,8 @@ impl Mixer {
     pub fn new(cfg: &AudioConfig) -> Mixer {
         let (tx, rx) = channel();
         let frame = Arc::new(AtomicU64::new(0));
-        let state = State {
-            rx,
-            voices: Vec::with_capacity(cfg.max_voices),
-            frame: 0,
-            bus: [cfg.key_volume, cfg.bgm_volume, cfg.system_volume],
-            master: cfg.master,
-            mix: vec![0.0; 8192],
-            max_voices: cfg.max_voices.max(16),
-            shared_frame: frame.clone(),
-        };
+        let epoch = Instant::now();
+        let state = State::new(rx, cfg, frame.clone(), epoch);
         // the web: the mixer in an AudioWorklet (cpal where there is none)
         #[cfg(target_arch = "wasm32")]
         match crate::web::WebOut::open(cfg.max_voices.max(16)) {
@@ -235,6 +306,7 @@ impl Mixer {
                 return Mixer {
                     tx,
                     frame,
+                    epoch,
                     sample_rate: w.rate,
                     buffer_frames: 128,
                     device_name: "web".into(),
@@ -252,6 +324,7 @@ impl Mixer {
                 Mixer {
                     tx,
                     frame,
+                    epoch,
                     sample_rate: rate,
                     buffer_frames: buf,
                     device_name: name,
@@ -267,6 +340,7 @@ impl Mixer {
                 Mixer {
                     tx,
                     frame,
+                    epoch,
                     sample_rate: 44100,
                     buffer_frames: 512,
                     // the settings' Output row shows why
@@ -290,9 +364,18 @@ impl Mixer {
         if let (Some(start), Some(st)) = (self.null_start, &self.null_state) {
             let target = (start.elapsed().as_secs_f64() * self.sample_rate as f64) as u64;
             let mut s = st.lock().unwrap();
+            let start_us = s.us(start);
             while s.frame < target {
                 let n = ((target - s.frame) as usize).min(4096);
-                s.render(n);
+                // the frames are the clock here
+                let t = start_us + s.frame as f64 * 1e6 / self.sample_rate as f64;
+                let obs = Obs {
+                    frame: s.frame,
+                    frames: n,
+                    stream_us: Some(t),
+                    now_us: t,
+                };
+                s.render_obs(n, Some(obs));
             }
             return s.frame;
         }
@@ -329,12 +412,17 @@ impl Mixer {
         }
         let end = o.end.unwrap_or(sample.frames).min(sample.frames);
         let start = o.offset.min(end);
+        let at_us = o.at.map(|t| us_since(self.epoch, t));
         let _ = self.tx.send(Cmd::Play(Voice {
             sample: sample.clone(),
             pos: start,
             start,
             end,
-            start_at: o.start_frame.unwrap_or(0),
+            start_at: match at_us {
+                Some(_) => u64::MAX,
+                None => o.start_frame.unwrap_or(0),
+            },
+            at_us,
             cut_at: u64::MAX,
             vol: o.volume,
             key: o.key,
@@ -393,7 +481,7 @@ impl Mixer {
 
 type OpenOk = (cpal::Stream, u32, u32, String);
 
-fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<State>)> {
+fn open_stream(cfg: &AudioConfig, mut state: State) -> Result<OpenOk, (String, Box<State>)> {
     #[cfg(target_os = "ios")]
     crate::ios::activate(cfg.buffer_frames);
     let host = cpal::default_host();
@@ -449,6 +537,7 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
     } else {
         def.channels()
     };
+    state.clock = FrameClock::new(rate);
     let mut config = cpal::StreamConfig {
         channels,
         sample_rate: cpal::SampleRate(rate),
@@ -516,16 +605,12 @@ fn open_stream(cfg: &AudioConfig, state: State) -> Result<OpenOk, (String, Box<S
 
 fn st_dummy() -> State {
     let (_tx, rx) = channel();
-    State {
+    State::new(
         rx,
-        voices: Vec::new(),
-        frame: 0,
-        bus: [1.0; 3],
-        master: 1.0,
-        mix: Vec::new(),
-        max_voices: 16,
-        shared_frame: Arc::new(AtomicU64::new(0)),
-    }
+        &AudioConfig::default(),
+        Arc::new(AtomicU64::new(0)),
+        Instant::now(),
+    )
 }
 
 fn build<T>(
@@ -542,9 +627,11 @@ where
     let cell = Arc::new(std::sync::Mutex::new(Some(state)));
     let cb_cell = cell.clone();
     let mut local: Option<State> = None;
+    // the stream's first callback timestamp: its clock's origin
+    let mut base: Option<cpal::StreamInstant> = None;
     let result = device.build_output_stream(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+        move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
             if local.is_none() {
                 local = cb_cell.lock().ok().and_then(|mut g| g.take());
             }
@@ -553,7 +640,15 @@ where
                 return;
             };
             let frames = data.len() / channels.max(1);
-            st.render(frames);
+            let cb = info.timestamp().callback;
+            let base = *base.get_or_insert(cb);
+            let obs = Obs {
+                frame: st.frame,
+                frames,
+                stream_us: cb.duration_since(&base).map(|d| d.as_secs_f64() * 1e6),
+                now_us: st.us(Instant::now()),
+            };
+            st.render_obs(frames, Some(obs));
             for f in 0..frames {
                 let l = soft_clip(st.mix[f * 2]);
                 let r = soft_clip(st.mix[f * 2 + 1]);
@@ -588,16 +683,15 @@ mod tests {
 
     fn state() -> (Sender<Cmd>, State) {
         let (tx, rx) = channel();
-        let st = State {
-            rx,
-            voices: Vec::new(),
-            frame: 0,
-            bus: [1.0; 3],
+        let cfg = AudioConfig {
             master: 1.0,
-            mix: Vec::new(),
+            key_volume: 1.0,
+            bgm_volume: 1.0,
+            system_volume: 1.0,
             max_voices: 64,
-            shared_frame: Arc::new(AtomicU64::new(0)),
+            ..Default::default()
         };
+        let st = State::new(rx, &cfg, Arc::new(AtomicU64::new(0)), Instant::now());
         (tx, st)
     }
 
@@ -616,6 +710,7 @@ mod tests {
             start: 0,
             end: s.frames,
             start_at,
+            at_us: None,
             cut_at: u64::MAX,
             vol: 1.0,
             key,
@@ -637,6 +732,94 @@ mod tests {
         assert!((st.mix[2 * 6] - 0.5).abs() < 1e-3);
         assert_eq!(st.mix[2 * 7], 0.0);
         assert!(st.voices.is_empty());
+    }
+
+    /// Callbacks of a device `ppm` off the system clock for ten minutes;
+    /// a sound due every 7 s, sent 150 ms ahead: each starts where a key
+    /// pressed at its moment would (half a buffer later on average), not
+    /// where the nominal rate would put it.
+    #[test]
+    fn deadlines_stay_on_the_judge_clock_with_a_drifting_device() {
+        for ppm in [-200.0f64, 200.0] {
+            let (tx, mut st) = state();
+            st.clock = FrameClock::new(48_000);
+            let true_rate = 48_000.0 * (1.0 + ppm * 1e-6);
+            let s = sample(4, 16384);
+            let buf = 256usize;
+            let mut next = 1_000_000.0f64;
+            let mut key = 1u64;
+            let mut due: Vec<(u64, f64)> = Vec::new();
+            let mut worst: f64 = 0.0;
+            while (st.frame as f64) < true_rate * 600.0 {
+                let t = st.frame as f64 * 1e6 / true_rate;
+                if t + 150_000.0 >= next {
+                    let mut v = voice(&s, u64::MAX, key);
+                    v.at_us = Some(next);
+                    tx.send(Cmd::Play(v)).unwrap();
+                    due.push((key, next));
+                    key += 1;
+                    next += 7_000_000.0;
+                }
+                let obs = Obs {
+                    frame: st.frame,
+                    frames: buf,
+                    stream_us: Some(t + 1e9),
+                    now_us: t + 300.0,
+                };
+                st.render_obs(buf, Some(obs));
+                due.retain(|(k, d)| match st.voices.iter().find(|v| v.key == *k) {
+                    Some(v) if v.at_us.is_none() => {
+                        let heard = v.start_at as f64 * 1e6 / true_rate;
+                        // the callbacks run 300 us after their buffers'
+                        // timestamps: a key's sound starts that much sooner
+                        let want = d + buf as f64 * 0.5e6 / 48_000.0 - 300.0;
+                        worst = worst.max((heard - want).abs());
+                        false
+                    }
+                    Some(_) => true,
+                    // started and done within one buffer
+                    None => false,
+                });
+            }
+            assert!(key > 80);
+            // nominal-rate frames would be 120 ms off after 10 minutes
+            assert!(worst < 200.0, "{ppm} ppm: {worst} us");
+        }
+    }
+
+    #[test]
+    fn a_late_deadline_starts_now_from_its_beginning() {
+        let (tx, mut st) = state();
+        st.render(480);
+        let s = sample(100, 16384);
+        let mut v = voice(&s, u64::MAX, 3);
+        // due at frame 0 (long past)
+        v.at_us = Some(0.0);
+        tx.send(Cmd::Play(v)).unwrap();
+        st.render(10);
+        assert_eq!(st.voices[0].start_at, 480);
+        assert_eq!(st.voices[0].pos, 10);
+        assert!((st.mix[0] - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_scheduled_voice_is_cut_only_by_a_later_one() {
+        let (tx, mut st) = state();
+        let s = sample(1000, 16384);
+        // due at frame 441 (10 ms at the nominal 44.1 kHz)
+        let mut v = voice(&s, u64::MAX, 9);
+        v.at_us = Some(10_000.0);
+        tx.send(Cmd::Play(v)).unwrap();
+        // the same sound played now does not cancel the scheduled one
+        tx.send(Cmd::Play(voice(&s, 0, 9))).unwrap();
+        st.render(100);
+        assert_eq!(st.voices.len(), 2);
+        st.render(400);
+        // the scheduled one started and cut the first there
+        assert_eq!(st.voices.len(), 1);
+        assert_eq!(st.voices[0].start_at, 441);
+        assert!((st.mix[2 * 340] - 0.5).abs() < 1e-3);
+        assert!((st.mix[2 * 341] - 0.5).abs() < 1e-3);
     }
 
     #[test]

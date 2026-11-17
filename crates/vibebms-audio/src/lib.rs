@@ -3,8 +3,10 @@
 //! * [`decode`]: decode WAV/OGG/MP3/FLAC into 16-bit PCM at the mixer rate,
 //!   with BMS-style file name fallback (`a.wav` -> `a.ogg`).
 //! * [`Mixer`]: a cpal output stream with a lock-free-ish command queue and
-//!   sample-accurate scheduling (BGM is queued ahead with exact start frames).
+//!   sample-accurate scheduling (BGM is queued ahead as moments on the
+//!   judge's clock, turned into frames in the audio callback: see `clock`).
 
+mod clock;
 pub mod decode;
 #[cfg(target_os = "ios")]
 mod ios;
