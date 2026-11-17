@@ -283,7 +283,7 @@ mod tests {
             v: VERSION,
             client: ClientId {
                 name: "vibeBMS".into(),
-                version: "0.1.0".into(),
+                ..Default::default()
             },
             ended_ms: 1_767_225_600_123,
             wall_ms: 120_000,

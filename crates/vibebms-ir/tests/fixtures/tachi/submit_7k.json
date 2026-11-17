@@ -1,0 +1,20 @@
+{
+  "meta": {"game": "bms", "playtype": "7K", "service": "vibeBMS"},
+  "scores": [
+    {
+      "score": 1690,
+      "lamp": "HARD CLEAR",
+      "matchType": "bmsChartHash",
+      "identifier": "abababababababababababababababababababababababababababababababab",
+      "timeAchieved": 1767225600123,
+      "judgements": {"pgreat": 780, "great": 130, "good": 5, "bad": 1, "poor": 2},
+      "optional": {
+        "fast": 54, "slow": 82, "maxCombo": 500, "bp": 3, "gauge": 84.0,
+        "gaugeHistory": [100.0, 50.0, 84.0],
+        "epg": 400, "lpg": 380, "egr": 50, "lgr": 80, "egd": 3, "lgd": 2,
+        "ebd": 1, "lbd": 0, "epr": 0, "lpr": 2
+      },
+      "scoreMeta": {"random": "RANDOM", "inputDevice": "KEYBOARD", "gauge": "HARD"}
+    }
+  ]
+}
