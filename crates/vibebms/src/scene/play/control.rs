@@ -111,7 +111,7 @@ impl PlayScene {
         if !self.session.vs && matches!(e.lane, touch::START2 | touch::SELECT2) {
             return true;
         }
-        let bpm = &Bpms::of_meta(&self.session.chart.meta);
+        let bpm = &self.bpms_at(e.time);
         let side = self.control_side(e.lane);
         // the side's own options (VS: the second player's)
         let mut p = ctx.config.play.for_side(side);

@@ -8,10 +8,11 @@
 //!   (`JudgeProperty` / `JudgeWindowRule`).
 //! * `Lr2` preset: the classic LR2 per-#RANK windows (±8/24/40 … ±21/60/120,
 //!   BAD ±200 ms).
-//! * `Iidx` preset: windows counted in frames of the 120 Hz LIGHTNING MODEL
-//!   cabinet (PG ±2F, GR ±4F, GD ±14F, BAD ±30F = ±16.67/33.33/116.67/250 ms)
-//!   with input timing quantised to the 120 Hz frame grid. Konami does not
-//!   publish the windows; these are community figures, see `docs/RULES.md`.
+//! * `Iidx` preset: DX MODE's windows (as bmz-player documents LR2oraja
+//!   Endless Dream's): PG ±16.67, GR ±33.33, GD ±116.67, BAD ±200 ms, an
+//!   empty POOR up to 500 ms early, frames of the 120 Hz LIGHTNING MODEL
+//!   cabinet with input timing quantised to them; 9 keys pop'n's (POP)
+//!   windows in ms. Konami does not publish them, see `docs/RULES.md`.
 
 use crate::chart::JudgeRank;
 use crate::mode::RuleFamily;
@@ -456,16 +457,51 @@ pub fn lr2_nonstop_rules(fam: RuleFamily, rank: JudgeRank) -> JudgeRules {
     }
 }
 
-/// IIDX windows in 120 Hz frames (late, early): PG, GR, GD, BAD, empty POOR.
+/// IIDX (DX MODE) windows in 120 Hz frames (late, early): PG, GR, GD, BAD,
+/// empty POOR (500 ms early, 200 late); a CN / BSS end has PGREAT to the
+/// GOOD window, then BAD.
 pub const IIDX_HZ: u32 = 120;
-const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-30, 30), (-18, 60)];
-const IIDX_LN_END_FRAMES: [(i64, i64); 4] = [(-14, 14), (-19, 19), (-24, 24), (-30, 30)];
+const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-24, 24), (-24, 60)];
+const IIDX_LN_END_FRAMES: [(i64, i64); 4] = [(-14, 14), (-14, 14), (-14, 14), (-24, 24)];
+/// 9 keys under the IIDX preset: pop'n's (POP) windows in µs, not frames.
+const POP_NOTE: [(i64, i64); 5] = [
+    (-25_000, 25_000),
+    (-50_000, 50_000),
+    (-87_500, 87_500),
+    (-100_000, 100_000),
+    (-112_500, 500_000),
+];
+const POP_LN_END: [(i64, i64); 4] = [
+    (-120_000, 120_000),
+    (-150_000, 150_000),
+    (-217_000, 217_000),
+    (-283_000, 283_000),
+];
 
 fn iidx(frames: &[(i64, i64)]) -> Vec<(i64, i64)> {
     frames
         .iter()
         .map(|(l, e)| (frames_us(*l, IIDX_HZ), frames_us(*e, IIDX_HZ)))
         .collect()
+}
+
+/// The IIDX preset's windows: DX MODE's, 9 keys POP's.
+fn iidx_windows(pms: bool) -> JudgeWindows {
+    let (note, ln_end, ln_margin, frame_hz) = if pms {
+        (POP_NOTE.to_vec(), POP_LN_END.to_vec(), PMS.ln_margin, None)
+    } else {
+        let ln = iidx(&IIDX_LN_END_FRAMES);
+        (iidx(&IIDX_NOTE_FRAMES), ln, 0, Some(IIDX_HZ))
+    };
+    JudgeWindows {
+        scratch: note.clone(),
+        note,
+        scratch_ln_end: ln_end.clone(),
+        ln_end,
+        ln_margin: ln_margin * 1000,
+        scratch_ln_margin: 0,
+        frame_hz,
+    }
 }
 
 pub fn judge_rules(
@@ -504,18 +540,13 @@ pub fn judge_rules(
             }
         }
         JudgePreset::Lr2 => lr2_judge_windows(lr2_windows(rank)),
-        JudgePreset::Iidx => JudgeWindows {
-            note: iidx(&IIDX_NOTE_FRAMES),
-            scratch: iidx(&IIDX_NOTE_FRAMES),
-            ln_end: iidx(&IIDX_LN_END_FRAMES),
-            scratch_ln_end: iidx(&IIDX_LN_END_FRAMES),
-            ln_margin: 0,
-            scratch_ln_margin: 0,
-            frame_hz: Some(IIDX_HZ),
-        },
+        JudgePreset::Iidx => iidx_windows(f.pms_rule),
     };
     let (combo, vanish, miss_one) = match preset {
         JudgePreset::Lr2 => (LR2_COMBO, LR2_VANISH, false),
+        // DX MODE: 9 keys as PMS, every other mode as 7 keys (an empty
+        // POOR keeps the combo in 5 keys too)
+        JudgePreset::Iidx if !f.pms_rule => (SEVEN.combo, SEVEN.vanish, SEVEN.miss_one),
         _ => (f.combo, f.vanish, f.miss_one),
     };
     JudgeRules {
@@ -568,6 +599,23 @@ mod tests {
             Some(Judge::Great)
         );
         assert_eq!(normal.windows.judge(NoteType::Note, -1_000_000), None);
+    }
+
+    /// beatoraja preset: a chart without `#RANK` (the parser's default), an
+    /// out-of-range one and one that is not a number all judge NORMAL (the
+    /// PMS rule's 70 %); a bmson `judge_rank` of 0 or less 100 %
+    /// (docs/RULES.md: why a missing `#RANK` stays NORMAL).
+    #[test]
+    fn beatoraja_rank_fallbacks() {
+        for fam in [RuleFamily::FiveKeys, RuleFamily::SevenKeys, RuleFamily::Pms] {
+            let w = |rank| judge_rules(JudgePreset::Beatoraja, fam, rank, None).windows;
+            let normal = w(JudgeRank::Rank(2));
+            assert_eq!(w(JudgeRank::default()), normal);
+            for odd in [JudgeRank::Rank(-1), JudgeRank::Rank(5), JudgeRank::NoNumber] {
+                assert_eq!(w(odd), normal, "{fam:?} {odd:?}");
+            }
+            assert_eq!(w(JudgeRank::Bmson(0.0)), w(JudgeRank::Bmson(100.0)));
+        }
     }
 
     #[test]
@@ -686,7 +734,11 @@ mod tests {
         let w = &r.windows;
         assert_eq!(w.note[0], (-16_667, 16_667));
         assert_eq!(w.note[1], (-33_333, 33_333));
-        assert_eq!(w.note[3], (-250_000, 250_000));
+        assert_eq!(w.note[3], (-200_000, 200_000));
+        assert_eq!(w.note[4], (-200_000, 500_000));
+        // a CN end: PGREAT within the GOOD window
+        assert_eq!(w.judge(NoteType::LongEnd, -110_000), Some(Judge::PGreat));
+        assert_eq!(w.judge(NoteType::LongEnd, 150_000), Some(Judge::Bad));
         // 20 ms snaps to 2 frames (16.67 ms) -> PGREAT; 21 ms snaps to 3 frames -> GREAT
         assert_eq!(
             w.judge(NoteType::Note, w.quantize(20_000)),

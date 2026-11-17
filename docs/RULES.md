@@ -25,6 +25,13 @@ PMS has a 200 ms LN release margin.
 applied to PG..BAD (empty POOR fixed). `#DEFEXRANK n` = n % of NORMAL. bmson `judge_rank` is used directly.
 For PMS, PG and BAD are fixed and GR/GD scale 33/50/70/100/133 %, clamped between PG and BAD.
 Custom judge (PG/GR/GD %) is applied afterwards and clamped to BAD.
+A chart without `#RANK` plays NORMAL, as one whose `#RANK` is out of range (below 0, above 4) or not a number;
+a bmson `judge_rank` of 0 or less is 100 %. bmz-player's documentation (`docs/rule.md`, "Beatoraja") says
+beatoraja judges a chart without `#RANK` at 100 % (EASY) instead. That is the only public description found:
+beatoraja's own manual (`manual/extension.txt`) covers `#RANK 4` and `#DEFEXRANK` but not a missing `#RANK`, and
+the community write-ups read for this list (S2, S3, S4, S13, the mBMplay patch notes, beatoraja issue 468,
+the BMS-making wikis) say nothing about it. One source is not enough to change how every chart without `#RANK`
+judges, so vibeBMS keeps NORMAL here until a second, independent description (or a measurement) agrees.
 
 Other rules: empty POOR does not consume the note; in 7 keys it keeps the combo, in 5 keys/PMS it breaks it;
 PMS notes can only produce one POOR. Note selection algorithms Combo / Duration / Lowest as in beatoraja.
@@ -77,11 +84,28 @@ Timing is compared in whole milliseconds, both fractions dropped [S-OLR2 8]. LR2
 that first sees it, polling every 2 ms or more with its threaded loop, else once a frame [S-OLR2 0]; vibeBMS judges
 each press at its own time, which is LR2 at an unbounded tick rate (see "LR2 equivalence").
 
-### IIDX (approximation)
+### IIDX (DX MODE)
 
-Counted in frames of the 120 Hz LIGHTNING MODEL cabinet: PG ±2F, GR ±4F, GD ±14F, BAD ±30F
-(±16.67 / 33.33 / 116.67 / 250 ms), independent of #RANK. Input timing is quantised to the 120 Hz frame grid.
-**These are community-known approximations, not measured arcade values.**
+The IIDX preset follows DX MODE, LR2oraja Endless Dream's IIDX rules, as bmz-player's documentation describes them
+[S19]. Every key mode but 9 keys, independent of `#RANK`:
+
+| | PGREAT | GREAT | GOOD | BAD | empty POOR |
+|---|---|---|---|---|---|
+| notes, scratch | ±16.67 | ±33.33 | ±116.67 | ±200 | -200 .. +500 |
+| CN / BSS end | ±116.67 (PGREAT) | – | – | ±200 | – |
+
+They are whole frames of the 120 Hz LIGHTNING MODEL cabinet (2, 4, 14, 24 and 60 frames), and input timing is
+quantised to that frame grid (vibeBMS's own; DX MODE is not said to quantise). A BAD takes the note, an empty POOR
+keeps the combo, in 5 keys too.
+
+9 keys (pop'n music's, POP) [S19], in ms and not quantised: PGREAT ±25, GREAT ±50, GOOD ±87.5, BAD ±100, empty POOR
+-112.5 .. +500; CN / HCN end ±120 / ±150 / ±217 / ±283 with the 200 ms early-release margin; a BAD does not take the
+note, an empty POOR breaks the combo and a note gives one POOR at most (as PMS under beatoraja).
+
+What the arcade sources say: PGREAT, GREAT and GOOD as above, a CN end only PGREAT or worse [S20]; they give BAD as
+±250 ms [S20, S21] and the empty POOR window as unknown [S20]. vibeBMS takes DX MODE's ±200 ms to match the other
+players that have it. Not followed from DX MODE: its MultiBad (a BAD on every note in reach of a press) and its
+suppression of a late BAD on an LN head.
 
 ## Gauges
 
@@ -223,9 +247,37 @@ kept, but nothing is sent to an internet ranking (a course play is no IR's); a N
 its `#BPM` line is scaled with it; a NONSTOP mine converted by the overlap clean-up is dropped, not played; replays of
 an expert stage are kept (with the gauges it started from) but the song select does not list them.
 
-### IIDX set (approximation)
-Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 30 %, EX-HARD -10, -18, -10.
-**Approximate values**, adjust in `gauge.rs`.
+### IIDX set (DX MODE)
+
+[S19] Values per PG, GR, GD, BAD, POOR, empty POOR; the groove gauges start at 22 %:
+
+| gauge | init | border | values | |
+|---|---|---|---|---|
+| ASSIST EASY | 22 | 60 | 1, 1, 0.5, -1.6, -4.8, -1.6 | × TOTAL / notes on gains |
+| EASY | 22 | 80 | 1, 1, 0.5, -1.6, -4.8, -1.6 | × TOTAL / notes |
+| NORMAL | 22 | 80 | 1, 1, 0.5, -2, -6, -2 | × TOTAL / notes |
+| HARD | 100 | – | 0.16, 0.16, 0, -4.5, -9, -4.5 | damage halved below 30 % |
+| EX-HARD | 100 | – | 0.16, 0.16, 0, -9, -18, -9 | |
+| HAZARD | 100 | – | 0.16, 0.16, 0, -100, -100, -9 | |
+| CLASS | 100 | – | 0.16, 0.16, 0.04, -1.5, -2.5, -1.5 | damage halved below 30 % |
+| EX-CLASS | 100 | – | 0.16, 0.16, 0.04, -3, -5, -3 | |
+| EXHARD-CLASS | 100 | – | 0.16, 0.16, 0.04, -6, -10, -6 | |
+
+The survival gauges (HARD to EXHARD-CLASS) empty below 2 %. DX MODE's gains use an IIDX TOTAL of its own; its
+formula is not described in prose, so vibeBMS uses the chart's TOTAL.
+
+9 keys play pop'n's (POP) gauges [S19]: ASSIST EASY to EX-HARD are groove gauges (2 to 120 %, from 30 %, cleared at
+65 % for ASSIST EASY and 85 % for the others; gains 1.2, 1.2, 0.6 × TOTAL / notes; damage per BAD, POOR, empty POOR
+-0.937, -2.929, -2.929 on ASSIST EASY and EASY, -1.992, -5.976, -5.976 on NORMAL, -3.984, -11.952, -11.952 on HARD,
+-7.968, -23.906, -23.906 on EX-HARD); HAZARD 0.15, 0.06, 0, -100, -100, -100; CLASS 0.15, 0.15, 0.06, -1.5, -3, -3
+(halved below 30 %); EX-CLASS 0.15, 0.15, 0.03, -3, -6, -6; EXHARD-CLASS 0.15, 0.15, 0, -5, -10, -10; no 2 % rule.
+DX MODE's POP TOTAL (and its doubled GOOD gain from 1537 notes) is not described in prose: the chart's TOTAL here.
+
+The arcade sources give HARD as -5, -9, -5 and EX-HARD -10, -18, -10 (BAD, POOR, empty POOR), and the survival
+gauges as failing at 0 % [S20, S21, S22]; EX-CLASS (EX-DAN) -3, -5, -3 agrees [S20]. vibeBMS follows DX MODE
+throughout, as for the windows. Before these values the IIDX preset was an approximation of the arcade (BAD ±250 ms,
+HARD -5, -9, -5, EX-HARD -10, -18, -10, no 2 % rule, no pop'n set); its records stay under the IIDX rule mode, and
+its replays (format 5 and before) may judge otherwise when played again.
 
 ## Long notes
 * **LN** (`#LNMODE 1`, default): only the start is judged; the final judgement is the worse of the start and
@@ -460,6 +512,25 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   beatoraja's options, not a measurement of LR2.
 - **S18** BMS Community, "resources", <https://bms-community.github.io/resources>: Bokutachi "Supports beatoraja (PMS
   only), LR2oraja (including Endless Dream) and LR2."
+- **S19** bmz-player, `docs/rule.md`, section "DX" (prose; read 2026-11 with its code blocks removed),
+  <https://github.com/hyrorre/bmz-player/blob/main/docs/rule.md>: DX MODE as LR2oraja Endless Dream has it. Windows
+  for all modes but 9 keys: PGREAT ±16.666, GREAT ±33.333, GOOD ±116.666, BAD ±200 ms, empty POOR 500 ms early and
+  200 late (following LR2oraja Endless Dream-rian 1.5.0), LN and long scratch ends ±116.666 to GOOD and ±200 BAD;
+  9 keys the POP windows and CN / HCN ends above, a BAD that does not take the note, an empty POOR that breaks the
+  combo, a 200 ms release margin. `#RANK` ignored. The IIDX and POP gauge tables above, HARD and CLASS damage halved
+  below 30 %, the survival gauges closing below 2 % (not the POP gauges). bmz says its rules were taken from
+  LR2oraja Endless Dream's source; it is cited here as DX MODE's documented behaviour.
+- **S20** iidx.org, "Life Gauge Calculation and Timing Windows in beatmania IIDX",
+  <https://iidx.org/compendium/gauges_and_timing>, and "IIDX LR2 beatoraja differences" (S3): PGREAT ±16.67, GREAT
+  ±33.33, GOOD ±116.67, BAD ±250 ms, the empty POOR window unknown; a CN end has only PGREAT (GREAT and GOOD count
+  as PGREAT); gauges A-EASY, EASY -1.6, -4.8, -1.6, NORMAL -2, -6, -2, HARD 0.16, 0.16, 0, -5, -9, -5 halved at or
+  below 30 %, EX-HARD -10, -18, -10, DAN -1.5, -2.5, -1.5, EX-DAN -3, -5, -3; groove gauges from 22 %, survival
+  gauges fail at 0 %.
+- **S21** beatmania IIDX SP攻略 @ wiki, "ゲーム仕様解説" (as of Pinky Crush), <https://w.atwiki.jp/bemani2sp/pages/4662.html>:
+  HARD BAD and empty POOR -5, POOR -9, "30%補正" halving below 30 % (setting in a little above it), EX-HARD twice
+  HARD without it, 段位 -1.5, -2.5; HARD clears if the gauge never reaches 0 %.
+- **S22** "beatmania IIDXでEXHゲージ2%残してFCしたい", <https://note.com/p_300_q/n/n827289c81885>: HARD empty POOR 5,
+  BAD 5, POOR 9 %; EX-HARD twice that.
 
 S4 (re-read 2026-11) describes beatoraja's three note choices: コンボ優先 takes the note a GOOD or better can take,
 and when both or neither can, the lower; "LR2に近い処理（らしい）" (reportedly close to LR2). スコア優先 the same with

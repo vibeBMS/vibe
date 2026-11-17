@@ -6,7 +6,8 @@ use super::input::PanelKey;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
 use crate::config::{
-    Bpms, DifficultyFilter, HsFix, KeyFilter, RandomSelect, Side, SortMode, Versus, HISPEED_STEP,
+    Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
+    HISPEED_STEP,
 };
 use crate::input::Repeat;
 use crate::library::{Favorites, Song};
@@ -113,11 +114,12 @@ impl SelectOption {
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
             SelectOption::LnMode => format!("{:?}", p.ln_mode).to_uppercase(),
-            SelectOption::HiSpeedDown => {
-                format!("{:.2}", p.hispeed_at(&bpm.unwrap_or(REFERENCE_BPMS)))
-            }
+            SelectOption::HiSpeedDown => match p.hs_type {
+                HsType::Normal => format!("NHS {}", p.hs_level),
+                _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(REFERENCE_BPMS))),
+            },
             SelectOption::HiSpeedUp => match bpm {
-                _ if p.hs_fix != HsFix::Off => {
+                _ if p.hs_fix != HsFix::Off || p.hs_type == HsType::Floating => {
                     format!("GN {} FIX", p.green(&bpm.unwrap_or(REFERENCE_BPMS)))
                 }
                 Some(b) => format!("GN {}", p.green(&b)),
@@ -282,6 +284,7 @@ impl SelectScene {
     /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids).
     pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32) -> Next {
         use super::skin::{EVENT_BACK, EVENT_REPLAY, OPTION_EVENT};
+        let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let done = match act {
             1..=9 => {
@@ -306,7 +309,7 @@ impl SelectScene {
                 true
             }
             77 => {
-                option_panel::turn(p, 1, -1, &REFERENCE_BPMS);
+                option_panel::turn(p, 1, -1, &rivals);
                 true
             }
             72 => {
@@ -385,11 +388,12 @@ impl SelectScene {
     /// A key or turntable step with a panel held.
     pub(super) fn panel_input(&mut self, ctx: &mut Ctx, k: PanelKey) {
         let b = self.bpms(ctx);
+        let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let said = match k {
             PanelKey::Key(i) => option_panel::key(p, self.panel, i, &b),
-            PanelKey::Up => option_panel::turn(p, self.panel, 1, &b),
-            PanelKey::Down => option_panel::turn(p, self.panel, -1, &b),
+            PanelKey::Up => option_panel::turn(p, self.panel, 1, &rivals),
+            PanelKey::Down => option_panel::turn(p, self.panel, -1, &rivals),
         };
         if let PanelKey::Key(i) = k {
             if option_panel::repeats(self.panel, i) {
@@ -399,7 +403,9 @@ impl SelectScene {
         if let Some(msg) = said {
             ctx.play_sound(Sound::OptionChange);
             // the skin shows the change on its panel; without one, a toast
-            if !self.skin_has_panels() {
+            // (an IR rival as TARGET too: no skin lists them)
+            let rival = ctx.config.play.target == crate::config::Target::Rival;
+            if !self.skin_has_panels() || rival {
                 ctx.toast(msg);
             }
             ctx.save_config();

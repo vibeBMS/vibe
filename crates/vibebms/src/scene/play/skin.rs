@@ -150,16 +150,6 @@ pub struct PlayState<'a> {
 impl<'a> PlayState<'a> {
     pub fn new(s: &'a PlayScene, ctx: &'a Ctx, now: Instant) -> PlayState<'a> {
         let p = &ctx.config.play;
-        let side_play = |side| {
-            let mut p = match s.session.vs {
-                true => Cow::Owned(p.for_side(side)),
-                false => Cow::Borrowed(p),
-            };
-            if let Some(c) = &s.req.course {
-                c.view(&mut p);
-            }
-            p
-        };
         PlayState {
             s,
             ctx,
@@ -171,8 +161,8 @@ impl<'a> PlayState<'a> {
                 s.facts.rules.judge,
             ),
             chart: ChartFacts::of_meta(&s.session.chart.meta, s.facts.skin_mode),
-            bpms: crate::config::Bpms::of_meta(&s.session.chart.meta),
-            play: [side_play(0), side_play(1)],
+            bpms: s.bpms_at(now),
+            play: [s.side_config(p, 0), s.side_config(p, 1)],
             opp_ex: s.session.opponent_ex(),
             lane_h: s
                 .skin
@@ -231,7 +221,14 @@ impl<'a> PlayState<'a> {
                 target_now: ex,
             };
         }
-        let target = self.ctx.config.play.target.score(sc.max_ex(), best as u32) as i64;
+        let song = &self.s.req.song;
+        let target = crate::scene::target::score(
+            self.ctx,
+            &song.md5,
+            &song.sha256,
+            sc.max_ex(),
+            best as u32,
+        ) as i64;
         let target_now = if self.ctx.config.play.target == crate::config::Target::Best {
             best_now
         } else {
@@ -331,7 +328,7 @@ impl<'a> PlayState<'a> {
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
     fn hispeed(&self) -> f64 {
-        self.ctx.config.play.hispeed_at(&self.bpms) as f64
+        self.ctx.config.play.hispeed_shown(&self.bpms) as f64
     }
 }
 
@@ -609,6 +606,10 @@ impl SkinState for PlayState<'_> {
         let s = self.s;
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
+            // the IR rival TARGET chose, the target's name
+            1 => crate::scene::target::name(self.ctx).1?,
+            // (a battle's target is the opponent: the result names it)
+            3 if self.opp_ex.is_none() => crate::scene::target::name(self.ctx).0,
             1001..=1003 => return table_text(self.table()?, id),
             // course stages' titles
             150..=159 => s

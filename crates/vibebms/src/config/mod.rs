@@ -14,7 +14,9 @@ mod touch;
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
 pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
 pub use keys::{InputTuning, KeyConfig, LaneKeys, SideKeys};
-pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
+pub use play::{
+    HiSpeedMode, HsFix, HsType, PlayConfig, Side, SideOptions, Target, Versus, NORMAL_GREENS,
+};
 pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
@@ -87,7 +89,11 @@ pub struct AudioSettings {
     pub key: f32,
     pub bgm: f32,
     pub system: f32,
+    /// The song select plays a chart's preview (its own, else one made of
+    /// its sounds): once, then the select BGM again, or over and over.
     pub preview: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub preview_once: bool,
 }
 
 impl Default for AudioSettings {
@@ -100,6 +106,7 @@ impl Default for AudioSettings {
             bgm: 1.0,
             system: 0.7,
             preview: true,
+            preview_once: false,
         }
     }
 }
@@ -374,6 +381,9 @@ mod tests {
                 hispeed: 3.75,
                 hs_fix: HsFix::Max,
                 fixed_duration_ms: 512.5,
+                hs_type: HsType::Lr2,
+                hs_level: 7,
+                hs_anim_ms: 300,
                 sudden: 0.25,
                 hidden: 0.125,
                 lift: 0.0625,
@@ -387,6 +397,10 @@ mod tests {
                 bpm_guide: true,
                 timing_auto_adjust: true,
                 target: Target::RateAAPlus,
+                target_rival: Some(PlayerKey {
+                    provider: vibebms_ir::ProviderId::BmsIr,
+                    player: "100005".into(),
+                }),
                 p2: SideOptions {
                     gauge: GaugeType::Hazard,
                     hispeed: 1.5,
@@ -398,6 +412,7 @@ mod tests {
                     lane_cover: true,
                     auto_scratch: true,
                     judge_offset_ms: 9,
+                    hs_level: 12,
                 },
             },
             select: SelectConfig {
@@ -478,6 +493,7 @@ mod tests {
                 bgm: 0.25,
                 system: 0.125,
                 preview: false,
+                preview_once: true,
             },
             tables: vec![
                 TableConfig {
@@ -566,10 +582,16 @@ mod tests {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/config.toml");
         let mut c = full_config();
-        // (written before song select's order and filters, and the input
-        // tuning, were kept)
+        // (written before song select's order and filters, the input
+        // tuning and the hi-speed types were kept)
         c.select = SelectConfig::default();
         c.keys.tuning = InputTuning::default();
+        let d = PlayConfig::default();
+        (c.play.hs_type, c.play.hs_level, c.play.hs_anim_ms) =
+            (d.hs_type, d.hs_level, d.hs_anim_ms);
+        c.play.p2.hs_level = d.hs_level;
+        c.play.target_rival = None;
+        c.audio.preview_once = false;
         c.ir = IrSettings {
             accounts: vec![IrAccount {
                 name: "Test IR".into(),

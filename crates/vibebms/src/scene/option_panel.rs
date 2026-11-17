@@ -12,6 +12,7 @@
 //! after 50 steps. Number key 3 changes the LN mode, as in beatoraja.
 
 use crate::config::{Bpms, HiSpeedMode, HsFix, PlayConfig, Target, Versus};
+use crate::scene::target::{self, Rival};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::{DoubleOption, LaneOption};
@@ -266,13 +267,11 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms) -> Option<Str
     })
 }
 
-/// The turntable turned `dir` (+1 up) with panel `panel` open.
-pub fn turn(p: &mut PlayConfig, panel: usize, dir: i32, _b: &Bpms) -> Option<String> {
+/// The turntable turned `dir` (+1 up) with panel `panel` open (TARGET's
+/// IR rivals: `rivals`).
+pub fn turn(p: &mut PlayConfig, panel: usize, dir: i32, rivals: &[Rival]) -> Option<String> {
     Some(match panel {
-        1 => {
-            p.target = cycle(&Target::ALL, p.target, -dir);
-            format!("TARGET: {}", p.target.label())
-        }
+        1 => format!("TARGET: {}", target::step(p, rivals, -dir)),
         _ => return None,
     })
 }

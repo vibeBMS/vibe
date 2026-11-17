@@ -373,6 +373,7 @@ decide 1404: b=0
 decide 1405: b=12
 decide 9425: n=30 b=30
 play 2: t="PLAYER"
+play 3: t="BEST"
 play 6: r=0.5
 play 10: n=250 b=250 t=""
 play 11: t=""
@@ -545,6 +546,7 @@ play 9014: n=0 b=0
 play 9313: n=320 b=320
 play 9400: r=0.21052632
 result 2: t="PLAYER"
+result 3: t="BEST"
 result 10: t=""
 result 11: t=""
 result 12: t=""
@@ -890,6 +892,7 @@ play-battle 9014: n=0 b=0
 play-battle 9313: n=320 b=320
 play-battle 9400: r=0.21052632
 result-battle 2: t="PLAYER"
+result-battle 3: t="2P"
 result-battle 10: t=""
 result-battle 11: t=""
 result-battle 12: t=""

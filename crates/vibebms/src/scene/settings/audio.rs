@@ -1,6 +1,6 @@
 use super::{display, percent, Row};
 use crate::app::Ctx;
-use crate::scene::option_panel::{cycle, onoff};
+use crate::scene::option_panel::cycle;
 use crate::scene::skinned;
 use crate::skin::SkinType;
 use vibebms_audio::Bus;
@@ -40,9 +40,26 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 c.config.audio.buffer_frames = cycle(&all, c.config.audio.buffer_frames, d)
             },
         ),
-        Row::adjust("Song preview", onoff(a.preview), |c, _| {
-            c.config.audio.preview ^= true
-        }),
+        Row::adjust(
+            "Song preview",
+            match (a.preview, a.preview_once) {
+                (false, _) => "OFF",
+                (true, true) => "ONCE",
+                (true, false) => "LOOP",
+            },
+            |c, d| {
+                // ONCE, LOOP, OFF
+                let a = &mut c.config.audio;
+                let i = match (a.preview, a.preview_once) {
+                    (true, true) => 0,
+                    (true, false) => 1,
+                    (false, _) => 2,
+                };
+                let i = (i + d).rem_euclid(3);
+                (a.preview, a.preview_once) = (i < 2, i == 0);
+                c.audio.mixer.stop(crate::scene::select::PREVIEW_KEY);
+            },
+        ),
         Row::adjust(
             "Sound set",
             skinned::choice_name(ctx, SkinType::SoundSet, sound_set).0,

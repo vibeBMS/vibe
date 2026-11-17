@@ -8,19 +8,26 @@ use crate::gfx::Gfx;
 use crate::ir::NotAsked;
 use crate::library::Song;
 use crate::platform::vfs::{self, Prefetch};
-use crate::platform::{unix_ms, Duration, Job};
+use crate::platform::{unix_ms, Duration, Instant, Job};
 use crate::skin::render::ImageJobs;
 use crate::sysound::Sound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use vibebms_audio::{Bus, PlayOptions};
+use vibebms_audio::{Bus, PlayOptions, Sample};
 use vibebms_ir::lamps::RankView;
 
-pub(super) const PREVIEW_KEY: u64 = u64::MAX - 1;
+pub const PREVIEW_KEY: u64 = u64::MAX - 1;
 
 /// How long the cursor rests before the preview plays, the ranking is
 /// asked for and the banner is decoded.
 const PREVIEW_AFTER: Duration = Duration::from_millis(450);
+/// A preview is made of the chart's sounds only once the cursor rests
+/// longer (on the web the work holds up the page while it runs).
+const GENERATE_AFTER: Duration = Duration::from_millis(if cfg!(target_arch = "wasm32") {
+    1200
+} else {
+    600
+});
 const RANKING_AFTER: Duration = Duration::from_millis(700);
 const BANNER_AFTER: Duration = Duration::from_millis(120);
 
@@ -67,7 +74,8 @@ impl SelectScene {
     /// The sound set's BGM while no song preview plays, and the option
     /// panels' open / close sounds.
     pub(super) fn update_sounds(&mut self, ctx: &mut Ctx) {
-        let want = self.preview_for.is_none();
+        let ended = self.preview_until.is_some_and(|t| Instant::now() >= t);
+        let want = self.preview_for.is_none() || ended || self.preview_wait;
         if want != self.bgm_on {
             self.bgm_on = want;
             if want {
@@ -95,22 +103,47 @@ impl SelectScene {
     pub(super) fn stop_sounds(&mut self, ctx: &mut Ctx) {
         ctx.audio.mixer.stop(PREVIEW_KEY);
         self.preview_for = None;
+        self.preview_until = None;
+        self.preview_wait = false;
         self.stop_bgm(ctx);
     }
 
+    /// Play preview `s` (once, or looping), or with none the select BGM.
+    fn play_preview(&mut self, ctx: &mut Ctx, s: Option<Arc<Sample>>) {
+        self.preview_wait = false;
+        let once = ctx.config.audio.preview_once;
+        let rate = ctx.audio.mixer.sample_rate.max(1) as u64;
+        self.preview_until = match &s {
+            None => Some(Instant::now()),
+            Some(s) if once => {
+                Some(Instant::now() + Duration::from_millis(s.frames as u64 * 1000 / rate))
+            }
+            Some(_) => None,
+        };
+        if let Some(s) = s {
+            let opts = PlayOptions {
+                key: PREVIEW_KEY,
+                bus: Bus::Bgm,
+                volume: 0.8,
+                looping: !once,
+                ..Default::default()
+            };
+            ctx.audio.mixer.play(&s, opts);
+        }
+    }
+
     pub(super) fn update_preview(&mut self, ctx: &mut Ctx) {
+        // a preview made of a chart's sounds: played when its chart still
+        // waits for it
+        let rate = ctx.audio.mixer.sample_rate;
+        if let Some((path, s)) = self.generated.poll(rate) {
+            if self.preview_wait && self.preview_for.as_deref() == Some(path.as_str()) {
+                self.play_preview(ctx, s);
+            }
+        }
         if let Some(s) = self.preview_job.as_mut().and_then(Job::poll) {
             self.preview_job = None;
-            if let Some(s) = s {
-                let opts = PlayOptions {
-                    key: PREVIEW_KEY,
-                    bus: Bus::Bgm,
-                    volume: 0.8,
-                    looping: true,
-                    ..Default::default()
-                };
-                ctx.audio.mixer.play(&s, opts);
-            }
+            self.play_preview(ctx, s);
         }
         // its file read: decoded (off the main thread natively)
         if let Some((_, p)) = self.preview_fetch.take_if(|(f, _)| f.finished()) {
@@ -127,18 +160,29 @@ impl SelectScene {
             }));
             return;
         }
-        if !ctx.config.audio.preview
-            || self.preview_for.is_some()
-            || self.last_move.elapsed() < PREVIEW_AFTER
-        {
+        if !ctx.config.audio.preview || self.last_move.elapsed() < PREVIEW_AFTER {
             return;
         }
         let Some((_, song)) = self.selected_song(ctx) else {
             return;
         };
+        if self.preview_for.is_some() {
+            // a preview to be made once the one before is done
+            if self.preview_wait
+                && !self.generated.busy()
+                && self.last_move.elapsed() >= GENERATE_AFTER
+            {
+                self.generated.start(&song.path);
+            }
+            return;
+        }
         self.preview_for = Some(song.path.clone());
         if let Some(p) = preview_file(song) {
             self.preview_fetch = Some((Prefetch::files(vec![p.clone()]), p));
+        } else if let Some(s) = self.generated.cached(&song.path) {
+            self.play_preview(ctx, Some(s));
+        } else {
+            self.preview_wait = true;
         }
     }
 

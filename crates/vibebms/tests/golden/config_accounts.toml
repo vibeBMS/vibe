@@ -49,6 +49,9 @@ bpm_guide = true
 timing_auto_adjust = true
 hran_threshold_bpm = 150
 target = "RateAAPlus"
+hs_type = "Lr2"
+hs_level = 7
+hs_anim_ms = 300
 
 [play.p2]
 gauge = "Hazard"
@@ -61,6 +64,11 @@ lift = 0.125
 lane_cover = true
 auto_scratch = true
 judge_offset_ms = 9
+hs_level = 12
+
+[play.target_rival]
+provider = "bmsir"
+player = "100005"
 
 [select]
 sort = "MissCount"
@@ -383,6 +391,7 @@ key = 0.75
 bgm = 0.25
 system = 0.125
 preview = false
+preview_once = true
 
 [[tables]]
 name = "Mine"

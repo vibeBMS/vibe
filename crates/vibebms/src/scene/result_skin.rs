@@ -173,8 +173,9 @@ impl SkinState for ResultState<'_> {
         let ex = sc.ex_score() as i64;
         let best = self.best_ex() as i64;
         let target = || {
-            let p = &self.ctx.config.play;
-            p.target.score(sc.max_ex(), self.best_ex()) as i64
+            let song = &self.s.d.request.song;
+            let (md5, sha) = (&song.md5, &song.sha256);
+            crate::scene::target::score(self.ctx, md5, sha, sc.max_ex(), self.best_ex()) as i64
         };
         let (avg, dev) = self.s.timing_stats;
         Some(match id {
@@ -235,6 +236,11 @@ impl SkinState for ResultState<'_> {
         Some(match id {
             TEXT_OPPONENT => d.p2.as_ref()?.name.clone(),
             2 => self.ctx.config.player_name.clone(),
+            1 => crate::scene::target::name(self.ctx).1?,
+            3 => match &d.p2 {
+                Some(o) => o.name.clone(),
+                None => crate::scene::target::name(self.ctx).0,
+            },
             1001..=1003 => {
                 let t = self
                     .table

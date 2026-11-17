@@ -1,5 +1,6 @@
 //! Song select: folders, difficulty tables, courses, search, options.
 
+mod genpreview;
 mod input;
 mod launch;
 mod options;
@@ -9,7 +10,7 @@ mod tree;
 
 #[cfg(test)]
 pub(crate) use options::SelectOption;
-pub use preview::resolve_image;
+pub use preview::{resolve_image, PREVIEW_KEY};
 pub(crate) use skin::SelectState;
 pub(crate) use tree::{Bar, Node};
 
@@ -40,6 +41,7 @@ pub(crate) const REFERENCE_BPMS: Bpms = Bpms {
     min: 150.0,
     max: 150.0,
     main: 150.0,
+    now: None,
 };
 
 /// Time constant (s) of the list easing toward the cursor: 30 % of the
@@ -72,7 +74,13 @@ pub struct SelectScene {
     md5_map: HashMap<String, usize>,
     sha_map: HashMap<String, usize>,
     preview_for: Option<String>,
+    /// A preview played once ends then (the select BGM again).
+    preview_until: Option<Instant>,
+    /// The chart waits for a preview made of its sounds.
+    preview_wait: bool,
     preview_job: Option<Job<Option<Arc<Sample>>>>,
+    /// Previews made of charts' sounds (`genpreview`).
+    generated: genpreview::Generated,
     /// The preview's file being read (the web: from the browser's storage)
     /// before it is decoded.
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
@@ -122,7 +130,10 @@ impl SelectScene {
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
             preview_for: None,
+            preview_until: None,
+            preview_wait: false,
             preview_job: None,
+            generated: Default::default(),
             preview_fetch: None,
             banner: None,
             banner_job: None,
@@ -199,6 +210,8 @@ impl SelectScene {
         if self.preview_for.take().is_some() {
             ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         }
+        self.preview_until = None;
+        self.preview_wait = false;
         self.preview_job = None;
         self.preview_fetch = None;
     }

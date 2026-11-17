@@ -3,7 +3,7 @@
 use super::control::adjust_cover;
 use super::{PlayScene, Stage};
 use crate::app::{Ctx, Next};
-use crate::config::{Bpms, HISPEED_STEP};
+use crate::config::HISPEED_STEP;
 use crate::input::{InputEv, LaneEv};
 use crate::platform::Instant;
 use vibebms_core::record::InputSource;
@@ -59,7 +59,7 @@ impl PlayScene {
                                 KeyCode::ArrowUp => HISPEED_STEP,
                                 _ => -HISPEED_STEP,
                             };
-                            let bpm = Bpms::of_meta(&self.session.chart.meta);
+                            let bpm = self.bpms_at(*time);
                             ctx.config.play.add_hispeed(step, &bpm);
                         }
                         KeyCode::PageUp => adjust_cover(&mut ctx.config.play, 0.02),

@@ -119,10 +119,21 @@ pub struct BestScore {
     pub play_count: u32,
     pub clear_count: u32,
     pub last_played: i64,
+    /// When a play last raised the lamp, and the best EX score (Unix
+    /// seconds; 0: not since these were kept): the LAMP UPDATE and SCORE
+    /// UPDATE folders.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub lamp_updated: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub score_updated: i64,
 }
 
 fn no_cb() -> u32 {
     u32::MAX
+}
+
+fn is_zero(t: &i64) -> bool {
+    *t == 0
 }
 
 impl BestScore {
@@ -153,6 +164,19 @@ impl BestScore {
             play_count: hi.play_count + lo.play_count,
             clear_count: hi.clear_count + lo.clear_count,
             last_played: hi.last_played.max(lo.last_played),
+            lamp_updated: hi.lamp_updated.max(lo.lamp_updated),
+            score_updated: hi.score_updated.max(lo.score_updated),
+        }
+    }
+
+    /// The lamp to `clear` if that is higher, noting when it rose to a
+    /// clear (a first play FAILED is no update).
+    fn raise_lamp(&mut self, clear: ClearType, now: i64) {
+        if clear > self.clear {
+            self.clear = clear;
+            if clear > ClearType::Failed {
+                self.lamp_updated = now;
+            }
         }
     }
 
@@ -494,10 +518,11 @@ impl Library {
             .get(key)
             .cloned()
             .unwrap_or_else(BestScore::none);
-        b.clear = b.clear.max(clear);
+        let now = crate::platform::unix_now() as i64;
+        b.raise_lamp(clear, now);
         b.play_count += 1;
         b.clear_count += (clear > ClearType::Failed) as u32;
-        b.last_played = crate::platform::unix_now() as i64;
+        b.last_played = now;
         self.scores.insert(key.clone(), b.clone());
         self.save_scores();
         self.add_totals(s, play_ms);
@@ -523,12 +548,14 @@ impl Library {
             .get(key)
             .cloned()
             .unwrap_or_else(BestScore::none);
+        let now = crate::platform::unix_now() as i64;
         if s.ex_score() > b.ex_score {
             b.ex_score = s.ex_score();
             b.judges = Judge::ALL.map(|j| s.count(j));
+            b.score_updated = now;
         }
         if clear >= ClearType::FullCombo {
-            b.clear = b.clear.max(ClearType::FullCombo);
+            b.raise_lamp(ClearType::FullCombo, now);
         }
         b.notes = s.total_notes;
         b.max_combo = b.max_combo.max(s.max_combo);
@@ -551,18 +578,22 @@ impl Library {
     ) -> BestScore {
         let old = self.scores.get(key).cloned();
         let mut b = old.clone().unwrap_or_else(BestScore::none);
+        let now = crate::platform::unix_now() as i64;
         if s.ex_score() > b.ex_score || old.is_none() {
+            if s.ex_score() > b.ex_score {
+                b.score_updated = now;
+            }
             b.ex_score = s.ex_score();
             b.judges = Judge::ALL.map(|j| s.count(j));
         }
-        b.clear = b.clear.max(clear);
+        b.raise_lamp(clear, now);
         b.notes = s.total_notes;
         b.max_combo = b.max_combo.max(s.max_combo);
         b.min_bp = b.min_bp.min(s.miss_count());
         b.min_cb = b.min_cb.min(combo_breaks(s));
         b.play_count += 1;
         b.clear_count += (clear > ClearType::Failed) as u32;
-        b.last_played = crate::platform::unix_now() as i64;
+        b.last_played = now;
         self.scores.insert(key.clone(), b.clone());
         self.save_scores();
         self.add_totals(s, play_ms);
@@ -1277,6 +1308,19 @@ mod tests {
         // two records as one: each best on its own
         let m = s[&bea].merge(&s[&lr2]);
         assert_eq!((m.ex_score, m.min_bp, m.min_cb), (18, 0, 0));
+        // when the lamp rose to a clear, and the EX score (LAMP / SCORE
+        // UPDATE): a first FAILED play its score, not its lamp
+        let at = |k: &RecordKey| (s[k].lamp_updated > 0, s[k].score_updated > 0);
+        assert_eq!(at(&bea), (true, true));
+        let failed = lib.record_play(&key("e", 0), &play(3, 0, 0, 3), ClearType::Failed, 0);
+        assert_eq!(
+            (failed.lamp_updated > 0, failed.score_updated > 0),
+            (false, true)
+        );
+        let mut back = s[&bea].clone();
+        (back.lamp_updated, back.score_updated) = (0, 0);
+        let json = serde_json::to_string(&back).unwrap();
+        assert!(!json.contains("updated"), "{json}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

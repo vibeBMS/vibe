@@ -5,6 +5,7 @@
 mod bga;
 mod control;
 mod finish;
+mod hsview;
 mod hud;
 mod input;
 mod layout;
@@ -322,6 +323,8 @@ pub struct PlayScene {
     out: Vec<Out>,
     /// Lane events of the turntables let go (kept for its buffer).
     released: Vec<LaneEv>,
+    /// Each player's hi-speed as the notes show it.
+    hs_view: [hsview::HsView; 2],
 }
 
 impl PlayScene {
@@ -353,8 +356,39 @@ impl PlayScene {
             scene_start: now,
             out: Vec::new(),
             released: Vec::new(),
+            hs_view: Default::default(),
             req,
         }
+    }
+
+    /// The chart's BPMs at `now` (FLOATING keeps the green number at the
+    /// BPM of the moment).
+    pub(crate) fn bpms_at(&self, now: Instant) -> crate::config::Bpms {
+        let s = &self.session;
+        let bpm = s.chart.timing.bpm_at_time(s.chart_us(now).max(0) as f64);
+        crate::config::Bpms::of_meta(&s.chart.meta).at(bpm)
+    }
+
+    /// A player's options (VS: the second player's own; a course's view
+    /// over them).
+    pub(crate) fn side_config<'a>(
+        &self,
+        p: &'a crate::config::PlayConfig,
+        side: usize,
+    ) -> std::borrow::Cow<'a, crate::config::PlayConfig> {
+        let mut p = match self.session.vs {
+            true => std::borrow::Cow::Owned(p.for_side(side)),
+            false => std::borrow::Cow::Borrowed(p),
+        };
+        if let Some(c) = &self.req.course {
+            c.view(&mut p);
+        }
+        p
+    }
+
+    /// The hi-speed each player's notes are drawn at.
+    pub(crate) fn hs_shown(&self, side: usize, now: Instant) -> f32 {
+        self.hs_view[side.min(1)].at(now)
     }
 
     /// The course stage playing at `now` (NONSTOP: at every join).
@@ -504,8 +538,12 @@ impl Scene for PlayScene {
     }
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        let bpm = crate::config::Bpms::of_meta(&self.session.chart.meta);
+        let bpm = self.bpms_at(now);
         self.controls.tick(&mut ctx.config.play, &bpm, now);
+        for side in 0..2 {
+            let p = self.side_config(&ctx.config.play, side).into_owned();
+            self.hs_view[side].update(&p, &bpm, now);
+        }
         self.reshape_skin(ctx, gfx);
         // no game events are run from play skin scripts yet
         if let Some(sk) = self.skin.as_mut() {

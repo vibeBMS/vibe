@@ -25,7 +25,10 @@ use std::io::{Read, Write};
 /// and the BAD chain, whole milliseconds, its long notes and mines,
 /// `#RANK` and `#TOTAL` as LR2 reads them, its HARD damage by TOTAL, its
 /// HAZARD and dan gauges (a LR2-preset replay of 4 may judge otherwise).
-pub const VERSION: u32 = 5;
+/// 6: the IIDX preset as DX MODE: its windows (BAD ±200 ms, 9 keys
+/// pop'n's), combo and note rules, gauges and 2 % rule (an IIDX-preset
+/// replay of 5 may judge otherwise).
+pub const VERSION: u32 = 6;
 
 /// The oldest format still read: its ghost still paces a play, but
 /// watching it or playing it again (G-BATTLE) runs it on this judge.

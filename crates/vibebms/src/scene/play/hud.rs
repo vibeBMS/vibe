@@ -5,7 +5,6 @@
 use super::skin::{PlayHooks, PlayState};
 use super::{PlayScene, Stage};
 use crate::app::{Ctx, Draw};
-use crate::config::Bpms;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Rect};
 use crate::platform::Instant;
@@ -64,6 +63,8 @@ impl PlayScene {
             // (a skin's own panel is the first player's)
             if self.controls.panel[who].open() && (!self.skin_panel || who == 1) {
                 self.draw_panel(ctx, d, view, now, who);
+            } else if who == 0 || self.session.vs {
+                self.draw_hs_change(ctx, d, view, now, who);
             }
         }
         // VS: a player who failed plays no more
@@ -103,6 +104,41 @@ impl PlayScene {
             );
         }
         self.session.advance_cursors(self.session.chart_us(now));
+    }
+
+    /// A hi-speed change the player made, shown over the top of their
+    /// note field for a moment (`hsview::SHOWN`), fading out.
+    fn draw_hs_change(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant, who: usize) {
+        let p = self.side_config(&ctx.config.play, who);
+        let Some((text, fade)) = self.hs_view[who].shown(&p, &self.bpms_at(now), now) else {
+            return;
+        };
+        let fields = self.fields(view);
+        let f = match self.session.vs {
+            true => fields.get(who),
+            false => fields.first(),
+        };
+        let Some(f) = f.copied() else {
+            return;
+        };
+        // (a double play's two fields: across both)
+        let f = match (self.session.vs, fields.last()) {
+            (false, Some(l)) => Rect::new(f.x, f.y, l.right() - f.x, f.h),
+            _ => f,
+        };
+        let ui = ctx.ui();
+        let size = (15.0 * ui).min(f.w * 0.08);
+        let (w, h) = ((size * 13.0).min(f.w * 0.95), size * 2.0);
+        let top = f.y + f.h * (0.06 + p.sudden * (p.lane_cover || p.sudden > 0.0) as u8 as f32);
+        let r = Rect::new(f.x + (f.w - w) * 0.5, top.min(f.bottom() - h), w, h);
+        let a = 1.0 - fade;
+        d.b.rect(r, with_alpha(rgba(0x05060aff), 0.8 * a));
+        d.text(
+            &text,
+            r.x + r.w * 0.5,
+            r.y + (h - size) * 0.5,
+            TextStyle::new(size, with_alpha(theme::ACCENT, a), Align::Center).fit(w - 8.0 * ui),
+        );
     }
 
     /// The hi-speed panel for skins without their own, beside the note
@@ -159,8 +195,8 @@ impl PlayScene {
         let r = Rect::new(x, first.y + first.h * 0.12, w, h);
         ui::panel(d, r);
         let p = &ctx.config.play.for_side(who);
-        let bpms = Bpms::of_meta(&self.session.chart.meta);
-        let hs = p.hispeed_at(&bpms);
+        let bpms = self.bpms_at(now);
+        let hs = p.hispeed_shown(&bpms);
         let cx = r.x + w * 0.5;
         let small = (11.0 * ui).min(w * 0.12);
         let mut y = r.y + 10.0 * ui;

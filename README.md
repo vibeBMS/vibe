@@ -68,7 +68,7 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
 | Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay; 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay; 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
@@ -82,9 +82,23 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   changes and stops shown), judge timing auto-adjust. As in beatoraja, EXPAND JUDGE over 100% makes the play
   ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; such plays keep only their lamp and
   play count (see Clear lamps in `docs/RULES.md`).
-- Hi-speed: you set the multiplier (in steps of 0.25); the green number (how long notes are visible) follows from it,
-  the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the opposite: the green number
-  stays and the multiplier follows each chart's BPM.
+- Hi-speed (`SETTINGS › PLAY › Hi-speed type`):
+  - CLASSIC (default): you set the multiplier (in steps of 0.25); the green number (how long notes are visible)
+    follows from it, the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the
+    opposite: the green number stays and the multiplier follows each chart's BPM.
+  - NORMAL: IIDX's normal hi-speed, levels 1 to 20 that are green numbers of the whole lane (1200, 1000, 800,
+    700, 650 … 300, 280, 260, as bmz-player documents IIDX's), at the HS-FIX BPM (MAIN without HS-FIX); the hi-speed
+    keys step a level.
+  - FLOATING: IIDX's floating hi-speed. The green number is kept: through the lane cover and LIFT, and while
+    playing through the chart's BPM changes (the multiplier follows the BPM of the moment; before the start, the
+    HS-FIX BPM). The hi-speed keys set a new green number.
+  - LR2: the multiplier, as LR2 has it; with HS-FIX it is the speed at 150 BPM (the notes of a chart's HS-FIX BPM
+    move as a 150 BPM chart's at that setting), the setting is what the screen and skins show, and the lane cover
+    leaves it as it is.
+
+  A change made while playing reaches the notes over 150 ms, easing out (`Hi-speed change while playing`, 0 to
+  1000 ms; 0: at once), and the new hi-speed and green number show over the note field for a moment. A change the
+  chart makes (FLOATING through a BPM change) is not eased.
 - Controllers (IIDX controllers included) are set in `SETTINGS › KEY CONFIG` by pressing their buttons. Analog
   turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
   default; see [docs/RULES.md](docs/RULES.md) "Input filters").
@@ -117,9 +131,18 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
   the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
   reached.
+- **Song preview** (`SETTINGS › AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
+  the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
+  keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
+  of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
+  off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
+  read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
-  rank A–AAA, MAX- / MAX).
+  rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
+  (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the
+  share of the notes judged, as the IRs give no per-note data; skins get the rival's name as text 1 and the target's
+  name as text 3, its EX score as the target's numbers.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA
