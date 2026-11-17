@@ -172,6 +172,11 @@ struct SongRecord {
     song: Song,
     mtime: i64,
     size: i64,
+    /// Not a playable chart (it does not parse, or has no notes) to this
+    /// version of the game: kept so that it is read again only when it
+    /// changes or another version scans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    skipped_by: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -270,6 +275,7 @@ impl Library {
     pub fn songs(&self) -> Vec<Song> {
         load_songs(&self.songs_file)
             .into_iter()
+            .filter(|r| r.skipped_by.is_none())
             .map(|r| r.song)
             .collect()
     }
@@ -601,6 +607,9 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
     }
 }
 
+/// The game's version, which a chart it could not read is filed under.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Scan `roots` and update the song cache. Runs on a background thread.
 pub fn scan(
     songs_file: PathBuf,
@@ -613,7 +622,10 @@ pub fn scan(
     // kinds, or the types of their long notes, are read again (once)
     let known: HashMap<String, (i64, i64)> = known_records
         .iter()
-        .filter(|r| r.song.judge.is_some() && (!r.song.has_ln || r.song.ln_profile.is_some()))
+        .filter(|r| match &r.skipped_by {
+            Some(v) => v == VERSION,
+            None => r.song.judge.is_some() && (!r.song.has_ln || r.song.ln_profile.is_some()),
+        })
         .map(|r| (r.song.path.clone(), (r.mtime, r.size)))
         .collect();
     let mut files: Vec<(PathBuf, String)> = Vec::new();
@@ -670,28 +682,51 @@ pub fn scan(
             random_seed: Some(0),
             ..Default::default()
         };
-        // a parser bug on one file skips that file
-        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            vfs::read(f).map_err(|e| e.to_string()).and_then(|b| {
+        // (a file that cannot be read now is tried again next time)
+        let parsed = vfs::read(f).map(|b| {
+            // a parser bug on one file skips that file
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 vibebms_core::load_chart_bytes(f, &b, &opts).map_err(|e| e.to_string())
-            })
-        }))
-        .unwrap_or_else(|_| Err("the parser panicked".into()));
-        match parsed {
-            Ok(c) if c.note_count() > 0 => {
-                results.lock().unwrap().push(SongRecord {
-                    song: song_from_chart(f, folder.clone(), &c),
-                    mtime: stamp.0,
-                    size: stamp.1,
-                });
+            }))
+            .unwrap_or_else(|_| Err("the parser panicked".into()))
+        });
+        let entry = |song, skipped_by| SongRecord {
+            song,
+            mtime: stamp.0,
+            size: stamp.1,
+            skipped_by,
+        };
+        let record = match parsed {
+            Ok(Ok(c)) if c.note_count() > 0 => {
+                Some(entry(song_from_chart(f, folder.clone(), &c), None))
             }
-            Ok(_) => {}
-            Err(e) => log::debug!("skip {}: {e}", f.display()),
+            Ok(r) => {
+                if let Err(e) = r {
+                    log::debug!("skip {}: {e}", f.display());
+                }
+                let song = Song {
+                    path: f.to_string_lossy().into_owned(),
+                    folder: folder.clone(),
+                    ..Song::default()
+                };
+                Some(entry(song, Some(VERSION.to_string())))
+            }
+            Err(e) => {
+                log::debug!("skip {}: {e}", f.display());
+                None
+            }
+        };
+        if let Some(r) = record {
+            results.lock().unwrap().push(r);
         }
         progress.parsed.fetch_add(1, Ordering::Relaxed);
     });
     let new = results.into_inner().unwrap();
-    let removed = known.keys().filter(|k| !seen.contains(*k)).count();
+    // (records read again count too: their file may be gone)
+    let removed = known_records
+        .iter()
+        .filter(|r| !seen.contains(&r.song.path))
+        .count();
     let changed = !new.is_empty() || removed > 0;
     if changed {
         let updated: HashSet<String> = new.iter().map(|r| r.song.path.clone()).collect();
@@ -711,7 +746,7 @@ pub fn scan(
         }
         log::info!(
             "scan finished: {} charts ({} updated, {removed} removed)",
-            all.len(),
+            all.iter().filter(|r| r.skipped_by.is_none()).count(),
             updated.len()
         );
     } else {
@@ -994,6 +1029,8 @@ mod tests {
         )
         .unwrap();
         std::fs::write(songs.join("readme.txt"), "x").unwrap();
+        // no notes: not a song, and not read again while it stays so
+        std::fs::write(songs.join("empty.bme"), "#TITLE E\n").unwrap();
         let cache = dir.join("cache");
         let p = Arc::new(ScanProgress::default());
         scan(
@@ -1078,5 +1115,30 @@ mod tests {
         assert_eq!(Library::open(&cache, &cache).songs().len(), 0);
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&moved).ok();
+    }
+
+    #[test]
+    fn old_records_of_deleted_charts_go() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-old-{}", std::process::id()));
+        let songs = dir.join("pack");
+        std::fs::create_dir_all(&songs).unwrap();
+        let cache = dir.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        // a record from before judge ranks were kept (read again when
+        // seen), its chart deleted since
+        let gone = songs.join("gone.bme").to_string_lossy().into_owned();
+        let old = serde_json::json!([{ "path": gone, "title": "Gone", "mtime": 1, "size": 1 }]);
+        std::fs::write(cache.join("songs.json"), old.to_string()).unwrap();
+        assert_eq!(Library::open(&cache, &cache).songs().len(), 1);
+        let p = Arc::new(ScanProgress::default());
+        scan(
+            cache.join("songs.json"),
+            vec![songs],
+            [cache.clone()].into_iter().collect(),
+            p.clone(),
+        );
+        assert!(p.changed.load(Ordering::Relaxed));
+        assert!(Library::open(&cache, &cache).songs().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

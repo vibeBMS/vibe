@@ -212,7 +212,7 @@ impl SkinState for ResultState<'_> {
             .score(sc.max_ex(), self.best_ex()) as i64;
         let rate = split2(sc.rate() * 100.0);
         let m = &d.meta;
-        let (avg, dev) = graphs::timing_stats(&d.timing_log);
+        let (avg, dev) = self.s.timing_stats;
         let bp = |b: &crate::library::BestScore| {
             if b.min_bp == u32::MAX {
                 0
@@ -230,7 +230,7 @@ impl SkinState for ResultState<'_> {
             77 => after.map(|b| b.play_count as i64).unwrap_or(0),
             78 => after.map(|b| b.clear_count as i64).unwrap_or(0),
             79 => after
-                .map(|b| (b.play_count - b.clear_count) as i64)
+                .map(|b| b.play_count.saturating_sub(b.clear_count) as i64)
                 .unwrap_or(0),
             90 => m.max_bpm.round() as i64,
             91 => m.min_bpm.round() as i64,
