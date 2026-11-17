@@ -32,13 +32,25 @@ pub(super) struct Source<'a> {
     /// Measure lengths other than 1 (channel 02).
     pub measure_len: HashMap<u32, f64>,
     pub lines: Vec<Line<'a>>,
+    /// A `#RANK` / `#BPM` line was read (a NONSTOP stage's).
+    pub rank_given: bool,
+    pub bpm_given: bool,
 }
 
 /// The longest header name the parser knows (`DIFFICULTY`), with room.
 const KEY_MAX: usize = 12;
 
-pub(super) fn read<'a>(text: &'a str, opts: &ParseOptions) -> Source<'a> {
+/// `rng`: the `#RANDOM` sequence to go on with (a NONSTOP course's), in
+/// place of one seeded by `opts`.
+pub(super) fn read<'a>(
+    text: &'a str,
+    opts: &ParseOptions,
+    mut rng: Option<&mut crate::rng::JavaRandom>,
+) -> Source<'a> {
     let mut flow = Flow::new(opts);
+    if let Some(r) = rng.as_deref_mut() {
+        std::mem::swap(&mut flow.rng, r);
+    }
     let mut src = Source {
         meta: ChartMeta::default(),
         initial_bpm: 130.0,
@@ -51,7 +63,10 @@ pub(super) fn read<'a>(text: &'a str, opts: &ParseOptions) -> Source<'a> {
         lnobj: HashSet::new(),
         measure_len: HashMap::new(),
         lines: Vec::new(),
+        rank_given: false,
+        bpm_given: false,
     };
+    let (mut rank_given, mut bpm_given) = (false, false);
     let meta = &mut src.meta;
     let mut lnobj: Vec<&str> = Vec::new();
     for raw in text.lines() {
@@ -115,10 +130,16 @@ pub(super) fn read<'a>(text: &'a str, opts: &ParseOptions) -> Source<'a> {
                 meta.subartist.push_str(arg)
             }
             "GENRE" => meta.genre = arg.to_owned(),
-            "BPM" => src.initial_bpm = parse_f64(arg).filter(|v| *v > 0.0).unwrap_or(130.0),
+            "BPM" => {
+                bpm_given = true;
+                src.initial_bpm = parse_f64(arg).filter(|v| *v > 0.0).unwrap_or(130.0)
+            }
             "PLAYLEVEL" => meta.level = arg.to_owned(),
             "DIFFICULTY" => meta.difficulty = parse_i32(arg).unwrap_or(0),
-            "RANK" => meta.judge_rank = parse_i32(arg).map_or(JudgeRank::NoNumber, JudgeRank::Rank),
+            "RANK" => {
+                rank_given = true;
+                meta.judge_rank = parse_i32(arg).map_or(JudgeRank::NoNumber, JudgeRank::Rank)
+            }
             "DEFEXRANK" => {
                 if let Some(v) = parse_f64(arg) {
                     meta.judge_rank = JudgeRank::DefExRank(v)
@@ -161,7 +182,11 @@ pub(super) fn read<'a>(text: &'a str, opts: &ParseOptions) -> Source<'a> {
         }
     }
     meta.has_random = flow.used;
-    meta.random_selections = flow.selections;
+    meta.random_selections = std::mem::take(&mut flow.selections);
+    if let Some(r) = rng {
+        std::mem::swap(&mut flow.rng, r);
+    }
+    (src.rank_given, src.bpm_given) = (rank_given, bpm_given);
     // (in the base of the whole file: #BASE may come after #LNOBJ)
     src.lnobj = lnobj
         .iter()

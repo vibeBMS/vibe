@@ -14,7 +14,7 @@ mod out;
 mod voice;
 
 pub use decode::{decode_bytes, decode_file, parallel_for, Sample, SoundBank};
-pub use voice::Bus;
+pub use voice::{Bus, GROUPS};
 
 use out::{us_since, Device, Output};
 use std::sync::Arc;
@@ -63,6 +63,8 @@ pub struct PlayOptions {
     pub offset: usize,
     pub end: Option<usize>,
     pub looping: bool,
+    /// Its volume group (`Mixer::set_group_volume`; 0: none).
+    pub group: u8,
 }
 
 impl Default for PlayOptions {
@@ -75,6 +77,7 @@ impl Default for PlayOptions {
             offset: 0,
             end: None,
             looping: false,
+            group: 0,
         }
     }
 }
@@ -155,6 +158,11 @@ impl Mixer {
     }
     pub fn set_master(&self, v: f32) {
         self.out.send(Cmd::Master(v));
+    }
+    /// The volume of every voice of group `g` (1..=`GROUPS`), those to
+    /// come too: a NONSTOP course's stage fading in or out.
+    pub fn set_group_volume(&self, g: u8, v: f32) {
+        self.out.send(Cmd::GroupVolume(g, v));
     }
 
     /// Browsers start audio suspended until a user gesture; call on input.

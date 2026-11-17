@@ -374,6 +374,37 @@ impl Library {
         }
     }
 
+    /// A stage of an expert or class course into its chart's record,
+    /// partly (S-OLR2b 4.4): the best EX score with its counts (strictly
+    /// higher), max combo and min BP, the lamp only to FULL COMBO; no play
+    /// count (the course's result counts the play).
+    pub fn record_stage(
+        &mut self,
+        sha256: &str,
+        ln: i32,
+        s: &Score,
+        clear: ClearType,
+    ) -> BestScore {
+        let key = (sha256.to_string(), ln);
+        let mut b = self.scores.get(&key).cloned().unwrap_or(BestScore {
+            min_bp: u32::MAX,
+            ..Default::default()
+        });
+        if s.ex_score() > b.ex_score {
+            b.ex_score = s.ex_score();
+            b.judges = Judge::ALL.map(|j| s.count(j));
+        }
+        if clear >= ClearType::FullCombo {
+            b.clear = b.clear.max(ClearType::FullCombo);
+        }
+        b.notes = s.total_notes;
+        b.max_combo = b.max_combo.max(s.max_combo);
+        b.min_bp = b.min_bp.min(s.miss_count());
+        self.scores.insert(key, b.clone());
+        self.save_scores();
+        b
+    }
+
     /// Merge a play into the best score and the totals (`play_ms`: how
     /// long it was played). Returns the updated best.
     pub fn record_play(

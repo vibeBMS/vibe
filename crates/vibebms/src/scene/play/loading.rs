@@ -15,7 +15,10 @@ use std::sync::Arc;
 use vibebms_audio::SoundBank;
 use vibebms_core::chart::Chart;
 use vibebms_core::lane_option::DoubleOption;
-use vibebms_core::play::{build_battle_chart, build_chart, PlayChart, RuleOptions};
+use vibebms_core::nonstop::Nonstop;
+use vibebms_core::play::{
+    build_battle_chart, build_chart, build_nonstop_chart, PlayChart, RuleOptions,
+};
 use vibebms_core::score::AssistFacts;
 
 pub(super) type Rgba = (u32, u32, Vec<u8>);
@@ -32,6 +35,8 @@ pub(super) struct Loaded {
     pub facts: AssistFacts,
     /// The chart's long notes as written (before options).
     pub ln_profile: vibebms_core::LnProfile,
+    /// A NONSTOP course's stages in the chart.
+    pub nonstop: Option<Nonstop>,
 }
 
 type Work = Box<dyn FnOnce() -> Result<Box<Loaded>, String> + Send>;
@@ -77,24 +82,48 @@ impl Loading {
         } else {
             play
         };
+        // a course: its rules (a replay's play options have them)
+        let mut play = play;
+        if let (Some(c), None) = (&req.course, &req.replay) {
+            play.rules = c.rules(&play.rules);
+        }
         let rate = ctx.audio.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
-        let course_mirror = req
-            .course
-            .as_ref()
-            .map(|c| c.has("grade_mirror"))
-            .unwrap_or(true);
-        let in_course = req.course.is_some();
+        let lanes = req.course.as_ref().and_then(|c| c.lanes());
+        // (an expert or class course: every stage from the first's seed)
+        let replay_seed = replay_seed.or(req.course.as_ref().and_then(|c| c.seed));
         let song_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        let work = move || -> Result<Box<Loaded>, String> {
-            let seed = replay_seed.unwrap_or_else(|| {
+        let seed_now = move || {
+            replay_seed.unwrap_or_else(|| {
                 crate::platform::SystemTime::now()
                     .duration_since(crate::platform::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(1)
-            });
+            })
+        };
+        if let Some(c) = req.course.as_ref().filter(|c| c.nonstop()) {
+            let paths: Vec<PathBuf> = c.songs.iter().map(|s| PathBuf::from(&s.path)).collect();
+            let dirs: Vec<PathBuf> = paths
+                .iter()
+                .map(|p| p.parent().map(Path::to_path_buf).unwrap_or_default())
+                .collect();
+            let joins = c.def.joins.clone();
+            let work = move || -> Result<Box<Loaded>, String> {
+                let seed = seed_now();
+                load_nonstop(&paths, &joins, &play, seed, rate, &p2, &t2)
+            };
+            return Loading {
+                work: Some(Box::new(work)),
+                prefetch: Prefetch::dirs(&dirs),
+                job: None,
+                progress,
+                total_files,
+                since: Instant::now(),
+            };
+        }
+        let work = move || -> Result<Box<Loaded>, String> {
+            let seed = seed_now();
             let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
-            let lanes = in_course.then_some(course_mirror);
             let PlayChart {
                 chart,
                 facts,
@@ -109,19 +138,8 @@ impl Loading {
             let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
             let read = |p: &Path| crate::platform::vfs::read(p).ok();
             let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
-            // an image or a video (shown when ffmpeg is installed)
             let (images, videos) = if play.bga {
-                use crate::platform::vfs::IMAGE_EXTS;
-                use crate::video::{is_video, VIDEO_EXTS};
-                chart
-                    .images
-                    .iter()
-                    .map(|f| match index.find(f, IMAGE_EXTS) {
-                        Some(p) if is_video(&p) => (None, Some(p)),
-                        Some(p) => (crate::gfx::load_rgba(&p, true), None),
-                        None => (None, index.find(f, VIDEO_EXTS)),
-                    })
-                    .unzip()
+                load_images(&index, &chart.images)
             } else {
                 (Vec::new(), Vec::new())
             };
@@ -138,6 +156,7 @@ impl Loading {
                 seed,
                 facts,
                 ln_profile,
+                nonstop: None,
             }))
         };
         Loading {
@@ -185,8 +204,12 @@ impl Loading {
             line(d, &text, h * 0.22, 20.0, theme::ACCENT);
         }
         if let Some(c) = &req.course {
+            let stage = match c.nonstop() {
+                true => format!("NONSTOP {} STAGES", c.songs.len()),
+                false => format!("STAGE {}/{}", c.index + 1, c.songs.len()),
+            };
             d.text(
-                &format!("{}  STAGE {}/{}", c.name, c.index + 1, c.songs.len()),
+                &format!("{}  {stage}", c.name),
                 w * 0.5,
                 h * 0.22,
                 TextStyle::new(22.0 * ui, theme::ACCENT, Align::Center),
@@ -206,4 +229,88 @@ impl Loading {
             TextStyle::new(16.0 * ui, theme::TEXT_DIM, Align::Center),
         );
     }
+}
+
+type Media = (Vec<Option<Rgba>>, Vec<Option<PathBuf>>);
+
+/// A chart's images (`files`), each an image or a video (shown when
+/// ffmpeg is installed).
+fn load_images(index: &crate::platform::vfs::DirIndex, files: &[String]) -> Media {
+    use crate::platform::vfs::IMAGE_EXTS;
+    use crate::video::{is_video, VIDEO_EXTS};
+    files
+        .iter()
+        .map(|f| match index.find(f, IMAGE_EXTS) {
+            Some(p) if is_video(&p) => (None, Some(p)),
+            Some(p) => (crate::gfx::load_rgba(&p, true), None),
+            None => (None, index.find(f, VIDEO_EXTS)),
+        })
+        .unzip()
+}
+
+/// A NONSTOP course: its stages (`paths`) joined into one chart, each
+/// stage's sounds and images from its own folder, a tempo-matched stage's
+/// sounds played at its speed (and pitch).
+fn load_nonstop(
+    paths: &[PathBuf],
+    joins: &[vibebms_core::course::Join],
+    play: &PlayConfig,
+    seed: i64,
+    rate: u32,
+    progress: &AtomicUsize,
+    total: &AtomicUsize,
+) -> Result<Box<Loaded>, String> {
+    let bytes = paths
+        .iter()
+        .map(|p| crate::platform::vfs::read(p).map_err(|e| format!("{}: {e}", p.display())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let stages: Vec<(&Path, &[u8])> = paths
+        .iter()
+        .zip(&bytes)
+        .map(|(p, b)| (p.as_path(), b.as_slice()))
+        .collect();
+    let (pc, ns) = build_nonstop_chart(&stages, joins, &play.rules, seed)?;
+    let chart = pc.chart;
+    total.store(chart.sound_files.len(), Ordering::Relaxed);
+    let mut bank = SoundBank::default();
+    let (mut images, mut videos) = (Vec::new(), Vec::new());
+    for (span, path) in ns.stages.iter().zip(paths) {
+        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let index = crate::platform::vfs::DirIndex::new(&dir);
+        let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
+        let read = |p: &Path| crate::platform::vfs::read(p).ok();
+        let files = &chart.sound_files[span.files.start as usize..span.files.end as usize];
+        let mut own = SoundBank::load_with(files, rate, progress, &resolve, &read);
+        if span.ratio != 1.0 {
+            for s in own.samples.iter_mut().flatten() {
+                *s = std::sync::Arc::new(s.resampled(span.ratio));
+            }
+        }
+        bank.samples.extend(own.samples);
+        if play.bga {
+            let files = &chart.images[span.images.start as usize..span.images.end as usize];
+            let (i, v) = load_images(&index, files);
+            images.extend(i);
+            videos.extend(v);
+        }
+    }
+    let first = paths
+        .first()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new(""));
+    let stagefile = crate::platform::vfs::inside(first, &chart.meta.stagefile)
+        .filter(|_| !chart.meta.stagefile.is_empty())
+        .and_then(|p| crate::scene::select::resolve_image(&p))
+        .and_then(|p| crate::gfx::load_rgba(&p, false));
+    Ok(Box::new(Loaded {
+        chart,
+        bank,
+        images,
+        videos,
+        stagefile,
+        seed,
+        facts: pc.facts,
+        ln_profile: pc.ln_profile,
+        nonstop: Some(ns),
+    }))
 }

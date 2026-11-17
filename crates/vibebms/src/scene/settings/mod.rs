@@ -6,6 +6,7 @@
 //! lower / go back, SELECT leaves.
 
 mod audio;
+mod courses;
 mod display;
 mod ir;
 mod judge;
@@ -47,13 +48,14 @@ pub enum Page {
     Audio,
     Library,
     Tables,
+    Courses,
     Ir,
     Skins,
     System,
 }
 
 impl Page {
-    const ALL: [Page; 11] = [
+    const ALL: [Page; 12] = [
         Page::Play,
         Page::Judge,
         Page::Keys,
@@ -62,6 +64,7 @@ impl Page {
         Page::Audio,
         Page::Library,
         Page::Tables,
+        Page::Courses,
         Page::Ir,
         Page::Skins,
         Page::System,
@@ -77,6 +80,7 @@ impl Page {
             Page::Audio => "AUDIO",
             Page::Library => "LIBRARY",
             Page::Tables => "TABLES",
+            Page::Courses => "COURSES",
             Page::Ir => "IR",
             Page::Skins => "SKINS",
             Page::System => "SYSTEM",
@@ -93,6 +97,7 @@ impl Page {
             Page::Audio => audio::rows(ctx),
             Page::Library => library::rows(ctx, armed),
             Page::Tables => tables::rows(ctx),
+            Page::Courses => courses::rows(ctx),
             Page::Ir => ir::rows(ctx),
             Page::Skins => skins::rows(ctx, armed),
             Page::System => system::rows(ctx),
@@ -117,6 +122,8 @@ enum TextField {
     IrPlayer(usize),
     IrRivals(usize),
     AddIrServer,
+    CourseTitle,
+    ImportLr2,
 }
 
 impl TextField {
@@ -131,6 +138,8 @@ impl TextField {
             TextField::IrPlayer(_) => "BMS-IR player id (or its page's address)",
             TextField::IrRivals(_) => "Rivals' BMS-IR player ids",
             TextField::AddIrServer => "vibeBMS IR server URL",
+            TextField::CourseTitle => "Course title",
+            TextField::ImportLr2 => "LR2's folder (or its song.db)",
         }
     }
 }
@@ -333,6 +342,7 @@ impl SettingsScene {
             Act::Text(tf) if enter || d != 0 => {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
+                    TextField::CourseTitle => courses::title(ctx),
                     tf => ir::current(ctx, tf),
                 };
                 self.edit = Some((tf, TextInput::new(cur)));
@@ -420,6 +430,8 @@ impl SettingsScene {
                     ctx.tables.refresh(&ctx.config.tables, false);
                 }
             }
+            TextField::CourseTitle => courses::rename(ctx, s),
+            TextField::ImportLr2 => courses::import(ctx, &s),
             tf => ir::commit(ctx, tf, s),
         }
         ctx.save_config();

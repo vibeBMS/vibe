@@ -38,6 +38,28 @@ impl Sample {
             }
         }
     }
+
+    /// The sample played `speed` times as fast, its pitch with it (as a
+    /// turntable): resampled, linearly.
+    pub fn resampled(&self, speed: f64) -> Sample {
+        let ch = self.channels.max(1) as usize;
+        let frames = (self.frames as f64 / speed).round() as usize;
+        let mut data = Vec::with_capacity(frames * ch);
+        for i in 0..frames {
+            let x = i as f64 * speed;
+            let (a, f) = (x as usize, (x - x.floor()) as f32);
+            let b = (a + 1).min(self.frames.saturating_sub(1));
+            for c in 0..ch {
+                let at = |k: usize| self.data.get(k * ch + c).copied().unwrap_or(0) as f32;
+                data.push((at(a) * (1.0 - f) + at(b) * f).round() as i16);
+            }
+        }
+        Sample {
+            channels: self.channels,
+            frames,
+            data,
+        }
+    }
 }
 
 /// The lower-case extension of `path`: the format hint.
@@ -354,6 +376,19 @@ impl SoundBank {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn resampled_plays_faster_and_higher() {
+        let s = super::Sample {
+            channels: 1,
+            frames: 4,
+            data: vec![0, 100, 200, 300],
+        };
+        let fast = s.resampled(2.0);
+        assert_eq!((fast.frames, fast.data.as_slice()), (2, &[0i16, 200][..]));
+        let slow = s.resampled(0.5);
+        assert_eq!(slow.data, [0, 50, 100, 150, 200, 250, 300, 300]);
+    }
+
     use super::*;
 
     /// A 16-bit PCM WAV of `ch` channels.

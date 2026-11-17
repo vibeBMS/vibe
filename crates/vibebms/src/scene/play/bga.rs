@@ -49,22 +49,34 @@ impl Bga {
         }
     }
 
-    /// The layers' textures to show at `now` (the POOR layer replaces them
-    /// briefly).
-    pub fn textures<'a>(
-        &'a self,
-        s: &'a Session,
-        now: Instant,
-    ) -> impl Iterator<Item = TexId> + 'a {
+    /// The layers' textures to show at `now`, with their opacity (the POOR
+    /// layer replaces them briefly; a NONSTOP course's stages cross-fade).
+    pub fn textures(&self, s: &Session, now: Instant) -> Vec<(TexId, f32)> {
         let poor = s.poor_until.is_some_and(|u| now < u) && s.bga[3].is_some();
         let layers: &[usize] = if poor { &[3] } else { &[0, 1, 2] };
-        layers.iter().filter_map(|l| {
-            let i = s.bga[*l]? as usize;
-            match self.video.get(i) {
-                Some(Some(v)) => v.texture(),
-                _ => self.tex.get(i).copied().flatten(),
+        let tex = |i: u32| match self.video.get(i as usize) {
+            Some(Some(v)) => v.texture(),
+            _ => self.tex.get(i as usize).copied().flatten(),
+        };
+        let shown = |bga: &[Option<u32>; 4], alpha: f32| {
+            layers
+                .iter()
+                .filter_map(move |l| Some((tex(bga[*l]?)?, alpha)))
+                .collect::<Vec<_>>()
+        };
+        match &s.nonstop {
+            Some(ns) if !poor => {
+                let t = s.chart_us(now);
+                s.stage_bga
+                    .iter()
+                    .enumerate()
+                    .map(|(k, bga)| (bga, ns.bga_alpha(k, t)))
+                    .filter(|(_, a)| *a > 0.0)
+                    .flat_map(|(bga, a)| shown(bga, a))
+                    .collect()
             }
-        })
+            _ => shown(&s.bga, 1.0),
+        }
     }
 
     pub fn free(&mut self, gfx: &mut Gfx) {

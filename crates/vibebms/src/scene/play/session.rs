@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vibebms_core::chart::{BgaLayer, Chart, SoundId};
 use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op};
 use vibebms_core::judge::Judge;
+use vibebms_core::nonstop::Nonstop;
 use vibebms_core::record::{DeviceFacts, InputSource};
 use vibebms_core::PlayMode;
 
@@ -170,6 +171,10 @@ pub(crate) struct Session {
     pub bga: [Option<u32>; 4],
     pub bga_start: Vec<Option<i64>>,
     bga_i: usize,
+    /// A NONSTOP course's stages, and each stage's BGA layers (its BGA
+    /// cross-fades with the next's).
+    pub nonstop: Option<Arc<Nonstop>>,
+    pub stage_bga: Vec<[Option<u32>; 4]>,
     next_sample: i64,
     /// When every side's notes were judged (chart time, instant).
     pub finished_at: Option<i64>,
@@ -215,8 +220,20 @@ impl Session {
             bpm_log,
             device: DeviceFacts::default(),
             events: Vec::new(),
+            nonstop: None,
+            stage_bga: Vec::new(),
             chart,
         }
+    }
+
+    pub fn set_nonstop(&mut self, ns: Option<Arc<Nonstop>>) {
+        self.stage_bga = vec![[None; 4]; ns.as_ref().map_or(0, |n| n.stages.len())];
+        self.nonstop = ns;
+    }
+
+    /// The course stage playing at chart time `t` (NONSTOP).
+    pub fn stage_at(&self, t: i64) -> Option<usize> {
+        self.nonstop.as_ref().map(|n| n.stage_at(t))
     }
 
     /// Chart time (µs) at `t`.
@@ -511,6 +528,9 @@ impl Session {
                 BgaLayer::Poor => 3,
             };
             self.bga[i] = b.image;
+            if let Some(k) = self.nonstop.as_ref().map(|n| n.bga_stage[self.bga_i]) {
+                self.stage_bga[k][i] = b.image;
+            }
             if let Some(s) = b.image.and_then(|m| self.bga_start.get_mut(m as usize)) {
                 s.get_or_insert(b.time);
             }

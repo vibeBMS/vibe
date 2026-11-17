@@ -28,7 +28,7 @@ enum Frame {
 /// The `#RANDOM` / `#SWITCH` blocks open at a line of the text.
 pub(super) struct Flow<'a> {
     stack: Vec<Frame>,
-    rng: JavaRandom,
+    pub rng: JavaRandom,
     forced: Option<&'a [u32]>,
     forced_idx: usize,
     /// The outcome of each `#RANDOM` / `#SWITCH` rolled, in order.

@@ -417,6 +417,45 @@ fn lr2_windows(rank: JudgeRank) -> Vec<(i64, i64)> {
     v
 }
 
+/// LR2's judge windows of note windows `note` (PG .. empty POOR, µs).
+fn lr2_judge_windows(note: Vec<(i64, i64)>) -> JudgeWindows {
+    // LR2 judges a long note's release with the GOOD window for PG..GD
+    // (LR2oraja: the LN end table is GOOD-wide at every #RANK), BAD as
+    // usual
+    let good = note[Judge::Good as usize];
+    let ln_end = vec![good, good, good, note[Judge::Bad as usize]];
+    JudgeWindows {
+        note: note.clone(),
+        scratch: note,
+        ln_end: ln_end.clone(),
+        scratch_ln_end: ln_end,
+        ln_margin: 0,
+        scratch_ln_margin: 0,
+        frame_hz: None,
+    }
+}
+
+/// LR2's rules once a NONSTOP course's later stage gives its `#RANK`
+/// (S-OLR2 2.2, S-OLR2b 3.5): their own table, PG / GR / GD 12 / 24 / 60
+/// ms at 0 (and a value that is not a number), 15 / 30 / 80 at 1, 21 / 60
+/// / 120 at 3 and 18 / 40 / 100 at any other; BAD and the empty POOR as
+/// always.
+pub fn lr2_nonstop_rules(fam: RuleFamily, rank: JudgeRank) -> JudgeRules {
+    let ms: [i64; 3] = match rank {
+        JudgeRank::Rank(0) | JudgeRank::NoNumber => [12, 24, 60],
+        JudgeRank::Rank(1) => [15, 30, 80],
+        JudgeRank::Rank(3) => [21, 60, 120],
+        _ => [18, 40, 100],
+    };
+    let mut note: Vec<(i64, i64)> = ms.iter().map(|w| (-w * 1000, w * 1000)).collect();
+    note.push((-LR2_BAD, LR2_BAD));
+    note.push((LR2_BAD + 1, 999_999));
+    JudgeRules {
+        windows: lr2_judge_windows(note),
+        ..judge_rules(JudgePreset::Lr2, fam, JudgeRank::Rank(2), None)
+    }
+}
+
 /// IIDX windows in 120 Hz frames (late, early): PG, GR, GD, BAD, empty POOR.
 pub const IIDX_HZ: u32 = 120;
 const IIDX_NOTE_FRAMES: [(i64, i64); 5] = [(-2, 2), (-4, 4), (-14, 14), (-30, 30), (-18, 60)];
@@ -464,23 +503,7 @@ pub fn judge_rules(
                 frame_hz: None,
             }
         }
-        JudgePreset::Lr2 => {
-            let note = lr2_windows(rank);
-            // LR2 judges a long note's release with the GOOD window for
-            // PG..GD (LR2oraja: the LN end table is GOOD-wide at every
-            // #RANK), BAD as usual
-            let good = note[Judge::Good as usize];
-            let ln_end = vec![good, good, good, note[Judge::Bad as usize]];
-            JudgeWindows {
-                note: note.clone(),
-                scratch: note,
-                ln_end: ln_end.clone(),
-                scratch_ln_end: ln_end,
-                ln_margin: 0,
-                scratch_ln_margin: 0,
-                frame_hz: None,
-            }
-        }
+        JudgePreset::Lr2 => lr2_judge_windows(lr2_windows(rank)),
         JudgePreset::Iidx => JudgeWindows {
             note: iidx(&IIDX_NOTE_FRAMES),
             scratch: iidx(&IIDX_NOTE_FRAMES),

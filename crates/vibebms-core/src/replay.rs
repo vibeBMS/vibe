@@ -4,6 +4,7 @@
 //! judgements in order are the play's ghost: a later play's pacemaker at
 //! the same note. Kept as gzipped JSON.
 
+use crate::course::CourseDef;
 use crate::engine::Op;
 use crate::judge::Judge;
 use crate::play::RuleOptions;
@@ -53,6 +54,26 @@ pub struct Replay<P = RuleOptions> {
     /// numbers, PG 0 .. MISS 5).
     pub ghost: Vec<Judge>,
     pub ops: Vec<Op>,
+    /// A course's play: what makes its chart and gauge besides the chart
+    /// of `sha256` (missing in single plays and older replays).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub course: Option<CourseReplay>,
+}
+
+/// What a course's replay needs: a NONSTOP play's chart is its stages
+/// joined (`play::build_nonstop_chart`; `sha256` and `md5` are then the
+/// course's own, its stages here); an expert or class course's stage is
+/// its chart's, with the gauge it was given.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CourseReplay {
+    pub course: CourseDef,
+    /// The stages' SHA-256, in order (to find their files).
+    pub sha256: Vec<String>,
+    /// The stage played (0 for NONSTOP).
+    pub stage: u32,
+    /// The gauges' values the stage started from (the stages before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gauge: Option<Vec<f32>>,
 }
 
 impl<P> Replay<P> {
