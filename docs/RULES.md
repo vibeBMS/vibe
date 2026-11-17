@@ -98,7 +98,7 @@ effectively disables it; vibeBMS keeps only the positive part.
 | NORMAL | 20 | 80 | 1, 1, 0.5, -4, -6, -2 | × TOTAL / notes |
 | HARD | 100 | – | 0.1, 0.1, 0.05, -6, -10, -2 | LR2 damage; ×0.6 below 32 % |
 | EX-HARD | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | LR2 damage |
-| HAZARD | 100 | – | 0.15, 0.06, 0, -100, -100, -10 | |
+| HAZARD | 100 | – | 0.15, 0.06, 0, -100, -100, 0 | LR2's DEATH: an empty POOR costs nothing [S8] |
 | CLASS | 100 | – | 0.1, 0.1, 0.05, -2, -3, -2 | ×0.6 below 32 % |
 | EX-CLASS | 100 | – | 0.1, 0.1, 0.05, -6, -10, -2 | ×0.6 below 32 % |
 | EXHARD-CLASS | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | |
