@@ -1,8 +1,9 @@
 name: Dependabot merge
 
 # Merges a Dependabot pull request once CI has passed on its head commit,
-# unless it holds a major update (those wait for a person: CI cannot check
-# everything a new major version may change).
+# unless it holds a major update of a library (those wait for a person: CI
+# cannot check everything a new major version may change). Actions updates
+# merge at any version: CI itself runs them.
 
 on:
   workflow_run:
@@ -33,7 +34,8 @@ jobs:
             --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
           if [ -z "$pr" ]; then echo "no open pull request at $SHA"; exit 0; fi
           # Dependabot lists each update with its type in the commit message
-          if gh api "repos/$REPO/commits/$SHA" --jq .commit.message | grep -q "update-type: version-update:semver-major"; then
+          if [[ "$BRANCH" != dependabot/github_actions/* ]] &&
+            gh api "repos/$REPO/commits/$SHA" --jq .commit.message | grep -q "update-type: version-update:semver-major"; then
             echo "#$pr holds a major update: left for review"
             exit 0
           fi
