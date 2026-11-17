@@ -509,6 +509,10 @@ impl Engine {
             for l in &mut self.lanes {
                 l.keys = l.after;
             }
+            if self.cfg.rules.lr2 {
+                // LR2 checks for misses before it judges a press
+                self.settle(m);
+            }
             for e in group {
                 self.handle(e);
             }
@@ -600,15 +604,10 @@ impl Engine {
             l.body = Some(i);
             l.body_quiet = false;
         }
-        if let Kind::Mine(damage) = kind {
-            if pressed {
-                self.gauge.add_value(-damage);
-                self.events.push(EngineEvent::Mine {
-                    lane: lane as u8,
-                    damage,
-                });
-                self.sound(lane, self.notes[i].sound);
-                self.check_failed();
+        if let Kind::Mine(_) = kind {
+            // (LR2: a mine set off by a press before its time is gone)
+            if pressed && self.notes[i].state.is_none() {
+                self.mine_hit(lane, i, 0);
             }
             return;
         }
@@ -726,8 +725,16 @@ impl Engine {
                 }
             }
 
-            let bad_late = self.lane_table(lane)[Judge::Bad as usize].0;
-            let limit = m.saturating_add(bad_late);
+            let table = self.lane_table(lane);
+            let bad_late = table[Judge::Bad as usize].0;
+            // LR2: the song time in whole ms; an LN is missed once its head
+            // is beyond GOOD late (S-OLR2 1.5, 5.2)
+            let (now, ln_late) = if self.cfg.rules.lr2 {
+                (whole_ms(m), table[Judge::Good as usize].0)
+            } else {
+                (m, bad_late)
+            };
+            let limit = now.saturating_add(bad_late.max(ln_late));
             let mut k = self.lanes[lane].swept;
             while let Some(&i) = self.lanes[lane].notes.get(k) {
                 let n = &self.notes[i];
@@ -735,10 +742,15 @@ impl Engine {
                     break;
                 }
                 k += 1;
-                if n.state.is_some() {
+                let late = if n.kind == Kind::Long(LnType::Ln) {
+                    ln_late
+                } else {
+                    bad_late
+                };
+                if n.state.is_some() || n.time >= now.saturating_add(late) {
                     continue;
                 }
-                let diff = n.time.saturating_sub(m);
+                let diff = n.time.saturating_sub(now);
                 let kind = n.kind;
                 match kind {
                     Kind::Normal => self.judge(i, Slot::Head, Judge::Poor, diff, true),
@@ -769,8 +781,11 @@ impl Engine {
 
             if let Some(h) = self.lanes[lane].held {
                 let n = &self.notes[h];
-                if n.is_charge() && n.end_state.is_none() && n.end_time < limit {
-                    let diff = n.end_time.saturating_sub(m);
+                if n.is_charge()
+                    && n.end_state.is_none()
+                    && n.end_time < now.saturating_add(bad_late)
+                {
+                    let diff = n.end_time.saturating_sub(now);
                     self.judge(h, Slot::Tail, Judge::Poor, diff, true);
                     self.release_hold(lane);
                 }
@@ -792,12 +807,18 @@ impl Engine {
 
     fn press(&mut self, lane: usize, key: u8, t: i64) {
         if let Some(h) = self.lanes[lane].held {
+            if self.cfg.rules.lr2 && self.notes[h].kind == Kind::Long(LnType::Ln) {
+                return self.lr2_rejudge(lane, h, t);
+            }
             let l = &mut self.lanes[lane];
             l.pending = None;
             if self.notes[h].is_charge() && l.scratch && l.hold_key.is_some_and(|k| k != key) {
                 self.back_spin(lane, h, t);
             }
             return;
+        }
+        if self.cfg.rules.lr2 {
+            return self.lr2_press(lane, key, t);
         }
         let Some((i, j)) = self.select(lane, t) else {
             self.empty_press_sound(lane, t);
@@ -933,7 +954,9 @@ impl Engine {
         if !keyboard {
             self.lanes[lane].hold_key = None;
         }
-        if charge {
+        if !charge && self.cfg.rules.lr2 {
+            self.lr2_release(lane, h, t);
+        } else if charge {
             if r >= Judge::Bad && d > 0 {
                 self.lanes[lane].pending = Some((t, r));
             } else {
@@ -965,6 +988,155 @@ impl Engine {
         self.sound(lane, self.notes[h].end_sound);
         self.judge(h, Slot::Tail, r, d, true);
         self.release_hold(lane);
+    }
+
+    // ----- LR2 (docs/LR2_BEHAVIOUR.md) -------------------------------------
+
+    /// A press under the LR2 judge, no long note held: always the lane's
+    /// earliest unresolved object (S-OLR2 1.1, 1.2), then the BAD chain
+    /// (1.3); mines (4).
+    fn lr2_press(&mut self, lane: usize, key: u8, t: i64) {
+        let Some(i) = self.lr2_cursor(lane, None) else {
+            self.empty_press_sound(lane, t);
+            return;
+        };
+        let d = lr2_diff(self.notes[i].time, t);
+        if self.notes[i].is_mine() {
+            // a mine more than GREAT ahead takes the press, silently
+            if d <= self.lr2_great() {
+                self.mine_hit(lane, i, d);
+            }
+            return;
+        }
+        let ty = self.note_type(lane);
+        match self.windows().judge(ty, d) {
+            None => self.empty_press_sound(lane, t),
+            Some(Judge::Poor) => {
+                self.sound(lane, self.notes[i].sound);
+                self.judge(i, Slot::Head, Judge::Miss, d, false);
+            }
+            Some(j) => {
+                self.sound(lane, self.notes[i].sound);
+                match self.notes[i].kind {
+                    Kind::Normal => {
+                        self.judge(i, Slot::Head, j, d, true);
+                        if j == Judge::Bad {
+                            self.bad_chain(lane, i, t);
+                        }
+                    }
+                    // an LN's judgement waits for its end (S-OLR2 5.2)
+                    Kind::Long(LnType::Ln) => {
+                        self.start_hold(lane, i, key);
+                        self.lanes[lane].head = (j, d);
+                    }
+                    _ => {
+                        self.start_hold(lane, i, key);
+                        self.judge(i, Slot::Head, j, d, true);
+                    }
+                }
+            }
+        }
+    }
+
+    /// After a BAD, the same press judges the lane's next objects while
+    /// each is within ±200 ms and the last was a BAD; an LN so judged is
+    /// finished at once, a mine within GREAT goes off (S-OLR2 1.3).
+    fn bad_chain(&mut self, lane: usize, mut prev: usize, t: i64) {
+        let ty = self.note_type(lane);
+        while let Some(i) = self.lr2_cursor(lane, Some(prev)) {
+            let d = lr2_diff(self.notes[i].time, t);
+            match self.notes[i].kind {
+                Kind::Mine(_) => {
+                    if d <= self.lr2_great() {
+                        self.mine_hit(lane, i, d);
+                    }
+                    return;
+                }
+                Kind::Normal | Kind::Long(LnType::Ln) => {
+                    let Some(j) = self.windows().judge(ty, d).filter(|j| *j <= Judge::Bad) else {
+                        return;
+                    };
+                    self.sound(lane, self.notes[i].sound);
+                    if self.notes[i].is_long() {
+                        self.ln_final(i, j, d);
+                    } else {
+                        self.judge(i, Slot::Head, j, d, true);
+                    }
+                    if j != Judge::Bad {
+                        return;
+                    }
+                    prev = i;
+                }
+                // a CN / HCN: local rules, not LR2's
+                Kind::Long(_) => return,
+            }
+        }
+    }
+
+    /// The lane's earliest unresolved object (after note `after`): a note
+    /// not judged, a mine neither passed nor set off.
+    fn lr2_cursor(&self, lane: usize, after: Option<usize>) -> Option<usize> {
+        let l = &self.lanes[lane];
+        // before both every note is judged and every mine passed
+        let mut k = l.swept.min(l.passed);
+        if let Some(a) = after {
+            k += l.notes[k..].iter().position(|&i| i == a)? + 1;
+        }
+        l.notes[k..].iter().enumerate().find_map(|(j, &i)| {
+            let n = &self.notes[i];
+            let open = n.state.is_none() && (!n.is_mine() || k + j >= l.passed);
+            open.then_some(i)
+        })
+    }
+
+    /// A new press while an LN is held judges its head again: within a
+    /// window it replaces the pending judgement, else an empty POOR
+    /// (S-OLR2 5.2, step 7).
+    fn lr2_rejudge(&mut self, lane: usize, h: usize, t: i64) {
+        let d = lr2_diff(self.notes[h].time, t);
+        match self.windows().judge(self.note_type(lane), d) {
+            Some(j) if j <= Judge::Bad => self.lanes[lane].head = (j, d),
+            _ => self.judge(h, Slot::Head, Judge::Miss, d, false),
+        }
+    }
+
+    /// An LN let go: more than GOOD before its end a BAD, else its head's
+    /// judgement (S-OLR2 5.2).
+    fn lr2_release(&mut self, lane: usize, h: usize, t: i64) {
+        let d = lr2_diff(self.notes[h].end_time, t);
+        if d > self.lane_table(lane)[Judge::Good as usize].1 {
+            self.mute(h);
+            self.ln_final(h, Judge::Bad, d);
+        } else {
+            let (j, hd) = self.lanes[lane].head;
+            self.ln_final(h, j, hd);
+        }
+        self.sound(lane, self.notes[h].end_sound);
+        self.release_hold(lane);
+    }
+
+    fn lr2_great(&self) -> i64 {
+        self.windows().note[Judge::Great as usize].1
+    }
+
+    /// A mine goes off: its damage on every gauge; under LR2 it is gone
+    /// and counts as a POOR that keeps the combo, kept with the empty
+    /// POORs (S-OLR2 4).
+    fn mine_hit(&mut self, lane: usize, i: usize, diff: i64) {
+        let Kind::Mine(damage) = self.notes[i].kind else {
+            return;
+        };
+        self.gauge.add_value(-damage);
+        self.events.push(EngineEvent::Mine {
+            lane: lane as u8,
+            damage,
+        });
+        self.sound(lane, self.notes[i].sound);
+        if self.cfg.rules.lr2 {
+            self.notes[i].state = Some(Judge::Poor);
+            self.score.add(Judge::Miss, diff);
+        }
+        self.check_failed();
     }
 
     /// The keysound of a press that judges nothing.
@@ -1108,4 +1280,15 @@ impl Engine {
     fn lane_table(&self, lane: usize) -> &[(i64, i64)] {
         self.cfg.rules.windows.table(self.note_type(lane))
     }
+}
+
+/// `t` (µs) in whole milliseconds, as LR2 reads the song time.
+fn whole_ms(t: i64) -> i64 {
+    t.div_euclid(1000) * 1000
+}
+
+/// LR2's timing difference of a press at `t` on an object at `time`: in
+/// whole milliseconds, both fractions dropped (S-OLR2 8), in µs.
+fn lr2_diff(time: i64, t: i64) -> i64 {
+    whole_ms(time) - whole_ms(t)
 }

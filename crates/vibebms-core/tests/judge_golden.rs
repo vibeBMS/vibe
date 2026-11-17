@@ -19,9 +19,10 @@
 //!   in `docs/RULES.md`, "LR2 equivalence"): `windows_lr2`'s `#RANK 0..3`
 //!   rows, its empty POOR and LN-end windows, `s14_lr2_release_window`
 //!   and `lr2_combo_and_empty_poor_in_every_mode` are LR2's documented
-//!   behaviour, each naming its sources. `windows_lr2`'s other rows
-//!   (`#RANK 4`, out of range, `#DEFEXRANK`, bmson) are vibeBMS's own rule
-//!   (gap A3). The LR2 runs of `runs.txt` and the LR2 case of
+//!   behaviour, each naming its sources; `lr2_note_choice_and_bad_chain`,
+//!   `lr2_long_notes`, `lr2_mines` and `windows_lr2`'s `#RANK 4`, -1 and
+//!   non-numeric rows are S-OLR2's (`docs/LR2_BEHAVIOUR.md`). Its
+//!   `#DEFEXRANK` and bmson rows are vibeBMS's own rule. The LR2 runs of `runs.txt` and the LR2 case of
 //!   `replay_round_trip` were recorded from vibeBMS's engine: they pin it,
 //!   they are not LR2 measurements.
 
@@ -1372,10 +1373,10 @@ fn s13_auto_lanes() {
     );
 }
 
-/// S14: LR2 preset: an LN release inside GOOD keeps a PGREAT head (LR2,
-/// S4 and S7); a CN tail 30 ms late at VERY HARD is a PGREAT (vibeBMS's:
-/// LR2 has no CN); empty POOR up to 1 s early, never late, none from presses
-/// after a hit note (LR2, S1 to S4).
+/// S14: LR2 preset: an LN release inside GOOD keeps a PGREAT head, recorded
+/// as it is let go (LR2, S4, S7, S-OLR2 5.2); a CN tail 30 ms late at VERY
+/// HARD is a PGREAT (vibeBMS's: LR2 has no CN); empty POOR less than 1 s
+/// early, never late, none from presses after a hit note (LR2, S1 to S4).
 #[test]
 fn s14_lr2_release_window() {
     let c = chart_of(
@@ -1394,9 +1395,9 @@ fn s14_lr2_release_window() {
     e.update(SEC);
     press(&mut e, 0, 2 * SEC);
     release(&mut e, 0, 2_975 * MS);
-    assert_eq!(drain(&mut e), [snd(10, 0)]);
+    assert_eq!(drain(&mut e), [snd(10, 0), jh(0, PGREAT, 0, 1), snd(50, 0)]);
     e.update(3 * SEC + 1);
-    assert_eq!(drain(&mut e), [jh(0, PGREAT, 25_000, 1), snd(50, 0)]);
+    assert_eq!(drain(&mut e), NONE);
     let c = chart_of(
         PlayMode::Beat7K,
         JudgeRank::Rank(0),
@@ -1416,7 +1417,7 @@ fn s14_lr2_release_window() {
             snd(50, 0)
         ]
     );
-    // LR2 empty POOR: up to 1 s early, never late
+    // LR2 empty POOR: less than 1 s early, never late
     let c = chart_of(
         PlayMode::Beat7K,
         JudgeRank::Rank(2),
@@ -1483,6 +1484,184 @@ fn lr2_combo_and_empty_poor_in_every_mode() {
         assert_eq!(hit(3_120 * MS), [(BAD, 180, 0)], "{mode:?}");
         assert_eq!(e.score.max_combo, 1, "{mode:?}");
     }
+}
+
+/// An LR2-preset engine on a 7-key chart of `rank` with `notes`.
+fn lr2_engine(rank: i32, notes: Vec<Note>) -> Engine {
+    let s = Setup {
+        preset: JudgePreset::Lr2,
+        gauge_preset: GaugePreset::Lr2,
+        ..Setup::default()
+    };
+    let mut e = engine(
+        &chart_of(PlayMode::Beat7K, JudgeRank::Rank(rank), None, notes),
+        &s,
+    );
+    e.update(SEC);
+    e
+}
+
+/// S-OLR2 1: a press takes the lane's earliest unresolved note, and after a
+/// BAD the next one too (the BAD chain); a note more than 200 ms late is
+/// gone before a press is judged; empty POOR more than 200 and less than
+/// 1000 ms early; windows at whole milliseconds.
+#[test]
+fn lr2_note_choice_and_bad_chain() {
+    // VERY HARD: the earlier note 120 ms late is a BAD, the same press
+    // then takes the later one
+    let mut e = lr2_engine(0, vec![normal(0, 2 * SEC, 10), normal(0, 2_120 * MS, 11)]);
+    press(&mut e, 0, 2_120 * MS);
+    assert_eq!(
+        drain(&mut e),
+        [
+            snd(10, 0),
+            jh(0, BAD, -120_000, 0),
+            snd(11, 0),
+            jh(0, PGREAT, 0, 1)
+        ]
+    );
+    // a note 250 ms late is POOR first; the press is the next one's
+    // empty POOR, then a BAD 200 ms early
+    let mut e = lr2_engine(2, vec![normal(0, 2 * SEC, 10), normal(0, 2_500 * MS, 11)]);
+    press(&mut e, 0, 2_250 * MS);
+    release(&mut e, 0, 2_260 * MS);
+    assert_eq!(
+        drain(&mut e),
+        [
+            jh(0, POOR, -250_000, 0),
+            snd(11, 0),
+            jh(0, MISS, 250_000, 0)
+        ]
+    );
+    press(&mut e, 0, 2_300 * MS);
+    assert_eq!(drain(&mut e), [snd(11, 0), jh(0, BAD, 200_000, 0)]);
+    // the empty POOR's edges: 1000 ms early judges nothing (a keysound)
+    let mut e = lr2_engine(2, vec![normal(0, 3 * SEC, 10)]);
+    let mut got = Vec::new();
+    for t in [1_999, 2_000, 2_001, 2_799, 2_800] {
+        press(&mut e, 0, t * MS);
+        release(&mut e, 0, t * MS + 500);
+        got.extend(drain(&mut e).into_iter().map(|v| match v {
+            EngineEvent::Judge { judge, diff, .. } => Some((judge, diff / MS)),
+            _ => None,
+        }));
+    }
+    assert_eq!(
+        got,
+        [
+            None,
+            None,
+            None,
+            Some((MISS, 999)),
+            None,
+            Some((MISS, 201)),
+            None,
+            Some((BAD, 200))
+        ]
+    );
+    // whole milliseconds: a note at 2000.5 ms pressed at 2018.999 ms is
+    // 18 ms late, a PGREAT
+    let mut e = lr2_engine(2, vec![normal(0, 2_000_500, 10)]);
+    press(&mut e, 0, 2_018_999);
+    assert_eq!(drain(&mut e), [snd(10, 0), jh(0, PGREAT, -18_000, 1)]);
+}
+
+/// S-OLR2 5.2: an LN is POOR once its head is more than GOOD late; its
+/// head's judgement waits, and is recorded when it is let go within GOOD
+/// of its end (earlier: a BAD); a new press while it is held judges the
+/// head again (a scratch spun back), beyond the windows an empty POOR.
+#[test]
+fn lr2_long_notes() {
+    let ln = || vec![long(0, 2 * SEC, 3 * SEC, 10, 50)];
+    let mut e = lr2_engine(2, ln());
+    e.update(2_100_999);
+    assert_eq!(drain(&mut e), NONE);
+    e.update(2_101_000);
+    assert_eq!(drain(&mut e), [jh(0, POOR, -101_000, 0)]);
+    let mut e = lr2_engine(2, ln());
+    press(&mut e, 0, 2 * SEC);
+    assert_eq!((drain(&mut e), e.combo()), (vec![snd(10, 0)], 0));
+    release(&mut e, 0, 2_899 * MS);
+    assert_eq!(
+        drain(&mut e),
+        [vol(10, 0.0), jh(0, BAD, 101_000, 0), snd(50, 0)]
+    );
+    // held to the end: recorded just after it
+    let mut e = lr2_engine(2, ln());
+    press(&mut e, 0, 1_990 * MS);
+    e.update(3 * SEC);
+    assert_eq!(drain(&mut e), [snd(10, 0)]);
+    e.update(3 * SEC + 1);
+    assert_eq!(drain(&mut e), [jh(0, PGREAT, 10_000, 1), snd(50, 0)]);
+    // scratch: the other key judges the head again
+    let sc = || vec![long(7, 2 * SEC, 3 * SEC, 10, 50)];
+    let mut e = lr2_engine(2, sc());
+    key(&mut e, 7, 0, 1_990 * MS, true);
+    key(&mut e, 7, 1, 2_150 * MS, true);
+    key(&mut e, 7, 0, 2_950 * MS, false);
+    key(&mut e, 7, 1, 2_960 * MS, false);
+    assert_eq!(
+        drain(&mut e),
+        [snd(10, 7), jh(7, BAD, -150_000, 0), snd(50, 7)]
+    );
+    let mut e = lr2_engine(2, sc());
+    key(&mut e, 7, 0, 2 * SEC, true);
+    key(&mut e, 7, 1, 2_250 * MS, true);
+    key(&mut e, 7, 0, 2_990 * MS, false);
+    key(&mut e, 7, 1, 2_995 * MS, false);
+    assert_eq!(
+        drain(&mut e),
+        [
+            snd(10, 7),
+            jh(7, MISS, -250_000, 0),
+            jh(7, PGREAT, 0, 1),
+            snd(50, 7)
+        ]
+    );
+}
+
+/// S-OLR2 4: a mine goes off held as it passes, or pressed up to GREAT
+/// early (NORMAL: 40 ms); more than GREAT early a press does nothing, nor
+/// reaches the note behind; it counts one POOR (with the empty POORs here)
+/// and keeps the combo; a BAD chain sets one off too.
+#[test]
+fn lr2_mines() {
+    let m = |more: Vec<Note>| {
+        let mut v = vec![mine(0, 2 * SEC, 10.0, 20)];
+        v.extend(more);
+        lr2_engine(2, v)
+    };
+    let mut e = m(vec![]);
+    press(&mut e, 0, 1_960 * MS);
+    release(&mut e, 0, 1_970 * MS);
+    e.update(2_100 * MS);
+    assert_eq!(drain(&mut e), [mine_ev(0, 10.0), snd(20, 0)]);
+    assert_eq!((e.score.count(MISS), e.gauge.value()), (1, 10.0));
+    let mut e = m(vec![normal(0, 2_030 * MS, 11)]);
+    press(&mut e, 0, 1_959 * MS);
+    release(&mut e, 0, 1_970 * MS);
+    e.update(2_100 * MS);
+    assert_eq!(drain(&mut e), NONE);
+    let mut e = m(vec![]);
+    press(&mut e, 0, 1_900 * MS);
+    e.update(2_100 * MS);
+    assert_eq!(drain(&mut e), [mine_ev(0, 10.0), snd(20, 0)]);
+    assert_eq!((e.score.count(MISS), e.combo()), (1, 0));
+    // VERY HARD (GREAT 24): the BAD chain reaches a mine 20 ms ahead
+    let mut e = lr2_engine(
+        0,
+        vec![normal(0, 2 * SEC, 10), mine(0, 2_140 * MS, 10.0, 20)],
+    );
+    press(&mut e, 0, 2_120 * MS);
+    assert_eq!(
+        drain(&mut e),
+        [
+            snd(10, 0),
+            jh(0, BAD, -120_000, 0),
+            mine_ev(0, 10.0),
+            snd(20, 0)
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -4029,8 +4208,10 @@ fn windows_custom_rates() {
 }
 
 /// §2.5: LR2 preset. `#RANK 0..3`: LR2's measured windows (S5; also S2,
-/// S3, S4); BAD ±200 and empty POOR 0 .. +1000 ms (S1 to S4); LN ends the
-/// GOOD window (S4, S7). The other rows are vibeBMS's rule (gap A3).
+/// S3, S4); BAD ±200 and empty POOR more than 200 and less than 1000 ms
+/// early (S1 to S4, S-OLR2 1.4); a CN end's window is GOOD (S4, S7).
+/// `#RANK 4`, -1 and a value that is not a number as LR2 reads them
+/// (S-OLR2 2.2); `#DEFEXRANK` and bmson are vibeBMS's rule, in whole ms.
 #[test]
 fn windows_lr2() {
     let lr2 = |rank| rules(JudgePreset::Lr2, PlayMode::Beat7K, rank, None).windows;
@@ -4041,14 +4222,15 @@ fn windows_lr2() {
         (JudgeRank::Rank(3), [21., 60., 120.]),
         (JudgeRank::Rank(4), [18., 40., 100.]),
         (JudgeRank::Rank(-1), [18., 40., 100.]),
+        (JudgeRank::NoNumber, [8., 24., 40.]),
         (JudgeRank::DefExRank(100.0), [18., 40., 100.]),
-        (JudgeRank::DefExRank(120.0), [19.8, 52., 112.]),
-        (JudgeRank::DefExRank(80.0), [16.2, 34., 76.]),
-        (JudgeRank::DefExRank(50.0), [11.36, 26.88, 49.6]),
+        (JudgeRank::DefExRank(120.0), [19., 52., 112.]),
+        (JudgeRank::DefExRank(80.0), [16., 34., 76.]),
+        (JudgeRank::DefExRank(50.0), [11., 26., 49.]),
         (JudgeRank::DefExRank(0.5), [18., 40., 100.]),
-        (JudgeRank::Bmson(150.0), [31.5, 90., 180.]),
+        (JudgeRank::Bmson(150.0), [31., 90., 180.]),
         (JudgeRank::Bmson(200.0), [42., 120., 200.]),
-        (JudgeRank::Bmson(0.5), [0.32, 0.96, 1.6]),
+        (JudgeRank::Bmson(0.5), [0., 0., 1.]),
         (JudgeRank::Bmson(10_000.0), [200., 200., 200.]),
         (JudgeRank::Bmson(1e9), [200., 200., 200.]),
         (JudgeRank::Bmson(0.0), [21., 60., 120.]),
@@ -4057,7 +4239,7 @@ fn windows_lr2() {
         assert_eq!(ms_pairs(&w.note)[..3], sym(&pgd)[..], "{rank:?}");
         assert_eq!(
             ms_pairs(&w.note)[3..],
-            [(-200., 200.), (0., 1000.)],
+            [(-200., 200.), (200.001, 999.999)],
             "{rank:?}"
         );
         assert_eq!(w.scratch, w.note);
@@ -4065,7 +4247,7 @@ fn windows_lr2() {
         assert_eq!(ms_pairs(&w.ln_end), [gd, gd, gd, (-200., 200.)], "{rank:?}");
         assert_eq!(w.scratch_ln_end, w.ln_end);
         assert_eq!((w.ln_margin, w.scratch_ln_margin, w.frame_hz), (0, 0, None));
-        assert_eq!(w.extent(), (-200_000, 1_000_000));
+        assert_eq!(w.extent(), (-200_000, 999_999));
     }
     // PMS under LR2: no margin either
     let w = rules(JudgePreset::Lr2, PlayMode::Popn9K, JudgeRank::Rank(2), None).windows;

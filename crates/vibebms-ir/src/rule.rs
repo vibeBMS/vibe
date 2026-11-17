@@ -141,7 +141,7 @@ impl ProfileRules {
             && self.gauges.contains(&r.gauge)
             && (!c.ln.undefined || self.ln_modes.contains(&r.ln_mode))
             && (self.typed_charge_notes || !typed_charge)
-            && (self.ex_rank || matches!(c.judge_rank, JudgeRank::Rank(_)))
+            && (self.ex_rank || matches!(c.judge_rank, JudgeRank::Rank(_) | JudgeRank::NoNumber))
             && self.algorithms.contains(&r.algorithm)
             && self.gauge_auto_shift.contains(&r.gas)
             && self.modes.contains(&c.mode)

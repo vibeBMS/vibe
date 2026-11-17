@@ -159,6 +159,9 @@ pub struct BarLine {
 pub enum JudgeRank {
     /// `#RANK 0..=4` (VERY HARD .. VERY EASY)
     Rank(i32),
+    /// `#RANK` with a value that is not a number: NORMAL, as a missing
+    /// one, except under the LR2 judge, which reads it as 0, VERY HARD.
+    NoNumber,
     /// `#DEFEXRANK n` (percent of NORMAL)
     DefExRank(f64),
     /// bmson `judge_rank` (percent, 100 = EASY in beatoraja terms)

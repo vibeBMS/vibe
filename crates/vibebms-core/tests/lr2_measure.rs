@@ -1,9 +1,8 @@
 //! The charts of `tools/lr2-measure` played by vibeBMS as its README tells
-//! a player to play them in LR2, with the timing errors a player has: the
-//! A11 charts tell vibeBMS's three note choices apart as the README's
-//! table says, and the A4, A7 and A8 charts give vibeBMS's rows of its
-//! tables. The README's other rows (the rules vibeBMS does not have) are
-//! worked out by `gen.py`.
+//! a player to play them in LR2, with the timing errors a player has: each
+//! chart gives vibeBMS's row of the README's tables, which is what
+//! `docs/LR2_BEHAVIOUR.md` (S-OLR2) predicts LR2 shows. The README's other
+//! rows (the rules vibeBMS does not have) are worked out by `gen.py`.
 
 use std::path::{Path, PathBuf};
 use vibebms_core::chart::Chart;
@@ -95,51 +94,45 @@ fn a11(name: &str, algorithm: JudgeAlgorithm, presses: fn(i64) -> Vec<Step>) -> 
     Judge::ALL.map(|j| e.score.count(j))
 }
 
-/// README, A11: each chart's count under each candidate vibeBMS has.
+/// README, A11: under the LR2 judge a press takes the lane's earliest
+/// unresolved note and, after a BAD, the next one (the BAD chain), whatever
+/// the note choice option says: the counts S-OLR2 predicts.
 #[test]
-fn the_a11_charts_tell_the_note_choices_apart() {
+fn the_a11_charts_give_the_lr2_judges_counts() {
     use JudgeAlgorithm::{Combo, Duration, Lowest};
     let bad = |c: [u32; 6]| c[Judge::Bad as usize];
     let good = |c: [u32; 6]| c[Judge::Good as usize];
     let poor = |c: [u32; 6]| c[Judge::Poor as usize];
-    // 1: key 1 and key 7 together on the key-7 note
-    let one = |a| {
-        a11("a11-1.bme", a, |t| {
+    for a in [Combo, Duration, Lowest] {
+        // 1: key 1 and key 7 together on the key-7 note: the first key-1
+        // note a BAD, the second taken by the same press
+        let one = a11("a11-1.bme", a, |t| {
             vec![
                 Step::Press(t + 120 * MS, KEY1, 0),
                 Step::Press(t + 120 * MS, KEY7, 0),
             ]
-        })
-    };
-    assert_eq!(bad(one(Lowest)), 16);
-    assert_eq!((bad(one(Combo)), poor(one(Combo))), (0, 16));
-    assert_eq!(bad(one(Duration)), 0);
-    // 2: the same, EASY
-    let two = |a| {
-        a11("a11-2.bme", a, |t| {
+        });
+        assert_eq!((bad(one), poor(one)), (16, 0), "{a:?}");
+        // 2: the same, EASY: a GOOD, no chain, the second note missed
+        let two = a11("a11-2.bme", a, |t| {
             vec![
                 Step::Press(t + 90 * MS, KEY1, 0),
                 Step::Press(t + 90 * MS, KEY7, 0),
             ]
-        })
-    };
-    assert_eq!((good(two(Lowest)), poor(two(Lowest))), (16, 16));
-    assert_eq!((good(two(Combo)), poor(two(Combo))), (16, 16));
-    assert_eq!((good(two(Duration)), poor(two(Duration))), (0, 16));
-    // 3: scratch with key 6, then the other scratch key with key 7
-    let three = |a| {
-        a11("a11-3.bme", a, |t| {
+        });
+        assert_eq!((good(two), poor(two)), (16, 16), "{a:?}");
+        // 3: scratch with key 6 (two BADs by the chain), then the other
+        // scratch key with key 7 (the next scratch note is a trial away)
+        let three = a11("a11-3.bme", a, |t| {
             vec![
                 Step::Press(t + 160 * MS, SCRATCH, 0),
                 Step::Press(t + 160 * MS, KEY6, 0),
                 Step::Press(t + 240 * MS, SCRATCH, 1),
                 Step::Press(t + 240 * MS, KEY7, 0),
             ]
-        })
-    };
-    assert_eq!((bad(three(Lowest)), poor(three(Lowest))), (32, 0));
-    assert_eq!((bad(three(Combo)), poor(three(Combo))), (16, 16));
-    assert_eq!((bad(three(Duration)), poor(three(Duration))), (16, 16));
+        });
+        assert_eq!((bad(three), poor(three)), (32, 0), "{a:?}");
+    }
 }
 
 /// README, A7: vibeBMS's readings of the GROOVE gauge on autoplay, in the

@@ -20,7 +20,11 @@ use std::io::{Read, Write};
 /// 4: the LR2 preset's HARD and EX-HARD damage by TOTAL steps at the
 /// multiples of 10 (a LR2-preset replay of 3 below TOTAL 240 may end
 /// otherwise on those gauges).
-pub const VERSION: u32 = 4;
+/// 5: the LR2 preset as `docs/LR2_BEHAVIOUR.md` has it: the note choice
+/// and the BAD chain, whole milliseconds, its long notes and mines,
+/// `#RANK` and `#TOTAL` as LR2 reads them, its HARD damage by TOTAL, its
+/// HAZARD and dan gauges (a LR2-preset replay of 4 may judge otherwise).
+pub const VERSION: u32 = 5;
 
 /// The oldest format still read: its ghost still paces a play, but
 /// watching it or playing it again (G-BATTLE) runs it on this judge.

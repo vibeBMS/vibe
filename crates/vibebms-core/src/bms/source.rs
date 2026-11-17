@@ -118,7 +118,7 @@ pub(super) fn read<'a>(text: &'a str, opts: &ParseOptions) -> Source<'a> {
             "BPM" => src.initial_bpm = parse_f64(arg).filter(|v| *v > 0.0).unwrap_or(130.0),
             "PLAYLEVEL" => meta.level = arg.to_owned(),
             "DIFFICULTY" => meta.difficulty = parse_i32(arg).unwrap_or(0),
-            "RANK" => meta.judge_rank = JudgeRank::Rank(parse_i32(arg).unwrap_or(2)),
+            "RANK" => meta.judge_rank = parse_i32(arg).map_or(JudgeRank::NoNumber, JudgeRank::Rank),
             "DEFEXRANK" => {
                 if let Some(v) = parse_f64(arg) {
                     meta.judge_rank = JudgeRank::DefExRank(v)
