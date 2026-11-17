@@ -66,6 +66,7 @@ fn best() -> BestScore {
         play_count: 12,
         clear_count: 5,
         last_played: 1_700_000_000,
+        ..Default::default()
     }
 }
 

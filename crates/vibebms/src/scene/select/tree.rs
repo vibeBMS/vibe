@@ -18,6 +18,8 @@ pub(crate) enum Node {
     All,
     /// The player's favourite charts and songs' charts.
     Favorites,
+    /// A folder made of the records or the library (`Smart`).
+    Smart(Smart),
     /// A table, by its URL (`ctx.tables.list` is re-sorted as tables arrive).
     Table(String),
     Level(String, String),
@@ -31,6 +33,83 @@ pub(crate) enum Node {
     /// The open folder's own bar, first in its list: choosing it closes
     /// the folder (as in IIDX and LR2).
     Close(Box<Node>),
+}
+
+/// The folders made of the records and the library, under the root as
+/// FAVORITE is (beatoraja's and bmz-player's kinds). Their charts are the
+/// ones the filters keep, by the records of the LN and rule modes chosen.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Smart {
+    /// Charts whose lamp a play raised to a clear, or whose best EX score
+    /// a play raised, in the last `RECENT_DAYS`.
+    LampUpdate,
+    ScoreUpdate,
+    /// CLEAR TYPE: a folder per lamp (`ClearType as u8`), and a lamp's.
+    ClearTypes,
+    Clear(u8),
+    /// SCORE RANK: a folder per DJ level (`rank_index`: AAA 0 .. F 7, no
+    /// play 8), and a level's.
+    Ranks,
+    Rank(u8),
+    /// LEVEL: a folder per level, and a level's.
+    Levels,
+    Level(String),
+    /// Charts whose file came (or changed) in the last `RECENT_DAYS`: the
+    /// time the ADDED sort goes by.
+    New,
+}
+
+/// The days LAMP UPDATE, SCORE UPDATE and NEW look back.
+pub(crate) const RECENT_DAYS: i64 = 7;
+
+const SMART_ROOT: [(Smart, &str); 6] = [
+    (Smart::LampUpdate, "LAMP UPDATE"),
+    (Smart::ScoreUpdate, "SCORE UPDATE"),
+    (Smart::ClearTypes, "CLEAR TYPE"),
+    (Smart::Ranks, "SCORE RANK"),
+    (Smart::Levels, "LEVEL"),
+    (Smart::New, "NEW"),
+];
+
+const RANK_LABELS: [&str; 9] = ["AAA", "AA", "A", "B", "C", "D", "E", "F", "NO PLAY"];
+
+/// A chart's DJ level as `Smart::Rank` has it.
+fn rank_of(best: Option<&crate::library::BestScore>) -> u8 {
+    match best {
+        Some(b) => rank_index(DjLevel::from_rate(b.ex_score, b.notes * 2)).clamp(0, 7) as u8,
+        None => 8,
+    }
+}
+
+impl Smart {
+    /// Whether `s` is in this folder of charts (at Unix time `now`).
+    fn has(&self, ctx: &Ctx, s: &Song, now: i64) -> bool {
+        let best = ctx.best(s, ctx.config.play.ln_mode);
+        let since = now - RECENT_DAYS * 86_400;
+        match self {
+            Smart::LampUpdate => best.is_some_and(|b| b.lamp_updated >= since),
+            Smart::ScoreUpdate => best.is_some_and(|b| b.score_updated >= since),
+            Smart::Clear(c) => best.map_or(ClearType::NoPlay, |b| b.clear) as u8 == *c,
+            Smart::Rank(r) => rank_of(best) == *r,
+            Smart::Level(l) => s.level.trim() == l,
+            Smart::New => s.added >= since,
+            Smart::ClearTypes | Smart::Ranks | Smart::Levels => false,
+        }
+    }
+
+    /// A folder's name.
+    fn name(&self) -> String {
+        match self {
+            Smart::Clear(c) => ClearType::ALL[*c as usize % ClearType::ALL.len()]
+                .label()
+                .into(),
+            Smart::Rank(r) => RANK_LABELS[*r as usize % RANK_LABELS.len()].into(),
+            Smart::Level(l) => format!("LEVEL {l}"),
+            f => (SMART_ROOT.iter())
+                .find(|(k, _)| k == f)
+                .map_or_else(String::new, |(_, n)| n.to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -214,6 +293,24 @@ impl SelectScene {
                         .filter(|s| shown(s) && favorite(ctx, s))
                         .count(),
                 });
+                let now = crate::platform::unix_now() as i64;
+                for (f, _) in SMART_ROOT {
+                    let count = match &f {
+                        Smart::ClearTypes | Smart::Ranks | Smart::Levels => {
+                            songs.iter().filter(|s| shown(s)).count()
+                        }
+                        f => songs
+                            .iter()
+                            .filter(|s| shown(s) && f.has(ctx, s, now))
+                            .count(),
+                    };
+                    bars.push(Bar::Folder {
+                        label: f.name(),
+                        sub: "virtual".into(),
+                        node: Node::Smart(f),
+                        count,
+                    });
+                }
                 let mut folders: Vec<(String, usize)> = Vec::new();
                 let mut idx: HashMap<&str, usize> = HashMap::new();
                 for s in songs.iter().filter(|s| shown(s)) {
@@ -287,6 +384,42 @@ impl SelectScene {
                     .filter(|i| &songs[*i].folder == f)
                     .collect(),
             ),
+            Node::Smart(f) => {
+                let now = crate::platform::unix_now() as i64;
+                let kept = || songs.iter().filter(|s| shown(s));
+                // a folder of folders: one per value with charts
+                let sub: Vec<Smart> = match f {
+                    Smart::ClearTypes => {
+                        (0..ClearType::ALL.len() as u8).map(Smart::Clear).collect()
+                    }
+                    Smart::Ranks => (0..RANK_LABELS.len() as u8).map(Smart::Rank).collect(),
+                    Smart::Levels => {
+                        let mut levels: Vec<&str> = kept().map(|s| s.level.trim()).collect();
+                        levels
+                            .sort_by_key(|l| (l.parse::<f64>().map_or(i64::MAX, |v| v as i64), *l));
+                        levels.dedup();
+                        levels.into_iter().map(|l| Smart::Level(l.into())).collect()
+                    }
+                    f => {
+                        return sorted(
+                            (0..songs.len())
+                                .filter(|i| f.has(ctx, &songs[*i], now))
+                                .collect(),
+                        )
+                    }
+                };
+                sub.into_iter()
+                    .filter_map(|f| {
+                        let count = kept().filter(|s| f.has(ctx, s, now)).count();
+                        (count > 0).then(|| Bar::Folder {
+                            label: f.name(),
+                            sub: "virtual".into(),
+                            node: Node::Smart(f),
+                            count,
+                        })
+                    })
+                    .collect()
+            }
             Node::Search(q) => {
                 let q = q.to_lowercase();
                 let has = |s: &str| s.to_lowercase().contains(&q);
@@ -491,6 +624,7 @@ impl SelectScene {
             Node::Root => "ROOT".into(),
             Node::All => "ALL SONGS".into(),
             Node::Favorites => "FAVORITE".into(),
+            Node::Smart(f) => f.name(),
             Node::Folder(f) => Path::new(f)
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
@@ -663,6 +797,126 @@ mod tests {
         s.bars = vec![Bar::Song(0)];
         let st = super::super::SelectState::new(&s, &ctx);
         assert_eq!(st.bar(0).unwrap().title, "♥ a");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The virtual folders: what the last week raised or added, lamps, DJ
+    /// levels and levels, by the records of the rule mode chosen and with
+    /// the filters.
+    #[test]
+    fn virtual_folders() {
+        let root = std::env::temp_dir().join(format!("vibebms-smart-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let now = crate::platform::unix_now() as i64;
+        let (recent, old) = (now - 3 * 86_400, now - 30 * 86_400);
+        ctx.lib.songs = Arc::new(vec![
+            song("a", PlayMode::Beat7K, 4, "12", recent),
+            song("b", PlayMode::Beat7K, 2, "3", old),
+            song("c", PlayMode::Beat14K, 4, "12", old),
+            song("d", PlayMode::Beat7K, 2, "10", old),
+        ]);
+        let mut rec = |id: &str, clear, ex, lamp, score, rule| {
+            let b = BestScore {
+                clear,
+                ex_score: ex,
+                notes: 100,
+                lamp_updated: lamp,
+                score_updated: score,
+                ..Default::default()
+            };
+            ctx.lib.scores.insert(RecordKey::new(id, 0, rule), b);
+        };
+        rec(
+            "a",
+            ClearType::Hard,
+            190,
+            old,
+            recent,
+            JudgePreset::Beatoraja,
+        );
+        rec(
+            "b",
+            ClearType::Easy,
+            120,
+            recent,
+            old,
+            JudgePreset::Beatoraja,
+        );
+        rec(
+            "c",
+            ClearType::Hard,
+            150,
+            recent,
+            recent,
+            JudgePreset::Beatoraja,
+        );
+        rec(
+            "d",
+            ClearType::FullCombo,
+            200,
+            recent,
+            recent,
+            JudgePreset::Lr2,
+        );
+        let s = SelectScene::new(&mut ctx);
+        let names = |ctx: &Ctx, n: &Node| -> Vec<String> {
+            s.build(ctx, n, true)
+                .iter()
+                .map(|b| match b {
+                    Bar::Folder { label, count, .. } => format!("{label} {count}"),
+                    Bar::Song(i) => ctx.lib.songs[*i].title.clone(),
+                    _ => String::new(),
+                })
+                .collect()
+        };
+        let smart = |f| Node::Smart(f);
+        assert_eq!(titles(&s, &ctx, &smart(Smart::LampUpdate)).join(""), "bc");
+        assert_eq!(titles(&s, &ctx, &smart(Smart::ScoreUpdate)).join(""), "ac");
+        assert_eq!(titles(&s, &ctx, &smart(Smart::New)).join(""), "a");
+        assert_eq!(
+            names(&ctx, &smart(Smart::ClearTypes)),
+            ["NO PLAY 1", "EASY 1", "HARD 2"]
+        );
+        assert_eq!(titles(&s, &ctx, &smart(Smart::Clear(6))).join(""), "ac");
+        // 190 of 200 is AAA, 150 A, 120 B
+        assert_eq!(
+            names(&ctx, &smart(Smart::Ranks)),
+            ["AAA 1", "A 1", "B 1", "NO PLAY 1"]
+        );
+        assert_eq!(
+            names(&ctx, &smart(Smart::Levels)),
+            ["LEVEL 3 1", "LEVEL 10 1", "LEVEL 12 2"]
+        );
+        assert_eq!(
+            titles(&s, &ctx, &smart(Smart::Level("12".into()))).join(""),
+            "ac"
+        );
+        // the root: after FAVORITE, with counts
+        let root_names = names(&ctx, &Node::Root);
+        assert_eq!(
+            root_names[2..8],
+            [
+                "LAMP UPDATE 2",
+                "SCORE UPDATE 2",
+                "CLEAR TYPE 4",
+                "SCORE RANK 4",
+                "LEVEL 4",
+                "NEW 1"
+            ]
+        );
+        // the key mode filter and the rule mode
+        ctx.config.select.key_filter = KeyFilter::K7;
+        assert_eq!(titles(&s, &ctx, &smart(Smart::LampUpdate)).join(""), "b");
+        assert_eq!(
+            names(&ctx, &smart(Smart::Levels)),
+            ["LEVEL 3 1", "LEVEL 10 1", "LEVEL 12 1"]
+        );
+        ctx.config.play.judge_preset = JudgePreset::Lr2;
+        assert_eq!(titles(&s, &ctx, &smart(Smart::LampUpdate)).join(""), "d");
+        assert_eq!(
+            names(&ctx, &smart(Smart::ClearTypes)),
+            ["NO PLAY 2", "FULL COMBO 1"]
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 
