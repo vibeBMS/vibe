@@ -89,7 +89,11 @@ pub struct AudioSettings {
     pub key: f32,
     pub bgm: f32,
     pub system: f32,
+    /// The song select plays a chart's preview (its own, else one made of
+    /// its sounds): once, then the select BGM again, or over and over.
     pub preview: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub preview_once: bool,
 }
 
 impl Default for AudioSettings {
@@ -102,6 +106,7 @@ impl Default for AudioSettings {
             bgm: 1.0,
             system: 0.7,
             preview: true,
+            preview_once: false,
         }
     }
 }
@@ -488,6 +493,7 @@ mod tests {
                 bgm: 0.25,
                 system: 0.125,
                 preview: false,
+                preview_once: true,
             },
             tables: vec![
                 TableConfig {
@@ -585,6 +591,7 @@ mod tests {
             (d.hs_type, d.hs_level, d.hs_anim_ms);
         c.play.p2.hs_level = d.hs_level;
         c.play.target_rival = None;
+        c.audio.preview_once = false;
         c.ir = IrSettings {
             accounts: vec![IrAccount {
                 name: "Test IR".into(),

@@ -131,6 +131,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
   the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
   reached.
+- **Song preview** (`SETTINGS › AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
+  the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
+  keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
+  of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
+  off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
+  read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list

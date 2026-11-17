@@ -391,6 +391,7 @@ key = 0.75
 bgm = 0.25
 system = 0.125
 preview = false
+preview_once = true
 
 [[tables]]
 name = "Mine"
