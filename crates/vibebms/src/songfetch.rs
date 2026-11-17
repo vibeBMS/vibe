@@ -76,7 +76,7 @@ fn take_in(
     check: bool,
     file: Option<String>,
 ) -> Vec<Done> {
-    let req = bmseeker::install::request(q, check, file, &crate::hosts::context().config);
+    let req = bmseeker::install::request(q, check, file, &crate::hosts::install_context().config);
     bmseeker::install::take(
         &crate::placement::Vfs,
         bmseeker::unpack::Blob::Bytes(bytes),
@@ -192,7 +192,7 @@ impl SongFetch {
             let mut lib = lib;
             // the settings and hosts, reporting to (and cancelled by) this
             // song's progress
-            let cx = crate::hosts::context().with_progress(progress);
+            let cx = crate::hosts::install_context().with_progress(progress);
             let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
             let mut batch = bmseeker::install::Batch::new([e.md5.clone()]);
             let (mut done, mut last) = (Vec::new(), Vec::new());

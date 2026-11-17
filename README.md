@@ -112,6 +112,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Third-party mirrors** (`SETTINGS › TABLES`, off by default): other people's copies of dead uploaders and sites
   (darksabun.club, bms.hexlataia.xyz) and the community archive (bms.kyouko.moe). What is found there by name only
   goes into the library if it holds the chart wanted (by its MD5).
+- **Name song folders after their charts** (`SETTINGS › TABLES`, off by default): a song downloaded into the library
+  gets a folder named `[artist] title` from what its charts share, as BeMusicSeeker names one (a folder its archive
+  wraps everything in left out), instead of the song's title; a song the library has under another folder name (a
+  chart of the same title and artist) goes into that folder.
 - **Event mirror**: the BOF events of [vibeBMS/BMS](https://github.com/vibeBMS/BMS) (BOF22 to BOF2004) show as
   folders in song select. For events mirrored as they were (BOF22, BOF21, BOF:TT, BOF:XVII, BOF:XVI), a work not
   installed is downloaded from the mirror and unpacked into `bms/<event>/`; for the others the app downloads from
