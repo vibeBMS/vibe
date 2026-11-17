@@ -174,7 +174,7 @@ impl State {
             mix: vec![0.0; 8192],
             max_voices: cfg.max_voices.max(16),
             shared_frame: frame,
-            clock: FrameClock::new(44_100),
+            clock: FrameClock::new(SILENT_RATE),
             epoch,
             retired,
         }
@@ -301,7 +301,7 @@ pub struct Mixer {
     pub sample_rate: u32,
     pub buffer_frames: u32,
     pub device_name: String,
-    _stream: Option<cpal::Stream>,
+    stream: Option<cpal::Stream>,
     /// The mixer: rendered by the stream's callback, or here while there
     /// is no stream.
     state: Arc<Mutex<State>>,
@@ -320,6 +320,10 @@ pub struct Mixer {
     web: Option<crate::web::WebOut>,
 }
 
+/// The rate and buffer of the silent output when no device opens.
+const SILENT_RATE: u32 = 44_100;
+const SILENT_BUFFER: u32 = 512;
+
 /// How long to wait between tries to reopen a lost output.
 const RETRY: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -337,10 +341,10 @@ impl Mixer {
             tx,
             frame,
             epoch,
-            sample_rate: 44100,
-            buffer_frames: 512,
+            sample_rate: SILENT_RATE,
+            buffer_frames: SILENT_BUFFER,
             device_name: String::new(),
-            _stream: None,
+            stream: None,
             state,
             lost,
             retired,
@@ -373,7 +377,7 @@ impl Mixer {
                 m.sample_rate = rate;
                 m.buffer_frames = buf;
                 m.device_name = name;
-                m._stream = Some(stream);
+                m.stream = Some(stream);
             }
             Err(e) => {
                 log::warn!("audio output unavailable ({e}); using silent output");
@@ -387,7 +391,7 @@ impl Mixer {
 
     /// Render by the wall clock from here on (no stream).
     fn go_silent(&mut self) {
-        self._stream = None;
+        self.stream = None;
         let rate = self.sample_rate;
         let mut st = self.state.lock().unwrap();
         st.clock = FrameClock::new(rate);
@@ -404,7 +408,7 @@ impl Mixer {
         if self.web.is_some() {
             return;
         }
-        if self.lost.swap(false, Ordering::AcqRel) && self._stream.is_some() {
+        if self.lost.swap(false, Ordering::AcqRel) && self.stream.is_some() {
             log::warn!("audio: the output device is gone; reopening");
             self.go_silent();
             self.retry_at = Some(Instant::now());
@@ -430,7 +434,7 @@ impl Mixer {
                 }
                 self.buffer_frames = buf;
                 self.device_name = name;
-                self._stream = Some(stream);
+                self.stream = Some(stream);
                 self.null_start = None;
                 self.retry_at = None;
             }
@@ -448,13 +452,17 @@ impl Mixer {
             return w.current_frame();
         }
         if let Some((start, base)) = self.null_start {
-            let target = base + (start.elapsed().as_secs_f64() * self.sample_rate as f64) as u64;
+            let rate = self.sample_rate as u64;
+            let target = base + (start.elapsed().as_secs_f64() * rate as f64) as u64;
             let mut s = self.state.lock().unwrap();
+            // after a long time unasked (a hidden window) only the last
+            // second is rendered: the sounds pause over the rest
+            s.frame = s.frame.max(target.saturating_sub(rate));
             let start_us = s.us(start);
             while s.frame < target {
                 let n = ((target - s.frame) as usize).min(4096);
                 // the frames are the clock here
-                let t = start_us + (s.frame - base) as f64 * 1e6 / self.sample_rate as f64;
+                let t = start_us + (s.frame - base) as f64 * 1e6 / rate as f64;
                 let obs = Obs {
                     frame: s.frame,
                     frames: n,
@@ -551,7 +559,7 @@ impl Mixer {
         if let Some(w) = &self.web {
             w.resume();
         }
-        if let Some(s) = &self._stream {
+        if let Some(s) = &self.stream {
             let _ = s.play();
         }
     }
@@ -904,7 +912,7 @@ mod tests {
         m.current_frame();
         assert!(m.state.lock().unwrap().voices.is_empty());
         m.keep_alive();
-        match m._stream {
+        match m.stream {
             Some(_) => assert!(m.null_start.is_none() && m.retry_at.is_none()),
             None => {
                 assert!(m.retry_at.is_some_and(|t| t > Instant::now()));
@@ -1020,5 +1028,20 @@ mod tests {
             [10, 1000]
         );
         assert!(back.iter().all(|s| Arc::strong_count(s) == 1));
+    }
+
+    /// Silent output not asked for ten seconds renders only the last one.
+    #[test]
+    fn a_long_silent_gap_renders_only_its_last_second() {
+        let mut m = Mixer::new(&AudioConfig::default());
+        m.go_silent();
+        let rate = m.sample_rate as u64;
+        let s = sample(20 * rate as usize, 1);
+        m.play(&s, PlayOptions::default());
+        let f = m.current_frame();
+        m.null_start = Some((Instant::now() - std::time::Duration::from_secs(10), f));
+        assert!(m.current_frame() >= f + 10 * rate);
+        let pos = m.state.lock().unwrap().voices[0].pos as u64;
+        assert!((rate..rate + 4096).contains(&pos), "{pos}");
     }
 }
