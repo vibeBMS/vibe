@@ -253,7 +253,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         id: "A9",
         profile: Profile::VibeLr2,
         what: "origin of the LR2 judge and gauge golden vectors not recorded",
-        closed: false,
+        closed: true,
         reaches: Reach::Every,
     },
     Gap {

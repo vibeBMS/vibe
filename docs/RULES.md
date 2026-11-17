@@ -154,7 +154,7 @@ of beatoraja, LR2oraja or bmz-player, or from LR2's binary.
 | A6 | combo, note consumption and one-POOR rules | closed: LR2's in every key mode [S4, S8] (5/10 keys and PMS had beatoraja's) |
 | A7 | default TOTAL | open |
 | A8 | mines, scratch long note ends | open |
-| A9 | origin of the LR2 golden vectors | open |
+| A9 | origin of the LR2 golden vectors | closed: recorded in `judge_golden.rs` and `gauge_golden.rs`; the documented behaviour has its own tests (`lr2_*_as_measured`, `lr2_hard_low_gauge_rule`, `lr2_combo_and_empty_poor_in_every_mode`, `windows_lr2`, `s14_lr2_release_window`) |
 
 ### Sources
 

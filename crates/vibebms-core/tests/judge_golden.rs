@@ -15,6 +15,15 @@
 //!   are built so that none of the fixed quirks can show in them (see
 //!   `safe_drive`). `GOLDEN_BLESS=1` rewrites them: do not do that to
 //!   make a rewrite pass.
+//! * Where the LR2-preset vectors come from (gap A9; S-ids are the sources
+//!   in `docs/RULES.md`, "LR2 equivalence"): `windows_lr2`'s `#RANK 0..3`
+//!   rows, its empty POOR and LN-end windows, `s14_lr2_release_window`
+//!   and `lr2_combo_and_empty_poor_in_every_mode` are LR2's documented
+//!   behaviour, each naming its sources. `windows_lr2`'s other rows
+//!   (`#RANK 4`, out of range, `#DEFEXRANK`, bmson) are vibeBMS's own rule
+//!   (gap A3). The LR2 runs of `runs.txt` and the LR2 case of
+//!   `replay_round_trip` were recorded from vibeBMS's engine: they pin it,
+//!   they are not LR2 measurements.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -1363,8 +1372,10 @@ fn s13_auto_lanes() {
     );
 }
 
-/// S14: LR2 preset: an LN release inside GOOD keeps a PGREAT head; a CN
-/// tail 30 ms late at VERY HARD is a PGREAT.
+/// S14: LR2 preset: an LN release inside GOOD keeps a PGREAT head (LR2,
+/// S4 and S7); a CN tail 30 ms late at VERY HARD is a PGREAT (vibeBMS's:
+/// LR2 has no CN); empty POOR up to 1 s early, never late, none from presses
+/// after a hit note (LR2, S1 to S4).
 #[test]
 fn s14_lr2_release_window() {
     let c = chart_of(
@@ -1422,6 +1433,56 @@ fn s14_lr2_release_window() {
     drain(&mut e);
     press(&mut e, 0, 2_190 * MS); // 190 ms after a hit note: no empty POOR
     assert_eq!(drain(&mut e), [snd(10, 0)]);
+}
+
+/// LR2 in every key mode (gap A6; S4, S8): an empty POOR keeps the combo
+/// and never takes the note, so one note gives any number of them; an early
+/// BAD takes the note, so the next press can BAD the next note.
+#[test]
+fn lr2_combo_and_empty_poor_in_every_mode() {
+    let s = Setup {
+        preset: JudgePreset::Lr2,
+        gauge_preset: GaugePreset::Lr2,
+        ..Setup::default()
+    };
+    for mode in [
+        PlayMode::Beat5K,
+        PlayMode::Beat7K,
+        PlayMode::Beat14K,
+        PlayMode::Popn9K,
+    ] {
+        let c = chart_of(
+            mode,
+            JudgeRank::Rank(2),
+            None,
+            vec![
+                normal(1, 2 * SEC, 10),
+                normal(1, 3 * SEC, 11),
+                normal(1, 3_300 * MS, 12),
+            ],
+        );
+        let mut e = engine(&c, &s);
+        e.update(SEC);
+        let mut hit = |t| {
+            press(&mut e, 1, t);
+            release(&mut e, 1, t + 5 * MS);
+            drain(&mut e)
+                .into_iter()
+                .filter_map(|v| match v {
+                    EngineEvent::Judge {
+                        judge, diff, combo, ..
+                    } => Some((judge, diff / MS, combo)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(hit(2 * SEC), [(PGREAT, 0, 1)], "{mode:?}");
+        assert_eq!(hit(2_500 * MS), [(MISS, 500, 1)], "{mode:?}");
+        assert_eq!(hit(2_600 * MS), [(MISS, 400, 1)], "{mode:?}");
+        assert_eq!(hit(2_850 * MS), [(BAD, 150, 0)], "{mode:?}");
+        assert_eq!(hit(3_120 * MS), [(BAD, 180, 0)], "{mode:?}");
+        assert_eq!(e.score.max_combo, 1, "{mode:?}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3967,7 +4028,9 @@ fn windows_custom_rates() {
     }
 }
 
-/// §2.5: LR2 preset.
+/// §2.5: LR2 preset. `#RANK 0..3`: LR2's measured windows (S5; also S2,
+/// S3, S4); BAD ±200 and empty POOR 0 .. +1000 ms (S1 to S4); LN ends the
+/// GOOD window (S4, S7). The other rows are vibeBMS's rule (gap A3).
 #[test]
 fn windows_lr2() {
     let lr2 = |rank| rules(JudgePreset::Lr2, PlayMode::Beat7K, rank, None).windows;
