@@ -17,19 +17,12 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+    - uses: ./.github/actions/rust-setup
       with:
-        toolchain: stable
         targets: ${{ inputs.target }}
-    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      with:
         # the runner image too: a build cached on another image (ubuntu-24.04
         # before 22.04) restored as fresh but without its crates' files
-        key: ${{ inputs.cache-key }}
-    # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-    # whose key reads Cargo.toml)
-    - run: ./tools/ci_version.sh
-      shell: bash
+        cache-key: ${{ inputs.cache-key }}
     - run: cargo build --release -p vibebms --target ${{ inputs.target }}
       shell: bash
     # the version it was built with, for the nightly's latest.json
