@@ -600,22 +600,21 @@ impl PlayScene {
                 };
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
-                let resolve = |name: &str| {
-                    crate::platform::vfs::find_by_stem(&dir, name, crate::platform::vfs::AUDIO_EXTS)
-                };
+                let index = crate::platform::vfs::DirIndex::new(&dir);
+                let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
                 let read = |p: &Path| crate::platform::vfs::read(p).ok();
                 let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
                 // an image or a video (shown when ffmpeg is installed)
                 let (images, videos) = if play.bga {
-                    use crate::platform::vfs::{find_by_stem, IMAGE_EXTS};
+                    use crate::platform::vfs::IMAGE_EXTS;
                     use crate::video::{is_video, VIDEO_EXTS};
                     chart
                         .images
                         .iter()
-                        .map(|f| match find_by_stem(&dir, f, IMAGE_EXTS) {
+                        .map(|f| match index.find(f, IMAGE_EXTS) {
                             Some(p) if is_video(&p) => (None, Some(p)),
                             Some(p) => (crate::gfx::load_rgba(&p, true), None),
-                            None => (None, find_by_stem(&dir, f, VIDEO_EXTS)),
+                            None => (None, index.find(f, VIDEO_EXTS)),
                         })
                         .unzip()
                 } else {

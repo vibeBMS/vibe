@@ -2,8 +2,10 @@
 //! in-memory tree: files picked by the user (read lazily via [`prefetch`]),
 //! plus small written files persisted in `localStorage`.
 
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -632,43 +634,65 @@ pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
 
 /// Find a file in `dir` whose stem matches `name`'s stem (case-insensitive),
 /// preferring extensions in `exts` order. Used for BMS-style references like
-/// `a.wav` that ship as `a.ogg`.
+/// `a.wav` that ship as `a.ogg`. For many lookups in one folder, use [`DirIndex`].
 pub fn find_by_stem(dir: &Path, name: &str, exts: &[&str]) -> Option<PathBuf> {
-    let p = inside(dir, name)?;
-    let name = name.replace('\\', "/");
-    if is_file(&p) {
-        return Some(p);
-    }
-    let rel = Path::new(&name);
-    let parent = dir.join(rel.parent().unwrap_or(Path::new("")));
-    let stem = rel.file_stem()?.to_string_lossy().to_lowercase();
-    let mut best: Option<(usize, PathBuf)> = None;
-    for e in read_dir(&parent).ok()? {
-        if e.is_dir {
-            continue;
-        }
-        let Some(fs) = e
-            .path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_lowercase())
-        else {
-            continue;
-        };
-        if fs != stem {
-            continue;
-        }
-        let ext = e
-            .path
-            .extension()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        if let Some(rank) = exts.iter().position(|x| *x == ext) {
-            if best.as_ref().map(|b| rank < b.0).unwrap_or(true) {
-                best = Some((rank, e.path));
-            }
+    DirIndex::new(dir).find(name, exts)
+}
+
+/// [`find_by_stem`] for many names under one folder: each (sub-)folder the
+/// names lead into is listed once. Shared by the threads decoding a chart.
+pub struct DirIndex {
+    dir: PathBuf,
+    /// by folder, relative to `dir`
+    folders: Mutex<HashMap<PathBuf, ByStem>>,
+}
+
+impl DirIndex {
+    pub fn new(dir: &Path) -> DirIndex {
+        DirIndex {
+            dir: dir.to_path_buf(),
+            folders: Mutex::default(),
         }
     }
-    best.map(|b| b.1)
+
+    pub fn find(&self, name: &str, exts: &[&str]) -> Option<PathBuf> {
+        let p = inside(&self.dir, name)?;
+        if is_file(&p) {
+            return Some(p);
+        }
+        let rel = p.strip_prefix(&self.dir).ok()?;
+        let stem = lower(rel.file_stem()?);
+        let sub = rel.parent().unwrap_or(Path::new(""));
+        let mut folders = self.folders.lock().unwrap_or_else(|e| e.into_inner());
+        if !folders.contains_key(sub) {
+            folders.insert(sub.to_path_buf(), by_stem(&self.dir.join(sub)));
+        }
+        folders[sub]
+            .iter()
+            .filter(|(s, _)| *s == stem)
+            .filter_map(|(_, p)| {
+                let ext = p.extension().map(lower).unwrap_or_default();
+                Some((exts.iter().position(|x| *x == ext)?, p))
+            })
+            .min_by_key(|(rank, _)| *rank)
+            .map(|(_, p)| p.clone())
+    }
+}
+
+/// A folder's files with their lower-cased stems.
+type ByStem = Vec<(String, PathBuf)>;
+
+fn by_stem(dir: &Path) -> ByStem {
+    read_dir(dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| !e.is_dir)
+        .filter_map(|e| Some((lower(e.path.file_stem()?), e.path)))
+        .collect()
+}
+
+fn lower(s: &std::ffi::OsStr) -> String {
+    s.to_string_lossy().to_lowercase()
 }
 
 pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac"];
@@ -747,13 +771,35 @@ mod tests {
     #[test]
     fn sound_fallback_by_stem() {
         let dir = std::env::temp_dir().join(format!("vibebms-stem-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("Kick.OGG"), b"x").unwrap();
+        std::fs::create_dir_all(dir.join("wav")).unwrap();
+        std::fs::create_dir_all(dir.join("tom.wav")).unwrap();
+        for f in [
+            "Kick.OGG",
+            "snare.mp3",
+            "snare.ogg",
+            "movie.mpg",
+            "wav/Hat.ogg",
+        ] {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
         assert_eq!(
             find_by_stem(&dir, "kick.wav", AUDIO_EXTS),
             Some(dir.join("Kick.OGG"))
         );
         assert_eq!(find_by_stem(&dir, "../kick.wav", AUDIO_EXTS), None);
+        let index = DirIndex::new(&dir);
+        let found = |name| index.find(name, AUDIO_EXTS);
+        assert_eq!(found("kick.wav"), Some(dir.join("Kick.OGG")));
+        assert_eq!(found("SNARE.wav"), Some(dir.join("snare.ogg")));
+        assert_eq!(found("snare.mp3"), Some(dir.join("snare.mp3")));
+        // the file named is taken whatever its extension
+        assert_eq!(found("movie.mpg"), Some(dir.join("movie.mpg")));
+        assert_eq!(found("movie.wav"), None);
+        assert_eq!(found("wav\\hat.wav"), Some(dir.join("wav/Hat.ogg")));
+        assert_eq!(found("none/hat.wav"), None);
+        assert_eq!(found("tom.ogg"), None);
+        assert_eq!(found("../kick.wav"), None);
+        assert_eq!(found(""), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
