@@ -14,4 +14,5 @@ pub mod settings;
 pub mod skin_host;
 pub mod skinned;
 pub mod skinselect;
+pub mod skinvals;
 pub mod touch_layout;

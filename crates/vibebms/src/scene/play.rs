@@ -2166,8 +2166,8 @@ impl PlayScene {
         let r = Rect::new(x, first.y + first.h * 0.12, w, h);
         ui::panel(d, r);
         let p = &ctx.config.play.for_side(who);
-        let st = super::play_skin::SceneState { s: self, ctx, now };
-        let hs = p.hispeed_at(&st.bpms());
+        let bpms = crate::config::Bpms::of_meta(&self.chart.meta);
+        let hs = p.hispeed_at(&bpms);
         let cx = r.x + w * 0.5;
         let small = (11.0 * ui).min(w * 0.12);
         let mut y = r.y + 10.0 * ui;
@@ -2179,7 +2179,7 @@ impl PlayScene {
         line(d, &format!("{hs:.2}"), small * 2.2, theme::ACCENT, &mut y);
         line(
             d,
-            &format!("GN {}", p.green(&st.bpms())),
+            &format!("GN {}", p.green(&bpms)),
             small,
             theme::TEXT,
             &mut y,
@@ -2245,7 +2245,7 @@ impl PlayScene {
         self.rebuild_zones(ctx, &areas);
         let (view, _) = self.play_view(ctx, &areas);
         {
-            let st = super::play_skin::SceneState { s: self, ctx, now };
+            let st = super::play_skin::SceneState::new(self, ctx, now);
             let mut hooks = super::play_skin::SceneHooks { st: &st };
             let ms = if now >= self.scene_start {
                 now.duration_since(self.scene_start).as_millis() as i64

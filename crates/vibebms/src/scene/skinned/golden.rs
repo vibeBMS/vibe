@@ -258,50 +258,19 @@ fn skin_values_stay_the_same() {
     for (cursor, name) in [(0, "select-song"), (1, "select-folder")] {
         select.cursor = cursor;
         let now = Instant::now();
-        dump(
-            &mut out,
-            name,
-            &SelectState {
-                s: &select,
-                ctx: &ctx,
-                now,
-            },
-        );
+        dump(&mut out, name, &SelectState::new(&select, &ctx, now));
     }
 
     let decide = DecideScene::new(request());
-    dump(
-        &mut out,
-        "decide",
-        &DecideState {
-            s: &decide,
-            ctx: &ctx,
-        },
-    );
+    dump(&mut out, "decide", &DecideState::new(&decide, &ctx));
 
     for (battle, name) in [(false, "play"), (true, "play-battle")] {
         let (scene, now) = play(&mut ctx, battle);
-        dump(
-            &mut out,
-            name,
-            &SceneState {
-                s: &scene,
-                ctx: &ctx,
-                now,
-            },
-        );
+        dump(&mut out, name, &SceneState::new(&scene, &ctx, now));
         let res = result(&mut ctx, &scene);
         let now = Instant::now();
         let res_name = if battle { "result-battle" } else { "result" };
-        dump(
-            &mut out,
-            res_name,
-            &ResultState {
-                s: &res,
-                ctx: &ctx,
-                now,
-            },
-        );
+        dump(&mut out, res_name, &ResultState::new(&res, &ctx, now));
     }
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/skin_values.txt");

@@ -4,16 +4,17 @@
 use super::play::{PlayRequest, PlayScene};
 use super::skin_host::SkinHost;
 use super::skinned;
+use super::skinvals::*;
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
-use crate::library::Song;
+use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use crate::skin::render::Hooks;
 use crate::skin::{SkinState, SkinType};
 use crate::sysound::Sound;
-use vibebms_core::PlayMode;
+use std::cell::OnceCell;
 
 /// How long the screen shows when the skin does not say (beatoraja's
 /// default decide skin).
@@ -60,64 +61,42 @@ impl DecideScene {
     }
 }
 
+/// The decide screen's values in one frame.
 pub(super) struct DecideState<'a> {
     pub s: &'a DecideScene,
     pub ctx: &'a Ctx,
+    song: Option<&'a Song>,
+    best: Option<&'a BestScore>,
+    chart: Option<ChartFacts<'a>>,
+    table: OnceCell<Option<(String, String)>>,
 }
 
-impl DecideState<'_> {
-    fn mode(&self) -> Option<PlayMode> {
-        let m = &self.s.song()?.mode;
-        PlayMode::ALL.iter().copied().find(|p| p.label() == m)
-    }
-
-    fn best(&self) -> Option<&crate::library::BestScore> {
-        let s = self.s.song()?;
-        self.ctx.best(s, self.ctx.config.play.ln_mode)
+impl<'a> DecideState<'a> {
+    pub fn new(s: &'a DecideScene, ctx: &'a Ctx) -> DecideState<'a> {
+        let song = s.song();
+        DecideState {
+            s,
+            ctx,
+            song,
+            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_mode)),
+            chart: song.map(ChartFacts::of_song),
+            table: OnceCell::new(),
+        }
     }
 
     fn static_option(&self, id: i32) -> Option<bool> {
-        let song = self.s.song()?;
+        if let Some(v) = chart_option(self.chart.as_ref()?, id) {
+            return Some(v);
+        }
         let p = &self.ctx.config.play;
         let auto = self.s.req.as_ref().is_some_and(|r| r.autoplay);
-        Some(match id {
-            32 => !auto,
-            33 => auto,
-            40 => !p.bga,
-            41 => p.bga,
-            42 => !p.gauge.is_survival(),
-            43 => p.gauge.is_survival(),
+        match id {
+            32 | 33 | 40..=43 => play_option(auto, p.bga, p.gauge, id),
             100..=105 | 1100..=1104 => {
-                let c = self.best().map(|b| b.clear).unwrap_or_default();
-                return skinned::lamp_option(c, id);
+                lamp_option(self.best.map(|b| b.clear).unwrap_or_default(), id)
             }
-            150..=155 => song.difficulty == id - 150,
-            160..=164 => {
-                let m = [
-                    PlayMode::Beat7K,
-                    PlayMode::Beat5K,
-                    PlayMode::Beat14K,
-                    PlayMode::Beat10K,
-                    PlayMode::Popn9K,
-                ][(id - 160) as usize];
-                self.mode() == Some(m)
-            }
-            170 => !song.has_bga,
-            171 => song.has_bga,
-            172 => !song.has_ln,
-            173 => song.has_ln,
-            180..=184 => song.judge.is_some_and(|j| skinned::judge_option(j, id)),
-            176 => song.min_bpm == song.max_bpm,
-            177 => song.min_bpm != song.max_bpm,
-            1177 => song.has_stop,
-            178 => !song.has_random,
-            179 => song.has_random,
-            190 => song.stagefile.is_empty(),
-            191 => !song.stagefile.is_empty(),
-            192 => song.banner.is_empty(),
-            193 => !song.banner.is_empty(),
-            _ => return None,
-        })
+            _ => None,
+        }
     }
 }
 
@@ -131,74 +110,38 @@ impl SkinState for DecideState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
-        if let Some(v) = skinned::clock_number(id) {
+        if let Some(v) = clock_number(id).or_else(|| player_number(self.ctx, id)) {
             return Some(v);
         }
-        if let Some(v) = skinned::player_number(self.ctx, id) {
-            return Some(v);
-        }
-        let song = self.s.song()?;
-        let p = &self.ctx.config.play;
-        let best = self.best();
-        let b = |f: fn(&crate::library::BestScore) -> i64| best.map(f).unwrap_or(0);
-        let bpms = Bpms::of_song(song);
-        let rate = best.map(|b| b.rate()).unwrap_or(0.0) * 10000.0;
+        let song = self.song?;
         Some(match id {
             20 => self.ctx.fps as i64,
-            10 | 310 | 311 => {
-                let hs = (p.hispeed_at(&bpms) * 100.0).round() as i64;
-                match id {
-                    310 => hs / 100,
-                    311 => hs % 100,
-                    _ => hs,
-                }
+            10 | 310..=313 => return speed_number(&self.ctx.config.play, &Bpms::of_song(song), id),
+            71 | 75..=78 | 102 | 103 | 150 | 173 | 176 | 183 | 184 => {
+                return best_number(self.best, id)
             }
-            312 => p.duration_ms(&bpms).round() as i64,
-            313 => p.green(&bpms),
-            71 | 150 => b(|b| b.ex_score as i64),
             72 => song.notes * 2,
             74 => song.notes,
-            75 | 173 => b(|b| b.max_combo as i64),
-            76 | 176 => b(|b| {
-                if b.min_bp == u32::MAX {
-                    0
-                } else {
-                    b.min_bp as i64
-                }
-            }),
-            77 => b(|b| b.play_count as i64),
-            78 => b(|b| b.clear_count as i64),
-            90 => song.max_bpm.round() as i64,
-            91 => song.min_bpm.round() as i64,
-            92 => song.main_bpm.round() as i64,
-            96 => song.level_num(),
-            102 | 183 => rate as i64 / 100,
-            103 | 184 => rate as i64 % 100,
+            90..=92 | 96 | 400 => return chart_number(self.chart.as_ref()?, id),
             1163 => song.length_ms / 60000,
             1164 => (song.length_ms / 1000) % 60,
-            350..=368 | 400 => return skinned::song_number(song, id),
+            350..=368 => return song_number(song, id),
             _ => return None,
         })
     }
 
     fn text(&self, id: i32) -> Option<String> {
-        let s = self.s.song()?;
-        if let Some(t) = skinned::table_text(self.ctx, &s.md5, &s.sha256, id) {
-            return Some(t);
+        let s = self.song?;
+        match id {
+            2 => Some(self.ctx.config.player_name.clone()),
+            1001..=1003 => {
+                let t = self
+                    .table
+                    .get_or_init(|| table_of(self.ctx, &s.md5, &s.sha256));
+                table_text(t.as_ref()?, id)
+            }
+            _ => chart_text(&ChartText::of_song(s), id),
         }
-        Some(match id {
-            2 => self.ctx.config.player_name.clone(),
-            10 => s.title.clone(),
-            11 => s.subtitle.clone(),
-            12 => s.full_title(),
-            13 => s.genre.clone(),
-            14 => s.artist.clone(),
-            15 => s.subartist.clone(),
-            16 => format!("{} {}", s.artist, s.subartist).trim().to_string(),
-            1030 => s.md5.clone(),
-            1031 => s.sha256.clone(),
-            _ => return None,
-        })
     }
 
     fn rate(&self, _: i32) -> f32 {
@@ -206,7 +149,7 @@ impl SkinState for DecideState<'_> {
     }
 
     fn button(&self, id: i32) -> Option<i64> {
-        skinned::config_button(self.ctx, id).or_else(|| self.number(id))
+        config_button(self.ctx, id).or_else(|| self.number(id))
     }
 }
 
@@ -229,7 +172,7 @@ impl Scene for DecideScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if self.host.first_update() {
             let skin = {
-                let st = DecideState { s: self, ctx };
+                let st = DecideState::new(self, ctx);
                 let stat = |id: i32| st.static_option(id);
                 skinned::load(ctx, gfx, SkinType::Decide, &stat, &st)
             };
@@ -318,7 +261,7 @@ impl Scene for DecideScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let st = DecideState { s: self, ctx };
+        let st = DecideState::new(self, ctx);
         let mut hooks = DecideHooks {
             stage: self.stage_tex,
             banner: self.banner_tex,

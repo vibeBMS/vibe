@@ -337,7 +337,7 @@ impl Scene for ResultScene {
                 SkinType::Result
             };
             let skin = {
-                let st = ResultState { s: self, ctx, now };
+                let st = ResultState::new(self, ctx, now);
                 let stat = |id: i32| st.static_option(id);
                 skinned::load(ctx, gfx, kind, &stat, &st)
             };
@@ -422,7 +422,7 @@ impl Scene for ResultScene {
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
         {
-            let st = ResultState { s: self, ctx, now };
+            let st = ResultState::new(self, ctx, now);
             let mut hooks = ResultHooks { st: &st };
             self.host.draw(d, view, now, &st, &mut hooks);
         }

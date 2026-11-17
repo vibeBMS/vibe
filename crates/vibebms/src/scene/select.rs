@@ -1093,7 +1093,7 @@ impl SelectScene {
                     match ctx.best(song, ln) {
                         Some(best) => {
                             lamps[(best.clear as usize).min(10)] += 1;
-                            let r = super::skinned::rank_index(DjLevel::from_rate(
+                            let r = super::skinvals::rank_index(DjLevel::from_rate(
                                 best.ex_score,
                                 best.notes * 2,
                             ));
@@ -1394,7 +1394,7 @@ impl Scene for SelectScene {
         self.update_banner(ctx, gfx);
         if self.host.first_update() {
             let skin = {
-                let st = SelectState { s: self, ctx, now };
+                let st = SelectState::new(self, ctx, now);
                 let stat = |id: i32| st.static_option(id);
                 skinned::load(ctx, gfx, SkinType::Select, &stat, &st)
             };
@@ -1655,7 +1655,7 @@ impl SelectScene {
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
         let (bars, pitch) = {
-            let st = SelectState { s: self, ctx, now };
+            let st = SelectState::new(self, ctx, now);
             let mut hooks = SelectHooks {
                 st: &st,
                 banner: self.banner.as_ref().and_then(|b| b.1),

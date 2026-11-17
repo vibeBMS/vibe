@@ -2,7 +2,7 @@
 //! textures as they are wanted, run its scripts' events, fade out, and
 //! hit-test its clickable objects.
 
-use super::skinned::ms_since;
+use super::skinvals::ms_since;
 use crate::app::Draw;
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::platform::Instant;

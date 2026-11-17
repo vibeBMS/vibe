@@ -14,7 +14,8 @@
 //! list is scrolled), the preview (LR2 image 105, beatoraja `skinpreview`).
 
 use super::skin_host::{NoHooks, SkinHost, Tap};
-use super::skinned::{self, ms_since};
+use super::skinned;
+use super::skinvals::{self, ms_since};
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
@@ -376,7 +377,7 @@ impl SkinState for PreviewState {
         id < 0
     }
     fn number(&self, id: i32) -> Option<i64> {
-        skinned::clock_number(id)
+        skinvals::clock_number(id)
     }
     fn text(&self, _: i32) -> Option<String> {
         None
@@ -402,7 +403,7 @@ impl SkinState for SelectState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
-        skinned::clock_number(id).or(match id {
+        skinvals::clock_number(id).or(match id {
             20 => Some(self.ctx.fps as i64),
             _ => None,
         })
@@ -449,7 +450,7 @@ impl SkinState for SelectState<'_> {
     fn button(&self, id: i32) -> Option<i64> {
         match id {
             170..=185 | 386..=388 => Some((type_button(self.s.kind()) == id) as i64),
-            _ => skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
+            _ => skinvals::config_button(self.ctx, id).or_else(|| self.number(id)),
         }
     }
 }

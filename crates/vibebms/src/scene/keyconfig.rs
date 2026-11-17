@@ -19,7 +19,7 @@
 
 use super::keybind::{self, Slot};
 use super::skin_host::{NoHooks, SkinHost, Tap};
-use super::skinned;
+use super::{skinned, skinvals};
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
@@ -339,7 +339,7 @@ impl SkinState for KeyState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
-        skinned::clock_number(id).or(match id {
+        skinvals::clock_number(id).or(match id {
             20 => Some(self.ctx.fps as i64),
             _ => None,
         })
@@ -398,7 +398,7 @@ impl SkinState for KeyState<'_> {
             }
             143 => self.s.mode as i64,
             150..=159 => (self.s.device == (id - 150) as usize) as i64,
-            _ => return skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
+            _ => return skinvals::config_button(self.ctx, id).or_else(|| self.number(id)),
         })
     }
 }
