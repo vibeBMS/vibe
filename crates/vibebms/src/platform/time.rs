@@ -9,3 +9,11 @@ pub fn unix_now() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
+
+/// Milliseconds since the Unix epoch.
+pub fn unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}

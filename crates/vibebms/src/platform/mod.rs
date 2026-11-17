@@ -16,7 +16,7 @@ pub mod vfs;
 pub use drive::{load_table, run_job};
 pub use http::{http_get, ir_send, stream};
 pub use thread::{parallel_for, spawn, Job};
-pub use time::{unix_now, Duration, Instant, SystemTime, UNIX_EPOCH};
+pub use time::{unix_ms, unix_now, Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const IS_WEB: bool = cfg!(target_arch = "wasm32");
 

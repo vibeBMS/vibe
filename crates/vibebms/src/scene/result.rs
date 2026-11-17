@@ -17,6 +17,7 @@ use crate::skin::SkinType;
 use crate::sysound::Sound;
 use crate::theme;
 use vibebms_core::gauge::GaugeType;
+use vibebms_core::record::PlayRecord;
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
@@ -97,13 +98,13 @@ pub struct ResultData {
     /// the play count are kept, nothing is sent.
     pub assist: Assist,
     pub options: String,
-    pub judge: String,
-    pub seed: i64,
     pub course: Option<CourseRun>,
     /// A battle's other side.
     pub p2: Option<SideResult>,
     /// The play's replay (a play of its own, not one watched).
     pub replay: Option<crate::replay::Replay>,
+    /// What the play was: its rules, devices and end time among them.
+    pub record: PlayRecord,
 }
 
 /// Whether a play goes into the records and the player's totals: not
@@ -121,6 +122,8 @@ pub struct ResultScene {
     pub(crate) timing_stats: (f64, f64),
     ir_job: Option<Job<String>>,
     ir_status: String,
+    /// The play's profile and rules (`rule::describe`).
+    rules_line: String,
     pub(crate) host: SkinHost,
     /// The chart's stage file (skin reference image 100).
     pub(crate) stage_tex: Option<crate::gfx::TexId>,
@@ -162,9 +165,7 @@ impl ResultScene {
         } else if recorded(d.autoplay, d.unranked) {
             let ranked = d.assist == Assist::None;
             if let Some(lib) = ctx.lib.db.as_mut() {
-                // played up to the last judgement (as beatoraja counts it)
-                let last_us = d.judge_log.iter().map(|j| j.0).max().unwrap_or(0);
-                let play_ms = last_us.max(0) as u64 / 1000;
+                let play_ms = d.record.result.play_ms;
                 let b = if ranked {
                     lib.record_play(&song.sha256, ln, &d.score, d.clear, play_ms)
                 } else {
@@ -196,17 +197,22 @@ impl ResultScene {
                     sha256: song.sha256.clone(),
                     ln_type: format!("{:?}", d.ln).to_uppercase(),
                 };
+                let rec = &d.record;
                 let mut sub = vibebms_ir::ScoreSubmission::from_score(
                     &chart,
                     &d.score,
                     d.clear,
-                    crate::platform::unix_now(),
+                    (rec.ended_ms / 1000) as u64,
                 );
                 sub.option = d.options.clone();
-                sub.seed = d.seed;
+                sub.seed = rec.rules.seed;
                 sub.gauge = d.gauge_type.label().into();
-                sub.judge_preset = d.judge.clone();
-                sub.device = if ctx.touch_enabled() {
+                sub.judge_preset = format!(
+                    "{} / {}",
+                    rec.rules.judge.label(),
+                    rec.rules.gauge_set.label()
+                );
+                sub.device = if rec.device.touch > 0 || rec.device.touch_ui {
                     "TOUCH".into()
                 } else {
                     "KEYBOARD/CONTROLLER".into()
@@ -228,6 +234,7 @@ impl ResultScene {
             }
         }
         ctx.play_sound(result_sound(&d).0);
+        let rules_line = vibebms_ir::rule::describe(&d.record);
         ResultScene {
             timing_stats: super::graphs::timing_stats(&d.timing_log),
             d,
@@ -235,6 +242,7 @@ impl ResultScene {
             after,
             ir_job,
             ir_status,
+            rules_line,
             host: SkinHost::new(),
             stage_tex: None,
             leave_to: None,
@@ -458,8 +466,8 @@ impl Scene for ResultScene {
                 TextStyle::new(16.0 * ui, theme::ACCENT, Align::Left),
             );
         }
+        let ui = ctx.ui();
         if !self.ir_status.is_empty() {
-            let ui = ctx.ui();
             d.text(
                 &self.ir_status,
                 12.0 * ui,
@@ -467,6 +475,13 @@ impl Scene for ResultScene {
                 TextStyle::new(14.0 * ui, theme::ACCENT, Align::Left),
             );
         }
+        // the rules the play was judged under, and their profile
+        d.text(
+            &self.rules_line,
+            ctx.view.width - 12.0 * ui,
+            ctx.view.height - 26.0 * ui,
+            TextStyle::new(14.0 * ui, theme::ACCENT, Align::Right),
+        );
     }
 }
 

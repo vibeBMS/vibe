@@ -15,6 +15,7 @@ use crate::replay::Slot;
 use vibebms_core::chart::NO_SOUND;
 use vibebms_core::gauge::{GaugeAutoShift, GaugePreset};
 use vibebms_core::play::build_engine;
+use vibebms_core::record::{ChartFacts, RuleFacts};
 use vibebms_core::LnType;
 
 impl PlayScene {
@@ -51,6 +52,11 @@ impl PlayScene {
         // that changes BPM are assists (only the lamp is kept)
         facts.wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
         facts.bpm_guide = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
+        // the chart's own mode (BATTLE, VS, G-BATTLE: the single play's)
+        let own_mode = match facts.battle || ghost.is_some() {
+            true => single_mode(mode),
+            false => mode,
+        };
         // VS: each side is a single play (with its own lane option)
         if vs {
             facts.battle = false;
@@ -90,6 +96,8 @@ impl PlayScene {
         // G-BATTLE, VS: the player judges the first side alone
         let side = (ghost.is_some() || vs).then_some(0);
         let (mut engine, total) = build_engine(&chart, &rules, side, self.req.autoplay);
+        let chart_facts = ChartFacts::new(&chart, own_mode, ln_profile, total);
+        let rule_facts = RuleFacts::new(&rules, &engine, &chart_facts, facts, seed);
         if let Some(v) = course.and_then(|c| c.gauge_values.as_ref()) {
             engine.gauge.set_values(v);
         }
@@ -181,11 +189,11 @@ impl PlayScene {
             input_mode,
             score_ln,
             total,
-            seed,
-            assist: facts.level(),
             unranked,
             options_label: opts.join(" / "),
             best_ex,
+            chart: chart_facts,
+            rules: rule_facts,
         };
         self.session = Session::new(chart, sides, vs, self.session.start);
         self.audio = Audio::new(bank, auto_notes);

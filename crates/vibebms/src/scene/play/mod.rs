@@ -36,7 +36,8 @@ use std::sync::Arc;
 use vibebms_audio::Bus;
 use vibebms_core::chart::Chart;
 use vibebms_core::judge::GREAT;
-use vibebms_core::score::{Assist, ClearType, Score};
+use vibebms_core::record::{ChartFacts, InputSource, RuleFacts};
+use vibebms_core::score::{ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 
 /// A dan/course in progress.
@@ -156,7 +157,14 @@ pub(crate) fn battle_skin_fits(ctx: &Ctx) -> bool {
 enum Stage {
     Loading(Box<loading::Loading>),
     Playing,
-    Ending { since: Instant, failed: bool },
+    /// `ended_ms`: when the play ended (Unix ms); `wall_ms`: the real time
+    /// it ran from chart time 0.
+    Ending {
+        since: Instant,
+        failed: bool,
+        ended_ms: i64,
+        wall_ms: u64,
+    },
 }
 
 /// What a play is, decided at its setup.
@@ -171,14 +179,15 @@ pub(crate) struct Facts {
     pub score_ln: LnType,
     /// The TOTAL the gauge uses.
     pub total: f64,
-    pub seed: i64,
-    pub assist: Assist,
     /// Why this play is not recorded (`None`: it is).
     pub unranked: Option<&'static str>,
     pub options_label: String,
     /// The best play's EX score after each of its judgements (`ghost_ex`),
     /// the pacemaker for MY BEST at the same note.
     pub best_ex: Option<Vec<u32>>,
+    /// The chart and the rules its judge was given (the play's record).
+    pub chart: ChartFacts,
+    pub rules: RuleFacts,
 }
 
 pub struct PlayScene {
@@ -211,11 +220,11 @@ impl PlayScene {
                 input_mode: PlayMode::Beat7K,
                 score_ln: LnType::Ln,
                 total: 0.0,
-                seed: 0,
-                assist: Assist::None,
                 unranked: None,
                 options_label: String::new(),
                 best_ex: None,
+                chart: ChartFacts::default(),
+                rules: RuleFacts::default(),
             },
             session: Session::new(Chart::default(), Vec::new(), req.is_vs(), now),
             audio: Default::default(),
@@ -252,13 +261,13 @@ impl PlayScene {
         }
     }
 
-    /// A player's key into the judge.
-    fn feed(&mut self, ctx: &Ctx, ev: LaneEv) {
+    /// A player's key into the judge (`src`: where a press came from).
+    fn feed(&mut self, ctx: &Ctx, ev: LaneEv, src: Option<InputSource>) {
         if self.req.replay.is_some() {
             return;
         }
         self.controls.touched |= ev.pressed;
-        self.session.key(ev, self.offsets(ctx));
+        self.session.key(ev, self.offsets(ctx), src);
     }
 
     /// What the judges left: sounds to the mixer, the timing auto adjust
@@ -304,7 +313,7 @@ impl PlayScene {
             m.tick(now, &mut released);
         }
         for e in released.drain(..) {
-            self.feed(ctx, e);
+            self.feed(ctx, e, None);
         }
         self.released = released;
         self.audio.schedule(&ctx.audio.mixer, &self.session, t);
@@ -317,6 +326,8 @@ impl PlayScene {
         let failed = self.session.step(t, now, offsets, show, &mut self.out);
         self.play_out(ctx);
         let quit = self.controls.quit;
+        // the play's end: the wall clock once, the real time it ran
+        let ended = || (crate::platform::unix_ms(), t.max(0) as u64 / 1000);
         if failed || quit {
             // (quit: the fade starts halfway)
             let since = if failed {
@@ -324,15 +335,21 @@ impl PlayScene {
             } else {
                 now - Duration::from_millis(1000)
             };
+            let (ended_ms, wall_ms) = ended();
             self.stage = Stage::Ending {
                 since,
                 failed: true,
+                ended_ms,
+                wall_ms,
             };
             ctx.audio.mixer.stop_bus(Bus::Bgm);
         } else if self.session.over(t) {
+            let (ended_ms, wall_ms) = ended();
             self.stage = Stage::Ending {
                 since: now,
                 failed: false,
+                ended_ms,
+                wall_ms,
             };
         }
     }
@@ -368,7 +385,12 @@ impl Scene for PlayScene {
         }
         match self.stage {
             Stage::Playing => self.play(ctx, now),
-            Stage::Ending { since, failed } => {
+            Stage::Ending {
+                since,
+                failed,
+                ended_ms,
+                wall_ms,
+            } => {
                 let wait = match failed {
                     true => self
                         .skin
@@ -380,7 +402,7 @@ impl Scene for PlayScene {
                 if now.duration_since(since) > Duration::from_millis(wait as u64) {
                     ctx.audio.mixer.stop_bus(Bus::Bgm);
                     ctx.audio.mixer.stop_bus(Bus::Key);
-                    return self.finish(ctx, failed);
+                    return self.finish(ctx, failed, ended_ms, wall_ms);
                 }
             }
             Stage::Loading(_) => {}

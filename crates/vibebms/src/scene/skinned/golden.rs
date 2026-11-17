@@ -237,11 +237,10 @@ fn result(ctx: &mut Ctx, play: &PlayScene) -> ResultScene {
         unranked: None,
         assist: Assist::None,
         options: String::new(),
-        judge: String::new(),
-        seed: 7,
         course: None,
         p2,
         replay: None,
+        record: Default::default(),
     };
     ResultScene::new(ctx, d)
 }

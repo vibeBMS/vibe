@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vibebms_core::chart::{BgaLayer, Chart, SoundId};
 use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op};
 use vibebms_core::judge::GOOD;
+use vibebms_core::record::{DeviceFacts, InputSource};
 use vibebms_core::PlayMode;
 
 /// Who plays a side.
@@ -175,6 +176,8 @@ pub(crate) struct Session {
     pub finished_instant: Option<Instant>,
     /// The chart's BPM changes: (time, BPM).
     pub bpm_log: Vec<(i64, f64)>,
+    /// The first side's presses that reached its judge, by source.
+    pub device: DeviceFacts,
     /// This step's events: (side, event).
     events: Vec<(usize, EngineEvent)>,
 }
@@ -210,6 +213,7 @@ impl Session {
             finished_at: None,
             finished_instant: None,
             bpm_log,
+            device: DeviceFacts::default(),
             events: Vec::new(),
             chart,
         }
@@ -286,8 +290,9 @@ impl Session {
     }
 
     /// A player's key into the judge of its lane (`offsets`: each side's
-    /// judge offset, µs), lit. A side that failed plays no more.
-    pub fn key(&mut self, ev: LaneEv, offsets: [i64; 2]) {
+    /// judge offset, µs), lit, a press counted by its `src`. A side that
+    /// failed plays no more.
+    pub fn key(&mut self, ev: LaneEv, offsets: [i64; 2], src: Option<InputSource>) {
         let Some(k) = self
             .sides
             .iter()
@@ -299,6 +304,11 @@ impl Session {
             return;
         }
         let time = self.chart_us(ev.time) - offsets[k];
+        if let Some(src) = src.filter(|_| ev.pressed && k == 0) {
+            if !self.sides[0].engine.is_auto(ev.lane as usize) {
+                self.device.count(src);
+            }
+        }
         self.sides[k].engine.input(InputEvent {
             time,
             lane: ev.lane,
@@ -653,13 +663,25 @@ mod tests {
                     pressed,
                     time: s.instant_at(time),
                 };
-                s.key(ev, [0, 0]);
+                // presses from a keyboard and a controller by turns
+                let src = match next % 4 {
+                    0 => InputSource::Keyboard,
+                    _ => InputSource::Gamepad,
+                };
+                s.key(ev, [0, 0], Some(src));
                 next += 1;
             }
         });
         let e = s.engine().unwrap();
         let hits = e.ghost.iter().filter(|j| **j as usize == GREAT).count();
         assert_eq!(hits, keys.len() / 2);
+        // every press counted once, by its source; releases are not
+        let kb = (0..keys.len()).filter(|i| keys[*i].2 && i % 4 == 0).count();
+        let d = s.device;
+        assert_eq!(
+            (d.keyboard, d.gamepad, d.touch),
+            (kb as u32, (hits - kb) as u32, 0)
+        );
         let adjust: Vec<i32> = out
             .iter()
             .filter_map(|o| match o {

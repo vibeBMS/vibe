@@ -6,11 +6,19 @@ use crate::app::{Ctx, Next};
 use crate::config::{Bpms, HISPEED_STEP};
 use crate::input::{InputEv, LaneEv};
 use crate::platform::Instant;
+use vibebms_core::record::InputSource;
 use winit::keyboard::KeyCode;
 
 impl PlayScene {
     pub(super) fn on_input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         let mut lane_evs = Vec::new();
+        // (releases that never came are no presses)
+        let src = match ev {
+            InputEv::Key { .. } => Some(InputSource::Keyboard),
+            InputEv::Pad { .. } | InputEv::Axis { .. } => Some(InputSource::Gamepad),
+            InputEv::Pointer { .. } => Some(InputSource::Touch),
+            _ => None,
+        };
         match ev {
             InputEv::Key {
                 code,
@@ -127,7 +135,7 @@ impl PlayScene {
                 continue;
             }
             if matches!(self.stage, Stage::Playing) {
-                self.feed(ctx, e);
+                self.feed(ctx, e, src);
                 fed = true;
             }
         }

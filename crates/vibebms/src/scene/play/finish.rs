@@ -7,6 +7,10 @@ use crate::config::PlayConfig;
 use crate::replay::Replay;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
 use vibebms_core::gauge::GaugeAutoShift;
+use vibebms_core::record::{
+    self, thin_gauge_log, ClientId, CourseStage, DeviceFacts, Platform, PlayFlags, PlayRecord,
+    PlayResult,
+};
 use vibebms_core::score::{Assist, ClearType};
 
 /// The gauge graph's samples (every 500 ms) with the gauge as the play
@@ -20,7 +24,15 @@ pub(super) fn settled_log(log: &[f32], last: f32) -> Vec<f32> {
 }
 
 impl PlayScene {
-    pub(super) fn finish(&mut self, ctx: &mut Ctx, failed: bool) -> Next {
+    /// The play's result; `ended_ms` and `wall_ms`: when it ended (Unix
+    /// ms) and the real time it ran.
+    pub(super) fn finish(
+        &mut self,
+        ctx: &mut Ctx,
+        failed: bool,
+        ended_ms: i64,
+        wall_ms: u64,
+    ) -> Next {
         let Some(side) = self.session.sides.first() else {
             return Next::Pop;
         };
@@ -38,10 +50,11 @@ impl PlayScene {
             gauge.final_clear_gauge().map(|g| g.clear_type())
         };
         let mut score = e.score.clone();
+        let assist = self.facts.rules.assist.level();
         let clear = if self.controls.quit {
             ClearType::Failed
         } else {
-            score.clear_type(gauge_clear, self.facts.assist)
+            score.clear_type(gauge_clear, assist)
         };
         if self.controls.quit {
             score.passed = score.passed.min(score.total_notes);
@@ -52,6 +65,46 @@ impl PlayScene {
             c.stages
                 .push((self.session.chart.meta.title.clone(), score.clone(), clear));
         }
+        let gauge_log = settled_log(&side.gauge_log, gauge.value());
+        // played up to the last judgement (as beatoraja counts it)
+        let last_us = e.judge_log.iter().map(|j| j.0).max().unwrap_or(0);
+        let record = PlayRecord {
+            v: record::VERSION,
+            chart: std::mem::take(&mut self.facts.chart),
+            rules: std::mem::take(&mut self.facts.rules),
+            device: DeviceFacts {
+                touch_ui: ctx.touch_enabled(),
+                platform: Platform::current(),
+                ..self.session.device
+            },
+            flags: PlayFlags {
+                autoplay: self.req.autoplay,
+                replay: self.req.replay.is_some(),
+                versus: self.req.is_vs(),
+                ghost_battle: matches!(self.req.vs, Some(Versus::Ghost(..))),
+                aborted: self.controls.quit,
+            },
+            result: PlayResult {
+                score: score.clone(),
+                clear,
+                gauge: gauge.current_type(),
+                gauge_value: gauge.value(),
+                gauge_values: gauge.values(),
+                gauge_log: thin_gauge_log(&gauge_log),
+                play_ms: last_us.max(0) as u64 / 1000,
+            },
+            client: ClientId {
+                name: "vibeBMS".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+            },
+            ended_ms,
+            wall_ms,
+            course: self.req.course.as_ref().map(|c| CourseStage {
+                name: c.name.clone(),
+                index: c.index as u32,
+                of: c.songs.len() as u32,
+            }),
+        };
         // a battle's sides are single plays
         let played_mode = if self.session.sides.len() > 1 {
             single_mode(self.session.mode)
@@ -74,7 +127,7 @@ impl PlayScene {
             clear,
             gauge_type: gauge.current_type(),
             gauge_value: gauge.value(),
-            gauge_log: settled_log(&side.gauge_log, gauge.value()),
+            gauge_log,
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
@@ -88,14 +141,8 @@ impl PlayScene {
             bpm_log: self.session.bpm_log.clone(),
             autoplay: self.req.autoplay,
             unranked: self.facts.unranked,
-            assist: self.facts.assist,
+            assist,
             options: self.facts.options_label.clone(),
-            judge: format!(
-                "{} / {}",
-                ctx.config.play.judge_preset.label(),
-                ctx.config.play.gauge_preset.label()
-            ),
-            seed: self.facts.seed,
             course,
             p2: self.opponent_result(),
             replay: (!e.recorded().is_empty()).then(|| Replay {
@@ -104,14 +151,15 @@ impl PlayScene {
                 md5: self.req.song.md5.clone(),
                 title: self.session.chart.meta.title.clone(),
                 ln: self.facts.score_ln as i32,
-                date: crate::platform::unix_now() as i64,
-                seed: self.facts.seed,
+                date: ended_ms / 1000,
+                seed: record.rules.seed,
                 play: self.played(ctx),
                 ex_score: e.score.ex_score(),
                 clear,
                 ghost: e.ghost.clone(),
                 ops: e.recorded().to_vec(),
             }),
+            record,
         };
         Next::Replace(Box::new(ResultScene::new(ctx, data)))
     }
