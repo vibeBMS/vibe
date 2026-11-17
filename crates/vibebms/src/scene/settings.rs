@@ -1373,6 +1373,9 @@ pub struct SettingsScene {
     sel: usize,
     focus_items: bool,
     edit: Option<(TextField, String)>,
+    /// The text box and its buttons (0 OK, 1 cancel), for touches.
+    edit_panel: Rect,
+    edit_buttons: Vec<(Rect, usize)>,
     learning: Option<(Slot, Instant)>,
     cat_rects: Vec<(Rect, usize)>,
     item_rects: Vec<(Rect, usize)>,
@@ -1408,6 +1411,8 @@ impl SettingsScene {
             learning: None,
             cat_rects: Vec::new(),
             item_rects: Vec::new(),
+            edit_panel: Rect::default(),
+            edit_buttons: Vec::new(),
             value_spans: Vec::new(),
             scroll: 0.0,
             follow: true,
@@ -1748,6 +1753,37 @@ impl SettingsScene {
         }
         // text editing
         if let Some((tf, s)) = self.edit.as_mut() {
+            // on-screen keyboards and input methods
+            if let InputEv::Text(t) = ev {
+                if t.contains(['\n', '\r']) {
+                    let (tf, s) = (*tf, std::mem::take(s));
+                    self.edit = None;
+                    self.commit_text(ctx, tf, s);
+                } else {
+                    s.extend(t.chars().filter(|c| !c.is_control()));
+                }
+                return Next::Stay;
+            }
+            // touches: OK, cancel, or outside the box (cancel)
+            if let InputEv::Pointer {
+                phase: Phase::Down,
+                x,
+                y,
+                ..
+            } = ev
+            {
+                match ui::hit(&self.edit_buttons, *x, *y) {
+                    Some(0) => {
+                        let (tf, s) = (*tf, std::mem::take(s));
+                        self.edit = None;
+                        self.commit_text(ctx, tf, s);
+                    }
+                    Some(_) => self.edit = None,
+                    None if !self.edit_panel.contains(*x, *y) => self.edit = None,
+                    None => {}
+                }
+                return Next::Stay;
+            }
             if let InputEv::Key {
                 code,
                 pressed: true,
@@ -2113,8 +2149,12 @@ impl SettingsScene {
         }
         d.b.set_clip(None);
         // modal: text edit / key learning
+        self.edit_buttons.clear();
         if let Some((tf, s)) = &self.edit {
-            let r = Rect::new(w * 0.1, h * 0.38, w * 0.8, 90.0 * ui);
+            // the on-screen keyboard (iOS, Android) covers the lower half
+            ctx.text_input = true;
+            let r = Rect::new(w * 0.1, h * 0.2, w * 0.8, 140.0 * ui);
+            self.edit_panel = r;
             d.b.rect(
                 Rect::new(0.0, 0.0, w, h),
                 with_alpha(theme::BACKGROUND, 0.7),
@@ -2147,6 +2187,14 @@ impl SettingsScene {
                 Align::Left,
                 r.w - 28.0 * ui,
             );
+            let (bw, bh) = (120.0 * ui, 36.0 * ui);
+            let by = r.y + r.h - bh - 12.0 * ui;
+            let ok = Rect::new(r.x + r.w - 14.0 * ui - bw, by, bw, bh);
+            let cancel = Rect::new(ok.x - 10.0 * ui - bw, by, bw, bh);
+            self.edit_buttons
+                .push((ui::button(d, ok, "OK", ui, true), 0));
+            self.edit_buttons
+                .push((ui::button(d, cancel, "Cancel", ui, false), 1));
         }
         if let Some((slot, _)) = &self.learning {
             let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);

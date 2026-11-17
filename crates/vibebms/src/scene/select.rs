@@ -1415,6 +1415,30 @@ impl Scene for SelectScene {
         }
         // search box
         if let Some(q) = self.search_edit.as_mut() {
+            // on-screen keyboards (their return key ends it) and touches:
+            // the box searches, anywhere else closes it
+            let done = match ev {
+                InputEv::Text(t) if t.contains(['\n', '\r']) => Some(true),
+                InputEv::Text(t) => {
+                    q.extend(t.chars().filter(|c| !c.is_control()));
+                    None
+                }
+                InputEv::Pointer {
+                    phase: crate::input::Phase::Down,
+                    x,
+                    y,
+                    ..
+                } => Some(search_box(ctx).contains(*x, *y)),
+                _ => None,
+            };
+            if let Some(search) = done {
+                let q = std::mem::take(q);
+                self.search_edit = None;
+                if search && !q.trim().is_empty() {
+                    self.enter(ctx, Node::Search(q.trim().to_string()));
+                }
+                return Next::Stay;
+            }
             if let InputEv::Key {
                 code,
                 pressed: true,
@@ -1708,13 +1732,9 @@ impl SelectScene {
         self.skin_clicks = clicks;
         // search box (typing is not part of skins)
         if let Some(q) = &self.search_edit {
+            ctx.text_input = true;
             let ui = ctx.ui();
-            let r = Rect::new(
-                ctx.width * 0.25,
-                ctx.height * 0.45,
-                ctx.width * 0.5,
-                44.0 * ui,
-            );
+            let r = search_box(ctx);
             d.b.rect(r, with_alpha(theme::PANEL, 0.97));
             d.b.rect_outline(r, 2.0, theme::ACCENT);
             d.text_fit(
@@ -1761,4 +1781,15 @@ impl SelectScene {
         parts.push(self.node_name(ctx, &self.node));
         parts.join(" › ")
     }
+}
+
+/// The search box: in the upper half, above an on-screen keyboard.
+fn search_box(ctx: &Ctx) -> Rect {
+    let ui = ctx.ui();
+    Rect::new(
+        ctx.width * 0.25,
+        ctx.height * 0.22,
+        ctx.width * 0.5,
+        44.0 * ui,
+    )
 }

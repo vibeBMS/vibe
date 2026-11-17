@@ -581,8 +581,11 @@ fn open_stream(
             {
                 rate = cfg.sample_rate;
             }
+            // (iOS says 0..=0: it does not know)
             if let cpal::SupportedBufferSize::Range { min, max } = c.buffer_size() {
-                buf_range = Some((*min, *max));
+                if *max > 0 {
+                    buf_range = Some((*min, *max));
+                }
             }
         }
     }
@@ -608,7 +611,9 @@ fn open_stream(
         buffer_size: cpal::BufferSize::Default,
     };
     let mut buf = 0;
-    if cfg.buffer_frames > 0 {
+    // iOS: cpal takes no fixed buffer size there (the session's preferred
+    // I/O buffer duration, set above, sizes it)
+    if cfg.buffer_frames > 0 && !cfg!(target_os = "ios") {
         let b = match buf_range {
             Some((min, max)) => cfg.buffer_frames.clamp(min, max.max(min)),
             None => cfg.buffer_frames,
@@ -628,7 +633,7 @@ fn open_stream(
     };
     let stream = match try_build(&config) {
         Ok(s) => s,
-        Err(e) if buf != 0 => {
+        Err(e) if matches!(config.buffer_size, cpal::BufferSize::Fixed(_)) => {
             log::warn!("buffer size {buf} rejected ({e}); using device default");
             config.buffer_size = cpal::BufferSize::Default;
             buf = 0;

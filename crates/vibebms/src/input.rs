@@ -45,6 +45,10 @@ pub enum InputEv {
         dy: f32,
     },
     Dropped(std::path::PathBuf),
+    /// Text typed without a key of its own: an on-screen keyboard (iOS
+    /// sends its characters with no key code) or an input method's
+    /// composed text. A "\n" is its return key.
+    Text(String),
     /// Keys may have been let go unseen: the window lost the focus (all
     /// keys), or no finger is on the screen any more (`touch_only`).
     Released {

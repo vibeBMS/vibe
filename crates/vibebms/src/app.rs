@@ -168,6 +168,9 @@ pub struct Ctx {
     pub fps: f32,
     pub want_fullscreen: Option<bool>,
     pub want_present_mode: bool,
+    /// A text field is being edited (scenes set it as they draw): the
+    /// on-screen keyboard is shown on iOS and Android.
+    pub text_input: bool,
     pub gpu_name: String,
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
     /// Download pages to show in the in-app browser (song, then chart).
@@ -228,6 +231,7 @@ impl Ctx {
             library_version: 0,
             fps: 0.0,
             want_fullscreen: None,
+            text_input: false,
             want_present_mode: false,
             gpu_name: String::new(),
             prefetch: None,
@@ -716,6 +720,8 @@ struct Running {
     /// A redraw asked for and not drawn yet (the web: asking again would
     /// wake the event loop again at once, and it would spin).
     redraw_pending: bool,
+    /// The on-screen keyboard is asked for.
+    ime_on: bool,
     #[cfg(any(
         target_os = "android",
         all(
@@ -927,8 +933,16 @@ impl Running {
             text: &mut self.text,
             b: &mut self.batch,
         };
+        self.ctx.text_input = false;
         if let Some(top) = self.scenes.last_mut() {
             top.draw(&mut self.ctx, &mut d, now);
+        }
+        // the on-screen keyboard (iOS, Android) while a text field is edited
+        if self.ctx.text_input != self.ime_on {
+            self.ime_on = self.ctx.text_input;
+            if cfg!(any(target_os = "ios", target_os = "android")) {
+                self.window.set_ime_allowed(self.ime_on);
+            }
         }
         draw_overlay(&mut self.ctx, &mut d, now);
         if let Err(e) = self.gfx.render(&self.batch, theme::BACKGROUND) {
@@ -1064,6 +1078,7 @@ impl App {
             library_version: 0,
             fps: 0.0,
             want_fullscreen: None,
+            text_input: false,
             want_present_mode: false,
             gpu_name: gfx.adapter_name.clone(),
             prefetch: None,
@@ -1174,6 +1189,7 @@ impl App {
             fps_since: now,
             next_frame: now,
             redraw_pending: false,
+            ime_on: false,
             #[cfg(any(
                 target_os = "android",
                 all(
@@ -1295,6 +1311,12 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else {
+                    // an on-screen keyboard's characters (iOS) have no key
+                    if event.state == ElementState::Pressed {
+                        if let Some(t) = event.text.as_ref().filter(|t| !t.is_empty()) {
+                            r.dispatch(el, InputEv::Text(t.to_string()));
+                        }
+                    }
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
@@ -1314,6 +1336,9 @@ impl ApplicationHandler<UserEvent> for App {
                         text,
                     },
                 );
+            }
+            WindowEvent::Ime(winit::event::Ime::Commit(t)) if !t.is_empty() => {
+                r.dispatch(el, InputEv::Text(t))
             }
             WindowEvent::CursorLeft { .. } => crate::input::set_pointer(None),
             WindowEvent::CursorMoved { position, .. } => {
