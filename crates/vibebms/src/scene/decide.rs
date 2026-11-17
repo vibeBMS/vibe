@@ -22,15 +22,7 @@ const SCENE_MS: i64 = 3000;
 /// decide skin is configured, else straight to play.
 pub fn start(ctx: &mut Ctx, req: PlayRequest) -> Box<dyn Scene> {
     if skinned::configured_skin(ctx, SkinType::Decide).is_some() {
-        Box::new(DecideScene {
-            req: Some(req),
-            skin: None,
-            tried: false,
-            created: Instant::now(),
-            leaving: None,
-            stage_tex: None,
-            banner_tex: None,
-        })
+        Box::new(DecideScene::new(req))
     } else {
         Box::new(PlayScene::new(ctx, req))
     }
@@ -48,6 +40,18 @@ pub struct DecideScene {
 }
 
 impl DecideScene {
+    pub(super) fn new(req: PlayRequest) -> DecideScene {
+        DecideScene {
+            req: Some(req),
+            skin: None,
+            tried: false,
+            created: Instant::now(),
+            leaving: None,
+            stage_tex: None,
+            banner_tex: None,
+        }
+    }
+
     fn song(&self) -> Option<&Song> {
         self.req.as_ref().map(|r| &r.song)
     }
@@ -65,9 +69,9 @@ impl DecideScene {
     }
 }
 
-struct DecideState<'a> {
-    s: &'a DecideScene,
-    ctx: &'a Ctx,
+pub(super) struct DecideState<'a> {
+    pub s: &'a DecideScene,
+    pub ctx: &'a Ctx,
 }
 
 impl DecideState<'_> {

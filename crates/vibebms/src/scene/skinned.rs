@@ -445,3 +445,6 @@ pub fn step_offset(ctx: &mut Ctx, value: &str, name: &str, field: usize, d: i32)
         v[5] = v[5].clamp(-255, 255);
     }
 }
+
+#[cfg(test)]
+mod golden;

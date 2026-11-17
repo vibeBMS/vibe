@@ -1,0 +1,1036 @@
+select-song 2: o t="PLAYER"
+select-song 5: o
+select-song 10: n=250 b=250 t="Golden Song"
+select-song 11: t="[ANOTHER]"
+select-song 12: n=0 b=0 t="Golden Song [ANOTHER]"
+select-song 13: t="TEST"
+select-song 14: t="Composer"
+select-song 15: t="obj: Charter"
+select-song 16: t="Composer obj: Charter"
+select-song 17: n=0 b=0
+select-song 18: n=0 b=0
+select-song 19: n=0 b=0
+select-song 20: n=0 b=0
+select-song 30: n=12 b=12 t=""
+select-song 31: n=5 b=5
+select-song 32: o n=7 b=7
+select-song 33: n=0 b=0
+select-song 34: n=0 b=0
+select-song 35: n=0 b=0
+select-song 36: n=0 b=0
+select-song 37: n=0 b=0
+select-song 40: b=2
+select-song 41: o
+select-song 42: o b=0
+select-song 43: b=0
+select-song 54: b=0
+select-song 55: b=0
+select-song 71: n=1500 b=1500
+select-song 72: n=2000 b=0
+select-song 74: n=1000 b=1000
+select-song 75: n=400 b=0
+select-song 76: n=50 b=50
+select-song 77: n=12 b=11
+select-song 78: n=5 b=0
+select-song 79: n=7 b=7
+select-song 80: n=600 b=600
+select-song 81: n=300 b=300
+select-song 82: n=50 b=50
+select-song 83: n=20 b=20
+select-song 84: n=10 b=10
+select-song 90: n=180 b=180
+select-song 91: n=120 b=120
+select-song 92: n=150 b=150
+select-song 96: n=11 b=11
+select-song 102: n=75 b=75
+select-song 103: n=0 b=0
+select-song 104: o
+select-song 110: r=0.75
+select-song 113: r=0.75
+select-song 154: o
+select-song 160: o
+select-song 171: o
+select-song 173: o
+select-song 177: o
+select-song 178: o
+select-song 182: o
+select-song 191: o
+select-song 192: o
+select-song 300: n=2 b=2
+select-song 301: b=0
+select-song 302: b=0
+select-song 303: b=0
+select-song 304: b=0
+select-song 305: b=0
+select-song 306: b=0
+select-song 307: b=0
+select-song 308: b=0
+select-song 310: n=2 b=2
+select-song 311: n=50 b=50
+select-song 312: n=640 b=640
+select-song 313: n=384 b=384
+select-song 322: o
+select-song 330: b=0
+select-song 331: b=0
+select-song 332: b=0
+select-song 333: n=0 b=0
+select-song 340: b=0
+select-song 350: n=800 b=800
+select-song 351: n=100 b=0
+select-song 352: n=80 b=0
+select-song 353: n=20 b=0
+select-song 354: n=0 b=0
+select-song 360: n=15 b=15
+select-song 361: n=50 b=50
+select-song 362: n=10 b=10
+select-song 363: n=25 b=25
+select-song 364: n=8 b=8
+select-song 365: n=0 b=0
+select-song 368: n=300 b=300
+select-song 370: n=6 b=6
+select-song 400: n=2 b=2
+select-song 1000: t="ROOT"
+select-song 1001: t="Golden Table"
+select-song 1002: t="★12"
+select-song 1003: t="★12Golden Table"
+select-song 1030: t="0123456789abcdef0123456789abcdef"
+select-song 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+select-song 1163: n=2 b=2
+select-song 1164: n=5 b=5
+select-song 1177: o
+select-song 1401: b=0
+select-song 1402: b=0
+select-song 1403: b=0
+select-song 1404: b=0
+select-song 1405: b=12
+select-song 1500: o
+select-song 1518: o
+select-song 1532: o
+select-song 1548: o
+select-song 1564: o
+select-song 1592: o
+select-song 1596: o
+select-song 1612: o
+select-song 1628: o
+select-song 1644: o
+select-song 1660: o
+select-song 1676: o
+select-song 1692: o
+select-song 1708: o
+select-song 1725: o
+select-song 1740: o
+select-song 1756: o
+select-song 1772: o
+select-song 1788: o
+select-song 1804: o
+select-song 9000: t="OFF"
+select-song 9001: t="NORMAL"
+select-song 9002: t="OFF"
+select-song 9003: t="LN"
+select-song 9004: t="2.50"
+select-song 9005: t="GN 384"
+select-song 9006: t="P1"
+select-song 9007: t="beatoraja"
+select-song 9008: t="OFF"
+select-song 9009: t="OPEN"
+select-song 9010: t="OFF"
+select-song 9100: t="RANDOM"
+select-song 9101: t="GAUGE"
+select-song 9102: t="AUTO SHIFT"
+select-song 9103: t="LN MODE"
+select-song 9104: t="HI-SPEED −"
+select-song 9105: t="HI-SPEED +"
+select-song 9106: t="SIDE"
+select-song 9107: t="JUDGE"
+select-song 9108: t="AUTOPLAY"
+select-song 9109: t="SETTINGS"
+select-song 9110: t="BATTLE"
+select-folder 1: o
+select-folder 2: t="PLAYER"
+select-folder 10: n=250 b=250 t="GOLDEN"
+select-folder 11: t="a folder"
+select-folder 12: n=0 b=0 t="GOLDEN"
+select-folder 17: n=0 b=0
+select-folder 18: n=0 b=0
+select-folder 19: n=0 b=0
+select-folder 20: n=0 b=0
+select-folder 30: n=12 b=12 t=""
+select-folder 31: n=5 b=5
+select-folder 32: o n=7 b=7
+select-folder 33: n=0 b=0
+select-folder 34: n=0 b=0
+select-folder 35: n=0 b=0
+select-folder 36: n=0 b=0
+select-folder 37: n=0 b=0
+select-folder 40: b=2
+select-folder 41: o
+select-folder 42: o b=0
+select-folder 43: b=0
+select-folder 54: b=0
+select-folder 55: b=0
+select-folder 72: b=0
+select-folder 75: b=0
+select-folder 77: b=11
+select-folder 78: b=0
+select-folder 190: o
+select-folder 192: o
+select-folder 300: n=1 b=1
+select-folder 301: b=0
+select-folder 302: b=0
+select-folder 303: b=0
+select-folder 304: b=0
+select-folder 305: b=0
+select-folder 306: b=0
+select-folder 307: b=0
+select-folder 308: b=0
+select-folder 310: n=2 b=2
+select-folder 311: n=50 b=50
+select-folder 312: n=640 b=640
+select-folder 313: n=384 b=384
+select-folder 330: b=0
+select-folder 331: b=0
+select-folder 332: b=0
+select-folder 333: n=0 b=0
+select-folder 340: b=0
+select-folder 351: b=0
+select-folder 352: b=0
+select-folder 353: b=0
+select-folder 370: n=0 b=0
+select-folder 1000: t="ROOT"
+select-folder 1401: b=0
+select-folder 1402: b=0
+select-folder 1403: b=0
+select-folder 1404: b=0
+select-folder 1405: b=12
+select-folder 1500: o
+select-folder 1518: o
+select-folder 1532: o
+select-folder 1548: o
+select-folder 1564: o
+select-folder 1592: o
+select-folder 1596: o
+select-folder 1612: o
+select-folder 1628: o
+select-folder 1644: o
+select-folder 1660: o
+select-folder 1676: o
+select-folder 1692: o
+select-folder 1708: o
+select-folder 1725: o
+select-folder 1740: o
+select-folder 1756: o
+select-folder 1772: o
+select-folder 1788: o
+select-folder 1804: o
+select-folder 9000: t="OFF"
+select-folder 9001: t="NORMAL"
+select-folder 9002: t="OFF"
+select-folder 9003: t="LN"
+select-folder 9004: t="2.50"
+select-folder 9005: t="2.50"
+select-folder 9006: t="P1"
+select-folder 9007: t="beatoraja"
+select-folder 9008: t="OFF"
+select-folder 9009: t="OPEN"
+select-folder 9010: t="OFF"
+select-folder 9100: t="RANDOM"
+select-folder 9101: t="GAUGE"
+select-folder 9102: t="AUTO SHIFT"
+select-folder 9103: t="LN MODE"
+select-folder 9104: t="HI-SPEED −"
+select-folder 9105: t="HI-SPEED +"
+select-folder 9106: t="SIDE"
+select-folder 9107: t="JUDGE"
+select-folder 9108: t="AUTOPLAY"
+select-folder 9109: t="SETTINGS"
+select-folder 9110: t="BATTLE"
+select-folder distribution false: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+select-folder distribution true: [0, 0, 1, 0, 0, 0, 0, 0, 0]
+decide 2: t="PLAYER"
+decide 10: n=250 b=250 t="Golden Song"
+decide 11: t="[ANOTHER]"
+decide 12: t="Golden Song [ANOTHER]"
+decide 13: t="TEST"
+decide 14: t="Composer"
+decide 15: t="obj: Charter"
+decide 16: t="Composer obj: Charter"
+decide 17: n=0 b=0
+decide 18: n=0 b=0
+decide 19: n=0 b=0
+decide 20: n=0 b=0
+decide 30: n=12 b=12
+decide 31: n=5 b=5
+decide 32: o n=7 b=7
+decide 33: n=0 b=0
+decide 34: n=0 b=0
+decide 35: n=0 b=0
+decide 36: n=0 b=0
+decide 37: n=0 b=0
+decide 40: b=2
+decide 41: o
+decide 42: o b=0
+decide 43: b=0
+decide 54: b=0
+decide 55: b=0
+decide 71: n=1500 b=1500
+decide 72: n=2000 b=0
+decide 74: n=1000 b=1000
+decide 75: n=400 b=0
+decide 76: n=50 b=50
+decide 77: n=12 b=11
+decide 78: n=5 b=0
+decide 90: n=180 b=180
+decide 91: n=120 b=120
+decide 92: n=150 b=150
+decide 96: n=11 b=11
+decide 102: n=75 b=75
+decide 103: n=0 b=0
+decide 104: o
+decide 150: n=1500 b=1500
+decide 154: o
+decide 160: o
+decide 171: o
+decide 173: o n=400 b=400
+decide 176: n=50 b=50
+decide 177: o
+decide 178: o
+decide 182: o
+decide 183: n=75 b=75
+decide 184: n=0 b=0
+decide 191: o
+decide 192: o
+decide 301: b=0
+decide 302: b=0
+decide 303: b=0
+decide 304: b=0
+decide 305: b=0
+decide 306: b=0
+decide 307: b=0
+decide 308: b=0
+decide 310: n=2 b=2
+decide 311: n=50 b=50
+decide 312: n=640 b=640
+decide 313: n=384 b=384
+decide 330: b=0
+decide 331: b=0
+decide 332: b=0
+decide 333: n=0 b=0
+decide 340: b=0
+decide 350: n=800 b=800
+decide 351: n=100 b=0
+decide 352: n=80 b=0
+decide 353: n=20 b=0
+decide 354: n=0 b=0
+decide 360: n=15 b=15
+decide 361: n=50 b=50
+decide 362: n=10 b=10
+decide 363: n=25 b=25
+decide 364: n=8 b=8
+decide 365: n=0 b=0
+decide 368: n=300 b=300
+decide 400: n=2 b=2
+decide 1001: t="Golden Table"
+decide 1002: t="★12"
+decide 1003: t="★12Golden Table"
+decide 1030: t="0123456789abcdef0123456789abcdef"
+decide 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+decide 1163: n=2 b=2
+decide 1164: n=5 b=5
+decide 1177: o
+decide 1401: b=0
+decide 1402: b=0
+decide 1403: b=0
+decide 1404: b=0
+decide 1405: b=12
+play 2: t="PLAYER"
+play 6: r=0.5
+play 10: n=250 b=250 t=""
+play 11: t=""
+play 12: n=0 b=0 t=""
+play 13: t=""
+play 14: n=0 b=0 t=""
+play 15: t=""
+play 16: t=""
+play 17: n=0 b=0
+play 18: n=0 b=0
+play 19: n=0 b=0
+play 20: n=0 b=0
+play 30: o n=12 b=12
+play 31: n=5 b=5
+play 32: o n=7 b=7
+play 33: n=0 b=0
+play 34: o n=0 b=0
+play 35: n=0 b=0
+play 36: n=0 b=0
+play 37: n=0 b=0
+play 39: o
+play 40: b=2
+play 41: o
+play 42: o b=0
+play 43: b=0
+play 44: o
+play 50: o
+play 54: b=0
+play 55: b=0
+play 56: o
+play 71: n=138 b=138
+play 72: n=1054 b=0
+play 74: n=527 b=527
+play 75: n=35 b=0
+play 76: n=25 b=25
+play 77: b=11
+play 78: b=0
+play 81: o
+play 90: n=180 b=180
+play 91: n=150 b=150
+play 92: n=180 b=180
+play 100: n=28690 b=28690
+play 101: n=138 b=138 r=0.5
+play 102: n=37 b=37 r=1
+play 103: n=10 b=10
+play 104: o n=7 b=7
+play 105: n=35 b=35
+play 106: n=527 b=527
+play 107: n=5 b=5
+play 110: n=31 b=31 r=0.37096775
+play 111: n=76 b=76 r=0.1309298
+play 112: n=56 b=56 r=0.15844402
+play 113: n=2 b=2 r=1.42315
+play 114: n=23 b=23 r=0.15844402
+play 115: n=13 b=13 r=1.42315
+play 116: n=9 b=9
+play 118: o
+play 121: n=1500 b=1500
+play 122: n=142 b=142
+play 123: n=31 b=31
+play 128: n=-29 b=-29
+play 135: n=142 b=142
+play 136: n=31 b=31
+play 150: o n=1500 b=1500
+play 151: n=1500 b=1500
+play 152: n=-29 b=-29
+play 153: n=-29 b=-29
+play 154: n=-28 b=-28
+play 155: n=13 b=13
+play 156: n=9 b=9
+play 157: n=142 b=142
+play 158: n=31 b=31
+play 160: o n=180 b=180
+play 161: n=0 b=0
+play 162: n=16 b=16
+play 163: n=0 b=0
+play 164: n=16 b=16
+play 165: n=100 b=100
+play 170: o n=1500 b=1500
+play 171: n=138 b=138
+play 172: n=-29 b=-29
+play 173: o n=400 b=400
+play 174: n=35 b=35
+play 175: n=-365 b=-365
+play 176: n=50 b=50
+play 177: o n=25 b=25
+play 178: o n=-25 b=-25
+play 182: o
+play 183: n=142 b=142
+play 184: n=31 b=31
+play 190: o
+play 192: o
+play 194: o
+play 205: o
+play 230: o
+play 301: b=0
+play 302: b=0
+play 303: b=0
+play 304: b=0
+play 305: b=0
+play 306: b=0
+play 307: b=0
+play 308: b=0
+play 310: n=2 b=2
+play 311: n=50 b=50
+play 312: n=533 b=533
+play 313: n=320 b=320
+play 314: n=0 b=0
+play 315: n=0 b=0
+play 330: b=0
+play 331: b=0
+play 332: b=0
+play 333: n=0 b=0
+play 340: b=0
+play 350: n=800 b=800
+play 351: n=100 b=0
+play 352: n=80 b=0
+play 353: n=20 b=0
+play 354: n=0 b=0
+play 360: n=15 b=15
+play 361: n=50 b=50
+play 362: n=10 b=10
+play 363: n=25 b=25
+play 364: n=8 b=8
+play 365: n=0 b=0
+play 368: n=340 b=340
+play 400: n=2 b=2
+play 407: n=2 b=2
+play 410: n=17 b=17
+play 411: n=12 b=12
+play 412: n=41 b=41
+play 413: n=35 b=35
+play 414: n=23 b=23
+play 415: n=33 b=33
+play 416: n=2 b=2
+play 417: n=0 b=0
+play 418: n=0 b=0
+play 419: n=21 b=21
+play 420: n=2 b=2
+play 423: n=66 b=66
+play 424: n=68 b=68
+play 425: n=23 b=23
+play 426: n=23 b=23
+play 427: n=25 b=25
+play 1001: t="Golden Table"
+play 1002: t="★12"
+play 1003: t="★12Golden Table"
+play 1008: o
+play 1030: t="0123456789abcdef0123456789abcdef"
+play 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+play 1163: n=0 b=0
+play 1164: n=33 b=33
+play 1177: o
+play 1312: n=533 b=533
+play 1313: n=320 b=320
+play 1314: n=533 b=533
+play 1315: n=320 b=320
+play 1401: b=0
+play 1402: b=0
+play 1403: b=0
+play 1404: b=0
+play 1405: b=12
+play 2241: o
+play 2242: o
+play 2243: o
+play 2244: o
+play 2245: o
+play 2246: o
+play 9014: n=0 b=0
+play 9313: n=320 b=320
+play 9400: r=0.21052632
+result 2: t="PLAYER"
+result 10: t=""
+result 11: t=""
+result 12: t=""
+result 13: t=""
+result 14: t=""
+result 15: t=""
+result 16: t=""
+result 17: n=0 b=0
+result 18: n=0 b=0
+result 19: n=0 b=0
+result 20: n=0 b=0
+result 30: n=12 b=12
+result 31: n=5 b=5
+result 32: n=7 b=7
+result 33: o n=0 b=0
+result 34: n=0 b=0
+result 35: n=0 b=0
+result 36: n=0 b=0
+result 37: n=0 b=0
+result 40: b=2
+result 42: o b=0
+result 43: b=0
+result 50: o
+result 54: b=0
+result 55: b=0
+result 60: o
+result 71: n=138 b=138
+result 72: n=1054 b=0
+result 74: n=527 b=527
+result 75: n=35 b=0
+result 76: n=366 b=366
+result 77: n=12 b=11
+result 78: n=5 b=0
+result 79: n=7 b=7
+result 90: o n=180 b=180
+result 91: n=150 b=150
+result 92: n=180 b=180
+result 101: n=138 b=138
+result 102: n=13 b=13
+result 103: n=9 b=9
+result 105: n=35 b=35
+result 106: n=527 b=527
+result 107: n=5 b=5
+result 108: n=-1362 b=-1362
+result 110: n=31 b=31 r=0.1309298
+result 111: n=76 b=76 r=0.1309298
+result 112: n=56 b=56 r=0.75
+result 113: n=2 b=2 r=0.75
+result 114: n=21 b=21 r=0.75
+result 115: n=13 b=13 r=0.75
+result 116: n=9 b=9
+result 118: o
+result 121: n=1500 b=1500
+result 122: n=75 b=75
+result 123: n=0 b=0
+result 128: n=-1362 b=-1362
+result 140: r=0.05882353
+result 141: r=0.14421253
+result 142: r=0.10626186
+result 143: r=0.0037950664
+result 144: r=0.039848197
+result 145: r=0.06641366
+result 147: r=0.1309298
+result 150: o n=1500 b=1500
+result 151: n=1500 b=1500
+result 152: n=-1362 b=-1362
+result 153: n=-1362 b=-1362
+result 154: n=-97 b=-97
+result 155: n=13 b=13
+result 156: n=9 b=9
+result 157: n=75 b=75
+result 158: n=0 b=0
+result 160: o
+result 170: o n=1500 b=1500
+result 171: n=138 b=138
+result 172: n=-1362 b=-1362
+result 173: o n=400 b=400
+result 174: n=35 b=35
+result 175: n=-365 b=-365
+result 176: n=50 b=50
+result 177: o n=366 b=366
+result 178: o n=316 b=316
+result 182: o
+result 183: n=75 b=75
+result 184: n=0 b=0
+result 190: o
+result 192: o
+result 194: o
+result 301: b=0
+result 302: b=0
+result 303: b=0
+result 304: b=0
+result 305: b=0
+result 306: b=0
+result 307: o b=0
+result 308: b=0
+result 312: n=533 b=533
+result 322: o
+result 330: b=0
+result 331: b=0
+result 332: b=0
+result 333: n=0 b=0
+result 340: b=0
+result 347: o
+result 350: n=800 b=800
+result 351: n=100 b=0
+result 352: n=80 b=0
+result 353: n=20 b=0
+result 354: n=0 b=0
+result 360: n=15 b=15
+result 361: n=50 b=50
+result 362: n=10 b=10
+result 363: n=25 b=25
+result 364: n=8 b=8
+result 365: n=0 b=0
+result 368: n=300 b=300
+result 370: n=5 b=5
+result 371: n=6 b=6
+result 374: n=0 b=0
+result 375: n=43 b=43
+result 376: n=53 b=53
+result 377: n=30 b=30
+result 400: n=2 b=2
+result 407: n=2 b=2
+result 410: n=17 b=17
+result 411: n=12 b=12
+result 412: n=41 b=41
+result 413: n=35 b=35
+result 414: n=23 b=23
+result 415: n=33 b=33
+result 416: n=2 b=2
+result 417: n=0 b=0
+result 418: n=0 b=0
+result 419: n=21 b=21
+result 420: n=2 b=2
+result 421: n=2 b=2
+result 422: n=0 b=0
+result 423: n=66 b=66
+result 424: n=68 b=68
+result 425: n=23 b=23
+result 426: n=23 b=23
+result 427: n=25 b=25
+result 1001: t="Golden Table"
+result 1002: t="★12"
+result 1003: t="★12Golden Table"
+result 1030: t="0123456789abcdef0123456789abcdef"
+result 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+result 1401: b=0
+result 1402: b=0
+result 1403: b=0
+result 1404: b=0
+result 1405: b=12
+result 2241: o
+result 2242: o
+result 2243: o
+result 2244: o
+result 2245: o
+result 2246: o
+play-battle 2: t="PLAYER"
+play-battle 6: r=0.5
+play-battle 10: n=250 b=250 t=""
+play-battle 11: t=""
+play-battle 12: n=0 b=0 t=""
+play-battle 13: t=""
+play-battle 14: n=0 b=0 t=""
+play-battle 15: t=""
+play-battle 16: t=""
+play-battle 17: n=0 b=0
+play-battle 18: n=0 b=0
+play-battle 19: n=0 b=0
+play-battle 20: n=0 b=0
+play-battle 30: o n=12 b=12
+play-battle 31: n=5 b=5
+play-battle 32: o n=7 b=7
+play-battle 33: n=0 b=0
+play-battle 34: o n=0 b=0
+play-battle 35: n=0 b=0
+play-battle 36: n=0 b=0
+play-battle 37: n=0 b=0
+play-battle 39: o
+play-battle 40: b=2
+play-battle 41: o
+play-battle 42: o b=0
+play-battle 43: b=0
+play-battle 44: o
+play-battle 50: o
+play-battle 54: b=0
+play-battle 55: b=0
+play-battle 56: o
+play-battle 71: n=138 b=138
+play-battle 72: n=1054 b=0
+play-battle 74: n=527 b=527
+play-battle 75: n=35 b=0
+play-battle 76: n=25 b=25
+play-battle 77: b=11
+play-battle 78: b=0
+play-battle 81: o
+play-battle 90: n=180 b=180
+play-battle 91: n=150 b=150
+play-battle 92: n=180 b=180
+play-battle 100: n=28690 b=28690
+play-battle 101: n=138 b=138 r=0.5
+play-battle 102: n=37 b=37 r=1
+play-battle 103: n=10 b=10
+play-battle 104: o n=7 b=7
+play-battle 105: n=35 b=35
+play-battle 106: n=527 b=527
+play-battle 107: n=5 b=5
+play-battle 108: n=-37 b=-37
+play-battle 110: n=31 b=31 r=0.37096775
+play-battle 111: n=76 b=76 r=0.1309298
+play-battle 112: n=56 b=56 r=0.15844402
+play-battle 113: n=2 b=2 r=1.42315
+play-battle 114: n=23 b=23 r=0.16603416
+play-battle 115: n=13 b=13 r=0.16603416
+play-battle 116: n=9 b=9
+play-battle 118: o
+play-battle 120: n=32959 b=32959
+play-battle 121: n=175 b=175
+play-battle 122: n=47 b=47
+play-battle 123: n=4 b=4
+play-battle 124: n=7 b=7
+play-battle 125: n=29 b=29
+play-battle 126: n=527 b=527
+play-battle 127: n=25 b=25
+play-battle 128: n=-37 b=-37
+play-battle 129: n=-32 b=-32
+play-battle 130: n=52 b=52
+play-battle 131: n=71 b=71
+play-battle 132: n=51 b=51
+play-battle 133: n=2 b=2
+play-battle 134: n=12 b=12
+play-battle 135: n=16 b=16
+play-battle 136: n=60 b=60
+play-battle 150: o n=1500 b=1500
+play-battle 151: n=175 b=175
+play-battle 152: n=-29 b=-29
+play-battle 153: n=-37 b=-37
+play-battle 154: n=-28 b=-28
+play-battle 155: n=13 b=13
+play-battle 156: n=9 b=9
+play-battle 157: n=16 b=16
+play-battle 158: n=60 b=60
+play-battle 160: n=180 b=180
+play-battle 161: n=0 b=0
+play-battle 162: o n=16 b=16
+play-battle 163: n=0 b=0
+play-battle 164: n=16 b=16
+play-battle 165: n=100 b=100
+play-battle 170: o n=1500 b=1500
+play-battle 171: n=138 b=138
+play-battle 172: n=-29 b=-29
+play-battle 173: o n=400 b=400
+play-battle 174: n=35 b=35
+play-battle 175: n=-365 b=-365
+play-battle 176: n=50 b=50
+play-battle 177: o n=25 b=25
+play-battle 178: o n=-25 b=-25
+play-battle 182: o
+play-battle 183: n=142 b=142
+play-battle 184: n=31 b=31
+play-battle 190: o
+play-battle 192: o
+play-battle 194: o
+play-battle 205: o
+play-battle 214: o
+play-battle 230: o
+play-battle 301: b=0
+play-battle 302: b=0
+play-battle 303: b=0
+play-battle 304: b=0
+play-battle 305: b=0
+play-battle 306: b=0
+play-battle 307: b=0
+play-battle 308: b=0
+play-battle 310: n=2 b=2
+play-battle 311: n=50 b=50
+play-battle 312: n=533 b=533
+play-battle 313: n=320 b=320
+play-battle 314: n=0 b=0
+play-battle 315: n=0 b=0
+play-battle 330: b=0
+play-battle 331: b=0
+play-battle 332: b=0
+play-battle 333: n=0 b=0
+play-battle 340: b=0
+play-battle 350: n=800 b=800
+play-battle 351: n=100 b=0
+play-battle 352: n=80 b=0
+play-battle 353: o n=20 b=0
+play-battle 354: n=0 b=0
+play-battle 360: n=15 b=15
+play-battle 361: n=50 b=50
+play-battle 362: n=10 b=10
+play-battle 363: n=25 b=25
+play-battle 364: n=8 b=8
+play-battle 365: n=0 b=0
+play-battle 368: n=340 b=340
+play-battle 400: n=2 b=2
+play-battle 407: n=2 b=2
+play-battle 410: n=17 b=17
+play-battle 411: n=12 b=12
+play-battle 412: n=41 b=41
+play-battle 413: n=35 b=35
+play-battle 414: n=23 b=23
+play-battle 415: n=33 b=33
+play-battle 416: n=2 b=2
+play-battle 417: n=0 b=0
+play-battle 418: n=0 b=0
+play-battle 419: n=21 b=21
+play-battle 420: n=2 b=2
+play-battle 423: n=66 b=66
+play-battle 424: n=68 b=68
+play-battle 425: n=23 b=23
+play-battle 426: n=23 b=23
+play-battle 427: n=25 b=25
+play-battle 1001: t="Golden Table"
+play-battle 1002: t="★12"
+play-battle 1003: t="★12Golden Table"
+play-battle 1008: o
+play-battle 1030: t="0123456789abcdef0123456789abcdef"
+play-battle 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+play-battle 1163: n=0 b=0
+play-battle 1164: n=33 b=33
+play-battle 1177: o
+play-battle 1312: n=533 b=533
+play-battle 1313: n=320 b=320
+play-battle 1314: n=533 b=533
+play-battle 1315: n=320 b=320
+play-battle 1401: b=0
+play-battle 1402: b=0
+play-battle 1403: b=0
+play-battle 1404: b=0
+play-battle 1405: b=12
+play-battle 2241: o
+play-battle 2242: o
+play-battle 2243: o
+play-battle 2244: o
+play-battle 2245: o
+play-battle 2246: o
+play-battle 9014: n=0 b=0
+play-battle 9313: n=320 b=320
+play-battle 9400: r=0.21052632
+result-battle 2: t="PLAYER"
+result-battle 10: t=""
+result-battle 11: t=""
+result-battle 12: t=""
+result-battle 13: t=""
+result-battle 14: t=""
+result-battle 15: t=""
+result-battle 16: t=""
+result-battle 17: n=0 b=0
+result-battle 18: n=0 b=0
+result-battle 19: n=0 b=0
+result-battle 20: n=0 b=0
+result-battle 30: n=12 b=12
+result-battle 31: n=5 b=5
+result-battle 32: n=7 b=7
+result-battle 33: o n=0 b=0
+result-battle 34: n=0 b=0
+result-battle 35: n=0 b=0
+result-battle 36: n=0 b=0
+result-battle 37: n=0 b=0
+result-battle 40: b=2
+result-battle 42: o b=0
+result-battle 43: b=0
+result-battle 44: o
+result-battle 50: o
+result-battle 54: b=0
+result-battle 55: b=0
+result-battle 60: o
+result-battle 71: n=138 b=138
+result-battle 72: n=1054 b=0
+result-battle 74: n=527 b=527
+result-battle 75: n=35 b=0
+result-battle 76: n=366 b=366
+result-battle 77: n=12 b=11
+result-battle 78: n=5 b=0
+result-battle 79: n=7 b=7
+result-battle 90: o n=180 b=180
+result-battle 91: n=150 b=150
+result-battle 92: n=180 b=180
+result-battle 101: n=138 b=138
+result-battle 102: n=13 b=13
+result-battle 103: n=9 b=9
+result-battle 105: n=35 b=35
+result-battle 106: n=527 b=527
+result-battle 107: n=5 b=5
+result-battle 108: n=-37 b=-37
+result-battle 110: n=31 b=31 r=0.1309298
+result-battle 111: n=76 b=76 r=0.1309298
+result-battle 112: n=56 b=56 r=0.75
+result-battle 113: n=2 b=2 r=0.75
+result-battle 114: n=21 b=21 r=0.75
+result-battle 115: n=13 b=13 r=0.75
+result-battle 116: n=9 b=9
+result-battle 118: o
+result-battle 120: n=32959 b=32959
+result-battle 121: n=175 b=175
+result-battle 122: n=16 b=16
+result-battle 123: n=60 b=60
+result-battle 125: n=29 b=29
+result-battle 126: n=527 b=527
+result-battle 127: n=25 b=25
+result-battle 128: n=-37 b=-37
+result-battle 130: n=52 b=52
+result-battle 131: n=71 b=71
+result-battle 132: n=51 b=51
+result-battle 133: n=2 b=2
+result-battle 134: n=12 b=12
+result-battle 135: n=16 b=16
+result-battle 136: n=60 b=60
+result-battle 140: r=0.05882353
+result-battle 141: r=0.14421253
+result-battle 142: r=0.10626186
+result-battle 143: r=0.0037950664
+result-battle 144: r=0.039848197
+result-battle 145: r=0.06641366
+result-battle 147: r=0.1309298
+result-battle 150: o n=1500 b=1500
+result-battle 151: n=175 b=175
+result-battle 152: n=-1362 b=-1362
+result-battle 153: n=-37 b=-37
+result-battle 154: n=-97 b=-97
+result-battle 155: n=13 b=13
+result-battle 156: n=9 b=9
+result-battle 157: n=75 b=75
+result-battle 158: n=0 b=0
+result-battle 162: o
+result-battle 170: o n=1500 b=1500
+result-battle 171: n=138 b=138
+result-battle 172: n=-1362 b=-1362
+result-battle 173: o n=400 b=400
+result-battle 174: n=35 b=35
+result-battle 175: n=-365 b=-365
+result-battle 176: n=50 b=50
+result-battle 177: o n=366 b=366
+result-battle 178: o n=316 b=316
+result-battle 182: o
+result-battle 183: n=75 b=75
+result-battle 184: n=0 b=0
+result-battle 190: o
+result-battle 192: o
+result-battle 194: o
+result-battle 217: o
+result-battle 301: b=0
+result-battle 302: b=0
+result-battle 303: b=0
+result-battle 304: b=0
+result-battle 305: b=0
+result-battle 306: b=0
+result-battle 307: o b=0
+result-battle 308: b=0
+result-battle 312: n=533 b=533
+result-battle 322: o
+result-battle 330: b=0
+result-battle 331: b=0
+result-battle 332: b=0
+result-battle 333: n=0 b=0
+result-battle 340: b=0
+result-battle 347: o
+result-battle 350: n=800 b=800
+result-battle 351: n=100 b=0
+result-battle 352: n=80 b=0
+result-battle 353: o n=20 b=0
+result-battle 354: n=0 b=0
+result-battle 360: n=15 b=15
+result-battle 361: n=50 b=50
+result-battle 362: n=10 b=10
+result-battle 363: n=25 b=25
+result-battle 364: n=8 b=8
+result-battle 365: n=0 b=0
+result-battle 368: n=300 b=300
+result-battle 370: n=5 b=5
+result-battle 371: n=6 b=6
+result-battle 374: n=0 b=0
+result-battle 375: n=43 b=43
+result-battle 376: n=53 b=53
+result-battle 377: n=30 b=30
+result-battle 400: n=2 b=2
+result-battle 407: n=2 b=2
+result-battle 410: n=17 b=17
+result-battle 411: n=12 b=12
+result-battle 412: n=41 b=41
+result-battle 413: n=35 b=35
+result-battle 414: n=23 b=23
+result-battle 415: n=33 b=33
+result-battle 416: n=2 b=2
+result-battle 417: n=0 b=0
+result-battle 418: n=0 b=0
+result-battle 419: n=21 b=21
+result-battle 420: n=2 b=2
+result-battle 421: n=2 b=2
+result-battle 422: n=0 b=0
+result-battle 423: n=66 b=66
+result-battle 424: n=68 b=68
+result-battle 425: n=23 b=23
+result-battle 426: n=23 b=23
+result-battle 427: n=25 b=25
+result-battle 1001: t="Golden Table"
+result-battle 1002: t="★12"
+result-battle 1003: t="★12Golden Table"
+result-battle 1030: t="0123456789abcdef0123456789abcdef"
+result-battle 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+result-battle 1401: b=0
+result-battle 1402: b=0
+result-battle 1403: b=0
+result-battle 1404: b=0
+result-battle 1405: b=12
+result-battle 2241: o
+result-battle 2242: o
+result-battle 2243: o
+result-battle 2244: o
+result-battle 2245: o
+result-battle 2246: o
+result-battle 9350: o
+result-battle 9351: t="2P"
+result-battle 9370: n=1 b=1
+result-battle 9376: n=355 b=355
