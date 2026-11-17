@@ -240,7 +240,7 @@ fn editor(c: &Course, v: &mut Vec<Row>) {
     }
     if c.stages.len() < MAX_STAGES {
         v.push(Row::note(
-            "    Add a chart: choose it in the song select, press C",
+            "    Add a chart: choose it in the song select, press Insert (or C when no key uses it)",
             "",
         ));
     }

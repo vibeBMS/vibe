@@ -188,13 +188,19 @@ impl SelectScene {
             KeyCode::F1 => return self.option(ctx, SelectOption::Battle),
             #[cfg(target_arch = "wasm32")]
             KeyCode::Delete => self.delete_kept(ctx),
-            KeyCode::KeyP => return self.watch_replay(ctx),
-            KeyCode::KeyC => self.add_to_course(ctx),
+            // letter shortcuts give way to a lane or 2P key bound to the same
+            // key (C is 1P key 5, P 2P START, / 2P key 7 by default)
+            KeyCode::KeyP if !is_play_key(keys, code) => return self.watch_replay(ctx),
+            KeyCode::Insert => self.add_to_course(ctx),
+            KeyCode::KeyC if !is_play_key(keys, code) => self.add_to_course(ctx),
             KeyCode::F12 => {
                 ctx.start_scan();
                 ctx.tables.refresh(&ctx.config.tables, true);
             }
-            KeyCode::Slash | KeyCode::F10 => self.search_edit = Some(TextInput::default()),
+            KeyCode::F10 => self.search_edit = Some(TextInput::default()),
+            KeyCode::Slash if !is_play_key(keys, code) => {
+                self.search_edit = Some(TextInput::default())
+            }
             KeyCode::PageUp => self.step(ctx, -10),
             KeyCode::PageDown => self.step(ctx, 10),
             _ => {
@@ -353,4 +359,18 @@ impl SelectScene {
         }
         Next::Stay
     }
+}
+
+/// Whether `code` is bound to a lane, a turntable or a START / SELECT key of
+/// either side (or PMS): a letter shortcut on such a key would fire on a
+/// player's key press.
+fn is_play_key(keys: &KeyConfig, code: KeyCode) -> bool {
+    let has = |l: &LaneKeys| l.keys.contains(&code);
+    [&keys.p1, &keys.p2]
+        .iter()
+        .any(|s| s.keys.iter().any(has) || has(&s.scratch_up) || has(&s.scratch_down))
+        || keys.pms.iter().any(has)
+        || [&keys.start, &keys.select, &keys.p2_start, &keys.p2_select]
+            .into_iter()
+            .any(has)
 }
