@@ -13,11 +13,11 @@
 //! skin's paths are its own: it goes to `skins/<folder>/` too.
 
 use crate::archive::{safe_name, Fail};
+use crate::platform::Job;
 use bmseeker::progress::Progress;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 /// Where the catalog is read from.
@@ -167,24 +167,21 @@ pub enum State {
     },
 }
 
-enum Msg {
-    Catalog(Result<Catalog, String>),
-    Done(String, Result<Vec<String>, Fail>),
-}
+/// An install under way: the folders it fills (below `skins/`), or why it
+/// failed.
+type Installing = Job<Result<Vec<String>, Fail>>;
 
 #[derive(Default)]
 pub struct SkinStore {
     pub catalog: Catalog,
     /// When the catalog was read from [`CATALOG_URL`] (s; 0: not yet).
     fetched_at: u64,
-    fetching: bool,
+    fetching: Option<Job<Result<Catalog, String>>>,
     /// id -> its install.
     pub installed: BTreeMap<String, Installed>,
-    busy: Vec<(String, Arc<Progress>)>,
+    busy: Vec<(String, Installing)>,
     /// A row pressed once that a second press confirms: (id, delete).
     pub armed: Option<(String, bool)>,
-    tx: Option<Sender<Msg>>,
-    rx: Option<Receiver<Msg>>,
 }
 
 /// What [`SkinStore::poll`] reports.
@@ -231,31 +228,20 @@ impl SkinStore {
         }
     }
 
-    fn channel(&mut self) -> Sender<Msg> {
-        if self.tx.is_none() {
-            let (tx, rx) = channel();
-            self.tx = Some(tx);
-            self.rx = Some(rx);
-        }
-        self.tx.clone().expect("channel")
-    }
-
     /// Read the catalog again if it is a day old (now with `force`).
     pub fn refresh(&mut self, force: bool) {
         let now = crate::platform::unix_now();
-        if self.fetching || (!force && now.saturating_sub(self.fetched_at) < REFRESH_S) {
+        if self.fetching.is_some() || (!force && now.saturating_sub(self.fetched_at) < REFRESH_S) {
             return;
         }
-        self.fetching = true;
-        let tx = self.channel();
         // (GitHub's raw files send CORS headers: no proxy on the web)
-        crate::platform::http_get(CATALOG_URL, move |r| {
-            let _ = tx.send(Msg::Catalog(r.and_then(|b| Catalog::parse(&b))));
-        });
+        self.fetching = Some(Job::get(CATALOG_URL, |r| {
+            r.and_then(|b| Catalog::parse(&b))
+        }));
     }
 
     pub fn is_fetching(&self) -> bool {
-        self.fetching
+        self.fetching.is_some()
     }
 
     fn save_record(&self, paths: &crate::paths::Paths) {
@@ -265,8 +251,8 @@ impl SkinStore {
     }
 
     pub fn state(&self, skins: &Path, e: &SkinEntry) -> State {
-        if let Some((_, p)) = self.busy.iter().find(|(id, _)| *id == e.id) {
-            return State::Busy(p.clone());
+        if let Some((_, job)) = self.busy.iter().find(|(id, _)| *id == e.id) {
+            return State::Busy(job.progress().clone());
         }
         match self.installed.get(&e.id) {
             Some(i)
@@ -289,8 +275,8 @@ impl SkinStore {
     /// Stop `id`'s download (true if it was downloading).
     pub fn cancel(&mut self, id: &str) -> bool {
         match self.busy.iter().find(|(b, _)| b == id) {
-            Some((_, p)) => {
-                p.cancel();
+            Some((_, job)) => {
+                job.cancel();
                 true
             }
             None => false,
@@ -310,9 +296,6 @@ impl SkinStore {
             }
         }
         let old = self.old_folders(&e);
-        let progress = Progress::new();
-        self.busy.push((e.id.clone(), progress.clone()));
-        let tx = self.channel();
         let size = if e.size > 0 {
             format!(" ({} MB)", (e.size + (1 << 19)) >> 20)
         } else {
@@ -321,22 +304,24 @@ impl SkinStore {
         let msg = format!("Downloading {}{size}…", e.name);
         let id = e.id.clone();
         #[cfg(not(target_arch = "wasm32"))]
-        {
+        let job = {
             let (root, skins) = (paths.root.clone(), paths.skins.clone());
-            crate::platform::spawn("skin", move || {
-                let r = bmseeker::progress::scope(Some(progress), || {
+            Job::spawn("skin", move |progress| {
+                bmseeker::progress::scope(Some(progress), || {
                     fetch_and_install(&root, &skins, &e, &old)
-                });
-                let _ = tx.send(Msg::Done(id, r));
-            });
-        }
+                })
+            })
+        };
         #[cfg(target_arch = "wasm32")]
-        {
+        let job = {
             let skins = paths.skins.clone();
-            web_install(e, skins, old, progress, move |r| {
-                let _ = tx.send(Msg::Done(id, r));
-            });
-        }
+            Job::start(|tx, progress| {
+                web_install(e, skins, old, progress, move |r| {
+                    let _ = tx.send(r);
+                })
+            })
+        };
+        self.busy.push((id, job));
         Ok(msg)
     }
 
@@ -375,61 +360,57 @@ impl SkinStore {
 
     /// What happened since the last frame.
     pub fn poll(&mut self, paths: &crate::paths::Paths) -> Polled {
-        let msgs: Vec<Msg> = self
-            .rx
-            .as_ref()
-            .map(|rx| rx.try_iter().collect())
-            .unwrap_or_default();
         let mut out = Polled::default();
-        for m in msgs {
-            match m {
-                Msg::Catalog(r) => {
-                    self.fetching = false;
-                    match r {
-                        Ok(c) if !c.skins.is_empty() => {
-                            self.fetched_at = crate::platform::unix_now();
-                            let cached = Cached {
-                                fetched_at: self.fetched_at,
-                                catalog: c,
-                            };
-                            if let Ok(j) = serde_json::to_vec(&cached) {
-                                let _ = crate::platform::vfs::write(&cache_file(paths), &j);
-                            }
-                            self.catalog = cached.catalog;
-                        }
-                        Ok(_) => log::warn!("skin catalog: empty"),
-                        // the copy at hand stays (offline, or not published yet)
-                        Err(e) => log::warn!("skin catalog: {e}"),
+        if let Some(r) = self.fetching.as_mut().and_then(Job::poll) {
+            self.fetching = None;
+            match r {
+                Ok(c) if !c.skins.is_empty() => {
+                    self.fetched_at = crate::platform::unix_now();
+                    let cached = Cached {
+                        fetched_at: self.fetched_at,
+                        catalog: c,
+                    };
+                    if let Ok(j) = serde_json::to_vec(&cached) {
+                        let _ = crate::platform::vfs::write(&cache_file(paths), &j);
                     }
+                    self.catalog = cached.catalog;
                 }
-                Msg::Done(id, r) => {
-                    self.busy.retain(|(b, _)| *b != id);
-                    let e = self.catalog.skins.iter().find(|s| s.id == id);
-                    let name = e.map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
-                    match r {
-                        Ok(folders) => {
-                            out.toasts.push(format!(
-                                "Installed {name} in skins/{}: choose it in DISPLAY",
-                                folders.join(", skins/")
-                            ));
-                            let version = e.map(|e| e.version.clone()).unwrap_or_default();
-                            self.installed.insert(id, Installed { version, folders });
-                            self.save_record(paths);
-                            out.changed = true;
-                        }
-                        Err(Fail::Page(url)) => {
-                            out.toasts
-                                .push(format!("{name}: no direct download, opening its page"));
-                            out.pages.push(url);
-                        }
-                        Err(Fail::Msg(e)) if e == bmseeker::progress::CANCELLED => {
-                            out.toasts.push(format!("{name}: cancelled"))
-                        }
-                        Err(Fail::Msg(e)) => {
-                            out.toasts.push(format!("{name}: download failed ({e})"))
-                        }
-                    }
+                Ok(_) => log::warn!("skin catalog: empty"),
+                // the copy at hand stays (offline, or not published yet)
+                Err(e) => log::warn!("skin catalog: {e}"),
+            }
+        }
+        let mut done = Vec::new();
+        self.busy.retain_mut(|(id, job)| match job.poll() {
+            Some(r) => {
+                done.push((std::mem::take(id), r));
+                false
+            }
+            None => true,
+        });
+        for (id, r) in done {
+            let e = self.catalog.skins.iter().find(|s| s.id == id);
+            let name = e.map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
+            match r {
+                Ok(folders) => {
+                    out.toasts.push(format!(
+                        "Installed {name} in skins/{}: choose it in DISPLAY",
+                        folders.join(", skins/")
+                    ));
+                    let version = e.map(|e| e.version.clone()).unwrap_or_default();
+                    self.installed.insert(id, Installed { version, folders });
+                    self.save_record(paths);
+                    out.changed = true;
                 }
+                Err(Fail::Page(url)) => {
+                    out.toasts
+                        .push(format!("{name}: no direct download, opening its page"));
+                    out.pages.push(url);
+                }
+                Err(Fail::Msg(e)) if e == bmseeker::progress::CANCELLED => {
+                    out.toasts.push(format!("{name}: cancelled"))
+                }
+                Err(Fail::Msg(e)) => out.toasts.push(format!("{name}: download failed ({e})")),
             }
         }
         out

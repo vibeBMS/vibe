@@ -40,33 +40,40 @@ impl Sample {
     }
 }
 
+/// The lower-case extension of `path`: the format hint.
+fn ext_of(path: &Path) -> String {
+    path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
+}
+
 /// Decode any supported file into interleaved PCM at `rate`.
 pub fn decode_file(path: &Path, rate: u32) -> Result<Sample, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    decode_bytes(bytes, &ext, rate)
+    decode_bytes(bytes, &ext_of(path), rate)
+}
+
+/// A file's bytes, shared by symphonia and the WAV fallback.
+#[derive(Clone)]
+struct Bytes(Arc<Vec<u8>>);
+
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 /// Decode in-memory file data (`ext` is a format hint such as "ogg").
 pub fn decode_bytes(bytes: Vec<u8>, ext: &str, rate: u32) -> Result<Sample, String> {
-    match decode_symphonia(bytes.clone(), ext) {
-        Ok((ch, sr, pcm)) => Ok(convert(ch, sr, &pcm, rate)),
-        Err(e) => {
-            // tolerate broken RIFF headers that symphonia rejects
-            if let Some((ch, sr, pcm)) = decode_wav_fallback(&bytes) {
-                return Ok(convert(ch, sr, &pcm, rate));
-            }
-            Err(e)
-        }
-    }
+    let bytes = Bytes(Arc::new(bytes));
+    decode_symphonia(bytes.clone(), ext, rate).or_else(|e| {
+        // tolerate broken RIFF headers that symphonia rejects
+        decode_wav_fallback(&bytes.0, rate).ok_or(e)
+    })
 }
 
-fn decode_symphonia(bytes: Vec<u8>, ext: &str) -> Result<(u16, u32, Vec<f32>), String> {
-    let file = std::io::Cursor::new(bytes);
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32) -> Result<Sample, String> {
+    let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension(ext);
     let probed = symphonia::default::get_probe()
@@ -84,23 +91,18 @@ fn decode_symphonia(bytes: Vec<u8>, ext: &str) -> Result<(u16, u32, Vec<f32>), S
         .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
         .ok_or("no audio track")?;
     let track_id = track.id;
+    let params = track.codec_params.clone();
     let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
+        .make(&params, &DecoderOptions::default())
         .map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    let mut channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count() as u16)
-        .unwrap_or(2);
-    let mut sr = track.codec_params.sample_rate.unwrap_or(44100);
+    let mut conv: Option<Convert> = None;
     let mut buf: Option<SampleBuffer<f32>> = None;
     loop {
         let packet = match format.next_packet() {
             Ok(p) => p,
             Err(SymError::IoError(_)) | Err(SymError::ResetRequired) => break,
             Err(e) => {
-                if out.is_empty() {
+                if conv.is_none() {
                     return Err(e.to_string());
                 }
                 break;
@@ -112,29 +114,35 @@ fn decode_symphonia(bytes: Vec<u8>, ext: &str) -> Result<(u16, u32, Vec<f32>), S
         match decoder.decode(&packet) {
             Ok(decoded) => {
                 let spec = *decoded.spec();
-                channels = spec.channels.count() as u16;
-                sr = spec.rate;
-                let need = decoded.capacity() as u64;
-                if buf
-                    .as_ref()
-                    .map(|b| b.capacity() < need as usize)
-                    .unwrap_or(true)
-                {
-                    buf = Some(SampleBuffer::new(need, spec));
+                let need = decoded.capacity();
+                if buf.as_ref().is_none_or(|b| b.capacity() < need) {
+                    buf = Some(SampleBuffer::new(need as u64, spec));
                 }
                 let b = buf.as_mut().unwrap();
                 b.copy_interleaved_ref(decoded);
-                out.extend_from_slice(b.samples());
+                conv.get_or_insert_with(|| {
+                    Convert::new(
+                        spec.channels.count() as u16,
+                        spec.rate,
+                        rate,
+                        params.n_frames,
+                    )
+                })
+                .push(b.samples());
             }
             Err(SymError::DecodeError(_)) => continue,
             Err(_) => break,
         }
     }
-    Ok((channels.max(1), sr, out))
+    let conv = conv.unwrap_or_else(|| {
+        let channels = params.channels.map_or(2, |c| c.count() as u16);
+        Convert::new(channels, params.sample_rate.unwrap_or(44100), rate, None)
+    });
+    Ok(conv.finish())
 }
 
 /// Minimal PCM RIFF reader that ignores bogus chunk sizes.
-fn decode_wav_fallback(b: &[u8]) -> Option<(u16, u32, Vec<f32>)> {
+fn decode_wav_fallback(b: &[u8], rate: u32) -> Option<Sample> {
     if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
         return None;
     }
@@ -152,78 +160,154 @@ fn decode_wav_fallback(b: &[u8]) -> Option<(u16, u32, Vec<f32>)> {
         } else if id == b"data" && ch > 0 {
             let end = (body + size).min(b.len());
             let d = &b[body..end];
-            let pcm: Vec<f32> = match (fmt, bits) {
-                (1, 8) => d.iter().map(|x| (*x as f32 - 128.0) / 128.0).collect(),
-                (1, 16) => d
-                    .chunks_exact(2)
-                    .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
-                    .collect(),
-                (1, 24) => d
-                    .chunks_exact(3)
-                    .map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0)
-                    .collect(),
-                (1, 32) => d
-                    .chunks_exact(4)
-                    .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2_147_483_648.0)
-                    .collect(),
-                (3, 32) => d
-                    .chunks_exact(4)
-                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect(),
+            let (width, read): (usize, fn(&[u8]) -> f32) = match (fmt, bits) {
+                (1, 8) => (1, |c| (c[0] as f32 - 128.0) / 128.0),
+                (1, 16) => (2, |c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0),
+                (1, 24) => (3, |c| {
+                    (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0
+                }),
+                (1, 32) => (4, |c| {
+                    i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2_147_483_648.0
+                }),
+                (3, 32) => (4, |c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])),
                 _ => return None,
             };
-            return Some((ch, sr, pcm));
+            let frames = d.len() / width / ch as usize;
+            let mut conv = Convert::new(ch, sr, rate, Some(frames as u64));
+            let mut pcm = Vec::new();
+            for part in d.chunks(width * ch as usize * 4096) {
+                pcm.clear();
+                pcm.extend(part.chunks_exact(width).map(read));
+                conv.push(&pcm);
+            }
+            return Some(conv.finish());
         }
         p = body + size + (size & 1);
     }
     None
 }
 
-/// Downmix to <= 2 channels, resample (linear) and quantise to i16.
-fn convert(channels: u16, sr: u32, pcm: &[f32], rate: u32) -> Sample {
-    let ch = channels.max(1) as usize;
-    let in_frames = pcm.len() / ch;
-    let out_ch = if ch == 1 { 1 } else { 2 };
-    let get = |f: usize, c: usize| -> f32 {
-        if ch == 1 {
-            pcm[f]
-        } else {
-            pcm[f * ch + c.min(ch - 1)]
+/// Downmixes to <= 2 channels, resamples (linear) and quantises to i16, a
+/// decoded packet at a time: no whole file in `f32`.
+struct Convert {
+    ch: usize,
+    out_ch: usize,
+    /// Input frames per output frame (`None`: the rate is kept).
+    ratio: Option<f64>,
+    /// Input frames from `base` on, downmixed: the ones the next output
+    /// frames are interpolated from.
+    pending: Vec<f32>,
+    base: usize,
+    /// Input frames so far.
+    seen: usize,
+    /// The next output frame.
+    next: usize,
+    data: Vec<i16>,
+}
+
+impl Convert {
+    fn new(channels: u16, sr: u32, rate: u32, frames: Option<u64>) -> Convert {
+        let ch = channels.max(1) as usize;
+        let out_ch = ch.min(2);
+        let ratio = (sr != rate && sr != 0).then(|| sr as f64 / rate as f64);
+        let out_frames = frames.map_or(0, |f| (f as f64 / ratio.unwrap_or(1.0)) as usize);
+        Convert {
+            ch,
+            out_ch,
+            ratio,
+            pending: Vec::new(),
+            base: 0,
+            seen: 0,
+            next: 0,
+            data: Vec::with_capacity(out_frames * out_ch),
         }
-    };
-    let q = |v: f32| (v.clamp(-1.0, 1.0) * 32767.0) as i16;
-    if sr == rate || sr == 0 {
-        let mut data = Vec::with_capacity(in_frames * out_ch);
-        for f in 0..in_frames {
-            for c in 0..out_ch {
-                data.push(q(get(f, c)));
+    }
+
+    /// The next frames, interleaved.
+    fn push(&mut self, pcm: &[f32]) {
+        let (ch, out_ch) = (self.ch, self.out_ch);
+        let q = |v: f32| (v.clamp(-1.0, 1.0) * 32767.0) as i16;
+        let frames = pcm.chunks_exact(ch);
+        self.seen += frames.len();
+        let Some(ratio) = self.ratio else {
+            for f in frames {
+                self.data.extend((0..out_ch).map(|c| q(f[c.min(ch - 1)])));
             }
-        }
-        return Sample {
-            channels: out_ch as u16,
-            frames: in_frames,
-            data,
+            return;
         };
+        for f in frames {
+            self.pending.extend((0..out_ch).map(|c| f[c.min(ch - 1)]));
+        }
+        self.resample(ratio, false);
     }
-    let ratio = sr as f64 / rate as f64;
-    let out_frames = ((in_frames as f64) / ratio).floor() as usize;
-    let mut data = Vec::with_capacity(out_frames * out_ch);
-    for o in 0..out_frames {
-        let pos = o as f64 * ratio;
-        let i = pos as usize;
-        let t = (pos - i as f64) as f32;
-        let j = (i + 1).min(in_frames.saturating_sub(1));
-        for c in 0..out_ch {
-            let a = get(i, c);
-            let b = get(j, c);
-            data.push(q(a + (b - a) * t));
+
+    /// The output frames the input so far makes (at the end, the last ones
+    /// from the last input frame).
+    fn resample(&mut self, ratio: f64, end: bool) {
+        let q = |v: f32| (v.clamp(-1.0, 1.0) * 32767.0) as i16;
+        let out_ch = self.out_ch;
+        // as many as the whole input would make
+        let limit = ((self.seen as f64) / ratio).floor() as usize;
+        while self.next < limit {
+            let pos = self.next as f64 * ratio;
+            let i = pos as usize;
+            if !end && i + 1 >= self.seen {
+                break;
+            }
+            let t = (pos - i as f64) as f32;
+            let j = (i + 1).min(self.seen.saturating_sub(1));
+            for c in 0..out_ch {
+                let a = self.pending[(i - self.base) * out_ch + c];
+                let b = self.pending[(j - self.base) * out_ch + c];
+                self.data.push(q(a + (b - a) * t));
+            }
+            self.next += 1;
+        }
+        // the input frames still needed start at the next output's
+        let keep = ((self.next as f64 * ratio) as usize).clamp(self.base, self.seen);
+        self.pending.drain(..(keep - self.base) * out_ch);
+        self.base = keep;
+    }
+
+    fn finish(mut self) -> Sample {
+        if let Some(ratio) = self.ratio {
+            self.resample(ratio, true);
+        }
+        self.data.shrink_to_fit();
+        Sample {
+            channels: self.out_ch as u16,
+            frames: self.data.len() / self.out_ch,
+            data: self.data,
         }
     }
-    Sample {
-        channels: out_ch as u16,
-        frames: out_frames,
-        data,
+}
+
+/// Call `f(i)` for `i in 0..n`, on up to `max_threads` threads natively
+/// (each taking the next `i` when it is free); in turn on the web.
+pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, max_threads: usize, f: F) {
+    let threads = if cfg!(target_arch = "wasm32") {
+        1
+    } else {
+        std::thread::available_parallelism()
+            .map_or(4, |t| t.get())
+            .clamp(1, max_threads.max(1))
+            .min(n)
+    };
+    if threads <= 1 {
+        return (0..n).for_each(f);
     }
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                if i >= n {
+                    break;
+                }
+                f(i);
+            });
+        }
+    });
 }
 
 /// All sound files of a chart, decoded in parallel.
@@ -246,11 +330,7 @@ impl SoundBank {
         let load_one = |i: usize| -> Option<Arc<Sample>> {
             let p = resolve(&files[i])?;
             let bytes = read(&p)?;
-            let ext = p
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            match decode_bytes(bytes, &ext, rate) {
+            match decode_bytes(bytes, &ext_of(&p), rate) {
                 Ok(s) => Some(Arc::new(s)),
                 Err(e) => {
                     log::debug!("decode {}: {e}", p.display());
@@ -258,35 +338,12 @@ impl SoundBank {
                 }
             }
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            for (i, slot) in slots.iter_mut().enumerate() {
-                *slot = load_one(i);
-                progress.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let threads = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4)
-                .clamp(1, 16);
-            let next = AtomicUsize::new(0);
-            let results = std::sync::Mutex::new(&mut slots);
-            std::thread::scope(|s| {
-                for _ in 0..threads {
-                    s.spawn(|| loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= n {
-                            break;
-                        }
-                        let r = load_one(i);
-                        results.lock().unwrap()[i] = r;
-                        progress.fetch_add(1, Ordering::Relaxed);
-                    });
-                }
-            });
-        }
+        let results = std::sync::Mutex::new(&mut slots);
+        parallel_for(n, 16, |i| {
+            let r = load_one(i);
+            results.lock().unwrap()[i] = r;
+            progress.fetch_add(1, Ordering::Relaxed);
+        });
         SoundBank { samples: slots }
     }
 
@@ -299,32 +356,150 @@ impl SoundBank {
 mod tests {
     use super::*;
 
-    fn write_wav(path: &Path, sr: u32, frames: usize) {
+    /// A 16-bit PCM WAV of `ch` channels.
+    fn wav(sr: u32, frames: usize, ch: u16) -> Vec<u8> {
         let mut b = Vec::new();
-        let data_len = (frames * 2) as u32;
+        let data_len = (frames * 2 * ch as usize) as u32;
         b.extend_from_slice(b"RIFF");
         b.extend_from_slice(&(36 + data_len).to_le_bytes());
         b.extend_from_slice(b"WAVEfmt ");
         b.extend_from_slice(&16u32.to_le_bytes());
         b.extend_from_slice(&1u16.to_le_bytes());
-        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&ch.to_le_bytes());
         b.extend_from_slice(&sr.to_le_bytes());
-        b.extend_from_slice(&(sr * 2).to_le_bytes());
-        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&(sr * 2 * ch as u32).to_le_bytes());
+        b.extend_from_slice(&(2 * ch).to_le_bytes());
         b.extend_from_slice(&16u16.to_le_bytes());
         b.extend_from_slice(b"data");
         b.extend_from_slice(&data_len.to_le_bytes());
-        for i in 0..frames {
+        for i in 0..frames * ch as usize {
             b.extend_from_slice(&(((i as f32 * 0.05).sin() * 10000.0) as i16).to_le_bytes());
         }
-        std::fs::write(path, b).unwrap();
+        b
+    }
+
+    /// How a file was converted before, all at once: what the conversion
+    /// packet by packet must equal.
+    fn convert_whole(channels: u16, sr: u32, pcm: &[f32], rate: u32) -> Vec<i16> {
+        let ch = channels.max(1) as usize;
+        let in_frames = pcm.len() / ch;
+        let out_ch = ch.min(2);
+        let get = |f: usize, c: usize| pcm[f * ch + c.min(ch - 1)];
+        let q = |v: f32| (v.clamp(-1.0, 1.0) * 32767.0) as i16;
+        if sr == rate || sr == 0 {
+            return (0..in_frames)
+                .flat_map(|f| (0..out_ch).map(move |c| q(get(f, c))))
+                .collect();
+        }
+        let ratio = sr as f64 / rate as f64;
+        let out_frames = ((in_frames as f64) / ratio).floor() as usize;
+        let mut data = Vec::new();
+        for o in 0..out_frames {
+            let pos = o as f64 * ratio;
+            let i = pos as usize;
+            let t = (pos - i as f64) as f32;
+            let j = (i + 1).min(in_frames.saturating_sub(1));
+            for c in 0..out_ch {
+                let (a, b) = (get(i, c), get(j, c));
+                data.push(q(a + (b - a) * t));
+            }
+        }
+        data
+    }
+
+    /// A whole file in `f32`, as symphonia decodes it.
+    fn decode_whole(bytes: Vec<u8>, ext: &str) -> (u16, u32, Vec<f32>) {
+        let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default());
+        let mut hint = Hint::new();
+        hint.with_extension(ext);
+        let mut format = symphonia::default::get_probe()
+            .format(&hint, mss, &Default::default(), &Default::default())
+            .unwrap()
+            .format;
+        let track = format.default_track().unwrap();
+        let id = track.id;
+        let mut dec = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())
+            .unwrap();
+        let (mut ch, mut sr, mut out) = (0, 0, Vec::new());
+        while let Ok(p) = format.next_packet() {
+            if p.track_id() != id {
+                continue;
+            }
+            let Ok(d) = dec.decode(&p) else { continue };
+            let spec = *d.spec();
+            (ch, sr) = (spec.channels.count() as u16, spec.rate);
+            let mut b = SampleBuffer::<f32>::new(d.capacity() as u64, spec);
+            b.copy_interleaved_ref(d);
+            out.extend_from_slice(b.samples());
+        }
+        (ch, sr, out)
+    }
+
+    #[test]
+    fn packets_convert_as_the_whole_file_did() {
+        let rates = [
+            (44_100, 44_100),
+            (0, 44_100),
+            (22_050, 44_100),
+            (48_000, 44_100),
+        ];
+        let rates = rates
+            .into_iter()
+            .chain([(192_000, 44_100), (8_000, 48_000), (44_100, 48_000)]);
+        for (sr, rate) in rates {
+            for ch in [1u16, 2, 6] {
+                let frames = 1500 + ch as usize;
+                let pcm: Vec<f32> = (0..frames * ch as usize)
+                    .map(|i| ((i * 7919 % 2003) as f32 / 1001.0 - 1.0) * 1.1)
+                    .collect();
+                let mut c = Convert::new(ch, sr, rate, None);
+                let mut rest = &pcm[..];
+                for n in [1usize, 7, 64, 333, 2, 1024].iter().cycle() {
+                    let k = (n * ch as usize).min(rest.len());
+                    c.push(&rest[..k]);
+                    rest = &rest[k..];
+                    if rest.is_empty() {
+                        break;
+                    }
+                }
+                let got = c.finish();
+                let want = convert_whole(ch, sr, &pcm, rate);
+                assert_eq!(got.channels, ch.min(2), "{sr} -> {rate}, {ch} ch");
+                assert_eq!(got.frames * got.channels as usize, want.len());
+                assert!(got.data == want, "{sr} -> {rate}, {ch} ch");
+            }
+        }
+    }
+
+    #[test]
+    fn files_decode_as_the_whole_file_did() {
+        let ogg = include_bytes!("../tests/data/tone.ogg").to_vec();
+        let files = [
+            (wav(22_050, 3000, 2), "wav"),
+            (wav(44_100, 5000, 1), "wav"),
+            (ogg, "ogg"),
+        ];
+        for (bytes, ext) in files {
+            let (ch, sr, pcm) = decode_whole(bytes.clone(), ext);
+            assert!(!pcm.is_empty());
+            for rate in [sr, 44_100, 48_000] {
+                let s = decode_bytes(bytes.clone(), ext, rate).unwrap();
+                assert!(
+                    s.data == convert_whole(ch, sr, &pcm, rate),
+                    "{ext} {sr} -> {rate}"
+                );
+                let s = (ext == "wav").then(|| decode_wav_fallback(&bytes, rate).unwrap());
+                assert!(s.is_none_or(|s| s.data == convert_whole(ch, sr, &pcm, rate)));
+            }
+        }
     }
 
     #[test]
     fn decode_resample_and_load() {
         let dir = std::env::temp_dir().join(format!("vibebms-audio-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        write_wav(&dir.join("kick.wav"), 22050, 22050);
+        std::fs::write(dir.join("kick.wav"), wav(22050, 22050, 1)).unwrap();
         let s = decode_file(&dir.join("kick.wav"), 44100).unwrap();
         assert_eq!(s.channels, 1);
         assert!((s.frames as i64 - 44100).abs() <= 2);

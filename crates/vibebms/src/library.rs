@@ -575,7 +575,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
     Song {
         note_kinds,
         density,
-        judge: Some(crate::scene::skinned::judge_rank_number(m)),
+        judge: Some(crate::scene::skinvals::judge_rank_number(m)),
         ln_profile: Some(c.ln_profile().bits()),
         path: path.to_string_lossy().into_owned(),
         folder,

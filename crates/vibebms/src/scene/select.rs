@@ -2,19 +2,17 @@
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::{Bpms, HsFix, Versus};
-use crate::gfx::text::Align;
-use crate::gfx::{with_alpha, Gfx, Rect, TexId};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
+use crate::gfx::{Gfx, Rect, TexId};
+use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::select_skin::{SelectHooks, SelectState};
+use crate::scene::skin_host::{SkinHost, Tap};
 use crate::scene::skinned;
-use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
 use crate::sysound::Sound;
-use crate::theme;
-use crate::ui;
+use crate::ui::{HitMap, TextEvent, TextInput};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -110,8 +108,8 @@ pub struct SelectScene {
     /// Web: the kept song folder a first Delete press asked about.
     #[cfg(target_arch = "wasm32")]
     delete_armed: Option<PathBuf>,
-    /// Last position of each turntable axis (it scrolls the list).
-    axis_last: HashMap<u64, f32>,
+    /// The turntable scrolls the list.
+    axis: AxisStepper,
     pub(crate) node: Node,
     stack: Vec<(Node, usize)>,
     pub(crate) bars: Vec<Bar>,
@@ -119,8 +117,8 @@ pub struct SelectScene {
     pub(crate) scroll: f32,
     /// When `scroll` last eased toward the cursor.
     scrolled_at: Instant,
-    pub(crate) search_edit: Option<String>,
-    bar_rects: Vec<(Rect, usize)>,
+    pub(crate) search_edit: Option<TextInput>,
+    bar_rects: HitMap<usize>,
     /// The skin's distance between bars on screen (`SelectHooks::pitch`).
     bar_pitch: Option<f32>,
     drag: Option<(u64, f32, f32, bool)>,
@@ -139,14 +137,10 @@ pub struct SelectScene {
     banner_job: Option<crate::skin::render::ImageJobs>,
     pub(crate) ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
-    pub(crate) created: Instant,
-    pub(crate) skin: Option<LoadedSkin>,
-    skin_tried: bool,
+    pub(crate) host: SkinHost,
     /// The sound set's BGM is playing; the panel its sounds last saw.
     bgm_on: bool,
     sound_panel: usize,
-    /// Clickable skin objects from the last frame: (rect, event, click mode).
-    skin_clicks: Vec<(Rect, i32, i32)>,
     /// Open skin panel (1..=6) and when panels last opened / closed.
     pub(crate) panel: usize,
     pub(crate) panel_on: [Option<Instant>; 6],
@@ -239,7 +233,7 @@ impl SelectScene {
             search_edit: None,
             #[cfg(target_arch = "wasm32")]
             delete_armed: None,
-            bar_rects: Vec::new(),
+            bar_rects: HitMap::default(),
             bar_pitch: None,
             drag: None,
             last_move: Instant::now(),
@@ -247,7 +241,7 @@ impl SelectScene {
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
             labels: HashMap::new(),
-            axis_last: HashMap::new(),
+            axis: AxisStepper::default(),
             preview_for: None,
             preview_rx: None,
             preview_fetch: None,
@@ -255,12 +249,9 @@ impl SelectScene {
             banner_job: None,
             ranking: HashMap::new(),
             quit_armed: None,
-            created: Instant::now(),
-            skin: None,
-            skin_tried: false,
+            host: SkinHost::new(),
             bgm_on: false,
             sound_panel: 0,
-            skin_clicks: Vec::new(),
             panel: 0,
             panel_on: [None; 6],
             panel_off: [None; 6],
@@ -1115,7 +1106,7 @@ impl SelectScene {
                     match ctx.best(song, ln) {
                         Some(best) => {
                             lamps[(best.clear as usize).min(10)] += 1;
-                            let r = super::skinned::rank_index(DjLevel::from_rate(
+                            let r = super::skinvals::rank_index(DjLevel::from_rate(
                                 best.ex_score,
                                 best.notes * 2,
                             ));
@@ -1160,7 +1151,8 @@ impl SelectScene {
 
     /// Does the skin have panels (objects shown only with a panel option)?
     fn skin_has_panels(&self) -> bool {
-        self.skin
+        self.host
+            .skin
             .as_ref()
             .map(|s| {
                 s.skin
@@ -1413,21 +1405,16 @@ impl Scene for SelectScene {
         self.update_sounds(ctx);
         self.update_ranking(ctx);
         self.update_banner(ctx, gfx);
-        if !self.skin_tried {
-            self.skin_tried = true;
+        if self.host.first_update() {
             let skin = {
-                let st = SelectState { s: self, ctx, now };
+                let st = SelectState::new(self, ctx, now);
                 let stat = |id: i32| st.static_option(id);
                 skinned::load(ctx, gfx, SkinType::Select, &stat, &st)
             };
-            self.skin = skin;
-        }
-        if let Some(sk) = self.skin.as_mut() {
-            sk.load_pending(gfx);
+            self.host.skin = skin;
         }
         // events skin scripts asked for
-        let events = self.skin.as_ref().map(|s| s.script_events());
-        for ev in events.unwrap_or_default() {
+        for ev in self.host.tick(gfx) {
             let next = self.skin_event(ctx, ev);
             if !matches!(next, Next::Stay) {
                 return next;
@@ -1437,7 +1424,7 @@ impl Scene for SelectScene {
     }
 
     fn realtime(&self) -> bool {
-        self.skin.is_some()
+        self.host.skin.is_some()
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
@@ -1446,55 +1433,16 @@ impl Scene for SelectScene {
         if self.version != ctx.library_version {
             self.rebuild(ctx);
         }
-        // search box
-        if let Some(q) = self.search_edit.as_mut() {
-            // on-screen keyboards (their return key ends it) and touches:
-            // the box searches, anywhere else closes it
-            let done = match ev {
-                InputEv::Text(t) if t.contains(['\n', '\r']) => Some(true),
-                InputEv::Text(t) => {
-                    q.extend(t.chars().filter(|c| !c.is_control()));
-                    None
-                }
-                InputEv::Pointer {
-                    phase: crate::input::Phase::Down,
-                    x,
-                    y,
-                    ..
-                } => Some(search_box(ctx).contains(*x, *y)),
-                _ => None,
-            };
-            if let Some(search) = done {
-                let q = std::mem::take(q);
-                self.search_edit = None;
-                if search && !q.trim().is_empty() {
-                    self.enter(ctx, Node::Search(q.trim().to_string()));
-                }
-                return Next::Stay;
-            }
-            if let InputEv::Key {
-                code,
-                pressed: true,
-                text,
-                ..
-            } = ev
-            {
-                match code {
-                    KeyCode::Escape => self.search_edit = None,
-                    KeyCode::Enter | KeyCode::NumpadEnter => {
-                        let q = std::mem::take(q);
-                        self.search_edit = None;
-                        if !q.trim().is_empty() {
-                            self.enter(ctx, Node::Search(q.trim().to_string()));
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        q.pop();
-                    }
-                    _ => {
-                        if let Some(t) = text {
-                            q.extend(t.chars().filter(|c| !c.is_control()));
-                        }
+        // search box: on-screen keyboards (their return key searches) and
+        // touches (the box searches, anywhere else closes it) too
+        if let Some(t) = self.search_edit.as_mut() {
+            match t.input(ev) {
+                TextEvent::Editing => {}
+                TextEvent::Cancel => self.search_edit = None,
+                TextEvent::Commit(q) => {
+                    self.search_edit = None;
+                    if !q.trim().is_empty() {
+                        self.enter(ctx, Node::Search(q.trim().to_string()));
                     }
                 }
             }
@@ -1573,7 +1521,7 @@ impl Scene for SelectScene {
                         return Next::Stay;
                     }
                     KeyCode::Slash | KeyCode::F10 => {
-                        self.search_edit = Some(String::new());
+                        self.search_edit = Some(TextInput::default());
                         return Next::Stay;
                     }
                     KeyCode::PageUp => {
@@ -1619,25 +1567,7 @@ impl Scene for SelectScene {
                 }
             }
             InputEv::Axis { value, id, .. } => {
-                // turntable scrolls the list
-                let l = &mut self.axis_last;
-                let last = *l.entry(*id).or_insert(*value);
-                let mut d = value - last;
-                if d > 1.0 {
-                    d -= 2.0
-                } else if d < -1.0 {
-                    d += 2.0
-                }
-                let step = if d.abs() >= 0.06 {
-                    l.insert(*id, *value);
-                    if d > 0.0 {
-                        1
-                    } else {
-                        -1
-                    }
-                } else {
-                    0
-                };
+                let step = self.axis.step(*id, *value);
                 if step != 0 && ctx.config.keys.any_axis_is_scratch {
                     if self.holding() {
                         self.panel_input(ctx, if step < 0 { 7 } else { 8 });
@@ -1655,20 +1585,11 @@ impl Scene for SelectScene {
             InputEv::Pointer {
                 id, phase, x, y, ..
             } => match phase {
-                Phase::Down => {
-                    if let Some(&(_, act, _)) = self
-                        .skin_clicks
-                        .iter()
-                        .rev()
-                        .find(|(r, _, _)| r.contains(*x, *y))
-                    {
-                        if self.skin.as_ref().is_some_and(|s| s.click(act)) {
-                            return Next::Stay; // a skin script event
-                        }
-                        return self.skin_event(ctx, act);
-                    }
-                    self.drag = Some((*id, *y, self.scroll, false));
-                }
+                Phase::Down => match self.host.tap(*x, *y) {
+                    Tap::Miss => self.drag = Some((*id, *y, self.scroll, false)),
+                    Tap::Script => {}
+                    Tap::Event(act, _) => return self.skin_event(ctx, act),
+                },
                 Phase::Move => {
                     if let Some((did, sy, ss, moved)) = self.drag.as_mut() {
                         if *did == *id {
@@ -1695,7 +1616,7 @@ impl Scene for SelectScene {
                 Phase::Up => {
                     if let Some((did, _, _, moved)) = self.drag.take() {
                         if did == *id && !moved {
-                            if let Some(i) = ui::hit(&self.bar_rects, *x, *y) {
+                            if let Some(&i) = self.bar_rects.at(*x, *y) {
                                 if i == self.cursor {
                                     return self.decide(ctx, false);
                                 }
@@ -1732,9 +1653,7 @@ impl Scene for SelectScene {
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         ctx.mixer.stop(PREVIEW_KEY);
         self.stop_bgm(ctx);
-        if let Some(mut s) = self.skin.take() {
-            s.free(gfx);
-        }
+        self.host.free(gfx);
         if let Some((_, Some(t))) = self.banner.take() {
             gfx.free_texture(t);
         }
@@ -1748,40 +1667,22 @@ impl Scene for SelectScene {
 impl SelectScene {
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let (bars, pitch, clicks) = {
-            let st = SelectState { s: self, ctx, now };
+        let (bars, pitch) = {
+            let st = SelectState::new(self, ctx, now);
             let mut hooks = SelectHooks {
                 st: &st,
                 banner: self.banner.as_ref().and_then(|b| b.1),
-                bars: Vec::new(),
+                bars: HitMap::default(),
                 pitch: None,
-                clicks: Vec::new(),
             };
-            let ms = now.saturating_duration_since(self.created).as_millis() as i64;
-            if let Some(sk) = self.skin.as_ref() {
-                sk.draw(d, view, ms, &st, &mut hooks);
-            }
-            (hooks.bars, hooks.pitch, hooks.clicks)
+            self.host.draw(d, view, now, &st, &mut hooks);
+            (hooks.bars, hooks.pitch)
         };
         self.bar_rects = bars;
         self.bar_pitch = pitch;
-        self.skin_clicks = clicks;
         // search box (typing is not part of skins)
-        if let Some(q) = &self.search_edit {
-            ctx.text_input = true;
-            let ui = ctx.ui();
-            let r = search_box(ctx);
-            d.b.rect(r, with_alpha(theme::PANEL, 0.97));
-            d.b.rect_outline(r, 2.0, theme::ACCENT);
-            d.text_fit(
-                &format!("SEARCH: {q}_"),
-                r.x + 12.0 * ui,
-                r.y + 10.0 * ui,
-                20.0 * ui,
-                theme::TEXT,
-                Align::Left,
-                r.w - 24.0 * ui,
-            );
+        if let Some(t) = self.search_edit.as_mut() {
+            t.draw_box(ctx, d, search_box(ctx), "SEARCH: ");
         }
     }
 

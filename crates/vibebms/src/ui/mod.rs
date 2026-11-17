@@ -1,9 +1,17 @@
 //! Small immediate-mode widgets shared by the menu scenes.
 
+mod hit;
+mod list;
+mod text_input;
+
+pub use hit::HitMap;
+pub use list::ListView;
+pub use text_input::{TextEvent, TextInput};
+
 use crate::app::Draw;
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Rect};
-use crate::theme::{ACCENT, PANEL, TEXT, TEXT_DIM};
+use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 
 /// Panel look shared with the default skins: rounded, thin border, a short
 /// accent tab on the top edge.
@@ -72,10 +80,20 @@ pub fn row(d: &mut Draw, r: Rect, selected: bool) {
     }
 }
 
-pub fn hit(rects: &[(Rect, usize)], x: f32, y: f32) -> Option<usize> {
-    rects
-        .iter()
-        .rev()
-        .find(|(r, _)| r.contains(x, y))
-        .map(|(_, i)| *i)
+/// A panel `r` over the whole `w` × `h` screen, which it dims.
+pub fn modal(d: &mut Draw, w: f32, h: f32, r: Rect) {
+    d.b.rect(Rect::new(0.0, 0.0, w, h), with_alpha(BACKGROUND, 0.7));
+    panel(d, r);
+}
+
+/// The menu screens' button that leaves them, at the top right of a
+/// screen `w` wide.
+pub fn back_button(d: &mut Draw, w: f32, ui: f32) -> Rect {
+    button(
+        d,
+        Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
+        "◀ BACK",
+        ui,
+        false,
+    )
 }

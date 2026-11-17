@@ -332,6 +332,37 @@ pub fn nav_from_pad(id: u64, cfg: &KeyConfig) -> Option<Nav> {
     None
 }
 
+/// A turntable axis as list steps: one per `AXIS_STEP` turned (the axis
+/// wraps around at ±1).
+#[derive(Debug, Default)]
+pub struct AxisStepper {
+    last: HashMap<u64, f32>,
+}
+
+pub const AXIS_STEP: f32 = 0.06;
+
+impl AxisStepper {
+    /// Axis `id` is at `value` now: -1, 0 or 1 steps.
+    pub fn step(&mut self, id: u64, value: f32) -> i32 {
+        let last = self.last.entry(id).or_insert(value);
+        let mut d = value - *last;
+        if d > 1.0 {
+            d -= 2.0
+        } else if d < -1.0 {
+            d += 2.0
+        }
+        if d.abs() < AXIS_STEP {
+            return 0;
+        }
+        *last = value;
+        if d > 0.0 {
+            1
+        } else {
+            -1
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +407,22 @@ mod tests {
         m.tick(t + Duration::from_millis(200), &mut out);
         assert_eq!(out.len(), 1);
         assert!(!out[0].pressed);
+    }
+
+    #[test]
+    fn turntable_steps() {
+        let mut a = AxisStepper::default();
+        // the first value seen is where it starts
+        assert_eq!(a.step(1, 0.5), 0);
+        assert_eq!(a.step(1, 0.53), 0);
+        assert_eq!(a.step(1, 0.57), 1);
+        assert_eq!(a.step(1, 0.5), -1);
+        // across the wrap at ±1: the short way
+        assert_eq!(a.step(1, 0.98), 1);
+        assert_eq!(a.step(1, -0.9), 1);
+        assert_eq!(a.step(1, 0.98), -1);
+        // each axis on its own
+        assert_eq!(a.step(2, 0.0), 0);
+        assert_eq!(a.step(2, -0.1), -1);
     }
 }

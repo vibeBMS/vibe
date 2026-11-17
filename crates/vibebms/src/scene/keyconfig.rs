@@ -18,16 +18,18 @@
 //! this screen, for beatoraja skins and LR2 skins without key buttons.
 
 use super::keybind::{self, Slot};
-use super::skinned::{self, ms_since};
+use super::skin_host::{NoHooks, SkinHost, Tap};
+use super::{skinned, skinvals};
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
+use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
-use crate::skin::render::{Hooks, LoadedSkin, Xf};
+use crate::skin::render::Xf;
 use crate::skin::{SkinState, SkinType};
 use crate::sysound::Sound;
-use crate::{theme, ui};
+use crate::theme;
+use crate::ui::{self, HitMap, ListView};
 use std::collections::HashMap;
 use winit::keyboard::KeyCode;
 
@@ -127,13 +129,14 @@ pub fn open(ctx: &mut Ctx) -> Box<dyn Scene> {
     }
 }
 
+/// Rows shown at once (beatoraja's layout).
+const ROWS: usize = 24;
+
 pub struct KeyConfigScene {
-    skin: Option<LoadedSkin>,
-    tried: bool,
-    created: Instant,
-    leaving: Option<Instant>,
+    host: SkinHost,
     mode: usize,
-    cursor: usize,
+    /// The chosen row (`sel`) and the first row shown.
+    list: ListView,
     /// LR2 binding slot (0 keyboard, 1 controller, 2 axis).
     device: usize,
     /// Waiting for a key to bind to the chosen row (since).
@@ -142,12 +145,11 @@ pub struct KeyConfigScene {
     lr2: bool,
     /// The rows are drawn here (beatoraja draws them over its skin).
     overlay: bool,
-    clicks: Vec<(Rect, i32, i32)>,
-    rows: Vec<(Rect, usize)>,
+    rows: HitMap<usize>,
     mode_rects: [Rect; 2],
     back_rect: Rect,
     axis_seen: HashMap<u64, f32>,
-    axis_last: HashMap<u64, f32>,
+    axis: AxisStepper,
     /// Keys and buttons down now, by row (LR2 key timers 100-139).
     pressed: HashMap<Slot, Instant>,
 }
@@ -161,50 +163,41 @@ impl Default for KeyConfigScene {
 impl KeyConfigScene {
     pub fn new() -> KeyConfigScene {
         KeyConfigScene {
-            skin: None,
-            tried: false,
-            created: Instant::now(),
-            leaving: None,
+            host: SkinHost::new(),
             mode: 0,
-            cursor: 0,
+            list: ListView::new(),
             device: 0,
             learning: None,
             lr2: false,
             overlay: true,
-            clicks: Vec::new(),
-            rows: Vec::new(),
+            rows: HitMap::default(),
             mode_rects: [Rect::default(); 2],
             back_rect: Rect::default(),
             axis_seen: HashMap::new(),
-            axis_last: HashMap::new(),
+            axis: AxisStepper::default(),
             pressed: HashMap::new(),
         }
     }
 
     pub fn slot(&self) -> Slot {
         let v = slots(self.mode);
-        v[self.cursor.min(v.len() - 1)]
-    }
-
-    fn input_ms(&self) -> i64 {
-        self.skin.as_ref().map(|s| s.skin.input_ms).unwrap_or(0)
+        v[self.list.sel.min(v.len() - 1)]
     }
 
     pub fn set_mode(&mut self, m: usize) {
         self.mode = m % MODES.len();
-        self.cursor = 0;
+        self.list.select(0);
         self.learning = None;
     }
 
     fn step(&mut self, d: i32) {
-        let n = slots(self.mode).len() as i32;
-        self.cursor = (self.cursor as i32 + d).rem_euclid(n) as usize;
+        self.list.step(d, slots(self.mode).len());
         self.learning = None;
     }
 
     fn select(&mut self, s: Slot) {
         if let Some(i) = slots(self.mode).iter().position(|x| *x == s) {
-            self.cursor = i;
+            self.list.select(i);
         }
     }
 
@@ -224,7 +217,7 @@ impl KeyConfigScene {
             ctx.save_config();
             ctx.play_sound(Sound::OptionChange);
             let n = slots(self.mode).len();
-            self.cursor = (self.cursor + 1).min(n - 1);
+            self.list.select((self.list.sel + 1).min(n - 1));
         }
     }
 
@@ -237,10 +230,10 @@ impl KeyConfigScene {
     }
 
     fn leave(&mut self, ctx: &mut Ctx) -> Next {
-        if self.leaving.is_none() {
+        if self.host.leaving.is_none() {
             ctx.save_config();
             self.learning = None;
-            self.leaving = Some(Instant::now());
+            self.host.leave(Instant::now());
         }
         Next::Stay
     }
@@ -313,11 +306,8 @@ impl KeyState<'_> {
 
 impl SkinState for KeyState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
-        let t = |i: Instant| ms_since(self.s.created, i);
+        let t = |i: Instant| self.s.host.ms(i);
         match id {
-            0 => Some(0),
-            1 => Some(self.s.input_ms()),
-            2 => self.s.leaving.map(t),
             // keys held down (on) and the others (off since the start)
             // LR2 key timers: 100-109 1P on (0 scratch, 1-9 keys), 110-119
             // 1P off, 120-139 the same for 2P
@@ -336,7 +326,7 @@ impl SkinState for KeyState<'_> {
                     (false, Some(_)) => None,
                 }
             }
-            _ => None,
+            _ => self.s.host.timer(id),
         }
     }
 
@@ -349,7 +339,7 @@ impl SkinState for KeyState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
-        skinned::clock_number(id).or(match id {
+        skinvals::clock_number(id).or(match id {
             20 => Some(self.ctx.fps as i64),
             _ => None,
         })
@@ -365,8 +355,8 @@ impl SkinState for KeyState<'_> {
         };
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
-            50 => self.s.skin.as_ref()?.skin.name.clone(),
-            51 => self.s.skin.as_ref()?.skin.author.clone(),
+            50 => self.s.host.skin.as_ref()?.skin.name.clone(),
+            51 => self.s.host.skin.as_ref()?.skin.author.clone(),
             // LR2: the chosen key's binding per slot
             40..=49 if self.s.lr2 => {
                 keybind::device_label(k, self.s.slot(), (id - 40) as usize).unwrap_or_default()
@@ -408,26 +398,14 @@ impl SkinState for KeyState<'_> {
             }
             143 => self.s.mode as i64,
             150..=159 => (self.s.device == (id - 150) as usize) as i64,
-            _ => return skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
+            _ => return skinvals::config_button(self.ctx, id).or_else(|| self.number(id)),
         })
-    }
-}
-
-#[derive(Default)]
-struct ClickHooks {
-    clicks: Vec<(Rect, i32, i32)>,
-}
-
-impl Hooks for ClickHooks {
-    fn clickable(&mut self, rect: Rect, act: i32, click: i32) {
-        self.clicks.push((rect, act, click));
     }
 }
 
 impl Scene for KeyConfigScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if !self.tried {
-            self.tried = true;
+        if self.host.first_update() {
             let skin = {
                 let st = KeyState { s: self, ctx };
                 let stat = |id: i32| match id {
@@ -448,24 +426,19 @@ impl Scene for KeyConfigScene {
                 .iter()
                 .any(|o| o.act.is_some_and(|(a, _)| (101..=136).contains(&a)));
             self.overlay = !(self.lr2 && has_keys);
-            self.skin = Some(skin);
-            self.created = now;
+            self.host.skin = Some(skin);
+            self.host.created = now;
         }
-        if let Some(sk) = self.skin.as_mut() {
-            sk.load_pending(gfx);
+        self.host.tick(gfx);
+        if self.host.faded(now) {
+            return Next::Pop;
         }
-        let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
-        match self.leaving {
-            Some(t) if ms_since(t, now) >= fade => Next::Pop,
-            _ => Next::Stay,
-        }
+        Next::Stay
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         ctx.save_config();
-        if let Some(mut s) = self.skin.take() {
-            s.free(gfx);
-        }
+        self.host.free(gfx);
     }
 
     fn realtime(&self) -> bool {
@@ -473,7 +446,7 @@ impl Scene for KeyConfigScene {
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
-        if self.leaving.is_some() {
+        if self.host.leaving.is_some() {
             return Next::Stay;
         }
         // keys shown pressed (LR2 key timers)
@@ -525,7 +498,7 @@ impl Scene for KeyConfigScene {
             }
             return Next::Stay;
         }
-        let ready = ms_since(self.created, Instant::now()) >= self.input_ms();
+        let ready = self.host.ready(Instant::now());
         match ev {
             InputEv::Key {
                 code,
@@ -558,19 +531,10 @@ impl Scene for KeyConfigScene {
                 }
             }
             // the turntable moves the cursor
-            InputEv::Axis { id, value, .. } => {
-                let l = self.axis_last.entry(*id).or_insert(*value);
-                let mut d = value - *l;
-                if d > 1.0 {
-                    d -= 2.0
-                } else if d < -1.0 {
-                    d += 2.0
-                }
-                if d.abs() >= 0.06 {
-                    *l = *value;
-                    self.step(if d > 0.0 { 1 } else { -1 });
-                }
-            }
+            InputEv::Axis { id, value, .. } => match self.axis.step(*id, *value) {
+                0 => {}
+                d => self.step(d),
+            },
             InputEv::Wheel { dy } => {
                 let n = (-dy).round() as i32;
                 if n != 0 {
@@ -586,13 +550,13 @@ impl Scene for KeyConfigScene {
                 if self.back_rect.contains(*x, *y) {
                     return self.leave(ctx);
                 }
-                if let Some(&(_, act, _)) =
-                    self.clicks.iter().rev().find(|(r, ..)| r.contains(*x, *y))
-                {
-                    if !self.skin.as_ref().is_some_and(|s| s.click(act)) {
+                match self.host.tap(*x, *y) {
+                    Tap::Miss => {}
+                    Tap::Script => return Next::Stay,
+                    Tap::Event(act, _) => {
                         self.event(ctx, act);
+                        return Next::Stay;
                     }
-                    return Next::Stay;
                 }
                 for (i, r) in self.mode_rects.iter().enumerate() {
                     if r.contains(*x, *y) {
@@ -600,12 +564,12 @@ impl Scene for KeyConfigScene {
                         return Next::Stay;
                     }
                 }
-                if let Some(i) = ui::hit(&self.rows, *x, *y) {
+                if let Some(&i) = self.rows.at(*x, *y) {
                     // a tap chooses a row, a second one binds it
-                    if i == self.cursor {
+                    if i == self.list.sel {
                         self.learning = Some(Instant::now());
                     } else {
-                        self.cursor = i;
+                        self.list.select(i);
                     }
                 }
             }
@@ -616,23 +580,11 @@ impl Scene for KeyConfigScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let ms = ms_since(self.created, now);
-        let mut hooks = ClickHooks::default();
-        let (sw, sh) = self
-            .skin
-            .as_ref()
-            .map(|s| (s.skin.width, s.skin.height))
-            .unwrap_or((1280.0, 720.0));
-        {
-            let st = KeyState { s: self, ctx };
-            if let Some(sk) = self.skin.as_ref() {
-                sk.draw(d, view, ms, &st, &mut hooks);
-            }
-        }
-        self.clicks = hooks.clicks;
-        let xf = Xf::fit(sw, sh, view);
+        self.host
+            .draw(d, view, now, &KeyState { s: self, ctx }, &mut NoHooks);
         if self.overlay {
-            self.draw_rows(ctx, d, &xf, sw);
+            let xf = self.host.xf(view);
+            self.draw_rows(ctx, d, &xf, self.host.size().0);
         } else {
             self.rows.clear();
             self.mode_rects = [Rect::default(); 2];
@@ -661,13 +613,7 @@ impl Scene for KeyConfigScene {
                 r.w - 16.0 * ui,
             );
         }
-        self.back_rect = ui::button(
-            d,
-            Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
-            "◀ BACK",
-            ui,
-            false,
-        );
+        self.back_rect = ui::back_button(d, w, ui);
     }
 }
 
@@ -696,14 +642,16 @@ impl KeyConfigScene {
         let hint = "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back";
         let (hx, hy) = p(760.0, 80.0);
         d.text(hint, hx, hy, size * 0.8, [1.0, 0.65, 0.2, 1.0], Align::Left);
-        // a scrolling window of 24 rows
-        let first = self.cursor.saturating_sub(23);
+        let sel = self.list.sel;
+        self.list
+            .fit(sel as f32, sel as f32 + 1.0, ROWS as f32, rows.len() as f32);
+        let first = self.list.scroll as usize;
         self.rows.clear();
-        for (i, s) in rows.iter().enumerate().skip(first).take(24) {
+        for (i, s) in rows.iter().enumerate().skip(first).take(ROWS) {
             let (x, y) = p(50.0, 110.0 + 24.0 * (i - first) as f32);
             let row = Rect::new(x, y, 700.0 * sx, 24.0 * sy);
-            self.rows.push((row, i));
-            if i == self.cursor {
+            self.rows.push(row, i);
+            if i == sel {
                 let c = if self.learning.is_some() {
                     [0.8, 0.1, 0.1, 0.8]
                 } else {
@@ -814,7 +762,7 @@ mod tests {
         assert_eq!(ctx.config.keys.p2.keys[4].pad, vec![2_000_005]);
         // LR2 texts 40-49: the chosen key's binding per slot
         s.lr2 = true;
-        s.cursor = 9 + 2;
+        s.list.sel = 9 + 2;
         let st = KeyState { s: &s, ctx: &ctx };
         assert_eq!(st.text(40).as_deref(), Some("Q"));
         assert_eq!(st.button(140), Some(14));

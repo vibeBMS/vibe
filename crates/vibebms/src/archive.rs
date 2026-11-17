@@ -171,13 +171,6 @@ fn key(event: &str, num: u32) -> String {
     format!("{event}/{num}")
 }
 
-fn now_s() -> u64 {
-    crate::platform::SystemTime::now()
-        .duration_since(crate::platform::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 impl Archives {
     fn dir(paths: &crate::paths::Paths) -> PathBuf {
         paths.cache.join("archives")
@@ -273,7 +266,7 @@ impl Archives {
     /// Fetch the lists of events and the indexes older than a day (all
     /// with `force`).
     pub fn refresh(&mut self, force: bool) {
-        let now = now_s();
+        let now = crate::platform::unix_now();
         let lists: Vec<String> = self
             .catalogs
             .iter()
@@ -394,7 +387,7 @@ impl Archives {
                 Msg::Catalog(url, Ok(entries)) => {
                     if let Some(c) = self.catalogs.iter_mut().find(|c| c.url == url) {
                         c.events = entries;
-                        c.fetched_at = now_s();
+                        c.fetched_at = crate::platform::unix_now();
                         if let Ok(j) = serde_json::to_vec(c) {
                             let _ = crate::platform::vfs::create_dir_all(&Self::dir(paths));
                             let _ = crate::platform::vfs::write(&Self::cache_file(paths, &url), &j);
@@ -406,7 +399,7 @@ impl Archives {
                 Msg::Index(url, Ok(works)) => {
                     if let Some(ev) = self.events.iter_mut().find(|e| e.url == url) {
                         ev.works = works;
-                        ev.fetched_at = now_s();
+                        ev.fetched_at = crate::platform::unix_now();
                         if let Ok(j) = serde_json::to_vec(ev) {
                             let _ = crate::platform::vfs::create_dir_all(&Self::dir(paths));
                             let _ = crate::platform::vfs::write(&Self::cache_file(paths, &url), &j);
