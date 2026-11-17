@@ -22,8 +22,18 @@ impl bmseeker::fs::Fs for Vfs {
             })
             .collect())
     }
-    fn rename(&self, from: &Path, to: &Path) -> bool {
-        crate::platform::vfs::rename(from, to)
+    #[cfg(not(target_arch = "wasm32"))]
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        bmseeker::fs::Fs::rename(&bmseeker::fs::Disk, from, to)
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        use crate::platform::vfs;
+        match vfs::rename(from, to) {
+            true => Ok(()),
+            false if vfs::is_file(to) => Err(std::io::ErrorKind::AlreadyExists.into()),
+            false => Err(std::io::ErrorKind::NotFound.into()),
+        }
     }
     fn stamp(&self, p: &Path) -> Option<(i64, u64)> {
         use crate::platform::vfs;
@@ -32,8 +42,8 @@ impl bmseeker::fs::Fs for Vfs {
             (t, n as u64)
         })
     }
-    fn remove(&self, p: &Path) -> bool {
-        crate::platform::vfs::remove_file(p).is_ok()
+    fn remove(&self, p: &Path) -> std::io::Result<()> {
+        crate::platform::vfs::remove_file(p)
     }
     /// A web page's files take the time they are stored at, not the
     /// archive's.
@@ -64,6 +74,10 @@ impl bmseeker::fs::Store for Vfs {
     }
     fn create_dir_all(&self, p: &Path) {
         let _ = crate::platform::vfs::create_dir_all(p);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        bmseeker::fs::Store::copy(&bmseeker::fs::Disk, from, to)
     }
 }
 
@@ -119,6 +133,9 @@ pub fn locate_loose(chart: &Path, lib: &bmseeker::library::Library) -> Option<Lo
 /// Move `file` into `dir` (smart overwrite: `bmseeker::placement::bring`).
 pub fn bring(file: &Path, dir: &Path) -> Option<std::path::PathBuf> {
     bmseeker::placement::bring(&Vfs, file, dir)
+        .inspect_err(|e| log::warn!("{} into {}: {e}", file.display(), dir.display()))
+        .ok()
+        .flatten()
 }
 
 #[cfg(test)]
