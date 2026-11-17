@@ -103,13 +103,17 @@ effectively disables it; vibeBMS keeps only the positive part.
 | EX-CLASS | 100 | – | 0.1, 0.1, 0.05, -6, -10, -2 | ×0.6 below 32 % |
 | EXHARD-CLASS | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | |
 
-The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %. LR2 damage: damage × max(10 /
-clamp(⌊TOTAL / 16⌋ − 5, 1, 10), note-count factor), the note-count factor rising from 1 at 1000 notes to 10 at 20
-(1 + 0.002·(1000 − n) below 1000, 2 + 0.004·(500 − n) below 500, 3 + 0.008·(250 − n) below 250, …).
+The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %. LR2 damage: damage × the larger of a
+TOTAL factor and a note-count factor. The TOTAL factor is S1's measured POOR damage over 10 at the multiple of 10
+at or below TOTAL, LR2 dropping the ones digit [S1]: 1 from 240, 1.11 from 230, 1.25 from 210, 1.5 from 200, 1.666
+from 180, 2 from 160, 2.5 from 150, 3.333 from 130, 5 from 120, 10 below (the table S2 and S4 give). The note-count
+factor rises from 1 at 1000 notes to 10 at 20 (1 + 0.002·(1000 − n) below 1000, 2 + 0.004·(500 − n) below 500, 3 +
+0.008·(250 − n) below 250, …).
 
-EASY, NORMAL (GROOVE), HARD, HAZARD and CLASS (dan) are LR2's gauges; their values, the 32 % rule and the 2 % floor
-are as LR2 is documented [S1, S3, S7, S8]. LR2's HARD damage factor is confirmed only in part (gap A4). ASSIST
-EASY, EX-HARD, EX-CLASS and EXHARD-CLASS are not LR2's [S8].
+EASY, NORMAL (GROOVE), HARD, HAZARD and CLASS (dan) are LR2's gauges; their values, the 32 % rule, the 2 % floor and
+the HARD damage factor from 125 notes up are as LR2 is documented [S1, S3, S7, S8]; below 125 notes the note-count
+factor is vibeBMS's guess (gap A4). ASSIST EASY, EX-HARD, EX-CLASS and EXHARD-CLASS are not LR2's [S8]: the set
+offers them, but the vibe-LR2 profile does not take them (gap A10).
 
 ### IIDX set (approximation)
 Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 30 %, EX-HARD -10, -18, -10.
@@ -153,7 +157,7 @@ of beatoraja, LR2oraja or bmz-player, or from LR2's binary.
 | A1 | judge and gauge presets were separate settings | closed: the profile takes only the LR2 judge with the LR2 gauge set |
 | A2 | empty POOR window and its combo and note rules | closed: 0 .. +1000 ms, early only [S1, S2, S3, S4]; keeps the combo, never takes the note [S4] |
 | A3 | `#RANK 4`, out-of-range `#RANK`, `#DEFEXRANK`, bmson | open: `#RANK 0..3` and a missing `#RANK` are LR2's [S5, S8, S9]; LR2 has no `#DEFEXRANK` [S9] or bmson, and the profile leaves both out; what LR2 does with `#RANK 4` or an out-of-range value is not documented (vibeBMS: NORMAL) |
-| A4 | HARD gauge damage factor and the 30 % rule | open. Confirmed: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the TOTAL and note-count factors, × 0.6 below 32 %, empty below 2 % [S1, S3, S7]; the TOTAL factor at TOTAL 100 .. 300 in steps of 10 but 200; the note-count factor from 250 notes up and at 125 and 0 [S1]. Not confirmed: TOTAL 200 (S1 measured POOR 15, vibeBMS 14.29) and every TOTAL between the measured ones (vibeBMS steps every 16, S2 / S4 give beatoraja's table, which steps differently); the note-count curve below 125 notes. HAZARD is now LR2's DEATH gauge [S8] |
+| A4 | HARD gauge damage factor and the 30 % rule | narrowed to HARD on charts of 1 .. 124 notes and TOTAL 120 or more. Confirmed: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the TOTAL and note-count factors, × 0.6 below 32 %, empty below 2 % [S1, S3, S7]; the TOTAL factor at every TOTAL: S1 measured each multiple of 10 from 100 to 300 (200 included: 15) and says LR2 drops the ones digit, so a TOTAL between takes the measured value below it [S1]; vibeBMS now does (it stepped every 16 and took 14.29 at 200). The note-count factor from 125 notes up: S1's slopes to 250, then its graph's mark at 125 with the slope doubled again as S1's "…" says [S1]. Not confirmed: the note-count factor below 125 notes, where S1 gives only the graph (not readable: the archived image does not load) and its marks 40 at 125 and 100 at 0; it can decide only when the TOTAL factor is below 10 (TOTAL 120 or more). HAZARD is LR2's DEATH gauge [S8] |
 | A5 | LN mode and typed CN / HCN | closed: LR2 has only LNs without a tail judgement [S8]; the profile takes LN mode and no typed CN / HCN; a release inside GOOD keeps the head's judgement, earlier is a BAD [S4, S7] |
 | A6 | combo, note consumption and one-POOR rules | closed: LR2's in every key mode [S4, S8] (5/10 keys and PMS had beatoraja's) |
 | A7 | default TOTAL | open: vibeBMS's 160 + (n + clamp(n − 400, 0, 200)) × 0.16 is LR2oraja's [S11]; LR2's own is given only as "160?" [S9]. Reaches charts without `#TOTAL` |
@@ -178,11 +182,14 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   POOR only on early presses; no POOR from presses after a note is hit. Gauge per PG, GR, GD, POOR, BAD, empty POOR
   (t = TOTAL, n = notes): GROOVE t/n, t/n, t/2n, −6, −4, −2; EASY ×1.2 gains, −4.8, −3.2, −1.6; HARD 0.1, 0.1, 0.05,
   −10, −6, −2; dan 0.1, 0.1, 0.05?, −3, −2, −2. The gauge is kept with decimals and shown in 2 % steps. HARD damage
-  grows for low TOTAL or few notes: POOR damage measured at TOTAL ≥ 240: 10, 230: 11.1, 220 and 210: 12.5, 200: 15,
-  190 and 180: 16.66, 170 and 160: 20, 150: 25, 140 and 130: 33.33, 120: 50, ≤ 110: 100 (the author guesses steps of
-  10). Below 1000 notes POOR damage grows 0.02 % a note down to 500 and 0.04 % a note down to 250, then as a graph
-  (`file/tn_graph.png`; its marks: 125 notes 40, 0 notes 100). The larger of the two is taken; BAD is POOR × 0.6,
-  empty POOR POOR × 0.2. At 30 % (as shown) or less, HARD damage × 0.6.
+  grows for low TOTAL or few notes (measured with 1000 notes or more): POOR damage at TOTAL ≥ 240: 10, 230: 11.1,
+  220 and 210: 12.5, 200: 15, 190 and 180: 16.66, 170 and 160: 20, 150: 25, 140 and 130: 33.33, 120: 50, ≤ 110: 100.
+  "10刻みで設定されている？1の位以下は切り捨て" (set in steps of 10?; the ones digit and below are dropped); it
+  names a script that sets TOTAL 159 to get 150's damage. Below 1000 notes POOR damage grows 0.02 % a note down to
+  500 and 0.04 % a note down to 250, "…という補正" (and so on), then as a graph (`file/tn_graph.png`; its marks: 125
+  notes 40, 0 notes 100; the archived image would not load for this pass). The larger of the two is taken; BAD is
+  POOR × 0.6, empty POOR POOR × 0.2. At 30 % (as shown) or less, HARD damage × 0.6. Re-read 2026-11 from the
+  archived page itself (captures of 2013-09 and 2019-02 agree).
 - **S2** 園田うき, "beatoraja vs Lunatic Rave2(LR2)", 2019,
   <https://www.ukitouchtypist.org/2019/09/17/beatoraja-vs-lunatic-rave2/>. LR2 EASY ±21 / ±60 / ±120 / ±200, empty POOR
   +1000; NORMAL ±18 / ±40 / ±100 / ±200, +1000. EASY and HARD gauges as S1; HARD × 0.6 at 30 % and below. Its LR2
