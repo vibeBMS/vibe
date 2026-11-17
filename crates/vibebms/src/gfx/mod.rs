@@ -432,6 +432,8 @@ pub struct Gfx {
     vcap: u64,
     pub present_modes: Vec<wgpu::PresentMode>,
     pub adapter_name: String,
+    /// Told before each present (Wayland paces frames by it).
+    window: Arc<winit::window::Window>,
 }
 
 impl Gfx {
@@ -675,6 +677,7 @@ impl Gfx {
             vcap,
             present_modes: caps.present_modes.clone(),
             adapter_name: format!("{} ({:?})", info.name, info.backend),
+            window,
         };
         // atlas: transparent with a white block in the corner
         let mut px = vec![0u8; (ATLAS_SIZE * ATLAS_SIZE * 4) as usize];
@@ -967,6 +970,9 @@ impl Gfx {
             }
         }
         self.queue.submit(Some(enc.finish()));
+        // winit: on Wayland the next redraw request follows the compositor's
+        // frame callback only when told a frame is about to be shown
+        self.window.pre_present_notify();
         frame.present();
         Ok(())
     }
