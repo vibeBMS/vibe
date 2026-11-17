@@ -2271,7 +2271,7 @@ LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (7
 
 
 # vibeBMS's select options (skin texts 9000 + i / 9100 + i, events 9000 + i)
-SELECT_OPTIONS = 16
+SELECT_OPTIONS = 17
 
 
 def select_layout(fonts, parts, portrait=False):

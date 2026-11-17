@@ -6,7 +6,7 @@ use super::input::PanelKey;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
 use crate::config::{
-    Bpms, DifficultyFilter, HsFix, KeyFilter, Side, SortMode, Versus, HISPEED_STEP,
+    Bpms, DifficultyFilter, HsFix, KeyFilter, RandomSelect, Side, SortMode, Versus, HISPEED_STEP,
 };
 use crate::input::Repeat;
 use crate::library::{Favorites, Song};
@@ -43,10 +43,11 @@ pub(crate) enum SelectOption {
     DifficultyFilter,
     FavoriteChart,
     FavoriteSong,
+    RandomSelect,
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 16] = [
+    pub const ALL: [SelectOption; 17] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -63,6 +64,7 @@ impl SelectOption {
         SelectOption::DifficultyFilter,
         SelectOption::FavoriteChart,
         SelectOption::FavoriteSong,
+        SelectOption::RandomSelect,
     ];
 
     pub fn name(self) -> &'static str {
@@ -83,6 +85,7 @@ impl SelectOption {
             SelectOption::DifficultyFilter => "DIFFICULTY",
             SelectOption::FavoriteChart => "FAV CHART",
             SelectOption::FavoriteSong => "FAV SONG",
+            SelectOption::RandomSelect => "RANDOM SELECT",
         }
     }
 
@@ -101,6 +104,7 @@ impl SelectOption {
             SelectOption::Sort => sel.sort.label().into(),
             SelectOption::KeyFilter => sel.key_filter.label().into(),
             SelectOption::DifficultyFilter => sel.difficulty_filter.label().into(),
+            SelectOption::RandomSelect => sel.random.label().into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -167,6 +171,10 @@ impl SelectScene {
                 sel.difficulty_filter = cycle(&DifficultyFilter::ALL, sel.difficulty_filter, 1);
                 true
             }
+            SelectOption::RandomSelect => {
+                sel.random = cycle(&RandomSelect::ALL, sel.random, 1);
+                false
+            }
             _ => matches!(o, SelectOption::Judge | SelectOption::LnMode),
         };
         let p = &mut ctx.config.play;
@@ -198,7 +206,10 @@ impl SelectScene {
                     vs_hint(ctx);
                 }
             }
-            SelectOption::Sort | SelectOption::KeyFilter | SelectOption::DifficultyFilter => {
+            SelectOption::Sort
+            | SelectOption::KeyFilter
+            | SelectOption::DifficultyFilter
+            | SelectOption::RandomSelect => {
                 // (skins without these show nothing of it)
                 ctx.toast(format!("{}: {}", o.name(), o.value(ctx, None, None)));
             }

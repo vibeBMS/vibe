@@ -170,6 +170,10 @@ impl SelectScene {
             // 8 favourite song, 9 favourite chart (bmz's F8 / F9: hi-speed
             // and judge here)
             KeyCode::Digit8 | KeyCode::Numpad8 => self.toggle_favorite(ctx, true),
+            // which charts RANDOM SELECT draws from
+            KeyCode::Digit0 | KeyCode::Numpad0 => {
+                return self.option(ctx, SelectOption::RandomSelect)
+            }
             KeyCode::Digit9 | KeyCode::Numpad9 => self.toggle_favorite(ctx, false),
             KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13),
             KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14),

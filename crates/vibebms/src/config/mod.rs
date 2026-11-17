@@ -15,7 +15,7 @@ pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
 pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
 pub use keys::{KeyConfig, LaneKeys, SideKeys};
 pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
-pub use select::{DifficultyFilter, KeyFilter, SelectConfig, SortMode};
+pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
     LENGTH_RANGE, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
@@ -404,6 +404,7 @@ mod tests {
                 sort: SortMode::MissCount,
                 key_filter: KeyFilter::K14,
                 difficulty_filter: DifficultyFilter::Another,
+                random: RandomSelect::NotHard,
             },
             keys: KeyConfig {
                 p1: side(0),

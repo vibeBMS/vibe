@@ -17,7 +17,7 @@ use super::preview::Rank;
 use super::tree::{table, Bar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
-use crate::config::{Bpms, HiSpeedMode, KeyFilter, SortMode};
+use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{Rect, TexId};
 use crate::library::{BestScore, Song};
@@ -198,6 +198,17 @@ impl<'a> SelectState<'a> {
                     rival: self.rival_lamp(s),
                 }
             }
+            Bar::Random => BarInfo {
+                kind: BAR_COMMAND,
+                title: match ctx.config.select.random {
+                    RandomSelect::Any => "RANDOM SELECT".into(),
+                    r => format!("RANDOM SELECT ({})", r.label()),
+                },
+                level: None,
+                difficulty: 0,
+                lamp: None,
+                rival: None,
+            },
             Bar::Missing(m) => BarInfo {
                 kind: BAR_NOSONG,
                 title: m.title.clone(),

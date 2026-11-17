@@ -1,6 +1,7 @@
 //! Song select: the list's order and filters, kept between runs.
 
 use serde::{Deserialize, Serialize};
+use vibebms_core::score::ClearType;
 use vibebms_core::PlayMode;
 
 vibebms_core::choices! {
@@ -74,12 +75,41 @@ impl DifficultyFilter {
     }
 }
 
+vibebms_core::choices! {
+    /// Which charts RANDOM SELECT draws from (the open folder's, as
+    /// filtered), by the lamp under the rule mode chosen.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum RandomSelect {
+        #[default]
+        Any => "ANY",
+        /// Below CLEAR (not played, FAILED, ASSIST, EASY).
+        NotCleared => "NOT CLEARED",
+        /// Below HARD CLEAR.
+        NotHard => "NOT HARD",
+        /// Below FULL COMBO.
+        NotFc => "NOT FC",
+    }
+}
+
+impl RandomSelect {
+    /// A chart with lamp `clear` may be drawn.
+    pub fn keeps(self, clear: ClearType) -> bool {
+        match self {
+            RandomSelect::Any => true,
+            RandomSelect::NotCleared => clear < ClearType::Normal,
+            RandomSelect::NotHard => clear < ClearType::Hard,
+            RandomSelect::NotFc => clear < ClearType::FullCombo,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct SelectConfig {
     pub sort: SortMode,
     pub key_filter: KeyFilter,
     pub difficulty_filter: DifficultyFilter,
+    pub random: RandomSelect,
 }
 
 impl SelectConfig {

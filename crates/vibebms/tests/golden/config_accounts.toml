@@ -66,6 +66,7 @@ judge_offset_ms = 9
 sort = "MissCount"
 key_filter = "K14"
 difficulty_filter = "Another"
+random = "NotHard"
 
 [keys]
 any_axis_is_scratch = false

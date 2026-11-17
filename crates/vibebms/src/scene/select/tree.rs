@@ -9,7 +9,7 @@ use crate::scene::skinvals::rank_index;
 use std::collections::HashMap;
 use std::path::Path;
 use vibebms_core::course::CourseKind;
-use vibebms_core::score::DjLevel;
+use vibebms_core::score::{ClearType, DjLevel};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Node {
@@ -44,6 +44,9 @@ pub(crate) enum Bar {
     Song(usize),
     Missing(Missing),
     Course(CourseBar),
+    /// RANDOM SELECT: plays one of the folder's charts
+    /// (`SelectConfig::random`).
+    Random,
 }
 
 /// A course in a list.
@@ -87,6 +90,22 @@ pub(crate) type Distribution = ([u32; 11], [u32; 9]);
 pub(crate) fn shown(ctx: &Ctx, s: &Song) -> bool {
     let f = &ctx.config.select;
     f.key_filter.keeps(s.mode) && f.difficulty_filter.keeps(s.difficulty)
+}
+
+/// The bars RANDOM SELECT may draw from `bars`: the charts whose lamp
+/// (under the LN and rule modes chosen) its kind takes.
+pub(crate) fn random_candidates(ctx: &Ctx, bars: &[Bar]) -> Vec<usize> {
+    let ln = ctx.config.play.ln_mode;
+    let kind = ctx.config.select.random;
+    (0..bars.len())
+        .filter(|&i| match &bars[i] {
+            Bar::Song(k) => {
+                let s = &ctx.lib.songs[*k];
+                kind.keeps(ctx.best(s, ln).map_or(ClearType::NoPlay, |b| b.clear))
+            }
+            _ => false,
+        })
+        .collect()
 }
 
 /// `s` is a favourite chart, or of a favourite song.
@@ -161,6 +180,7 @@ impl SelectScene {
             ),
             Bar::Missing(m) => format!("m:{}\u{1f}{}", m.title, m.artist),
             Bar::Course(c) => format!("c:{c:?}"),
+            Bar::Random => "r".into(),
         }
     }
 
@@ -392,17 +412,22 @@ impl SelectScene {
     }
 
     /// The bars of `node` as the list shows them: below the root, the
-    /// folder's own bar first (choosing it closes the folder).
+    /// folder's own bar first (choosing it closes the folder), then RANDOM
+    /// SELECT where there are charts.
     pub(super) fn listing(&self, ctx: &Ctx, node: &Node) -> Vec<Bar> {
         let mut bars = self.build(ctx, node, true);
-        if *node != Node::Root && !bars.is_empty() {
+        let count = bars.len();
+        if bars.iter().any(|b| matches!(b, Bar::Song(_))) {
+            bars.insert(0, Bar::Random);
+        }
+        if *node != Node::Root && count > 0 {
             bars.insert(
                 0,
                 Bar::Folder {
                     label: self.node_name(ctx, node),
                     sub: "close".into(),
                     node: Node::Close(Box::new(node.clone())),
-                    count: bars.len(),
+                    count,
                 },
             );
         }
@@ -638,6 +663,59 @@ mod tests {
         s.bars = vec![Bar::Song(0)];
         let st = super::super::SelectState::new(&s, &ctx);
         assert_eq!(st.bar(0).unwrap().title, "♥ a");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// RANDOM SELECT heads every folder with charts (after its own bar)
+    /// and draws from the charts its kind takes, by the lamps of the rule
+    /// mode chosen.
+    #[test]
+    fn random_select() {
+        use crate::config::RandomSelect;
+        let root = std::env::temp_dir().join(format!("vibebms-rand-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.songs = Arc::new(vec![
+            song("a", PlayMode::Beat7K, 4, "12", 1),
+            song("b", PlayMode::Beat7K, 2, "3", 3),
+            song("c", PlayMode::Beat7K, 2, "5", 2),
+            song("d", PlayMode::Beat7K, 2, "5", 2),
+        ]);
+        for (id, clear) in [
+            ("a", ClearType::Easy),
+            ("b", ClearType::Hard),
+            ("c", ClearType::FullCombo),
+        ] {
+            let b = BestScore {
+                clear,
+                ..Default::default()
+            };
+            let key = RecordKey::new(id, 0, JudgePreset::Beatoraja);
+            ctx.lib.scores.insert(key, b);
+        }
+        let s = SelectScene::new(&mut ctx);
+        let bars = s.listing(&ctx, &Node::All);
+        assert!(matches!(bars[..2], [Bar::Folder { .. }, Bar::Random]));
+        assert!(!s
+            .listing(&ctx, &Node::Root)
+            .iter()
+            .any(|b| matches!(b, Bar::Random)));
+        let mut drawn = |kind| {
+            ctx.config.select.random = kind;
+            random_candidates(&ctx, &bars)
+                .iter()
+                .map(|i| match bars[*i] {
+                    Bar::Song(k) => ctx.lib.songs[k].title.clone(),
+                    _ => unreachable!(),
+                })
+                .collect::<String>()
+        };
+        assert_eq!(drawn(RandomSelect::Any), "abcd");
+        assert_eq!(drawn(RandomSelect::NotCleared), "ad");
+        assert_eq!(drawn(RandomSelect::NotHard), "ad");
+        assert_eq!(drawn(RandomSelect::NotFc), "abd");
+        ctx.config.play.judge_preset = JudgePreset::Lr2;
+        ctx.config.select.random = RandomSelect::NotFc;
+        assert_eq!(random_candidates(&ctx, &bars).len(), 4);
         std::fs::remove_dir_all(&root).ok();
     }
 }

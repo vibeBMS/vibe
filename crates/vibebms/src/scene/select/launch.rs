@@ -7,6 +7,7 @@ use crate::app::{Ctx, Next};
 use crate::config::Versus;
 use crate::replay::{self, Slot};
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
+use vibebms_core::rng::JavaRandom;
 
 impl SelectScene {
     pub(super) fn decide(&mut self, ctx: &mut Ctx, autoplay: bool) -> Next {
@@ -56,6 +57,19 @@ impl SelectScene {
                         vs,
                     },
                 )
+            }
+            Some(Bar::Random) => {
+                let pick = super::tree::random_candidates(ctx, &self.bars);
+                if pick.is_empty() {
+                    let kind = ctx.config.select.random.label();
+                    ctx.toast(format!("RANDOM SELECT: no chart here is {kind}"));
+                    return Next::Stay;
+                }
+                let seed = crate::platform::unix_ms();
+                let k = JavaRandom::new(seed).next_int_bounded(pick.len() as i32);
+                self.cursor = pick[k as usize];
+                self.moved(ctx);
+                self.decide(ctx, autoplay)
             }
             Some(Bar::Missing(m)) => {
                 self.fetch(ctx, m);
