@@ -2,11 +2,12 @@
 
 use super::play::PlayScene;
 use crate::app::{Ctx, Draw};
-use crate::config::HiSpeedMode;
+use crate::config::{HiSpeedMode, PlayConfig};
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, SkinType, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use vibebms_core::chart::NoteKind;
 use vibebms_core::gauge::GaugeType;
@@ -440,11 +441,8 @@ impl SceneState<'_> {
     }
 
     /// A player's options (VS: the second player's own).
-    fn side_play(&self, side: usize) -> crate::config::PlayConfig {
-        match self.s.vs {
-            true => self.ctx.config.play.for_side(side),
-            false => self.ctx.config.play.clone(),
-        }
+    fn side_play(&self, side: usize) -> Cow<'_, PlayConfig> {
+        side_play(self.s, &self.ctx.config.play, side)
     }
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
@@ -657,7 +655,8 @@ impl SkinState for SceneState<'_> {
         let e = self.engine();
         let sc = e.map(|e| &e.score);
         let t_ms = s.chart_us(self.now).max(0) / 1000;
-        let len_ms = s.chart.length() / 1000;
+        // (the chart's length goes over every note)
+        let len_ms = || s.chart.length() / 1000;
         let rate = |r: f64| (r * 10000.0).round() as i64;
         Some(match id {
             10 => (self.hispeed() * 100.0).round() as i64,
@@ -778,10 +777,10 @@ impl SkinState for SceneState<'_> {
                 .round() as i64,
             161 => t_ms / 60000,
             162 => (t_ms / 1000) % 60,
-            163 => (len_ms - t_ms).max(0) / 60000,
-            164 => ((len_ms - t_ms).max(0) / 1000) % 60,
-            1163 => len_ms / 60000,
-            1164 => (len_ms / 1000) % 60,
+            163 => (len_ms() - t_ms).max(0) / 60000,
+            164 => ((len_ms() - t_ms).max(0) / 1000) % 60,
+            1163 => len_ms() / 60000,
+            1164 => (len_ms() / 1000) % 60,
             165 => 100,
             _ => return None,
         })
@@ -819,10 +818,11 @@ impl SkinState for SceneState<'_> {
 
     fn rate(&self, id: i32) -> f32 {
         let s = self.s;
-        let prog = (s.chart_us(self.now).max(0) as f32 / s.chart.length().max(1) as f32).min(1.0);
         let sc = self.engine().map(|e| &e.score);
         match id {
-            6 | 101 => prog,
+            6 | 101 => {
+                (s.chart_us(self.now).max(0) as f32 / s.chart.length().max(1) as f32).min(1.0)
+            }
             4 => self.ctx.config.play.sudden,
             P2_SUDDEN => self.side_play(1).sudden,
             // vibeBMS: hi-speed 0.5 .. 10.0 as 0 .. 1 (the hi-speed panel)
@@ -845,6 +845,14 @@ impl SkinState for SceneState<'_> {
             }
             _ => 0.0,
         }
+    }
+}
+
+/// A player's options (VS: the second player's own).
+fn side_play<'a>(s: &PlayScene, base: &'a PlayConfig, side: usize) -> Cow<'a, PlayConfig> {
+    match s.vs {
+        true => Cow::Owned(base.for_side(side)),
+        false => Cow::Borrowed(base),
     }
 }
 
@@ -939,13 +947,9 @@ impl Hooks for SceneHooks<'_> {
         if s.engine().is_none() {
             return;
         }
-        let base = &self.st.ctx.config.play;
+        let p = &self.st.ctx.config.play;
         // each player's hi-speed, covers and LIFT (VS: the second's own)
-        let per: [crate::config::PlayConfig; 2] = [0, 1].map(|k| match s.vs {
-            true => base.for_side(k),
-            false => base.clone(),
-        });
-        let p = base;
+        let per = [0, 1].map(|k| side_play(s, p, k));
         let t_vis = s.chart_us(self.st.now) + p.visual_offset_ms as i64 * 1000;
         let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
         let pulse = note_pulse(skin.skin.note_expansion, &s.chart.timing, t_vis);
@@ -959,7 +963,7 @@ impl Hooks for SceneHooks<'_> {
             130.0
         };
         let bpms = crate::config::Bpms::of_meta(&s.chart.meta);
-        let dur_of = |p: &crate::config::PlayConfig| p.duration_at(&bpms, main_bpm, true) * 1000.0;
+        let dur_of = |p: &PlayConfig| p.duration_at(&bpms, main_bpm, true) * 1000.0;
         let ident = crate::skin::Frame {
             rect: Rect::default(),
             color: [1.0; 4],
@@ -973,33 +977,24 @@ impl Hooks for SceneHooks<'_> {
             ..ident
         };
         // BPM GUIDE: where each player's lanes span and the line's y, per
-        // BPM change / stop (time, label, colour)
+        // BPM change / stop in the next 10 s (time, label, colour)
         let mut guide_span: [Option<(f32, f32)>; 2] = [None, None];
         let mut guide_y: Vec<(usize, f32, String, [f32; 4])> = Vec::new();
+        let ahead = t_vis..t_vis + 10_000_000;
         let guides: Vec<(i64, String, [f32; 4])> = if p.bpm_guide {
-            let mut g: Vec<(i64, String, [f32; 4])> = s
-                .chart
-                .timing
-                .bpm_changes()
-                .iter()
-                .skip(1)
-                .map(|c| {
-                    (
-                        c.time,
-                        format!("BPM {}", c.bpm.round() as i64),
-                        [0.25, 0.85, 0.3, 1.0],
-                    )
-                })
-                .collect();
-            g.extend(s.chart.timing.stops.iter().map(|st| {
-                (
-                    st.time,
-                    format!("STOP {}ms", st.duration / 1000),
-                    [0.85, 0.85, 0.2, 1.0],
-                )
-            }));
-            g.retain(|(t, _, _)| *t >= t_vis && *t < t_vis + 10_000_000);
-            g
+            let tm = &s.chart.timing;
+            let changes = tm.bpm_changes();
+            let bpms = changes.iter().skip(1).filter(|c| ahead.contains(&c.time));
+            let stops = tm.stops.iter().filter(|st| ahead.contains(&st.time));
+            bpms.map(|c| {
+                let label = format!("BPM {}", c.bpm.round() as i64);
+                (c.time, label, [0.25, 0.85, 0.3, 1.0])
+            })
+            .chain(stops.map(|st| {
+                let label = format!("STOP {}ms", st.duration / 1000);
+                (st.time, label, [0.85, 0.85, 0.2, 1.0])
+            }))
+            .collect()
         } else {
             Vec::new()
         };
@@ -1132,34 +1127,25 @@ impl Hooks for SceneHooks<'_> {
                             .hcn_passing(lane)
                             .filter(|(p, _)| hcn && *p == ni)
                             .map(|(_, held)| held);
-                        let pick = |h: &Option<crate::skin::Src>, l: &Option<crate::skin::Src>| {
-                            if hcn && h.is_some() {
-                                h.clone()
-                            } else {
-                                l.clone()
-                            }
-                        };
+                        let pick = |h, l| if hcn && Option::is_some(h) { h } else { l };
                         let ye = y_of(*end_pos, *end_time);
                         let yh = if holding || passing.is_some() {
                             judge_y
                         } else {
                             y
                         };
-                        let inactive = pick(&ls.hcn_body, &ls.ln_body);
-                        let active = pick(&ls.hcn_body_active, &ls.ln_body_active);
+                        let inactive = pick(&ls.hcn_body, &ls.ln_body).as_ref();
+                        let active = pick(&ls.hcn_body_active, &ls.ln_body_active).as_ref();
                         let body = match passing {
-                            Some(false) => ls.hcn_damage.clone().or(inactive),
+                            Some(false) => ls.hcn_damage.as_ref().or(inactive),
                             Some(true) if engine.hcn_damaged(ni) => {
-                                ls.hcn_reactive.clone().or(active).or(inactive)
+                                ls.hcn_reactive.as_ref().or(active).or(inactive)
                             }
                             _ if holding || passing.is_some() => active.or(inactive),
                             _ => inactive,
                         };
-                        let body = body.as_ref();
-                        let (ln_end, ln_start) = (
-                            pick(&ls.hcn_end, &ls.ln_end),
-                            pick(&ls.hcn_start, &ls.ln_start),
-                        );
+                        let ln_end = pick(&ls.hcn_end, &ls.ln_end).as_ref();
+                        let ln_start = pick(&ls.hcn_start, &ls.ln_start).as_ref();
                         if let Some(b) = body {
                             skin.blit(
                                 d,
@@ -1170,11 +1156,11 @@ impl Hooks for SceneHooks<'_> {
                                 &ident,
                             );
                         }
-                        if let Some(e) = ln_end.as_ref().or(ls.note.as_ref()) {
+                        if let Some(e) = ln_end.or(ls.note.as_ref()) {
                             let h = note_h(e);
                             skin.blit(d, e, now, st, Rect::new(r.x, ye - h, r.w, h), &ident);
                         }
-                        if let Some(h0) = ln_start.as_ref().or(ls.note.as_ref()) {
+                        if let Some(h0) = ln_start.or(ls.note.as_ref()) {
                             let h = note_h(h0);
                             skin.blit(d, h0, now, st, Rect::new(r.x, yh - h, r.w, h), &ident);
                         }
