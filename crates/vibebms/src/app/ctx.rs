@@ -32,10 +32,7 @@ pub struct Ctx {
     pub toasts: Vec<(String, Instant)>,
     /// The window and the screen.
     pub view: View,
-    pub touch_seen: bool,
-    /// A text field is being edited (scenes set it as they draw): the
-    /// on-screen keyboard is shown on iOS and Android.
-    pub text_input: bool,
+    pub input: Input,
     /// The skin catalog and the skins downloaded from it.
     pub skin_store: crate::skinstore::SkinStore,
     /// Custom options read from skin files (path -> options).
@@ -108,6 +105,19 @@ pub struct View {
     pub want_present_mode: bool,
 }
 
+/// What the input devices have told.
+#[derive(Default)]
+pub struct Input {
+    /// A touch screen has been touched.
+    pub touch_seen: bool,
+    /// A text field is being edited (scenes set it as they draw): the
+    /// on-screen keyboard is shown on iOS and Android.
+    pub text_input: bool,
+    /// Where the mouse is (screen pixels); `None` before it moves and once
+    /// it has left the window.
+    pub pointer: Option<(f32, f32)>,
+}
+
 impl Ctx {
     /// A context with nothing loaded yet.
     pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
@@ -123,8 +133,7 @@ impl Ctx {
             },
             toasts: Vec::new(),
             view,
-            touch_seen: false,
-            text_input: false,
+            input: Input::default(),
             skin_store: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
@@ -198,7 +207,7 @@ impl Ctx {
         match self.config.touch.mode {
             TouchMode::On => true,
             TouchMode::Off => false,
-            TouchMode::Auto => cfg!(mobile) || self.touch_seen,
+            TouchMode::Auto => cfg!(mobile) || self.input.touch_seen,
         }
     }
 

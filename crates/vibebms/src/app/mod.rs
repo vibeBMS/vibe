@@ -33,6 +33,8 @@ pub struct Draw<'a> {
     pub gfx: &'a Gfx,
     pub text: &'a mut Text,
     pub b: &'a mut Batch,
+    /// Where the mouse is ([`ctx::Input::pointer`]), for skins' hover images.
+    pub pointer: Option<(f32, f32)>,
 }
 
 impl Draw<'_> {
@@ -316,14 +318,15 @@ impl Running {
             gfx: &self.gfx,
             text: &mut self.text,
             b: &mut self.batch,
+            pointer: self.ctx.input.pointer,
         };
-        self.ctx.text_input = false;
+        self.ctx.input.text_input = false;
         if let Some(top) = self.scenes.last_mut() {
             top.draw(&mut self.ctx, &mut d, now);
         }
         // the on-screen keyboard (iOS, Android) while a text field is edited
-        if self.ctx.text_input != self.ime_on {
-            self.ime_on = self.ctx.text_input;
+        if self.ctx.input.text_input != self.ime_on {
+            self.ime_on = self.ctx.input.text_input;
             if cfg!(mobile) {
                 self.window.set_ime_allowed(self.ime_on);
             }
@@ -629,10 +632,10 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::Ime(winit::event::Ime::Commit(t)) if !t.is_empty() => {
                 r.dispatch(el, InputEv::Text(t))
             }
-            WindowEvent::CursorLeft { .. } => crate::input::set_pointer(None),
+            WindowEvent::CursorLeft { .. } => r.ctx.input.pointer = None,
             WindowEvent::CursorMoved { position, .. } => {
                 r.cursor = (position.x as f32, position.y as f32);
-                crate::input::set_pointer(Some(r.cursor));
+                r.ctx.input.pointer = Some(r.cursor);
                 let recent_touch = r
                     .last_touch
                     .map(|t| now.duration_since(t) < Duration::from_millis(600))
@@ -689,7 +692,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::Touch(_) => {}
             #[cfg(not(target_arch = "wasm32"))]
             WindowEvent::Touch(t) => {
-                r.ctx.touch_seen = true;
+                r.ctx.input.touch_seen = true;
                 r.last_touch = Some(now);
                 use winit::event::TouchPhase;
                 let phase = match t.phase {
@@ -744,7 +747,7 @@ impl ApplicationHandler<UserEvent> for App {
                     y,
                     time,
                 } => {
-                    r.ctx.touch_seen = true;
+                    r.ctx.input.touch_seen = true;
                     r.last_touch = Some(Instant::now());
                     if phase == Phase::Up {
                         r.touches.remove(&id);

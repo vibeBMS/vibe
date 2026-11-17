@@ -815,7 +815,7 @@ impl LoadedSkin {
                     h.w * xf.sx,
                     h.h * xf.sy,
                 );
-                if !crate::input::pointer().is_some_and(|(x, y)| over.contains(x, y)) {
+                if !d.pointer.is_some_and(|(x, y)| over.contains(x, y)) {
                     continue;
                 }
             }
