@@ -259,7 +259,7 @@ pub const GAUGE_LOG_MAX: usize = 1000;
 pub fn thin_gauge_log(log: &[f32]) -> Vec<f32> {
     let step = log.len().div_ceil(GAUGE_LOG_MAX).max(1);
     let mut v: Vec<f32> = log.iter().step_by(step).copied().collect();
-    if step > 1 && (log.len() - 1) % step != 0 {
+    if step > 1 && !(log.len() - 1).is_multiple_of(step) {
         v.pop();
         v.extend(log.last());
     }

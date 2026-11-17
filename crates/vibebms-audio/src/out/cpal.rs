@@ -173,7 +173,9 @@ fn open_stream(
     let Some(device) = host.default_output_device() else {
         return Err("no output device".into());
     };
-    let name = device.name().unwrap_or_else(|_| "output".into());
+    let name = device
+        .description()
+        .map_or_else(|_| "output".into(), |d| d.name().to_owned());
     let def = match device.default_output_config() {
         Ok(c) => c,
         // iOS: the output unit's format may not be readable before it
@@ -182,14 +184,14 @@ fn open_stream(
             log::warn!("audio: no default output config ({e}); trying 48 kHz stereo");
             cpal::SupportedStreamConfig::new(
                 2,
-                cpal::SampleRate(48_000),
+                48_000,
                 cpal::SupportedBufferSize::Unknown,
                 cpal::SampleFormat::F32,
             )
         }
         Err(e) => return Err(e.to_string()),
     };
-    let mut rate = def.sample_rate().0;
+    let mut rate = def.sample_rate();
     let fmt = def.sample_format();
     let mut buf_range = None;
     if let Ok(cfgs) = device.supported_output_configs() {
@@ -198,12 +200,12 @@ fn open_stream(
                 continue;
             }
             if cfg.sample_rate != 0
-                && c.min_sample_rate().0 <= cfg.sample_rate
-                && c.max_sample_rate().0 >= cfg.sample_rate
+                && c.min_sample_rate() <= cfg.sample_rate
+                && c.max_sample_rate() >= cfg.sample_rate
             {
                 rate = cfg.sample_rate;
             }
-            // (iOS says 0..=0: it does not know)
+            // (0..=0: the backend does not know)
             if let cpal::SupportedBufferSize::Range { min, max } = c.buffer_size() {
                 if *max > 0 {
                     buf_range = Some((*min, *max));
@@ -229,12 +231,13 @@ fn open_stream(
     mix.lock().unwrap().state.clock = FrameClock::new(rate);
     let mut config = cpal::StreamConfig {
         channels,
-        sample_rate: cpal::SampleRate(rate),
+        sample_rate: rate,
         buffer_size: cpal::BufferSize::Default,
     };
     let mut buf = 0;
-    // iOS: cpal takes no fixed buffer size there (the session's preferred
-    // I/O buffer duration, set above, sizes it)
+    // iOS: no fixed buffer size: the session's preferred I/O buffer
+    // duration, set above, sizes it (cpal would take only 256..=4096
+    // frames there, and set that duration itself)
     if cfg.buffer_frames > 0 && !cfg!(target_os = "ios") {
         let b = match buf_range {
             Some((min, max)) => cfg.buffer_frames.clamp(min, max.max(min)),
@@ -243,23 +246,26 @@ fn open_stream(
         config.buffer_size = cpal::BufferSize::Fixed(b);
         buf = b;
     }
-    let try_build = |config: &cpal::StreamConfig| -> Result<cpal::Stream, String> {
+    let try_build = |config: cpal::StreamConfig| -> Result<cpal::Stream, String> {
         let (m, l) = (mix.clone(), lost.clone());
+        // (cpal ranks I24 and F64 above I16 for a device's default)
         match fmt {
             cpal::SampleFormat::F32 => build::<f32>(&device, config, m, l, epoch),
+            cpal::SampleFormat::F64 => build::<f64>(&device, config, m, l, epoch),
             cpal::SampleFormat::I16 => build::<i16>(&device, config, m, l, epoch),
             cpal::SampleFormat::U16 => build::<u16>(&device, config, m, l, epoch),
+            cpal::SampleFormat::I24 => build::<cpal::I24>(&device, config, m, l, epoch),
             cpal::SampleFormat::I32 => build::<i32>(&device, config, m, l, epoch),
             other => Err(format!("unsupported sample format {other:?}")),
         }
     };
-    let stream = match try_build(&config) {
+    let stream = match try_build(config) {
         Ok(s) => s,
         Err(e) if matches!(config.buffer_size, cpal::BufferSize::Fixed(_)) => {
             log::warn!("buffer size {buf} rejected ({e}); using device default");
             config.buffer_size = cpal::BufferSize::Default;
             buf = 0;
-            try_build(&config)?
+            try_build(config)?
         }
         Err(e) => return Err(e),
     };
@@ -270,7 +276,7 @@ fn open_stream(
 
 fn build<T>(
     device: &cpal::Device,
-    config: &cpal::StreamConfig,
+    config: cpal::StreamConfig,
     mix: Arc<Mutex<Mix>>,
     lost: Arc<AtomicBool>,
     epoch: Instant,
@@ -296,11 +302,18 @@ where
                 let obs = Obs {
                     frame: m.state.frame,
                     frames,
-                    stream_us: cb.duration_since(&base).map(|d| d.as_secs_f64() * 1e6),
+                    stream_us: cb
+                        .checked_duration_since(base)
+                        .map(|d| d.as_secs_f64() * 1e6),
                     now_us: us_since(epoch, Instant::now()),
                 };
                 let mix = m.render(frames, Some(obs));
-                for (o, d) in mix.chunks_exact(2).zip(data.chunks_exact_mut(channels)) {
+                for (o, d) in mix
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(data.chunks_exact_mut(channels))
+                {
                     let (l, r) = (soft_clip(o[0]), soft_clip(o[1]));
                     if channels == 1 {
                         d[0] = T::from_sample((l + r) * 0.5);
@@ -311,11 +324,17 @@ where
                     }
                 }
             },
-            move |e| {
-                log::error!("audio stream error: {e}");
-                if matches!(e, cpal::StreamError::DeviceNotAvailable) {
+            move |e| match e.kind() {
+                // the stream goes on
+                cpal::ErrorKind::Xrun => log::debug!("audio stream: {e}"),
+                // the default output's new device, which it follows
+                cpal::ErrorKind::DeviceChanged => log::info!("audio stream: {e}"),
+                // it plays no more: opened again
+                cpal::ErrorKind::DeviceNotAvailable | cpal::ErrorKind::StreamInvalidated => {
+                    log::error!("audio stream error: {e}");
                     lost.store(true, Ordering::Release);
                 }
+                _ => log::error!("audio stream error: {e}"),
             },
             None,
         )

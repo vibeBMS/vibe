@@ -108,7 +108,7 @@ fn on_screen(r: Rect, sw: f32, sh: f32, least: f32) -> Rect {
 /// `orig` with corner `corner` dragged to (x, y): the opposite corner
 /// stays. A round button stays square.
 fn resized(orig: Rect, corner: usize, x: f32, y: f32, least: f32, round: bool) -> Rect {
-    let left = corner % 2 == 0;
+    let left = corner.is_multiple_of(2);
     let top = corner < 2;
     let fx = if left { orig.right() } else { orig.x };
     let fy = if top { orig.bottom() } else { orig.y };

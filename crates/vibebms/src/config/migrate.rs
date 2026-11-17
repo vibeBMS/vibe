@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(a.old_token.0, "s3cr3t");
         assert_eq!(format!("{a:?}").matches("s3cr3t").count(), 0);
         // never written
-        let again = toml::to_string_pretty(&c).unwrap();
+        let again = c.to_toml().unwrap();
         assert!(!again.contains("s3cr3t") && !again.contains("ir_server"));
         let back: Config = toml::from_str(&again).unwrap();
         assert_eq!(back.ir.accounts[0].old_token.0, "");
