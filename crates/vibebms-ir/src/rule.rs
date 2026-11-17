@@ -1,7 +1,7 @@
 //! Rule profiles: the rule sets a ranking can trust. A profile fixes every
-//! rule that decides a score at once (judge windows, gauge set, LN modes,
-//! how untyped long notes play, the note choice, the judge rank forms,
-//! GAUGE AUTO SHIFT); combo and empty POOR rules come with the judge
+//! rule that decides a score at once (judge windows, gauge set and the
+//! gauges of it, LN modes, how untyped long notes play, the note choice,
+//! the judge rank forms, GAUGE AUTO SHIFT); combo and empty POOR rules come with the judge
 //! preset and the key mode (`judge::judge_rules`), so a judge left as its
 //! preset has them. A play whose rules match one exactly is that profile's;
 //! any other mix of options is local.
@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 use vibebms_core::chart::{JudgeRank, LnType};
 use vibebms_core::engine::JudgeAlgorithm;
-use vibebms_core::gauge::{GaugeAutoShift, GaugePreset, GaugeType};
+use vibebms_core::gauge::{lr2_hard_damage_unconfirmed, GaugeAutoShift, GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::mode::RuleFamily;
 use vibebms_core::record::{ChartFacts, PlayRecord, RuleFacts};
@@ -33,6 +33,8 @@ pub enum Profile {
 pub struct ProfileRules {
     pub judge: JudgePreset,
     pub gauge_set: GaugePreset,
+    /// The gauges of the set a play may start on.
+    pub gauges: &'static [GaugeType],
     /// The LN mode untyped long notes are played as (a chart without them
     /// plays the same in every mode).
     pub ln_modes: &'static [LnType],
@@ -53,13 +55,21 @@ const BMS_MODES: &[PlayMode] = &[
     PlayMode::Beat14K,
 ];
 
-/// LR2: its windows by `#RANK` and its gauges; every long note an LN (LR2
+/// LR2: its windows by `#RANK` and its gauges (the set's ASSIST EASY,
+/// EX-HARD and EX dan gauges are not LR2's); every long note an LN (LR2
 /// has no CN or HCN, nor `#DEFEXRANK`); its note choice is taken to be
 /// vibeBMS's default; no GAUGE AUTO SHIFT (LR2 has none); no PMS (LR2's
 /// PMS rules are not known).
 const VIBE_LR2: ProfileRules = ProfileRules {
     judge: JudgePreset::Lr2,
     gauge_set: GaugePreset::Lr2,
+    gauges: &[
+        GaugeType::Easy,
+        GaugeType::Normal,
+        GaugeType::Hard,
+        GaugeType::Hazard,
+        GaugeType::Class,
+    ],
     ln_modes: &[LnType::Ln],
     typed_charge_notes: false,
     ex_rank: false,
@@ -74,6 +84,7 @@ const VIBE_LR2: ProfileRules = ProfileRules {
 const VIBE_BEATORAJA: ProfileRules = ProfileRules {
     judge: JudgePreset::Beatoraja,
     gauge_set: GaugePreset::Beatoraja,
+    gauges: &GaugeType::ALL,
     ln_modes: &[LnType::Ln, LnType::Cn, LnType::Hcn],
     typed_charge_notes: true,
     ex_rank: true,
@@ -127,6 +138,7 @@ impl ProfileRules {
         r.judge == self.judge
             && r.judge_rates.is_none()
             && r.gauge_set == self.gauge_set
+            && self.gauges.contains(&r.gauge)
             && (!c.ln.undefined || self.ln_modes.contains(&r.ln_mode))
             && (self.typed_charge_notes || !typed_charge)
             && (self.ex_rank || matches!(c.judge_rank, JudgeRank::Rank(_)))
@@ -153,12 +165,28 @@ pub struct Gap {
     /// Shown equivalent (golden vectors with their origin recorded).
     pub closed: bool,
     pub reaches: Reach,
+    /// Why a play it reaches is not sent, for the player.
+    pub reason: &'static str,
+}
+
+/// The gap of the equivalence list with id `id`.
+pub fn gap(id: &str) -> Option<&'static Gap> {
+    EQUIVALENCE.iter().find(|g| g.id == id)
 }
 
 /// The plays a gap can change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reach {
     Every,
+    /// A `#RANK` other than 0 .. 3.
+    RankOutside,
+    /// HARD where the note-count factor of its damage is not LR2's as
+    /// measured and can be the larger (`lr2_hard_damage_unconfirmed`).
+    HardFewNotes,
+    /// A chart without `#TOTAL`, on a gauge TOTAL changes (not HAZARD).
+    NoTotal,
+    /// A chart with mines.
+    Mines,
     /// 5/10 keys where the EX-HARD gauge can decide the lamp.
     FiveKeyExHard,
     /// A back-spin scratch played as CN or HCN.
@@ -168,8 +196,16 @@ pub enum Reach {
 impl Reach {
     pub fn hits(self, rec: &PlayRecord) -> bool {
         let r = &rec.rules;
+        let c = &rec.chart;
         match self {
             Reach::Every => true,
+            Reach::RankOutside => !matches!(c.judge_rank, JudgeRank::Rank(0..=3)),
+            Reach::HardFewNotes => {
+                r.gauge == GaugeType::Hard
+                    && lr2_hard_damage_unconfirmed(c.total, rec.result.score.total_notes)
+            }
+            Reach::NoTotal => !c.total_given && r.gauge != GaugeType::Hazard,
+            Reach::Mines => c.mines,
             Reach::FiveKeyExHard => {
                 rec.chart.mode.family() == RuleFamily::FiveKeys
                     && match r.gas {
@@ -199,6 +235,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "judge and gauge presets were separate settings; the profile now requires both",
         closed: true,
         reaches: Reach::Every,
+        reason: "",
     },
     Gap {
         id: "A2",
@@ -206,22 +243,25 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "empty POOR window (up to 1000 ms early, never late) and its combo and note rules",
         closed: true,
         reaches: Reach::Every,
+        reason: "",
     },
     Gap {
         id: "A3",
         profile: Profile::VibeLr2,
-        what: "#RANK 4 and out-of-range #RANK played NORMAL: LR2's handling undocumented \
+        what: "#RANK 4 and out-of-range #RANK played NORMAL: LR2's handling not established \
                (#DEFEXRANK and bmson are left out by the profile)",
         closed: false,
-        reaches: Reach::Every,
+        reaches: Reach::RankOutside,
+        reason: "LR2's judge for this chart's #RANK isn't confirmed",
     },
     Gap {
         id: "A4",
         profile: Profile::VibeLr2,
-        what: "HARD damage factor: vibeBMS's TOTAL steps of 16 match LR2's measurements at \
-               multiples of 10 but 200, and its note-count curve below 125 notes is unconfirmed",
+        what: "HARD damage note-count factor below 125 notes unconfirmed (the TOTAL factor is \
+               S1's, steps of 10)",
         closed: false,
-        reaches: Reach::Every,
+        reaches: Reach::HardFewNotes,
+        reason: "LR2's HARD damage for a chart with this few notes isn't confirmed",
     },
     Gap {
         id: "A5",
@@ -229,6 +269,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "LN mode and typed CN/HCN (the profile takes LN and charts without typed CN/HCN)",
         closed: true,
         reaches: Reach::Every,
+        reason: "",
     },
     Gap {
         id: "A6",
@@ -236,22 +277,25 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "combo, note consumption and one-POOR rules: LR2's in every key mode",
         closed: true,
         reaches: Reach::Every,
+        reason: "",
     },
     Gap {
         id: "A7",
         profile: Profile::VibeLr2,
-        what: "default TOTAL 160 + (n + clamp(n - 400, 0, 200)) * 0.16 is LR2oraja's; LR2's own \
-               is undocumented (\"160?\")",
+        what: "default TOTAL 160 + (n + clamp(n - 400, 0, 200)) * 0.16: LR2's by LR2oraja's \
+               word only",
         closed: false,
-        reaches: Reach::Every,
+        reaches: Reach::NoTotal,
+        reason: "LR2's TOTAL for a chart without #TOTAL isn't confirmed",
     },
     Gap {
         id: "A8",
         profile: Profile::VibeLr2,
-        what: "mine damage: vibeBMS takes the value as percent, LR2's measured damage follows no \
-               known rule (scratch LN ends are as keys': closed)",
+        what: "mine damage: vibeBMS takes the value as percent (S14), LR2's measured damage \
+               does not follow it (S10) (scratch LN ends are as keys': closed)",
         closed: false,
-        reaches: Reach::Every,
+        reaches: Reach::Mines,
+        reason: "LR2's mine damage isn't confirmed",
     },
     Gap {
         id: "A9",
@@ -259,21 +303,25 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "origin of the LR2 judge and gauge golden vectors not recorded",
         closed: true,
         reaches: Reach::Every,
+        reason: "",
     },
     Gap {
         id: "A10",
         profile: Profile::VibeLr2,
-        what: "the LR2 gauge set offers ASSIST EASY and EX-HARD, which LR2 does not have",
-        closed: false,
+        what: "the LR2 gauge set offers ASSIST EASY, EX-HARD and EX dan gauges, which LR2 does \
+               not have: the profile takes none of them",
+        closed: true,
         reaches: Reach::Every,
+        reason: "",
     },
     Gap {
         id: "A11",
         profile: Profile::VibeLr2,
         what: "the note a press takes among several in reach: vibeBMS's Combo choice, only \
-               reportedly close to LR2's",
+               reportedly close to LR2's (tools/lr2-measure measures it)",
         closed: false,
         reaches: Reach::Every,
+        reason: "LR2's choice between notes close together isn't confirmed",
     },
     Gap {
         id: "B1",
@@ -281,6 +329,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "5-key EX-HARD damage factor keeps only the positive part of the note-count term",
         closed: false,
         reaches: Reach::FiveKeyExHard,
+        reason: "beatoraja's 5-key EX-HARD damage isn't confirmed",
     },
     Gap {
         id: "B3",
@@ -288,6 +337,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         what: "a key release ends a back-spin scratch CN/HCN (vibeBMS's keyboard rule)",
         closed: false,
         reaches: Reach::ChargeBss,
+        reason: "how beatoraja ends a back-spin scratch played on keys isn't confirmed",
     },
 ];
 

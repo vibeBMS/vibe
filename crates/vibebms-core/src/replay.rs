@@ -17,7 +17,10 @@ use std::io::{Read, Write};
 /// 3: the LR2 preset keeps LR2's combo and note rules in every key mode
 /// and its HAZARD gauge ignores an empty POOR (a LR2-preset replay of 2
 /// in 5/10 keys or PMS, or on HAZARD, may judge otherwise).
-pub const VERSION: u32 = 3;
+/// 4: the LR2 preset's HARD and EX-HARD damage by TOTAL steps at the
+/// multiples of 10 (a LR2-preset replay of 3 below TOTAL 240 may end
+/// otherwise on those gauges).
+pub const VERSION: u32 = 4;
 
 /// The oldest format still read: its ghost still paces a play, but
 /// watching it or playing it again (G-BATTLE) runs it on this judge.
