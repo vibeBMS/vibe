@@ -165,7 +165,7 @@ impl Loading {
 
     pub fn draw(&self, ctx: &Ctx, d: &mut Draw, req: &PlayRequest) {
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         let s = &req.song;
         let line = |d: &mut Draw, text: &str, y: f32, size: f32, color| {
             d.text_fit(text, w * 0.5, y, size * ui, color, Align::Center, w * 0.9);

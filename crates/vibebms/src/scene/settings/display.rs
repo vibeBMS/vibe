@@ -149,7 +149,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     let mut v = vec![
         Row::adjust("Fullscreen (F11)", onoff(d.fullscreen), |c, _| {
             c.config.display.fullscreen ^= true;
-            c.want_fullscreen = Some(c.config.display.fullscreen);
+            c.view.want_fullscreen = Some(c.config.display.fullscreen);
         }),
         Row::adjust(
             "Present mode",
@@ -158,7 +158,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 use PresentMode::*;
                 let m = &mut c.config.display.present_mode;
                 *m = cycle(&[LowLatency, VSync, Immediate], *m, d);
-                c.want_present_mode = true;
+                c.view.want_present_mode = true;
             },
         ),
         Row::adjust("Max FPS (0 = unlimited)", d.max_fps.to_string(), |c, d| {
@@ -172,7 +172,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         Row::adjust("Show FPS", onoff(d.show_fps), |c, _| {
             c.config.display.show_fps ^= true
         }),
-        Row::note("GPU", ctx.gpu_name.clone()),
+        Row::note("GPU", ctx.view.gpu_name.clone()),
     ];
     // built-in default skin / skins in <root>/skins
     for t in TYPES {

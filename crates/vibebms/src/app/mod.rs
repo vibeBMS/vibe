@@ -13,7 +13,6 @@ use crate::library::Library;
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant, Job};
 use crate::theme;
-use std::collections::HashMap;
 use std::sync::Arc;
 use vibebms_audio::{AudioConfig, Mixer};
 use winit::application::ApplicationHandler;
@@ -139,7 +138,7 @@ struct Running {
     last_touch: Option<Instant>,
     /// The page's fingers down and where they last were (web).
     #[cfg(target_arch = "wasm32")]
-    touches: HashMap<u64, (f32, f32)>,
+    touches: std::collections::HashMap<u64, (f32, f32)>,
     /// Fonts downloaded in the background (web build).
     font_job: Option<Job<Vec<u8>>>,
     mouse_down: bool,
@@ -298,11 +297,11 @@ impl Running {
         self.ctx.sounds.poll(&self.ctx.mixer);
         #[cfg(target_arch = "wasm32")]
         crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
-        if let Some(fs) = self.ctx.want_fullscreen.take() {
+        if let Some(fs) = self.ctx.view.want_fullscreen.take() {
             self.window
                 .set_fullscreen(fs.then_some(Fullscreen::Borderless(None)));
         }
-        if std::mem::take(&mut self.ctx.want_present_mode) {
+        if std::mem::take(&mut self.ctx.view.want_present_mode) {
             self.gfx
                 .set_present_mode(self.ctx.config.display.present_mode);
         }
@@ -336,7 +335,7 @@ impl Running {
         self.frame_count += 1;
         let el_t = now.duration_since(self.fps_since);
         if el_t >= Duration::from_millis(500) {
-            self.ctx.fps = self.frame_count as f32 / el_t.as_secs_f32();
+            self.ctx.view.fps = self.frame_count as f32 / el_t.as_secs_f32();
             self.frame_count = 0;
             self.fps_since = now;
         }
@@ -377,7 +376,7 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let a = (4.0 - age).clamp(0.0, 1.0);
         let size = 18.0 * ui;
         let w = d.measure(msg, size) + 24.0 * ui;
-        let r = Rect::new(ctx.width - w - 12.0 * ui, y, w, size + 14.0 * ui);
+        let r = Rect::new(ctx.view.width - w - 12.0 * ui, y, w, size + 14.0 * ui);
         d.b.rect(r, with_alpha(rgba(0x000000d0), a));
         d.b.rect(
             Rect::new(r.x, r.y, 3.0 * ui, r.h),
@@ -394,11 +393,11 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         y += r.h + 6.0 * ui;
     }
     if ctx.config.display.show_fps {
-        let s = format!("{:.0} FPS", ctx.fps);
+        let s = format!("{:.0} FPS", ctx.view.fps);
         d.text_shadow(
             &s,
             6.0,
-            ctx.height - 22.0,
+            ctx.view.height - 22.0,
             16.0,
             theme::TEXT_DIM,
             Align::Left,
@@ -432,51 +431,27 @@ impl App {
             gfx.resize(width, height);
             winit::dpi::PhysicalSize::new(width, height)
         };
-        let mut ctx = Ctx {
-            paths: self.paths.clone(),
-            config,
-            lib,
-            songs: Arc::new(Vec::new()),
-            scores: HashMap::new(),
-            tables: Vec::new(),
-            mixer,
-            scan: None,
-            table_job: None,
-            scan_again: false,
-            toasts: Vec::new(),
-            touch_seen: false,
+        let screen = crate::platform::screen::detect(&window);
+        let scale = window.scale_factor() as f32;
+        log::info!(
+            "screen {}x{} px, about {:.1}\" ({} points per inch, guessed)",
+            screen.size_px.0,
+            screen.size_px.1,
+            screen.guessed_inches(scale),
+            screen.points_per_inch
+        );
+        let view = ctx::View {
             width: size.width as f32,
             height: size.height as f32,
-            scale: window.scale_factor() as f32,
-            screen: {
-                let s = crate::platform::screen::detect(&window);
-                let scale = window.scale_factor() as f32;
-                log::info!(
-                    "screen {}x{} px, about {:.1}\" ({} points per inch, guessed)",
-                    s.size_px.0,
-                    s.size_px.1,
-                    s.guessed_inches(scale),
-                    s.points_per_inch
-                );
-                s
-            },
-            library_version: 0,
+            scale,
+            screen,
             fps: 0.0,
-            want_fullscreen: None,
-            text_input: false,
-            want_present_mode: false,
             gpu_name: gfx.adapter_name.clone(),
-            prefetch: None,
-            browse: None,
-            archives: Default::default(),
-            song_fetch: Default::default(),
-            links: Default::default(),
-            skin_store: Default::default(),
-            skin_options_cache: Default::default(),
-            skin_offsets_cache: Default::default(),
-            sounds: Default::default(),
-            updater: Default::default(),
+            want_fullscreen: None,
+            want_present_mode: false,
         };
+        let mut ctx = Ctx::new(self.paths.clone(), config, mixer, view);
+        ctx.lib = lib;
         ctx.reload_library();
         ctx.load_cached_tables();
         // the web build's first scan comes once the songs kept in the
@@ -512,7 +487,7 @@ impl App {
             gamepads: crate::input::gamepad::Gamepads::open(),
             last_touch: None,
             #[cfg(target_arch = "wasm32")]
-            touches: HashMap::new(),
+            touches: Default::default(),
             font_job: web_fonts(),
             mouse_down: false,
             cursor: (0.0, 0.0),
@@ -615,10 +590,10 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::Resized(_) => {
                 let (w, h) = surface_size(&r.window);
                 r.gfx.resize(w, h);
-                r.ctx.width = w as f32;
-                r.ctx.height = h as f32;
-                r.ctx.scale = r.window.scale_factor() as f32;
-                r.ctx.screen = crate::platform::screen::detect(&r.window);
+                r.ctx.view.width = w as f32;
+                r.ctx.view.height = h as f32;
+                r.ctx.view.scale = r.window.scale_factor() as f32;
+                r.ctx.view.screen = crate::platform::screen::detect(&r.window);
             }
             WindowEvent::RedrawRequested => {
                 r.redraw_pending = false;
@@ -637,7 +612,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let pressed = event.state == ElementState::Pressed;
                 if pressed && !event.repeat && (code == KeyCode::F11) {
                     r.ctx.config.display.fullscreen = !r.ctx.config.display.fullscreen;
-                    r.ctx.want_fullscreen = Some(r.ctx.config.display.fullscreen);
+                    r.ctx.view.want_fullscreen = Some(r.ctx.config.display.fullscreen);
                     return;
                 }
                 let text = event.text.as_ref().map(|t| t.to_string());

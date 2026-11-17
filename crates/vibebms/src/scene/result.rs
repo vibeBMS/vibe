@@ -425,7 +425,7 @@ impl Scene for ResultScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         {
             let st = ResultState::new(self, ctx, now);
             let mut hooks = ResultHooks { st: &st };
@@ -458,7 +458,7 @@ impl Scene for ResultScene {
                     p2.ex
                 ),
                 12.0 * ui,
-                ctx.height - 48.0 * ui,
+                ctx.view.height - 48.0 * ui,
                 16.0 * ui,
                 theme::ACCENT,
                 Align::Left,
@@ -469,7 +469,7 @@ impl Scene for ResultScene {
             d.text(
                 &self.ir_status,
                 12.0 * ui,
-                ctx.height - 26.0 * ui,
+                ctx.view.height - 26.0 * ui,
                 14.0 * ui,
                 theme::ACCENT,
                 Align::Left,

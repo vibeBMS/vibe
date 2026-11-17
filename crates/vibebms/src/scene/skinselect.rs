@@ -405,7 +405,7 @@ impl SkinState for SelectState<'_> {
 
     fn number(&self, id: i32) -> Option<i64> {
         skinvals::clock_number(id).or(match id {
-            20 => Some(self.ctx.fps as i64),
+            20 => Some(self.ctx.view.fps as i64),
             _ => None,
         })
     }
@@ -588,7 +588,7 @@ impl Scene for SkinSelectScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let items = self.items(ctx);
         let (sw, sh) = self.host.size();
         let mut hooks = SelectHooks {
@@ -622,7 +622,7 @@ impl Scene for SkinSelectScene {
             }
         }
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         // the keys, for a moment after the screen opens
         let shown = self.host.ms(now);
         if shown < 6000 {

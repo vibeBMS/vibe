@@ -51,7 +51,7 @@ pub(super) fn load(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loaded
         default_skin(
             mode,
             ctx.config.play.side == crate::config::Side::P2,
-            ctx.height > ctx.width,
+            ctx.view.height > ctx.view.width,
             ctx.touch_enabled(),
         )
     };
@@ -86,7 +86,7 @@ pub(super) fn load(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loaded
             {
                 // perspective skins fill the screen: widened or made taller
                 if skin.perspective {
-                    let aspect = ctx.width / ctx.height.max(1.0);
+                    let aspect = ctx.view.width / ctx.view.height.max(1.0);
                     let (w, h) = crate::perspective::reflowed_size(skin.width, skin.height, aspect);
                     skin.reflow(w, h);
                 }
@@ -532,7 +532,7 @@ impl SkinState for PlayState<'_> {
             }
             314 => (p.lift * 1000.0) as i64,
             315 => (p.hidden * 1000.0) as i64,
-            20 => self.ctx.fps as i64,
+            20 => self.ctx.view.fps as i64,
             71
             | 72
             | 74

@@ -155,7 +155,7 @@ impl TouchLayoutScene {
     }
 
     fn area(ctx: &Ctx) -> Rect {
-        touch::controls_area(ctx.width, ctx.height, &ctx.config.touch)
+        touch::controls_area(ctx.view.width, ctx.view.height, &ctx.config.touch)
     }
 
     fn side2(ctx: &Ctx) -> bool {
@@ -181,7 +181,7 @@ impl TouchLayoutScene {
             .aspects
             .entry((self.mode, ctx.portrait()))
             .or_insert_with(|| super::play_skin::aspect(ctx, mode));
-        let screen = Rect::new(0.0, 0.0, ctx.width, Self::area(ctx).y);
+        let screen = Rect::new(0.0, 0.0, ctx.view.width, Self::area(ctx).y);
         let right = touch::system_right(&ctx.config.touch, mode, Self::side2(ctx), ctx.portrait());
         touch::system_buttons(screen, aspect, ctx.px_per_mm(), right)
     }
@@ -191,7 +191,7 @@ impl TouchLayoutScene {
     fn edge(ctx: &Ctx) -> Rect {
         let y = Self::area(ctx).y;
         let mm = ctx.px_per_mm();
-        Rect::new(0.0, y - 5.0 * mm, ctx.width, 6.5 * mm)
+        Rect::new(0.0, y - 5.0 * mm, ctx.view.width, 6.5 * mm)
     }
 
     fn custom(&self, ctx: &Ctx) -> bool {
@@ -225,7 +225,7 @@ impl TouchLayoutScene {
     /// fingertip and partly on the screen.
     fn set_rect(&mut self, ctx: &mut Ctx, lane: u8, r: Rect) {
         self.make_custom(ctx);
-        let r = on_screen(r, ctx.width, ctx.height, least(ctx));
+        let r = on_screen(r, ctx.view.width, ctx.view.height, least(ctx));
         let area = Self::area(ctx);
         let slot = touch::slot(self.mode(), ctx.portrait());
         if let Some(b) = ctx
@@ -467,7 +467,7 @@ impl TouchLayoutScene {
                 self.set_rect(ctx, lane, pinched(orig, d0, mid0, pa, pb));
             }
             Grab::Strip { id: g } if g == id => {
-                let h = ctx.height;
+                let h = ctx.view.height;
                 self.set_height(ctx, (h - y) / h.max(1.0));
             }
             _ => {}
@@ -567,7 +567,7 @@ impl Scene for TouchLayoutScene {
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
         let ui = ctx.ui();
         let mm = ctx.px_per_mm();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         let area = Self::area(ctx);
         d.b.rect(Rect::new(0.0, 0.0, w, h), theme::BACKGROUND);
         // where the play screen goes, START / SELECT beside it

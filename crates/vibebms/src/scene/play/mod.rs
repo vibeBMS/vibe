@@ -143,14 +143,14 @@ pub const VS_TOUCH_TOO_SMALL: &str =
 /// Touch controls on a screen too small for two control sets (a phone:
 /// its short side under 12 cm).
 pub fn vs_touch_too_small(ctx: &Ctx) -> bool {
-    let short_mm = ctx.width.min(ctx.height) / ctx.px_per_mm().max(0.1);
+    let short_mm = ctx.view.width.min(ctx.view.height) / ctx.px_per_mm().max(0.1);
     ctx.touch_enabled() && short_mm < 120.0
 }
 
 /// The screen has room for both sides of a battle: not a phone held
 /// upright (narrower than 15 cm).
 pub(crate) fn battle_skin_fits(ctx: &Ctx) -> bool {
-    !(ctx.portrait() && ctx.width / ctx.px_per_mm().max(0.1) < 150.0)
+    !(ctx.portrait() && ctx.view.width / ctx.px_per_mm().max(0.1) < 150.0)
 }
 
 enum Stage {
@@ -283,7 +283,7 @@ impl PlayScene {
         let Some(sk) = self.skin.as_ref().filter(|s| s.skin.perspective) else {
             return;
         };
-        let aspect = ctx.width / ctx.height.max(1.0);
+        let aspect = ctx.view.width / ctx.view.height.max(1.0);
         if (sk.skin.width / sk.skin.height - aspect).abs() > aspect * 0.01 {
             let new = skin::load(ctx, gfx, self);
             if let Some(mut old) = std::mem::replace(&mut self.skin, new) {

@@ -30,22 +30,15 @@ pub struct Ctx {
     pub scan: Option<Arc<ScanProgress>>,
     pub table_job: Option<Job<TableMsg>>,
     /// Scan again once the running scan ends (files came in during it).
-    pub(super) scan_again: bool,
+    scan_again: bool,
     pub toasts: Vec<(String, Instant)>,
+    /// The window and the screen.
+    pub view: View,
     pub touch_seen: bool,
-    pub width: f32,
-    pub height: f32,
-    /// Device pixels per logical pixel (point).
-    pub scale: f32,
-    pub screen: crate::platform::screen::Screen,
     pub library_version: u64,
-    pub fps: f32,
-    pub want_fullscreen: Option<bool>,
-    pub want_present_mode: bool,
     /// A text field is being edited (scenes set it as they draw): the
     /// on-screen keyboard is shown on iOS and Android.
     pub text_input: bool,
-    pub gpu_name: String,
     pub prefetch: Option<crate::platform::vfs::Prefetch>,
     /// Download pages to show in the in-app browser (song, then chart).
     pub browse: Option<Vec<String>>,
@@ -58,9 +51,9 @@ pub struct Ctx {
     /// The skin catalog and the skins downloaded from it.
     pub skin_store: crate::skinstore::SkinStore,
     /// Custom options read from skin files (path -> options).
-    pub(super) skin_options_cache:
+    skin_options_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOption>>>,
-    pub(super) skin_offsets_cache:
+    skin_offsets_cache:
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
     /// The chosen sound set's sounds.
     pub sounds: crate::sysound::SystemSounds,
@@ -68,7 +61,53 @@ pub struct Ctx {
     pub updater: crate::update::Updater,
 }
 
+/// The window and the screen it is on.
+pub struct View {
+    /// The window's size in device pixels.
+    pub width: f32,
+    pub height: f32,
+    /// Device pixels per logical pixel (point).
+    pub scale: f32,
+    pub screen: crate::platform::screen::Screen,
+    pub fps: f32,
+    pub gpu_name: String,
+    /// Asked of the window by a scene (taken by the event loop).
+    pub want_fullscreen: Option<bool>,
+    pub want_present_mode: bool,
+}
+
 impl Ctx {
+    /// A context with nothing loaded yet.
+    pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
+        Ctx {
+            paths,
+            config,
+            lib: None,
+            songs: Arc::new(Vec::new()),
+            scores: HashMap::new(),
+            tables: Vec::new(),
+            mixer,
+            scan: None,
+            table_job: None,
+            scan_again: false,
+            toasts: Vec::new(),
+            view,
+            touch_seen: false,
+            library_version: 0,
+            text_input: false,
+            prefetch: None,
+            browse: None,
+            archives: Default::default(),
+            song_fetch: Default::default(),
+            links: Default::default(),
+            skin_store: Default::default(),
+            skin_options_cache: Default::default(),
+            skin_offsets_cache: Default::default(),
+            sounds: Default::default(),
+            updater: Default::default(),
+        }
+    }
+
     /// A context for tests: default settings, data under `root`, no
     /// library, silent audio.
     #[cfg(test)]
@@ -82,19 +121,7 @@ impl Ctx {
             system_volume: 0.0,
             max_voices: 16,
         });
-        Ctx {
-            paths: Paths::at(root),
-            config: Config::default(),
-            lib: None,
-            songs: Arc::new(Vec::new()),
-            scores: HashMap::new(),
-            tables: Vec::new(),
-            mixer,
-            scan: None,
-            table_job: None,
-            scan_again: false,
-            toasts: Vec::new(),
-            touch_seen: false,
+        let view = View {
             width: 1280.0,
             height: 720.0,
             scale: 1.0,
@@ -102,23 +129,12 @@ impl Ctx {
                 size_px: (1280.0, 720.0),
                 points_per_inch: 96.0,
             },
-            library_version: 0,
             fps: 0.0,
-            want_fullscreen: None,
-            text_input: false,
-            want_present_mode: false,
             gpu_name: String::new(),
-            prefetch: None,
-            browse: None,
-            archives: Default::default(),
-            song_fetch: Default::default(),
-            links: Default::default(),
-            skin_store: Default::default(),
-            skin_options_cache: Default::default(),
-            skin_offsets_cache: Default::default(),
-            sounds: Default::default(),
-            updater: Default::default(),
-        }
+            want_fullscreen: None,
+            want_present_mode: false,
+        };
+        Ctx::new(Paths::at(root), Config::default(), mixer, view)
     }
 
     pub fn toast(&mut self, s: impl Into<String>) {
@@ -137,21 +153,22 @@ impl Ctx {
     /// UI scale relative to a 720p layout.
     pub fn ui(&self) -> f32 {
         let base = if self.portrait() {
-            self.width / 720.0
+            self.view.width / 720.0
         } else {
-            self.width.min(self.height * 16.0 / 9.0) / 1280.0
+            self.view.width.min(self.view.height * 16.0 / 9.0) / 1280.0
         };
         base.max(0.45) * self.config.display.ui_scale.clamp(0.5, 3.0)
     }
 
     /// Device pixels per millimetre (for controls with a physical size).
     pub fn px_per_mm(&self) -> f32 {
-        self.screen
-            .px_per_mm(self.scale, self.config.touch.screen_inches)
+        self.view
+            .screen
+            .px_per_mm(self.view.scale, self.config.touch.screen_inches)
     }
 
     pub fn portrait(&self) -> bool {
-        self.height > self.width
+        self.view.height > self.view.width
     }
 
     pub fn touch_enabled(&self) -> bool {

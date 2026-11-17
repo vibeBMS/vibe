@@ -221,7 +221,7 @@ impl SkinState for SelectState<'_> {
         let p = &self.ctx.config.play;
         let song = self.song;
         Some(match id {
-            20 => self.ctx.fps as i64,
+            20 => self.ctx.view.fps as i64,
             12 => p.judge_offset_ms as i64,
             // a selected song's record (0 when never played)
             71 | 75..=84 | 102 | 103 if song.is_some() => return best_number(self.best, id),

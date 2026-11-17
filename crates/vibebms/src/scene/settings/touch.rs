@@ -60,7 +60,10 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         Row::adjust(
             "Screen size (keys at real size)",
             match t.screen_inches {
-                0.0 => format!("AUTO ({:.1}\")", ctx.screen.guessed_inches(ctx.scale)),
+                0.0 => format!(
+                    "AUTO ({:.1}\")",
+                    ctx.view.screen.guessed_inches(ctx.view.scale)
+                ),
                 n => format!("{n:.1}\""),
             },
             |c, d| {

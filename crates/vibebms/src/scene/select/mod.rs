@@ -249,7 +249,7 @@ impl SelectScene {
     }
 
     fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let (bars, pitch) = {
             let st = SelectState::new(self, ctx);
             let mut hooks = SelectHooks {
@@ -266,7 +266,7 @@ impl SelectScene {
         // search box (typing is not part of skins), in the upper half,
         // above an on-screen keyboard
         if let Some(t) = self.search_edit.as_mut() {
-            let (w, h, ui) = (ctx.width, ctx.height, ctx.ui());
+            let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
             let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
             t.draw_box(ctx, d, r, "SEARCH: ");
         }

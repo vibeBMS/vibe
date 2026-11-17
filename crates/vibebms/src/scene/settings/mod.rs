@@ -558,7 +558,7 @@ impl SettingsScene {
 
     fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw) {
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         d.b.gradient(
             Rect::new(0.0, 0.0, w, h),
             ui::lift(theme::BACKGROUND, 0.04),

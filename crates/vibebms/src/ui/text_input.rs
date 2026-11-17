@@ -102,7 +102,7 @@ impl TextInput {
     pub fn draw_modal(&mut self, ctx: &mut Ctx, d: &mut Draw, title: &str, masked: bool) {
         ctx.text_input = true;
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         // the on-screen keyboard (iOS, Android) covers the lower half
         let r = Rect::new(w * 0.1, h * 0.2, w * 0.8, 140.0 * ui);
         self.area = r;

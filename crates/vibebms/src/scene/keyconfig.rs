@@ -346,7 +346,7 @@ impl SkinState for KeyState<'_> {
 
     fn number(&self, id: i32) -> Option<i64> {
         skinvals::clock_number(id).or(match id {
-            20 => Some(self.ctx.fps as i64),
+            20 => Some(self.ctx.view.fps as i64),
             _ => None,
         })
     }
@@ -554,7 +554,7 @@ impl Scene for KeyConfigScene {
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
+        let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         self.host
             .draw(d, view, now, &KeyState { s: self, ctx }, &mut NoHooks);
         if self.overlay {
@@ -565,7 +565,7 @@ impl Scene for KeyConfigScene {
             self.mode_rects = [Rect::default(); 2];
         }
         let ui = ctx.ui();
-        let (w, h) = (ctx.width, ctx.height);
+        let (w, h) = (ctx.view.width, ctx.view.height);
         if self.learn.on() {
             let r = Rect::new(w * 0.2, h - 70.0 * ui, w * 0.6, 56.0 * ui);
             ui::panel(d, r);

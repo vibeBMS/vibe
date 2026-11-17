@@ -105,7 +105,7 @@ impl PlayScene {
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
             d.b.rect(
-                Rect::new(0.0, 0.0, ctx.width, ctx.height),
+                Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height),
                 with_alpha(rgba(0x000000ff), a * 0.85),
             );
         }
