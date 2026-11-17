@@ -16,7 +16,7 @@ android {
         applicationId = "io.github.vibebms"
         minSdk = 26
         targetSdk = 34
-        // CI builds: the run number and 0.1.<run>+<commit> (tools/ci_version.sh)
+        // CI builds: the run number and <version>-nightly.<run>+<commit> (tools/ci_version.sh)
         versionCode = (System.getenv("VIBEBMS_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VIBEBMS_VERSION_NAME") ?: "0.1.0"
     }

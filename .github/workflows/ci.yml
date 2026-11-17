@@ -78,7 +78,7 @@ jobs:
           # the runner image too: a build cached on another image (ubuntu-24.04
           # before 22.04) restored as fresh but without its crates' files
           key: ${{ matrix.target }}-${{ matrix.os }}
-      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
       # whose key reads Cargo.toml)
       - run: ./tools/ci_version.sh
         shell: bash
@@ -116,7 +116,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.name }}
-      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
       # whose key reads Cargo.toml)
       - run: ./tools/ci_version.sh
         shell: bash
@@ -148,7 +148,7 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
       # whose key reads Cargo.toml)
       - run: ./tools/ci_version.sh
         shell: bash
@@ -227,7 +227,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: aarch64-apple-ios
-      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
       # whose key reads Cargo.toml)
       - run: ./tools/ci_version.sh
         shell: bash
@@ -238,8 +238,8 @@ jobs:
           mkdir -p "$app"
           cp target/aarch64-apple-ios/release/vibebms "$app/"
           cp platform/ios/Info.plist platform/ios/*.png "$app/"
-          # iOS takes numbers only: 0.1.<run> and <run>
-          plutil -replace CFBundleShortVersionString -string "${VIBEBMS_VERSION%%+*}" "$app/Info.plist"
+          # iOS takes numbers only: the version (0.1.0) and the run number
+          plutil -replace CFBundleShortVersionString -string "$VIBEBMS_BASE_VERSION" "$app/Info.plist"
           plutil -replace CFBundleVersion -string "$VIBEBMS_BUILD" "$app/Info.plist"
           zip -qr vibeBMS-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
@@ -320,7 +320,7 @@ jobs:
           toolchain: stable
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      # CI builds are <major>.<minor>.<run>+<commit> (after the cache step,
+      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
       # whose key reads Cargo.toml)
       - run: ./tools/ci_version.sh
         shell: bash
@@ -395,8 +395,9 @@ jobs:
       # the version the builds were given (tools/ci_version.sh)
       - name: version
         run: |
-          base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | cut -d. -f1-2)"
-          echo "VERSION=$base.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+          base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | sed 's/[-+].*//')"
+          echo "BASE_VERSION=$base" >> "$GITHUB_ENV"
+          echo "VERSION=$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
       - name: files
         run: |
           mkdir out
@@ -413,7 +414,7 @@ jobs:
           # store offers each new nightly .ipa as an update
           if [ -f out/vibeBMS-unsigned.ipa ]; then
             jq -n --arg repo "$GITHUB_REPOSITORY" --arg sha "${GITHUB_SHA:0:7}" \
-              --arg version "${VERSION%%+*}" --arg build "$GITHUB_RUN_NUMBER" \
+              --arg version "$BASE_VERSION" --arg build "$GITHUB_RUN_NUMBER" --arg full "$VERSION" \
               --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --argjson size "$(stat -c %s out/vibeBMS-unsigned.ipa)" '{
               name: "vibeBMS nightly",
@@ -432,7 +433,7 @@ jobs:
                   version: $version,
                   buildVersion: $build,
                   date: $date,
-                  localizedDescription: "Nightly build \($version)+\($sha).",
+                  localizedDescription: "Nightly build \($full).",
                   downloadURL: "https://github.com/\($repo)/releases/download/nightly/vibeBMS-unsigned.ipa",
                   size: $size,
                   minOSVersion: "14.0"
