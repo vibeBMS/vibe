@@ -9,6 +9,8 @@
 //! waits through a restart or a day offline. Each request is one
 //! `platform::http::exchange`, at most one in flight per provider, within
 //! the provider's `Limiter`; a server's `Retry-After` holds the provider.
+//! On the web only the tab holding the outbox lock sends and writes it;
+//! another tab reads it and keeps its own plays until it gets the lock.
 //!
 //! The accounts' lamp sets (`lamps`) are read through the same limiters.
 
@@ -58,6 +60,8 @@ pub enum NotAsked {
 
 /// How often the lamp sets are looked over (ms).
 const LAMPS_EVERY_MS: i64 = 1000;
+/// How often a tab without the outbox lock reads the outbox again (ms).
+const RELOAD_MS: i64 = 10_000;
 
 /// A request's answer, or why none came.
 struct Answer {
@@ -76,8 +80,12 @@ pub struct IrService {
     /// storage worker answers).
     outbox: Option<Outbox>,
     loading: Option<Job<io::Result<String>>>,
-    /// Items made before the outbox was read.
+    /// Items made before the outbox was read, or while another tab sends.
     early: Vec<Item>,
+    /// This program sends the outbox (on the web: holds its lock).
+    sends: bool,
+    /// Without the lock: when the outbox is read again (Unix ms).
+    reload_ms: i64,
     limiters: BTreeMap<ProviderId, Limiter>,
     jobs: Vec<Job<Answer>>,
     lamps: LampCache,
@@ -132,22 +140,22 @@ impl IrService {
     pub fn new(paths: &Paths, now_ms: i64) -> IrService {
         let mut history = store::History::open(paths.history.clone(), now_ms);
         history.compact(now_ms);
-        let mut ir = IrService {
+        IrService {
             history,
             keys: creds::Keys::open(paths),
             outbox_file: paths.outbox.join("outbox.json"),
             outbox: None,
             loading: None,
             early: Vec::new(),
+            sends: false,
+            reload_ms: 0,
             limiters: BTreeMap::new(),
             jobs: Vec::new(),
             lamps: LampCache::new(paths.cache.join("ir")),
             lamps_ms: 0,
             checking: Vec::new(),
             notes: Vec::new(),
-        };
-        ir.load();
-        ir
+        }
     }
 
     /// Read the outbox's file.
@@ -158,6 +166,24 @@ impl IrService {
                 let _ = tx.send(r);
             })
         }));
+    }
+
+    /// Whether this tab sends the outbox now (asked of the lock); it is
+    /// read again when the lock comes, and every `RELOAD_MS` without it.
+    fn lock(&mut self, now_ms: i64) {
+        let Some(held) = crate::platform::store::outbox_lock() else {
+            return;
+        };
+        if held && !self.sends {
+            self.sends = true;
+            self.outbox = None;
+            self.loading = None;
+        }
+        let stale = !held && now_ms >= self.reload_ms;
+        if self.loading.is_none() && (self.outbox.is_none() || stale) {
+            self.reload_ms = now_ms + RELOAD_MS;
+            self.load();
+        }
     }
 
     /// Keys an older configuration kept go to the credentials store; true
@@ -256,7 +282,7 @@ impl IrService {
             };
             let id = &rec.play_id;
             match Item::freeze(&*p, &a.user_id, rec, id, profile, user_intent, now_ms) {
-                Ok(item) => match self.outbox.as_mut() {
+                Ok(item) => match self.outbox.as_mut().filter(|_| self.sends) {
                     Some(o) => dropped.extend(o.push(item)),
                     None => self.early.push(item),
                 },
@@ -353,9 +379,11 @@ impl IrService {
         }));
     }
 
-    /// Write the outbox (once it was read).
+    /// Write the outbox (once it was read, and while this tab sends it).
     fn save(&self) {
-        let Some(o) = &self.outbox else { return };
+        let Some(o) = self.outbox.as_ref().filter(|_| self.sends) else {
+            return;
+        };
         let text = String::from_utf8_lossy(&o.to_json()).into_owned();
         if let Err(e) = crate::platform::store::rewrite(&self.outbox_file, &text) {
             log::warn!("IR outbox: {e}");
@@ -375,8 +403,10 @@ impl IrService {
         Outbox::load(text.as_bytes(), now_ms).unwrap_or_else(|e| {
             // kept aside, not written over
             log::warn!("{e}");
-            let bad = self.outbox_file.with_extension("json.bad");
-            let _ = crate::platform::store::rewrite(&bad, &text);
+            if self.sends {
+                let bad = self.outbox_file.with_extension("json.bad");
+                let _ = crate::platform::store::rewrite(&bad, &text);
+            }
             Outbox::default()
         })
     }
@@ -386,15 +416,18 @@ impl IrService {
     pub fn poll(&mut self, now_ms: i64, ir: &mut IrSettings) -> Vec<AppEvent> {
         let mut events = Vec::new();
         let mut changed = false;
+        self.lock(now_ms);
         if let Some(r) = self.loading.as_mut().and_then(Job::poll) {
             self.loading = None;
             let mut o = self.loaded(r, now_ms);
-            o.prune(now_ms);
-            let mut dropped = Vec::new();
-            for i in self.early.drain(..) {
-                dropped.extend(o.push(i));
+            if self.sends {
+                o.prune(now_ms);
+                let mut dropped = Vec::new();
+                for i in self.early.drain(..) {
+                    dropped.extend(o.push(i));
+                }
+                self.dropped(dropped);
             }
-            self.dropped(dropped);
             self.outbox = Some(o);
             changed = true;
         }
@@ -427,14 +460,18 @@ impl IrService {
                 (Ticket::Verify, None) => {}
             }
         }
-        changed |= self.send_due(ir, now_ms);
+        if self.sends {
+            changed |= self.send_due(ir, now_ms);
+        }
         self.lamps.poll_reads();
         if now_ms >= self.lamps_ms {
             self.lamps_ms = now_ms + LAMPS_EVERY_MS;
             self.lamps.follow(followed(ir));
             // (natively the files are read at once)
             self.lamps.poll_reads();
-            self.read_lamps(ir, now_ms);
+            if self.sends {
+                self.read_lamps(ir, now_ms);
+            }
         }
         if changed {
             self.save();
@@ -699,11 +736,17 @@ impl IrService {
         });
     }
 
+    /// Change the outbox (only the tab that sends it does).
     fn change(&mut self, f: impl FnOnce(&mut Outbox)) {
-        if let Some(o) = self.outbox.as_mut() {
+        if let Some(o) = self.outbox.as_mut().filter(|_| self.sends) {
             f(o);
             self.save();
         }
+    }
+
+    /// Whether another tab sends the outbox (this one only reads it).
+    pub fn reads_only(&self) -> bool {
+        crate::platform::store::outbox_lock() == Some(false)
     }
 
     /// One line per enabled account on what became of play `rec`: sent,

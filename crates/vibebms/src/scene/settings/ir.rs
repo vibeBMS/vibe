@@ -171,6 +171,12 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         ),
         Row::note(format!("API keys are kept {}", creds::KEPT), ""),
     ];
+    if ctx.net.ir.reads_only() {
+        v.push(Row::note(
+            "Another tab sends the IR plays: this one only shows them",
+            "",
+        ));
+    }
     if store::limited() {
         v.push(Row::note(
             "This browser keeps only the newest plays of the history",

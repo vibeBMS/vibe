@@ -50,6 +50,19 @@ pub fn limited() -> bool {
     imp::limited()
 }
 
+/// Whether this program sends the IR outbox and writes its file: `None`
+/// while that is being asked. Natively always. On the web the first tab
+/// that asks holds the lock `vibebms-outbox` (`navigator.locks`, with
+/// `ifAvailable`) until it closes; another tab only reads, and asks again
+/// every [`LOCK_RETRY_MS`]. A browser without the Locks API has its tabs
+/// send each on their own.
+pub fn outbox_lock() -> Option<bool> {
+    imp::outbox_lock()
+}
+
+/// How often a tab without the outbox lock asks for it again.
+pub const LOCK_RETRY_MS: f64 = 10_000.0;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::*;
@@ -103,6 +116,10 @@ mod imp {
 
     pub fn limited() -> bool {
         false
+    }
+
+    pub fn outbox_lock() -> Option<bool> {
+        Some(true)
     }
 }
 
@@ -158,6 +175,77 @@ mod imp {
 
     pub fn limited() -> bool {
         !opfs::has_worker()
+    }
+
+    pub fn outbox_lock() -> Option<bool> {
+        lock::held()
+    }
+
+    mod lock {
+        use super::super::LOCK_RETRY_MS;
+        use std::cell::Cell;
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::{JsCast, JsValue};
+
+        #[derive(Clone, Copy, PartialEq)]
+        enum State {
+            Unasked,
+            Asking,
+            Held,
+            /// Another tab holds it: asked again from this time (ms).
+            Other(f64),
+        }
+
+        thread_local! {
+            static STATE: Cell<State> = const { Cell::new(State::Unasked) };
+        }
+
+        pub fn held() -> Option<bool> {
+            match STATE.get() {
+                State::Held => return Some(true),
+                State::Asking => return None,
+                State::Other(at) if js_sys::Date::now() < at => return Some(false),
+                State::Unasked | State::Other(_) => {}
+            }
+            if ask().is_some() {
+                STATE.set(State::Asking);
+                None
+            } else {
+                // no Locks API: this tab is on its own
+                STATE.set(State::Held);
+                Some(true)
+            }
+        }
+
+        /// `navigator.locks.request("vibebms-outbox", {ifAvailable: true},
+        /// cb)`: `cb` gets the lock, or `null` when another tab has it; the
+        /// promise it returns for the lock never settles, so the lock is
+        /// held while the page lives.
+        fn ask() -> Option<()> {
+            let nav = web_sys::window()?.navigator();
+            let locks = js_sys::Reflect::get(&nav, &"locks".into())
+                .ok()
+                .filter(|l| !l.is_undefined() && !l.is_null())?;
+            let request: js_sys::Function = js_sys::Reflect::get(&locks, &"request".into())
+                .ok()?
+                .dyn_into()
+                .ok()?;
+            let opts = js_sys::Object::new();
+            js_sys::Reflect::set(&opts, &"ifAvailable".into(), &true.into()).ok()?;
+            let cb = Closure::once_into_js(|lock: JsValue| -> JsValue {
+                if lock.is_null() {
+                    STATE.set(State::Other(js_sys::Date::now() + LOCK_RETRY_MS));
+                    JsValue::UNDEFINED
+                } else {
+                    STATE.set(State::Held);
+                    js_sys::Promise::new(&mut |_, _| {}).into()
+                }
+            });
+            request
+                .call3(&locks, &"vibebms-outbox".into(), &opts, &cb)
+                .ok()?;
+            Some(())
+        }
     }
 
     /// The fallback: `localStorage`, one value per file.
