@@ -1446,7 +1446,6 @@ pub fn load_with(
     Ok(skin)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 mod lua {
     use super::*;
 
@@ -1512,21 +1511,6 @@ mod lua {
             .map_err(e)?;
         let json = sc.to_json(v).map_err(e)?;
         Ok((json, sc))
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mod lua {
-    use super::*;
-    pub fn eval(
-        path: &Path,
-        _: Option<SkinConfig<'_>>,
-        _: Option<&dyn SkinState>,
-    ) -> Result<(Value, script::Script), String> {
-        Err(format!(
-            "{}: Lua skins are not supported in the web build",
-            path.display()
-        ))
     }
 }
 
@@ -2047,7 +2031,6 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn lua_skin_scripts() {
         use crate::skin::script::Overlay;
@@ -2143,7 +2126,6 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
         assert_eq!(rt.take_events(), vec![15]);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn lua_skin_config_files() {
         let root = std::env::temp_dir().join(format!("vibebms-lcfg-{}", std::process::id()));
@@ -2189,7 +2171,6 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
         assert!(s.images[0].as_ref().unwrap().ends_with("judge/b.png"));
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn json_skin_scripts() {
         use crate::skin::script::Overlay;
@@ -2236,7 +2217,6 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
         assert_eq!(sc.timer(10001), None);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn loads_lua_skin() {
         let dir = std::env::temp_dir().join(format!("vibebms-lskin-{}", std::process::id()));

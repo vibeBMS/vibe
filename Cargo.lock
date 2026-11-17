@@ -4998,6 +4998,7 @@ dependencies = [
  "json5",
  "log",
  "mlua",
+ "mlua-sys",
  "ndk-context",
  "pollster 0.4.0",
  "rfd",
@@ -5007,6 +5008,7 @@ dependencies = [
  "vibebms-audio",
  "vibebms-core",
  "vibebms-ir",
+ "vibebms-lua-web",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5062,6 +5064,17 @@ dependencies = [
  "serde_json",
  "vibebms-core",
  "web-time",
+]
+
+[[package]]
+name = "vibebms-lua-web"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "js-sys",
+ "libm",
+ "log",
+ "wasm-bindgen",
 ]
 
 [[package]]

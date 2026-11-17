@@ -39,7 +39,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: cross-check
-      - run: cargo clippy -p vibebms -p vibebms-web --lib --target wasm32-unknown-unknown -- -D warnings
+      # Lua is compiled from C for the web: clang with the WebAssembly target
+      - run: clang --version
+      - run: cargo clippy -p vibebms -p vibebms-web -p vibebms-lua-web --lib --target wasm32-unknown-unknown -- -D warnings
       - run: cargo install cargo-ndk --locked
       - run: >-
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
@@ -137,11 +139,17 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
+      # Lua is compiled from C for the web: clang with the WebAssembly target
+      - run: clang --version
       # third parties' mirrors on by default: the repository variable
       # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions > Variables)
       - run: ./tools/build_web.sh
         env:
           VIBEBMS_THIRD_PARTY: ${{ vars.WEB_THIRD_PARTY }}
+      # a C function nothing defines becomes an import from "env", which
+      # only fails when the page loads
+      - name: no undefined imports
+        run: node tools/check_wasm_imports.mjs web/pkg/vibebms_web_bg.wasm
       # table servers send no CORS headers: the page reads copies next to it
       # the web build has no system fonts: Japanese / Korean titles need these
       - name: CJK fonts (Noto Sans CJK, SIL OFL 1.1)

@@ -9,7 +9,6 @@
 
 pub mod beatoraja;
 pub mod lr2;
-#[cfg(not(target_arch = "wasm32"))]
 mod luapat;
 pub mod render;
 pub mod script;

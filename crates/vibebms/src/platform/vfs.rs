@@ -437,6 +437,24 @@ mod imp {
         });
     }
 
+    /// A skin's file: kept in the browser's storage, and its bytes stay in
+    /// memory (skins are read at once, Lua's `require` too, with no time to
+    /// fetch a file back from the storage).
+    pub fn store_resident(p: &Path, data: Vec<u8>) {
+        let data = Rc::new(data);
+        super::super::opfs::save(p, &data, |_| {});
+        FS.with(|fs| {
+            fs.borrow_mut().files.insert(
+                p.to_path_buf(),
+                Node {
+                    size: data.len() as i64,
+                    data: Data::Bytes(data),
+                    mtime: 0,
+                },
+            );
+        });
+    }
+
     /// A file of the player's own (a replay): held in memory and kept in
     /// the browser's storage, the library not read again for it.
     pub fn store(p: &Path, data: Vec<u8>) {

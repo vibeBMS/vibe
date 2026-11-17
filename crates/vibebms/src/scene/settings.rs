@@ -1114,7 +1114,7 @@ fn mb(n: u64) -> String {
 /// The skin catalog: each skin, what it is, and what can be done with it.
 fn skin_items(ctx: &Ctx) -> Vec<Item> {
     let store = &ctx.skin_store;
-    // the browser leaves out what it cannot install (Lua skins, the largest)
+    // the browser leaves out what it cannot install (the largest skins)
     let shown =
         |e: &crate::skinstore::SkinEntry| !crate::platform::IS_WEB || e.web_refusal().is_none();
     let mut v = vec![Item {
@@ -1132,7 +1132,7 @@ fn skin_items(ctx: &Ctx) -> Vec<Item> {
     }];
     if crate::platform::IS_WEB {
         v.push(Item {
-            label: "Lua skins and skins over 400 MB are in the desktop and mobile apps".into(),
+            label: "Skins over 400 MB are in the desktop and mobile apps".into(),
             value: String::new(),
             act: Act::None,
         });
@@ -1157,7 +1157,7 @@ fn skin_items(ctx: &Ctx) -> Vec<Item> {
             }
             State::Installed { .. } => "installed ✓".into(),
             State::Absent => match e.web_refusal().filter(|_| crate::platform::IS_WEB) {
-                Some(_) => "desktop app only".into(),
+                Some(_) => "desktop / mobile app only".into(),
                 None => format!("install ↓{size}"),
             },
         };

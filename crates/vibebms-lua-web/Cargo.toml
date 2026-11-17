@@ -1,0 +1,18 @@
+[package]
+name = "vibebms-lua-web"
+description = "Lua 5.4 for the web build of vibeBMS (wasm32-unknown-unknown): the C sources and the C library they need"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+repository.workspace = true
+publish = false
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+libm = "0.2"
+log.workspace = true
+
+[build-dependencies]
+cc = "1"

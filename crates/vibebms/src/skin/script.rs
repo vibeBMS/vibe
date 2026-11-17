@@ -145,11 +145,10 @@ impl SkinState for Overlay<'_> {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::*;
+pub use lua::*;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod native {
+/// The Lua runtime (on the web, Lua comes from vibebms-lua-web).
+mod lua {
     use super::*;
     use mlua::{Function, Lua, Table, Value as LV};
     use serde_json::Value;
@@ -495,6 +494,10 @@ package.loaded.io = io
     /// `path` is inside `root` once links are followed (a link in the skin
     /// folder must not reach other files).
     fn really_inside(path: &Path, root: &Path) -> bool {
+        // the web's file system has no links (nor `canonicalize`)
+        if cfg!(target_arch = "wasm32") {
+            return true;
+        }
         match (std::fs::canonicalize(path), std::fs::canonicalize(root)) {
             (Ok(p), Ok(r)) => p.starts_with(r),
             _ => false,
@@ -542,13 +545,13 @@ return fns
     const FRAME_TIME: std::time::Duration = std::time::Duration::from_secs(1);
 
     /// When running scripts are stopped.
-    struct Deadline(std::time::Instant);
+    struct Deadline(web_time::Instant);
 
     const TOO_LONG: &str = "skin script ran too long";
 
     fn expired(lua: &Lua) -> bool {
         lua.app_data_ref::<Deadline>()
-            .is_some_and(|d| std::time::Instant::now() > d.0)
+            .is_some_and(|d| web_time::Instant::now() > d.0)
     }
 
     /// `pcall`, `xpcall` and `coroutine.resume` / `wrap` would catch the
@@ -687,7 +690,7 @@ end
     }
 
     fn arm(lua: &Lua, budget: std::time::Duration) {
-        lua.set_app_data(Deadline(std::time::Instant::now() + budget));
+        lua.set_app_data(Deadline(web_time::Instant::now() + budget));
     }
 
     /// A Lua source file as a chunk (never compiled bytecode).
@@ -717,6 +720,8 @@ end
                 | mlua::StdLib::MATH
                 | mlua::StdLib::OS
                 | mlua::StdLib::PACKAGE;
+            #[cfg(target_arch = "wasm32")]
+            vibebms_lua_web::linked();
             let lua = Lua::new_with(libs, mlua::LuaOptions::default())?;
             lua.set_memory_limit(MEMORY_LIMIT)?;
             // global: coroutines the scripts create run under it too (a
@@ -1362,54 +1367,5 @@ end
             }
             assert!(t.elapsed() < std::time::Duration::from_secs(20));
         }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub use web::*;
-
-/// No Lua in the web build: script values keep their static fallbacks.
-#[cfg(target_arch = "wasm32")]
-mod web {
-    use super::*;
-    use serde_json::Value;
-    use std::path::Path;
-
-    pub struct Script;
-
-    #[derive(Default)]
-    pub struct Builder;
-
-    impl Builder {
-        pub fn new(_: Option<Script>, _: &Path) -> Builder {
-            Builder
-        }
-        pub fn register(&mut self, _: &Value, _: ScriptKind) -> Option<i32> {
-            None
-        }
-        pub fn custom_timer(&mut self, _: i32, _: &Value) {}
-        pub fn custom_event(&mut self, _: &Value, _: Option<&Value>, _: i64) {}
-        pub fn finish(self) -> Option<std::rc::Rc<Runtime>> {
-            None
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct Runtime;
-
-    impl Runtime {
-        pub(super) fn value(&self, _: usize) -> Val {
-            Val::Nil
-        }
-        pub(super) fn timer_override(&self, _: i32) -> Option<Option<i64>> {
-            None
-        }
-        pub fn click(&self, _: i32) -> bool {
-            false
-        }
-        pub fn take_events(&self) -> Vec<i32> {
-            Vec::new()
-        }
-        pub fn update(&self, _: &dyn SkinState, _: i64) {}
     }
 }

@@ -186,7 +186,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
 - **LR2 skins** (`.lr2skin`): put them under `skins/` (`LR2files\Theme\…` paths are taken from `skins/`). Images,
   numbers, text, `#LR2FONT`, gauges, notes, judgements, bar graphs, sliders, buttons, panels, the song list, result
   graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives.
-- **beatoraja skins**: JSON (`.json`) and Lua (`.luaskin`, embedded Lua 5.4 in a sandbox; not in the web build).
+- **beatoraja skins**: JSON (`.json`) and Lua (`.luaskin`, embedded Lua 5.4 in a sandbox; the web build too).
   `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
   events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,
   `timingdistributiongraph`, the timing visualizer) and blend modes are supported. Text outline and shadow are
@@ -210,8 +210,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
   [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
   downloads, unpacks and installs one into `skins/` from its author's own link (Google Drive, Dropbox, MEGA, GitHub,
   plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
-  homepage and the terms its author states. The web build keeps them in the browser's storage, but cannot run Lua
-  skins and does not unpack skins over 400 MB.
+  homepage and the terms its author states. The web build keeps them in the browser's storage, but does not unpack
+  skins over 400 MB.
 - A skin's custom options and offsets appear under it in `SETTINGS › DISPLAY`.
 - **Key config, skin select and sound set** (skin types 8, 9 and 10): with a KEY_CONFIG skin chosen, key `6` in song
   select (or the skin's key config button, or `SETTINGS › KEY CONFIG`) opens the key config screen it draws: ↑↓ or

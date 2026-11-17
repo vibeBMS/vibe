@@ -47,8 +47,8 @@ pub struct SkinEntry {
     pub author: String,
     /// "lr2" or "beatoraja".
     pub kind: String,
-    /// A beatoraja skin written in Lua (`.luaskin`): not in the web build
-    /// (Lua is compiled in everywhere else, iOS and Android too).
+    /// A beatoraja skin written in Lua (`.luaskin`; Lua is compiled in
+    /// everywhere, the web build too).
     pub lua: bool,
     /// See [`SCENES`].
     pub scenes: Vec<String>,
@@ -117,13 +117,8 @@ impl SkinEntry {
 
     /// Why the web build cannot install it, if it cannot.
     pub fn web_refusal(&self) -> Option<&'static str> {
-        if self.lua {
-            Some("a Lua skin: it needs the desktop or mobile app")
-        } else if self.size > WEB_MAX_BYTES {
-            Some("too large for the browser: use the desktop or mobile app")
-        } else {
-            None
-        }
+        (self.size > WEB_MAX_BYTES)
+            .then_some("too large for the browser: use the desktop or mobile app")
     }
 }
 
@@ -685,7 +680,7 @@ fn fetch_and_install(
 /// The web build: entry `e`'s archives one after another through the
 /// vibeBMS proxy (bmseeker's `Files` in the page), unpacked in memory;
 /// then the old folders go and the files are kept in the browser's
-/// storage.
+/// storage (and in memory: skins are read at once).
 #[cfg(target_arch = "wasm32")]
 fn web_install(
     e: SkinEntry,
@@ -734,7 +729,7 @@ fn web_install(
             remove_folder(&skins, f);
         }
         for (to, data) in placed {
-            crate::platform::vfs::store(&skins.join(to), data);
+            crate::platform::vfs::store_resident(&skins.join(to), data);
         }
         done(Ok(folders))
     });
@@ -797,7 +792,13 @@ mod tests {
         assert_eq!(c.skins[0].scenes_label(), "SELECT · 7/14K · RESULT");
         assert_eq!(c.skins[0].folder(), "A dir");
         assert_eq!(c.skins[1].folder(), "d");
-        assert!(c.skins[0].web_refusal().is_some() && c.skins[1].web_refusal().is_none());
+        // Lua skins install in the browser too; only the largest do not
+        assert!(c.skins[0].lua && c.skins[0].web_refusal().is_none());
+        let big = SkinEntry {
+            size: WEB_MAX_BYTES + 1,
+            ..c.skins[1].clone()
+        };
+        assert!(big.web_refusal().is_some());
         assert!(Catalog::parse(b"<html>").is_err());
     }
 

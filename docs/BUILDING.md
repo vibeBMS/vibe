@@ -69,3 +69,10 @@ cargo install wasm-bindgen-cli --version <wasm-bindgen version in Cargo.lock>
 ./tools/build_web.sh                 # -> web/pkg
 python3 -m http.server -d web 8080   # open http://localhost:8080
 ```
+The web build compiles Lua (for Lua skins) from C, so it also needs **clang with the WebAssembly target** and
+`llvm-ar` (Debian/Ubuntu: `clang llvm`; macOS: Apple's clang has no WebAssembly target, use Homebrew's `llvm` and
+`export CC_wasm32_unknown_unknown=$(brew --prefix llvm)/bin/clang AR_wasm32_unknown_unknown=$(brew --prefix
+llvm)/bin/llvm-ar`). Lua raises errors as WebAssembly exceptions, so `wasm-opt`, if installed, runs with
+`--enable-exception-handling`, and the page needs a browser with them (Chrome 95, Firefox 100, Safari 15.2 or
+later). `build_web.sh` ends by checking (with Node, if installed) that the module imports no C function nothing
+defined (`node tools/check_wasm_imports.mjs`).
