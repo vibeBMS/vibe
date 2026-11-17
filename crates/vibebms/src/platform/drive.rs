@@ -1,6 +1,7 @@
 //! The driver of bmseeker jobs here: their effects done asynchronously, one
 //! after another. (Native downloads run on bmseeker's own transport,
-//! `hosts::Native`, on a thread of their own: to disk, with its retries.)
+//! `native::Native`, on a thread of their own: to disk.) A job asks again
+//! after a server's passing failure itself.
 
 use super::http::{fetch, request};
 use super::IS_WEB;
@@ -120,7 +121,7 @@ pub fn load_table(
 ) {
     // web: table servers send no CORS headers; the vibeBMS proxy does
     run_job(
-        TaskJob(bmseeker::table::TableLoader::new(url)),
+        TaskJob::new(bmseeker::table::TableLoader::new(url)),
         None,
         move |r| on_done(r.map_err(|e| e.to_string())),
     );

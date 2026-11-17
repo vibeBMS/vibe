@@ -173,7 +173,7 @@ impl SongFetch {
             let mut job = job;
             finish(bmseeker::install::job::run_job(
                 &mut job,
-                &bmseeker::hosts::Native::new(&cx),
+                &bmseeker::native::Native::new(&cx),
             ))
         });
         #[cfg(target_arch = "wasm32")]
