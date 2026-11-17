@@ -2,6 +2,7 @@
 
 mod cli;
 mod ctx;
+mod events;
 mod tables;
 
 pub use ctx::{AppEvent, Ctx};
@@ -17,9 +18,8 @@ use crate::theme;
 use std::sync::Arc;
 use vibebms_audio::{AudioConfig, Mixer};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 pub enum Next {
@@ -578,229 +578,13 @@ impl ApplicationHandler<UserEvent> for App {
         if r.downloads.window_event(id, &event) {
             return;
         }
-        // (the web: when the browser got the event, not when this runs)
-        #[cfg(target_arch = "wasm32")]
-        let now = crate::web::input_time();
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = Instant::now();
-        match event {
-            WindowEvent::CloseRequested => {
-                r.ctx.save_config();
-                el.exit();
-            }
-            WindowEvent::Resized(_) => {
-                let (w, h) = surface_size(&r.window);
-                r.gfx.resize(w, h);
-                r.ctx.view.width = w as f32;
-                r.ctx.view.height = h as f32;
-                r.ctx.view.scale = r.window.scale_factor() as f32;
-                r.ctx.view.screen = crate::platform::screen::detect(&r.window);
-            }
-            WindowEvent::RedrawRequested => {
-                r.redraw_pending = false;
-                r.frame(el)
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                let PhysicalKey::Code(code) = event.physical_key else {
-                    // an on-screen keyboard's characters (iOS) have no key
-                    if event.state == ElementState::Pressed {
-                        if let Some(t) = event.text.as_ref().filter(|t| !t.is_empty()) {
-                            r.dispatch(el, InputEv::Text(t.to_string()));
-                        }
-                    }
-                    return;
-                };
-                let pressed = event.state == ElementState::Pressed;
-                if pressed && !event.repeat && (code == KeyCode::F11) {
-                    r.ctx.config.display.fullscreen = !r.ctx.config.display.fullscreen;
-                    r.ctx.view.want_fullscreen = Some(r.ctx.config.display.fullscreen);
-                    return;
-                }
-                let text = event.text.as_ref().map(|t| t.to_string());
-                r.dispatch(
-                    el,
-                    InputEv::Key {
-                        code,
-                        pressed,
-                        repeat: event.repeat,
-                        time: now,
-                        text,
-                    },
-                );
-            }
-            WindowEvent::Ime(winit::event::Ime::Commit(t)) if !t.is_empty() => {
-                r.dispatch(el, InputEv::Text(t))
-            }
-            WindowEvent::CursorLeft { .. } => r.ctx.input.pointer = None,
-            WindowEvent::CursorMoved { position, .. } => {
-                r.cursor = (position.x as f32, position.y as f32);
-                r.ctx.input.pointer = Some(r.cursor);
-                let recent_touch = r
-                    .last_touch
-                    .map(|t| now.duration_since(t) < Duration::from_millis(600))
-                    .unwrap_or(false);
-                if r.mouse_down && !recent_touch {
-                    r.dispatch(
-                        el,
-                        InputEv::Pointer {
-                            id: 0,
-                            phase: Phase::Move,
-                            x: r.cursor.0,
-                            y: r.cursor.1,
-                            time: now,
-                            touch: false,
-                        },
-                    );
-                }
-            }
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } => {
-                let recent_touch = r
-                    .last_touch
-                    .map(|t| now.duration_since(t) < Duration::from_millis(600))
-                    .unwrap_or(false);
-                if recent_touch {
-                    return;
-                }
-                r.mouse_down = state == ElementState::Pressed;
-                let phase = if r.mouse_down { Phase::Down } else { Phase::Up };
-                r.dispatch(
-                    el,
-                    InputEv::Pointer {
-                        id: 0,
-                        phase,
-                        x: r.cursor.0,
-                        y: r.cursor.1,
-                        time: now,
-                        touch: false,
-                    },
-                );
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y,
-                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
-                };
-                r.dispatch(el, InputEv::Wheel { dy });
-            }
-            // the page reads touches itself (`web::install_touch_input`)
-            #[cfg(target_arch = "wasm32")]
-            WindowEvent::Touch(_) => {}
-            #[cfg(not(target_arch = "wasm32"))]
-            WindowEvent::Touch(t) => {
-                r.ctx.input.touch_seen = true;
-                r.last_touch = Some(now);
-                use winit::event::TouchPhase;
-                let phase = match t.phase {
-                    TouchPhase::Started => Phase::Down,
-                    TouchPhase::Moved => Phase::Move,
-                    TouchPhase::Ended | TouchPhase::Cancelled => Phase::Up,
-                };
-                r.dispatch(
-                    el,
-                    InputEv::Pointer {
-                        id: t.id + 1,
-                        phase,
-                        x: t.location.x as f32,
-                        y: t.location.y as f32,
-                        time: now,
-                        touch: true,
-                    },
-                );
-            }
-            WindowEvent::DroppedFile(p) => r.dispatch(el, InputEv::Dropped(p)),
-            WindowEvent::Focused(false) => {
-                r.ctx.save_config();
-                // its key and touch releases go elsewhere now
-                r.dispatch(
-                    el,
-                    InputEv::Released {
-                        time: now,
-                        touch_only: false,
-                    },
-                );
-            }
-            WindowEvent::Occluded(true) => r.dispatch(
-                el,
-                InputEv::Released {
-                    time: now,
-                    touch_only: false,
-                },
-            ),
-            _ => {}
-        }
+        r.window_event(el, event);
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(r) = self.run.as_mut() else { return };
         #[cfg(target_arch = "wasm32")]
-        for t in crate::web::take_touches() {
-            match t {
-                crate::web::TouchIn::Point {
-                    id,
-                    phase,
-                    x,
-                    y,
-                    time,
-                } => {
-                    r.ctx.input.touch_seen = true;
-                    r.last_touch = Some(Instant::now());
-                    if phase == Phase::Up {
-                        r.touches.remove(&id);
-                    } else {
-                        r.touches.insert(id, (x, y));
-                    }
-                    r.dispatch(
-                        el,
-                        InputEv::Pointer {
-                            id,
-                            phase,
-                            x,
-                            y,
-                            time,
-                            touch: true,
-                        },
-                    );
-                }
-                // fingers held here that are no longer on the screen
-                crate::web::TouchIn::Left(left) => {
-                    let lost: Vec<(u64, (f32, f32))> = r
-                        .touches
-                        .iter()
-                        .filter(|(id, _)| !left.contains(id))
-                        .map(|(id, p)| (*id, *p))
-                        .collect();
-                    for (id, (x, y)) in lost {
-                        r.touches.remove(&id);
-                        r.dispatch(
-                            el,
-                            InputEv::Pointer {
-                                id,
-                                phase: Phase::Up,
-                                x,
-                                y,
-                                time: Instant::now(),
-                                touch: true,
-                            },
-                        );
-                    }
-                }
-            }
-        }
-        // no finger on the screen: keys still held lost their release
-        #[cfg(target_arch = "wasm32")]
-        if let Some(time) = crate::web::take_touches_gone() {
-            r.dispatch(
-                el,
-                InputEv::Released {
-                    time,
-                    touch_only: true,
-                },
-            );
-        }
+        r.web_touches(el);
         if let Some(pages) = r.ctx.net.browse.take() {
             r.downloads.browse(el, &r.window, &mut r.ctx, pages);
         }

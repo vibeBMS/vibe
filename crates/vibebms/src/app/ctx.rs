@@ -435,28 +435,20 @@ impl Ctx {
         self.audio.sounds.stop(&self.audio.mixer, s);
     }
 
-    /// The user's offset values for the skin configured as `value`.
-    pub fn skin_user_offsets(&self, value: &str) -> HashMap<String, [i32; 6]> {
-        self.config
-            .skin_offsets
-            .get(value)
-            .map(|m| m.iter().map(|(k, v)| (k.clone(), *v)).collect())
-            .unwrap_or_default()
-    }
-
     /// What the user chose for the skin configured as `value` (a
     /// `config.skins` value) at `path`.
-    pub fn skin_user_settings(
-        &self,
-        value: &str,
-        path: &std::path::Path,
-    ) -> crate::skin::UserSettings {
+    pub fn skin_user_settings(&self, value: &str, path: &Path) -> crate::skin::UserSettings {
         let opts = self.skins.custom_options(path);
         let chosen = self.config.skin_options.get(value);
         crate::skin::UserSettings {
             options: crate::skin::user_options(&opts, chosen),
             files: crate::skin::user_files(&opts, chosen),
-            offsets: self.skin_user_offsets(value),
+            offsets: self
+                .config
+                .skin_offsets
+                .get(value)
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), *v)).collect())
+                .unwrap_or_default(),
         }
     }
 
@@ -472,7 +464,7 @@ impl Ctx {
     }
 }
 
-/// A key of `Ctx::scores`, so that skins (which ask for the record per
+/// A key of `Lib::scores`, so that skins (which ask for the record per
 /// value, many times a frame) look one up without making a `String`.
 trait ScoreKey {
     fn key(&self) -> (&str, i32);
