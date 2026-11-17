@@ -31,7 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+      - uses: ./.github/actions/apt
+        with:
+          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
@@ -83,7 +85,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+        uses: ./.github/actions/apt
+        with:
+          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
@@ -196,7 +200,9 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
           echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd-)" >> "$GITHUB_ENV"
       - if: steps.builds.outputs.ok
-        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder desktop-file-utils appstream
+        uses: ./.github/actions/apt
+        with:
+          packages: flatpak flatpak-builder desktop-file-utils appstream
       # Ubuntu 24.04 denies unprivileged user namespaces to programs without
       # an AppArmor profile; flatpak-builder's bubblewrap needs them
       - if: steps.builds.outputs.ok
