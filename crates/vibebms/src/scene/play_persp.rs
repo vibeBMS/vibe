@@ -228,8 +228,8 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
                     f,
                     (l.u0, l.u1),
                     dep.judge,
-                    dep.judge + 0.4,
-                    with_alpha(c, 0.35 * k),
+                    dep.judge + 0.22,
+                    with_alpha(c, 0.25 * k),
                     with_alpha(c, 0.0),
                 );
                 d.b.set_blend(Blend::Alpha);

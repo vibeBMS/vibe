@@ -1801,19 +1801,24 @@ class Plates:
 
 
 def persp_stats(sk, img, f, x, y, w, h):
-    """One row: EX score, rate, BPM and the green number."""
+    """One row: EX score, rate (when wide enough), BPM and the green number."""
     panel(img, (x, y, w, h))
-    seg = w // 4
-    cw, ch = sk.num("n_mid", 71, 5)[1:]
+    wide = w >= 500
+    seg = w // (4 if wide else 3)
+    key = "n_mid" if wide else "n_small"
+    cw, ch = sk.num(key, 71, 5)[1:]
     ry = y + (h - ch) // 2
     draw_label(img, f, x + 12, y + h // 2, "EX", 11, anchor="lm")
-    sk.number("n_mid", 71, 5, x + seg - 8 - cw * 5, ry)
-    rate_number(sk, img, f, x + seg * 2 - 8, ry)
+    sk.number(key, 71, 5, x + seg - 8 - cw * 5, ry)
+    if wide:
+        ry = y + (h - sk.num("n_mid", 102, 3)[2]) // 2
+        rate_number(sk, img, f, x + seg * 2 - 8, ry)
+    b = seg * (2 if wide else 1)
     sw, sh = sk.num("n_small", 160, 3)[1:]
-    draw_label(img, f, x + seg * 2 + 12, y + h // 2, "BPM", 11, AMBER, anchor="lm")
-    sk.number("n_small", 160, 3, x + seg * 3 - 10 - sw * 3, y + (h - sh) // 2)
+    draw_label(img, f, x + b + 12, y + h // 2, "BPM", 11, AMBER, anchor="lm")
+    sk.number("n_small", 160, 3, x + b + seg - 10 - sw * 3, y + (h - sh) // 2)
     gw, gh = sk.num("n_green", 313, 4)[1:]
-    draw_label(img, f, x + seg * 3 + 12, y + h // 2, "GN", 11, (120, 220, 140), anchor="lm")
+    draw_label(img, f, x + b + seg + 12, y + h // 2, "GN", 11, (120, 220, 140), anchor="lm")
     sk.number("n_green", 313, 4, x + w - 12 - gw * 4, y + (h - gh) // 2)
 
 
@@ -1828,9 +1833,10 @@ def persp(fonts, parts, mode, portrait):
     f = fonts
     sk.source("bg", "bg_persp.png")
     sk.anchor = (0, 0, 1, 1)
-    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
+    # the BGA faintly through the background
     sk.j["bga"] = {"id": "bga"}
-    sk.put("bga", 0, 0, W, H, a=60)
+    sk.put("bga", 0, 0, W, H)
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H, a=215)
     # the lanes: drawn by the game (one lane entry each for the note images)
     base_mode = {"14": "7", "10": "5"}.get(mode, mode)
     kinds, scratch = lane_kinds(base_mode)
@@ -1853,10 +1859,9 @@ def persp(fonts, parts, mode, portrait):
     elif not double:
         pl.start((300, 8, 680, 72), (0.5, 0))
         header(sk, pl.img, f, 300, 8, 680, 72)
-        pl.start((12, 96, 278, 400), (0, 0))
+        pl.start((12, 96, 278, 308), (0, 0))
         score_panel(sk, pl.img, f, 12, 96, 278, 148)
         judge_panel(sk, pl.img, f, 12, 252, 278, 152)
-        combo_box(sk, pl.img, f, 12, 412, 278, 82)
         pl.start((986, 96, 284, 448), (1, 0))
         gauge_block(sk, pl.img, f, 990, 96, 278)
         bpm_panel(sk, pl.img, f, 990, 160, 278, 92)
