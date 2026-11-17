@@ -19,6 +19,7 @@ pub mod input;
 pub mod library;
 pub mod links;
 pub mod paths;
+pub mod perspective;
 pub mod placement;
 pub mod platform;
 pub mod replay;

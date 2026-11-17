@@ -4,6 +4,7 @@ pub mod keybind;
 pub mod keyconfig;
 pub mod option_panel;
 pub mod play;
+pub mod play_persp;
 pub mod play_skin;
 pub mod result;
 pub mod result_skin;

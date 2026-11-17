@@ -611,6 +611,11 @@ impl Ctx<'_> {
                 .map(|o| o as i32)
                 .filter(|o| *o != 0)
                 .collect(),
+            anchor: d.get("anchor").map(|a| {
+                let v =
+                    |k: usize| arr(Some(a)).get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                [v(0), v(1), v(2), v(3)]
+            }),
             ..Default::default()
         };
         // values may be fractional (computed by Lua skins)
@@ -1145,6 +1150,7 @@ pub fn load_with(
         trans_color: None,
         offsets: HashMap::new(),
         skin_select: None,
+        perspective: sk.get("perspective").and_then(Value::as_bool) == Some(true),
     };
     if kind == SkinType::SkinSelect {
         let ss = sk.get("skinSelect");
@@ -1761,6 +1767,63 @@ mod tests {
                 if mode.is_double() {
                     assert!(sk.judges[1].judge.iter().all(Option::is_some));
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_perspective_skins_load_and_reflow() {
+        use crate::scene::play_skin::perspective_skin;
+        use vibebms_core::PlayMode;
+        let size = |p: &Path| {
+            let b = vfs::read(p).ok()?;
+            image::ImageReader::new(std::io::Cursor::new(b))
+                .with_guessed_format()
+                .ok()?
+                .into_dimensions()
+                .ok()
+        };
+        for mode in PlayMode::ALL {
+            for portrait in [false, true] {
+                let path = perspective_skin(mode, portrait);
+                let mut sk = load(&path, &HashMap::new(), &size)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                assert!(sk.perspective, "{}", path.display());
+                assert_eq!(sk.kind.mode(), Some(mode));
+                assert_eq!(sk.lanes.len(), mode.lane_count());
+                assert_eq!(sk.width > sk.height, !portrait);
+                assert!(sk.images.iter().all(Option::is_some), "{}", path.display());
+                assert!(sk.objects.iter().any(|o| matches!(o.kind, Kind::Notes)));
+                assert!(sk.objects.iter().all(|o| o.dst.anchor.is_some()));
+                // START / SELECT's corners are left free
+                let (w, h) = (sk.width, sk.height);
+                for right in [false, true] {
+                    for [x, y, bw, bh] in crate::perspective::system_buttons(w, h, right) {
+                        let b = Rect::new(x, y, bw, bh);
+                        for o in &sk.objects {
+                            let Some(k) = o.dst.keys.first() else {
+                                continue;
+                            };
+                            let r = k.rect;
+                            let full = r.w >= w && r.h >= h;
+                            let apart = r.right() <= b.x
+                                || r.x >= b.right()
+                                || r.bottom() <= b.y
+                                || r.y >= b.bottom();
+                            assert!(full || apart, "{}: {r:?}", path.display());
+                        }
+                    }
+                }
+                // a taller screen: the background stretches, the bottom
+                // half's objects come down with the lanes
+                let bg = sk.objects[0].dst.keys[0].rect;
+                let judge = sk.judges[0].judge[0].as_ref().unwrap().1.keys[2].rect;
+                sk.reflow(w, h + 200.0);
+                assert_eq!(sk.height, h + 200.0);
+                let bg2 = sk.objects[0].dst.keys[0].rect;
+                assert_eq!((bg2.y, bg2.h), (bg.y, bg.h + 200.0));
+                let judge2 = sk.judges[0].judge[0].as_ref().unwrap().1.keys[2].rect;
+                assert_eq!(judge2.y, judge.y + 100.0);
             }
         }
     }

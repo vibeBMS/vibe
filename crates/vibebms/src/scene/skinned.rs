@@ -350,6 +350,10 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
         );
         return out;
     }
+    // play skins: the built-in perspective one too
+    if kind.mode().is_some() {
+        out.push(super::play_skin::PERSPECTIVE.into());
+    }
     let fits = |t: SkinType| t == kind || (kind == SkinType::CourseResult && t == SkinType::Result);
     for (p, t, _) in crate::skin::lr2::find_skins(&ctx.paths.skins) {
         if fits(t) {

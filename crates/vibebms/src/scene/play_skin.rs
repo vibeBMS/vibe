@@ -65,11 +65,27 @@ pub fn default_skin(mode: PlayMode, p2: bool, portrait: bool, touch: bool) -> Pa
         .join(name + ".json")
 }
 
+/// `config.skins` value of the built-in touch perspective skin.
+pub const PERSPECTIVE: &str = "builtin:perspective";
+
+/// The built-in touch perspective skin for a mode and orientation (the
+/// play side is the game's: it draws the lanes).
+pub fn perspective_skin(mode: PlayMode, portrait: bool) -> PathBuf {
+    let keys = mode.keys_per_player() * mode.players();
+    let name = format!(
+        "persp{keys}{}.json",
+        if portrait { "_portrait" } else { "" }
+    );
+    PathBuf::from(crate::platform::vfs::BUILTIN)
+        .join("skins/default")
+        .join(name)
+}
+
 /// Resolve a `config.skins` value: empty = the built-in default; anything
 /// else is a skin file relative to the data root (or absolute).
 pub fn configured_path(ctx: &Ctx, value: &str) -> Option<PathBuf> {
     // "classic" was the removed code-drawn view: use the default
-    if value.is_empty() || value == "classic" {
+    if value.is_empty() || value == "classic" || value == PERSPECTIVE {
         return None;
     }
     let p = PathBuf::from(value);
@@ -90,6 +106,10 @@ pub fn aspect(ctx: &Ctx, mode: PlayMode) -> f32 {
         .get(mode.label())
         .cloned()
         .unwrap_or_default();
+    // the perspective skin takes the screen's shape
+    if value == PERSPECTIVE {
+        return ctx.width / ctx.height.max(1.0);
+    }
     let path = configured_path(ctx, &value).unwrap_or_else(|| {
         let p2 = ctx.config.play.side == crate::config::Side::P2;
         default_skin(mode, p2, ctx.portrait(), true)
@@ -118,7 +138,11 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
         .get(mode.label())
         .cloned()
         .unwrap_or_default();
-    let configured = configured_path(ctx, &value);
+    let configured = if value == PERSPECTIVE {
+        Some(perspective_skin(mode, ctx.portrait()))
+    } else {
+        configured_path(ctx, &value)
+    };
     let st = SceneState {
         s: scene,
         ctx,
@@ -134,7 +158,15 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
             Some(&st),
             &crate::skin::image_size,
         ) {
-            Ok(skin) if skin.kind == skin_type(mode) => return Some(LoadedSkin::load(skin, gfx)),
+            Ok(mut skin) if skin.kind == skin_type(mode) => {
+                // perspective skins fill the screen: widened or made taller
+                if skin.perspective {
+                    let aspect = ctx.width / ctx.height.max(1.0);
+                    let (w, h) = crate::perspective::reflowed_size(skin.width, skin.height, aspect);
+                    skin.reflow(w, h);
+                }
+                return Some(LoadedSkin::load(skin, gfx));
+            }
             Ok(_) => log::warn!("{}: not a {} skin", path.display(), mode.label()),
             Err(e) => log::warn!("skin: {e}"),
         }
@@ -732,6 +764,9 @@ impl Hooks for SceneHooks<'_> {
     }
 
     fn notes(&mut self, d: &mut Draw, skin: &LoadedSkin, xf: &Xf, now: i64, st: &dyn SkinState) {
+        if skin.skin.perspective {
+            return super::play_persp::draw(self.st, d, xf);
+        }
         let s = self.st.s;
         let Some(engine) = s.engine.as_ref() else {
             return;

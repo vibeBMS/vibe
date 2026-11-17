@@ -273,6 +273,23 @@ impl Batch {
         self.quad(ATLAS, r, WHITE_UV, color);
     }
 
+    /// A four-cornered shape (top-left, top-right, bottom-right,
+    /// bottom-left) with a colour at each corner.
+    pub fn quad4(&mut self, p: [[f32; 2]; 4], colors: [Color; 4]) {
+        if colors.iter().all(|c| c[3] <= 0.0) {
+            return;
+        }
+        self.push_cmd(ATLAS, 6);
+        let uv = [WHITE_UV[0], WHITE_UV[1]];
+        let v = |i: usize| Vertex {
+            pos: p[i],
+            uv,
+            color: colors[i],
+        };
+        self.verts
+            .extend_from_slice(&[v(0), v(1), v(3), v(1), v(2), v(3)]);
+    }
+
     pub fn rect_outline(&mut self, r: Rect, t: f32, color: Color) {
         self.rect(Rect::new(r.x, r.y, r.w, t), color);
         self.rect(Rect::new(r.x, r.bottom() - t, r.w, t), color);

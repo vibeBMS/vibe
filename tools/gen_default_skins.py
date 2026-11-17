@@ -787,6 +787,8 @@ class Skin:
         # region relayout (portrait from a landscape design): list of
         # ((x, y, w, h) source rect, (x, y) target) -- see relayout()
         self.regions = None
+        # vibeBMS anchor of the objects put (perspective skins): see persp()
+        self.anchor = None
         self._ids = set()
 
     def source(self, sid, path):
@@ -891,6 +893,8 @@ class Skin:
             d["dst"] = [self.key(*(k[:4]), fixed=fixed, **k[4]) for k in keys]
         else:
             d["dst"] = [self.key(x, y, w, h, fixed=fixed, time=0, **kw)]
+        if self.anchor:
+            d["anchor"] = list(self.anchor)
         self.j["destination"].append(d)
         return d
 
@@ -1088,9 +1092,12 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
         sk.put(sk.img(f"key_{k}"), x + 2, ky, w - 4, kh, fixed=True)
         sk.put(sk.img(f"keyp_{k}"), x + 2, ky, w - 4, kh, timer=on, fixed=True)
     # judgement + combo
+    judge_block(sk, player, fx + fw // 2, top + int(lane_h * judge_at))
+
+
+def judge_block(sk, player, jcx, jtop):
+    """Judgement and combo centred at jcx, timing and FAST / SLOW above them."""
     jx, jy, jw, jh = sk.parts.items["j_gr"]
-    jcx = fx + fw // 2
-    jtop = top + int(lane_h * judge_at)
     timer = 46 if player == 0 else 47
     imgs = []
     for key in ["j_pg", "j_gr", "j_gd", "j_bd", "j_pr", "j_pr"]:
@@ -1100,6 +1107,8 @@ def field_over(sk, mode, player, side, fx, fw, top, lane_h, keys_y, keys_h, judg
             sk.key(jcx - jw // 2, jtop, jw, jh, fixed=True, time=50, a=255),
             sk.key(jcx - jw // 2, jtop, jw, jh, fixed=True, time=700),
         ]})
+        if sk.anchor:
+            imgs[-1]["anchor"] = list(sk.anchor)
     nums = []
     for key in ["n_combo_pg", "n_combo_gr", "n_combo_gd", "n_combo_gd", "n_combo_gd", "n_combo_gd"]:
         iid, cw, ch = sk.num(key, 75, 4)
@@ -1759,6 +1768,130 @@ def port_sp(fonts, parts, mode, side):
     return sk, img
 
 
+# --- touch perspective: the lanes are drawn by the game in perspective (a fan
+# per player, crates/vibebms/src/perspective.rs), filling the canvas; the skin
+# holds what goes around them. The canvas is widened or made taller to the
+# screen's shape: every object has an anchor (the share of the added width /
+# height it moves by), and the panels are separate images so that they move
+# with their numbers. Room is left in the top corners for START / SELECT.
+PERSP_TOP = {True: 212, False: 96}     # perspective::top_of_lanes
+PERSP_BASE = {True: 0.14, False: 0.16}  # perspective::base_gap
+
+
+class Plates:
+    """Panels drawn into a transparent image, each placed as its own object
+    under the objects put after it was started."""
+
+    def __init__(self, sk, w, h):
+        self.sk, self.img, self.list = sk, Image.new("RGBA", (w, h), (0, 0, 0, 0)), []
+
+    def start(self, rect, anchor):
+        self.sk.anchor = anchor
+        self.list.append((len(self.sk.j["destination"]), rect, anchor))
+
+    def finish(self, name):
+        sk = self.sk
+        sk.source("hud", name)
+        for i, ((at, (x, y, w, h), anchor)) in reversed(list(enumerate(self.list))):
+            iid = f"plate{i}"
+            sk._ids.add(iid)
+            sk.j["image"].append({"id": iid, "src": "hud", "x": x, "y": y, "w": w, "h": h})
+            sk.j["destination"].insert(at, {"id": iid, "anchor": list(anchor),
+                                            "dst": [sk.key(x, y, w, h, time=0)]})
+
+
+def persp_stats(sk, img, f, x, y, w, h):
+    """One row: EX score, rate (when wide enough), BPM and the green number."""
+    panel(img, (x, y, w, h))
+    wide = w >= 500
+    seg = w // (4 if wide else 3)
+    key = "n_mid" if wide else "n_small"
+    cw, ch = sk.num(key, 71, 5)[1:]
+    ry = y + (h - ch) // 2
+    draw_label(img, f, x + 12, y + h // 2, "EX", 11, anchor="lm")
+    sk.number(key, 71, 5, x + seg - 8 - cw * 5, ry)
+    if wide:
+        ry = y + (h - sk.num("n_mid", 102, 3)[2]) // 2
+        rate_number(sk, img, f, x + seg * 2 - 8, ry)
+    b = seg * (2 if wide else 1)
+    sw, sh = sk.num("n_small", 160, 3)[1:]
+    draw_label(img, f, x + b + 12, y + h // 2, "BPM", 11, AMBER, anchor="lm")
+    sk.number("n_small", 160, 3, x + b + seg - 10 - sw * 3, y + (h - sh) // 2)
+    gw, gh = sk.num("n_green", 313, 4)[1:]
+    draw_label(img, f, x + b + seg + 12, y + h // 2, "GN", 11, (120, 220, 140), anchor="lm")
+    sk.number("n_green", 313, 4, x + w - 12 - gw * 4, y + (h - gh) // 2)
+
+
+def persp(fonts, parts, mode, portrait):
+    """Touch perspective skin for 5/7 keys, 9 buttons or double play."""
+    double = mode in ("14", "10")
+    W, H = (720, 1280) if portrait else (1280, 720)
+    kind = {"7": 0, "5": 1, "14": 2, "10": 3, "9": 4}[mode]
+    name = f"vibeBMS Touch Perspective {mode}K{' portrait' if portrait else ''}"
+    sk = Skin(kind, name, W, H, parts)
+    sk.j["perspective"] = True
+    f = fonts
+    sk.source("bg", "bg_persp.png")
+    sk.anchor = (0, 0, 1, 1)
+    # the BGA faintly through the background
+    sk.j["bga"] = {"id": "bga"}
+    sk.put("bga", 0, 0, W, H)
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H, a=215)
+    # the lanes: drawn by the game (one lane entry each for the note images)
+    base_mode = {"14": "7", "10": "5"}.get(mode, mode)
+    kinds, scratch = lane_kinds(base_mode)
+    per = kinds + (["s"] if scratch else [])
+    all_lanes = [(0, 1, k, i) for i, k in enumerate(per * (2 if double else 1))]
+    note_def(sk, all_lanes)
+    for _ in all_lanes:
+        sk.j["note"]["dst"].append(sk.key(0, 0, 1, 1, fixed=True))
+    sk.put("notes", 0, 0, W, H)
+    pl = Plates(sk, W, H)
+    top, base = PERSP_TOP[portrait], int(H - PERSP_BASE[portrait] * H)
+    jtop = base - int((base - top) * 0.38)
+    if portrait:
+        pl.start((200, 8, 320, 84), (0.5, 0))
+        header(sk, pl.img, f, 200, 8, 320, 84)
+        pl.start((12, 100, 696, 56), (0.5, 0))
+        gauge_block(sk, pl.img, f, 16, 102, 688)
+        pl.start((16, 162, 688, 42), (0.5, 0))
+        persp_stats(sk, pl.img, f, 16, 162, 688, 42)
+    elif not double:
+        pl.start((300, 8, 680, 72), (0.5, 0))
+        header(sk, pl.img, f, 300, 8, 680, 72)
+        pl.start((12, 96, 278, 308), (0, 0))
+        score_panel(sk, pl.img, f, 12, 96, 278, 148)
+        judge_panel(sk, pl.img, f, 12, 252, 278, 152)
+        pl.start((986, 96, 284, 448), (1, 0))
+        gauge_block(sk, pl.img, f, 990, 96, 278)
+        bpm_panel(sk, pl.img, f, 990, 160, 278, 92)
+        status_panel(sk, pl.img, f, 990, 260, 278, 130)
+        pace_rows(sk, pl.img, f, 990, 398, 278)
+    else:
+        pl.start((300, 8, 680, 72), (0.5, 0))
+        header(sk, pl.img, f, 300, 8, 680, 72)
+        pl.start((466, 94, 348, 112), (0.5, 0))
+        gauge_block(sk, pl.img, f, 470, 96, 340)
+        persp_stats(sk, pl.img, f, 470, 156, 340, 42)
+        pl.start((12, 96, 200, 148), (0, 0))
+        score_panel(sk, pl.img, f, 12, 96, 200, 148)
+        pl.start((1068, 96, 200, 152), (1, 0))
+        judge_panel(sk, pl.img, f, 1068, 96, 200, 152)
+    # judgements over each fan, the hi-speed panel and READY
+    sk.anchor = (0.5, 0.5)
+    centres = [W // 4, W * 3 // 4] if double and portrait else \
+        [int(W * 0.28), int(W * 0.72)] if double else [W // 2]
+    for player, cx in enumerate(centres):
+        judge_block(sk, player, cx, jtop)
+        ready(sk, cx, (top + base) // 2)
+    sk.anchor = (0.5, 0)
+    hs_panel(sk, W // 2 - HS_W // 2, top + 8)
+    sk.anchor = None
+    hud = "hud_port.png" if portrait else f"hud_land{'_dp' if double else ''}.png"
+    pl.finish(hud)
+    return sk, pl.img, hud
+
+
 # --- result screen ------------------------------------------------------------
 def relayout(sk, regions):
     """Move whole regions of a landscape design (portrait variants)."""
@@ -2219,6 +2352,16 @@ def main():
         for touch in (False, True):
             sk, img, bg = land_dp(fonts, parts, mode, touch)
             emit(sk, img, f"{name}{'_touch' if touch else ''}.json", bg)
+    huds = {}
+    for mode in ("7", "5", "9", "14", "10"):
+        for portrait in (False, True):
+            sk, img, hud = persp(fonts, parts, mode, portrait)
+            sk.save(OUT / f"persp{mode}{'_portrait' if portrait else ''}.json")
+            huds[hud] = img
+    for name, img in huds.items():
+        img.save(OUT / name, optimize=True)
+    vgrad(16, 256, (10, 12, 24), (20, 16, 34)).convert("RGB").save(OUT / "bg_persp.png",
+                                                                     optimize=True)
     emit(*result_layout(fonts, parts), "result.json", "bg_result.png")
     emit(*select_layout(fonts, parts), "select.json", "bg_select.png")
     emit(*result_layout(fonts, parts, True), "result_portrait.json", "bg_result_portrait.png")

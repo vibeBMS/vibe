@@ -1144,6 +1144,7 @@ pub fn load_with(
             trans_color: None,
             offsets: HashMap::new(),
             skin_select: None,
+            perspective: false,
         },
         sizes: Vec::new(),
         image_size,

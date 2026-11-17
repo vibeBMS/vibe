@@ -137,6 +137,19 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › DI
 - **Built-in default skins**: landscape and portrait layouts for every mode, original art drawn from shapes and
   the Inter font by `tools/gen_default_skins.py`. Edit the script and run it to make
   `crates/vibebms/assets/builtin/skins/default/` again.
+- **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › DISPLAY` like the
+  others): each player's lanes are a fan seen in perspective, narrow at the far end and wider toward the judge
+  line, notes growing as they come. Portrait and landscape; double play shows two fans side by side. The scratch
+  lane is the wider, red-tinted lane at the outer edge (left for 1P, right for 2P). The hi-speed and green number
+  mean what they do on flat lanes: notes travel the lane at the same rate, and the perspective only changes where
+  a distance is on the screen (SUDDEN+, HIDDEN+ and LIFT cover the same share of the lane, which looks smaller at
+  the far end). With touch controls the lanes themselves are the controls, from the bottom of the screen to a
+  little above the judge line (the lit band); fingers can slide between lanes, the scratch lane takes taps and
+  sideways swipes (a change of direction is a new scratch), and START / SELECT sit in a top corner. There is no
+  strip of controls: the play screen fills the screen. `SETTINGS › TOUCH` sets the perspective (0 % is flat), how
+  far up the lanes reach and the touch area's height (`[perspective]` in the config). The skin's canvas takes the
+  screen's shape: objects in the JSON carry a vibeBMS `"anchor": [x, y, w, h]` (the share of the added width or
+  height they move and grow by), and `"perspective": true` makes the game draw the note field as fans.
 - **LR2 skins** (`.lr2skin`): put them under `skins/` (`LR2files\Theme\…` paths are taken from `skins/`). Images,
   numbers, text, `#LR2FONT`, gauges, notes, judgements, bar graphs, sliders, buttons, panels, the song list, result
   graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives.
