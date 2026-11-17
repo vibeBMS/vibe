@@ -75,7 +75,7 @@ The APK is a Gradle project (`platform/android`) around the Rust library, which
 cargo install cargo-ndk
 rustup target add aarch64-linux-android x86_64-linux-android
 export ANDROID_HOME=... ANDROID_NDK_HOME=...
-cargo ndk -t arm64-v8a -t x86_64 -o platform/android/app/jniLibs build --release -p vibebms-android
+cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs build --release -p vibebms-android
 gradle -p platform/android assembleRelease    # Gradle 9.6+; or open platform/android in Android Studio
 ```
 The release APK is signed with `VIBEBMS_KEYSTORE` / `VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS`

@@ -49,7 +49,7 @@ jobs:
       - run: cargo install cargo-ndk --locked
       - run: >-
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          cargo ndk -t arm64-v8a clippy -p vibebms -p vibebms-android -- -D warnings
+          cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
   build:
     name: build ${{ matrix.name }}
@@ -404,7 +404,7 @@ jobs:
       # the Rust library into the Gradle project, then the APK
       - run: >-
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          cargo ndk -t arm64-v8a -t x86_64 -o platform/android/app/jniLibs
+          cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs
           build --release -p vibebms-android
       # cargo-ndk copies every cdylib it built; only ours is loaded
       - run: find platform/android/app/jniLibs -name '*.so' ! -name libvibebms_android.so -delete
