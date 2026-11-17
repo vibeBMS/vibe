@@ -793,6 +793,27 @@ mod tests {
         assert!((chart_info(&def).1[2] - 23.0 / 3.0).abs() < 1e-9);
     }
 
+    /// The one-hour guard limits only the densities: all five kinds are
+    /// counted (the specification's decision; the current code returns
+    /// before counting the four playable kinds, so this fails until
+    /// `chart_info` is rewritten).
+    #[test]
+    #[ignore = "clean-room: new behaviour (spec §9.3 decision 8: kinds are counted past one hour)"]
+    fn chart_info_counts_kinds_past_an_hour() {
+        let c = info_chart(
+            PlayMode::Beat14K,
+            None,
+            vec![
+                info_note(7, 1_000_000, NoteKind::Normal),
+                info_long(15, 2_000_000, 3_000_000, Some(LnType::Cn)),
+                info_long(8, 3_000_000, 4_000_000, None),
+                info_note(4, 5_000_000, NoteKind::Mine { damage: 5.0 }),
+                info_note(0, 3_600_000_001, NoteKind::Normal),
+            ],
+        );
+        assert_eq!(chart_info(&c), ([1, 1, 1, 1, 1], [0.0; 3]));
+    }
+
     /// Kinds by scratch lane (any player's), mines; negative times in
     /// second 0; over an hour no densities; no notes nothing.
     #[test]
@@ -817,9 +838,9 @@ mod tests {
         let mut long = c.clone();
         long.notes
             .push(info_note(0, 3_600_000_001, NoteKind::Normal));
-        // over an hour: no densities, and only the mines are counted
-        let (k, d) = chart_info(&long);
-        assert_eq!((k, d), ([0, 0, 0, 0, 1], [0.0; 3]));
+        // over an hour: no densities (the arrays per second would be too
+        // long), but the kinds are counted
+        assert_eq!(chart_info(&long).1, [0.0; 3]);
         let mut hour = c.clone();
         hour.notes
             .push(info_note(0, 3_600_000_000, NoteKind::Normal));

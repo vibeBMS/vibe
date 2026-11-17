@@ -593,8 +593,8 @@ fn s04d_cn_held_too_long() {
     assert_eq!(note_states(&e), [(1, 5, Some(0), Some(-400_000))]);
 }
 
-/// S4 (e): never pressed: head POOR and tail POOR in one step (the tail's
-/// diff is §9 Q4's, pinned in `q04_missed_cn_tail_uses_its_own_diff`).
+/// S4 (e): never pressed: head POOR and tail POOR in one step, both with
+/// the head's diff (Q4, a rule: `q04_missed_cn_tail_uses_the_head_diff`).
 #[test]
 fn s04e_cn_never_pressed() {
     let c = ln_chart();
@@ -603,19 +603,10 @@ fn s04e_cn_never_pressed() {
     e.update(2_280 * MS);
     assert_eq!(drain(&mut e), NONE);
     e.update(2_300 * MS);
-    let evs = drain(&mut e);
-    assert_eq!(evs.len(), 2);
-    assert_eq!(evs[0], jh(0, POOR, -300_000, 0));
-    assert!(matches!(
-        evs[1],
-        EngineEvent::Judge {
-            lane: 0,
-            judge: POOR,
-            combo: 0,
-            tail: true,
-            ..
-        }
-    ));
+    assert_eq!(
+        drain(&mut e),
+        [jh(0, POOR, -300_000, 0), jt(0, POOR, -300_000, 0)]
+    );
     assert_eq!(e.ghost, [4, 4]);
     assert_eq!(e.score.count(POOR), 2);
     assert_eq!(e.score.combo_breaks, 2);
@@ -815,27 +806,27 @@ fn s06_mine_variants() {
 
 const NO_SOUND_ID: SoundId = vibebms_core::chart::NO_SOUND;
 
-/// §9 Q1: the note state is advanced up to an input's time before its key
-/// change: a mine at exactly the time of a press is not hit, one at
-/// exactly the time of a release is.
+/// §9.3 decision 1 (Q1 ties): at equal times the input goes first: a mine
+/// at exactly the time of a press is hit, one at exactly the time of a
+/// release is not (as the old engine did).
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q1)"]
 fn q01_mine_at_the_input_time() {
     let c = chart7(vec![mine(0, 2 * SEC, 10.0, 90)]);
     let mut e = engine(&c, &Setup::default());
     e.update(1_500 * MS);
     press(&mut e, 0, 2 * SEC);
-    assert_eq!(drain(&mut e), NONE);
+    assert_eq!(drain(&mut e), [mine_ev(0, 10.0), snd(90, 0)]);
     let mut e = engine(&c, &Setup::default());
     e.update(SEC);
     press(&mut e, 0, 1_200 * MS);
     e.update(1_500 * MS);
     release(&mut e, 0, 2 * SEC);
-    assert_eq!(drain(&mut e), [mine_ev(0, 10.0), snd(90, 0)]);
+    assert_eq!(drain(&mut e), NONE);
 }
 
-/// Unchanged: with the engine already at the input's time, the mine has
-/// passed before the key changes.
+/// With the engine already updated to the input's time before the input
+/// arrives, the mine passed with the old key state: the tie rule only
+/// applies within the update that handles the input.
 #[test]
 fn mine_at_the_input_time_after_an_update() {
     let c = chart7(vec![mine(0, 2 * SEC, 10.0, 90)]);
@@ -1709,28 +1700,28 @@ fn q03_ln_pending_release_keeps_the_input_time() {
     );
 }
 
-/// §9 Q4: a missed CN's tail POOR has its own diff (end − the step).
+/// Q4 (a rule, §9.3 decision 5): a missed CN's tail POOR reuses the head's
+/// diff (the tail is missed because the head was): never FAST.
 #[test]
-#[ignore = "clean-room: new behaviour (§9 Q4)"]
-fn q04_missed_cn_tail_uses_its_own_diff() {
+fn q04_missed_cn_tail_uses_the_head_diff() {
     let c = ln_chart();
     let mut e = engine(&c, &Setup::ln(LnType::Cn));
     e.update(SEC);
     e.update(2_300 * MS);
     assert_eq!(
         drain(&mut e),
-        [jh(0, POOR, -300_000, 0), jt(0, POOR, 700_000, 0)]
+        [jh(0, POOR, -300_000, 0), jt(0, POOR, -300_000, 0)]
     );
-    assert_eq!(e.judge_log, [(2 * SEC, 4, -1), (3 * SEC, 4, 1)]);
-    assert_eq!(e.score.counts[POOR], [1, 1]);
-    assert_eq!(note_states(&e), [(5, 5, Some(-300_000), Some(700_000))]);
-    // detected after the end: both late
-    let mut e = engine(&c, &Setup::ln(LnType::Cn));
+    assert_eq!(e.judge_log, [(2 * SEC, 4, -1), (3 * SEC, 4, -1)]);
+    assert_eq!(e.score.counts[POOR], [0, 2]);
+    assert_eq!(note_states(&e), [(5, 5, Some(-300_000), Some(-300_000))]);
+    // found after the end: still the head's diff
+    let mut e = engine(&c, &Setup::ln(LnType::Hcn));
     e.update(SEC);
     e.update(4 * SEC);
     assert_eq!(
         drain(&mut e),
-        [jh(0, POOR, -2_000_000, 0), jt(0, POOR, -1_000_000, 0)]
+        [jh(0, POOR, -2_000_000, 0), jt(0, POOR, -2_000_000, 0)]
     );
 }
 
@@ -2181,6 +2172,24 @@ fn held_with_queued_inputs() {
     assert_eq!(e.held(), [(0, 1), (1, 0), (2, 1), (7, 0), (7, 1)]);
 }
 
+/// §9.3 decision 7: `held()` reports a queued input's key reduced to its
+/// lowest bit, as it is stored once processed.
+#[test]
+#[ignore = "clean-room: new behaviour (§9.3 decision 7)"]
+fn held_reduces_queued_key_indices() {
+    let c = chart7(vec![normal(0, 5 * SEC, 10)]);
+    let mut e = engine(&c, &Setup::default());
+    e.update(0);
+    e.input(ev(100 * MS, 2, 3, true));
+    assert_eq!(e.held(), [(2, 1)]);
+    e.input(ev(110 * MS, 2, 1, false));
+    assert!(e.held().is_empty());
+    e.input(ev(120 * MS, 2, 2, true));
+    assert_eq!(e.held(), [(2, 0)]);
+    e.update(200 * MS);
+    assert_eq!(e.held(), [(2, 0)]);
+}
+
 /// `take_sounds` takes Sound and Volume only, in order.
 #[test]
 fn take_sounds_leaves_the_rest() {
@@ -2403,6 +2412,27 @@ fn play_notes() {
     assert_eq!(e.windows(), &e.rules().windows);
     assert_eq!(e.player(), None);
     assert!(e.judges(0) && e.judges(200));
+}
+
+/// §9.3 decision 6: notes on lanes the mode does not have are dropped and
+/// not counted, so the chart finishes.
+#[test]
+#[ignore = "clean-room: new behaviour (§9.3 decision 6)"]
+fn notes_past_the_lane_count_are_not_counted() {
+    let c = chart7(vec![
+        normal(0, 2 * SEC, 10),
+        normal(9, 2 * SEC, 11),
+        long(12, 2 * SEC, 3 * SEC, 12, 52),
+    ]);
+    for ln in [LnType::Ln, LnType::Cn] {
+        let mut e = engine(&c, &Setup::ln(ln));
+        assert_eq!(e.notes().len(), 1);
+        assert_eq!(e.score.total_notes, 1, "{ln:?}");
+        e.update(SEC);
+        press(&mut e, 0, 2 * SEC);
+        e.update(4 * SEC);
+        assert!(e.is_finished(4 * SEC), "{ln:?}");
+    }
 }
 
 /// A long note of no type follows the configured LN mode; a typed one its
@@ -2982,8 +3012,9 @@ fn gen_chart(mode: PlayMode, seed: u64, typed_ln: bool, rank: JudgeRank, secs: i
 /// misses, presses where there is no note, lets long notes go early or
 /// late, presses a HCN body again. Input times are never on a whole
 /// millisecond, so never at a note's or mine's time. It keeps clear of
-/// what §9 changes: a charge note (CN/HCN) is never left unconsumed, and
-/// no press has a note exactly at the search's early bound.
+/// what §9 changes: no press has a note exactly at the search's early
+/// bound. (It also hits the notes before a charge note cleanly, a guard
+/// from when Q4 was to change; kept so the fixture stays as recorded.)
 fn gen_inputs(c: &Chart, s: &Setup, seed: u64) -> Vec<InputEvent> {
     let mode = c.mode();
     let w = judge_rules(s.preset, mode.family(), c.meta.judge_rank, s.rates).windows;
@@ -3210,16 +3241,6 @@ fn run_summary(name: &str, c: &Chart, s: &Setup, seed: u64) -> String {
             )
         });
     let tr = safe_drive(&mut e, &inputs, c.length() + 2 * SEC, hcn);
-    // every charge note was taken by a press or by autoplay, so nothing
-    // here depends on a missed charge note's tail (§9 Q4)
-    for n in e.notes() {
-        if n.ln_type().is_some_and(|t| t != LnType::Ln) {
-            assert!(
-                n.state != 0 && usize::from(n.state - 1) != POOR,
-                "{name}: a charge note was missed: {n:?}"
-            );
-        }
-    }
     let mut out = String::new();
     let sc = &e.score;
     let _ = writeln!(out, "[{name}]");
