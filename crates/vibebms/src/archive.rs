@@ -366,7 +366,7 @@ impl Archives {
             let stem = work_stem(&files);
             let rel = PathBuf::from("bms").join(&name).join(&stem);
             let dir = root.join("bms").join(&name);
-            web_fetch_files(files, 0, 0, dir, stem, move |r| {
+            web_fetch_files(files, dir, stem, move |r| {
                 let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
             });
         }
@@ -469,29 +469,55 @@ fn work_stem(files: &[File]) -> String {
         .unwrap_or_else(|| "work".into())
 }
 
-/// Download and unpack a work's files one after another into
-/// `<dir>/<stem>/` (add-ons too); `done` gets the number of files.
+/// A work's files as bmseeker's `Files` takes them: a mirror's file as it
+/// is, an author's link through the hosts.
+fn sources(files: &[File]) -> Vec<bmseeker::install::job::Source> {
+    files
+        .iter()
+        .map(|f| bmseeker::install::job::Source {
+            url: f.url.clone(),
+            plain: !f.original.is_empty(),
+        })
+        .collect()
+}
+
+/// What a work's file that did not come is: an author's link that is a
+/// page, or the first mirror file (the proxy down: the browser downloads
+/// it itself), opens in the browser.
+fn missed(files: &[File], m: bmseeker::install::job::Missed) -> Fail {
+    use crate::hosts::Fetch;
+    let mirrored = files.get(m.index).is_some_and(|f| !f.original.is_empty());
+    match m.fetch {
+        Fetch::Page if mirrored && m.index > 0 => Fail::Msg(format!("{}: did not download", m.url)),
+        Fetch::Page => Fail::Page(m.url),
+        Fetch::Failed(e) => e.into(),
+    }
+}
+
+/// Download a work's files one after another (bmseeker's `Files` in the
+/// page) and unpack them into `<dir>/<stem>/` (add-ons too); `done` gets
+/// the number of files.
 #[cfg(target_arch = "wasm32")]
 fn web_fetch_files(
     files: Vec<File>,
-    i: usize,
-    n: usize,
     dir: PathBuf,
     stem: String,
     done: impl FnOnce(Result<usize, Fail>) + Send + 'static,
 ) {
-    let Some(f) = files.get(i).cloned() else {
-        return done(if n > 0 {
-            Ok(n)
-        } else {
-            Err(Fail::Msg("the archives hold nothing".into()))
-        });
-    };
-    let (link, mirrored) = (f.url.clone(), !f.original.is_empty());
-    let next = move |r: Result<Vec<u8>, Fail>| match r {
-        Err(e) => done(Err(e)),
-        Ok(bytes) => {
-            let got = match crate::hosts::sniff_bytes(&bytes) {
+    use bmseeker::install::job::Files;
+    let job =
+        Files::new(sources(&files), PathBuf::new(), crate::hosts::context()).failures_are_pages();
+    crate::platform::run_job(job, None, move |r| {
+        let got = match r {
+            Ok(got) => got,
+            Err(m) => return done(Err(missed(&files, m))),
+        };
+        let mut n = 0;
+        for (f, g) in files.iter().zip(got) {
+            let bmseeker::unpack::Blob::Bytes(bytes) = g.blob else {
+                continue;
+            };
+            n += match crate::hosts::sniff_bytes(&bytes) {
                 // into the main archive's folder
                 Some(ext) => {
                     crate::platform::vfs::add_archive_at(&dir, &format!("{stem}.{ext}"), bytes)
@@ -507,21 +533,13 @@ fn web_fetch_files(
                     1
                 }
             };
-            web_fetch_files(files, i + 1, n + got, dir, stem, done)
         }
-    };
-    if !mirrored {
-        // an author's link: the host's way to its archive
-        web_fetch(link, None, None, next);
-    } else {
-        // a mirror file; the proxy down, the browser downloads it itself
-        let url = link;
-        crate::platform::http_get(&crate::hosts::via_proxy(&url), move |r| match r {
-            Ok(b) => next(Ok(b)),
-            Err(_) if i == 0 => next(Err(Fail::Page(url))),
-            Err(e) => next(Err(Fail::Msg(e))),
-        });
-    }
+        done(if n > 0 {
+            Ok(n)
+        } else {
+            Err(Fail::Msg("the archives hold nothing".into()))
+        })
+    });
 }
 
 /// The archive `link` leads to (for the song `want`): bmseeker's
@@ -556,9 +574,10 @@ pub(crate) fn web_fetch(
     });
 }
 
-/// Download a work's files and unpack them into `bms/<event>/<archive>`
-/// (add-ons into the same folder). Returns that folder (relative to the
-/// data root) and the number of files written.
+/// Download a work's files (bmseeker's `Files`, a status for each after
+/// the first) and unpack them into `bms/<event>/<archive>` (add-ons into
+/// the same folder). Returns that folder (relative to the data root) and
+/// the number of files written.
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_work(
     root: &Path,
@@ -566,6 +585,7 @@ fn fetch_work(
     files: &[File],
     tx: &Sender<Msg>,
 ) -> Result<(PathBuf, usize), Fail> {
+    use bmseeker::install::job::{run_job, Driver, Effect, Fed, Files};
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
     if files.is_empty() {
@@ -574,34 +594,59 @@ fn fetch_work(
     let stem = work_stem(files);
     let rel = PathBuf::from("bms").join(event).join(&stem);
     let dest = root.join(&rel);
-    let mut n = 0;
-    for (i, f) in files.iter().enumerate() {
-        let name = safe_name(if f.original.is_empty() {
+    let name = |f: &File| {
+        safe_name(if f.original.is_empty() {
             &f.name
         } else {
             &f.original
-        });
-        let tmp = downloads.join(format!(".{event}-{}", safe_name(&f.name)));
-        if i > 0 {
-            let _ = tx.send(Msg::Status(format!("Downloading {name}…")));
-        }
-        let name = if f.original.is_empty() {
-            // an author's link: the host's way to the archive, which names
-            // no file (its own bytes tell the format)
-            use crate::hosts::{context, fetch, sniff, Fetch};
-            match fetch(&f.url, None, &tmp, context()) {
-                Ok(()) => format!("{name}.{}", sniff(&tmp).unwrap_or("zip")),
-                Err(Fetch::Page) => return Err(Fail::Page(f.url.clone())),
-                Err(Fetch::Failed(e)) => return Err(e.into()),
-            }
-        } else {
-            crate::hosts::download_to(&f.url, &tmp)?;
-            name
-        };
-        n += crate::import::unpack_into(&tmp, &name, &dest)?;
-        let _ = std::fs::remove_file(&tmp);
+        })
+    };
+    let slots = downloads.join(format!(".{event}-{}", safe_name(&stem)));
+    // the native transport, telling which file comes
+    struct Telling<'a> {
+        native: crate::hosts::Native,
+        tx: &'a Sender<Msg>,
+        slots: Vec<(PathBuf, String)>,
     }
-    Ok((rel, n))
+    impl Driver for Telling<'_> {
+        fn perform(&self, e: Effect) -> Fed {
+            if let Effect::Download { slot, .. } = &e {
+                if let Some((_, n)) = self.slots.iter().skip(1).find(|(s, _)| s == slot) {
+                    let _ = self.tx.send(Msg::Status(format!("Downloading {n}…")));
+                }
+            }
+            self.native.perform(e)
+        }
+    }
+    let cx = crate::hosts::context();
+    let driver = Telling {
+        native: crate::hosts::Native::new(cx),
+        tx,
+        slots: (0..files.len())
+            .map(|i| (Files::slot(&slots, i), name(&files[i])))
+            .collect(),
+    };
+    let tmps: Vec<PathBuf> = driver.slots.iter().map(|(s, _)| s.clone()).collect();
+    let got = run_job(&mut Files::new(sources(files), slots, cx), &driver);
+    let r = (|| {
+        got.map_err(|m| missed(files, m))?;
+        let mut n = 0;
+        for (f, tmp) in files.iter().zip(&tmps) {
+            let name = if f.original.is_empty() {
+                // an author's link: its own bytes tell the format
+                let ext = crate::hosts::sniff(tmp).unwrap_or("zip");
+                format!("{}.{ext}", name(f))
+            } else {
+                name(f)
+            };
+            n += crate::import::unpack_into(tmp, &name, &dest)?;
+        }
+        Ok((rel, n))
+    })();
+    for t in &tmps {
+        let _ = std::fs::remove_file(t);
+    }
+    r
 }
 
 #[cfg(test)]
