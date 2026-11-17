@@ -107,6 +107,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
   a course leave no record for the song.
+- **Display** (`SETTINGS › DISPLAY › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
+  for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
+  LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
+  macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
+  the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
+  reached.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX).
@@ -261,6 +267,9 @@ records are kept in localStorage.
   The repository variable `WEB_THIRD_PARTY=1` turns the third-party mirrors on by default in that build.
 - A separate chart added on its own (📦) goes into its song's folder: the folder with the same title and artist that
   holds every sound it needs. When that cannot be decided, the page asks which song it is for.
+- The browser paces the frames at the display's refresh rate, except Safari, which keeps pages at 60 frames a
+  second unless "Prefer Page Rendering Updates near 60fps" is turned off (macOS: Develop › Feature Flags; iOS and
+  iPadOS: Settings › Apps › Safari › Advanced › Feature Flags).
 - Browsers have no system fonts for the page, so CI puts Noto Sans CJK (JP/KR, SIL OFL) into `web/fonts/`. When
   building yourself, add CJK fonts there and list them in `fonts.txt`.
 - Difficulty table servers do not allow CORS, so the web build reads tables (page, header, data) through the vibeBMS

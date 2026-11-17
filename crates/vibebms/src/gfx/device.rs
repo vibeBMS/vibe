@@ -4,6 +4,7 @@
 use super::batch::Vertex;
 use super::texture::GpuTexture;
 use super::{Batch, Color, SdfStyle, ATLAS, ATLAS_SIZE};
+use crate::platform::{Duration, Instant};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -98,13 +99,14 @@ impl Gfx {
             .find(|f| !f.is_srgb())
             .unwrap_or(caps.formats[0]);
         let size = crate::platform::screen::drawable_size(&window);
+        let present_mode = choose_present_mode(&caps.present_modes, mode);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: choose_present_mode(&caps.present_modes, mode),
-            desired_maximum_frame_latency: 1,
+            present_mode,
+            desired_maximum_frame_latency: frame_latency(present_mode),
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -312,19 +314,38 @@ impl Gfx {
     }
 
     pub fn set_present_mode(&mut self, mode: crate::config::PresentMode) {
-        self.config.present_mode = choose_present_mode(&self.present_modes, mode);
+        let m = choose_present_mode(&self.present_modes, mode);
+        self.config.present_mode = m;
+        self.config.desired_maximum_frame_latency = frame_latency(m);
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn render(&mut self, batch: &Batch, clear: Color) -> Result<(), wgpu::SurfaceError> {
+    /// The display paces the frames (each waits for a vblank).
+    pub fn vsync(&self) -> bool {
+        self.config.present_mode == wgpu::PresentMode::Fifo
+    }
+
+    /// With vsync, how many periods after it starts a frame is on the
+    /// screen, about: the frames queued before it.
+    pub fn frames_ahead(&self) -> Option<f64> {
+        self.vsync()
+            .then_some(self.config.desired_maximum_frame_latency as f64)
+    }
+
+    /// Draw and present a frame; how long it waited for its image (with
+    /// FIFO, the display holding it back: Vulkan, DX12 and Metal wait
+    /// there).
+    pub fn render(&mut self, batch: &Batch, clear: Color) -> Result<Duration, wgpu::SurfaceError> {
+        let t0 = Instant::now();
         let frame = match self.surface.get_current_texture() {
             Ok(f) => f,
             Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
                 self.surface.configure(&self.device, &self.config);
-                return Ok(());
+                return Ok(Duration::ZERO);
             }
             Err(e) => return Err(e),
         };
+        let waited = t0.elapsed();
         let n = batch.verts.len() as u64;
         if n > self.vcap {
             self.vcap = n.next_power_of_two();
@@ -417,7 +438,7 @@ impl Gfx {
         // frame callback only when told a frame is about to be shown
         self.window.pre_present_notify();
         frame.present();
-        Ok(())
+        Ok(waited)
     }
 }
 
@@ -461,6 +482,9 @@ fn web_gl_only() -> bool {
     false
 }
 
+/// The present mode for a setting (see [`crate::config::PresentMode`]):
+/// tearing only when asked for (Unlimited), and FIFO (which every GPU has)
+/// where the one wanted is missing.
 fn choose_present_mode(
     avail: &[wgpu::PresentMode],
     mode: crate::config::PresentMode,
@@ -475,9 +499,19 @@ fn choose_present_mode(
             .unwrap_or(W::Fifo)
     };
     match mode {
-        P::LowLatency => pick(&[W::Mailbox, W::Immediate, W::FifoRelaxed, W::Fifo]),
         P::VSync => W::Fifo,
-        P::Immediate => pick(&[W::Immediate, W::Mailbox, W::Fifo]),
+        P::LowLatency => pick(&[W::Mailbox]),
+        P::Immediate => pick(&[W::Immediate, W::Mailbox]),
+    }
+}
+
+/// Frames queued for the display: with FIFO two (three images), so that
+/// one slow frame does not miss its vblank; else one, the newest frame
+/// replacing a queued one.
+fn frame_latency(mode: wgpu::PresentMode) -> u32 {
+    match mode {
+        wgpu::PresentMode::Fifo => 2,
+        _ => 1,
     }
 }
 
@@ -499,5 +533,33 @@ mod tests {
         for name in ["vs_main", "fs_main", "fs_sdf"] {
             assert!(module.entry_points.iter().any(|e| e.name == name), "{name}");
         }
+    }
+
+    /// Tearing only when asked for; FIFO, two frames queued, where the mode
+    /// wanted is missing (Metal has FIFO and, on macOS, immediate).
+    #[test]
+    fn present_modes() {
+        use super::{choose_present_mode, frame_latency};
+        use crate::config::PresentMode as P;
+        use wgpu::PresentMode as W;
+        let metal = [W::Fifo, W::Immediate];
+        let vulkan = [W::Fifo, W::FifoRelaxed, W::Mailbox, W::Immediate];
+        for (avail, mode, want) in [
+            (&metal[..], P::VSync, W::Fifo),
+            (&metal[..], P::LowLatency, W::Fifo),
+            (&metal[..], P::Immediate, W::Immediate),
+            (&vulkan[..], P::VSync, W::Fifo),
+            (&vulkan[..], P::LowLatency, W::Mailbox),
+            (&vulkan[..], P::Immediate, W::Immediate),
+            (&[W::Fifo, W::Mailbox][..], P::Immediate, W::Mailbox),
+        ] {
+            assert_eq!(
+                choose_present_mode(avail, mode),
+                want,
+                "{mode:?} of {avail:?}"
+            );
+        }
+        assert_eq!(frame_latency(W::Fifo), 2);
+        assert_eq!(frame_latency(W::Mailbox), 1);
     }
 }
