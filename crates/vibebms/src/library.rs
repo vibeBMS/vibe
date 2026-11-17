@@ -169,6 +169,32 @@ impl BestScore {
         }
     }
 
+    /// `o`, a record read from another player's database, taken into this
+    /// one: the better lamp, EX score (with its counts) and combo, the lower
+    /// BP and CB, and the play and clear counts as the higher of the two,
+    /// not their sum (the same database imported again changes nothing).
+    pub fn absorb(&self, o: &BestScore) -> BestScore {
+        let mut b = self.clone();
+        if o.clear > b.clear {
+            b.clear = o.clear;
+            b.lamp_updated = b.lamp_updated.max(o.lamp_updated);
+        }
+        // (a record of assisted plays only has no counts yet)
+        if o.ex_score > b.ex_score || (b.notes == 0 && o.ex_score == b.ex_score) {
+            b.ex_score = o.ex_score;
+            b.notes = o.notes;
+            b.judges = o.judges;
+            b.score_updated = b.score_updated.max(o.score_updated);
+        }
+        b.max_combo = b.max_combo.max(o.max_combo);
+        b.min_bp = b.min_bp.min(o.min_bp);
+        b.min_cb = b.min_cb.min(o.min_cb);
+        b.play_count = b.play_count.max(o.play_count);
+        b.clear_count = b.clear_count.max(o.clear_count);
+        b.last_played = b.last_played.max(o.last_played);
+        b
+    }
+
     /// The lamp to `clear` if that is higher, noting when it rose to a
     /// clear (a first play FAILED is no update).
     fn raise_lamp(&mut self, clear: ClearType, now: i64) {
@@ -502,6 +528,34 @@ impl Library {
         if changed {
             self.save_scores();
         }
+    }
+
+    /// Records read from another player's database (`scoredb`), each
+    /// taken into the one of its key (`BestScore::absorb`): how many were
+    /// new and how many changed.
+    pub fn import(&mut self, records: &[(RecordKey, BestScore)]) -> (usize, usize) {
+        let (mut new, mut changed) = (0, 0);
+        for (key, o) in records {
+            let b = match self.scores.get(key) {
+                Some(b) => {
+                    let m = b.absorb(o);
+                    if m == *b {
+                        continue;
+                    }
+                    changed += 1;
+                    m
+                }
+                None => {
+                    new += 1;
+                    BestScore::none().absorb(o)
+                }
+            };
+            self.scores.insert(key.clone(), b);
+        }
+        if new + changed > 0 {
+            self.save_scores();
+        }
+        (new, changed)
     }
 
     /// An assisted play (`AssistFacts`): its lamp, the play and clear
@@ -1326,6 +1380,58 @@ mod tests {
 
     /// Favourite charts and songs (a song: every chart in its folder),
     /// kept with the records.
+    #[test]
+    fn imported_records_keep_the_better_of_each_and_import_once() {
+        let dir = std::env::temp_dir().join(format!("vibebms-import-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut lib = open(&dir);
+        let mut s = Score {
+            total_notes: 100,
+            passed: 100,
+            max_combo: 50,
+            combo_breaks: 4,
+            ..Default::default()
+        };
+        s.counts[0][0] = 80;
+        s.counts[3][0] = 4;
+        let k = key("a", 0);
+        lib.record_play(&k, &s, ClearType::Hard, 0);
+        lib.record_play(&k, &s, ClearType::Hard, 0);
+        let mine = lib.scores()[&k].clone();
+        let theirs = BestScore {
+            clear: ClearType::Easy,
+            ex_score: 170,
+            notes: 100,
+            judges: [80, 10, 0, 0, 10, 0],
+            max_combo: 40,
+            min_bp: 2,
+            min_cb: u32::MAX,
+            play_count: 7,
+            clear_count: 1,
+            last_played: 1,
+            ..Default::default()
+        };
+        let new = key("b", 0);
+        let recs = [(k.clone(), theirs.clone()), (new.clone(), theirs.clone())];
+        assert_eq!(lib.import(&recs), (1, 1));
+        let got = &lib.scores()[&k];
+        assert_eq!(
+            (got.clear, got.ex_score, got.judges),
+            (ClearType::Hard, 170, theirs.judges)
+        );
+        assert_eq!((got.max_combo, got.min_bp, got.min_cb), (50, 2, 4));
+        // the higher counts, not their sum
+        assert_eq!((got.play_count, got.clear_count), (7, 2));
+        assert_eq!(got.last_played, mine.last_played);
+        assert_eq!(lib.scores()[&new], theirs);
+        // again: nothing changes, on disk neither
+        let before = std::fs::read(dir.join("scores.json")).unwrap();
+        assert_eq!(lib.import(&recs), (0, 0));
+        assert_eq!(open(&dir).scores(), lib.scores());
+        assert_eq!(std::fs::read(dir.join("scores.json")).unwrap(), before);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn favorites_are_kept() {
         let dir = std::env::temp_dir().join(format!("vibebms-fav-{}", std::process::id()));

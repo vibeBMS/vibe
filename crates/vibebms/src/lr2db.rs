@@ -2,6 +2,8 @@
 //! `expert`, `nonstop` and `grade` tables (`docs/LR2_COURSES.md`, 2), read
 //! with a small SQLite reader of vibeBMS's own (tables only: no SQL, no
 //! index, no write), so that it builds for every target, the web's too.
+//! The score import (`scoredb`) reads other players' score databases with
+//! it.
 
 use vibebms_core::course::CourseDef;
 
@@ -34,6 +36,13 @@ impl Value {
             _ => None,
         }
     }
+}
+
+/// The value of column `name` (any case) of `r`.
+pub fn get<'r>(r: &'r Row, name: &str) -> Option<&'r Value> {
+    r.iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|v| &v.1)
 }
 
 /// A SQLite database file in memory.
@@ -290,14 +299,9 @@ pub fn courses(bytes: &[u8]) -> Result<Vec<Lr2Course>, String> {
             continue;
         };
         found = true;
-        let get = |r: &Row, c: &str| {
-            r.iter()
-                .find(|(n, _)| n.eq_ignore_ascii_case(c))
-                .map(|v| v.1.clone())
-        };
         rows.sort_by_key(|r| std::cmp::Reverse(get(r, "id").and_then(|v| v.int()).unwrap_or(0)));
-        for r in rows {
-            let Some(def) = get(&r, "hash")
+        for r in &rows {
+            let Some(def) = get(r, "hash")
                 .and_then(|v| v.text())
                 .and_then(|h| CourseDef::parse(&h))
             else {
@@ -307,9 +311,9 @@ pub fn courses(bytes: &[u8]) -> Result<Vec<Lr2Course>, String> {
                 continue;
             }
             out.push(Lr2Course {
-                title: get(&r, "title").and_then(|v| v.text()).unwrap_or_default(),
+                title: get(r, "title").and_then(Value::text).unwrap_or_default(),
                 def,
-                ir: get(&r, "ir").and_then(|v| v.int()) == Some(1),
+                ir: get(r, "ir").and_then(Value::int) == Some(1),
             });
         }
     }

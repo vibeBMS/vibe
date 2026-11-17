@@ -26,6 +26,48 @@ fn browse(c: &mut Ctx, _: usize) {
     }
 }
 
+/// Scores from LR2, beatoraja or LR2oraja (`scoredb`): `path` is the
+/// player's database, or a folder that has one.
+pub(super) fn import_scores(c: &mut Ctx, path: &str) {
+    use crate::scoredb;
+    if path.is_empty() {
+        return;
+    }
+    let read = scoredb::find(std::path::Path::new(path)).and_then(|f| {
+        let bytes = crate::platform::vfs::read(&f).map_err(|e| e.to_string())?;
+        scoredb::read(&bytes, scoredb::is_lr2oraja(&f))
+    });
+    let rows = match read {
+        Ok(r) => r,
+        Err(e) => return c.toast(format!("Score import: {e}")),
+    };
+    let (records, unknown) = scoredb::records(&rows, &c.lib.songs);
+    let Some(db) = c.lib.db.as_mut() else {
+        return;
+    };
+    let (imported, updated) = db.import(&records);
+    c.lib.scores = db.scores();
+    c.lib.version += 1;
+    c.toast(format!(
+        "{} scores: {imported} imported, {updated} updated, {unknown} unknown charts, {} rows skipped",
+        rows.source.label(),
+        rows.skipped
+    ));
+}
+
+#[cfg(desktop)]
+fn browse_scores(c: &mut Ctx, _: usize) {
+    if let Some(p) = rfd::FileDialog::new()
+        .set_title(
+            "LR2's LR2files/Database/Score/<player>.db, or beatoraja's player/<name>/score.db",
+        )
+        .add_filter("score database", &["db"])
+        .pick_file()
+    {
+        import_scores(c, &p.to_string_lossy());
+    }
+}
+
 fn toggle_table(c: &mut Ctx, i: usize) {
     if let Some(t) = c.config.tables.get_mut(i) {
         t.enabled ^= true;
@@ -130,7 +172,27 @@ pub(super) fn rows(b: &mut Rows) {
         .desc("Read the folders again for new or changed charts.")
         .keys("scan library refresh"),
     );
-    // (importing scores from other players goes in a section here)
+    b.header("SCORES");
+    b.push(
+        Row::new(
+            "library.import_scores",
+            "Import scores…",
+            "+",
+            Act::Text(TextField::ImportScores),
+        )
+        .desc("From LR2, beatoraja or LR2oraja: type or paste a score database or its folder.")
+        .keys("lr2 beatoraja lr2oraja score.db lamps"),
+    );
+    #[cfg(desktop)]
+    b.push(
+        Row::new(
+            "library.browse_scores",
+            "Browse for a score database…",
+            "browse",
+            Act::Run(browse_scores, 0),
+        )
+        .desc("Pick LR2's <player>.db or beatoraja's score.db; its scores are imported."),
+    );
     let on = c.tables.iter().filter(|t| t.enabled).count();
     b.header(format!("DIFFICULTY TABLES · {on} OF {}", c.tables.len()));
     for (i, t) in c.tables.iter().enumerate() {

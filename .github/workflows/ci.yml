@@ -31,12 +31,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/apt
         with:
-          toolchain: stable
+          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+      - uses: ./.github/actions/rust-setup
+        with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+          stamp: "false"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -48,14 +49,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
           targets: wasm32-unknown-unknown,aarch64-linux-android
           components: clippy
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: cross-check
+          cache-key: cross-check
+          stamp: "false"
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
       # the runner may have only versioned llvm-ar-NN
@@ -66,49 +65,48 @@ jobs:
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
-  build:
+  # Linux and Windows are separate jobs so the Flatpak packaging (which
+  # needs only the Linux executables) starts as soon as Linux is built
+  build-linux:
     name: build ${{ matrix.name }}
     needs: test
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux: the oldest runner with WebKitGTK 4.1 (glibc 2.35: Ubuntu
-          # 22.04, Debian 12 and newer); `build-linux-portable` has the rest
+          # the oldest runner with WebKitGTK 4.1 (glibc 2.35: Ubuntu 22.04,
+          # Debian 12 and newer); `build-linux-portable` has the rest
           - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
           - { name: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/apt
+        with:
+          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+      - uses: ./.github/actions/rust-build
+        with:
+          name: ${{ matrix.name }}
+          target: ${{ matrix.target }}
+          cache-key: ${{ matrix.target }}-${{ matrix.os }}
+
+  build-windows:
+    name: build ${{ matrix.name }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
           - { name: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-build
         with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          # the runner image too: a build cached on another image (ubuntu-24.04
-          # before 22.04) restored as fresh but without its crates' files
-          key: ${{ matrix.target }}-${{ matrix.os }}
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
-      - run: cargo build --release -p vibebms --target ${{ matrix.target }}
-      # the version it was built with, for the nightly's latest.json
-      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
-        shell: bash
-      # the executable alone (the downloads job links it in the run summary)
-      - uses: actions/upload-artifact@v7
-        with:
-          name: vibeBMS-${{ matrix.name }}
-          path: |
-            target/${{ matrix.target }}/release/vibebms
-            target/${{ matrix.target }}/release/vibebms.exe
-            target/${{ matrix.target }}/release/version.txt
+          name: ${{ matrix.name }}
+          target: ${{ matrix.target }}
+          cache-key: ${{ matrix.target }}-${{ matrix.os }}
 
   # macOS: both architectures on one runner (x86_64 cross-built on the arm64
   # one), then the app: one universal executable in an ad-hoc signed bundle
@@ -121,17 +119,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: macos-universal
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
+          cache-key: macos-universal
       - run: cargo build --release -p vibebms --target aarch64-apple-darwin --target x86_64-apple-darwin
       # each executable as the other builds give theirs (the nightly's
       # vibebms-macos-arm64 / -x64 and latest.json read these artifacts)
@@ -169,7 +160,7 @@ jobs:
   # tools/package_flatpak.sh, platform/flatpak)
   flatpak:
     name: package Flatpak (${{ matrix.arch }})
-    needs: build
+    needs: build-linux
     # this architecture's build can have succeeded when another build failed
     if: always() && !cancelled()
     strategy:
@@ -196,7 +187,9 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
           echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd-)" >> "$GITHUB_ENV"
       - if: steps.builds.outputs.ok
-        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder desktop-file-utils appstream
+        uses: ./.github/actions/apt
+        with:
+          packages: flatpak flatpak-builder desktop-file-utils appstream
       # Ubuntu 24.04 denies unprivileged user namespaces to programs without
       # an AppArmor profile; flatpak-builder's bubblewrap needs them
       - if: steps.builds.outputs.ok
@@ -246,17 +239,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: dnf install -y alsa-lib-devel systemd-devel pkgconf-pkg-config
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: ${{ matrix.name }}
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
+          cache-key: ${{ matrix.name }}
       - run: cargo build --release -p vibebms --no-default-features --target ${{ matrix.target }}
       - name: needs glibc 2.28 at most
         run: |
@@ -288,15 +274,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
@@ -365,17 +345,10 @@ jobs:
       IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
           targets: aarch64-apple-ios
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: aarch64-apple-ios
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
+          cache-key: aarch64-apple-ios
       - run: cargo build --release -p vibebms --target aarch64-apple-ios
       - name: package
         run: |
@@ -402,15 +375,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
           targets: aarch64-linux-android,x86_64-linux-android
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -463,29 +430,56 @@ jobs:
   # the "nightly" prerelease: the default branch's latest builds, each file
   # as it is (no zip but the web build's). A build that failed keeps its
   # previous file; the notes say which files this commit brought.
+  # The run's downloads (a summary with each build's artifact link, on every
+  # run) and, for a push to the default branch, the rolling nightly release
   nightly:
-    name: nightly release
-    needs: [build, build-linux-portable, macos, flatpak, android, ios, web]
-    if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: downloads & nightly
+    needs: [build-linux, build-windows, build-linux-portable, macos, flatpak, android, ios, web]
+    if: always()
     runs-on: ubuntu-latest
-    # a newer push's release wins over an older one still uploading
+    env:
+      RELEASE: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    # a newer push's release wins over an older one still uploading (only
+    # releases share the group: other runs must not cancel them)
     concurrency:
-      group: nightly-release
+      group: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'nightly-release' || format('downloads-{0}', github.run_id) }}
       cancel-in-progress: true
     permissions:
+      actions: read
       contents: write
     steps:
+      - name: links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "### Downloads"
+            echo
+            echo "| build | |"
+            echo "|---|---|"
+            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
+              --jq '.artifacts[] | select(.name | test("^vibeBMS-(linux|windows|macos|android|ios-unsigned)")) | "\(.name)\t\(.id)\t\(.size_in_bytes)"' |
+              sort | while IFS=$'\t' read -r name id size; do
+                echo "| ${name#vibeBMS-} | [download]($RUN/artifacts/$id) ($((size / 1048576)) MB) |"
+              done
+            echo
+            echo "Linux / macOS: \`chmod +x vibebms\` after unzipping; on macOS also \`xattr -d com.apple.quarantine vibebms\`."
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v8
+        if: env.RELEASE == 'true'
         with:
           pattern: vibeBMS-*
           path: art
       # the version the builds were given (tools/ci_version.sh)
       - name: version
+        if: env.RELEASE == 'true'
         run: |
           base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | sed 's/[-+].*//')"
           echo "BASE_VERSION=$base" >> "$GITHUB_ENV"
           echo "VERSION=$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
       - name: files
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -561,6 +555,7 @@ jobs:
       # build that failed keeps its previous file, so its entry is kept from
       # the previous latest.json.
       - name: latest.json
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -598,6 +593,7 @@ jobs:
       # Files inside a package are hashed as they run: the macOS app's
       # executable and the Android libraries.
       - name: builds.json
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -639,6 +635,7 @@ jobs:
           ' prev/builds.json > out/builds.json
           jq -c '.builds[-1]' out/builds.json
       - name: release
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -683,29 +680,3 @@ jobs:
           gh release upload nightly out/* --clobber
 
   # links to the executables in the run summary, once the builds are done
-  downloads:
-    name: downloads
-    needs: [build, build-linux-portable, macos, flatpak, android, ios]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-    steps:
-      - name: links
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          {
-            echo "### Downloads"
-            echo
-            echo "| build | |"
-            echo "|---|---|"
-            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
-              --jq '.artifacts[] | select(.name | test("^vibeBMS-(linux|windows|macos|android|ios-unsigned)")) | "\(.name)\t\(.id)\t\(.size_in_bytes)"' |
-              sort | while IFS=$'\t' read -r name id size; do
-                echo "| ${name#vibeBMS-} | [download]($RUN/artifacts/$id) ($((size / 1048576)) MB) |"
-              done
-            echo
-            echo "Linux / macOS: \`chmod +x vibebms\` after unzipping; on macOS also \`xattr -d com.apple.quarantine vibebms\`."
-          } >> "$GITHUB_STEP_SUMMARY"

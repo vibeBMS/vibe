@@ -31,3 +31,8 @@ web-sys = { version = "0.3", features = ["AudioContext", "BaseAudioContext", "Au
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+
+# Windows: WASAPI output of its own (exclusive mode, IAudioClient3 periods)
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.27"
+windows = { version = "0.62", features = ["Win32_System_Threading"] }

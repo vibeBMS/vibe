@@ -213,6 +213,9 @@ const OLD: &[(&str, &[&str])] = &[
             "library.browse",
             "library.add_folder",
             "library.rescan",
+            "library.import_scores",
+            #[cfg(desktop)]
+            "library.browse_scores",
         ],
     ),
     (

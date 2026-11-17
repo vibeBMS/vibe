@@ -148,7 +148,7 @@ pub(super) fn rows(b: &mut Rows) {
         "ADVANCED",
         "Audio buffer size, output and GPU",
     );
-    b.extend([
+    b.push(
         Row::adjust(
             "audio.buffer_frames",
             "Audio buffer size",
@@ -163,7 +163,19 @@ pub(super) fn rows(b: &mut Rows) {
         )
         .desc("Smaller is less lag, but may crackle. Applies after a restart.")
         .keys("latency"),
-        // (the audio output mode, shared or exclusive, goes here)
+    );
+    #[cfg(windows)]
+    b.push(
+        Row::adjust(
+            "audio.exclusive",
+            "Output mode",
+            if a.exclusive { "EXCLUSIVE" } else { "SHARED" },
+            |c, _| c.config.audio.exclusive ^= true,
+        )
+        .desc("EXCLUSIVE (WASAPI) has the least lag; others cannot play. Applies after a restart.")
+        .keys("wasapi exclusive shared latency"),
+    );
+    b.extend([
         Row::note(
             "info.output",
             "Output",

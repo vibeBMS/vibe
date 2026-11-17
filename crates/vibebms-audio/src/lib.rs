@@ -32,6 +32,9 @@ pub struct AudioConfig {
     pub bgm_volume: f32,
     pub system_volume: f32,
     pub max_voices: usize,
+    /// Windows: the device in WASAPI exclusive mode (else shared).
+    #[cfg(windows)]
+    pub exclusive: bool,
 }
 
 impl Default for AudioConfig {
@@ -44,6 +47,8 @@ impl Default for AudioConfig {
             bgm_volume: 1.0,
             system_volume: 0.8,
             max_voices: 512,
+            #[cfg(windows)]
+            exclusive: false,
         }
     }
 }
@@ -117,13 +122,15 @@ impl Mixer {
     /// Call every frame: an output whose device went away (unplugged, a
     /// driver reset) is opened again on what is the default device now;
     /// meanwhile the mixer goes on silently with the clock, so the play
-    /// does not stall.
-    pub fn keep_alive(&mut self) {
+    /// does not stall. A message for the player when the output did not
+    /// open as asked (Windows: exclusive mode).
+    pub fn keep_alive(&mut self) -> Option<String> {
         // the sounds are decoded at the rate in use: that stays
         if let Some(dev) = self.out.keep_alive() {
             self.buffer_frames = dev.buffer;
             self.device_name = dev.name;
         }
+        self.out.take_notice()
     }
 
     pub fn us_to_frames(&self, us: i64) -> i64 {

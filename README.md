@@ -203,7 +203,17 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
   player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
-- **Audio**: low-latency output (ASIO/JACK feature flags), keysounds scheduled to the sample, WAV/OGG/MP3/FLAC.
+- **Audio**: low-latency output, keysounds scheduled to the sample, WAV/OGG/MP3/FLAC. On Windows, WASAPI of its own:
+  SHARED (the default) at the small periods of IAudioClient3 where Windows 10+ and the driver offer them (the buffer
+  size setting rounded to one the engine takes), else the usual shared stream; EXCLUSIVE
+  (`SETTINGS › DISPLAY & AUDIO › Output mode`, on restart) event driven at the device's smallest period, in the mixer's rate as float, 24-bit or 16-bit,
+  else a format of the device's own, and back to shared with a message when the device refuses. ASIO/JACK feature
+  flags for cpal.
+- **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
+  under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
+  LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
+  judgements) and max combo, the lower min BP, and the play and clear counts as the higher of the two (not summed,
+  so importing again changes nothing). Courses and charts not in the library are counted and left out.
 
 ## Skins
 

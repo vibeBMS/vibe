@@ -1,0 +1,43 @@
+name: apt install
+description: >-
+  Install Ubuntu packages from one fast mirror, with the downloaded packages
+  kept in the Actions cache.
+
+inputs:
+  packages:
+    description: Packages to install, separated by spaces
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The hosted x64 images list several mirrors and apt may settle on a slow
+    # one; keep only Azure's, next to the runners. (arm64 images use
+    # ports.ubuntu.com, which Azure does not mirror: left as is.)
+    - name: pin the mirror
+      shell: bash
+      run: |
+        f=/etc/apt/apt-mirrors.txt
+        if [ "$(dpkg --print-architecture)" = amd64 ] && [ -f "$f" ]; then
+          echo "http://azure.archive.ubuntu.com/ubuntu/" | sudo tee "$f" >/dev/null
+        fi
+        echo "APT_ARCHIVES=$RUNNER_TEMP/apt-archives" >> "$GITHUB_ENV"
+        mkdir -p "$RUNNER_TEMP/apt-archives/partial"
+    # (the key names the package set; a newer version of a package is simply
+    # downloaded in addition)
+    - uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/apt-archives
+        key: apt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.packages }}
+    - name: install
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        opts=(-o Acquire::Retries=3 -o "Dir::Cache::Archives=$APT_ARCHIVES" -o APT::Keep-Downloaded-Packages=true)
+        sudo apt-get "${opts[@]}" update
+        # shellcheck disable=SC2086
+        sudo apt-get "${opts[@]}" install -y $PACKAGES
+        # apt leaves root-owned files: make them readable for the cache
+        sudo chown -R "$(id -u):$(id -g)" "$APT_ARCHIVES"
+        rm -f "$APT_ARCHIVES/lock"

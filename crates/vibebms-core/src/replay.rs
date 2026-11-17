@@ -28,7 +28,11 @@ use std::io::{Read, Write};
 /// 6: the IIDX preset as DX MODE: its windows (BAD ±200 ms, 9 keys
 /// pop'n's), combo and note rules, gauges and 2 % rule (an IIDX-preset
 /// replay of 5 may judge otherwise).
-pub const VERSION: u32 = 6;
+/// 7: the IIDX preset as the arcade: BAD ±250 ms, the empty POOR's 150 ms
+/// late, HARD and EX-HARD damage, the 30 % rule at 30 % and the survival
+/// gauges failing at 0 % (an IIDX-preset replay of 6 in 5, 7, 10 or 14
+/// keys may judge otherwise).
+pub const VERSION: u32 = 7;
 
 /// The oldest format still read: its ghost still paces a play, but
 /// watching it or playing it again (G-BATTLE) runs it on this judge.
