@@ -66,7 +66,8 @@ pub struct ScoreSubmission {
 }
 
 impl ScoreSubmission {
-    pub fn from_score(chart: &ChartRef, s: &Score, clear: ClearType) -> Self {
+    /// The submission of a play at `date` (Unix seconds).
+    pub fn from_score(chart: &ChartRef, s: &Score, clear: ClearType, date: u64) -> Self {
         // the e*/l* fields have no "exact" bucket: count exact hits as early
         let c = |j: usize, late: usize| s.counts[j][late] + if late == 0 { s.just[j] } else { 0 };
         ScoreSubmission {
@@ -92,10 +93,7 @@ impl ScoreSubmission {
             minbp: s.miss_count(),
             exscore: s.ex_score(),
             client: concat!("vibeBMS ", env!("CARGO_PKG_VERSION")).into(),
-            date: web_time::SystemTime::now()
-                .duration_since(web_time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            date,
             ..Default::default()
         }
     }
@@ -239,6 +237,7 @@ mod tests {
             },
             &s,
             ClearType::Normal,
+            7,
         );
         assert_eq!((sub.epg, sub.lpg, sub.lpr, sub.exscore), (1, 1, 1, 4));
         let j = serde_json::to_value(&sub).unwrap();

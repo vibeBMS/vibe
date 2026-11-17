@@ -22,8 +22,8 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Default)]
 pub struct ParseOptions {
-    /// Seed for `#RANDOM`; `None` = derived from the system clock.
-    pub random_seed: Option<i64>,
+    /// Seed for `#RANDOM`.
+    pub random_seed: i64,
     /// Force the outcome of each `#RANDOM` in order (e.g. from a replay).
     pub random_selections: Option<Vec<u32>>,
 }
@@ -392,15 +392,9 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
     let text = decode_text(bytes);
     let pms = ext.eq_ignore_ascii_case("pms");
 
-    let seed = opts.random_seed.unwrap_or_else(|| {
-        web_time::SystemTime::now()
-            .duration_since(web_time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as i64)
-            .unwrap_or(0)
-    });
     let mut flow = Flow {
         stack: Vec::new(),
-        rng: JavaRandom::new(seed),
+        rng: JavaRandom::new(opts.random_seed),
         forced: opts.random_selections.clone(),
         forced_idx: 0,
         selections: Vec::new(),
@@ -868,7 +862,7 @@ mod tests {
             s.as_bytes(),
             "bms",
             &ParseOptions {
-                random_seed: Some(1),
+                random_seed: 1,
                 ..Default::default()
             },
         )

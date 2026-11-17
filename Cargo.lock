@@ -5060,11 +5060,11 @@ name = "vibebms-core"
 version = "0.1.0-dev"
 dependencies = [
  "encoding_rs",
+ "flate2",
  "md-5",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "web-time",
 ]
 
 [[package]]
@@ -5074,7 +5074,6 @@ dependencies = [
  "serde",
  "serde_json",
  "vibebms-core",
- "web-time",
 ]
 
 [[package]]

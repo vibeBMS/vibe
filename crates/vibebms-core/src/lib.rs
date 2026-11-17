@@ -11,6 +11,8 @@
 //! * [`score`]: EX score, clear lamps, DJ level
 //! * [`lane_option`]: RANDOM / MIRROR / S-RANDOM / H-RANDOM / ... and assist options
 //! * [`engine`]: the real-time judge engine (normal notes, LN / CN / HCN, mines, BSS)
+//! * [`play`]: the rule options and the chart and judge they make
+//! * [`replay`]: a play's inputs, to judge it again (headless)
 
 /// An enum of options picked from a list, with `ALL` (in declaration
 /// order) and `label()`, so the list cannot drift from the enum:
@@ -37,7 +39,42 @@ macro_rules! choices {
                 }
             }
         }
+
+        impl $crate::Labeled for $name {
+            fn label(self) -> &'static str {
+                $name::label(self)
+            }
+
+            fn from_label(label: &str) -> Option<$name> {
+                $name::ALL.into_iter().find(|v| v.label() == label)
+            }
+        }
     };
+}
+
+/// A `choices!` enum, known by its label.
+pub trait Labeled: Sized {
+    fn label(self) -> &'static str;
+    fn from_label(label: &str) -> Option<Self>;
+}
+
+/// Serde of a `choices!` enum by its label, for files that store the label
+/// (`#[serde(with = "vibebms_core::by_label")]`); a label not known reads
+/// as the default.
+pub mod by_label {
+    use super::Labeled;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<T: Labeled + Copy, S: Serializer>(v: &T, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(v.label())
+    }
+
+    pub fn deserialize<'de, T: Labeled + Default, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<T, D::Error> {
+        let label = String::deserialize(d)?;
+        Ok(T::from_label(&label).unwrap_or_default())
+    }
 }
 
 pub mod bms;
@@ -50,6 +87,8 @@ pub mod gauge;
 pub mod judge;
 pub mod lane_option;
 pub mod mode;
+pub mod play;
+pub mod replay;
 pub mod rng;
 pub mod score;
 pub mod timing;
