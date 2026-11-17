@@ -844,7 +844,10 @@ pub fn refusal_words(r: Refusal) -> String {
         Refusal::Touch => "touch".into(),
         Refusal::WebPlay => "played in the browser".into(),
         Refusal::NotTaken(p, m) => format!("{} {} not taken", p.label(), m.label()),
-        Refusal::OpenGap(gap) => format!("rules not confirmed equal yet ({gap})"),
+        Refusal::OpenGap(id) => match vibebms_ir::rule::gap(id).map(|g| g.reason) {
+            Some(reason) if !reason.is_empty() => reason.into(),
+            _ => format!("rules not confirmed equal yet ({id})"),
+        },
         Refusal::NotYet => "not in this build yet".into(),
         Refusal::OperatorPending => "waiting for the operator".into(),
         Refusal::RandomChart => "a #RANDOM chart".into(),
@@ -1169,5 +1172,17 @@ mod tests {
         assert!(ir.items().any(|i| i.play_id == rec.play_id));
         assert!(!ir.items().any(|i| i.play_id == "p0"));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// An open gap is told by its reason; one without, by its id.
+    #[test]
+    fn open_gaps_in_words() {
+        let a3 = vibebms_ir::rule::gap("A3").unwrap().reason;
+        assert!(!a3.is_empty());
+        assert_eq!(refusal_words(Refusal::OpenGap("A3")), a3);
+        assert_eq!(
+            refusal_words(Refusal::OpenGap("Z9")),
+            "rules not confirmed equal yet (Z9)"
+        );
     }
 }
