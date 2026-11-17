@@ -526,10 +526,10 @@ impl LoadedSkin {
         r: Rect,
         fr: &Frame,
     ) {
-        let Some(base) = src.frame(now, st) else {
+        // (none while its timer is off)
+        if src.frame(now, st).is_none() {
             return;
-        };
-        let _ = base;
+        }
         let neg = value < 0;
         let mut v = value.unsigned_abs();
         let mut slots: Vec<Option<usize>> = vec![None; keta];
@@ -622,7 +622,7 @@ impl LoadedSkin {
                 now,
             );
         }
-        self.draw_objects(d, view, now, &Overlay { st, rt, offsets }, hooks);
+        self.draw_objects(d, &xf, now, &Overlay { st, rt, offsets }, hooks);
         d.b.set_base_clip(None);
     }
 
@@ -644,24 +644,23 @@ impl LoadedSkin {
     fn draw_objects(
         &self,
         d: &mut Draw,
-        view: Rect,
+        xf: &Xf,
         now: i64,
         st: &dyn SkinState,
         hooks: &mut dyn Hooks,
     ) {
-        let xf = Xf::fit(self.skin.width, self.skin.height, view);
         for o in &self.skin.objects {
             match &o.kind {
                 Kind::Notes => {
-                    hooks.notes(d, self, &xf, now, st);
+                    hooks.notes(d, self, xf, now, st);
                     continue;
                 }
                 Kind::Judge { side } => {
-                    self.draw_judge(d, &xf, *side, now, st, hooks);
+                    self.draw_judge(d, xf, *side, now, st, hooks);
                     continue;
                 }
                 Kind::SongList => {
-                    hooks.song_list(d, self, &xf, now, st);
+                    hooks.song_list(d, self, xf, now, st);
                     continue;
                 }
                 _ => {}
