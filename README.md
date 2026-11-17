@@ -288,5 +288,6 @@ restriction); its RAR engine is based on the UnRAR source, whose terms are:
 
 Lua's pattern matcher (ported) and the BeMusicSeeker fork's rules (through bmseeker) are MIT; their notices are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The judging, gauge and skin rules follow the behaviour of beatoraja,
-LR2oraja and LR2 (see [docs/RULES.md](docs/RULES.md)); parts of the judge engine that followed beatoraja's code too
-closely are being rewritten from a behaviour specification. No charts or music are included.
+LR2oraja and LR2 (see [docs/RULES.md](docs/RULES.md)), but no code is taken from these players: the judge engine,
+judge windows, gauge damage rules, chart metrics, skin path matching and the SDF text shader were written from a
+behaviour specification and tests, without reference to their code. No charts or music are included.
