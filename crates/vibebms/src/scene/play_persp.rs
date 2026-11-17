@@ -87,9 +87,9 @@ fn ms_since(now: Instant, t: Option<Instant>) -> Option<f32> {
 pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
     let s = st.s;
     let ctx = st.ctx;
-    let Some(engine) = s.engine.as_ref() else {
+    if s.engine().is_none() {
         return;
-    };
+    }
     let Some(sk) = s.skin.as_ref() else { return };
     let view = xf.rect(crate::gfx::Rect::new(
         0.0,
@@ -124,7 +124,6 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
     } else {
         dep.judge
     };
-    let notes = engine.notes();
     for f in &fans {
         let d_bot = f.d_bottom();
         let note_dd = depth_of_px(f, f.width * NOTE_H, dep.judge);
@@ -253,9 +252,10 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
         // notes
         for l in &f.lanes {
             let lane = l.lane;
-            let Some(list) = s.lane_notes.get(lane) else {
+            let (Some(list), Some(engine)) = (s.lane_notes.get(lane), s.engine_for(lane)) else {
                 continue;
             };
+            let notes = engine.notes();
             let cursor = s
                 .lane_cursor
                 .get(lane)
@@ -400,7 +400,10 @@ pub fn draw(st: &SceneState, d: &mut Draw, xf: &Xf) {
                     );
                 }
             }
-            if engine.holding(l.lane).is_some() {
+            if s.engine_for(l.lane)
+                .and_then(|e| e.holding(l.lane))
+                .is_some()
+            {
                 let pulse = 0.6 + 0.4 * ((s.chart_us(now) / 1000) as f32 * 0.02).sin().abs();
                 ellipse(
                     d,

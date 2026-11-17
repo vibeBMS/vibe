@@ -102,7 +102,8 @@ pub struct PlayScene {
     /// Video BGA by chart image, and the chart time (µs) each was first shown.
     bga_video: Vec<Option<crate::video::Video>>,
     bga_start: Vec<Option<i64>>,
-    pub(crate) engine: Option<Engine>,
+    /// The judges: one per side (a single play, BATTLE: one for both).
+    pub(crate) sides: Vec<SideState>,
     pub(crate) mapper: Option<LaneMapper>,
     pub(crate) touch: TouchInput,
     pub(crate) zones: Vec<Zone>,
@@ -118,7 +119,6 @@ pub struct PlayScene {
     /// The last judge of each judge region (`judge_region`).
     pub(crate) last_judge: [Option<(usize, i64, Instant, u32)>; 3],
     pub(crate) bombs: Vec<(u8, Instant, usize)>,
-    pub(crate) gauge_log: Vec<f32>,
     pub(crate) next_sample: i64,
     pub(crate) lane_notes: Vec<Vec<usize>>,
     pub(crate) lane_cursor: Vec<usize>,
@@ -130,8 +130,6 @@ pub struct PlayScene {
     pub(crate) total: f64,
     pub(crate) seed: i64,
     pub(crate) error: Option<String>,
-    /// The replay's next op (watching one).
-    replay_at: usize,
     /// The best play's judgements in order (its replay), the pacemaker for
     /// MY BEST at the same note.
     pub(crate) best_ghost: Option<Vec<u8>>,
@@ -156,6 +154,64 @@ pub struct PlayScene {
     /// Last judgement per lane (skin values 500-519).
     pub(crate) lane_judge: Vec<Option<usize>>,
     pub(crate) skin: Option<crate::skin::render::LoadedSkin>,
+}
+
+/// Who plays a side.
+#[derive(Clone, Debug)]
+pub(crate) enum Role {
+    /// A person (or autoplay): the keys reach its judge.
+    Player,
+    /// A replay being watched.
+    Replay(Feed),
+}
+
+/// Replay ops going into a judge as the chart plays.
+#[derive(Clone, Debug)]
+pub(crate) struct Feed {
+    pub replay: Arc<Replay>,
+    /// The next op.
+    pub at: usize,
+    /// Lanes its inputs move by (a single play's replay on the 2P side).
+    pub shift: u8,
+}
+
+impl Feed {
+    pub fn new(replay: Arc<Replay>, shift: u8) -> Feed {
+        Feed {
+            replay,
+            at: 0,
+            shift,
+        }
+    }
+
+    /// The ops up to chart time `t` into `e` (an input waits in the judge
+    /// for the update after it); `lit` sees each input (lane, pressed).
+    pub fn run(&mut self, e: &mut Engine, t: i64, mut lit: impl FnMut(u8, bool)) {
+        while let Some(op) = self.replay.ops.get(self.at) {
+            let op = op.shifted(self.shift);
+            match op {
+                Op::Update(u) if u > t => break,
+                Op::Input(_, lane, _, pressed) => lit(lane, pressed),
+                Op::Update(_) => {}
+            }
+            e.apply(op);
+            self.at += 1;
+        }
+    }
+}
+
+/// One side of the play: its judge and what is kept of it.
+pub(crate) struct SideState {
+    pub engine: Engine,
+    pub role: Role,
+    /// The gauge every 500 ms (the result's graph).
+    pub gauge_log: Vec<f32>,
+}
+
+impl SideState {
+    fn player(&self) -> bool {
+        matches!(self.role, Role::Player)
+    }
 }
 
 /// The gauge graph's samples (every 500 ms) with the gauge as the play
@@ -422,7 +478,7 @@ impl PlayScene {
             bga_tex: Vec::new(),
             bga_video: Vec::new(),
             bga_start: Vec::new(),
-            engine: None,
+            sides: Vec::new(),
             mapper: None,
             touch: TouchInput::default(),
             zones: Vec::new(),
@@ -437,7 +493,6 @@ impl PlayScene {
             poor_until: None,
             last_judge: [None; 3],
             bombs: Vec::new(),
-            gauge_log: Vec::new(),
             next_sample: 0,
             lane_notes: Vec::new(),
             lane_cursor: Vec::new(),
@@ -447,7 +502,6 @@ impl PlayScene {
             total: 0.0,
             seed: 0,
             error: None,
-            replay_at: 0,
             best_ghost: None,
             ctl: Control::default(),
             skin_panel: false,
@@ -470,6 +524,19 @@ impl PlayScene {
 
     pub(crate) fn mode(&self) -> PlayMode {
         self.mode
+    }
+
+    /// The first side's judge (1P: the scores the skin shows).
+    pub(crate) fn engine(&self) -> Option<&Engine> {
+        self.sides.first().map(|s| &s.engine)
+    }
+
+    /// The judge of a lane.
+    pub(crate) fn engine_for(&self, lane: usize) -> Option<&Engine> {
+        self.sides
+            .iter()
+            .map(|s| &s.engine)
+            .find(|e| e.judges(lane as u8))
     }
 
     /// beatoraja judge regions: one per player, or for a PMS skin with a
@@ -601,9 +668,21 @@ impl PlayScene {
             .filter(|r| r.keepable())
             .map(|r| r.ghost);
         }
+        let role = match self.req.replay.clone() {
+            Some(r) => Role::Replay(Feed::new(r, 0)),
+            None => Role::Player,
+        };
+        self.sides = vec![SideState {
+            engine,
+            role,
+            gauge_log: Vec::new(),
+        }];
+        // each lane's notes in its judge
         let mut lane_notes = vec![Vec::new(); lanes];
-        for (i, n) in engine.notes().iter().enumerate() {
-            lane_notes[n.lane as usize].push(i);
+        for side in &self.sides {
+            for (i, n) in side.engine.notes().iter().enumerate() {
+                lane_notes[n.lane as usize].push(i);
+            }
         }
         self.lane_notes = lane_notes;
         self.lane_cursor = vec![0; lanes];
@@ -622,7 +701,6 @@ impl PlayScene {
             })
             .map(|n| (n.time, n.sound))
             .collect();
-        self.engine = Some(engine);
         self.mapper = Some(LaneMapper::new(&ctx.config.keys, self.mode));
         self.bga_tex = images
             .into_iter()
@@ -734,33 +812,20 @@ impl PlayScene {
         }
     }
 
-    /// Watching a replay: its ops up to chart time `t` into the judge (an
-    /// input waits in the judge for the update after it), the keys it
-    /// presses lit.
-    fn run_replay(&mut self, t: i64, now: Instant) {
-        let Some(r) = self.req.replay.clone() else {
-            return;
-        };
-        let Some(e) = self.engine.as_mut() else {
-            return;
-        };
-        while let Some(op) = r.ops.get(self.replay_at) {
-            match *op {
-                Op::Update(u) if u > t => break,
-                Op::Input(_, lane, _, pressed) => {
-                    let lit = if pressed {
-                        &mut self.key_flash
-                    } else {
-                        &mut self.key_off
-                    };
-                    if let Some(f) = lit.get_mut(lane as usize) {
-                        *f = Some(now);
-                    }
+    /// The sides that replays drive: their ops up to chart time `t`,
+    /// the keys they press lit.
+    fn run_feeds(&mut self, t: i64, now: Instant) {
+        for side in &mut self.sides {
+            let Role::Replay(f) = &mut side.role else {
+                continue;
+            };
+            let (flash, off) = (&mut self.key_flash, &mut self.key_off);
+            f.run(&mut side.engine, t, |lane, pressed| {
+                let lit = if pressed { &mut *flash } else { &mut *off };
+                if let Some(f) = lit.get_mut(lane as usize) {
+                    *f = Some(now);
                 }
-                Op::Update(_) => {}
-            }
-            e.apply(*op);
-            self.replay_at += 1;
+            });
         }
     }
 
@@ -770,7 +835,11 @@ impl PlayScene {
         }
         self.touched |= ev.pressed;
         let t = self.chart_us(ev.time) - offset;
-        if let Some(e) = self.engine.as_mut() {
+        let side = self
+            .sides
+            .iter_mut()
+            .find(|s| s.player() && s.engine.judges(ev.lane));
+        if let Some(e) = side.map(|s| &mut s.engine) {
             e.input(InputEvent {
                 time: t,
                 lane: ev.lane,
@@ -924,9 +993,10 @@ impl PlayScene {
     }
 
     fn finish(&mut self, ctx: &mut Ctx, failed: bool) -> Next {
-        let Some(e) = self.engine.as_ref() else {
+        let Some(side) = self.sides.first() else {
             return Next::Pop;
         };
+        let e = &side.engine;
         // quit (START + SELECT, Esc) before a key was played: no play to
         // record or count, no results; back to song select
         if self.quit && !self.touched {
@@ -971,7 +1041,7 @@ impl PlayScene {
             clear,
             gauge_type: gauge.current_type(),
             gauge_value: gauge.value(),
-            gauge_log: settled_log(&self.gauge_log, gauge.value()),
+            gauge_log: settled_log(&side.gauge_log, gauge.value()),
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
@@ -1187,34 +1257,43 @@ impl Scene for PlayScene {
             self.feed(e, offset);
         }
         self.schedule_audio(ctx, t);
-        let mut failed = false;
-        let mut events: Vec<EngineEvent> = Vec::new();
-        let mut auto: Vec<bool> = Vec::new();
-        if self.req.replay.is_some() {
-            self.run_replay(t, now);
-        }
-        if let Some(engine) = self.engine.as_mut() {
-            if self.req.replay.is_none() {
+        self.run_feeds(t, now);
+        // (side, event): a side whose players all failed ends the play
+        let mut events: Vec<(usize, EngineEvent)> = Vec::new();
+        let mut autos: Vec<Vec<bool>> = Vec::new();
+        let sample = t >= self.next_sample;
+        let mut finished = true;
+        for (k, side) in self.sides.iter_mut().enumerate() {
+            let player = side.player();
+            let engine = &mut side.engine;
+            if player {
                 engine.update(t - offset);
             }
-            events = engine.drain_events().collect();
-            auto = (0..self.mode.lane_count())
-                .map(|l| engine.is_auto(l))
-                .collect();
-            if t >= self.next_sample {
-                self.gauge_log.push(engine.gauge.value());
-                // every 500 ms of play time, like beatoraja
-                self.next_sample = t + 500_000;
+            events.extend(engine.drain_events().map(|e| (k, e)));
+            autos.push(
+                (0..self.mode.lane_count())
+                    .map(|l| engine.is_auto(l))
+                    .collect(),
+            );
+            if sample {
+                side.gauge_log.push(engine.gauge.value());
             }
-            if engine.is_finished(t - offset) && self.finished_at.is_none() {
-                self.finished_at = Some(t);
-                self.finished_instant = Some(now);
-            }
+            finished &= engine.is_finished(t - offset);
         }
-        for ev in events {
+        if sample {
+            // every 500 ms of play time, like beatoraja
+            self.next_sample = t + 500_000;
+        }
+        if !self.sides.is_empty() && finished && self.finished_at.is_none() {
+            self.finished_at = Some(t);
+            self.finished_instant = Some(now);
+        }
+        let mut failed = false;
+        for (k, ev) in events {
+            let auto = &autos[k];
             match ev {
                 EngineEvent::Sound { .. } | EngineEvent::Volume { .. } => {
-                    self.sound_event(ctx, ev, &auto)
+                    self.sound_event(ctx, ev, auto)
                 }
                 EngineEvent::Judge {
                     lane,
@@ -1394,7 +1473,12 @@ impl Scene for PlayScene {
             InputEv::Released { time, touch_only } => {
                 self.touch.release_all(*time, &mut lane_evs);
                 if !touch_only {
-                    let held = self.engine.as_ref().map(|e| e.held()).unwrap_or_default();
+                    let held: Vec<(u8, u8)> = self
+                        .sides
+                        .iter()
+                        .filter(|s| s.player())
+                        .flat_map(|s| s.engine.held())
+                        .collect();
                     for (lane, sub) in held {
                         if !lane_evs.iter().any(|e| e.lane == lane && e.sub == sub) {
                             lane_evs.push(LaneEv {
@@ -1423,17 +1507,17 @@ impl Scene for PlayScene {
             // judge now and start the keys' sounds without waiting for the
             // next frame; the rest of the events wait for it
             let t = self.chart_us(Instant::now());
-            let (sounds, auto) = match self.engine.as_mut() {
-                Some(e) => {
-                    e.update(t - offset);
-                    let auto: Vec<bool> =
-                        (0..self.mode.lane_count()).map(|l| e.is_auto(l)).collect();
-                    (e.take_sounds(), auto)
+            let mut sounds = Vec::new();
+            for side in self.sides.iter_mut().filter(|s| s.player()) {
+                let e = &mut side.engine;
+                e.update(t - offset);
+                let auto: Vec<bool> = (0..self.mode.lane_count()).map(|l| e.is_auto(l)).collect();
+                sounds.push((e.take_sounds(), auto));
+            }
+            for (evs, auto) in sounds {
+                for ev in evs {
+                    self.sound_event(ctx, ev, &auto);
                 }
-                None => (Vec::new(), Vec::new()),
-            };
-            for ev in sounds {
-                self.sound_event(ctx, ev, &auto);
             }
         }
         Next::Stay
@@ -1526,7 +1610,7 @@ impl Scene for PlayScene {
             );
             return;
         }
-        if self.engine.is_none() {
+        if self.sides.is_empty() {
             return;
         }
         self.draw_skinned(ctx, d, now);
@@ -1747,17 +1831,18 @@ impl PlayScene {
         }
         // advance render cursors
         let t_vis = self.chart_us(now);
-        if let Some(e) = self.engine.as_ref() {
-            let notes = e.notes();
-            for (lane, list) in self.lane_notes.iter().enumerate() {
-                let c = &mut self.lane_cursor[lane];
-                while *c < list.len() {
-                    let n = &notes[list[*c]];
-                    if n.end_time < t_vis - 1_000_000 && (n.is_done() || n.is_mine()) {
-                        *c += 1;
-                    } else {
-                        break;
-                    }
+        for (lane, list) in self.lane_notes.iter().enumerate() {
+            let judge = self.sides.iter().find(|s| s.engine.judges(lane as u8));
+            let Some(notes) = judge.map(|s| s.engine.notes()) else {
+                continue;
+            };
+            let c = &mut self.lane_cursor[lane];
+            while *c < list.len() {
+                let n = &notes[list[*c]];
+                if n.end_time < t_vis - 1_000_000 && (n.is_done() || n.is_mine()) {
+                    *c += 1;
+                } else {
+                    break;
                 }
             }
         }
@@ -1835,8 +1920,12 @@ mod tests {
         let r: Replay = serde_json::from_slice(&serde_json::to_vec(&r).unwrap()).unwrap();
         let (chart, _, _) = load_chart(path, text.as_bytes(), &r.play, r.seed, None).unwrap();
         let (mut w, _) = make_engine(&chart, &Rules::of(&r.play), None);
-        for op in &r.ops {
-            w.apply(*op);
+        // fed frame by frame as the scene does
+        let mut feed = Feed::new(Arc::new(r.clone()), 0);
+        let mut t = -1_500_000;
+        while feed.at < r.ops.len() {
+            feed.run(&mut w, t, |_, _| {});
+            t += 16_667;
         }
         assert_eq!(w.ghost, r.ghost);
         assert_eq!(digest(&w), digest(&e));

@@ -356,7 +356,7 @@ impl SceneState<'_> {
     }
 
     fn engine(&self) -> Option<&vibebms_core::engine::Engine> {
-        self.s.engine.as_ref()
+        self.s.engine()
     }
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
@@ -404,7 +404,7 @@ impl SkinState for SceneState<'_> {
             50..=69 => lane_t(50, &s.bomb_at),
             70..=89 => {
                 let lane = lane_from_lr2(mode, id - 70)?;
-                self.engine()?.holding(lane).map(|_| 0)
+                s.engine_for(lane)?.holding(lane).map(|_| 0)
             }
             100..=119 => {
                 let v = lane_t(100, &s.key_flash)?;
@@ -480,8 +480,8 @@ impl SkinState for SceneState<'_> {
             let sc = &e.score;
             let lj = self.s.last_judge[0];
             match abs {
-                80 => self.s.engine.is_none(),
-                81 => self.s.engine.is_some(),
+                80 => self.s.engine().is_none(),
+                81 => self.s.engine().is_some(),
                 200..=207 => {
                     vibebms_core::score::DjLevel::from_rate(sc.ex_score(), sc.passed * 2) as i32
                         == 7 - (abs - 200)
@@ -732,7 +732,7 @@ impl Hooks for SceneHooks<'_> {
         };
         match graph {
             Graph::Notes(g) => {
-                let Some(e) = s.engine.as_ref() else {
+                let Some(e) = s.engine() else {
                     return;
                 };
                 let cols = super::graphs::columns(e.notes(), s.mode, s.chart.length());
@@ -753,7 +753,7 @@ impl Hooks for SceneHooks<'_> {
                 super::graphs::bpm(d, &a, g, &log, s.chart.length(), s.chart.meta.main_bpm);
             }
             Graph::Visualizer(g) => {
-                let Some(e) = s.engine.as_ref() else {
+                let Some(e) = s.engine() else {
                     return;
                 };
                 let recent: Vec<i64> = e.timing_log.iter().map(|t| t.1).collect();
@@ -768,9 +768,9 @@ impl Hooks for SceneHooks<'_> {
             return super::play_persp::draw(self.st, d, xf);
         }
         let s = self.st.s;
-        let Some(engine) = s.engine.as_ref() else {
+        if s.engine().is_none() {
             return;
-        };
+        }
         let p = &self.st.ctx.config.play;
         let t_vis = s.chart_us(self.st.now) + p.visual_offset_ms as i64 * 1000;
         let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
@@ -786,7 +786,6 @@ impl Hooks for SceneHooks<'_> {
         };
         let bpms = crate::config::Bpms::of_meta(&s.chart.meta);
         let dur_us = p.duration_at(&bpms, main_bpm, true) * 1000.0;
-        let notes = engine.notes();
         let ident = crate::skin::Frame {
             rect: Rect::default(),
             color: [1.0; 4],
@@ -832,6 +831,11 @@ impl Hooks for SceneHooks<'_> {
         };
         for (lane, ls) in skin.skin.lanes.iter().enumerate() {
             let Some(lr) = ls.rect else { continue };
+            // the lane's judge (a side's in battle)
+            let Some(engine) = s.engine_for(lane) else {
+                continue;
+            };
+            let notes = engine.notes();
             let r = xf.rect(lr);
             let judge_y = r.bottom() - p.lift * r.h;
             let top = r.y
@@ -1113,7 +1117,7 @@ impl Hooks for SceneHooks<'_> {
     }
 
     fn gauge(&self) -> (f32, f32, bool, usize) {
-        match self.st.s.engine.as_ref() {
+        match self.st.s.engine() {
             Some(e) => {
                 let g = e.gauge.current();
                 (g.value(), g.elem.border, g.ty.is_survival(), g.ty as usize)
