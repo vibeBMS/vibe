@@ -91,7 +91,9 @@ fn parses_select_bars() {
 #DST_BAR_BODY_ON,1,0,0,30,110,20,0,255,255,255,255\n#BAR_CENTER,1\n#BAR_AVAILABLE,0,1\n\
 #DST_BAR_TITLE,0,0,20,2,70,16,0,255,255,255,255\n\
 #SRC_BAR_LEVEL,2,0,0,40,100,10,10,1,0,0,0,0,2\n#DST_BAR_LEVEL,2,0,80,4,8,10,0,255,255,255,255\n\
-#SRC_BAR_LAMP,3,0,0,50,4,20,1,1,0,0\n#DST_BAR_LAMP,3,0,2,0,4,20,0,255,255,255,255\n";
+#SRC_BAR_LAMP,3,0,0,50,4,20,1,1,0,0\n#DST_BAR_LAMP,3,0,2,0,4,20,0,255,255,255,255\n\
+#SRC_BAR_MY_LAMP,4,0,0,50,4,20,1,1,0,0\n#DST_BAR_MY_LAMP,4,0,2,0,2,20,0,255,255,255,255\n\
+#SRC_BAR_RIVAL_LAMP,1,0,0,50,4,20,1,1,0,0\n#DST_BAR_RIVAL_LAMP,1,0,4,0,2,20,0,255,255,255,255\n";
     std::fs::write(dir.join("select.lr2skin"), csv).unwrap();
     let size = |_: &Path| Some((128, 64));
     let s = load(
@@ -114,6 +116,14 @@ fn parses_select_bars() {
     assert_eq!((font.digits, font.keta), (10, 2));
     // LR2 lamp 3 (clear) is beatoraja's NORMAL (5)
     assert!(sl.lamp[5].is_some());
+    // the player's and the rival's beside each other: hard (6), failed (1)
+    assert!(sl.my_lamp[6]
+        .as_ref()
+        .is_some_and(|(_, d)| d.keys[0].rect.w == 2.0));
+    assert!(sl.rival_lamp[1]
+        .as_ref()
+        .is_some_and(|(_, d)| d.keys[0].rect.x == 4.0));
+    assert_eq!((sl.my_lamp.len(), sl.rival_lamp.len()), (7, 2));
 }
 
 #[test]

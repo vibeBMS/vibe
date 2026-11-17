@@ -98,12 +98,17 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             out.graph = Some((rel(g), cx.src(def), i(def, "type", -1) == -2));
         }
     }
-    out.lamp = arr(sl.get("lamp"))
-        .iter()
-        .map(|d| {
-            let src = cx.find("image", &id_of(d)).and_then(|im| cx.src(im))?;
-            Some((src, rel(d)))
-        })
-        .collect();
+    let lamps = |key: &str| {
+        arr(sl.get(key))
+            .iter()
+            .map(|d| {
+                let src = cx.find("image", &id_of(d)).and_then(|im| cx.src(im))?;
+                Some((src, rel(d)))
+            })
+            .collect()
+    };
+    out.lamp = lamps("lamp");
+    out.my_lamp = lamps("playerlamp");
+    out.rival_lamp = lamps("rivallamp");
     out
 }

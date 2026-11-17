@@ -109,10 +109,13 @@ enum TextField {
     PlayerName,
     AddFolder,
     AddTable,
-    /// Account `.0` of the IR settings: its name, URL, key.
+    /// Account `.0` of the IR settings: its name, URL, key, player id,
+    /// rivals' player ids.
     IrName(usize),
     IrUrl(usize),
     IrKey(usize),
+    IrPlayer(usize),
+    IrRivals(usize),
     AddIrServer,
 }
 
@@ -125,6 +128,8 @@ impl TextField {
             TextField::IrName(_) => "IR name",
             TextField::IrUrl(_) => "IR URL",
             TextField::IrKey(_) => "API key (paste)",
+            TextField::IrPlayer(_) => "BMS-IR player id (or its page's address)",
+            TextField::IrRivals(_) => "Rivals' BMS-IR player ids",
             TextField::AddIrServer => "vibeBMS IR server URL",
         }
     }

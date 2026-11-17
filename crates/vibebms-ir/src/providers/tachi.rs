@@ -63,6 +63,9 @@ fn playtype(mode: PlayMode, pms: Option<Device>) -> Option<(&'static str, &'stat
     })
 }
 
+/// The playtypes a player's lamps are read for, one `scope` each.
+pub const PLAYTYPES: [&str; 4] = ["7K", "14K", "Keyboard", "Controller"];
+
 /// The game of a playtype (`scope` of a lamp request).
 fn game_of(playtype: &str) -> Option<&'static str> {
     match playtype {

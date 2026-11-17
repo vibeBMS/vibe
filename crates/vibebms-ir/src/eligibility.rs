@@ -83,6 +83,11 @@ pub struct Gate {
 /// every play (A11, the note choice: `tools/lr2-measure`).
 pub const BOKUTACHI_BMS: bool = false;
 
+/// Tachi's game configs take only `LR2`/`lr2oraja` (BMS) and `beatoraja`
+/// (PMS) as a score's client, and vibeBMS names no other client: Bokutachi
+/// refuses its plays until Tachi lists vibeBMS.
+pub const TACHI_ACCEPTS_VIBE: bool = false;
+
 const BMS_MODES: &[PlayMode] = &[
     PlayMode::Beat5K,
     PlayMode::Beat7K,
@@ -135,7 +140,7 @@ pub const BOKUTACHI: Gate = Gate {
         },
     ],
     web: false,
-    live: true,
+    live: TACHI_ACCEPTS_VIBE,
     random_charts: false,
     wall_time: false,
 };
@@ -317,9 +322,10 @@ mod tests {
     #[test]
     fn the_base_plays_go() {
         let b = base();
+        assert_eq!(passes(&b, &live(&BOKUTACHI)), Ok(Profile::VibeBeatoraja));
         assert_eq!(
             eligible(&b, ProviderKind::Bokutachi),
-            Ok(Profile::VibeBeatoraja)
+            Err(Refusal::OperatorPending)
         );
         assert_eq!(
             eligible(&b, ProviderKind::VibeJson),
@@ -334,7 +340,7 @@ mod tests {
     #[test]
     fn one_row_per_gate() {
         type Edit = fn(&mut PlayRecord);
-        let bok = &BOKUTACHI;
+        let bok = &live(&BOKUTACHI);
         let rows: &[(&str, PlayRecord, Edit, &Gate, Refusal)] = &[
             ("old record", base(), |r| r.v = 0, bok, Refusal::OldRecord),
             (
