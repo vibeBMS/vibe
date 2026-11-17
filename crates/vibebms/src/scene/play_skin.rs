@@ -1,6 +1,7 @@
 //! Drawing the play scene with an LR2 skin.
 
 use super::play::PlayScene;
+use super::skinvals::*;
 use crate::app::{Ctx, Draw};
 use crate::config::{HiSpeedMode, PlayConfig};
 use crate::gfx::{Gfx, Rect, TexId};
@@ -8,9 +9,9 @@ use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, SkinType, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::path::PathBuf;
 use vibebms_core::chart::NoteKind;
-use vibebms_core::gauge::GaugeType;
 use vibebms_core::judge::*;
 use vibebms_core::PlayMode;
 
@@ -177,11 +178,7 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
     } else {
         configured_path(ctx, &value)
     };
-    let st = SceneState {
-        s: scene,
-        ctx,
-        now: Instant::now(),
-    };
+    let st = SceneState::new(scene, ctx, Instant::now());
     let stat = |id: i32| st.static_option(id);
     for path in configured.into_iter().chain(std::iter::once(default)) {
         match crate::skin::load_file(
@@ -213,7 +210,7 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
 
 /// The pacemakers' EX scores: over the chart, and at the notes judged so
 /// far.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct Pace {
     best: i64,
     target: i64,
@@ -221,37 +218,61 @@ struct Pace {
     target_now: i64,
 }
 
+/// The play screen's values in one frame: the chart's record, its facts
+/// and the pacemakers are looked up once.
 pub struct SceneState<'a> {
     pub s: &'a PlayScene,
     pub ctx: &'a Ctx,
     pub now: Instant,
+    engine: Option<&'a vibebms_core::engine::Engine>,
+    /// The chart's record before this play.
+    best: Option<&'a crate::library::BestScore>,
+    chart: ChartFacts<'a>,
+    bpms: crate::config::Bpms,
+    pace: OnceCell<Pace>,
+    table: OnceCell<Option<(String, String)>>,
 }
 
-impl SceneState<'_> {
+impl<'a> SceneState<'a> {
+    pub fn new(s: &'a PlayScene, ctx: &'a Ctx, now: Instant) -> SceneState<'a> {
+        SceneState {
+            s,
+            ctx,
+            now,
+            engine: s.engine(),
+            best: ctx.best_key(&s.req.song.sha256, s.score_ln as i32),
+            chart: ChartFacts::of_meta(&s.chart.meta, s.skin_mode),
+            bpms: crate::config::Bpms::of_meta(&s.chart.meta),
+            pace: OnceCell::new(),
+            table: OnceCell::new(),
+        }
+    }
+
+    fn pace(&self) -> Pace {
+        *self.pace.get_or_init(|| self.make_pace())
+    }
+
     /// The pacemakers: the personal best and the target EX scores, over
     /// the chart and at the notes judged so far. The best play's ghost (its
     /// replay's judgements in order) gives the best at the same note; else
     /// it, as the other targets, runs at the share of the notes judged.
-    fn pace(&self) -> Pace {
+    fn make_pace(&self) -> Pace {
         let s = self.s;
-        let best = self
-            .ctx
-            .best_key(&s.req.song.sha256, s.score_ln as i32)
-            .map(|b| b.ex_score)
-            .unwrap_or(0) as i64;
-        let Some(sc) = self.engine().map(|e| &e.score) else {
+        let best = self.best.map_or(0, |b| b.ex_score) as i64;
+        let Some(sc) = self.engine.map(|e| &e.score) else {
             return Pace {
                 best,
                 ..Pace::default()
             };
         };
+        let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
+        let at = |v: i64| (v as f64 * done).round() as i64;
+        let best_now = match &s.best_ghost {
+            Some(g) => crate::replay::ex_of(&g[..(sc.passed as usize).min(g.len())]) as i64,
+            None => at(best),
+        };
         // a battle: the target is the opponent, as it plays
         if let Some(ex) = s.opponent_ex() {
-            let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
-            let best_now = match &s.best_ghost {
-                Some(g) => crate::replay::ex_of(&g[..(sc.passed as usize).min(g.len())]) as i64,
-                None => (best as f64 * done).round() as i64,
-            };
             return Pace {
                 best,
                 target: ex,
@@ -260,12 +281,6 @@ impl SceneState<'_> {
             };
         }
         let target = self.ctx.config.play.target.score(sc.max_ex(), best as u32) as i64;
-        let done = sc.passed as f64 / sc.total_notes.max(1) as f64;
-        let at = |v: i64| (v as f64 * done).round() as i64;
-        let best_now = match &s.best_ghost {
-            Some(g) => crate::replay::ex_of(&g[..(sc.passed as usize).min(g.len())]) as i64,
-            None => at(best),
-        };
         let target_now = if self.ctx.config.play.target == crate::config::Target::Best {
             best_now
         } else {
@@ -279,9 +294,12 @@ impl SceneState<'_> {
         }
     }
 
-    /// EX score minus the next DJ level's border at the notes judged so far.
-    fn diff_next_rank(&self) -> Option<i64> {
-        diff_next_rank(&self.engine()?.score)
+    /// The table that lists the chart.
+    fn table(&self) -> Option<&(String, String)> {
+        let song = &self.s.req.song;
+        self.table
+            .get_or_init(|| table_of(self.ctx, &song.md5, &song.sha256))
+            .as_ref()
     }
 
     /// A battle's opponent (the second side's judge).
@@ -293,14 +311,14 @@ impl SceneState<'_> {
     fn opponent_number(&self, id: i32) -> Option<i64> {
         let o = self.opp()?;
         let sc = &o.score;
-        let rate = |r: f64| (r * 10000.0).round() as i64;
         let ex = self.s.opponent_ex()?;
+        let rate = || percent_parts(ex as f64 / sc.max_ex().max(1) as f64);
         Some(match id {
             // 1P - 2P
-            108 => self.engine()?.score.ex_score() as i64 - ex,
+            108 => self.engine?.score.ex_score() as i64 - ex,
             120 => lr2_score(sc),
-            122 => rate(sc.current_rate()) / 100,
-            123 => rate(sc.current_rate()) % 100,
+            122 => percent_parts(sc.current_rate()).0,
+            123 => percent_parts(sc.current_rate()).1,
             124 => o.combo() as i64,
             125 => sc.max_combo as i64,
             126 => sc.total_notes as i64,
@@ -311,113 +329,42 @@ impl SceneState<'_> {
             132 => sc.count(GOOD) as i64,
             133 => sc.count(BAD) as i64,
             134 => (sc.count(POOR) + sc.count(MISS)) as i64,
-            135 => rate(ex as f64 / sc.max_ex().max(1) as f64) / 100,
-            136 => rate(ex as f64 / sc.max_ex().max(1) as f64) % 100,
+            135 => rate().0,
+            136 => rate().1,
             _ => return None,
         })
     }
 
     fn ms(&self, t: Instant) -> i64 {
-        let base = self.s.scene_start;
-        if t >= base {
-            t.duration_since(base).as_millis() as i64
-        } else {
-            -(base.duration_since(t).as_millis() as i64)
-        }
+        ms_since(self.s.scene_start, t)
     }
 
     /// Options that do not change during play (also used at load time).
     fn static_option(&self, id: i32) -> Option<bool> {
         let s = self.s;
-        let m = &s.chart.meta;
         let p = &self.ctx.config.play;
-        let mode = s.skin_mode;
+        let course = s.req.course.as_ref();
         Some(match id {
-            30 => true,
-            31 => false,
-            32 => !s.req.autoplay,
-            33 => s.req.autoplay,
-            34 => true,
-            35..=37 => false,
-            // score graph (pacemaker) shown
-            38 => false,
-            39 => true,
-            40 => !p.bga,
-            41 => p.bga,
-            42 => !p.gauge.is_survival(),
-            43 => p.gauge.is_survival(),
-            1046 => matches!(p.gauge, GaugeType::ExHard | GaugeType::ExHardClass),
+            30 | 34 | 39 | 50 => true,
+            // (38: no score graph)
+            31 | 35..=38 | 51 => false,
+            32 | 33 | 40..=43 | 1046 => return play_option(s.req.autoplay, p.bga, p.gauge, id),
             // the gauge in use (vibeBMS ids, as on the result screen)
             118..=125 => {
-                let g = self
-                    .engine()
-                    .map(|e| e.gauge.current_type())
-                    .unwrap_or(p.gauge);
-                match id {
-                    118 => g == GaugeType::Normal,
-                    119 => matches!(g, GaugeType::Hard | GaugeType::Class),
-                    120 => g == GaugeType::Hazard,
-                    121 => g == GaugeType::Easy,
-                    124 => g == GaugeType::AssistEasy,
-                    125 => matches!(
-                        g,
-                        GaugeType::ExHard | GaugeType::ExHardClass | GaugeType::ExClass
-                    ),
-                    _ => false,
-                }
+                let g = self.engine.map_or(p.gauge, |e| e.gauge.current_type());
+                gauge_type_option(g, id).unwrap_or(false)
             }
-            50 => true,
-            51 => false,
             // the song's lamp so far (skins pick images by it at load time)
             100..=105 | 1100..=1104 => {
-                let c = self
-                    .ctx
-                    .best_key(&s.req.song.sha256, s.score_ln as i32)
-                    .map(|b| b.clear)
-                    .unwrap_or_default();
-                return super::skinned::lamp_option(c, id);
+                return lamp_option(self.best.map(|b| b.clear).unwrap_or_default(), id)
             }
-            150..=155 => m.difficulty == id - 150,
-            160 => mode == PlayMode::Beat7K,
-            161 => mode == PlayMode::Beat5K,
-            162 => mode == PlayMode::Beat14K,
-            163 => mode == PlayMode::Beat10K,
-            164 => mode == PlayMode::Popn9K,
-            170 => !m.has_bga,
-            171 => m.has_bga,
-            172 => !m.has_long,
-            173 => m.has_long,
-            176 => (m.max_bpm - m.min_bpm).abs() < 0.01,
-            177 => (m.max_bpm - m.min_bpm).abs() >= 0.01,
-            178 => !m.has_random,
-            179 => m.has_random,
-            180..=184 => super::skinned::judge_option(super::skinned::judge_rank_number(m), id),
-            190 => m.stagefile.is_empty(),
-            191 => !m.stagefile.is_empty(),
-            192 => m.banner.is_empty(),
-            193 => !m.banner.is_empty(),
-            194 => m.backbmp.is_empty(),
-            195 => !m.backbmp.is_empty(),
-            1177 => m.has_stop,
+            150..=195 | 1177 => return chart_option(&self.chart, id),
             // a difficulty table lists the chart
-            1008 => super::skinned::table_text(self.ctx, &s.req.song.md5, &s.req.song.sha256, 1001)
-                .is_some(),
+            1008 => self.table().is_some(),
             // course stage 1..4, the last stage, a grade course
-            280..=283 => s
-                .req
-                .course
-                .as_ref()
-                .is_some_and(|c| c.index == (id - 280) as usize),
-            289 => s
-                .req
-                .course
-                .as_ref()
-                .is_some_and(|c| c.index + 1 == c.songs.len()),
-            293 => s
-                .req
-                .course
-                .as_ref()
-                .is_some_and(|c| !c.constraints.is_empty()),
+            280..=283 => course.is_some_and(|c| c.index == (id - 280) as usize),
+            289 => course.is_some_and(|c| c.index + 1 == c.songs.len()),
+            293 => course.is_some_and(|c| !c.constraints.is_empty()),
             271 => p.lane_cover || p.sudden > 0.0,
             P2_COVER => {
                 let p = self.side_play(1);
@@ -425,20 +372,10 @@ impl SceneState<'_> {
             }
             272 => p.lift > 0.0,
             273 => p.hidden > 0.0,
-            290 => s.req.course.is_some(),
+            290 => course.is_some(),
             400 => p.hispeed_mode == HiSpeedMode::Constant,
             _ => return None,
         })
-    }
-
-    /// The chart's record before this play.
-    fn best_record(&self) -> Option<&crate::library::BestScore> {
-        self.ctx
-            .best_key(&self.s.req.song.sha256, self.s.score_ln as i32)
-    }
-
-    fn engine(&self) -> Option<&vibebms_core::engine::Engine> {
-        self.s.engine()
     }
 
     /// A player's options (VS: the second player's own).
@@ -447,12 +384,8 @@ impl SceneState<'_> {
     }
 
     /// The hi-speed (the setting, or what keeps a fixed green number).
-    pub fn hispeed(&self) -> f64 {
-        self.ctx.config.play.hispeed_at(&self.bpms()) as f64
-    }
-
-    pub fn bpms(&self) -> crate::config::Bpms {
-        crate::config::Bpms::of_meta(&self.s.chart.meta)
+    fn hispeed(&self) -> f64 {
+        self.ctx.config.play.hispeed_at(&self.bpms) as f64
     }
 }
 
@@ -478,7 +411,7 @@ impl SkinState for SceneState<'_> {
             247 | 448 => s.last_judge(2).map(|j| self.ms(j.2)),
             2 | 3 => s.ending_at().map(|t| self.ms(t)),
             44 => self
-                .engine()
+                .engine
                 .filter(|e| e.gauge.current().is_max())
                 .map(|_| 0),
             // a battle's second side: its gauge full, its notes ended (with a
@@ -494,7 +427,7 @@ impl SkinState for SceneState<'_> {
             144 => s.opponent()?.finished.map(|t| self.ms(t)),
             // the last note judged with no combo broken
             48 => {
-                let full = full_combo(&self.engine()?.score);
+                let full = full_combo(&self.engine?.score);
                 s.finished_instant.filter(|_| full).map(|t| self.ms(t))
             }
             49 => {
@@ -543,10 +476,8 @@ impl SkinState for SceneState<'_> {
                 s.lane_judge.get(lane).copied().flatten().map(|j| j as i64)
             }
             520 | 521 => s.last_judge((id - 520) as usize).map(|j| j.0 as i64),
-            40 => self
-                .engine()
-                .map(|e| super::skinned::gauge_index(e.gauge.current_type())),
-            _ => super::skinned::config_button(self.ctx, id).or_else(|| self.number(id)),
+            40 => self.engine.map(|e| gauge_index(e.gauge.current_type())),
+            _ => config_button(self.ctx, id).or_else(|| self.number(id)),
         }
     }
 
@@ -581,7 +512,7 @@ impl SkinState for SceneState<'_> {
     fn option(&self, id: i32) -> bool {
         let (abs, neg) = (id.abs(), id < 0);
         let v = self.static_option(abs).unwrap_or_else(|| {
-            let Some(e) = self.engine() else { return false };
+            let Some(e) = self.engine else { return false };
             let sc = &e.score;
             let lj = self.s.last_judge[0];
             match abs {
@@ -641,10 +572,7 @@ impl SkinState for SceneState<'_> {
     }
 
     fn number(&self, id: i32) -> Option<i64> {
-        if let Some(v) = super::skinned::clock_number(id) {
-            return Some(v);
-        }
-        if let Some(v) = super::skinned::player_number(self.ctx, id) {
+        if let Some(v) = clock_number(id).or_else(|| player_number(self.ctx, id)) {
             return Some(v);
         }
         if let Some(v) = self.opponent_number(id) {
@@ -652,13 +580,16 @@ impl SkinState for SceneState<'_> {
         }
         let s = self.s;
         let p = &self.ctx.config.play;
-        let m = &s.chart.meta;
-        let e = self.engine();
+        let e = self.engine;
         let sc = e.map(|e| &e.score);
         let t_ms = s.chart_us(self.now).max(0) / 1000;
         // (the chart's length goes over every note)
         let len_ms = || s.chart.length() / 1000;
-        let rate = |r: f64| (r * 10000.0).round() as i64;
+        // BAD, POOR and MISS so far (the result counts the notes never
+        // reached too)
+        let bp = || sc.map(|s| (s.count(BAD) + s.count(POOR) + s.count(MISS)) as i64);
+        // a share of the maximum EX score, as a percentage
+        let of_max = |v: i64| sc.map(|s| percent_parts(v as f64 / s.max_ex().max(1) as f64));
         Some(match id {
             10 => (self.hispeed() * 100.0).round() as i64,
             310 => (self.hispeed() * 100.0).round() as i64 / 100,
@@ -666,100 +597,57 @@ impl SkinState for SceneState<'_> {
             12 => p.judge_offset_ms as i64,
             14 => (p.sudden * 1000.0) as i64,
             P2_WHITE => (self.side_play(1).sudden * 1000.0) as i64,
-            P2_GREEN => self.side_play(1).green(&self.bpms()),
-            312 => p.duration_ms(&self.bpms()).round() as i64,
-            313 => p.green(&self.bpms()),
+            P2_GREEN => self.side_play(1).green(&self.bpms),
+            312 | 313 => return speed_number(p, &self.bpms, id),
             // duration / green number with the lane cover on / off
             1312..=1315 => {
-                let d = p.duration_ms_with(&self.bpms(), id < 1314);
+                let d = p.duration_ms_with(&self.bpms, id < 1314);
                 (if id % 2 == 0 { d } else { d * 0.6 }).round() as i64
             }
             314 => (p.lift * 1000.0) as i64,
             315 => (p.hidden * 1000.0) as i64,
             20 => self.ctx.fps as i64,
-            71 | 101 => sc?.ex_score() as i64,
-            72 => sc?.max_ex() as i64,
-            74 | 106 => sc?.total_notes as i64,
-            75 | 105 => sc?.max_combo as i64,
-            // so far (the result counts the notes never reached too)
-            76 => sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64,
-            90 => m.max_bpm.round() as i64,
-            91 => m.min_bpm.round() as i64,
-            92 => m.main_bpm.round() as i64,
-            96 => m.level.trim().parse::<f64>().ok()? as i64,
+            71
+            | 72
+            | 74
+            | 75
+            | 101
+            | 105
+            | 106
+            | 110..=113
+            | 115
+            | 116
+            | 155
+            | 156
+            | 171
+            | 174
+            | 410..=420
+            | 423..=427 => return score_number(sc?, id),
+            76 | 177 => bp()?,
+            90..=92 | 96 | 400 => return chart_number(&self.chart, id),
             100 => lr2_score(sc?),
-            102 => rate(sc?.current_rate()) / 100,
-            103 => rate(sc?.current_rate()) % 100,
+            102 => percent_parts(sc?.current_rate()).0,
+            103 => percent_parts(sc?.current_rate()).1,
             104 => e?.combo() as i64,
             107 => e?.gauge.value() as i64,
             407 => ((e?.gauge.value() * 10.0) as i64) % 10,
-            110 => sc?.count(PGREAT) as i64,
-            111 => sc?.count(GREAT) as i64,
-            112 => sc?.count(GOOD) as i64,
-            113 => sc?.count(BAD) as i64,
             114 => sc?.count(POOR) as i64 + sc?.count(MISS) as i64,
-            410..=419 => {
-                let j = ((id - 410) / 2) as usize;
-                sc?.counts[j][((id - 410) % 2) as usize] as i64
-            }
-            420 => sc?.count(MISS) as i64,
-            425 => sc?.combo_breaks as i64,
-            423 => sc?.fast() as i64,
-            424 => sc?.slow() as i64,
-            115 | 155 => rate(sc?.rate()) / 100,
-            116 | 156 => rate(sc?.rate()) % 100,
-            171 => sc?.ex_score() as i64,
-            174 => sc?.max_combo as i64,
-            177 => sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64,
-            426 => (sc?.count(POOR) + sc?.count(MISS)) as i64,
-            427 => (sc?.count(BAD) + sc?.count(POOR) + sc?.count(MISS)) as i64,
-            // the personal best's rate, max combo and miss count, and the
-            // differences to them
-            183 | 184 => {
-                let r = rate(self.pace().best as f64 / sc?.max_ex().max(1) as f64);
-                if id == 183 {
-                    r / 100
-                } else {
-                    r % 100
-                }
-            }
-            173 | 175 => {
-                let b = self.best_record().map(|b| b.max_combo as i64).unwrap_or(0);
-                if id == 173 {
-                    b
-                } else {
-                    sc?.max_combo as i64 - b
-                }
-            }
-            176 | 178 => {
-                let b = self
-                    .best_record()
-                    .filter(|b| b.min_bp != u32::MAX)
-                    .map(|b| b.min_bp as i64)
-                    .unwrap_or(0);
-                if id == 176 {
-                    b
-                } else {
-                    sc.map(|s| s.count(3) + s.count(4) + s.count(5))? as i64 - b
-                }
-            }
+            // the personal best's EX score, rate, max combo and miss count,
+            // and the differences to them
+            150 | 170 | 173 | 176 => return best_number(self.best, id),
+            183 => of_max(self.pace().best)?.0,
+            184 => of_max(self.pace().best)?.1,
+            175 => sc?.max_combo as i64 - best_number(self.best, 173)?,
+            178 => bp()? - best_number(self.best, 176)?,
             368 => s.total as i64,
-            350..=367 => return super::skinned::song_number(&s.req.song, id),
-            400 => super::skinned::judge_rank_number(m),
-            150 | 170 => self.pace().best,
+            350..=367 => return song_number(&s.req.song, id),
             121 | 151 => self.pace().target,
             // differences to the pacemakers (best / target at this point)
             152 | 172 => sc?.ex_score() as i64 - self.pace().best_now,
             128 | 153 => sc?.ex_score() as i64 - self.pace().target_now,
-            154 => self.diff_next_rank()?,
-            122 | 135 | 157 => {
-                let max = sc?.max_ex().max(1) as f64;
-                rate(self.pace().target as f64 / max) / 100
-            }
-            123 | 136 | 158 => {
-                let max = sc?.max_ex().max(1) as f64;
-                rate(self.pace().target as f64 / max) % 100
-            }
+            154 => diff_next_rank(sc?)?,
+            122 | 135 | 157 => of_max(self.pace().target)?.0,
+            123 | 136 | 158 => of_max(self.pace().target)?.1,
             // timing of the last judgement (ms, + = early as in beatoraja)
             525 | 526 => s.last_judge((id - 525) as usize)?.1 / 1000,
             160 => s
@@ -779,38 +667,25 @@ impl SkinState for SceneState<'_> {
     }
 
     fn text(&self, id: i32) -> Option<String> {
-        let m = &self.s.chart.meta;
-        let song = &self.s.req.song;
-        if let Some(t) = super::skinned::table_text(self.ctx, &song.md5, &song.sha256, id) {
-            return Some(t);
-        }
+        let s = self.s;
         Some(match id {
-            1030 => song.md5.clone(),
-            1031 => song.sha256.clone(),
+            2 => self.ctx.config.player_name.clone(),
+            1001..=1003 => return table_text(self.table()?, id),
             // course stages' titles
-            150..=159 => self
-                .s
+            150..=159 => s
                 .req
                 .course
                 .as_ref()?
                 .songs
                 .get((id - 150) as usize)?
                 .full_title(),
-            2 => self.ctx.config.player_name.clone(),
-            10 => m.title.clone(),
-            11 => m.subtitle.clone(),
-            12 => format!("{} {}", m.title, m.subtitle).trim().to_string(),
-            13 => m.genre.clone(),
-            14 => m.artist.clone(),
-            15 => m.subartist.clone(),
-            16 => format!("{} {}", m.artist, m.subartist).trim().to_string(),
-            _ => return None,
+            _ => return chart_text(&ChartText::of_meta(&s.chart.meta, &s.req.song), id),
         })
     }
 
     fn rate(&self, id: i32) -> f32 {
         let s = self.s;
-        let sc = self.engine().map(|e| &e.score);
+        let sc = self.engine.map(|e| &e.score);
         match id {
             6 | 101 => {
                 (s.chart_us(self.now).max(0) as f32 / s.chart.length().max(1) as f32).min(1.0)
@@ -848,22 +723,10 @@ fn side_play<'a>(s: &PlayScene, base: &'a PlayConfig, side: usize) -> Cow<'a, Pl
     }
 }
 
-/// LR2's score (200,000 for all PGREAT and the full combo).
-fn lr2_score(sc: &vibebms_core::score::Score) -> i64 {
-    let n = sc.total_notes.max(1) as i64;
-    (sc.count(PGREAT) as i64 * 150_000
-        + sc.count(GREAT) as i64 * 100_000
-        + sc.count(GOOD) as i64 * 20_000)
-        / n
-        + sc.max_combo as i64 * 50_000 / n
-}
-
 /// EX score minus the next DJ level's border at the notes judged so far.
 fn diff_next_rank(sc: &vibebms_core::score::Score) -> Option<i64> {
-    let max = sc.passed as i64 * 2;
     let ex = sc.ex_score() as i64;
-    (2..=9)
-        .map(|k| (max * k + 8) / 9)
+    rank_borders(sc.passed as i64 * 2)
         .find(|t| *t > ex)
         .map(|t| ex - t)
 }

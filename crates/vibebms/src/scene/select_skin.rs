@@ -7,8 +7,8 @@
 //! `9000 + i` cycles it (see `SelectScene::option`); event 9900 leaves the
 //! current folder.
 
-use super::select::{Bar, Node, SelectScene};
-use super::skinned::{ms_since, rank_index};
+use super::select::{Bar, Node, Rank, SelectScene};
+use super::skinvals::*;
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode};
 use crate::gfx::text::Align;
@@ -17,9 +17,8 @@ use crate::library::{BestScore, Song};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::*;
-use vibebms_core::gauge::GaugeType;
+use std::cell::OnceCell;
 use vibebms_core::score::{ClearType, DjLevel};
-use vibebms_core::PlayMode;
 
 /// vibeBMS select option ids (text value / name, click event).
 pub const OPTION_TEXT: i32 = 9000;
@@ -31,10 +30,21 @@ pub const EVENT_BACK: i32 = 9900;
 /// latest).
 pub const EVENT_REPLAY: i32 = 9901;
 
+/// The select screen's values in one frame: what the selected bar is
+/// looked up once.
 pub struct SelectState<'a> {
     pub s: &'a SelectScene,
     pub ctx: &'a Ctx,
     pub now: Instant,
+    bar: Option<&'a Bar>,
+    /// The selected chart, its record and facts.
+    song: Option<&'a Song>,
+    best: Option<&'a BestScore>,
+    chart: Option<ChartFacts<'a>>,
+    /// Its BPMs, else 150 (beatoraja shows the hi-speed on folders too).
+    bpms: Bpms,
+    rank: Option<&'a Rank>,
+    table: OnceCell<Option<(String, String)>>,
 }
 
 /// What a bar shows.
@@ -46,25 +56,43 @@ pub struct BarInfo {
     pub lamp: Option<ClearType>,
 }
 
-impl SelectState<'_> {
-    pub fn song(&self) -> Option<&Song> {
-        match self.s.bars.get(self.s.cursor) {
-            Some(Bar::Song(i)) => self.ctx.songs.get(*i),
+impl<'a> SelectState<'a> {
+    pub fn new(s: &'a SelectScene, ctx: &'a Ctx, now: Instant) -> SelectState<'a> {
+        let bar = s.bars.get(s.cursor);
+        let song = match bar {
+            Some(Bar::Song(i)) => ctx.songs.get(*i),
             _ => None,
+        };
+        SelectState {
+            s,
+            ctx,
+            now,
+            bar,
+            song,
+            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_mode)),
+            chart: song.map(ChartFacts::of_song),
+            bpms: song.map_or(Bpms::flat(150.0), Bpms::of_song),
+            rank: song.and_then(|x| s.ranking.get(&x.sha256)),
+            table: OnceCell::new(),
         }
     }
 
     /// IR ranking of the selected chart, once loaded.
     fn ranking(&self) -> Option<&[vibebms_ir::IrScore]> {
-        match self.s.ranking.get(&self.song()?.sha256)? {
-            super::select::Rank::Done(v) => Some(v),
+        match self.rank? {
+            Rank::Done(v) => Some(v),
             _ => None,
         }
     }
 
-    fn best(&self) -> Option<&BestScore> {
-        self.song()
-            .and_then(|s| self.ctx.best(s, self.ctx.config.play.ln_mode))
+    /// The table that lists the selected chart.
+    fn table(&self) -> Option<&(String, String)> {
+        self.table
+            .get_or_init(|| {
+                let s = self.song?;
+                table_of(self.ctx, &s.md5, &s.sha256)
+            })
+            .as_ref()
     }
 
     pub fn bar(&self, i: usize) -> Option<BarInfo> {
@@ -121,61 +149,27 @@ impl SelectState<'_> {
         })
     }
 
-    fn mode(&self) -> Option<PlayMode> {
-        let m = &self.song()?.mode;
-        PlayMode::ALL.iter().copied().find(|p| p.label() == m)
-    }
-
     /// Options fixed while a bar stays selected (also used at load time).
     pub fn static_option(&self, id: i32) -> Option<bool> {
         let p = &self.ctx.config.play;
-        let song = self.song();
-        let bar = self.s.bars.get(self.s.cursor);
+        let song = self.song;
+        if let Some(v) = self.chart.as_ref().and_then(|c| chart_option(c, id)) {
+            return Some(v);
+        }
         Some(match id {
-            1 => matches!(bar, Some(Bar::Folder { .. })),
-            2 => matches!(bar, Some(Bar::Song(_) | Bar::Missing { .. })),
-            3 => matches!(bar, Some(Bar::Course { .. })),
+            1 => matches!(self.bar, Some(Bar::Folder { .. })),
+            2 => matches!(self.bar, Some(Bar::Song(_) | Bar::Missing { .. })),
+            3 => matches!(self.bar, Some(Bar::Course { .. })),
             5 => song.is_some(),
-            32 => !p.autoplay,
-            33 => p.autoplay,
-            40 => !p.bga,
-            41 => p.bga,
-            42 => !p.gauge.is_survival(),
-            43 => p.gauge.is_survival(),
-            1046 => matches!(p.gauge, GaugeType::ExHard | GaugeType::ExHardClass),
+            32 | 33 | 40..=43 | 1046 => return play_option(p.autoplay, p.bga, p.gauge, id),
             100..=105 | 1100..=1104 => {
-                let c = self.best().map(|b| b.clear).unwrap_or(ClearType::NoPlay);
-                song.is_some() && super::skinned::lamp_option(c, id).unwrap_or(false)
+                let c = self.best.map(|b| b.clear).unwrap_or(ClearType::NoPlay);
+                song.is_some() && lamp_option(c, id).unwrap_or(false)
             }
-            150..=155 => song.map(|s| s.difficulty == id - 150).unwrap_or(false),
-            160..=164 => {
-                let m = [
-                    PlayMode::Beat7K,
-                    PlayMode::Beat5K,
-                    PlayMode::Beat14K,
-                    PlayMode::Beat10K,
-                    PlayMode::Popn9K,
-                ][(id - 160) as usize];
-                self.mode() == Some(m)
-            }
-            170 => song.map(|s| !s.has_bga).unwrap_or(false),
-            171 => song.map(|s| s.has_bga).unwrap_or(false),
-            172 => song.map(|s| !s.has_ln).unwrap_or(false),
-            173 => song.map(|s| s.has_ln).unwrap_or(false),
-            180..=184 => song
-                .and_then(|s| s.judge)
-                .is_some_and(|j| super::skinned::judge_option(j, id)),
-            176 => song.map(|s| s.min_bpm == s.max_bpm).unwrap_or(false),
-            177 => song.map(|s| s.min_bpm != s.max_bpm).unwrap_or(false),
-            1177 => song.map(|s| s.has_stop).unwrap_or(false),
-            178 => song.map(|s| !s.has_random).unwrap_or(false),
-            179 => song.map(|s| s.has_random).unwrap_or(false),
-            190 => song.map(|s| s.stagefile.is_empty()).unwrap_or(true),
-            191 => song.map(|s| !s.stagefile.is_empty()).unwrap_or(false),
-            192 => song.map(|s| s.banner.is_empty()).unwrap_or(true),
-            193 => song.map(|s| !s.banner.is_empty()).unwrap_or(false),
+            // no chart: no stage file, no banner
+            190 | 192 => true,
             320..=327 => self
-                .best()
+                .best
                 .map(|b| rank_index(DjLevel::from_rate(b.ex_score, b.notes * 2)) == id - 320)
                 .unwrap_or(false),
             400 => p.hispeed_mode == HiSpeedMode::Constant,
@@ -188,101 +182,57 @@ impl SkinState for SelectState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
         let s = self.s;
         match id {
-            0 => Some(0),
-            1 => Some(s.skin.as_ref().map(|k| k.skin.input_ms).unwrap_or(0)),
-            10 | 11 => Some(ms_since(s.created, s.last_move)),
+            10 | 11 => Some(s.host.ms(s.last_move)),
             21..=26 => s.panel_on[(id - 21) as usize]
                 .filter(|_| s.panel == (id - 20) as usize)
-                .map(|t| ms_since(s.created, t)),
+                .map(|t| s.host.ms(t)),
             31..=36 => s.panel_off[(id - 31) as usize]
                 .filter(|_| s.panel != (id - 30) as usize)
-                .map(|t| ms_since(s.created, t)),
-            _ => None,
+                .map(|t| s.host.ms(t)),
+            _ => s.host.timer(id),
         }
     }
 
     fn option(&self, id: i32) -> bool {
-        let rank = || self.song().and_then(|s| self.s.ranking.get(&s.sha256));
         let v = match id.abs() {
             21..=26 => self.s.panel == (id.abs() - 20) as usize,
             n @ 1500..=1819 => {
                 super::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
-            601 => matches!(rank(), Some(super::select::Rank::Loading(_))),
-            602 => matches!(rank(), Some(super::select::Rank::Done(_))),
-            604 => matches!(rank(), Some(super::select::Rank::Error)),
+            601 => matches!(self.rank, Some(Rank::Loading(_))),
+            602 => matches!(self.rank, Some(Rank::Done(_))),
+            604 => matches!(self.rank, Some(Rank::Error)),
             n => self.static_option(n).unwrap_or(false),
         };
         v != (id < 0)
     }
 
     fn number(&self, id: i32) -> Option<i64> {
-        if let Some(v) = super::skinned::clock_number(id) {
-            return Some(v);
-        }
-        if let Some(v) = super::skinned::player_number(self.ctx, id) {
+        if let Some(v) = clock_number(id).or_else(|| player_number(self.ctx, id)) {
             return Some(v);
         }
         let p = &self.ctx.config.play;
-        let song = self.song();
-        let best = self.best();
-        // score values exist only for a selected song (0 when never played)
-        let b = |f: fn(&BestScore) -> i64| song.map(|_| best.map(f).unwrap_or(0));
+        let song = self.song;
         Some(match id {
             20 => self.ctx.fps as i64,
             12 => p.judge_offset_ms as i64,
-            71 => b(|b| b.ex_score as i64)?,
-            72 => song.map(|s| s.notes * 2)?,
-            74 => song.map(|s| s.notes)?,
-            75 => b(|b| b.max_combo as i64)?,
-            76 => b(|b| {
-                if b.min_bp == u32::MAX {
-                    0
-                } else {
-                    b.min_bp as i64
-                }
-            })?,
-            77 => b(|b| b.play_count as i64)?,
-            78 => b(|b| b.clear_count as i64)?,
-            79 => b(|b| b.play_count.saturating_sub(b.clear_count) as i64)?,
-            80..=84 => song.map(|_| {
-                best.map(|b| b.judges[(id - 80) as usize] as i64)
-                    .unwrap_or(0)
-            })?,
-            90 => song.map(|s| s.max_bpm.round() as i64)?,
-            91 => song.map(|s| s.min_bpm.round() as i64)?,
-            92 => song.map(|s| s.main_bpm.round() as i64)?,
-            96 => song.map(|s| s.level_num())?,
-            102 => song.map(|_| (best.map(|b| b.rate()).unwrap_or(0.0) * 100.0).floor() as i64)?,
-            103 => song.map(|_| {
-                ((best.map(|b| b.rate()).unwrap_or(0.0) * 10000.0).round() as i64) % 100
-            })?,
-            300 => match self.s.bars.get(self.s.cursor) {
+            // a selected song's record (0 when never played)
+            71 | 75..=84 | 102 | 103 if song.is_some() => return best_number(self.best, id),
+            370 => return best_number(self.best, id),
+            72 => song?.notes * 2,
+            74 => song?.notes,
+            90..=92 | 96 | 400 => return chart_number(self.chart.as_ref()?, id),
+            300 => match self.bar {
                 Some(Bar::Folder { count, .. }) => *count as i64,
                 _ => self.s.bars.len() as i64,
             },
-            // the selected chart's, else at 150 BPM (beatoraja shows the
-            // setting on folders too)
-            312 => p
-                .duration_ms(&song.map_or(Bpms::flat(150.0), Bpms::of_song))
-                .round() as i64,
-            313 => p.green(&song.map_or(Bpms::flat(150.0), Bpms::of_song)),
-            10 | 310 | 311 => {
-                let b = song.map_or(Bpms::flat(150.0), Bpms::of_song);
-                let hs = (p.hispeed_at(&b) * 100.0).round() as i64;
-                match id {
-                    310 => hs / 100,
-                    311 => hs % 100,
-                    _ => hs,
-                }
-            }
-            370 => best.map(|b| b.clear as i64).unwrap_or(0),
+            10 | 310..=313 => return speed_number(p, &self.bpms, id),
             180 => self.ranking()?.len() as i64,
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex_score as i64,
             390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
-            350..=368 | 400 => return super::skinned::song_number(song?, id),
-            1163 => song.map(|s| s.length_ms / 60000)?,
-            1164 => song.map(|s| (s.length_ms / 1000) % 60)?,
+            350..=368 => return song_number(song?, id),
+            1163 => song?.length_ms / 60000,
+            1164 => (song?.length_ms / 1000) % 60,
             _ => return None,
         })
     }
@@ -293,36 +243,30 @@ impl SkinState for SelectState<'_> {
     }
 
     fn button(&self, id: i32) -> Option<i64> {
-        super::skinned::config_button(self.ctx, id).or_else(|| self.number(id))
+        config_button(self.ctx, id).or_else(|| self.number(id))
     }
 
     fn text(&self, id: i32) -> Option<String> {
-        let song = self.song();
+        let song = self.song;
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
             // folders and courses show their name as the title
-            10 | 12 => match song {
-                Some(s) if id == 12 => s.full_title(),
-                Some(s) => s.title.clone(),
-                None => self.bar(self.s.cursor)?.title,
-            },
-            11 => match self.s.bars.get(self.s.cursor)? {
+            10 | 12 if song.is_none() => self.bar(self.s.cursor)?.title,
+            11 if song.is_none() => match self.bar? {
                 Bar::Folder { sub, .. } => sub.clone(),
-                _ => song?.subtitle.clone(),
+                _ => return None,
             },
-            120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
-            13 => song?.genre.clone(),
-            14 | 16 if song.is_none() => match self.s.bars.get(self.s.cursor)? {
+            14 | 16 if song.is_none() => match self.bar? {
                 Bar::Missing { artist, .. } => artist.clone(),
                 _ => return None,
             },
-            14 => song?.artist.clone(),
-            15 => song?.subartist.clone(),
-            16 => {
-                let s = song?;
-                format!("{} {}", s.artist, s.subartist).trim().to_string()
-            }
-            30 => self.s.search_edit.clone().unwrap_or_default(),
+            10..=16 | 1030 | 1031 => return chart_text(&ChartText::of_song(song?), id),
+            120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
+            30 => self
+                .s
+                .search_edit
+                .as_ref()
+                .map_or(String::new(), |t| t.buf.clone()),
             1000 => self.s.path_label(self.ctx),
             // the table being browsed, else the selected chart's
             1001..=1003 => match &self.s.node {
@@ -337,13 +281,8 @@ impl SkinState for SelectState<'_> {
                 Node::Table(t) | Node::Courses(t) if id != 1002 => {
                     super::select::table(self.ctx, t)?.header.name.clone()
                 }
-                _ => {
-                    let s = song?;
-                    super::skinned::table_text(self.ctx, &s.md5, &s.sha256, id)?
-                }
+                _ => return table_text(self.table()?, id),
             },
-            1030 => song?.md5.clone(),
-            1031 => song?.sha256.clone(),
             1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
                 let bpm = song.map(Bpms::of_song);
@@ -360,7 +299,7 @@ impl SkinState for SelectState<'_> {
         let n = self.s.bars.len();
         match id {
             1 if n > 1 => self.s.scroll.rem_euclid(n as f32) / (n - 1) as f32,
-            110 | 113 => self.best().map(|b| b.rate() as f32).unwrap_or(0.0),
+            110 | 113 => self.best.map(|b| b.rate() as f32).unwrap_or(0.0),
             _ => 0.0,
         }
     }
@@ -369,13 +308,11 @@ impl SkinState for SelectState<'_> {
 pub struct SelectHooks<'a> {
     pub st: &'a SelectState<'a>,
     pub banner: Option<TexId>,
-    /// Screen rects of drawn bars: (rect, bar index).
-    pub bars: Vec<(Rect, usize)>,
+    /// Bars drawn: their indices.
+    pub bars: crate::ui::HitMap<usize>,
     /// How far down the screen a bar moves per list step (px), when the
     /// list goes down the screen.
     pub pitch: Option<f32>,
-    /// Clickable objects: (rect, event, click mode).
-    pub clicks: Vec<(Rect, i32, i32)>,
 }
 
 /// A download's progress over its song's bar `r`: a strip along its bottom
@@ -427,10 +364,6 @@ impl Hooks for SelectHooks<'_> {
             100 | 102 => self.banner,
             _ => None,
         }
-    }
-
-    fn clickable(&mut self, rect: Rect, act: i32, click: i32) {
-        self.clicks.push((rect, act, click));
     }
 
     fn song_list(
@@ -502,7 +435,7 @@ impl Hooks for SelectHooks<'_> {
                 skin.blit(d, body, now, st, sr, &fr);
             }
             if sl.clickable.is_empty() || sl.clickable.contains(&slot) {
-                self.bars.push((sr, idx));
+                self.bars.push(sr, idx);
             }
             let sub = |dst: &Dst| {
                 dst.eval(now, st).map(|f| {

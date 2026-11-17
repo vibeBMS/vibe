@@ -13,10 +13,10 @@ use crate::config::{
 };
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
+use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
 use crate::theme;
-use crate::ui;
+use crate::ui::{self, HitMap, ListView, TextEvent, TextInput};
 use vibebms_audio::Bus;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugeAutoShift, GaugePreset, GaugeType};
@@ -1370,28 +1370,18 @@ fn skin_act(ctx: &mut Ctx, act: Act) {
 
 pub struct SettingsScene {
     cat: usize,
-    sel: usize,
+    /// The rows of the category (scrolled in pixels).
+    list: ListView,
     focus_items: bool,
-    edit: Option<(TextField, String)>,
-    /// The text box and its buttons (0 OK, 1 cancel), for touches.
-    edit_panel: Rect,
-    edit_buttons: Vec<(Rect, usize)>,
+    edit: Option<(TextField, TextInput)>,
     learning: Option<(Slot, Instant)>,
-    cat_rects: Vec<(Rect, usize)>,
-    item_rects: Vec<(Rect, usize)>,
-    /// Where each row's value is drawn (left, right): a tap left of its
-    /// middle lowers it, right of it raises it.
-    value_spans: Vec<(f32, f32)>,
-    scroll: f32,
-    /// The rows scroll to keep the chosen one in view (after keys or a
-    /// controller; not after the wheel or a drag).
-    follow: bool,
-    /// A press on the rows: (pointer, where it went down, the scroll then,
-    /// whether it has moved far enough to scroll instead of tap).
-    drag: Option<(u64, f32, f32, f32, bool)>,
+    cat_rects: HitMap<usize>,
+    /// Each row and the middle of its value: a tap left of it lowers the
+    /// value, right of it raises it.
+    item_rects: HitMap<(usize, f32)>,
     axis_seen: std::collections::HashMap<u64, f32>,
-    /// Turntable positions last seen (it moves the selection).
-    axis_last: std::collections::HashMap<u64, f32>,
+    /// The turntable moves the selection.
+    axis: AxisStepper,
     back_rect: Rect,
     /// The touch layout editor was asked for.
     open_editor: bool,
@@ -1405,20 +1395,14 @@ impl SettingsScene {
     pub fn new(_ctx: &mut Ctx) -> SettingsScene {
         SettingsScene {
             cat: 0,
-            sel: 0,
+            list: ListView::new(),
             focus_items: false,
             edit: None,
             learning: None,
-            cat_rects: Vec::new(),
-            item_rects: Vec::new(),
-            edit_panel: Rect::default(),
-            edit_buttons: Vec::new(),
-            value_spans: Vec::new(),
-            scroll: 0.0,
-            follow: true,
-            drag: None,
+            cat_rects: HitMap::default(),
+            item_rects: HitMap::default(),
             axis_seen: Default::default(),
-            axis_last: Default::default(),
+            axis: AxisStepper::default(),
             back_rect: Rect::default(),
             open_editor: false,
             open_screen: None,
@@ -1436,7 +1420,7 @@ impl SettingsScene {
 
     fn activate(&mut self, ctx: &mut Ctx, d: i32, enter: bool) {
         let list = items(ctx, self.cat);
-        let Some(item) = list.get(self.sel) else {
+        let Some(item) = list.get(self.list.sel) else {
             return;
         };
         // a delete waits for a second press on the same row
@@ -1519,7 +1503,7 @@ impl SettingsScene {
                     TextField::IrName => ctx.config.ir_server.name.clone(),
                     _ => String::new(),
                 };
-                self.edit = Some((tf, cur));
+                self.edit = Some((tf, TextInput::new(cur)));
                 return;
             }
             Act::Text(_) => return,
@@ -1590,12 +1574,11 @@ impl SettingsScene {
     /// focus).
     fn step(&mut self, ctx: &Ctx, d: i32) {
         if self.focus_items {
-            let n = items(ctx, self.cat).len().max(1) as i32;
-            self.sel = (self.sel as i32 + d).rem_euclid(n) as usize;
+            self.list.step(d, items(ctx, self.cat).len());
         } else {
             let n = CATEGORIES.len() as i32;
             self.cat = (self.cat as i32 + d).rem_euclid(n) as usize;
-            self.sel = 0;
+            self.list.sel = 0;
         }
     }
 
@@ -1604,10 +1587,10 @@ impl SettingsScene {
     /// a blue key lowers a value or goes back to the categories, START
     /// goes back to them too, SELECT leaves.
     fn nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
-        self.follow = true;
+        self.list.follow = true;
         let adjust = || {
             matches!(
-                items(ctx, self.cat).get(self.sel).map(|it| it.act),
+                items(ctx, self.cat).get(self.list.sel).map(|it| it.act),
                 Some(Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..))
             )
         };
@@ -1673,7 +1656,7 @@ impl SettingsScene {
         ctx.save_config();
         // advance to the next row for quick setup
         let n = items(ctx, self.cat).len();
-        self.sel = (self.sel + 1).min(n.saturating_sub(1));
+        self.list.sel = (self.list.sel + 1).min(n.saturating_sub(1));
     }
 }
 
@@ -1703,8 +1686,8 @@ impl Scene for SettingsScene {
         next
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
-        self.draw_inner(ctx, d, now)
+    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
+        self.draw_inner(ctx, d)
     }
 }
 
@@ -1752,69 +1735,25 @@ impl SettingsScene {
             return Next::Stay;
         }
         // text editing
-        if let Some((tf, s)) = self.edit.as_mut() {
-            // on-screen keyboards and input methods
-            if let InputEv::Text(t) = ev {
-                if t.contains(['\n', '\r']) {
-                    let (tf, s) = (*tf, std::mem::take(s));
+        if let Some((tf, t)) = self.edit.as_mut() {
+            if let InputEv::Dropped(p) = ev {
+                t.buf.push_str(&p.to_string_lossy());
+                return Next::Stay;
+            }
+            match t.input(ev) {
+                TextEvent::Editing => {}
+                TextEvent::Cancel => self.edit = None,
+                TextEvent::Commit(s) => {
+                    let tf = *tf;
                     self.edit = None;
                     self.commit_text(ctx, tf, s);
-                } else {
-                    s.extend(t.chars().filter(|c| !c.is_control()));
                 }
-                return Next::Stay;
-            }
-            // touches: OK, cancel, or outside the box (cancel)
-            if let InputEv::Pointer {
-                phase: Phase::Down,
-                x,
-                y,
-                ..
-            } = ev
-            {
-                match ui::hit(&self.edit_buttons, *x, *y) {
-                    Some(0) => {
-                        let (tf, s) = (*tf, std::mem::take(s));
-                        self.edit = None;
-                        self.commit_text(ctx, tf, s);
-                    }
-                    Some(_) => self.edit = None,
-                    None if !self.edit_panel.contains(*x, *y) => self.edit = None,
-                    None => {}
-                }
-                return Next::Stay;
-            }
-            if let InputEv::Key {
-                code,
-                pressed: true,
-                text,
-                ..
-            } = ev
-            {
-                match code {
-                    KeyCode::Escape => self.edit = None,
-                    KeyCode::Enter | KeyCode::NumpadEnter => {
-                        let (tf, s) = (*tf, std::mem::take(s));
-                        self.edit = None;
-                        self.commit_text(ctx, tf, s);
-                    }
-                    KeyCode::Backspace => {
-                        s.pop();
-                    }
-                    _ => {
-                        if let Some(t) = text {
-                            s.extend(t.chars().filter(|c| !c.is_control()));
-                        }
-                    }
-                }
-            } else if let InputEv::Dropped(p) = ev {
-                s.push_str(&p.to_string_lossy());
             }
             return Next::Stay;
         }
         let n = items(ctx, self.cat).len();
         if matches!(ev, InputEv::Key { pressed: true, .. }) {
-            self.follow = true;
+            self.list.follow = true;
         }
         match ev {
             InputEv::Key {
@@ -1836,18 +1775,18 @@ impl SettingsScene {
                 }
                 KeyCode::ArrowUp => {
                     if self.focus_items {
-                        self.sel = (self.sel + n - 1) % n.max(1);
+                        self.list.step(-1, n);
                     } else {
                         self.cat = (self.cat + CATEGORIES.len() - 1) % CATEGORIES.len();
-                        self.sel = 0;
+                        self.list.sel = 0;
                     }
                 }
                 KeyCode::ArrowDown => {
                     if self.focus_items {
-                        self.sel = (self.sel + 1) % n.max(1);
+                        self.list.step(1, n);
                     } else {
                         self.cat = (self.cat + 1) % CATEGORIES.len();
-                        self.sel = 0;
+                        self.list.sel = 0;
                     }
                 }
                 KeyCode::ArrowLeft => {
@@ -1871,11 +1810,11 @@ impl SettingsScene {
                 }
                 KeyCode::PageUp => {
                     self.cat = (self.cat + CATEGORIES.len() - 1) % CATEGORIES.len();
-                    self.sel = 0;
+                    self.list.sel = 0;
                 }
                 KeyCode::PageDown => {
                     self.cat = (self.cat + 1) % CATEGORIES.len();
-                    self.sel = 0;
+                    self.list.sel = 0;
                 }
                 // keys bound to the lanes (a controller seen as a keyboard)
                 other => {
@@ -1892,24 +1831,13 @@ impl SettingsScene {
                 }
             }
             InputEv::Axis { id, value, .. } if ctx.config.keys.any_axis_is_scratch => {
-                // the turntable moves the selection (a step per 0.06 turned)
-                let last = *self.axis_last.entry(*id).or_insert(*value);
-                let mut d = value - last;
-                if d > 1.0 {
-                    d -= 2.0
-                } else if d < -1.0 {
-                    d += 2.0
-                }
-                if d.abs() >= 0.06 {
-                    self.axis_last.insert(*id, *value);
-                    let nav = if d > 0.0 { Nav::Down } else { Nav::Up };
-                    return self.nav(ctx, nav);
+                match self.axis.step(*id, *value) {
+                    0 => {}
+                    d if d > 0 => return self.nav(ctx, Nav::Down),
+                    _ => return self.nav(ctx, Nav::Up),
                 }
             }
-            InputEv::Wheel { dy } => {
-                self.follow = false;
-                self.scroll = (self.scroll - dy * 40.0).max(0.0);
-            }
+            InputEv::Wheel { dy } => self.list.wheel(-dy * 40.0),
             // the rows: a drag scrolls them, a tap (lifted where it went
             // down) acts on the row
             InputEv::Pointer {
@@ -1918,30 +1846,15 @@ impl SettingsScene {
                 y,
                 ..
             } => {
-                if let Some((d, _, y0, s0, moved)) = self.drag.as_mut() {
-                    if *d == *id {
-                        if !*moved && (*y - *y0).abs() > 10.0 * ctx.ui() {
-                            *moved = true;
-                        }
-                        if *moved {
-                            self.follow = false;
-                            self.scroll = (*s0 - (*y - *y0)).max(0.0);
-                        }
-                    }
-                }
+                self.list.drag_to(*id, *y, 10.0 * ctx.ui());
             }
             InputEv::Pointer {
                 id,
                 phase: Phase::Up,
                 ..
             } => {
-                if let Some((d, x, y, _, moved)) = self.drag {
-                    if d == *id {
-                        self.drag = None;
-                        if !moved {
-                            self.tap_row(ctx, x, y);
-                        }
-                    }
+                if let Some((x, y)) = self.list.release(*id) {
+                    self.tap_row(ctx, x, y);
                 }
             }
             InputEv::Pointer {
@@ -1955,13 +1868,13 @@ impl SettingsScene {
                     ctx.save_config();
                     return Next::Pop;
                 }
-                if let Some(c) = ui::hit(&self.cat_rects, *x, *y) {
+                if let Some(&c) = self.cat_rects.at(*x, *y) {
                     self.cat = c;
-                    self.sel = 0;
-                    self.scroll = 0.0;
+                    self.list.sel = 0;
+                    self.list.scroll = 0.0;
                     self.focus_items = false;
-                } else if ui::hit(&self.item_rects, *x, *y).is_some() {
-                    self.drag = Some((*id, *x, *y, self.scroll, false));
+                } else if self.item_rects.at(*x, *y).is_some() {
+                    self.list.press(*id, *x, *y);
                 }
             }
             _ => {}
@@ -1971,30 +1884,16 @@ impl SettingsScene {
 
     /// A tap on the rows at (`x`, `y`): the row's action, by where on it.
     fn tap_row(&mut self, ctx: &mut Ctx, x: f32, y: f32) {
-        let (x, y) = (&x, &y);
-        if let Some(i) = ui::hit(&self.item_rects, *x, *y) {
+        if let Some((r, &(i, mid))) = self.item_rects.hit(x, y) {
             self.focus_items = true;
-            self.sel = i;
-            let r = self
-                .item_rects
-                .iter()
-                .find(|(_, k)| *k == i)
-                .map(|(r, _)| *r)
-                .unwrap_or_default();
-            // the value's middle (it is drawn at the row's right)
-            let mid = self
-                .item_rects
-                .iter()
-                .position(|(_, k)| *k == i)
-                .and_then(|p| self.value_spans.get(p))
-                .map_or(r.x + r.w * 0.78, |(a, b)| (a + b) * 0.5);
-            let d = if *x < mid { -1 } else { 1 };
+            self.list.sel = i;
+            let d = if x < mid { -1 } else { 1 };
             let list = items(ctx, self.cat);
             let is_adjust = matches!(
                 list.get(i).map(|it| it.act),
                 Some(Act::Adjust(_) | Act::SkinOption(..) | Act::SkinOffset(..))
             );
-            let value_area = *x > r.x + r.w * 0.55;
+            let value_area = x > r.x + r.w * 0.55;
             if is_adjust && value_area {
                 self.activate(ctx, d, false);
             } else if !is_adjust {
@@ -2005,7 +1904,7 @@ impl SettingsScene {
         }
     }
 
-    fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw_inner(&mut self, ctx: &mut Ctx, d: &mut Draw) {
         let ui = ctx.ui();
         let (w, h) = (ctx.width, ctx.height);
         d.b.gradient(
@@ -2035,13 +1934,7 @@ impl SettingsScene {
             theme::TEXT_DIM,
             Align::Center,
         );
-        self.back_rect = ui::button(
-            d,
-            Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
-            "◀ BACK",
-            ui,
-            false,
-        );
+        self.back_rect = ui::back_button(d, w, ui);
 
         let portrait = ctx.portrait();
         let (cat_r, item_r) = if portrait {
@@ -2084,32 +1977,24 @@ impl SettingsScene {
                     theme::ACCENT,
                 );
             }
-            self.cat_rects.push((r, i));
+            self.cat_rects.push(r, i);
         }
         let list = items(ctx, self.cat);
         let rh = 40.0 * ui;
-        // keep the chosen row in view after keys; never past the last row
-        let sel_y = self.sel as f32 * rh;
-        if self.follow {
-            if sel_y - self.scroll > item_r.h - rh * 2.0 {
-                self.scroll = sel_y - item_r.h + rh * 2.0;
-            }
-            if sel_y < self.scroll {
-                self.scroll = sel_y;
-            }
-        }
+        // keep the chosen row in view after keys (with one below it); never
+        // past the last row
+        let sel_y = self.list.sel as f32 * rh;
         let content = 16.0 * ui + list.len() as f32 * rh;
-        self.scroll = self.scroll.clamp(0.0, (content - item_r.h).max(0.0));
+        self.list.fit(sel_y, sel_y + rh * 2.0, item_r.h, content);
         self.item_rects.clear();
-        self.value_spans.clear();
         d.b.set_clip(Some(item_r));
         for (i, item) in list.iter().enumerate() {
-            let y = item_r.y + 8.0 * ui + i as f32 * rh - self.scroll;
+            let y = item_r.y + 8.0 * ui + i as f32 * rh - self.list.scroll;
             if y + rh < item_r.y || y > item_r.bottom() {
                 continue;
             }
             let r = Rect::new(item_r.x + 10.0 * ui, y, item_r.w - 20.0 * ui, rh - 4.0);
-            let selected = i == self.sel && self.focus_items;
+            let selected = i == self.list.sel && self.focus_items;
             ui::row(d, r, selected);
             d.text_fit(
                 &item.label,
@@ -2144,65 +2029,16 @@ impl SettingsScene {
                 Align::Right,
                 r.w * 0.42,
             );
-            self.item_rects.push((r, i));
-            self.value_spans.push((right - drawn, right));
+            self.item_rects.push(r, (i, right - drawn * 0.5));
         }
         d.b.set_clip(None);
         // modal: text edit / key learning
-        self.edit_buttons.clear();
-        if let Some((tf, s)) = &self.edit {
-            // the on-screen keyboard (iOS, Android) covers the lower half
-            ctx.text_input = true;
-            let r = Rect::new(w * 0.1, h * 0.2, w * 0.8, 140.0 * ui);
-            self.edit_panel = r;
-            d.b.rect(
-                Rect::new(0.0, 0.0, w, h),
-                with_alpha(theme::BACKGROUND, 0.7),
-            );
-            ui::panel(d, r);
-            let caret = if (now.elapsed().as_millis() / 500) % 2 == 0 {
-                "_"
-            } else {
-                " "
-            };
-            let shown = if *tf == TextField::IrToken {
-                "•".repeat(s.chars().count())
-            } else {
-                s.clone()
-            };
-            d.text(
-                &format!("{tf:?}  (Enter = OK, Esc = cancel)"),
-                r.x + 14.0 * ui,
-                r.y + 10.0 * ui,
-                15.0 * ui,
-                theme::TEXT_DIM,
-                Align::Left,
-            );
-            d.text_fit(
-                &format!("{shown}{caret}"),
-                r.x + 14.0 * ui,
-                r.y + 42.0 * ui,
-                22.0 * ui,
-                theme::TEXT,
-                Align::Left,
-                r.w - 28.0 * ui,
-            );
-            let (bw, bh) = (120.0 * ui, 36.0 * ui);
-            let by = r.y + r.h - bh - 12.0 * ui;
-            let ok = Rect::new(r.x + r.w - 14.0 * ui - bw, by, bw, bh);
-            let cancel = Rect::new(ok.x - 10.0 * ui - bw, by, bw, bh);
-            self.edit_buttons
-                .push((ui::button(d, ok, "OK", ui, true), 0));
-            self.edit_buttons
-                .push((ui::button(d, cancel, "Cancel", ui, false), 1));
+        if let Some((tf, t)) = self.edit.as_mut() {
+            t.draw_modal(ctx, d, &format!("{tf:?}"), *tf == TextField::IrToken);
         }
         if let Some((slot, _)) = &self.learning {
             let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);
-            d.b.rect(
-                Rect::new(0.0, 0.0, w, h),
-                with_alpha(theme::BACKGROUND, 0.7),
-            );
-            ui::panel(d, r);
+            ui::modal(d, w, h, r);
             let what = if matches!(slot, Slot::ScratchAxis(_)) {
                 "Spin the turntable"
             } else {
