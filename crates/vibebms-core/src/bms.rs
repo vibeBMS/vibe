@@ -807,13 +807,9 @@ pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, 
             }
             if lnobj.contains(&o.id) {
                 if let Some(s) = pending.take() {
-                    let end_sound = snd(o.id);
-                    let end_sound = if end_sound == snd(s.id) {
-                        NO_SOUND
-                    } else {
-                        end_sound
-                    };
-                    notes.push(make_long(&s, o.beat, end_sound, lane_u8));
+                    // the marker only ends the note: its #WAV is not the end's
+                    // sound (as beatoraja; a channel LN's end keeps its own)
+                    notes.push(make_long(&s, o.beat, NO_SOUND, lane_u8));
                     meta.has_long = true;
                 }
                 continue;
@@ -980,6 +976,18 @@ mod tests {
         assert_eq!(l1.end_time() - l1.time, 2_000_000);
         assert_eq!(c.total_judgements(LnType::Ln), 3);
         assert_eq!(c.total_judgements(LnType::Cn), 5);
+    }
+
+    #[test]
+    fn lnobj_marker_wav_is_not_the_end_sound() {
+        let c = parse("#WAV01 a.wav\n#WAVZZ z.wav\n#WAV02 b.wav\n#LNOBJ ZZ\n#00112:0100ZZ00\n#00151:01000002\n");
+        let end = |lane: u8| match c.notes.iter().find(|n| n.lane == lane).map(|n| &n.kind) {
+            Some(NoteKind::Long { end_sound, .. }) => *end_sound,
+            _ => panic!("no long note on {lane}"),
+        };
+        assert_eq!(end(1), NO_SOUND);
+        // a channel LN's end with a sound of its own keeps it
+        assert_ne!(end(0), NO_SOUND);
     }
 
     #[test]
