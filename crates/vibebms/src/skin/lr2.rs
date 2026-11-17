@@ -1066,13 +1066,19 @@ impl Loader<'_> {
     }
 }
 
-/// The images of the LR2 skin loaded last, for `#IMAGE,CONTINUE`.
+/// The images of the last screen of the play flow, for `#IMAGE,CONTINUE`.
 static LAST_IMAGES: std::sync::Mutex<Vec<Option<PathBuf>>> = std::sync::Mutex::new(Vec::new());
 
-/// A skin of another kind was loaded: nothing to go on with.
-pub fn forget_images() {
-    if let Ok(mut l) = LAST_IMAGES.lock() {
-        l.clear();
+/// The skin of a screen of the play flow (select to result) was loaded:
+/// its images are what the next screen goes on with (none when it is not
+/// an LR2 skin). Other screens (key config, skin select and its previews)
+/// leave them.
+pub fn keep_images(skin: &Skin) {
+    if let Ok(mut last) = LAST_IMAGES.lock() {
+        *last = match SkinFormat::of(&skin.path) {
+            Some(SkinFormat::Lr2) => skin.images.clone(),
+            _ => Vec::new(),
+        };
     }
 }
 
@@ -1161,9 +1167,6 @@ pub fn load_with(
     // a button inside a panel is shown (and clickable) only while it is open
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
-    }
-    if let Ok(mut last) = LAST_IMAGES.lock() {
-        *last = l.skin.images.clone();
     }
     let known = l.options.clone();
     resolve_static_ops(&mut l.skin, &known);
@@ -1508,6 +1511,27 @@ pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continue_goes_on_with_the_play_flow_images() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lr2cont-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let load = |name: &str, text: &str| {
+            let p = dir.join(name);
+            let obj =
+                "#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n#DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n";
+            std::fs::write(&p, format!("{text}{obj}")).unwrap();
+            let user = UserSettings::default();
+            load_with(&p, &dir, &user, &|_| None, &|_| Some((1, 1))).unwrap()
+        };
+        let play = load("play.lr2skin", "#INFORMATION,0,P,me\n#IMAGE,bg.png\n");
+        keep_images(&play);
+        // a screen outside the flow (key config) in between
+        load("keys.lr2skin", "#INFORMATION,8,K,me\n#IMAGE,keys.png\n");
+        let result = load("result.lr2skin", "#INFORMATION,7,R,me\n#IMAGE,CONTINUE\n");
+        assert_eq!(result.images, vec![Some(dir.join("bg.png"))]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn lr2_fonts() {

@@ -201,6 +201,7 @@ pub fn load_play_skin(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loa
                     let (w, h) = crate::perspective::reflowed_size(skin.width, skin.height, aspect);
                     skin.reflow(w, h);
                 }
+                crate::skin::lr2::keep_images(&skin);
                 return Some(LoadedSkin::load(skin, gfx));
             }
             Ok(_) => log::warn!("{}: not a {} skin", path.display(), mode.label()),

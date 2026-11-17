@@ -66,7 +66,6 @@ pub fn load_file(
     if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
         lr2::load_with(path, skins_root, user, static_option, image_size)
     } else {
-        lr2::forget_images();
         beatoraja::load_with(path, user, state, image_size)
     }
 }

@@ -63,7 +63,18 @@ pub fn load(
             Some(state),
             &crate::skin::image_size,
         ) {
-            Ok(skin) if accept(skin.kind) => return Some(LoadedSkin::load(skin, gfx)),
+            Ok(skin) if accept(skin.kind) => {
+                let flow = [
+                    SkinType::Select,
+                    SkinType::Decide,
+                    SkinType::Result,
+                    SkinType::CourseResult,
+                ];
+                if flow.contains(&kind) {
+                    crate::skin::lr2::keep_images(&skin);
+                }
+                return Some(LoadedSkin::load(skin, gfx));
+            }
             Ok(skin) => log::warn!(
                 "{}: not a {:?} skin ({:?})",
                 path.display(),
