@@ -94,14 +94,6 @@ impl JudgeWindows {
             .unwrap_or(tab.len())
     }
 
-    /// Bound of window `judge` (`early` = upper bound). 0 when out of range.
-    pub fn time(&self, t: NoteType, judge: usize, early: bool) -> i64 {
-        self.table(t)
-            .get(judge)
-            .map(|w| if early { w.1 } else { w.0 })
-            .unwrap_or(0)
-    }
-
     /// Smallest late bound / largest early bound over note and scratch tables.
     pub fn extent(&self) -> (i64, i64) {
         let mut s = 0;

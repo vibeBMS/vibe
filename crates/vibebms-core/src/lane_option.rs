@@ -87,12 +87,8 @@ pub fn battle(chart: &mut Chart) {
     chart.meta.mode = Some(dp);
 }
 
-/// LEGACY NOTE: turn long notes into normal notes (assist).
-pub fn legacy_note(chart: &mut Chart) {
-    legacy_note_of(chart, None);
-}
-
-/// LEGACY NOTE on one player's lanes (`None`: all).
+/// LEGACY NOTE (assist): turn the long notes of one player's lanes
+/// (`None`: all) into normal notes.
 pub fn legacy_note_of(chart: &mut Chart, player: Option<usize>) {
     let mode = chart.mode();
     for n in &mut chart.notes {
@@ -102,11 +98,7 @@ pub fn legacy_note_of(chart: &mut Chart, player: Option<usize>) {
     }
 }
 
-pub fn remove_mines(chart: &mut Chart) {
-    remove_mines_of(chart, None);
-}
-
-/// NO MINE on one player's lanes (`None`: all).
+/// NO MINE: remove the mines of one player's lanes (`None`: all).
 pub fn remove_mines_of(chart: &mut Chart, player: Option<usize>) {
     let mode = chart.mode();
     chart.notes.retain(|n| {

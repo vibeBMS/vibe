@@ -441,11 +441,11 @@ pub(crate) fn load_chart(
     }
     if play.legacy_note {
         facts.legacy_note = chart.meta.has_long;
-        lane_option::legacy_note(&mut chart);
+        lane_option::legacy_note_of(&mut chart, None);
     }
     if play.no_mine {
         let n = chart.notes.len();
-        lane_option::remove_mines(&mut chart);
+        lane_option::remove_mines_of(&mut chart, None);
         facts.no_mine = chart.notes.len() != n;
     }
     Ok((chart, facts, ln_profile))
