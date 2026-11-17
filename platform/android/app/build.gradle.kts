@@ -16,8 +16,9 @@ android {
         applicationId = "io.github.vibebms"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI numbers each build, so a newer APK installs over an older one
+        versionCode = (System.getenv("VIBEBMS_VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("VIBEBMS_VERSION_NAME") ?: "0.1.0"
     }
 
     signingConfigs {

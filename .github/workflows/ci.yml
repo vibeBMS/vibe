@@ -7,6 +7,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # each CI build's number: 0.1.<run> (the app stores and sideloading
+  # tools want a newer number to update an installed app)
+  BUILD_NUMBER: ${{ github.run_number }}
 
 jobs:
   test:
@@ -222,6 +225,9 @@ jobs:
           mkdir -p "$app"
           cp target/aarch64-apple-ios/release/vibebms "$app/"
           cp platform/ios/Info.plist platform/ios/*.png "$app/"
+          base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | cut -d. -f1-2)"
+          plutil -replace CFBundleShortVersionString -string "$base.$BUILD_NUMBER" "$app/Info.plist"
+          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$app/Info.plist"
           zip -qr vibeBMS-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
@@ -340,6 +346,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
+      - run: |
+          base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | cut -d. -f1-2)"
+          echo "VIBEBMS_VERSION_CODE=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "VIBEBMS_VERSION_NAME=$base.$BUILD_NUMBER" >> "$GITHUB_ENV"
       - run: gradle -p platform/android --no-daemon assembleRelease
       - run: cp platform/android/app/build/outputs/apk/release/app-release.apk vibeBMS.apk
       - uses: actions/upload-artifact@v4
@@ -378,6 +388,40 @@ jobs:
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
           [ -d art/vibeBMS-web ] && (cd art/vibeBMS-web && zip -qr ../../out/vibeBMS-web.zip .)
+          # an AltStore / SideStore source: add its URL once, and the app
+          # store offers each new nightly .ipa as an update
+          if [ -f out/vibeBMS-unsigned.ipa ]; then
+            base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | cut -d. -f1-2)"
+            jq -n --arg repo "$GITHUB_REPOSITORY" --arg sha "${GITHUB_SHA:0:7}" \
+              --arg version "$base.$BUILD_NUMBER" --arg build "$BUILD_NUMBER" \
+              --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --argjson size "$(stat -c %s out/vibeBMS-unsigned.ipa)" '{
+              name: "vibeBMS nightly",
+              identifier: "io.github.vibebms.nightly",
+              website: "https://github.com/\($repo)",
+              apps: [{
+                name: "vibeBMS",
+                bundleIdentifier: "io.github.vibebms",
+                developerName: "vibeBMS",
+                subtitle: "BMS player",
+                localizedDescription: "A cross-platform BMS player. Nightly builds of the default branch.",
+                iconURL: "https://raw.githubusercontent.com/\($repo)/main/platform/ios/AppIcon76x76@2x.png",
+                tintColor: "#3B82F6",
+                category: "games",
+                versions: [{
+                  version: $version,
+                  buildVersion: $build,
+                  date: $date,
+                  localizedDescription: "Nightly build of \($sha).",
+                  downloadURL: "https://github.com/\($repo)/releases/download/nightly/vibeBMS-unsigned.ipa",
+                  size: $size,
+                  minOSVersion: "14.0"
+                }],
+                appPermissions: { entitlements: [], privacy: {} }
+              }],
+              news: []
+            }' > out/altstore.json
+          fi
           ls -l out
       - name: release
         env:
@@ -407,6 +451,7 @@ jobs:
             echo "- Linux: \`vibebms-linux-*\` needs glibc 2.35 and WebKitGTK 4.1 (\`libwebkit2gtk-4.1-0\`, for the download browser);"
             echo "  \`vibebms-linux-*-portable\` has no download browser and starts with glibc 2.28 and ALSA."
             echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
+            echo "  For updates in AltStore / SideStore, add the source https://github.com/$GH_REPO/releases/download/nightly/altstore.json"
             echo "- Web: unzip and serve the folder over HTTP(S), or use https://vibebms.github.io/vibe/."
           )"
           if gh release view nightly >/dev/null 2>&1; then
