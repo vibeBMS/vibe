@@ -364,8 +364,9 @@ impl Ctx {
     }
 
     pub fn reload_library(&mut self) {
-        if let Some(lib) = &self.lib {
+        if let Some(lib) = &mut self.lib {
             let mut songs = lib.songs();
+            lib.merge_fixed_ln(&songs);
             songs.sort_by(|a, b| {
                 a.title
                     .to_lowercase()
@@ -676,9 +677,15 @@ impl Ctx {
         }
     }
 
-    pub fn best(&self, song: &Song, ln: i32) -> Option<&BestScore> {
-        self.scores
-            .get(&(song.sha256.clone(), if song.has_ln { ln } else { 0 }))
+    /// The chart's record with the player's LN mode `pref` (filed under
+    /// the chart's own when its long notes all have their type).
+    pub fn best(&self, song: &Song, pref: vibebms_core::LnType) -> Option<&BestScore> {
+        self.best_key(&song.sha256, song.score_ln(pref) as i32)
+    }
+
+    /// The record of `sha256` under the LN mode `ln` (as filed).
+    pub fn best_key(&self, sha256: &str, ln: i32) -> Option<&BestScore> {
+        self.scores.get(&(sha256.to_string(), ln))
     }
 }
 

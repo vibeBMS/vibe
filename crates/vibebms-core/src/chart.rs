@@ -17,6 +17,54 @@ pub enum LnType {
     Hcn,
 }
 
+/// Which long notes a chart has: ones of no type (played as the player's
+/// LN mode) and ones typed by the chart (`#LNMODE`, bmson `t`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct LnProfile {
+    pub undefined: bool,
+    /// Typed LN, CN, HCN.
+    pub typed: [bool; 3],
+}
+
+impl LnProfile {
+    pub fn has_long(self) -> bool {
+        self.undefined || self.typed.iter().any(|t| *t)
+    }
+
+    /// The LN mode a play's score, replay and IR entry are filed under:
+    /// without long notes LN (0); when every long note has its type the
+    /// chart plays the same whatever the player's mode, so the strongest
+    /// type the chart has (HCN > CN > LN; with one type, that type);
+    /// else the player's mode.
+    pub fn score_ln(self, pref: LnType) -> LnType {
+        if self.undefined {
+            pref
+        } else if self.typed[2] {
+            LnType::Hcn
+        } else if self.typed[1] {
+            LnType::Cn
+        } else {
+            LnType::Ln
+        }
+    }
+
+    /// Packed in a byte (for the song cache): bit 0 undefined, 1..3 typed.
+    pub fn bits(self) -> u8 {
+        let mut b = self.undefined as u8;
+        for (i, t) in self.typed.iter().enumerate() {
+            b |= (*t as u8) << (i + 1);
+        }
+        b
+    }
+
+    pub fn from_bits(b: u8) -> LnProfile {
+        LnProfile {
+            undefined: b & 1 != 0,
+            typed: std::array::from_fn(|i| b & (2 << i) != 0),
+        }
+    }
+}
+
 /// Index into [`Chart::sounds`]. `NO_SOUND` means silence.
 pub type SoundId = u32;
 pub const NO_SOUND: SoundId = u32::MAX;
@@ -195,6 +243,20 @@ impl Chart {
             .sum()
     }
 
+    /// The long notes the chart has, by type.
+    pub fn ln_profile(&self) -> LnProfile {
+        let mut p = LnProfile::default();
+        for n in &self.notes {
+            if let NoteKind::Long { ln_type, .. } = n.kind {
+                match ln_type {
+                    None => p.undefined = true,
+                    Some(t) => p.typed[t as usize] = true,
+                }
+            }
+        }
+        p
+    }
+
     /// Number of playable notes (LN counted once), as shown in song select.
     pub fn note_count(&self) -> usize {
         self.notes.iter().filter(|n| n.is_playable()).count()
@@ -223,5 +285,47 @@ impl Chart {
         self.meta.min_bpm = min;
         self.meta.max_bpm = max;
         self.meta.main_bpm = main;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn score_ln_follows_the_chart_when_it_types_its_long_notes() {
+        let none = LnProfile::default();
+        assert_eq!(none.score_ln(LnType::Hcn), LnType::Ln);
+        let undefined = LnProfile {
+            undefined: true,
+            typed: [false, true, false],
+        };
+        assert_eq!(undefined.score_ln(LnType::Hcn), LnType::Hcn);
+        let cn = LnProfile {
+            undefined: false,
+            typed: [false, true, false],
+        };
+        assert_eq!(cn.score_ln(LnType::Ln), LnType::Cn);
+        assert_eq!(cn.score_ln(LnType::Hcn), LnType::Cn);
+        let mixed = LnProfile {
+            undefined: false,
+            typed: [true, true, false],
+        };
+        assert_eq!(mixed.score_ln(LnType::Ln), LnType::Cn);
+        for p in [none, undefined, cn, mixed] {
+            assert_eq!(LnProfile::from_bits(p.bits()), p);
+        }
+    }
+
+    #[test]
+    fn lnmode_types_every_long_note() {
+        let src = "#BPM 120\n#LNMODE 2\n#WAV01 a.wav\n#00151:0101\n#00111:01\n";
+        let c = crate::bms::parse_bms(src.as_bytes(), "bme", &Default::default()).unwrap();
+        let p = c.ln_profile();
+        assert!(!p.undefined && p.typed == [false, true, false]);
+        assert_eq!(p.score_ln(LnType::Ln), LnType::Cn);
+        let src = "#BPM 120\n#WAV01 a.wav\n#00151:0101\n";
+        let c = crate::bms::parse_bms(src.as_bytes(), "bme", &Default::default()).unwrap();
+        assert_eq!(c.ln_profile().score_ln(LnType::Hcn), LnType::Hcn);
     }
 }

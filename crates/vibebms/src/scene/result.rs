@@ -29,8 +29,8 @@ pub struct ResultData {
     pub artist: String,
     pub level: String,
     pub mode: PlayMode,
+    /// The LN mode the play is filed under (scores, replays, IR).
     pub ln: LnType,
-    pub has_ln: bool,
     pub score: Score,
     pub clear: ClearType,
     pub gauge_type: GaugeType,
@@ -94,8 +94,8 @@ enum Leave {
 impl ResultScene {
     pub fn new(ctx: &mut Ctx, d: ResultData) -> ResultScene {
         let song = &d.request.song;
-        let ln = if d.has_ln { d.ln as i32 } else { 0 };
-        let before = ctx.best(song, ln).cloned();
+        let ln = d.ln as i32;
+        let before = ctx.best_key(&song.sha256, ln).cloned();
         let mut after = None;
         let mut ir_rx = None;
         let mut ir_status = String::new();

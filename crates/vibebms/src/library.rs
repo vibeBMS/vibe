@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use vibebms_core::score::{ClearType, Score};
+use vibebms_core::{LnProfile, LnType};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -53,6 +54,9 @@ pub struct Song {
     /// Notes per second: average, peak and near the end, as beatoraja
     /// measures them.
     pub density: [f64; 3],
+    /// The long notes by type (`LnProfile::bits`); `None` in libraries
+    /// scanned before it was stored.
+    pub ln_profile: Option<u8>,
 }
 
 impl Song {
@@ -63,6 +67,25 @@ impl Song {
             .map(|v| v as i64)
             .unwrap_or(0)
     }
+    /// The LN mode its scores, replays and IR entries are filed under
+    /// with the player's mode `pref` (`LnProfile::score_ln`).
+    pub fn score_ln(&self, pref: LnType) -> LnType {
+        match self.ln_profile {
+            Some(b) => LnProfile::from_bits(b).score_ln(pref),
+            None if self.has_ln => pref,
+            None => LnType::Ln,
+        }
+    }
+
+    /// Its long notes all have their type: one LN mode whatever the
+    /// player's (records from before were filed under the player's).
+    pub fn fixed_ln(&self) -> bool {
+        self.has_ln
+            && self
+                .ln_profile
+                .is_some_and(|b| !LnProfile::from_bits(b).undefined)
+    }
+
     pub fn full_title(&self) -> String {
         if self.subtitle.is_empty() {
             self.title.clone()
@@ -88,6 +111,26 @@ pub struct BestScore {
 }
 
 impl BestScore {
+    /// Two records of the same chart and LN mode as one.
+    pub fn merge(&self, o: &BestScore) -> BestScore {
+        let (hi, lo) = if o.ex_score > self.ex_score {
+            (o, self)
+        } else {
+            (self, o)
+        };
+        BestScore {
+            clear: hi.clear.max(lo.clear),
+            ex_score: hi.ex_score,
+            notes: hi.notes,
+            judges: hi.judges,
+            max_combo: hi.max_combo.max(lo.max_combo),
+            min_bp: hi.min_bp.min(lo.min_bp),
+            play_count: hi.play_count + lo.play_count,
+            clear_count: hi.clear_count + lo.clear_count,
+            last_played: hi.last_played.max(lo.last_played),
+        }
+    }
+
     pub fn rate(&self) -> f64 {
         if self.notes == 0 {
             0.0
@@ -254,6 +297,31 @@ impl Library {
                 }
             }
             Err(e) => log::error!("saving scores: {e}"),
+        }
+    }
+
+    /// Records of charts whose long notes all have their type, filed
+    /// under the player's LN mode before vibe filed them under the
+    /// chart's: merged into the chart's (they were played as it).
+    pub fn merge_fixed_ln(&mut self, songs: &[Song]) {
+        let mut changed = false;
+        for song in songs.iter().filter(|s| s.fixed_ln()) {
+            let key = song.score_ln(LnType::Ln) as i32;
+            for other in (0..3).filter(|k| *k != key) {
+                let Some(old) = self.scores.remove(&(song.sha256.clone(), other)) else {
+                    continue;
+                };
+                let k = (song.sha256.clone(), key);
+                let merged = match self.scores.get(&k) {
+                    Some(b) => b.merge(&old),
+                    None => old,
+                };
+                self.scores.insert(k, merged);
+                changed = true;
+            }
+        }
+        if changed {
+            self.save_scores();
         }
     }
 
@@ -428,6 +496,7 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
         note_kinds,
         density,
         judge: Some(crate::scene::skinned::judge_rank_number(m)),
+        ln_profile: Some(c.ln_profile().bits()),
         path: path.to_string_lossy().into_owned(),
         folder,
         md5: m.md5.clone(),
@@ -467,10 +536,10 @@ pub fn scan(
 ) {
     let known_records = load_songs(&songs_file);
     // charts read before the library kept their judge rank and note
-    // kinds are read again (once)
+    // kinds, or the types of their long notes, are read again (once)
     let known: HashMap<String, (i64, i64)> = known_records
         .iter()
-        .filter(|r| r.song.judge.is_some())
+        .filter(|r| r.song.judge.is_some() && (!r.song.has_ln || r.song.ln_profile.is_some()))
         .map(|r| (r.song.path.clone(), (r.mtime, r.size)))
         .collect();
     let mut files: Vec<(PathBuf, String)> = Vec::new();
@@ -611,6 +680,59 @@ mod tests {
         assert_eq!(*lib.totals(), want);
         // kept, not seeded again
         assert_eq!(*Library::open(&dir, &dir).totals(), want);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn records_of_typed_long_notes_merge_into_the_charts_mode() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lnkey-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rec = |ln: i32, ex: u32, clear: &str, plays: u32| {
+            serde_json::json!({"sha256": "c", "ln": ln, "ex_score": ex, "clear": clear,
+                "play_count": plays, "min_bp": 9})
+        };
+        let old = serde_json::json!([rec(0, 100, "Hard", 2), rec(2, 120, "Easy", 1)]);
+        std::fs::write(dir.join("scores.json"), old.to_string()).unwrap();
+        let mut lib = Library::open(&dir, &dir);
+        // #LNMODE 2: every long note a CN
+        let cn = Song {
+            sha256: "c".into(),
+            has_ln: true,
+            ln_profile: Some(
+                LnProfile {
+                    undefined: false,
+                    typed: [false, true, false],
+                }
+                .bits(),
+            ),
+            ..Default::default()
+        };
+        assert_eq!(cn.score_ln(LnType::Hcn), LnType::Cn);
+        lib.merge_fixed_ln(std::slice::from_ref(&cn));
+        let s = Library::open(&dir, &dir).scores();
+        assert_eq!(s.len(), 1);
+        let b = &s[&("c".to_string(), 1)];
+        assert_eq!(
+            (b.ex_score, b.clear, b.play_count),
+            (120, ClearType::Hard, 3)
+        );
+        // a chart whose long notes take the player's mode keeps them apart
+        let free = Song {
+            sha256: "c".into(),
+            has_ln: true,
+            ln_profile: Some(
+                LnProfile {
+                    undefined: true,
+                    typed: [false; 3],
+                }
+                .bits(),
+            ),
+            ..Default::default()
+        };
+        assert!(!free.fixed_ln());
+        assert_eq!(free.score_ln(LnType::Hcn), LnType::Hcn);
+        // no long notes: LN
+        assert_eq!(Song::default().score_ln(LnType::Cn), LnType::Ln);
         std::fs::remove_dir_all(&dir).ok();
     }
 

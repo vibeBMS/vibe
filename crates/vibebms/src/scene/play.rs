@@ -75,6 +75,8 @@ struct Loaded {
     seed: i64,
     /// Why the play is not the chart as written (it is then not recorded).
     altered: Option<&'static str>,
+    /// The chart's long notes as written (before options).
+    ln_profile: vibebms_core::LnProfile,
 }
 
 enum Stage {
@@ -122,6 +124,8 @@ pub struct PlayScene {
     pub(crate) lane_cursor: Vec<usize>,
     pub(crate) mode: PlayMode,
     pub(crate) ln: LnType,
+    /// The LN mode the play is filed under (`LnProfile::score_ln`).
+    pub(crate) score_ln: LnType,
     pub(crate) seed: i64,
     pub(crate) error: Option<String>,
     /// The replay's next op (watching one).
@@ -241,6 +245,7 @@ impl PlayScene {
                     },
                 )
                 .map_err(|e| e.to_string())?;
+                let ln_profile = chart.ln_profile();
                 // chart transforms (options)
                 let mut altered = None;
                 if play.battle && !chart.mode().is_double() {
@@ -312,6 +317,7 @@ impl PlayScene {
                     stagefile,
                     seed,
                     altered,
+                    ln_profile,
                 }))
             })();
             let _ = tx.send(r);
@@ -353,6 +359,7 @@ impl PlayScene {
             lane_cursor: Vec::new(),
             mode,
             ln: play_ln,
+            score_ln: LnType::Ln,
             seed: 0,
             error: None,
             replay_at: 0,
@@ -439,6 +446,7 @@ impl PlayScene {
             stagefile,
             seed,
             altered,
+            ln_profile,
         } = *l;
         self.seed = seed;
         self.mode = chart.mode();
@@ -464,6 +472,7 @@ impl PlayScene {
                 self.ln = LnType::Hcn;
             }
         }
+        self.score_ln = ln_profile.score_ln(self.ln);
         let fam = self.mode.family();
         let gauge_preset = if course.map(|c| c.has("gauge_lr2")).unwrap_or(false) {
             vibebms_core::gauge::GaugePreset::Lr2
@@ -517,15 +526,11 @@ impl PlayScene {
         }
         // the best play's ghost: MY BEST's pacemaker at the same note
         if self.req.replay.is_none() {
-            let ln = if chart.meta.has_long {
-                self.ln as i32
-            } else {
-                0
-            };
-            self.best_ghost = crate::replay::Replay::load(
+            self.best_ghost = crate::replay::Replay::load_filed(
                 &ctx.paths.root,
                 &self.req.song.sha256,
-                ln,
+                self.score_ln as i32,
+                ln_profile.has_long() && !ln_profile.undefined,
                 crate::replay::Slot::Best,
             )
             .map(|r| r.ghost);
@@ -892,12 +897,7 @@ impl PlayScene {
             artist: self.chart.meta.artist.clone(),
             level: self.chart.meta.level.clone(),
             mode: self.mode,
-            ln: if self.chart.meta.has_long {
-                self.ln
-            } else {
-                LnType::Ln
-            },
-            has_ln: self.chart.meta.has_long,
+            ln: self.score_ln,
             score,
             clear,
             gauge_type: gauge.current_type(),
@@ -932,11 +932,7 @@ impl PlayScene {
                 sha256: self.req.song.sha256.clone(),
                 md5: self.req.song.md5.clone(),
                 title: self.chart.meta.title.clone(),
-                ln: if self.chart.meta.has_long {
-                    self.ln as i32
-                } else {
-                    0
-                },
+                ln: self.score_ln as i32,
                 date: crate::platform::unix_now() as i64,
                 seed: self.seed,
                 play: ctx.config.play.clone(),

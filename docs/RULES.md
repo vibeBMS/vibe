@@ -88,6 +88,10 @@ Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 
 * **HCN** (`#LNMODE 3`): CN plus a gauge tick every 200 ms of the body: +GREAT×0.5 while held, BAD×0.5 while released.
 * Back-spin scratch: on a scratch CN/HCN the end is judged when the turntable is spun the other way. For
   keyboards and touch, releasing also ends it (configurable in the engine).
+* Scores, replays and IR entries are filed by LN mode: a chart without long notes under LN; a chart whose long
+  notes all have their type (`#LNMODE`, bmson `t`) under that type (with several types, the strongest:
+  HCN > CN > LN), whatever the player's LN mode; otherwise under the player's LN mode. Records such charts had
+  under the player's mode are merged into the chart's when the library loads.
 
 ## Clear lamps
 FAILED < ASSIST (assist options) < L-ASSIST (ASSIST EASY gauge) < EASY < CLEAR < HARD < EX-HARD < FULL COMBO

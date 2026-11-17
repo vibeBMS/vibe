@@ -93,6 +93,32 @@ impl Replay {
         let r: Replay = serde_json::from_slice(&json).ok()?;
         (r.version == VERSION).then_some(r)
     }
+
+    /// The replay `slot` filed under LN mode `ln`. `fixed`: the chart's
+    /// long notes all have their type, and replays from before vibe filed
+    /// them under the chart's mode may be under any (the best EX score's,
+    /// or the latest, of those).
+    pub fn load_filed(
+        root: &Path,
+        sha256: &str,
+        ln: i32,
+        fixed: bool,
+        slot: Slot,
+    ) -> Option<Replay> {
+        if let Some(r) = Replay::load(root, sha256, ln, slot) {
+            return Some(r);
+        }
+        if !fixed {
+            return None;
+        }
+        (0..3)
+            .filter(|k| *k != ln)
+            .filter_map(|k| Replay::load(root, sha256, k, slot))
+            .max_by_key(|r| match slot {
+                Slot::Best => (r.ex_score as i64, r.date),
+                Slot::Last => (r.date, r.ex_score as i64),
+            })
+    }
 }
 
 /// EX score of judgements (PG 2, GR 1).
