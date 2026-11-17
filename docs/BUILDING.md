@@ -14,6 +14,11 @@ Packages: `libasound2-dev libudev-dev libwebkit2gtk-4.1-dev` (Debian/Ubuntu) and
 Runtime also loads `libxkbcommon-x11` (X11) or Wayland libraries.
 WebKitGTK is for the in-app browser that downloads songs; without it, build with
 `--no-default-features` (download pages then open in the system browser).
+
+The release builds: `vibebms-linux-x64` / `-arm64` are built on Ubuntu 22.04 (glibc 2.35, WebKitGTK 4.1);
+`vibebms-linux-x64-portable` / `-arm64-portable` are built without the browser in a `manylinux_2_28` (AlmaLinux 8)
+container, so they need only glibc 2.28, ALSA and libudev. WebKitGTK cannot be loaded at run time instead (wry
+links it), hence the two builds.
 Optional JACK output: `cargo build --release --features jack` (needs `libjack-dev`).
 
 ## Windows (x64 / ARM64)
