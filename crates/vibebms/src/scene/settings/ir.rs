@@ -124,7 +124,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         }
     }
     v.push(Row::note(
-        "    Bokutachi: only plays under beatoraja rules (PMS), later LR2 rules (7K/14K); never touch plays",
+        "    Bokutachi: plays under vibe-beatoraja rules (PMS), vibe-LR2 rules (7K/14K) once equal; never touch plays; key from boku.tachi.ac (submit_score)",
         "",
     ));
     for (i, a) in ir.accounts.iter().enumerate() {
@@ -166,17 +166,11 @@ fn account_rows(ctx: &Ctx, v: &mut Vec<Row>, i: usize) {
         key_state(ctx, a),
         Act::Text(TextField::IrKey(i)),
     ));
-    if a.provider == ProviderId::Bokutachi {
+    if a.provider == ProviderId::Bokutachi && IS_WEB {
         v.push(Row::note(
-            "    Bokutachi support comes in a later build",
+            "    Plays in the browser are not sent to Bokutachi",
             "",
         ));
-        if IS_WEB {
-            v.push(Row::note(
-                "    Plays in the browser are not sent to Bokutachi",
-                "",
-            ));
-        }
     }
     v.push(Row::new(
         "    Send plays",

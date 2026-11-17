@@ -26,6 +26,7 @@ use vibebms_ir::eligibility::{eligible, Refusal};
 use vibebms_ir::limiter::Limiter;
 use vibebms_ir::outbox::{Item, Outbox, Reply, State};
 use vibebms_ir::provider::IrError;
+use vibebms_ir::providers::tachi::Tachi;
 use vibebms_ir::providers::vibe_json::VibeJson;
 use vibebms_ir::{HttpRequest, HttpResponse, Op, Outcome, Provider, ProviderId};
 
@@ -64,7 +65,8 @@ pub struct IrService {
 fn provider(a: &IrAccount) -> Option<Box<dyn Provider>> {
     match a.provider {
         ProviderId::VibeJson(n) => Some(Box::new(VibeJson::new(n, &a.url)?)),
-        _ => None,
+        ProviderId::Bokutachi => Some(Box::new(Tachi)),
+        ProviderId::BmsIr | ProviderId::RianIr => None,
     }
 }
 
@@ -231,23 +233,26 @@ impl IrService {
             changed = true;
         }
         for a in Job::drain_all(&mut self.jobs) {
-            let Some(account) = ir.account_mut(a.p) else {
-                continue;
-            };
-            match a.ticket {
-                Ticket::Verify => {
+            if let (Ticket::Item(_), Some(l)) = (&a.ticket, self.limiters.get_mut(&a.p)) {
+                l.finish();
+            }
+            changed = true;
+            match (a.ticket, ir.account_mut(a.p)) {
+                (Ticket::Verify, Some(account)) => {
                     events.extend(self.verified(account, a.r));
                     events.push(AppEvent::IrChanged);
-                    changed = true;
                 }
-                Ticket::Item(id) => {
-                    if let Some(l) = self.limiters.get_mut(&a.p) {
-                        l.finish();
-                    }
+                (Ticket::Item(id), Some(account)) => {
                     let failed = self.settle(account, &id, a.r, now_ms);
                     events.extend(failed.map(AppEvent::Toast));
-                    changed = true;
                 }
+                // the account was removed meanwhile, its plays with it
+                (Ticket::Item(id), None) => {
+                    if let Some(o) = self.outbox.as_mut() {
+                        o.items.retain(|i| i.id != id);
+                    }
+                }
+                (Ticket::Verify, None) => {}
             }
         }
         changed |= self.send_due(ir, now_ms);
