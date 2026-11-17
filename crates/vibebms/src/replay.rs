@@ -4,7 +4,7 @@
 
 use crate::config::PlayConfig;
 use std::path::{Path, PathBuf};
-pub use vibebms_core::replay::{ex_of, VERSION};
+pub use vibebms_core::replay::VERSION;
 
 /// A replay with the play options it was played with (rules and view).
 pub type Replay = vibebms_core::replay::Replay<PlayConfig>;
@@ -113,6 +113,7 @@ fn write(path: &Path, bytes: Vec<u8>) -> Result<(), String> {
 mod tests {
     use super::*;
     use vibebms_core::engine::Op;
+    use vibebms_core::judge::Judge;
     use vibebms_core::score::ClearType;
 
     #[test]
@@ -129,7 +130,7 @@ mod tests {
             play: PlayConfig::default(),
             ex_score: 3,
             clear: ClearType::Easy,
-            ghost: vec![0, 1, 4],
+            ghost: vec![Judge::PGreat, Judge::Great, Judge::Poor],
             ops: vec![Op::Update(5), Op::Input(10, 1, 0, true)],
         };
         save(&r, &root, Slot::Best).unwrap();

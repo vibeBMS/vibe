@@ -13,7 +13,10 @@
 use std::path::PathBuf;
 
 use vibebms_core::gauge::{gauge_elements, Gauge, GaugeElement, GaugePreset, GaugeType};
-use vibebms_core::judge::{BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+// the judgements by the names the expected data uses
+use vibebms_core::judge::Judge::{
+    Bad as BAD, Good as GOOD, Great as GREAT, Miss as MISS, PGreat as PGREAT, Poor as POOR,
+};
 use vibebms_core::mode::RuleFamily;
 
 fn elem(preset: GaugePreset, fam: RuleFamily, ty: GaugeType) -> &'static GaugeElement {

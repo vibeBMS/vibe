@@ -6,6 +6,7 @@
 //!
 //! Gauge change tables are ordered PG, GR, GD, BD, POOR, empty POOR.
 
+use crate::judge::Judge;
 use crate::mode::RuleFamily;
 use crate::score::ClearType;
 use serde::{Deserialize, Serialize};
@@ -393,8 +394,8 @@ impl Gauge {
         }
     }
 
-    pub fn update(&mut self, judge: usize, rate: f32) {
-        let mut inc = self.values[judge] * rate;
+    pub fn update(&mut self, judge: Judge, rate: f32) {
+        let mut inc = self.values[judge as usize] * rate;
         if inc < 0.0 {
             if let Some((_, m)) = self.elem.guts.iter().find(|(t, _)| self.value < *t) {
                 inc *= m;
@@ -415,8 +416,8 @@ impl Gauge {
         self.value >= self.elem.max
     }
 
-    pub fn change_for(&self, judge: usize) -> f32 {
-        self.values[judge]
+    pub fn change_for(&self, judge: Judge) -> f32 {
+        self.values[judge as usize]
     }
 }
 
@@ -481,7 +482,7 @@ impl GrooveGauge {
         self.current().value()
     }
 
-    pub fn update(&mut self, judge: usize, rate: f32) {
+    pub fn update(&mut self, judge: Judge, rate: f32) {
         for g in &mut self.gauges {
             g.update(judge, rate);
         }
@@ -562,7 +563,6 @@ impl GrooveGauge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::judge::*;
 
     #[test]
     fn groove_gauge_total_scaling() {
@@ -574,8 +574,8 @@ mod tests {
             300.0,
             1000,
         );
-        assert!((g.get(GaugeType::Normal).change_for(PGREAT) - 0.3).abs() < 1e-6);
-        assert_eq!(g.get(GaugeType::Normal).change_for(POOR), -6.0);
+        assert!((g.get(GaugeType::Normal).change_for(Judge::PGreat) - 0.3).abs() < 1e-6);
+        assert_eq!(g.get(GaugeType::Normal).change_for(Judge::Poor), -6.0);
         assert_eq!(g.value(), 20.0);
     }
 
@@ -590,11 +590,11 @@ mod tests {
             1000,
         );
         for _ in 0..10 {
-            g.update(POOR, 1.0);
+            g.update(Judge::Poor, 1.0);
         }
         assert!(g.current().is_dead());
         assert!(g.is_failed_now());
-        g.update(PGREAT, 1.0);
+        g.update(Judge::PGreat, 1.0);
         assert_eq!(g.value(), 0.0);
     }
 
@@ -602,7 +602,7 @@ mod tests {
     fn hard_guts_reduce_damage() {
         let mut g = Gauge::new(GaugeType::Hard, &SEVEN[3], 300.0, 1000);
         g.set_value(25.0);
-        g.update(POOR, 1.0);
+        g.update(Judge::Poor, 1.0);
         assert!((g.value() - (25.0 - 10.0 * 0.6)).abs() < 1e-4);
     }
 
@@ -618,7 +618,7 @@ mod tests {
         );
         assert_eq!(g.current_type(), GaugeType::ExHard);
         for _ in 0..7 {
-            g.update(POOR, 1.0);
+            g.update(Judge::Poor, 1.0);
         }
         assert_eq!(g.current_type(), GaugeType::Hard);
         let mut s = GrooveGauge::new(
@@ -630,7 +630,7 @@ mod tests {
             1000,
         );
         for _ in 0..20 {
-            s.update(POOR, 1.0);
+            s.update(Judge::Poor, 1.0);
         }
         assert_eq!(s.current_type(), GaugeType::Normal);
         assert!(!s.is_failed_now());
@@ -640,14 +640,15 @@ mod tests {
     fn lr2_modify_damage_small_chart() {
         let g = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 250);
         // 250 notes: damage x3 (LR2's note count correction)
-        assert!((g.change_for(POOR) + 30.0).abs() < 1e-4);
+        assert!((g.change_for(Judge::Poor) + 30.0).abs() < 1e-4);
         let big = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 2000);
-        assert_eq!(big.change_for(POOR), -10.0);
+        assert_eq!(big.change_for(Judge::Poor), -10.0);
         // TOTAL 200: floor(200 / 16) - 5 = 7 -> x10/7
         let low = Gauge::new(GaugeType::Hard, &LR2[3], 200.0, 2000);
-        assert!((low.change_for(POOR) + 100.0 / 7.0).abs() < 1e-3);
+        assert!((low.change_for(Judge::Poor) + 100.0 / 7.0).abs() < 1e-3);
         assert!(
-            (Gauge::new(GaugeType::Hard, &LR2[3], 100.0, 2000).change_for(POOR) + 100.0).abs()
+            (Gauge::new(GaugeType::Hard, &LR2[3], 100.0, 2000).change_for(Judge::Poor) + 100.0)
+                .abs()
                 < 1e-3
         );
     }
@@ -656,19 +657,19 @@ mod tests {
     fn lr2_guts_and_death() {
         let mut g = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 2000);
         g.set_value(31.0);
-        g.update(POOR, 1.0);
+        g.update(Judge::Poor, 1.0);
         // below 32 %: damage x0.6
         assert!((g.value() - (31.0 - 6.0)).abs() < 1e-4);
         // below 2 % it empties
         g.set_value(3.0);
         assert!(!g.is_dead());
-        g.update(GOOD, 1.0);
-        g.update(MISS, 1.0);
+        g.update(Judge::Good, 1.0);
+        g.update(Judge::Miss, 1.0);
         assert!(g.is_dead());
         // groove gauges do not
         let mut n = Gauge::new(GaugeType::Normal, &LR2[2], 300.0, 2000);
         n.set_value(3.0);
-        n.update(BAD, 1.0);
+        n.update(Judge::Bad, 1.0);
         assert!(!n.is_dead());
         // beatoraja's HARD has no such floor
         let mut b = Gauge::new(GaugeType::Hard, &SEVEN[3], 300.0, 2000);

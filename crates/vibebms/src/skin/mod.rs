@@ -16,6 +16,7 @@ pub mod script;
 use crate::gfx::Rect;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use vibebms_core::judge::Judge;
 
 /// What the user chose for a skin.
 #[derive(Clone, Debug, Default)]
@@ -888,7 +889,7 @@ pub struct Skin {
     pub note_fall_y: Option<f32>,
     /// beatoraja `#JUDGETIMER`: the worst judge that starts the bomb timers
     /// (else GREAT).
-    pub judge_timer: Option<usize>,
+    pub judge_timer: Option<Judge>,
     /// LR2 `#PLAYSTART`: ms from ready to the chart's start (else 1500).
     pub play_start_ms: Option<i64>,
     /// LR2 `#CLOSE`: ms the failed scene runs (else 1500).

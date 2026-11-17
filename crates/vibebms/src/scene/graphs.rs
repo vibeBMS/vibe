@@ -9,6 +9,7 @@ use crate::gfx::{rgba, with_alpha, Color, Rect};
 use crate::skin::{BpmGraph, GaugeGraph, NotesGraph, TimingGraph, VisualizerGraph};
 use vibebms_core::engine::PlayNote;
 use vibebms_core::gauge::GaugeType;
+use vibebms_core::judge::Judge;
 use vibebms_core::{LnType, PlayMode};
 
 /// Where a graph goes: its rect, the object's colour (multiplies the
@@ -165,8 +166,8 @@ const PALETTE: [&[u32]; 3] = [
     ],
 ];
 
-/// The columns of the three graph types from the engine's notes (`state`
-/// 0 = not judged yet, else judge + 1; `play_time` > 0 = early).
+/// The columns of the three graph types from the engine's notes
+/// (`play_time` > 0 = early).
 pub fn columns(notes: &[PlayNote], mode: PlayMode, length_us: i64) -> [Vec<Column>; 3] {
     let secs = (length_us.max(0) / 1_000_000) as usize + 1;
     let mut out = [
@@ -175,9 +176,9 @@ pub fn columns(notes: &[PlayNote], mode: PlayMode, length_us: i64) -> [Vec<Colum
         vec![[0; 10]; secs],
     ];
     let sec = |t: i64| ((t.max(0) / 1_000_000) as usize).min(secs - 1);
-    // beatoraja buckets: 1..=5 (a miss counts as poor)
-    let judged = |st: u8, early: bool| -> (usize, usize) {
-        let st = st.min(5) as usize;
+    // beatoraja buckets: 0 not judged yet, 1..=5 (a miss counts as poor)
+    let judged = |j: Option<Judge>, early: bool| -> (usize, usize) {
+        let st = j.map_or(0, |j| j.min(Judge::Poor) as usize + 1);
         let el = if st <= 1 || early { st } else { st + 4 };
         (st, el)
     };

@@ -8,7 +8,7 @@ pub mod eligibility;
 pub mod rule;
 
 use serde::{Deserialize, Serialize};
-use vibebms_core::judge::{BAD, GOOD, GREAT, MISS, PGREAT, POOR};
+use vibebms_core::judge::Judge;
 use vibebms_core::score::{ClearType, Score};
 
 /// The chart a request is about.
@@ -73,24 +73,27 @@ impl ScoreSubmission {
     /// The submission of a play at `date` (Unix seconds).
     pub fn from_score(chart: &ChartRef, s: &Score, clear: ClearType, date: u64) -> Self {
         // the e*/l* fields have no "exact" bucket: count exact hits as early
-        let c = |j: usize, late: usize| s.counts[j][late] + if late == 0 { s.just[j] } else { 0 };
+        let c = |j: Judge, late: usize| {
+            let j = j as usize;
+            s.counts[j][late] + if late == 0 { s.just[j] } else { 0 }
+        };
         ScoreSubmission {
             sha256: chart.sha256.clone(),
             md5: chart.md5.clone(),
             lntype: chart.ln_type.clone(),
             clear,
-            epg: c(PGREAT, 0),
-            lpg: c(PGREAT, 1),
-            egr: c(GREAT, 0),
-            lgr: c(GREAT, 1),
-            egd: c(GOOD, 0),
-            lgd: c(GOOD, 1),
-            ebd: c(BAD, 0),
-            lbd: c(BAD, 1),
-            epr: c(POOR, 0),
-            lpr: c(POOR, 1),
-            ems: c(MISS, 0),
-            lms: c(MISS, 1),
+            epg: c(Judge::PGreat, 0),
+            lpg: c(Judge::PGreat, 1),
+            egr: c(Judge::Great, 0),
+            lgr: c(Judge::Great, 1),
+            egd: c(Judge::Good, 0),
+            lgd: c(Judge::Good, 1),
+            ebd: c(Judge::Bad, 0),
+            lbd: c(Judge::Bad, 1),
+            epr: c(Judge::Poor, 0),
+            lpr: c(Judge::Poor, 1),
+            ems: c(Judge::Miss, 0),
+            lms: c(Judge::Miss, 1),
             maxcombo: s.max_combo,
             notes: s.total_notes,
             passnotes: s.passed,
@@ -231,9 +234,9 @@ mod tests {
             passed: 3,
             ..Default::default()
         };
-        s.add(0, 1);
-        s.add(0, -1);
-        s.add(4, -1);
+        s.add(Judge::PGreat, 1);
+        s.add(Judge::PGreat, -1);
+        s.add(Judge::Poor, -1);
         let sub = ScoreSubmission::from_score(
             &ChartRef {
                 sha256: "x".into(),

@@ -17,7 +17,7 @@ use crate::skin::{SkinState, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT}
 use std::borrow::Cow;
 use std::cell::OnceCell;
 use vibebms_core::engine::Engine;
-use vibebms_core::judge::*;
+use vibebms_core::judge::Judge;
 use vibebms_core::score::Score;
 use vibebms_core::PlayMode;
 
@@ -105,11 +105,11 @@ pub(super) fn load(ctx: &Ctx, gfx: &mut Gfx, scene: &PlayScene) -> Option<Loaded
 
 /// The EX score after each judgement of a play's ghost (its replay's
 /// judgements in order), from none: MY BEST's pacemaker at the same note.
-pub(crate) fn ghost_ex(ghost: &[u8]) -> Vec<u32> {
+pub(crate) fn ghost_ex(ghost: &[Judge]) -> Vec<u32> {
     let mut ex = 0;
     std::iter::once(0)
         .chain(ghost.iter().map(|j| {
-            ex += crate::replay::ex_of(std::slice::from_ref(j));
+            ex += j.ex();
             ex
         }))
         .collect()
@@ -264,11 +264,11 @@ impl<'a> PlayState<'a> {
             126 => sc.total_notes as i64,
             127 => o.gauge.value() as i64,
             129 => diff_next_rank(sc)?,
-            130 => sc.count(PGREAT) as i64,
-            131 => sc.count(GREAT) as i64,
-            132 => sc.count(GOOD) as i64,
-            133 => sc.count(BAD) as i64,
-            134 => (sc.count(POOR) + sc.count(MISS)) as i64,
+            130 => sc.count(Judge::PGreat) as i64,
+            131 => sc.count(Judge::Great) as i64,
+            132 => sc.count(Judge::Good) as i64,
+            133 => sc.count(Judge::Bad) as i64,
+            134 => (sc.count(Judge::Poor) + sc.count(Judge::Miss)) as i64,
             135 => rate().0,
             136 => rate().1,
             _ => return None,
@@ -456,7 +456,7 @@ impl SkinState for PlayState<'_> {
                 // the lane cover / hi-speed is being changed
                 270 => self.s.controls.panel[0].open(),
                 // a judgement of the kind has happened
-                2241..=2246 => sc.count((abs - 2241) as usize) > 0,
+                2241..=2246 => sc.count(Judge::ALL[(abs - 2241) as usize]) > 0,
                 // the second side's gauge (groove / survival), AUTO
                 // SCRATCH and DJ level; the first side winning, losing,
                 // level with the second
@@ -487,7 +487,7 @@ impl SkinState for PlayState<'_> {
                     }
                     None => false,
                 },
-                241..=246 => lj.map(|j| j.judge == (abs - 241) as usize).unwrap_or(false),
+                241..=246 => lj.is_some_and(|j| j.judge == Judge::ALL[(abs - 241) as usize]),
                 1242 => lj.map(|j| j.diff > 0).unwrap_or(false),
                 1243 => lj.map(|j| j.diff < 0).unwrap_or(false),
                 _ => false,
@@ -513,7 +513,9 @@ impl SkinState for PlayState<'_> {
         let len_ms = || ses.chart.length() / 1000;
         // BAD, POOR and MISS so far (the result counts the notes never
         // reached too)
-        let bp = || sc.map(|s| (s.count(BAD) + s.count(POOR) + s.count(MISS)) as i64);
+        let bp = || {
+            sc.map(|s| (s.count(Judge::Bad) + s.count(Judge::Poor) + s.count(Judge::Miss)) as i64)
+        };
         // a share of the maximum EX score, as a percentage
         let of_max = |v: i64| sc.map(|s| percent_parts(v as f64 / s.max_ex().max(1) as f64));
         Some(match id {
@@ -557,7 +559,7 @@ impl SkinState for PlayState<'_> {
             104 => e?.combo() as i64,
             107 => e?.gauge.value() as i64,
             407 => ((e?.gauge.value() * 10.0) as i64) % 10,
-            114 => sc?.count(POOR) as i64 + sc?.count(MISS) as i64,
+            114 => sc?.count(Judge::Poor) as i64 + sc?.count(Judge::Miss) as i64,
             // the personal best's EX score, rate, max combo and miss count,
             // and the differences to them
             150 | 170 | 173 | 176 => return best_number(self.best, id),
@@ -651,7 +653,10 @@ fn diff_next_rank(sc: &Score) -> Option<i64> {
 
 /// Whether a full combo stands (no BAD or worse, no combo broken).
 fn full_combo(sc: &Score) -> bool {
-    sc.combo_breaks == 0 && (3..=5).all(|j| sc.count(j) == 0)
+    sc.combo_breaks == 0
+        && [Judge::Bad, Judge::Poor, Judge::Miss]
+            .into_iter()
+            .all(|j| sc.count(j) == 0)
 }
 
 /// vibeBMS ids of the second player's own lane cover in VS (the first
@@ -776,6 +781,8 @@ impl Hooks for PlayHooks<'_> {
     }
 
     fn judge(&self, side: usize) -> Option<(usize, u32)> {
-        self.st.last_judge(side).map(|j| (j.judge, j.combo))
+        self.st
+            .last_judge(side)
+            .map(|j| (j.judge as usize, j.combo))
     }
 }

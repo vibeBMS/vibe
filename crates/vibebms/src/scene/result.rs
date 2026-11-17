@@ -17,6 +17,7 @@ use crate::skin::SkinType;
 use crate::sysound::Sound;
 use crate::theme;
 use vibebms_core::gauge::GaugeType;
+use vibebms_core::judge::Judge;
 use vibebms_core::record::PlayRecord;
 use vibebms_core::score::{Assist, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
@@ -37,7 +38,7 @@ pub struct SideResult {
     pub gauge_value: f32,
     pub gauge_log: Vec<f32>,
     pub timing_log: Vec<(i64, i64)>,
-    pub judge_log: Vec<(i64, u8, i8)>,
+    pub judge_log: Vec<(i64, Judge, i8)>,
 }
 
 /// A battle's outcome for the first side, by EX score.
@@ -83,7 +84,7 @@ pub struct ResultData {
     pub timing_log: Vec<(i64, i64)>,
     /// Note judge windows (late, early) in µs, PG first.
     pub windows: Vec<(i64, i64)>,
-    pub judge_log: Vec<(i64, u8, i8)>,
+    pub judge_log: Vec<(i64, Judge, i8)>,
     /// beatoraja notes graph columns (note type / judge / FAST-SLOW).
     pub notes_graph: [Vec<super::graphs::Column>; 3],
     pub meta: vibebms_core::chart::ChartMeta,

@@ -9,7 +9,7 @@ use crate::gfx::Rect;
 use crate::skin::render::{LoadedSkin, Xf};
 use crate::skin::SkinState;
 use vibebms_core::chart::NoteKind;
-use vibebms_core::judge::{BAD, POOR};
+use vibebms_core::judge::Judge;
 
 pub(super) fn draw(
     ps: &PlayState,
@@ -169,7 +169,7 @@ pub(super) fn draw(
                     .take_while(|&ni| notes[ni].time > t_vis - FALL_US)
                     .filter(|&ni| {
                         let n = &notes[ni];
-                        !n.is_long() && !n.is_mine() && (n.state == 0 || n.state as usize > POOR)
+                        !n.is_long() && !n.is_mine() && n.state.is_none_or(|j| j >= Judge::Poor)
                     }),
             );
         }
@@ -242,7 +242,7 @@ pub(super) fn draw(
                 _ => {
                     if fall_y.is_some()
                         && n.time < t_vis
-                        && (n.state == 0 || n.state as usize > POOR)
+                        && n.state.is_none_or(|j| j >= Judge::Poor)
                     {
                         falling.push(ni);
                         continue;
@@ -268,7 +268,7 @@ pub(super) fn draw(
             let bad = engine
                 .windows()
                 .note
-                .get(BAD)
+                .get(Judge::Bad as usize)
                 .map(|w| -w.0)
                 .unwrap_or(0)
                 .max(0);

@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use vibebms_core::judge::Judge;
 use vibebms_core::score::{ClearType, Score};
 use vibebms_core::{LnProfile, LnType, PlayMode};
 
@@ -359,7 +360,7 @@ impl Library {
 
     fn add_totals(&mut self, s: &Score, play_ms: u64) {
         let j = self.totals.judges.get_or_insert_default();
-        for (k, t) in j.iter_mut().enumerate() {
+        for (t, k) in j.iter_mut().zip(Judge::ALL) {
             *t += s.count(k) as u64;
         }
         self.totals.play_ms += play_ms;
@@ -391,7 +392,7 @@ impl Library {
         });
         if s.ex_score() > b.ex_score || old.is_none() {
             b.ex_score = s.ex_score();
-            b.judges = std::array::from_fn(|j| s.count(j));
+            b.judges = Judge::ALL.map(|j| s.count(j));
         }
         b.clear = b.clear.max(clear);
         b.notes = s.total_notes;
@@ -936,10 +937,10 @@ mod tests {
             passed: 3,
             ..Default::default()
         };
-        sc.add(0, 0);
-        sc.add(0, 1);
-        sc.add(4, 0);
-        sc.add(5, 0);
+        sc.add(Judge::PGreat, 0);
+        sc.add(Judge::PGreat, 1);
+        sc.add(Judge::Poor, 0);
+        sc.add(Judge::Miss, 0);
         // a better play of "a": the best changes, the totals only add up
         lib.record_play("a", 0, &sc, ClearType::Easy, 61_000);
         let want = Totals {
@@ -1060,8 +1061,8 @@ mod tests {
             passed: 2,
             ..Default::default()
         };
-        sc.add(0, 1);
-        sc.add(1, 1);
+        sc.add(Judge::PGreat, 1);
+        sc.add(Judge::Great, 1);
         let b = lib.record_play(&s[0].sha256, 0, &sc, ClearType::Hard, 1500);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 1));
         let worse = Score {
@@ -1077,8 +1078,8 @@ mod tests {
             passed: 2,
             ..Default::default()
         };
-        great.add(0, 1);
-        great.add(0, 1);
+        great.add(Judge::PGreat, 1);
+        great.add(Judge::PGreat, 1);
         let b = lib.record_assisted(&s[0].sha256, 0, &great, ClearType::AssistEasy, 0);
         assert_eq!((b.ex_score, b.clear, b.play_count), (3, ClearType::Hard, 3));
         let b = lib.record_assisted("other", 0, &great, ClearType::LightAssistEasy, 0);

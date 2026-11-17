@@ -11,7 +11,7 @@ use crate::platform::Instant;
 use crate::skin::render::Hooks;
 use crate::skin::{Graph, SkinState};
 use std::cell::OnceCell;
-use vibebms_core::judge::*;
+use vibebms_core::judge::Judge;
 use vibebms_core::score::{ClearType, DjLevel};
 
 /// Click events of result skins (vibeBMS ids): retry the chart / continue.
@@ -98,7 +98,7 @@ impl<'a> ResultState<'a> {
             335 => before
                 .map(|b| sc.dj_level() > DjLevel::from_rate(b.ex_score, b.notes * 2))
                 .unwrap_or(true),
-            2241..=2246 => sc.count((id - 2241) as usize) > 0,
+            2241..=2246 => sc.count(Judge::ALL[(id - 2241) as usize]) > 0,
             _ => return None,
         })
     }
@@ -118,11 +118,11 @@ fn p2_number(mine: u32, p: &SideResult, id: i32) -> Option<i64> {
         125 => sc.max_combo as i64,
         126 => sc.total_notes as i64,
         127 => p.gauge_value as i64,
-        130 => sc.count(PGREAT) as i64,
-        131 => sc.count(GREAT) as i64,
-        132 => sc.count(GOOD) as i64,
-        133 => sc.count(BAD) as i64,
-        134 => (sc.count(POOR) + sc.count(MISS)) as i64,
+        130 => sc.count(Judge::PGreat) as i64,
+        131 => sc.count(Judge::Great) as i64,
+        132 => sc.count(Judge::Good) as i64,
+        133 => sc.count(Judge::Bad) as i64,
+        134 => (sc.count(Judge::Poor) + sc.count(Judge::Miss)) as i64,
         // vibeBMS: its miss count and clear type
         9376 => sc.miss_count() as i64,
         9370 => p.clear as i64,
@@ -204,7 +204,7 @@ impl SkinState for ResultState<'_> {
             103 => percent_parts(sc.rate()).1,
             107 => d.gauge_value as i64,
             407 => ((d.gauge_value * 10.0) as i64) % 10,
-            114 => sc.count(POOR) as i64,
+            114 => sc.count(Judge::Poor) as i64,
             121 | 151 => target(),
             108 | 152 | 172 => ex - best,
             128 | 153 => ex - target(),
@@ -253,7 +253,7 @@ impl SkinState for ResultState<'_> {
         match id {
             110 | 111 | 147 => sc.rate() as f32,
             112..=115 => best,
-            140..=144 => sc.count((id - 140) as usize) as f32 / n,
+            140..=144 => sc.count(Judge::ALL[(id - 140) as usize]) as f32 / n,
             145 => sc.max_combo as f32 / n,
             _ => 0.0,
         }
