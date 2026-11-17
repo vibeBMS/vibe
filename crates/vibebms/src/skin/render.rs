@@ -345,7 +345,7 @@ impl LoadedSkin {
             gfx.free_texture(t);
         }
         // archives opened for this skin's files
-        crate::platform::dxa::clear_cache();
+        crate::formats::dxa::clear_cache();
     }
 
     fn uv(&self, d: &Draw, src: &Src, f: [f32; 4]) -> Option<(TexId, [f32; 4])> {

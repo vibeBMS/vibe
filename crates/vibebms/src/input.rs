@@ -1,5 +1,7 @@
 //! Device input -> lanes.
 
+pub mod gamepad;
+
 use crate::config::{KeyConfig, LaneKeys, SideKeys};
 use crate::platform::{Duration, Instant};
 use std::collections::HashMap;

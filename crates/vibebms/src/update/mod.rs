@@ -26,10 +26,15 @@
 //! says so and `SETTINGS › SYSTEM` offers to update. The update downloads
 //! the file next to the executable, checks its size and SHA-256, and puts it
 //! in the running executable's place (`self-replace`: on Windows a running
-//! executable cannot be overwritten, but can be renamed); "Restart now"
-//! then starts it with the same arguments. An executable a package manager
-//! installed, or one in a folder that cannot be written to, does nothing:
-//! it neither checks nor offers (its package manager updates it).
+//! executable cannot be overwritten, but can be renamed); the macOS app
+//! (`tools/package_macos.sh`) downloads the app's zip and puts the new app in
+//! the bundle's place. "Restart now" then starts it with the same arguments.
+//! An executable a package manager installed, or one in a folder that
+//! cannot be written to, does nothing: it neither checks nor offers (its
+//! package manager updates it).
+
+#[cfg(desktop)]
+mod desktop;
 
 use crate::platform::Job;
 use serde::{Deserialize, Serialize};
@@ -49,7 +54,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The platforms whose executables update themselves (not the web, iOS
 /// or Android: their stores and pages update them).
-pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos", target_os = "linux"));
+pub const SUPPORTED: bool = cfg!(desktop);
 
 /// A version: `<major>.<minor>.<patch>[-nightly.<run> | -dev][+<build>]`.
 /// Nightlies are `0.1.0-nightly.192+e129ac9` (`tools/ci_version.sh`),
@@ -183,8 +188,9 @@ impl std::fmt::Display for Version {
 
 /// The nightly release's file built for `os` / `arch` (`std::env::consts`
 /// names); `browser`: built with the download browser (the Linux builds
-/// without it are the `-portable` ones).
-pub fn asset_for(os: &str, arch: &str, browser: bool) -> Option<String> {
+/// without it are the `-portable` ones); `app`: the macOS app, whose zip
+/// is the same for both architectures.
+pub fn asset_for(os: &str, arch: &str, browser: bool, app: bool) -> Option<String> {
     let arch = match arch {
         "x86_64" => "x64",
         "aarch64" => "arm64",
@@ -193,6 +199,7 @@ pub fn asset_for(os: &str, arch: &str, browser: bool) -> Option<String> {
     Some(match os {
         "linux" if browser => format!("vibebms-linux-{arch}"),
         "linux" => format!("vibebms-linux-{arch}-portable"),
+        "macos" if app => "vibebms-macos-universal.app.zip".into(),
         "macos" => format!("vibebms-macos-{arch}"),
         "windows" => format!("vibebms-windows-{arch}.exe"),
         _ => return None,
@@ -205,7 +212,25 @@ pub fn asset_name() -> Option<String> {
         std::env::consts::OS,
         std::env::consts::ARCH,
         cfg!(feature = "browser"),
+        exe_path().is_some_and(|e| app_bundle(&e).is_some()),
     )
+}
+
+/// The app `exe` is the executable of, by the macOS bundle layout
+/// (`<name>.app/Contents/MacOS/<exe>`).
+pub fn app_bundle(exe: &Path) -> Option<&Path> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let app = contents.parent()?;
+    let ok = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app";
+    ok.then_some(app)
+}
+
+/// The app `exe` runs in, on macOS: the bundle is what an update replaces.
+fn own_app(exe: &Path) -> Option<&Path> {
+    app_bundle(exe).filter(|_| cfg!(target_os = "macos"))
 }
 
 /// One executable in `latest.json`.
@@ -311,10 +336,6 @@ pub enum Status {
 
 enum Msg {
     Checked(Result<Option<Offer>, String>),
-    #[cfg_attr(
-        not(any(windows, target_os = "macos", target_os = "linux")),
-        allow(dead_code)
-    )]
     Installed(Result<(), String>),
 }
 
@@ -408,23 +429,15 @@ impl Updater {
         let Some(exe) = exe_path() else {
             return Some("Update failed: the executable's location is not known".into());
         };
-        self.start_install(o, exe);
-        None
-    }
-
-    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-    fn start_install(&mut self, o: Offer, exe: PathBuf) {
         let progress = Arc::new(Progress::default());
         progress.total.store(o.size, Ordering::Relaxed);
         self.exe = Some(exe.clone());
         self.status = Status::Downloading(o.clone(), progress.clone());
         self.job = Some(Job::spawn("update", move |_| {
-            Msg::Installed(install(&o, &exe, &progress))
+            Msg::Installed(desktop::install(&o, &exe, &progress))
         }));
+        None
     }
-
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-    fn start_install(&mut self, _o: Offer, _exe: PathBuf) {}
 
     /// Start the new executable when this one exits (after "Restart now").
     pub fn relaunch_on_exit(&self) {
@@ -442,7 +455,6 @@ static RELAUNCH: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None)
 /// after the settings are saved).
 pub fn relaunch_if_asked() {
     let exe = RELAUNCH.lock().unwrap_or_else(|e| e.into_inner()).take();
-    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     if let Some(exe) = exe {
         match std::process::Command::new(&exe)
             .args(std::env::args_os().skip(1))
@@ -452,8 +464,6 @@ pub fn relaunch_if_asked() {
             Err(e) => log::error!("restart {}: {e}", exe.display()),
         }
     }
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-    let _ = exe;
 }
 
 /// The running executable, its links followed.
@@ -467,11 +477,11 @@ pub fn exe_path() -> Option<PathBuf> {
 /// it is.
 pub fn managed_location(exe: &Path) -> Option<&'static str> {
     let s = exe.to_string_lossy().replace('\\', "/");
-    // an app bundle (the nightly's macOS executables come without one)
-    if exe
+    // an app bundle other than vibeBMS's own (`tools/package_macos.sh`)
+    let in_app = exe
         .components()
-        .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"))
-    {
+        .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"));
+    if in_app && app_bundle(exe).is_none() {
         return Some("vibeBMS is inside an app bundle");
     }
     const UNIX: &[&str] = &[
@@ -483,13 +493,33 @@ pub fn managed_location(exe: &Path) -> Option<&'static str> {
         "/opt/homebrew/",
         "/home/linuxbrew/",
     ];
-    if UNIX.iter().any(|p| s.starts_with(p)) || s.contains("/Cellar/") {
+    const MACOS: &[&str] = &[
+        "/Cellar/",
+        "/Caskroom/",
+        "/Applications/Setapp/",
+        "/Applications/MacPorts/",
+    ];
+    if UNIX.iter().any(|p| s.starts_with(p)) || MACOS.iter().any(|p| s.contains(p)) {
         return Some("vibeBMS was installed by a package manager");
     }
     if s.contains("/WindowsApps/") || s.contains("/scoop/apps/") {
         return Some("vibeBMS was installed by a package manager");
     }
     None
+}
+
+/// Whether Homebrew Cask installed vibeBMS (it moves the app to
+/// /Applications and keeps its record in a Caskroom).
+fn homebrew_cask() -> bool {
+    ["/opt/homebrew/Caskroom", "/usr/local/Caskroom"]
+        .iter()
+        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten())
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .starts_with("vibebms")
+        })
 }
 
 /// Whether a file can be made in `dir`.
@@ -527,139 +557,15 @@ pub fn install_refusal(exe: &Path) -> Option<String> {
     if let Some(why) = managed_location(exe) {
         return Some(why.into());
     }
-    match exe.parent() {
+    let app = own_app(exe);
+    if app.is_some() && homebrew_cask() {
+        return Some("vibeBMS was installed by Homebrew".into());
+    }
+    // the app is replaced whole, in the folder it is in
+    match app.unwrap_or(exe).parent() {
         Some(dir) if dir_writable(dir) => None,
         _ => Some("vibeBMS's folder cannot be written to".into()),
     }
-}
-
-/// Download `o` next to `exe`, check it and put it in the running
-/// executable's place.
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-fn install(o: &Offer, exe: &Path, progress: &Arc<Progress>) -> Result<(), String> {
-    let dir = exe.parent().ok_or("the executable has no folder")?;
-    // what an update that was cut short left
-    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let n = e.file_name().to_string_lossy().into_owned();
-        if n.starts_with(".vibebms-update-") && n.ends_with(".tmp") {
-            let _ = std::fs::remove_file(e.path());
-        }
-    }
-    let tmp = dir.join(format!(".vibebms-update-{}.tmp", std::process::id()));
-    let r = download(&o.url, &tmp, o.size, &o.sha256, progress).and_then(|()| {
-        replace_running(&tmp)?;
-        log::info!("updated {} to {}", exe.display(), o.version);
-        Ok(())
-    });
-    let _ = std::fs::remove_file(&tmp);
-    r
-}
-
-/// Download `url` into `to`; it must be `size` bytes whose SHA-256 is
-/// `sha256`.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn download(
-    url: &str,
-    to: &Path,
-    size: u64,
-    sha256: &str,
-    progress: &Arc<Progress>,
-) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
-    use std::io::Write;
-    use std::sync::Mutex;
-    // (why the sink stopped the download, if it did)
-    struct St {
-        file: std::fs::File,
-        hash: Sha256,
-        n: u64,
-        error: Option<String>,
-    }
-    let file = std::fs::File::create(to).map_err(|e| format!("cannot write the update: {e}"))?;
-    let st = Arc::new(Mutex::new(St {
-        file,
-        hash: Sha256::new(),
-        n: 0,
-        error: None,
-    }));
-    let (sink, progress) = (st.clone(), progress.clone());
-    let (tx, rx) = std::sync::mpsc::channel();
-    crate::platform::stream(
-        url,
-        None,
-        move |c| {
-            let mut g = sink.lock().unwrap_or_else(|e| e.into_inner());
-            g.n += c.len() as u64;
-            let e = if g.n > size {
-                "the download is larger than it should be".to_string()
-            } else {
-                g.hash.update(c);
-                match g.file.write_all(c) {
-                    Ok(()) => {
-                        progress.done.store(g.n, Ordering::Relaxed);
-                        return Ok(());
-                    }
-                    Err(e) => format!("cannot write the update ({e})"),
-                }
-            };
-            g.error = Some(e.clone());
-            Err(e)
-        },
-        move |r, _| {
-            let _ = tx.send(r);
-        },
-    );
-    let r = rx
-        .recv()
-        .map_err(|_| "the download ended early".to_string())?;
-    let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(e) = g.error.take() {
-        return Err(e);
-    }
-    r.map_err(|e| format!("download failed ({e})"))?;
-    if g.n != size {
-        return Err(format!(
-            "the download is {} bytes, not {size}: try again later",
-            g.n
-        ));
-    }
-    let got = format!("{:x}", std::mem::take(&mut g.hash).finalize());
-    if !got.eq_ignore_ascii_case(sha256) {
-        return Err("the download is damaged (its checksum is wrong): try again later".into());
-    }
-    g.file
-        .sync_all()
-        .map_err(|e| format!("cannot write the update ({e})"))?;
-    Ok(())
-}
-
-/// Put the executable `new` in the running executable's place (on Unix
-/// an atomic rename that keeps its permissions; on Windows the running one
-/// is renamed away first).
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-pub fn replace_running(new: &Path) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755));
-    }
-    let exe = exe_path();
-    self_replace::self_replace(new).map_err(|e| format!("cannot replace vibeBMS ({e})"))?;
-    // it must be there and start (macOS sets no quarantine attribute on a
-    // file the app wrote itself, but it does need the executable bit)
-    #[cfg(unix)]
-    if let Some(exe) = exe {
-        use std::os::unix::fs::PermissionsExt;
-        let m = std::fs::metadata(&exe).map_err(|e| format!("the update is not in place ({e})"))?;
-        if m.permissions().mode() & 0o111 == 0 {
-            let mode = m.permissions().mode() | 0o755;
-            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(mode))
-                .map_err(|e| format!("the update cannot be made executable ({e})"))?;
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = exe;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -767,7 +673,7 @@ mod tests {
 
     #[test]
     fn asset_names() {
-        let a = |os, arch, b| asset_for(os, arch, b);
+        let a = |os, arch, b| asset_for(os, arch, b, false);
         assert_eq!(
             a("linux", "x86_64", true).as_deref(),
             Some("vibebms-linux-x64")
@@ -799,6 +705,17 @@ mod tests {
         assert_eq!(
             a("windows", "aarch64", false).as_deref(),
             Some("vibebms-windows-arm64.exe")
+        );
+        // the macOS app: one zip for both
+        for arch in ["aarch64", "x86_64"] {
+            assert_eq!(
+                asset_for("macos", arch, true, true).as_deref(),
+                Some("vibebms-macos-universal.app.zip")
+            );
+        }
+        assert_eq!(
+            asset_for("linux", "x86_64", true, true).as_deref(),
+            Some("vibebms-linux-x64")
         );
         assert_eq!(a("android", "aarch64", true), None);
         assert_eq!(a("ios", "aarch64", true), None);
@@ -876,7 +793,11 @@ mod tests {
             "/snap/vibebms/1/vibebms",
             "/opt/homebrew/bin/vibebms",
             "/usr/local/Cellar/vibebms/1/bin/vibebms",
-            "/Applications/vibeBMS.app/Contents/MacOS/vibebms",
+            "/opt/homebrew/Caskroom/vibebms/1/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Users/me/Caskroom/vibebms/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Applications/Setapp/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Applications/Other.app/Contents/Resources/vibebms",
+            "/Applications/Other.app/Contents/MacOS/bin/vibebms",
             "C:\\Program Files\\WindowsApps\\vibeBMS\\vibebms.exe",
         ] {
             assert!(managed_location(Path::new(p)).is_some(), "{p}");
@@ -884,9 +805,28 @@ mod tests {
         for p in [
             "/home/me/games/vibeBMS/vibebms",
             "/opt/vibeBMS/vibebms",
+            "/Applications/vibeBMS.app/Contents/MacOS/vibebms",
+            "/Users/me/Games/vibeBMS Nightly.app/Contents/MacOS/vibebms",
             "C:\\Games\\vibeBMS\\vibebms.exe",
         ] {
             assert_eq!(managed_location(Path::new(p)), None, "{p}");
+        }
+    }
+
+    #[test]
+    fn app_bundles() {
+        let exe = Path::new("/Applications/vibeBMS Nightly.app/Contents/MacOS/vibebms");
+        assert_eq!(
+            app_bundle(exe),
+            Some(Path::new("/Applications/vibeBMS Nightly.app"))
+        );
+        for p in [
+            "/Applications/vibeBMS.app/Contents/Resources/vibebms",
+            "/Applications/vibeBMS/Contents/MacOS/vibebms",
+            "/home/me/vibeBMS/vibebms",
+            "vibebms",
+        ] {
+            assert_eq!(app_bundle(Path::new(p)), None, "{p}");
         }
     }
 
@@ -899,110 +839,16 @@ mod tests {
         assert!(install_refusal(&gone).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
 
-    /// A one-shot HTTP server answering `body` (with `len` as its
-    /// Content-Length).
-    fn serve(body: Vec<u8>, status: &str) -> String {
-        use std::io::{Read, Write};
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = l.local_addr().unwrap();
-        let status = status.to_string();
-        std::thread::spawn(move || {
-            let (mut s, _) = l.accept().unwrap();
-            let mut buf = [0u8; 4096];
-            let _ = s.read(&mut buf);
-            let head = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = s.write_all(head.as_bytes());
-            let _ = s.write_all(&body);
-        });
-        format!("http://{addr}/vibebms")
-    }
+/// Other platforms do not update themselves ([`SUPPORTED`]: no update is
+/// ever offered there).
+#[cfg(not(desktop))]
+mod desktop {
+    use super::{Offer, Progress};
+    use std::{path::Path, sync::Arc};
 
-    #[test]
-    fn downloads_are_checked() {
-        let dir = std::env::temp_dir().join(format!("vibebms-update-d-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let to = dir.join("new");
-        // sha256("test")
-        let sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-        let p = Arc::new(Progress::default());
-        download(&serve(b"test".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap();
-        assert_eq!(std::fs::read(&to).unwrap(), b"test");
-        assert_eq!(p.done.load(Ordering::Relaxed), 4);
-        // damaged, cut short, too long, refused
-        let e = download(&serve(b"tesT".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
-        assert!(e.contains("checksum"), "{e}");
-        let e = download(&serve(b"tes".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
-        assert!(e.contains("not 4"), "{e}");
-        let e = download(&serve(b"tests".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
-        assert!(e.contains("larger"), "{e}");
-        let e = download(&serve(Vec::new(), "404 Not Found"), &to, 4, sha, &p).unwrap_err();
-        assert!(e.contains("404"), "{e}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Set by [`replacing_a_running_executable`] for the copy it starts.
-    const CHILD_ENV: &str = "VIBEBMS_UPDATE_TEST_NEW";
-
-    /// The copy's side: replace itself with the file the variable names.
-    #[test]
-    fn replace_child() {
-        if let Some(new) = std::env::var_os(CHILD_ENV) {
-            replace_running(Path::new(&new)).unwrap();
-        }
-    }
-
-    /// A copy of this test executable, started, replaces itself with
-    /// another file through [`replace_running`].
-    #[test]
-    fn replacing_a_running_executable() {
-        let me = std::env::current_exe().unwrap();
-        // next to it (the same file system: a hard link, not a copy)
-        let dir = me
-            .parent()
-            .unwrap()
-            .join(format!("update-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let name = if cfg!(windows) { "dummy.exe" } else { "dummy" };
-        let dummy = dir.join(name);
-        if std::fs::hard_link(&me, &dummy).is_err() {
-            std::fs::copy(&me, &dummy).unwrap();
-        }
-        // the new "executable": a script on Unix (it can be run after)
-        let new = dir.join("new.tmp");
-        std::fs::write(&new, "#!/bin/sh\necho replaced\n").unwrap();
-        let out = std::process::Command::new(&dummy)
-            .args([
-                "--exact",
-                "update::tests::replace_child",
-                "--test-threads=1",
-            ])
-            .env(CHILD_ENV, &new)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stdout)
-        );
-        assert_eq!(
-            std::fs::read(&dummy).unwrap(),
-            b"#!/bin/sh\necho replaced\n"
-        );
-        // the test executable itself is untouched
-        assert!(std::fs::metadata(&me).unwrap().len() > 1000);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&dummy).unwrap().permissions().mode();
-            assert_ne!(mode & 0o111, 0, "{mode:o}");
-            let run = std::process::Command::new(&dummy).output().unwrap();
-            assert_eq!(String::from_utf8_lossy(&run.stdout), "replaced\n");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
+    pub fn install(_: &Offer, _: &Path, _: &Arc<Progress>) -> Result<(), String> {
+        Err("this platform does not update itself".into())
     }
 }

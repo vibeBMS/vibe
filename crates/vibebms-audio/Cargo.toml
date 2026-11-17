@@ -16,7 +16,8 @@ jack = ["cpal/jack"]
 
 [dependencies]
 cpal = "0.15"
-symphonia = { version = "0.5", features = ["mp3"] }
+# the formats BMS keysounds come in (not symphonia's default Matroska)
+symphonia = { version = "0.5", default-features = false, features = ["adpcm", "flac", "mp3", "ogg", "pcm", "vorbis", "wav"] }
 log.workspace = true
 web-time = "1"
 

@@ -2,15 +2,9 @@
 
 pub mod app;
 pub mod archive;
-#[cfg(all(
-    feature = "browser",
-    any(windows, target_os = "macos", target_os = "linux", target_os = "ios")
-))]
-pub mod browser;
-#[cfg(target_os = "android")]
-#[path = "browser_android.rs"]
 pub mod browser;
 pub mod config;
+pub mod formats;
 pub mod gfx;
 pub mod hosts;
 #[cfg(not(target_arch = "wasm32"))]
