@@ -22,7 +22,7 @@ use vibebms_core::engine::{Engine, EngineConfig, EngineEvent, InputEvent, Op};
 use vibebms_core::gauge::GrooveGauge;
 use vibebms_core::judge::{judge_rules, GOOD, GREAT};
 use vibebms_core::lane_option::{self, DoubleOption, LaneOption};
-use vibebms_core::score::{Assist, ClearType, Score};
+use vibebms_core::score::{Assist, AssistFacts, ClearType, Score};
 use vibebms_core::{LnType, PlayMode};
 use winit::keyboard::KeyCode;
 
@@ -73,8 +73,10 @@ struct Loaded {
     videos: Vec<Option<PathBuf>>,
     stagefile: Option<Rgba>,
     seed: i64,
-    /// Why the play is not the chart as written (it is then not recorded).
-    altered: Option<&'static str>,
+    /// What the options did to the chart (for the assist level).
+    facts: AssistFacts,
+    /// The chart's long notes as written (before options).
+    ln_profile: vibebms_core::LnProfile,
 }
 
 enum Stage {
@@ -122,6 +124,10 @@ pub struct PlayScene {
     pub(crate) lane_cursor: Vec<usize>,
     pub(crate) mode: PlayMode,
     pub(crate) ln: LnType,
+    /// The LN mode the play is filed under (`LnProfile::score_ln`).
+    pub(crate) score_ln: LnType,
+    /// The TOTAL the gauge uses.
+    pub(crate) total: f64,
     pub(crate) seed: i64,
     pub(crate) error: Option<String>,
     /// The replay's next op (watching one).
@@ -150,6 +156,16 @@ pub struct PlayScene {
     /// Last judgement per lane (skin values 500-519).
     pub(crate) lane_judge: Vec<Option<usize>>,
     pub(crate) skin: Option<crate::skin::render::LoadedSkin>,
+}
+
+/// The gauge graph's samples (every 500 ms) with the gauge as the play
+/// ended: a FAILED play's graph reaches 0, a clear's its last value.
+fn settled_log(log: &[f32], last: f32) -> Vec<f32> {
+    let mut v = log.to_vec();
+    if v.last() != Some(&last) {
+        v.push(last);
+    }
+    v
 }
 
 fn rgba_of(path: &Path, key: bool) -> Option<Rgba> {
@@ -241,11 +257,12 @@ impl PlayScene {
                     },
                 )
                 .map_err(|e| e.to_string())?;
+                let ln_profile = chart.ln_profile();
                 // chart transforms (options)
-                let mut altered = None;
+                let mut facts = AssistFacts::default();
                 if play.battle && !chart.mode().is_double() {
                     lane_option::battle(&mut chart);
-                    altered = Some("BATTLE");
+                    facts.battle = true;
                 }
                 let thr = 60_000_000 / (play.hran_threshold_bpm.max(1) as i64 * 4);
                 let allowed = |o: LaneOption| {
@@ -256,6 +273,7 @@ impl PlayScene {
                     }
                 };
                 lane_option::apply(&mut chart, 0, allowed(play.random_1p), seed, thr);
+                facts.lane.push(allowed(play.random_1p));
                 if chart.mode().is_double() {
                     lane_option::apply(
                         &mut chart,
@@ -264,19 +282,19 @@ impl PlayScene {
                         seed.wrapping_add(1),
                         thr,
                     );
+                    facts.lane.push(allowed(play.random_2p));
                     if play.dp_option == DoubleOption::Flip {
                         lane_option::flip(&mut chart);
                     }
                 }
                 if play.legacy_note {
+                    facts.legacy_note = chart.meta.has_long;
                     lane_option::legacy_note(&mut chart);
                 }
                 if play.no_mine {
                     let n = chart.notes.len();
                     lane_option::remove_mines(&mut chart);
-                    if chart.notes.len() != n {
-                        altered = altered.or(Some("NO MINE"));
-                    }
+                    facts.no_mine = chart.notes.len() != n;
                 }
                 let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
                 t2.store(chart.sound_files.len(), Ordering::Relaxed);
@@ -311,7 +329,8 @@ impl PlayScene {
                     videos,
                     stagefile,
                     seed,
-                    altered,
+                    facts,
+                    ln_profile,
                 }))
             })();
             let _ = tx.send(r);
@@ -353,6 +372,8 @@ impl PlayScene {
             lane_cursor: Vec::new(),
             mode,
             ln: play_ln,
+            score_ln: LnType::Ln,
+            total: 0.0,
             seed: 0,
             error: None,
             replay_at: 0,
@@ -395,10 +416,6 @@ impl PlayScene {
         }
     }
 
-    pub(crate) fn ln_mode(&self) -> LnType {
-        self.ln
-    }
-
     pub(crate) fn ending_at(&self) -> Option<Instant> {
         match self.stage {
             Stage::Ending { since, .. } => Some(since),
@@ -422,6 +439,15 @@ impl PlayScene {
             .collect()
     }
 
+    /// The moment of chart time `t` (µs).
+    fn instant_at(&self, t: i64) -> Instant {
+        if t >= 0 {
+            self.start + Duration::from_micros(t as u64)
+        } else {
+            self.start - Duration::from_micros(t.unsigned_abs())
+        }
+    }
+
     pub(crate) fn chart_us(&self, t: Instant) -> i64 {
         if t >= self.start {
             t.duration_since(self.start).as_micros() as i64
@@ -438,7 +464,8 @@ impl PlayScene {
             videos,
             stagefile,
             seed,
-            altered,
+            mut facts,
+            ln_profile,
         } = *l;
         self.seed = seed;
         self.mode = chart.mode();
@@ -446,13 +473,11 @@ impl PlayScene {
         let p = replay_play.as_ref().unwrap_or(&ctx.config.play);
         let course = self.req.course.as_ref();
         // beatoraja: windows wider than standard and a BPM guide on a chart
-        // that changes BPM are assists, and their scores are not kept
-        let wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
-        let guided = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
-        self.unranked = altered
-            .or(wide_judge.then_some("EXPAND JUDGE"))
-            .or(guided.then_some("BPM GUIDE"))
-            .or(course.map(|_| "COURSE"))
+        // that changes BPM are assists (only the lamp is kept)
+        facts.wide_judge = p.expand_judge && p.judge_rates.iter().any(|r| *r > 100);
+        facts.bpm_guide = p.bpm_guide && chart.meta.min_bpm < chart.meta.max_bpm;
+        self.unranked = course
+            .map(|_| "COURSE")
             .or(self.req.replay.as_ref().map(|_| "REPLAY"));
         // LN mode: course constraints may force one
         if let Some(c) = course {
@@ -464,6 +489,7 @@ impl PlayScene {
                 self.ln = LnType::Hcn;
             }
         }
+        self.score_ln = ln_profile.score_ln(self.ln);
         let fam = self.mode.family();
         let gauge_preset = if course.map(|c| c.has("gauge_lr2")).unwrap_or(false) {
             vibebms_core::gauge::GaugePreset::Lr2
@@ -476,7 +502,8 @@ impl PlayScene {
             chart.meta.judge_rank,
             p.expand_judge.then_some(p.judge_rates),
         );
-        let total = chart.total(self.ln);
+        let total = chart.total_for(self.ln, gauge_preset);
+        self.total = total;
         let notes = chart.total_judgements(self.ln);
         let gauge_type = if course.is_some() {
             p.gauge.to_class()
@@ -496,13 +523,13 @@ impl PlayScene {
         let auto_lanes: Vec<bool> = (0..lanes)
             .map(|l| self.req.autoplay || (p.auto_scratch && self.mode.is_scratch(l)))
             .collect();
-        self.assist = if p.auto_scratch || p.legacy_note || wide_judge {
-            Assist::Full
-        } else if guided {
-            Assist::Light
-        } else {
-            Assist::None
-        };
+        // AUTO SCRATCH is an assist when it plays scored notes
+        facts.auto_scratch = p.auto_scratch
+            && chart
+                .notes
+                .iter()
+                .any(|n| n.is_playable() && self.mode.is_scratch(n.lane as usize));
+        self.assist = facts.level();
         let cfg = EngineConfig {
             rules,
             default_ln: self.ln,
@@ -517,15 +544,11 @@ impl PlayScene {
         }
         // the best play's ghost: MY BEST's pacemaker at the same note
         if self.req.replay.is_none() {
-            let ln = if chart.meta.has_long {
-                self.ln as i32
-            } else {
-                0
-            };
-            self.best_ghost = crate::replay::Replay::load(
+            self.best_ghost = crate::replay::Replay::load_filed(
                 &ctx.paths.root,
                 &self.req.song.sha256,
-                ln,
+                self.score_ln as i32,
+                ln_profile.has_long() && !ln_profile.undefined,
                 crate::replay::Slot::Best,
             )
             .map(|r| r.ghost);
@@ -588,9 +611,11 @@ impl PlayScene {
         let lead = Duration::from_millis(lead_ms.unwrap_or(1500) as u64);
         let now = Instant::now();
         self.start = now + lead;
-        // the song's sounds start where a key pressed at `self.start` would
+        // the song's sounds start where a key pressed at their moment would
         // start its sound: keysounds and the song stay together (both heard
-        // the output latency later; the judge offset is for that)
+        // the output latency later; the judge offset is for that). Native
+        // output turns each moment into a frame as it comes (the device's
+        // clock may drift from the judge's); the web counts frames from here
         self.base_frame = ctx.mixer.frame_in(lead.as_micros() as i64);
         self.stage = Stage::Playing;
         self.ready_at = Some(now);
@@ -619,6 +644,7 @@ impl PlayScene {
                 volume: vol,
                 bus,
                 start_frame: at.map(|t| (self.base_frame + m.us_to_frames(t)).max(0) as u64),
+                at: at.map(|t| self.instant_at(t)),
                 offset: m.us_to_frames(slice.start).max(0) as usize,
                 end: slice.end.map(|e| m.us_to_frames(e).max(0) as usize),
                 looping: false,
@@ -892,17 +918,12 @@ impl PlayScene {
             artist: self.chart.meta.artist.clone(),
             level: self.chart.meta.level.clone(),
             mode: self.mode,
-            ln: if self.chart.meta.has_long {
-                self.ln
-            } else {
-                LnType::Ln
-            },
-            has_ln: self.chart.meta.has_long,
+            ln: self.score_ln,
             score,
             clear,
             gauge_type: gauge.current_type(),
             gauge_value: gauge.value(),
-            gauge_log: self.gauge_log.clone(),
+            gauge_log: settled_log(&self.gauge_log, gauge.value()),
             timing_log: e.timing_log.clone(),
             windows: e.windows().note.clone(),
             judge_log: e.judge_log.clone(),
@@ -918,7 +939,7 @@ impl PlayScene {
                 .collect(),
             autoplay: self.req.autoplay,
             unranked: self.unranked,
-            assist: self.assist != Assist::None,
+            assist: self.assist,
             options: self.options_label.clone(),
             judge: format!(
                 "{} / {}",
@@ -932,11 +953,7 @@ impl PlayScene {
                 sha256: self.req.song.sha256.clone(),
                 md5: self.req.song.md5.clone(),
                 title: self.chart.meta.title.clone(),
-                ln: if self.chart.meta.has_long {
-                    self.ln as i32
-                } else {
-                    0
-                },
+                ln: self.score_ln as i32,
                 date: crate::platform::unix_now() as i64,
                 seed: self.seed,
                 play: ctx.config.play.clone(),
@@ -1696,5 +1713,18 @@ impl PlayScene {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::settled_log;
+
+    #[test]
+    fn gauge_graph_ends_with_the_final_gauge() {
+        // failed between two samples: the graph reaches 0
+        assert_eq!(settled_log(&[100.0, 40.0], 0.0), vec![100.0, 40.0, 0.0]);
+        assert_eq!(settled_log(&[20.0, 82.0], 82.0), vec![20.0, 82.0]);
+        assert_eq!(settled_log(&[], 20.0), vec![20.0]);
     }
 }

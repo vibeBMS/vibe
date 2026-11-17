@@ -37,6 +37,20 @@ impl LaneOption {
         LaneOption::SRandomEx,
     ];
 
+    /// beatoraja's assist level of the option: the ones that move notes
+    /// to or from the scratch, or that spread notes out, are Light Assist.
+    pub fn assist(self) -> crate::score::Assist {
+        use crate::score::Assist;
+        match self {
+            LaneOption::Spiral
+            | LaneOption::HRandom
+            | LaneOption::AllScratch
+            | LaneOption::RandomEx
+            | LaneOption::SRandomEx => Assist::Light,
+            _ => Assist::None,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             LaneOption::Off => "OFF",

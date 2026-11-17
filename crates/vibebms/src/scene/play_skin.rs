@@ -199,7 +199,7 @@ impl SceneState<'_> {
         let s = self.s;
         let best = self
             .ctx
-            .best(&s.req.song, s.ln_mode() as i32)
+            .best_key(&s.req.song.sha256, s.score_ln as i32)
             .map(|b| b.ex_score)
             .unwrap_or(0) as i64;
         let Some(sc) = self.engine().map(|e| &e.score) else {
@@ -292,10 +292,9 @@ impl SceneState<'_> {
             51 => false,
             // the song's lamp so far (skins pick images by it at load time)
             100..=105 | 1100..=1104 => {
-                let ln = if m.has_long { s.ln as i32 } else { 0 };
                 let c = self
                     .ctx
-                    .best(&s.req.song, ln)
+                    .best_key(&s.req.song.sha256, s.score_ln as i32)
                     .map(|b| b.clear)
                     .unwrap_or_default();
                 return super::skinned::lamp_option(c, id);
@@ -352,7 +351,8 @@ impl SceneState<'_> {
 
     /// The chart's record before this play.
     fn best_record(&self) -> Option<&crate::library::BestScore> {
-        self.ctx.best(&self.s.req.song, self.s.ln_mode() as i32)
+        self.ctx
+            .best_key(&self.s.req.song.sha256, self.s.score_ln as i32)
     }
 
     fn engine(&self) -> Option<&vibebms_core::engine::Engine> {
@@ -617,7 +617,7 @@ impl SkinState for SceneState<'_> {
                     return Some(k[(id - 350) as usize]);
                 }
                 if id == 368 {
-                    return Some(s.chart.total(s.ln_mode()) as i64);
+                    return Some(s.total as i64);
                 }
                 return super::skinned::song_number(&s.req.song, id);
             }

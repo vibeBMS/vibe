@@ -12,6 +12,45 @@ pub enum Assist {
     Full,
 }
 
+/// What a play's options did, which decides its assist level (as
+/// beatoraja's `BMSPlayer`): an option counts only when it took effect.
+/// An assisted play keeps only its lamp (ASSIST / L-ASSIST) and its play
+/// count: no best scores, no best replay, no IR.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AssistFacts {
+    /// The lane options applied, per side.
+    pub lane: Vec<crate::lane_option::LaneOption>,
+    /// AUTO SCRATCH played scored scratch notes.
+    pub auto_scratch: bool,
+    /// LEGACY NOTE turned long notes into notes.
+    pub legacy_note: bool,
+    /// NO MINE removed mines.
+    pub no_mine: bool,
+    /// BATTLE (a single play chart on both sides).
+    pub battle: bool,
+    /// Judge windows wider than the rules' (EXPAND JUDGE above 100 %).
+    pub wide_judge: bool,
+    /// BPM guide on a chart that changes BPM.
+    pub bpm_guide: bool,
+}
+
+impl AssistFacts {
+    pub fn level(&self) -> Assist {
+        let full = self.auto_scratch || self.legacy_note || self.wide_judge;
+        let light = self.no_mine
+            || self.battle
+            || self.bpm_guide
+            || self.lane.iter().any(|o| o.assist() != Assist::None);
+        if full {
+            Assist::Full
+        } else if light {
+            Assist::Light
+        } else {
+            Assist::None
+        }
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
@@ -217,6 +256,51 @@ impl Score {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assist_levels() {
+        use crate::lane_option::LaneOption;
+        assert_eq!(AssistFacts::default().level(), Assist::None);
+        let lane = |o| AssistFacts {
+            lane: vec![LaneOption::Mirror, o],
+            ..Default::default()
+        };
+        for o in [
+            LaneOption::Off,
+            LaneOption::Random,
+            LaneOption::RRandom,
+            LaneOption::SRandom,
+        ] {
+            assert_eq!(lane(o).level(), Assist::None, "{o:?}");
+        }
+        for o in [
+            LaneOption::Spiral,
+            LaneOption::HRandom,
+            LaneOption::AllScratch,
+            LaneOption::RandomEx,
+            LaneOption::SRandomEx,
+        ] {
+            assert_eq!(lane(o).level(), Assist::Light, "{o:?}");
+        }
+        let f = |f: fn(&mut AssistFacts)| {
+            let mut a = AssistFacts::default();
+            f(&mut a);
+            a.level()
+        };
+        assert_eq!(f(|a| a.auto_scratch = true), Assist::Full);
+        assert_eq!(f(|a| a.legacy_note = true), Assist::Full);
+        assert_eq!(f(|a| a.wide_judge = true), Assist::Full);
+        assert_eq!(f(|a| a.bpm_guide = true), Assist::Light);
+        assert_eq!(f(|a| a.battle = true), Assist::Light);
+        assert_eq!(f(|a| a.no_mine = true), Assist::Light);
+        // the stronger wins
+        let both = AssistFacts {
+            lane: vec![LaneOption::Spiral],
+            auto_scratch: true,
+            ..Default::default()
+        };
+        assert_eq!(both.level(), Assist::Full);
+    }
 
     #[test]
     fn dj_level_thresholds() {

@@ -1,5 +1,6 @@
 //! Format-independent chart model shared by the BMS and BMSON decoders.
 
+use crate::gauge::GaugePreset;
 use crate::mode::PlayMode;
 use crate::timing::TimingMap;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,54 @@ pub enum LnType {
     Cn,
     /// Hell charge note: CN plus gauge drain/gain while holding the body.
     Hcn,
+}
+
+/// Which long notes a chart has: ones of no type (played as the player's
+/// LN mode) and ones typed by the chart (`#LNMODE`, bmson `t`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct LnProfile {
+    pub undefined: bool,
+    /// Typed LN, CN, HCN.
+    pub typed: [bool; 3],
+}
+
+impl LnProfile {
+    pub fn has_long(self) -> bool {
+        self.undefined || self.typed.iter().any(|t| *t)
+    }
+
+    /// The LN mode a play's score, replay and IR entry are filed under:
+    /// without long notes LN (0); when every long note has its type the
+    /// chart plays the same whatever the player's mode, so the strongest
+    /// type the chart has (HCN > CN > LN; with one type, that type);
+    /// else the player's mode.
+    pub fn score_ln(self, pref: LnType) -> LnType {
+        if self.undefined {
+            pref
+        } else if self.typed[2] {
+            LnType::Hcn
+        } else if self.typed[1] {
+            LnType::Cn
+        } else {
+            LnType::Ln
+        }
+    }
+
+    /// Packed in a byte (for the song cache): bit 0 undefined, 1..3 typed.
+    pub fn bits(self) -> u8 {
+        let mut b = self.undefined as u8;
+        for (i, t) in self.typed.iter().enumerate() {
+            b |= (*t as u8) << (i + 1);
+        }
+        b
+    }
+
+    pub fn from_bits(b: u8) -> LnProfile {
+        LnProfile {
+            undefined: b & 1 != 0,
+            typed: std::array::from_fn(|i| b & (2 << i) != 0),
+        }
+    }
 }
 
 /// Index into [`Chart::sounds`]. `NO_SOUND` means silence.
@@ -141,6 +190,10 @@ pub struct ChartMeta {
     pub judge_rank: JudgeRank,
     /// `#TOTAL`; `None` = use the default formula.
     pub total: Option<f64>,
+    /// bmson `total`: a percentage of the default TOTAL (which depends on
+    /// the gauge rules); `total` holds it resolved with beatoraja's.
+    #[serde(default)]
+    pub total_rate: Option<f64>,
     pub ln_type: Option<LnType>,
     pub stagefile: String,
     pub banner: String,
@@ -195,6 +248,20 @@ impl Chart {
             .sum()
     }
 
+    /// The long notes the chart has, by type.
+    pub fn ln_profile(&self) -> LnProfile {
+        let mut p = LnProfile::default();
+        for n in &self.notes {
+            if let NoteKind::Long { ln_type, .. } = n.kind {
+                match ln_type {
+                    None => p.undefined = true,
+                    Some(t) => p.typed[t as usize] = true,
+                }
+            }
+        }
+        p
+    }
+
     /// Number of playable notes (LN counted once), as shown in song select.
     pub fn note_count(&self) -> usize {
         self.notes.iter().filter(|n| n.is_playable()).count()
@@ -209,10 +276,28 @@ impl Chart {
 
     /// `#TOTAL` or beatoraja's default: `max(260, 7.605 n / (0.01 n + 6.5))`.
     pub fn total(&self, default_ln: LnType) -> f64 {
+        self.total_for(default_ln, GaugePreset::Beatoraja)
+    }
+
+    /// TOTAL under a gauge preset: `#TOTAL`, else the preset's default
+    /// (LR2: `160 + (n + clamp(n - 400, 0, 200)) × 0.16`, otherwise
+    /// beatoraja's). A bmson `total` is a percentage of that default.
+    pub fn total_for(&self, default_ln: LnType, preset: GaugePreset) -> f64 {
         let n = self.total_judgements(default_ln).max(1) as f64;
+        let default = match preset {
+            GaugePreset::Lr2 => 160.0 + (n + (n - 400.0).clamp(0.0, 200.0)) * 0.16,
+            _ => (7.605 * n / (0.01 * n + 6.5)).max(260.0),
+        };
+        if let Some(r) = self.meta.total_rate {
+            return if r > 0.0 {
+                r / 100.0 * default
+            } else {
+                default
+            };
+        }
         match self.meta.total {
             Some(t) if t > 0.0 => t,
-            _ => (7.605 * n / (0.01 * n + 6.5)).max(260.0),
+            _ => default,
         }
     }
 
@@ -223,5 +308,70 @@ impl Chart {
         self.meta.min_bpm = min;
         self.meta.max_bpm = max;
         self.meta.main_bpm = main;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn score_ln_follows_the_chart_when_it_types_its_long_notes() {
+        let none = LnProfile::default();
+        assert_eq!(none.score_ln(LnType::Hcn), LnType::Ln);
+        let undefined = LnProfile {
+            undefined: true,
+            typed: [false, true, false],
+        };
+        assert_eq!(undefined.score_ln(LnType::Hcn), LnType::Hcn);
+        let cn = LnProfile {
+            undefined: false,
+            typed: [false, true, false],
+        };
+        assert_eq!(cn.score_ln(LnType::Ln), LnType::Cn);
+        assert_eq!(cn.score_ln(LnType::Hcn), LnType::Cn);
+        let mixed = LnProfile {
+            undefined: false,
+            typed: [true, true, false],
+        };
+        assert_eq!(mixed.score_ln(LnType::Ln), LnType::Cn);
+        for p in [none, undefined, cn, mixed] {
+            assert_eq!(LnProfile::from_bits(p.bits()), p);
+        }
+    }
+
+    #[test]
+    fn default_total_by_gauge_preset() {
+        // 1000 notes, no #TOTAL
+        let src = "#BPM 120\n#WAV01 a.wav\n#00111:01\n";
+        let mut c = crate::bms::parse_bms(src.as_bytes(), "bme", &Default::default()).unwrap();
+        let n = c.notes[0].clone();
+        c.notes = (0..1000).map(|_| n.clone()).collect();
+        assert!((c.total_for(LnType::Ln, GaugePreset::Lr2) - 352.0).abs() < 1e-9);
+        let b = c.total_for(LnType::Ln, GaugePreset::Beatoraja);
+        assert!((b - 7605.0 / 16.5).abs() < 1e-9);
+        // a written #TOTAL wins
+        c.meta.total = Some(300.0);
+        assert_eq!(c.total_for(LnType::Ln, GaugePreset::Lr2), 300.0);
+        // bmson: a percentage of the preset's default
+        c.meta.total_rate = Some(50.0);
+        assert!((c.total_for(LnType::Ln, GaugePreset::Lr2) - 176.0).abs() < 1e-9);
+        // 300 notes: 160 + 300 x 0.16
+        c.meta.total_rate = None;
+        c.meta.total = None;
+        c.notes.truncate(300);
+        assert!((c.total_for(LnType::Ln, GaugePreset::Lr2) - 208.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lnmode_types_every_long_note() {
+        let src = "#BPM 120\n#LNMODE 2\n#WAV01 a.wav\n#00151:0101\n#00111:01\n";
+        let c = crate::bms::parse_bms(src.as_bytes(), "bme", &Default::default()).unwrap();
+        let p = c.ln_profile();
+        assert!(!p.undefined && p.typed == [false, true, false]);
+        assert_eq!(p.score_ln(LnType::Ln), LnType::Cn);
+        let src = "#BPM 120\n#WAV01 a.wav\n#00151:0101\n";
+        let c = crate::bms::parse_bms(src.as_bytes(), "bme", &Default::default()).unwrap();
+        assert_eq!(c.ln_profile().score_ln(LnType::Hcn), LnType::Hcn);
     }
 }

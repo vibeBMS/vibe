@@ -64,7 +64,7 @@ impl SelectState<'_> {
 
     fn best(&self) -> Option<&BestScore> {
         self.song()
-            .and_then(|s| self.ctx.best(s, self.ctx.config.play.ln_mode as i32))
+            .and_then(|s| self.ctx.best(s, self.ctx.config.play.ln_mode))
     }
 
     pub fn bar(&self, i: usize) -> Option<BarInfo> {
@@ -89,7 +89,7 @@ impl SelectState<'_> {
                     level: Some(s.level_num()),
                     difficulty: s.difficulty.clamp(0, 6) as usize,
                     lamp: Some(
-                        ctx.best(s, ctx.config.play.ln_mode as i32)
+                        ctx.best(s, ctx.config.play.ln_mode)
                             .map(|b| b.clear)
                             .unwrap_or(ClearType::NoPlay),
                     ),

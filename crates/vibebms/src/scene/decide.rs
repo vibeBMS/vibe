@@ -78,14 +78,7 @@ impl DecideState<'_> {
 
     fn best(&self) -> Option<&crate::library::BestScore> {
         let s = self.s.song()?;
-        self.ctx.best(
-            s,
-            if s.has_ln {
-                self.ctx.config.play.ln_mode as i32
-            } else {
-                0
-            },
-        )
+        self.ctx.best(s, self.ctx.config.play.ln_mode)
     }
 
     fn static_option(&self, id: i32) -> Option<bool> {

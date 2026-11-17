@@ -179,14 +179,46 @@ fn x_of(v: &serde_json::Value) -> i64 {
         .unwrap_or(0)
 }
 
+/// The longest chart read: 10,000 measures of 4/4 (in beats).
+const MAX_BEATS: f64 = 40_000.0;
+
+/// Every position (pulses) in a bmson: a chart reaching past `MAX_BEATS`
+/// (or with a position that is not a number) is refused, before anything
+/// is built per measure.
+fn check_extent(b: &Bmson, res: f64) -> Result<(), ChartError> {
+    let mut ys: Vec<f64> = Vec::new();
+    ys.extend(b.lines.iter().flatten().map(|l| l.y));
+    ys.extend(b.bpm_events.iter().map(|e| e.y));
+    ys.extend(b.stop_events.iter().flat_map(|e| [e.y, e.duration]));
+    ys.extend(b.scroll_events.iter().map(|e| e.y));
+    for ch in &b.sound_channels {
+        ys.extend(ch.notes.iter().flat_map(|n| [n.y, n.y + n.l]));
+    }
+    for ch in b.mine_channels.iter().chain(&b.key_channels) {
+        ys.extend(ch.notes.iter().map(|n| n.y));
+    }
+    let bga = &b.bga;
+    for evs in [&bga.bga_events, &bga.layer_events, &bga.poor_events] {
+        ys.extend(evs.iter().map(|e| e.y));
+    }
+    match ys.iter().find(|y| y.is_nan() || y.abs() / res > MAX_BEATS) {
+        Some(y) => Err(ChartError::Parse(format!(
+            "bmson position {y} is past {} measures",
+            MAX_BEATS / 4.0
+        ))),
+        None => Ok(()),
+    }
+}
+
 pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     let b: Bmson = serde_json::from_slice(bytes).map_err(|e| ChartError::Parse(e.to_string()))?;
     let info = &b.info;
-    let res = if info.resolution > 0.0 {
+    let res = if info.resolution > 0.0 && info.resolution.is_finite() {
         info.resolution
     } else {
         240.0
     };
+    check_extent(&b, res)?;
     let beat = |y: f64| y / res;
     let mode = mode_from_hint(&info.mode_hint);
     let default_ln = match info.ln_type {
@@ -364,7 +396,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
                 pos: p(l.y),
             })
             .collect(),
-        _ => (0..=((last / 4.0).ceil() as usize + 1))
+        _ => (0..=((last / 4.0).ceil().clamp(0.0, MAX_BEATS / 4.0) as usize).saturating_add(1))
             .map(|m| BarLine {
                 time: timing.time_at_beat(m as f64 * 4.0),
                 pos: timing.pos_at_beat(m as f64 * 4.0),
@@ -380,6 +412,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     } else {
         default_total
     });
+    chart.meta.total_rate = Some(info.total);
     chart.compute_bpm_stats();
     Ok(chart)
 }
@@ -387,6 +420,37 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hostile_bmson_positions_are_refused() {
+        let chart = |notes: &str, extra: &str| {
+            format!(
+                r#"{{"version": "1.0.0", "info": {{"title": "t", "init_bpm": 120, "resolution": 240}},
+                "sound_channels": [{{"name": "a.wav", "notes": [{notes}]}}]{extra}}}"#
+            )
+        };
+        let ok = chart(r#"{"x": 1, "y": 0, "l": 0, "c": false}"#, "");
+        assert!(parse_bmson(ok.as_bytes()).is_ok());
+        // a note 10^15 pulses away would build billions of bar lines
+        for notes in [
+            r#"{"x": 1, "y": 1e15, "l": 0, "c": false}"#,
+            r#"{"x": 1, "y": 0, "l": 1e300, "c": false}"#,
+            r#"{"x": 1, "y": -1e18, "l": 0, "c": false}"#,
+        ] {
+            assert!(parse_bmson(chart(notes, "").as_bytes()).is_err(), "{notes}");
+        }
+        let far_stop = r#", "stop_events": [{"y": 0, "duration": 1e17}]"#;
+        let n = r#"{"x": 1, "y": 0, "l": 0, "c": false}"#;
+        assert!(parse_bmson(chart(n, far_stop).as_bytes()).is_err());
+        // just inside 10,000 measures is read
+        let edge = chart(r#"{"x": 1, "y": 9599000, "l": 0, "c": false}"#, "");
+        let c = parse_bmson(edge.as_bytes()).unwrap();
+        assert!(c.bar_lines.len() <= 10_002);
+        // a tiny resolution makes the same positions far away
+        let tiny = r#"{"version": "1.0.0", "info": {"title": "t", "init_bpm": 120, "resolution": 1e-12},
+            "sound_channels": [{"name": "a.wav", "notes": [{"x": 1, "y": 10, "l": 0, "c": false}]}]}"#;
+        assert!(parse_bmson(tiny.as_bytes()).is_err());
+    }
 
     #[test]
     fn parses_minimal_bmson() {

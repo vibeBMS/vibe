@@ -25,7 +25,7 @@ pub mod rng;
 pub mod score;
 pub mod timing;
 
-pub use chart::{Chart, ChartMeta, LnType, Note, NoteKind};
+pub use chart::{Chart, ChartMeta, LnProfile, LnType, Note, NoteKind};
 pub use mode::PlayMode;
 
 /// Decode any supported chart file based on its extension.

@@ -584,12 +584,11 @@ impl SelectScene {
             return Next::Stay;
         };
         let song = song.clone();
-        let ln = if song.has_ln {
-            ctx.config.play.ln_mode as i32
-        } else {
-            0
+        let ln = song.score_ln(ctx.config.play.ln_mode) as i32;
+        let fixed = song.fixed_ln();
+        let load = |slot| {
+            crate::replay::Replay::load_filed(&ctx.paths.root, &song.sha256, ln, fixed, slot)
         };
-        let load = |slot| crate::replay::Replay::load(&ctx.paths.root, &song.sha256, ln, slot);
         let Some(r) = load(crate::replay::Slot::Best).or_else(|| load(crate::replay::Slot::Last))
         else {
             ctx.toast(format!("No replay of {}", song.title));
@@ -1016,7 +1015,7 @@ impl SelectScene {
         }
         let mut lamps = [0u32; 11];
         let mut ranks = [0u32; 9];
-        let ln = ctx.config.play.ln_mode as i32;
+        let ln = ctx.config.play.ln_mode;
         let mut count = |bars: &[Bar]| {
             for b in bars {
                 if let Bar::Song(k) = b {

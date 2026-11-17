@@ -24,7 +24,8 @@ agent (Claude Code); a person set the direction and checked the results by playi
 
 Builds of the latest commit, for every platform, are on the
 [Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease: the executables, the Android `.apk` and
-the unsigned iOS `.ipa` as they are, the web build as a zip. Or build it yourself:
+the unsigned iOS `.ipa` as they are, the web build as a zip. On Linux, `vibebms-linux-*-portable` starts on older
+systems (glibc 2.28) and without WebKitGTK, but has no download browser. Or build it yourself:
 
 ```sh
 cargo run --release                                  # song select
@@ -65,7 +66,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - beatoraja's assist options: EXPAND JUDGE (wider windows; PG/GR/GD ratios in the settings), JUDGE AREA (the judge
   windows drawn above the judge line), MARK NOTE (notes hit early stay grey down to the judge line), BPM GUIDE (BPM
   changes and stops shown), judge timing auto-adjust. As in beatoraja, EXPAND JUDGE over 100% makes the play
-  ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; their records are not saved.
+  ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; such plays keep only their lamp and
+  play count (see Clear lamps in `docs/RULES.md`).
 - Hi-speed: you set the multiplier (in steps of 0.25); the green number (how long notes are visible) follows from it,
   the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the opposite: the green number
   stays and the multiplier follows each chart's BPM.
@@ -84,13 +86,13 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 ## Features
 
 - **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP and `#SCROLL`, LN
-  (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys; Shift_JIS, EUC-KR and UTF-8 detected.
+  (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE, assists, floating / fixed hi-speed,
-  SUDDEN+ / HIDDEN+ / LIFT. BATTLE, mines removed, custom judging and plays in a course leave no record for the song,
-  and assisted plays are not sent to IR.
+  SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
+  a course leave no record for the song.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX).

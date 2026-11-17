@@ -160,8 +160,11 @@ enum Modifier {
     Total,
     /// Positive values limited for low-TOTAL charts.
     LimitIncrement,
-    /// Damage increased for low TOTAL / few notes (LR2).
+    /// Damage increased for low TOTAL / few notes (beatoraja's version).
     ModifyDamage,
+    /// LR2's damage increase (as LR2oraja): by TOTAL below 240 and by note
+    /// count below 1000, the larger.
+    Lr2Damage,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -174,6 +177,8 @@ pub struct GaugeElement {
     pub values: [f32; 6],
     /// `(threshold, multiplier)`: damage is multiplied when below the threshold.
     pub guts: &'static [(f32, f32)],
+    /// The gauge empties when it falls below this (LR2: 2 %).
+    pub death: f32,
 }
 
 const fn e(
@@ -193,7 +198,13 @@ const fn e(
         border,
         values,
         guts,
+        death: 0.0,
     }
+}
+
+/// An LR2 survival gauge: it empties below 2 %.
+const fn lr2(g: GaugeElement) -> GaugeElement {
+    GaugeElement { death: 2.0, ..g }
 }
 
 use Modifier::*;
@@ -211,7 +222,7 @@ const CLASS_GUTS: &[(f32, f32)] = &[
     (20.0, 0.7),
     (25.0, 0.8),
 ];
-const LR2_GUTS: &[(f32, f32)] = &[(30.0, 0.6)];
+const LR2_GUTS: &[(f32, f32)] = &[(32.0, 0.6)];
 const IIDX_GUTS: &[(f32, f32)] = &[(30.0, 0.5)];
 
 // beatoraja GaugeProperty values
@@ -492,25 +503,25 @@ const LR2: [GaugeElement; 9] = [
         [1.0, 1.0, 0.5, -4.0, -6.0, -2.0],
         &[],
     ),
-    e(
-        Some(ModifyDamage),
+    lr2(e(
+        Some(Lr2Damage),
         0.0,
         100.0,
         100.0,
         0.0,
         [0.1, 0.1, 0.05, -6.0, -10.0, -2.0],
         LR2_GUTS,
-    ),
-    e(
-        Some(ModifyDamage),
+    )),
+    lr2(e(
+        Some(Lr2Damage),
         0.0,
         100.0,
         100.0,
         0.0,
         [0.1, 0.1, 0.05, -12.0, -20.0, -2.0],
         &[],
-    ),
-    e(
+    )),
+    lr2(e(
         None,
         0.0,
         100.0,
@@ -518,8 +529,8 @@ const LR2: [GaugeElement; 9] = [
         0.0,
         [0.15, 0.06, 0.0, -100.0, -100.0, -10.0],
         &[],
-    ),
-    e(
+    )),
+    lr2(e(
         None,
         0.0,
         100.0,
@@ -527,8 +538,8 @@ const LR2: [GaugeElement; 9] = [
         0.0,
         [0.10, 0.10, 0.05, -2.0, -3.0, -2.0],
         LR2_GUTS,
-    ),
-    e(
+    )),
+    lr2(e(
         None,
         0.0,
         100.0,
@@ -536,8 +547,8 @@ const LR2: [GaugeElement; 9] = [
         0.0,
         [0.10, 0.10, 0.05, -6.0, -10.0, -2.0],
         LR2_GUTS,
-    ),
-    e(
+    )),
+    lr2(e(
         None,
         0.0,
         100.0,
@@ -545,7 +556,7 @@ const LR2: [GaugeElement; 9] = [
         0.0,
         [0.10, 0.10, 0.05, -12.0, -20.0, -2.0],
         &[],
-    ),
+    )),
 ];
 // IIDX-like approximation (groove gauges start at 22%, HARD damage halves below 30%)
 const IIDX: [GaugeElement; 9] = [
@@ -660,6 +671,31 @@ fn modify(m: Modifier, f: f32, total: f64, notes: usize) -> f32 {
                 f
             }
         }
+        Lr2Damage => {
+            if f >= 0.0 {
+                return f;
+            }
+            let fix1 = 10.0 / ((total / 16.0).floor() - 5.0).clamp(1.0, 10.0);
+            let n = notes as f64;
+            let fix2 = if n <= 20.0 {
+                10.0
+            } else if n < 30.0 {
+                8.0 + 0.2 * (30.0 - n)
+            } else if n < 60.0 {
+                5.0 + 0.2 * (60.0 - n) / 3.0
+            } else if n < 125.0 {
+                4.0 + (125.0 - n) / 65.0
+            } else if n < 250.0 {
+                3.0 + 0.008 * (250.0 - n)
+            } else if n < 500.0 {
+                2.0 + 0.004 * (500.0 - n)
+            } else if n < 1000.0 {
+                1.0 + 0.002 * (1000.0 - n)
+            } else {
+                1.0
+            };
+            f * fix1.max(fix2) as f32
+        }
         ModifyDamage => {
             if f >= 0.0 {
                 return f;
@@ -721,6 +757,9 @@ impl Gauge {
     pub fn set_value(&mut self, v: f32) {
         if self.value > 0.0 {
             self.value = v.clamp(self.elem.min, self.elem.max);
+            if self.value < self.elem.death {
+                self.value = 0.0;
+            }
         }
     }
 
@@ -973,9 +1012,40 @@ mod tests {
     #[test]
     fn lr2_modify_damage_small_chart() {
         let g = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 250);
-        // fewer notes -> more damage than the base -10
-        assert!(g.change_for(POOR) < -10.0);
+        // 250 notes: damage x3 (LR2's note count correction)
+        assert!((g.change_for(POOR) + 30.0).abs() < 1e-4);
         let big = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 2000);
         assert_eq!(big.change_for(POOR), -10.0);
+        // TOTAL 200: floor(200 / 16) - 5 = 7 -> x10/7
+        let low = Gauge::new(GaugeType::Hard, &LR2[3], 200.0, 2000);
+        assert!((low.change_for(POOR) + 100.0 / 7.0).abs() < 1e-3);
+        assert!(
+            (Gauge::new(GaugeType::Hard, &LR2[3], 100.0, 2000).change_for(POOR) + 100.0).abs()
+                < 1e-3
+        );
+    }
+
+    #[test]
+    fn lr2_guts_and_death() {
+        let mut g = Gauge::new(GaugeType::Hard, &LR2[3], 300.0, 2000);
+        g.set_value(31.0);
+        g.update(POOR, 1.0);
+        // below 32 %: damage x0.6
+        assert!((g.value() - (31.0 - 6.0)).abs() < 1e-4);
+        // below 2 % it empties
+        g.set_value(3.0);
+        assert!(!g.is_dead());
+        g.update(GOOD, 1.0);
+        g.update(MISS, 1.0);
+        assert!(g.is_dead());
+        // groove gauges do not
+        let mut n = Gauge::new(GaugeType::Normal, &LR2[2], 300.0, 2000);
+        n.set_value(3.0);
+        n.update(BAD, 1.0);
+        assert!(!n.is_dead());
+        // beatoraja's HARD has no such floor
+        let mut b = Gauge::new(GaugeType::Hard, &SEVEN[3], 300.0, 2000);
+        b.set_value(1.0);
+        assert!(!b.is_dead());
     }
 }

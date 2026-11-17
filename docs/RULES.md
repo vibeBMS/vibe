@@ -31,6 +31,8 @@ PMS notes can only produce one POOR. Note selection algorithms Combo / Duration 
 
 ### LR2
 
+Values as LR2oraja (Endless Dream) reproduces LR2.
+
 | #RANK | PGREAT | GREAT | GOOD | BAD |
 |---|---|---|---|---|
 | VERY HARD | ±8 | ±24 | ±40 | ±200 |
@@ -38,7 +40,13 @@ PMS notes can only produce one POOR. Note selection algorithms Combo / Duration 
 | NORMAL | ±18 | ±40 | ±100 | ±200 |
 | EASY | ±21 | ±60 | ±120 | ±200 |
 
-LR2 has no `#DEFEXRANK`; it is treated as a percentage of NORMAL. Empty POOR window uses the beatoraja value.
+`#RANK 4` (VERY EASY) and values out of range are NORMAL; a chart without `#RANK` is NORMAL too. LR2 has no
+`#DEFEXRANK`: it is a percentage of NORMAL, the judge rank then lies between the rows above (NORMAL = 75 %, EASY =
+100 %) and the windows are interpolated between them; above EASY they grow in proportion (bmson `judge_rank` is
+taken as that percentage). Windows stay inside BAD. Empty POOR: up to 1000 ms early, never late.
+
+LN / CN releases (LR2oraja): PG, GR and GD share the #RANK's GOOD window (±40 / ±60 / ±100 / ±120 ms),
+BAD ±200 ms. An LN keeps its head judgement when released inside the GOOD window.
 
 ### IIDX (approximation)
 
@@ -64,14 +72,31 @@ Values are change per PG, GR, GD, BAD, POOR, empty POOR (percent).
 | EX-CLASS | 100 | – | 0.15, 0.12, 0.03, -3, -6, -3 | |
 | EXHARD-CLASS | 100 | – | 0.15, 0.06, 0, -5, -10, -5 | |
 
-The 5-key, PMS and LR2 sets are in `gauge.rs` (also from beatoraja's `GaugeProperty`).
-Default TOTAL when missing: `max(260, 7.605·n / (0.01·n + 6.5))`.
+The 5-key and PMS sets are in `gauge.rs` (also from beatoraja's `GaugeProperty`).
+Default TOTAL when missing: `max(260, 7.605·n / (0.01·n + 6.5))` (n = judgements: CN/HCN count twice);
+with the LR2 gauges `160 + (n + clamp(n − 400, 0, 200)) × 0.16`. A bmson `total` is a percentage of that default.
 
-**LR2 damage modifier** (HARD/EX-HARD of the LR2 set): damage × max(TOTAL factor, note-count factor).
-beatoraja's implementation of the note-count factor also adds negative terms for charts with more notes
-than the current step (its loop runs `while (note > notes || note > 1)`), which effectively disables it.
-vibeBMS keeps only the positive part so that charts with < 1000 notes get the increased damage that LR2 is
-known for. Change `ModifyDamage` in `gauge.rs` if you want the exact beatoraja behaviour.
+**5-key EX-HARD damage modifier** (beatoraja's `MODIFY_DAMAGE`): damage × max(TOTAL factor, note-count factor).
+beatoraja's note-count loop also adds negative terms for charts with more notes than the current step, which
+effectively disables it; vibeBMS keeps only the positive part.
+
+### LR2 set (LR2oraja Endless Dream's `GaugeProperty.LR2`)
+
+| gauge | init | border | values | modifier |
+|---|---|---|---|---|
+| ASSIST EASY | 20 | 60 | 1.2, 1.2, 0.6, -3.2, -4.8, -1.6 | × TOTAL / notes on gains |
+| EASY | 20 | 80 | 1.2, 1.2, 0.6, -3.2, -4.8, -1.6 | × TOTAL / notes |
+| NORMAL | 20 | 80 | 1, 1, 0.5, -4, -6, -2 | × TOTAL / notes |
+| HARD | 100 | – | 0.1, 0.1, 0.05, -6, -10, -2 | LR2 damage; ×0.6 below 32 % |
+| EX-HARD | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | LR2 damage |
+| HAZARD | 100 | – | 0.15, 0.06, 0, -100, -100, -10 | |
+| CLASS | 100 | – | 0.1, 0.1, 0.05, -2, -3, -2 | ×0.6 below 32 % |
+| EX-CLASS | 100 | – | 0.1, 0.1, 0.05, -6, -10, -2 | ×0.6 below 32 % |
+| EXHARD-CLASS | 100 | – | 0.1, 0.1, 0.05, -12, -20, -2 | |
+
+The survival gauges (HARD to EXHARD-CLASS) empty when they fall below 2 %. LR2 damage: damage × max(10 /
+clamp(⌊TOTAL / 16⌋ − 5, 1, 10), note-count factor), the note-count factor rising from 1 at 1000 notes to 10 at 20
+(1 + 0.002·(1000 − n) below 1000, 2 + 0.004·(500 − n) below 500, 3 + 0.008·(250 − n) below 250, …).
 
 ### IIDX set (approximation)
 Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 30 %, EX-HARD -10, -18, -10.
@@ -85,7 +110,20 @@ Groove gauges start at 22 %, HARD ±0.16 gain / -5, -9, -5 damage halving below 
 * **HCN** (`#LNMODE 3`): CN plus a gauge tick every 200 ms of the body: +GREAT×0.5 while held, BAD×0.5 while released.
 * Back-spin scratch: on a scratch CN/HCN the end is judged when the turntable is spun the other way. For
   keyboards and touch, releasing also ends it (configurable in the engine).
+* Scores, replays and IR entries are filed by LN mode: a chart without long notes under LN; a chart whose long
+  notes all have their type (`#LNMODE`, bmson `t`) under that type (with several types, the strongest:
+  HCN > CN > LN), whatever the player's LN mode; otherwise under the player's LN mode. Records such charts had
+  under the player's mode are merged into the chart's when the library loads.
 
 ## Clear lamps
-FAILED < ASSIST (assist options) < L-ASSIST (ASSIST EASY gauge) < EASY < CLEAR < HARD < EX-HARD < FULL COMBO
-(no BAD/POOR; HAZARD survival) < PERFECT (no GOOD) < MAX (all PGREAT). DJ level thresholds at n/9 of max EX.
+FAILED < ASSIST (assist options) < L-ASSIST (light assist options, ASSIST EASY gauge) < EASY < CLEAR < HARD <
+EX-HARD < FULL COMBO (no BAD/POOR; HAZARD survival) < PERFECT (no GOOD) < MAX (all PGREAT). DJ level thresholds
+at n/9 of max EX.
+
+Assists (as beatoraja's `BMSPlayer`; an option counts only when it took effect, `AssistFacts` in `score.rs`):
+* ASSIST: AUTO SCRATCH on a chart with scratch notes, LEGACY NOTE on a chart with long notes, EXPAND JUDGE over 100 %.
+* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, BATTLE, NO MINE that removed mines, BPM GUIDE on a
+  chart that changes BPM.
+
+An assisted play that is not FAILED gets that lamp whatever the gauge. It keeps only the lamp, the play and clear
+counts and the player's totals: no EX score, BP or combo best, no best replay (MY BEST ghost), nothing sent to IR.

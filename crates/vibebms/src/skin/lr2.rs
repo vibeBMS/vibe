@@ -326,10 +326,12 @@ impl Loader<'_> {
         let line = line.replace('"', "");
         let f: Vec<&str> = line.split(',').collect();
         let cmd = f[0].trim().to_ascii_uppercase();
-        let skipping = self.conds.iter().any(|c| c.skip);
+        // LR2 decides each #IF level by its own condition: the innermost
+        // level says whether a line is read, even inside a level skipped
+        let skipping = self.conds.last().is_some_and(|c| c.skip);
         match cmd.as_str() {
             "#IF" => {
-                let ok = !skipping && self.cond(&f);
+                let ok = self.cond(&f);
                 self.conds.push(Cond {
                     skip: !ok,
                     taken: ok,
@@ -338,8 +340,7 @@ impl Loader<'_> {
             }
             "#ELSEIF" => {
                 if let Some(c) = self.conds.last() {
-                    let (taken, parent_skip) = (c.taken, self.parent_skip());
-                    let ok = !taken && !parent_skip && self.cond(&f);
+                    let ok = !c.taken && self.cond(&f);
                     let c = self.conds.last_mut().unwrap();
                     c.skip = !ok;
                     c.taken |= ok;
@@ -347,9 +348,8 @@ impl Loader<'_> {
                 return;
             }
             "#ELSE" => {
-                let parent_skip = self.parent_skip();
                 if let Some(c) = self.conds.last_mut() {
-                    c.skip = c.taken || parent_skip;
+                    c.skip = c.taken;
                     c.taken = true;
                 }
                 return;
@@ -1065,13 +1065,6 @@ impl Loader<'_> {
     }
 }
 
-impl Loader<'_> {
-    fn parent_skip(&self) -> bool {
-        let n = self.conds.len();
-        n > 1 && self.conds[..n - 1].iter().any(|c| c.skip)
-    }
-}
-
 /// The images of the LR2 skin loaded last, for `#IMAGE,CONTINUE`.
 static LAST_IMAGES: std::sync::Mutex<Vec<Option<PathBuf>>> = std::sync::Mutex::new(Vec::new());
 
@@ -1730,6 +1723,41 @@ mod tests {
         );
         assert!(s.judges[2].judge[0].is_some());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nested_if_levels_decide_by_their_own_condition() {
+        let dir = std::env::temp_dir().join(format!("vibebms-skin-if-{}", std::process::id()));
+        let theme = dir.join("S");
+        std::fs::create_dir_all(&theme).unwrap();
+        let img = |x: i32| {
+            format!(
+                "#SRC_IMAGE,0,0,{x},0,1,1,1,1,0,0\n#DST_IMAGE,0,0,{x},0,1,1,0,255,255,255,255\n"
+            )
+        };
+        // options 901 off, 900 on
+        let csv = format!(
+            "#INFORMATION,0,T,me\n#CUSTOMOPTION,O,900,A,B\n#IMAGE,a.png\n\
+             #IF,901\n{}#IF,900\n{}#ELSE\n{}#ENDIF\n{}#ELSE\n{}#IF,901\n{}#ELSEIF,900\n{}#ENDIF\n#ENDIF\n{}",
+            img(1), img(2), img(3), img(4), img(5), img(6), img(7), img(8)
+        );
+        std::fs::write(theme.join("p.lr2skin"), csv).unwrap();
+        let s = load(
+            &theme.join("p.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &|_| Some((8, 8)),
+        )
+        .unwrap();
+        let xs: Vec<i32> = s
+            .objects
+            .iter()
+            .filter_map(|o| o.dst.keys.first().map(|k| k.rect.x as i32))
+            .collect();
+        // 2: inside the skipped 901 level, its own level (900) is on
+        assert_eq!(xs, vec![2, 5, 7, 8]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
