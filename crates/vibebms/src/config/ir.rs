@@ -44,7 +44,8 @@ impl SubmitPolicy {
 #[serde(default)]
 pub struct IrAccount {
     pub provider: ProviderId,
-    /// A vibeBMS IR's name and its API's base URL.
+    /// A vibeBMS IR's name and its API's base URL (BMS-IR: its read API
+    /// elsewhere, a test server; empty: bms-ir.org).
     pub name: String,
     pub url: String,
     pub enabled: bool,
@@ -54,6 +55,15 @@ pub struct IrAccount {
     /// key was checked.
     pub user: String,
     pub user_id: String,
+    /// BMS-IR: whose scores count (its `client_view`), the difficulty
+    /// tables whose lamps are read, and the rivals' player ids (the
+    /// player's own is `user_id`, entered).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub view: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rivals: Vec<String>,
     /// A key a configuration of before kept (`[ir_server]`'s token): moved
     /// to the credentials store as the app starts, never written here.
     #[serde(skip_serializing)]
@@ -70,6 +80,9 @@ impl Default for IrAccount {
             submit: true,
             user: String::new(),
             user_id: String::new(),
+            view: String::new(),
+            tables: Vec::new(),
+            rivals: Vec::new(),
             old_token: OldToken::default(),
         }
     }
@@ -126,5 +139,35 @@ impl IrSettings {
     /// A slot no vibeBMS IR account has.
     pub fn free_slot(&self) -> Option<u8> {
         (0..=u8::MAX).find(|&n| self.account(ProviderId::VibeJson(n)).is_none())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A BMS-IR account and a rival beside: written only when set, read
+    /// back as they were.
+    #[test]
+    fn read_accounts_round_trip() {
+        let plain = IrSettings {
+            accounts: vec![IrAccount::default()],
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&plain).unwrap();
+        assert!(!text.contains("tables"), "{text}");
+        let s = IrSettings {
+            accounts: vec![IrAccount {
+                provider: ProviderId::BmsIr,
+                user_id: "191167".into(),
+                view: "bmz-lr2".into(),
+                tables: vec!["official".into(), "satellite".into()],
+                rivals: vec!["100005".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&s).unwrap();
+        assert_eq!(toml::from_str::<IrSettings>(&text).unwrap(), s, "{text}");
     }
 }

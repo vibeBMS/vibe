@@ -1,5 +1,6 @@
-//! The IR page: when plays are sent, whose rankings show, each account
-//! (a pasted key, on / off, send plays), and the outbox.
+//! The IR page: when plays are sent, whose rankings and lamps show, each
+//! account (a pasted key or a player id, on / off, send plays, BMS-IR's
+//! view, tables and rivals), and the outbox.
 
 use super::{Act, Row, TextField};
 use crate::app::Ctx;
@@ -8,11 +9,12 @@ use crate::ir::creds;
 use crate::platform::{store, unix_ms, IS_WEB};
 use crate::scene::option_panel::{cycle, onoff};
 use vibebms_ir::outbox::State;
+use vibebms_ir::providers::bmsir_read::{self, TABLES, VIEWS};
 use vibebms_ir::ProviderId;
 
 /// The providers with an account of their own, before the vibeBMS IR
 /// servers (as many as the player adds).
-const PROVIDERS: [ProviderId; 1] = [ProviderId::Bokutachi];
+const PROVIDERS: [ProviderId; 2] = [ProviderId::Bokutachi, ProviderId::BmsIr];
 
 /// The outbox items listed at most.
 const LISTED: usize = 50;
@@ -30,14 +32,27 @@ fn toggle_submit(c: &mut Ctx, i: usize) {
 }
 
 fn add_provider(c: &mut Ctx, n: usize) {
+    let p = PROVIDERS[n];
+    let read_only = p == ProviderId::BmsIr;
     c.config.ir.accounts.push(IrAccount {
-        provider: PROVIDERS[n],
+        provider: p,
+        submit: !read_only,
+        view: if read_only {
+            VIEWS[0].0.into()
+        } else {
+            String::new()
+        },
+        tables: if read_only {
+            vec![TABLES[0].0.into()]
+        } else {
+            Vec::new()
+        },
         ..Default::default()
     });
 }
 
-/// Forget the account's key (a vibeBMS IR server: the server, and its
-/// plays waiting).
+/// Forget the account's key (a vibeBMS IR server, a BMS-IR player: the
+/// account, and its plays waiting).
 fn remove(c: &mut Ctx, i: usize) {
     let Some(a) = c.config.ir.accounts.get_mut(i) else {
         return;
@@ -48,9 +63,58 @@ fn remove(c: &mut Ctx, i: usize) {
     if let Err(e) = c.net.ir.keys.set(p, None) {
         c.toast(format!("Credentials: {e}"));
     }
-    if matches!(p, ProviderId::VibeJson(_)) {
+    if matches!(p, ProviderId::VibeJson(_) | ProviderId::BmsIr) {
         c.config.ir.accounts.remove(i);
         c.net.ir.forget(p);
+    }
+}
+
+/// The BMS-IR account.
+fn bmsir(c: &mut Ctx) -> Option<&mut IrAccount> {
+    c.config.ir.account_mut(ProviderId::BmsIr)
+}
+
+/// Whose scores BMS-IR counts: the next view.
+fn step_view(c: &mut Ctx, d: i32) {
+    if let Some(a) = bmsir(c) {
+        let keys: Vec<&str> = VIEWS.iter().map(|(k, _)| *k).collect();
+        let now = keys
+            .iter()
+            .copied()
+            .find(|&k| k == a.view)
+            .unwrap_or(keys[0]);
+        a.view = cycle(&keys, now, d).to_string();
+    }
+}
+
+/// Follow table `t` of [`TABLES`] or no longer.
+fn toggle_table(c: &mut Ctx, t: usize) {
+    if let Some(a) = bmsir(c) {
+        let key = TABLES[t].0;
+        match a.tables.iter().position(|k| k == key) {
+            Some(n) => {
+                a.tables.remove(n);
+            }
+            None => a.tables.push(key.into()),
+        }
+    }
+}
+
+fn refresh_lamps(c: &mut Ctx, i: usize) {
+    let Some(a) = c.config.ir.accounts.get(i) else {
+        return;
+    };
+    let title = a.title().to_string();
+    if !c.net.ir.refresh_lamps(a.provider) {
+        c.toast(format!("{title}: lamps read less than 5 minutes ago"));
+    }
+}
+
+/// A player as people know them: their name on the IR, else the id.
+fn player_label(ctx: &Ctx, p: ProviderId, player: &str) -> String {
+    match ctx.net.ir.player_name(p, player) {
+        Some(name) => format!("{name} ({player})"),
+        None => format!("{} {player}", provider_name(p)),
     }
 }
 
@@ -122,15 +186,24 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 Act::Run(add_provider, n),
             )),
         }
+        match p {
+            ProviderId::Bokutachi => {
+                v.push(Row::note(
+                    "    Sending waits for Bokutachi to accept vibeBMS as a client",
+                    "PBs, rankings: read",
+                ));
+                v.push(Row::note(
+                    "    Its key: boku.tachi.ac, Profile, API Keys",
+                    "any key reads",
+                ));
+            }
+            ProviderId::BmsIr => v.push(Row::note(
+                "    BMS-IR: rankings and lamps of players who publish them",
+                "sending: not yet",
+            )),
+            _ => {}
+        }
     }
-    v.push(Row::note(
-        "    Sending waits for Bokutachi to accept vibeBMS as a client",
-        "PBs, rankings: read",
-    ));
-    v.push(Row::note(
-        "    Its key: boku.tachi.ac, Profile, API Keys",
-        "any key reads",
-    ));
     for (i, a) in ir.accounts.iter().enumerate() {
         if matches!(a.provider, ProviderId::VibeJson(_)) {
             account_rows(ctx, &mut v, i);
@@ -141,7 +214,7 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
         "+",
         Act::Text(TextField::AddIrServer),
     ));
-    v.push(Row::note("BMS-IR, rianIR", "waiting for their operators"));
+    v.push(Row::note("rianIR", "waiting for its operator"));
     outbox_rows(ctx, &mut v);
     v
 }
@@ -153,6 +226,9 @@ fn account_rows(ctx: &Ctx, v: &mut Vec<Row>, i: usize) {
         onoff(a.enabled),
         Act::Run(toggle_enabled, i),
     ));
+    if a.provider == ProviderId::BmsIr {
+        return bmsir_rows(ctx, v, i);
+    }
     if matches!(a.provider, ProviderId::VibeJson(_)) {
         v.push(Row::new(
             "    Name",
@@ -181,12 +257,70 @@ fn account_rows(ctx: &Ctx, v: &mut Vec<Row>, i: usize) {
         onoff(a.submit),
         Act::Run(toggle_submit, i),
     ));
+    if !a.user_id.is_empty() {
+        v.push(lamps_row(ctx, a, i));
+    }
     let forget = if matches!(a.provider, ProviderId::VibeJson(_)) {
         "    Remove this server"
     } else {
         "    Forget the key"
     };
     v.push(Row::new(forget, "×", Act::Run(remove, i)));
+}
+
+/// Read the lamps again; how they are.
+fn lamps_row(ctx: &Ctx, a: &IrAccount, i: usize) -> Row {
+    let state = ctx.net.ir.lamps_state(a.provider);
+    Row::new(
+        "    IR lamps (read again)",
+        state,
+        Act::Run(refresh_lamps, i),
+    )
+}
+
+/// A BMS-IR account: the player id (no key: its reads are public), whose
+/// scores count, rivals, the tables followed.
+fn bmsir_rows(ctx: &Ctx, v: &mut Vec<Row>, i: usize) {
+    let a = &ctx.config.ir.accounts[i];
+    let player = match (a.user_id.as_str(), a.user.as_str()) {
+        ("", _) => "enter yours".to_string(),
+        (id, "") => format!("{id}: {}", ctx.net.ir.lamps_state(a.provider)),
+        (id, name) => format!("{name} ({id})"),
+    };
+    v.push(Row::new(
+        "    Player id",
+        player,
+        Act::Text(TextField::IrPlayer(i)),
+    ));
+    let view = (VIEWS.iter())
+        .find(|(k, _)| *k == a.view)
+        .map_or(a.view.as_str(), |(_, name)| name);
+    v.push(Row::adjust("    Scores of", view, step_view));
+    let rivals: Vec<String> = (a.rivals.iter())
+        .map(|r| player_label(ctx, a.provider, r))
+        .collect();
+    v.push(Row::new(
+        "    Rivals (player ids)",
+        if rivals.is_empty() {
+            "none".into()
+        } else {
+            rivals.join(", ")
+        },
+        Act::Text(TextField::IrRivals(i)),
+    ));
+    if !a.user_id.is_empty() {
+        v.push(lamps_row(ctx, a, i));
+    }
+    v.push(Row::note("    Tables whose lamps are read", ""));
+    for (t, (key, name)) in TABLES.iter().enumerate() {
+        let on = a.tables.iter().any(|k| k == key);
+        v.push(Row::new(
+            format!("        {name}"),
+            onoff(on),
+            Act::Run(toggle_table, t),
+        ));
+    }
+    v.push(Row::new("    Remove", "×", Act::Run(remove, i)));
 }
 
 /// "Outbox: 3 waiting, 1 failed", Send now, and the items, newest first.
@@ -244,6 +378,40 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             }
             ctx.net.ir.verify(&ctx.config.ir, p);
         }
+        TextField::IrPlayer(i) => {
+            let Some(a) = ir.accounts.get_mut(i) else {
+                return;
+            };
+            match bmsir_read::player_id(&s) {
+                Some(id) => a.user_id = id.into(),
+                None if s.is_empty() => a.user_id.clear(),
+                None => {
+                    ctx.toast(format!("Not a BMS-IR player id: {s}"));
+                    return;
+                }
+            }
+            a.user.clear();
+            let p = a.provider;
+            ctx.net.ir.verify(&ctx.config.ir, p);
+        }
+        TextField::IrRivals(i) => {
+            let Some(a) = ir.accounts.get_mut(i) else {
+                return;
+            };
+            let mut bad = Vec::new();
+            a.rivals.clear();
+            for w in s.split(|c: char| c == ',' || c.is_whitespace()) {
+                match bmsir_read::player_id(w) {
+                    Some(id) if !a.rivals.iter().any(|r| r == id) => a.rivals.push(id.into()),
+                    Some(_) => {}
+                    None if w.is_empty() => {}
+                    None => bad.push(w),
+                }
+            }
+            if !bad.is_empty() {
+                ctx.toast(format!("Not BMS-IR player ids: {}", bad.join(", ")));
+            }
+        }
         TextField::AddIrServer if !s.is_empty() => {
             let Some(n) = ir.free_slot() else { return };
             ir.accounts.push(IrAccount {
@@ -262,6 +430,8 @@ pub(super) fn current(ctx: &Ctx, tf: TextField) -> String {
     match tf {
         TextField::IrName(i) => a(i).map(|a| a.name.clone()),
         TextField::IrUrl(i) => a(i).map(|a| a.url.clone()),
+        TextField::IrPlayer(i) => a(i).map(|a| a.user_id.clone()),
+        TextField::IrRivals(i) => a(i).map(|a| a.rivals.join(", ")),
         _ => None,
     }
     .unwrap_or_default()
