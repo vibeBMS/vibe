@@ -144,6 +144,63 @@ jobs:
             out/vibebms-macos-universal.app.zip
             out/version.txt
 
+  # the Flatpak: the linux-x64 executable as it is, on the GNOME runtime (it
+  # has WebKitGTK 4.1), as a bundle (tools/package_flatpak.sh, platform/flatpak)
+  flatpak:
+    name: package Flatpak (x86_64)
+    needs: build
+    # the linux-x64 build can have succeeded when another build failed
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: vibeBMS-linux-x64
+          path: art
+      - name: the build
+        id: builds
+        run: |
+          if [ ! -f art/vibebms ]; then
+            echo "::warning::no linux-x64 build: no Flatpak this time"
+            exit 0
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd-)" >> "$GITHUB_ENV"
+      - if: steps.builds.outputs.ok
+        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder desktop-file-utils appstream
+      # Ubuntu 24.04 denies unprivileged user namespaces to programs without
+      # an AppArmor profile; flatpak-builder's bubblewrap needs them
+      - if: steps.builds.outputs.ok
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # the runtime and SDK (over 1 GB from Flathub), installed for the user by
+      # the first run with this runtime
+      - if: steps.builds.outputs.ok
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-${{ runner.arch }}-${{ env.RUNTIME }}
+      # the app id, name and branch (io.github.vibebms.nightly, "vibeBMS Nightly")
+      - if: steps.builds.outputs.ok
+        run: ./tools/ci_version.sh
+      - if: steps.builds.outputs.ok
+        run: tools/package_flatpak.sh art/vibebms out
+      # the bundle installs, and every library the executable links (WebKitGTK
+      # 4.1 among them) is in the runtime
+      - if: steps.builds.outputs.ok
+        name: check
+        run: |
+          flatpak install --user --noninteractive out/vibeBMS-linux-x64.flatpak
+          flatpak run --command=/lib64/ld-linux-x86-64.so.2 "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
+          grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
+          ! grep 'not found' out/libs.txt
+      - if: steps.builds.outputs.ok
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeBMS-linux-x64-flatpak
+          path: out/vibeBMS-linux-x64.flatpak
+
   # Linux without the download browser (no WebKitGTK / GTK), built against
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
   # older and more distributions (RHEL 8, Debian 10, Ubuntu 20.04) and needs
@@ -440,7 +497,7 @@ jobs:
   # previous file; the notes say which files this commit brought.
   nightly:
     name: nightly release
-    needs: [build, build-linux-portable, macos-app, android, ios, web]
+    needs: [build, build-linux-portable, macos-app, flatpak, android, ios, web]
     if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     # a newer push's release wins over an older one still uploading
@@ -475,6 +532,8 @@ jobs:
           for f in vibeBMS-macos-universal.dmg vibebms-macos-universal.app.zip; do
             [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
           done
+          f=vibeBMS-linux-x64.flatpak
+          [ -f "art/vibeBMS-linux-x64-flatpak/$f" ] && cp "art/vibeBMS-linux-x64-flatpak/$f" "out/$f"
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
           [ -d art/vibeBMS-web ] && (cd art/vibeBMS-web && zip -qr ../../out/vibeBMS-web.zip .)
@@ -592,6 +651,9 @@ jobs:
             echo "- Linux / macOS executables: \`chmod +x vibebms-*\`; on macOS also \`xattr -d com.apple.quarantine vibebms-*\`."
             echo "- Linux: \`vibebms-linux-*\` needs glibc 2.35 and WebKitGTK 4.1 (\`libwebkit2gtk-4.1-0\`, for the download browser);"
             echo "  \`vibebms-linux-*-portable\` has no download browser and starts with glibc 2.28 and ALSA."
+            echo "- Linux Flatpak (x64): \`flatpak install --user vibeBMS-linux-x64.flatpak\` (it fetches the GNOME runtime from Flathub),"
+            echo "  then start \"vibeBMS Nightly\" or \`flatpak run io.github.vibebms.nightly\`. It does not update itself: install a newer"
+            echo "  bundle the same way. Its data is in \`~/.var/app/io.github.vibebms.nightly/data/vibeBMS\`."
             echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
             echo "  For updates in AltStore / SideStore, add the source https://github.com/$GH_REPO/releases/download/nightly/altstore.json"
             echo "- Web: unzip and serve the folder over HTTP(S), or use https://vibebms.github.io/vibe/."
@@ -606,7 +668,7 @@ jobs:
   # links to the executables in the run summary, once the builds are done
   downloads:
     name: downloads
-    needs: [build, build-linux-portable, macos-app, android, ios]
+    needs: [build, build-linux-portable, macos-app, flatpak, android, ios]
     if: always()
     runs-on: ubuntu-latest
     permissions:

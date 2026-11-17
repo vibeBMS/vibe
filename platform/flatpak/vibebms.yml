@@ -1,0 +1,56 @@
+# The Flatpak: the CI-built x86_64 executable (`vibebms-linux-x64`, the
+# `browser` build) as it is, with a desktop entry, the icon and AppStream
+# data. tools/package_flatpak.sh copies this folder, fills in the @…@ (the
+# channel's app id, name and version, from tools/ci_version.sh) and builds
+# the bundle; it is no build from source.
+id: '@APP_ID@'
+# the GNOME runtime has WebKitGTK 4.1 (libwebkit2gtk-4.1), which the
+# in-app browser (wry) links; CI checks that it resolves in this runtime
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: vibebms
+finish-args:
+  # difficulty tables, song downloads, the in-app browser, update checks
+  - --share=network
+  # X11's shared memory (without it X11 drawing is slow)
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # the GPU (wgpu: Vulkan or GL)
+  - --device=dri
+  # sound: the runtime's ALSA plays through PulseAudio (or PipeWire's)
+  - --socket=pulseaudio
+  # game controllers (/dev/input, hidraw), which --device=dri leaves out
+  - --device=all
+  # BMS folders anywhere in the home folder (SETTINGS › LIBRARY, folders
+  # dropped on the window); the data root is the sandbox's own
+  # (~/.var/app/<id>/data/vibeBMS)
+  - --filesystem=home
+modules:
+  - name: vibebms
+    buildsystem: simple
+    build-options:
+      # the executable is the release's as it is (stripped already)
+      no-debuginfo: true
+    build-commands:
+      - install -Dm755 vibebms /app/bin/vibebms
+      - install -Dm644 vibebms.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 vibebms.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+      - for n in 128 256 512; do install -Dm644 icon-$n.png /app/share/icons/hicolor/${n}x${n}/apps/${FLATPAK_ID}.png; done
+    sources:
+      - type: file
+        path: vibebms
+      - type: file
+        path: vibebms.desktop
+      - type: file
+        path: vibebms.metainfo.xml
+      - type: file
+        path: icon.svg
+      - type: file
+        path: icon-128.png
+      - type: file
+        path: icon-256.png
+      - type: file
+        path: icon-512.png

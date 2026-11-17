@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@APP_ID@</id>
+  <name>@APP_NAME@</name>
+  <summary>Play BMS rhythm game charts</summary>
+  <developer id="io.github.vibebms">
+    <name>vibeBMS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <description>
+    <p>
+      A cross-platform BMS player modelled on Lunatic Rave 2 and beatoraja. There is no launcher: it starts
+      at song select, and every setting is changed in the game. It plays BMS, BME, BML, PMS and BMSON charts,
+      reads LR2 and beatoraja skins and difficulty tables, and downloads songs in its own browser.
+    </p>
+  </description>
+  <launchable type="desktop-id">@APP_ID@.desktop</launchable>
+  <url type="homepage">https://github.com/vibeBMS/vibe</url>
+  <url type="bugtracker">https://github.com/vibeBMS/vibe/issues</url>
+  <url type="vcs-browser">https://github.com/vibeBMS/vibe</url>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>keyboard</control>
+    <control>gamepad</control>
+  </supports>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=@APP_NAME@
+GenericName=Rhythm game
+Comment=Play BMS rhythm game charts
+Exec=vibebms
+Icon=@APP_ID@
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=BMS;rhythm;music;LR2;beatoraja;
+StartupWMClass=vibebms

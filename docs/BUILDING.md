@@ -26,6 +26,28 @@ container, so they need only glibc 2.28, ALSA and libudev. WebKitGTK cannot be l
 links it), hence the two builds.
 Optional JACK output: `cargo build --release --features jack` (needs `libjack-dev`).
 
+### Flatpak
+`tools/package_flatpak.sh <vibebms> <out dir>` packages an x86_64 `browser` build as it is (no build from source)
+into `<out dir>/vibeBMS-linux-x64.flatpak`, with the manifest, desktop entry and AppStream data in `platform/flatpak`
+and the icons from `assets/logo`. It fills in the channel's app id, name and version (`tools/ci_version.sh`; a local
+run is `io.github.vibebms.dev`, "vibeBMS Dev", on the branch `dev`), checks the desktop entry and AppStream data
+(`desktop-file-validate`, `appstreamcli`, when installed), builds with `flatpak-builder` and bundles with
+`flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo`, so `flatpak install` of the bundle
+fetches the runtime from Flathub. Needs `flatpak` and `flatpak-builder`; the runtime and SDK (over 1 GB) are installed
+for the user when no installation has them. `DRY_RUN=1` stops before the build, with the filled-in sources in
+`<out dir>/flatpak-src`.
+
+The runtime is `org.gnome.Platform` (51) because it has WebKitGTK 4.1 (`libwebkit2gtk-4.1`), which the in-app
+browser links; the Freedesktop runtime has no WebKitGTK. Its permissions: network, Wayland or X11 (and IPC), the GPU,
+PulseAudio, all devices (game controllers) and the home folder (BMS folders added in `SETTINGS › LIBRARY`). CI builds
+the nightly's (`io.github.vibebms.nightly`, "vibeBMS Nightly", branch `nightly`) from `vibebms-linux-x64`, caches the
+runtime and SDK, checks that the bundle installs and that every library the executable links resolves in the runtime,
+and adds the bundle to the nightly release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak`; a
+newer bundle installs over it the same way (it does not update itself: the self-update stays off under `/app`).
+Inside the Flatpak the executable's folder (`/app/bin`) is read-only, so the data root is `$XDG_DATA_HOME/vibeBMS`,
+which Flatpak makes `~/.var/app/<app id>/data/vibeBMS`. Video BGA needs an `ffmpeg` executable, which the runtime does
+not have.
+
 ## Windows (x64 / ARM64)
 MSVC toolchain. ARM64: `rustup target add aarch64-pc-windows-msvc` and
 `cargo build --release --target aarch64-pc-windows-msvc` (install the ARM64 build tools in Visual Studio).
@@ -142,8 +164,8 @@ running executable is renamed away first). The macOS app downloads its zip next 
 way, unpacks it with `ditto` (which keeps the signature and modes), moves the old app aside, puts the new one in its
 place (the old one back if that fails), deletes the old one and signs the app ad hoc again (`codesign --force --deep
 -s -`, when `codesign` is there). "Restart now" starts it with the same arguments. An executable under `/usr` (or
-another package manager's folder: Homebrew's Cellar and Caskroom, Setapp, MacPorts), in an app bundle that is not
-vibeBMS's own, an app Homebrew Cask installed, or in a folder it cannot write to does nothing: it neither checks nor
+another package manager's folder: Homebrew's Cellar and Caskroom, Setapp, MacPorts, a Flatpak's `/app`), in an app
+bundle that is not vibeBMS's own, an app Homebrew Cask installed, or in a folder it cannot write to does nothing: it neither checks nor
 offers updates (its package manager updates it). Only nightlies check (a `-nightly.<run>` prerelease whose build metadata is a 7-digit commit):
 local builds (`-dev`, no metadata), releases (there is no release channel yet) and the web, Android and iOS builds
 never do.

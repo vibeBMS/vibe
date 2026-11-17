@@ -29,11 +29,14 @@ agent (Claude Code); a person set the direction and checked the results by playi
 Builds of the latest commit, for every platform, are on the
 [Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease: the executables, the Android `.apk` and
 the unsigned iOS `.ipa` as they are, the web build as a zip. On Linux, `vibebms-linux-*-portable` starts on older
-systems (glibc 2.28) and without WebKitGTK, but has no download browser.
+systems (glibc 2.28) and without WebKitGTK, but has no download browser. `vibeBMS-linux-x64.flatpak` is a Flatpak
+bundle: `flatpak install --user vibeBMS-linux-x64.flatpak` (the runtime comes from Flathub), and the same with a newer
+bundle to update it; its data is in `~/.var/app/io.github.vibebms.nightly/data/vibeBMS`.
 
 The desktop executables from there look for a newer nightly on start (`SETTINGS › SYSTEM › Check for updates`).
 When there is one, the song select says so and `SETTINGS › SYSTEM` updates in place ("Update now", then "Restart
-now"); a copy a package manager installed, or one in a folder that cannot be written to, does not check.
+now"); a copy a package manager installed (or the Flatpak), or one in a folder that cannot be written to, does not
+check.
 
 Or build it yourself:
 
