@@ -197,7 +197,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         id: "A1",
         profile: Profile::VibeLr2,
         what: "judge and gauge presets were separate settings; the profile now requires both",
-        closed: false,
+        closed: true,
         reaches: Reach::Every,
     },
     Gap {
@@ -225,7 +225,7 @@ pub const EQUIVALENCE: &[Gap] = &[
         id: "A5",
         profile: Profile::VibeLr2,
         what: "LN mode and typed CN/HCN (the profile takes LN and charts without typed CN/HCN)",
-        closed: false,
+        closed: true,
         reaches: Reach::Every,
     },
     Gap {

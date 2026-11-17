@@ -146,11 +146,11 @@ of beatoraja, LR2oraja or bmz-player, or from LR2's binary.
 
 | gap | what | state |
 |---|---|---|
-| A1 | judge and gauge presets were separate settings | open |
+| A1 | judge and gauge presets were separate settings | closed: the profile takes only the LR2 judge with the LR2 gauge set |
 | A2 | empty POOR window and its combo and note rules | closed: 0 .. +1000 ms, early only [S1, S2, S3, S4]; keeps the combo, never takes the note [S4] |
 | A3 | `#RANK 4`, out-of-range `#RANK`, `#DEFEXRANK`, bmson | open |
 | A4 | HARD gauge damage factor and the 30 % rule | open |
-| A5 | LN mode and typed CN / HCN | open |
+| A5 | LN mode and typed CN / HCN | closed: LR2 has only LNs without a tail judgement [S8]; the profile takes LN mode and no typed CN / HCN; a release inside GOOD keeps the head's judgement, earlier is a BAD [S4, S7] |
 | A6 | combo, note consumption and one-POOR rules | closed: LR2's in every key mode [S4, S8] (5/10 keys and PMS had beatoraja's) |
 | A7 | default TOTAL | open |
 | A8 | mines, scratch long note ends | open |

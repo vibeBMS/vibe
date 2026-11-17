@@ -489,7 +489,13 @@ mod tests {
                 bok,
                 Refusal::NotTaken(Profile::VibeBeatoraja, PlayMode::Beat5K),
             ),
-            ("LR2 gap", lr2(), |_| {}, bok, Refusal::OpenGap("A1")),
+            (
+                "LR2 gap",
+                lr2(),
+                |_| {},
+                bok,
+                Refusal::OpenGap(Profile::VibeLr2.open_gaps().next().unwrap().id),
+            ),
             (
                 "5-key EX-HARD",
                 base(),
