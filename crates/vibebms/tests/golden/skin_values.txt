@@ -141,6 +141,17 @@ select-song 9014: t="—"
 select-song 9015: t="—"
 select-song 9016: t="ANY"
 select-song 9017: t="SAVE"
+select-song 9018: t="OFF"
+select-song 9019: t="+0 ms"
+select-song 9020: t="384"
+select-song 9021: t="+0 ms"
+select-song 9022: t="ON"
+select-song 9023: t="WINDOW"
+select-song 9024: t="80%"
+select-song 9025: t="100%"
+select-song 9026: t="100%"
+select-song 9027: t="70%"
+select-song 9028: t="LOOP"
 select-song 9100: t="RANDOM"
 select-song 9101: t="GAUGE"
 select-song 9102: t="AUTO SHIFT"
@@ -159,7 +170,34 @@ select-song 9114: t="FAV CHART"
 select-song 9115: t="FAV SONG"
 select-song 9116: t="RANDOM SELECT"
 select-song 9117: t="SCREENSHOT"
+select-song 9118: t="LANE COVER"
+select-song 9119: t="JUDGE TIMING"
+select-song 9120: t="GREEN NUMBER"
+select-song 9121: t="VISUAL OFFSET"
+select-song 9122: t="FAST / SLOW"
+select-song 9123: t="SCREEN MODE"
+select-song 9124: t="MASTER"
+select-song 9125: t="KEY SOUND"
+select-song 9126: t="BGM"
+select-song 9127: t="SYSTEM"
+select-song 9128: t="PREVIEW"
+select-song 9210: t="7KEYS"
+select-song 9211: t=""
+select-song 9213: t="SAVE"
+select-song 9214: t="CLEAR"
+select-song 9215: t="OFF"
+select-song 9216: t="OFF"
+select-song 9217: t="OFF"
+select-song 9230: o
+select-song 9245: o
+select-song 9260: n=80 b=80 r=0.8
+select-song 9261: n=100 b=100 r=1
+select-song 9262: n=100 b=100 r=1
+select-song 9263: n=70 b=70 r=0.7
 select-song 9425: n=30 b=30
+select-song 9453: o n=11 b=11 r=0.9166667
+select-song 9463: o
+select-song 9473: n=6 b=6
 select-folder 1: o
 select-folder 2: t="PLAYER"
 select-folder 10: n=250 b=0 t="GOLDEN"
@@ -255,6 +293,17 @@ select-folder 9014: t="—"
 select-folder 9015: t="—"
 select-folder 9016: t="ANY"
 select-folder 9017: t="SAVE"
+select-folder 9018: t="OFF"
+select-folder 9019: t="+0 ms"
+select-folder 9020: t="384"
+select-folder 9021: t="+0 ms"
+select-folder 9022: t="ON"
+select-folder 9023: t="WINDOW"
+select-folder 9024: t="80%"
+select-folder 9025: t="100%"
+select-folder 9026: t="100%"
+select-folder 9027: t="70%"
+select-folder 9028: t="LOOP"
 select-folder 9100: t="RANDOM"
 select-folder 9101: t="GAUGE"
 select-folder 9102: t="AUTO SHIFT"
@@ -273,6 +322,33 @@ select-folder 9114: t="FAV CHART"
 select-folder 9115: t="FAV SONG"
 select-folder 9116: t="RANDOM SELECT"
 select-folder 9117: t="SCREENSHOT"
+select-folder 9118: t="LANE COVER"
+select-folder 9119: t="JUDGE TIMING"
+select-folder 9120: t="GREEN NUMBER"
+select-folder 9121: t="VISUAL OFFSET"
+select-folder 9122: t="FAST / SLOW"
+select-folder 9123: t="SCREEN MODE"
+select-folder 9124: t="MASTER"
+select-folder 9125: t="KEY SOUND"
+select-folder 9126: t="BGM"
+select-folder 9127: t="SYSTEM"
+select-folder 9128: t="PREVIEW"
+select-folder 9211: t=""
+select-folder 9213: t="SAVE"
+select-folder 9214: t="CLEAR"
+select-folder 9215: t="OFF"
+select-folder 9216: t="OFF"
+select-folder 9217: t="OFF"
+select-folder 9230: o
+select-folder 9245: o
+select-folder 9260: n=80 b=80 r=0.8
+select-folder 9261: n=100 b=100 r=1
+select-folder 9262: n=100 b=100 r=1
+select-folder 9263: n=70 b=70 r=0.7
+select-folder 9300: n=1 b=1
+select-folder 9301: n=1 b=1
+select-folder 9302: n=1 b=1
+select-folder 9303: n=1 b=1
 select-folder distribution false: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
 select-folder distribution true: [0, 0, 1, 0, 0, 0, 0, 0, 0]
 decide 2: t="PLAYER"

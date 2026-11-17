@@ -101,6 +101,20 @@ pub fn load_filed(
         })
 }
 
+/// Whether `load_filed` finds a replay of the chart in either slot (the
+/// select screen dims its REPLAY button without one).
+pub fn exists(root: &Path, sha256: &str, ln: i32, rule: JudgePreset, fixed: bool) -> bool {
+    let lns = if fixed { 0..3 } else { ln..ln + 1 };
+    let is = |p: PathBuf| crate::platform::vfs::is_file(&p);
+    lns.into_iter().any(|ln| {
+        [Slot::Best, Slot::Last].into_iter().any(|slot| {
+            is(file(root, sha256, ln, Some(rule), slot))
+                || is(file(root, sha256, ln, None, slot))
+                    && load(root, sha256, ln, rule, slot).is_some()
+        })
+    })
+}
+
 /// Why `r` cannot be a G-BATTLE opponent on `song` for a player in LN
 /// mode `ln` (`None`: it can). The opponent plays its inputs again on the
 /// second side, so the chart and the judge must come out as they did.

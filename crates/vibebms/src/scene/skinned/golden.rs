@@ -96,10 +96,11 @@ fn ctx() -> Ctx {
 }
 
 /// Every value `st` has for the ids skins use, one id per line (ids with
-/// nothing to say left out). The clock (21-26) and the version (1010) are
-/// not fixed.
+/// nothing to say left out). The clock (21-26), the version (1010) and the
+/// date in the time zone of the machine (9212) are not fixed.
 fn dump(out: &mut String, scene: &str, st: &dyn SkinState) {
     let clock = |id: i32| (21..=26).contains(&id);
+    let unfixed_text = |id: i32| id == 1010 || id == 9212;
     for id in (0..2500).chain(9000..9600) {
         let mut line = String::new();
         if st.option(id) {
@@ -111,7 +112,7 @@ fn dump(out: &mut String, scene: &str, st: &dyn SkinState) {
         if let Some(b) = st.button(id).filter(|_| !clock(id)) {
             write!(line, " b={b}").unwrap();
         }
-        if let Some(t) = st.text(id).filter(|_| id != 1010) {
+        if let Some(t) = st.text(id).filter(|_| !unfixed_text(id)) {
             write!(line, " t={t:?}").unwrap();
         }
         let r = st.rate(id);

@@ -283,8 +283,9 @@ fn builtin_select_skins_load() {
         assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
         // the IR lamp beside the player's
         assert!(sl.my_lamp.len() == 11 && sl.rival_lamp.len() == 11);
-        // the option buttons and the folder back button are clickable
-        let buttons = crate::scene::select::SelectOption::ALL.len() + 1;
+        // the option buttons (the first 18 options) and the folder back
+        // button are clickable
+        let buttons = 18 + 1;
         assert_eq!(
             sk.objects.iter().filter(|o| o.act.is_some()).count(),
             buttons

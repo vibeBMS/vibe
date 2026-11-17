@@ -6,10 +6,9 @@ mod launch;
 mod options;
 mod preview;
 mod skin;
+mod status;
 mod tree;
 
-#[cfg(test)]
-pub(crate) use options::SelectOption;
 pub use preview::{resolve_image, PREVIEW_KEY};
 pub(crate) use skin::SelectState;
 pub(crate) use tree::{Bar, Node};
@@ -73,6 +72,10 @@ pub struct SelectScene {
     held_nav: Option<Repeat<Nav>>,
     md5_map: HashMap<String, usize>,
     sha_map: HashMap<String, usize>,
+    /// The library's charts by song folder (a song's other charts).
+    folders: HashMap<String, Vec<usize>>,
+    /// The selected chart's replay and text files.
+    files: RefCell<status::ChartFiles>,
     preview_for: Option<String>,
     /// A preview played once ends then (the select BGM again).
     preview_until: Option<Instant>,
@@ -129,6 +132,8 @@ impl SelectScene {
             held_nav: None,
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
+            folders: HashMap::new(),
+            files: Default::default(),
             preview_for: None,
             preview_until: None,
             preview_wait: false,
@@ -161,11 +166,14 @@ impl SelectScene {
         self.dist_cache.borrow_mut().clear();
         self.md5_map.clear();
         self.sha_map.clear();
+        self.folders.clear();
+        *self.files.borrow_mut() = Default::default();
         for (i, s) in ctx.lib.songs.iter().enumerate() {
             if !s.md5.is_empty() {
                 self.md5_map.insert(s.md5.clone(), i);
             }
             self.sha_map.insert(s.sha256.clone(), i);
+            self.folders.entry(s.folder.clone()).or_default().push(i);
         }
         let key = self.bars.get(self.cursor).map(|b| self.bar_key(ctx, b));
         self.bars = self.listing(ctx, &self.node);

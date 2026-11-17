@@ -99,6 +99,20 @@ impl SelectScene {
         Next::Stay
     }
 
+    /// Open the search box, holding the search being shown.
+    pub(super) fn open_search(&mut self) {
+        let buf = self.query().unwrap_or_default().to_string();
+        self.search_edit = Some(TextInput::new(buf));
+    }
+
+    /// The search the open folder shows.
+    pub(crate) fn query(&self) -> Option<&str> {
+        match &self.node {
+            Node::Search(q) => Some(q),
+            _ => None,
+        }
+    }
+
     /// The search box has the keys: on-screen keyboards (their return key
     /// searches) and touches (the box searches, anywhere else closes it)
     /// too.
@@ -199,10 +213,8 @@ impl SelectScene {
                 ctx.start_scan();
                 ctx.tables.refresh(&ctx.config.tables, true);
             }
-            KeyCode::F10 => self.search_edit = Some(TextInput::default()),
-            KeyCode::Slash if !is_play_key(keys, code) => {
-                self.search_edit = Some(TextInput::default())
-            }
+            KeyCode::F10 => self.open_search(),
+            KeyCode::Slash if !is_play_key(keys, code) => self.open_search(),
             KeyCode::PageUp => self.step(ctx, -10),
             KeyCode::PageDown => self.step(ctx, 10),
             _ => {

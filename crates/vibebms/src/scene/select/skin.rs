@@ -14,6 +14,7 @@
 
 use super::options::SelectOption;
 use super::preview::Rank;
+use super::status::{self, SIBLINGS};
 use super::tree::{table, Bar, CourseBar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
@@ -41,6 +42,51 @@ pub const EVENT_BACK: i32 = 9900;
 pub const EVENT_REPLAY: i32 = 9901;
 /// vibeBMS text: the selected chart on the IR ("IR HARD   #12 / 345").
 pub const TEXT_IR: i32 = 9200;
+
+/// vibeBMS events: open the search box, and choose the song's chart of
+/// difficulty slot k (BEGINNER .. INSANE) with `EVENT_SIBLING + k`.
+pub const EVENT_SEARCH: i32 = 9903;
+pub const EVENT_SIBLING: i32 = 9910;
+
+/// vibeBMS texts: the chart's key mode ("7KEYS"), the search shown, when
+/// the chart was last played, what a play would be kept as ("SAVE",
+/// "LAMP ONLY", "NO SAVE"), the lamp a clear would give, the IR's state,
+/// the ASSIST options on and the lane cover.
+pub const TEXT_MODE: i32 = 9210;
+pub const TEXT_QUERY: i32 = 9211;
+pub const TEXT_LAST_PLAYED: i32 = 9212;
+pub const TEXT_SAVE: i32 = 9213;
+pub const TEXT_CLEAR: i32 = 9214;
+pub const TEXT_NETWORK: i32 = 9215;
+pub const TEXT_ASSIST: i32 = 9216;
+pub const TEXT_COVER: i32 = 9217;
+
+/// vibeBMS options: the chart has a replay, text files; a play would be
+/// saved / keep its lamp only / be kept not at all (9230-9232); the IR is
+/// reached / not (9233, 9234); a clear would give lamp c (9240 + c); the
+/// IR clear rate is known.
+pub const OPTION_REPLAY: i32 = 9220;
+pub const OPTION_HAS_TEXT: i32 = 9221;
+pub const OPTION_SAVE: i32 = 9230;
+pub const OPTION_ONLINE: i32 = 9233;
+pub const OPTION_OFFLINE: i32 = 9234;
+pub const OPTION_CLEAR: i32 = 9240;
+pub const OPTION_CLEAR_RATE: i32 = 9251;
+
+/// vibeBMS numbers: the IR clear rate (%), the volumes (master, key,
+/// BGM, system; %; also rates 0-1), a folder's charts, installed, played
+/// and cleared (9300-9303).
+pub const NUMBER_CLEAR_RATE: i32 = 9250;
+pub const NUMBER_VOLUME: i32 = 9260;
+pub const NUMBER_FOLDER: i32 = 9300;
+
+/// The song's charts by difficulty slot k (BEGINNER .. INSANE): option
+/// `SIBLING + k` there is one, `SIBLING_CURRENT + k` it is the selected
+/// chart; number `SIBLING + k` its level, `SIBLING_LAMP + k` its lamp;
+/// rate `SIBLING + k` its level of 12.
+pub const SIBLING: i32 = 9450;
+pub const SIBLING_CURRENT: i32 = 9460;
+pub const SIBLING_LAMP: i32 = 9470;
 
 /// Skin panels: LR2's 1-6 (ops 21-26, timers 21-26 opened and 31-36
 /// closed), then vibeBMS's 7-9 (ops 9027-9029, timers 9027-9029 and
@@ -79,6 +125,8 @@ pub struct SelectState<'a> {
     /// Its BPMs, else 150 (beatoraja shows the hi-speed on folders too).
     bpms: Bpms,
     rank: Option<&'a Rank>,
+    /// The song's charts by difficulty (`SelectScene::siblings`).
+    siblings: [Option<&'a Song>; SIBLINGS],
     /// Whose IR lamps show beside the player's.
     beside: Option<(ProviderId, &'a str)>,
     table: OnceCell<Option<(String, String)>>,
@@ -132,7 +180,12 @@ impl<'a> SelectState<'a> {
             Some(Bar::Song(i)) => ctx.lib.songs.get(*i),
             _ => None,
         };
+        let siblings = match bar {
+            Some(Bar::Song(i)) => s.siblings(ctx, *i).map(|k| k.map(|k| &ctx.lib.songs[k])),
+            _ => [None; SIBLINGS],
+        };
         SelectState {
+            siblings,
             s,
             ctx,
             bar,
@@ -208,6 +261,12 @@ impl<'a> SelectState<'a> {
         (!parts.is_empty()).then(|| parts.join("   "))
     }
 
+    /// Volume `k`: master, key sounds, BGM, system.
+    fn volume(&self, k: i32) -> Option<f32> {
+        let a = &self.ctx.config.audio;
+        [a.master, a.key, a.bgm, a.system].get(k as usize).copied()
+    }
+
     /// The table that lists the selected chart.
     fn table(&self) -> Option<&(String, String)> {
         self.table
@@ -216,6 +275,38 @@ impl<'a> SelectState<'a> {
                 table_of(self.ctx, &s.md5, &s.sha256)
             })
             .as_ref()
+    }
+
+    fn sibling(&self, id: i32, base: i32) -> Option<&'a Song> {
+        *self.siblings.get(usize::try_from(id - base).ok()?)?
+    }
+
+    /// A chart's lamp under the LN and rule modes chosen.
+    fn lamp_of(&self, s: &Song) -> ClearType {
+        let best = self.ctx.best(s, self.ctx.config.play.ln_mode);
+        best.map_or(ClearType::NoPlay, |b| b.clear)
+    }
+
+    /// The vibeBMS options of the selected bar's state.
+    fn vibe_option(&self, id: i32) -> Option<bool> {
+        let ctx = self.ctx;
+        let files = || self.song.map(|s| self.s.chart_files(ctx, s));
+        Some(match id {
+            OPTION_REPLAY => files().is_some_and(|f| f.replay),
+            OPTION_HAS_TEXT => files().is_some_and(|f| !f.texts.is_empty()),
+            n @ OPTION_SAVE..=9232 => {
+                status::outcome(&ctx.config.play, self.song).0 as i32 == n - OPTION_SAVE
+            }
+            OPTION_ONLINE | OPTION_OFFLINE => status::network(ctx).1 == Some(id == OPTION_ONLINE),
+            n @ OPTION_CLEAR..=9250 => status::outcome(&ctx.config.play, self.song)
+                .1
+                .is_some_and(|c| c as i32 == n - OPTION_CLEAR),
+            OPTION_CLEAR_RATE => self.rank_view().and_then(status::clear_rate).is_some(),
+            n @ SIBLING..=9454 => self.sibling(n, SIBLING).is_some(),
+            n @ SIBLING_CURRENT..=9464 => (self.sibling(n, SIBLING_CURRENT).zip(self.song))
+                .is_some_and(|(a, b)| std::ptr::eq(a, b)),
+            _ => return None,
+        })
     }
 
     pub fn bar(&self, i: usize) -> Option<BarInfo> {
@@ -364,6 +455,7 @@ impl SkinState for SelectState<'_> {
             n @ 1500..=1819 => {
                 crate::scene::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
+            n @ 9220..=9464 => self.vibe_option(n).unwrap_or(false),
             601 => matches!(self.rank, Some(Rank::Loading(_))),
             602 => matches!(self.rank, Some(Rank::Done(_))),
             604 => matches!(self.rank, Some(Rank::Error)),
@@ -403,6 +495,17 @@ impl SkinState for SelectState<'_> {
             380..=389 => self.ranking()?.get((id - 380) as usize)?.ex as i64,
             390..=399 => self.ranking()?.get((id - 390) as usize)?.clear as i64,
             350..=368 => return song_number(song?, id),
+            NUMBER_CLEAR_RATE => status::clear_rate(self.rank_view()?)?,
+            n @ NUMBER_VOLUME..=9263 => (self.volume(n - NUMBER_VOLUME)? * 100.0).round() as i64,
+            n @ NUMBER_FOLDER..=9303 => {
+                let Some(Bar::Folder { count, .. }) = self.bar else {
+                    return None;
+                };
+                let d = self.s.folder_distribution(self.ctx, self.s.cursor)?;
+                status::folder_facts(*count, &d)[(n - NUMBER_FOLDER) as usize]
+            }
+            n @ SIBLING..=9454 => self.sibling(n, SIBLING)?.level_num(),
+            n @ SIBLING_LAMP..=9474 => self.lamp_of(self.sibling(n, SIBLING_LAMP)?) as i64,
             1163 => song?.length_ms / 60000,
             1164 => (song?.length_ms / 1000) % 60,
             _ => return None,
@@ -444,6 +547,24 @@ impl SkinState for SelectState<'_> {
             10..=16 | 1030 | 1031 => return chart_text(&ChartText::of_song(song?), id),
             120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
             TEXT_IR => return self.ir_line(),
+            TEXT_MODE => status::mode_label(song?),
+            TEXT_QUERY => self.s.query().unwrap_or_default().into(),
+            TEXT_LAST_PLAYED => {
+                let t = self.best.filter(|_| song.is_some())?.last_played;
+                let local = chrono::DateTime::from_timestamp(t, 0)?.with_timezone(&chrono::Local);
+                (t > 0).then(|| local.format("%Y-%m-%d").to_string())?
+            }
+            TEXT_SAVE => status::outcome(&self.ctx.config.play, song)
+                .0
+                .label()
+                .into(),
+            TEXT_CLEAR => match status::outcome(&self.ctx.config.play, song).1 {
+                Some(c) => c.label().into(),
+                None => "—".into(),
+            },
+            TEXT_NETWORK => status::network(self.ctx).0,
+            TEXT_ASSIST => status::assist_summary(&self.ctx.config.play),
+            TEXT_COVER => status::lane_cover_summary(&self.ctx.config.play),
             30 => self
                 .s
                 .search_edit
@@ -483,6 +604,10 @@ impl SkinState for SelectState<'_> {
         match id {
             1 if n > 1 => self.s.scroll.rem_euclid(n as f32) / (n - 1) as f32,
             110 | 113 => self.best.map(|b| b.rate() as f32).unwrap_or(0.0),
+            NUMBER_VOLUME..=9263 => self.volume(id - NUMBER_VOLUME).unwrap_or(0.0),
+            SIBLING..=9454 => self
+                .sibling(id, SIBLING)
+                .map_or(0.0, |s| (s.level_num() as f32 / 12.0).clamp(0.0, 1.0)),
             _ => 0.0,
         }
     }
@@ -766,6 +891,119 @@ mod tests {
         let st = SelectState::new(&s, &ctx);
         assert_eq!(st.bar(0).unwrap().rival, None);
         assert_eq!(st.text(TEXT_IR).as_deref(), Some("#3 / 40"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn chart(folder: &str, mode: vibebms_core::PlayMode, difficulty: i32, level: &str) -> Song {
+        Song {
+            path: format!("{folder}/{difficulty}_{level}_{mode:?}.bms"),
+            sha256: format!("{folder}{difficulty}{level}{mode:?}"),
+            folder: folder.into(),
+            title: format!("{difficulty}-{level}"),
+            mode,
+            difficulty,
+            level: level.into(),
+            ..Default::default()
+        }
+    }
+
+    /// A song's charts by difficulty: the selected one in its slot, else
+    /// the highest level; other key modes and folders apart. Choosing a
+    /// slot moves to its bar, or puts the chart in place of the selected.
+    #[test]
+    fn the_songs_other_charts() {
+        use vibebms_core::PlayMode::{Beat14K, Beat7K};
+        let root = std::env::temp_dir().join(format!("vibebms-select-sib-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.songs = Arc::new(vec![
+            chart("a", Beat7K, 2, "5"),
+            chart("a", Beat7K, 4, "11"),
+            chart("a", Beat7K, 4, "12"),
+            chart("a", Beat14K, 1, "3"),
+            chart("b", Beat7K, 1, "1"),
+        ]);
+        let mut s = SelectScene::new(&mut ctx);
+        s.bars = vec![Bar::Song(1), Bar::Song(0)];
+        s.cursor = 0;
+        let st = SelectState::new(&s, &ctx);
+        let levels: Vec<_> = (0..5).map(|k| st.number(SIBLING + k)).collect();
+        assert_eq!(levels, [None, Some(5), None, Some(11), None]);
+        assert!(st.option(SIBLING + 1) && !st.option(SIBLING));
+        assert!(st.option(SIBLING_CURRENT + 3) && !st.option(SIBLING_CURRENT + 1));
+        assert_eq!(st.number(SIBLING_LAMP + 1), Some(ClearType::NoPlay as i64));
+        assert_eq!(st.rate(SIBLING + 1), 5.0 / 12.0);
+        assert_eq!(st.text(TEXT_MODE).as_deref(), Some("7KEYS"));
+        // NORMAL is listed: its bar is chosen
+        s.pick_sibling(&mut ctx, 1);
+        assert_eq!(s.cursor, 1);
+        // the other ANOTHER, the highest, is not: it takes the bar's place
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(st.number(SIBLING + 3), Some(12));
+        s.pick_sibling(&mut ctx, 3);
+        assert!(matches!(s.bars[..], [Bar::Song(1), Bar::Song(2)]));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A folder's counts and bar types, the status line and the files a
+    /// chart has.
+    #[test]
+    fn folders_status_and_files() {
+        let root = std::env::temp_dir().join(format!("vibebms-select-st-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let dir = root.join("bms/song");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("readme.TXT"), "hello").unwrap();
+        let mut a = chart(
+            dir.to_str().unwrap(),
+            vibebms_core::PlayMode::Beat7K,
+            4,
+            "11",
+        );
+        a.path = dir.join("a.bms").to_string_lossy().into_owned();
+        let b = chart("b", vibebms_core::PlayMode::Beat7K, 4, "11");
+        ctx.lib.songs = Arc::new(vec![a, b]);
+        let mut s = SelectScene::new(&mut ctx);
+        let folder = |node: Node, count: usize| Bar::Folder {
+            label: "F".into(),
+            sub: String::new(),
+            node,
+            count,
+        };
+        s.bars = vec![
+            Bar::Song(0),
+            folder(Node::All, 2),
+            folder(Node::Favorites, 0),
+            folder(Node::MyCourses(CourseKind::Nonstop), 0),
+        ];
+        let st = SelectState::new(&s, &ctx);
+        assert!(st.option(OPTION_HAS_TEXT) && !st.option(OPTION_REPLAY));
+        assert_eq!(s.files.borrow().texts, [dir.join("readme.TXT")]);
+        assert_eq!(st.text(TEXT_SAVE).as_deref(), Some("SAVE"));
+        assert!(st.option(OPTION_SAVE) && !st.option(OPTION_SAVE + 2));
+        let lamp = ctx.config.play.gauge.clear_type();
+        assert_eq!(st.text(TEXT_CLEAR).as_deref(), Some(lamp.label()));
+        assert!(st.option(OPTION_CLEAR + lamp as i32));
+        assert_eq!(st.text(TEXT_NETWORK).as_deref(), Some("OFF"));
+        assert!(!st.option(OPTION_ONLINE) && !st.option(OPTION_OFFLINE));
+        let kinds: Vec<_> = (1..4)
+            .map(|i| st.bar(i).map(|b| (b.kind, b.base)))
+            .collect();
+        let want = [
+            (BAR_FOLDER, BAR_FOLDER),
+            (BAR_FAVORITE, BAR_FOLDER),
+            (BAR_NONSTOP, BAR_FOLDER),
+        ];
+        assert_eq!(kinds, want.map(Some));
+        assert_eq!(st.bar(1).unwrap().count, Some(2));
+        s.cursor = 1;
+        let st = SelectState::new(&s, &ctx);
+        let facts: Vec<_> = (0..4).map(|k| st.number(NUMBER_FOLDER + k)).collect();
+        assert_eq!(facts, [2, 2, 0, 0].map(Some));
+        assert_eq!(st.number(NUMBER_FOLDER), Some(2));
+        ctx.config.play.autoplay = true;
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(st.text(TEXT_SAVE).as_deref(), Some("NO SAVE"));
+        assert_eq!(st.text(TEXT_CLEAR).as_deref(), Some("—"));
         std::fs::remove_dir_all(&root).ok();
     }
 }

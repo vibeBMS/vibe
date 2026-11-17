@@ -4,8 +4,10 @@
 
 use super::input::PanelKey;
 use super::skin::{panel_of_op, PANELS};
+use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
+use crate::config::AudioSettings;
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
     HISPEED_STEP,
@@ -17,6 +19,7 @@ use crate::platform::{Duration, Instant};
 use crate::scene::option_panel::{self, cycle, onoff};
 use crate::scene::skin_host::Tap;
 use crate::sysound::Sound;
+use vibebms_audio::Bus;
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::LaneOption;
@@ -48,10 +51,33 @@ pub(crate) enum SelectOption {
     FavoriteSong,
     RandomSelect,
     Screenshot,
+    LaneCover,
+    JudgeTiming,
+    GreenNumber,
+    VisualOffset,
+    FastSlow,
+    ScreenMode,
+    MasterVolume,
+    KeyVolume,
+    BgmVolume,
+    SystemVolume,
+    Preview,
+}
+
+/// Full screen can be switched (desktop).
+const WINDOWED: bool = !cfg!(any(target_arch = "wasm32", target_os = "android"));
+
+/// The song preview: ONCE, LOOP, OFF.
+fn preview_index(a: &AudioSettings) -> i32 {
+    match (a.preview, a.preview_once) {
+        (true, true) => 0,
+        (true, false) => 1,
+        (false, _) => 2,
+    }
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 18] = [
+    pub const ALL: [SelectOption; 29] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -70,6 +96,17 @@ impl SelectOption {
         SelectOption::FavoriteSong,
         SelectOption::RandomSelect,
         SelectOption::Screenshot,
+        SelectOption::LaneCover,
+        SelectOption::JudgeTiming,
+        SelectOption::GreenNumber,
+        SelectOption::VisualOffset,
+        SelectOption::FastSlow,
+        SelectOption::ScreenMode,
+        SelectOption::MasterVolume,
+        SelectOption::KeyVolume,
+        SelectOption::BgmVolume,
+        SelectOption::SystemVolume,
+        SelectOption::Preview,
     ];
 
     pub fn name(self) -> &'static str {
@@ -92,6 +129,17 @@ impl SelectOption {
             SelectOption::FavoriteSong => "FAV SONG",
             SelectOption::RandomSelect => "RANDOM SELECT",
             SelectOption::Screenshot => "SCREENSHOT",
+            SelectOption::LaneCover => "LANE COVER",
+            SelectOption::JudgeTiming => "JUDGE TIMING",
+            SelectOption::GreenNumber => "GREEN NUMBER",
+            SelectOption::VisualOffset => "VISUAL OFFSET",
+            SelectOption::FastSlow => "FAST / SLOW",
+            SelectOption::ScreenMode => "SCREEN MODE",
+            SelectOption::MasterVolume => "MASTER",
+            SelectOption::KeyVolume => "KEY SOUND",
+            SelectOption::BgmVolume => "BGM",
+            SelectOption::SystemVolume => "SYSTEM",
+            SelectOption::Preview => "PREVIEW",
         }
     }
 
@@ -100,6 +148,8 @@ impl SelectOption {
     pub fn value(self, ctx: &Ctx, bpm: Option<Bpms>, song: Option<&Song>) -> String {
         let p = &ctx.config.play;
         let sel = &ctx.config.select;
+        let ms = |v: i32| format!("{v:+} ms");
+        let pct = |v: f32| format!("{:.0}%", v * 100.0);
         let fav = |f: fn(&Favorites, &Song) -> bool| match (song, ctx.lib.db.as_ref()) {
             (Some(s), Some(l)) => onoff(f(l.favorites(), s)),
             _ => "—",
@@ -112,6 +162,24 @@ impl SelectOption {
             SelectOption::DifficultyFilter => sel.difficulty_filter.label().into(),
             SelectOption::RandomSelect => sel.random.label().into(),
             SelectOption::Screenshot => "SAVE".into(),
+            SelectOption::LaneCover => if p.lane_cover { "SUDDEN+" } else { "OFF" }.into(),
+            SelectOption::JudgeTiming => ms(p.judge_offset_ms),
+            SelectOption::GreenNumber => p.green(&bpm.unwrap_or(REFERENCE_BPMS)).to_string(),
+            SelectOption::VisualOffset => ms(p.visual_offset_ms),
+            SelectOption::FastSlow => onoff(p.show_fast_slow).into(),
+            SelectOption::ScreenMode if !WINDOWED => "—".into(),
+            SelectOption::ScreenMode => match ctx.config.display.fullscreen {
+                true => "FULL SCREEN",
+                false => "WINDOW",
+            }
+            .into(),
+            SelectOption::MasterVolume => pct(ctx.config.audio.master),
+            SelectOption::KeyVolume => pct(ctx.config.audio.key),
+            SelectOption::BgmVolume => pct(ctx.config.audio.bgm),
+            SelectOption::SystemVolume => pct(ctx.config.audio.system),
+            SelectOption::Preview => {
+                ["ONCE", "LOOP", "OFF"][preview_index(&ctx.config.audio) as usize].into()
+            }
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -229,6 +297,46 @@ impl SelectScene {
             SelectOption::FavoriteChart | SelectOption::FavoriteSong => {
                 self.toggle_favorite(ctx, o == SelectOption::FavoriteSong)
             }
+            SelectOption::LaneCover => p.lane_cover ^= true,
+            SelectOption::JudgeTiming => {
+                p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
+            }
+            SelectOption::GreenNumber => p.add_duration(d as f64, &bpm),
+            SelectOption::VisualOffset => {
+                p.visual_offset_ms = (p.visual_offset_ms + d).clamp(-500, 500)
+            }
+            SelectOption::FastSlow => p.show_fast_slow ^= true,
+            SelectOption::ScreenMode => {
+                let v = &mut ctx.view;
+                if WINDOWED {
+                    ctx.config.display.fullscreen ^= true;
+                    v.want_fullscreen = Some(ctx.config.display.fullscreen);
+                }
+            }
+            SelectOption::MasterVolume
+            | SelectOption::KeyVolume
+            | SelectOption::BgmVolume
+            | SelectOption::SystemVolume => {
+                let a = &mut ctx.config.audio;
+                let (v, bus) = match o {
+                    SelectOption::MasterVolume => (&mut a.master, None),
+                    SelectOption::KeyVolume => (&mut a.key, Some(Bus::Key)),
+                    SelectOption::BgmVolume => (&mut a.bgm, Some(Bus::Bgm)),
+                    _ => (&mut a.system, Some(Bus::System)),
+                };
+                *v = (*v + d as f32 * 0.05).clamp(0.0, 1.0);
+                match bus {
+                    Some(b) => ctx.audio.mixer.set_bus_volume(b, *v),
+                    None => ctx.audio.mixer.set_master(*v),
+                }
+            }
+            SelectOption::Preview => {
+                let a = &mut ctx.config.audio;
+                let i = (preview_index(a) + d).rem_euclid(3);
+                (a.preview, a.preview_once) = (i < 2, i == 0);
+                ctx.audio.mixer.stop(super::PREVIEW_KEY);
+                self.moved(ctx);
+            }
         }
         if relist {
             self.rebuild(ctx);
@@ -287,7 +395,7 @@ impl SelectScene {
     /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids);
     /// `d` -1: the value before (a tap on its left half), else the next.
     pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32, d: i32) -> Next {
-        use super::skin::{EVENT_BACK, EVENT_REPLAY, OPTION_EVENT};
+        use super::skin::{EVENT_BACK, EVENT_REPLAY, EVENT_SEARCH, EVENT_SIBLING, OPTION_EVENT};
         let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let done = match act {
@@ -347,6 +455,14 @@ impl SelectScene {
                 Next::Stay
             }
             EVENT_REPLAY => self.watch_replay(ctx),
+            EVENT_SEARCH => {
+                self.open_search();
+                Next::Stay
+            }
+            n if (EVENT_SIBLING..EVENT_SIBLING + SIBLINGS as i32).contains(&n) => {
+                self.pick_sibling(ctx, (n - EVENT_SIBLING) as usize);
+                Next::Stay
+            }
             n if (OPTION_EVENT..OPTION_EVENT + 100).contains(&n) => {
                 match SelectOption::ALL.get((n - OPTION_EVENT) as usize) {
                     Some(o) => self.option(ctx, *o, d),
