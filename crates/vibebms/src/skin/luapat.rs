@@ -6,6 +6,9 @@
 //! `(".-"):rep(8) .. "x"` on a long string backtracks for hours. This one
 //! follows `lstrlib.c` (same results, same errors) and gives up after
 //! `BUDGET` steps per call.
+//!
+//! A port of Lua 5.4's `lstrlib.c`, Copyright (C) 1994-2024 Lua.org,
+//! PUC-Rio, under the MIT licence (full text in THIRD_PARTY_NOTICES.md).
 
 /// Steps one call may take (well under a second).
 pub const BUDGET: u64 = 20_000_000;

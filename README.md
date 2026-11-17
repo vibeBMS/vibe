@@ -252,5 +252,7 @@ restriction); its RAR engine is based on the UnRAR source, whose terms are:
 
 > UnRAR source code may be used in any software to handle RAR archives without limitations free of charge, but cannot be used to develop RAR (WinRAR) compatible archiver and to re-create RAR compression algorithm, which is proprietary. Distribution of modified UnRAR source code in separate form or as a part of other software is permitted, provided that full text of this paragraph, starting from "UnRAR source code" words, is included in license, or in documentation if license is not available, and in source code comments of resulting package.
 
-The judging and gauge rules were implemented independently, with beatoraja's public source and the judge windows
-the LR2 community has published as references. No charts or music are included.
+Lua's pattern matcher (ported) and the BeMusicSeeker fork's rules (through bmseeker) are MIT; their notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The judging, gauge and skin rules follow the behaviour of beatoraja,
+LR2oraja and LR2 (see [docs/RULES.md](docs/RULES.md)); parts of the judge engine that followed beatoraja's code too
+closely are being rewritten from a behaviour specification. No charts or music are included.

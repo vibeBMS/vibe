@@ -24,7 +24,9 @@ Optional JACK output: `cargo build --release --features jack` (needs `libjack-de
 ## Windows (x64 / ARM64)
 MSVC toolchain. ARM64: `rustup target add aarch64-pc-windows-msvc` and
 `cargo build --release --target aarch64-pc-windows-msvc` (install the ARM64 build tools in Visual Studio).
-ASIO output: install the ASIO SDK, set `CPAL_ASIO_DIR`, build with `--features asio`.
+ASIO output: install the ASIO SDK, set `CPAL_ASIO_DIR`, build with `--features asio`. The ASIO SDK is under
+Steinberg's own licence (proprietary or GPLv3): builds with `asio` can't be redistributed under MIT/Apache without
+Steinberg's licence agreement, so release builds leave it out.
 
 ## macOS (Apple Silicon / Intel)
 `cargo build --release` (native) or `--target x86_64-apple-darwin` / `aarch64-apple-darwin`.
