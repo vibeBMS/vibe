@@ -11,8 +11,8 @@ use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::result_skin::{
     ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY,
 };
+use crate::scene::skin_host::{SkinHost, Tap};
 use crate::scene::skinned;
-use crate::skin::render::LoadedSkin;
 use crate::skin::SkinType;
 use crate::sysound::Sound;
 use crate::theme;
@@ -122,15 +122,10 @@ pub struct ResultScene {
     pub(crate) timing_stats: (f64, f64),
     ir_rx: Option<Receiver<String>>,
     ir_status: String,
-    pub(crate) created: Instant,
-    /// Clickable skin objects from the last frame: (rect, event).
-    clicks: Vec<(Rect, i32)>,
-    pub(crate) skin: Option<LoadedSkin>,
-    skin_tried: bool,
+    pub(crate) host: SkinHost,
     /// The chart's stage file (skin reference image 100).
     pub(crate) stage_tex: Option<crate::gfx::TexId>,
-    /// Leaving (skin fade-out running): when it started and what follows.
-    pub(crate) leaving: Option<Instant>,
+    /// Leaving (the skin's fade-out running): what follows.
     leave_to: Option<Leave>,
 }
 
@@ -237,27 +232,23 @@ impl ResultScene {
             after,
             ir_rx,
             ir_status,
-            created: Instant::now(),
-            clicks: Vec::new(),
-            skin: None,
-            skin_tried: false,
+            host: SkinHost::new(),
             stage_tex: None,
-            leaving: None,
             leave_to: None,
         }
     }
 
     /// Start leaving: with a skin, its fade-out runs first.
     fn leave(&mut self, ctx: &mut Ctx, to: Leave) -> Next {
-        if self.created.elapsed() < Duration::from_millis(500) || self.leaving.is_some() {
+        let h = &mut self.host;
+        if h.created.elapsed() < Duration::from_millis(500) || h.leaving.is_some() {
             return Next::Stay;
         }
         if matches!(to, Leave::Retry) && self.d.course.is_some() {
             return Next::Stay;
         }
-        let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
-        if fade > 0 {
-            self.leaving = Some(Instant::now());
+        if h.fadeout_ms() > 0 {
+            h.leave(Instant::now());
             self.leave_to = Some(to);
             return Next::Stay;
         }
@@ -331,8 +322,7 @@ impl Scene for ResultScene {
                 self.ir_rx = None;
             }
         }
-        if !self.skin_tried {
-            self.skin_tried = true;
+        if self.host.first_update() {
             if !self.d.meta.stagefile.is_empty() {
                 let p = std::path::Path::new(&self.d.request.song.path)
                     .parent()
@@ -351,14 +341,10 @@ impl Scene for ResultScene {
                 let stat = |id: i32| st.static_option(id);
                 skinned::load(ctx, gfx, kind, &stat, &st)
             };
-            self.skin = skin;
-        }
-        if let Some(sk) = self.skin.as_mut() {
-            sk.load_pending(gfx);
+            self.host.skin = skin;
         }
         // events skin scripts asked for
-        let events = self.skin.as_ref().map(|s| s.script_events());
-        for ev in events.unwrap_or_default() {
+        for ev in self.host.tick(gfx) {
             match ev {
                 EVENT_RETRY => return self.leave(ctx, Leave::Retry),
                 EVENT_CONTINUE => return self.leave(ctx, Leave::Proceed),
@@ -366,20 +352,15 @@ impl Scene for ResultScene {
                 _ => {}
             }
         }
-        if let (Some(t), Some(to)) = (self.leaving, self.leave_to) {
-            let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
-            if now.duration_since(t).as_millis() as i64 >= fade {
-                self.leave_to = None;
-                return self.go(ctx, to);
-            }
+        if let Some(to) = self.leave_to.filter(|_| self.host.faded(now)) {
+            self.leave_to = None;
+            return self.go(ctx, to);
         }
         Next::Stay
     }
 
     fn exit(&mut self, _ctx: &mut Ctx, gfx: &mut Gfx) {
-        if let Some(mut s) = self.skin.take() {
-            s.free(gfx);
-        }
+        self.host.free(gfx);
         if let Some(t) = self.stage_tex.take() {
             gfx.free_texture(t);
         }
@@ -387,7 +368,7 @@ impl Scene for ResultScene {
 
     fn realtime(&self) -> bool {
         // skin animations need every frame
-        self.skin.is_some()
+        self.host.skin.is_some()
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
@@ -426,20 +407,10 @@ impl Scene for ResultScene {
                 ..
             } => {
                 // skin buttons, else a tap anywhere continues
-                let act = self
-                    .clicks
-                    .iter()
-                    .rev()
-                    .find(|(r, _)| r.contains(*x, *y))
-                    .map(|c| c.1);
-                if let (Some(a), Some(sk)) = (act, self.skin.as_ref()) {
-                    if sk.click(a) {
-                        return Next::Stay; // a skin script event
-                    }
-                }
-                return match act {
-                    Some(EVENT_RETRY) => self.leave(ctx, Leave::Retry),
-                    Some(EVENT_REPLAY) => self.watch(ctx),
+                return match self.host.tap(*x, *y) {
+                    Tap::Script => Next::Stay,
+                    Tap::Event(EVENT_RETRY, _) => self.leave(ctx, Leave::Retry),
+                    Tap::Event(EVENT_REPLAY, _) => self.watch(ctx),
                     _ => self.leave(ctx, Leave::Proceed),
                 };
             }
@@ -450,21 +421,13 @@ impl Scene for ResultScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let clicks = {
+        {
             let st = ResultState { s: self, ctx, now };
-            let mut hooks = ResultHooks {
-                st: &st,
-                clicks: Vec::new(),
-            };
-            let ms = now.saturating_duration_since(self.created).as_millis() as i64;
-            if let Some(sk) = self.skin.as_ref() {
-                sk.draw(d, view, ms, &st, &mut hooks);
-            }
-            hooks.clicks
-        };
-        self.clicks = clicks;
+            let mut hooks = ResultHooks { st: &st };
+            self.host.draw(d, view, now, &st, &mut hooks);
+        }
         // a battle's outcome (skins without a second side show it so)
-        let shown = self.skin.as_ref().is_some_and(|s| {
+        let shown = self.host.skin.as_ref().is_some_and(|s| {
             s.skin.objects.iter().any(|o| {
                 o.dst
                     .ops

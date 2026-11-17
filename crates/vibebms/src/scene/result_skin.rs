@@ -2,7 +2,7 @@
 
 use super::graphs::{self, Area};
 use super::result::ResultScene;
-use super::skinned::{chart_option, ms_since, rank_index};
+use super::skinned::{chart_option, rank_index};
 use crate::app::{Ctx, Draw};
 use crate::gfx::Rect;
 use crate::platform::Instant;
@@ -33,10 +33,6 @@ pub struct ResultState<'a> {
 }
 
 impl ResultState<'_> {
-    fn ms(&self, t: Instant) -> i64 {
-        ms_since(self.s.created, t)
-    }
-
     fn best_ex(&self) -> u32 {
         self.s.before.as_ref().map(|b| b.ex_score).unwrap_or(0)
     }
@@ -161,13 +157,11 @@ impl SkinState for ResultState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
         let s = self.s;
         match id {
-            0 | 150 => Some(0),
-            1 => Some(s.skin.as_ref().map(|k| k.skin.input_ms).unwrap_or(0)),
-            2 => s.leaving.map(|t| self.ms(t)),
+            150 => Some(0),
             3 => (s.d.clear == ClearType::Failed).then_some(0),
             151 => Some(GRAPH_MS),
             152 => (s.d.score.ex_score() > self.best_ex() && !s.d.autoplay).then_some(GRAPH_MS),
-            _ => None,
+            _ => s.host.timer(id),
         }
     }
 
@@ -326,8 +320,6 @@ impl SkinState for ResultState<'_> {
 
 pub struct ResultHooks<'a> {
     pub st: &'a ResultState<'a>,
-    /// Clickable objects drawn: (rect, event).
-    pub clicks: Vec<(Rect, i32)>,
 }
 
 impl Hooks for ResultHooks<'_> {
@@ -336,10 +328,6 @@ impl Hooks for ResultHooks<'_> {
             100 | 101 => self.st.s.stage_tex,
             _ => None,
         }
-    }
-
-    fn clickable(&mut self, rect: Rect, act: i32, _click: i32) {
-        self.clicks.push((rect, act));
     }
 
     fn graph(&mut self, d: &mut Draw, graph: &Graph, r: Rect, color: [f32; 4]) {
@@ -353,7 +341,7 @@ impl Hooks for ResultHooks<'_> {
         let a = Area {
             r,
             color,
-            reveal: (ms_since(s.created, self.st.now) as f32 / dur as f32).clamp(0.0, 1.0),
+            reveal: (s.host.ms(self.st.now) as f32 / dur as f32).clamp(0.0, 1.0),
         };
         match graph {
             Graph::Gauge(g) => graphs::gauge(d, &a, g, &data.gauge_log, data.gauge_type),

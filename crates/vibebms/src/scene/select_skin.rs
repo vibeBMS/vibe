@@ -8,7 +8,7 @@
 //! current folder.
 
 use super::select::{Bar, Node, SelectScene};
-use super::skinned::{ms_since, rank_index};
+use super::skinned::rank_index;
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode};
 use crate::gfx::text::Align;
@@ -188,16 +188,14 @@ impl SkinState for SelectState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
         let s = self.s;
         match id {
-            0 => Some(0),
-            1 => Some(s.skin.as_ref().map(|k| k.skin.input_ms).unwrap_or(0)),
-            10 | 11 => Some(ms_since(s.created, s.last_move)),
+            10 | 11 => Some(s.host.ms(s.last_move)),
             21..=26 => s.panel_on[(id - 21) as usize]
                 .filter(|_| s.panel == (id - 20) as usize)
-                .map(|t| ms_since(s.created, t)),
+                .map(|t| s.host.ms(t)),
             31..=36 => s.panel_off[(id - 31) as usize]
                 .filter(|_| s.panel != (id - 30) as usize)
-                .map(|t| ms_since(s.created, t)),
-            _ => None,
+                .map(|t| s.host.ms(t)),
+            _ => s.host.timer(id),
         }
     }
 
@@ -322,7 +320,11 @@ impl SkinState for SelectState<'_> {
                 let s = song?;
                 format!("{} {}", s.artist, s.subartist).trim().to_string()
             }
-            30 => self.s.search_edit.clone().unwrap_or_default(),
+            30 => self
+                .s
+                .search_edit
+                .as_ref()
+                .map_or(String::new(), |t| t.buf.clone()),
             1000 => self.s.path_label(self.ctx),
             // the table being browsed, else the selected chart's
             1001..=1003 => match &self.s.node {
@@ -369,13 +371,11 @@ impl SkinState for SelectState<'_> {
 pub struct SelectHooks<'a> {
     pub st: &'a SelectState<'a>,
     pub banner: Option<TexId>,
-    /// Screen rects of drawn bars: (rect, bar index).
-    pub bars: Vec<(Rect, usize)>,
+    /// Bars drawn: their indices.
+    pub bars: crate::ui::HitMap<usize>,
     /// How far down the screen a bar moves per list step (px), when the
     /// list goes down the screen.
     pub pitch: Option<f32>,
-    /// Clickable objects: (rect, event, click mode).
-    pub clicks: Vec<(Rect, i32, i32)>,
 }
 
 /// A download's progress over its song's bar `r`: a strip along its bottom
@@ -427,10 +427,6 @@ impl Hooks for SelectHooks<'_> {
             100 | 102 => self.banner,
             _ => None,
         }
-    }
-
-    fn clickable(&mut self, rect: Rect, act: i32, click: i32) {
-        self.clicks.push((rect, act, click));
     }
 
     fn song_list(
@@ -502,7 +498,7 @@ impl Hooks for SelectHooks<'_> {
                 skin.blit(d, body, now, st, sr, &fr);
             }
             if sl.clickable.is_empty() || sl.clickable.contains(&slot) {
-                self.bars.push((sr, idx));
+                self.bars.push(sr, idx);
             }
             let sub = |dst: &Dst| {
                 dst.eval(now, st).map(|f| {

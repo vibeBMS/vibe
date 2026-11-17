@@ -2,14 +2,15 @@
 //! (LR2 / beatoraja skin type 6), when one is configured.
 
 use super::play::{PlayRequest, PlayScene};
-use super::skinned::{self, ms_since};
+use super::skin_host::SkinHost;
+use super::skinned;
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
 use crate::gfx::{Gfx, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::Song;
 use crate::platform::Instant;
-use crate::skin::render::{Hooks, LoadedSkin};
+use crate::skin::render::Hooks;
 use crate::skin::{SkinState, SkinType};
 use crate::sysound::Sound;
 use vibebms_core::PlayMode;
@@ -30,11 +31,8 @@ pub fn start(ctx: &mut Ctx, req: PlayRequest) -> Box<dyn Scene> {
 
 pub struct DecideScene {
     req: Option<PlayRequest>,
-    skin: Option<LoadedSkin>,
-    tried: bool,
-    created: Instant,
-    /// The fade out started (timer 2): play follows when it ends.
-    leaving: Option<Instant>,
+    /// (Play follows when the fade-out ends.)
+    host: SkinHost,
     stage_tex: Option<TexId>,
     banner_tex: Option<TexId>,
 }
@@ -43,10 +41,7 @@ impl DecideScene {
     pub(super) fn new(req: PlayRequest) -> DecideScene {
         DecideScene {
             req: Some(req),
-            skin: None,
-            tried: false,
-            created: Instant::now(),
-            leaving: None,
+            host: SkinHost::new(),
             stage_tex: None,
             banner_tex: None,
         }
@@ -54,10 +49,6 @@ impl DecideScene {
 
     fn song(&self) -> Option<&Song> {
         self.req.as_ref().map(|r| &r.song)
-    }
-
-    fn input_ms(&self) -> i64 {
-        self.skin.as_ref().map(|s| s.skin.input_ms).unwrap_or(0)
     }
 
     fn play(&mut self, ctx: &mut Ctx) -> Next {
@@ -132,12 +123,7 @@ impl DecideState<'_> {
 
 impl SkinState for DecideState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
-        match id {
-            0 => Some(0),
-            1 => Some(self.s.input_ms()),
-            2 => self.s.leaving.map(|t| ms_since(self.s.created, t)),
-            _ => None,
-        }
+        self.s.host.timer(id)
     }
 
     fn option(&self, id: i32) -> bool {
@@ -241,8 +227,7 @@ impl Hooks for DecideHooks {
 
 impl Scene for DecideScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if !self.tried {
-            self.tried = true;
+        if self.host.first_update() {
             let skin = {
                 let st = DecideState { s: self, ctx };
                 let stat = |id: i32| st.static_option(id);
@@ -251,7 +236,7 @@ impl Scene for DecideScene {
             let Some(skin) = skin else {
                 return self.play(ctx);
             };
-            self.skin = Some(skin);
+            self.host.skin = Some(skin);
             let song = self.song().cloned().unwrap_or_default();
             let dir = std::path::Path::new(&song.path)
                 .parent()
@@ -265,31 +250,28 @@ impl Scene for DecideScene {
             };
             self.stage_tex = load(&song.stagefile);
             self.banner_tex = load(&song.banner);
-            self.created = now;
+            self.host.created = now;
             ctx.play_sound(Sound::Decide);
         }
-        let Some(sk) = self.skin.as_mut() else {
+        let Some(sk) = self.host.skin.as_ref() else {
             return self.play(ctx);
         };
-        sk.load_pending(gfx);
         let scene = match sk.skin.scene_ms {
             0 => SCENE_MS,
             n => n,
         };
-        let fade = sk.skin.fadeout_ms;
-        if self.leaving.is_none() && ms_since(self.created, now) >= scene {
-            self.leaving = Some(now);
+        self.host.tick(gfx);
+        if self.host.ms(now) >= scene {
+            self.host.leave(now);
         }
-        match self.leaving {
-            Some(t) if ms_since(t, now) >= fade => self.play(ctx),
-            _ => Next::Stay,
+        if self.host.faded(now) {
+            return self.play(ctx);
         }
+        Next::Stay
     }
 
     fn exit(&mut self, _ctx: &mut Ctx, gfx: &mut Gfx) {
-        if let Some(mut s) = self.skin.take() {
-            s.free(gfx);
-        }
+        self.host.free(gfx);
         for t in [self.stage_tex.take(), self.banner_tex.take()]
             .into_iter()
             .flatten()
@@ -318,7 +300,7 @@ impl Scene for DecideScene {
             } => Some(Nav::Decide),
             _ => None,
         };
-        let ready = ms_since(self.created, Instant::now()) >= self.input_ms();
+        let now = Instant::now();
         match nav {
             // back to the music select
             Some(Nav::Back | Nav::Close) => {
@@ -326,8 +308,8 @@ impl Scene for DecideScene {
                 Next::Pop
             }
             // on to play now
-            Some(Nav::Decide) if ready && self.leaving.is_none() => {
-                self.leaving = Some(Instant::now());
+            Some(Nav::Decide) if self.host.ready(now) => {
+                self.host.leave(now);
                 Next::Stay
             }
             _ => Next::Stay,
@@ -341,8 +323,6 @@ impl Scene for DecideScene {
             stage: self.stage_tex,
             banner: self.banner_tex,
         };
-        if let Some(sk) = self.skin.as_ref() {
-            sk.draw(d, view, ms_since(self.created, now), &st, &mut hooks);
-        }
+        self.host.draw(d, view, now, &st, &mut hooks);
     }
 }

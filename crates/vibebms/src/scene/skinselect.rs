@@ -13,17 +13,18 @@
 //! (option names), 110-119 (their values), slider 7 (where the option
 //! list is scrolled), the preview (LR2 image 105, beatoraja `skinpreview`).
 
+use super::skin_host::{NoHooks, SkinHost, Tap};
 use super::skinned::{self, ms_since};
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::gfx::text::Align;
 use crate::gfx::{with_alpha, Gfx, Rect};
-use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
+use crate::input::{nav_from_key, nav_from_pad_rows, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::Instant;
-use crate::skin::render::{Hooks, LoadedSkin, Xf};
+use crate::skin::render::{Hooks, LoadedSkin};
 use crate::skin::{CustomOffset, CustomOption, SkinState, SkinType, OFFSET_FIELDS};
 use crate::sysound::Sound;
-use crate::{theme, ui};
-use std::collections::HashMap;
+use crate::theme;
+use crate::ui::{self, ListView};
 use winit::keyboard::KeyCode;
 
 /// The skin types offered, in the order PgUp / PgDn walk them.
@@ -131,19 +132,14 @@ pub fn open(ctx: &mut Ctx, kind: Option<SkinType>) -> Box<dyn Scene> {
 }
 
 pub struct SkinSelectScene {
-    skin: Option<LoadedSkin>,
-    tried: bool,
-    created: Instant,
-    leaving: Option<Instant>,
+    host: SkinHost,
     /// The skin type being chosen (`None`: the skin's default category).
     kind: Option<SkinType>,
-    /// 0: the skin; 1..: option row `cursor - 1`.
-    cursor: usize,
-    /// First option row shown.
-    offset: usize,
-    clicks: Vec<(Rect, i32, i32)>,
+    /// The chosen row (0: the skin; 1..: option row `sel - 1`) and the
+    /// first option row shown.
+    list: ListView,
     back_rect: Rect,
-    axis_last: HashMap<u64, f32>,
+    axis: AxisStepper,
     /// The chosen skin drawn small, and what it was loaded for.
     preview: Option<LoadedSkin>,
     preview_for: Option<(SkinType, String, u64)>,
@@ -156,16 +152,11 @@ pub struct SkinSelectScene {
 impl SkinSelectScene {
     pub fn new(kind: Option<SkinType>) -> SkinSelectScene {
         SkinSelectScene {
-            skin: None,
-            tried: false,
-            created: Instant::now(),
-            leaving: None,
+            host: SkinHost::new(),
             kind,
-            cursor: 0,
-            offset: 0,
-            clicks: Vec::new(),
+            list: ListView::new(),
             back_rect: Rect::default(),
-            axis_last: HashMap::new(),
+            axis: AxisStepper::default(),
             preview: None,
             preview_for: None,
             preview_at: Instant::now(),
@@ -195,9 +186,14 @@ impl SkinSelectScene {
         items(ctx, self.kind(), &self.value(ctx))
     }
 
+    /// The first option row shown.
+    fn offset(&self) -> usize {
+        self.list.scroll as usize
+    }
+
     /// Option rows the skin has room for.
     fn rows(&self) -> usize {
-        let Some(sk) = self.skin.as_ref() else {
+        let Some(sk) = self.host.skin.as_ref() else {
             return 6;
         };
         match sk.skin.skin_select.map(|s| s.custom_property_count) {
@@ -214,19 +210,10 @@ impl SkinSelectScene {
         }
     }
 
-    fn max_offset(&self, ctx: &Ctx) -> usize {
-        self.items(ctx).len().saturating_sub(self.rows())
-    }
-
-    fn input_ms(&self) -> i64 {
-        self.skin.as_ref().map(|s| s.skin.input_ms).unwrap_or(0)
-    }
-
     pub fn set_kind(&mut self, ctx: &mut Ctx, t: SkinType) {
         if self.kind != Some(t) {
             self.kind = Some(t);
-            self.cursor = 0;
-            self.offset = 0;
+            self.list = ListView::new();
             ctx.play_sound(Sound::OptionOpen);
         }
     }
@@ -245,8 +232,7 @@ impl SkinSelectScene {
         let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
         let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
         ctx.config.skins.insert(self.key().to_string(), next);
-        self.offset = 0;
-        self.cursor = 0;
+        self.list = ListView::new();
         self.changed(ctx);
     }
 
@@ -270,37 +256,36 @@ impl SkinSelectScene {
 
     /// Change the row under the cursor.
     fn change(&mut self, ctx: &mut Ctx, d: i32) {
-        if self.cursor == 0 {
-            self.step_skin(ctx, d);
-        } else {
-            self.step_item(ctx, self.cursor - 1, d);
+        match self.list.sel {
+            0 => self.step_skin(ctx, d),
+            n => self.step_item(ctx, n - 1, d),
         }
     }
 
     fn step(&mut self, ctx: &Ctx, d: i32) {
-        let n = self.items(ctx).len() as i32 + 1;
-        self.cursor = (self.cursor as i32 + d).rem_euclid(n) as usize;
-        // keep the chosen option row in view
-        if self.cursor > 0 {
-            let i = self.cursor - 1;
-            let rows = self.rows();
-            if i < self.offset {
-                self.offset = i;
-            } else if i >= self.offset + rows {
-                self.offset = i + 1 - rows;
-            }
-        }
+        let n = self.items(ctx).len();
+        self.list.step(d, n + 1);
+        // (row 0, the skin, is above the option rows)
+        self.list.follow = self.list.sel > 0;
+        self.fit(n);
     }
 
     fn scroll(&mut self, ctx: &Ctx, d: i32) {
-        let max = self.max_offset(ctx) as i32;
-        self.offset = (self.offset as i32 + d).clamp(0, max) as usize;
+        self.list.wheel(d as f32);
+        self.fit(self.items(ctx).len());
+    }
+
+    /// The chosen option row in view (when following) and the rows shown
+    /// within the `n` there are.
+    fn fit(&mut self, n: usize) {
+        let i = self.list.sel.saturating_sub(1) as f32;
+        self.list.fit(i, i + 1.0, self.rows() as f32, n as f32);
     }
 
     fn leave(&mut self, ctx: &mut Ctx) -> Next {
-        if self.leaving.is_none() {
+        if self.host.leaving.is_none() {
             ctx.save_config();
-            self.leaving = Some(Instant::now());
+            self.host.leave(Instant::now());
         }
         Next::Stay
     }
@@ -314,13 +299,13 @@ impl SkinSelectScene {
                 }
             }
             190 => {
-                self.cursor = 0;
+                self.list.sel = 0;
                 self.step_skin(ctx, dir);
             }
             220..=229 => {
-                let i = self.offset + (act - 220) as usize;
+                let i = self.offset() + (act - 220) as usize;
                 if i < self.items(ctx).len() {
-                    self.cursor = i + 1;
+                    self.list.sel = i + 1;
                     self.step_item(ctx, i, dir);
                 }
             }
@@ -409,12 +394,7 @@ struct SelectState<'a> {
 
 impl SkinState for SelectState<'_> {
     fn timer(&self, id: i32) -> Option<i64> {
-        match id {
-            0 => Some(0),
-            1 => Some(self.s.input_ms()),
-            2 => self.s.leaving.map(|t| ms_since(self.s.created, t)),
-            _ => None,
-        }
+        self.s.host.timer(id)
     }
 
     fn option(&self, id: i32) -> bool {
@@ -440,9 +420,12 @@ impl SkinState for SelectState<'_> {
                     a
                 }
             }
-            100..=109 => self.items.get(self.s.offset + (id - 100) as usize)?.name(),
+            100..=109 => self
+                .items
+                .get(self.s.offset() + (id - 100) as usize)?
+                .name(),
             110..=119 => {
-                let it = self.items.get(self.s.offset + (id - 110) as usize)?;
+                let it = self.items.get(self.s.offset() + (id - 110) as usize)?;
                 item_value(self.ctx, &value, it)
             }
             _ => return None,
@@ -456,7 +439,7 @@ impl SkinState for SelectState<'_> {
                 if max == 0 {
                     0.0
                 } else {
-                    self.s.offset as f32 / max as f32
+                    self.s.offset() as f32 / max as f32
                 }
             }
             _ => 0.0,
@@ -472,7 +455,6 @@ impl SkinState for SelectState<'_> {
 }
 
 struct SelectHooks<'a> {
-    clicks: Vec<(Rect, i32, i32)>,
     preview: Option<&'a LoadedSkin>,
     preview_ms: i64,
     /// The screen of the skin select skin (the clip to restore).
@@ -480,35 +462,17 @@ struct SelectHooks<'a> {
 }
 
 impl Hooks for SelectHooks<'_> {
-    fn clickable(&mut self, rect: Rect, act: i32, click: i32) {
-        self.clicks.push((rect, act, click));
-    }
-
     fn preview(&mut self, d: &mut Draw, rect: Rect, color: [f32; 4]) {
         let Some(p) = self.preview else { return };
         d.b.rect(rect, [0.0, 0.0, 0.0, color[3]]);
-        struct NoHooks;
-        impl Hooks for NoHooks {}
         p.draw(d, rect, self.preview_ms, &PreviewState, &mut NoHooks);
         d.b.set_base_clip(Some(self.screen));
     }
 }
 
-/// +1 / -1 for a click at (x, y) on `r` (beatoraja click modes: 0 adds, 1
-/// subtracts, 2 splits left / right, 3 top / bottom).
-pub fn click_dir(r: Rect, click: i32, x: f32, y: f32) -> i32 {
-    match click {
-        1 => -1,
-        2 if x < r.x + r.w * 0.5 => -1,
-        3 if y > r.y + r.h * 0.5 => -1,
-        _ => 1,
-    }
-}
-
 impl Scene for SkinSelectScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
-        if !self.tried {
-            self.tried = true;
+        if self.host.first_update() {
             let skin = {
                 let items = self.items(ctx);
                 let st = SelectState {
@@ -534,31 +498,25 @@ impl Scene for SkinSelectScene {
                         .unwrap_or(SkinType::Play7),
                 );
             }
-            self.skin = Some(skin);
-            self.created = now;
+            self.host.skin = Some(skin);
+            self.host.created = now;
         }
-        if let Some(sk) = self.skin.as_mut() {
-            sk.load_pending(gfx);
-        }
+        self.host.tick(gfx);
         self.update_preview(ctx, gfx);
         if let Some(p) = self.preview.as_mut() {
             p.load_pending(gfx);
         }
-        let fade = self.skin.as_ref().map(|s| s.skin.fadeout_ms).unwrap_or(0);
-        match self.leaving {
-            Some(t) if ms_since(t, now) >= fade => Next::Pop,
-            _ => Next::Stay,
+        if self.host.faded(now) {
+            return Next::Pop;
         }
+        Next::Stay
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         ctx.save_config();
-        for s in [self.skin.take(), self.preview.take()]
-            .into_iter()
-            .flatten()
-        {
-            let mut s = s;
-            s.free(gfx);
+        self.host.free(gfx);
+        if let Some(mut p) = self.preview.take() {
+            p.free(gfx);
         }
     }
 
@@ -567,10 +525,10 @@ impl Scene for SkinSelectScene {
     }
 
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
-        if self.leaving.is_some() {
+        if self.host.leaving.is_some() {
             return Next::Stay;
         }
-        let ready = ms_since(self.created, Instant::now()) >= self.input_ms();
+        let ready = self.host.ready(Instant::now());
         match ev {
             InputEv::Key {
                 code,
@@ -596,19 +554,10 @@ impl Scene for SkinSelectScene {
                     return self.nav(ctx, n);
                 }
             }
-            InputEv::Axis { id, value, .. } => {
-                let l = self.axis_last.entry(*id).or_insert(*value);
-                let mut d = value - *l;
-                if d > 1.0 {
-                    d -= 2.0
-                } else if d < -1.0 {
-                    d += 2.0
-                }
-                if d.abs() >= 0.06 {
-                    *l = *value;
-                    self.step(ctx, if d > 0.0 { 1 } else { -1 });
-                }
-            }
+            InputEv::Axis { id, value, .. } => match self.axis.step(*id, *value) {
+                0 => {}
+                d => self.step(ctx, d),
+            },
             InputEv::Wheel { dy } => {
                 let n = (-dy).round() as i32;
                 if n != 0 {
@@ -624,12 +573,8 @@ impl Scene for SkinSelectScene {
                 if self.back_rect.contains(*x, *y) {
                     return self.leave(ctx);
                 }
-                if let Some(&(r, act, click)) =
-                    self.clicks.iter().rev().find(|(r, ..)| r.contains(*x, *y))
-                {
-                    if !self.skin.as_ref().is_some_and(|s| s.click(act)) {
-                        self.event(ctx, act, click_dir(r, click, *x, *y));
-                    }
+                if let Tap::Event(act, dir) = self.host.tap(*x, *y) {
+                    self.event(ctx, act, dir);
                 }
             }
             _ => {}
@@ -639,39 +584,27 @@ impl Scene for SkinSelectScene {
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.width, ctx.height);
-        let ms = ms_since(self.created, now);
         let items = self.items(ctx);
-        let (sw, sh) = self
-            .skin
-            .as_ref()
-            .map(|s| (s.skin.width, s.skin.height))
-            .unwrap_or((1280.0, 720.0));
-        let xf = Xf::fit(sw, sh, view);
+        let (sw, sh) = self.host.size();
         let mut hooks = SelectHooks {
-            clicks: Vec::new(),
             preview: self.preview.as_ref(),
             preview_ms: ms_since(self.preview_at, now),
-            screen: xf.rect(Rect::new(0.0, 0.0, sw, sh)),
+            screen: self.host.xf(view).rect(Rect::new(0.0, 0.0, sw, sh)),
         };
-        {
-            let st = SelectState {
-                s: self,
-                ctx,
-                items: &items,
-            };
-            if let Some(sk) = self.skin.as_ref() {
-                sk.draw(d, view, ms, &st, &mut hooks);
-            }
-        }
-        self.clicks = hooks.clicks;
+        let st = SelectState {
+            s: self,
+            ctx,
+            items: &items,
+        };
+        self.host.draw(d, view, now, &st, &mut hooks);
         // the row the keys change, over its button
-        let want = if self.cursor == 0 {
-            Some(190)
-        } else {
-            let i = self.cursor - 1;
-            (i >= self.offset && i < self.offset + 10).then(|| 220 + (i - self.offset) as i32)
+        let want = match (self.list.sel, self.offset()) {
+            (0, _) => Some(190),
+            (n, o) => (o..o + 10)
+                .contains(&(n - 1))
+                .then(|| 220 + (n - 1 - o) as i32),
         };
-        if let Some(&(r, ..)) = self.clicks.iter().find(|c| Some(c.1) == want) {
+        if let Some(r) = want.and_then(|a| self.host.rect_of(a)) {
             d.b.rect(r, with_alpha(theme::ACCENT, 0.12));
             let t = 2.0;
             for e in [
@@ -686,7 +619,7 @@ impl Scene for SkinSelectScene {
         let ui = ctx.ui();
         let (w, h) = (ctx.width, ctx.height);
         // the keys, for a moment after the screen opens
-        let shown = ms_since(self.created, now);
+        let shown = self.host.ms(now);
         if shown < 6000 {
             let a = ((6000 - shown) as f32 / 1000.0).min(1.0);
             let r = Rect::new(w * 0.5 - 260.0 * ui, h - 34.0 * ui, 520.0 * ui, 26.0 * ui);
@@ -700,13 +633,7 @@ impl Scene for SkinSelectScene {
                 Align::Center,
             );
         }
-        self.back_rect = ui::button(
-            d,
-            Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
-            "◀ BACK",
-            ui,
-            false,
-        );
+        self.back_rect = ui::back_button(d, w, ui);
     }
 }
 
@@ -825,16 +752,5 @@ mod tests {
         assert_eq!(back.skins["SELECT"], "skins/b/select.json");
         assert_eq!(back.skin_options["skins/b/select.json"]["Color"], "Blue");
         assert_eq!(back.skin_offsets["skins/b/select.json"]["Bar"][1], 2);
-    }
-
-    #[test]
-    fn click_directions() {
-        let r = Rect::new(0.0, 0.0, 100.0, 20.0);
-        assert_eq!(click_dir(r, 0, 10.0, 5.0), 1);
-        assert_eq!(click_dir(r, 1, 90.0, 5.0), -1);
-        assert_eq!(click_dir(r, 2, 10.0, 5.0), -1);
-        assert_eq!(click_dir(r, 2, 90.0, 5.0), 1);
-        assert_eq!(click_dir(r, 3, 50.0, 2.0), 1);
-        assert_eq!(click_dir(r, 3, 50.0, 18.0), -1);
     }
 }
