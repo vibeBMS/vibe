@@ -10,6 +10,7 @@ use super::script::{self, ScriptKind};
 use super::*;
 use crate::platform::vfs;
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -39,13 +40,17 @@ fn arr(v: Option<&Value>) -> &[Value] {
         .map(|a| a.as_slice())
         .unwrap_or(&[])
 }
-/// Id fields may be strings or numbers.
-fn id_of(v: &Value) -> String {
-    match v.get("id") {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Number(n)) => n.to_string(),
-        _ => String::new(),
+/// An id given as a string or a number.
+fn key(v: &Value) -> Option<Cow<'_, str>> {
+    match v {
+        Value::String(s) => Some(Cow::Borrowed(s)),
+        Value::Number(n) => Some(Cow::Owned(n.to_string())),
+        _ => None,
     }
+}
+
+fn id_of(v: &Value) -> Cow<'_, str> {
+    v.get("id").and_then(key).unwrap_or_default()
 }
 
 /// `if` test: 901 / [901, 911] (and) / [[901, 902], 911] (or inside and) / -901 (not).
@@ -532,11 +537,13 @@ struct Ctx<'a> {
     files: &'a HashMap<String, String>,
     h: f32,
     images: ImageFiles<'a>,
-    source_index: HashMap<String, usize>,
+    source_index: HashMap<Cow<'a, str>, usize>,
+    /// Definitions by list name and id (the first of an id counts).
+    index: RefCell<HashMap<&'static str, HashMap<Cow<'a, str>, &'a Value>>>,
     scripts: RefCell<script::Builder>,
 }
 
-impl Ctx<'_> {
+impl<'a> Ctx<'a> {
     /// A field holding an id or a script (Lua function / source): the id
     /// (synthetic for scripts).
     fn dyn_id(&self, v: Option<&Value>, kind: ScriptKind) -> Option<i32> {
@@ -556,11 +563,7 @@ impl Ctx<'_> {
     }
 
     fn src(&self, def: &Value) -> Option<Src> {
-        let img = *self.source_index.get(&match def.get("src") {
-            Some(Value::String(x)) => x.clone(),
-            Some(Value::Number(n)) => n.to_string(),
-            _ => return None,
-        })?;
+        let img = *self.source_index.get(&key(def.get("src")?)?)?;
         let (iw, ih) = self.images.size(img)?;
         let (x, y) = (i(def, "x", 0) as f32, i(def, "y", 0) as f32);
         let w = match i(def, "w", -1) {
@@ -581,8 +584,17 @@ impl Ctx<'_> {
         })
     }
 
-    fn find<'b>(&'b self, list: &str, id: &str) -> Option<&'b Value> {
-        arr(self.sk.get(list)).iter().find(|x| id_of(x) == id)
+    fn find(&self, list: &'static str, id: &str) -> Option<&'a Value> {
+        let sk = self.sk;
+        let mut index = self.index.borrow_mut();
+        let defs = index.entry(list).or_insert_with(|| {
+            let mut m = HashMap::new();
+            for x in arr(sk.get(list)) {
+                m.entry(id_of(x)).or_insert(x);
+            }
+            m
+        });
+        defs.get(id).copied()
     }
 
     /// beatoraja destinations are y-up; ours are y-down.
@@ -664,11 +676,7 @@ impl Ctx<'_> {
     /// The bitmap font (`.fnt`, BMFont text format) a text uses: its index
     /// in `fonts`, its page images added to the skin's images.
     fn bitmap_font(&mut self, t: &Value, fonts: &mut Vec<BitmapFont>) -> Option<usize> {
-        let want = match t.get("font")? {
-            Value::String(s) => s.clone(),
-            v => v.to_string(),
-        };
-        let f = arr(self.sk.get("font")).iter().find(|f| id_of(f) == want)?;
+        let f = self.find("font", &key(t.get("font")?)?)?;
         let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
         if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fnt")) {
             return None;
@@ -698,11 +706,7 @@ impl Ctx<'_> {
     /// The TrueType / OpenType font file a text uses (`font`, an id in the
     /// skin's `font` list); bitmap fonts are not drawn with.
     fn face(&self, t: &Value) -> Option<PathBuf> {
-        let want = match t.get("font")? {
-            Value::String(s) => s.clone(),
-            v => v.to_string(),
-        };
-        let f = arr(self.sk.get("font")).iter().find(|f| id_of(f) == want)?;
+        let f = self.find("font", &key(t.get("font")?)?)?;
         let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
         let ext = p
             .extension()
@@ -1105,6 +1109,7 @@ pub fn load_with(
         h,
         images: ImageFiles::new(image_size),
         source_index: HashMap::new(),
+        index: Default::default(),
         scripts: RefCell::new(script::Builder::new(lua_state, &dir)),
     };
     for src in arr(sk.get("source")) {
@@ -1183,8 +1188,7 @@ pub fn load_with(
             }
         } else if let Some(v) = cx.find("value", &id) {
             cx.number_kind(v)
-        } else if let Some(t) = cx.find("text", &id).cloned() {
-            let t = &t;
+        } else if let Some(t) = cx.find("text", &id) {
             Some(Kind::Text {
                 id: cx.value_id(t, ScriptKind::Str),
                 font: cx.bitmap_font(t, &mut skin.fonts),
@@ -1213,12 +1217,8 @@ pub fn load_with(
         } else if let Some(set) = cx.find("imageset", &id) {
             let srcs: Vec<Src> = arr(set.get("images"))
                 .iter()
-                .map(|x| {
-                    x.as_str()
-                        .map(String::from)
-                        .unwrap_or_else(|| x.to_string())
-                })
-                .filter_map(|iid| cx.find("image", &iid).and_then(|im| cx.src(im)))
+                .filter_map(|x| cx.find("image", &key(x)?))
+                .filter_map(|im| cx.src(im))
                 .collect();
             (!srcs.is_empty()).then(|| Kind::ImageSet {
                 srcs,
@@ -1252,14 +1252,10 @@ pub fn load_with(
                 .unwrap_or(lanes.len())
                 .min(lanes.len());
             skin.lanes = vec![LaneSkin::default(); count];
-            let pick = |key: &str, li: usize| {
-                arr(n.get(key))
+            let pick = |list: &str, li: usize| {
+                arr(n.get(list))
                     .get(li)
-                    .and_then(|x| {
-                        x.as_str()
-                            .map(String::from)
-                            .or_else(|| x.as_i64().map(|n| n.to_string()))
-                    })
+                    .and_then(key)
                     .and_then(|iid| cx.find("image", &iid))
                     .and_then(|img| cx.src(img))
             };
@@ -1291,11 +1287,7 @@ pub fn load_with(
             let mut frames = Vec::new();
             let mut image = 0;
             for nid in arr(g.get("nodes")) {
-                let nid = nid
-                    .as_str()
-                    .map(String::from)
-                    .or_else(|| nid.as_i64().map(|n| n.to_string()))
-                    .unwrap_or_default();
+                let nid = key(nid).unwrap_or_default();
                 if let Some(src) = cx.find("image", &nid).and_then(|i| cx.src(i)) {
                     image = src.image;
                     frames.push(src.frames[0]);
@@ -1350,7 +1342,7 @@ pub fn load_with(
             Some(Kind::SongList)
         } else if bga.map(|b| id_of(b) == id).unwrap_or(false) {
             Some(Kind::Bga)
-        } else if let Some(j) = arr(sk.get("judge")).iter().find(|x| id_of(x) == id) {
+        } else if let Some(j) = cx.find("judge", &id) {
             let side = i(j, "index", 0).clamp(0, 2) as usize;
             let js = &mut skin.judges[side];
             js.shift = j.get("shift").and_then(Value::as_bool).unwrap_or(true);
