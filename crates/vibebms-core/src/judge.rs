@@ -241,9 +241,93 @@ impl WindowRule {
         pct.clamp(1, 10_000)
     }
 
+    // Written from a behaviour specification (window scaling by rank
+    // percentage, then the custom rates), not from another program's code.
+    /// Scale a base table (µs) by the rank percentage `judgerank` and the
+    /// custom rates `rate` (PG, GR, GD in percent).
     fn create(&self, org: &[(i64, i64)], judgerank: i64, rate: WindowRate) -> Vec<(i64, i64)> {
-        todo!("clean-room rewrite: see spec §2")
+        // only PG..BAD take part in the ordering rules; empty POOR never does
+        let ordered = org.len().min(4);
+        let mut out: Vec<(i64, i64)> = org
+            .iter()
+            .enumerate()
+            .map(|(i, &(late, early))| {
+                if self.fixed.get(i).copied().unwrap_or(true) {
+                    (late, early)
+                } else {
+                    (late * judgerank / 100, early * judgerank / 100)
+                }
+            })
+            .collect();
+
+        // a scaled window stays between its fixed neighbours
+        for i in 0..ordered {
+            if self.fixed[i] {
+                continue;
+            }
+            let before = (0..i).rev().find(|&j| self.fixed[j]);
+            let after = (i + 1..ordered).find(|&j| self.fixed[j]);
+            for side in [Side::Late, Side::Early] {
+                let mut v = side.get(out[i]);
+                if let Some(j) = before {
+                    let b = side.get(out[j]);
+                    if v.abs() < b.abs() {
+                        v = b;
+                    }
+                }
+                if let Some(j) = after {
+                    let a = side.get(out[j]);
+                    if v.abs() > a.abs() {
+                        v = a;
+                    }
+                }
+                side.set(&mut out[i], v);
+            }
+        }
+
+        // custom rates for PG, GR, GD; always keep PG <= GR <= GD <= BAD
+        if ordered == 4 {
+            for i in 0..3 {
+                for side in [Side::Late, Side::Early] {
+                    let mut v = side.get(out[i]) * rate[i] / 100;
+                    let bad = side.get(out[3]);
+                    if v.abs() > bad.abs() {
+                        v = bad;
+                    }
+                    if i > 0 {
+                        let prev = side.get(out[i - 1]);
+                        if v.abs() < prev.abs() {
+                            v = prev;
+                        }
+                    }
+                    side.set(&mut out[i], v);
+                }
+            }
+        }
+        out
+    }
 }
+
+/// One side of a `(late, early)` window.
+#[derive(Clone, Copy)]
+enum Side {
+    Late,
+    Early,
+}
+
+impl Side {
+    fn get(self, w: (i64, i64)) -> i64 {
+        match self {
+            Side::Late => w.0,
+            Side::Early => w.1,
+        }
+    }
+    fn set(self, w: &mut (i64, i64), v: i64) {
+        match self {
+            Side::Late => w.0 = v,
+            Side::Early => w.1 = v,
+        }
+    }
 }
 
 /// LR2 windows (µs) of PG, GR, GD by judge rank 0 / 25 (VERY HARD) / 50
