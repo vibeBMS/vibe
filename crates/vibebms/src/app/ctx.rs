@@ -26,6 +26,8 @@ pub struct Ctx {
     pub lib: Lib,
     /// Difficulty tables and the other links known for their songs.
     pub tables: Tables,
+    /// Downloads and the other network work the player starts.
+    pub net: Net,
     pub mixer: Mixer,
     pub toasts: Vec<(String, Instant)>,
     /// The window and the screen.
@@ -34,12 +36,6 @@ pub struct Ctx {
     /// A text field is being edited (scenes set it as they draw): the
     /// on-screen keyboard is shown on iOS and Android.
     pub text_input: bool,
-    /// Download pages to show in the in-app browser (song, then chart).
-    pub browse: Option<Vec<String>>,
-    /// Mirrored event entries (`archive`).
-    pub archives: crate::archive::Archives,
-    /// Difficulty-table songs downloading.
-    pub song_fetch: crate::songfetch::SongFetch,
     /// The skin catalog and the skins downloaded from it.
     pub skin_store: crate::skinstore::SkinStore,
     /// Custom options read from skin files (path -> options).
@@ -49,8 +45,6 @@ pub struct Ctx {
         std::cell::RefCell<HashMap<std::path::PathBuf, Vec<crate::skin::CustomOffset>>>,
     /// The chosen sound set's sounds.
     pub sounds: crate::sysound::SystemSounds,
-    /// The desktop executable's self-update.
-    pub updater: crate::update::Updater,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -82,6 +76,19 @@ pub struct Tables {
     pub links: crate::links::LinkLists,
 }
 
+/// Downloads, and the self-update.
+#[derive(Default)]
+pub struct Net {
+    /// Mirrored event entries (`archive`).
+    pub archives: crate::archive::Archives,
+    /// Difficulty-table songs downloading.
+    pub song_fetch: crate::songfetch::SongFetch,
+    /// The desktop executable's self-update.
+    pub updater: crate::update::Updater,
+    /// Download pages to show in the in-app browser (song, then chart).
+    pub browse: Option<Vec<String>>,
+}
+
 /// The window and the screen it is on.
 pub struct View {
     /// The window's size in device pixels.
@@ -105,19 +112,16 @@ impl Ctx {
             config,
             lib: Lib::default(),
             tables: Tables::default(),
+            net: Net::default(),
             mixer,
             toasts: Vec::new(),
             view,
             touch_seen: false,
             text_input: false,
-            browse: None,
-            archives: Default::default(),
-            song_fetch: Default::default(),
             skin_store: Default::default(),
             skin_options_cache: Default::default(),
             skin_offsets_cache: Default::default(),
             sounds: Default::default(),
-            updater: Default::default(),
         }
     }
 
@@ -242,7 +246,7 @@ impl Ctx {
             self.start_scan();
         } else {
             // what was downloaded before it started is in now
-            self.song_fetch.scanned();
+            self.net.song_fetch.scanned();
         }
     }
 
@@ -284,7 +288,7 @@ impl Ctx {
                     .then(a.level_num().cmp(&b.level_num()))
             });
             self.lib.songs = Arc::new(songs);
-            self.song_fetch.set_library(self.lib.songs.clone());
+            self.net.song_fetch.set_library(self.lib.songs.clone());
             self.lib.scores = lib.scores();
         }
         self.lib.version += 1;
@@ -355,12 +359,12 @@ impl Ctx {
     }
 
     pub fn poll_jobs(&mut self) {
-        let (toasts, mut rescan, changed, mut pages) = self.archives.poll(&self.paths);
+        let (toasts, mut rescan, changed, mut pages) = self.net.archives.poll(&self.paths);
         for t in toasts {
             self.toast(t);
         }
         // difficulty-table songs
-        for (title, done) in self.song_fetch.poll() {
+        for (title, done) in self.net.song_fetch.poll() {
             use crate::songfetch::Done;
             for d in done {
                 let name = |p: &std::path::Path| {
@@ -399,7 +403,7 @@ impl Ctx {
             }
         }
         // the self-update
-        for t in self.updater.poll() {
+        for t in self.net.updater.poll() {
             self.toast(t);
         }
         // skins downloaded
@@ -417,7 +421,7 @@ impl Ctx {
         // a work's link that needs a person on its page
         if !pages.is_empty() {
             if super::IN_APP_BROWSER {
-                self.browse = Some(pages);
+                self.net.browse = Some(pages);
             } else {
                 for p in &pages {
                     crate::platform::open_url(p);

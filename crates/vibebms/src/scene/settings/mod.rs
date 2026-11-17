@@ -333,7 +333,7 @@ impl SettingsScene {
                 }));
             }
             Act::Restart => {
-                ctx.updater.relaunch_on_exit();
+                ctx.net.updater.relaunch_on_exit();
                 self.then = Some(Next::Quit);
             }
         }

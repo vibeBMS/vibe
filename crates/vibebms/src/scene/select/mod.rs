@@ -279,7 +279,7 @@ impl Scene for SelectScene {
             self.rebuild(ctx);
         }
         // a newer nightly was found (once)
-        if let Some(n) = ctx.updater.take_notice() {
+        if let Some(n) = ctx.net.updater.take_notice() {
             ctx.toast(n);
         }
         self.repeat_keys(ctx, now);

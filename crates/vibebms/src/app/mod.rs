@@ -460,16 +460,16 @@ impl App {
         }
         ctx.refresh_tables(false);
         ctx.tables.links.start(&ctx.paths.cache);
-        ctx.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
-        ctx.archives.refresh(false);
+        ctx.net.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
+        ctx.net.archives.refresh(false);
         ctx.skin_store = crate::skinstore::SkinStore::load(&ctx.paths);
         ctx.skin_store.refresh(false);
         // a newer nightly (desktop CI builds), in the background
-        ctx.updater.check(ctx.config.check_updates);
+        ctx.net.updater.check(ctx.config.check_updates);
         // tests: open the download browser on this page at start
         #[cfg(not(target_arch = "wasm32"))]
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
-            ctx.browse = Some(vec![url]);
+            ctx.net.browse = Some(vec![url]);
         }
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
@@ -799,7 +799,7 @@ impl ApplicationHandler<UserEvent> for App {
                 },
             );
         }
-        if let Some(pages) = r.ctx.browse.take() {
+        if let Some(pages) = r.ctx.net.browse.take() {
             r.downloads.browse(el, &r.window, &mut r.ctx, pages);
         }
         r.downloads.poll(&mut r.ctx);

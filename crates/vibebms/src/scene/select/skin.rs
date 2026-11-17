@@ -501,7 +501,7 @@ impl Hooks for SelectHooks<'_> {
             }
             // a table song downloading: how far it has got, over its bar
             if let Some(Bar::Missing(m)) = s.bars.get(idx) {
-                if let Some(p) = self.st.ctx.song_fetch.progress(&m.title, &m.artist) {
+                if let Some(p) = self.st.ctx.net.song_fetch.progress(&m.title, &m.artist) {
                     download_progress(d, sr, p, now);
                 }
             }

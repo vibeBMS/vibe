@@ -151,18 +151,18 @@ impl SelectScene {
         if let Some((event_url, num)) = archive {
             let root = ctx.paths.root.clone();
             let got = event(ctx, &event_url).ok_or_else(|| "no such event".to_string());
-            let msg = match got.and_then(|e| ctx.archives.download(&root, e, num)) {
+            let msg = match got.and_then(|e| ctx.net.archives.download(&root, e, num)) {
                 Ok(m) => m,
                 Err(why) => format!("{title}: {why}"),
             };
             ctx.toast(msg);
             return;
         }
-        if ctx.song_fetch.cancel(&title, &artist) {
+        if ctx.net.song_fetch.cancel(&title, &artist) {
             ctx.toast(format!("{title}: cancelled"));
             return;
         }
-        if ctx.song_fetch.is_busy(&title, &artist) {
+        if ctx.net.song_fetch.is_busy(&title, &artist) {
             ctx.toast(format!("{title}: being added to the library"));
             return;
         }
@@ -199,7 +199,7 @@ impl SelectScene {
                 crate::placement::same_name(&s.title, &title)
                     && crate::placement::same_artist(&s.artist, &artist)
             });
-        if ctx.song_fetch.start(&root, entry, addons) {
+        if ctx.net.song_fetch.start(&root, entry, addons) {
             ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
             return;
         }
@@ -217,7 +217,7 @@ impl SelectScene {
             .collect();
         if crate::app::IN_APP_BROWSER && !pages.is_empty() {
             ctx.toast(format!("Download {title} in the browser window"));
-            ctx.browse = Some(pages.iter().map(|u| u.to_string()).collect());
+            ctx.net.browse = Some(pages.iter().map(|u| u.to_string()).collect());
             return;
         }
         let opened = pages
