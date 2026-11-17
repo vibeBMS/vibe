@@ -68,51 +68,48 @@ jobs:
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
-  build:
+  # Linux and Windows are separate jobs so the Flatpak packaging (which
+  # needs only the Linux executables) starts as soon as Linux is built
+  build-linux:
     name: build ${{ matrix.name }}
     needs: test
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux: the oldest runner with WebKitGTK 4.1 (glibc 2.35: Ubuntu
-          # 22.04, Debian 12 and newer); `build-linux-portable` has the rest
+          # the oldest runner with WebKitGTK 4.1 (glibc 2.35: Ubuntu 22.04,
+          # Debian 12 and newer); `build-linux-portable` has the rest
           - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
           - { name: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/apt
+        with:
+          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+      - uses: ./.github/actions/rust-build
+        with:
+          name: ${{ matrix.name }}
+          target: ${{ matrix.target }}
+          cache-key: ${{ matrix.target }}-${{ matrix.os }}
+
+  build-windows:
+    name: build ${{ matrix.name }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
           - { name: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - if: runner.os == 'Linux'
-        uses: ./.github/actions/apt
+      - uses: ./.github/actions/rust-build
         with:
-          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          # the runner image too: a build cached on another image (ubuntu-24.04
-          # before 22.04) restored as fresh but without its crates' files
-          key: ${{ matrix.target }}-${{ matrix.os }}
-      # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
-      # whose key reads Cargo.toml)
-      - run: ./tools/ci_version.sh
-        shell: bash
-      - run: cargo build --release -p vibebms --target ${{ matrix.target }}
-      # the version it was built with, for the nightly's latest.json
-      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
-        shell: bash
-      # the executable alone (the downloads job links it in the run summary)
-      - uses: actions/upload-artifact@v7
-        with:
-          name: vibeBMS-${{ matrix.name }}
-          path: |
-            target/${{ matrix.target }}/release/vibebms
-            target/${{ matrix.target }}/release/vibebms.exe
-            target/${{ matrix.target }}/release/version.txt
+          name: ${{ matrix.name }}
+          target: ${{ matrix.target }}
+          cache-key: ${{ matrix.target }}-${{ matrix.os }}
 
   # macOS: both architectures on one runner (x86_64 cross-built on the arm64
   # one), then the app: one universal executable in an ad-hoc signed bundle
@@ -173,7 +170,7 @@ jobs:
   # tools/package_flatpak.sh, platform/flatpak)
   flatpak:
     name: package Flatpak (${{ matrix.arch }})
-    needs: build
+    needs: build-linux
     # this architecture's build can have succeeded when another build failed
     if: always() && !cancelled()
     strategy:
@@ -471,7 +468,7 @@ jobs:
   # previous file; the notes say which files this commit brought.
   nightly:
     name: nightly release
-    needs: [build, build-linux-portable, macos, flatpak, android, ios, web]
+    needs: [build-linux, build-windows, build-linux-portable, macos, flatpak, android, ios, web]
     if: always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     # a newer push's release wins over an older one still uploading
@@ -691,7 +688,7 @@ jobs:
   # links to the executables in the run summary, once the builds are done
   downloads:
     name: downloads
-    needs: [build, build-linux-portable, macos, flatpak, android, ios]
+    needs: [build-linux, build-windows, build-linux-portable, macos, flatpak, android, ios]
     if: always()
     runs-on: ubuntu-latest
     permissions:
