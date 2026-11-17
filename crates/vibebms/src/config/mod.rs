@@ -4,12 +4,14 @@
 //! option is editable from the in-game settings screen.
 
 mod hispeed;
+mod ir;
 mod keys;
 mod migrate;
 mod play;
 mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
+pub use ir::{IrAccount, IrSettings, OldToken, Provider, SubmitPolicy};
 pub use keys::{KeyConfig, LaneKeys, SideKeys};
 pub use play::{HiSpeedMode, HsFix, PlayConfig, Side, SideOptions, Target, Versus};
 pub use touch::{
@@ -19,7 +21,6 @@ pub use touch::{
 
 use migrate::migrate;
 use serde::{Deserialize, Serialize};
-use vibebms_ir::IrConfig;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PresentMode {
@@ -135,8 +136,8 @@ pub struct Config {
     /// charts (`[artist] title`, as BeMusicSeeker names one), not after
     /// the song's title (bmseeker's `folder_naming`).
     pub name_song_folders: bool,
-    /// Internet ranking server (an older `ir` list is ignored).
-    pub ir_server: IrConfig,
+    /// Internet ranking: accounts and when plays are sent.
+    pub ir: IrSettings,
     /// Look for a newer nightly build on start (desktop CI builds; see
     /// `update`).
     pub check_updates: bool,
@@ -176,7 +177,7 @@ impl Default for Config {
                 .collect(),
             third_party_mirrors: THIRD_PARTY_DEFAULT,
             name_song_folders: false,
-            ir_server: IrConfig::default(),
+            ir: IrSettings::default(),
             check_updates: true,
             skins: Default::default(),
             skin_options: Default::default(),
@@ -446,12 +447,23 @@ mod tests {
             archives: vec!["https://example.org/events/index.json".into()],
             third_party_mirrors: !THIRD_PARTY_DEFAULT,
             name_song_folders: true,
-            ir_server: IrConfig {
-                enabled: true,
-                name: "Test IR".into(),
-                url: "https://ir.example.org/api".into(),
-                token: "secret".into(),
-                auto_submit: true,
+            ir: IrSettings {
+                primary: "bokutachi".into(),
+                submit: SubmitPolicy::Ask,
+                accounts: vec![
+                    IrAccount {
+                        name: "Test IR".into(),
+                        url: "https://ir.example.org/api".into(),
+                        submit: false,
+                        user: "TESTER (7)".into(),
+                        ..Default::default()
+                    },
+                    IrAccount {
+                        provider: Provider::Bokutachi,
+                        enabled: false,
+                        ..Default::default()
+                    },
+                ],
             },
             check_updates: false,
             skins: BTreeMap::from([
@@ -469,14 +481,17 @@ mod tests {
         }
     }
 
-    /// A configuration written before (`tests/golden/config.toml`, and the
-    /// play options as a replay stores them, `play_config.json`) reads back
-    /// as it was and is written byte for byte the same. `GOLDEN_BLESS=1`
-    /// writes the files anew.
+    /// A configuration as written now (`tests/golden/config_accounts.toml`,
+    /// and the play options as a replay stores them, `play_config.json`)
+    /// reads back as it was and is written byte for byte the same.
+    /// `GOLDEN_BLESS=1` writes the files anew.
     #[test]
     fn full_config_stays_the_same() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
-        let (toml_path, json_path) = (dir.join("config.toml"), dir.join("play_config.json"));
+        let (toml_path, json_path) = (
+            dir.join("config_accounts.toml"),
+            dir.join("play_config.json"),
+        );
         let c = full_config();
         if std::env::var_os("GOLDEN_BLESS").is_some() {
             std::fs::write(&toml_path, toml::to_string_pretty(&c).unwrap()).unwrap();
@@ -491,6 +506,26 @@ mod tests {
         let play: PlayConfig = serde_json::from_slice(&j).unwrap();
         assert_eq!(play, c.play);
         assert_eq!(serde_json::to_vec(&play).unwrap(), j);
+    }
+
+    /// The same configuration written before the IR accounts
+    /// (`tests/golden/config.toml`, one `[ir_server]`) reads as it was, its
+    /// server an account whose token is still to move.
+    #[test]
+    fn a_config_with_an_ir_server_reads() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/config.toml");
+        let mut c = full_config();
+        c.ir = IrSettings {
+            accounts: vec![IrAccount {
+                name: "Test IR".into(),
+                url: "https://ir.example.org/api".into(),
+                old_token: OldToken("secret".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(Config::load(&path), c);
     }
 
     #[test]
@@ -517,12 +552,15 @@ mod tests {
             include_str!("../../tests/data/config_default.toml"),
             include_str!("../../tests/data/config_changed.toml"),
         ] {
-            let c: Config = toml::from_str(old).unwrap();
-            let again = toml::to_string_pretty(&c).unwrap();
-            assert_eq!(
-                toml::from_str::<toml::Value>(&again).unwrap(),
-                toml::from_str::<toml::Value>(old).unwrap()
-            );
+            let mut old: toml::Value = toml::from_str(old).unwrap();
+            // their `[ir_server]` is empty: no account
+            migrate(&mut old);
+            let c: Config = old.clone().try_into().unwrap();
+            assert_eq!(c.ir, IrSettings::default());
+            let mut again: toml::Value =
+                toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+            again.as_table_mut().unwrap().remove("ir");
+            assert_eq!(again, old);
         }
     }
 

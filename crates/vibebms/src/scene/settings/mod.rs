@@ -109,9 +109,25 @@ enum TextField {
     PlayerName,
     AddFolder,
     AddTable,
-    IrUrl,
-    IrName,
-    IrToken,
+    /// Account `.0` of the IR settings: its name, URL, key.
+    IrName(usize),
+    IrUrl(usize),
+    IrKey(usize),
+    AddIrServer,
+}
+
+impl TextField {
+    fn title(self) -> &'static str {
+        match self {
+            TextField::PlayerName => "Player name",
+            TextField::AddFolder => "Add a folder",
+            TextField::AddTable => "Add a table (URL)",
+            TextField::IrName(_) => "IR name",
+            TextField::IrUrl(_) => "IR URL",
+            TextField::IrKey(_) => "API key (paste)",
+            TextField::AddIrServer => "vibeBMS IR server URL",
+        }
+    }
 }
 
 /// The screens rows open.
@@ -312,9 +328,7 @@ impl SettingsScene {
             Act::Text(tf) if enter || d != 0 => {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
-                    TextField::IrUrl => ctx.config.ir_server.url.clone(),
-                    TextField::IrName => ctx.config.ir_server.name.clone(),
-                    _ => String::new(),
+                    tf => ir::current(ctx, tf),
                 };
                 self.edit = Some((tf, TextInput::new(cur)));
             }
@@ -401,9 +415,7 @@ impl SettingsScene {
                     ctx.tables.refresh(&ctx.config.tables, false);
                 }
             }
-            TextField::IrUrl => ctx.config.ir_server.url = s,
-            TextField::IrName => ctx.config.ir_server.name = s,
-            TextField::IrToken => ctx.config.ir_server.token = s,
+            tf => ir::commit(ctx, tf, s),
         }
         ctx.save_config();
         self.refresh(ctx);
@@ -665,7 +677,7 @@ impl SettingsScene {
         }
         d.b.set_clip(None);
         if let Some((tf, t)) = self.edit.as_mut() {
-            t.draw_modal(ctx, d, &format!("{tf:?}"), *tf == TextField::IrToken);
+            t.draw_modal(ctx, d, tf.title(), matches!(tf, TextField::IrKey(_)));
         }
         if let Some(slot) = self.learn.slot {
             let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);

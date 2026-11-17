@@ -64,6 +64,9 @@ gilrs = "0.11"
 
 [target.'cfg(target_os = "ios")'.dependencies]
 wry = { version = "0.57", optional = true }
+# IR keys in the Keychain (ir/creds.rs)
+security-framework = "3"
+
 
 # the download browser (Java, platform/android) through JNI
 [target.'cfg(target_os = "android")'.dependencies]

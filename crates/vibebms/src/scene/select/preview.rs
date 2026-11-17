@@ -158,7 +158,8 @@ impl SelectScene {
         if self.last_move.elapsed() < RANKING_AFTER {
             return;
         }
-        let Some(client) = vibebms_ir::JsonIr::new(&ctx.config.ir_server) else {
+        let primary = ctx.config.ir.primary();
+        let Some(client) = primary.and_then(|a| ctx.net.ir.vibe_json(a)) else {
             return;
         };
         let Some((_, song)) = self.selected_song(ctx) else {

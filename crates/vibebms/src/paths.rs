@@ -30,6 +30,9 @@ pub struct Paths {
     pub history: PathBuf,
     pub outbox: PathBuf,
     pub skins: PathBuf,
+    /// Where IR keys are kept (`ir::creds`): `config`, Android's private
+    /// storage where the root is the shared one.
+    pub private: PathBuf,
 }
 
 /// Directory names under the root that are never scanned for charts.
@@ -72,6 +75,7 @@ impl Paths {
             history: root.join("scores").join("history"),
             outbox: root.join("scores").join("outbox"),
             skins: root.join("skins"),
+            private: root.join("config"),
             root,
         };
         for d in [&p.config, &p.cache, &p.tables, &p.scores, &p.skins] {

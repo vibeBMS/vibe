@@ -191,9 +191,22 @@ impl ResultScene {
                     log::warn!("replay: {e}");
                 }
             }
-            let cfg = &ctx.config.ir_server;
-            let send = cfg.auto_submit && ranked;
-            if let Some(client) = vibebms_ir::JsonIr::new(cfg).filter(|_| send) {
+            let ir = &ctx.config.ir;
+            let account = ir.accounts.iter().find(|a| {
+                a.provider == crate::config::Provider::VibeJson
+                    && a.enabled
+                    && a.submit
+                    && ir.submit == crate::config::SubmitPolicy::Auto
+            });
+            let eligible = vibebms_ir::eligibility::eligible(
+                &d.record,
+                vibebms_ir::eligibility::ProviderKind::VibeJson,
+            );
+            if let Some((a, client)) = account
+                .filter(|_| eligible.is_ok())
+                .and_then(|a| Some((a, ctx.net.ir.vibe_json(a)?)))
+            {
+                let cfg = a;
                 let chart = vibebms_ir::ChartRef {
                     md5: song.md5.clone(),
                     sha256: song.sha256.clone(),
@@ -219,8 +232,8 @@ impl ResultScene {
                 } else {
                     "KEYBOARD/CONTROLLER".into()
                 };
-                ir_status = format!("{}: sending…", cfg.name);
-                let name = cfg.name.clone();
+                ir_status = format!("{}: sending…", cfg.title());
+                let name = cfg.title().to_string();
                 let req = client.submit_request(&sub);
                 ir_job = Some(Job::start(|tx, _| match req {
                     Ok(req) => crate::platform::ir_send(req, move |r| {

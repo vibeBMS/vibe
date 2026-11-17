@@ -157,8 +157,8 @@ impl Skins {
 
 impl Ctx {
     /// A context with nothing loaded yet.
-    pub fn new(paths: Paths, config: Config, mixer: Mixer, view: View) -> Ctx {
-        let net = Net {
+    pub fn new(paths: Paths, mut config: Config, mixer: Mixer, view: View) -> Ctx {
+        let mut net = Net {
             hosts: crate::hosts::context(&config),
             archives: Default::default(),
             song_fetch: Default::default(),
@@ -166,6 +166,9 @@ impl Ctx {
             browse: None,
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
+        if net.ir.take_old_tokens(&mut config.ir) {
+            config.save(&paths.config_file());
+        }
         Ctx {
             paths,
             config,
