@@ -135,6 +135,8 @@ pub struct SelectScene {
     /// before it is decoded.
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
     banner: Option<(String, Option<TexId>)>,
+    /// The banner's image while it is decoded.
+    banner_job: Option<crate::skin::render::ImageJobs>,
     pub(crate) ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
     pub(crate) created: Instant,
@@ -250,6 +252,7 @@ impl SelectScene {
             preview_rx: None,
             preview_fetch: None,
             banner: None,
+            banner_job: None,
             ranking: HashMap::new(),
             quit_armed: None,
             created: Instant::now(),
@@ -1060,6 +1063,15 @@ impl SelectScene {
             let dir = Path::new(&s.path).parent().unwrap_or(Path::new(""));
             crate::platform::vfs::inside(dir, img).map(|p| p.to_string_lossy().into_owned())
         });
+        if let Some(job) = self.banner_job.as_mut() {
+            let done = job.poll(false, |(w, h, px)| gfx.create_texture(w, h, &px));
+            if let (Some((_, t)), Some(b)) = (done.into_iter().next(), self.banner.as_mut()) {
+                b.1 = t;
+            }
+            if job.done() {
+                self.banner_job = None;
+            }
+        }
         let cur = self.banner.as_ref().map(|b| b.0.clone());
         if want == cur {
             return;
@@ -1070,10 +1082,11 @@ impl SelectScene {
         if let Some((_, Some(t))) = self.banner.take() {
             gfx.free_texture(t);
         }
-        if let Some(p) = want {
-            let tex = resolve_image(Path::new(&p)).and_then(|rp| gfx.load_image(&rp, false));
-            self.banner = Some((p, tex));
-        }
+        self.banner_job = want
+            .as_ref()
+            .and_then(|p| resolve_image(Path::new(p)))
+            .map(|rp| crate::skin::render::ImageJobs::start(vec![rp], None));
+        self.banner = want.map(|p| (p, None));
     }
 
     /// Lamp / rank distribution of the folder at bar `i` (cached).
