@@ -337,7 +337,14 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   touch zones' opacity: 0, 25, 50, 75, 100 %; a skin without them draws them at the touch controls' opacity).
 - **LR2 skins** (`.lr2skin`): put them under `skins/` (`LR2files\Theme\…` paths are taken from `skins/`). Images,
   numbers, text, `#LR2FONT`, gauges, notes, judgements, bar graphs, sliders, buttons, panels, the song list, result
-  graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives.
+  graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives. On the song list's bars: `BAR_LABEL` (0 LN, 1
+  `#RANDOM`, 2 mines, 3 CN, 4 HCN; the long notes' type is the one the chart gives them, else the player's AUTO type,
+  never FORCE; a skin without a CN or HCN label shows its LN one; a course shows what its charts have, a course not
+  all installed nothing), `BAR_TROPHY` (0 bronze, 1 silver, 2 gold: on a table's class course, the last of the
+  table's trophies whose miss rate and score rate its best cleared play met) and `BAR_GRAPH` type 0 (a folder's lamp
+  distribution, the best lamps first, 11 source cells an animation frame; type 1, the DJ levels, is not drawn).
+  A skin without `#RESOLUTION` (`0`-`3`, or `#RESOLUTION,<width>,<height>`) gets the size its layout reaches: 640x480,
+  or 1280x720 / 1920x1080 for HD skins that do not say so.
 - **beatoraja skins**: JSON (`.json`) and Lua (`.luaskin`, embedded Lua 5.4 in a sandbox; the web build too).
   `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
   events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,

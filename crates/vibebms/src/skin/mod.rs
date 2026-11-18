@@ -492,6 +492,14 @@ pub struct NumberFont {
     pub align: i32,
 }
 
+/// `SongListSkin::label`'s kinds (LR2 `BAR_LABEL` indices).
+pub const BAR_LABEL_LN: usize = 0;
+pub const BAR_LABEL_RANDOM: usize = 1;
+pub const BAR_LABEL_MINE: usize = 2;
+pub const BAR_LABEL_CN: usize = 3;
+pub const BAR_LABEL_HCN: usize = 4;
+pub const BAR_LABELS: usize = 5;
+
 /// Music select bar list (beatoraja `songlist`, LR2 `#SRC_BAR_*`). The
 /// title, level and lamp destinations are relative to each bar.
 #[derive(Clone, Debug, Default)]
@@ -526,6 +534,12 @@ pub struct SongListSkin {
     pub rival_lamp: Vec<Option<(Src, Dst)>>,
     /// Lamp / rank distribution on folder bars.
     pub graph: Option<(Dst, Option<Src>, bool)>,
+    /// Labels on chart and course bars (LR2 `BAR_LABEL`), by `BAR_LABEL_*`:
+    /// long notes, `#RANDOM`, mines, CN, HCN.
+    pub label: Vec<Option<(Src, Dst)>>,
+    /// A class course's trophy achieved (LR2 `BAR_TROPHY`): bronze,
+    /// silver, gold.
+    pub trophy: Vec<Option<(Src, Dst)>>,
     /// vibeBMS `count`: the charts of a folder bar, the stages of a course.
     pub count: Option<(NumberFont, Dst)>,
 }
