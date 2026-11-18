@@ -3089,7 +3089,7 @@ def list_rows(sk, r, op, rows, rw, y0, pitch=36):
         else:
             sel_put(sk, f"rl_{name}", rx + 66, ry + 8, op=[op])
             if note:
-                sel_put(sk, f"rd_{name}", rx + 66 + 190, ry + 9, op=[op])
+                sel_put(sk, f"rd_{name}", rx + 66 + (190 if rw > 700 else 136), ry + 9, op=[op])
         vx = rx + rw - 176
         ry += (rh - 32) // 2
         sel_put(sk, "valbox", vx, ry + 2, op=[op])
