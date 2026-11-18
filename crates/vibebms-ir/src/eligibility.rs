@@ -34,6 +34,8 @@ pub enum Refusal {
     Battle,
     CourseStage,
     Aborted,
+    /// Played at another FREQ (another speed and pitch).
+    Freq,
     Assist,
     /// Its rules are no profile's.
     LocalRules,
@@ -238,6 +240,7 @@ fn passes(rec: &PlayRecord, g: &Gate) -> Result<Profile, Refusal> {
     gate(rec.rules.assist.battle, Refusal::Battle)?;
     gate(rec.course.is_some(), Refusal::CourseStage)?;
     gate(f.aborted, Refusal::Aborted)?;
+    gate(rec.rules.freq != 0, Refusal::Freq)?;
     gate(rec.rules.assist.level() != Assist::None, Refusal::Assist)?;
     let profile = profile_of(rec).ok_or(Refusal::LocalRules)?;
     gate(g.third_party && (d.touch > 0 || d.touch_ui), Refusal::Touch)?;
@@ -345,6 +348,12 @@ mod tests {
     fn the_base_plays_go() {
         let b = base();
         assert_eq!(passes(&b, &live(&BOKUTACHI)), Ok(Profile::VibeBeatoraja));
+        // F-RANDOM and MF-RANDOM are no assists
+        for o in [LaneOption::FRandom, LaneOption::MfRandom] {
+            let mut half = b.clone();
+            half.rules.assist.lane = vec![o];
+            assert_eq!(passes(&half, &live(&BOKUTACHI)), Ok(Profile::VibeBeatoraja));
+        }
         assert_eq!(
             eligible(&b, ProviderKind::Bokutachi),
             Err(Refusal::OperatorPending)
@@ -437,6 +446,14 @@ mod tests {
                 bok,
                 Refusal::Aborted,
             ),
+            ("FREQ +1", base(), |r| r.rules.freq = 1, bok, Refusal::Freq),
+            (
+                "FREQ -12",
+                base(),
+                |r| r.rules.freq = -12,
+                bok,
+                Refusal::Freq,
+            ),
             (
                 "assist",
                 base(),
@@ -449,6 +466,27 @@ mod tests {
                 base(),
                 |r| r.rules.assist.lane = vec![LaneOption::HRandom],
                 bok,
+                Refusal::Assist,
+            ),
+            (
+                "TRAINER",
+                base(),
+                |r| r.rules.assist.lane = vec![LaneOption::Trainer],
+                &VIBE_JSON,
+                Refusal::Assist,
+            ),
+            (
+                "MINE ADD",
+                base(),
+                |r| r.rules.assist.mine_add = true,
+                &VIBE_JSON,
+                Refusal::Assist,
+            ),
+            (
+                "LONGNOTE ADD",
+                base(),
+                |r| r.rules.assist.ln_add = true,
+                &VIBE_JSON,
                 Refusal::Assist,
             ),
             (
@@ -483,6 +521,29 @@ mod tests {
                 "LR2, typed HCN",
                 lr2(),
                 |r| r.chart.ln.typed[LnType::Hcn as usize] = true,
+                &VIBE_JSON,
+                Refusal::LocalRules,
+            ),
+            (
+                "LR2, typed HCN forced to CN",
+                lr2(),
+                |r| {
+                    r.chart.ln.typed[LnType::Hcn as usize] = true;
+                    r.rules.ln_mode = LnType::Cn;
+                    r.rules.ln_force = true;
+                },
+                &VIBE_JSON,
+                Refusal::LocalRules,
+            ),
+            (
+                "beatoraja, typed LN forced to CN",
+                base(),
+                |r| {
+                    r.chart.ln.undefined = false;
+                    r.chart.ln.typed[LnType::Ln as usize] = true;
+                    r.rules.ln_mode = LnType::Cn;
+                    r.rules.ln_force = true;
+                },
                 &VIBE_JSON,
                 Refusal::LocalRules,
             ),
@@ -621,9 +682,12 @@ mod tests {
             edit(&mut rec);
             assert_eq!(passes(&rec, g), Err(*want), "{name}");
         }
-        // a practice play goes nowhere, vibeBMS's own servers neither
+        // a practice play goes nowhere, vibeBMS's own servers neither,
+        // and neither does a play at another FREQ
         let mut practice = base();
         practice.flags.practice = true;
+        let mut freq = base();
+        freq.rules.freq = 3;
         for p in [
             ProviderKind::VibeJson,
             ProviderKind::Bokutachi,
@@ -631,6 +695,7 @@ mod tests {
             ProviderKind::RianIr,
         ] {
             assert_eq!(eligible(&practice, p), Err(Refusal::Practice), "{p:?}");
+            assert_eq!(eligible(&freq, p), Err(Refusal::Freq), "{p:?}");
         }
         // the gates that pass on: vibe-json takes what third parties do not
         let mut touch = base();
@@ -652,6 +717,29 @@ mod tests {
         failed.wall_ms = 1000;
         failed.result.clear = ClearType::Failed;
         assert!(passes(&failed, &live(&RIAN_IR)).is_ok());
+    }
+
+    /// FORCE LN plays typed long notes as LR2 does (it reads no
+    /// `#LNMODE`); beatoraja's profile takes FORCE only where it changes
+    /// nothing.
+    #[test]
+    fn forced_ln_is_lr2s_and_a_no_op_force_beatorajas() {
+        let mut r = lr2();
+        r.chart.ln.typed = [true, true, true];
+        assert_eq!(profile_of(&r), None);
+        r.rules.ln_force = true;
+        assert_eq!(profile_of(&r), Some(Profile::VibeLr2));
+        assert_eq!(r.ln_filed(), LnType::Ln);
+        let mut b = base();
+        b.chart.ln.undefined = true;
+        b.chart.ln.typed[LnType::Cn as usize] = true;
+        b.rules.ln_mode = LnType::Cn;
+        b.rules.ln_force = true;
+        assert_eq!(profile_of(&b), Some(Profile::VibeBeatoraja));
+        b.rules.ln_mode = LnType::Hcn;
+        assert_eq!(profile_of(&b), None);
+        b.rules.ln_force = false;
+        assert_eq!(profile_of(&b), Some(Profile::VibeBeatoraja));
     }
 
     #[test]

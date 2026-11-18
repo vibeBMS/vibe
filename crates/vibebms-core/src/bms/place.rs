@@ -149,6 +149,11 @@ pub(super) fn place(src: &Source, pms: bool) -> Placed {
                         p.timing.push((beat, TimingEvent::Scroll(*v)));
                     }
                 }
+                b"SP" => {
+                    if let Some(v) = id().and_then(|id| src.speed.get(&id)) {
+                        p.timing.push((beat, TimingEvent::Speed(*v)));
+                    }
+                }
                 b"04" | b"06" | b"07" | b"0A" => {
                     let layer = match ch {
                         b"04" => BgaLayer::Base,

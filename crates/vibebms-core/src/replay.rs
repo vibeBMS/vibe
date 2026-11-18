@@ -102,9 +102,11 @@ impl<P> Replay<P> {
 impl<P: AsRef<RuleOptions>> Replay<P> {
     /// Whether it may be kept as a chart's latest or best replay (the
     /// material of ghosts and G-BATTLE opponents): not a BATTLE play (a
-    /// single play chart on both sides, judged as one).
+    /// single play chart on both sides, judged as one), nor one at a FREQ
+    /// below 0 (such a play is not saved at all).
     pub fn keepable(&self) -> bool {
-        !self.play.as_ref().battle
+        let p = self.play.as_ref();
+        !p.battle && p.freq >= 0
     }
 }
 
@@ -127,5 +129,52 @@ impl<P: DeserializeOwned> Replay<P> {
             .ok()?;
         let r: Replay<P> = serde_json::from_slice(&json).ok()?;
         (OLDEST..=VERSION).contains(&r.version).then_some(r)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn replay(play: RuleOptions) -> Replay {
+        Replay {
+            version: VERSION,
+            sha256: String::new(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 0,
+            seed: 1,
+            play,
+            ex_score: 0,
+            clear: ClearType::Failed,
+            ghost: Vec::new(),
+            ops: Vec::new(),
+            course: None,
+        }
+    }
+
+    #[test]
+    fn plays_below_freq_0_and_battles_are_not_kept() {
+        let at = |freq| {
+            replay(RuleOptions {
+                freq,
+                ..Default::default()
+            })
+        };
+        assert!(at(0).keepable() && at(12).keepable());
+        assert!(!at(-1).keepable());
+        let battle = replay(RuleOptions {
+            battle: true,
+            ..Default::default()
+        });
+        assert!(!battle.keepable());
+        // the FREQ played comes back; a replay of before has 0
+        let r = Replay::<RuleOptions>::decode(&at(3).encode().unwrap()).unwrap();
+        assert_eq!(r.play.freq, 3);
+        let mut json = serde_json::to_value(at(0)).unwrap();
+        json["play"].as_object_mut().unwrap().remove("freq");
+        let old: Replay = serde_json::from_value(json).unwrap();
+        assert_eq!(old.play.freq, 0);
     }
 }

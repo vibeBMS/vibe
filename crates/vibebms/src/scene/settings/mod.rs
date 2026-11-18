@@ -312,6 +312,7 @@ enum TextField {
     CourseTitle,
     ImportLr2,
     ImportScores,
+    TrainerOrder,
 }
 
 impl TextField {
@@ -329,6 +330,7 @@ impl TextField {
             TextField::CourseTitle => "Course title",
             TextField::ImportLr2 => "LR2's folder (or its song.db)",
             TextField::ImportScores => "Score database (or its folder)",
+            TextField::TrainerOrder => "TRAINER's lane order (keys from the left, as 3142576)",
         }
     }
 }
@@ -614,6 +616,7 @@ impl SettingsScene {
                 let cur = match tf {
                     TextField::PlayerName => ctx.config.player_name.clone(),
                     TextField::CourseTitle => courses::title(ctx),
+                    TextField::TrainerOrder => ctx.config.play.trainer_order.clone(),
                     tf => online::current(ctx, tf),
                 };
                 self.edit = Some((tf, TextInput::new(cur)));
@@ -842,6 +845,15 @@ impl SettingsScene {
             TextField::CourseTitle => courses::rename(ctx, s),
             TextField::ImportLr2 => courses::import(ctx, &s),
             TextField::ImportScores => library::import_scores(ctx, &s),
+            TextField::TrainerOrder => match vibebms_core::lane_option::trainer_order(&s) {
+                Some(_) => ctx.config.play.trainer_order = s,
+                None => {
+                    ctx.toast(format!(
+                        "Not an order of the keys: {s} (each of 1 to n once)"
+                    ));
+                    return;
+                }
+            },
             tf => online::commit(ctx, tf, s),
         }
         ctx.save_config();

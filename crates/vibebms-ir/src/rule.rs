@@ -41,6 +41,9 @@ pub struct ProfileRules {
     /// Charts that type their long notes CN or HCN (`#LNMODE`, bmson `t`)
     /// are played so.
     pub typed_charge_notes: bool,
+    /// LN MODE FORCE may play the chart's typed long notes as another type
+    /// (the game ignores the chart's types).
+    pub forced_types: bool,
     /// The judge rank may be `#DEFEXRANK` or bmson's (else `#RANK` only).
     pub ex_rank: bool,
     pub algorithms: &'static [JudgeAlgorithm],
@@ -84,6 +87,8 @@ const VIBE_LR2: ProfileRules = ProfileRules {
     ],
     ln_modes: &[LnType::Ln],
     typed_charge_notes: false,
+    // LR2 reads no `#LNMODE`: every long note an LN, as FORCE LN plays it
+    forced_types: true,
     ex_rank: false,
     algorithms: ALGORITHMS,
     gauge_auto_shift: &[GaugeAutoShift::None],
@@ -99,6 +104,8 @@ const VIBE_BEATORAJA: ProfileRules = ProfileRules {
     gauges: &GaugeType::STANDARD,
     ln_modes: &[LnType::Ln, LnType::Cn, LnType::Hcn],
     typed_charge_notes: true,
+    // beatoraja plays a type the chart gives as it is
+    forced_types: false,
     ex_rank: true,
     algorithms: ALGORITHMS,
     gauge_auto_shift: &GaugeAutoShift::ALL,
@@ -142,13 +149,23 @@ impl Profile {
 impl ProfileRules {
     /// The rules `r` on chart `c` are exactly these.
     pub fn matches(&self, r: &RuleFacts, c: &ChartFacts) -> bool {
-        let typed_charge = c.ln.typed[LnType::Cn as usize] || c.ln.typed[LnType::Hcn as usize];
+        // each type the chart gives, as it is played
+        let pref = r.ln_pref();
+        let typed_ok = LnType::ALL
+            .into_iter()
+            .filter(|t| c.ln.typed[*t as usize])
+            .all(|t| {
+                let played = pref.plays(Some(t));
+                (played == t || self.forced_types)
+                    && (self.ln_modes.contains(&played) || played == t)
+                    && (self.typed_charge_notes || played == LnType::Ln)
+            });
         r.judge == self.judge
             && r.judge_rates.is_none()
             && r.gauge_set == self.gauge_set
             && self.gauges.contains(&r.gauge)
             && (!c.ln.undefined || self.ln_modes.contains(&r.ln_mode))
-            && (self.typed_charge_notes || !typed_charge)
+            && typed_ok
             && (self.ex_rank || matches!(c.judge_rank, JudgeRank::Rank(_) | JudgeRank::NoNumber))
             && self.algorithms.contains(&r.algorithm)
             && self.gauge_auto_shift.contains(&r.gas)
@@ -344,11 +361,7 @@ pub const EQUIVALENCE: &[Gap] = &[
 pub fn describe(rec: &PlayRecord) -> String {
     let r = &rec.rules;
     let profile = profile_of(rec).map_or("local rules", Profile::label);
-    let ln = match r.ln_mode {
-        LnType::Ln => "LN",
-        LnType::Cn => "CN",
-        LnType::Hcn => "HCN",
-    };
+    let ln = r.ln_pref().label();
     let mut s = format!(
         "{profile}: judge {} / gauge {} / {ln}",
         r.judge.label(),
@@ -356,6 +369,9 @@ pub fn describe(rec: &PlayRecord) -> String {
     );
     if let Some([pg, gr, gd]) = r.judge_rates {
         s += &format!(" / windows {pg}-{gr}-{gd} %");
+    }
+    if r.freq != 0 {
+        s += &format!(" / FREQ {}", vibebms_core::play::freq_label(r.freq));
     }
     s
 }

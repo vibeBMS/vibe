@@ -524,6 +524,21 @@ fn only_fitting_replays_are_opponents() {
     assert!(bad(|r| r.play.legacy_note = true));
     assert!(bad(|r| r.ops.clear()));
     assert!(bad(|r| r.play.ln_mode = LnType::Hcn));
+    assert!(bad(|r| r.play.ln_force = true));
+    // a chart typed CN plays the same in AUTO and FORCE CN, not FORCE LN
+    let typed = crate::library::Song {
+        ln_profile: Some(
+            vibebms_core::LnProfile {
+                undefined: false,
+                typed: [false, true, false],
+            }
+            .bits(),
+        ),
+        ..song.clone()
+    };
+    let force = vibebms_core::LnPref::forced;
+    assert_eq!(ghost_refusal(&r, &typed, force(LnType::Cn)), None);
+    assert!(ghost_refusal(&r, &typed, force(LnType::Ln)).is_some());
     let dp = crate::library::Song {
         mode: PlayMode::Beat14K,
         ..song.clone()

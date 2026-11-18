@@ -162,8 +162,11 @@ impl Loading {
             let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
             let read = |p: &Path| crate::platform::vfs::read(p).ok();
             let mut bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
-            // practice at another speed: the sounds at it, their pitch too
-            let speed = practice.as_ref().map_or(1.0, |p| p.practice.rate());
+            // practice at another speed, FREQ (G-BATTLE: the opponent's):
+            // the sounds at it, their pitch too
+            let freq = ghost.as_ref().map_or(play.freq, |g| g.play.freq);
+            let speed = practice.as_ref().map_or(1.0, |p| p.practice.rate())
+                * vibebms_core::play::freq_rate(freq);
             if speed != 1.0 {
                 resample(&mut bank, speed);
             }

@@ -114,7 +114,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 
 ## Features
 
-- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP and `#SCROLL`, LN
+- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP, `#SCROLL` and
+  beatoraja's `#SPEED` (channel SP: the whole lane's scroll speed, interpolated in time; not under CONSTANT), LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
@@ -123,11 +124,28 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LOWEST or SCORE (the next note only when the current one is beyond GREAT late and the next is within GREAT), as
   beatoraja's; a replay keeps the one it was played with.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
-- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
-- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
+- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR). LN MODE (key 3 or F4 in song select,
+  PLAY OPTION's LN MODE) is AUTO LN / CN / HCN (for the long notes the chart leaves untyped) or FORCE LN / CN / HCN
+  (every long note, whatever the chart says); a FORCE play is filed under the forced type
+  ([docs/RULES.md](docs/RULES.md), "Long notes").
+- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, S-RANDOM+, F-RANDOM / MF-RANDOM (half random and
+  mirrored half random: each half of the keys shuffled on its own side, or onto the other; the middle key and the
+  scratch stay), DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
   both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
-  a course leave no record for the song.
+  a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
+  keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
+  40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
+- **Chart modifiers** (ASSIST panel, hold SELECT): SCROLL REMOVE (`#SCROLL` and `#SPEED` off), MINE ADD (RANDOM,
+  NEAR, BLANK: mines on the keys free at each note's time) and LONGNOTE ADD (LN, CN, HCN: notes made long notes),
+  beside LEGACY NOTE and NO MINE. They are assists where they change the chart: LONGNOTE ADD as LEGACY NOTE,
+  MINE ADD and SCROLL REMOVE light ([docs/RULES.md](docs/RULES.md), "Chart modifiers").
+- **Random Trainer**: the TRAINER lane option (after MF-RANDOM in RANDOM's list) plays one fixed lane order instead
+  of a draw, to practise a RANDOM: `SETTINGS › GAMEPLAY › ADVANCED › Random trainer order` takes the keys from the
+  left (`3142576` puts key 3's notes on the first lane, key 1's on the second, ...; `7654321` is MIRROR), and the
+  TRAINER ORDER select option turns it a lane at a time. It plays on charts of as many keys (a 7-digit order on 7
+  keys) and does nothing on others. A chosen order is not a draw, so a TRAINER play is LIGHT ASSIST: its lamp is
+  L-ASSIST, no score is kept and it is not sent to IR. Replays keep the order.
 - **Display** (`SETTINGS › DISPLAY & AUDIO › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
   for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
@@ -197,6 +215,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   headers, so it downloads through the vibeBMS proxy `proxy.vibebms.workers.dev`, which passes on archives only,
   and unpacks them in memory (zip, 7z, rar). Other event lists or indexes can be added in the settings
   (`archives`).
+- **FREQ** (LR2's): the whole chart −12 to +12 semitones higher or lower, faster or slower with it (+12 is twice
+  as fast, −12 half; shown as `+3 (119%)`): every time, BPM and stop scaled, the sounds resampled (their pitch with
+  the speed); the judge windows stay in real time. Hold SELECT (the ASSIST panel) and turn the turntable, or the
+  ASSIST panel's FREQ row. A play below 0 is not saved at all (no score, lamp, replay or IR); one above 0 is saved
+  as usual but not sent to IR (no IR takes a play at another speed). Courses and practice play at 0. Replays keep
+  it and play at it again.
 - **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
