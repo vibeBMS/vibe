@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    # Dependabot's branches run as pull requests (and publish no web preview)
-    branches-ignore: ['dependabot/**']
+    # Dependabot's branches run as pull requests (and publish no web preview);
+    # fdroid-repo is the F-Droid repository the nightly job publishes
+    branches-ignore: ['dependabot/**', 'fdroid-repo']
   pull_request:
   workflow_dispatch:
 
@@ -377,6 +378,11 @@ jobs:
     name: build android (experimental)
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      # "repository" (ANDROID_KEYSTORE) or "throwaway": the nightly job
+      # publishes the F-Droid repository only for the first, as an APK signed
+      # by another key cannot update the installed one
+      signing: ${{ steps.key.outputs.signing }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
@@ -398,6 +404,7 @@ jobs:
       # secrets hold one (base64 keystore + password), else a throwaway key
       # (the APK installs, but cannot update one signed by another key)
       - name: signing key
+        id: key
         shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
@@ -407,10 +414,12 @@ jobs:
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > "$ks"
             pass="$KEYSTORE_PASSWORD"
+            echo "signing=repository" >> "$GITHUB_OUTPUT"
           else
             pass="$(openssl rand -hex 16)"
             keytool -genkeypair -keystore "$ks" -storepass "$pass" -keypass "$pass" -alias vibebms \
               -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=vibeBMS"
+            echo "signing=throwaway" >> "$GITHUB_OUTPUT"
           fi
           echo "::add-mask::$pass"
           # the key's alias (a keystore made for cargo-apk has one key)
@@ -667,7 +676,63 @@ jobs:
                 else .out += [$b] end) | .out)}
           ' prev/builds.json > out/builds.json
           jq -c '.builds[-1]' out/builds.json
+      # the F-Droid repository (tools/fdroid_repo.sh, docs/BUILDING.md): the
+      # APK as uploaded, the only version, in an index signed with
+      # FDROID_KEYSTORE (else ANDROID_KEYSTORE). Built here, so fdroid.txt
+      # (address, fingerprint, link) goes up with the release; pushed to the
+      # fdroid-repo branch once the release is published. Only an APK signed
+      # with the repository's key goes in: one signed by a throwaway key could
+      # not update the installed app. A failure here holds back nothing else.
+      - uses: actions/checkout@v7
+        if: env.RELEASE == 'true'
+        with:
+          path: src
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            platform/android/fdroid
+            assets/logo
+      - name: F-Droid repository
+        id: fdroid
+        if: env.RELEASE == 'true'
+        continue-on-error: true
+        env:
+          APK_SIGNING: ${{ needs.android.outputs.signing }}
+          FDROID_KS_B64: ${{ secrets.FDROID_KEYSTORE }}
+          FDROID_KS_PASS: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KS_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FDROID_REPO_URL: https://raw.githubusercontent.com/${{ github.repository }}/fdroid-repo/repo
+        run: |
+          skip() {
+            echo "F-Droid repository not updated: $1"
+            printf '### F-Droid repository\n\nNot updated: %s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          [ -f out/vibeBMS.apk ] || skip "this run built no APK (the repository keeps the previous one)."
+          secrets="(docs/BUILDING.md, \"F-Droid repository\")"
+          [ "$APK_SIGNING" = repository ] ||
+            skip "the APK was signed with a throwaway key, so it could not update an installed one. Add the secrets \`ANDROID_KEYSTORE\` (the keystore, base64) and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
+          # a key that stays: one made per run would change the fingerprint
+          # the clients pinned
+          if [ -n "$FDROID_KS_B64" ]; then
+            b64="$FDROID_KS_B64" pass="$FDROID_KS_PASS"
+          elif [ -n "$ANDROID_KS_B64" ]; then
+            b64="$ANDROID_KS_B64" pass="$ANDROID_KS_PASS"
+          else
+            skip "no key to sign its index: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\`, or \`ANDROID_KEYSTORE\` and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
+          fi
+          echo "::add-mask::$pass"
+          export FDROID_KEYSTORE_FILE="$RUNNER_TEMP/fdroid.keystore" FDROID_KEYSTORE_PASS="$pass"
+          echo "$b64" | base64 -d > "$FDROID_KEYSTORE_FILE"
+          python3 -m venv "$RUNNER_TEMP/fdroidserver"
+          "$RUNNER_TEMP/fdroidserver/bin/pip" install -q fdroidserver==2.4.5
+          PATH="$RUNNER_TEMP/fdroidserver/bin:$PATH" src/tools/fdroid_repo.sh build out/vibeBMS.apk "$RUNNER_TEMP/fdroid"
+          rm "$FDROID_KEYSTORE_FILE"
+          cp "$RUNNER_TEMP/fdroid/fdroid.txt" "$RUNNER_TEMP/fdroid/fdroid-qr.png" out/
+          echo "built=true" >> "$GITHUB_OUTPUT"
       - name: release
+        id: release
         if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -701,6 +766,8 @@ jobs:
             echo "- Linux Flatpak (x64, arm64): \`flatpak install --user vibeBMS-linux-x64.flatpak\` (or \`-arm64\`; it fetches the GNOME runtime from Flathub),"
             echo "  then start \"vibeBMS Nightly\" or \`flatpak run io.github.vibebms.nightly\`. It does not update itself: install a newer"
             echo "  bundle the same way. Its data is in \`~/.var/app/io.github.vibebms.nightly/data/vibeBMS\`."
+            echo "- Android: \`vibeBMS.apk\`. For updates in F-Droid, Droid-ify or Neo Store, add the F-Droid repository"
+            echo "  https://raw.githubusercontent.com/$GH_REPO/fdroid-repo/repo (its fingerprint and a link are in \`fdroid.txt\`)."
             echo "- iOS: the .ipa is unsigned (sideload it, e.g. with AltStore, SideStore or LiveContainer)."
             echo "  For updates in AltStore / SideStore, add the source https://github.com/$GH_REPO/releases/download/nightly/altstore.json"
             echo "- Web: unzip and serve the folder over HTTP(S), or use https://vibebms.github.io/vibe/."
@@ -711,5 +778,42 @@ jobs:
             gh release create nightly --prerelease --title "Nightly" --notes "$notes" --target "$SHA"
           fi
           gh release upload nightly out/* --clobber
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      # the F-Droid repository's branch: one commit, replaced each time (the
+      # older APKs are not kept). The release's concurrency group lets one run
+      # at a time get here, and only the branch's head is published.
+      - name: publish the F-Droid repository
+        if: env.RELEASE == 'true' && steps.release.outputs.published == 'true' && steps.fdroid.outputs.built == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$(gh api "repos/$GH_REPO/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)" != "$SHA" ]; then
+            echo "$GITHUB_REF_NAME has moved on from ${SHA:0:7}; its own run publishes it"
+            exit 0
+          fi
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          src/tools/fdroid_repo.sh push "$RUNNER_TEMP/fdroid" "https://github.com/$GH_REPO.git" fdroid-repo
+          url="https://raw.githubusercontent.com/$GH_REPO/fdroid-repo/repo"
+          fp="$(cat "$RUNNER_TEMP/fdroid/fingerprint")"
+          {
+            echo "### F-Droid repository"
+            echo
+            echo "Updated with $(cat "$RUNNER_TEMP/fdroid/app_id") $VERSION. Add it in F-Droid, Droid-ify or Neo Store:"
+            echo
+            echo "- address: $url"
+            echo "- fingerprint (SHA-256): \`$fp\`"
+            echo "- link (open it on the phone): \`fdroidrepos://${url#https://}?fingerprint=$fp\` or ${url}?fingerprint=$fp"
+            echo
+            echo "The release has these in \`fdroid.txt\` and the link as a QR code in \`fdroid-qr.png\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: F-Droid repository failed
+        if: env.RELEASE == 'true' && steps.fdroid.outcome == 'failure'
+        run: |
+          printf '### F-Droid repository\n\nNot updated: building it failed (see the step "F-Droid repository").\n' >> "$GITHUB_STEP_SUMMARY"
 
   # links to the executables in the run summary, once the builds are done
