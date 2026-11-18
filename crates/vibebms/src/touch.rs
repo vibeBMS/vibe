@@ -12,7 +12,7 @@ use crate::platform::Instant;
 use std::collections::HashMap;
 use vibebms_core::PlayMode;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Shape {
     Rect(Rect),
     Circle {
@@ -20,10 +20,11 @@ pub enum Shape {
         cy: f32,
         r: f32,
     },
-    /// A convex four-cornered shape (top-left, top-right, bottom-right,
-    /// bottom-left): a lane of the perspective skin. Its scratch is played
-    /// with sideways swipes.
-    Quad([[f32; 2]; 4]),
+    /// Rows from the top down, each `[y, x0, x1]`: at `y` the shape spans
+    /// `x0..x1`, its edges straight between rows. A lane of the perspective
+    /// skin (`perspective::Fan::touch_strips`); its scratch is played with
+    /// sideways swipes.
+    Strip(std::sync::Arc<[[f32; 3]]>),
 }
 
 /// Pseudo lanes of the START and SELECT buttons (the hi-speed panel), and
@@ -35,7 +36,7 @@ pub const SELECT2: u8 = 253;
 /// The first pseudo lane: lanes from here on are buttons, not keys.
 pub const SYSTEM: u8 = START2;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Zone {
     pub shape: Shape,
     pub lane: u8,
@@ -48,7 +49,12 @@ pub struct Zone {
 
 impl Zone {
     pub fn hit(&self, x: f32, y: f32) -> bool {
-        self.distance(x, y) <= 0.0
+        match &self.shape {
+            // the right edge belongs to the next strip: neighbours share
+            // their edges, and a point is in one of them only
+            Shape::Strip(rows) => strip_span(rows, y).is_some_and(|(a, b)| a <= x && x < b),
+            _ => self.distance(x, y) <= 0.0,
+        }
     }
 
     /// How far (x, y) is outside the zone (0 inside).
@@ -60,7 +66,7 @@ impl Zone {
                 dx.hypot(dy)
             }
             Shape::Circle { cx, cy, r } => ((x - cx).hypot(y - cy) - r).max(0.0),
-            Shape::Quad(q) => quad_distance(&q, x, y),
+            Shape::Strip(ref rows) => strip_distance(rows, x, y),
         }
     }
 
@@ -70,10 +76,8 @@ impl Zone {
         match self.shape {
             Shape::Rect(r) => r.w.min(r.h) * 0.5,
             Shape::Circle { r, .. } => r * 0.5,
-            Shape::Quad(q) => {
-                let w = (q[2][0] - q[3][0]).abs().min((q[1][0] - q[0][0]).abs());
-                w.min((q[3][1] - q[0][1]).abs()) * 0.5
-            }
+            // the perspective lanes' strips fill their area edge to edge
+            Shape::Strip(_) => 0.0,
         }
     }
 
@@ -82,10 +86,10 @@ impl Zone {
         match self.shape {
             Shape::Rect(r) => r,
             Shape::Circle { cx, cy, r } => Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
-            Shape::Quad(q) => {
+            Shape::Strip(ref rows) => {
                 let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-                for [x, y] in q {
-                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                for &[y, a, b] in rows.iter() {
+                    (x0, y0, x1, y1) = (x0.min(a), y0.min(y), x1.max(b), y1.max(y));
                 }
                 Rect::new(x0, y0, x1 - x0, y1 - y0)
             }
@@ -93,27 +97,38 @@ impl Zone {
     }
 }
 
-/// How far (x, y) is outside a convex quad (0 inside or on its edge).
-fn quad_distance(q: &[[f32; 2]; 4], x: f32, y: f32) -> f32 {
-    let mut inside = true;
-    let mut best = f32::MAX;
-    for i in 0..4 {
-        let [ax, ay] = q[i];
-        let [bx, by] = q[(i + 1) % 4];
-        let (ex, ey) = (bx - ax, by - ay);
-        // corners go clockwise on the screen (y down): inside is on the right
-        if ex * (y - ay) - ey * (x - ax) < 0.0 {
-            inside = false;
-        }
-        let len2 = (ex * ex + ey * ey).max(1e-9);
-        let t = (((x - ax) * ex + (y - ay) * ey) / len2).clamp(0.0, 1.0);
-        best = best.min((x - ax - ex * t).hypot(y - ay - ey * t));
+/// A strip's span at height `y` (`None` above or below it).
+pub fn strip_span(rows: &[[f32; 3]], y: f32) -> Option<(f32, f32)> {
+    let (first, last) = (rows.first()?, rows.last()?);
+    if y < first[0] || y > last[0] {
+        return None;
     }
-    if inside {
-        0.0
+    let i = rows
+        .partition_point(|r| r[0] <= y)
+        .clamp(1, rows.len().max(2) - 1);
+    let (a, b) = (rows[i - 1], rows.get(i).copied().unwrap_or(rows[i - 1]));
+    let t = if b[0] > a[0] {
+        ((y - a[0]) / (b[0] - a[0])).clamp(0.0, 1.0)
     } else {
-        best
+        0.0
+    };
+    Some((a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t))
+}
+
+/// How far (x, y) is outside a strip (0 inside or on its edge), near
+/// enough: across at heights it spans, else down to its top or bottom row.
+fn strip_distance(rows: &[[f32; 3]], x: f32, y: f32) -> f32 {
+    if let Some((a, b)) = strip_span(rows, y) {
+        return (a - x).max(x - b).max(0.0);
     }
+    let Some(r) = (match (rows.first(), rows.last()) {
+        (Some(f), _) if y < f[0] => Some(f),
+        (_, l) => l,
+    }) else {
+        return f32::MAX;
+    };
+    let dx = (r[1] - x).max(x - r[2]).max(0.0);
+    dx.hypot(y - r[0])
 }
 
 /// The zone a new touch at (x, y) presses: the one under it (the last
@@ -521,6 +536,7 @@ pub fn fan_zones(
     mode: PlayMode,
     fans: &[crate::perspective::Fan],
     top: f32,
+    judge: f32,
     x0: f32,
     x1: f32,
 ) -> Vec<Zone> {
@@ -530,15 +546,15 @@ pub fn fan_zones(
         .flat_map(|(i, f)| {
             let l = if i == 0 { x0 } else { mid(i) };
             let r = if i + 1 == fans.len() { x1 } else { mid(i + 1) };
-            f.touch_quads(top, l, r)
+            f.touch_strips(top, judge, l, r)
         })
-        .map(|(l, q)| {
+        .map(|(l, rows)| {
             let k = l.lane % mode.lanes_per_player();
             Zone {
-                shape: Shape::Quad(q),
+                shape: Shape::Strip(rows.into()),
                 lane: l.lane as u8,
                 scratch: l.scratch,
-                black: !l.scratch && k % 2 == 1,
+                black: l.blue,
                 color: (mode == PlayMode::Popn9K).then(|| crate::gfx::rgba(POPN_COLORS[k.min(8)])),
             }
         })
@@ -615,6 +631,33 @@ pub fn system_buttons(screen: Rect, aspect: f32, px_per_mm: f32, right: bool) ->
             button(SELECT, Rect::new(x, y + b * 2.5, b, b)),
         ],
     )
+}
+
+/// A strip filled, a colour per row (by its y).
+pub fn draw_strip(batch: &mut Batch, rows: &[[f32; 3]], color: impl Fn(f32) -> crate::gfx::Color) {
+    for w in rows.windows(2) {
+        let ([y0, a0, b0], [y1, a1, b1]) = (w[0], w[1]);
+        let (c0, c1) = (color(y0), color(y1));
+        batch.quad4([[a0, y0], [b0, y0], [b1, y1], [a1, y1]], [c0, c0, c1, c1]);
+    }
+}
+
+/// A strip's outline, `t` thick inside it.
+pub fn strip_outline(batch: &mut Batch, rows: &[[f32; 3]], t: f32, color: crate::gfx::Color) {
+    let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+        return;
+    };
+    for w in rows.windows(2) {
+        let ([y0, a0, b0], [y1, a1, b1]) = (w[0], w[1]);
+        batch.quad4([[a0, y0], [a0 + t, y0], [a1 + t, y1], [a1, y1]], [color; 4]);
+        batch.quad4([[b0 - t, y0], [b0, y0], [b1, y1], [b1 - t, y1]], [color; 4]);
+    }
+    for (r, dy) in [(first, t), (last, -t)] {
+        let (y0, y1) = (r[0].min(r[0] + dy), r[0].max(r[0] + dy));
+        if r[2] > r[1] {
+            batch.rect(Rect::new(r[1], y0, r[2] - r[1], y1 - y0), color);
+        }
+    }
 }
 
 struct Ptr {
@@ -718,7 +761,7 @@ impl TouchInput {
                 let Some(zi) = pick(zones, x, y) else {
                     return false;
                 };
-                let z = zones[zi];
+                let z = &zones[zi];
                 let angle = match z.shape {
                     Shape::Circle { cx, cy, .. } => (y - cy).atan2(x - cx),
                     _ => 0.0,
@@ -745,7 +788,7 @@ impl TouchInput {
                     return false;
                 };
                 let zi = p.zone;
-                let Some(z) = zones.get(zi).copied() else {
+                let Some(z) = zones.get(zi) else {
                     return true;
                 };
                 if z.scratch {
@@ -763,7 +806,7 @@ impl TouchInput {
                         // keyboard style scratch: vertical swipes, ~3 px per "degree"
                         Shape::Rect(_) => ((y - p.last_y) / 3.0, 0.0),
                         // perspective scratch lane: sideways swipes
-                        Shape::Quad(_) => ((x - p.last_x) / 3.0, 0.0),
+                        Shape::Strip(_) => ((x - p.last_x) / 3.0, 0.0),
                     };
                     let p = self.ptrs.get_mut(&id).unwrap();
                     p.last_angle = nangle;
@@ -838,18 +881,9 @@ impl TouchInput {
                     batch.rect(r, fill);
                     batch.rect_outline(r, 2.0, edge);
                 }
-                Shape::Quad(q) => {
-                    batch.quad4(q, [fill; 4]);
-                    for i in 0..4 {
-                        let (a, b) = (q[i], q[(i + 1) % 4]);
-                        let (nx, ny) = (b[1] - a[1], a[0] - b[0]);
-                        let n = nx.hypot(ny).max(1e-3);
-                        let (nx, ny) = (nx / n * 2.0, ny / n * 2.0);
-                        batch.quad4(
-                            [a, b, [b[0] + nx, b[1] + ny], [a[0] + nx, a[1] + ny]],
-                            [edge; 4],
-                        );
-                    }
+                Shape::Strip(ref rows) => {
+                    draw_strip(batch, rows, |_| fill);
+                    strip_outline(batch, rows, 2.0, edge);
                 }
                 Shape::Circle { cx, cy, r } if !z.scratch => {
                     batch.circle(cx, cy, r, 0.0, fill, 48);
@@ -878,6 +912,7 @@ impl TouchInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::perspective::Fan;
 
     #[test]
     fn iidx_layout_has_all_lanes() {
@@ -946,13 +981,13 @@ mod tests {
             .map(|z| match z.shape {
                 Shape::Rect(r) => r.right(),
                 Shape::Circle { cx, r, .. } => cx - r,
-                Shape::Quad(_) => unreachable!(),
+                Shape::Strip(_) => unreachable!(),
             })
             .collect();
         let width_of = |z: &Zone| match z.shape {
             Shape::Rect(r) => r.w,
             Shape::Circle { r, .. } => r * 2.0,
-            Shape::Quad(_) => unreachable!(),
+            Shape::Strip(_) => unreachable!(),
         };
         // the real key width (29 mm at 4 px per mm), the set centred
         let key = z
@@ -1000,37 +1035,175 @@ mod tests {
             .map(|i| zones[i].lane)
     }
 
+    /// The zones of `mode` on a `w` x `h` screen, the touch area its bottom
+    /// half (the default), and the fans.
+    fn persp(mode: PlayMode, side2: bool, w: f32, h: f32) -> (Vec<Zone>, Vec<Fan>) {
+        let cfg = crate::config::PerspectiveConfig::default();
+        let fans = crate::perspective::layout(mode, side2, w, h, &cfg);
+        let top = h * (1.0 - cfg.touch_height);
+        (fan_zones(mode, &fans, top, 0.0, 0.0, w), fans)
+    }
+
+    const SCREENS: [(f32, f32); 5] = [
+        (2340.0, 1080.0),
+        (2048.0, 1536.0),
+        (1280.0, 720.0),
+        (1080.0, 2340.0),
+        (1536.0, 2048.0),
+    ];
+
+    /// The span of `lane`'s zone at height `y`.
+    fn span(zones: &[Zone], lane: usize, y: f32) -> (f32, f32) {
+        let z = zones.iter().find(|z| z.lane as usize == lane).unwrap();
+        let Shape::Strip(rows) = &z.shape else {
+            panic!("a strip");
+        };
+        strip_span(rows, y).unwrap()
+    }
+
+    #[test]
+    fn fan_zones_are_the_lanes_at_the_judge_line() {
+        for (w, h) in SCREENS {
+            for mode in PlayMode::ALL {
+                for side2 in [false, true] {
+                    let (zones, fans) = persp(mode, side2, w, h);
+                    assert_eq!(zones.len(), mode.lane_count());
+                    for f in &fans {
+                        let y = f.y(0.0);
+                        for (i, l) in f.lanes.iter().enumerate() {
+                            let n = f.lanes.len();
+                            if l.scratch
+                                || i == 0
+                                || i + 1 == n
+                                || f.lanes[i - 1].scratch
+                                || f.lanes[i + 1].scratch
+                            {
+                                continue;
+                            }
+                            let (a, b) = span(&zones, l.lane, y);
+                            let (x0, x1) = (f.point(l.u0, 0.0)[0], f.point(l.u1, 0.0)[0]);
+                            let what = format!("{mode:?} {w}x{h} {side2} lane {}", l.lane);
+                            assert!((a - x0).abs() < 0.5 && (b - x1).abs() < 0.5, "{what}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn white_keys_wider_below_blue_keys_above() {
+        for (w, h) in SCREENS {
+            for mode in PlayMode::ALL {
+                let (zones, fans) = persp(mode, false, w, h);
+                for f in &fans {
+                    let yj = f.y(0.0);
+                    let key = f.point(f.lanes[1].u1, 0.0)[0] - f.point(f.lanes[1].u0, 0.0)[0];
+                    let bend = crate::perspective::CURVE_H * key;
+                    // inner keys (both neighbours keys)
+                    for win in f.lanes.windows(3) {
+                        let l = win[1];
+                        if win.iter().any(|l| l.scratch) {
+                            continue;
+                        }
+                        let width = |y: f32| {
+                            let (a, b) = span(&zones, l.lane, y);
+                            let lane = f.x_at(l.u1, y) - f.x_at(l.u0, y);
+                            (b - a) / lane
+                        };
+                        let (above, below) = (width(yj - bend * 0.6), width(yj + bend * 0.6));
+                        let what = format!("{mode:?} {w}x{h} lane {}: {above} {below}", l.lane);
+                        if l.blue {
+                            assert!(above > 1.1 && below < 0.9, "{what}");
+                        } else {
+                            assert!(above < 0.9 && below > 1.1, "{what}");
+                        }
+                        // beyond the bend: a white key's zone above it is
+                        // its lane's middle line, a blue one's the same below
+                        let (above, below) = (width(yj - bend * 1.1), width(yj + bend * 1.1));
+                        let what = format!("{what} / {above} {below}");
+                        if l.blue {
+                            assert!((above - 2.0).abs() < 1e-2 && below.abs() < 1e-2, "{what}");
+                        } else {
+                            assert!(above.abs() < 1e-2 && (below - 2.0).abs() < 1e-2, "{what}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fan_zones_partition_the_touch_area() {
+        for (w, h) in SCREENS {
+            for mode in PlayMode::ALL {
+                for side2 in [false, true] {
+                    let (zones, _) = persp(mode, side2, w, h);
+                    let top = h * 0.5;
+                    for i in 0..160 {
+                        for j in 0..=80 {
+                            let x = (i as f32 + 0.37) * w / 160.0;
+                            let y = top + j as f32 * (h - top) / 80.0;
+                            let n = zones.iter().filter(|z| z.hit(x, y)).count();
+                            assert_eq!(n, 1, "{mode:?} {w}x{h} {side2}: {x}, {y}");
+                            // double play: each player's half
+                            let player = usize::from(x > w * 0.5 && mode.players() == 2);
+                            let lane = hit_lane(&zones, x, y).unwrap() as usize;
+                            assert_eq!(lane / mode.lanes_per_player(), player);
+                        }
+                    }
+                    // above the touch area nothing is hit
+                    for i in 0..20 {
+                        assert!(pick(&zones, (i as f32 + 0.5) * w / 20.0, top - 2.0).is_none());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fan_zones_of_2p_mirror_1p() {
+        for (w, h) in SCREENS {
+            for mode in [PlayMode::Beat7K, PlayMode::Beat5K] {
+                let (one, _) = persp(mode, false, w, h);
+                let (two, _) = persp(mode, true, w, h);
+                let keys = mode.keys_per_player();
+                // key k mirrors key keys + 1 - k, the scratch the scratch
+                let mirror = |l: u8| match l as usize {
+                    l if l < keys => (keys - 1 - l) as u8,
+                    l => l as u8,
+                };
+                for i in 0..120 {
+                    for j in 0..=40 {
+                        let x = (i as f32 + 0.37) * w / 120.0;
+                        let y = h * 0.5 + j as f32 * h * 0.5 / 40.0;
+                        assert_eq!(
+                            hit_lane(&one, x, y).map(mirror),
+                            hit_lane(&two, w - x, y),
+                            "{mode:?} {w}x{h}: {x}, {y}"
+                        );
+                    }
+                }
+            }
+        }
+        // double play: the second player's fan mirrors the first's
+        let (dp, _) = persp(PlayMode::Beat14K, false, 2340.0, 1080.0);
+        for i in 0..117 {
+            let (x, y) = ((i as f32 + 0.37) * 10.0, 900.0);
+            let a = hit_lane(&dp, x, y).unwrap();
+            let b = hit_lane(&dp, 2340.0 - x, y).unwrap();
+            assert_eq!(b, if a == 7 { 15 } else { 8 + 6 - a }, "{x}");
+        }
+    }
+
     #[test]
     fn fan_zones_hit_what_is_drawn() {
         let fans = fans();
         let f = &fans[0];
-        let top = 1280.0 * 0.7;
-        let zones = fan_zones(PlayMode::Beat7K, &fans, top, 0.0, 720.0);
+        let top = 1280.0 * 0.5;
+        let zones = fan_zones(PlayMode::Beat7K, &fans, top, 0.0, 0.0, 720.0);
         assert_eq!(zones.len(), 8);
         assert!(zones[0].scratch && zones[0].lane == 7);
-        // a lane's column, gaps split halfway, the outer ones to the edges
-        let column = |u: f32| {
-            let n = f.lanes.len();
-            (0..n)
-                .find(|&i| i + 1 == n || u < (f.lanes[i].u1 + f.lanes[i + 1].u0) * 0.5)
-                .map(|i| f.lanes[i].lane as u8)
-        };
-        for i in 0..=72 {
-            for j in 0..=40 {
-                let (x, y) = (i as f32 * 10.0, top + j as f32 * (1280.0 - top) / 40.0);
-                let (u, _) = f.locate(x, y).unwrap();
-                // the edges between columns may go either way
-                let edge = f
-                    .lanes
-                    .windows(2)
-                    .any(|w| (u - (w[0].u1 + w[1].u0) * 0.5).abs() < 1e-4);
-                if !edge {
-                    assert_eq!(hit_lane(&zones, x, y), column(u), "at {x}, {y}");
-                }
-            }
-        }
-        // above the touch area nothing is hit
-        assert!(pick(&zones, 360.0, top - 80.0).is_none());
         // the gap beside the scratch: each side plays the lane beside it
         let (g0, g1) = (f.lanes[0].u1, f.lanes[1].u0);
         let at = |u: f32| f.point(u, f.d_bottom() * 0.5);
@@ -1038,6 +1211,14 @@ mod tests {
         assert_eq!(hit_lane(&zones, x, y), Some(7));
         let [x, y] = at(g0 + (g1 - g0) * 0.75);
         assert_eq!(hit_lane(&zones, x, y), Some(0));
+        // the upright line: keys 3 and 4 either side of the middle at the
+        // judge line, down to the bottom and up to the touch area's top
+        // (above the bends: the blue key 4, below: the white key 3)
+        let yj = f.y(0.0);
+        assert_eq!(hit_lane(&zones, 359.0, yj), Some(2));
+        assert_eq!(hit_lane(&zones, 361.0, yj), Some(3));
+        assert_eq!(hit_lane(&zones, 359.0, top + 1.0), Some(3));
+        assert_eq!(hit_lane(&zones, 361.0, 1279.0), Some(2));
     }
 
     #[test]
@@ -1054,7 +1235,7 @@ mod tests {
             for mode in PlayMode::ALL {
                 let fans = crate::perspective::layout(mode, false, w, h, &cfg);
                 let line = fans[0].base_y;
-                let zones = fan_zones(mode, &fans, line - 0.1 * h, 0.0, w);
+                let zones = fan_zones(mode, &fans, line - 0.1 * h, 0.0, 0.0, w);
                 for y in [h - 1.0, line, line - 0.09 * h] {
                     for i in 0..200 {
                         let x = (i as f32 + 0.5) * w / 200.0;
@@ -1072,16 +1253,16 @@ mod tests {
     fn fan_lanes_slide_and_scratch_swipes() {
         let fans = fans();
         let f = &fans[0];
-        let zones = fan_zones(PlayMode::Beat7K, &fans, 1280.0 * 0.7, 0.0, 720.0);
+        let zones = fan_zones(PlayMode::Beat7K, &fans, 1280.0 * 0.5, 0.0, 0.0, 720.0);
         let now = Instant::now();
         let mut t = TouchInput::default();
         let mut out = Vec::new();
         let at = |u: f32| f.point(u, f.d_bottom() * 0.5);
-        // a finger on key 1 slides to key 2
+        // a finger on key 1 slides to key 2 (on the judge line)
         let (l1, l2) = (f.lanes[1], f.lanes[2]);
-        let p = at((l1.u0 + l1.u1) * 0.5);
+        let p = f.point((l1.u0 + l1.u1) * 0.5, 0.0);
         t.pointer(&zones, 1, Phase::Down, p[0], p[1], now, 6.0, &mut out);
-        let p = at((l2.u0 + l2.u1) * 0.5);
+        let p = f.point((l2.u0 + l2.u1) * 0.5, 0.0);
         t.pointer(&zones, 1, Phase::Move, p[0], p[1], now, 6.0, &mut out);
         let evs: Vec<(u8, bool)> = out.iter().map(|e| (e.lane, e.pressed)).collect();
         assert_eq!(evs, [(0, true), (0, false), (1, true)]);
@@ -1261,7 +1442,7 @@ mod tests {
         // BM: the turntable on the scratch side, white keys low, black raised
         let disc = bm.iter().find(|z| z.scratch).unwrap();
         assert!(matches!(disc.shape, Shape::Circle { .. }));
-        let keys: Vec<Zone> = bm.iter().filter(|z| !z.scratch).copied().collect();
+        let keys: Vec<Zone> = bm.iter().filter(|z| !z.scratch).cloned().collect();
         assert!(keys.iter().all(|k| k.bounds().x > disc.bounds().right()));
         let (white, black): (Vec<&Zone>, Vec<&Zone>) = keys.iter().partition(|k| !k.black);
         assert_eq!((white.len(), black.len()), (4, 3));

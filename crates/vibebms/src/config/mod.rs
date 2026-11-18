@@ -21,7 +21,7 @@ pub use play::{
 pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
-    LENGTH_RANGE, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
+    LENGTH_RANGE, OLD_TOUCH_HEIGHTS, PERSPECTIVE_LAYOUT, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
 };
 
 use migrate::migrate;
@@ -486,6 +486,7 @@ mod tests {
                 strength: 0.4,
                 length: 0.8,
                 touch_height: 0.25,
+                layout: PERSPECTIVE_LAYOUT,
             },
             display: DisplayConfig {
                 fullscreen: true,
@@ -690,6 +691,7 @@ mod tests {
                 strength: 0.4,
                 length: 0.8,
                 touch_height: 0.25,
+                layout: PERSPECTIVE_LAYOUT,
             },
             ..Config::default()
         };

@@ -172,34 +172,24 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
                 .iter()
                 .filter(|z| z.lane < crate::touch::SYSTEM)
             {
-                let (Shape::Quad(q), Some(l)) =
-                    (z.shape, f.lanes.iter().find(|l| l.lane == z.lane as usize))
+                let (Shape::Strip(rows), Some(l)) =
+                    (&z.shape, f.lanes.iter().find(|l| l.lane == z.lane as usize))
                 else {
                     continue;
                 };
+                let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+                    continue;
+                };
+                let (y0, y1) = (first[0], last[0]);
                 let pressed = scene.touch.input.is_pressed(z.lane);
                 let c = note_color(mode, l);
                 let a = opacity * if pressed { 0.22 } else { 0.07 };
-                d.b.quad4(
-                    q,
-                    [
-                        with_alpha(c, a * 0.3),
-                        with_alpha(c, a * 0.3),
-                        with_alpha(c, a),
-                        with_alpha(c, a),
-                    ],
-                );
-                // its upper edge
-                let top = f.locate(q[0][0], q[0][1]).map_or(0.0, |(_, d)| d);
-                band(
-                    d,
-                    f,
-                    (l.u0, l.u1),
-                    top - px(1.5, top),
-                    top,
-                    with_alpha(c, opacity * 0.35),
-                    with_alpha(c, opacity * 0.35),
-                );
+                // fainter toward the top
+                let shade = |y: f32| with_alpha(c, a * (0.3 + 0.7 * (y - y0) / (y1 - y0).max(1.0)));
+                crate::touch::draw_strip(d.b, rows, shade);
+                // its edges: where a key's zone meets the next one's
+                crate::touch::strip_outline(d.b, rows, 1.5, with_alpha(c, opacity * 0.3));
+                let top = f.depth(y0).unwrap_or(0.0);
                 if l.scratch {
                     // chevrons pointing both ways
                     let mid = (d_bot + top) * 0.5;

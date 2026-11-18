@@ -292,7 +292,7 @@ pub(super) fn rows(b: &mut Rows) {
                 step(v, d, 0.01, TOUCH_HEIGHT_RANGE)
             },
         )
-        .desc("The keys' height, in the touch perspective skin."),
+        .desc("How far up the screen the lanes are played, in the touch perspective skin (the judge line is at 25 %)."),
     ]);
     b.group(
         "controls.reset",

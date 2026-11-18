@@ -373,6 +373,7 @@ round = false
 strength = 0.4000000059604645
 length = 0.800000011920929
 touch_height = 0.25
+layout = 2
 
 [display]
 fullscreen = true

@@ -46,7 +46,8 @@ impl PlayScene {
     }
 
     /// The top of the perspective lanes' touch area: the share of the
-    /// screen set, at least a little above the judge line.
+    /// screen set (by default half of it, the judge line in the middle of
+    /// the touch area), at least a little above the judge line.
     fn persp_touch_top(&self, ctx: &Ctx, fans: &[Fan], view: Rect) -> f32 {
         let (lo, hi) = crate::config::TOUCH_HEIGHT_RANGE;
         let share = ctx.config.perspective.touch_height.clamp(lo, hi);
@@ -152,7 +153,8 @@ impl PlayScene {
             let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
             let fans = self.persp_fans(ctx, view);
             let top = self.persp_touch_top(ctx, &fans, view);
-            zones = touch::fan_zones(input_mode, &fans, top, view.x, view.right());
+            let judge = crate::perspective::Depths::of(&ctx.config.play).judge;
+            zones = touch::fan_zones(input_mode, &fans, top, judge, view.x, view.right());
         }
         if !areas.is_empty() {
             zones = touch::zones(
