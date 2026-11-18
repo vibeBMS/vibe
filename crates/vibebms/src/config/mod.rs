@@ -59,6 +59,43 @@ impl PresentMode {
     }
 }
 
+/// The graphics API the GPU is driven through (`gfx::device`; desktop,
+/// Android). AUTO lets wgpu choose among the ones the platform has
+/// (Vulkan, Metal, DX12, then OpenGL), as before the setting existed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum GraphicsBackend {
+    #[default]
+    Auto,
+    Vulkan,
+    Metal,
+    Dx12,
+    OpenGl,
+}
+
+impl GraphicsBackend {
+    /// The ones that can be chosen, in the order AUTO prefers them.
+    pub const APIS: [GraphicsBackend; 4] = [
+        GraphicsBackend::Vulkan,
+        GraphicsBackend::Metal,
+        GraphicsBackend::Dx12,
+        GraphicsBackend::OpenGl,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GraphicsBackend::Auto => "AUTO",
+            GraphicsBackend::Vulkan => "VULKAN",
+            GraphicsBackend::Metal => "METAL",
+            GraphicsBackend::Dx12 => "DX12",
+            GraphicsBackend::OpenGl => "OPENGL",
+        }
+    }
+
+    pub fn is_auto(&self) -> bool {
+        *self == GraphicsBackend::Auto
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct DisplayConfig {
@@ -66,6 +103,10 @@ pub struct DisplayConfig {
     pub width: u32,
     pub height: u32,
     pub present_mode: PresentMode,
+    /// Read at start: a change applies at the next launch. One that cannot
+    /// start is replaced by the one that did.
+    #[serde(skip_serializing_if = "GraphicsBackend::is_auto")]
+    pub backend: GraphicsBackend,
     /// 0 = unlimited.
     pub max_fps: u32,
     pub ui_scale: f32,
@@ -82,6 +123,7 @@ impl Default for DisplayConfig {
             width: 1280,
             height: 720,
             present_mode: PresentMode::VSync,
+            backend: GraphicsBackend::Auto,
             max_fps: 0,
             ui_scale: 1.0,
             show_fps: false,
@@ -549,6 +591,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
                 present_mode: PresentMode::VSync,
+                backend: GraphicsBackend::Auto,
                 max_fps: 144,
                 ui_scale: 1.25,
                 show_fps: true,

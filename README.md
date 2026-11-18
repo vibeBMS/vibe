@@ -194,6 +194,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   handling by the screen: on the web and iOS and for controllers the event's own time, else when the window got it).
   Off, nothing is measured. The start's phases (event loop, window, graphics, audio, library, tables and skins, song
   select, first frame) are timed in the log (`startup:` lines).
+- **Graphics API** (`SETTINGS › DISPLAY & AUDIO › ADVANCED › Graphics API`; not on the web): AUTO (the default; wgpu
+  chooses, Vulkan, Metal, DX12 then OpenGL as before) or one of the APIs the platform has: Vulkan, DX12 and OpenGL on
+  Windows, Vulkan and OpenGL on Linux and Android, Metal on macOS and iOS. It applies at the next launch. If the one
+  chosen does not start, the others are tried in AUTO's order; the one that started is kept as the setting (written to
+  `config.toml` as `display.backend`), logged, and said once in a message. A choice the platform lacks (a configuration
+  from another computer) starts as AUTO and stays as it is. The `GPU` line below it shows the device and API in use.
 - **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
   the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
   keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth

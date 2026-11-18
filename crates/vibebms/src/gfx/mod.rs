@@ -12,7 +12,7 @@ mod texture;
 pub use self::image::{key_black, load_picture, load_picture_bytes, Picture};
 pub use anim::{Animation, ImageTex};
 pub use batch::{Batch, Blend, SdfStyle};
-pub use device::Gfx;
+pub use device::{available_backends, Fallback, Gfx};
 
 pub type TexId = usize;
 /// Texture 0 is the glyph atlas; its top-left 4x4 pixels are opaque white.

@@ -607,6 +607,23 @@ impl App {
             }
             ctx.overrides = o;
         }
+        // the graphics API chosen did not start: the one that did is kept
+        // (saved below), and said once
+        if let Some(f) = gfx.fallback.take() {
+            log::error!(
+                "gpu: {} could not start ({}); {} is used and kept",
+                f.wanted.label(),
+                f.error,
+                f.used.label()
+            );
+            ctx.config.display.backend = f.used;
+            ctx.toast(format!(
+                "Graphics: {} could not start, {} is used instead \
+                 (SETTINGS › DISPLAY & AUDIO › ADVANCED)",
+                f.wanted.label(),
+                f.used.label()
+            ));
+        }
         let root = ctx.paths.root.clone();
         ctx.lib.db = Some(Library::open(
             &ctx.paths.cache,
@@ -773,6 +790,8 @@ impl ApplicationHandler<UserEvent> for App {
         };
         diag::startup("window");
         let mode = config.display.present_mode;
+        #[cfg(not(target_arch = "wasm32"))]
+        let backend = config.display.backend;
         self.pending = Some(config);
         #[cfg(target_arch = "wasm32")]
         {
@@ -783,7 +802,7 @@ impl ApplicationHandler<UserEvent> for App {
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
-        match Gfx::new(window.clone(), mode) {
+        match Gfx::new(window.clone(), mode, backend) {
             Ok(g) => self.init(window, g),
             Err(e) => {
                 log::error!("graphics init failed: {e}");

@@ -231,6 +231,25 @@ pub(super) fn rows(b: &mut Rows) {
         .desc("EXCLUSIVE (WASAPI) has the least lag; others cannot play. Applies after a restart.")
         .keys("wasapi exclusive shared latency"),
     );
+    #[cfg(not(target_arch = "wasm32"))]
+    b.push(
+        Row::adjust(
+            "display.backend",
+            "Graphics API",
+            d.backend.label(),
+            |c, d| {
+                let mut all = vec![crate::config::GraphicsBackend::Auto];
+                all.extend(crate::gfx::available_backends());
+                let b = &mut c.config.display.backend;
+                *b = cycle(&all, *b, d);
+            },
+        )
+        .desc(
+            "The graphics API the GPU is driven with; AUTO lets vibeBMS choose. Applies at the next \
+             launch; one that does not start there is replaced by the next that does.",
+        )
+        .keys("renderer backend vulkan metal directx dx12 opengl gpu"),
+    );
     b.extend([
         Row::note(
             "info.output",
