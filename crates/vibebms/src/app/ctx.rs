@@ -102,8 +102,34 @@ pub struct Net {
 pub struct Audio {
     pub mixer: Mixer,
     pub sounds: crate::sysound::SystemSounds,
+    /// Silenced while the app is not the one in use (`app::activity`).
+    pub mute: super::activity::Mute,
     /// The charts' loudness measured so far.
     pub loudness: crate::loudness::LoudnessCache,
+}
+
+impl Audio {
+    /// The master volume `v`, heard once the app is in use again if it
+    /// is silenced now.
+    pub fn set_master(&self, v: f32) {
+        if !self.mute.on() {
+            self.mixer.set_master(v);
+        }
+    }
+
+    /// Silence the output (it fades out), from `now`.
+    pub fn silence(&mut self, now: Instant) {
+        if self.mute.start(now) {
+            self.mixer.set_master(0.0);
+        }
+    }
+
+    /// Heard again, at master volume `master`.
+    pub fn unsilence(&mut self, master: f32) {
+        if self.mute.end() {
+            self.mixer.set_master(master);
+        }
+    }
 }
 
 /// The window and the screen it is on.
@@ -194,6 +220,7 @@ impl Ctx {
             audio: Audio {
                 mixer,
                 sounds: Default::default(),
+                mute: Default::default(),
                 loudness,
             },
             view,

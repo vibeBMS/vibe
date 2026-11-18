@@ -158,6 +158,18 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
   off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
   read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
+- **Mute when inactive** (`SETTINGS › DISPLAY & AUDIO › Mute when inactive`, on by default): vibeBMS fades out (in
+  0.1 s) while it is not the app in use. Out of play that is when another app or window has the focus, or vibeBMS is
+  minimised, covered, in the background or (web) in a hidden tab or a page without the focus; the song preview stops
+  and starts again from its beginning when vibeBMS is back. In play only a hidden, minimised or backgrounded vibeBMS
+  is silent on the desktop and the web (a controller may play a window without the focus); on phones and tablets,
+  where only the app with the focus gets touches, keys and controllers, losing the focus silences play too. The play
+  goes on (there is no pause). The in-app download browser's window counts as vibeBMS. Off, vibeBMS is heard in the
+  background (the iOS app's audio session keeps playing there).
+- **Full screen on phones and tablets**: the iOS app hides the status bar and, until the screen is touched, the home
+  indicator; in play (and the touch layout editor) a swipe from the top or bottom edge is the game's, and the
+  system's gesture (home, Control Center, notifications) needs a second swipe. The Android app hides the status and
+  navigation bars (immersive: a swipe from an edge shows them for a moment).
 - **BGA**: image BGA (layers, POOR; a BMS chart without a POOR layer shows its `#BMP00` on a miss, as LR2 and
   beatoraja do), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path). BGA ON, AUTO or
   OFF (SYSTEM OPTION key 1), as beatoraja's: AUTO shows it only when watching (autoplay, a replay), not in a play

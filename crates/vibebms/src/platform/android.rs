@@ -63,3 +63,22 @@ pub fn use_highest_refresh_rate() -> Option<f64> {
         .ok()
         .map(f64::from)
 }
+
+/// The game on the whole screen: the status and navigation bars hidden
+/// (immersive; a swipe from an edge shows them for a moment). Again when
+/// the app gets the focus back: the system may have shown them meanwhile.
+pub fn hide_system_bars() {
+    let r = with_java(|env, activity| {
+        let class = app_class(env, activity, "SystemBars")?;
+        env.call_static_method(
+            class,
+            "hide",
+            "(Landroid/app/Activity;)V",
+            &[JValue::Object(activity)],
+        )?
+        .v()
+    });
+    if let Err(e) = r {
+        log::warn!("system bars: {e}");
+    }
+}

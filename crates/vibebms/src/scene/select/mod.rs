@@ -320,6 +320,11 @@ impl Scene for SelectScene {
         }
         self.repeat_keys(ctx, now);
         self.ease_scroll(now);
+        // the app not in use and silent: the preview stops, to start again
+        // from its beginning once it is heard (`app::activity`)
+        if self.preview_for.is_some() && ctx.audio.mute.faded(now) {
+            self.moved(ctx);
+        }
         self.update_preview(ctx);
         self.update_sounds(ctx);
         self.update_ranking(ctx);

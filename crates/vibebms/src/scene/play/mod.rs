@@ -569,6 +569,9 @@ impl Scene for PlayScene {
     fn full_screen(&self) -> bool {
         true
     }
+    fn in_play(&self) -> bool {
+        true
+    }
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         let bpm = self.bpms_at(now);
