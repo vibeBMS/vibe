@@ -279,17 +279,26 @@ fn builtin_select_skins_load() {
         assert_eq!(sk.kind, SkinType::Select);
         let sl = sk.songlist.as_ref().expect("songlist");
         assert!(sl.off.len() > 10 && sl.off.len() == sl.on.len());
-        assert_eq!(sl.body.iter().flatten().count(), 8);
+        // a body for each bar type, vibeBMS's too
+        assert_eq!(
+            sl.body.iter().flatten().count(),
+            crate::skin::BAR_VIRTUAL + 1
+        );
         assert!(sl.text.is_some() && sl.level.len() == 7 && sl.lamp.len() == 11);
+        assert!(sl.folder_text.is_some() && sl.count.is_some() && sl.graph.is_some());
         // the IR lamp beside the player's
         assert!(sl.my_lamp.len() == 11 && sl.rival_lamp.len() == 11);
-        // the option buttons (the first 18 options) and the folder back
-        // button are clickable
-        let buttons = 18 + 1;
-        assert_eq!(
-            sk.objects.iter().filter(|o| o.act.is_some()).count(),
-            buttons
-        );
+        // the tabs (stepped by halves), back, settings, the song's charts,
+        // the buttons, the search box and the panel buttons are clickable
+        let acts: std::collections::HashSet<_> = sk.objects.iter().filter_map(|o| o.act).collect();
+        for act in [
+            9900, 9009, 9910, 9914, 8, 9901, 16, 9902, 9903, 1, 3, 4, 5, 6, 7,
+        ] {
+            assert!(acts.contains(&(act, 0)), "{act}");
+        }
+        for tab in [10, 11, 12] {
+            assert!(acts.contains(&(tab, 2)), "{tab}");
+        }
         let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();
         assert!(load(&path, &HashMap::new(), &crate::skin::image_size).is_ok());
     }

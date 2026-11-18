@@ -189,6 +189,14 @@ pub(crate) struct ChartFiles {
     pub texts: Vec<PathBuf>,
 }
 
+/// The folder of a chart's file: its song's (`Song::folder` is the
+/// library folder it is listed under).
+pub(crate) fn song_dir(s: &Song) -> String {
+    let p = std::path::Path::new(&s.path);
+    p.parent()
+        .map_or_else(String::new, |d| d.to_string_lossy().into_owned())
+}
+
 /// A chart folder's text files (LR2's READ TEXT), by name.
 pub(crate) fn texts_of(song: &Song) -> Vec<PathBuf> {
     let Some(dir) = std::path::Path::new(&song.path).parent() else {
@@ -209,8 +217,8 @@ pub(crate) fn texts_of(song: &Song) -> Vec<PathBuf> {
 
 impl SelectScene {
     /// The song's charts by difficulty: of the charts in the selected
-    /// chart's folder and key mode, the selected one for its difficulty,
-    /// else the highest level of each (library indices).
+    /// chart's file's folder and key mode, the selected one for its
+    /// difficulty, else the highest level of each (library indices).
     pub(crate) fn siblings(&self, ctx: &Ctx, i: usize) -> [Option<usize>; SIBLINGS] {
         let mut out = [None; SIBLINGS];
         let songs = &ctx.lib.songs;
@@ -218,7 +226,7 @@ impl SelectScene {
             return out;
         };
         let level = |k: usize| songs[k].level_num();
-        for &k in self.folders.get(&me.folder).into_iter().flatten() {
+        for &k in self.song_dirs.get(&song_dir(me)).into_iter().flatten() {
             let s = &songs[k];
             let Some(slot) = (s.difficulty as usize)
                 .checked_sub(1)

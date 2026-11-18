@@ -85,6 +85,7 @@ class Fonts:
         self.black_it = find_font("InterDisplay-BlackItalic.otf", d)
         self.bold = find_font("InterDisplay-Bold.otf", d)
         self.semi = find_font("Inter-SemiBold.otf", d)
+        self.xbold = find_font("Inter-ExtraBold.otf", d)
         self.regular = str(BUNDLED_FONT)
 
     def get(self, which, size):
@@ -781,9 +782,11 @@ def option_panels(sk, portrait):
 
 # ---------------------------------------------------------------- skin json
 class Skin:
-    def __init__(self, kind, name, w, h, parts):
+    def __init__(self, kind, name, w, h, parts, extra=None):
         self.w, self.h = w, h
         self.parts = parts
+        # a second atlas (the music select's own parts: source "sel")
+        self.extra = extra
         self.j = {
             "type": kind, "name": name, "author": "vibeBMS", "w": w, "h": h,
             "input": 500, "scene": 3600000, "close": 1500, "fadeout": 1000,
@@ -791,17 +794,25 @@ class Skin:
             "image": [], "value": [], "text": [], "slider": [], "graph": [],
             "judge": [], "destination": [],
         }
+        if extra:
+            self.source("sel", extra.name)
         # x remapping for layouts that move whole blocks (2P side)
         self.xmap = None
-        # region relayout (portrait from a landscape design): list of
-        # ((x, y, w, h) source rect, (x, y) target) -- see relayout()
-        self.regions = None
         # vibeBMS anchor of the objects put (perspective skins): see persp()
         self.anchor = None
         self._ids = set()
 
     def source(self, sid, path):
         self.j["source"].append({"id": sid, "path": path})
+
+    def locate(self, key):
+        """The source and rect of part `key`."""
+        if key in self.parts.items:
+            return "parts", self.parts.items[key]
+        return "sel", self.extra.items[key]
+
+    def size(self, key):
+        return self.locate(key)[1][2:]
 
     def img(self, key, divx=1, cycle=0, timer=0, sid=None):
         iid = key if not timer else f"{key}@{timer}"
@@ -811,12 +822,12 @@ class Skin:
         if sid:
             d = {"id": iid, "src": sid, "x": 0, "y": 0, "w": -1, "h": -1}
         else:
-            x, y, w, h = self.parts.items[key]
+            src, (x, y, w, h) = self.locate(key)
             if key in ("white", "sep") or key.startswith("lane"):
                 x, y, w, h = x + 4, y + 4, w - 8, h - 8
             elif key == "barline":
                 x, y, w, h = x + 4, y + 7, w - 8, 1  # 1 px tall
-            d = {"id": iid, "src": "parts", "x": x, "y": y, "w": w, "h": h}
+            d = {"id": iid, "src": src, "x": x, "y": y, "w": w, "h": h}
         if divx > 1:
             d["divx"] = divx
         if cycle:
@@ -828,16 +839,18 @@ class Skin:
 
     # images per number font (11 = with padding glyph, 24 = signed, 20 = two
     # animated sets of 10)
-    FRAMES = {"n_big": 11, "n_mid": 11, "n_signed": 24, "n_combo_pg": 20}
+    FRAMES = {"n_big": 11, "n_mid": 11, "n_signed": 24, "n_combo_pg": 20, "n_sel": 11}
 
     def num(self, key, ref, digit, align=0, zeropad=False, blank=False):
         """`blank`: no dim padding zeros (fonts that have them)."""
-        x, y, w, h = self.parts.items[key]
+        src, (x, y, w, h) = self.locate(key)
         n = self.FRAMES.get(key, 10)
         iid = f"{key}#{ref}#{digit}#{int(zeropad)}{'b' if blank else ''}"
+        if align:
+            iid += f"a{align}"
         if iid not in self._ids:
             self._ids.add(iid)
-            v = {"id": iid, "src": "parts", "x": x, "y": y, "w": w, "h": h, "divx": n,
+            v = {"id": iid, "src": src, "x": x, "y": y, "w": w, "h": h, "divx": n,
                  "digit": digit, "ref": ref, "align": align}
             if zeropad:
                 v["zeropadding"] = 1
@@ -868,25 +881,8 @@ class Skin:
         k.update(kw)
         return k
 
-    def shift_of(self, x, y):
-        """Translation of the region containing (x, y); None = dropped."""
-        if self.regions is None:
-            return (0, 0)
-        for (sx, sy, sw, sh), (tx, ty) in self.regions:
-            if sx <= x < sx + sw and sy <= y < sy + sh:
-                return (tx - sx, ty - sy)
-        return None
-
     def put(self, iid, x, y, w, h, timer=0, loop=0, op=None, blend=0, center=0, keys=None,
             fixed=False, **kw):
-        if not fixed and self.regions is not None:
-            px, py = (keys[-1][0], keys[-1][1]) if keys else (x, y)
-            t = self.shift_of(px, py)
-            if t is None:
-                return None
-            if keys:
-                keys = [(k[0] + t[0], k[1] + t[1]) + tuple(k[2:]) for k in keys]
-            x, y = x + t[0], y + t[1]
         d = {"id": iid}
         if timer:
             d["timer"] = timer
@@ -917,11 +913,12 @@ class Skin:
         self.put(iid, x, y, cw, ch, **extra, **kw)
         return cw * digit
 
-    def label_text(self, ref, x, y, w, size, align=0, color=TEXT):
+    def label_text(self, ref, x, y, w, size, align=0, color=TEXT, **kw):
         """Text in the box x..x+w: beatoraja anchors centred text at x and
         right-aligned text at its end, so the anchor moves to the box's
         centre / right edge."""
-        d = self.put(self.text(ref, align), x, y, w, size, r=color[0], g=color[1], b=color[2])
+        d = self.put(self.text(ref, align), x, y, w, size, r=color[0], g=color[1], b=color[2],
+                     **kw)
         if d and align:
             for k in d["dst"]:
                 k["x"] += k["w"] * align // 2
@@ -1947,24 +1944,6 @@ def persp(fonts, parts, mode, portrait):
 
 
 # --- result screen ------------------------------------------------------------
-def relayout(sk, regions):
-    """Move whole regions of a landscape design (portrait variants)."""
-    sk.regions = regions
-
-
-def compose(img, regions, w, h):
-    out = background(w, h)
-    for (sx, sy, sw, sh), (tx, ty) in regions:
-        out.paste(img.crop((sx, sy, sx + sw, sy + sh)), (tx, ty))
-    return out
-
-
-SELECT_PORTRAIT = [
-    ((16, 16, 660, 334), (30, 16)),     # title, stage file, chart facts
-    ((16, 358, 660, 140), (30, 358)),   # personal best
-    ((16, 506, 660, 154), (30, 1062)),  # options
-    ((16, 668, 660, 40), (30, 1224)),   # path
-]
 def graph_obj(sk, kind, gid, extra=None):
     lst = sk.j.setdefault(kind, [])
     if gid not in sk._ids:
@@ -2281,157 +2260,662 @@ def result_layout(fonts, parts, portrait=False):
 
 
 # --- music select ---------------------------------------------------------------
+# LR2's select screen laid out at 16:9 in vibe's own look: tabs, the chart, the
+# song's other charts, the score, buttons, six panel buttons and the status line
+# on the left, the wheel on the right. Its own parts are in select.png. The ids
+# are vibeBMS's (crates/vibebms/src/scene/select/skin.rs) apart from LR2's and
+# beatoraja's chart, score and panel ids.
 LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (70, 210, 120),
                (60, 160, 255), (255, 80, 92), (255, 210, 60), (45, 226, 199), (255, 180, 230),
                (255, 255, 255)]
+VIOLET = (170, 120, 255)
+GREEN = (90, 220, 120)
+ORANGE = (255, 150, 60)
+CYAN = (110, 200, 255)
+FAINT = (74, 83, 114)
+
+# bar types (skin/mod.rs BAR_*): accent colour and tag
+BAR_KINDS = [
+    (TEAL, None), (AMBER, "FOLDER"), (GREEN, "TABLE"), (PINK, "COURSE"), ((150, 110, 130), "COURSE"),
+    (BLUE, "RANDOM"), (VIOLET, "SEARCH"), ((110, 115, 130), None), (ORANGE, "NONSTOP"),
+    (RED, "CLASS"), (AMBER, "EVENT"), (PINK, "FAVORITE"), (CYAN, "VIRTUAL"),
+]
+SORT_LABELS = ["TITLE", "LEVEL", "CLEAR", "SCORE", "MISS COUNT", "LAST PLAYED", "NEW", "BPM",
+               "ARTIST", "NOTES"]
+KEY_LABELS = ["ALL", "7KEYS", "14KEYS", "9KEYS", "5KEYS", "10KEYS"]
+DIFF_NAMES = ["ALL", "BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE"]
+TABS = [("SORT", 12, SORT_LABELS, TEAL), ("KEYS", 11, KEY_LABELS, AMBER),
+        ("DIFFICULTY", 10, DIFF_NAMES, VIOLET)]
+# judge rank (options 180-184)
+JUDGE_RANKS = [("VERY HARD", RED), ("HARD", ORANGE), ("NORMAL", BLUE), ("EASY", GREEN),
+               ("VERY EASY", TEAL)]
+# the six panel buttons: name, hint, accent, event (panel), the panel's option
+BIG_BUTTONS = [("PLAY\nOPTION", "hold START", TEAL, 1, 21),
+               ("SYSTEM\nOPTION", "START + SELECT", AMBER, 3, 23),
+               ("SCORE\nSTATUS", "tap", PINK, 4, 24),
+               ("TAG\nEDITOR", "key 8 · 9", VIOLET, 7, 9027),
+               ("EFFECTS", "sound", BLUE, 6, 26),
+               ("PLAYER\nSTATUS", "tap", GREEN, 5, 25)]
+# CLEAR LAMPS rows: name, lamp (number 9310 + lamp; 11 is FULL COMBO or better)
+LAMP_ROWS = [("FULL COMBO", 11, 8), ("EX-HARD", 7, 7), ("HARD", 6, 6), ("NORMAL", 5, 5),
+             ("EASY", 4, 4), ("L-ASSIST", 3, 3), ("ASSIST", 2, 2), ("FAILED", 1, 1),
+             ("NO PLAY", 0, 0)]
+RANK_NAMES = ["AAA", "AA", "A", "B", "C", "D", "E", "F"]
+
+# vibeBMS ids (select/skin.rs)
+SIBLING, SIBLING_CURRENT, SIBLING_LAMP, EVENT_SIBLING = 9450, 9460, 9470, 9910
+OPTION_REPLAY, OPTION_HAS_TEXT, OPTION_SEARCH = 9220, 9221, 9222
+OPTION_SAVE, OPTION_ONLINE, OPTION_OFFLINE, OPTION_CLEAR = 9230, 9233, 9234, 9240
+OPTION_CLEAR_RATE, OPTION_BAR = 9251, 9480
+FOLDER_LAMPS, FOLDER_RANKS, NUMBER_FOLDER = 9310, 9330, 9300
+TEXT_MODE, TEXT_QUERY, TEXT_SAVE, TEXT_CLEAR, TEXT_NETWORK = 9210, 9211, 9213, 9214, 9215
+EVENT_BACK, EVENT_REPLAY, EVENT_READ_TEXT, EVENT_SEARCH, EVENT_SETTINGS = 9900, 9901, 9902, 9903, 9009
+
+PORT = {
+    "W": 720, "H": 1280,
+    "back": (16, 16, 48, 48), "tabs": [(72, 16, 184, 48), (264, 16, 184, 48), (456, 16, 184, 48)],
+    "gear": (656, 16, 48, 48),
+    "info": (16, 72, 688, 232), "charts": (16, 312, 322, 200), "score": (346, 312, 358, 200),
+    "wheel": dict(x=44, w=660, selx=16, selw=688, top=524, bottom=1044, center=5, slots=11, cy=760),
+    "sb": (710, 524, 6, 520),
+    "btns": (16, 1052), "search": (464, 1052, 240, 48), "bottom": (16, 1108, 688, 156),
+    "big_h": 80, "stat_y": 112,
+}
+LAND = {
+    "W": 1280, "H": 720,
+    "back": (16, 16, 48, 48), "tabs": [(72, 16, 176, 48), (256, 16, 176, 48), (440, 16, 176, 48)],
+    "gear": (628, 16, 48, 48),
+    "info": (16, 72, 660, 232), "charts": (16, 312, 300, 200), "score": (324, 312, 352, 200),
+    "wheel": dict(x=704, w=544, selx=676, selw=572, top=0, bottom=720, center=8, slots=17, cy=338),
+    "sb": (1258, 16, 6, 688),
+    "btns": (16, 520), "search": (464, 520, 212, 48), "bottom": (16, 576, 660, 132),
+    "big_h": 72, "stat_y": 92,
+}
 
 
-# vibeBMS's select options (skin texts 9000 + i / 9100 + i, events 9000 + i)
-SELECT_OPTIONS = 18
-
-
-def select_layout(fonts, parts, portrait=False):
-    W, H = 1280, 720
-    sk = Skin(5, "vibeBMS Default Select", *((720, 1280) if portrait else (W, H)), parts)
-    if portrait:
-        relayout(sk, SELECT_PORTRAIT)
-    sk.j.update({"input": 300, "scene": 3600000, "fadeout": 0})
-    sk.source("bg", f"bg_select{'_portrait' if portrait else ''}.png")
-    sk.put(sk.img("bg", sid="bg"), 0, 0, sk.w, sk.h, fixed=True)
-    img = background(W, H)
-    f = fonts
+def spaced(fonts, s, which, size, color, track=0.08, pad=2):
+    """Text with letter spacing (`track` of the size)."""
+    f = fonts.get(which, size)
+    adv = [f.getlength(c) + size * track for c in s]
+    w = int(sum(adv) - size * track) + pad * 2 + 2
+    asc, desc = f.getmetrics()
+    img = Image.new("RGBA", (max(1, w), asc + desc + pad * 2))
     d = ImageDraw.Draw(img)
-    # --- song list (right) ---
-    if portrait:
-        slots, center, bh, gap = 12, 5, 44, 46
-        lx, lw = 58, 632
-        cy = 510 + center * gap
+    x = pad
+    for c, a in zip(s, adv):
+        d.text((x, pad), c, font=f, fill=color + (255,))
+        x += a
+    return img
+
+
+def flat(fonts, s, which, size, color, pad=2):
+    return text_img(fonts, s, which, size, color, color, (0, 0, 0), 0, pad=pad)
+
+
+def bar_body(fonts, w, kind):
+    """A wheel bar of type `kind`, `w` wide (the selected one is stretched)."""
+    acc, tag = BAR_KINDS[kind]
+    h = 44
+    b = Image.new("RGBA", (w, h))
+    g = vgrad(w - 2, h - 2, (34, 40, 57), (22, 26, 38))
+    m = Image.new("L", (w - 2, h - 2))
+    ImageDraw.Draw(m).rounded_rectangle((0, 0, w - 3, h - 3), 6, fill=255)
+    b.paste(g, (1, 1), m)
+    d = ImageDraw.Draw(b)
+    if kind in (0, 7):
+        # the level's box (the lamp stripes go left of it)
+        d.rounded_rectangle((22, 6, 57, 35), 5, fill=(0, 0, 0, 90))
     else:
-        slots, center, bh, gap = 17, 8, 44, 46
-        lx, lw = 704, 560
-        cy = H // 2 - bh // 2
+        tint = Image.new("RGBA", (w, h))
+        tp = tint.load()
+        for x in range(w):
+            a = int(46 * max(0.0, 1 - x / (w * 0.75)))
+            for y in range(1, h - 1):
+                tp[x, y] = acc + (a,)
+        b.alpha_composite(Image.composite(tint, Image.new("RGBA", (w, h)), m.resize((w, h))))
+        d = ImageDraw.Draw(b)
+        d.rounded_rectangle((6, 6, 11, h - 7), 2, fill=acc + (255,))
+        if tag:
+            t = spaced(fonts, tag, "bold", 10, acc, 0.08, 1)
+            tw, th = t.size
+            tx = w - 34 - (tw + 10)
+            d.rounded_rectangle((tx, 13, tx + tw + 9, 30), 4, outline=mix(acc, PANEL, 0.55) + (255,))
+            b.alpha_composite(t, (tx + 5, 22 - th // 2))
+        d.line((w - 22, 17, w - 17, 22, w - 22, 27), fill=acc + (255,), width=2)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), 7, outline=EDGE + (255,))
+    return b
+
+
+def kind_tile(fonts, kind, w=224, h=168):
+    """The stage file's place for a folder: its type, large."""
+    acc, tag = BAR_KINDS[kind]
+    img = Image.new("RGBA", (w, h))
+    g = vgrad(w, h, mix(acc, BASE, 0.78), mix(acc, BASE, 0.9))
+    m = Image.new("L", (w, h))
+    ImageDraw.Draw(m).rounded_rectangle((0, 0, w - 1, h - 1), 6, fill=255)
+    img.paste(g, (0, 0), m)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), 6, outline=EDGE + (255,))
+    t = spaced(fonts, tag or "FOLDER", "bold", 13, acc, 0.14)
+    img.alpha_composite(t, ((w - t.size[0]) // 2, h - 46))
+    return img
+
+
+def option_label(fonts, s, size=21, color=TEXT, which="xbold"):
+    return flat(fonts, s, which, size, color)
+
+
+def build_select(fonts):
+    """select.png: the music select's own parts."""
+    a = Atlas("select.png")
+    a.add("clear", Image.new("RGBA", (16, 16)))
+    # digits (no outline), 0-9 and a dim padding zero
+    a.add("n_sel", digit_strip(fonts, 10, 28, "bold", 25, (255, 255, 255), (214, 221, 238),
+                               stroke=0, pad_glyph="o"))
+    strip = Image.new("RGBA", (11 * 4, 4))
+    for c, col in enumerate(LAMP_COLORS):
+        ImageDraw.Draw(strip).rectangle((c * 4, 0, c * 4 + 3, 3), fill=col + (255,))
+    a.add("lampstrip", strip)
+    a.add("dot", rounded(8, 8, 4, (255, 255, 255, 255)))
+    for t, _ref, labels, acc in TABS:
+        for v, label in enumerate(labels):
+            col = DIFF_COLORS[v] if t == "DIFFICULTY" and v else TEXT
+            line = DIFF_COLORS[v] if t == "DIFFICULTY" and v else acc
+            img = Image.new("RGBA", (176, 48))
+            ImageDraw.Draw(img).rectangle((10, 0, 45, 1), fill=line + (255,))
+            v_ = flat(fonts, label, "bold", 18, col, pad=0)
+            img.alpha_composite(v_, (30, 33 - v_.size[1]))
+            a.add(f"tab{t}{v}", img)
+    for name in ("MODE", "BPM", "JUDGE", "NOTES", "LENGTH", "CHARTS", "INSTALLED", "PLAYED",
+                 "CLEARED", "EX SCORE", "MAX COMBO", "MISS COUNT", "PLAY COUNT", "IR RANKING",
+                 "IR CLEAR RATE", "CHARTS OF THIS SONG", "CLEAR LAMPS", "DJ RANKS", "NO PLAY",
+                 "JUDGE"):
+        a.add(f"cap_{name}", spaced(fonts, name, "semi", 11 if len(name) > 6 else 10, DIM, 0.06))
+    for row, _l, _c in LAMP_ROWS:
+        a.add(f"lr_{row}", spaced(fonts, row, "semi", 10, DIM, 0.04))
+    a.add("hint_tap", flat(fonts, "tap to switch", "regular", 12, DIM))
+    a.add("hint_min_cb", flat(fonts, "MIN CB", "semi", 12, DIM))
+    a.add("hint_cleared", flat(fonts, "cleared", "semi", 12, DIM))
+    a.add("hint_slash", flat(fonts, "/", "semi", 12, DIM))
+    a.add("hint_pct", flat(fonts, "%", "semi", 12, DIM))
+    a.add("hint_judge", flat(fonts, "judge", "semi", 11, DIM))
+    a.add("hint_query", flat(fonts, "title, artist…", "regular", 14, FAINT))
+    a.add("dash", flat(fonts, "–", "bold", 20, (130, 190, 255)))
+    a.add("colon", flat(fonts, ":", "bold", 20, TEXT))
+    a.add("dash_dim", flat(fonts, "–", "bold", 22, (58, 66, 96)))
+    for k, (name, col) in enumerate(JUDGE_RANKS):
+        a.add(f"jr{k}", flat(fonts, name, "bold", 17 if len(name) < 7 else 13, col))
+    for k, r in enumerate(RANK_NAMES):
+        a.add(f"rn{k}", flat(fonts, r, "bold", 13, TEXT))
+    for name, label, col in (("lbl_ln", "LN", TEAL), ("lbl_bga", "BGA", BLUE),
+                             ("lbl_rand", "RANDOM", PINK), ("lbl_bpm", "BPM CHANGE", AMBER)):
+        im = flat(fonts, label, "bold", 12, (16, 19, 28), pad=0)
+        bg = rounded(im.size[0] + 14, 22, 5, col + (255,))
+        bg.alpha_composite(im, (7, (22 - im.size[1]) // 2))
+        a.add(name, bg)
+    # the song's charts: difficulty badges, lit and not there, the slot of the
+    # selected chart, level bars, lamps
+    for k, name in enumerate(("BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE"), 1):
+        for on in (True, False):
+            col = DIFF_COLORS[k] if on else (38, 44, 62)
+            im = flat(fonts, name, "bold", 11, (16, 19, 28) if on else FAINT, pad=0)
+            bg = rounded(78, 20, 4, col + (255,))
+            bg.alpha_composite(im, ((78 - im.size[0]) // 2, (20 - im.size[1]) // 2))
+            a.add(f"dn{k}{'' if on else 'x'}", bg)
+        bar = Image.new("RGBA", (160, 10))
+        g = Image.new("RGBA", (160, 10))
+        gp = g.load()
+        for x in range(160):
+            c = mix(mix(DIFF_COLORS[k], BASE, 0.65), DIFF_COLORS[k], x / 159)
+            for y in range(10):
+                gp[x, y] = c + (255,)
+        m = Image.new("L", (160, 10))
+        ImageDraw.Draw(m).rounded_rectangle((0, 0, 159, 9), 3, fill=255)
+        bar.paste(g, (0, 0), m)
+        a.add(f"lvbar{k}", bar)
+    dashed = Image.new("RGBA", (160, 10))
+    for x in range(0, 160, 10):
+        ImageDraw.Draw(dashed).rounded_rectangle((x, 0, x + 5, 9), 2, fill=(32, 38, 58, 255))
+    a.add("lvbar_none", dashed)
+    cur = Image.new("RGBA", (300, 30))
+    ImageDraw.Draw(cur).rounded_rectangle((0, 0, 299, 29), 6, fill=(45, 226, 199, 26),
+                                          outline=(45, 226, 199, 180))
+    a.add("slot_cur", cur)
+    for c, col in enumerate(LAMP_COLORS):
+        a.add(f"lampcell{c}", rounded(6, 20, 2, col + (255,)))
+        a.add(f"lampbar{c}", rounded(64, 9, 2, col + (255,)))
+    a.add("rankbar_gold", vgrad(32, 108, (255, 224, 138), (255, 176, 32)))
+    a.add("rankbar_slate", vgrad(32, 108, (143, 160, 200), (74, 86, 119)))
+    for name, label, col in (("pill_ready", "IR READY", TEAL), ("pill_loading", "IR LOADING", AMBER),
+                             ("pill_error", "IR ERROR", RED)):
+        t = spaced(fonts, label, "bold", 11, col, 0.06, 0)
+        p = Image.new("RGBA", (t.size[0] + 34, 22))
+        ImageDraw.Draw(p).rounded_rectangle((0, 0, p.size[0] - 1, 21), 11, fill=col + (36,))
+        ImageDraw.Draw(p).ellipse((10, 7, 17, 14), fill=col + (255,))
+        p.alpha_composite(t, (24, (22 - t.size[1]) // 2))
+        a.add(name, p)
+    a.add("nosong", text_img(fonts, "NOT INSTALLED", "black_it", 30, (255, 240, 200), AMBER,
+                             (40, 25, 0), 2))
+    a.add("nosong_hint", flat(fonts, "ENTER: download it (from a mirror, or its download page)",
+                              "semi", 13, DIM))
+    # buttons under the score: lit and dimmed
+    for key, label, w in (("help", "HELP", 84), ("replay", "▶▶ REPLAY", 108),
+                          ("auto", "▶ AUTOPLAY", 116), ("text", "READ TEXT", 108)):
+        for on in (True, False):
+            col = TEXT if on else FAINT
+            b = rounded(w, 48, 8, (PANEL_HI if on else (23, 27, 40)) + (255,),
+                        (EDGE if on else (38, 45, 68)) + (255,))
+            t = flat(fonts, label, "bold", 13, col, pad=0)
+            icon = 16 if key == "text" else 0
+            tx = (w - t.size[0] - icon) // 2 + icon
+            b.alpha_composite(t, (tx, (48 - t.size[1]) // 2))
+            if icon:
+                bd = ImageDraw.Draw(b)
+                for ly in (19, 24, 29):
+                    bd.line((tx - icon, ly, tx - 6, ly), fill=col + (255,), width=2)
+            a.add(f"btn_{key}{'' if on else '_off'}", b)
+    a.add("big_on", rounded(16, 16, 4, (31, 53, 64, 255)))
+    for i, (name, hint, acc, _ev, _op) in enumerate(BIG_BUTTONS):
+        for on in (False, True):
+            w, h = 101, 80
+            b = Image.new("RGBA", (w, h))
+            d = ImageDraw.Draw(b)
+            d.rounded_rectangle((0, 0, w - 1, h - 1), 9, fill=((31, 53, 64) if on else PANEL_HI) + (255,),
+                                outline=(TEAL if on else EDGE) + (255,))
+            d.rounded_rectangle((1, 1, w - 2, 5), 2, fill=acc + (255,))
+            lines = name.split("\n")
+            y = 16 if len(lines) == 2 else 24
+            for ln in lines:
+                t = spaced(fonts, ln, "xbold", 13, TEXT, 0.04, 0)
+                b.alpha_composite(t, ((w - t.size[0]) // 2, y))
+                y += 17
+            t = spaced(fonts, hint, "semi", 10, DIM, 0.03, 0)
+            b.alpha_composite(t, ((w - t.size[0]) // 2, h - 18))
+            a.add(f"big{i}{'_on' if on else ''}", b)
+    a.add("sb_thumb", rounded(6, 40, 3, TEAL + (255,)))
+    cur = Image.new("RGBA", (600, 52))
+    ImageDraw.Draw(cur).rounded_rectangle((2, 2, 597, 49), 10, outline=TEAL + (255,), width=2)
+    a.add("barcursor", cur.filter(ImageFilter.GaussianBlur(0.6)))
+    for w in (544, 660):
+        for k in range(len(BAR_KINDS)):
+            a.add(f"bar{k}_{w}", bar_body(fonts, w, k))
+    for k in range(len(BAR_KINDS)):
+        a.add(f"tile{k}", kind_tile(fonts, k))
+        acc, tag = BAR_KINDS[k]
+        if tag:
+            a.add(f"kindcap{k}", spaced(fonts, tag if k != 2 else "DIFFICULTY TABLE", "semi", 13, DIM,
+                                        0.14))
+    return a
+
+
+def sel_put(sk, key, x, y, w=None, h=None, op=None, act=None, click=0, **kw):
+    """A select part at (x, y) (its own size unless given), clickable with `act`."""
+    pw, ph = sk.size(key)
+    iid = sk.img(key)
+    if act is not None:
+        iid = f"{key}@{act}"
+        if iid not in sk._ids:
+            sk._ids.add(iid)
+            d = dict(next(i for i in sk.j["image"] if i["id"] == key))
+            d.update(id=iid, act=act)
+            if click:
+                d["click"] = click
+            sk.j["image"].append(d)
+    return sk.put(iid, x, y, pw if w is None else w, ph if h is None else h, op=op, **kw)
+
+
+def sel_header(sk, img, f, g):
+    d = ImageDraw.Draw(img)
+    x, y, w, h = g["back"]
+    panel(img, (x, y, w, h), accent=PANEL)
+    d.polygon([(x + 30, y + 15), (x + 30, y + 33), (x + 17, y + 24)], fill=DIM + (255,))
+    sel_put(sk, "clear", x, y, w, h, act=EVENT_BACK)
+    for (title, ref, labels, _acc), (x, y, w, h) in zip(TABS, g["tabs"]):
+        panel(img, (x, y, w, h), accent=PANEL)
+        img.alpha_composite(spaced(f, title, "semi", 10, DIM, 0.08, 0), (x + 30, y + 7))
+        draw_label(img, f, x + 10, y + 24, "‹", 16, FAINT, "regular", anchor="lm")
+        draw_label(img, f, x + w - 10, y + 24, "›", 16, FAINT, "regular", anchor="rm")
+        sid = f"tabset{ref}"
+        if sid not in sk._ids:
+            sk._ids.add(sid)
+            sk.j["imageset"].append({"id": sid, "ref": ref, "act": ref, "click": 2, "images": [
+                sk.img(f"tab{title}{v}") for v in range(len(labels))]})
+        sk.put(sid, x, y, w, h)
+    x, y, w, h = g["gear"]
+    panel(img, (x, y, w, h), accent=PANEL)
+    for k, (ly, cx) in enumerate(((15, 19), (24, 29), (33, 18))):
+        d.line((x + 13, y + ly, x + w - 13, y + ly), fill=DIM + (255,), width=2)
+        d.ellipse((x + cx - 4, y + ly - 4, x + cx + 4, y + ly + 4), fill=PANEL + (255,),
+                  outline=DIM + (255,), width=2)
+    sel_put(sk, "clear", x, y, w, h, act=EVENT_SETTINGS)
+
+
+def sel_info(sk, img, f, g):
+    x, y, w, h = g["info"]
+    panel(img, (x, y, w, h), accent=PINK)
+    d = ImageDraw.Draw(img)
+    # stage file (else banner), else for a folder its type
+    d.rounded_rectangle((x + 12, y + 12, x + 236, y + 180), 6, fill=(0, 0, 0, 255),
+                        outline=EDGE + (255,))
+    for iid, ref in (("stagefile", 100), ("banner", 102)):
+        if iid not in sk._ids:
+            sk._ids.add(iid)
+            sk.j["image"].append({"id": iid, "ref": ref})
+    sk.put("stagefile", x + 13, y + 13, 222, 166, op=[191])
+    sk.put("banner", x + 13, y + 13, 222, 166, op=[190, 193])
+    for k in range(1, len(BAR_KINDS)):
+        if k != 7:
+            sel_put(sk, f"tile{k}", x + 12, y + 12, op=[OPTION_BAR + k])
+            cw = int(sk.num("n_sel", 300, 5)[1] * 2.0)
+            sk.number("n_sel", 300, 5, x + 12 + (224 - 5 * cw) // 2, y + 46, align=2, scale=2.0,
+                      blank=True, color=BAR_KINDS[k][0], op=[OPTION_BAR + k])
+    cx = x + 12
+    for key, op in (("lbl_ln", 173), ("lbl_bga", 171), ("lbl_rand", 179), ("lbl_bpm", 177)):
+        sel_put(sk, key, cx, y + 190, op=[op, 2])
+        cx += sk.size(key)[0] + 5
+    tx, tw = x + 252, w - 264
+    sk.label_text(1000, tx, y + 12, tw - 170, 15, color=DIM)
+    sk.label_text(1003, tx + tw - 230, y + 10, 230, 15, align=2, color=TEAL)
+    sk.label_text(13, tx, y + 34, tw, 15, color=DIM)
+    for k in range(1, len(BAR_KINDS)):
+        if BAR_KINDS[k][1]:
+            sel_put(sk, f"kindcap{k}", tx, y + 34, op=[OPTION_BAR + k])
+    sk.label_text(10, tx - 2, y + 52, tw, 42)
+    sk.label_text(11, tx, y + 104, tw, 17, color=DIM)
+    sk.label_text(16, tx, y + 128, tw, 20)
+    d.line((tx, y + 166, tx + tw, y + 166), fill=(52, 62, 92, 210), width=1)
+    # facts: MODE, BPM, JUDGE, NOTES, LENGTH (a folder: its counts)
+    fw = tw / 5
+    ly, vy = y + 176, y + 190
+    for i, name in enumerate(("MODE", "BPM", "JUDGE", "NOTES", "LENGTH")):
+        sel_put(sk, f"cap_{name}", tx + i * fw, ly, op=[-1])
+    sk.label_text(TEXT_MODE, tx, vy, fw, 21, color=TEXT)
+    bx = tx + fw
+    s = 0.8
+    cw = int(sk.num("n_sel", 91, 3)[1] * s)
+    sk.number("n_sel", 91, 3, bx, vy, align=1, scale=s, color=(130, 190, 255), blank=True)
+    sel_put(sk, "dash", bx + 3 * cw, vy - 1, op=[177])
+    sk.number("n_sel", 90, 3, bx + 3 * cw + 12, vy, align=1, scale=s, color=(130, 190, 255),
+              op=[177], blank=True)
+    for k in range(5):
+        sel_put(sk, f"jr{k}", tx + 2 * fw - 2, vy - 2, op=[180 + k])
+    sk.number("n_sel", 74, 5, tx + 3 * fw, vy, align=1, scale=s, blank=True, op=[-1])
+    lx = tx + 4 * fw - cw
+    sk.number("n_sel", 1163, 2, lx, vy, scale=s, blank=True, op=[5])
+    sel_put(sk, "colon", lx + 2 * cw - 2, vy - 2, op=[5])
+    sk.number("n_sel", 1164, 2, lx + 2 * cw + 6, vy, zeropad=True, scale=s, op=[5])
+    fw4 = tw / 4
+    for i, (name, col) in enumerate((("CHARTS", TEXT), ("INSTALLED", TEAL), ("PLAYED", TEXT),
+                                     ("CLEARED", GREEN))):
+        sel_put(sk, f"cap_{name}", tx + i * fw4, ly, op=[1])
+        sk.number("n_sel", NUMBER_FOLDER + i, 5, tx + i * fw4, vy, align=1, scale=s, color=col,
+                  blank=True, op=[1])
+
+
+def sel_charts(sk, img, f, g):
+    """The song's charts by difficulty (a folder: its lamps)."""
+    x, y, w, h = g["charts"]
+    panel(img, (x, y, w, h), accent=AMBER)
+    d = ImageDraw.Draw(img)
+    sel_put(sk, "cap_CHARTS OF THIS SONG", x + 12, y + 8, op=[-1])
+    tw_ = sk.size("hint_tap")[0]
+    sel_put(sk, "hint_tap", x + w - 12 - tw_, y + 7, op=[-1])
+    sw = w - 16
+    bw = sw - 130 - 22
+    for k in range(5):
+        sx, sy = x + 8, y + 34 + 33 * k
+        on, off = [-1, SIBLING + k], [-1, -(SIBLING + k)]
+        d.rounded_rectangle((sx, sy, sx + sw - 1, sy + 29), 6,
+                            fill=mix(PANEL, (255, 255, 255), 0.03) + (255,))
+        sel_put(sk, "slot_cur", sx, sy, sw, 30, op=[-1, SIBLING_CURRENT + k])
+        sel_put(sk, f"dn{k + 1}", sx + 6, sy + 5, op=on)
+        sel_put(sk, f"dn{k + 1}x", sx + 6, sy + 5, op=off)
+        lw_ = sk.num("n_sel", SIBLING + k, 2)[1]
+        sk.number("n_sel", SIBLING + k, 2, sx + 120 - 2 * lw_, sy + 1, color=DIFF_COLORS[k + 1],
+                  op=on, blank=True)
+        sel_put(sk, "dash_dim", sx + 100, sy + 2, op=off)
+        sk.put(graph_part(sk, f"lvbar{k + 1}", SIBLING + k), sx + 130, sy + 10, bw, 10, op=on)
+        sel_put(sk, "lvbar_none", sx + 130, sy + 10, bw, 10, op=off)
+        sid = f"sibling_lamp{k}"
+        if sid not in sk._ids:
+            sk._ids.add(sid)
+            sk.j["imageset"].append({"id": sid, "ref": SIBLING_LAMP + k, "images": [
+                sk.img(f"lampcell{c}") for c in range(11)]})
+        sk.put(sid, sx + sw - 12, sy + 5, 6, 20, op=on)
+        sel_put(sk, "clear", sx, sy, sw, 30, op=on, act=EVENT_SIBLING + k)
+    # a folder: charts per lamp
+    sel_put(sk, "cap_CLEAR LAMPS", x + 12, y + 8, op=[1])
+    bw = w - 170
+    for i, (row, lamp, col) in enumerate(LAMP_ROWS):
+        ry = y + 30 + i * 18.5
+        sel_put(sk, f"lr_{row}", x + 12, ry + 1, op=[1])
+        sk.put(graph_part(sk, f"lampbar{col}", FOLDER_LAMPS + lamp), x + 100, ry + 4, bw, 9, op=[1])
+        cw = int(sk.num("n_sel", FOLDER_LAMPS + lamp, 5)[1] * 0.6)
+        sk.number("n_sel", FOLDER_LAMPS + lamp, 5, x + w - 12 - 5 * cw, ry, scale=0.6, blank=True,
+                  op=[1])
+
+
+def graph_part(sk, key, ref, angle=0):
+    """A bar of select part `key` filled by rate `ref`."""
+    gid = f"graph{key}_{ref}"
+    if gid not in sk._ids:
+        sk._ids.add(gid)
+        src, (px, py, pw, ph) = sk.locate(key)
+        sk.j["graph"].append({"id": gid, "src": src, "x": px, "y": py, "w": pw, "h": ph,
+                              "angle": angle, "type": ref})
+    return gid
+
+
+def sel_score(sk, img, f, g):
+    """The record of the selected chart and its IR (a folder: its DJ ranks)."""
+    x, y, w, h = g["score"]
+    panel(img, (x, y, w, h), accent=PINK)
+    graph_obj(sk, "imageset", "cleartype", {"ref": 370, "images": [sk.img(f"lamp{k}")
+                                                                    for k in range(11)]})
+    lw, lh = sk.size("lamp0")
+    sk.put("cleartype", x + 6, y + 4, int(lw * 38 / lh), 38, op=[5])
+    rw, rh = sk.size("rank0")
+    for k in range(8):
+        sk.put(sk.img(f"rank{k}"), x + w - 8 - int(rw * 56 / rh), y - 2, int(rw * 56 / rh), 56,
+               op=[320 + k])
+    sk.label_text(9200, x + 12, y + 43, w - 150, 13, color=DIM, op=[5])
+    jw = sk.size("hint_judge")[0]
+    sk.label_text(9007, x + w - 12 - jw - 4 - 100, y + 43, 100, 13, align=2, color=DIM, op=[5])
+    sel_put(sk, "hint_judge", x + w - 12 - jw, y + 42, op=[5])
+    s = 0.72
+    cw = int(sk.num("n_sel", 71, 5)[1] * s)
+    vx = x + 124
+    rows = ("EX SCORE", "MAX COMBO", "MISS COUNT", "PLAY COUNT", "IR RANKING", "IR CLEAR RATE")
+    for k, name in enumerate(rows):
+        ry = int(y + 62 + 22.5 * k)
+        sk.put(sk.img("white"), x + 12, ry, w - 24, 1, op=[5], r=40, g=47, b=70)
+        sel_put(sk, f"cap_{name}", x + 12, ry + 6, op=[5])
+    def row_y(k):
+        return int(y + 62 + 22.5 * k) + 2
+    sk.number("n_sel", 71, 5, vx, row_y(0), scale=s, op=[5])
+    sk.number("n_sel", 75, 5, vx, row_y(1), scale=s, op=[5])
+    sk.number("n_sel", 76, 5, vx, row_y(2), scale=s, op=[5])
+    sk.number("n_sel", 77, 5, vx, row_y(3), scale=s, op=[5])
+    sk.number("n_sel", 179, 5, vx, row_y(4), scale=s, op=[5])
+    sk.number("n_sel", 9250, 3, vx, row_y(5), scale=s, op=[5, OPTION_CLEAR_RATE])
+    sx = vx + 5 * cw + 6
+    for k, ref in ((0, 72), (1, 74), (4, 180)):
+        sel_put(sk, "hint_slash", sx, row_y(k) + 4, op=[5])
+        sk.number("n_sel", ref, 5, sx + 10, row_y(k) + 3, align=1, scale=0.55, blank=True,
+                  op=[5])
+    sel_put(sk, "hint_pct", vx + 3 * cw + 6, row_y(5) + 4, op=[5, OPTION_CLEAR_RATE])
+    rx = x + w - 12
+    # the EX score rate, MIN CB, clears
+    sc = 0.55
+    nw = int(sk.num("n_sel", 102, 3)[1] * sc)
+    sel_put(sk, "hint_pct", rx - 10, row_y(0) + 4, op=[5])
+    sk.number("n_sel", 103, 2, rx - 14 - 2 * nw, row_y(0) + 3, zeropad=True, scale=sc, op=[5],
+              color=DIM)
+    sk.put(sk.img("white"), rx - 14 - 2 * nw - 4, row_y(0) + 15, 2, 2, op=[5], r=DIM[0],
+           g=DIM[1], b=DIM[2])
+    sk.number("n_sel", 102, 3, rx - 14 - 2 * nw - 6 - 3 * nw, row_y(0) + 3, scale=sc, blank=True,
+              op=[5], color=DIM)
+    sk.number("n_sel", 9425, 4, rx - 4 * nw, row_y(2) + 3, scale=sc, blank=True, op=[5],
+              color=DIM)
+    sel_put(sk, "hint_min_cb", rx - 4 * nw - 4 - sk.size("hint_min_cb")[0], row_y(2) + 4, op=[5])
+    cl = sk.size("hint_cleared")[0]
+    sel_put(sk, "hint_cleared", rx - cl, row_y(3) + 4, op=[5])
+    sk.number("n_sel", 78, 4, rx - cl - 4 - 4 * nw, row_y(3) + 3, scale=sc, blank=True, op=[5],
+              color=DIM)
+    for key, op in (("pill_ready", 602), ("pill_loading", 601), ("pill_error", 604)):
+        pw = sk.size(key)[0]
+        sel_put(sk, key, x + w - 12 - pw, y + h - 30, op=[5, op])
+    for key, y_ in (("nosong", y + 66), ("nosong_hint", y + 112)):
+        sel_put(sk, key, x + 12, y_, op=[2, -5])
+    # a folder: charts per DJ rank
+    sel_put(sk, "cap_DJ RANKS", x + 12, y + 8, op=[1])
+    cw8 = (w - 36) / 8
+    for k in range(8):
+        bx = x + 18 + k * cw8
+        key = "rankbar_gold" if k < 3 else "rankbar_slate"
+        sk.put(graph_part(sk, key, FOLDER_RANKS + k, 1), bx, y + 32, cw8 - 10, 108, op=[1])
+        rn = sk.size(f"rn{k}")[0]
+        sel_put(sk, f"rn{k}", bx + (cw8 - 10 - rn) / 2, y + 143, op=[1])
+        nw = int(sk.num("n_sel", FOLDER_RANKS + k, 4)[1] * 0.55)
+        sk.number("n_sel", FOLDER_RANKS + k, 4, bx + (cw8 - 10) / 2 - 2 * nw, y + 162, align=2,
+                  scale=0.55, blank=True, color=DIM, op=[1])
+    nw = int(sk.num("n_sel", NUMBER_FOLDER + 2, 5)[1] * 0.6)
+    sel_put(sk, "cap_PLAYED", x + 12, y + 183, op=[1])
+    sk.number("n_sel", NUMBER_FOLDER + 2, 5, x + 70, y + 180, align=1, scale=0.6, blank=True,
+              op=[1])
+    sel_put(sk, "cap_NO PLAY", x + 150, y + 183, op=[1])
+    sk.number("n_sel", FOLDER_RANKS + 8, 5, x + 214, y + 180, align=1, scale=0.6, blank=True,
+              op=[1])
+
+
+def sel_buttons(sk, img, f, g):
+    """HELP, REPLAY, AUTOPLAY, READ TEXT and the search box."""
+    x, y = g["btns"]
+    for key, w, act, lit, dims in (
+            ("help", 84, 8, [], None),
+            ("replay", 108, EVENT_REPLAY, [5, OPTION_REPLAY], ([-5], [5, -OPTION_REPLAY])),
+            ("auto", 116, 16, [-1], ([1],)),
+            ("text", 108, EVENT_READ_TEXT, [5, OPTION_HAS_TEXT], ([-5], [5, -OPTION_HAS_TEXT]))):
+        sel_put(sk, f"btn_{key}", x, y, op=lit or None, act=act)
+        for op in dims or ():
+            sel_put(sk, f"btn_{key}_off", x, y, op=op)
+        x += w + 8
+    x, y, w, h = g["search"]
+    panel(img, (x, y, w, h), accent=VIOLET)
+    t = spaced(f, "SEARCH", "xbold", 12, VIOLET, 0.08, 0)
+    img.alpha_composite(t, (x + 12, y + (h - t.size[1]) // 2))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((x + w - 32, y + 14, x + w - 12, y + 34), 5, fill=(13, 16, 25, 255),
+                        outline=EDGE + (255,))
+    draw_label(img, f, x + w - 22, y + 24, "/", 11, DIM, "bold", anchor="mm")
+    sel_put(sk, "hint_query", x + 84, y + 15, op=[-OPTION_SEARCH])
+    sk.label_text(TEXT_QUERY, x + 84, y + 16, w - 124, 16)
+    sel_put(sk, "clear", x, y, w, h, act=EVENT_SEARCH)
+
+
+def sel_bottom(sk, img, f, g):
+    """The six panel buttons and the status line."""
+    x, y, w, h = g["bottom"]
+    panel(img, (x, y, w, h), accent=TEAL)
+    bh = g["big_h"]
+    bw = (w - 20 - 5 * 7) / 6
+    for i, (_n, _h, _acc, ev, op) in enumerate(BIG_BUTTONS):
+        bx = x + 10 + i * (bw + 7)
+        sel_put(sk, f"big{i}", bx, y + 10, bw, bh, op=[-op], act=ev)
+        sel_put(sk, f"big{i}_on", bx, y + 10, bw, bh, op=[op], act=ev)
+    sy = y + g["stat_y"] + 15
+    cx = x + 14
+    for label, dots, text, tw in (
+            ("SCORE", [(OPTION_SAVE, TEAL), (OPTION_SAVE + 1, AMBER), (OPTION_SAVE + 2, FAINT)],
+             TEXT_SAVE, 90),
+            ("CLEAR", [(OPTION_CLEAR + c, col) for c, col in enumerate(LAMP_COLORS)], TEXT_CLEAR,
+             90),
+            ("IR", [(OPTION_ONLINE, TEAL), (OPTION_OFFLINE, RED)], TEXT_NETWORK, None)):
+        t = spaced(f, label, "semi", 12, DIM, 0.05, 0)
+        img.alpha_composite(t, (cx, sy - t.size[1] // 2))
+        cx += t.size[0] + 8
+        for op, col in dots:
+            sk.put(sk.img("dot"), cx, sy - 4, 8, 8, op=[op], r=col[0], g=col[1], b=col[2])
+        if label == "IR":
+            sk.put(sk.img("dot"), cx, sy - 4, 8, 8, op=[-OPTION_ONLINE, -OPTION_OFFLINE],
+                   r=FAINT[0], g=FAINT[1], b=FAINT[2])
+        cx += 14
+        sk.label_text(text, cx, sy - 8, tw or (x + w - 14 - cx), 16)
+        cx += (tw or 0) + 22
+
+
+def sel_wheel(sk, img, g):
+    wh = g["wheel"]
+    lx, lw, selx, selw, center, slots, cy = (wh[k] for k in
+                                              ("x", "w", "selx", "selw", "center", "slots", "cy"))
+    bh, pitch = 44, 46
     off, on = [], []
     for k in range(slots):
-        y = cy + (k - center) * gap
-        off.append({"id": "bar", "dst": [sk.key(lx, y, lw, bh, fixed=True, time=0, r=190, g=195,
-                                                b=210)]})
-        on.append({"id": "bar", "dst": [sk.key(lx - 28, y, lw + 28, bh, fixed=True, time=0)]})
-    graph_obj(sk, "imageset", "bar", {"images": [sk.img(f"bar{k}") for k in range(8)]})
-    # long titles: cut off, the selected one scrolls
+        y = cy + (k - center) * pitch
+        off.append({"id": "bar", "dst": [sk.key(lx, y, lw, bh, fixed=True, time=0, r=200, g=205,
+                                                b=218)]})
+        on.append({"id": "bar", "dst": [sk.key(selx, y, selw, bh, fixed=True, time=0)]})
+    graph_obj(sk, "imageset", "bar", {"images": [sk.img(f"bar{k}_{lw}")
+                                                 for k in range(len(BAR_KINDS))]})
     sk.j["text"].append({"id": "bartext", "ref": 0, "align": 0, "overflow": 3})
     # sub-destinations: y-up offsets from the bar's bottom
     rel = lambda x, y, w, h, **kw: dict(time=0, x=x, y=bh - (y + h), w=w, h=h, **kw)
     level = []
-    for k, col in enumerate(DIFF_COLORS):
-        iid, cw, ch = sk.num("n_mid", 96, 2)
-        level.append({"id": iid, "dst": [rel(lw - 28 - 2 * cw, 8, cw, ch, r=col[0], g=col[1],
-                                                 b=col[2])]})
+    iid, cw, ch = sk.num("n_sel", 96, 2, align=2, blank=True)
+    cw, ch = int(cw * 0.86), int(ch * 0.86)
+    for col in DIFF_COLORS:
+        level.append({"id": iid, "dst": [rel(40 - cw, 22 - ch // 2, cw, ch, r=col[0], g=col[1],
+                                             b=col[2])]})
     def lamps(x, w):
-        return [{"id": sk.img("lampcell"), "dst": [rel(x, 6, w, 32, r=c[0], g=c[1], b=c[2])]}
-                for c in LAMP_COLORS]
-    # with a rival (or the player's IR lamps) beside: a thin second lamp
+        return [{"id": sk.img(f"lampcell{c}"), "dst": [rel(x, 6, w, 32)]} for c in range(11)]
+    cid, ccw, cch = sk.num("n_sel", 300, 5, blank=True)
+    ccw, cch = int(ccw * 0.62), int(cch * 0.62)
+    src, (px, py, pw, ph) = sk.locate("lampstrip")
+    graph_obj(sk, "graph", "bardist", {"type": -1, "src": src, "x": px, "y": py, "w": pw, "h": ph,
+                                       "divx": 11})
     sk.j["songlist"] = {
         "id": "songlist", "center": center, "clickable": list(range(slots)),
         "listoff": off, "liston": on,
-        "text": [{"id": "bartext", "dst": [rel(36, 11, lw - 120, 22)]}],
-        "level": level, "lamp": lamps(18, 8), "playerlamp": lamps(18, 8),
-        "rivallamp": lamps(28, 4),
+        "text": [{"id": "bartext", "dst": [rel(68, 10, lw - 84, 24)]}],
+        "foldertext": [{"id": "bartext", "dst": [rel(26, 10, lw - 200, 24)]}],
+        "level": level, "lamp": lamps(6, 6), "playerlamp": lamps(6, 6), "rivallamp": lamps(14, 3),
+        "count": {"id": cid, "dst": [rel(lw - 128 - 5 * ccw, 22 - cch // 2, ccw, cch, r=TEXT[0],
+                                         g=TEXT[1], b=TEXT[2])]},
+        "graph": {"id": "bardist", "dst": [rel(26, bh - 7, lw - 200, 3)]},
     }
     sk.put("songlist", 0, 0, sk.w, sk.h, fixed=True)
-    cw_, ch_ = parts.items["barcursor"][2:]
+    cx, cw_ = selx - 8, selw + 16
     sk.put(sk.img("barcursor"), 0, 0, 0, 0, blend=2, loop=0, fixed=True, keys=[
-        (lx - 28 - 10, cy - 4, lw + 28 + 20, bh + 8, dict(time=0, a=255)),
-        (lx - 28 - 10, cy - 4, lw + 28 + 20, bh + 8, dict(time=600, a=140)),
-        (lx - 28 - 10, cy - 4, lw + 28 + 20, bh + 8, dict(time=1200, a=255)),
+        (cx, cy - 4, cw_, bh + 8, dict(time=0, a=255)),
+        (cx, cy - 4, cw_, bh + 8, dict(time=600, a=140)),
+        (cx, cy - 4, cw_, bh + 8, dict(time=1200, a=255)),
     ])
-    # --- left: selected chart ---
-    header(sk, img, f, 16, 16, 660, 86)
-    # stage file / banner (4:3)
-    d.rounded_rectangle((16, 110, 336, 350), 6, fill=(0, 0, 0, 255), outline=EDGE + (255,))
-    sk.j["image"].append({"id": "stagefile", "ref": 100})
-    sk._ids.add("stagefile")
-    sk.put("stagefile", 20, 114, 312, 234, op=[191])
-    sk.j["image"].append({"id": "banner", "ref": 102})
-    sk._ids.add("banner")
-    sk.put("banner", 20, 114, 312, 234, op=[190, 193])
-    # chart facts
-    panel(img, (344, 110, 332, 240), "CHART", f)
-    draw_label(img, f, 358, 146, "LEVEL", 13, TEXT)
-    for k, col in enumerate(DIFF_COLORS[:6]):
-        sk.number("n_big", 96, 2, 600, 134, color=col, op=[150 + k])
-    draw_label(img, f, 358, 190, "BPM", 13, TEXT)
-    sk.number("n_mid", 91, 3, 470, 180, color=(130, 190, 255))
-    draw_label(img, f, 534, 190, "-", 14, TEXT)
-    sk.number("n_mid", 90, 3, 548, 180, color=(255, 130, 180), op=[177])
-    draw_label(img, f, 358, 228, "NOTES", 13, TEXT)
-    sk.number("n_mid", 74, 5, 556, 218)
-    draw_label(img, f, 358, 266, "LENGTH", 13, TEXT)
-    sk.number("n_mid", 1163, 2, 566, 256)
-    draw_label(img, f, 612, 266, ":", 16, TEXT, "bold", anchor="ma")
-    sk.number("n_mid", 1164, 2, 620, 256, zeropad=True)
-    lx2 = 358
-    for key, op in (("lbl_ln", 173), ("lbl_rand", 179), ("lbl_bpm", 177), ("lbl_bga", 171)):
-        w_, h_ = parts.items[key][2:]
-        sk.put(sk.img(key), lx2, 310, w_, h_, op=[op, 2])
-        lx2 += w_ + 6
-    # personal best
-    panel(img, (16, 358, 660, 140), "PERSONAL BEST", f, accent=AMBER)
-    graph_obj(sk, "imageset", "clear", {"ref": 370, "images": [sk.img(f"lamp{k}") for k in range(11)]})
-    lw_, lh_ = parts.items["lamp0"][2:]
-    sk.put("clear", 26, 380, lw_ * 2 // 3, lh_ * 2 // 3, op=[5])
-    rw, rh = parts.items["rank0"][2:]
-    for k in range(8):
-        sk.put(sk.img(f"rank{k}"), 676 - 16 - rw // 2, 362, rw // 2, rh // 2, op=[320 + k])
-    for k, (label, x) in enumerate((("EX SCORE", 30), ("RATE", 165), ("MIN BP", 290),
-                                    ("MIN CB", 384), ("COMBO", 480))):
-        draw_label(img, f, x, 448, label, 11)
-    sk.number("n_mid", 71, 5, 30, 462, op=[5])
-    sk.number("n_mid", 102, 3, 165, 462, op=[5])
-    sk.put(sk.img("white"), 165 + 21 * 3 + 1, 484, 4, 4, op=[5])
-    sk.number("n_mid", 103, 2, 165 + 21 * 3 + 6, 462, zeropad=True, op=[5])
-    sk.number("n_mid", 76, 4, 290, 462, op=[5])
-    # the record's min CB (vibeBMS number 9425)
-    sk.number("n_mid", 9425, 4, 384, 462, op=[5])
-    sk.number("n_mid", 75, 5, 480, 462, op=[5])
-    # the judge preset the record is of (option 7's value)
-    sk.label_text(9007, 134, 364, 100, 12, color=DIM)
-    draw_label(img, f, 590, 448, "PLAYS", 11)
-    sk.number("n_small", 77, 4, 590, 466, op=[5])
-    # the IR: the lamp beside and the rank (vibeBMS text 9200), the top three
-    sk.label_text(9200, 240, 366, 300, 13, align=2, color=DIM)
-    for i in range(3):
-        sk.label_text(120 + i, 316, 384 + 15 * i, 150, 12, color=DIM)
-        sk.number("n_small", 380 + i, 4, 476, 384 + 15 * i, scale=0.6, op=[602])
-    # a chart the table lists that is not installed
-    for key, y_ in (("nosong", 378), ("nosong_hint", 420)):
-        w_, h_ = parts.items[key][2:]
-        sk.put(sk.img(key), 30, y_, w_, h_, op=[2, -5])
-    # options: clickable buttons (vibeBMS option ids 9000 + i)
-    panel(img, (16, 506, 660, 154), "OPTIONS", f)
-    for i in range(SELECT_OPTIONS):
-        bx, by = 22 + (i % 6) * 109, 528 + (i // 6) * 44
-        bid = f"optbtn{i}"
-        if bid not in sk._ids:
-            sk._ids.add(bid)
-            x_, y_, w_, h_ = parts.items["optbtn"]
-            sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
-                                  "act": 9000 + i})
-        sk.put(bid, bx, by, 104, 43)
-        sk.label_text(9100 + i, bx + 5, by + 4, 94, 10, align=1, color=DIM)
-        sk.label_text(9000 + i, bx + 5, by + 18, 94, 18, align=1)
-    # footer
-    panel(img, (16, 668, 660, 40))
-    bw_, bh_ = parts.items["btn_back"][2:]
-    if "back_act" not in sk._ids:
-        sk._ids.add("back_act")
-        x_, y_, w_, h_ = parts.items["btn_back"]
-        sk.j["image"].append({"id": "back_act", "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
-                              "act": 9900})
-    sk.put("back_act", 22, 674, bw_, bh_)
-    sk.label_text(1000, 116, 678, 340, 18, color=DIM)
-    draw_label(img, f, 664, 688, "F10 / : SEARCH    F5 AUTOPLAY", 11, DIM, anchor="rm")
-    if portrait:
-        img = compose(img, SELECT_PORTRAIT, 720, 1280)
+    x, y, w, h = g["sb"]
+    ImageDraw.Draw(img).rounded_rectangle((x - 1, y, x + w, y + h - 1), 4, fill=(13, 16, 25, 255),
+                                          outline=(38, 45, 68, 255))
+    if "sb_thumb" not in sk._ids:
+        sk._ids.add("sb_thumb")
+        src, (px, py, pw, ph) = sk.locate("sb_thumb")
+        sk.j["slider"].append({"id": "sb_thumb", "src": src, "x": px, "y": py, "w": pw, "h": ph,
+                               "angle": 2, "range": h - 40, "type": 1})
+    sk.put("sb_thumb", x, y, w, 40)
+
+
+def select_layout(fonts, parts, sel, portrait=False):
+    g = PORT if portrait else LAND
+    W, H = g["W"], g["H"]
+    sk = Skin(5, "vibeBMS Default Select", W, H, parts, sel)
+    sk.j.update({"input": 300, "scene": 3600000, "fadeout": 0})
+    sk.source("bg", f"bg_select{'_portrait' if portrait else ''}.png")
+    sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
+    img = background(W, H)
+    sel_wheel(sk, img, g)
+    sel_header(sk, img, fonts, g)
+    sel_info(sk, img, fonts, g)
+    sel_charts(sk, img, fonts, g)
+    sel_score(sk, img, fonts, g)
+    sel_buttons(sk, img, fonts, g)
+    sel_bottom(sk, img, fonts, g)
     option_panels(sk, portrait)
     return sk, img
 
@@ -2484,9 +2968,11 @@ def main():
     vgrad(16, 256, (10, 12, 24), (20, 16, 34)).convert("RGB").save(OUT / "bg_persp.png",
                                                                      optimize=True)
     emit(*result_layout(fonts, parts), "result.json", "bg_result.png")
-    emit(*select_layout(fonts, parts), "select.json", "bg_select.png")
+    sel = build_select(fonts)
+    sel.build().save(OUT / sel.name, optimize=True)
+    emit(*select_layout(fonts, parts, sel), "select.json", "bg_select.png")
     emit(*result_layout(fonts, parts, True), "result_portrait.json", "bg_result_portrait.png")
-    emit(*select_layout(fonts, parts, True), "select_portrait.json", "bg_select_portrait.png")
+    emit(*select_layout(fonts, parts, sel, True), "select_portrait.json", "bg_select_portrait.png")
     for name, img in bgs.items():
         img.convert("RGB").quantize(128).convert("RGB").save(OUT / name, optimize=True)
     total = sum(p.stat().st_size for p in OUT.iterdir())

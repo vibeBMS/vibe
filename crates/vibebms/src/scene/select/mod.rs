@@ -72,8 +72,8 @@ pub struct SelectScene {
     held_nav: Option<Repeat<Nav>>,
     md5_map: HashMap<String, usize>,
     sha_map: HashMap<String, usize>,
-    /// The library's charts by song folder (a song's other charts).
-    folders: HashMap<String, Vec<usize>>,
+    /// The library's charts by the folder of their file (a song's charts).
+    song_dirs: HashMap<String, Vec<usize>>,
     /// The selected chart's replay and text files.
     files: RefCell<status::ChartFiles>,
     preview_for: Option<String>,
@@ -132,7 +132,7 @@ impl SelectScene {
             held_nav: None,
             md5_map: HashMap::new(),
             sha_map: HashMap::new(),
-            folders: HashMap::new(),
+            song_dirs: HashMap::new(),
             files: Default::default(),
             preview_for: None,
             preview_until: None,
@@ -166,14 +166,17 @@ impl SelectScene {
         self.dist_cache.borrow_mut().clear();
         self.md5_map.clear();
         self.sha_map.clear();
-        self.folders.clear();
+        self.song_dirs.clear();
         *self.files.borrow_mut() = Default::default();
         for (i, s) in ctx.lib.songs.iter().enumerate() {
             if !s.md5.is_empty() {
                 self.md5_map.insert(s.md5.clone(), i);
             }
             self.sha_map.insert(s.sha256.clone(), i);
-            self.folders.entry(s.folder.clone()).or_default().push(i);
+            self.song_dirs
+                .entry(status::song_dir(s))
+                .or_default()
+                .push(i);
         }
         let key = self.bars.get(self.cursor).map(|b| self.bar_key(ctx, b));
         self.bars = self.listing(ctx, &self.node);

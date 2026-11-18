@@ -508,6 +508,9 @@ pub struct SongListSkin {
     /// Title: destination, align, overflow (as in `Kind::Text`), bitmap
     /// font.
     pub text: Option<(Dst, i32, i32, Option<usize>)>,
+    /// vibeBMS `foldertext`: the title's destination on bars other than
+    /// charts (folders, courses, commands), else `text`'s.
+    pub folder_text: Option<Dst>,
     /// The title's font file and outline / shadow (beatoraja).
     pub text_face: Option<PathBuf>,
     pub text_fx: TextFx,

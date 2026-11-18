@@ -198,6 +198,7 @@ select-song 9425: n=30 b=30
 select-song 9453: o n=11 b=11 r=0.9166667
 select-song 9463: o
 select-song 9473: n=6 b=6
+select-song 9480: o
 select-folder 1: o
 select-folder 2: t="PLAYER"
 select-folder 10: n=250 b=0 t="GOLDEN"
@@ -349,6 +350,28 @@ select-folder 9300: n=1 b=1
 select-folder 9301: n=1 b=1
 select-folder 9302: n=1 b=1
 select-folder 9303: n=1 b=1
+select-folder 9310: n=0 b=0
+select-folder 9311: n=0 b=0
+select-folder 9312: n=0 b=0
+select-folder 9313: n=0 b=0
+select-folder 9314: n=0 b=0
+select-folder 9315: n=0 b=0
+select-folder 9316: n=1 b=1 r=1
+select-folder 9317: n=0 b=0
+select-folder 9318: n=0 b=0
+select-folder 9319: n=0 b=0
+select-folder 9320: n=0 b=0
+select-folder 9321: n=0 b=0
+select-folder 9330: n=0 b=0
+select-folder 9331: n=0 b=0
+select-folder 9332: n=1 b=1 r=1
+select-folder 9333: n=0 b=0
+select-folder 9334: n=0 b=0
+select-folder 9335: n=0 b=0
+select-folder 9336: n=0 b=0
+select-folder 9337: n=0 b=0
+select-folder 9338: n=0 b=0
+select-folder 9481: o
 select-folder distribution false: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
 select-folder distribution true: [0, 0, 1, 0, 0, 0, 0, 0, 0]
 decide 2: t="PLAYER"

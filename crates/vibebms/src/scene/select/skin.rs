@@ -67,6 +67,8 @@ pub const TEXT_COVER: i32 = 9217;
 /// IR clear rate is known.
 pub const OPTION_REPLAY: i32 = 9220;
 pub const OPTION_HAS_TEXT: i32 = 9221;
+/// vibeBMS option: a search's results are shown.
+pub const OPTION_SEARCH: i32 = 9222;
 pub const OPTION_SAVE: i32 = 9230;
 pub const OPTION_ONLINE: i32 = 9233;
 pub const OPTION_OFFLINE: i32 = 9234;
@@ -79,6 +81,15 @@ pub const OPTION_CLEAR_RATE: i32 = 9251;
 pub const NUMBER_CLEAR_RATE: i32 = 9250;
 pub const NUMBER_VOLUME: i32 = 9260;
 pub const NUMBER_FOLDER: i32 = 9300;
+/// vibeBMS numbers and rates: the selected folder's charts of lamp c
+/// (9310 + c, beatoraja order; 9321 FULL COMBO or better) and of DJ level
+/// r (9330 + r: AAA .. F, then not played); the rates are of the largest
+/// count of their kind (the levels' without the not played).
+pub const FOLDER_LAMPS: i32 = 9310;
+pub const FOLDER_RANKS: i32 = 9330;
+
+/// vibeBMS option 9480 + t: the selected bar is of type t (`BAR_*`).
+pub const OPTION_BAR: i32 = 9480;
 
 /// The song's charts by difficulty slot k (BEGINNER .. INSANE): option
 /// `SIBLING + k` there is one, `SIBLING_CURRENT + k` it is the selected
@@ -261,6 +272,22 @@ impl<'a> SelectState<'a> {
         (!parts.is_empty()).then(|| parts.join("   "))
     }
 
+    /// The selected folder's charts of lamp / DJ level `id`
+    /// (`FOLDER_LAMPS`, `FOLDER_RANKS`), and the largest count of its kind.
+    fn folder_count(&self, id: i32) -> Option<(u32, u32)> {
+        let (lamps, ranks) = self.s.folder_distribution(self.ctx, self.s.cursor)?;
+        let (set, k): (&[u32], i32) = match id >= FOLDER_RANKS {
+            true => (&ranks, id - FOLDER_RANKS),
+            false => (&lamps, id - FOLDER_LAMPS),
+        };
+        let n = match k {
+            11 if id < FOLDER_RANKS => set[ClearType::FullCombo as usize..].iter().sum(),
+            k => *set.get(k as usize)?,
+        };
+        let played = if id >= FOLDER_RANKS { &set[..8] } else { set };
+        Some((n, played.iter().copied().max().unwrap_or(0)))
+    }
+
     /// Volume `k`: master, key sounds, BGM, system.
     fn volume(&self, k: i32) -> Option<f32> {
         let a = &self.ctx.config.audio;
@@ -302,6 +329,10 @@ impl<'a> SelectState<'a> {
                 .1
                 .is_some_and(|c| c as i32 == n - OPTION_CLEAR),
             OPTION_CLEAR_RATE => self.rank_view().and_then(status::clear_rate).is_some(),
+            OPTION_SEARCH => self.s.query().is_some(),
+            n @ OPTION_BAR..=9492 => self
+                .bar(self.s.cursor)
+                .is_some_and(|b| b.kind as i32 == n - OPTION_BAR),
             n @ SIBLING..=9454 => self.sibling(n, SIBLING).is_some(),
             n @ SIBLING_CURRENT..=9464 => (self.sibling(n, SIBLING_CURRENT).zip(self.song))
                 .is_some_and(|(a, b)| std::ptr::eq(a, b)),
@@ -455,7 +486,7 @@ impl SkinState for SelectState<'_> {
             n @ 1500..=1819 => {
                 crate::scene::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
-            n @ 9220..=9464 => self.vibe_option(n).unwrap_or(false),
+            n @ 9220..=9492 => self.vibe_option(n).unwrap_or(false),
             601 => matches!(self.rank, Some(Rank::Loading(_))),
             602 => matches!(self.rank, Some(Rank::Done(_))),
             604 => matches!(self.rank, Some(Rank::Error)),
@@ -504,6 +535,7 @@ impl SkinState for SelectState<'_> {
                 let d = self.s.folder_distribution(self.ctx, self.s.cursor)?;
                 status::folder_facts(*count, &d)[(n - NUMBER_FOLDER) as usize]
             }
+            n @ FOLDER_LAMPS..=9338 => self.folder_count(n)?.0 as i64,
             n @ SIBLING..=9454 => self.sibling(n, SIBLING)?.level_num(),
             n @ SIBLING_LAMP..=9474 => self.lamp_of(self.sibling(n, SIBLING_LAMP)?) as i64,
             1163 => song?.length_ms / 60000,
@@ -605,6 +637,9 @@ impl SkinState for SelectState<'_> {
             1 if n > 1 => self.s.scroll.rem_euclid(n as f32) / (n - 1) as f32,
             110 | 113 => self.best.map(|b| b.rate() as f32).unwrap_or(0.0),
             NUMBER_VOLUME..=9263 => self.volume(id - NUMBER_VOLUME).unwrap_or(0.0),
+            FOLDER_LAMPS..=9338 => self
+                .folder_count(id)
+                .map_or(0.0, |(n, max)| n as f32 / max.max(1) as f32),
             SIBLING..=9454 => self
                 .sibling(id, SIBLING)
                 .map_or(0.0, |s| (s.level_num() as f32 / 12.0).clamp(0.0, 1.0)),
@@ -759,6 +794,8 @@ impl Hooks for SelectHooks<'_> {
                 })
             };
             if let Some((t, align, overflow, font)) = sl.text.as_ref() {
+                let chart = matches!(info.base, BAR_SONG | BAR_NOSONG);
+                let t = sl.folder_text.as_ref().filter(|_| !chart).unwrap_or(t);
                 if let Some((tr, f)) = sub(t) {
                     let mut c = f.color;
                     c[3] *= fr.color[3];
@@ -915,12 +952,15 @@ mod tests {
         use vibebms_core::PlayMode::{Beat14K, Beat7K};
         let root = std::env::temp_dir().join(format!("vibebms-select-sib-{}", std::process::id()));
         let mut ctx = Ctx::for_test(root.clone());
+        // (b's chart is in a's library folder, not in its song's folder)
+        let mut other = chart("b", Beat7K, 1, "1");
+        other.folder = "a".into();
         ctx.lib.songs = Arc::new(vec![
             chart("a", Beat7K, 2, "5"),
             chart("a", Beat7K, 4, "11"),
             chart("a", Beat7K, 4, "12"),
             chart("a", Beat14K, 1, "3"),
-            chart("b", Beat7K, 1, "1"),
+            other,
         ]);
         let mut s = SelectScene::new(&mut ctx);
         s.bars = vec![Bar::Song(1), Bar::Song(0)];

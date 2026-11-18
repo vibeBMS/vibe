@@ -65,6 +65,13 @@ pub(super) fn songlist(cx: &Ctx, sl: &Value, h: f32) -> SongListSkin {
             key.rect.x -= key.rect.w * k; // anchored like other beatoraja text
         }
         out.text = Some((d, get("align"), get("overflow"), None));
+        out.folder_text = arr(sl.get("foldertext")).first().map(|t| {
+            let mut d = rel(t);
+            for key in &mut d.keys {
+                key.rect.x -= key.rect.w * k;
+            }
+            d
+        });
         out.text_face = def.and_then(|t| cx.face(t));
         out.text_fx = def.map(text_fx).unwrap_or_default();
         out.text_size = def.and_then(text_size);
