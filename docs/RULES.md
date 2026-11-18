@@ -370,6 +370,51 @@ linear in time between its points, from 1 at time 0 to the first, the last after
 time or the judge. Under CONSTANT the notes go by time, so neither has an effect. A NONSTOP course's scroll goes by
 time (above) and drops its stages' `#SCROLL` and `#SPEED`.
 
+## Negative BPM
+A BMS chart's `#BPMxx` (or `#EXBPMxx`) below 0, used by a channel 08 object, is played as LR2 plays it, the way
+bmz-player describes and follows LR2's [S36]: LR2 "reverses" the scroll there [S37] and the notes after it run
+backwards and do not come back [S38]. A chart without a negative BPM is played exactly as before (`timing.rs`, `engine.rs`).
+
+- **Tempo**: the absolute value. The notes, BGM, keysounds, BGA and STOPs are timed as with that positive BPM (a STOP's
+  length in beats at the absolute value) [S36]: chart time only goes forward. The BPM shown (play skins, the BPM guide,
+  song select, the min / max / main BPM, HS-FIX, the green number) is the absolute value [S36].
+- **Fold point**: the time `T` at which the negative BPM is reached (before a STOP on its beat). One at time 0 (beat 0)
+  only sets the tempo [S36]; a negative `#BPMxx` no object uses makes none [S36]. A positive BPM after it does not undo
+  it; the next negative BPM's fold point takes its place [S36].
+- **The lane**: from `T` on, it is drawn from the scroll position mirrored about `T`'s: `2 pos(T) − pos(t)` [S36]. So
+  the notes, long notes and bar lines after `T` move up, away from the judge line, at the absolute BPM's scroll speed
+  (`#SCROLL` and `#SPEED` acting on it as ever; a STOP holds it), and do not come back. At the next fold point the lane
+  jumps to that point's position and runs back from there: the notes before it come up from below the judge line.
+  Under CONSTANT the notes are placed by their time against the judge's clock (below).
+- **The judge's clock**: chart time `t` up to the first fold point, then `2T − t`, `T` the last fold point before `t`
+  [S36]. A press or release (its judge offset taken off first [S36]), a miss, a mine, a long note's end and a HCN's body
+  all go by it. Where it runs back nothing is passed or missed anew. So, after a fold point, a note after `T` is never
+  reached: only one within the early window of `T` can be hit, early (a note 100 ms after `T` pressed at `T` is 100 ms
+  early), and a note just before `T` the clock turned at before it was missed can still be hit as the clock comes back
+  to it (late, then on time, then early). At the next fold point the clock jumps forward to it: the notes it jumps past
+  by more than their late window are missed then (POOR), those just before it are reached on its way back.
+- **Autoplay** and auto lanes (AUTO SCRATCH) judge by the same clock: they play each note it reaches or jumps past. Their
+  keysounds and the BGM are scheduled at the notes' own (forward) times, so the music plays on [S36].
+- **The end**: a play whose notes are all judged ends as ever. One whose notes the clock never reached ends as a play
+  whose notes are judged at the last note's time would (a second after it, 0.5 s after the last BGM; RESULT WAIT: 5 s
+  after the last note, BGM or BGA layer), and FAILED [S36]. (LR2 plays on until it is quit [S38].)
+- **Replays** keep chart times; the judge folds them as it reads them, so a replay judges as it was played [S36]. A
+  replay of such a chart recorded before vibeBMS played negative BPMs (it ignored them) may judge otherwise; the replay
+  format is unchanged.
+- Practice sections, the chart viewer (both played from a time) and NONSTOP courses keep the fold points, moved with
+  the section's or stage's time: a section after a fold point is judged on the folded clock too.
+- Not folded: a negative `#BPM` header (130 BPM, as before: what LR2 does is not known); channel 03 (hexadecimal, never
+  negative); bmson (a BPM below 0 is still ignored). Two objects LR2 reads otherwise are not followed: an 08 object whose
+  `#BPMxx` is not defined (LR2: −1, so backwards [S37]; vibeBMS ignores it) and `#BPMxx 0` (LR2 stops [S37]; vibeBMS
+  ignores it). What does not fold: the BPM and density graphs, generated previews and the loudness measure go by chart
+  time and the absolute BPM.
+
+What is inferred, by bmz-player (which writes that it compared none of it with LR2 itself [S36]) or by vibeBMS: the
+lane's mirrored scroll (after `T` it runs back at the time map's scroll speed, not as the part before `T` came); the
+clock's `2T − t` and its jump at a later fold point, and the misses there; STOP, `#SCROLL` and `#SPEED` after a fold
+point; autoplay's clock; the FAILED end. S-OLR2 also has the judging clock mirrored about the change (inferred there
+too, `docs/LR2_BEHAVIOUR.md` 8).
+
 ## Lane options
 Each side's lane option is drawn from the play's seed (2P from seed + 1) with Java's `Random`, so a replay draws
 the same lanes (`lane_option.rs`).
@@ -575,12 +620,8 @@ Not followed, and why no gap covers it:
   mine just behind a note not yet judged waits for that note; vibeBMS resolves each at its own time. It differs
   only when an LN head is within 200 ms minus GOOD, or a mine within 200 ms, after an unjudged note of its lane.
 - Objects that start inside an LN of their lane are dropped by LR2; vibeBMS drops notes there, not mines.
-- Battle and negative BPM: vibeBMS does not offer them. A negative `#BPMxx` is ignored (the BPM before it goes
-  on). LR2 plays it at its absolute value and folds the lane at it: the notes after it are drawn coming back the
-  other way, and bmz-player, which follows LR2, folds the judge's time at the same points too (its `docs/hs.md`).
-  vibeBMS's timing is one map from beats to time and scroll in which time only goes forward, and the judge reads
-  it; a folded lane would need a second, folding time for drawing and judging, which no source describes well
-  enough to judge by, so it is left out. LR2's courses are followed (above, "LR2 courses"), but no
+- Battle: vibeBMS does not offer it. A negative BPM is played as bmz-player describes LR2's (above, "Negative BPM"),
+  which no one compared with LR2 [S36]; no gap covers it. LR2's courses are followed (above, "LR2 courses"), but no
   IR takes a course play. Of the IR adapters, Bokutachi cannot file a P-ATTACK or G-ATTACK play (Tachi's BMS gauges
   are EASY, NORMAL, HARD, EX-HARD) and refuses it; BMS-IR reads LR2's attack gauges (its change log: P-ATTACK apart
   from the clear, G-ATTACK clears shown as G-A); rianIR is not known to and refuses them.
@@ -767,6 +808,26 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
 - **S35** RemyWiki, "beatmania IIDX Arcade General Information", <https://remywiki.com/AC_General_Info>: HAZARD mode
   (EMPRESS on), "a single combo break will trigger instant stage failure"; EXPERT mode's gauge starts at 100 % and
   "when the gauge hits 0% at any point, it is a game over".
+- **S36** bmz-player (a player that follows LR2), its docs, read 2026-11 (prose only):
+  `docs/hs.md` "BMSの負のBPM", `docs/gameplay-runtime.md` "採点の確定とResultのゲージ履歴" and the note
+  `notes/2026/2026-11-14-lr2-negative-bpm.md`, <https://github.com/hyrorre/bmz-player>. A channel 08 negative `#BPMxx`
+  is "LR2互換で" (as LR2) its absolute value as the tempo: `-83` times the notes, BGM and STOPs at 83 BPM, and 83 is
+  the BPM shown. From the negative BPM the notes', LNs' and bar lines' drawn positions are folded about it; a positive
+  BPM keeps the fold, the next negative BPM moves its point. The manual judge's time is `2 × T − t` from the last fold
+  point `T`, the input offset added before; misses, mines and LN ends fold too; inputs are recorded, sounded and
+  replayed in forward chart time and folded once at judging; autoplay's inputs go by the note times. With notes left
+  unjudged by the fold the play ends FAILED after the usual end wait. An event at exactly time 0 sets the tempo
+  without a fold; an unused negative definition makes none. Checked on a real chart (`foon_tournamix_2014.bms`'s
+  `#RANDOM` branches); "LR2実機での開始処理、フレーム境界、判定窓や描画の細部との比較は未実施" (not compared with LR2 itself).
+- **S37** hitkey, "Extended BPM - BMS Command", <https://hitkey.nekokan.dyndns.info/exbpm-object.htm>: how players
+  read `#BPMxx` values. LR2: negative "Reverse" (bemaniaDX, BM98, uBMplay and others too; ruv-it!, Angolmois,
+  Sonorous "Rev->End"), zero "Stop", a lone 08 object (undefined index) "−1".
+- **S38** beatoraja issue #853, "機能要望：負数BPMの扱いについて" (2025), <https://github.com/exch-bms2/beatoraja/issues/853>,
+  its text: the request calls LR2's "譜面が逆走して帰ってこない" (the chart runs backwards and does not come back) and
+  "譜面が帰ってこずそのまま曲が終了する" (it does not come back and the song ends); the reply, "LR2の負数BPMの処理では
+  定義直後のノーツが逆走するだけ、そのまま無限ループ演奏終了はESCのみ" (in LR2 the notes right after it only run
+  backwards, then it loops on and only Esc ends the play), and that negative BPM is no part of the BMS format but each
+  player's own.
 
 S4 (re-read 2026-11) describes beatoraja's three note choices: コンボ優先 takes the note a GOOD or better can take,
 and when both or neither can, the lower; "LR2に近い処理（らしい）" (reportedly close to LR2). スコア優先 the same with
