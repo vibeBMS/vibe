@@ -401,6 +401,7 @@ Status: **confirmed** (OpenLR2 does the same), **contradicted**, **not covered**
 | LN head miss | not covered | LN head is POOR once more than GOOD late (not 200) | not covered; must be implemented |
 | LN judgement timing | not covered | combo, gauge and counts change at the tail, not at the head | not covered |
 | LN counts | not stated for LR2 | 1 note | consistent |
+| negative BPM | its absolute value; from its time `T` the judge's clock is `2T − t` and the lane runs back ("Negative BPM", after bmz-player's description) | the judging clock mirrored around the time of the change (inferred) | consistent (both inferred) |
 | `#LNTYPE` / CN / HCN | LR2 has only LN | `#LNTYPE` not read; only LN | confirmed |
 | scratch LN reverse spin | not covered | a new press during a held LN gives an empty POOR (or re-judges the head) | not covered (inferred) |
 | GROOVE values | 1, 1, 0.5 ×T/n; −4, −6, −2; start 20; border 80 | same | confirmed |

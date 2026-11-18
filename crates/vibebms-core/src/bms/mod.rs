@@ -7,7 +7,8 @@
 //!   SPEEDxx
 //! * control flow: RANDOM / SETRANDOM / IF / ELSEIF / ELSE / ENDIF / ENDRANDOM,
 //!   SWITCH / SETSWITCH / CASE / SKIP / DEF / ENDSW (nested)
-//! * channels: 01 BGM, 02 measure length, 03/08 BPM, 09 STOP, SC scroll, SP
+//! * channels: 01 BGM, 02 measure length, 03/08 BPM (a negative 08 BPM as
+//!   LR2: its absolute value, and a fold point), 09 STOP, SC scroll, SP
 //!   speed (beatoraja's),
 //!   04/06/07/0A BGA, 1x/2x notes, 3x/4x invisible, 5x/6x long notes,
 //!   Dx/Ex mines
@@ -249,6 +250,9 @@ mod tests {
             "#BPM 1e300",
             "#BPM NaN",
             "#BPM01 0\n#00108:01",
+            "#BPM01 -1e300\n#00108:01",
+            "#BPM01 -0\n#00108:01",
+            "#BPM01 -120\n#BPM02 -1e-300\n#00108:0102\n#00208:01",
             "#STOP01 1e300\n#00109:01",
             "#STOP01 -1e9\n#00109:01",
             "#SCROLL01 1e300\n#001SC:01",
@@ -269,6 +273,7 @@ mod tests {
             for t in [0.0, 1e6, 1e12] {
                 let _ = (c.timing.beat_at_time(t), c.timing.bpm_at_time(t));
                 let _ = c.timing.speed_at_time(t);
+                let _ = (c.timing.drawn_pos_at_time(t), c.timing.judge_time(t as i64));
             }
         }
     }

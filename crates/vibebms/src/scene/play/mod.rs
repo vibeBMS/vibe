@@ -593,9 +593,11 @@ impl PlayScene {
         let failed = self.session.step(t, now, offsets, show, &mut self.out);
         self.play_out(ctx);
         let quit = self.controls.quit;
+        // (a negative BPM left notes the judge never reaches: FAILED)
+        let stranded = self.session.stranded(t);
         // practice with LOOP: the section again at once
         let repeat = self.req.practice.as_ref().is_some_and(|p| p.repeat);
-        if repeat && !quit && (failed || self.session.over(t)) {
+        if repeat && !quit && (failed || stranded || self.session.over(t)) {
             self.practice_again(ctx, now);
             return;
         }
@@ -616,11 +618,11 @@ impl PlayScene {
                 wall_ms,
             };
             ctx.audio.mixer.stop_bus(Bus::Bgm);
-        } else if self.session.over(t) {
+        } else if stranded || self.session.over(t) {
             let (ended_ms, wall_ms) = ended();
             self.stage = Stage::Ending {
                 since: now,
-                failed: false,
+                failed: stranded,
                 ended_ms,
                 wall_ms,
             };

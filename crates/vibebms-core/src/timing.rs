@@ -46,6 +46,9 @@ pub struct TimingMap {
     pub stops: Vec<StopEvent>,
     /// `#SPEED` points in time order (none: 1 throughout).
     speeds: Vec<SpeedPoint>,
+    /// Fold points (µs, in time order): where a BMS chart's negative BPM
+    /// takes effect (LR2's backward scroll). None in most charts.
+    folds: Vec<i64>,
 }
 
 /// (Without `#SPEED` points, as it was before them: the parser corpus's
@@ -58,6 +61,9 @@ impl std::fmt::Debug for TimingMap {
             .field("stops", &self.stops);
         if !self.speeds.is_empty() {
             d.field("speeds", &self.speeds);
+        }
+        if !self.folds.is_empty() {
+            d.field("folds", &self.folds);
         }
         d.finish()
     }
@@ -81,6 +87,10 @@ pub enum TimingEvent {
     /// beatoraja's `#SPEED` (channel SP): the scroll speed of the whole
     /// lane, reached at this point, interpolated in time from the last.
     Speed(f64),
+    /// A fold point: the lane and the judge's clock turn back from the
+    /// time this beat is reached (a BMS negative BPM, played at its
+    /// absolute value as a `Bpm` at the same beat). None at time 0.
+    Fold,
 }
 
 impl TimingMap {
@@ -103,6 +113,7 @@ impl TimingMap {
             }],
             stops: Vec::new(),
             speeds: Vec::new(),
+            folds: Vec::new(),
         }
     }
 
@@ -129,6 +140,7 @@ impl TimingMap {
             let mut stop_us = 0.0;
             let mut new_scroll = None;
             let mut new_speed = None;
+            let mut fold = false;
             while j < events.len() && events[j].0.max(0.0) == beat {
                 match events[j].1 {
                     TimingEvent::Bpm(b) if b > 0.0 => new_bpm = Some(b),
@@ -137,11 +149,18 @@ impl TimingMap {
                     TimingEvent::StopMicros(s) if s > 0.0 => stop_us += s,
                     TimingEvent::Scroll(s) => new_scroll = Some(s),
                     TimingEvent::Speed(s) if s.is_finite() => new_speed = Some(s),
+                    TimingEvent::Fold => fold = true,
                     _ => {}
                 }
                 j += 1;
             }
             let t = map.time_at_beat_f(beat);
+            // (at the time the beat is reached, before a stop there; an
+            // event at time 0 only sets the tempo)
+            let at = t.round() as i64;
+            if fold && at > 0 && map.folds.last() != Some(&at) {
+                map.folds.push(at);
+            }
             if let Some(speed) = new_speed {
                 // (at the time the beat is reached, before a stop there)
                 map.speeds.push(SpeedPoint { time: t, speed });
@@ -278,6 +297,41 @@ impl TimingMap {
                     speed: p.speed,
                 })
                 .collect(),
+            folds: (self.folds.iter())
+                .map(|&f| at(f as f64).round() as i64)
+                .collect(),
+        }
+    }
+
+    /// The fold points (µs, in time order): from each, the judge's clock
+    /// runs back from it ([`fold_time`]) and the lane scrolls back
+    /// ([`TimingMap::drawn_pos_at_time`]). Empty for a chart without a
+    /// negative BPM.
+    pub fn folds(&self) -> &[i64] {
+        &self.folds
+    }
+
+    /// The map with these fold points (µs, in time order), as a NONSTOP
+    /// course's joined map takes on its stages'.
+    pub fn with_folds(mut self, folds: Vec<i64>) -> TimingMap {
+        self.folds = folds;
+        self
+    }
+
+    /// The judge's clock at chart time `t`: [`fold_time`] of the folds.
+    pub fn judge_time(&self, t: i64) -> i64 {
+        fold_time(&self.folds, t)
+    }
+
+    /// The scroll position the lane is drawn from at time `t`: the
+    /// position at `t` ([`TimingMap::pos_at_time`]), mirrored about the
+    /// position of the last fold point before `t`, so that the lane runs
+    /// back from there at the scroll speed of the time map.
+    pub fn drawn_pos_at_time(&self, t: f64) -> f64 {
+        let i = self.folds.partition_point(|&f| (f as f64) < t);
+        match i {
+            0 => self.pos_at_time(t),
+            i => 2.0 * self.pos_at_time(self.folds[i - 1] as f64) - self.pos_at_time(t),
         }
     }
 
@@ -419,6 +473,18 @@ impl TimingMap {
     }
 }
 
+/// The judge's clock at chart time `t` with fold points `folds` (µs, in
+/// time order): `t` until the first, then `2 T - t` from the last fold
+/// point `T` before `t` (bmz-player's LR2 negative BPM, its
+/// `docs/gameplay-runtime.md`): it runs back from each fold point, and
+/// jumps to the next one when it is reached.
+pub fn fold_time(folds: &[i64], t: i64) -> i64 {
+    match folds.partition_point(|&f| f < t) {
+        0 => t,
+        i => folds[i - 1].saturating_mul(2).saturating_sub(t),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,6 +598,71 @@ mod tests {
         let sc = TimingMap::build(120.0, vec![(2.0, TimingEvent::Scroll(0.5))]);
         assert!(sc.has_scroll_changes());
         assert_eq!(sc.without_scroll().pos_at_beat(4.0), 4.0);
+    }
+
+    #[test]
+    fn the_judge_clock_runs_back_from_each_fold() {
+        assert_eq!(fold_time(&[], 5), 5);
+        let f = [1_000_000, 3_000_000];
+        assert_eq!(fold_time(&f, 500_000), 500_000);
+        assert_eq!(fold_time(&f, 1_000_000), 1_000_000);
+        assert_eq!(fold_time(&f, 1_500_000), 500_000);
+        assert_eq!(fold_time(&f, 2_900_000), -900_000);
+        // the next fold point: from it, back from there
+        assert_eq!(fold_time(&f, 3_000_000), -1_000_000);
+        assert_eq!(fold_time(&f, 3_000_001), 2_999_999);
+        assert_eq!(fold_time(&f, 4_000_000), 2_000_000);
+        assert_eq!(fold_time(&[i64::MAX], i64::MIN), i64::MIN);
+    }
+
+    #[test]
+    fn a_fold_turns_the_lane_back() {
+        // 120 BPM (a beat 0.5 s), a fold at beat 4 (2 s) at 60 BPM (the
+        // negative BPM's absolute value), SCROLL 2 from beat 6
+        let m = TimingMap::build(
+            120.0,
+            vec![
+                (4.0, TimingEvent::Bpm(60.0)),
+                (4.0, TimingEvent::Fold),
+                (6.0, TimingEvent::Scroll(2.0)),
+            ],
+        );
+        assert_eq!(m.folds(), &[2_000_000]);
+        assert_eq!(m.time_at_beat(6.0), 4_000_000);
+        assert_eq!(m.judge_time(1_000_000), 1_000_000);
+        assert_eq!(m.judge_time(3_000_000), 1_000_000);
+        let drawn = |t: f64| m.drawn_pos_at_time(t);
+        assert!((drawn(1_000_000.0) - 2.0).abs() < 1e-9);
+        assert!((drawn(2_000_000.0) - 4.0).abs() < 1e-9);
+        // a beat a second, back from beat 4; twice as fast under SCROLL 2
+        assert!((drawn(3_000_000.0) - 3.0).abs() < 1e-9);
+        assert!((drawn(5_000_000.0) - 0.0).abs() < 1e-9);
+        // the time map goes on forward
+        assert!((m.pos_at_time(5_000_000.0) - 8.0).abs() < 1e-9);
+        assert_eq!(m.bpm_at_time(3_000_000.0), 60.0);
+        assert_eq!(m.bpm_stats(6_000_000).0, 60.0);
+        // retimed and without scroll, it keeps them (moved)
+        assert_eq!(m.retimed(1_000_000, 2.0).folds(), &[500_000]);
+        assert_eq!(m.without_scroll().folds(), &[2_000_000]);
+        // shown in its Debug form only when there are folds
+        assert!(format!("{m:?}").contains("folds"));
+        assert!(!format!("{:?}", TimingMap::build(120.0, vec![])).contains("folds"));
+    }
+
+    #[test]
+    fn a_fold_at_time_0_only_sets_the_tempo() {
+        let m = TimingMap::build(
+            120.0,
+            vec![(0.0, TimingEvent::Bpm(60.0)), (0.0, TimingEvent::Fold)],
+        );
+        assert!(m.folds().is_empty());
+        assert_eq!(m.time_at_beat(1.0), 1_000_000);
+        // one fold point for two at a beat
+        let m = TimingMap::build(
+            120.0,
+            vec![(2.0, TimingEvent::Fold), (2.0, TimingEvent::Fold)],
+        );
+        assert_eq!(m.folds(), &[1_000_000]);
     }
 
     #[test]

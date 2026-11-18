@@ -12,12 +12,19 @@
 //! [`Engine::update`] (which handles the queued inputs, each at its own
 //! timestamp in time order, then advances to `now`). Its output is a list
 //! of [`EngineEvent`]s plus the score, logs, ghost and gauge.
+//!
+//! A chart with fold points (a BMS negative BPM, `TimingMap::folds`) is
+//! judged on the folded clock (`timing::fold_time`): the times given and
+//! recorded are chart times, each turned into the judge's time as it is
+//! used. Where that clock runs back, nothing is passed or missed, and the
+//! notes beyond the fold are never reached.
 
 use crate::chart::{Chart, LnType, NoteKind, SoundId, NO_SOUND};
 use crate::gauge::GrooveGauge;
 use crate::judge::{Judge, JudgeRules, JudgeWindows, NoteType};
 use crate::mode::PlayMode;
 use crate::score::Score;
+use crate::timing::fold_time;
 use serde::{Deserialize, Serialize};
 
 /// One recorded call: `update(now)` or `input(..)`. Saved replays are a
@@ -262,6 +269,8 @@ pub struct Engine {
     switches: Vec<(i64, JudgeRules)>,
     /// A missed note plays its keysound (`set_miss_sound`).
     miss_sound: bool,
+    /// The chart's fold points (µs): the judge's clock turns back there.
+    folds: Vec<i64>,
 }
 
 impl Engine {
@@ -355,6 +364,7 @@ impl Engine {
             events: Vec::new(),
             switches: Vec::new(),
             miss_sound: false,
+            folds: chart.timing.folds().to_vec(),
         }
     }
 
@@ -437,9 +447,15 @@ impl Engine {
         self.lanes.get(lane).is_some_and(|l| l.auto)
     }
 
-    /// Past the last note's end and every judgement made.
+    /// Past the last note's end (in chart time) and every judgement made
+    /// (never, while notes beyond a fold point are left).
     pub fn is_finished(&self, now: i64) -> bool {
         now > self.last_time && self.score.passed >= self.score.total_notes
+    }
+
+    /// The judge's clock at chart time `t` (`t` itself without folds).
+    fn clock(&self, t: i64) -> i64 {
+        fold_time(&self.folds, t)
     }
 
     // ----- recording ------------------------------------------------------
@@ -524,6 +540,7 @@ impl Engine {
         if let Some(r) = &mut self.recorded {
             r.push(Op::Update(now));
         }
+        let now = self.clock(now);
         if self.prev.is_none() {
             let p = now.min(0).saturating_sub(1);
             self.prev = Some(p);
@@ -531,11 +548,12 @@ impl Engine {
                 l.passed = l.notes.partition_point(|&i| self.notes[i].time <= p);
             }
         }
-        // taken while handled, then given back to keep its buffer
+        // taken while handled, then given back to keep its buffer (in
+        // the order of chart time, each judged at the judge's)
         let mut queue = std::mem::take(&mut self.queue);
         queue.sort_by_key(|e| e.time);
         for group in queue.chunk_by(|a, b| a.time == b.time) {
-            let t = group[0].time;
+            let t = self.clock(group[0].time);
             let m = now.min(self.prev().max(t));
             self.take_rules(m);
             for l in &mut self.lanes {
@@ -553,7 +571,7 @@ impl Engine {
                 self.settle(m);
             }
             for e in group {
-                self.handle(e);
+                self.handle(&InputEvent { time: t, ..*e });
             }
             self.settle(m);
         }

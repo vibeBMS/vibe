@@ -162,7 +162,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 
 ## Features
 
-- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP, `#SCROLL` and
+- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes (a negative `#BPMxx` as LR2:
+  its absolute value, the lane and the judge's clock running back from it, so the notes after it never come back
+  and a play with notes left ends FAILED; [docs/RULES.md](docs/RULES.md) "Negative BPM"), STOP, `#SCROLL` and
   beatoraja's `#SPEED` (channel SP: the whole lane's scroll speed, interpolated in time; not under CONSTANT), LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout), Qwilight-style 4 / 6 / 8 keys (`#4K` / `#6K` / `#8K`: no scratch, 7 keys' judge and gauges, played on built-in default skins only, ranked by no IR; [docs/RULES.md](docs/RULES.md) "4, 6 and 8 keys"); Shift_JIS, EUC-KR and UTF-8 detected.
   The scan reads new and changed charts several at a time (up to 8 threads natively; one at a time on the web).

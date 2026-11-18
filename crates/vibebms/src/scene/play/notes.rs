@@ -32,7 +32,10 @@ pub(super) fn draw(
     // each player's hi-speed, covers and LIFT (VS: the second's own)
     let per = [ps.side_play(0), ps.side_play(1)];
     let t_vis = s.chart_us(ps.now) + p.visual_offset_ms as i64 * 1000;
-    let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
+    // (past a negative BPM's fold point the lane runs back, and the
+    // judge's clock with it: `t_judge`)
+    let cur_pos = s.chart.timing.drawn_pos_at_time(t_vis as f64);
+    let t_judge = s.chart.timing.judge_time(t_vis);
     // `#SPEED` now: the whole lane faster or slower (not under CONSTANT)
     let speed = s.chart.timing.speed_at_time(t_vis as f64);
     let axis = Axis {
@@ -116,7 +119,7 @@ pub(super) fn draw(
             match p.hispeed_mode {
                 HiSpeedMode::Floating => judge_y - ((pos - cur_pos) * ppb * speed) as f32,
                 HiSpeedMode::Constant => {
-                    judge_y - ((time - t_vis) as f64 / dur_us * visible as f64) as f32
+                    judge_y - ((time - t_judge) as f64 / dur_us * visible as f64) as f32
                 }
             }
         };
@@ -150,7 +153,7 @@ pub(super) fn draw(
             };
             let mut lo = judge_y;
             for (k, (_, early)) in win.iter().enumerate().take(COLORS.len()) {
-                let hi = at(t_vis + early).max(top);
+                let hi = at(t_judge + early).max(top);
                 if hi < lo {
                     d.b.rect(axis.map(Rect::new(r.x, hi, r.w, lo - hi)), COLORS[k]);
                     lo = hi;
@@ -195,7 +198,7 @@ pub(super) fn draw(
             let cn = &s.chart.notes[n.chart_index];
             let y = y_of(cn.pos, n.time);
             // LR2: an unjudged note waits at the line
-            let y = match p.hold_at_line && held_at_line(n, t_vis) {
+            let y = match p.hold_at_line && held_at_line(n, t_judge) {
                 true => y.min(judge_y),
                 false => y,
             };
@@ -266,13 +269,13 @@ pub(super) fn draw(
                 }
                 _ => {
                     if fall_y.is_some()
-                        && n.time < t_vis
+                        && n.time < t_judge
                         && n.state.is_none_or(|j| j >= Judge::Poor)
                     {
                         falling.push(ni);
                         continue;
                     }
-                    let mark = n.is_done() && p.mark_notes && n.time > t_vis;
+                    let mark = n.is_done() && p.mark_notes && n.time > t_judge;
                     if n.is_done() && !mark {
                         continue;
                     }

@@ -590,6 +590,22 @@ impl Session {
         let Some(ft) = self.finished_at else {
             return false;
         };
+        self.ended(ft, t)
+    }
+
+    /// A chart with a negative BPM whose judge never reached some notes
+    /// (those beyond a fold point): its end waited for as `over`'s, from
+    /// its last note instead of the last judgement. The play then ends
+    /// FAILED (bmz-player's rule, `docs/RULES.md`). Never without folds.
+    pub fn stranded(&self, t: i64) -> bool {
+        !self.chart.timing.folds().is_empty()
+            && self.finished_at.is_none()
+            && self.ended(self.chart.length(), t)
+    }
+
+    /// The play's end waited for from `ft` (when its notes were done) at
+    /// chart time `t`.
+    fn ended(&self, ft: i64, t: i64) -> bool {
         if self.fx.result_wait {
             let bga = self.chart.bga.iter().filter(|b| b.layer != BgaLayer::Poor);
             let last = bga
@@ -807,6 +823,48 @@ mod tests {
         for l in s.lanes.iter().filter(|l| !l.notes.is_empty()) {
             assert_eq!(l.cursor, l.notes.len());
             assert!(l.judge.is_some() || l.notes.iter().all(|&i| e.notes()[i].is_mine()));
+        }
+    }
+
+    /// A negative BPM's fold point at 4 s: the note after it (5 s) is
+    /// never reached, and the play ends FAILED once its end has been
+    /// waited for, as `over` waits; the same chart with a positive BPM
+    /// ends as ever.
+    #[test]
+    fn notes_beyond_a_fold_end_the_play_failed() {
+        let play = RuleOptions::default();
+        for bpm in ["-120", "120"] {
+            let text = format!("#BPM 120\n#BPM01 {bpm}\n#00111:01\n#00208:01\n#00211:0001\n");
+            let path = Path::new("song/chart.bms");
+            let c = build_chart(path, text.as_bytes(), &play, 1, None)
+                .unwrap()
+                .chart;
+            let sides = vec![side(&c, &play, None, true)];
+            let mut s = Session::new(c, sides, false, Instant::now());
+            let mut out = Vec::new();
+            let mut t = -1_500_000;
+            let stranded = loop {
+                assert!(!s.step(t, s.instant_at(t), [0, 0], SHOW, &mut out));
+                if s.stranded(t) {
+                    break true;
+                }
+                if s.over(t) {
+                    break false;
+                }
+                t += 16_667;
+            };
+            let e = s.engine().unwrap();
+            let states: Vec<_> = e.notes().iter().map(|n| n.state).collect();
+            if bpm == "-120" {
+                assert!(stranded);
+                assert_eq!(states, [Some(Judge::PGreat), None]);
+                assert!(s.finished_at.is_none());
+                // waited for as `over` does: a second past the last note
+                assert!((6_000_000..6_020_000).contains(&t), "{t}");
+            } else {
+                assert!(!stranded && s.finished_at.is_some());
+                assert_eq!(states, [Some(Judge::PGreat); 2]);
+            }
         }
     }
 
