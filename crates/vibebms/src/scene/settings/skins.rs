@@ -93,6 +93,9 @@ fn skin_label(ctx: &Ctx, value: &str) -> String {
     if value == PERSPECTIVE {
         return "TOUCH PERSPECTIVE".into();
     }
+    if value == crate::sysound::RANDOM_SET {
+        return "RANDOM".into();
+    }
     let Some(p) = configured_path(ctx, value) else {
         return "DEFAULT".into();
     };

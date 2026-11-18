@@ -494,6 +494,17 @@ impl Ctx {
     /// Play a system sound of the chosen sound set (loaded when the choice
     /// has changed: a string compare otherwise).
     pub fn play_sound(&mut self, s: crate::sysound::Sound) {
+        self.sync_sounds();
+        let norm = crate::loudness::system_target(&self.config.audio);
+        self.audio.sounds.play(&self.audio.mixer, s, norm);
+    }
+
+    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
+        self.audio.sounds.stop(&self.audio.mixer, s);
+    }
+
+    /// The sound set chosen, loaded if it is not.
+    fn sync_sounds(&mut self) {
         let set = self
             .config
             .skins
@@ -501,12 +512,31 @@ impl Ctx {
             .map_or("", String::as_str);
         let rate = self.audio.mixer.sample_rate;
         self.audio.sounds.sync(set, &self.paths.root, rate);
-        let norm = crate::loudness::system_target(&self.config.audio);
-        self.audio.sounds.play(&self.audio.mixer, s, norm);
     }
 
-    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
-        self.audio.sounds.stop(&self.audio.mixer, s);
+    /// The song select comes (back): a sound set drawn at random (or one of
+    /// its variants) drawn again, and its `select.enter` sound played.
+    pub fn select_entered(&mut self) {
+        self.sync_sounds();
+        let rate = self.audio.mixer.sample_rate;
+        self.audio.sounds.redraw(&self.paths.root, rate);
+        let norm = crate::loudness::system_target(&self.config.audio);
+        let s = crate::sysound::Sound::Select;
+        self.audio.sounds.play_enter(&self.audio.mixer, s, norm);
+    }
+
+    /// A result comes: its music by outcome (`sounds`, in the order they
+    /// are looked for).
+    pub fn play_result(&mut self, sounds: &[crate::sysound::Sound]) {
+        self.sync_sounds();
+        let norm = crate::loudness::system_target(&self.config.audio);
+        self.audio
+            .sounds
+            .play_result(&self.audio.mixer, sounds, norm);
+    }
+
+    pub fn stop_result(&mut self) {
+        self.audio.sounds.stop_result(&self.audio.mixer);
     }
 
     /// What the user chose for the skin configured as `value` (a

@@ -239,8 +239,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
   scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
   own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
-  sound set's select music and decide jingle are measured as the set loads and brought to the target too (on its own
-  switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
+  sound set's music (the select music, the decide jingle, `.loop` files) is measured as the set loads and brought to
+  the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
   each time (its stages joined are not one chart). The output's soft limiter stays as it was.
 - **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
   under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
@@ -322,7 +322,24 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
   `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
   under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
-  sets their volume.
+  sets their volume. A folder set may also use bmz-player's conventions (as its documentation describes them):
+  - the result music by outcome: `fail` for a failed play; for a clear `aaa`, `aa` or `a` at that rank (the play's
+    EX score from 8/9, 7/9, 6/9 of what can be had), else `clear` (a missing rank sound falls back on `clear`, not
+    on a lower rank); a course's result keeps `course_clear` / `course_fail`;
+  - `<name>.loop.<ext>` (`select.loop.ogg`, `clear.loop.ogg`, `aaa.loop.wav`, `course_clear.loop.ogg`, ...) plays
+    over and over until the screen ends, before `<name>.<ext>` in the same folder (which the select music loops
+    anyway and a result plays once);
+  - `<name>.enter.<ext>` (`select.enter`, `clear.enter`, `aaa.enter`, ...) plays once as the screen comes (the song
+    select: at start and each time it comes back), with the screen's music; a result with one plays a `.loop` music
+    with it, not a plain one;
+  - variants: the set's subfolders holding sound files are not sets of their own but its variants. One is drawn with
+    the set and has only what it changes: a sound it has in either form (its `clear` before the set's
+    `clear.loop`) is its own, else the set's; `.enter` files likewise;
+  - RANDOM (with two sets or more): a set drawn at random when the app starts and each time the song select comes
+    back; a set with variants draws one again then too. Decide, play and result keep the set drawn.
+
+  The select music, the decide jingle and `.loop` music are normalised to the loudness target when `Normalize sound
+  set music` is on; the other sounds are not.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
   (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks). A graph with

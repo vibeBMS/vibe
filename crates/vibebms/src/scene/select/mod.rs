@@ -162,6 +162,7 @@ impl SelectScene {
             dist_cache: Default::default(),
         };
         s.rebuild(ctx);
+        ctx.select_entered();
         s
     }
 
@@ -368,7 +369,9 @@ impl Scene for SelectScene {
     }
 
     fn resumed(&mut self, ctx: &mut Ctx) {
-        // the BGM again (a screen over this one may have stopped it)
+        // the BGM again (a screen over this one may have stopped it), of
+        // the set drawn again if it is drawn at random
+        ctx.select_entered();
         self.bgm_on = false;
         // scores may have changed (rebuild forgets the counts)
         self.rebuild(ctx);

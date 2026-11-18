@@ -114,7 +114,7 @@ pub struct AudioSettings {
     pub normalize: bool,
     #[serde(skip_serializing_if = "is_normal_target")]
     pub normalize_target: f32,
-    /// The sound set's select music and decide jingle too.
+    /// The sound set's music (select, decide, `.loop` files) too.
     #[serde(skip_serializing_if = "is_true")]
     pub normalize_system: bool,
     /// Windows: the device in WASAPI exclusive mode (else shared).

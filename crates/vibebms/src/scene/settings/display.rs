@@ -163,7 +163,7 @@ pub(super) fn rows(b: &mut Rows) {
                 c.audio.sounds.renormalize(&c.audio.mixer, norm);
             },
         )
-        .desc("The sound set's select music and decide jingle at the loudness target too.")
+        .desc("The sound set's music (select, decide, .loop files) at the loudness target too.")
         .keys("loudness lufs volume normalise bgm"),
         Row::adjust(
             "audio.sound_set",
