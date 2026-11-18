@@ -1,5 +1,5 @@
 //! The mixer: voices started on frames, cut by a newer voice of the same
-//! key, bus and master volumes. No I/O and no clock but its frames: an
+//! key, bus and master volumes (the master gliding to a new value). No I/O and no clock but its frames: an
 //! output (`out`) hands it commands and asks it for buffers.
 
 use crate::clock::{FrameClock, Obs};
@@ -124,7 +124,12 @@ pub(crate) struct State {
     bus: [f32; 3],
     /// Group 0 (none) is always 1.
     group: [f32; GROUPS as usize + 1],
+    /// The master volume asked for, and the one the last frame had: it
+    /// glides to the one asked for by `glide` a frame (full scale in
+    /// `MASTER_GLIDE_MS`), so a mute fades rather than clicks.
     master: f32,
+    master_now: f32,
+    glide: f32,
     mix: Vec<f32>,
     max_voices: usize,
     /// Turns `Due::Us` into frames: fed by the output with what it knows
@@ -143,6 +148,8 @@ impl State {
             bus: [cfg.key_volume, cfg.bgm_volume, cfg.system_volume],
             group: [1.0; GROUPS as usize + 1],
             master: cfg.master,
+            master_now: cfg.master,
+            glide: 1000.0 / (crate::MASTER_GLIDE_MS as f32 * rate.max(1) as f32),
             mix: vec![0.0; 8192],
             max_voices: cfg.max_voices.max(16),
             clock: FrameClock::new(rate),
@@ -193,7 +200,13 @@ impl State {
                 .voices
                 .retain(|v| v.bus != b || retire(&self.retired, v)),
             Cmd::BusVolume(b, v) => self.bus[b as usize] = v,
-            Cmd::Master(v) => self.master = v,
+            Cmd::Master(v) => {
+                self.master = v;
+                // (set up before anything was heard: at once)
+                if self.frame == 0 {
+                    self.master_now = v;
+                }
+            }
             Cmd::GroupVolume(g, v) if (1..=GROUPS).contains(&g) => self.group[g as usize] = v,
             Cmd::GroupVolume(..) => {}
         }
@@ -227,11 +240,28 @@ impl State {
         }
         let mix = &mut self.mix[..frames * 2];
         mix.fill(0.0);
-        let (bus, group, master, retired) = (self.bus, self.group, self.master, &self.retired);
+        // the master in the voices' gain, or while it glides on the sum
+        let steady = self.master_now == self.master;
+        let master = if steady { self.master } else { 1.0 };
+        let (bus, group, retired) = (self.bus, self.group, &self.retired);
         self.voices.retain_mut(|v| {
             let g = v.vol * bus[v.bus as usize] * group[v.group as usize] * master;
             v.render(mix, now, g) || retire(retired, v)
         });
+        if !steady {
+            let (to, step) = (self.master, self.glide);
+            let mut m = self.master_now;
+            for f in mix.as_chunks_mut::<2>().0 {
+                m = if m < to {
+                    (m + step).min(to)
+                } else {
+                    (m - step).max(to)
+                };
+                f[0] *= m;
+                f[1] *= m;
+            }
+            self.master_now = m;
+        }
         self.frame = end_frame;
         mix
     }
@@ -296,6 +326,34 @@ pub(crate) mod tests {
         st.apply(Cmd::GroupVolume(2, 1.0));
         st.apply(Cmd::Play(Voice::new(s, &o(0), None)));
         assert!((st.render(4, None)[0] - 1.0).abs() < 1e-3);
+    }
+
+    /// A new master volume is reached over at most `MASTER_GLIDE_MS`, a
+    /// step each frame: a mute fades out instead of cutting off.
+    #[test]
+    fn master_glides_to_a_new_volume() {
+        let mut st = state();
+        let s = sample(44_100, 16384);
+        st.apply(Cmd::Play(Voice::new(s, &PlayOptions::default(), None)));
+        assert!((st.render(4, None)[0] - 0.5).abs() < 1e-3);
+        st.apply(Cmd::Master(0.0));
+        let glide = 44_100 * crate::MASTER_GLIDE_MS as usize / 1000;
+        let mix = st.render(glide, None).to_vec();
+        // falling frame by frame, silent at the end
+        assert!(mix[0] < 0.5 && mix[0] > 0.499);
+        assert!((mix[glide] - 0.25).abs() < 1e-3);
+        assert!(mix
+            .chunks(2)
+            .zip(mix.chunks(2).skip(1))
+            .all(|(a, b)| b[0] <= a[0]));
+        assert!(mix[2 * glide - 2].abs() < 1e-3);
+        assert!(st.render(8, None).iter().all(|x| *x == 0.0));
+        // and back
+        st.apply(Cmd::Master(1.0));
+        let mix = st.render(glide, None).to_vec();
+        assert!(mix[0] > 0.0 && mix[0] < 0.001);
+        assert!((mix[2 * glide - 2] - 0.5).abs() < 1e-3);
+        assert!((st.render(4, None)[0] - 0.5).abs() < 1e-3);
     }
 
     #[test]

@@ -21,6 +21,10 @@ use std::sync::Arc;
 use voice::{Cmd, Due, Voice};
 use web_time::Instant;
 
+/// How long the master volume takes to glide over its whole range
+/// (`Mixer::set_master`): a mute fades out in this time.
+pub const MASTER_GLIDE_MS: u32 = 100;
+
 #[derive(Clone, Debug)]
 pub struct AudioConfig {
     /// Requested buffer size in frames (0 = device default).
@@ -163,6 +167,8 @@ impl Mixer {
     pub fn set_bus_volume(&self, bus: Bus, v: f32) {
         self.out.send(Cmd::BusVolume(bus, v));
     }
+    /// The master volume: it glides there, full scale in
+    /// [`MASTER_GLIDE_MS`] (0 fades the output out).
     pub fn set_master(&self, v: f32) {
         self.out.send(Cmd::Master(v));
     }
