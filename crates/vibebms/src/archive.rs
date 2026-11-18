@@ -469,9 +469,10 @@ fn work_stem(files: &[File]) -> String {
             &f.original
         }
     });
-    Path::new(&safe_name(main.map(String::as_str).unwrap_or("")))
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
+    let name = safe_name(main.map(String::as_str).unwrap_or(""));
+    // (`Song.tar.gz`: `Song`)
+    (crate::platform::arcfs::archive_stem(&name).map(str::to_owned))
+        .or_else(|| Some(Path::new(&name).file_stem()?.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "work".into())
 }
 
@@ -642,6 +643,15 @@ mod tests {
         );
         assert_eq!(safe_name("a/b:c.zip"), "a_b_c.zip");
         assert_eq!(safe_name(".."), "download");
+        let file = |name: &str| File {
+            name: name.into(),
+            url: String::new(),
+            size: 0,
+            original: String::new(),
+        };
+        assert_eq!(work_stem(&[file("Song.tar.gz")]), "Song");
+        assert_eq!(work_stem(&[file("Song_ogg.zip")]), "Song_ogg");
+        assert_eq!(work_stem(&[file("notes.txt")]), "notes");
     }
 
     #[test]
