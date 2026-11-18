@@ -141,6 +141,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
   read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
+- **Play extras** (`SETTINGS › GAMEPLAY › PLAY EXTRAS`):
+  - FAST / SLOW threshold: the play skin's FAST and SLOW (options 1242 / 1243) show only for a judgement more
+    than this many ms off (0, the default: any; FAST / SLOW display off: never).
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
   (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the

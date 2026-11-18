@@ -496,8 +496,10 @@ impl SkinState for PlayState<'_> {
                     None => false,
                 },
                 241..=246 => lj.is_some_and(|j| j.judge == Judge::ALL[(abs - 241) as usize]),
-                1242 => lj.map(|j| j.diff > 0).unwrap_or(false),
-                1243 => lj.map(|j| j.diff < 0).unwrap_or(false),
+                // FAST / SLOW, as set (on, beyond its threshold)
+                1242 | 1243 => lj
+                    .and_then(|j| self.ctx.config.play.fast_slow(j.diff))
+                    .is_some_and(|fast| fast == (abs == 1242)),
                 _ => false,
             }
         });

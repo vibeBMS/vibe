@@ -164,6 +164,7 @@ pub(super) fn rows(b: &mut Rows) {
         .desc("How long the notes take to reach a hi-speed changed in play.")
         .keys("hispeed animation"),
     ]);
+    super::play_extras::rows(b);
     b.group(
         "gameplay.vs",
         "VS SECOND PLAYER",

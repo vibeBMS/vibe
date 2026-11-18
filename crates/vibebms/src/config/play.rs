@@ -185,6 +185,9 @@ pub struct PlayConfig {
     pub bga: bool,
     pub bga_size: BgaSize,
     pub show_fast_slow: bool,
+    /// FAST / SLOW only for a judgement more than this many ms off (0: any
+    /// off at all).
+    pub fast_slow_ms: u32,
     /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
     /// 38 / 39), and where the gap to the target shows.
     pub score_graph: bool,
@@ -383,9 +386,19 @@ impl Serialize for PlayConfig {
             target_rival,
             bga_size,
             score_graph,
-            ghost
+            ghost,
+            fast_slow_ms
         );
         st.end()
+    }
+}
+
+impl PlayConfig {
+    /// Whether a judgement `diff` µs off (> 0: early) shows FAST
+    /// (`Some(true)`) or SLOW: with FAST / SLOW on, beyond `fast_slow_ms`.
+    pub fn fast_slow(&self, diff: i64) -> Option<bool> {
+        let beyond = diff.unsigned_abs() > self.fast_slow_ms as u64 * 1000;
+        (self.show_fast_slow && diff != 0 && beyond).then_some(diff > 0)
     }
 }
 
@@ -432,6 +445,7 @@ impl Default for PlayConfig {
             bga: true,
             bga_size: BgaSize::Normal,
             show_fast_slow: true,
+            fast_slow_ms: 0,
             score_graph: true,
             ghost: Ghost::Off,
             judge_area: false,
@@ -449,6 +463,19 @@ impl Default for PlayConfig {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    #[test]
+    fn fast_slow_beyond_the_threshold() {
+        let mut p = PlayConfig::default();
+        assert_eq!(p.fast_slow(1), Some(true));
+        assert_eq!(p.fast_slow(-1), Some(false));
+        assert_eq!(p.fast_slow(0), None);
+        p.fast_slow_ms = 10;
+        assert_eq!(p.fast_slow(10_000), None);
+        assert_eq!(p.fast_slow(-10_001), Some(false));
+        p.show_fast_slow = false;
+        assert_eq!(p.fast_slow(-50_000), None);
+    }
 
     #[test]
     fn targets_as_beatoraja() {
