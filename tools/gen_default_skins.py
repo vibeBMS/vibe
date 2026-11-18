@@ -2532,10 +2532,10 @@ def sel_score(sk, img, f, g):
     for k in range(8):
         sk.put(sk.img(f"rank{k}"), x + w - 8 - int(rw * 56 / rh), y - 2, int(rw * 56 / rh), 56,
                op=[320 + k])
-    sk.label_text(9200, x + 12, y + 43, w - 150, 13, color=DIM, op=[5])
-    jw = sk.size("hint_judge")[0]
-    sk.label_text(9007, x + w - 12 - jw - 4 - 100, y + 43, 100, 13, align=2, color=DIM, op=[5])
-    sel_put(sk, "hint_judge", x + w - 12 - jw, y + 42, op=[5])
+    # the IR line, the rule mode the record is of
+    sk.label_text(9200, x + 12, y + 43, 150, 13, color=DIM, op=[5])
+    sk.label_text(9007, x + 170, y + 43, 64, 13, color=DIM, op=[5])
+    sel_put(sk, "hint_judge", x + 236, y + 42, op=[5])
     s = 0.72
     cw = int(sk.num("n_sel", 71, 5)[1] * s)
     vx = x + 124
@@ -2936,9 +2936,9 @@ def select_panel_parts(a, fonts):
     a.add("arr_rs", flat(fonts, "▶", "regular", 12, TEAL, pad=0))
     a.add("chev", flat(fonts, "›", "bold", 15, TEXT, pad=0))
     # list rows (ASSIST, SYSTEM OPTION, EFFECTS, TAG EDITOR)
-    for w in (612, 644, 716):
-        a.add(f"row{w}", rounded(w, 32, 7, mix(PANEL, (255, 255, 255), 0.04) + (255,)))
-        a.add(f"rowfocus{w}", ring(w + 8, 40, 9))
+    for w, h in ((612, 32), (716, 32), (644, 40)):
+        a.add(f"row{w}", rounded(w, h, 7, mix(PANEL, (255, 255, 255), 0.04) + (255,)))
+        a.add(f"rowfocus{w}", ring(w + 8, h + 8, 9))
     a.add("valbox", rounded(172, 28, 6, (13, 16, 25, 255), EDGE + (255,)))
     for rows, size in ((ASSIST_ROWS, 14), (SYSTEM_ROWS, 14)):
         for row in rows:
@@ -3035,7 +3035,7 @@ def play_option(sk, r, portrait):
         sel_put(sk, f"tile{tw_}x{th}", tx, ty, op=[op], act=ev, click=0 if ev == 2 else 2)
         sk.put(sk.img("white"), tx + 1, ty + 8, 3, th - 16, op=[op], r=acc[0], g=acc[1], b=acc[2])
         sel_put(sk, f"tl_{name}", tx + 10, ty + 6, op=[op])
-        sk.label_text(value, tx + 10, ty + 20 if tw_ < 160 else 4, tw_ - 18,
+        sk.label_text(value, tx + 10, ty + (20 if tw_ < 160 else 4), tw_ - 18,
                       14 if tw_ < 160 else 15, align=2 if tw_ >= 160 else 0, op=[op])
         if isinstance(note, str):
             if tw_ >= 160:
@@ -3071,19 +3071,27 @@ def play_option(sk, r, portrait):
 
 def list_rows(sk, r, op, rows, rw, y0, pitch=36):
     """Rows of a list panel: (keys, name, note, the value (text event or
-    an option group), event); their tiles are focused in order."""
+    an option group), event); their tiles are focused in order. Narrow
+    rows (portrait) are taller, the note under the name."""
     x, y, w, h = r
     rx = x + (w - rw) // 2
+    rh = sk.size(f"row{rw}")[1]
     for k, (keys, name, note, value, ev) in enumerate(rows):
         ry = y0 + k * pitch
         if ev:
             focus_ring(sk, f"rowfocus{rw}", rx, ry, op, k)
         sel_put(sk, f"row{rw}", rx, ry, op=[op])
-        badges(sk, keys, rx + 8, ry + 6, op, AMBER if op == 23 else VIOLET)
-        sel_put(sk, f"rl_{name}", rx + 66, ry + 8, op=[op])
-        if note:
-            sel_put(sk, f"rd_{name}", rx + 66 + 190, ry + 9, op=[op])
+        badges(sk, keys, rx + 8, ry + (rh - 20) // 2, op, AMBER if op == 23 else VIOLET)
+        if rh > 32:
+            sel_put(sk, f"rl_{name}", rx + 66, ry + 3, op=[op])
+            if note:
+                sel_put(sk, f"rd_{name}", rx + 66, ry + 22, op=[op])
+        else:
+            sel_put(sk, f"rl_{name}", rx + 66, ry + 8, op=[op])
+            if note:
+                sel_put(sk, f"rd_{name}", rx + 66 + 190, ry + 9, op=[op])
         vx = rx + rw - 176
+        ry += (rh - 32) // 2
         sel_put(sk, "valbox", vx, ry + 2, op=[op])
         if isinstance(value, tuple):
             g = value[0]
@@ -3099,7 +3107,7 @@ def list_rows(sk, r, op, rows, rw, y0, pitch=36):
             lw, lh = sk.size("ro_replay")
             sel_put(sk, "ro_replay", vx + 86 - lw // 2, ry + 16 - lh // 2, op=[op])
         if ev:
-            sel_put(sk, "clear", rx, ry, rw, 32, op=[op], act=ev,
+            sel_put(sk, "clear", rx, y0 + k * pitch, rw, rh, op=[op], act=ev,
                     click=0 if isinstance(value, tuple) else 2)
 
 
@@ -3115,10 +3123,10 @@ def system_option(sk, r, rw, portrait):
     pop_frame(sk, 3, r, op)
     x, y, w, h = r
     rows = [(keys, name, note, ev, ev) for keys, name, note, ev in SYSTEM_ROWS]
-    pitch = 44 if portrait else 36
+    pitch = 48 if portrait else 36
     list_rows(sk, r, op, rows, rw, y + 64, pitch)
-    sk.put(sk.img("white"), x + (w - rw) // 2 + rw - 176, y + 64 + 10 * pitch, 172, 32,
-           op=[op, -OPTION_WINDOWED], r=17, g=20, b=31, a=170)
+    sk.put(sk.img("white"), x + (w - rw) // 2 + rw - 176, y + 64 + 10 * pitch, 172,
+           sk.size(f"row{rw}")[1], op=[op, -OPTION_WINDOWED], r=17, g=20, b=31, a=170)
     by = y + h - 70
     for i, (name, ev) in enumerate(SYSTEM_BUTTONS):
         bx = x + 22 + i * (180 + 16)
@@ -3142,7 +3150,7 @@ def effects_panel(sk, r, rw):
         sel_put(sk, "arr_ls", rx + rw - 150, ry + 9, op=[op])
         sel_put(sk, "arr_rs", rx + rw - 22, ry + 9, op=[op])
         sk.label_text(ev, rx + rw - 136, ry + 8, 110, 15, align=1, op=[op])
-        sel_put(sk, "clear", rx, ry, rw, 32, op=[op], act=ev, click=2)
+        sel_put(sk, "clear", rx, ry, rw, sk.size(f"row{rw}")[1], op=[op], act=ev, click=2)
     by = y + 72 + 5 * 48 + 8
     focus_ring(sk, "focus180x48", rx, by, op, 5)
     sel_put(sk, "sb_SKIN / SOUND", rx, by, op=[op], act=14)
@@ -3161,7 +3169,7 @@ def tag_panel(sk, r, rw):
         sel_put(sk, f"rl_{name}", rx + 14, ry + 8, op=[op])
         sel_put(sk, f"rd_{name}", rx + 14, ry + 36, op=[op])
         sk.label_text(ev, rx + rw - 140, ry + 8, 126, 15, align=2, op=[op])
-        sel_put(sk, "clear", rx, ry, rw, 32, op=[op], act=ev, click=2)
+        sel_put(sk, "clear", rx, ry, rw, sk.size(f"row{rw}")[1], op=[op], act=ev, click=2)
     sel_put(sk, "tag_note", rx, y + 72 + 3 * 56 + 16, op=[op])
 
 
@@ -3183,8 +3191,11 @@ def score_status(sk, r):
                                        ("MIN CB", 9425, 5)])
     cy = y + 72 + 3 * 58
     sel_put(sk, "sc_RATE", x + 24, cy, op=[op])
-    sk.number("n_sel", 102, 3, x + 24, cy + 18, align=1, scale=0.9, blank=True, op=[op])
-    sk.number("n_sel", 103, 2, x + 24 + 60, cy + 18, zeropad=True, scale=0.9, op=[op], color=DIM)
+    cw = int(sk.num("n_sel", 102, 3)[1] * 0.9)
+    sk.number("n_sel", 102, 3, x + 24, cy + 18, scale=0.9, blank=True, op=[op])
+    sk.put(sk.img("white"), x + 24 + 3 * cw + 1, cy + 37, 3, 3, op=[op])
+    sk.number("n_sel", 103, 2, x + 24 + 3 * cw + 6, cy + 18, zeropad=True, scale=0.9, op=[op],
+              color=DIM)
     sel_put(sk, "sc_LAST PLAYED", x + 174, cy, op=[op])
     sk.label_text(9212, x + 174, cy + 20, 200, 20, op=[op])
     sel_put(sk, "sc_IR TOP 3", x + 24, cy + 70, op=[op])
