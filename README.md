@@ -52,7 +52,7 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
 <root>/scores/scores.json      play records
 <root>/scores/player.json      totals over all plays (judgements, time played)
-<root>/cache/                  song scan and difficulty table caches (made again if deleted)
+<root>/cache/                  song scan, archives' file lists and difficulty table caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
 <root>/sounds/                 system sound sets (optional)
 <root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
@@ -116,6 +116,22 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 
 - **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP and `#SCROLL`, LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
+  The scan reads new and changed charts several at a time (up to 8 threads natively; one at a time on the web).
+- **Songs in archives**: a `.zip`, `.7z`, `.rar` or `.lzh` (`.lha`) in the library is played without unpacking it
+  yourself. It is scanned as a folder (its charts in sub-folders too) and its charts are named by the archive, a `!`
+  and their path in it: `bms/packs/pack.zip!/Song/chart.bme` (song select lists an archive right in a library
+  folder as a folder of its own, `pack.zip`; that path also plays from the command line). An archive is read
+  once when it is new or its size or time changed: its list of files goes into `cache/archives.json`, and only its
+  charts are read (a zip's charts alone; a 7z, RAR or LZH, solid ones included, is decoded from the start once, its
+  other files not kept). An unchanged archive is not opened by the scan. Playing a chart from one unpacks its song,
+  the folder that holds the chart in the archive with its sub-folders, once: into memory, or when it is larger than
+  512 MB (192 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
+  chosen (back from the result screen, playing it again unpacks nothing) and let go when another is chosen. The
+  song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
+  ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's or LZH's
+  song is unpacked on its first file read. Nothing is written into an archive: song downloads take the songs in
+  archives for not installed (a separate chart for one is not put into it). A chart that is also a file of its own (the archive unpacked beside it) is
+  listed once, as the file. Not read: archives in an archive, `.tar.gz`, encrypted archives.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
   those of the preset chosen.
@@ -333,7 +349,11 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
 ## Web version
 
 Build it with `tools/build_web.sh` and serve `web/` over HTTP. The page's buttons take a folder, files or song pack
-`.zip`s (for iPad Safari), which are scanned and played in the browser; nothing is uploaded anywhere. Settings and
+`.zip`s (for iPad Safari), which are scanned and played in the browser; nothing is uploaded anywhere. Song packs
+(`.zip`, `.7z`, `.rar`, `.lzh`, picked on their own or in a folder) are unpacked as they come in, into a folder of
+their name. An archive already kept in the browser's storage (one picked inside a folder before) is read as on the
+desktop, all four formats; the page reads the archive into memory to scan it or to unpack a song from it (a song
+of up to 1 GB), and lets it go again. Settings and
 records are kept in localStorage.
 
 - Songs are kept in the browser (its Origin Private File System) and are there again the next time the page opens.
