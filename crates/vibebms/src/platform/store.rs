@@ -94,6 +94,10 @@ mod imp {
     }
 
     pub fn rewrite(p: &Path, text: &str) -> io::Result<()> {
+        // (an unset path: nothing to write, and no `.tmp~` left behind)
+        if p.as_os_str().is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "no path"));
+        }
         if let Some(d) = p.parent() {
             fs::create_dir_all(d)?;
         }

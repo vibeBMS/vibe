@@ -419,7 +419,7 @@ factor at the multiples of 10 [S1], the note-count factor from 125 notes up [S1]
 the combo rules [S4]. Mine damage has S14 (not said to be measured) and contradicting readings (S10). The kit's
 tables give S-OLR2's predictions, which are vibeBMS's rows.
 
-Input filters (`SETTINGS › KEY CONFIG`, kept in `[keys.tuning]`):
+Input filters (`SETTINGS › CONTROLS › TURNTABLE AND KEYS`, kept in `[keys.tuning]`):
 - **Key chatter filter** (off by default; 1–50 ms): a key or controller button press that comes sooner than this
   after the last press of its lane (and turntable direction) let through is dropped, and so is the release that
   ends it, so presses and releases still pair. It goes by the inputs' own timestamps, not by when a frame sees

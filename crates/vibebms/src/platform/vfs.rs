@@ -21,6 +21,10 @@ mod imp {
         std::fs::read(p)
     }
     pub fn write(p: &Path, data: &[u8]) -> io::Result<()> {
+        // (an unset path: nothing to write, and no `.tmp~` left behind)
+        if p.as_os_str().is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "no path"));
+        }
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
