@@ -91,6 +91,12 @@ pub(super) const MOVED: &[Moved] = &[
         ],
     },
     Moved {
+        label: "Random trainer",
+        keys: "random trainer lane order fixed",
+        place: "RANDOM: TRAINER (PLAY OPTION keys 1 / 2); its order in GAMEPLAY › ADVANCED",
+        ids: &[],
+    },
+    Moved {
         label: "FREQ",
         keys: "freq pitch speed semitone tempo rate faster slower",
         place: "ASSIST, hold SELECT and turn the turntable",

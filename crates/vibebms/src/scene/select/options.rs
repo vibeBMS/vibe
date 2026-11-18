@@ -73,6 +73,7 @@ pub(crate) enum SelectOption {
     Bga,
     TimingAutoAdjust,
     Freq,
+    TrainerOrder,
 }
 
 /// Full screen can be switched (desktop).
@@ -119,7 +120,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 39] = [
+    pub const ALL: [SelectOption; 40] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -159,6 +160,7 @@ impl SelectOption {
         SelectOption::Bga,
         SelectOption::TimingAutoAdjust,
         SelectOption::Freq,
+        SelectOption::TrainerOrder,
     ];
 
     pub fn name(self) -> &'static str {
@@ -202,6 +204,7 @@ impl SelectOption {
             SelectOption::Bga => "BGA",
             SelectOption::TimingAutoAdjust => "JUDGE AUTO ADJUST",
             SelectOption::Freq => "FREQ",
+            SelectOption::TrainerOrder => "TRAINER ORDER",
         }
     }
 
@@ -252,6 +255,7 @@ impl SelectOption {
             SelectOption::Bga => onoff(p.bga).into(),
             SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
             SelectOption::Freq => vibebms_core::play::freq_label(p.freq),
+            SelectOption::TrainerOrder => p.trainer_order.clone(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -382,6 +386,10 @@ impl SelectScene {
             SelectOption::TimingAutoAdjust => p.timing_auto_adjust ^= true,
             SelectOption::Freq => {
                 option_panel::step_freq(p, d);
+            }
+            // a lane on (or back): the order turned
+            SelectOption::TrainerOrder => {
+                p.trainer_order = vibebms_core::lane_option::turn_order(&p.trainer_order, d)
             }
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)

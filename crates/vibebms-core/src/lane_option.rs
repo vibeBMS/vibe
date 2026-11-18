@@ -28,6 +28,9 @@ crate::choices! {
         FRandom => "F-RANDOM",
         /// Mirrored HALF RANDOM: each half shuffled onto the other side.
         MfRandom => "MF-RANDOM",
+        /// RANDOM TRAINER: the keys in one fixed order of the player's
+        /// (`LaneRules::trainer`) instead of a draw.
+        Trainer => "TRAINER",
     }
 }
 
@@ -58,8 +61,40 @@ pub struct LaneRules {
     /// notes on the same lane.
     pub hran_threshold: i64,
     pub s_random: SRandomInterval,
+    /// TRAINER's order (`trainer_order`).
+    pub trainer: String,
 }
 
+/// A Random Trainer order: the keys from the left, each once, as digits
+/// from 1 ("3142576": key 3's notes on the first lane, key 1's on the
+/// second, ...). The keys counted from 0; `None`: not an order.
+pub fn trainer_order(s: &str) -> Option<Vec<usize>> {
+    let keys: Vec<usize> = (s.chars())
+        .map(|c| c.to_digit(10).map(|d| d as usize))
+        .collect::<Option<_>>()?;
+    let mut sorted = keys.clone();
+    sorted.sort_unstable();
+    (!keys.is_empty() && sorted.iter().enumerate().all(|(i, k)| *k == i + 1))
+        .then(|| keys.iter().map(|k| k - 1).collect())
+}
+
+/// An order of `n` keys as written: "1234567", the keys as they are.
+pub fn plain_order(n: usize) -> String {
+    (1..=n.min(9)).map(|k| char::from(b'0' + k as u8)).collect()
+}
+
+/// `order` turned `d` lanes to the right (each key one lane on, the last
+/// to the first), or reversed for `d` = 0 (its mirror).
+pub fn turn_order(order: &str, d: i32) -> String {
+    let mut c: Vec<char> = order.chars().collect();
+    let n = c.len().max(1);
+    match d {
+        0 => c.reverse(),
+        d if d > 0 => c.rotate_right(d as usize % n),
+        d => c.rotate_left(d.unsigned_abs() as usize % n),
+    }
+    c.into_iter().collect()
+}
 /// A 120 Hz frame (µs).
 const FRAME_120HZ: f64 = 1_000_000.0 / 120.0;
 
@@ -73,7 +108,9 @@ impl LaneOption {
             | LaneOption::HRandom
             | LaneOption::AllScratch
             | LaneOption::RandomEx
-            | LaneOption::SRandomEx => Assist::Light,
+            | LaneOption::SRandomEx
+            // a lane order chosen, not drawn
+            | LaneOption::Trainer => Assist::Light,
             _ => Assist::None,
         }
     }
@@ -154,14 +191,21 @@ pub fn apply(chart: &mut Chart, player: usize, opt: LaneOption, seed: i64, hran_
         hran_threshold,
         ..Default::default()
     };
-    apply_with(chart, player, opt, seed, &rules)
+    apply_with(chart, player, opt, seed, &rules);
 }
 
-/// Apply a lane option to one player side under `rules`.
-pub fn apply_with(chart: &mut Chart, player: usize, opt: LaneOption, seed: i64, rules: &LaneRules) {
+/// Apply a lane option to one player side under `rules`: the option
+/// that took effect (TRAINER with no order of the side's keys: OFF).
+pub fn apply_with(
+    chart: &mut Chart,
+    player: usize,
+    opt: LaneOption,
+    seed: i64,
+    rules: &LaneRules,
+) -> LaneOption {
     let mode = chart.mode();
     if player >= mode.players() || opt == LaneOption::Off {
-        return;
+        return opt;
     }
     let mut rng = JavaRandom::new(seed);
     let base = player * mode.lanes_per_player();
@@ -207,6 +251,14 @@ pub fn apply_with(chart: &mut Chart, player: usize, opt: LaneOption, seed: i64, 
                 .collect();
             lane_map(chart, &keys, &dst);
         }
+        LaneOption::Trainer => {
+            let order = trainer_order(&rules.trainer).filter(|o| o.len() == keys.len());
+            let Some(order) = order else {
+                return LaneOption::Off;
+            };
+            let from: Vec<usize> = order.iter().map(|k| keys[*k]).collect();
+            lane_map(chart, &from, &keys);
+        }
         LaneOption::FRandom | LaneOption::MfRandom => {
             let (k, h) = (keys.len(), keys.len() / 2);
             let mut left = keys[..h].to_vec();
@@ -231,6 +283,7 @@ pub fn apply_with(chart: &mut Chart, player: usize, opt: LaneOption, seed: i64, 
             per_note(chart, mode, &keys, scratch, opt, &mut rng, rules);
         }
     }
+    opt
 }
 
 fn per_note(
@@ -530,6 +583,46 @@ mod tests {
         // 120 HZ: on a stream it keeps 8 frames (66.7 ms) apart
         assert_eq!(jacks(&s16, SRandomInterval::Hz120, 60_000), 0);
         assert_eq!(SRandomInterval::default(), SRandomInterval::Off);
+    }
+
+    #[test]
+    fn the_trainer_plays_its_order() {
+        let plain = keys_chart();
+        let rules = LaneRules {
+            trainer: "3142576".into(),
+            ..Default::default()
+        };
+        for seed in [1, 99] {
+            let mut c = plain.clone();
+            let took = apply_with(&mut c, 0, LaneOption::Trainer, seed, &rules);
+            assert_eq!(took, LaneOption::Trainer);
+            // key 3's notes on lane 1, key 1's on lane 2, ...
+            let map = moved(&plain, &c);
+            assert_eq!(
+                map,
+                [(0, 1), (1, 3), (2, 0), (3, 2), (4, 4), (5, 6), (6, 5)]
+            );
+        }
+        // the same order mirrored is MIRROR's, turned is a shift
+        assert_eq!(turn_order("1234567", 0), "7654321");
+        assert_eq!(turn_order("1234567", 1), "7123456");
+        assert_eq!(turn_order("1234567", -2), "3456712");
+        assert_eq!(plain_order(7), "1234567");
+        // not an order of the side's keys: nothing changes, OFF
+        for bad in ["", "1234566", "12345", "12a4567", "01234567"] {
+            let mut c = plain.clone();
+            let rules = LaneRules {
+                trainer: bad.into(),
+                ..Default::default()
+            };
+            assert_eq!(
+                apply_with(&mut c, 0, LaneOption::Trainer, 1, &rules),
+                LaneOption::Off
+            );
+            assert_eq!(lanes(&c), lanes(&plain));
+        }
+        assert_eq!(trainer_order("21"), Some(vec![1, 0]));
+        assert_eq!(LaneOption::Trainer.assist(), crate::score::Assist::Light);
     }
 
     #[test]

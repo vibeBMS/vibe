@@ -377,6 +377,7 @@ impl Serialize for PlayConfig {
             };
         }
         set_fields!(
+            trainer_order,
             s_random_interval,
             ln_force,
             freq,

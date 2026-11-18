@@ -11,6 +11,7 @@ use crate::library::Song;
 use crate::sysound::Sound;
 use std::cell::Ref;
 use std::path::PathBuf;
+use vibebms_core::lane_option::LaneOption;
 use vibebms_core::score::{Assist, AssistFacts, ClearType};
 use vibebms_ir::lamps::RankView;
 use vibebms_ir::outbox::State;
@@ -55,10 +56,19 @@ pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<Clea
     }
     let has = |f: fn(&Song) -> bool| song.is_none_or(f);
     let double = song.is_some_and(|s| s.mode.is_double());
+    // (TRAINER on a chart of another key count does nothing)
+    let keys = song.map(|s| s.mode.keys_per_player());
+    let order = vibebms_core::lane_option::trainer_order(&p.trainer_order);
+    let fits = order.is_some_and(|o| keys.is_none_or(|k| k == o.len()));
+    let took = |o: LaneOption| match o {
+        LaneOption::Trainer if !fits => LaneOption::Off,
+        o => o,
+    };
     let facts = AssistFacts {
         lane: [p.random_1p]
             .into_iter()
             .chain(double.then_some(p.random_2p))
+            .map(took)
             .collect(),
         auto_scratch: p.auto_scratch
             && has(|s| {
@@ -323,6 +333,23 @@ mod tests {
         assert_eq!(outcome(&p, None).0, Keep::LampOnly);
         p.random_1p = LaneOption::Random;
         assert_eq!(outcome(&p, Some(&song)).0, Keep::All);
+        // TRAINER: L-ASSIST where its order fits the chart's keys
+        (p.no_mine, p.bpm_guide) = (false, false);
+        p.random_1p = LaneOption::Trainer;
+        let light = (Keep::LampOnly, Some(ClearType::LightAssistEasy));
+        assert_eq!(outcome(&p, Some(&song)), light);
+        let five = Song {
+            mode: vibebms_core::PlayMode::Beat5K,
+            ..song.clone()
+        };
+        assert_eq!(outcome(&p, Some(&five)).0, Keep::All);
+        // FREQ below 0 keeps nothing, above 0 all
+        p.random_1p = LaneOption::Random;
+        p.freq = -1;
+        assert_eq!(outcome(&p, Some(&song)), (Keep::Nothing, None));
+        p.freq = 2;
+        assert_eq!(outcome(&p, Some(&song)).0, Keep::All);
+        (p.freq, p.no_mine, p.bpm_guide) = (0, true, true);
         p.auto_scratch = true;
         let full = (Keep::LampOnly, Some(ClearType::AssistEasy));
         assert_eq!(outcome(&p, Some(&song)), full);

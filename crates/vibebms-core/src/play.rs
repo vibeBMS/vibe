@@ -45,6 +45,8 @@ pub struct RuleOptions {
     pub hran_threshold_bpm: u32,
     /// How S-RANDOM avoids jacks.
     pub s_random_interval: SRandomInterval,
+    /// TRAINER's lane order (`lane_option::trainer_order`).
+    pub trainer_order: String,
     /// FREQ (LR2's): the whole chart played `freq` semitones higher
     /// (`FREQ_MIN..=FREQ_MAX`), faster by 2^(freq / 12), its sounds
     /// resampled to match; the judge windows stay in real time.
@@ -76,6 +78,7 @@ impl Default for RuleOptions {
             judge_rates: [400, 400, 100],
             hran_threshold_bpm: 120,
             s_random_interval: SRandomInterval::default(),
+            trainer_order: lane_option::plain_order(7),
             freq: 0,
             course: None,
         }
@@ -233,17 +236,18 @@ fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool
     let lanes = LaneRules {
         hran_threshold: 60_000_000 / (rules.hran_threshold_bpm.max(1) as i64 * 4),
         s_random: rules.s_random_interval,
+        trainer: rules.trainer_order.clone(),
     };
     let allowed = |o: LaneOption| match course {
         Some(mirror) if !(mirror && o == LaneOption::Mirror) => LaneOption::Off,
         _ => o,
     };
-    lane_option::apply_with(&mut chart, 0, allowed(rules.random_1p), seed, &lanes);
-    facts.lane.push(allowed(rules.random_1p));
+    let took = lane_option::apply_with(&mut chart, 0, allowed(rules.random_1p), seed, &lanes);
+    facts.lane.push(took);
     if chart.mode().is_double() {
         let random_2p = allowed(rules.random_2p);
-        lane_option::apply_with(&mut chart, 1, random_2p, seed.wrapping_add(1), &lanes);
-        facts.lane.push(random_2p);
+        let took = lane_option::apply_with(&mut chart, 1, random_2p, seed.wrapping_add(1), &lanes);
+        facts.lane.push(took);
         if rules.dp_option == DoubleOption::Flip {
             lane_option::flip(&mut chart);
         }
@@ -278,6 +282,7 @@ pub fn build_battle_chart(
 ) -> Result<PlayChart, String> {
     let single = RuleOptions {
         random_1p: theirs.random_1p,
+        trainer_order: theirs.trainer_order.clone(),
         freq: theirs.freq,
         battle: false,
         legacy_note: false,
@@ -470,6 +475,37 @@ mod tests {
                 assert_eq!(r.freq, 0, "{kind:?}");
             }
         }
+    }
+
+    /// TRAINER plays its order on a chart of as many keys, an L-ASSIST
+    /// play; on another it does nothing (OFF, no assist).
+    #[test]
+    fn the_trainer_is_a_light_assist_where_it_fits() {
+        let rules = RuleOptions {
+            random_1p: LaneOption::Trainer,
+            trainer_order: "7654321".into(),
+            ..Default::default()
+        };
+        let mirror = RuleOptions {
+            random_1p: LaneOption::Mirror,
+            ..Default::default()
+        };
+        let seven = crate::bot::chart_text(7, 11);
+        let build = |r: &RuleOptions, text: &str| {
+            build_chart(Path::new("c.bme"), text.as_bytes(), r, 5, None).unwrap()
+        };
+        let (t, m) = (build(&rules, &seven), build(&mirror, &seven));
+        let lanes = |c: &Chart| c.notes.iter().map(|n| (n.time, n.lane)).collect::<Vec<_>>();
+        assert_eq!(lanes(&t.chart), lanes(&m.chart));
+        assert_eq!(t.facts.lane, [LaneOption::Trainer]);
+        assert_eq!(t.facts.level(), crate::score::Assist::Light);
+        let five = crate::bot::chart_text(5, 11);
+        let f = build(&rules, &five);
+        assert_eq!(f.facts.lane, [LaneOption::Off]);
+        assert_eq!(f.facts.level(), crate::score::Assist::None);
+        // a class course plays no lane option
+        let c = build_chart(Path::new("c.bme"), seven.as_bytes(), &rules, 5, Some(false)).unwrap();
+        assert_eq!(c.facts.lane, [LaneOption::Off]);
     }
 
     /// FORCE plays every long note as the LN mode, whatever its type; the

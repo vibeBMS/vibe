@@ -132,6 +132,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
   keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
   40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
+- **Random Trainer**: the TRAINER lane option (after MF-RANDOM in RANDOM's list) plays one fixed lane order instead
+  of a draw, to practise a RANDOM: `SETTINGS › GAMEPLAY › ADVANCED › Random trainer order` takes the keys from the
+  left (`3142576` puts key 3's notes on the first lane, key 1's on the second, ...; `7654321` is MIRROR), and the
+  TRAINER ORDER select option turns it a lane at a time. It plays on charts of as many keys (a 7-digit order on 7
+  keys) and does nothing on others. A chosen order is not a draw, so a TRAINER play is LIGHT ASSIST: its lamp is
+  L-ASSIST, no score is kept and it is not sent to IR. Replays keep the order.
 - **Display** (`SETTINGS › DISPLAY & AUDIO › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
   for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on

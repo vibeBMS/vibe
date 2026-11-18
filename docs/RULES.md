@@ -374,6 +374,11 @@ the same lanes (`lane_option.rs`).
   for each note of the side in a row closer than 8 frames to the one before, up to 8 (bmz-player describes it as
   widening to 6–8 frames on runs; the base and the steps are vibeBMS's reading). A lane taken last is still taken
   when no other is free. It does not change how a play is saved or sent; replays keep it.
+* TRAINER (bmz-player's Random Trainer, `docs/settings.md`): the side's keys in the player's order
+  (`RuleOptions::trainer_order`, the keys from the left as digits), not drawn. bmz-player keeps it for 7 keys 1P
+  and calls it a practice tool; vibeBMS plays it on either side of any chart whose key count is the order's, and
+  as OFF elsewhere. A RANDOM's lanes picked by the player are not a RANDOM play, so TRAINER is a light assist
+  (L-ASSIST, the lamp and counts only, no IR) where it took effect; replays keep the order.
 
 ## FREQ
 FREQ (LR2's audio pitch option, as bmz-player documents it: `docs/settings.md` "FREQ") plays the whole chart
@@ -402,7 +407,7 @@ at n/9 of max EX.
 
 Assists (as beatoraja's `BMSPlayer`; an option counts only when it took effect, `AssistFacts` in `score.rs`):
 * ASSIST: AUTO SCRATCH on a chart with scratch notes, LEGACY NOTE on a chart with long notes, EXPAND JUDGE over 100 %.
-* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, BATTLE, NO MINE that removed mines, BPM GUIDE on a
+* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, TRAINER on a chart of its key count, BATTLE, NO MINE that removed mines, BPM GUIDE on a
   chart that changes BPM.
 
 An assisted play that is not FAILED gets that lamp whatever the gauge. It keeps only the lamp, the play and clear

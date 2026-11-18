@@ -414,7 +414,7 @@ fn random_index(o: LaneOption) -> i64 {
         LaneOption::SRandomEx => 9,
         // (vibeBMS's own, which beatoraja skins have no image of: as
         // RANDOM, as bmz-player shows them)
-        LaneOption::FRandom | LaneOption::MfRandom => 2,
+        LaneOption::FRandom | LaneOption::MfRandom | LaneOption::Trainer => 2,
     }
 }
 

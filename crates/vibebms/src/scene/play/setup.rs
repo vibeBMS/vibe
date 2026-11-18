@@ -190,6 +190,13 @@ impl PlayScene {
         if p.legacy_note {
             opts.push("LEGACY");
         }
+        let order = ghost
+            .as_ref()
+            .map_or(&p.trainer_order, |g| &g.play.trainer_order);
+        let trained =
+            (rule_facts.assist.lane).contains(&vibebms_core::lane_option::LaneOption::Trainer);
+        let trainer = trained.then(|| format!("ORDER {order}"));
+        opts.extend(trainer.as_deref());
         let freq = (rules.freq != 0).then(|| format!("FREQ {:+}", rules.freq));
         opts.extend(freq.as_deref());
         // a song from an older library: its note counts and densities

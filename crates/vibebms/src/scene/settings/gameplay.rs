@@ -2,8 +2,8 @@
 //! player's own in VS, and the per-play options still shown here.
 
 use super::per_play::{self, SHOW_PER_PLAY};
-use super::row::{ms, Kind, Row, Rows};
-use super::Sub;
+use super::row::{ms, Act, Kind, Row, Rows};
+use super::{Sub, TextField};
 use crate::app::Ctx;
 use crate::config::{HiSpeedMode, HsType};
 use crate::scene::option_panel::{cycle, onoff};
@@ -119,7 +119,7 @@ pub(super) fn rows(b: &mut Rows) {
     b.group(
         "gameplay.advanced",
         "ADVANCED",
-        "Judge algorithm, expanded judge windows, H-RANDOM threshold, S-RANDOM interval, hi-speed changes",
+        "Judge algorithm, expanded judge windows, H-RANDOM threshold, S-RANDOM interval, random trainer, hi-speed changes",
     );
     let rates = &p.judge_rates;
     b.extend([
@@ -162,6 +162,14 @@ pub(super) fn rows(b: &mut Rows) {
         )
         .desc("How S-RANDOM keeps a note off the key just played: OFF as LR2, 40 ms, or 120 Hz frames.")
         .keys("s-random jack correction interval"),
+        Row::new(
+            "play.trainer_order",
+            "Random trainer order",
+            p.trainer_order.clone(),
+            Act::Text(TextField::TrainerOrder),
+        )
+        .desc("The lanes the TRAINER lane option plays: the keys from the left (7654321 is MIRROR). L-ASSIST.")
+        .keys("random trainer lane order fixed practice"),
         Row::adjust(
             "play.hs_anim_ms",
             "Hi-speed change while playing",
