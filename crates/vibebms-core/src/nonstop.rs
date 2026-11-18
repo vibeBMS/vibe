@@ -147,6 +147,8 @@ pub fn join(
     let mut bars: Vec<(usize, i64)> = Vec::new();
     let mut tempo: Vec<(usize, i64, f64)> = Vec::new();
     let mut stops: Vec<(usize, i64, i64)> = Vec::new();
+    // (a negative BPM's fold points)
+    let mut folds: Vec<(usize, i64)> = Vec::new();
     let mut bga: Vec<(BgaEvent, usize)> = Vec::new();
     // the previous stage: its chart, facts, offset and ratio, and its
     // last note's (or LN head's, or mine's) time
@@ -319,6 +321,11 @@ pub fn join(
                 .filter(|s| to(s.time) >= at)
                 .map(|s| (k, to(s.time), (s.duration as f64 / ratio).round() as i64)),
         );
+        folds.extend(
+            (c.timing.folds().iter())
+                .map(|&f| (k, to(f)))
+                .filter(|&(_, t)| t >= at),
+        );
         let m = &mut out.meta;
         if c.meta.total.is_some() {
             m.total = c.meta.total;
@@ -367,7 +374,12 @@ pub fn join(
         .filter(|(k, t, _)| before_end(*k, *t))
         .map(|(_, t, d)| (t, d))
         .collect();
-    out.timing = TimingMap::of_times(&changes, &stops, SCROLL_BPM);
+    let folds: Vec<i64> = folds
+        .into_iter()
+        .filter(|(k, t)| before_end(*k, *t))
+        .map(|(_, t)| t)
+        .collect();
+    out.timing = TimingMap::of_times(&changes, &stops, SCROLL_BPM).with_folds(folds);
     let tm = &out.timing;
     out.bar_lines = bars
         .into_iter()

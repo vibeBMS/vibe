@@ -135,8 +135,15 @@ pub(super) fn place(src: &Source, pms: bool) -> Placed {
                     }
                 }
                 b"08" => {
-                    if let Some(v) = id().and_then(|id| src.bpm.get(&id)) {
-                        p.timing.push((beat, TimingEvent::Bpm(*v)));
+                    if let Some(&v) = id().and_then(|id| src.bpm.get(&id)) {
+                        // LR2: a negative BPM plays at its absolute value
+                        // and turns the lane back there (docs/RULES.md)
+                        if v < 0.0 {
+                            p.timing.push((beat, TimingEvent::Bpm(-v)));
+                            p.timing.push((beat, TimingEvent::Fold));
+                        } else {
+                            p.timing.push((beat, TimingEvent::Bpm(v)));
+                        }
                     }
                 }
                 b"09" => {
