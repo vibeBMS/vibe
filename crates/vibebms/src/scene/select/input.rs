@@ -196,10 +196,9 @@ impl SelectScene {
             KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13, 1),
             KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14, 1),
             KeyCode::F2 => return self.option(ctx, SelectOption::Random, 1),
-            // the chart's folder in the file manager (desktop; GAUGE
-            // elsewhere, and on the START panel's key 3)
+            // the chart's folder in the file manager (desktop; GAUGE has no
+            // key of its own: the START panel's key 3 and the OPTIONS buttons)
             KeyCode::F3 if crate::platform::open::CAN_OPEN_FILES => self.reveal_chart(ctx),
-            KeyCode::F3 => return self.option(ctx, SelectOption::Gauge, 1),
             KeyCode::F4 => return self.option(ctx, SelectOption::LnMode, 1),
             KeyCode::F5 => return self.decide(ctx, true),
             KeyCode::F6 => return self.option(ctx, SelectOption::Side, 1),
