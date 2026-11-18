@@ -32,6 +32,8 @@ pub(super) enum Act {
     SkinGet(usize),
     /// Delete catalog skin `.0`, on a second press.
     SkinDelete(usize),
+    /// Delete profile `.0` (of the list), on a second press.
+    ProfileDelete(usize),
     /// Web: delete kept song folder `.0` (see `web_storage`), on a second
     /// press.
     #[cfg(target_arch = "wasm32")]
@@ -56,7 +58,7 @@ impl Act {
     /// The act waits for a second press ([`Confirm`]).
     pub(super) fn confirms(self) -> bool {
         match self {
-            Act::SkinGet(_) | Act::SkinDelete(_) => true,
+            Act::SkinGet(_) | Act::SkinDelete(_) | Act::ProfileDelete(_) => true,
             #[cfg(target_arch = "wasm32")]
             Act::DeleteKept(_) => true,
             _ => false,

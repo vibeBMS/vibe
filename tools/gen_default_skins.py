@@ -2838,6 +2838,9 @@ SYSTEM_BUTTONS = [("KEY CONFIG", 13), ("SKIN / SOUND", 14), ("ALL SETTINGS ›",
 # SCORE STATUS: the chosen chart's page on the IR (key I)
 EVENT_IR_PAGE = 9908
 SCORE_BUTTONS = [("IR PAGE ›", EVENT_IR_PAGE)]
+# PLAYER STATUS: the profile in use (text 9218) and the profiles in settings
+TEXT_PROFILE, EVENT_PROFILES = 9218, 9920
+PLAYER_BUTTONS = [("PROFILES ›", EVENT_PROFILES)]
 EFFECT_ROWS = [("MASTER", 9024), ("KEY SOUND", 9025), ("BGM", 9026), ("SYSTEM", 9027),
                ("PREVIEW", 9028)]
 TAG_ROWS = [("FAVORITE SONG", "every chart of the song (key 8)", 9015),
@@ -3019,7 +3022,7 @@ def select_panel_parts(a, fonts):
     a.add("ro_replay", flat(fonts, "BEST + LAST", "bold", 14, DIM, pad=0))
     a.add("ov_ON", flat(fonts, "ON", "bold", 14, TEAL, pad=0))
     a.add("ov_OFF", flat(fonts, "OFF", "bold", 14, DIM, pad=0))
-    for name, _ev in SYSTEM_BUTTONS + SCORE_BUTTONS:
+    for name, _ev in SYSTEM_BUTTONS + SCORE_BUTTONS + PLAYER_BUTTONS:
         b = rounded(180, 48, 8, PANEL_HI + (255,), (TEAL if "SETTINGS" in name else EDGE) + (255,))
         t = spaced(fonts, name, "bold", 14, TEAL if "SETTINGS" in name else TEXT, 0.03, 0)
         b.alpha_composite(t, ((180 - t.size[0]) // 2, (48 - t.size[1]) // 2))
@@ -3033,7 +3036,7 @@ def select_panel_parts(a, fonts):
                                "regular", 12, DIM, pad=0))
     for name in ("PGREAT", "GREAT", "GOOD", "BAD", "POOR", "CLEARS", "FAILS", "PLAYS", "RATE",
                  "MIN BP", "MIN CB", "LAST PLAYED", "IR TOP 3", "PLAY TIME", "NOTES HIT",
-                 "PLAYER"):
+                 "PLAYER", "PROFILE"):
         a.add(f"sc_{name}", spaced(fonts, name, "semi", 11, DIM, 0.06))
     a.add("help_land", help_img(fonts, 600, 404, 2))
     a.add("help_port", help_img(fonts, 600, 640, 1))
@@ -3282,7 +3285,9 @@ def player_status(sk, r):
     pop_frame(sk, 5, r, op)
     x, y, w, h = r
     sel_put(sk, "sc_PLAYER", x + 24, y + 72, op=[op])
-    sk.label_text(2, x + 24, y + 92, w - 48, 26, op=[op])
+    sk.label_text(2, x + 24, y + 92, w // 2 - 36, 26, op=[op])
+    sel_put(sk, "sc_PROFILE", x + w // 2, y + 72, op=[op])
+    sk.label_text(TEXT_PROFILE, x + w // 2, y + 92, w // 2 - 24, 26, op=[op])
     sel_put(sk, "sc_PLAY TIME", x + 24, y + 140, op=[op])
     s = 0.9
     cw = int(sk.num("n_sel", 17, 4)[1] * s)
@@ -3294,6 +3299,8 @@ def player_status(sk, r):
     stat_rows(sk, op, x + 24, y + 210, [("PLAYS", 30, 6), ("CLEARS", 31, 6), ("FAILS", 32, 6),
                                         ("NOTES HIT", 333, 7), ("PGREAT", 33, 7), ("GREAT", 34, 7),
                                         ("GOOD", 35, 7), ("BAD", 36, 7), ("POOR", 37, 7)])
+    for i, (name, ev) in enumerate(PLAYER_BUTTONS):
+        sel_put(sk, f"sb_{name}", x + w - 22 - 180 * (i + 1), y + h - 70, op=[op], act=ev)
 
 
 def select_panels(sk, g, portrait):

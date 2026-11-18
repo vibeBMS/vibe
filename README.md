@@ -85,8 +85,10 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 
 ```text
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
+<root>/config/profiles.toml    the profiles and the one in use (see Profiles)
 <root>/scores/scores.json      play records
 <root>/scores/player.json      totals over all plays (judgements, time played)
+<root>/profiles/<id>/          another profile's config/config.toml and scores/ (the same files)
 <root>/cache/                  song scan, archives' file lists, difficulty table and chart loudness caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
 <root>/sounds/                 system sound sets (optional)
@@ -256,10 +258,30 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
     its two POORs, and its end sound when held past its end; not a note a press already sounded, an empty POOR, an
     early release or a mine). None changes how a play is judged or recorded.
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
-  rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
-  (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the
-  share of the notes judged, as the IRs give no per-note data; skins get the rival's name as text 1 and the target's
-  name as text 3, its EX score as the target's numbers.
+  rank A–AAA, MAX- / MAX, an IR rival, a local rival). The IR rivals your enabled accounts follow come after BEST in
+  the TARGET list (`RIVAL <name>`), then the other profiles (local rivals): the target is the EX score the IR has of
+  theirs for the chart, or the other profile's best EX score of it under the LN mode and judge preset chosen (0 when
+  there is none), paced at the share of the notes judged, as the IRs and the records give no per-note data; skins get
+  the rival's name as text 1 and the target's name as text 3, its EX score as the target's numbers.
+- **Profiles**: several players on one library, switched without restarting (`SETTINGS › SYSTEM › PROFILE`, or the
+  default skin's PLAYER STATUS panel: PROFILES ›, select event 9920; text 9218 is the profile's name). Each profile
+  has its own records (best scores and lamps, totals, favourites, courses and their records, the play history),
+  replays, IR accounts (their keys and outbox too) and settings: play options and offsets, keys, touch layout,
+  volumes, the skins chosen with their options and offsets. Shared by every profile: the library and its caches,
+  difficulty tables, events and download settings, the skins and sound sets installed, and the app-wide settings,
+  which belong to the machine: the window and graphics (`[display]`), the audio device (buffer, sample rate, WASAPI
+  exclusive, silent when not in use), the song folders, tables and download sources, the update check; these stay in
+  the root's `config.toml` whichever profile changes them. The data that was there before profiles is the default
+  profile, in place; another one is `profiles/<id>/` (its own `config/config.toml` without the app-wide settings,
+  `scores/`), listed with its name in `config/profiles.toml` (a profile folder copied into `profiles/` shows up by
+  its folder's name). NEW PROFILE starts from the settings in use, without the IR accounts, and with no records;
+  choosing a profile goes back to song select with its settings, records and IR accounts. A profile can be renamed
+  (its folder keeps its name); deleting one asks for a second press and deletes its records, replays and settings;
+  the default profile (the data folder's own) and the one in use are never deleted. Another profile is a local
+  rival: read only, its lamps beside yours (`SETTINGS › ONLINE › Rival lamps beside yours`; the IR line, text
+  9200, shows its lamp and EX score) and its EX score as TARGET. On the web each profile's settings
+  and records are in the page's storage too (`profiles/<id>/` in OPFS and localStorage), apart from the library
+  that BMSeeker's page shares.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA

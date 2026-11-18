@@ -663,3 +663,73 @@ fn portrait_has_two_card_columns_and_page_chips() {
     assert!(s.lay.content.y > s.lay.rail[7].0.bottom());
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// SYSTEM's profiles: a new one named, switched to (the app does the
+/// switch), renamed, and the other deleted on a second press only.
+#[test]
+fn profiles_are_made_switched_renamed_and_deleted() {
+    let (root, mut ctx) = setup("profiles");
+    ctx.open_records();
+    let mut s = SettingsScene::at(&mut ctx, Page::System);
+    let pick = |s: &mut SettingsScene, id: &str| {
+        s.list.sel = s.rows.iter().position(|r| r.id == id).unwrap();
+    };
+    pick(&mut s, "profile.new");
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    s.input(&mut ctx, &typed("Guest"));
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert_eq!(ctx.profiles.registry.name("guest"), "Guest");
+    let rows: Vec<&str> = (s.rows.iter())
+        .filter(|r| r.id == "profile")
+        .map(|r| r.label.as_str())
+        .collect();
+    assert_eq!(rows, ["DEFAULT", "Guest"]);
+    // its page: switch to it
+    s.list.sel = s.rows.iter().position(|r| r.label == "Guest").unwrap();
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert_eq!(s.view, View::Sub(Sub::Profile("guest".into())));
+    assert!(!s.rows.iter().any(|r| r.id == "profile.delete_using"));
+    pick(&mut s, "profile.use");
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    let to = ctx.profiles.switch_to.take();
+    assert_eq!(to.as_deref(), Some("guest"));
+    assert!(ctx.switch_profile("guest"));
+    assert_eq!(ctx.config.player_name, "Guest");
+    // in use: renamed; not deleted
+    let mut s = SettingsScene::at(&mut ctx, Page::System);
+    s.list.sel = s.rows.iter().position(|r| r.label == "Guest").unwrap();
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(s.rows.iter().any(|r| r.id == "profile.delete_using"));
+    pick(&mut s, "profile.name");
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    for _ in 0.."Guest".len() {
+        s.input(&mut ctx, &key(KeyCode::Backspace));
+    }
+    s.input(&mut ctx, &typed("Visitor"));
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert_eq!(ctx.profiles.registry.name("guest"), "Visitor");
+    // the default: never deleted either
+    s.back(&mut ctx);
+    s.list.sel = s.rows.iter().position(|r| r.label == "DEFAULT").unwrap();
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(s.rows.iter().any(|r| r.id == "profile.default"));
+    assert!(!s.rows.iter().any(|r| r.id == "profile.delete"));
+    // back on the default, the other goes on a second press
+    assert!(ctx.switch_profile(""));
+    let mut s = SettingsScene::at(&mut ctx, Page::System);
+    s.list.sel = s.rows.iter().position(|r| r.label == "Visitor").unwrap();
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    pick(&mut s, "profile.delete");
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(ctx.profiles.registry.has("guest"), "one press only arms it");
+    assert_eq!(
+        s.row().map(|r| r.value.as_str()),
+        Some("press again to delete")
+    );
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(!ctx.profiles.registry.has("guest"));
+    assert!(!root.join("profiles/guest").exists());
+    // its page closed with it
+    assert_eq!(s.view, View::Page(Page::System));
+    std::fs::remove_dir_all(&root).ok();
+}

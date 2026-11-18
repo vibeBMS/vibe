@@ -370,17 +370,11 @@ impl<'a> SelectState<'a> {
     fn ir_line(&self) -> Option<String> {
         let song = self.song?;
         let mut parts = Vec::new();
-        // a local rival: their lamp, EX score and miss count
+        // a local rival: their lamp and EX score
         if let Some(id) = self.local {
             let who = self.ctx.profiles.registry.name(id);
             parts.push(match self.ctx.rival_best_of(id, song) {
-                Some(b) => {
-                    let bp = match b.min_bp {
-                        u32::MAX => "—".to_string(),
-                        n => n.to_string(),
-                    };
-                    format!("{who} {}  EX {}  BP {bp}", b.clear.label(), b.ex_score)
-                }
+                Some(b) => format!("{who} {} EX {}", b.clear.label(), b.ex_score),
                 None => format!("{who} {}", ClearType::NoPlay.label()),
             });
         }
@@ -1182,6 +1176,27 @@ mod tests {
         let st = SelectState::new(&s, &ctx);
         assert_eq!(st.bar(0).unwrap().rival, None);
         assert_eq!(st.text(TEXT_IR).as_deref(), Some("#3 / 40"));
+        // another profile beside: its lamps, its lamp and EX on the line
+        let scores = root.join("profiles/friend/scores");
+        std::fs::create_dir_all(&scores).unwrap();
+        let rec = serde_json::json!([{"sha256": "2", "ln": 0, "rule": "Beatoraja",
+            "clear": "ExHard", "ex_score": 149}]);
+        std::fs::write(scores.join("scores.json"), rec.to_string()).unwrap();
+        ctx.profiles = crate::profiles::Profiles::open(&ctx.paths);
+        ctx.config.ir.beside = crate::config::Beside::Profile("friend".into());
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(
+            (st.bar(0).unwrap().rival, st.bar(1).unwrap().rival),
+            (Some(ClearType::NoPlay), Some(ClearType::ExHard))
+        );
+        assert_eq!(
+            st.text(TEXT_IR).as_deref(),
+            Some("friend NO PLAY   #3 / 40")
+        );
+        s.cursor = 1;
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(st.text(TEXT_IR).as_deref(), Some("friend EX-HARD EX 149"));
+        assert_eq!(st.text(TEXT_PROFILE).as_deref(), Some("DEFAULT"));
         std::fs::remove_dir_all(&root).ok();
     }
 
