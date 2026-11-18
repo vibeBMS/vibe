@@ -144,6 +144,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Play extras** (`SETTINGS › GAMEPLAY › PLAY EXTRAS`):
   - FAST / SLOW threshold: the play skin's FAST and SLOW (options 1242 / 1243) show only for a judgement more
     than this many ms off (0, the default: any; FAST / SLOW display off: never).
+  - GUIDE SE (off by default): a sound for each judgement as it is made, from the sound set chosen by beatoraja's
+    names (`guide-pg`, `guide-gr`, `guide-gd`, `guide-bd`, `guide-pr` for an empty POOR, `guide-ms` for a missed
+    note; any audio format), and for what the set has none of (an LR2 sound set, the built-in set) a built-in tone.
+    At the system sound volume; G-BATTLE's opponent is silent.
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
   (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the

@@ -188,6 +188,9 @@ pub struct PlayConfig {
     /// FAST / SLOW only for a judgement more than this many ms off (0: any
     /// off at all).
     pub fast_slow_ms: u32,
+    /// GUIDE SE: a guide sound for each judgement (the sound set's
+    /// `guide-*`, else built-in ones).
+    pub guide_se: bool,
     /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
     /// 38 / 39), and where the gap to the target shows.
     pub score_graph: bool,
@@ -387,7 +390,8 @@ impl Serialize for PlayConfig {
             bga_size,
             score_graph,
             ghost,
-            fast_slow_ms
+            fast_slow_ms,
+            guide_se
         );
         st.end()
     }
@@ -446,6 +450,7 @@ impl Default for PlayConfig {
             bga_size: BgaSize::Normal,
             show_fast_slow: true,
             fast_slow_ms: 0,
+            guide_se: false,
             score_graph: true,
             ghost: Ghost::Off,
             judge_area: false,

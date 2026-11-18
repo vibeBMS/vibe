@@ -408,6 +408,7 @@ mod tests {
                 // (newer fields at their defaults: written as before)
                 bga_size: Default::default(),
                 fast_slow_ms: 0,
+                guide_se: false,
                 score_graph: true,
                 ghost: Default::default(),
                 judge_area: true,

@@ -5,6 +5,7 @@
 mod bga;
 mod control;
 mod finish;
+mod guide;
 mod hsview;
 mod hud;
 mod input;
@@ -331,6 +332,8 @@ pub struct PlayScene {
     hs_view: [hsview::HsView; 2],
     /// A practice play: what starts it again.
     practice: Option<practice::Again>,
+    /// GUIDE SE's sounds (when on).
+    guide: Option<guide::GuideSounds>,
 }
 
 impl PlayScene {
@@ -364,6 +367,7 @@ impl PlayScene {
             released: Vec::new(),
             hs_view: Default::default(),
             practice: None,
+            guide: None,
             req,
         }
     }
@@ -455,6 +459,11 @@ impl PlayScene {
                     let p = &mut ctx.config.play;
                     if p.timing_auto_adjust {
                         p.judge_offset_ms = (p.judge_offset_ms - d).clamp(-500, 500);
+                    }
+                }
+                Out::Guide(j) => {
+                    if let Some(g) = &self.guide {
+                        g.play(&ctx.audio.mixer, j);
                     }
                 }
                 o => self.audio.out(&ctx.audio.mixer, &self.session, o),
@@ -564,6 +573,9 @@ impl Scene for PlayScene {
             sk.load_pending(gfx);
         }
         self.bga.update(gfx, &self.session, now);
+        if let Some(g) = self.guide.as_mut() {
+            g.poll();
+        }
         if let Stage::Loading(l) = &mut self.stage {
             match l.poll() {
                 None => return Next::Stay,

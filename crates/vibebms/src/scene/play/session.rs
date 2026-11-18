@@ -139,6 +139,16 @@ pub(crate) enum Out {
     /// The first side judged a key early (> 0) or late: the judge offset
     /// goes this many ms the other way (timing auto adjust).
     Adjust(i32),
+    /// A judgement's guide sound (GUIDE SE).
+    Guide(Judge),
+}
+
+/// The play options that change what a session does with its judges'
+/// events (none changes how it judges).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Fx {
+    /// GUIDE SE: each judgement's guide sound.
+    pub guide_se: bool,
 }
 
 /// What the skin decides of a judgement's effects.
@@ -183,6 +193,7 @@ pub(crate) struct Session {
     pub bpm_log: Vec<(i64, f64)>,
     /// The first side's presses that reached its judge, by source.
     pub device: DeviceFacts,
+    pub fx: Fx,
     /// This step's events: (side, event).
     events: Vec<(usize, EngineEvent)>,
 }
@@ -219,6 +230,7 @@ impl Session {
             finished_instant: None,
             bpm_log,
             device: DeviceFacts::default(),
+            fx: Fx::default(),
             events: Vec::new(),
             nonstop: None,
             stage_bga: Vec::new(),
@@ -446,6 +458,9 @@ impl Session {
                 ..
             } => {
                 let lane = lane as usize;
+                if self.fx.guide_se && !ghost {
+                    out.push(Out::Guide(judge));
+                }
                 // timing auto adjust (beatoraja): PG..GOOD within 150 ms
                 // move the timing a ms per 30 ms off
                 if k == 0
@@ -660,6 +675,21 @@ mod tests {
             assert_eq!(l.cursor, l.notes.len());
             assert!(l.judge.is_some() || l.notes.iter().all(|&i| e.notes()[i].is_mine()));
         }
+    }
+
+    #[test]
+    fn guide_se_sounds_each_judgement() {
+        let play = RuleOptions::default();
+        let c = chart(&play);
+        let sides = vec![side(&c, &play, None, true)];
+        let mut s = Session::new(c, sides, false, Instant::now());
+        s.fx.guide_se = true;
+        let mut out = Vec::new();
+        run(&mut s, &mut out, |_, _| {});
+        let e = s.engine().unwrap();
+        assert!(!e.judge_log.is_empty());
+        let guides: Vec<Out> = e.judge_log.iter().map(|j| Out::Guide(j.1)).collect();
+        assert_eq!(out, guides);
     }
 
     #[test]

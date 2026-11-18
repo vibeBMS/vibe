@@ -55,9 +55,15 @@ fn a_replay_keeps_its_note_choice() {
             judge_algorithm: algorithm,
             ..RuleOptions::default()
         };
-        let chart = build_chart(Path::new("song/chart.bme"), text.as_bytes(), &rules, 1, None)
-            .unwrap()
-            .chart;
+        let chart = build_chart(
+            Path::new("song/chart.bme"),
+            text.as_bytes(),
+            &rules,
+            1,
+            None,
+        )
+        .unwrap()
+        .chart;
         let (mut e, _) = build_engine(&chart, &rules, None, false);
         e.record();
         let inputs = vibebms_core::bot::inputs(&chart, None, 5);

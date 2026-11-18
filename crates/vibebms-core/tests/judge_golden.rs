@@ -1750,12 +1750,24 @@ fn selection_score() {
     let cases = [
         // the first note still inside GOOD, the next PGREAT: Combo keeps
         // to the first, Score takes the better
-        (2_100, 2_085, [(Combo, 10, GOOD, -85_000), (Score, 11, PGREAT, 15_000)]),
+        (
+            2_100,
+            2_085,
+            [(Combo, 10, GOOD, -85_000), (Score, 11, PGREAT, 15_000)],
+        ),
         // both GOOD: Duration the closer, Score the earlier
-        (2_200, 2_105, [(Duration, 11, GOOD, 95_000), (Score, 10, GOOD, -105_000)]),
+        (
+            2_200,
+            2_105,
+            [(Duration, 11, GOOD, 95_000), (Score, 10, GOOD, -105_000)],
+        ),
         // a late BAD, and the next note closer but in its empty POOR
         // window (7 keys: BAD -280 .. +220, empty POOR up to +500)
-        (2_490, 2_260, [(Duration, 11, MISS, 230_000), (Score, 10, BAD, -260_000)]),
+        (
+            2_490,
+            2_260,
+            [(Duration, 11, MISS, 230_000), (Score, 10, BAD, -260_000)],
+        ),
     ];
     for (second, at, want) in cases {
         let c = chart7(vec![normal(0, 2 * SEC, 10), normal(0, second * MS, 11)]);

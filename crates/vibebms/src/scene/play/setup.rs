@@ -207,6 +207,14 @@ impl PlayScene {
         let nonstop = nonstop.map(std::sync::Arc::new);
         self.session = Session::new(chart, sides, vs, self.session.start);
         self.session.set_nonstop(nonstop);
+        self.session.fx = super::session::Fx {
+            guide_se: ctx.config.play.guide_se,
+        };
+        if ctx.config.play.guide_se {
+            let set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
+            let rate = ctx.audio.mixer.sample_rate;
+            self.guide = Some(super::guide::GuideSounds::load(set, &ctx.paths.root, rate));
+        }
         self.audio = Audio::new(bank, auto_notes);
         self.skin = super::skin::load(ctx, gfx, self);
         // start: a lead-in so the first notes scroll in (the skin's
