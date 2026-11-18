@@ -133,8 +133,7 @@ unsafe extern "C-unwind" fn touches(
     }
 }
 
-/// When winit's touch `id` (`Touch::id`) in `phase` was handed over to
-/// the app.
+/// When winit's touch `id` (`Touch::id`) in `phase` happened.
 pub fn touch_time(id: u64, phase: TouchPhase) -> Option<Instant> {
     STAMPS.with_borrow_mut(|s| {
         let i = s.iter().position(|e| e.0 == id && e.1 == phase)?;

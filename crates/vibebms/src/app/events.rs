@@ -123,7 +123,7 @@ impl Running {
             WindowEvent::Touch(t) => {
                 self.ctx.input.touch_seen = true;
                 self.last_touch = Some(now);
-                // (iOS: when UIKit handed it over, a frame's touches at once)
+                // (iOS: when it happened; UIKit hands touches over once a frame)
                 #[cfg(target_os = "ios")]
                 let now = crate::platform::ios::touch_time(t.id, t.phase).unwrap_or(now);
                 use winit::event::TouchPhase;
