@@ -393,10 +393,7 @@ fn pads(b: &mut Rows) {
             pad_choice(ctx, &ch.p1),
             |c, d| step_pad(c, 0, d),
         )
-        .desc(
-            "The controller whose buttons are Pad0's (the 1P bindings), by name and id; \
-             AUTO, or when it is not connected: the first connected.",
-        )
+        .desc("The controller for the 1P bindings (Pad0), kept by name and id; AUTO: connection order.")
         .keys("gamepad controller assign player side order"),
         Row::adjust(
             "keys.controllers.p2",
@@ -405,7 +402,7 @@ fn pads(b: &mut Rows) {
             |c, d| step_pad(c, 1, d),
         )
         .desc(
-            "The controller whose buttons are Pad1's (the 2P bindings); AUTO: the next connected.",
+            "The controller for the 2P bindings (Pad1); AUTO: the next one in connection order.",
         )
         .keys("gamepad controller assign player side order"),
         Row::new(

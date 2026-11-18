@@ -156,8 +156,15 @@ struct Conn {
 impl Conn {
     fn open(cfg: &ObsConfig) -> Result<Conn, String> {
         let timeout = Duration::from_secs(3);
-        let mut ws = Ws::connect(cfg.host.trim(), cfg.port, "obswebsocket.json", timeout)
-            .map_err(|e| e.to_string())?;
+        let mut ws =
+            Ws::connect(cfg.host.trim(), cfg.port, "obswebsocket.json", timeout).map_err(|e| {
+                match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => {
+                        "OBS is not running, or its WebSocket server is off".to_string()
+                    }
+                    _ => e.to_string(),
+                }
+            })?;
         let hello = wait_for(&mut ws, 0, timeout)?;
         ws.send_text(&identify(&hello, &cfg.password))
             .map_err(|e| e.to_string())?;

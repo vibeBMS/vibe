@@ -245,8 +245,8 @@ pub(super) fn rows(b: &mut Rows) {
             },
         )
         .desc(
-            "The graphics API the GPU is driven with; AUTO lets vibeBMS choose. Applies at the next \
-             launch; one that does not start there is replaced by the next that does.",
+            "Applies at the next launch. The graphics API the GPU is driven with (AUTO: vibeBMS \
+             chooses); one that does not start is replaced by the next that does.",
         )
         .keys("renderer backend vulkan metal directx dx12 opengl gpu"),
     );
