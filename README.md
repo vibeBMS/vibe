@@ -151,6 +151,13 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
     names (`guide-pg`, `guide-gr`, `guide-gd`, `guide-bd`, `guide-pr` for an empty POOR, `guide-ms` for a missed
     note; any audio format), and for what the set has none of (an LR2 sound set, the built-in set) a built-in tone.
     At the system sound volume; G-BATTLE's opponent is silent.
+  - LR2oraja Endless Dream's extras, each off by default: RESULT WAIT (the play goes on to 5 s after the chart's
+    last note, BGM or BGA layer, the POOR layer left out, instead of ending a second after the last judgement; not
+    after a practice section, a quit or a fail; a long BGM sound is not followed to its end); GOOD clears the miss
+    BGA (a PGREAT, GREAT or GOOD takes the POOR image away at once, the next BAD or POOR shows it again); keysound
+    on a missed note (a note passed without a press plays its keysound as its POOR comes: a CN / HCN's head once for
+    its two POORs, and its end sound when held past its end; not a note a press already sounded, an empty POOR, an
+    early release or a mine). None changes how a play is judged or recorded.
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
   (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the

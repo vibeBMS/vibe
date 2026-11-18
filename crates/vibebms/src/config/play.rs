@@ -135,7 +135,9 @@ impl<'de> Deserialize<'de> for BgaMode {
             Raw::Bool(true) => BgaMode::On,
             Raw::Bool(false) => BgaMode::Off,
             Raw::Label(l) => {
-                let m = BgaMode::ALL.into_iter().find(|m| m.label().eq_ignore_ascii_case(&l));
+                let m = BgaMode::ALL
+                    .into_iter()
+                    .find(|m| m.label().eq_ignore_ascii_case(&l));
                 m.ok_or_else(|| serde::de::Error::custom(format!("BGA mode {l}")))?
             }
         })
@@ -246,6 +248,13 @@ pub struct PlayConfig {
     /// GUIDE SE: a guide sound for each judgement (the sound set's
     /// `guide-*`, else built-in ones).
     pub guide_se: bool,
+    /// ED-rian's extras: the play goes on until 5 s after the chart's last
+    /// note, BGM or BGA (RESULT WAIT); a PGREAT .. GOOD clears the POOR
+    /// BGA (MISSLAYER GOOD CLEAR); a missed note plays its keysound (MISS
+    /// KEYSOUND).
+    pub result_wait: bool,
+    pub good_clears_poor: bool,
+    pub miss_keysound: bool,
     /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
     /// 38 / 39), and where the gap to the target shows.
     pub score_graph: bool,
@@ -446,7 +455,10 @@ impl Serialize for PlayConfig {
             score_graph,
             ghost,
             fast_slow_ms,
-            guide_se
+            guide_se,
+            result_wait,
+            good_clears_poor,
+            miss_keysound
         );
         st.end()
     }
@@ -506,6 +518,9 @@ impl Default for PlayConfig {
             show_fast_slow: true,
             fast_slow_ms: 0,
             guide_se: false,
+            result_wait: false,
+            good_clears_poor: false,
+            miss_keysound: false,
             score_graph: true,
             ghost: Ghost::Off,
             judge_area: false,
@@ -526,7 +541,11 @@ mod tests {
 
     #[test]
     fn bga_mode_reads_and_writes_as_before() {
-        for (text, mode) in [("true", BgaMode::On), ("false", BgaMode::Off), ("\"AUTO\"", BgaMode::Auto)] {
+        for (text, mode) in [
+            ("true", BgaMode::On),
+            ("false", BgaMode::Off),
+            ("\"AUTO\"", BgaMode::Auto),
+        ] {
             let c: Config = toml::from_str(&format!("[play]\nbga = {text}\n")).unwrap();
             assert_eq!(c.play.bga, mode);
             let out = toml::to_string(&c).unwrap();

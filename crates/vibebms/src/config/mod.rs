@@ -16,8 +16,8 @@ pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
 pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
 pub use keys::{InputTuning, KeyConfig, LaneKeys, SideKeys};
 pub use play::{
-    BgaMode, BgaSize, Ghost, HiSpeedMode, HsFix, HsType, PlayConfig, Side, SideOptions, Target, Versus,
-    NORMAL_GREENS,
+    BgaMode, BgaSize, Ghost, HiSpeedMode, HsFix, HsType, PlayConfig, Side, SideOptions, Target,
+    Versus, NORMAL_GREENS,
 };
 pub use practice::PracticeConfig;
 pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
@@ -409,6 +409,9 @@ mod tests {
                 bga_size: Default::default(),
                 fast_slow_ms: 0,
                 guide_se: false,
+                result_wait: false,
+                good_clears_poor: false,
+                miss_keysound: false,
                 score_graph: true,
                 ghost: Default::default(),
                 judge_area: true,

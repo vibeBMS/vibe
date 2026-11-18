@@ -1804,6 +1804,46 @@ fn selection_score() {
     assert_eq!(drain(&mut e), [snd(10, 0), jh(0, BAD, -200_000, 0)]);
 }
 
+/// MISS KEYSOUND: a missed note's keysound as its POOR is given; a CN
+/// missed sounds its head once for its two POORs, one held past its end
+/// its end sound; nothing for a note an empty POOR has sounded.
+#[test]
+fn miss_keysound() {
+    let c = chart7(vec![
+        normal(0, 2 * SEC, 10),
+        long(1, 2 * SEC, 3 * SEC, 11, 12),
+        long(2, 2 * SEC, 3 * SEC, 13, 14),
+        normal(3, 2 * SEC, 15),
+    ]);
+    for on in [false, true] {
+        let mut e = engine(&c, &Setup::ln(LnType::Cn));
+        e.set_miss_sound(on);
+        e.update(SEC);
+        // lane 2 held from its head on, never let go; lane 3's note given
+        // an empty POOR
+        press(&mut e, 2, 2 * SEC);
+        press(&mut e, 3, 1_700 * MS);
+        drain(&mut e);
+        e.update(2_400 * MS);
+        let mut want = vec![jh(0, POOR, -400_000, 0)];
+        if on {
+            want.push(snd(10, 0));
+        }
+        want.extend([jh(1, POOR, -400_000, 0), jt(1, POOR, -400_000, 0)]);
+        if on {
+            want.push(snd(11, 1));
+        }
+        want.push(jh(3, POOR, -400_000, 0));
+        assert_eq!(drain(&mut e), want, "on: {on}");
+        e.update(3_400 * MS);
+        let mut want = vec![jt(2, POOR, -400_000, 0)];
+        if on {
+            want.push(snd(14, 2));
+        }
+        assert_eq!(drain(&mut e), want, "on: {on}");
+    }
+}
+
 /// Worked example 2: a hit note far behind gives nothing; the next note's
 /// empty POOR window is used.
 #[test]

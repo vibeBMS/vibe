@@ -9,7 +9,7 @@ pub(super) fn rows(b: &mut Rows) {
     b.group(
         "gameplay.extras",
         "PLAY EXTRAS",
-        "FAST / SLOW threshold, GUIDE SE",
+        "FAST / SLOW threshold, GUIDE SE, RESULT WAIT, miss BGA and keysound",
     );
     b.extend([
         Row::adjust(
@@ -31,5 +31,29 @@ pub(super) fn rows(b: &mut Rows) {
         })
         .desc("A sound for each judgement: the sound set's guide-pg .. guide-ms, else built-in.")
         .keys("guide sound effect judgement se assist"),
+        Row::adjust(
+            "play.result_wait",
+            "RESULT WAIT",
+            onoff(p.result_wait),
+            |c, _| c.config.play.result_wait ^= true,
+        )
+        .desc("Stay in the play until 5 s after the chart's last note, BGM or BGA.")
+        .keys("result wait end bgm bga ed-rian"),
+        Row::adjust(
+            "play.good_clears_poor",
+            "GOOD clears the miss BGA",
+            onoff(p.good_clears_poor),
+            |c, _| c.config.play.good_clears_poor ^= true,
+        )
+        .desc("A PGREAT, GREAT or GOOD takes the POOR image away at once.")
+        .keys("miss layer poor bga clear good ed-rian"),
+        Row::adjust(
+            "play.miss_keysound",
+            "Keysound on a missed note",
+            onoff(p.miss_keysound),
+            |c, _| c.config.play.miss_keysound ^= true,
+        )
+        .desc("A note passed without a press plays its keysound as its POOR comes.")
+        .keys("miss keysound poor sound ed-rian"),
     ]);
 }
