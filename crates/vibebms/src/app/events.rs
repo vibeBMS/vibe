@@ -50,24 +50,12 @@ impl Running {
                     }
                     return;
                 };
-                let pressed = event.state == ElementState::Pressed;
-                // Print Screen (F13 on Apple keyboards): a screenshot. Windows
-                // sends only its release.
-                if !pressed && matches!(code, KeyCode::PrintScreen | KeyCode::F13) {
-                    self.ctx.view.want_screenshot = true;
-                    return;
-                }
-                if pressed && !event.repeat && (code == KeyCode::F11) {
-                    self.ctx.config.display.fullscreen = !self.ctx.config.display.fullscreen;
-                    self.ctx.view.want_fullscreen = Some(self.ctx.config.display.fullscreen);
-                    return;
-                }
                 let text = event.text.as_ref().map(|t| t.to_string());
-                self.dispatch(
+                self.key(
                     el,
                     InputEv::Key {
                         code,
-                        pressed,
+                        pressed: event.state == ElementState::Pressed,
                         repeat: event.repeat,
                         time: now,
                         text,
@@ -135,6 +123,9 @@ impl Running {
             WindowEvent::Touch(t) => {
                 self.ctx.input.touch_seen = true;
                 self.last_touch = Some(now);
+                // (iOS: when UIKit handed it over, a frame's touches at once)
+                #[cfg(target_os = "ios")]
+                let now = crate::platform::ios::touch_time(t.id, t.phase).unwrap_or(now);
                 use winit::event::TouchPhase;
                 let phase = match t.phase {
                     TouchPhase::Started => Phase::Down,
@@ -173,6 +164,56 @@ impl Running {
                 },
             ),
             _ => {}
+        }
+    }
+
+    /// A key (`InputEv::Key`), or the window's own use of it.
+    fn key(&mut self, el: &ActiveEventLoop, ev: InputEv) {
+        match ev {
+            // Print Screen (F13 on Apple keyboards): a screenshot. Windows
+            // sends only its release.
+            InputEv::Key {
+                code: KeyCode::PrintScreen | KeyCode::F13,
+                pressed: false,
+                ..
+            } => self.ctx.view.want_screenshot = true,
+            InputEv::Key {
+                code: KeyCode::F11,
+                pressed: true,
+                repeat: false,
+                ..
+            } => {
+                self.ctx.config.display.fullscreen = !self.ctx.config.display.fullscreen;
+                self.ctx.view.want_fullscreen = Some(self.ctx.config.display.fullscreen);
+            }
+            _ => self.dispatch(el, ev),
+        }
+    }
+
+    /// The hardware keyboard's keys (`platform::ios`) since the last call.
+    #[cfg(target_os = "ios")]
+    pub(super) fn ios_keys(&mut self, el: &ActiveEventLoop) {
+        for (code, pressed, time) in crate::platform::ios::take_keys() {
+            // a text field's (the on-screen keyboard's) return and delete
+            // come from winit too
+            if self.ime_on
+                && matches!(
+                    code,
+                    KeyCode::Backspace | KeyCode::Enter | KeyCode::NumpadEnter
+                )
+            {
+                continue;
+            }
+            self.key(
+                el,
+                InputEv::Key {
+                    code,
+                    pressed,
+                    repeat: false,
+                    time,
+                    text: None,
+                },
+            );
         }
     }
 

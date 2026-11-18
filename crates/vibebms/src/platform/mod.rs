@@ -8,6 +8,8 @@
 pub mod android;
 mod drive;
 pub mod http;
+#[cfg(target_os = "ios")]
+pub mod ios;
 #[cfg(target_arch = "wasm32")]
 pub mod opfs;
 pub mod screen;
@@ -19,6 +21,8 @@ pub mod vfs;
 pub use drive::{load_table, run_job};
 pub use http::{http_get, stream};
 pub use thread::{after, parallel_for, spawn, Job};
+#[cfg(any(target_os = "ios", target_arch = "wasm32", test))]
+pub use time::event_instant;
 pub use time::{unix_ms, unix_now, Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const IS_WEB: bool = cfg!(target_arch = "wasm32");

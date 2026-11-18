@@ -300,17 +300,14 @@ pub fn input_time() -> crate::platform::Instant {
     stamp_time(INPUT_STAMP.with(|s| s.replace(-1.0)))
 }
 
-/// An event's browser time (`timeStamp`, ms; < 0: none) as an `Instant`:
-/// now, less how long ago it was (if that was lately).
+/// An event's browser time (`timeStamp`, ms; < 0: none) as an `Instant`.
 fn stamp_time(stamp: f64) -> crate::platform::Instant {
     let now = crate::platform::Instant::now();
     let perf = web_sys::window()
         .and_then(|w| w.performance())
         .map(|p| p.now());
-    match perf.map(|p| p - stamp) {
-        Some(lag) if stamp >= 0.0 && (0.0..250.0).contains(&lag) => now
-            .checked_sub(crate::platform::Duration::from_secs_f64(lag / 1000.0))
-            .unwrap_or(now),
+    match perf {
+        Some(p) if stamp >= 0.0 => crate::platform::event_instant(now, (p - stamp) / 1000.0),
         _ => now,
     }
 }
