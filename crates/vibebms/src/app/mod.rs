@@ -146,6 +146,10 @@ struct Running {
     /// focus: not every platform tells).
     #[cfg(desktop)]
     minimized_check: Instant,
+    /// iOS: the system's edge gestures wait for a second swipe (a screen
+    /// that takes the whole of it: play).
+    #[cfg(target_os = "ios")]
+    edges_deferred: bool,
 }
 
 pub enum UserEvent {
@@ -276,6 +280,25 @@ impl Running {
         self.pacer.set_refresh(self.refresh_hz);
     }
 
+    /// iOS: while a screen takes the whole of it (play, the touch layout),
+    /// a swipe from the top or bottom edge (a touch lane's) is the game's:
+    /// the system's gesture (Control Center, the notifications, home) waits
+    /// for a second one.
+    #[cfg(target_os = "ios")]
+    fn defer_edges(&mut self) {
+        use winit::platform::ios::{ScreenEdge, WindowExtIOS};
+        let want = self.scenes.last().is_some_and(|s| s.full_screen());
+        if want != self.edges_deferred {
+            self.edges_deferred = want;
+            let edges = match want {
+                true => ScreenEdge::TOP | ScreenEdge::BOTTOM,
+                false => ScreenEdge::NONE,
+            };
+            self.window
+                .set_preferred_screen_edges_deferring_system_gestures(edges);
+        }
+    }
+
     /// Ask for a frame (on the web, once until it is drawn).
     fn redraw(&mut self) {
         self.redraw_pending = crate::platform::IS_WEB;
@@ -371,6 +394,8 @@ impl Running {
         // in use again: heard from here (the scenes had their frame to stop
         // what played meanwhile), or a scene of play over or begun
         self.update_mute(true);
+        #[cfg(target_os = "ios")]
+        self.defer_edges();
 
         self.batch.clear();
         let mut d = Draw {
@@ -568,6 +593,8 @@ impl App {
                 let _ = proxy.send_event(UserEvent::Keys);
             });
         }
+        #[cfg(target_os = "android")]
+        crate::platform::android::hide_system_bars();
         let now = Instant::now();
         let refresh_hz = refresh_hz(&window);
         log::info!("display: {refresh_hz:.1} Hz");
@@ -600,6 +627,8 @@ impl App {
             activity: Default::default(),
             #[cfg(desktop)]
             minimized_check: now,
+            #[cfg(target_os = "ios")]
+            edges_deferred: false,
         });
     }
 }
@@ -654,6 +683,16 @@ impl ApplicationHandler<UserEvent> for App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             attrs = attrs.with_window_icon(window_icon());
+        }
+        // a game: the whole screen, without the status bar and with the
+        // home indicator out of sight until the screen is touched (edge
+        // gestures: `defer_edges`)
+        #[cfg(target_os = "ios")]
+        {
+            use winit::platform::ios::WindowAttributesExtIOS;
+            attrs = attrs
+                .with_prefers_status_bar_hidden(true)
+                .with_prefers_home_indicator_hidden(true);
         }
         #[cfg(target_arch = "wasm32")]
         {

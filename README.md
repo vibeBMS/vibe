@@ -148,6 +148,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   where only the app with the focus gets touches, keys and controllers, losing the focus silences play too. The play
   goes on (there is no pause). The in-app download browser's window counts as vibeBMS. Off, vibeBMS is heard in the
   background (the iOS app's audio session keeps playing there).
+- **Full screen on phones and tablets**: the iOS app hides the status bar and, until the screen is touched, the home
+  indicator; in play (and the touch layout editor) a swipe from the top or bottom edge is the game's, and the
+  system's gesture (home, Control Center, notifications) needs a second swipe. The Android app hides the status and
+  navigation bars (immersive: a swipe from an edge shows them for a moment).
 - **BGA**: image BGA (layers, POOR; a BMS chart without a POOR layer shows its `#BMP00` on a miss, as LR2 and
   beatoraja do), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path). BGA ON, AUTO or
   OFF (SYSTEM OPTION key 1), as beatoraja's: AUTO shows it only when watching (autoplay, a replay), not in a play

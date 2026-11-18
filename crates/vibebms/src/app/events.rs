@@ -154,6 +154,10 @@ impl Running {
                     a.focused = focused;
                     a.minimized &= !focused;
                 });
+                #[cfg(target_os = "android")]
+                if focused {
+                    crate::platform::android::hide_system_bars();
+                }
                 if !focused {
                     self.ctx.save_config();
                     // its key and touch releases go elsewhere now
