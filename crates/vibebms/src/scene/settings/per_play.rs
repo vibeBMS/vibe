@@ -15,7 +15,7 @@ use vibebms_core::lane_option::{DoubleOption, LaneOption};
 /// The per-play rows still shown in settings (GAMEPLAY › ALSO IN THE SONG
 /// SELECT). Once the select's panels carry every row in [`MOVED`], this
 /// goes false and only the pointers stay.
-pub(super) const SHOW_PER_PLAY: bool = true;
+pub(super) const SHOW_PER_PLAY: bool = false;
 
 /// An option that lives in the song select: what search finds for it.
 pub(super) struct Moved {

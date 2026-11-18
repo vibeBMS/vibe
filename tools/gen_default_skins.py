@@ -477,35 +477,8 @@ def build_parts(fonts):
         c = Image.new("RGBA", (rw, rh))
         c.paste(im, (rw - im.size[0], (rh - im.size[1]) // 2))
         a.add(f"rank{k}", c)
-    a.add("nosong", text_img(fonts, "NOT INSTALLED", "black_it", 30, (255, 240, 200), AMBER,
-                             (40, 25, 0), 2))
-    a.add("nosong_hint", text_img(fonts, "ENTER: download it (from a mirror, or its download page)",
-                                  "semi", 15, TEXT, DIM, (0, 0, 0), 0, pad=2))
     a.add("newrec", text_img(fonts, "NEW RECORD", "black_it", 18, (255, 255, 255), PINK, (60, 0, 40), 2))
     a.add("autotag", text_img(fonts, "AUTOPLAY - NOT SAVED", "bold", 14, AMBER, AMBER, (40, 30, 0), 1))
-    # music select: bar bodies per bar type (beatoraja order), cursor, lamp, buttons
-    bar_accents = [TEAL, AMBER, (90, 220, 120), PINK, (150, 110, 130), BLUE, (170, 120, 255),
-                   (110, 115, 130)]
-    for k, acc in enumerate(bar_accents):
-        bw, bh = 560, 44
-        b = Image.new("RGBA", (bw, bh))
-        g = vgrad(bw - 2, bh - 2, (34, 40, 58), (22, 26, 38))
-        m = Image.new("L", (bw - 2, bh - 2))
-        ImageDraw.Draw(m).rounded_rectangle((0, 0, bw - 3, bh - 3), 6, fill=255)
-        b.paste(g, (1, 1), m)
-        bd = ImageDraw.Draw(b)
-        bd.rounded_rectangle((0, 0, bw - 1, bh - 1), 7, outline=EDGE + (255,))
-        bd.rounded_rectangle((6, 6, 11, bh - 7), 2, fill=acc + (255,))
-        if k in (1, 2, 5, 6):  # folders: a small chevron
-            bd.polygon([(bw - 26, 16), (bw - 18, 22), (bw - 26, 28)], fill=acc + (255,))
-        a.add(f"bar{k}", b)
-    cur = Image.new("RGBA", (580, 52))
-    ImageDraw.Draw(cur).rounded_rectangle((2, 2, 577, 49), 9, outline=TEAL + (255,), width=2)
-    a.add("barcursor", cur.filter(ImageFilter.GaussianBlur(0.6)))
-    a.add("lampcell", rounded(10, 32, 3, (255, 255, 255, 255)))
-    a.add("optbtn", rounded(124, 62, 8, PANEL_HI + (255,), EDGE + (255,)))
-    option_parts(a, fonts)
-
     def label_button(text, w, h, accent):
         b = rounded(w, h, 7, PANEL_HI + (255,), accent + (255,))
         im = text_img(fonts, text, "bold", 14, TEXT, TEXT, (0, 0, 0), 0, pad=2)
@@ -514,13 +487,6 @@ def build_parts(fonts):
 
     a.add("btn_retry", label_button("RETRY", 120, 30, PINK))
     a.add("btn_continue", label_button("CONTINUE", 140, 30, TEAL))
-    a.add("btn_back", label_button("\u25c0 BACK", 84, 28, EDGE))
-    for name, label, col in (("lbl_ln", "LN", TEAL), ("lbl_rand", "RANDOM", PINK),
-                             ("lbl_bpm", "BPM CHANGE", AMBER), ("lbl_bga", "BGA", BLUE)):
-        im = text_img(fonts, label, "bold", 13, (255, 255, 255), (255, 255, 255), (0, 0, 0), 0, pad=6)
-        bg = rounded(im.size[0] + 8, 22, 5, col + (255,))
-        bg.alpha_composite(im, (4, (22 - im.size[1]) // 2))
-        a.add(name, bg)
     for name, label in (("gt_normal", "NORMAL"), ("gt_hard", "HARD"), ("gt_hazard", "HAZARD"),
                         ("gt_easy", "EASY"), ("gt_aeasy", "ASSIST EASY"), ("gt_exhard", "EX-HARD")):
         a.add(name, text_img(fonts, label, "bold", 13, TEXT, DIM, (0, 0, 0), 1, pad=2))
@@ -612,172 +578,6 @@ def background(w, h):
     for x in range(-h, w, 28):
         d.line((x, h, x + h, 0), fill=(18, 21, 32, 255), width=1)
     return img
-
-
-# ---------------------------------------------------------------- option panels
-# Held START / SELECT on the select screen open beatoraja's panels 1 / 2 / 3
-# (crates/vibebms/src/scene/option_panel.rs has the keys). A column's
-# current value is lit by skin option 1500 + 16 x group + value.
-RANDOM_LABELS = ["OFF", "MIRROR", "RANDOM", "R-RANDOM", "S-RANDOM", "SPIRAL", "H-RANDOM",
-                 "ALL-SCR", "RANDOM+", "S-RANDOM+"]
-PANEL1 = [  # title, keys, group, values, accent
-    ("RANDOM", "1 ▼   2 ▲", 0, RANDOM_LABELS, TEAL),
-    ("GAUGE", "3", 1, ["ASSIST EASY", "EASY", "NORMAL", "HARD", "EX-HARD", "HAZARD"], (120, 230, 90)),
-    ("DP OPTION", "4", 2, ["OFF", "FLIP", "BATTLE", "BATTLE AS", "G-BATTLE BEST",
-                           "G-BATTLE LAST", "VS"], RED),
-    ("HS-FIX", "5", 3, ["OFF", "START BPM", "MAX BPM", "MAIN BPM", "MIN BPM"], (180, 120, 255)),
-    ("RANDOM 2P", "6 ▲   7 ▼", 4, RANDOM_LABELS, TEAL),
-    ("TARGET", "TURNTABLE", 5, ["RANK A-", "RANK A", "RANK A+", "RANK AA-", "RANK AA", "RANK AA+",
-                                "RANK AAA-", "RANK AAA", "RANK AAA+", "RANK MAX-", "MAX",
-                                "NEXT RANK", "BEST"], AMBER),
-]
-ONOFF = ["OFF", "ON"]
-PANEL2 = [  # key, name, group, values (beatoraja's assist panel)
-    ("1", "EXPAND JUDGE", 15, ONOFF),
-    ("2", "CONSTANT", 10, ONOFF),
-    ("3", "JUDGE AREA", 16, ONOFF),
-    ("4", "LEGACY NOTE", 11, ONOFF),
-    ("5", "MARK NOTE", 17, ONOFF),
-    ("6", "BPM GUIDE", 18, ONOFF),
-    ("7", "NO MINE", 13, ONOFF),
-]
-PANEL3 = [  # key, name, group (None: a number row), values
-    ("1", "BGA", 14, ["OFF", "ON"]),
-    ("2", "GAUGE AUTO SHIFT", 8, ["OFF", "CONTINUE", "HARD\u2192GROOVE", "BEST CLEAR",
-                                  "SELECT TO UNDER"]),
-    ("3", "TIMING AUTO ADJUST", 19, ONOFF),
-    ("4 / 6", "GREEN NUMBER  \u2212 / +", None, None),
-    ("5 / 7", "JUDGE TIMING  \u2212 / +", None, None),
-]
-OPT_W, OPT_HEAD, OPT_ROW = 196, 60, 26
-LIST_W, LIST_ROW = 460, 40
-
-
-def opt_card(fonts, title, keys, values, accent):
-    h = OPT_HEAD + len(values) * OPT_ROW + 10
-    img = rounded(OPT_W, h, 9, PANEL + (245,), accent + (255,), 2)
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((2, 2, OPT_W - 3, 26), 7, fill=mix(PANEL, accent, 0.35) + (255,))
-    d.text((OPT_W // 2, 14), title, font=fonts.get("bold", 15), fill=TEXT + (255,), anchor="mm")
-    d.text((OPT_W // 2, 42), keys, font=fonts.get("semi", 12), fill=accent + (255,), anchor="mm")
-    for k, v in enumerate(values):
-        y = OPT_HEAD + k * OPT_ROW + OPT_ROW // 2
-        d.text((OPT_W // 2, y), v, font=fonts.get("semi", 14), fill=DIM + (255,), anchor="mm")
-    return img
-
-
-def opt_list(fonts, title, rows, accent):
-    h = 44 + len(rows) * LIST_ROW + 10
-    img = rounded(LIST_W, h, 9, PANEL + (245,), accent + (255,), 2)
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((2, 2, LIST_W - 3, 30), 7, fill=mix(PANEL, accent, 0.35) + (255,))
-    d.text((LIST_W // 2, 16), title, font=fonts.get("bold", 15), fill=TEXT + (255,), anchor="mm")
-    for k, (key, name, *_rest) in enumerate(rows):
-        y = 44 + k * LIST_ROW + LIST_ROW // 2
-        d.rounded_rectangle((12, y - 13, 70, y + 13), 6, fill=PANEL_HI + (255,),
-                            outline=accent + (255,))
-        d.text((41, y), key, font=fonts.get("bold", 13), fill=TEXT + (255,), anchor="mm")
-        d.text((84, y), name, font=fonts.get("semi", 15), fill=TEXT + (255,), anchor="lm")
-    return img
-
-
-def option_parts(a, fonts):
-    for title, keys, g, values, accent in PANEL1:
-        a.add(f"opt_card{g}", opt_card(fonts, title, keys, values, accent))
-    a.add("opt_list2", opt_list(fonts, "ASSIST OPTION  (SELECT)", PANEL2, (180, 120, 255)))
-    a.add("opt_list3", opt_list(fonts, "DETAIL OPTION  (START + SELECT)", PANEL3, AMBER))
-    hi = Image.new("RGBA", (OPT_W - 16, OPT_ROW - 2))
-    ImageDraw.Draw(hi).rounded_rectangle((0, 0, OPT_W - 17, OPT_ROW - 3), 6,
-                                         fill=(255, 255, 255, 120))
-    a.add("opt_hi", hi)
-    seen = set()
-    for _k, _n, g, values in PANEL2 + PANEL3:
-        for v in values or []:
-            if v not in seen:
-                seen.add(v)
-                a.add(f"ov_{v}", text_img(fonts, v, "bold", 15, TEXT, TEXT, (0, 0, 0), 0, pad=2))
-    a.add("ov_x", text_img(fonts, "x", "semi", 14, DIM, DIM, (0, 0, 0), 0, pad=2))
-    a.add("ov_gn", text_img(fonts, "GN", "semi", 14, (70, 220, 120), (70, 220, 120), (0, 0, 0), 0,
-                            pad=2))
-    a.add("ov_ms", text_img(fonts, "ms", "semi", 14, DIM, DIM, (0, 0, 0), 0, pad=2))
-    a.add("ov_title1", text_img(fonts, "PLAY OPTION  (hold START)", "bold", 20, TEXT, TEXT,
-                                (0, 0, 0), 0, pad=2))
-    a.add("ov_hs", text_img(fonts, "HI-SPEED", "semi", 14, DIM, DIM, (0, 0, 0), 0, pad=2))
-
-
-def option_panels(sk, portrait):
-    """The three panels over the whole select screen (fixed positions)."""
-    W, H = sk.w, sk.h
-    items = sk.parts.items
-    for n in (1, 2, 3):
-        sk.put(sk.img("white"), 0, 0, W, H, op=[20 + n], fixed=True, r=0, g=0, b=0, a=185)
-    # --- panel 1: one card per column, a row (landscape) or 3 x 2 (portrait)
-    gap = 8 if not portrait else 12
-    per_row = 6 if not portrait else 3
-    x0 = (W - per_row * OPT_W - (per_row - 1) * gap) // 2
-    y0 = 128 if not portrait else 190
-    tw, th = items["ov_title1"][2:]
-    sk.put(sk.img("ov_title1"), (W - tw) // 2, y0 - 84, tw, th, op=[21], fixed=True)
-    # hi-speed and green number of the selected chart
-    hy = y0 - 44
-    hw = items["ov_hs"][2]
-    hx = W // 2 - 150
-    sk.put(sk.img("ov_hs"), hx, hy + 4, hw, items["ov_hs"][3], op=[21], fixed=True)
-    hx += hw + 10
-    hx += sk.number("n_mid", 310, 2, hx, hy, op=[21], fixed=True, blank=True)
-    sk.put(sk.img("white"), hx + 1, hy + 22, 4, 4, op=[21], fixed=True)
-    hx += 7
-    hx += sk.number("n_mid", 311, 2, hx, hy, zeropad=True, op=[21], fixed=True) + 24
-    gw = items["ov_gn"][2]
-    sk.put(sk.img("ov_gn"), hx, hy + 4, gw, items["ov_gn"][3], op=[21], fixed=True)
-    sk.number("n_green", 313, 4, hx + gw + 8, hy + 2, op=[21], fixed=True)
-    row_h = 0
-    for i, (_t, _k, g, values, accent) in enumerate(PANEL1):
-        cx = x0 + (i % per_row) * (OPT_W + gap)
-        if i % per_row == 0 and i:
-            y0 += row_h + 16
-            row_h = 0
-        cw, ch = items[f"opt_card{g}"][2:]
-        row_h = max(row_h, ch)
-        sk.put(sk.img(f"opt_card{g}"), cx, y0, cw, ch, op=[21], fixed=True)
-        for v in range(len(values)):
-            sk.put(sk.img("opt_hi"), cx + 8, y0 + OPT_HEAD + v * OPT_ROW + 1, OPT_W - 16,
-                   OPT_ROW - 2, op=[21, 1500 + 16 * g + v], blend=2, fixed=True,
-                   r=accent[0], g=accent[1], b=accent[2])
-    # --- panels 2 and 3: a list of keys, each with its value on the right
-    for n, rows in ((2, PANEL2), (3, PANEL3)):
-        lw, lh = items[f"opt_list{n}"][2:]
-        lx, ly = (W - lw) // 2, (H - lh) // 2 - (40 if not portrait else 120)
-        sk.put(sk.img(f"opt_list{n}"), lx, ly, lw, lh, op=[20 + n], fixed=True)
-        right = lx + lw - 18
-        for k, (_key, name, g, values) in enumerate(rows):
-            cy = ly + 44 + k * LIST_ROW + LIST_ROW // 2
-            if g is not None:
-                for v, label in enumerate(values):
-                    w_, h_ = items[f"ov_{label}"][2:]
-                    color = TEAL if label == "ON" else TEXT
-                    sk.put(sk.img(f"ov_{label}"), right - w_, cy - h_ // 2, w_, h_,
-                           op=[20 + n, 1500 + 16 * g + v], fixed=True,
-                           r=color[0], g=color[1], b=color[2])
-            elif "TIMING" in name:
-                mw = items["ov_ms"][2]
-                sk.put(sk.img("ov_ms"), right - mw, cy - 9, mw, items["ov_ms"][3],
-                       op=[20 + n], fixed=True)
-                sk.number("n_signed", 12, 4, right - mw - 6 - 4 * 15, cy - 11, op=[20 + n],
-                          fixed=True, scale=0.8)
-            else:
-                # x.xx (GN n) at the right
-                x = right - 200
-                x += sk.number("n_mid", 310, 2, x, cy - 13, op=[20 + n], fixed=True, scale=0.9,
-                               blank=True)
-                sk.put(sk.img("white"), x + 1, cy + 7, 4, 4, op=[20 + n], fixed=True)
-                x += 7
-                x += sk.number("n_mid", 311, 2, x, cy - 13, zeropad=True, op=[20 + n],
-                               fixed=True, scale=0.9) + 16
-                gw = items["ov_gn"][2]
-                sk.put(sk.img("ov_gn"), x, cy - 9, gw, items["ov_gn"][3], op=[20 + n],
-                       fixed=True)
-                sk.number("n_green", 313, 4, x + gw + 6, cy - 11, op=[20 + n], fixed=True)
 
 
 # ---------------------------------------------------------------- skin json
@@ -2553,11 +2353,12 @@ def build_select(fonts):
         for k in range(len(BAR_KINDS)):
             a.add(f"bar{k}_{w}", bar_body(fonts, w, k))
     for k in range(len(BAR_KINDS)):
-        a.add(f"tile{k}", kind_tile(fonts, k))
+        a.add(f"kindtile{k}", kind_tile(fonts, k))
         acc, tag = BAR_KINDS[k]
         if tag:
             a.add(f"kindcap{k}", spaced(fonts, tag if k != 2 else "DIFFICULTY TABLE", "semi", 13, DIM,
                                         0.14))
+    select_panel_parts(a, fonts)
     return a
 
 
@@ -2618,7 +2419,7 @@ def sel_info(sk, img, f, g):
     sk.put("banner", x + 13, y + 13, 222, 166, op=[190, 193])
     for k in range(1, len(BAR_KINDS)):
         if k != 7:
-            sel_put(sk, f"tile{k}", x + 12, y + 12, op=[OPTION_BAR + k])
+            sel_put(sk, f"kindtile{k}", x + 12, y + 12, op=[OPTION_BAR + k])
             cw = int(sk.num("n_sel", 300, 5)[1] * 2.0)
             sk.number("n_sel", 300, 5, x + 12 + (224 - 5 * cw) // 2, y + 46, align=2, scale=2.0,
                       blank=True, color=BAR_KINDS[k][0], op=[OPTION_BAR + k])
@@ -2914,6 +2715,524 @@ def sel_wheel(sk, img, g):
     sk.put("sb_thumb", x, y, w, 40)
 
 
+# --- music select: panels -------------------------------------------------------
+# PLAY OPTION (1), ASSIST (2), SYSTEM OPTION (3), SCORE STATUS (4), PLAYER
+# STATUS (5), EFFECTS (6), TAG EDITOR (7), HELP (8): held START / SELECT open
+# 1-3 (scene/option_panel.rs has the keys), the six buttons and HELP the
+# others. A tile's event is stepped by a tap on its halves (click mode 2) and,
+# with the panel open, by the keys (select/skin.rs PANEL_TILES: the order of
+# the tiles here); OPTION_FOCUS + k marks the focused one.
+OPTION_FOCUS, OPTION_WINDOWED, OPTION_RANDOM_2P = 9700, 9237, 9238
+NUMBER_VOLUME = 9260
+TEXT_KEY_OPTION, EVENT_PANEL = 9600, 9904
+PANEL_OPS = {1: 21, 2: 22, 3: 23, 4: 24, 5: 25, 6: 26, 7: 9027, 8: 9028}
+# title, hint, accent
+PANELS = {
+    1: ("PLAY OPTION", "hold START and press a key · or tap ◀ ▶ on a value · Back closes",
+        TEAL),
+    2: ("ASSIST", "hold SELECT and press a key · or tap a row", VIOLET),
+    3: ("SYSTEM OPTION", "hold START + SELECT and press a key · ↑↓ ◀ ▶ · tap",
+        AMBER),
+    4: ("SCORE STATUS", "the selected chart's record", PINK),
+    5: ("PLAYER STATUS", "every play so far", GREEN),
+    6: ("EFFECTS", "volumes and the preview · ↑↓ ◀ ▶ · tap", BLUE),
+    7: ("TAG EDITOR", "favourites · keys 8 and 9", VIOLET),
+    8: ("HELP", "keys and touches", TEAL),
+}
+LAND_POP = {1: (48, 72, 912, 576), 3: (48, 72, 744, 576)}
+LAND_POP_OTHER = (320, 120, 640, 480)
+PORT_POP = (24, 160, 672, 960)
+# PLAY OPTION: the key options' name, keys, accent, event (text 9600 + 3t)
+KEY_TILES = [("RANDOM", ["1", "2"], TEAL, 42), ("GAUGE", ["3"], GREEN, 40),
+             ("DP OPTION · BATTLE", ["4"], RED, 54), ("HS-FIX", ["5"], VIOLET, 55),
+             ("RANDOM 2P", ["6", "7"], CYAN, 43), ("TARGET", ["TT"], AMBER, 77)]
+# MORE: name, value text, its note (a text id or a fixed one), accent, event
+MORE_TILES = [("HI-SPEED", 9004, 9005, AMBER, 9005), ("LANE COVER", 9018, 9217, BLUE, 9018),
+              ("SUDDEN+", 9032, "cover from the top", BLUE, 9032),
+              ("HIDDEN+", 9033, "cover above the line", BLUE, 9033),
+              ("LIFT", 9034, "the judge line raised", BLUE, 9034),
+              ("LN MODE", 9003, "charts without a type", TEAL, 9003),
+              ("ASSIST", 9216, "SELECT: the assist panel", VIOLET, 2),
+              ("PLAY SIDE", 9006, "the scratch's side", GREEN, 9006),
+              ("JUDGE RULES", 9007, "windows of the play", PINK, 9007)]
+# ASSIST: key, name, note, option group (ON / OFF), event
+ASSIST_ROWS = [("1", "EXPAND JUDGE", "wider judge windows", 15, 301),
+               ("2", "CONSTANT", "notes at one speed", 10, 302),
+               ("3", "JUDGE AREA", "the windows drawn on the lanes", 16, 303),
+               ("4", "LEGACY NOTE", "long notes as notes", 11, 304),
+               ("5", "MARK NOTE", "an early hit keeps falling, marked", 17, 305),
+               ("6", "BPM GUIDE", "BPM changes shown on the lanes", 18, 306),
+               ("7", "NO MINE", "mines removed", 13, 307),
+               ("", "AUTO SCRATCH", "the turntable plays itself", 9, 9035)]
+# SYSTEM OPTION: keys, name, note, event (its value: text event), 0: fixed
+SYSTEM_ROWS = [(["1"], "BGA", "Play the chart's background animation", 9036),
+               ([], "BGA SIZE", "Fit the frame, or fill it and crop", 9029),
+               (["2"], "GAUGE AUTO SHIFT", "What a failing gauge does", 9002),
+               (["3"], "JUDGE AUTO ADJUST", "Moves the timing toward your average", 9037),
+               (["5", "7"], "JUDGE TIMING", "+ when you hit late; moves the windows", 9019),
+               (["4", "6"], "GREEN NUMBER", "Note travel time at this BPM, ±1", 9020),
+               ([], "VISUAL OFFSET", "Moves the notes on screen, not the judging", 9021),
+               ([], "GHOST POSITION", "Where the score gap to the target shows", 9030),
+               ([], "SCORE GRAPH", "The score graph beside the lanes", 9031),
+               ([], "FAST / SLOW", "FAST or SLOW under the judgement", 9022),
+               ([], "SCREEN MODE", "Window or full screen (F11)", 9023),
+               ([], "REPLAY", "Kept for each chart", 0)]
+SYSTEM_BUTTONS = [("KEY CONFIG", 13), ("SKIN / SOUND", 14), ("ALL SETTINGS ›", EVENT_SETTINGS)]
+EFFECT_ROWS = [("MASTER", 9024), ("KEY SOUND", 9025), ("BGM", 9026), ("SYSTEM", 9027),
+               ("PREVIEW", 9028)]
+TAG_ROWS = [("FAVORITE SONG", "every chart of the song (key 8)", 9015),
+            ("FAVORITE CHART", "this chart (key 9)", 9014),
+            ("RANDOM SELECT", "the charts it draws from (key 0)", 9016)]
+HELP_TEXT = [
+    ("KEYS", [("↑ ↓ / turntable", "move"), ("Enter / white keys", "play, open"),
+              ("← / black keys, Esc", "close the folder, back"),
+              ("hold START", "PLAY OPTION"), ("hold SELECT", "ASSIST"),
+              ("hold START + SELECT", "SYSTEM OPTION"), ("1 / 2 / 4", "keys, sort, difficulty"),
+              ("3", "LN mode"), ("8 / 9", "favourite song / chart"), ("F5", "autoplay"),
+              ("P", "replay"), ("/ or F10", "search"), ("C / Insert", "add to a course"),
+              ("Tab", "settings")]),
+    ("TOUCH", [("drag the list", "scroll"), ("tap a bar", "choose it"),
+               ("tap it again", "play, open"), ("tap a tab's half", "the value before / after"),
+               ("tap a value's half", "step it back / on"), ("the buttons", "open the panels"),
+               ("outside a panel, its x", "close it")]),
+]
+
+
+def badge(fonts, s):
+    """A key badge, white (tinted by its destination)."""
+    t = flat(fonts, s, "bold", 11, (255, 255, 255), pad=0)
+    w = max(20, t.size[0] + 10)
+    b = Image.new("RGBA", (w, 20))
+    ImageDraw.Draw(b).rounded_rectangle((0, 0, w - 1, 19), 5, fill=(13, 16, 25, 255),
+                                        outline=(255, 255, 255, 140))
+    b.alpha_composite(t, ((w - t.size[0]) // 2, (20 - t.size[1]) // 2))
+    return b
+
+
+def tile_bg(w, h, r=9):
+    return rounded(w, h, r, PANEL_HI + (255,), EDGE + (255,))
+
+
+def ring(w, h, r, width=2, alpha=255):
+    img = Image.new("RGBA", (w, h))
+    ImageDraw.Draw(img).rounded_rectangle((0, 0, w - 1, h - 1), r,
+                                          outline=(255, 255, 255, alpha), width=width)
+    return img
+
+
+def key_diagram(fonts):
+    """PLAY OPTION's keys while START is held (beatoraja's 7-key panel)."""
+    w, h = 432, 300
+    img = Image.new("RGBA", (w, h))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), 8, fill=PANEL + (255,), outline=EDGE + (255,))
+    d.line((10, 0, 60, 0), fill=TEAL + (255,), width=2)
+    img.alpha_composite(spaced(fonts, "KEYS WHILE START IS HELD", "semi", 12, DIM, 0.05), (10, 6))
+    keys = {1: ("RANDOM ▼", TEAL), 2: ("RANDOM ▲", TEAL), 3: ("GAUGE", GREEN),
+            4: ("DP\nOPTION", RED), 5: ("HS-FIX", VIOLET), 6: ("2P RAN ▲", CYAN),
+            7: ("2P RAN ▼", CYAN)}
+    tx, ty = 22, 96
+    d.ellipse((tx, ty, tx + 112, ty + 112), fill=(22, 20, 14, 255), outline=AMBER + (255,), width=2)
+    d.ellipse((tx + 38, ty + 38, tx + 74, ty + 74), fill=(42, 36, 16, 255))
+    t = spaced(fonts, "TARGET", "xbold", 10, AMBER, 0.06, 0)
+    img.alpha_composite(t, (tx + 56 - t.size[0] // 2, ty + 80))
+    t = flat(fonts, "turntable ▲ ▼", "semi", 10, DIM, pad=0)
+    img.alpha_composite(t, (tx + 56 - t.size[0] // 2, ty + 120))
+    kx, wk, step = 150, 58, 66
+
+    def label(n, k, x, y, kh, white):
+        name, col = keys[n]
+        d.text((x + wk // 2, y + 10), str(n), font=fonts.get("bold", 20),
+               fill=((20, 24, 36) if white else col) + (255,), anchor="mt")
+        lines = name.split("\n")
+        ly = y + kh - 10 - 12 * len(lines)
+        for ln in lines:
+            t = flat(fonts, ln, "xbold", 9, (27, 34, 52) if white else col, pad=0)
+            img.alpha_composite(t, (x + (wk - t.size[0]) // 2, ly))
+            ly += 12
+
+    for i, n in enumerate((2, 4, 6)):
+        x, y = kx + 33 + i * step, 40
+        col = keys[n][1]
+        g = vgrad(wk, 104, mix(col, PANEL, 0.75), (18, 22, 34))
+        m = Image.new("L", (wk, 104))
+        ImageDraw.Draw(m).rounded_rectangle((0, 0, wk - 1, 103), 8, fill=255)
+        img.paste(g, (x, y), m)
+        d.rounded_rectangle((x, y, x + wk - 1, y + 103), 8, outline=col + (255,), width=2)
+        label(n, i, x, y, 104, False)
+    for i, n in enumerate((1, 3, 5, 7)):
+        x, y = kx + i * step, 152
+        col = keys[n][1]
+        g = vgrad(wk, 120, (232, 236, 245), (185, 192, 211))
+        m = Image.new("L", (wk, 120))
+        ImageDraw.Draw(m).rounded_rectangle((0, 0, wk - 1, 119), 8, fill=255)
+        img.paste(g, (x, y), m)
+        d.rounded_rectangle((x + 2, y + 112, x + wk - 3, y + 117), 2, fill=col + (255,))
+        d.rounded_rectangle((x, y, x + wk - 1, y + 119), 8, outline=col + (255,), width=2)
+        label(n, i, x, y, 112, True)
+    t = flat(fonts, "The keys follow beatoraja's 7-key panel, so other skins label them alike.",
+             "regular", 11, DIM, pad=0)
+    img.alpha_composite(t, (12, h - 20))
+    return img
+
+
+def help_img(fonts, w, h, cols):
+    img = Image.new("RGBA", (w, h))
+    col_w = w // cols
+    x = y = 0
+    for title, rows in HELP_TEXT:
+        img.alpha_composite(spaced(fonts, title, "semi", 12, DIM, 0.06), (x, y))
+        yy = y + 24
+        for k, v in rows:
+            img.alpha_composite(flat(fonts, k, "bold", 13, TEXT, pad=0), (x, yy))
+            img.alpha_composite(flat(fonts, v, "regular", 13, DIM, pad=0), (x + col_w // 2, yy))
+            yy += 22
+        if cols == 2:
+            x += col_w
+        else:
+            y = yy + 16
+    return img
+
+
+def select_panel_parts(a, fonts):
+    for n, (title, hint, _acc) in PANELS.items():
+        a.add(f"pt{n}", spaced(fonts, title, "xbold", 21, TEXT, 0.06, 0))
+        a.add(f"ph{n}", flat(fonts, hint, "semi", 12, DIM, pad=0))
+    for w, h in sorted({r[2:] for r in LAND_POP.values()} | {LAND_POP_OTHER[2:], PORT_POP[2:]}):
+        a.add(f"pop{w}x{h}", rounded(w, h, 12, (17, 20, 31, 250)))
+        a.add(f"popring{w}x{h}", ring(w, h, 12))
+    hdr = Image.new("RGBA", (256, 52))
+    hp = hdr.load()
+    for x in range(256):
+        for y in range(52):
+            hp[x, y] = (255, 255, 255, int(70 * (1 - x / 255)))
+    a.add("pophdr", hdr)
+    x = Image.new("RGBA", (16, 16))
+    ImageDraw.Draw(x).line((1, 1, 14, 14), fill=DIM + (255,), width=2)
+    ImageDraw.Draw(x).line((1, 14, 14, 1), fill=DIM + (255,), width=2)
+    a.add("x", x)
+    a.add("keys", key_diagram(fonts))
+    for s in ("1", "2", "3", "4", "5", "6", "7", "TT"):
+        a.add(f"badge{s}", badge(fonts, s))
+    # tiles of PLAY OPTION (landscape / portrait sizes), the focus rings
+    for w, h in ((436, 76), (314, 76), (130, 46), (200, 46)):
+        a.add(f"tile{w}x{h}", tile_bg(w, h))
+        a.add(f"focus{w}x{h}", ring(w + 8, h + 8, 12))
+    a.add("focus180x48", ring(188, 56, 12))
+    for w in (432, 640):
+        b = rounded(w, 186, 8, PANEL + (255,), EDGE + (255,))
+        ImageDraw.Draw(b).line((10, 0, 60, 0), fill=AMBER + (255,), width=2)
+        b.alpha_composite(spaced(fonts, "MORE", "semi", 12, DIM, 0.05), (10, 6))
+        a.add(f"more{w}", b)
+    for name, *_ in KEY_TILES + MORE_TILES:
+        a.add(f"tl_{name}", spaced(fonts, name, "bold", 11, DIM, 0.08, 0))
+    for *_rest, note, _acc, _ev in MORE_TILES:
+        if isinstance(note, str):
+            a.add(f"tn_{note}", flat(fonts, note, "regular", 11, DIM, pad=0))
+    a.add("tn_rand2p", flat(fonts, "· used in DP and BATTLE", "semi", 11, DIM, pad=0))
+    a.add("arr_l", flat(fonts, "◀", "regular", 15, (255, 255, 255), pad=0))
+    a.add("arr_r", flat(fonts, "▶", "regular", 15, (255, 255, 255), pad=0))
+    a.add("arr_ls", flat(fonts, "◀", "regular", 12, TEAL, pad=0))
+    a.add("arr_rs", flat(fonts, "▶", "regular", 12, TEAL, pad=0))
+    a.add("chev", flat(fonts, "›", "bold", 15, TEXT, pad=0))
+    # list rows (ASSIST, SYSTEM OPTION, EFFECTS, TAG EDITOR)
+    for w in (612, 644, 716):
+        a.add(f"row{w}", rounded(w, 32, 7, mix(PANEL, (255, 255, 255), 0.04) + (255,)))
+        a.add(f"rowfocus{w}", ring(w + 8, 40, 9))
+    a.add("valbox", rounded(172, 28, 6, (13, 16, 25, 255), EDGE + (255,)))
+    for rows, size in ((ASSIST_ROWS, 14), (SYSTEM_ROWS, 14)):
+        for row in rows:
+            name, note = row[1], row[2]
+            a.add(f"rl_{name}", spaced(fonts, name, "bold", size, TEXT, 0.03, 0))
+            a.add(f"rd_{name}", flat(fonts, note, "regular", 12, DIM, pad=0))
+    for name, _ev in EFFECT_ROWS:
+        a.add(f"rl_{name}", spaced(fonts, name, "bold", 14, TEXT, 0.03, 0))
+    for name, note, _ev in TAG_ROWS:
+        a.add(f"rl_{name}", spaced(fonts, name, "bold", 14, TEXT, 0.03, 0))
+        a.add(f"rd_{name}", flat(fonts, note, "regular", 12, DIM, pad=0))
+    a.add("ro_replay", flat(fonts, "BEST + LAST", "bold", 14, DIM, pad=0))
+    a.add("ov_ON", flat(fonts, "ON", "bold", 14, TEAL, pad=0))
+    a.add("ov_OFF", flat(fonts, "OFF", "bold", 14, DIM, pad=0))
+    for name, _ev in SYSTEM_BUTTONS:
+        b = rounded(180, 48, 8, PANEL_HI + (255,), (TEAL if "SETTINGS" in name else EDGE) + (255,))
+        t = spaced(fonts, name, "bold", 14, TEAL if "SETTINGS" in name else TEXT, 0.03, 0)
+        b.alpha_composite(t, ((180 - t.size[0]) // 2, (48 - t.size[1]) // 2))
+        a.add(f"sb_{name}", b)
+    a.add("volbar", rounded(240, 8, 3, TEAL + (255,)))
+    a.add("voltrack", rounded(240, 8, 3, (13, 16, 25, 255), EDGE + (255,)))
+    a.add("tag_note", flat(fonts, "Tags of your own (folders you name) will be made here; "
+                                  "for now, favourites: the FAVORITE folder lists them.",
+                           "regular", 12, DIM, pad=0))
+    a.add("effects_note", flat(fonts, "Sound effects (EQ, pitch) are not in vibeBMS yet.",
+                               "regular", 12, DIM, pad=0))
+    for name in ("PGREAT", "GREAT", "GOOD", "BAD", "POOR", "CLEARS", "FAILS", "PLAYS", "RATE",
+                 "MIN BP", "MIN CB", "LAST PLAYED", "IR TOP 3", "PLAY TIME", "NOTES HIT",
+                 "PLAYER"):
+        a.add(f"sc_{name}", spaced(fonts, name, "semi", 11, DIM, 0.06))
+    a.add("help_land", help_img(fonts, 600, 360, 2))
+    a.add("help_port", help_img(fonts, 600, 640, 1))
+
+
+def pop_frame(sk, n, r, op):
+    """Panel n's frame at r: the dimmed screen around it (a tap closes),
+    its body (takes taps), border, header, title, hint and close button."""
+    x, y, w, h = r
+    W, H = sk.w, sk.h
+    for sr in ((0, 0, W, y), (0, y + h, W, H - y - h), (0, y, x, h), (x + w, y, W - x - w, h)):
+        if sr[2] > 0 and sr[3] > 0:
+            sel_put(sk, "clear", *sr[:2], *sr[2:], op=[op], act=n)
+            sk.put(sk.img("white"), *sr, op=[op], r=0, g=0, b=0, a=168, fixed=True)
+    title, hint, acc = PANELS[n]
+    sel_put(sk, f"pop{w}x{h}", x, y, op=[op], act=EVENT_PANEL)
+    sk.put(sk.img("pophdr"), x + 2, y + 2, int(w * 0.6), 50, op=[op], r=acc[0], g=acc[1],
+           b=acc[2], a=90)
+    sk.put(sk.img("white"), x + 2, y + 52, w - 4, 1, op=[op], r=EDGE[0], g=EDGE[1], b=EDGE[2])
+    sk.put(sk.img(f"popring{w}x{h}"), x, y, w, h, op=[op], r=acc[0], g=acc[1], b=acc[2])
+    tw, th = sk.size(f"pt{n}")
+    sel_put(sk, f"pt{n}", x + 20, y + 26 - th // 2, op=[op])
+    hw, hh = sk.size(f"ph{n}")
+    if x + 20 + tw + 24 + hw < x + w - 56:
+        sel_put(sk, f"ph{n}", x + 20 + tw + 24, y + 28 - hh // 2, op=[op])
+    else:
+        sel_put(sk, f"ph{n}", x + 20, y + h - 26, op=[op])
+    xw, xh = sk.size("x")
+    sel_put(sk, "clear", x + w - 50, y + 4, 44, 44, op=[op], act=n)
+    sel_put(sk, "x", x + w - 28 - xw // 2, y + 26 - xh // 2, op=[op])
+
+
+def focus_ring(sk, key, x, y, op, k):
+    w, h = sk.size(key)
+    sk.put(sk.img(key), x - 4, y - 4, w, h, op=[op, OPTION_FOCUS + k], r=TEAL[0], g=TEAL[1],
+           b=TEAL[2])
+
+
+def badges(sk, keys, x, y, op, col, right=False):
+    ws = [sk.size(f"badge{k}")[0] for k in keys]
+    cx = x - sum(ws) - 4 * (len(ws) - 1) if right else x
+    for k, bw in zip(keys, ws):
+        sk.put(sk.img(f"badge{k}"), cx, y, bw, 20, op=[op], r=col[0], g=col[1], b=col[2])
+        cx += bw + 4
+
+
+def play_option(sk, r, portrait):
+    op = PANEL_OPS[1]
+    pop_frame(sk, 1, r, op)
+    x, y, w, h = r
+    if portrait:
+        dx, dy, mx, my, mw = x + 16 + (w - 32 - 432) // 2, y + 64, x + 16, y + 374, 640
+        tw_, cols, kx, ky, kw, kcols = 200, 3, x + 16, y + 570, 314, 2
+    else:
+        dx, dy, mx, my, mw = x + 16, y + 64, x + 16, y + 374, 432
+        tw_, cols, kx, ky, kw, kcols = 130, 3, x + 16 + 432 + 12, y + 64, 436, 1
+    sel_put(sk, "keys", dx, dy, op=[op])
+    sel_put(sk, f"more{mw}", mx, my, op=[op])
+    th = 46
+    for i, (name, value, note, acc, ev) in enumerate(MORE_TILES):
+        tx = mx + 12 + (i % cols) * (tw_ + 8)
+        ty = my + 28 + (i // cols) * (th + 6)
+        k = len(KEY_TILES) + i
+        focus_ring(sk, f"focus{tw_}x{th}", tx, ty, op, k)
+        sel_put(sk, f"tile{tw_}x{th}", tx, ty, op=[op], act=ev, click=0 if ev == 2 else 2)
+        sk.put(sk.img("white"), tx + 1, ty + 8, 3, th - 16, op=[op], r=acc[0], g=acc[1], b=acc[2])
+        sel_put(sk, f"tl_{name}", tx + 10, ty + 6, op=[op])
+        sk.label_text(value, tx + 10, ty + 20 if tw_ < 160 else 4, tw_ - 18,
+                      14 if tw_ < 160 else 15, align=2 if tw_ >= 160 else 0, op=[op])
+        if isinstance(note, str):
+            if tw_ >= 160:
+                sel_put(sk, f"tn_{note}", tx + 10, ty + th - 17, op=[op])
+        else:
+            sk.label_text(note, tx + 10, ty + th - 18 if tw_ >= 160 else ty + 33, tw_ - 18,
+                          11 if tw_ >= 160 else 10, color=DIM, op=[op])
+    for t, (name, keys, acc, ev) in enumerate(KEY_TILES):
+        if kcols == 1:
+            tx, ty = kx, ky + t * (76 + 8.8)
+        else:
+            tx, ty = kx + (t % 2) * (kw + 12), ky + (t // 2) * (76 + 8)
+        focus_ring(sk, f"focus{kw}x76", tx, ty, op, t)
+        sel_put(sk, f"tile{kw}x76", tx, ty, op=[op], act=ev, click=2)
+        sk.put(sk.img("white"), tx + 1, ty + 8, 3, 60, op=[op], r=acc[0], g=acc[1], b=acc[2])
+        sel_put(sk, f"tl_{name}", tx + 16, ty + 9, op=[op])
+        if name == "RANDOM 2P":
+            sel_put(sk, "tn_rand2p", tx + 16 + sk.size(f"tl_{name}")[0] + 6, ty + 9, op=[op])
+        badges(sk, keys, tx + kw - 10, ty + 7, op, acc, right=True)
+        for key, ax in (("arr_l", tx + 12), ("arr_r", tx + kw - 24)):
+            sel_put(sk, key, ax, ty + 46, op=[op], r=acc[0], g=acc[1], b=acc[2])
+        side = (kw - 70) // 2 - 40
+        sk.label_text(TEXT_KEY_OPTION + 3 * t, tx + 34, ty + 46, side, 12, align=2, color=FAINT,
+                      op=[op])
+        sk.label_text(TEXT_KEY_OPTION + 3 * t + 1, tx + 34 + side + 6, ty + 38, kw - 80 - 2 * side,
+                      22, align=1, op=[op])
+        sk.label_text(TEXT_KEY_OPTION + 3 * t + 2, tx + kw - 34 - side, ty + 46, side, 12,
+                      color=FAINT, op=[op])
+        if name == "RANDOM 2P":
+            sk.put(sk.img("white"), tx + 1, ty + 1, kw - 2, 74, op=[op, -OPTION_RANDOM_2P],
+                   r=PANEL[0], g=PANEL[1], b=PANEL[2], a=150)
+
+
+def list_rows(sk, r, op, rows, rw, y0, pitch=36):
+    """Rows of a list panel: (keys, name, note, the value (text event or
+    an option group), event); their tiles are focused in order."""
+    x, y, w, h = r
+    rx = x + (w - rw) // 2
+    for k, (keys, name, note, value, ev) in enumerate(rows):
+        ry = y0 + k * pitch
+        if ev:
+            focus_ring(sk, f"rowfocus{rw}", rx, ry, op, k)
+        sel_put(sk, f"row{rw}", rx, ry, op=[op])
+        badges(sk, keys, rx + 8, ry + 6, op, AMBER if op == 23 else VIOLET)
+        sel_put(sk, f"rl_{name}", rx + 66, ry + 8, op=[op])
+        if note:
+            sel_put(sk, f"rd_{name}", rx + 66 + 190, ry + 9, op=[op])
+        vx = rx + rw - 176
+        sel_put(sk, "valbox", vx, ry + 2, op=[op])
+        if isinstance(value, tuple):
+            g = value[0]
+            for v, label in enumerate(("OFF", "ON")):
+                lw, lh = sk.size(f"ov_{label}")
+                sel_put(sk, f"ov_{label}", vx + 86 - lw // 2, ry + 16 - lh // 2,
+                        op=[op, 1500 + 16 * g + v])
+        elif value:
+            sel_put(sk, "arr_ls", vx + 8, ry + 9, op=[op])
+            sel_put(sk, "arr_rs", vx + 172 - 18, ry + 9, op=[op])
+            sk.label_text(value, vx + 22, ry + 8, 128, 15, align=1, op=[op])
+        else:
+            lw, lh = sk.size("ro_replay")
+            sel_put(sk, "ro_replay", vx + 86 - lw // 2, ry + 16 - lh // 2, op=[op])
+        if ev:
+            sel_put(sk, "clear", rx, ry, rw, 32, op=[op], act=ev,
+                    click=0 if isinstance(value, tuple) else 2)
+
+
+def assist_panel(sk, r, rw):
+    op = PANEL_OPS[2]
+    pop_frame(sk, 2, r, op)
+    rows = [([k] if k else [], name, note, (g,), ev) for k, name, note, g, ev in ASSIST_ROWS]
+    list_rows(sk, r, op, rows, rw, r[1] + 68, 44)
+
+
+def system_option(sk, r, rw, portrait):
+    op = PANEL_OPS[3]
+    pop_frame(sk, 3, r, op)
+    x, y, w, h = r
+    rows = [(keys, name, note, ev, ev) for keys, name, note, ev in SYSTEM_ROWS]
+    pitch = 44 if portrait else 36
+    list_rows(sk, r, op, rows, rw, y + 64, pitch)
+    sk.put(sk.img("white"), x + (w - rw) // 2 + rw - 176, y + 64 + 10 * pitch, 172, 32,
+           op=[op, -OPTION_WINDOWED], r=17, g=20, b=31, a=170)
+    by = y + h - 70
+    for i, (name, ev) in enumerate(SYSTEM_BUTTONS):
+        bx = x + 22 + i * (180 + 16)
+        focus_ring(sk, "focus180x48", bx, by, op, len(SYSTEM_ROWS) - 1 + i)
+        sel_put(sk, f"sb_{name}", bx, by, op=[op], act=ev)
+
+
+def effects_panel(sk, r, rw):
+    op = PANEL_OPS[6]
+    pop_frame(sk, 6, r, op)
+    x, y, w, h = r
+    rx = x + (w - rw) // 2
+    for k, (name, ev) in enumerate(EFFECT_ROWS):
+        ry = y + 72 + k * 48
+        focus_ring(sk, f"rowfocus{rw}", rx, ry, op, k)
+        sel_put(sk, f"row{rw}", rx, ry, op=[op])
+        sel_put(sk, f"rl_{name}", rx + 14, ry + 8, op=[op])
+        if k < 4:
+            sel_put(sk, "voltrack", rx + 160, ry + 12, op=[op])
+            sk.put(graph_part(sk, "volbar", NUMBER_VOLUME + k), rx + 160, ry + 12, 240, 8, op=[op])
+        sel_put(sk, "arr_ls", rx + rw - 150, ry + 9, op=[op])
+        sel_put(sk, "arr_rs", rx + rw - 22, ry + 9, op=[op])
+        sk.label_text(ev, rx + rw - 136, ry + 8, 110, 15, align=1, op=[op])
+        sel_put(sk, "clear", rx, ry, rw, 32, op=[op], act=ev, click=2)
+    by = y + 72 + 5 * 48 + 8
+    focus_ring(sk, "focus180x48", rx, by, op, 5)
+    sel_put(sk, "sb_SKIN / SOUND", rx, by, op=[op], act=14)
+    sel_put(sk, "effects_note", rx, by + 64, op=[op])
+
+
+def tag_panel(sk, r, rw):
+    op = PANEL_OPS[7]
+    pop_frame(sk, 7, r, op)
+    x, y, w, h = r
+    rx = x + (w - rw) // 2
+    for k, (name, note, ev) in enumerate(TAG_ROWS):
+        ry = y + 72 + k * 56
+        focus_ring(sk, f"rowfocus{rw}", rx, ry, op, k)
+        sel_put(sk, f"row{rw}", rx, ry, op=[op])
+        sel_put(sk, f"rl_{name}", rx + 14, ry + 8, op=[op])
+        sel_put(sk, f"rd_{name}", rx + 14, ry + 36, op=[op])
+        sk.label_text(ev, rx + rw - 140, ry + 8, 126, 15, align=2, op=[op])
+        sel_put(sk, "clear", rx, ry, rw, 32, op=[op], act=ev, click=2)
+    sel_put(sk, "tag_note", rx, y + 72 + 3 * 56 + 16, op=[op])
+
+
+def stat_rows(sk, op, x, y, rows, colw=150):
+    """Label over value, in columns: (label, number ref, digits, note)."""
+    for i, (label, ref, digits) in enumerate(rows):
+        cx, cy = x + (i % 4) * colw, y + (i // 4) * 58
+        sel_put(sk, f"sc_{label}", cx, cy, op=[op])
+        sk.number("n_sel", ref, digits, cx, cy + 18, align=1, scale=0.9, blank=True, op=[op])
+
+
+def score_status(sk, r):
+    op = PANEL_OPS[4]
+    pop_frame(sk, 4, r, op)
+    x, y, w, h = r
+    stat_rows(sk, op, x + 24, y + 72, [("PGREAT", 80, 5), ("GREAT", 81, 5), ("GOOD", 82, 5),
+                                       ("BAD", 83, 5), ("POOR", 84, 5), ("PLAYS", 77, 5),
+                                       ("CLEARS", 78, 5), ("FAILS", 79, 5), ("MIN BP", 76, 5),
+                                       ("MIN CB", 9425, 5)])
+    cy = y + 72 + 3 * 58
+    sel_put(sk, "sc_RATE", x + 24, cy, op=[op])
+    sk.number("n_sel", 102, 3, x + 24, cy + 18, align=1, scale=0.9, blank=True, op=[op])
+    sk.number("n_sel", 103, 2, x + 24 + 60, cy + 18, zeropad=True, scale=0.9, op=[op], color=DIM)
+    sel_put(sk, "sc_LAST PLAYED", x + 174, cy, op=[op])
+    sk.label_text(9212, x + 174, cy + 20, 200, 20, op=[op])
+    sel_put(sk, "sc_IR TOP 3", x + 24, cy + 70, op=[op])
+    for i in range(3):
+        sk.label_text(120 + i, x + 24, cy + 92 + 24 * i, 260, 17, op=[op, 602])
+        sk.number("n_sel", 380 + i, 5, x + 300, cy + 92 + 24 * i, scale=0.65, blank=True,
+                  op=[op, 602])
+
+
+def player_status(sk, r):
+    op = PANEL_OPS[5]
+    pop_frame(sk, 5, r, op)
+    x, y, w, h = r
+    sel_put(sk, "sc_PLAYER", x + 24, y + 72, op=[op])
+    sk.label_text(2, x + 24, y + 92, w - 48, 26, op=[op])
+    sel_put(sk, "sc_PLAY TIME", x + 24, y + 140, op=[op])
+    s = 0.9
+    cw = int(sk.num("n_sel", 17, 4)[1] * s)
+    sk.number("n_sel", 17, 4, x + 24, y + 158, scale=s, blank=True, op=[op])
+    sk.number("n_sel", 18, 2, x + 24 + 4 * cw + 8, y + 158, zeropad=True, scale=s, op=[op])
+    sk.number("n_sel", 19, 2, x + 24 + 6 * cw + 16, y + 158, zeropad=True, scale=s, op=[op])
+    for i in (0, 1):
+        sel_put(sk, "colon", x + 24 + (4 + 2 * i) * cw + 1 + 8 * i, y + 156, op=[op])
+    stat_rows(sk, op, x + 24, y + 210, [("PLAYS", 30, 6), ("CLEARS", 31, 6), ("FAILS", 32, 6),
+                                        ("NOTES HIT", 333, 7), ("PGREAT", 33, 7), ("GREAT", 34, 7),
+                                        ("GOOD", 35, 7), ("BAD", 36, 7), ("POOR", 37, 7)])
+
+
+def select_panels(sk, g, portrait):
+    if portrait:
+        rects = {n: PORT_POP for n in PANELS}
+        rw = PORT_POP[2] - 28
+    else:
+        rects = {n: LAND_POP.get(n, LAND_POP_OTHER) for n in PANELS}
+        rw = None
+    play_option(sk, rects[1], portrait)
+    assist_panel(sk, rects[2], rw or 612)
+    system_option(sk, rects[3], rw or 716, portrait)
+    score_status(sk, rects[4])
+    player_status(sk, rects[5])
+    effects_panel(sk, rects[6], rw or 612)
+    tag_panel(sk, rects[7], rw or 612)
+    op = PANEL_OPS[8]
+    pop_frame(sk, 8, rects[8], op)
+    x, y, _w, _h = rects[8]
+    sel_put(sk, "help_port" if portrait else "help_land", x + 24, y + 72, op=[op])
+
+
 def select_layout(fonts, parts, sel, portrait=False):
     g = PORT if portrait else LAND
     W, H = g["W"], g["H"]
@@ -2929,7 +3248,7 @@ def select_layout(fonts, parts, sel, portrait=False):
     sel_score(sk, img, fonts, g)
     sel_buttons(sk, img, fonts, g)
     sel_bottom(sk, img, fonts, g)
-    option_panels(sk, portrait)
+    select_panels(sk, g, portrait)
     return sk, img
 
 

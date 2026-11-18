@@ -298,9 +298,11 @@ fn every_old_row_is_reachable() {
     let armed = Armed::default();
     let tree = search::walk(&ctx, &armed);
     let has = |id: &str| tree.iter().any(|(_, r)| r.id == id);
+    // (the per-play rows are on the song select once they leave settings)
+    let moved = |id: &str| !SHOW_PER_PLAY && MOVED.iter().any(|m| m.ids.contains(&id));
     for (page, ids) in OLD {
         for id in *ids {
-            assert!(has(id), "{page}: {id} is nowhere");
+            assert!(has(id) || moved(id), "{page}: {id} is nowhere");
         }
     }
     // every skin type's choice, every BMS-IR table, every binding

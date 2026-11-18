@@ -72,11 +72,13 @@ impl SelectScene {
     }
 
     fn nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
+        if self.panel > 0 && !self.holding() {
+            return self.panel_nav(ctx, nav);
+        }
         match nav {
             Nav::Up => self.step(ctx, -1),
             Nav::Down => self.step(ctx, 1),
             Nav::Decide => return self.decide(ctx, false),
-            Nav::Close | Nav::Back if self.panel > 0 => self.toggle_panel(0),
             Nav::Close => {
                 self.back(ctx);
             }
@@ -219,7 +221,7 @@ impl SelectScene {
             KeyCode::PageDown => self.step(ctx, 10),
             _ => {
                 if let Some(nav) = nav {
-                    if matches!(nav, Nav::Up | Nav::Down) {
+                    if matches!(nav, Nav::Up | Nav::Down) && self.panel == 0 {
                         self.held_nav = Some(Repeat::new(nav, Instant::now(), NAV_REPEAT_DELAY));
                     }
                     return self.nav(ctx, nav);

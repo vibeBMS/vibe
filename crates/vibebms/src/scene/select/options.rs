@@ -3,21 +3,22 @@
 //! panels (`option_panel`).
 
 use super::input::PanelKey;
-use super::skin::{panel_of_op, PANELS};
+use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
-use crate::config::{AudioSettings, BgaSize, Ghost};
+use crate::config::{AudioSettings, BgaSize, Ghost, PlayConfig};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
     HISPEED_STEP,
 };
 use crate::gfx::Rect;
-use crate::input::Repeat;
+use crate::input::{Nav, Repeat};
 use crate::library::{Favorites, Song};
 use crate::platform::{Duration, Instant};
 use crate::scene::option_panel::{self, cycle, onoff};
 use crate::scene::skin_host::Tap;
+use crate::scene::target::{self, Rival};
 use crate::sysound::Sound;
 use vibebms_audio::Bus;
 use vibebms_core::gauge::GaugeAutoShift;
@@ -65,10 +66,47 @@ pub(crate) enum SelectOption {
     BgaSize,
     Ghost,
     ScoreGraph,
+    Sudden,
+    Hidden,
+    Lift,
+    AutoScratch,
+    Bga,
+    TimingAutoAdjust,
 }
 
 /// Full screen can be switched (desktop).
 pub(super) const WINDOWED: bool = !cfg!(any(target_arch = "wasm32", target_os = "android"));
+
+/// A lane cover / lift share in 1 % steps, up to `max`.
+fn cover(v: &mut f32, d: i32, max: f32) {
+    *v = (*v + d as f32 * 0.01).clamp(0.0, max);
+}
+
+/// PLAY OPTION's key option `t` (RANDOM, GAUGE, DP OPTION · BATTLE,
+/// HS-FIX, RANDOM 2P, TARGET) moved `d` places, as its key and its tile
+/// do.
+pub(crate) fn step_key_option(p: &mut PlayConfig, t: usize, d: i32, b: &Bpms, rivals: &[Rival]) {
+    match t {
+        5 => {
+            target::step(p, rivals, d);
+        }
+        t => {
+            option_panel::key(p, 1, [0, 2, 3, 4, 6][t], b, d);
+        }
+    }
+}
+
+/// Key option `t`'s value.
+pub(crate) fn key_option_label(p: &PlayConfig, t: usize, rivals: &[Rival]) -> String {
+    match t {
+        0 => p.random_1p.label().into(),
+        1 => p.gauge.label().into(),
+        2 => option_panel::BATTLE_LABELS[option_panel::battle_index(p) as usize].into(),
+        3 => p.hs_fix.label().into(),
+        4 => p.random_2p.label().into(),
+        _ => target::label(p, rivals),
+    }
+}
 
 /// The song preview: ONCE, LOOP, OFF.
 fn preview_index(a: &AudioSettings) -> i32 {
@@ -80,7 +118,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 32] = [
+    pub const ALL: [SelectOption; 38] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -113,6 +151,12 @@ impl SelectOption {
         SelectOption::BgaSize,
         SelectOption::Ghost,
         SelectOption::ScoreGraph,
+        SelectOption::Sudden,
+        SelectOption::Hidden,
+        SelectOption::Lift,
+        SelectOption::AutoScratch,
+        SelectOption::Bga,
+        SelectOption::TimingAutoAdjust,
     ];
 
     pub fn name(self) -> &'static str {
@@ -149,6 +193,12 @@ impl SelectOption {
             SelectOption::BgaSize => "BGA SIZE",
             SelectOption::Ghost => "GHOST POSITION",
             SelectOption::ScoreGraph => "SCORE GRAPH",
+            SelectOption::Sudden => "SUDDEN+",
+            SelectOption::Hidden => "HIDDEN+",
+            SelectOption::Lift => "LIFT",
+            SelectOption::AutoScratch => "AUTO SCRATCH",
+            SelectOption::Bga => "BGA",
+            SelectOption::TimingAutoAdjust => "JUDGE AUTO ADJUST",
         }
     }
 
@@ -192,6 +242,12 @@ impl SelectOption {
             SelectOption::BgaSize => p.bga_size.label().into(),
             SelectOption::Ghost => p.ghost.label().into(),
             SelectOption::ScoreGraph => onoff(p.score_graph).into(),
+            SelectOption::Sudden => pct(p.sudden),
+            SelectOption::Hidden => pct(p.hidden),
+            SelectOption::Lift => pct(p.lift),
+            SelectOption::AutoScratch => onoff(p.auto_scratch).into(),
+            SelectOption::Bga => onoff(p.bga).into(),
+            SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -313,6 +369,12 @@ impl SelectScene {
             SelectOption::BgaSize => p.bga_size = cycle(&BgaSize::ALL, p.bga_size, d),
             SelectOption::Ghost => p.ghost = cycle(&Ghost::ALL, p.ghost, d),
             SelectOption::ScoreGraph => p.score_graph ^= true,
+            SelectOption::Sudden => cover(&mut p.sudden, d, 0.9),
+            SelectOption::Hidden => cover(&mut p.hidden, d, 0.9),
+            SelectOption::Lift => cover(&mut p.lift, d, 0.6),
+            SelectOption::AutoScratch => p.auto_scratch ^= true,
+            SelectOption::Bga => p.bga ^= true,
+            SelectOption::TimingAutoAdjust => p.timing_auto_adjust ^= true,
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
             }
@@ -395,6 +457,31 @@ impl SelectScene {
         if self.panel > 0 {
             self.panel_on[self.panel - 1] = Some(now);
         }
+        self.focus = 0;
+    }
+
+    /// With a panel open (not held): ↑↓ (the turntable) move the focus
+    /// between its tiles, → / ← (white / black keys) step the focused value
+    /// on / back, Back closes.
+    pub(super) fn panel_nav(&mut self, ctx: &mut Ctx, nav: Nav) -> Next {
+        let tiles = PANEL_TILES[self.panel - 1];
+        let n = tiles.len();
+        match nav {
+            Nav::Up | Nav::Down if n > 0 => {
+                let d = if nav == Nav::Up { n - 1 } else { 1 };
+                self.focus = (self.focus + d) % n;
+                ctx.play_sound(Sound::Scratch);
+            }
+            Nav::Decide | Nav::Close if n > 0 => {
+                let d = if nav == Nav::Decide { 1 } else { -1 };
+                return self.skin_event(ctx, tiles[self.focus.min(n - 1)], d);
+            }
+            Nav::Settings => {
+                return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx)))
+            }
+            _ => self.toggle_panel(0),
+        }
+        Next::Stay
     }
 
     /// Does the skin have panels (objects shown only with a panel option)?
@@ -410,7 +497,9 @@ impl SelectScene {
     /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids);
     /// `d` -1: the value before (a tap on its left half), else the next.
     pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32, d: i32) -> Next {
-        use super::skin::{EVENT_BACK, EVENT_REPLAY, EVENT_SEARCH, EVENT_SIBLING, OPTION_EVENT};
+        use super::skin::{
+            EVENT_BACK, EVENT_PANEL, EVENT_REPLAY, EVENT_SEARCH, EVENT_SIBLING, OPTION_EVENT,
+        };
         let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
         let done = match act {
@@ -470,6 +559,7 @@ impl SelectScene {
                 Next::Stay
             }
             EVENT_REPLAY => self.watch_replay(ctx),
+            EVENT_PANEL => Next::Stay,
             EVENT_SEARCH => {
                 self.open_search();
                 Next::Stay

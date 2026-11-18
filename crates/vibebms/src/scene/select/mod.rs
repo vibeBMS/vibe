@@ -100,6 +100,8 @@ pub struct SelectScene {
     panel: usize,
     panel_on: [Option<Instant>; PANELS],
     panel_off: [Option<Instant>; PANELS],
+    /// The focused tile of the open panel (`skin::PANEL_TILES`).
+    focus: usize,
     /// START / SELECT held: the option panels (see `option_panel`).
     start_held: bool,
     select_held: bool,
@@ -150,6 +152,7 @@ impl SelectScene {
             panel: 0,
             panel_on: [None; PANELS],
             panel_off: [None; PANELS],
+            focus: 0,
             start_held: false,
             select_held: false,
             num5_held: false,

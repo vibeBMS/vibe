@@ -12,7 +12,7 @@
 //! the player's rank, 180 the chart's players. The bar list draws the
 //! lamp of the player chosen in `IrSettings::beside` as the rival lamp.
 
-use super::options::SelectOption;
+use super::options::{self, SelectOption};
 use super::preview::Rank;
 use super::status::{self, SIBLINGS};
 use super::tree::{table, Bar, CourseBar, Node};
@@ -46,6 +46,9 @@ pub const TEXT_IR: i32 = 9200;
 /// vibeBMS events: open the search box, and choose the song's chart of
 /// difficulty slot k (BEGINNER .. INSANE) with `EVENT_SIBLING + k`.
 pub const EVENT_SEARCH: i32 = 9903;
+/// vibeBMS event: a panel's body, so a tap on it reaches nothing under it
+/// (a tap beside the panel closes it).
+pub const EVENT_PANEL: i32 = 9904;
 pub const EVENT_SIBLING: i32 = 9910;
 
 /// vibeBMS texts: the chart's key mode ("7KEYS"), the search shown, when
@@ -69,11 +72,44 @@ pub const OPTION_REPLAY: i32 = 9220;
 pub const OPTION_HAS_TEXT: i32 = 9221;
 /// vibeBMS option: a search's results are shown.
 pub const OPTION_SEARCH: i32 = 9222;
-/// vibeBMS options of SYSTEM OPTION: FAST / SLOW shown, full screen, full
-/// screen can be switched (desktop).
-pub const OPTION_FAST_SLOW: i32 = 9235;
-pub const OPTION_FULLSCREEN: i32 = 9236;
+/// vibeBMS options: full screen can be switched (desktop); RANDOM 2P
+/// takes effect (BATTLE, a double play chart, or no chart chosen).
 pub const OPTION_WINDOWED: i32 = 9237;
+pub const OPTION_RANDOM_2P: i32 = 9238;
+
+/// vibeBMS texts 9600 + 3t, + 1, + 2: PLAY OPTION's key option t
+/// (RANDOM, GAUGE, DP OPTION · BATTLE, HS-FIX, RANDOM 2P, TARGET with the
+/// IR rivals) one back, now, one on.
+pub const TEXT_KEY_OPTION: i32 = 9600;
+
+/// The events of each panel's tiles, in order: the keys (↑↓, the
+/// turntable) move a focus between them, ← → (black / white keys) step
+/// the focused one. vibeBMS option `OPTION_FOCUS + k`: tile k has it.
+pub const PANEL_TILES: [&[i32]; PANELS] = [
+    // PLAY OPTION: RANDOM, GAUGE, DP OPTION, HS-FIX, RANDOM 2P, TARGET;
+    // HI-SPEED, LANE COVER, SUDDEN+, HIDDEN+, LIFT, LN MODE, ASSIST, PLAY
+    // SIDE, JUDGE RULES
+    &[
+        42, 40, 54, 55, 43, 77, 9005, 9018, 9032, 9033, 9034, 9003, 2, 9006, 9007,
+    ],
+    // ASSIST: beatoraja's seven, AUTO SCRATCH
+    &[301, 302, 303, 304, 305, 306, 307, 9035],
+    // SYSTEM OPTION: BGA, BGA SIZE, GAUGE AUTO SHIFT, JUDGE AUTO ADJUST,
+    // JUDGE TIMING, GREEN NUMBER, VISUAL OFFSET, GHOST POSITION, SCORE
+    // GRAPH, FAST / SLOW, SCREEN MODE; KEY CONFIG, SKIN / SOUND, SETTINGS
+    &[
+        9036, 9029, 9002, 9037, 9019, 9020, 9021, 9030, 9031, 9022, 9023, 13, 14, 9009,
+    ],
+    &[],
+    &[],
+    // EFFECTS: the four volumes, PREVIEW, SKIN / SOUND
+    &[9024, 9025, 9026, 9027, 9028, 14],
+    // TAG EDITOR: FAVORITE SONG, FAVORITE CHART, RANDOM SELECT's charts
+    &[9015, 9014, 9016],
+    &[],
+    &[],
+];
+pub const OPTION_FOCUS: i32 = 9700;
 pub const OPTION_SAVE: i32 = 9230;
 pub const OPTION_ONLINE: i32 = 9233;
 pub const OPTION_OFFLINE: i32 = 9234;
@@ -85,8 +121,6 @@ pub const OPTION_CLEAR_RATE: i32 = 9251;
 /// and cleared (9300-9303).
 pub const NUMBER_CLEAR_RATE: i32 = 9250;
 pub const NUMBER_VOLUME: i32 = 9260;
-/// vibeBMS number: the visual offset (ms).
-pub const NUMBER_VISUAL_OFFSET: i32 = 9264;
 pub const NUMBER_FOLDER: i32 = 9300;
 /// vibeBMS numbers and rates: the selected folder's charts of lamp c
 /// (9310 + c, beatoraja order; 9321 FULL COMBO or better) and of DJ level
@@ -337,9 +371,10 @@ impl<'a> SelectState<'a> {
                 .is_some_and(|c| c as i32 == n - OPTION_CLEAR),
             OPTION_CLEAR_RATE => self.rank_view().and_then(status::clear_rate).is_some(),
             OPTION_SEARCH => self.s.query().is_some(),
-            OPTION_FAST_SLOW => ctx.config.play.show_fast_slow,
-            OPTION_FULLSCREEN => ctx.config.display.fullscreen,
             OPTION_WINDOWED => super::options::WINDOWED,
+            OPTION_RANDOM_2P => {
+                ctx.config.play.battle || self.song.is_none_or(|s| s.mode.is_double())
+            }
             n @ OPTION_BAR..=9492 => self
                 .bar(self.s.cursor)
                 .is_some_and(|b| b.kind as i32 == n - OPTION_BAR),
@@ -498,6 +533,13 @@ impl SkinState for SelectState<'_> {
                 crate::scene::option_panel::option(&self.ctx.config.play, n).unwrap_or(false)
             }
             n @ 9220..=9492 => self.vibe_option(n).unwrap_or(false),
+            n @ OPTION_FOCUS..=9799 => {
+                let s = self.s;
+                s.panel > 0
+                    && !s.holding()
+                    && s.focus as i32 == n - OPTION_FOCUS
+                    && !PANEL_TILES[s.panel - 1].is_empty()
+            }
             601 => matches!(self.rank, Some(Rank::Loading(_))),
             602 => matches!(self.rank, Some(Rank::Done(_))),
             604 => matches!(self.rank, Some(Rank::Error)),
@@ -519,7 +561,6 @@ impl SkinState for SelectState<'_> {
         Some(match id {
             20 => self.ctx.view.fps as i64,
             12 => p.judge_offset_ms as i64,
-            NUMBER_VISUAL_OFFSET => p.visual_offset_ms as i64,
             // a selected song's record (0 when never played)
             71 | 75..=84 | 102 | 103 | BEST_MIN_CB if song.is_some() => {
                 return best_number(self.best, id)
@@ -591,6 +632,18 @@ impl SkinState for SelectState<'_> {
             10..=16 | 1030 | 1031 => return chart_text(&ChartText::of_song(song?), id),
             120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
             TEXT_IR => return self.ir_line(),
+            n @ TEXT_KEY_OPTION..=9617 => {
+                let (t, k) = (
+                    ((n - TEXT_KEY_OPTION) / 3) as usize,
+                    (n - TEXT_KEY_OPTION) % 3,
+                );
+                let rivals = crate::scene::target::rivals(self.ctx);
+                let mut p = self.ctx.config.play.clone();
+                if k != 1 {
+                    options::step_key_option(&mut p, t, k - 1, &self.bpms, &rivals);
+                }
+                options::key_option_label(&p, t, &rivals)
+            }
             TEXT_MODE => status::mode_label(song?),
             TEXT_QUERY => self.s.query().unwrap_or_default().into(),
             TEXT_LAST_PLAYED => {
@@ -993,6 +1046,42 @@ mod tests {
         assert_eq!(st.number(SIBLING + 3), Some(12));
         s.pick_sibling(&mut ctx, 3);
         assert!(matches!(s.bars[..], [Bar::Song(1), Bar::Song(2)]));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// PLAY OPTION's key options one back, now and one on; the keys move
+    /// a focus over the open panel's tiles and step the focused one.
+    #[test]
+    fn panel_tiles_and_focus() {
+        use crate::input::Nav;
+        use vibebms_core::lane_option::LaneOption;
+        let root = std::env::temp_dir().join(format!("vibebms-select-pnl-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SelectScene::new(&mut ctx);
+        let st = SelectState::new(&s, &ctx);
+        let last = LaneOption::ALL[LaneOption::ALL.len() - 1].label();
+        let random: Vec<_> = (0..3).map(|k| st.text(TEXT_KEY_OPTION + k)).collect();
+        assert_eq!(
+            random,
+            [Some(last.into()), Some("OFF".into()), Some("MIRROR".into())]
+        );
+        assert_eq!(st.text(TEXT_KEY_OPTION + 16).as_deref(), Some("BEST"));
+        assert!(!st.option(OPTION_FOCUS));
+        s.toggle_panel(1);
+        assert!(SelectState::new(&s, &ctx).option(OPTION_FOCUS));
+        s.panel_nav(&mut ctx, Nav::Down);
+        assert!(SelectState::new(&s, &ctx).option(OPTION_FOCUS + 1));
+        let gauge = ctx.config.play.gauge;
+        s.panel_nav(&mut ctx, Nav::Decide);
+        assert_ne!(ctx.config.play.gauge, gauge);
+        s.panel_nav(&mut ctx, Nav::Close);
+        assert_eq!(ctx.config.play.gauge, gauge);
+        // around the end; Back closes
+        s.panel_nav(&mut ctx, Nav::Up);
+        s.panel_nav(&mut ctx, Nav::Up);
+        assert_eq!(s.focus, PANEL_TILES[0].len() - 1);
+        s.panel_nav(&mut ctx, Nav::Back);
+        assert_eq!(s.panel, 0);
         std::fs::remove_dir_all(&root).ok();
     }
 
