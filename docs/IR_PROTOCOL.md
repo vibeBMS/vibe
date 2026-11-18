@@ -13,9 +13,12 @@ fields, and the client treats a 404 on an optional route as "not supported".
 ## `GET {base}/me` (version 2, optional)
 Checks the token. Response:
 ```json
-{"id": "123", "name": "player name", "can_submit": true}
+{"id": "123", "name": "player name", "can_submit": true,
+ "chart_page": "https://ir.example/charts/{sha256}"}
 ```
 401 or 403: the token is refused. 404: a version 1 server; the token is used as it is.
+`chart_page` (optional): the server's web page of a chart, an `http(s)` address with `{sha256}` and/or `{md5}`
+in it; song select's IR PAGE (key I) opens it in the browser. Without it the server has no chart pages here.
 
 ## `GET {base}/ranking?sha256=...&md5=...&lntype=LN|CN|HCN[&limit=N]`
 Version 1 response: an array of rows. Version 2 may answer an object instead, with the number

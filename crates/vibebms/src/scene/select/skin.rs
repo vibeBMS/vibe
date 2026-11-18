@@ -53,6 +53,8 @@ pub const EVENT_SEARCH: i32 = 9903;
 pub const EVENT_PANEL: i32 = 9904;
 /// vibeBMS event: the chosen chart's practice screen.
 pub const EVENT_PRACTICE: i32 = 9905;
+/// vibeBMS: open the chosen chart's page on the IR (as key I).
+pub const EVENT_IR_PAGE: i32 = 9908;
 pub const EVENT_SIBLING: i32 = 9910;
 
 /// vibeBMS texts: the chart's key mode ("7KEYS"), the search shown, when

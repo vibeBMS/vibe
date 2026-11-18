@@ -219,6 +219,33 @@ impl SelectScene {
         Next::Push(Box::new(PlayScene::new(ctx, req)))
     }
 
+    /// Open the chosen chart's page on the IR the rankings come from, in
+    /// the system's browser (the web: a new tab).
+    pub(super) fn open_ir_page(&mut self, ctx: &mut Ctx) {
+        let Some((_, song)) = self.selected_song(ctx) else {
+            ctx.toast("IR page: choose a chart".to_string());
+            return;
+        };
+        let chart = vibebms_ir::provider::ChartId {
+            md5: song.md5.clone(),
+            sha256: song.sha256.clone(),
+            mode: song.mode,
+            ln: song.score_ln(ctx.config.play.ln_pref()),
+            remote: None,
+        };
+        let title = song.title.clone();
+        match ctx.net.ir.chart_page(&ctx.config.ir, chart) {
+            Ok(url) => {
+                if crate::platform::open_url(&url) {
+                    ctx.toast(format!("IR page of {title}: opened in the browser"));
+                } else {
+                    ctx.toast(format!("IR page: cannot open {url}"));
+                }
+            }
+            Err(why) => ctx.toast(format!("IR page: {why}")),
+        }
+    }
+
     /// The chosen chart's practice screen.
     pub(super) fn practice(&mut self, ctx: &mut Ctx) -> Next {
         let Some((_, song)) = self.selected_song(ctx) else {

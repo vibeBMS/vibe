@@ -101,7 +101,9 @@ pub struct IrService {
 /// The adapter of an account, where this build has one.
 fn provider(a: &IrAccount) -> Option<Box<dyn Provider>> {
     match a.provider {
-        ProviderId::VibeJson(n) => Some(Box::new(VibeJson::new(n, &a.url)?)),
+        ProviderId::VibeJson(n) => Some(Box::new(
+            VibeJson::new(n, &a.url)?.with_chart_page(&a.chart_page),
+        )),
         ProviderId::Bokutachi => Some(Box::new(Tachi)),
         ProviderId::BmsIr => Some(Box::new(BmsIrRead::at(&a.url))),
         ProviderId::RianIr => None,
@@ -247,6 +249,32 @@ impl IrService {
                 let _ = tx.send(read);
             })
         }))
+    }
+
+    /// The web page of `chart` at the account the rankings come from
+    /// (`IrSettings::primary`), for the system browser; why there is
+    /// none, for people.
+    pub fn chart_page(&self, ir: &IrSettings, mut chart: ChartId) -> Result<String, String> {
+        let a = ir
+            .primary()
+            .ok_or("no IR account in use (settings, ONLINE)")?;
+        let prov = provider(a).ok_or_else(|| format!("{}: not available here", a.title()))?;
+        // (Tachi's id of the chart, learned from the player's PB lists)
+        chart.remote = (self.lamp(a.provider, &a.user_id, &chart.md5, &chart.sha256))
+            .and_then(|l| l.remote.clone());
+        prov.chart_page(&chart, &a.view).map_err(|e| {
+            let why = match e {
+                IrError::NotOffered => "has no web page of a chart".to_string(),
+                IrError::NoChartId => match a.provider {
+                    ProviderId::Bokutachi => {
+                        "knows this chart by its own id, learnt once you have a score on it".into()
+                    }
+                    _ => "cannot find this chart by its hash (a bmson has no MD5)".into(),
+                },
+                e => e.to_string(),
+            };
+            format!("{} {why}", a.title())
+        })
     }
 
     /// A play has ended: it gets its play id and goes into the history
@@ -644,6 +672,7 @@ impl IrService {
             Ok(Outcome::Account(info)) => {
                 a.user = info.name;
                 a.user_id = info.id;
+                a.chart_page = info.chart_page;
                 self.resume(a.provider);
                 if info.can_submit {
                     return None;
@@ -1037,6 +1066,57 @@ mod tests {
     /// told and not kept as the player's; a public one's lamps are kept in
     /// the cache with their ETag, asked again with it once stale (a 304
     /// keeps them), and not before.
+    /// The chosen chart's page is the rankings' account's: by MD5 on
+    /// BMS-IR, by the id its PB lists gave on Bokutachi, by `/me`'s page
+    /// on a vibeBMS IR; why there is none otherwise.
+    #[test]
+    fn chart_pages_are_the_rankings_accounts() {
+        let root = std::env::temp_dir().join(format!("vibebms-ir-page-{}", std::process::id()));
+        let ir = IrService::new(&Paths::at(root.clone()), 0);
+        let chart = ChartId {
+            md5: "ab".repeat(16),
+            sha256: "cd".repeat(32),
+            mode: vibebms_core::PlayMode::Beat7K,
+            ..Default::default()
+        };
+        let mut s = IrSettings::default();
+        assert!(ir
+            .chart_page(&s, chart.clone())
+            .unwrap_err()
+            .contains("no IR account"));
+        let account = |provider| IrAccount {
+            provider,
+            ..Default::default()
+        };
+        s.accounts = vec![account(ProviderId::BmsIr), account(ProviderId::Bokutachi)];
+        assert_eq!(
+            ir.chart_page(&s, chart.clone()).unwrap(),
+            format!(
+                "https://www.bms-ir.org/new/song?songmd5={}",
+                "ab".repeat(16)
+            )
+        );
+        s.primary = Some(ProviderId::Bokutachi);
+        let why = ir.chart_page(&s, chart.clone()).unwrap_err();
+        assert!(
+            why.starts_with("Bokutachi knows this chart by its own id"),
+            "{why}"
+        );
+        s.accounts = vec![IrAccount {
+            url: "https://ir.example/api".into(),
+            ..account(ProviderId::VibeJson(0))
+        }];
+        s.primary = None;
+        let why = ir.chart_page(&s, chart.clone()).unwrap_err();
+        assert!(why.ends_with("has no web page of a chart"), "{why}");
+        s.accounts[0].chart_page = "https://ir.example/c/{sha256}".into();
+        assert_eq!(
+            ir.chart_page(&s, chart).unwrap(),
+            format!("https://ir.example/c/{}", "cd".repeat(32))
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn a_bmsir_player_is_checked_and_its_lamps_kept() {
         let lamps = include_str!("../../../vibebms-ir/tests/fixtures/bmsir/player_lamps.json");

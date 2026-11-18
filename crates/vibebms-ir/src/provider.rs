@@ -180,6 +180,10 @@ pub struct AccountInfo {
     pub name: String,
     /// The credentials allow submitting scores.
     pub can_submit: bool,
+    /// The server's web page of a chart, `{sha256}` and `{md5}` in it
+    /// (a vibeBMS IR's `/me`, optional).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub chart_page: String,
 }
 
 /// One request.
@@ -300,6 +304,14 @@ pub trait Provider {
     /// The request for `op`, with what depends on the credentials.
     fn request(&self, op: &Op, creds: Option<&Creds>) -> Result<HttpRequest, IrError>;
     fn parse(&self, op: &Op, resp: &HttpResponse) -> Outcome;
+    /// The service's public web page of `chart` (`view`: the account's,
+    /// as for its ranking), for the system browser. `NotOffered`: the
+    /// service has no such pages; `NoChartId`: it cannot address the
+    /// chart (its own id not learned yet, no MD5).
+    fn chart_page(&self, chart: &ChartId, view: &str) -> Result<String, IrError> {
+        let _ = (chart, view);
+        Err(IrError::NotOffered)
+    }
 }
 
 /// What a status means whatever the service: 401/403 refuse the

@@ -2835,6 +2835,9 @@ SYSTEM_ROWS = [(["1"], "BGA", "Play the chart's background animation", 9036),
                ([], "REPLAY", "What P watches: best, last or a slot", 9043),
                ([], "REPLAY SPEED", "Watch faster or slower; same judgements", 9044)]
 SYSTEM_BUTTONS = [("KEY CONFIG", 13), ("SKIN / SOUND", 14), ("ALL SETTINGS ›", EVENT_SETTINGS)]
+# SCORE STATUS: the chosen chart's page on the IR (key I)
+EVENT_IR_PAGE = 9908
+SCORE_BUTTONS = [("IR PAGE ›", EVENT_IR_PAGE)]
 EFFECT_ROWS = [("MASTER", 9024), ("KEY SOUND", 9025), ("BGM", 9026), ("SYSTEM", 9027),
                ("PREVIEW", 9028)]
 TAG_ROWS = [("FAVORITE SONG", "every chart of the song (key 8)", 9015),
@@ -2846,7 +2849,8 @@ HELP_TEXT = [
               ("hold START", "PLAY OPTION"), ("hold SELECT", "ASSIST"),
               ("hold START + SELECT", "SYSTEM OPTION"), ("1 / 2 / 4", "keys, sort, difficulty"),
               ("3", "LN mode"), ("8 / 9", "favourite song / chart"), ("F5", "autoplay"),
-              ("P", "replay"), ("E", "practice"), ("/ or F10", "search"),
+              ("P / E", "replay / practice"), ("I", "the chart's IR page"),
+              ("/ or F10", "search"),
               ("C / Insert", "add to a course"),
               ("Tab", "settings")]),
     ("TOUCH", [("drag the list", "scroll"), ("tap a bar", "choose it"),
@@ -3011,7 +3015,7 @@ def select_panel_parts(a, fonts):
     a.add("ro_replay", flat(fonts, "BEST + LAST", "bold", 14, DIM, pad=0))
     a.add("ov_ON", flat(fonts, "ON", "bold", 14, TEAL, pad=0))
     a.add("ov_OFF", flat(fonts, "OFF", "bold", 14, DIM, pad=0))
-    for name, _ev in SYSTEM_BUTTONS:
+    for name, _ev in SYSTEM_BUTTONS + SCORE_BUTTONS:
         b = rounded(180, 48, 8, PANEL_HI + (255,), (TEAL if "SETTINGS" in name else EDGE) + (255,))
         t = spaced(fonts, name, "bold", 14, TEAL if "SETTINGS" in name else TEXT, 0.03, 0)
         b.alpha_composite(t, ((180 - t.size[0]) // 2, (48 - t.size[1]) // 2))
@@ -3183,11 +3187,12 @@ def system_option(sk, r, rw, portrait):
     pop_frame(sk, 3, r, op)
     x, y, w, h = r
     rows = [(keys, name, note, ev, ev) for keys, name, note, ev in SYSTEM_ROWS]
-    pitch = 48 if portrait else 36
+    # (landscape: thirteen rows and the buttons in the panel's height)
+    pitch = 48 if portrait else 35
     list_rows(sk, r, op, rows, rw, y + 64, pitch)
     sk.put(sk.img("white"), x + (w - rw) // 2 + rw - 176, y + 64 + 10 * pitch, 172,
            sk.size(f"row{rw}")[1], op=[op, -OPTION_WINDOWED], r=17, g=20, b=31, a=170)
-    by = y + h - 70
+    by = y + h - (70 if portrait else 56)
     for i, (name, ev) in enumerate(SYSTEM_BUTTONS):
         bx = x + 22 + i * (180 + 16)
         focus_ring(sk, "focus180x48", bx, by, op, len(SYSTEM_ROWS) + i)
@@ -3263,6 +3268,9 @@ def score_status(sk, r):
         sk.label_text(120 + i, x + 24, cy + 92 + 24 * i, 260, 17, op=[op, 602])
         sk.number("n_sel", 380 + i, 5, x + 300, cy + 92 + 24 * i, scale=0.65, blank=True,
                   op=[op, 602])
+    # (a chart chosen)
+    for i, (name, ev) in enumerate(SCORE_BUTTONS):
+        sel_put(sk, f"sb_{name}", x + w - 22 - 180 * (i + 1), y + h - 70, op=[op, 5], act=ev)
 
 
 def player_status(sk, r):
