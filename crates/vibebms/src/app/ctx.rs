@@ -359,7 +359,7 @@ impl Ctx {
     /// poll_profile`). False when there is no such profile.
     pub fn switch_profile(&mut self, id: &str) -> bool {
         if !self.profiles.registry.has(id) {
-            self.toast("No such profile");
+            self.toast(tr!("No such profile"));
             return false;
         }
         self.save_config();
@@ -389,7 +389,7 @@ impl Ctx {
         let _ = crate::platform::vfs::Prefetch::dirs(&[self.paths.replays()]);
         let name = self.profiles.registry.name(id).to_string();
         log::info!("profile: {name} ({})", self.paths.player.display());
-        self.toast(format!("Profile: {name}"));
+        self.toast(tr!("Profile: {name}", name = name));
         true
     }
 
@@ -500,7 +500,7 @@ impl Ctx {
         // (with charts being read in, another scan follows: the count then)
         if self.lib.prefetch.is_none() {
             let n = self.lib.songs.len();
-            self.toast(format!("Library: {n} charts"));
+            self.toast(tr!("Library: {n} charts", n = n));
         }
         if !again {
             return;
@@ -645,17 +645,19 @@ impl Ctx {
         let (new, changed) = db.import(&f.records);
         self.lib.scores = db.scores();
         self.lib.version += 1;
-        let mut said = format!(
-            "{}: {} scores read: {new} new, {changed} improved, {} of charts not here",
-            d.title,
-            d.rows.len() + d.left_out,
-            f.unknown
+        let mut said = tr!(
+            "{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here",
+            title = d.title,
+            n = d.rows.len() + d.left_out,
+            new = new,
+            changed = changed,
+            unknown = f.unknown
         );
         if f.ln_unknown > 0 {
-            said += &format!(", {} left out (LN mode not said)", f.ln_unknown);
+            said += &tr!(", {n} left out (LN mode not said)", n = f.ln_unknown);
         }
         if d.left_out > 0 {
-            said += &format!(", {} left out (no rule mode)", d.left_out);
+            said += &tr!(", {n} left out (no rule mode)", n = d.left_out);
         }
         for w in &d.why {
             said += &format!("; {w}");
@@ -672,7 +674,7 @@ impl Ctx {
         // web: newly picked files -> read the chart files, then scan
         if crate::platform::vfs::take_added() {
             let charts = crate::library::find_charts(&self.scan_roots(), &self.internal_dirs());
-            self.toast(format!("Reading {} charts…", charts.len()));
+            self.toast(tr!("Reading {n} charts…", n = charts.len()));
             #[cfg(target_arch = "wasm32")]
             crate::platform::opfs::hold_library(true);
             self.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(charts));

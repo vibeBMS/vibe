@@ -237,9 +237,10 @@ impl Gamepads {
                 gilrs::EventType::Connected => {
                     self.see(e.id, true);
                     let name = &self.seen[raw].pad.name;
-                    toast(format!(
-                        "Controller connected: {name} ({})",
-                        side_name(number(self))
+                    toast(tr!(
+                        "Controller connected: {name} ({side})",
+                        name = name,
+                        side = side_name(number(self))
                     ));
                 }
                 gilrs::EventType::Disconnected => {
@@ -248,9 +249,9 @@ impl Gamepads {
                         s.connected = false;
                         self.renumber();
                     }
-                    toast(format!(
-                        "Controller disconnected: {}",
-                        name.unwrap_or_default()
+                    toast(tr!(
+                        "Controller disconnected: {name}",
+                        name = name.unwrap_or_default()
                     ));
                 }
                 _ => {}

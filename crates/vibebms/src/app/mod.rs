@@ -128,8 +128,11 @@ struct Running {
     /// The page's fingers down and where they last were (web).
     #[cfg(target_arch = "wasm32")]
     touches: std::collections::HashMap<u64, (f32, f32)>,
-    /// Fonts downloaded in the background (web build).
-    font_job: Option<Job<Vec<u8>>>,
+    /// Fonts downloaded in the background (web build), each with whether
+    /// it is the UI language's own (drawn with before the others).
+    font_jobs: Vec<Job<(Vec<u8>, bool)>>,
+    /// The languages whose own fonts were asked for (web build).
+    fonts_for: Vec<crate::i18n::Lang>,
     /// A screenshot's file name while its frame is read back, then its
     /// saving.
     shot_name: Option<String>,
@@ -279,13 +282,13 @@ impl Running {
                 Ok(img) => {
                     self.shot_job = Some(crate::screenshot::save(img, name, &self.ctx.paths.root))
                 }
-                Err(e) => self.ctx.toast(format!("Screenshot: {e}")),
+                Err(e) => self.ctx.toast(tr!("Screenshot: {e}", e = e)),
             }
         }
         for r in Job::drain_slot(&mut self.shot_job) {
             match r {
-                Ok(path) => self.ctx.toast(format!("Screenshot: {path}")),
-                Err(e) => self.ctx.toast(format!("Screenshot: {e}")),
+                Ok(path) => self.ctx.toast(tr!("Screenshot: {path}", path = path)),
+                Err(e) => self.ctx.toast(tr!("Screenshot: {e}", e = e)),
             }
         }
     }
@@ -449,8 +452,14 @@ impl Running {
         let now = Instant::now();
         diag::set(self.ctx.config.display.show_latency);
         diag::frame(self.last_frame.replace(now), now);
-        for f in Job::drain_slot(&mut self.font_job) {
-            self.text.add_font(f);
+        for (f, own) in Job::drain_all(&mut self.font_jobs) {
+            self.text.add_font(f, own);
+        }
+        // the language changed: its own fonts (web)
+        let lang = crate::i18n::current();
+        if !self.fonts_for.contains(&lang) {
+            self.fonts_for.push(lang);
+            self.font_jobs.extend(web_fonts(Some(lang)));
         }
         self.poll_gamepads(el);
         #[cfg(target_os = "ios")]
@@ -518,7 +527,7 @@ impl Running {
                 self.shot_name = Some(name);
             } else {
                 self.ctx
-                    .toast("Screenshots: this GPU's screen cannot be read");
+                    .toast(tr!("Screenshots: this GPU's screen cannot be read"));
             }
         }
         let waited = self
@@ -546,23 +555,34 @@ impl Running {
     }
 }
 
-/// Web build: fonts listed in `fonts/fonts.txt` next to index.html.
-fn web_fonts() -> Option<Job<Vec<u8>>> {
+/// Web build: fonts listed in `fonts/fonts.txt` next to index.html, a file
+/// name a line. A line `file lang` (`NotoSansSC-Regular.otf zh-Hans`) is a
+/// font of that UI language's, loaded only when the UI is in it. `lang`:
+/// the fonts of that language (else those of none).
+fn web_fonts(lang: Option<crate::i18n::Lang>) -> Option<Job<(Vec<u8>, bool)>> {
     if !crate::platform::IS_WEB {
         return None;
     }
-    Some(Job::start(|tx, _| {
+    let tag = lang.map(|l| l.tag());
+    Some(Job::start(move |tx, _| {
         crate::platform::http_get("fonts/fonts.txt", move |r| {
             let Ok(list) = r else { return };
-            for name in String::from_utf8_lossy(&list)
+            for line in String::from_utf8_lossy(&list)
                 .lines()
                 .map(str::trim)
                 .filter(|l| !l.is_empty() && !l.starts_with('#'))
             {
+                let mut words = line.split_whitespace();
+                let (Some(name), of) = (words.next(), words.next()) else {
+                    continue;
+                };
+                if of != tag {
+                    continue;
+                }
                 let tx = tx.clone();
                 crate::platform::http_get(&format!("fonts/{name}"), move |r| {
                     if let Ok(b) = r {
-                        let _ = tx.send(b);
+                        let _ = tx.send((b, tag.is_some()));
                     }
                 });
             }
@@ -613,6 +633,7 @@ impl App {
             .pending
             .take()
             .unwrap_or_else(|| crate::profiles::load_config(&self.paths));
+        crate::i18n::apply(config.language);
         let text = Text::new(&[self.paths.fonts.as_path()]);
         let a = &config.audio;
         let mixer = Mixer::new(&AudioConfig {
@@ -672,11 +693,11 @@ impl App {
                 f.used.label()
             );
             ctx.config.display.backend = f.used;
-            ctx.toast(format!(
-                "Graphics: {} could not start, {} is used instead \
+            ctx.toast(tr!(
+                "Graphics: {wanted} could not start, {used} is used instead \
                  (SETTINGS › DISPLAY & AUDIO › ADVANCED)",
-                f.wanted.label(),
-                f.used.label()
+                wanted = f.wanted.label(),
+                used = f.used.label()
             ));
         }
         ctx.open_records();
@@ -733,7 +754,11 @@ impl App {
             last_touch: None,
             #[cfg(target_arch = "wasm32")]
             touches: Default::default(),
-            font_job: web_fonts(),
+            font_jobs: web_fonts(None)
+                .into_iter()
+                .chain(web_fonts(Some(crate::i18n::current())))
+                .collect(),
+            fonts_for: vec![crate::i18n::current()],
             shot_name: None,
             shot_job: None,
             mouse_down: false,

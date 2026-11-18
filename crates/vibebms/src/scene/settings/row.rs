@@ -306,3 +306,13 @@ pub(super) fn mb(n: u64) -> String {
 pub(super) fn ms(v: i32) -> String {
     format!("{v:+} ms")
 }
+
+/// ON / OFF as the settings show them (in the UI's language; the song
+/// select's option values, which skins read, stay ON / OFF).
+pub(super) fn onoff(b: bool) -> &'static str {
+    if b {
+        tr!("ON")
+    } else {
+        tr!("OFF")
+    }
+}

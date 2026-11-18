@@ -155,15 +155,15 @@ pub fn ghost_refusal(
     use vibebms_core::PlayMode;
     Some(
         if !matches!(song.mode, PlayMode::Beat7K | PlayMode::Beat5K) {
-            "G-BATTLE needs a 5 or 7 key chart"
+            tr!("G-BATTLE needs a 5 or 7 key chart")
         } else if r.play.battle {
-            "the replay is a BATTLE play"
+            tr!("the replay is a BATTLE play")
         } else if r.ops.is_empty() {
-            "the replay has no inputs"
+            tr!("the replay has no inputs")
         } else if r.play.legacy_note {
-            "the replay is a LEGACY NOTE play"
+            tr!("the replay is a LEGACY NOTE play")
         } else if !song.plays_ln_alike(r.play.ln_pref(), ln) {
-            "the replay was played in another LN mode"
+            tr!("the replay was played in another LN mode")
         } else {
             return None;
         },

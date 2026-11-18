@@ -1,10 +1,11 @@
 //! DISPLAY & AUDIO: the screen, the volumes and sounds, and the devices.
 
+use super::row::onoff;
 use super::row::{percent, Row, Rows};
 use super::{skins, Sub};
 use crate::app::Ctx;
 use crate::config::PresentMode;
-use crate::scene::option_panel::{cycle, onoff};
+use crate::scene::option_panel::cycle;
 use crate::scene::skinned;
 use crate::skin::SkinType;
 use vibebms_audio::Bus;
@@ -20,22 +21,22 @@ pub(super) fn rows(b: &mut Rows) {
     let d = &ctx.config.display;
     let a = &ctx.config.audio;
     let mix = &ctx.audio.mixer;
-    b.header("SCREEN");
+    b.header(tr!("SCREEN"));
     b.extend([
         Row::adjust(
             "display.fullscreen",
-            "Full screen",
+            tr!("Full screen"),
             onoff(d.fullscreen),
             |c, _| {
                 c.config.display.fullscreen ^= true;
                 c.view.want_fullscreen = Some(c.config.display.fullscreen);
             },
         )
-        .desc("Window or full screen (F11).")
+        .desc(tr!("Window or full screen (F11)."))
         .keys("fullscreen window"),
         Row::adjust(
             "display.present_mode",
-            "Present mode",
+            tr!("Present mode"),
             d.present_mode.label(),
             |c, d| {
                 use PresentMode::*;
@@ -44,13 +45,15 @@ pub(super) fn rows(b: &mut Rows) {
                 c.view.want_present_mode = true;
             },
         )
-        .desc("SMOOTH (VSYNC) has the most lag; LOW LATENCY less; UNLIMITED can tear.")
+        .desc(tr!(
+            "SMOOTH (VSYNC) has the most lag; LOW LATENCY less; UNLIMITED can tear."
+        ))
         .keys("vsync latency tearing smooth unlimited"),
         Row::adjust(
             "display.max_fps",
-            "Max FPS",
+            tr!("Max FPS"),
             match d.max_fps {
-                0 => "UNLIMITED".to_string(),
+                0 => tr!("UNLIMITED").to_string(),
                 n => n.to_string(),
             },
             |c, d| {
@@ -58,75 +61,78 @@ pub(super) fn rows(b: &mut Rows) {
                 c.config.display.max_fps = cycle(&steps, c.config.display.max_fps, d)
             },
         )
-        .desc("The frame rate cap; 0 = unlimited.")
+        .desc(tr!("The frame rate cap; 0 = unlimited."))
         .keys("frame rate limit"),
         Row::adjust(
             "display.ui_scale",
-            "UI scale",
+            tr!("UI scale"),
             percent(d.ui_scale),
             |c, d| {
                 let s = &mut c.config.display.ui_scale;
                 *s = (*s + d as f32 * 0.05).clamp(0.5, 3.0)
             },
         )
-        .desc("The size of menus and text outside skins.")
+        .desc(tr!("The size of menus and text outside skins."))
         .keys("zoom size"),
-        Row::adjust("display.show_fps", "Show FPS", onoff(d.show_fps), |c, _| {
-            c.config.display.show_fps ^= true
-        })
-        .desc("Frame rate in the corner."),
+        Row::adjust(
+            "display.show_fps",
+            tr!("Show FPS"),
+            onoff(d.show_fps),
+            |c, _| c.config.display.show_fps ^= true,
+        )
+        .desc(tr!("Frame rate in the corner.")),
         Row::adjust(
             "display.show_latency",
-            "Latency overlay",
+            tr!("Latency overlay"),
             onoff(d.show_latency),
             |c, _| c.config.display.show_latency ^= true,
         )
-        .desc(
+        .desc(tr!(
             "Frame time, audio callback interval and input delay (median, 95th percentile, \
-             maximum) in the top left.",
-        )
+             maximum) in the top left."
+        ))
         .keys("diagnostics debug timing"),
     ]);
-    b.header("SOUND");
+    b.header(tr!("SOUND"));
     let sound_set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
     b.extend([
         Row::adjust(
             "audio.master",
-            "Master volume",
+            tr!("Master volume"),
             percent(a.master),
             |c, d| {
                 let v = volume(&mut c.config.audio.master, d);
                 c.audio.set_master(v);
             },
         )
-        .desc("Everything vibeBMS plays."),
-        Row::adjust("audio.key", "Keysound volume", percent(a.key), |c, d| {
+        .desc(tr!("Everything vibeBMS plays.")),
+        Row::adjust("audio.key", tr!("Keysound volume"), percent(a.key), |c, d| {
             let v = volume(&mut c.config.audio.key, d);
             c.audio.mixer.set_bus_volume(Bus::Key, v);
         })
-        .desc("The sounds of the notes you hit."),
-        Row::adjust("audio.bgm", "BGM volume", percent(a.bgm), |c, d| {
+        .desc(tr!("The sounds of the notes you hit.")),
+        Row::adjust("audio.bgm", tr!("BGM volume"), percent(a.bgm), |c, d| {
             let v = volume(&mut c.config.audio.bgm, d);
             c.audio.mixer.set_bus_volume(Bus::Bgm, v);
         })
-        .desc("The chart's background sounds."),
+        .desc(tr!("The chart's background sounds.")),
         Row::adjust(
             "audio.system",
-            "System volume",
+            tr!("System volume"),
             percent(a.system),
             |c, d| {
                 let v = volume(&mut c.config.audio.system, d);
                 c.audio.mixer.set_bus_volume(Bus::System, v);
             },
         )
-        .desc("Menu sounds and the song select music."),
+        .desc(tr!("Menu sounds and the song select music.")),
         Row::adjust(
             "audio.preview",
-            "Song preview",
+            tr!("Song preview"),
             match (a.preview, a.preview_once) {
-                (false, _) => "OFF",
-                (true, true) => "ONCE",
-                (true, false) => "LOOP",
+                (false, _) => tr!("OFF"),
+                (true, true) => tr!("ONCE"),
+                (true, false) => tr!("LOOP"),
             },
             |c, d| {
                 // ONCE, LOOP, OFF
@@ -141,29 +147,29 @@ pub(super) fn rows(b: &mut Rows) {
                 c.audio.mixer.stop(crate::scene::select::PREVIEW_KEY);
             },
         )
-        .desc("Play the chart's preview in the song select: LOOP, ONCE or OFF."),
+        .desc(tr!("Play the chart's preview in the song select: LOOP, ONCE or OFF.")),
         Row::adjust(
             "audio.mute_inactive",
-            "Mute when inactive",
+            tr!("Mute when inactive"),
             onoff(a.mute_inactive),
             |c, _| c.config.audio.mute_inactive ^= true,
         )
         .desc(
-            "Silent while another app or window has the focus or vibeBMS is hidden; \
-             in play only while it is hidden (on a phone or tablet also without the focus).",
+            tr!("Silent while another app or window has the focus or vibeBMS is hidden; \
+             in play only while it is hidden (on a phone or tablet also without the focus)."),
         )
         .keys("background focus minimised silence"),
         Row::adjust(
             "audio.normalize",
-            "Normalize loudness",
+            tr!("Normalize loudness"),
             onoff(a.normalize),
             |c, _| c.config.audio.normalize ^= true,
         )
-        .desc("Charts and song previews at the same loudness (a chart is measured when first played).")
+        .desc(tr!("Charts and song previews at the same loudness (a chart is measured when first played)."))
         .keys("loudness lufs volume normalise replaygain"),
         Row::adjust(
             "audio.normalize_target",
-            "Loudness target",
+            tr!("Loudness target"),
             format!("{:.0} LUFS", a.normalize_target),
             |c, d| {
                 let (lo, hi) = crate::loudness::TARGET_RANGE;
@@ -173,11 +179,11 @@ pub(super) fn rows(b: &mut Rows) {
                 c.audio.sounds.renormalize(&c.audio.mixer, norm);
             },
         )
-        .desc("The loudness normalized sounds play at; lower is quieter.")
+        .desc(tr!("The loudness normalized sounds play at; lower is quieter."))
         .keys("loudness lufs volume normalise"),
         Row::adjust(
             "audio.normalize_system",
-            "Normalize sound set music",
+            tr!("Normalize sound set music"),
             onoff(a.normalize_system),
             |c, _| {
                 c.config.audio.normalize_system ^= true;
@@ -185,57 +191,65 @@ pub(super) fn rows(b: &mut Rows) {
                 c.audio.sounds.renormalize(&c.audio.mixer, norm);
             },
         )
-        .desc("The sound set's music (select, decide, .loop files) at the loudness target too.")
+        .desc(tr!("The sound set's music (select, decide, .loop files) at the loudness target too."))
         .keys("loudness lufs volume normalise bgm"),
         Row::adjust(
             "audio.sound_set",
-            "Sound set",
+            tr!("Sound set"),
             skinned::choice_name(ctx, SkinType::SoundSet, sound_set).0,
             |c, d| {
                 skins::cycle_skin(c, SkinType::SoundSet, d);
                 c.play_sound(crate::sysound::Sound::OptionChange);
             },
         )
-        .desc("The menu and system sounds. Enter: its options.")
+        .desc(tr!("The menu and system sounds. Enter: its options."))
         .opens(Sub::Skin(SkinType::SoundSet)),
     ]);
     b.group(
         "display.advanced",
-        "ADVANCED",
-        "Audio buffer size, output and GPU",
+        tr!("ADVANCED"),
+        tr!("Audio buffer size, output and GPU"),
     );
     b.push(
         Row::adjust(
             "audio.buffer_frames",
-            "Audio buffer size",
+            tr!("Audio buffer size"),
             match a.buffer_frames {
-                0 => "DEFAULT".to_string(),
-                n => format!("{n} frames"),
+                0 => tr!("DEFAULT").to_string(),
+                n => tr!("{n} frames", n = n),
             },
             |c, d| {
                 let all = [0, 64, 128, 256, 512, 1024, 2048];
                 c.config.audio.buffer_frames = cycle(&all, c.config.audio.buffer_frames, d)
             },
         )
-        .desc("Smaller is less lag, but may crackle. Applies after a restart.")
+        .desc(tr!(
+            "Smaller is less lag, but may crackle. Applies after a restart."
+        ))
         .keys("latency"),
     );
     #[cfg(windows)]
     b.push(
         Row::adjust(
             "audio.exclusive",
-            "Output mode",
-            if a.exclusive { "EXCLUSIVE" } else { "SHARED" },
+            tr!("Output mode"),
+            if a.exclusive {
+                tr!("EXCLUSIVE")
+            } else {
+                tr!("SHARED")
+            },
             |c, _| c.config.audio.exclusive ^= true,
         )
-        .desc("EXCLUSIVE (WASAPI) has the least lag; others cannot play. Applies after a restart.")
+        .desc(tr!(
+            "EXCLUSIVE (WASAPI) has the least lag; others cannot play. Applies after a restart."
+        ))
         .keys("wasapi exclusive shared latency"),
     );
     #[cfg(not(target_arch = "wasm32"))]
     b.push(
         Row::adjust(
             "display.backend",
-            "Graphics API",
+            tr!("Graphics API"),
             d.backend.label(),
             |c, d| {
                 let mut all = vec![crate::config::GraphicsBackend::Auto];
@@ -244,16 +258,16 @@ pub(super) fn rows(b: &mut Rows) {
                 *b = cycle(&all, *b, d);
             },
         )
-        .desc(
+        .desc(tr!(
             "Applies at the next launch. The graphics API the GPU is driven with (AUTO: vibeBMS \
-             chooses); one that does not start is replaced by the next that does.",
-        )
+             chooses); one that does not start is replaced by the next that does."
+        ))
         .keys("renderer backend vulkan metal directx dx12 opengl gpu"),
     );
     b.extend([
         Row::note(
             "info.output",
-            "Output",
+            tr!("Output"),
             format!(
                 "{} {} Hz, {:.1} ms",
                 mix.device_name,
@@ -261,10 +275,10 @@ pub(super) fn rows(b: &mut Rows) {
                 mix.latency_us() as f64 / 1000.0
             ),
         )
-        .desc("The sound device, its rate and latency.")
+        .desc(tr!("The sound device, its rate and latency."))
         .keys("audio device latency"),
         Row::note("info.gpu", "GPU", ctx.view.gpu_name.clone())
-            .desc("The graphics device drawing vibeBMS.")
+            .desc(tr!("The graphics device drawing vibeBMS."))
             .keys("graphics"),
     ]);
 }
@@ -278,6 +292,6 @@ pub(super) fn chips(ctx: &Ctx) -> Vec<String> {
     };
     vec![
         format!("{}{fps}", d.present_mode.label()),
-        format!("master {}", percent(ctx.config.audio.master)),
+        tr!("master {v}", v = percent(ctx.config.audio.master)),
     ]
 }

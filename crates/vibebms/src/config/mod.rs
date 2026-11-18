@@ -228,6 +228,9 @@ const THIRD_PARTY_DEFAULT: bool = match option_env!("VIBEBMS_THIRD_PARTY") {
 #[serde(default)]
 pub struct Config {
     pub player_name: String,
+    /// The UI's language (app-wide; AUTO: the system's).
+    #[serde(skip_serializing_if = "crate::i18n::Language::is_auto")]
+    pub language: crate::i18n::Language,
     /// Extra BMS folders (absolute or relative to the executable directory).
     pub bms_dirs: Vec<String>,
     /// Scan the executable directory itself.
@@ -284,6 +287,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             player_name: "PLAYER".into(),
+            language: Default::default(),
             bms_dirs: Vec::new(),
             scan_root: true,
             play: PlayConfig::default(),
@@ -451,6 +455,7 @@ mod tests {
         };
         Config {
             player_name: "TESTER".into(),
+            language: Default::default(),
             bms_dirs: vec!["/music/bms".into(), "relative/dir".into()],
             scan_root: false,
             play: PlayConfig {
@@ -741,6 +746,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(Config::load(&path), c);
+    }
+
+    /// The language is written only when chosen (AUTO: the system's).
+    #[test]
+    fn language_is_written_once_chosen() {
+        let mut c = Config::default();
+        assert!(!c.to_toml().unwrap().contains("language"));
+        c.language = crate::i18n::Language::ZhHant;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("language = \"zh-Hant\""), "{s}");
+        assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
     }
 
     /// MUTE WHEN INACTIVE is written only when turned off.

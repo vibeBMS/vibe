@@ -160,7 +160,10 @@ pub fn place_picked_charts(root: &Path, songs: &[crate::library::Song]) -> Vec<S
             }
             Some(Located::NoSong) => {
                 ASKED.with(|a| a.borrow_mut().insert(path));
-                out.push(format!("{name}: add its song first, then this chart again"));
+                out.push(tr!(
+                    "{name}: add its song first, then this chart again",
+                    name = name
+                ));
             }
             Some(Located::Here) | None => {}
         }
@@ -211,7 +214,7 @@ fn show_next_dialog() {
     for (css, text) in [
         (
             "font-weight:700;margin-bottom:6px",
-            "Which song is this chart for?".to_string(),
+            tr!("Which song is this chart for?").to_string(),
         ),
         (
             "color:#808caa;margin-bottom:12px;word-break:break-all",
@@ -229,7 +232,7 @@ fn show_next_dialog() {
         .folders
         .iter()
         .map(|(d, l)| (Some(d.clone()), l.clone()))
-        .chain(std::iter::once((None, "Keep it separate".to_string())));
+        .chain(std::iter::once((None, tr!("Keep it separate").to_string())));
     for (dir, label) in choices {
         let Some(b) = el("button", button_css, &label) else {
             continue;

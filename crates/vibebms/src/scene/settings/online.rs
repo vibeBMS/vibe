@@ -2,13 +2,14 @@
 //! account as a card (its sub-page: a pasted key or a player id, on / off,
 //! send plays, BMS-IR's view, tables and rivals), and the outbox.
 
+use super::row::onoff;
 use super::row::{Act, Kind, Row, Rows, Tone};
 use super::{Sub, TextField};
 use crate::app::Ctx;
 use crate::config::{provider_name, Beside, IrAccount, PlayerKey, SubmitPolicy};
 use crate::ir::creds;
 use crate::platform::{store, unix_ms, IS_WEB};
-use crate::scene::option_panel::{cycle, onoff};
+use crate::scene::option_panel::cycle;
 use vibebms_ir::outbox::State;
 use vibebms_ir::providers::bmsir_read::{self, TABLES, VIEWS};
 use vibebms_ir::ProviderId;
@@ -62,7 +63,7 @@ fn remove(c: &mut Ctx, i: usize) {
     a.user.clear();
     a.user_id.clear();
     if let Err(e) = c.net.ir.keys.set(p, None) {
-        c.toast(format!("Credentials: {e}"));
+        c.toast(tr!("Credentials: {e}", e = e));
     }
     if matches!(p, ProviderId::VibeJson(_) | ProviderId::BmsIr) {
         c.config.ir.accounts.remove(i);
@@ -107,7 +108,10 @@ fn refresh_lamps(c: &mut Ctx, i: usize) {
     };
     let title = a.title().to_string();
     if !c.net.ir.refresh_lamps(a.provider) {
-        c.toast(format!("{title}: lamps read less than 5 minutes ago"));
+        c.toast(tr!(
+            "{title}: lamps read less than 5 minutes ago",
+            title = title
+        ));
     }
 }
 
@@ -126,18 +130,18 @@ fn download_scores(c: &mut Ctx, i: usize) {
 fn download_row(p: ProviderId, i: usize) -> Row {
     Row::new(
         "ir.download",
-        "Download my scores",
+        tr!("Download my scores"),
         "↓",
         Act::Run(download_scores, i),
     )
     .desc(match p {
         ProviderId::BmsIr => {
-            "Your lamps on the tables read into your records, where better (LR2's as LN; others where the LN mode does not matter)."
+            tr!("Your lamps on the tables read into your records, where better (LR2's as LN; others where the LN mode does not matter).")
         }
         ProviderId::Bokutachi => {
-            "Your PBs into your records, where better: BMS under LR2's rules as LN, PMS under beatoraja's."
+            tr!("Your PBs into your records, where better: BMS under LR2's rules as LN, PMS under beatoraja's.")
         }
-        _ => "Your best scores into your records, where better, each under its rule and LN mode.",
+        _ => tr!("Your best scores into your records, where better, each under its rule and LN mode."),
     })
     .keys("import scores pull sync records")
 }
@@ -171,12 +175,12 @@ fn step_beside(c: &mut Ctx, d: i32) {
 
 fn beside_label(ctx: &Ctx) -> String {
     match &ctx.config.ir.beside {
-        Beside::Mine => "yours on the IR".into(),
-        Beside::Off => "none".into(),
+        Beside::Mine => tr!("yours on the IR").into(),
+        Beside::Off => tr!("none").into(),
         Beside::Player(k) => player_label(ctx, k.provider, &k.player),
         Beside::Profile(id) => match ctx.profiles.registry.get(id) {
-            Some(p) => format!("{} (profile)", p.name),
-            None => "a profile deleted".into(),
+            Some(p) => tr!("{name} (profile)", name = p.name),
+            None => tr!("a profile deleted").into(),
         },
     }
 }
@@ -225,9 +229,9 @@ fn remove_item(c: &mut Ctx, n: usize) {
 /// What the account's key is, as far as is known here.
 fn key_state(ctx: &Ctx, a: &IrAccount) -> String {
     match () {
-        _ if !ctx.net.ir.keys.has(a.provider) => "none: paste one".into(),
-        _ if !a.user.is_empty() => format!("connected as {}", a.user),
-        _ => "kept".into(),
+        _ if !ctx.net.ir.keys.has(a.provider) => tr!("none: paste one").into(),
+        _ if !a.user.is_empty() => tr!("connected as {user}", user = a.user),
+        _ => tr!("kept").into(),
     }
 }
 
@@ -246,27 +250,27 @@ fn card(ctx: &Ctx, a: &IrAccount) -> Row {
     let p = a.provider;
     let has_key = ctx.net.ir.keys.has(p);
     let (state, tone) = match () {
-        _ if !a.enabled => ("OFF", Tone::Dim),
-        _ if p == ProviderId::BmsIr => ("READ ONLY", Tone::Amber),
-        _ if !has_key => ("NO KEY", Tone::Red),
-        _ if !a.user.is_empty() => ("CONNECTED", Tone::Accent),
-        _ => ("KEY KEPT", Tone::Accent),
+        _ if !a.enabled => (tr!("OFF"), Tone::Dim),
+        _ if p == ProviderId::BmsIr => (tr!("READ ONLY"), Tone::Amber),
+        _ if !has_key => (tr!("NO KEY"), Tone::Red),
+        _ if !a.user.is_empty() => (tr!("CONNECTED"), Tone::Accent),
+        _ => (tr!("KEY KEPT"), Tone::Accent),
     };
     let mut line: Vec<String> = Vec::new();
     match p {
         ProviderId::BmsIr => {
             line.push(match (a.user_id.as_str(), a.user.as_str()) {
-                ("", _) => "no player id yet".into(),
-                (id, "") => format!("player {id}"),
+                ("", _) => tr!("no player id yet").into(),
+                (id, "") => tr!("player {id}", id = id),
                 (id, name) => format!("{name} ({id})"),
             });
-            line.push(format!(
-                "{} of {} tables read",
-                a.tables.len(),
-                TABLES.len()
+            line.push(tr!(
+                "{n} of {of} tables read",
+                n = a.tables.len(),
+                of = TABLES.len()
             ));
             if !a.rivals.is_empty() {
-                line.push(format!("{} rivals", a.rivals.len()));
+                line.push(tr!("{n} rivals", n = a.rivals.len()));
             }
         }
         _ => {
@@ -276,16 +280,16 @@ fn card(ctx: &Ctx, a: &IrAccount) -> Row {
             line.push(key_state(ctx, a));
             line.push(
                 if a.submit {
-                    "sends plays"
+                    tr!("sends plays")
                 } else {
-                    "does not send plays"
+                    tr!("does not send plays")
                 }
                 .into(),
             );
         }
     }
     if !a.user_id.is_empty() {
-        line.push(format!("lamps {}", ctx.net.ir.lamps_state(p)));
+        line.push(tr!("lamps {state}", state = ctx.net.ir.lamps_state(p)));
     }
     Row::sub("ir.account", a.title(), "", Sub::Account(p))
         .desc(line.join(" · "))
@@ -315,11 +319,11 @@ pub(super) fn chips(ctx: &Ctx) -> Vec<String> {
         .take(2)
         .collect();
     if v.is_empty() {
-        v.push("no account".into());
+        v.push(tr!("no account").into());
     }
     match outbox_counts(ctx) {
         (0, _) => {}
-        (n, _) => v.push(format!("{n} waiting")),
+        (n, _) => v.push(tr!("{n} waiting", n = n)),
     }
     v
 }
@@ -334,65 +338,68 @@ pub(super) fn waiting(ctx: &Ctx) -> usize {
 pub(super) fn attention(ctx: &Ctx, v: &mut Vec<String>) {
     match outbox_counts(ctx) {
         (0, 0) => {}
-        (w, 0) => v.push(format!("{w} play{} waiting to send", plural(w))),
-        (_, f) => v.push(format!("{f} play{} failed to send", plural(f))),
+        (1, 0) => v.push(tr!("1 play waiting to send").into()),
+        (w, 0) => v.push(tr!("{n} plays waiting to send", n = w)),
+        (_, 1) => v.push(tr!("1 play failed to send").into()),
+        (_, f) => v.push(tr!("{n} plays failed to send", n = f)),
     }
     for a in ctx.config.ir.accounts.iter().filter(|a| a.enabled) {
         if a.provider != ProviderId::BmsIr && !ctx.net.ir.keys.has(a.provider) {
-            v.push(format!("{}: no API key", a.title()));
+            v.push(tr!("{account}: no API key", account = a.title()));
         }
-    }
-}
-
-fn plural(n: usize) -> &'static str {
-    if n == 1 {
-        ""
-    } else {
-        "s"
     }
 }
 
 pub(super) fn rows(b: &mut Rows) {
     let ctx = b.ctx;
     let ir = &ctx.config.ir;
-    b.header("SCORES AND RANKINGS");
+    b.header(tr!("SCORES AND RANKINGS"));
     b.extend([
-        Row::adjust("ir.submit", "Send scores", ir.submit.label(), step_policy)
-            .desc("AUTO sends each play to every account that takes them; ASK asks; OFF never.")
-            .keys("submit upload"),
+        Row::adjust(
+            "ir.submit",
+            tr!("Send scores"),
+            ir.submit.label(),
+            step_policy,
+        )
+        .desc(tr!(
+            "AUTO sends each play to every account that takes them; ASK asks; OFF never."
+        ))
+        .keys("submit upload"),
         Row::adjust(
             "ir.primary",
-            "Rankings from",
+            tr!("Rankings from"),
             ir.primary().map_or("—", IrAccount::title),
             step_primary,
         )
-        .desc("The IR whose ranking and clear rate the song select shows."),
+        .desc(tr!(
+            "The IR whose ranking and clear rate the song select shows."
+        )),
         Row::adjust(
             "ir.beside",
-            "Rival lamps beside yours",
+            tr!("Rival lamps beside yours"),
             beside_label(ctx),
             step_beside,
         )
-        .desc(
-            "A second lamp on each song bar: yours on the IR, an IR rival's, or another profile's.",
-        )
+        .desc(tr!(
+            "A second lamp on each song bar: yours on the IR, an IR rival's, or another profile's."
+        ))
         .keys("rival lamp local profile"),
     ]);
     if ctx.net.ir.reads_only() {
         b.push(Row::note(
             "ir.reads_only",
-            "Another tab sends the IR plays: this one only shows them",
+            tr!("Another tab sends the IR plays: this one only shows them"),
             "",
         ));
     }
     if store::limited() {
         b.push(Row::note(
             "ir.store_limited",
-            "This browser keeps only the newest plays of the history",
+            tr!("This browser keeps only the newest plays of the history"),
             "",
         ));
     }
-    b.header("ACCOUNTS");
+    b.header(tr!("ACCOUNTS"));
     for (n, &p) in PROVIDERS.iter().enumerate() {
         match ir.account(p) {
             Some(a) => b.push(card(ctx, a)),
@@ -404,12 +411,12 @@ pub(super) fn rows(b: &mut Rows) {
                     Act::Run(add_provider, n),
                 )
                 .desc(match p {
-                    ProviderId::Bokutachi => "Enter: add your account (an API key)",
-                    _ => "Enter: add your player id (rankings and lamps, read only)",
+                    ProviderId::Bokutachi => tr!("Enter: add your account (an API key)"),
+                    _ => tr!("Enter: add your player id (rankings and lamps, read only)"),
                 })
                 .kind(Kind::Card {
                     badge: badge(p),
-                    state: "ADD +".into(),
+                    state: tr!("ADD +").into(),
                     tone: Tone::Accent,
                 }),
             ),
@@ -422,42 +429,52 @@ pub(super) fn rows(b: &mut Rows) {
     }
     b.push(
         Row::note("ir.rianir", "rianIR", "")
-            .desc("waiting for its operator")
+            .desc(tr!("waiting for its operator"))
             .kind(Kind::Card {
                 badge: badge(ProviderId::RianIr),
-                state: "SOON".into(),
+                state: tr!("SOON").into(),
                 tone: Tone::Dim,
             }),
     );
     b.push(
         Row::new(
             "ir.add_server",
-            "Add a vibeBMS IR server…",
+            tr!("Add a vibeBMS IR server…"),
             "+",
             Act::Text(TextField::AddIrServer),
         )
-        .desc("Paste its URL; its API key goes on its page.")
+        .desc(tr!("Paste its URL; its API key goes on its page."))
         .keys("vibe json server"),
     );
-    b.header("OUTBOX");
+    b.header(tr!("OUTBOX"));
     let (waiting, failed) = outbox_counts(ctx);
     let n = ctx.net.ir.items().count();
     b.extend([
         Row::new(
             "ir.outbox",
-            format!("{waiting} waiting, {failed} failed"),
-            "send now ↻",
+            tr!(
+                "{waiting} waiting, {failed} failed",
+                waiting = waiting,
+                failed = failed
+            ),
+            tr!("send now ↻"),
             Act::Run(|c, _| c.net.ir.send_now(unix_ms()), 0),
         )
-        .desc("Plays not sent yet are kept and sent when the server answers.")
+        .desc(tr!(
+            "Plays not sent yet are kept and sent when the server answers."
+        ))
         .keys("outbox send retry"),
         Row::sub(
             "ir.outbox.show",
-            "Show the outbox",
-            format!("{n} play{}", plural(n)),
+            tr!("Show the outbox"),
+            if n == 1 {
+                tr!("1 play").into()
+            } else {
+                tr!("{n} plays", n = n)
+            },
             Sub::Outbox,
         )
-        .desc("Each play, where it goes, and Retry / Discard."),
+        .desc(tr!("Each play, where it goes, and Retry / Discard.")),
     ]);
 }
 
@@ -472,18 +489,18 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
     b.push(
         Row::new(
             "ir.enabled",
-            format!("Use {}", a.title()),
+            tr!("Use {account}", account = a.title()),
             onoff(a.enabled),
             Act::Toggle(toggle_enabled, i),
         )
         .desc(match p {
             ProviderId::Bokutachi => {
-                "Rankings and PBs; sending waits for Bokutachi to accept vibeBMS."
+                tr!("Rankings and PBs; sending waits for Bokutachi to accept vibeBMS.")
             }
             ProviderId::BmsIr => {
-                "Reads rankings and lamps of players who publish them. Sending: not yet."
+                tr!("Reads rankings and lamps of players who publish them. Sending: not yet.")
             }
-            _ => "Rankings, and the plays you send.",
+            _ => tr!("Rankings, and the plays you send."),
         }),
     );
     if p == ProviderId::BmsIr {
@@ -493,31 +510,31 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
         b.extend([
             Row::new(
                 "ir.name",
-                "Name",
+                tr!("Name"),
                 a.name.clone(),
                 Act::Text(TextField::IrName(i)),
             )
-            .desc("What this server is called here."),
+            .desc(tr!("What this server is called here.")),
             Row::new(
                 "ir.url",
                 "URL",
                 a.url.clone(),
                 Act::Text(TextField::IrUrl(i)),
             )
-            .desc("The server's address."),
+            .desc(tr!("The server's address.")),
         ]);
     }
     let key_desc = match p {
-        ProviderId::Bokutachi => format!(
-            "From boku.tachi.ac, Profile, API Keys (any key reads). Kept {}.",
-            creds::KEPT
+        ProviderId::Bokutachi => tr!(
+            "From boku.tachi.ac, Profile, API Keys (any key reads). Kept {where}.",
+            where = creds::kept()
         ),
-        _ => format!("Paste it. Kept {}, not config.toml.", creds::KEPT),
+        _ => tr!("Paste it. Kept {where}, not config.toml.", where = creds::kept()),
     };
     b.push(
         Row::new(
             "ir.key",
-            "API key",
+            tr!("API key"),
             key_state(ctx, a),
             Act::Text(TextField::IrKey(i)),
         )
@@ -527,14 +544,14 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
     b.push(
         Row::new(
             "ir.submit_plays",
-            "Send plays",
+            tr!("Send plays"),
             onoff(a.submit),
             Act::Toggle(toggle_submit, i),
         )
         .desc(if p == ProviderId::Bokutachi && IS_WEB {
-            "Plays in the browser are not sent to Bokutachi."
+            tr!("Plays in the browser are not sent to Bokutachi.")
         } else {
-            "Send your plays to this account."
+            tr!("Send your plays to this account.")
         }),
     );
     if !a.user_id.is_empty() {
@@ -543,11 +560,14 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
     }
     let (label, desc) = if matches!(p, ProviderId::VibeJson(_)) {
         (
-            "Remove this server",
-            "Its key and its plays waiting go too.",
+            tr!("Remove this server"),
+            tr!("Its key and its plays waiting go too."),
         )
     } else {
-        ("Forget the key", "The key is deleted from this device.")
+        (
+            tr!("Forget the key"),
+            tr!("The key is deleted from this device."),
+        )
     };
     b.push(Row::new("ir.remove", label, "×", Act::Run(remove, i)).desc(desc));
 }
@@ -556,11 +576,11 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
 fn lamps_row(ctx: &Ctx, a: &IrAccount, i: usize) -> Row {
     Row::new(
         "ir.lamps",
-        "IR lamps",
+        tr!("IR lamps"),
         format!("{} ↻", ctx.net.ir.lamps_state(a.provider)),
         Act::Run(refresh_lamps, i),
     )
-    .desc("Read again now (they are kept for a day).")
+    .desc(tr!("Read again now (they are kept for a day)."))
 }
 
 /// The tables whose lamps BMS-IR reads: all or none.
@@ -580,7 +600,7 @@ fn bmsir_rows(b: &mut Rows, i: usize) {
     let ctx = b.ctx;
     let a = &ctx.config.ir.accounts[i];
     let player = match (a.user_id.as_str(), a.user.as_str()) {
-        ("", _) => "enter yours".to_string(),
+        ("", _) => tr!("enter yours").to_string(),
         (id, "") => format!("{id}: {}", ctx.net.ir.lamps_state(a.provider)),
         (id, name) => format!("{name} ({id})"),
     };
@@ -593,24 +613,29 @@ fn bmsir_rows(b: &mut Rows, i: usize) {
     b.extend([
         Row::new(
             "ir.player",
-            "Player id",
+            tr!("Player id"),
             player,
             Act::Text(TextField::IrPlayer(i)),
         )
-        .desc("Your number on BMS-IR, or paste your player page's address."),
-        Row::adjust("ir.view", "Scores of", view, step_view)
-            .desc("Whose plays count: all clients, LR2, beatoraja, LR2oraja…"),
+        .desc(tr!(
+            "Your number on BMS-IR, or paste your player page's address."
+        )),
+        Row::adjust("ir.view", tr!("Scores of"), view, step_view).desc(tr!(
+            "Whose plays count: all clients, LR2, beatoraja, LR2oraja…"
+        )),
         Row::new(
             "ir.rivals",
-            "Rivals",
+            tr!("Rivals"),
             match rivals.len() {
-                0 => "none".into(),
+                0 => tr!("none").into(),
                 1 | 2 => rivals.join(", "),
-                n => format!("{n} players"),
+                n => tr!("{n} players", n = n),
             },
             Act::Text(TextField::IrRivals(i)),
         )
-        .desc("Players whose lamps you can show beside yours (their player ids)."),
+        .desc(tr!(
+            "Players whose lamps you can show beside yours (their player ids)."
+        )),
     ]);
     if !a.user_id.is_empty() {
         b.push(lamps_row(ctx, a, i));
@@ -621,10 +646,14 @@ fn bmsir_rows(b: &mut Rows, i: usize) {
         .filter(|(k, _)| a.tables.iter().any(|t| t == k))
         .count();
     b.header_with(
-        format!("TABLES WHOSE LAMPS ARE READ · {on} OF {}", TABLES.len()),
+        tr!(
+            "TABLES WHOSE LAMPS ARE READ · {on} OF {n}",
+            on = on,
+            n = TABLES.len()
+        ),
         vec![
-            ("all", Act::Run(all_tables, 1)),
-            ("none", Act::Run(all_tables, 0)),
+            (tr!("all"), Act::Run(all_tables, 1)),
+            (tr!("none"), Act::Run(all_tables, 0)),
         ],
     );
     for (t, (key, name)) in TABLES.iter().enumerate() {
@@ -633,10 +662,11 @@ fn bmsir_rows(b: &mut Rows, i: usize) {
             Row::new("ir.table", *name, "", Act::Toggle(toggle_table, t)).kind(Kind::Cell { on }),
         );
     }
-    b.header("ACCOUNT");
+    b.header(tr!("ACCOUNT"));
     b.push(
-        Row::new("ir.remove", "Remove", "×", Act::Run(remove, i))
-            .desc("Forget the player id, its lamps and its plays waiting."),
+        Row::new("ir.remove", tr!("Remove"), "×", Act::Run(remove, i)).desc(tr!(
+            "Forget the player id, its lamps and its plays waiting."
+        )),
     );
 }
 
@@ -644,38 +674,43 @@ fn bmsir_rows(b: &mut Rows, i: usize) {
 pub(super) fn outbox(b: &mut Rows) {
     let ctx = b.ctx;
     let ir = &ctx.net.ir;
-    b.header("PLAYS");
+    b.header(tr!("PLAYS"));
     b.push(
         Row::new(
             "ir.outbox",
-            "Send now",
-            "send now ↻",
+            tr!("Send now"),
+            tr!("send now ↻"),
             Act::Run(|c, _| c.net.ir.send_now(unix_ms()), 0),
         )
-        .desc("Try every waiting play again now."),
+        .desc(tr!("Try every waiting play again now.")),
     );
     for (n, i) in ir.items().take(LISTED).enumerate() {
         let to =
             (ctx.config.ir.account(i.provider)).map_or(provider_name(i.provider), IrAccount::title);
         b.push(
             Row::note("ir.outbox.item", i.summary.title.clone(), ir.item_words(i))
-                .desc(format!("→ {to}")),
+                .desc(tr!("→ {to}", to = to)),
         );
         if i.state.failed() {
             b.push(
-                Row::new("ir.outbox.retry", "Retry", "↻", Act::Run(retry_item, n))
-                    .desc("Send this play again now."),
+                Row::new(
+                    "ir.outbox.retry",
+                    tr!("Retry"),
+                    "↻",
+                    Act::Run(retry_item, n),
+                )
+                .desc(tr!("Send this play again now.")),
             );
         }
         if i.state != State::Done {
             b.push(
                 Row::new(
                     "ir.outbox.discard",
-                    "Discard",
+                    tr!("Discard"),
                     "×",
                     Act::Run(remove_item, n),
                 )
-                .desc("Never send this play."),
+                .desc(tr!("Never send this play.")),
             );
         }
     }
@@ -703,7 +738,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             a.user_id.clear();
             let p = a.provider;
             if let Err(e) = ctx.net.ir.keys.set(p, Some(s).filter(|s| !s.is_empty())) {
-                ctx.toast(format!("Credentials: {e}"));
+                ctx.toast(tr!("Credentials: {e}", e = e));
             }
             ctx.net.ir.verify(&ctx.config.ir, p);
         }
@@ -715,7 +750,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
                 Some(id) => a.user_id = id.into(),
                 None if s.is_empty() => a.user_id.clear(),
                 None => {
-                    ctx.toast(format!("Not a BMS-IR player id: {s}"));
+                    ctx.toast(tr!("Not a BMS-IR player id: {s}", s = s));
                     return;
                 }
             }
@@ -738,7 +773,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
                 }
             }
             if !bad.is_empty() {
-                ctx.toast(format!("Not BMS-IR player ids: {}", bad.join(", ")));
+                ctx.toast(tr!("Not BMS-IR player ids: {ids}", ids = bad.join(", ")));
             }
         }
         TextField::AddIrServer if !s.is_empty() => {

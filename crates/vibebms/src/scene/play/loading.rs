@@ -262,17 +262,17 @@ impl Loading {
         if req.is_vs() {
             // which controller is 1P (a button on it now picks it)
             let pads = if ctx.config.keys.p1.keys.iter().any(|k| !k.pad.is_empty()) {
-                "  ·  press a button on the 1P controller"
+                tr!("  ·  press a button on the 1P controller")
             } else {
                 ""
             };
-            let text = format!("VS  ·  1P left, 2P right{pads}");
+            let text = format!("VS  ·  {}{pads}", tr!("1P left, 2P right"));
             line(d, &text, h * 0.22, 20.0, theme::ACCENT);
         }
         if let Some(c) = &req.course {
             let stage = match c.nonstop() {
-                true => format!("NONSTOP {} STAGES", c.songs.len()),
-                false => format!("STAGE {}/{}", c.index + 1, c.songs.len()),
+                true => tr!("NONSTOP {n} STAGES", n = c.songs.len()),
+                false => tr!("STAGE {n}/{of}", n = c.index + 1, of = c.songs.len()),
             };
             d.text(
                 &format!("{}  {stage}", c.name),
@@ -292,7 +292,7 @@ impl Loading {
         d.b.rect(Rect::new(bar.x, bar.y, bar.w * k, bar.h), theme::ACCENT);
         let dots = ".".repeat((self.since.elapsed().as_millis() / 300 % 4) as usize);
         d.text(
-            &format!("LOADING{dots}  {done}/{total}"),
+            &format!("{}{dots}  {done}/{total}", tr!("LOADING")),
             w * 0.5,
             bar.y + 16.0 * ui,
             TextStyle::new(16.0 * ui, theme::TEXT_DIM, Align::Center),

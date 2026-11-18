@@ -316,17 +316,17 @@ impl LampCache {
             .map(|(_, c)| c)
             .collect();
         if sets.is_empty() {
-            return "nothing to read".into();
+            return tr!("nothing to read").into();
         }
         if sets.iter().any(|c| c.state != Load::Ready || c.forced) {
-            return "reading…".into();
+            return tr!("reading…").into();
         }
         if let Some(e) = sets.iter().find_map(|c| c.error.as_deref()) {
             return e.to_string();
         }
         match sets.iter().map(|c| c.fetched_ms).min() {
-            Some(t) if t > 0 => format!("read {}", ago(now_ms - t)),
-            _ => "not read yet".into(),
+            Some(t) if t > 0 => tr!("read {ago}", ago = ago(now_ms - t)),
+            _ => tr!("not read yet").into(),
         }
     }
 }
@@ -334,9 +334,9 @@ impl LampCache {
 /// `ms` ago, for people.
 fn ago(ms: i64) -> String {
     match ms / MINUTE {
-        0 => "just now".into(),
-        m @ 1..=119 => format!("{m} min ago"),
-        m => format!("{} h ago", m / 60),
+        0 => tr!("just now").into(),
+        m @ 1..=119 => tr!("{m} min ago", m = m),
+        m => tr!("{h} h ago", h = m / 60),
     }
 }
 

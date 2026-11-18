@@ -61,10 +61,14 @@ pub(super) fn find(ctx: &Ctx, armed: &Armed<Confirm>, query: &str) -> (Vec<Row>,
     let hit = |hay: &str| words.iter().all(|w| hay.contains(w.as_str()));
     let (mut rows, mut paths) = (Vec::new(), Vec::new());
     for m in MOVED {
-        if hit(&format!("{} {}", m.label, m.keys).to_lowercase()) {
+        let label = crate::i18n::get(m.label);
+        // (the English label too: search finds it in either)
+        if hit(&format!("{} {} {}", label, m.label, m.keys).to_lowercase()) {
             rows.push(
-                Row::note("moved", format!("{} → song select", m.label), "")
-                    .desc(format!("SONG SELECT › {}", m.place)),
+                Row::note("moved", tr!("{option} → song select", option = label), "").desc(tr!(
+                    "SONG SELECT › {place}",
+                    place = crate::i18n::get(m.place)
+                )),
             );
             paths.push(Vec::new());
         }

@@ -84,7 +84,10 @@ impl PlayScene {
         }
         let notices = [
             (self.session.ghost_desync(), "GHOST DESYNC"),
-            (self.session.older_replay(), "REPLAY OF AN OLDER ENGINE"),
+            (
+                self.session.older_replay(),
+                tr!("REPLAY OF AN OLDER ENGINE"),
+            ),
         ];
         let mut y = view.y + 8.0 * ui;
         for (_, what) in notices.iter().filter(|(on, _)| *on) {
@@ -262,9 +265,9 @@ impl PlayScene {
         );
         let c = &self.controls.panel[who];
         let hint = match (c.start, c.select) {
-            (true, true) => ["HOLD:", "QUIT"],
-            (true, false) => ["WHITE -0.25 / BLUE +0.25", "TURNTABLE: COVER"],
-            _ => ["WHITE -0.01 / BLUE +0.01", "TURNTABLE: HI-SPEED"],
+            (true, true) => [tr!("HOLD:"), tr!("QUIT")],
+            (true, false) => [tr!("WHITE -0.25 / BLUE +0.25"), tr!("TURNTABLE: COVER")],
+            _ => [tr!("WHITE -0.01 / BLUE +0.01"), tr!("TURNTABLE: HI-SPEED")],
         };
         for h in hint {
             line(d, h, small * 0.8, theme::TEXT_DIM, &mut y);

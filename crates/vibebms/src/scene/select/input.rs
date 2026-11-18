@@ -88,7 +88,7 @@ impl SelectScene {
                         return Next::Quit;
                     }
                     self.quit_armed = Some(Instant::now());
-                    ctx.toast("Press back again to quit");
+                    ctx.toast(tr!("Press back again to quit"));
                 }
             }
             Nav::Settings => {
@@ -330,13 +330,14 @@ impl SelectScene {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         if !self.delete_armed.confirm(dir.clone()) {
-            ctx.toast(format!(
-                "Press Delete again to delete {name} from this browser"
+            ctx.toast(tr!(
+                "Press Delete again to delete {name} from this browser",
+                name = name
             ));
             return;
         }
         crate::platform::vfs::remove_dir(&dir);
-        ctx.toast(format!("Deleted {name}"));
+        ctx.toast(tr!("Deleted {name}", name = name));
     }
 
     pub(super) fn input_event(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
@@ -384,7 +385,7 @@ impl SelectScene {
                 if !ctx.config.bms_dirs.contains(&s) {
                     ctx.config.bms_dirs.push(s.clone());
                     ctx.save_config();
-                    ctx.toast(format!("Added BMS folder: {s}"));
+                    ctx.toast(tr!("Added BMS folder: {s}", s = s));
                     ctx.start_scan();
                 }
             }

@@ -155,7 +155,7 @@ impl Reader {
         crate::ui::panel(d, r);
         let pad = 18.0 * ui;
         d.text(
-            "READ TEXT",
+            tr!("READ TEXT"),
             r.x + pad,
             r.y + 14.0 * ui,
             TextStyle::new(20.0 * ui, theme::TEXT, Align::Left),
@@ -179,7 +179,7 @@ impl Reader {
         if crate::platform::open::CAN_OPEN_FILES {
             // OPEN (O): the file shown in the system's viewer
             let open = Rect::new(close.x - 96.0 * ui, r.y + 12.0 * ui, 88.0 * ui, 32.0 * ui);
-            crate::ui::button(d, open, "OPEN (O)", ui, false);
+            crate::ui::button(d, open, tr!("OPEN (O)"), ui, false);
             self.hits.push(open, Hit::Open);
         }
         let body = Rect::new(
@@ -191,7 +191,7 @@ impl Reader {
         let (size, line) = (SIZE * ui, LINE * ui);
         if self.fetch.is_some() {
             d.text(
-                "Reading\u{2026}",
+                tr!("Reading\u{2026}"),
                 body.x,
                 body.y,
                 TextStyle::new(size, theme::TEXT_DIM, Align::Left),
@@ -299,7 +299,7 @@ impl SelectScene {
         };
         let files = self.chart_files(ctx, song).texts.clone();
         if files.is_empty() {
-            ctx.toast(format!("{}: no text files", song.title));
+            ctx.toast(tr!("{title}: no text files", title = song.title));
             return;
         }
         self.reader = Some(Reader::new(song.full_title(), files));

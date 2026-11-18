@@ -84,7 +84,7 @@ impl PlayScene {
                     let swap = *id >= 1_000_000;
                     if swap != self.controls.swap_pads {
                         self.controls.swap_pads = swap;
-                        ctx.toast(format!("1P: controller {}", swap as u8 + 1));
+                        ctx.toast(tr!("1P: controller {n}", n = swap as u8 + 1));
                     }
                     return Next::Stay;
                 }

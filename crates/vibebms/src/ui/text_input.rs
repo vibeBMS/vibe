@@ -110,7 +110,7 @@ impl TextInput {
             self.buf.clone()
         };
         d.text(
-            &format!("{title}  (Enter = OK, Esc = cancel)"),
+            &format!("{title}  {}", tr!("(Enter = OK, Esc = cancel)")),
             r.x + 14.0 * ui,
             r.y + 10.0 * ui,
             TextStyle::new(15.0 * ui, theme::TEXT_DIM, Align::Left),
@@ -129,7 +129,7 @@ impl TextInput {
         self.buttons
             .push(super::button(d, ok, "OK", ui, true), true);
         self.buttons
-            .push(super::button(d, cancel, "Cancel", ui, false), false);
+            .push(super::button(d, cancel, tr!("Cancel"), ui, false), false);
     }
 }
 

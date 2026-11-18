@@ -85,12 +85,12 @@ impl Status {
         let mut attention = Vec::new();
         match updates {
             0 => {}
-            1 => attention.push("1 skin update".into()),
-            n => attention.push(format!("{n} skin updates")),
+            1 => attention.push(tr!("1 skin update").into()),
+            n => attention.push(tr!("{n} skin updates", n = n)),
         }
         online::attention(ctx, &mut attention);
         if let crate::update::Status::Available(o) = &ctx.net.updater.status {
-            attention.push(format!("vibeBMS {} to install", o.version));
+            attention.push(tr!("vibeBMS {version} to install", version = o.version));
         }
         Status {
             chips: Page::ALL.iter().map(|p| p.chips(ctx)).collect(),
@@ -172,21 +172,23 @@ fn ellipsize(d: &mut Draw, s: &str, size: f32, w: f32) -> String {
     String::new()
 }
 
-/// `s` broken into at most `max` lines `w` wide (the last cut short).
+/// `s` broken into at most `max` lines `w` wide (the last cut short), at
+/// spaces and between Chinese and Japanese characters.
 fn wrap(d: &mut Draw, s: &str, size: f32, w: f32, max: usize) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
-    let mut words = s.split(' ').peekable();
-    while let Some(word) = words.next() {
-        let next = if cur.is_empty() {
-            word.to_string()
-        } else {
-            format!("{cur} {word}")
-        };
+    let words = ui::break_words(s);
+    for (k, &(space, word)) in words.iter().enumerate() {
+        let sep = if space && !cur.is_empty() { " " } else { "" };
+        let next = format!("{cur}{sep}{word}");
         if !cur.is_empty() && d.measure(&next, size) > w {
             if lines.len() + 1 == max {
-                let rest: Vec<&str> = std::iter::once(word).chain(words).collect();
-                lines.push(ellipsize(d, &format!("{cur} {}", rest.join(" ")), size, w));
+                let mut rest = cur;
+                for &(space, word) in &words[k..] {
+                    rest.push_str(if space { " " } else { "" });
+                    rest.push_str(word);
+                }
+                lines.push(ellipsize(d, &rest, size, w));
                 return lines;
             }
             lines.push(std::mem::replace(&mut cur, word.to_string()));
@@ -242,9 +244,10 @@ fn chip(d: &mut Draw, right: f32, cy: f32, s: &str, color: Color, ui: f32) -> f3
     w
 }
 
-/// A chip's colour: what waits is amber.
+/// A chip's colour: what waits is amber (the chip has one of these words:
+/// their translations are words the translated chips have).
 fn chip_color(s: &str) -> Color {
-    if ["update", "waiting", "failed"]
+    if [tr!("update"), tr!("waiting"), tr!("failed")]
         .iter()
         .any(|w| s.contains(w))
     {
@@ -434,14 +437,14 @@ impl SettingsScene {
             let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);
             ui::modal(d, w, h, r);
             let what = if matches!(slot, crate::scene::keybind::Slot::ScratchAxis(_)) {
-                "Spin the turntable"
+                tr!("Spin the turntable")
             } else if matches!(
                 self.view,
                 super::View::Sub(super::Sub::Keys(super::KeySet::SideSub(_)))
             ) {
-                "Press a key"
+                tr!("Press a key")
             } else {
-                "Press a key or controller button"
+                tr!("Press a key or controller button")
             };
             let x = r.x + r.w * 0.5;
             d.text(
@@ -451,7 +454,7 @@ impl SettingsScene {
                 TextStyle::new(22.0 * ui, TEXT, Align::Center),
             );
             d.text(
-                "Esc = cancel, Delete = clear",
+                tr!("Esc = cancel, Delete = clear"),
                 x,
                 r.y + 54.0 * ui,
                 TextStyle::new(15.0 * ui, TEXT_DIM, Align::Center),
@@ -470,13 +473,13 @@ impl SettingsScene {
         );
         let x = u(24.0);
         let tw = d.text(
-            "SETTINGS",
+            tr!("SETTINGS"),
             x,
             u(12.0),
             TextStyle::new(u(28.0), ACCENT, Align::Left),
         );
         let mut crumbs: Vec<String> = if self.search.is_some() {
-            vec!["SEARCH".into()]
+            vec![tr!("SEARCH").into()]
         } else {
             let parents = self.parents.iter().map(|p| p.0.title(ctx));
             parents
@@ -502,13 +505,13 @@ impl SettingsScene {
         cx += d.text(&last, cx, u(18.0), TextStyle::new(size, TEXT, Align::Left));
         if !portrait {
             let hints = if self.cards_shown() {
-                "↑↓←→ move   Enter open   / search   Esc back to the game"
+                tr!("↑↓←→ move   Enter open   / search   Esc back to the game")
             } else if self.search.is_some() {
-                "↑↓ results   ←→ change   Enter go there   Esc close"
+                tr!("↑↓ results   ←→ change   Enter go there   Esc close")
             } else if self.in_grid() {
-                "←→↑↓ move in the grid   Enter toggle   Esc back"
+                tr!("←→↑↓ move in the grid   Enter toggle   Esc back")
             } else {
-                "↑↓ select   ←→ change   Enter open   Esc back   / search"
+                tr!("↑↓ select   ←→ change   Enter open   Esc back   / search")
             };
             let hs = u(15.0);
             if d.measure(hints, hs) < back.x - cx - u(40.0) {
@@ -520,7 +523,7 @@ impl SettingsScene {
                 );
             }
         }
-        ui::button(d, back, "◀ BACK", ui, false);
+        ui::button(d, back, tr!("◀ BACK"), ui, false);
     }
 
     /// The search field at `r` (the wide one on the top level).
@@ -554,9 +557,9 @@ impl SettingsScene {
             }
             None => {
                 let hint = if wide {
-                    "Search every setting — e.g. “offset”, “volume”, “BMS-IR”"
+                    tr!("Search every setting — e.g. “offset”, “volume”, “BMS-IR”")
                 } else {
-                    "Search settings"
+                    tr!("Search settings")
                 };
                 let hint = ellipsize(d, hint, size, tw);
                 d.text(
@@ -665,17 +668,17 @@ impl SettingsScene {
             1.0,
         );
         let parts: [(&str, Color); 7] = [
-            ("Random, gauge, hi-speed, lane cover, target: ", TEXT),
+            (tr!("Random, gauge, hi-speed, lane cover, target: "), TEXT),
             ("PLAY OPTION", ACCENT),
-            (" (hold START), ", TEXT),
+            (tr!(" (hold START), "), TEXT),
             ("ASSIST", ACCENT),
-            (" (hold SELECT), ", TEXT),
+            (tr!(" (hold SELECT), "), TEXT),
             ("SYSTEM OPTION", ACCENT),
-            (" (hold both), or tap the buttons.", TEXT),
+            (tr!(" (hold both), or tap the buttons."), TEXT),
         ];
         if portrait {
             d.text(
-                "ON THE SONG SELECT",
+                tr!("ON THE SONG SELECT"),
                 x0 + u(20.0),
                 by + u(12.0),
                 TextStyle::new(u(14.0), ACCENT, Align::Left),
@@ -689,7 +692,7 @@ impl SettingsScene {
                 x0 + u(22.0),
                 by + u(16.0),
                 u(15.0),
-                &[("ON THE SONG SELECT   ", ACCENT)],
+                &[(&format!("{}   ", tr!("ON THE SONG SELECT")), ACCENT)],
             );
             let room = full - tw - u(44.0);
             let size = if d.measure(&parts.iter().map(|p| p.0).collect::<String>(), u(16.0)) > room
@@ -703,8 +706,16 @@ impl SettingsScene {
         // recently changed, needs attention
         let sy = by + bh + u(12.0);
         let strips = [
-            ("RECENTLY CHANGED", &self.status.recent, "Nothing yet"),
-            ("NEEDS ATTENTION", &self.status.attention, "Nothing"),
+            (
+                tr!("RECENTLY CHANGED"),
+                &self.status.recent,
+                tr!("Nothing yet"),
+            ),
+            (
+                tr!("NEEDS ATTENTION"),
+                &self.status.attention,
+                tr!("Nothing"),
+            ),
         ];
         let sh = u(84.0);
         for (k, (title, items, none)) in strips.into_iter().enumerate() {
@@ -804,7 +815,7 @@ impl SettingsScene {
                 let w = last.0.w;
                 let lines = wrap(
                     d,
-                    "Per-play options (random, gauge, hi-speed, lane cover, target) are on the song select: PLAY OPTION.",
+                    tr!("Per-play options (random, gauge, hi-speed, lane cover, target) are on the song select: PLAY OPTION."),
                     u(13.0),
                     w,
                     4,
@@ -831,10 +842,10 @@ impl SettingsScene {
         if self.rows.is_empty() {
             let msg = match &self.search {
                 Some(s) if s.input.buf.trim().is_empty() => {
-                    "Type to search every setting: a name, a word of its description, a key."
+                    tr!("Type to search every setting: a name, a word of its description, a key.")
                         .to_string()
                 }
-                Some(s) => format!("Nothing found for “{}”", s.input.buf.trim()),
+                Some(s) => tr!("Nothing found for “{query}”", query = s.input.buf.trim()),
                 None => String::new(),
             };
             d.text(
@@ -961,7 +972,11 @@ impl SettingsScene {
                     r.y + u(33.0),
                     TextStyle::new(u(13.5), TEXT_DIM, Align::Left),
                 );
-                let hint = if *open { "Enter: fold" } else { "Enter: open" };
+                let hint = if *open {
+                    tr!("Enter: fold")
+                } else {
+                    tr!("Enter: open")
+                };
                 d.text(
                     hint,
                     r.right() - u(18.0),

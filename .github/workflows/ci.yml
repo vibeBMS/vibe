@@ -298,8 +298,12 @@ jobs:
           base=https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans
           curl -fsSL -o web/fonts/NotoSansJP-Regular.otf "$base/SubsetOTF/JP/NotoSansJP-Regular.otf"
           curl -fsSL -o web/fonts/NotoSansKR-Regular.otf "$base/SubsetOTF/KR/NotoSansKR-Regular.otf"
+          # loaded only when the UI is in Chinese (a line's second word)
+          curl -fsSL -o web/fonts/NotoSansSC-Regular.otf "$base/SubsetOTF/SC/NotoSansSC-Regular.otf"
+          curl -fsSL -o web/fonts/NotoSansTC-Regular.otf "$base/SubsetOTF/TC/NotoSansTC-Regular.otf"
           curl -fsSL -o web/fonts/NotoSansCJK-LICENSE.txt "$base/LICENSE"
           printf "NotoSansJP-Regular.otf\nNotoSansKR-Regular.otf\n" >> web/fonts/fonts.txt
+          printf "NotoSansSC-Regular.otf zh-Hans\nNotoSansTC-Regular.otf zh-Hant\n" >> web/fonts/fonts.txt
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-web

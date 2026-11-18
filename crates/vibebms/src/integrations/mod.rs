@@ -89,11 +89,11 @@ pub enum Status {
 impl Status {
     pub fn label(&self) -> String {
         match self {
-            Status::Off => "OFF".into(),
-            Status::Needs(what) => format!("needs {what}"),
-            Status::Connecting => "connecting…".into(),
-            Status::Connected => "connected".into(),
-            Status::Failed(e) => format!("not connected: {e}"),
+            Status::Off => tr!("OFF").into(),
+            Status::Needs(what) => tr!("needs {what}", what = what),
+            Status::Connecting => tr!("connecting…").into(),
+            Status::Connected => tr!("connected").into(),
+            Status::Failed(e) => tr!("not connected: {e}", e = e),
         }
     }
 }
@@ -190,7 +190,7 @@ impl Integrations {
             return Status::Off;
         }
         if d.application_id.trim().is_empty() {
-            return Status::Needs("a Discord application id");
+            return Status::Needs(tr!("a Discord application id"));
         }
         #[cfg(desktop)]
         if let Some(x) = &self.discord {

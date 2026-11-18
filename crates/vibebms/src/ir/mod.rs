@@ -348,8 +348,12 @@ impl IrService {
         let title = a.title().to_string();
         let parsed = match (r, provider(a)) {
             (Ok(resp), Some(prov)) => prov.parse(&Op::PlayerScores { player: &a.user_id }, &resp),
-            (Ok(_), None) => return AppEvent::Toast(format!("{title}: not available here")),
-            (Err(why), _) => return AppEvent::Toast(format!("{title}: no answer ({why})")),
+            (Ok(_), None) => {
+                return AppEvent::Toast(tr!("{title}: not available here", title = title))
+            }
+            (Err(why), _) => {
+                return AppEvent::Toast(tr!("{title}: no answer ({why})", title = title, why = why))
+            }
         };
         match parsed {
             Outcome::Scores { scores, .. } => {
@@ -361,13 +365,22 @@ impl IrService {
                     why: Vec::new(),
                 }))
             }
-            Outcome::Unsupported => {
-                AppEvent::Toast(format!("{title}: this server cannot list your scores"))
-            }
+            Outcome::Unsupported => AppEvent::Toast(tr!(
+                "{title}: this server cannot list your scores",
+                title = title
+            )),
             Outcome::Rejected(why) | Outcome::Auth(why) | Outcome::Retry { why, .. } => {
-                AppEvent::Toast(format!("{title}: your scores could not be read ({why})"))
+                AppEvent::Toast(tr!(
+                    "{title}: your scores could not be read ({why})",
+                    title = title,
+                    why = why
+                ))
             }
-            o => AppEvent::Toast(format!("{title}: unexpected answer: {o:?}")),
+            o => AppEvent::Toast(tr!(
+                "{title}: unexpected answer: {answer}",
+                title = title,
+                answer = format!("{o:?}")
+            )),
         }
     }
 
@@ -738,9 +751,11 @@ impl IrService {
                 self.checking.retain(|&p| p != own.provider);
                 own.user.clear();
                 let player = &own.user_id;
-                Some(AppEvent::Toast(format!(
-                    "{}: player {player}: {why}",
-                    own.title()
+                Some(AppEvent::Toast(tr!(
+                    "{title}: player {player}: {why}",
+                    title = own.title(),
+                    player = player,
+                    why = why
                 )))
             }
             _ => None,
@@ -803,7 +818,7 @@ impl IrService {
                 if info.can_submit {
                     return None;
                 }
-                "this key cannot send scores".to_string()
+                tr!("this key cannot send scores").to_string()
             }
             // a server without the check (vibeBMS IR protocol 1)
             Ok(Outcome::Unsupported) => {
@@ -812,13 +827,13 @@ impl IrService {
             }
             Ok(Outcome::Auth(why)) => {
                 a.user.clear();
-                format!("the key was refused ({why})")
+                tr!("the key was refused ({why})", why = why)
             }
             Ok(Outcome::Rejected(why) | Outcome::Retry { why, .. }) => {
-                format!("the key could not be checked ({why})")
+                tr!("the key could not be checked ({why})", why = why)
             }
-            Ok(_) => "the key could not be checked".into(),
-            Err(why) => format!("no answer ({why})"),
+            Ok(_) => tr!("the key could not be checked").into(),
+            Err(why) => tr!("no answer ({why})", why = why),
         };
         Some(AppEvent::Toast(format!("{}: {said}", a.title())))
     }
@@ -930,13 +945,16 @@ impl IrService {
             let words = match (item, eligible(rec, a.provider.kind())) {
                 (Some(i), _) => self.item_words(i),
                 (None, Err(Refusal::OperatorPending)) => {
-                    format!("not sent: waiting for {} to accept vibeBMS", a.title())
+                    tr!(
+                        "not sent: waiting for {ir} to accept vibeBMS",
+                        ir = a.title()
+                    )
                 }
-                (None, Err(r)) => format!("not sent: {}", refusal_words(r)),
-                _ if provider(a).is_none() => "not in this build yet".into(),
-                _ if ir.submit == SubmitPolicy::Off || !a.submit => "not sending".into(),
-                _ if ir.submit == SubmitPolicy::Ask => "press I to send".into(),
-                _ => "not sent".into(),
+                (None, Err(r)) => tr!("not sent: {why}", why = refusal_words(r)),
+                _ if provider(a).is_none() => tr!("not in this build yet").into(),
+                _ if ir.submit == SubmitPolicy::Off || !a.submit => tr!("not sending").into(),
+                _ if ir.submit == SubmitPolicy::Ask => tr!("press I to send").into(),
+                _ => tr!("not sent").into(),
             };
             lines.push(format!("{}: {words}", a.title()));
         }
@@ -950,20 +968,22 @@ impl IrService {
         let offline = last.is_some_and(|l| l.status.is_none());
         match i.state {
             State::Queued | State::Retry if !self.keys.has(i.provider) => {
-                "waiting for an API key".into()
+                tr!("waiting for an API key").into()
             }
-            State::Queued | State::Retry | State::Polling if offline => "waiting (offline)".into(),
-            State::Queued => "waiting".into(),
-            State::Sending => "sending…".into(),
-            State::Polling | State::Checking => "processing".into(),
-            State::Retry => format!("will retry at {}", clock(i.next_ms)),
+            State::Queued | State::Retry | State::Polling if offline => {
+                tr!("waiting (offline)").into()
+            }
+            State::Queued => tr!("waiting").into(),
+            State::Sending => tr!("sending…").into(),
+            State::Polling | State::Checking => tr!("processing").into(),
+            State::Retry => tr!("will retry at {time}", time = clock(i.next_ms)),
             State::Done => match &i.note {
-                Some(n) => format!("saved ({n})"),
-                None => "saved".into(),
+                Some(n) => tr!("saved ({note})", note = n),
+                None => tr!("saved").into(),
             },
-            State::Auth => "sign in again".into(),
-            State::Rejected => format!("refused: {why}"),
-            State::GaveUp => format!("gave up: {why}"),
+            State::Auth => tr!("sign in again").into(),
+            State::Rejected => tr!("refused: {why}", why = why),
+            State::GaveUp => tr!("gave up: {why}", why = why),
         }
     }
 }
@@ -986,33 +1006,33 @@ fn clock(ms: i64) -> String {
 /// Why a play is not sent, for people.
 pub fn refusal_words(r: Refusal) -> String {
     match r {
-        Refusal::OldRecord => "a record of an older version".into(),
-        Refusal::Autoplay => "autoplay".into(),
-        Refusal::Practice => "a practice play".into(),
-        Refusal::Replay => "a replay".into(),
-        Refusal::Versus => "a VS play".into(),
+        Refusal::OldRecord => tr!("a record of an older version").into(),
+        Refusal::Autoplay => tr!("autoplay").into(),
+        Refusal::Practice => tr!("a practice play").into(),
+        Refusal::Replay => tr!("a replay").into(),
+        Refusal::Versus => tr!("a VS play").into(),
         Refusal::GhostBattle => "G-BATTLE".into(),
         Refusal::Battle => "BATTLE".into(),
-        Refusal::CourseStage => "a course stage".into(),
-        Refusal::Aborted => "quit".into(),
-        Refusal::Freq => "played at another FREQ".into(),
-        Refusal::KeyConvert => "played in another key mode (KEY MODE)".into(),
-        Refusal::KeyMode(m) => format!("no IR ranks {}", m.label()),
-        Refusal::Assist => "assist options".into(),
-        Refusal::LocalRules => "not under vibe-LR2 or vibe-beatoraja rules".into(),
-        Refusal::Touch => "touch".into(),
-        Refusal::WebPlay => "played in the browser".into(),
-        Refusal::NotTaken(p, m) => format!("{} {} not taken", p.label(), m.label()),
+        Refusal::CourseStage => tr!("a course stage").into(),
+        Refusal::Aborted => tr!("quit").into(),
+        Refusal::Freq => tr!("played at another FREQ").into(),
+        Refusal::KeyConvert => tr!("played in another key mode (KEY MODE)").into(),
+        Refusal::KeyMode(m) => tr!("no IR ranks {mode}", mode = m.label()),
+        Refusal::Assist => tr!("assist options").into(),
+        Refusal::LocalRules => tr!("not under vibe-LR2 or vibe-beatoraja rules").into(),
+        Refusal::Touch => tr!("touch").into(),
+        Refusal::WebPlay => tr!("played in the browser").into(),
+        Refusal::NotTaken(p, m) => tr!("{a} {b} not taken", a = p.label(), b = m.label()),
         Refusal::OpenGap(id) => match vibebms_ir::rule::gap(id).map(|g| g.reason) {
             Some(reason) if !reason.is_empty() => reason.into(),
-            _ => format!("rules not confirmed equal yet ({id})"),
+            _ => tr!("rules not confirmed equal yet ({id})", id = id),
         },
-        Refusal::NotYet => "not in this build yet".into(),
-        Refusal::OperatorPending => "waiting for the operator".into(),
-        Refusal::RandomChart => "a #RANDOM chart".into(),
-        Refusal::MixedDevices => "keyboard and controller mixed".into(),
-        Refusal::WallTime => "play time does not fit the chart".into(),
-        Refusal::Gauge(g) => format!("no {} gauge there", g.label()),
+        Refusal::NotYet => tr!("not in this build yet").into(),
+        Refusal::OperatorPending => tr!("waiting for the operator").into(),
+        Refusal::RandomChart => tr!("a #RANDOM chart").into(),
+        Refusal::MixedDevices => tr!("keyboard and controller mixed").into(),
+        Refusal::WallTime => tr!("play time does not fit the chart").into(),
+        Refusal::Gauge(g) => tr!("no {gauge} gauge there", gauge = g.label()),
     }
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -94,8 +94,137 @@ pub fn back_button(d: &mut Draw, w: f32, ui: f32) -> Rect {
     button(
         d,
         Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
-        "◀ BACK",
+        tr!("◀ BACK"),
         ui,
         false,
     )
+}
+
+/// Where a line of `s` may break: its words, each with whether a space
+/// came before it. A Chinese or Japanese character is a word of its own
+/// (those languages put no spaces between words); closing punctuation
+/// stays with the word before it, opening punctuation with the one after.
+pub fn break_words(s: &str) -> Vec<(bool, &str)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut space = false;
+    // the word so far ends after this one (a CJK character, opening
+    // punctuation does not)
+    let mut ends = false;
+    let mut after_opening = false;
+    for (i, c) in s.char_indices() {
+        if c == ' ' {
+            if let Some(st) = start.take() {
+                out.push((space, &s[st..i]));
+            }
+            space = true;
+            ends = false;
+            after_opening = false;
+            continue;
+        }
+        let closing = matches!(
+            c,
+            '、' | '。'
+                | '，'
+                | '．'
+                | '！'
+                | '？'
+                | '：'
+                | '；'
+                | '）'
+                | '」'
+                | '』'
+                | '】'
+                | '〕'
+                | '・'
+                | 'ー'
+                | '…'
+                | ')'
+                | ','
+                | '.'
+                | ':'
+                | ';'
+                | '!'
+                | '?'
+                | 'ぁ'
+                | 'ぃ'
+                | 'ぅ'
+                | 'ぇ'
+                | 'ぉ'
+                | 'っ'
+                | 'ゃ'
+                | 'ゅ'
+                | 'ょ'
+                | 'ァ'
+                | 'ィ'
+                | 'ゥ'
+                | 'ェ'
+                | 'ォ'
+                | 'ッ'
+                | 'ャ'
+                | 'ュ'
+                | 'ョ'
+        );
+        let opening = matches!(c, '（' | '「' | '『' | '【' | '〔' | '(');
+        if let Some(st) = start {
+            if !closing && (ends || (is_cjk(c) && !after_opening)) {
+                out.push((space, &s[st..i]));
+                space = false;
+                start = Some(i);
+            }
+        } else {
+            start = Some(i);
+        }
+        ends = !opening && (is_cjk(c) || (ends && closing));
+        after_opening = opening;
+    }
+    if let Some(st) = start {
+        out.push((space, &s[st..]));
+    }
+    out
+}
+
+/// A Chinese or Japanese character (ideographs, kana, their punctuation).
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32,
+        0x3000..=0x30FF // punctuation, hiragana, katakana
+        | 0x3400..=0x4DBF
+        | 0x4E00..=0x9FFF
+        | 0xF900..=0xFAFF
+        | 0xFF00..=0xFF60 // full-width forms
+        | 0x20000..=0x2FFFF)
+}
+
+#[cfg(test)]
+mod break_tests {
+    use super::break_words;
+
+    #[test]
+    fn breaks_at_spaces_and_between_cjk() {
+        assert_eq!(
+            break_words("a bc  d"),
+            vec![(false, "a"), (true, "bc"), (true, "d")]
+        );
+        assert_eq!(
+            break_words("判定を、ずらす。OK"),
+            vec![
+                (false, "判"),
+                (false, "定"),
+                (false, "を、"),
+                (false, "ず"),
+                (false, "ら"),
+                (false, "す。"),
+                (false, "OK")
+            ]
+        );
+        assert_eq!(
+            break_words("「設定」"),
+            vec![(false, "「設"), (false, "定」")]
+        );
+        assert_eq!(break_words("LN判"), vec![(false, "LN"), (false, "判")]);
+        assert_eq!(
+            break_words("판정 오프셋"),
+            vec![(false, "판정"), (true, "오프셋")]
+        );
+    }
 }

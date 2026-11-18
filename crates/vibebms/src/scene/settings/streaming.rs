@@ -1,10 +1,10 @@
 //! SYSTEM › STREAMING (desktop): Discord Rich Presence and OBS WebSocket.
 
+use super::row::onoff;
 use super::row::{Act, Row, Rows};
 use super::TextField;
 use crate::app::Ctx;
 use crate::config::ObsScenes;
-use crate::scene::option_panel::onoff;
 
 /// A field's value as shown: `—` when empty.
 fn shown(s: &str) -> String {
@@ -19,29 +19,29 @@ pub(super) fn rows(b: &mut Rows) {
     let ctx = b.ctx;
     let d = &ctx.config.discord;
     let o = &ctx.config.obs;
-    b.header("STREAMING");
+    b.header(tr!("STREAMING"));
     b.extend([
         Row::adjust(
             "discord.enabled",
-            "Discord Rich Presence",
+            tr!("Discord Rich Presence"),
             onoff(d.enabled),
             |c, _| c.config.discord.enabled ^= true,
         )
-        .desc(
+        .desc(tr!(
             "Your Discord status shows the screen and the chart (song select, playing title \
-             [difficulty], result), through the Discord app on this computer.",
-        )
+             [difficulty], result), through the Discord app on this computer."
+        ))
         .keys("discord rich presence status activity"),
         Row::new(
             "discord.application_id",
-            "Discord application id",
+            tr!("Discord application id"),
             shown(&d.application_id),
             Act::Text(TextField::DiscordAppId),
         )
-        .desc(
+        .desc(tr!(
             "The id of a Discord application (Discord's developer portal; its name is what \
-             you are shown playing). None is built in: without one it stays off.",
-        )
+             you are shown playing). None is built in: without one it stays off."
+        ))
         .keys("discord client id"),
         Row::note(
             "info.discord",
@@ -53,36 +53,39 @@ pub(super) fn rows(b: &mut Rows) {
     b.group(
         "system.obs",
         "OBS",
-        "Scene per screen and recording, through obs-websocket 5",
+        tr!("Scene per screen and recording, through obs-websocket 5"),
     );
     b.extend([
-        Row::adjust("obs.enabled", "OBS WebSocket", onoff(o.enabled), |c, _| {
-            c.config.obs.enabled ^= true
-        })
-        .desc(
-            "Switch OBS scenes on each screen and record plays (OBS 28 or later: Tools › \
-             WebSocket Server Settings).",
+        Row::adjust(
+            "obs.enabled",
+            tr!("OBS WebSocket"),
+            onoff(o.enabled),
+            |c, _| c.config.obs.enabled ^= true,
         )
+        .desc(tr!(
+            "Switch OBS scenes on each screen and record plays (OBS 28 or later: Tools › \
+             WebSocket Server Settings)."
+        ))
         .keys("obs websocket stream record scene"),
         Row::new(
             "obs.host",
-            "Host",
+            tr!("Host"),
             shown(&o.host),
             Act::Text(TextField::ObsHost),
         )
-        .desc("The computer OBS runs on (127.0.0.1: this one).")
+        .desc(tr!("The computer OBS runs on (127.0.0.1: this one)."))
         .keys("obs address server"),
         Row::new(
             "obs.port",
-            "Port",
+            tr!("Port"),
             o.port.to_string(),
             Act::Text(TextField::ObsPort),
         )
-        .desc("The WebSocket server's port (OBS: 4455).")
+        .desc(tr!("The WebSocket server's port (OBS: 4455)."))
         .keys("obs"),
         Row::new(
             "obs.password",
-            "Password",
+            tr!("Password"),
             if o.password.is_empty() {
                 "—"
             } else {
@@ -90,32 +93,36 @@ pub(super) fn rows(b: &mut Rows) {
             },
             Act::Text(TextField::ObsPassword),
         )
-        .desc("The WebSocket server's password (empty: none). Kept in config.toml as typed.")
+        .desc(tr!(
+            "The WebSocket server's password (empty: none). Kept in config.toml as typed."
+        ))
         .keys("obs authentication"),
     ]);
     for (i, label) in ObsScenes::LABELS.iter().enumerate() {
         b.push(
             Row::new(
                 "obs.scenes",
-                format!("Scene: {label}"),
+                tr!("Scene: {label}", label = label),
                 shown(o.scenes.get(i)),
                 Act::Text(TextField::ObsScene(i)),
             )
-            .desc("The OBS scene to switch to on this screen (empty: no switch).")
+            .desc(tr!(
+                "The OBS scene to switch to on this screen (empty: no switch)."
+            ))
             .keys("obs scene switch"),
         );
     }
     b.extend([
         Row::adjust(
             "obs.record_play",
-            "Record plays",
+            tr!("Record plays"),
             onoff(o.record_play),
             |c, _| c.config.obs.record_play ^= true,
         )
-        .desc(
+        .desc(tr!(
             "OBS starts recording as a play starts and stops once its result is left (a file \
-             per play; a retry starts the next).",
-        )
+             per play; a retry starts the next)."
+        ))
         .keys("obs record recording video"),
         Row::note(
             "info.obs",
@@ -144,7 +151,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) -> bool {
     match tf {
         TextField::DiscordAppId => {
             if !s.is_empty() && !s.chars().all(|ch| ch.is_ascii_digit()) {
-                ctx.toast("A Discord application id is a number");
+                ctx.toast(tr!("A Discord application id is a number"));
                 return false;
             }
             c.discord.application_id = s;
@@ -153,7 +160,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) -> bool {
         TextField::ObsPort => match s.parse::<u16>() {
             Ok(p) if p > 0 => c.obs.port = p,
             _ => {
-                ctx.toast(format!("Not a port: {s}"));
+                ctx.toast(tr!("Not a port: {s}", s = s));
                 return false;
             }
         },

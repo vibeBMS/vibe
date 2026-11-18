@@ -1,9 +1,19 @@
+use super::row::onoff;
 use super::row::{mb, Act, Row, Rows};
 use super::{library, Confirm, Sub, TextField};
 use crate::app::Ctx;
-use crate::scene::option_panel::onoff;
+use crate::i18n::Language;
 use crate::ui::Armed;
 use crate::update::{Status, Version, SUPPORTED, VERSION};
+
+/// The setting as shown: each language in itself, AUTO with the one it
+/// picked.
+fn language_name(l: Language) -> String {
+    match l {
+        Language::Auto => format!("AUTO ({})", l.resolve().native()),
+        l => l.resolve().native().to_string(),
+    }
+}
 
 fn update_now(c: &mut Ctx, _: usize) {
     if let Some(msg) = c.net.updater.install() {
@@ -15,21 +25,38 @@ fn update_now(c: &mut Ctx, _: usize) {
 /// the data folder.
 pub(super) fn rows(b: &mut Rows) {
     let ctx = b.ctx;
-    b.header("PROFILE");
+    b.header(tr!("LANGUAGE"));
+    b.push(
+        Row::adjust(
+            "language",
+            tr!("Language"),
+            language_name(ctx.config.language),
+            |c, d| {
+                let l = crate::scene::option_panel::cycle(&Language::ALL, c.config.language, d);
+                c.config.language = l;
+                crate::i18n::apply(l);
+            },
+        )
+        .desc(tr!(
+            "The language of vibeBMS's own text (not the charts' or the skins')."
+        ))
+        .keys("language locale translation english korean japanese chinese 언어 言語 语言 語言"),
+    );
+    b.header(tr!("PROFILE"));
     b.push(
         Row::new(
             "player_name",
-            "Player name",
+            tr!("Player name"),
             ctx.config.player_name.clone(),
             Act::Text(TextField::PlayerName),
         )
-        .desc("Shown on results and skins.")
+        .desc(tr!("Shown on results and skins."))
         .keys("profile nickname"),
     );
     profiles(b);
-    b.header("UPDATES");
+    b.header(tr!("UPDATES"));
     updates(b);
-    b.header("DATA");
+    b.header(tr!("DATA"));
     b.push(library::data_folder(ctx));
     #[cfg(desktop)]
     super::streaming::rows(b);
@@ -45,12 +72,12 @@ fn profiles(b: &mut Rows) {
             Row::sub(
                 "profile",
                 p.name.clone(),
-                if using { "in use" } else { "" },
+                if using { tr!("in use") } else { "" },
                 Sub::Profile(p.id.clone()),
             )
             .desc(match using {
-                true => "The profile in use: its records, replays, settings and IR accounts.",
-                false => "Another profile: switch to it, rename or delete it.",
+                true => tr!("The profile in use: its records, replays, settings and IR accounts."),
+                false => tr!("Another profile: switch to it, rename or delete it."),
             })
             .keys("profile player user switch account"),
         );
@@ -58,11 +85,11 @@ fn profiles(b: &mut Rows) {
     b.push(
         Row::new(
             "profile.new",
-            "New profile",
-            "name it ↵",
+            tr!("New profile"),
+            tr!("name it ↵"),
             Act::Text(TextField::NewProfile),
         )
-        .desc("Starts with these settings (not the IR accounts) and no records; the library is shared.")
+        .desc(tr!("Starts with these settings (not the IR accounts) and no records; the library is shared."))
         .keys("profile add create player"),
     );
 }
@@ -75,29 +102,37 @@ pub(super) fn profile(b: &mut Rows, id: &str) {
         return;
     };
     let using = id == ctx.paths.profile;
-    b.header("PROFILE");
+    b.header(tr!("PROFILE"));
     if using {
-        b.push(Row::note("profile.using", "This profile is in use", ""));
+        b.push(Row::note(
+            "profile.using",
+            tr!("This profile is in use"),
+            "",
+        ));
     } else {
         b.push(
             Row::new(
                 "profile.use",
-                "Switch to this profile",
-                "switch ↵",
+                tr!("Switch to this profile"),
+                tr!("switch ↵"),
                 Act::Run(use_profile, i),
             )
-            .desc("Back to song select with its settings, records and IR accounts.")
+            .desc(tr!(
+                "Back to song select with its settings, records and IR accounts."
+            ))
             .keys("profile change load"),
         );
     }
     b.push(
         Row::new(
             "profile.name",
-            "Name",
+            tr!("Name"),
             reg.profiles[i].name.clone(),
             Act::Text(TextField::ProfileName(i)),
         )
-        .desc("The profile's name (its folder keeps the name it was made with).")
+        .desc(tr!(
+            "The profile's name (its folder keeps the name it was made with)."
+        ))
         .keys("profile rename"),
     );
     let dir = crate::paths::profile_dir(&ctx.paths.root, id);
@@ -106,35 +141,37 @@ pub(super) fn profile(b: &mut Rows, id: &str) {
         .ok()
         .filter(|r| !r.as_os_str().is_empty())
         .map_or_else(
-            || "the data folder".to_string(),
+            || tr!("the data folder").to_string(),
             |r| r.display().to_string(),
         );
-    b.push(Row::note("profile.folder", "Its files", shown));
+    b.push(Row::note("profile.folder", tr!("Its files"), shown));
     if id.is_empty() {
         b.push(Row::note(
             "profile.default",
-            "The default profile: its files are the data folder's, it is not deleted",
+            tr!("The default profile: its files are the data folder's, it is not deleted"),
             "",
         ));
     } else if using {
         b.push(Row::note(
             "profile.delete_using",
-            "To delete this profile, switch to another first",
+            tr!("To delete this profile, switch to another first"),
             "",
         ));
     } else {
         b.push(
             Row::new(
                 "profile.delete",
-                "Delete this profile",
+                tr!("Delete this profile"),
                 if b.armed.is(&Confirm::DeleteProfile(id.to_string())) {
-                    "press again to delete"
+                    tr!("press again to delete")
                 } else {
-                    "delete ×"
+                    tr!("delete ×")
                 },
                 Act::ProfileDelete(i),
             )
-            .desc("Its records, replays, settings and IR keys are deleted; the library stays.")
+            .desc(tr!(
+                "Its records, replays, settings and IR keys are deleted; the library stays."
+            ))
             .keys("profile remove"),
         );
     }
@@ -155,7 +192,10 @@ pub(super) fn new_profile(ctx: &mut Ctx, name: &str) {
         return;
     }
     match ctx.create_profile(name) {
-        Ok(_) => ctx.toast(format!("Profile {name} made: choose it to switch to it")),
+        Ok(_) => ctx.toast(tr!(
+            "Profile {name} made: choose it to switch to it",
+            name = name
+        )),
         Err(e) => ctx.toast(e),
     }
 }
@@ -177,14 +217,16 @@ pub(super) fn delete_profile(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize
         return;
     }
     match ctx.delete_profile(&p.id) {
-        Ok(()) => ctx.toast(format!("Profile {} deleted", p.name)),
+        Ok(()) => ctx.toast(tr!("Profile {name} deleted", name = p.name)),
         Err(e) => ctx.toast(e),
     }
 }
 
 fn updates(v: &mut Rows) {
     let ctx = v.ctx;
-    v.push(Row::note("info.version", "Version", format!("vibeBMS {VERSION}")).keys("about build"));
+    v.push(
+        Row::note("info.version", tr!("Version"), format!("vibeBMS {VERSION}")).keys("about build"),
+    );
     if !SUPPORTED {
         return;
     }
@@ -193,7 +235,7 @@ fn updates(v: &mut Rows) {
         Some(cur) if cur.dev => {
             v.push(Row::note(
                 "update.local",
-                "A local build: only the nightly builds update themselves",
+                tr!("A local build: only the nightly builds update themselves"),
                 "",
             ));
             return;
@@ -208,7 +250,7 @@ fn updates(v: &mut Rows) {
     v.push(
         Row::adjust(
             "check_updates",
-            "Check for updates on start",
+            tr!("Check for updates on start"),
             onoff(ctx.config.check_updates),
             |c, _| {
                 c.config.check_updates ^= true;
@@ -217,46 +259,54 @@ fn updates(v: &mut Rows) {
                 }
             },
         )
-        .desc("Nightly builds only."),
+        .desc(tr!("Nightly builds only.")),
     );
     match &ctx.net.updater.status {
         Status::Idle => {}
-        Status::Checking => v.push(Row::note("update.state", "Checking for updates…", "")),
-        Status::UpToDate => v.push(Row::note("update.state", "vibeBMS is up to date", "")),
+        Status::Checking => v.push(Row::note("update.state", tr!("Checking for updates…"), "")),
+        Status::UpToDate => v.push(Row::note("update.state", tr!("vibeBMS is up to date"), "")),
         Status::CheckFailed(e) => v.push(Row::note(
             "update.state",
-            format!("Could not check for updates: {e}"),
+            tr!("Could not check for updates: {e}", e = e),
             "",
         )),
         Status::Available(o) | Status::Failed(o, _) => {
             let failed = matches!(ctx.net.updater.status, Status::Failed(..));
             v.push(Row::new(
                 "update.now",
-                format!("Update available: {} ({})", o.version, mb(o.size)),
+                tr!(
+                    "Update available: {version} ({size})",
+                    version = o.version,
+                    size = mb(o.size)
+                ),
                 if failed {
-                    "try again ↵"
+                    tr!("try again ↵")
                 } else {
-                    "Update now ↵"
+                    tr!("Update now ↵")
                 },
                 Act::Run(update_now, 0),
             ));
             if let Status::Failed(_, e) = &ctx.net.updater.status {
                 v.push(Row::note(
                     "update.state",
-                    format!("The update failed: {e}"),
+                    tr!("The update failed: {e}", e = e),
                     "",
                 ));
             }
         }
         Status::Downloading(o, p) => v.push(Row::note(
             "update.state",
-            format!("Downloading {}… {}%", o.version, p.percent()),
+            tr!(
+                "Downloading {version}… {percent}%",
+                version = o.version,
+                percent = p.percent()
+            ),
             "",
         )),
         Status::Installed(ver) => v.push(Row::new(
             "update.restart",
-            format!("Updated to {ver}"),
-            "Restart now ↵",
+            tr!("Updated to {ver}", ver = ver),
+            tr!("Restart now ↵"),
             Act::Restart,
         )),
     }

@@ -196,7 +196,7 @@ impl SelectScene {
     fn enter(&mut self, ctx: &mut Ctx, node: Node) {
         let bars = self.listing(ctx, &node);
         if bars.is_empty() {
-            ctx.toast("Empty folder");
+            ctx.toast(tr!("Empty folder"));
             return;
         }
         self.stack
@@ -310,7 +310,7 @@ impl SelectScene {
         if let Some(t) = self.search_edit.as_mut() {
             let (w, h, ui) = (ctx.view.width, ctx.view.height, ctx.ui());
             let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
-            t.draw_box(ctx, d, r, "SEARCH: ");
+            t.draw_box(ctx, d, r, &format!("{}: ", tr!("SEARCH")));
         }
         self.draw_reader(ctx, d);
     }

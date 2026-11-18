@@ -54,7 +54,8 @@ impl Imports {
 #[cfg(desktop)]
 fn ask_folder(ctx: &mut Ctx, chart: &Path, folders: &[(PathBuf, String)]) -> bool {
     let name = bmseeker::fs::file_name(chart);
-    let mut dialog = rfd::FileDialog::new().set_title(format!("Which song folder is {name} for?"));
+    let mut dialog =
+        rfd::FileDialog::new().set_title(tr!("Which song folder is {name} for?", name = name));
     if let Some((d, _)) = folders.first() {
         dialog = dialog.set_directory(d);
     }
@@ -71,9 +72,9 @@ fn ask_folder(ctx: &mut Ctx, chart: &Path, folders: &[(PathBuf, String)]) -> boo
 /// Phones and tablets have no folder dialog: the chart waits in downloads.
 #[cfg(not(desktop))]
 fn ask_folder(ctx: &mut Ctx, chart: &Path, _folders: &[(PathBuf, String)]) -> bool {
-    ctx.toast(format!(
-        "{}: several songs could be it; it stays in downloads",
-        bmseeker::fs::file_name(chart)
+    ctx.toast(tr!(
+        "{name}: several songs could be it; it stays in downloads",
+        name = bmseeker::fs::file_name(chart)
     ));
     false
 }

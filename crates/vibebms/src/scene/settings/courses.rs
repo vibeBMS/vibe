@@ -31,7 +31,7 @@ fn changed(c: &mut Ctx) {
 
 fn new_course(c: &mut Ctx, _: usize) {
     let id = c.lib.courses.add(Course {
-        title: "NEW COURSE".into(),
+        title: tr!("NEW COURSE").into(),
         kind: CourseKind::Expert,
         ..Default::default()
     });
@@ -98,7 +98,7 @@ pub(super) fn import(c: &mut Ctx, path: &str) {
         .filter(|f| !f.is_dir())
         .find_map(|f| crate::platform::vfs::read(f).ok())
     else {
-        c.toast(format!("No LR2 song.db at {}", p.display()));
+        c.toast(tr!("No LR2 song.db at {path}", path = p.display()));
         return;
     };
     match crate::lr2db::courses(&bytes) {
@@ -107,16 +107,20 @@ pub(super) fn import(c: &mut Ctx, path: &str) {
             let songs = c.lib.songs.clone();
             let added = c.lib.courses.import(list, &songs);
             c.lib.version += 1;
-            c.toast(format!("LR2: {added} of {n} courses imported"));
+            c.toast(tr!(
+                "LR2: {added} of {n} courses imported",
+                added = added,
+                n = n
+            ));
         }
-        Err(e) => c.toast(format!("LR2 song.db: {e}")),
+        Err(e) => c.toast(tr!("LR2 song.db: {e}", e = e)),
     }
 }
 
 #[cfg(desktop)]
 fn browse(c: &mut Ctx, _: usize) {
     if let Some(p) = rfd::FileDialog::new()
-        .set_title("LR2's folder (or its song.db)")
+        .set_title(tr!("LR2's folder (or its song.db)"))
         .pick_folder()
     {
         import(c, &p.to_string_lossy());
@@ -130,10 +134,17 @@ fn mix(c: &mut Ctx) -> &mut crate::courses::RandomMix {
 pub(super) fn rows(b: &mut Rows) {
     let ctx = b.ctx;
     let st = &ctx.lib.courses;
-    b.header("MY COURSES");
+    b.header(tr!("MY COURSES"));
     b.push(
-        Row::new("courses.new", "New course", "+", Act::Run(new_course, 0))
-            .desc("An empty course; add charts from the song select with C."),
+        Row::new(
+            "courses.new",
+            tr!("New course"),
+            "+",
+            Act::Run(new_course, 0),
+        )
+        .desc(tr!(
+            "An empty course; add charts from the song select with C."
+        )),
     );
     for kind in [CourseKind::Expert, CourseKind::Nonstop, CourseKind::Class] {
         for c in st.of_kind(kind) {
@@ -143,112 +154,132 @@ pub(super) fn rows(b: &mut Rows) {
                     "courses.course",
                     c.title.clone(),
                     if editing {
-                        "C adds here · edit"
+                        tr!("C adds here · edit")
                     } else {
-                        "edit"
+                        tr!("edit")
                     },
                     Sub::Course(c.id),
                 )
-                .desc(format!("{} · {} stages", kind.label(), c.stages.len())),
+                .desc(tr!(
+                    "{kind} · {n} stages",
+                    kind = kind.label(),
+                    n = c.stages.len()
+                )),
             );
         }
     }
-    b.header("IMPORT");
+    b.header(tr!("IMPORT"));
     b.push(
         Row::new(
             "courses.import_lr2",
-            "Import LR2's courses…",
+            tr!("Import LR2's courses…"),
             "+",
             Act::Text(TextField::ImportLr2),
         )
-        .desc("From LR2's folder or its song.db: type or paste the path.")
+        .desc(tr!(
+            "From LR2's folder or its song.db: type or paste the path."
+        ))
         .keys("lr2 song.db expert grade class"),
     );
     #[cfg(desktop)]
     b.push(
         Row::new(
             "courses.browse_lr2",
-            "Browse for LR2's folder…",
-            "browse",
+            tr!("Browse for LR2's folder…"),
+            tr!("browse"),
             Act::Run(browse, 0),
         )
-        .desc("Pick LR2's folder; its courses are imported."),
+        .desc(tr!("Pick LR2's folder; its courses are imported.")),
     );
     let m = &ctx.config.random_mix;
-    let n = |v: i64| if v > 0 { v.to_string() } else { "none".into() };
+    let n = |v: i64| {
+        if v > 0 {
+            v.to_string()
+        } else {
+            tr!("none").into()
+        }
+    };
     b.group(
         "courses.random_mix",
-        "RANDOM MIX",
-        "The charts RANDOM MIX picks from: levels, BPMs and how NONSTOP stages join",
+        tr!("RANDOM MIX"),
+        tr!("The charts RANDOM MIX picks from: levels, BPMs and how NONSTOP stages join"),
     );
     b.extend([
         Row::adjust(
             "random_mix.stages",
-            "Stages",
+            tr!("Stages"),
             m.stages.to_string(),
             |c, d| {
                 let s = &mut mix(c).stages;
                 *s = (*s as i32 + d).clamp(0, MAX_STAGES as i32) as u32
             },
         )
-        .desc("How many charts a RANDOM MIX course has."),
-        Row::adjust("random_mix.mode", "Key mode", m.mode.label(), |c, d| {
-            let all = [
-                PlayMode::Beat7K,
-                PlayMode::Beat5K,
-                PlayMode::Beat14K,
-                PlayMode::Beat10K,
-                PlayMode::Popn9K,
-            ];
-            mix(c).mode = cycle(&all, mix(c).mode, d)
-        })
-        .desc("The key mode of the charts picked."),
+        .desc(tr!("How many charts a RANDOM MIX course has.")),
+        Row::adjust(
+            "random_mix.mode",
+            tr!("Key mode"),
+            m.mode.label(),
+            |c, d| {
+                let all = [
+                    PlayMode::Beat7K,
+                    PlayMode::Beat5K,
+                    PlayMode::Beat14K,
+                    PlayMode::Beat10K,
+                    PlayMode::Popn9K,
+                ];
+                mix(c).mode = cycle(&all, mix(c).mode, d)
+            },
+        )
+        .desc(tr!("The key mode of the charts picked.")),
         Row::adjust(
             "random_mix.min_level",
-            "Lowest level",
+            tr!("Lowest level"),
             n(m.min_level),
             |c, d| mix(c).min_level = (mix(c).min_level + d as i64).max(0),
         )
-        .desc("No chart below this level (none: no limit)."),
+        .desc(tr!("No chart below this level (none: no limit).")),
         Row::adjust(
             "random_mix.max_level",
-            "Highest level",
+            tr!("Highest level"),
             n(m.max_level),
             |c, d| mix(c).max_level = (mix(c).max_level + d as i64).max(0),
         )
-        .desc("No chart above this level (none: no limit)."),
+        .desc(tr!("No chart above this level (none: no limit).")),
         Row::adjust(
             "random_mix.min_bpm",
-            "Lowest BPM",
+            tr!("Lowest BPM"),
             n(m.min_bpm as i64),
             |c, d| mix(c).min_bpm = (mix(c).min_bpm + 10.0 * d as f64).max(0.0),
         )
-        .desc("No chart slower than this (none: no limit)."),
+        .desc(tr!("No chart slower than this (none: no limit).")),
         Row::adjust(
             "random_mix.max_bpm",
-            "Highest BPM",
+            tr!("Highest BPM"),
             n(m.max_bpm as i64),
             |c, d| mix(c).max_bpm = (mix(c).max_bpm + 10.0 * d as f64).max(0.0),
         )
-        .desc("No chart faster than this (none: no limit)."),
+        .desc(tr!("No chart faster than this (none: no limit).")),
         Row::adjust(
             "random_mix.bpm_range",
-            "BPM range",
+            tr!("BPM range"),
             n(m.bpm_range as i64),
             |c, d| mix(c).bpm_range = (mix(c).bpm_range + 5.0 * d as f64).max(0.0),
         )
-        .desc("How far apart the charts' BPMs may be."),
+        .desc(tr!("How far apart the charts' BPMs may be.")),
         Row::adjust(
             "random_mix.optimum_level",
-            "Optimum level",
+            tr!("Optimum level"),
             n(m.optimum_level),
             |c, d| mix(c).optimum_level = (mix(c).optimum_level + d as i64).max(0),
         )
-        .desc("The level picked most often."),
-        Row::adjust("random_mix.join", "NONSTOP join", m.join.label(), |c, d| {
-            mix(c).join = cycle(&Join::ALL, mix(c).join, d)
-        })
-        .desc("How the stages of a NONSTOP course join."),
+        .desc(tr!("The level picked most often.")),
+        Row::adjust(
+            "random_mix.join",
+            tr!("NONSTOP join"),
+            m.join.label(),
+            |c, d| mix(c).join = cycle(&Join::ALL, mix(c).join, d),
+        )
+        .desc(tr!("How the stages of a NONSTOP course join.")),
     ]);
 }
 
@@ -258,28 +289,36 @@ pub(super) fn editor(b: &mut Rows, id: u64) {
     let Some(c) = b.ctx.lib.courses.get(id) else {
         return;
     };
-    b.header("COURSE");
+    b.header(tr!("COURSE"));
     b.push(
         Row::new(
             "course.title",
-            "Title",
+            tr!("Title"),
             c.title.clone(),
             Act::Text(TextField::CourseTitle),
         )
-        .desc("Its name in the song select."),
+        .desc(tr!("Its name in the song select.")),
     );
     b.push(
-        Row::adjust("course.kind", "Kind", c.kind.label(), |c, d| {
+        Row::adjust("course.kind", tr!("Kind"), c.kind.label(), |c, d| {
             edit(c, |course, _| {
                 course.kind = cycle(&CourseKind::ALL, course.kind, d)
             })
         })
-        .desc("EXPERT, NONSTOP or CLASS."),
+        .desc(tr!("EXPERT, NONSTOP or CLASS.")),
     );
     if c.ir {
-        b.push(Row::note("course.ir", "An LR2 internet-ranking course", ""));
+        b.push(Row::note(
+            "course.ir",
+            tr!("An LR2 internet-ranking course"),
+            "",
+        ));
     }
-    b.header(format!("STAGES · {} OF {MAX_STAGES}", c.stages.len()));
+    b.header(tr!(
+        "STAGES · {n} OF {max}",
+        n = c.stages.len(),
+        max = MAX_STAGES
+    ));
     let def = c.def();
     for (k, s) in c.stages.iter().enumerate() {
         let name = if s.title.is_empty() { &s.md5 } else { &s.title };
@@ -287,59 +326,64 @@ pub(super) fn editor(b: &mut Rows, id: u64) {
             Row::new(
                 "course.stage",
                 format!("{}. {name}", k + 1),
-                "remove ×",
+                tr!("remove ×"),
                 Act::Run(remove_stage, k),
             )
-            .desc("Enter: take it out of the course."),
+            .desc(tr!("Enter: take it out of the course.")),
         );
         if k > 0 {
             b.push(
-                Row::new("course.stage_up", "Move up", "↑", Act::Run(stage_up, k))
-                    .desc(format!("Swap stages {k} and {}.", k + 1)),
+                Row::new(
+                    "course.stage_up",
+                    tr!("Move up"),
+                    "↑",
+                    Act::Run(stage_up, k),
+                )
+                .desc(tr!("Swap stages {a} and {b}.", a = k, b = k + 1)),
             );
         }
         if let Some(j) = def.joins.get(k) {
             b.push(
                 Row::new(
                     "course.join",
-                    format!("Join {} → {}", k + 1, k + 2),
+                    tr!("Join {a} → {b}", a = k + 1, b = k + 2),
                     j.label(),
                     Act::Run(join, k),
                 )
-                .desc("How the two stages join (NONSTOP)."),
+                .desc(tr!("How the two stages join (NONSTOP).")),
             );
         }
     }
     if c.stages.len() < MAX_STAGES {
         b.push(Row::note(
             "course.add",
-            "Add a chart: choose it in the song select, press Insert (or C when no key uses it)",
+            tr!("Add a chart: choose it in the song select, press Insert (or C when no key uses it)"),
             "",
         ));
     }
-    b.header("IN THE LIST");
+    b.header(tr!("IN THE LIST"));
     b.extend([
         Row::new(
             "course.shift_up",
-            "Move up the list",
+            tr!("Move up the list"),
             "↑",
             Act::Run(shift, 1),
         )
-        .desc("Its place among the courses of its kind."),
+        .desc(tr!("Its place among the courses of its kind.")),
         Row::new(
             "course.shift_down",
-            "Move down the list",
+            tr!("Move down the list"),
             "↓",
             Act::Run(shift, 0),
         )
-        .desc("Its place among the courses of its kind."),
+        .desc(tr!("Its place among the courses of its kind.")),
         Row::new(
             "course.delete",
-            "Delete this course",
-            "delete ×",
+            tr!("Delete this course"),
+            tr!("delete ×"),
             Act::Run(delete, 0),
         )
-        .desc("It cannot be undone."),
+        .desc(tr!("It cannot be undone.")),
     ]);
 }
 

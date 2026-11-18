@@ -380,9 +380,9 @@ impl Updater {
         match msg {
             Msg::Checked(Ok(Some(o))) => {
                 log::info!("update available: {} ({})", o.version, o.url);
-                self.notice = Some(format!(
-                    "Update available: {} (SETTINGS › SYSTEM)",
-                    o.version
+                self.notice = Some(tr!(
+                    "Update available: {version} (SETTINGS › SYSTEM)",
+                    version = o.version
                 ));
                 self.status = Status::Available(o);
             }
@@ -400,12 +400,12 @@ impl Updater {
                 };
                 match r {
                     Ok(()) => {
-                        out.push(format!("Updated to {}: restart to use it", o.version));
+                        out.push(tr!("Updated to {ver}: restart to use it", ver = o.version));
                         self.status = Status::Installed(o.version);
                     }
                     Err(e) => {
                         log::warn!("update failed: {e}");
-                        out.push(format!("Update failed: {e}"));
+                        out.push(tr!("The update failed: {e}", e = e));
                         self.status = Status::Failed(o, e);
                     }
                 }
@@ -427,7 +427,7 @@ impl Updater {
             _ => return None,
         };
         let Some(exe) = exe_path() else {
-            return Some("Update failed: the executable's location is not known".into());
+            return Some(tr!("The update failed: the executable's location is not known").into());
         };
         let progress = Arc::new(Progress::default());
         progress.total.store(o.size, Ordering::Relaxed);

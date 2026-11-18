@@ -1,5 +1,7 @@
 //! vibeBMS application: window, renderer, input, scenes.
 
+#[macro_use]
+pub mod i18n;
 pub mod app;
 pub mod archive;
 pub mod browser;

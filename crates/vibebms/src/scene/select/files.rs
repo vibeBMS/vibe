@@ -71,11 +71,11 @@ impl SelectScene {
     /// missing chart: nothing).
     pub(super) fn reveal_chart(&mut self, ctx: &mut Ctx) {
         let Some((_, s)) = self.selected_song(ctx) else {
-            ctx.toast("Choose a chart to show its folder");
+            ctx.toast(tr!("Choose a chart to show its folder"));
             return;
         };
         if !open::reveal(&on_disk(Path::new(&s.path))) {
-            ctx.toast("No file manager here");
+            ctx.toast(tr!("No file manager here"));
         }
     }
 
@@ -95,10 +95,10 @@ impl SelectScene {
         };
         match url {
             Some(u) => {
-                ctx.toast(format!("Opening {u}"));
+                ctx.toast(tr!("Opening {u}", u = u));
                 crate::platform::open_url(&u);
             }
-            None => ctx.toast("No web page for this chart (#URL, or a table's link)"),
+            None => ctx.toast(tr!("No web page for this chart (#URL, or a table's link)")),
         }
     }
 

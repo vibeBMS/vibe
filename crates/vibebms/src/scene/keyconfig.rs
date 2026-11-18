@@ -37,7 +37,7 @@ use winit::keyboard::KeyCode;
 pub const MODES: [&str; 3] = ["7 KEYS / 14 KEYS", "9 KEYS", "5 KEYS / 10 KEYS"];
 
 /// Binding slots (LR2 buttons 150-159): keyboard, controller, axis.
-const DEVICES: [&str; 3] = ["Keyboard", "Controller", "Axis"];
+const DEVICES: [&str; 3] = [tr_key!("Keyboard"), tr_key!("Controller"), tr_key!("Axis")];
 
 /// The rows of a mode, in beatoraja's order (keys, scratch, 2P, START,
 /// SELECT), turntable axes last.
@@ -374,13 +374,13 @@ impl SkinState for KeyState<'_> {
                 let i = if id < 50 { id - 40 } else { id - 230 } as usize;
                 keybind::first_label(k, *rows.get(i)?)
             }
-            300 => "KEY".into(),
-            301 => "BINDING".into(),
-            302 => "INPUT".into(),
-            303 => "Enter: assign, Del: clear".into(),
-            304 => "Left / Right: key mode".into(),
-            305 => "Esc: back".into(),
-            306 => "Spin the turntable to bind its axis".into(),
+            300 => tr!("KEY").into(),
+            301 => tr!("BINDING").into(),
+            302 => tr!("INPUT").into(),
+            303 => tr!("Enter: assign, Del: clear").into(),
+            304 => tr!("Left / Right: key mode").into(),
+            305 => tr!("Esc: back").into(),
+            306 => tr!("Spin the turntable to bind its axis").into(),
             311..=344 => lv(311)?.label(),
             351..=384 => keybind::first_label(k, lv(351)?),
             _ => return None,
@@ -571,15 +571,17 @@ impl Scene for KeyConfigScene {
         if self.learn.on() {
             let r = Rect::new(w * 0.2, h - 70.0 * ui, w * 0.6, 56.0 * ui);
             ui::panel(d, r);
-            let what = format!(
-                "{}: press a key or button{}  (Esc cancel, Del clear)",
-                self.slot().label(),
-                if self.slot().side_of_scratch().is_some() {
-                    ", or spin the turntable"
-                } else {
-                    ""
-                }
-            );
+            let what = if self.slot().side_of_scratch().is_some() {
+                tr!(
+                    "{key}: press a key or button, or spin the turntable  (Esc cancel, Del clear)",
+                    key = self.slot().label()
+                )
+            } else {
+                tr!(
+                    "{key}: press a key or button  (Esc cancel, Del clear)",
+                    key = self.slot().label()
+                )
+            };
             d.text(
                 &what,
                 r.x + r.w * 0.5,
@@ -617,13 +619,13 @@ impl KeyConfigScene {
         for (i, name) in DEVICES.iter().enumerate() {
             let (x, y) = p(200.0 + 170.0 * i as f32, 80.0);
             d.text(
-                name,
+                crate::i18n::get(name),
                 x,
                 y,
                 TextStyle::new(size, [1.0, 1.0, 0.3, 1.0], Align::Left),
             );
         }
-        let hint = "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back";
+        let hint = tr!("↑↓ row  Enter assign  ←→ mode  Del clear  Esc back");
         let (hx, hy) = p(760.0, 80.0);
         d.text(
             hint,

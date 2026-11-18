@@ -36,26 +36,30 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report 
     };
     match r {
         Err(e) => {
-            ctx.toast(format!("Could not unpack the download: {e}"));
+            ctx.toast(tr!("Could not unpack the download: {e}", e = e));
             out.rescan = false;
         }
         Ok(Imported::Unpacked(dir, n)) => {
-            ctx.toast(format!("Added {} ({n} files)", file_name(&dir)));
+            ctx.toast(tr!(
+                "Added {name} ({n} files)",
+                name = file_name(&dir),
+                n = n
+            ));
             let root = &ctx.paths.root;
             for p in place_waiting(&root.join("downloads"), &root.join("bms")) {
-                ctx.toast(format!("{} → its song", file_name(&p)));
+                ctx.toast(tr!("{name} → its song", name = file_name(&p)));
             }
             out.song_arrived = true;
         }
         Ok(Imported::Owned(dir)) => {
-            ctx.toast(format!("{}: already installed", file_name(&dir)));
+            ctx.toast(tr!("{name}: already installed", name = file_name(&dir)));
         }
         Ok(Imported::Placed(p)) => {
             let dir = p.parent().map(file_name).unwrap_or_default();
             ctx.toast(format!("{} → {dir}", file_name(&p)));
         }
         Ok(Imported::Waiting(p)) => {
-            ctx.toast(format!("{}: download its song too", file_name(&p)));
+            ctx.toast(tr!("{name}: download its song too", name = file_name(&p)));
             out.rescan = false;
         }
         Ok(Imported::Ask(chart, folders)) => {
@@ -63,9 +67,9 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report 
             out.ask = Some((chart, folders));
         }
         Ok(Imported::Other(p)) => {
-            ctx.toast(format!(
-                "{} is not a song (kept in downloads)",
-                file_name(&p)
+            ctx.toast(tr!(
+                "{name} is not a song (kept in downloads)",
+                name = file_name(&p)
             ));
             out.rescan = false;
         }
