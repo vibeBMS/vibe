@@ -5,6 +5,7 @@ mod input;
 mod launch;
 mod options;
 mod preview;
+mod reader;
 mod skin;
 mod status;
 mod tree;
@@ -63,6 +64,8 @@ pub struct SelectScene {
     /// When `scroll` last eased toward the cursor.
     scrolled_at: Instant,
     search_edit: Option<TextInput>,
+    /// READ TEXT's text, open.
+    reader: Option<reader::Reader>,
     bar_rects: HitMap<usize>,
     /// The skin's distance between bars on screen (`SelectHooks::pitch`).
     bar_pitch: Option<f32>,
@@ -127,6 +130,7 @@ impl SelectScene {
             scroll: 0.0,
             scrolled_at: Instant::now(),
             search_edit: None,
+            reader: None,
             bar_rects: HitMap::default(),
             bar_pitch: None,
             drag: None,
@@ -298,6 +302,7 @@ impl SelectScene {
             let r = Rect::new(w * 0.25, h * 0.22, w * 0.5, 44.0 * ui);
             t.draw_box(ctx, d, r, "SEARCH: ");
         }
+        self.draw_reader(ctx, d);
     }
 }
 
@@ -315,6 +320,7 @@ impl Scene for SelectScene {
         self.update_preview(ctx);
         self.update_sounds(ctx);
         self.update_ranking(ctx);
+        self.update_reader();
         self.update_banner(ctx, gfx);
         if self.host.first_update() {
             let skin = {

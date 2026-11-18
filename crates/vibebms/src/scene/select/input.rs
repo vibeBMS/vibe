@@ -209,6 +209,9 @@ impl SelectScene {
             // letter shortcuts give way to a lane or 2P key bound to the same
             // key (C is 1P key 5, P 2P START, / 2P key 7 by default)
             KeyCode::KeyP if !is_play_key(keys, code) => return self.watch_replay(ctx),
+            // HELP and READ TEXT (LR2's buttons)
+            KeyCode::KeyH if !is_play_key(keys, code) => self.toggle_panel(8),
+            KeyCode::KeyT if !is_play_key(keys, code) => self.read_text(ctx),
             KeyCode::Insert => self.add_to_course(ctx),
             KeyCode::KeyC if !is_play_key(keys, code) => self.add_to_course(ctx),
             KeyCode::F12 => {
@@ -326,6 +329,9 @@ impl SelectScene {
     }
 
     pub(super) fn input_event(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
+        if self.reader_input(ctx, ev) {
+            return Next::Stay;
+        }
         if self.search_edit.is_some() {
             self.search_input(ctx, ev);
             return Next::Stay;

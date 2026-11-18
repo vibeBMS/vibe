@@ -43,8 +43,10 @@ pub const EVENT_REPLAY: i32 = 9901;
 /// vibeBMS text: the selected chart on the IR ("IR HARD   #12 / 345").
 pub const TEXT_IR: i32 = 9200;
 
-/// vibeBMS events: open the search box, and choose the song's chart of
-/// difficulty slot k (BEGINNER .. INSANE) with `EVENT_SIBLING + k`.
+/// vibeBMS events: read the chart's text files, open the search box, and
+/// choose the song's chart of difficulty slot k (BEGINNER .. INSANE) with
+/// `EVENT_SIBLING + k`.
+pub const EVENT_READ_TEXT: i32 = 9902;
 pub const EVENT_SEARCH: i32 = 9903;
 /// vibeBMS event: a panel's body, so a tap on it reaches nothing under it
 /// (a tap beside the panel closes it).
