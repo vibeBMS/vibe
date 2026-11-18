@@ -292,7 +292,7 @@ fn builtin_select_skins_load() {
         // the buttons, the search box and the panel buttons are clickable
         let acts: std::collections::HashSet<_> = sk.objects.iter().filter_map(|o| o.act).collect();
         for act in [
-            9900, 9009, 9910, 9914, 8, 9901, 16, 9902, 9903, 1, 3, 4, 5, 6, 7,
+            9900, 9009, 9910, 9914, 8, 9901, 16, 9902, 9903, 9905, 1, 3, 4, 5, 6, 7,
         ] {
             assert!(acts.contains(&(act, 0)), "{act}");
         }
