@@ -107,7 +107,10 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     let mode = s.mode;
     let now = st.now;
     let t_vis = s.chart_us(now) + p.visual_offset_ms as i64 * 1000;
-    let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
+    // (past a negative BPM's fold point the lane runs back, and the
+    // judge's clock with it: `t_judge`)
+    let cur_pos = s.chart.timing.drawn_pos_at_time(t_vis as f64);
+    let t_judge = s.chart.timing.judge_time(t_vis);
     // `#SPEED` now (not under CONSTANT)
     let speed = s.chart.timing.speed_at_time(t_vis as f64);
     let main_bpm = if s.chart.meta.main_bpm > 0.0 {
@@ -121,7 +124,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     let depth = |pos: f64, time: i64| -> f32 {
         match p.hispeed_mode {
             HiSpeedMode::Floating => dep.at((pos - cur_pos) * speed, beats),
-            HiSpeedMode::Constant => dep.at((time - t_vis) as f64 / dur_us, 1.0),
+            HiSpeedMode::Constant => dep.at((time - t_judge) as f64 / dur_us, 1.0),
         }
     };
     // notes are hidden under HIDDEN+ and once past the line
@@ -273,7 +276,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
                 let cn = &s.chart.notes[n.chart_index];
                 let nd = depth(cn.pos, n.time);
                 // LR2: an unjudged note waits at the line
-                let nd = match p.hold_at_line && held_at_line(n, t_vis) {
+                let nd = match p.hold_at_line && held_at_line(n, t_judge) {
                     true => nd.max(dep.judge),
                     false => nd,
                 };
@@ -309,7 +312,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
                         }
                     }
                     _ => {
-                        let mark = n.is_done() && p.mark_notes && n.time > t_vis;
+                        let mark = n.is_done() && p.mark_notes && n.time > t_judge;
                         if n.is_done() && !mark {
                             continue;
                         }
