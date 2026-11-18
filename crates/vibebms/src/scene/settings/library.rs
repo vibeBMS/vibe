@@ -2,11 +2,11 @@
 //! where downloads come from, and on the web the songs kept in the
 //! browser.
 
+use super::row::onoff;
 use super::row::{Act, Row, Rows};
 use super::{Sub, TextField};
 use crate::app::Ctx;
 use crate::config::TableConfig;
-use crate::scene::option_panel::onoff;
 
 fn remove_folder(c: &mut Ctx, i: usize) {
     if i < c.config.bms_dirs.len() {
@@ -39,7 +39,7 @@ pub(super) fn import_scores(c: &mut Ctx, path: &str) {
     });
     let rows = match read {
         Ok(r) => r,
-        Err(e) => return c.toast(format!("Score import: {e}")),
+        Err(e) => return c.toast(tr!("Score import: {e}", e = e)),
     };
     let (records, unknown) = scoredb::records(&rows, &c.lib.songs);
     let Some(db) = c.lib.db.as_mut() else {
@@ -48,20 +48,23 @@ pub(super) fn import_scores(c: &mut Ctx, path: &str) {
     let (imported, updated) = db.import(&records);
     c.lib.scores = db.scores();
     c.lib.version += 1;
-    c.toast(format!(
-        "{} scores: {imported} imported, {updated} updated, {unknown} unknown charts, {} rows skipped",
-        rows.source.label(),
-        rows.skipped
+    c.toast(tr!(
+        "{source} scores: {imported} imported, {updated} updated, {unknown} unknown charts, {skipped} rows skipped",
+        source = rows.source.label(),
+        imported = imported,
+        updated = updated,
+        unknown = unknown,
+        skipped = rows.skipped
     ));
 }
 
 #[cfg(desktop)]
 fn browse_scores(c: &mut Ctx, _: usize) {
     if let Some(p) = rfd::FileDialog::new()
-        .set_title(
-            "LR2's LR2files/Database/Score/<player>.db, or beatoraja's player/<name>/score.db",
-        )
-        .add_filter("score database", &["db"])
+        .set_title(tr!(
+            "LR2's LR2files/Database/Score/<player>.db, or beatoraja's player/<name>/score.db"
+        ))
+        .add_filter(tr!("score database"), &["db"])
         .pick_file()
     {
         import_scores(c, &p.to_string_lossy());
@@ -101,10 +104,12 @@ fn restore_defaults(c: &mut Ctx, _: usize) {
 pub(super) fn data_folder(ctx: &Ctx) -> Row {
     Row::note(
         "info.data_folder",
-        "Data folder",
+        tr!("Data folder"),
         ctx.paths.root.display().to_string(),
     )
-    .desc("Where vibeBMS keeps songs, scores and settings (portable).")
+    .desc(tr!(
+        "Where vibeBMS keeps songs, scores and settings (portable)."
+    ))
     .keys("root portable path")
 }
 
@@ -120,84 +125,94 @@ fn table_name(ctx: &Ctx, t: &TableConfig) -> (String, Option<usize>) {
 pub(super) fn rows(b: &mut Rows) {
     let ctx = b.ctx;
     let c = &ctx.config;
-    b.header("SONG FOLDERS");
+    b.header(tr!("SONG FOLDERS"));
     b.push(data_folder(ctx));
     b.push(
         Row::adjust(
             "scan_root",
-            "Scan the data folder",
+            tr!("Scan the data folder"),
             onoff(c.scan_root),
             |c, _| c.config.scan_root ^= true,
         )
-        .desc("Also look for BMS in the data folder itself."),
+        .desc(tr!("Also look for BMS in the data folder itself.")),
     );
     for (i, d) in c.bms_dirs.iter().enumerate() {
         b.push(
             Row::new(
                 "library.folder",
                 d.clone(),
-                "remove ×",
+                tr!("remove ×"),
                 Act::Run(remove_folder, i),
             )
-            .desc("A folder scanned for BMS. Enter: remove."),
+            .desc(tr!("A folder scanned for BMS. Enter: remove.")),
         );
     }
     #[cfg(desktop)]
     b.push(
         Row::new(
             "library.browse",
-            "Browse for a folder…",
-            "browse",
+            tr!("Browse for a folder…"),
+            tr!("browse"),
             Act::Run(browse, 0),
         )
-        .desc("Pick a BMS folder to add."),
+        .desc(tr!("Pick a BMS folder to add.")),
     );
     b.push(
         Row::new(
             "library.add_folder",
-            "Add a folder…",
+            tr!("Add a folder…"),
             "+",
             Act::Text(TextField::AddFolder),
         )
-        .desc("Type or paste its path, or drop a folder on the window.")
+        .desc(tr!(
+            "Type or paste its path, or drop a folder on the window."
+        ))
         .keys("bms folder path"),
     );
     b.push(
         Row::new(
             "library.rescan",
-            "Rescan",
-            format!("{} charts", ctx.lib.songs.len()),
+            tr!("Rescan"),
+            tr!("{n} charts", n = ctx.lib.songs.len()),
             Act::Run(|c, _| c.start_scan(), 0),
         )
-        .desc("Read the folders again for new or changed charts.")
+        .desc(tr!("Read the folders again for new or changed charts."))
         .keys("scan library refresh"),
     );
-    b.header("SCORES");
+    b.header(tr!("SCORES"));
     b.push(
         Row::new(
             "library.import_scores",
-            "Import scores…",
+            tr!("Import scores…"),
             "+",
             Act::Text(TextField::ImportScores),
         )
-        .desc("From LR2, beatoraja or LR2oraja: type or paste a score database or its folder.")
+        .desc(tr!(
+            "From LR2, beatoraja or LR2oraja: type or paste a score database or its folder."
+        ))
         .keys("lr2 beatoraja lr2oraja score.db lamps"),
     );
     #[cfg(desktop)]
     b.push(
         Row::new(
             "library.browse_scores",
-            "Browse for a score database…",
-            "browse",
+            tr!("Browse for a score database…"),
+            tr!("browse"),
             Act::Run(browse_scores, 0),
         )
-        .desc("Pick LR2's <player>.db or beatoraja's score.db; its scores are imported."),
+        .desc(tr!(
+            "Pick LR2's <player>.db or beatoraja's score.db; its scores are imported."
+        )),
     );
     let on = c.tables.iter().filter(|t| t.enabled).count();
-    b.header(format!("DIFFICULTY TABLES · {on} OF {}", c.tables.len()));
+    b.header(tr!(
+        "DIFFICULTY TABLES · {on} OF {n}",
+        on = on,
+        n = c.tables.len()
+    ));
     for (i, t) in c.tables.iter().enumerate() {
         let (name, loaded) = table_name(ctx, t);
-        let read = loaded.map_or(String::new(), |n| format!("{n} charts · "));
+        let read = loaded.map_or(String::new(), |n| tr!("{n} charts · ", n = n));
         b.push(
             Row::new(
                 "tables.table",
@@ -205,8 +220,9 @@ pub(super) fn rows(b: &mut Rows) {
                 onoff(t.enabled),
                 Act::Toggle(toggle_table, i),
             )
-            .desc(format!(
-                "{read}Its folder in the song select. Enter: URL, update, remove."
+            .desc(tr!(
+                "{read}Its folder in the song select. Enter: URL, update, remove.",
+                read = read
             ))
             .opens(Sub::Table(t.url.clone()))
             .keys("difficulty table"),
@@ -215,66 +231,70 @@ pub(super) fn rows(b: &mut Rows) {
     b.extend([
         Row::new(
             "tables.add",
-            "Add a table…",
+            tr!("Add a table…"),
             "+",
             Act::Text(TextField::AddTable),
         )
-        .desc("Paste a difficulty table's URL.")
+        .desc(tr!("Paste a difficulty table's URL."))
         .keys("table url"),
         Row::new(
             "tables.update_all",
-            "Update all tables",
+            tr!("Update all tables"),
             "↻",
             Act::Run(|c, _| c.tables.refresh(&c.config.tables, true), 0),
         )
-        .desc("Read every table again from its site."),
+        .desc(tr!("Read every table again from its site.")),
     ]);
     b.group(
         "library.downloads",
-        "DOWNLOADS",
-        "Third-party sources, song folder names, the default tables",
+        tr!("DOWNLOADS"),
+        tr!("Third-party sources, song folder names, the default tables"),
     );
     b.extend([
         Row::adjust(
             "third_party_mirrors",
-            "Third-party sources",
+            tr!("Third-party sources"),
             onoff(c.third_party_mirrors),
             |c, _| {
                 c.config.third_party_mirrors ^= true;
                 c.net.hosts = crate::hosts::context(&c.config);
             },
         )
-        .desc("Use mirrors and MD5 lookups (Ginger, Konmai) to find downloads.")
+        .desc(tr!(
+            "Use mirrors and MD5 lookups (Ginger, Konmai) to find downloads."
+        ))
         .keys("mirror ginger konmai md5"),
         Row::adjust(
             "name_song_folders",
-            "Name song folders after their charts",
+            tr!("Name song folders after their charts"),
             onoff(c.name_song_folders),
             |c, _| {
                 c.config.name_song_folders ^= true;
                 c.net.hosts = crate::hosts::context(&c.config);
             },
         )
-        .desc("New downloads go into \"[artist] title\" folders."),
+        .desc(tr!("New downloads go into \"[artist] title\" folders.")),
         Row::new(
             "tables.restore_defaults",
-            "Restore default tables",
-            "restore",
+            tr!("Restore default tables"),
+            tr!("restore"),
             Act::Run(restore_defaults, 0),
         )
-        .desc("Add back the tables vibeBMS comes with."),
+        .desc(tr!("Add back the tables vibeBMS comes with.")),
     ]);
     #[cfg(target_arch = "wasm32")]
     {
-        b.header("STORAGE");
+        b.header(tr!("STORAGE"));
         b.push(
             Row::sub(
                 "storage",
-                "Songs kept in this browser",
+                tr!("Songs kept in this browser"),
                 super::web_storage::summary(),
                 Sub::Storage,
             )
-            .desc("How much room they take; delete those you no longer play.")
+            .desc(tr!(
+                "How much room they take; delete those you no longer play."
+            ))
             .keys("opfs space quota browser"),
         );
     }
@@ -290,30 +310,30 @@ pub(super) fn table(b: &mut Rows, url: &str) {
         return;
     };
     let (_, loaded) = table_name(ctx, t);
-    b.header("TABLE");
+    b.header(tr!("TABLE"));
     b.extend([
         Row::note("tables.url", "URL", "").desc(t.url.clone()),
         Row::new(
             "tables.table",
-            "Shown",
+            tr!("Shown"),
             onoff(t.enabled),
             Act::Toggle(toggle_table, i),
         )
-        .desc("Its folder in the song select."),
+        .desc(tr!("Its folder in the song select.")),
         Row::new(
             "tables.update",
-            "Update",
-            loaded.map_or("not read yet".into(), |n| format!("{n} charts ↻")),
+            tr!("Update"),
+            loaded.map_or(tr!("not read yet").into(), |n| tr!("{n} charts ↻", n = n)),
             Act::Run(|c, _| c.tables.refresh(&c.config.tables, true), 0),
         )
-        .desc("Read the tables again from their sites."),
+        .desc(tr!("Read the tables again from their sites.")),
         Row::new(
             "tables.remove",
-            "Remove",
-            "remove ×",
+            tr!("Remove"),
+            tr!("remove ×"),
             Act::Run(remove_table, i),
         )
-        .desc("Forget this table."),
+        .desc(tr!("Forget this table.")),
     ]);
 }
 
@@ -322,7 +342,11 @@ pub(super) fn chips(ctx: &Ctx) -> Vec<String> {
     let on = ctx.config.tables.iter().filter(|t| t.enabled).count();
     let n = ctx.lib.songs.len();
     vec![
-        format!("{n} chart{}", if n == 1 { "" } else { "s" }),
-        format!("{on} tables"),
+        if n == 1 {
+            tr!("1 chart").into()
+        } else {
+            tr!("{n} charts", n = n)
+        },
+        tr!("{on} tables", on = on),
     ]
 }

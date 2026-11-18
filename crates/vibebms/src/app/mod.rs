@@ -613,6 +613,7 @@ impl App {
             .pending
             .take()
             .unwrap_or_else(|| crate::profiles::load_config(&self.paths));
+        crate::i18n::apply(config.language);
         let text = Text::new(&[self.paths.fonts.as_path()]);
         let a = &config.audio;
         let mixer = Mixer::new(&AudioConfig {

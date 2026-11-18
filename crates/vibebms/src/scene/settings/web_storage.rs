@@ -24,14 +24,6 @@ fn bytes(n: f64) -> String {
     }
 }
 
-fn plural(n: usize) -> &'static str {
-    if n == 1 {
-        ""
-    } else {
-        "s"
-    }
-}
-
 /// The kept folders (indexes into `folders`) written and played last more
 /// than [`STALE_DAYS`] ago (a song never played counts from when it came).
 fn stale_folders(ctx: &Ctx, folders: &[Kept]) -> Vec<usize> {
@@ -54,14 +46,27 @@ fn stale_folders(ctx: &Ctx, folders: &[Kept]) -> Vec<usize> {
         .collect()
 }
 
+/// "1 folder", "3 folders".
+fn folders_n(n: usize) -> String {
+    if n == 1 {
+        tr!("1 folder").into()
+    } else {
+        tr!("{n} folders", n = n)
+    }
+}
+
 /// How much room the kept songs take, of how much.
 pub(super) fn summary() -> String {
     let st = crate::platform::opfs::status();
     if !st.available {
-        return "until the page closes".into();
+        return tr!("until the page closes").into();
     }
     if st.quota > 0.0 {
-        format!("{} of {}", bytes(st.usage), bytes(st.quota))
+        tr!(
+            "{used} of {quota}",
+            used = bytes(st.usage),
+            quota = bytes(st.quota)
+        )
     } else {
         bytes(st.usage)
     }
@@ -70,12 +75,12 @@ pub(super) fn summary() -> String {
 /// LIBRARY › STORAGE.
 pub(super) fn rows(b: &mut Rows) {
     let (ctx, armed) = (b.ctx, b.armed);
-    b.header("SONGS KEPT IN THIS BROWSER");
+    b.header(tr!("SONGS KEPT IN THIS BROWSER"));
     // BMSeeker's web page, beside this one: what it adds shows here at once
     b.push(Row::new(
         "storage.bmseeker",
-        "Manage the library with BMSeeker (difficulty tables, downloads)",
-        "open ↗",
+        tr!("Manage the library with BMSeeker (difficulty tables, downloads)"),
+        tr!("open ↗"),
         Act::Run(
             |_, _| {
                 if let Some(origin) = web_sys::window().and_then(|w| w.location().origin().ok()) {
@@ -89,24 +94,28 @@ pub(super) fn rows(b: &mut Rows) {
     if !st.available {
         b.push(Row::note(
             "storage.none",
-            "Songs stay until the page closes (this browser keeps no files)",
+            tr!("Songs stay until the page closes (this browser keeps no files)"),
             "",
         ));
         return;
     }
     let room = summary();
     let saving = if st.pending > 0 {
-        format!(" · saving {}", st.pending)
+        tr!(" · saving {n}", n = st.pending)
     } else {
         String::new()
     };
     b.push(Row::new(
         "storage.persist",
-        format!("Songs kept in this browser: {room}{saving}"),
+        tr!(
+            "Songs kept in this browser: {room}{saving}",
+            room = room,
+            saving = saving
+        ),
         if st.persisted {
-            "kept for good"
+            tr!("kept for good")
         } else {
-            "ask to keep ↵"
+            tr!("ask to keep ↵")
         },
         if st.persisted {
             Act::None
@@ -117,7 +126,7 @@ pub(super) fn rows(b: &mut Rows) {
     let folders = vfs::folder_sizes(&ctx.paths.root.join("bms"));
     let delete = |i: usize, value: String| {
         if armed.is(&Confirm::DeleteKept(i)) {
-            "press again to delete".into()
+            tr!("press again to delete").into()
         } else {
             value
         }
@@ -127,13 +136,13 @@ pub(super) fn rows(b: &mut Rows) {
         let total: u64 = stale.iter().map(|&i| folders[i].bytes).sum();
         b.push(Row::new(
             "storage.delete_stale",
-            format!(
-                "Delete songs not played for {STALE_DAYS} days ({} folder{}, {})",
-                stale.len(),
-                plural(stale.len()),
-                bytes(total as f64)
+            tr!(
+                "Delete songs not played for {days} days ({folders}, {size})",
+                days = STALE_DAYS,
+                folders = folders_n(stale.len()),
+                size = bytes(total as f64)
             ),
-            delete(STALE, "delete ×".into()),
+            delete(STALE, tr!("delete ×").into()),
             Act::DeleteKept(STALE),
         ));
     }
@@ -141,13 +150,12 @@ pub(super) fn rows(b: &mut Rows) {
         let total: u64 = folders.iter().map(|f| f.bytes).sum();
         b.push(Row::new(
             "storage.delete_all",
-            format!(
-                "Delete every song kept here ({} folder{}, {})",
-                folders.len(),
-                plural(folders.len()),
-                bytes(total as f64)
+            tr!(
+                "Delete every song kept here ({folders}, {size})",
+                folders = folders_n(folders.len()),
+                size = bytes(total as f64)
             ),
-            delete(ALL, "delete ×".into()),
+            delete(ALL, tr!("delete ×").into()),
             Act::DeleteKept(ALL),
         ));
     }
@@ -159,8 +167,8 @@ pub(super) fn rows(b: &mut Rows) {
             .unwrap_or_default();
         b.push(Row::new(
             "storage.folder",
-            format!("{name}  ({} files)", k.files),
-            delete(i, format!("{}  delete ×", bytes(k.bytes as f64))),
+            tr!("{name}  ({n} files)", name = name, n = k.files),
+            delete(i, tr!("{size}  delete ×", size = bytes(k.bytes as f64))),
             Act::DeleteKept(i),
         ));
     }
@@ -175,26 +183,25 @@ pub(super) fn delete(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize) {
     let folders = vfs::folder_sizes(&bms);
     if i == ALL {
         vfs::remove_dir(&bms);
-        ctx.toast("Deleted every song kept here".to_string());
+        ctx.toast(tr!("Deleted every song kept here").to_string());
     } else if i == STALE {
         let stale = stale_folders(ctx, &folders);
         let total: u64 = stale.iter().map(|&k| folders[k].bytes).sum();
         for &k in &stale {
             vfs::remove_dir(&folders[k].dir);
         }
-        ctx.toast(format!(
-            "Deleted {} folder{} ({})",
-            stale.len(),
-            plural(stale.len()),
-            bytes(total as f64)
+        ctx.toast(tr!(
+            "Deleted {folders} ({size})",
+            folders = folders_n(stale.len()),
+            size = bytes(total as f64)
         ));
     } else if let Some(k) = folders.get(i) {
         vfs::remove_dir(&k.dir);
         let name = k.dir.file_name().map(|n| n.to_string_lossy().into_owned());
-        ctx.toast(format!(
-            "Deleted {} ({})",
-            name.unwrap_or_default(),
-            bytes(k.bytes as f64)
+        ctx.toast(tr!(
+            "Deleted {name} ({size})",
+            name = name.unwrap_or_default(),
+            size = bytes(k.bytes as f64)
         ));
     }
 }

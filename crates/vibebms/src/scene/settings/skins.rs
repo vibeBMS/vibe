@@ -18,25 +18,25 @@ pub(super) fn open_row(ctx: &Ctx, s: Screen) -> Option<Row> {
         Screen::KeyConfig => (
             SkinType::KeyConfig,
             "open.key_config",
-            "Open the key config screen",
-            "The key config skin's screen, with a picture of the controller.",
+            tr!("Open the key config screen"),
+            tr!("The key config skin's screen, with a picture of the controller."),
         ),
         Screen::SkinSelect => (
             SkinType::SkinSelect,
             "open.skin_select",
-            "Open the skin select screen",
-            "The skin select skin's screen: every skin with a preview.",
+            tr!("Open the skin select screen"),
+            tr!("The skin select skin's screen: every skin with a preview."),
         ),
         Screen::SoundSets => (
             SkinType::SkinSelect,
             "open.sound_sets",
-            "Choose in the skin select screen",
-            "The sound sets, in the skin select skin's screen.",
+            tr!("Choose in the skin select screen"),
+            tr!("The sound sets, in the skin select skin's screen."),
         ),
         Screen::TouchLayout => return None,
     };
     skinned::configured_skin(ctx, kind)?;
-    Some(Row::new(id, label, "open", Act::Open(s)).desc(desc))
+    Some(Row::new(id, label, tr!("open"), Act::Open(s)).desc(desc))
 }
 
 /// The `config.skins` value of type `t`'s skin and its path.
@@ -83,7 +83,11 @@ pub(super) fn cycle_skin(c: &mut Ctx, t: SkinType, d: i32) {
         } else {
             c.paths.skins.clone()
         };
-        c.toast(format!("Put more {key} skins in {}", dir.display()));
+        c.toast(tr!(
+            "Put more {key} skins in {dir}",
+            key = key,
+            dir = dir.display()
+        ));
     }
     c.config.skins.insert(key.to_string(), next);
 }
@@ -97,7 +101,7 @@ fn skin_label(ctx: &Ctx, value: &str) -> String {
         return "RANDOM".into();
     }
     let Some(p) = configured_path(ctx, value) else {
-        return "DEFAULT".into();
+        return tr!("DEFAULT").into();
     };
     crate::skin::header(&p)
         .map(|h| h.1)
@@ -114,12 +118,18 @@ pub(super) fn screen_name(t: SkinType) -> String {
     let Some(key) = t.key() else {
         return String::new();
     };
-    if t.mode().is_some() {
-        format!("Play ({key})")
-    } else if t == SkinType::SoundSet {
-        "Sound set".into()
-    } else {
-        format!("{}{}", &key[..1], key[1..].to_lowercase().replace('_', " "))
+    match t {
+        _ if t.mode().is_some() => tr!("Play ({key})", key = key),
+        SkinType::Select => tr!("Select").into(),
+        SkinType::Decide => tr!("Decide").into(),
+        SkinType::Result => tr!("Result").into(),
+        SkinType::CourseResult => tr!("Course result").into(),
+        SkinType::KeyConfig => tr!("Key config").into(),
+        SkinType::SkinSelect => tr!("Skin select").into(),
+        SkinType::SoundSet => tr!("Sound set").into(),
+        SkinType::Battle7 => tr!("7KEYS battle").into(),
+        SkinType::Battle5 => tr!("5KEYS battle").into(),
+        _ => format!("{}{}", &key[..1], key[1..].to_lowercase().replace('_', " ")),
     }
 }
 
@@ -130,11 +140,13 @@ fn choice_row(ctx: &Ctx, t: SkinType) -> Row {
         .and_then(|k| ctx.config.skins.get(k))
         .map(String::as_str)
     {
-        None | Some("") => "DEFAULT".into(),
+        None | Some("") => tr!("DEFAULT").into(),
         Some(p) => skin_label(ctx, p),
     };
     Row::new("skins.choice", screen_name(t), cur, Act::CycleSkin(t))
-        .desc("The skin this screen uses. ←→ choose; Enter: its options.")
+        .desc(tr!(
+            "The skin this screen uses. ←→ choose; Enter: its options."
+        ))
         .opens(Sub::Skin(t))
 }
 
@@ -162,23 +174,23 @@ pub(super) fn updates(ctx: &Ctx) -> usize {
 
 /// SKINS' chips on the top level.
 pub(super) fn chips(ctx: &Ctx) -> Vec<String> {
-    let mut v = vec![format!("{} custom", custom(ctx))];
+    let mut v = vec![tr!("{n} custom", n = custom(ctx))];
     match updates(ctx) {
         0 => {}
-        1 => v.push("1 update".into()),
-        n => v.push(format!("{n} updates")),
+        1 => v.push(tr!("1 update").into()),
+        n => v.push(tr!("{n} updates", n = n)),
     }
     v
 }
 
 pub(super) fn rows(b: &mut Rows) {
     let ctx = b.ctx;
-    b.header("SCREENS");
+    b.header(tr!("SCREENS"));
     for t in TYPES {
         b.push(choice_row(ctx, t));
     }
     b.extend(open_row(ctx, Screen::SkinSelect));
-    b.header("GET SKINS");
+    b.header(tr!("GET SKINS"));
     let n = ctx
         .skins
         .store
@@ -188,12 +200,12 @@ pub(super) fn rows(b: &mut Rows) {
         .filter(|e| shown(e))
         .count();
     let value = match updates(ctx) {
-        0 => format!("{n} skins"),
-        u => format!("{n} skins · {u} to update"),
+        0 => tr!("{n} skins", n = n),
+        u => tr!("{n} skins · {u} to update", n = n, u = u),
     };
     b.push(
-        Row::sub("catalog", "Get skins", value, Sub::Catalog)
-            .desc("Skins from the catalog: install, update, delete.")
+        Row::sub("catalog", tr!("Get skins"), value, Sub::Catalog)
+            .desc(tr!("Skins from the catalog: install, update, delete."))
             .keys("download install catalog"),
     );
 }
@@ -203,10 +215,12 @@ pub(super) fn rows(b: &mut Rows) {
 pub(super) fn skin(b: &mut Rows, t: SkinType) {
     let ctx = b.ctx;
     let c = &ctx.config;
-    b.header("SKIN");
+    b.header(tr!("SKIN"));
     let mut choice = choice_row(ctx, t);
     choice.open = None;
-    b.push(choice.desc("The skin this screen uses: the default, then those installed."));
+    b.push(choice.desc(tr!(
+        "The skin this screen uses: the default, then those installed."
+    )));
     let screen = match t {
         SkinType::KeyConfig => Some(Screen::KeyConfig),
         SkinType::SkinSelect => Some(Screen::SkinSelect),
@@ -220,11 +234,11 @@ pub(super) fn skin(b: &mut Rows, t: SkinType) {
     let options = ctx.skins.custom_options(&path);
     let offsets = ctx.skins.custom_offsets(&path);
     if options.is_empty() && offsets.is_empty() {
-        b.push(Row::note("skin.none", "This skin has no options", ""));
+        b.push(Row::note("skin.none", tr!("This skin has no options"), ""));
         return;
     }
     if !options.is_empty() {
-        b.header("OPTIONS");
+        b.header(tr!("OPTIONS"));
     }
     let picked = c.skin_options.get(value);
     for (i, o) in options.iter().enumerate() {
@@ -236,11 +250,11 @@ pub(super) fn skin(b: &mut Rows, t: SkinType) {
                 o.labels.get(k).cloned().unwrap_or_default(),
                 Act::SkinOption(t, i),
             )
-            .desc("One of the skin's own options."),
+            .desc(tr!("One of the skin's own options.")),
         );
     }
     if !offsets.is_empty() {
-        b.header("OFFSETS");
+        b.header(tr!("OFFSETS"));
     }
     let set = c.skin_offsets.get(value);
     for (i, o) in offsets.iter().enumerate() {
@@ -256,7 +270,7 @@ pub(super) fn skin(b: &mut Rows, t: SkinType) {
                     cur[f].to_string(),
                     Act::SkinOffset(t, i, f),
                 )
-                .desc("Moves or sizes a part of the skin."),
+                .desc(tr!("Moves or sizes a part of the skin.")),
             );
         }
     }
@@ -276,13 +290,15 @@ fn state_value(ctx: &Ctx, armed: &Armed<Confirm>, e: &SkinEntry) -> String {
     };
     match ctx.skins.store.state(&ctx.paths.skins, e) {
         State::Busy(p) => format!("{}  cancel ×", p.label()),
-        State::Installed { update: true } => format!("update ↓{size}"),
+        State::Installed { update: true } => tr!("update ↓{size}", size = size),
         State::Installed { .. } if armed.is(&Confirm::Reinstall(e.id.clone())) => {
-            "press again to reinstall".into()
+            tr!("press again to reinstall").into()
         }
-        State::Installed { .. } => "installed ✓".into(),
-        State::Absent if IS_WEB && e.web_refusal().is_some() => "desktop / mobile app only".into(),
-        State::Absent => format!("install ↓{size}"),
+        State::Installed { .. } => tr!("installed ✓").into(),
+        State::Absent if IS_WEB && e.web_refusal().is_some() => {
+            tr!("desktop / mobile app only").into()
+        }
+        State::Absent => tr!("install ↓{size}", size = size),
     }
 }
 
@@ -306,31 +322,31 @@ fn kind_line(e: &SkinEntry) -> String {
 pub(super) fn catalog(b: &mut Rows) {
     let ctx = b.ctx;
     let store = &ctx.skins.store;
-    b.header("CATALOG");
+    b.header(tr!("CATALOG"));
     b.push(
         Row::new(
             "catalog.update",
-            "Skin catalog",
+            tr!("Skin catalog"),
             if store.is_fetching() {
-                "reading…"
+                tr!("reading…")
             } else {
-                "update ↻"
+                tr!("update ↻")
             },
             Act::Run(|c, _| c.skins.store.refresh(true), 0),
         )
-        .desc(format!(
-            "Read the list again. Skins are installed into {}.",
-            ctx.paths.skins.display()
+        .desc(tr!(
+            "Read the list again. Skins are installed into {dir}.",
+            dir = ctx.paths.skins.display()
         )),
     );
     if IS_WEB {
         b.push(Row::note(
             "catalog.web",
-            "Skins over 400 MB are in the desktop and mobile apps",
+            tr!("Skins over 400 MB are in the desktop and mobile apps"),
             "",
         ));
     }
-    b.header("SKINS");
+    b.header(tr!("SKINS"));
     for e in store.catalog.skins.iter().filter(|e| shown(e)) {
         let version = if e.version.is_empty() {
             String::new()
@@ -344,7 +360,11 @@ pub(super) fn catalog(b: &mut Rows) {
                 state_value(ctx, b.armed, e),
                 Sub::CatalogSkin(e.id.clone()),
             )
-            .desc(format!("by {} · {}", e.author, kind_line(e))),
+            .desc(tr!(
+                "by {author} · {kind}",
+                author = e.author,
+                kind = kind_line(e)
+            )),
         );
     }
 }
@@ -367,17 +387,19 @@ pub(super) fn catalog_skin(b: &mut Rows, id: &str) {
     b.push(
         Row::new(
             "catalog.get",
-            format!("{} by {}", e.name, e.author),
+            tr!("{name} by {author}", name = e.name, author = e.author),
             state_value(ctx, b.armed, e),
             Act::SkinGet(i),
         )
-        .desc("Install it, update it, or (while it downloads) cancel."),
+        .desc(tr!(
+            "Install it, update it, or (while it downloads) cancel."
+        )),
     );
     b.push(
         Row::new(
             "catalog.page",
-            "Its page",
-            "open ↗",
+            tr!("Its page"),
+            tr!("open ↗"),
             Act::Run(
                 |c, i| {
                     if let Some(e) = c.skins.store.catalog.skins.get(i) {
@@ -387,11 +409,11 @@ pub(super) fn catalog_skin(b: &mut Rows, id: &str) {
                 i,
             ),
         )
-        .desc("The skin's own page, in the browser."),
+        .desc(tr!("The skin's own page, in the browser.")),
     );
     // the author's terms, on a line of their own (they can be long)
     if !e.license.is_empty() {
-        b.push(Row::note("catalog.terms", "Terms", "").desc(e.license.clone()));
+        b.push(Row::note("catalog.terms", tr!("Terms"), "").desc(e.license.clone()));
     }
     if matches!(
         ctx.skins.store.state(&ctx.paths.skins, e),
@@ -400,11 +422,11 @@ pub(super) fn catalog_skin(b: &mut Rows, id: &str) {
         b.push(
             Row::new(
                 "catalog.delete",
-                "Delete it",
+                tr!("Delete it"),
                 if b.armed.is(&Confirm::DeleteSkin(e.id.clone())) {
-                    "press again to delete"
+                    tr!("press again to delete")
                 } else {
-                    "delete ×"
+                    tr!("delete ×")
                 },
                 Act::SkinDelete(i),
             )
@@ -457,7 +479,7 @@ pub(super) fn delete(ctx: &mut Ctx, armed: &mut Armed<Confirm>, i: usize) {
                 }
             }
             ctx.skins.files_changed();
-            ctx.toast(format!("Deleted {}", e.name));
+            ctx.toast(tr!("Deleted {name}", name = e.name));
         }
         Err(m) => ctx.toast(m),
     }

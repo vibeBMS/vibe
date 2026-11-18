@@ -77,14 +77,14 @@ impl Page {
 
     fn name(self) -> &'static str {
         match self {
-            Page::Gameplay => "GAMEPLAY",
-            Page::Controls => "CONTROLS",
-            Page::Display => "DISPLAY & AUDIO",
-            Page::Skins => "SKINS",
-            Page::Library => "LIBRARY",
-            Page::Courses => "COURSES",
-            Page::Online => "ONLINE",
-            Page::System => "SYSTEM",
+            Page::Gameplay => tr!("GAMEPLAY"),
+            Page::Controls => tr!("CONTROLS"),
+            Page::Display => tr!("DISPLAY & AUDIO"),
+            Page::Skins => tr!("SKINS"),
+            Page::Library => tr!("LIBRARY"),
+            Page::Courses => tr!("COURSES"),
+            Page::Online => tr!("ONLINE"),
+            Page::System => tr!("SYSTEM"),
         }
     }
 
@@ -93,50 +93,50 @@ impl Page {
         match self {
             Page::Gameplay => (
                 "GP",
-                "RULES, TIMING",
-                "Judge windows, gauge rules, judge and visual offsets: how every play is judged.",
+                tr!("RULES, TIMING"),
+                tr!("Judge windows, gauge rules, judge and visual offsets: how every play is judged."),
             ),
             Page::Controls => (
                 "KB",
-                "KEYS, PADS, TOUCH",
-                "Keyboard and controller bindings, the turntable, the touch layout and its size.",
+                tr!("KEYS, PADS, TOUCH"),
+                tr!("Keyboard and controller bindings, the turntable, the touch layout and its size."),
             ),
             Page::Display => (
                 "AV",
-                "SCREEN, SOUND",
-                "Full screen, frame rate, UI scale; volumes, song preview, the sound set, latency.",
+                tr!("SCREEN, SOUND"),
+                tr!("Full screen, frame rate, UI scale; volumes, song preview, the sound set, latency."),
             ),
             Page::Skins => (
                 "SK",
-                "LOOK OF EACH SCREEN",
-                "Pick a skin per screen and set its options; install skins from the catalog.",
+                tr!("LOOK OF EACH SCREEN"),
+                tr!("Pick a skin per screen and set its options; install skins from the catalog."),
             ),
             Page::Library => (
                 "LB",
-                "SONGS, TABLES",
-                "Song folders and rescans, difficulty tables, download sources.",
+                tr!("SONGS, TABLES"),
+                tr!("Song folders and rescans, difficulty tables, download sources."),
             ),
             Page::Courses => (
                 "CR",
-                "YOUR COURSES",
-                "Make and edit courses, import LR2 courses, RANDOM MIX rules.",
+                tr!("YOUR COURSES"),
+                tr!("Make and edit courses, import LR2 courses, RANDOM MIX rules."),
             ),
             Page::Online => (
                 "IR",
-                "IR, RANKINGS, RIVALS",
-                "Accounts on Bokutachi, BMS-IR and vibeBMS IR servers; sending scores; the outbox.",
+                tr!("IR, RANKINGS, RIVALS"),
+                tr!("Accounts on Bokutachi, BMS-IR and vibeBMS IR servers; sending scores; the outbox."),
             ),
             Page::System => (
                 "SY",
                 if cfg!(desktop) {
-                    "PROFILES, UPDATES, STREAMING"
+                    tr!("PROFILES, UPDATES, STREAMING")
                 } else {
-                    "PROFILES, UPDATES"
+                    tr!("PROFILES, UPDATES")
                 },
                 if cfg!(desktop) {
-                    "Player name, profiles (switch, make, delete), updates, your data; Discord and OBS."
+                    tr!("Player name, profiles (switch, make, delete), updates, your data; Discord and OBS.")
                 } else {
-                    "Player name, profiles (switch, make, delete), version and updates, your data."
+                    tr!("Player name, profiles (switch, make, delete), version and updates, your data.")
                 },
             ),
         }
@@ -160,8 +160,8 @@ impl Page {
         let c = &ctx.config;
         match self {
             Page::Gameplay => vec![
-                format!("{} judge", c.play.judge_preset.label()),
-                format!("offset {}", row::ms(c.play.judge_offset_ms)),
+                tr!("{judge} judge", judge = c.play.judge_preset.label()),
+                tr!("offset {ms}", ms = row::ms(c.play.judge_offset_ms)),
             ],
             Page::Controls => {
                 let k = &c.keys.p1;
@@ -169,8 +169,13 @@ impl Page {
                 let pad = pad.into_iter().any(|l| !l.pad.is_empty()) || !k.scratch_axis.is_empty();
                 let touch = format!("{:?}", c.touch.mode).to_uppercase();
                 vec![
-                    if pad { "controller" } else { "keyboard" }.into(),
-                    format!("touch {touch}"),
+                    if pad {
+                        tr!("controller")
+                    } else {
+                        tr!("keyboard")
+                    }
+                    .into(),
+                    tr!("touch {mode}", mode = touch),
                 ]
             }
             Page::Display => display::chips(ctx),
@@ -182,7 +187,7 @@ impl Page {
                     .into_iter()
                     .map(|k| st.of_kind(k).len())
                     .sum();
-                vec![format!("{n} courses")]
+                vec![tr!("{n} courses", n = n)]
             }
             Page::Online => online::chips(ctx),
             Page::System => vec![
@@ -221,10 +226,10 @@ enum Sub {
 impl Sub {
     fn title(&self, ctx: &Ctx) -> String {
         match self {
-            Sub::ExpandJudge => "EXPANDED JUDGE WINDOWS".into(),
+            Sub::ExpandJudge => tr!("EXPANDED JUDGE WINDOWS").into(),
             Sub::Keys(k) => k.title().into(),
             Sub::Skin(t) => skins::screen_name(*t).to_uppercase(),
-            Sub::Catalog => "GET SKINS".into(),
+            Sub::Catalog => tr!("GET SKINS").into(),
             Sub::CatalogSkin(id) => {
                 skins::entry(ctx, id).map_or_else(String::new, |e| e.1.name.clone())
             }
@@ -248,10 +253,10 @@ impl Sub {
                 .account(*p)
                 .map_or("", |a| a.title())
                 .to_string(),
-            Sub::Outbox => "OUTBOX".into(),
+            Sub::Outbox => tr!("OUTBOX").into(),
             Sub::Profile(id) => ctx.profiles.registry.name(id).to_string(),
             #[cfg(target_arch = "wasm32")]
-            Sub::Storage => "STORAGE".into(),
+            Sub::Storage => tr!("STORAGE").into(),
         }
     }
 
@@ -352,26 +357,26 @@ enum TextField {
 impl TextField {
     fn title(self) -> &'static str {
         match self {
-            TextField::PlayerName => "Player name",
-            TextField::AddFolder => "Add a folder",
-            TextField::AddTable => "Add a table (URL)",
-            TextField::IrName(_) => "IR name",
-            TextField::IrUrl(_) => "IR URL",
-            TextField::IrKey(_) => "API key (paste)",
-            TextField::IrPlayer(_) => "BMS-IR player id (or its page's address)",
-            TextField::IrRivals(_) => "Rivals' BMS-IR player ids",
-            TextField::AddIrServer => "vibeBMS IR server URL",
-            TextField::CourseTitle => "Course title",
-            TextField::ImportLr2 => "LR2's folder (or its song.db)",
-            TextField::ImportScores => "Score database (or its folder)",
-            TextField::TrainerOrder => "TRAINER's lane order (keys from the left, as 3142576)",
-            TextField::NewProfile => "New profile's name",
-            TextField::ProfileName(_) => "Profile name",
-            TextField::DiscordAppId => "Discord application id",
-            TextField::ObsHost => "OBS host",
-            TextField::ObsPort => "OBS WebSocket port",
-            TextField::ObsPassword => "OBS WebSocket password (paste)",
-            TextField::ObsScene(_) => "OBS scene name",
+            TextField::PlayerName => tr!("Player name"),
+            TextField::AddFolder => tr!("Add a folder"),
+            TextField::AddTable => tr!("Add a table (URL)"),
+            TextField::IrName(_) => tr!("IR name"),
+            TextField::IrUrl(_) => tr!("IR URL"),
+            TextField::IrKey(_) => tr!("API key (paste)"),
+            TextField::IrPlayer(_) => tr!("BMS-IR player id (or its page's address)"),
+            TextField::IrRivals(_) => tr!("Rivals' BMS-IR player ids"),
+            TextField::AddIrServer => tr!("vibeBMS IR server URL"),
+            TextField::CourseTitle => tr!("Course title"),
+            TextField::ImportLr2 => tr!("LR2's folder (or its song.db)"),
+            TextField::ImportScores => tr!("Score database (or its folder)"),
+            TextField::TrainerOrder => tr!("TRAINER's lane order (keys from the left, as 3142576)"),
+            TextField::NewProfile => tr!("New profile's name"),
+            TextField::ProfileName(_) => tr!("Profile name"),
+            TextField::DiscordAppId => tr!("Discord application id"),
+            TextField::ObsHost => tr!("OBS host"),
+            TextField::ObsPort => tr!("OBS WebSocket port"),
+            TextField::ObsPassword => tr!("OBS WebSocket password (paste)"),
+            TextField::ObsScene(_) => tr!("OBS scene name"),
         }
     }
 }
@@ -877,7 +882,7 @@ impl SettingsScene {
             TextField::AddFolder => {
                 if !s.is_empty() {
                     if !std::path::Path::new(&s).is_dir() && !ctx.paths.root.join(&s).is_dir() {
-                        ctx.toast(format!("Not a folder: {s}"));
+                        ctx.toast(tr!("Not a folder: {s}", s = s));
                         return;
                     }
                     ctx.config.bms_dirs.push(s);
@@ -902,8 +907,9 @@ impl SettingsScene {
             TextField::TrainerOrder => match vibebms_core::lane_option::trainer_order(&s) {
                 Some(_) => ctx.config.play.trainer_order = s,
                 None => {
-                    ctx.toast(format!(
-                        "Not an order of the keys: {s} (each of 1 to n once)"
+                    ctx.toast(tr!(
+                        "Not an order of the keys: {s} (each of 1 to n once)",
+                        s = s
                     ));
                     return;
                 }

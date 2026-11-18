@@ -62,6 +62,7 @@ const APP_KEYS: &[&str] = &[
     "third_party_mirrors",
     "name_song_folders",
     "check_updates",
+    "language",
     // this machine's other apps (OBS's password among them)
     "discord",
     "obs",
@@ -81,6 +82,7 @@ pub fn take_app_wide(into: &mut Config, from: &Config) {
     into.third_party_mirrors = from.third_party_mirrors;
     into.name_song_folders = from.name_song_folders;
     into.check_updates = from.check_updates;
+    into.language = from.language;
     into.discord = from.discord.clone();
     into.obs = from.obs.clone();
     into.keys.controllers = from.keys.controllers.clone();

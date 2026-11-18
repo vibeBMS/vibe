@@ -32,7 +32,9 @@ pub struct Keys {
 }
 
 /// Where the keys are, said to the player.
-pub const KEPT: &str = imp::KEPT;
+pub fn kept() -> &'static str {
+    imp::kept()
+}
 
 impl Keys {
     pub fn open(paths: &Paths) -> Keys {
@@ -77,11 +79,13 @@ mod imp {
     use super::*;
     use std::path::PathBuf;
 
-    pub const KEPT: &str = if cfg!(target_os = "android") {
-        "in the app's private storage"
-    } else {
-        "in config/credentials.json, apart from config.toml"
-    };
+    pub fn kept() -> &'static str {
+        if cfg!(target_os = "android") {
+            tr!("in the app's private storage")
+        } else {
+            tr!("in config/credentials.json, apart from config.toml")
+        }
+    }
 
     pub type Place = PathBuf;
 
@@ -131,7 +135,9 @@ mod imp {
         delete_generic_password, generic_password, set_generic_password_options, PasswordOptions,
     };
 
-    pub const KEPT: &str = "in the iOS Keychain, on this device only";
+    pub fn kept() -> &'static str {
+        tr!("in the iOS Keychain, on this device only")
+    }
 
     const SERVICE: &str = "vibeBMS";
     const ACCOUNT: &str = "IR credentials";
@@ -172,8 +178,9 @@ mod imp {
 mod imp {
     use super::*;
 
-    pub const KEPT: &str =
-        "in this browser's storage for the site: any script on the site can read it";
+    pub fn kept() -> &'static str {
+        tr!("in this browser's storage for the site: any script on the site can read it")
+    }
 
     const KEY: &str = "vibebms-credentials";
 

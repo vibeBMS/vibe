@@ -1,6 +1,7 @@
 //! CONTROLS: key and controller bindings (a sub-page per set), the
 //! turntable's tuning, and the touch controls.
 
+use super::row::onoff;
 use super::row::{percent, Act, Row, Rows};
 use super::{skins, Screen, Sub};
 use crate::config::{
@@ -9,7 +10,7 @@ use crate::config::{
 };
 use crate::input::gamepad::side_name;
 use crate::scene::keybind::{key_label, keys_label, Slot};
-use crate::scene::option_panel::{cycle, onoff};
+use crate::scene::option_panel::cycle;
 
 /// The bindings, a sub-page each.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,14 +28,14 @@ pub(super) enum KeySet {
 impl KeySet {
     pub(super) fn title(self) -> &'static str {
         match self {
-            KeySet::Side(0) => "1P KEYS",
-            KeySet::Side(_) => "2P KEYS",
-            KeySet::SideSub(0) => "1P KEYBOARD SUB",
-            KeySet::SideSub(_) => "2P KEYBOARD SUB",
-            KeySet::Nine => "9-BUTTON KEYS",
-            KeySet::Few(4) => "4-KEY KEYS",
-            KeySet::Few(6) => "6-KEY KEYS",
-            KeySet::Few(_) => "8-KEY KEYS",
+            KeySet::Side(0) => tr!("1P KEYS"),
+            KeySet::Side(_) => tr!("2P KEYS"),
+            KeySet::SideSub(0) => tr!("1P KEYBOARD SUB"),
+            KeySet::SideSub(_) => tr!("2P KEYBOARD SUB"),
+            KeySet::Nine => tr!("9-BUTTON KEYS"),
+            KeySet::Few(4) => tr!("4-KEY KEYS"),
+            KeySet::Few(6) => tr!("6-KEY KEYS"),
+            KeySet::Few(_) => tr!("8-KEY KEYS"),
             KeySet::StartSelect => "START / SELECT",
         }
     }
@@ -42,14 +43,14 @@ impl KeySet {
 
 pub(super) fn style_label(s: TouchStyle) -> &'static str {
     match s {
-        TouchStyle::Iidx => "BM (turntable + 7)",
+        TouchStyle::Iidx => tr!("BM (turntable + 7)"),
         s => s.label(),
     }
 }
 
 fn start_select_label(s: TouchSide) -> &'static str {
     match s {
-        TouchSide::Auto => "AUTO (scratch side)",
+        TouchSide::Auto => tr!("AUTO (scratch side)"),
         s => s.label(),
     }
 }
@@ -66,7 +67,7 @@ fn bound<'a>(keys: impl IntoIterator<Item = &'a LaneKeys>) -> String {
         of += 1;
         n += (!k.keys.is_empty() || !k.pad.is_empty()) as usize;
     }
-    format!("{n} of {of} bound")
+    tr!("{n} of {of} bound", n = n, of = of)
 }
 
 pub(super) fn rows(b: &mut Rows) {
@@ -74,7 +75,7 @@ pub(super) fn rows(b: &mut Rows) {
     let c = &ctx.config;
     let k = &c.keys;
     let t = &c.touch;
-    b.header("KEYBOARD AND CONTROLLERS");
+    b.header(tr!("KEYBOARD AND CONTROLLERS"));
     b.extend(skins::open_row(ctx, Screen::KeyConfig));
     for side in 0..2 {
         let sk = [&k.p1, &k.p2][side];
@@ -85,11 +86,11 @@ pub(super) fn rows(b: &mut Rows) {
             .chain([&sk.scratch_up, &sk.scratch_down]);
         let (label, desc) = if side == 0 {
             (
-                "1P keys",
-                "Keys 1–7, scratch up / down and the turntable axis of side 1.",
+                tr!("1P keys"),
+                tr!("Keys 1–7, scratch up / down and the turntable axis of side 1."),
             )
         } else {
-            ("2P keys", "The same for side 2 (DP and VS).")
+            (tr!("2P keys"), tr!("The same for side 2 (DP and VS)."))
         };
         b.push(
             Row::sub(
@@ -114,11 +115,13 @@ pub(super) fn rows(b: &mut Rows) {
         b.push(
             Row::sub(
                 "keys.side_sub",
-                format!("{}P keyboard sub", side + 1),
-                format!("{n} of 9 bound"),
+                tr!("{n}P keyboard sub", n = side + 1),
+                tr!("{n} of 9 bound", n = n),
                 Sub::Keys(KeySet::SideSub(side)),
             )
-            .desc("A second keyboard key for each key and scratch of the side (KEYBOARD SUB).")
+            .desc(tr!(
+                "A second keyboard key for each key and scratch of the side (KEYBOARD SUB)."
+            ))
             .keys("keyboard second alternative bind"),
         );
     }
@@ -126,88 +129,101 @@ pub(super) fn rows(b: &mut Rows) {
     b.extend([
         Row::sub(
             "keys.pms",
-            "9-button keys",
+            tr!("9-button keys"),
             bound(k.pms.iter().take(9)),
             Sub::Keys(KeySet::Nine),
         )
-        .desc("Keys for 9-button (PMS) charts.")
+        .desc(tr!("Keys for 9-button (PMS) charts."))
         .keys("pop'n pms 9k bind"),
         Row::sub(
             "keys.few",
-            "4 / 6 / 8-key keys",
+            tr!("4 / 6 / 8-key keys"),
             bound(k.k4.iter().chain(&k.k6).chain(&k.k8)),
             Sub::Keys(KeySet::Few(4)),
         )
-        .desc(
+        .desc(tr!(
             "Keys for Qwilight-style 4, 6 and 8 key charts (controllers also play them with their \
-             7 key buttons and turntable).",
-        )
+             7 key buttons and turntable)."
+        ))
         .keys("4k 6k 8k qwilight bind"),
         Row::sub(
             "keys.start_select",
-            "START / SELECT",
+            tr!("START / SELECT"),
             bound([&k.start, &k.select, &k.p2_start, &k.p2_select]),
             Sub::Keys(KeySet::StartSelect),
         )
-        .desc("Option panels, and leaving a play (both sides).")
+        .desc(tr!("Option panels, and leaving a play (both sides)."))
         .keys("bind"),
         Row::adjust(
             "keys.any_axis_is_scratch",
-            "Any gamepad axis is the turntable",
+            tr!("Any gamepad axis is the turntable"),
             onoff(k.any_axis_is_scratch),
             |c, _| c.config.keys.any_axis_is_scratch ^= true,
         )
-        .desc("Use any controller axis as the turntable, without binding it.")
+        .desc(tr!(
+            "Use any controller axis as the turntable, without binding it."
+        ))
         .keys("controller analog"),
     ]);
-    b.header("TOUCH");
+    b.header(tr!("TOUCH"));
     b.extend([
         Row::adjust(
             "touch.mode",
-            "Touch controls",
+            tr!("Touch controls"),
             format!("{:?}", t.mode).to_uppercase(),
             |c, d| {
                 let all = [TouchMode::Auto, TouchMode::On, TouchMode::Off];
                 c.config.touch.mode = cycle(&all, c.config.touch.mode, d)
             },
         )
-        .desc("AUTO shows them on touch screens; ON / OFF forces them."),
-        Row::adjust("touch.style", "Layout", style_label(t.style), |c, d| {
-            c.config.touch.style = cycle(&TouchStyle::ALL, c.config.touch.style, d)
-        })
-        .desc("The touch key layout: turntable + 7, 5 keys, 9 buttons…")
+        .desc(tr!(
+            "AUTO shows them on touch screens; ON / OFF forces them."
+        )),
+        Row::adjust(
+            "touch.style",
+            tr!("Layout"),
+            style_label(t.style),
+            |c, d| c.config.touch.style = cycle(&TouchStyle::ALL, c.config.touch.style, d),
+        )
+        .desc(tr!(
+            "The touch key layout: turntable + 7, 5 keys, 9 buttons…"
+        ))
         .keys("touch controller layout"),
         Row::new(
             "touch.layout_editor",
-            "Edit the touch layout",
-            "edit",
+            tr!("Edit the touch layout"),
+            tr!("edit"),
             Act::Open(Screen::TouchLayout),
         )
-        .desc("Drag and resize the touch keys.")
+        .desc(tr!("Drag and resize the touch keys."))
         .keys("touch controller layout"),
         Row::adjust(
             "touch.landscape_height",
-            "Controls height (landscape)",
+            tr!("Controls height (landscape)"),
             percent(t.landscape_height),
             |c, d| {
                 let h = &mut c.config.touch.landscape_height;
                 step(h, d, 0.01, crate::touch::CONTROLS_HEIGHT)
             },
         )
-        .desc("How much of the screen the touch keys take in landscape."),
+        .desc(tr!(
+            "How much of the screen the touch keys take in landscape."
+        )),
         Row::adjust(
             "touch.portrait_height",
-            "Controls height (portrait)",
+            tr!("Controls height (portrait)"),
             percent(t.portrait_height),
             |c, d| {
                 let h = &mut c.config.touch.portrait_height;
                 step(h, d, 0.01, crate::touch::CONTROLS_HEIGHT)
             },
         )
-        .desc("How much of the screen the touch keys take in portrait."),
+        .desc(tr!(
+            "How much of the screen the touch keys take in portrait."
+        )),
         Row::adjust(
             "touch.screen_inches",
-            "Screen size",
+            tr!("Screen size"),
             match t.screen_inches {
                 0.0 => format!(
                     "AUTO ({:.1}\")",
@@ -223,72 +239,81 @@ pub(super) fn rows(b: &mut Rows) {
                 c.config.touch.screen_inches = cycle(&SIZES, c.config.touch.screen_inches, d);
             },
         )
-        .desc("So keys are drawn at a real size; AUTO guesses from the screen.")
+        .desc(tr!(
+            "So keys are drawn at a real size; AUTO guesses from the screen."
+        ))
         .keys("inches real size"),
-        Row::adjust("touch.opacity", "Opacity", percent(t.opacity), |c, d| {
-            step(&mut c.config.touch.opacity, d, 0.05, (0.1, 1.0))
-        })
-        .desc("How see-through the touch keys are."),
+        Row::adjust(
+            "touch.opacity",
+            tr!("Opacity"),
+            percent(t.opacity),
+            |c, d| step(&mut c.config.touch.opacity, d, 0.05, (0.1, 1.0)),
+        )
+        .desc(tr!("How see-through the touch keys are.")),
         Row::adjust(
             "touch.start_select_side",
-            "START / SELECT side",
+            tr!("START / SELECT side"),
             start_select_label(t.start_select_side),
             |c, d| {
                 let s = &mut c.config.touch.start_select_side;
                 *s = cycle(&TouchSide::ALL, *s, d)
             },
         )
-        .desc("Which side the touch START and SELECT sit on."),
+        .desc(tr!("Which side the touch START and SELECT sit on.")),
         Row::adjust(
             "touch.allow_dp",
-            "Double play in landscape",
+            tr!("Double play in landscape"),
             onoff(t.allow_dp),
             |c, _| c.config.touch.allow_dp ^= true,
         )
-        .desc("Allow 14-key and 10-key charts on a touch screen."),
+        .desc(tr!("Allow 14-key and 10-key charts on a touch screen.")),
         Row::adjust(
             "touch.scratch_threshold_deg",
-            "Scratch sensitivity",
+            tr!("Scratch sensitivity"),
             format!("{:.0}°", t.scratch_threshold_deg),
             |c, d| {
                 let v = &mut c.config.touch.scratch_threshold_deg;
                 step(v, d, 1.0, (1.0, 45.0))
             },
         )
-        .desc("How far a swipe turns the touch turntable, in degrees."),
+        .desc(tr!(
+            "How far a swipe turns the touch turntable, in degrees."
+        )),
     ]);
     b.group(
         "controls.turntable",
-        "TURNTABLE AND KEYS",
-        "Analog dead band and stop time, key chatter filter",
+        tr!("TURNTABLE AND KEYS"),
+        tr!("Analog dead band and stop time, key chatter filter"),
     );
     let tu = &k.tuning;
     b.extend([
         Row::adjust(
             "keys.tuning.turntable_dead_band",
-            "Turntable dead band",
+            tr!("Turntable dead band"),
             format!("{:.3}", tu.turntable_dead_band as f32 / 1000.0),
             |c, d| {
                 let v = &mut c.config.keys.tuning.turntable_dead_band;
                 *v = v.saturating_add_signed(d).clamp(1, 50)
             },
         )
-        .desc("Smaller analog turntable moves are no turn: higher is less sensitive.")
+        .desc(tr!(
+            "Smaller analog turntable moves are no turn: higher is less sensitive."
+        ))
         .keys("analog controller axis"),
         Row::adjust(
             "keys.tuning.turntable_stop_ms",
-            "Turntable stop time",
+            tr!("Turntable stop time"),
             format!("{} ms", tu.turntable_stop_ms),
             |c, d| {
                 let v = &mut c.config.keys.tuning.turntable_stop_ms;
                 *v = v.saturating_add_signed(d * 10).clamp(20, 500)
             },
         )
-        .desc("An analog turntable still for this long is let go.")
+        .desc(tr!("An analog turntable still for this long is let go."))
         .keys("analog controller axis"),
         Row::adjust(
             "keys.tuning.chatter_ms",
-            "Key chatter filter",
+            tr!("Key chatter filter"),
             match tu.chatter_ms {
                 0 => "OFF".into(),
                 n => format!("{n} ms"),
@@ -298,57 +323,59 @@ pub(super) fn rows(b: &mut Rows) {
                 *v = v.saturating_add_signed(d).min(50)
             },
         )
-        .desc("Drops a press this soon after the last of its lane (worn switches).")
+        .desc(tr!(
+            "Drops a press this soon after the last of its lane (worn switches)."
+        ))
         .keys("debounce"),
     ]);
     b.group(
         "controls.perspective",
-        "TOUCH PERSPECTIVE",
-        "Perspective, lane length, touch area height",
+        tr!("TOUCH PERSPECTIVE"),
+        tr!("Perspective, lane length, touch area height"),
     );
     let persp = &c.perspective;
     b.extend([
         Row::adjust(
             "perspective.strength",
-            "Perspective",
+            tr!("Perspective"),
             percent(persp.strength),
             |c, d| {
                 let v = &mut c.config.perspective.strength;
                 step(v, d, 0.05, (0.0, PERSPECTIVE_MAX))
             },
         )
-        .desc("How far the lanes lean back, in the touch perspective skin."),
+        .desc(tr!("How far the lanes lean back, in the touch perspective skin.")),
         Row::adjust(
             "perspective.length",
-            "Lane length",
+            tr!("Lane length"),
             percent(persp.length),
             |c, d| step(&mut c.config.perspective.length, d, 0.05, LENGTH_RANGE),
         )
-        .desc("The lanes' length, in the touch perspective skin."),
+        .desc(tr!("The lanes' length, in the touch perspective skin.")),
         Row::adjust(
             "perspective.touch_height",
-            "Touch area height",
+            tr!("Touch area height"),
             percent(persp.touch_height),
             |c, d| {
                 let v = &mut c.config.perspective.touch_height;
                 step(v, d, 0.01, TOUCH_HEIGHT_RANGE)
             },
         )
-        .desc("How far up the screen the lanes are played, in the touch perspective skin (the judge line is at 25 %)."),
+        .desc(tr!("How far up the screen the lanes are played, in the touch perspective skin (the judge line is at 25 %).")),
     ]);
     b.group(
         "controls.reset",
-        "RESET",
-        "Every binding back to the defaults",
+        tr!("RESET"),
+        tr!("Every binding back to the defaults"),
     );
     b.push(
         Row::new(
             "keys.reset",
-            "Reset key config",
-            "reset",
+            tr!("Reset key config"),
+            tr!("reset"),
             Act::Run(|c, _| c.config.keys = KeyConfig::default(), 0),
         )
-        .desc("Every binding back to the defaults."),
+        .desc(tr!("Every binding back to the defaults.")),
     );
 }
 
@@ -356,9 +383,9 @@ pub(super) fn rows(b: &mut Rows) {
 /// not.
 fn pad_choice(ctx: &crate::app::Ctx, p: &Option<PadId>) -> String {
     match p {
-        None => "AUTO (connection order)".into(),
+        None => tr!("AUTO (connection order)").into(),
         Some(p) if ctx.input.pads.iter().any(|c| c.pad == *p) => p.name.clone(),
-        Some(p) => format!("{} (not connected)", p.name),
+        Some(p) => tr!("{name} (not connected)", name = p.name),
     }
 }
 
@@ -393,7 +420,7 @@ fn pads(b: &mut Rows) {
     let ctx = b.ctx;
     let ch = &ctx.config.keys.controllers;
     let connected = if ctx.input.pads.is_empty() {
-        "none".to_string()
+        tr!("none").to_string()
     } else {
         ctx.input
             .pads
@@ -405,26 +432,26 @@ fn pads(b: &mut Rows) {
     b.extend([
         Row::adjust(
             "keys.controllers.p1",
-            "1P controller",
+            tr!("1P controller"),
             pad_choice(ctx, &ch.p1),
             |c, d| step_pad(c, 0, d),
         )
-        .desc("The controller for the 1P bindings (Pad0), kept by name and id; AUTO: connection order.")
+        .desc(tr!("The controller for the 1P bindings (Pad0), kept by name and id; AUTO: connection order."))
         .keys("gamepad controller assign player side order"),
         Row::adjust(
             "keys.controllers.p2",
-            "2P controller",
+            tr!("2P controller"),
             pad_choice(ctx, &ch.p2),
             |c, d| step_pad(c, 1, d),
         )
         .desc(
-            "The controller for the 2P bindings (Pad1); AUTO: the next one in connection order.",
+            tr!("The controller for the 2P bindings (Pad1); AUTO: the next one in connection order."),
         )
         .keys("gamepad controller assign player side order"),
         Row::new(
             "keys.controllers.swap",
-            "Swap 1P and 2P controllers",
-            "swap",
+            tr!("Swap 1P and 2P controllers"),
+            tr!("swap"),
             Act::Run(
                 |c, _| {
                     let pad = |n| {
@@ -440,10 +467,10 @@ fn pads(b: &mut Rows) {
                 0,
             ),
         )
-        .desc("The 2P controller becomes 1P and the 1P one 2P (both then chosen by name).")
+        .desc(tr!("The 2P controller becomes 1P and the 1P one 2P (both then chosen by name)."))
         .keys("gamepad controller assign player side"),
-        Row::note("info.controllers", "Connected controllers", connected)
-            .desc("Each connected controller and the side its buttons are.")
+        Row::note("info.controllers", tr!("Connected controllers"), connected)
+            .desc(tr!("Each connected controller and the side its buttons are."))
             .keys("gamepad controller"),
     ]);
 }
@@ -453,7 +480,7 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
     let k = &b.ctx.config.keys;
     let bind = |id, label: String, keys: &LaneKeys, s: Slot| {
         Row::new(id, label, keys_label(keys), Act::Bind(s))
-            .desc("Enter, then press a key or button. Delete clears it.")
+            .desc(tr!("Enter, then press a key or button. Delete clears it."))
     };
     b.header(set.title());
     match set {
@@ -463,20 +490,20 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
             for (idx, lk) in sk.keys.iter().enumerate().take(7) {
                 b.push(bind(
                     "keys.key",
-                    format!("{n}P key {}", idx + 1),
+                    tr!("{n}P key {k}", n = n, k = idx + 1),
                     lk,
                     Slot::Key { side, idx },
                 ));
             }
             b.push(bind(
                 "keys.scratch_up",
-                format!("{n}P scratch ↑"),
+                tr!("{n}P scratch ↑", n = n),
                 &sk.scratch_up,
                 Slot::ScratchUp(side),
             ));
             b.push(bind(
                 "keys.scratch_down",
-                format!("{n}P scratch ↓"),
+                tr!("{n}P scratch ↓", n = n),
                 &sk.scratch_down,
                 Slot::ScratchDown(side),
             ));
@@ -488,7 +515,7 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
             b.push(
                 Row::new(
                     "keys.scratch_axis",
-                    format!("{n}P turntable axis"),
+                    tr!("{n}P turntable axis", n = n),
                     if axes.is_empty() {
                         "—".into()
                     } else {
@@ -496,7 +523,7 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
                     },
                     Act::Bind(Slot::ScratchAxis(side)),
                 )
-                .desc("Enter, then spin the turntable. Delete clears it."),
+                .desc(tr!("Enter, then spin the turntable. Delete clears it.")),
             );
         }
         KeySet::SideSub(side) => {
@@ -505,25 +532,25 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
             let sub = |id, label: String, lk: &LaneKeys, s: Slot| {
                 let v = lk.keys.get(1).map_or("—".into(), |c| key_label(*c));
                 Row::new(id, label, v, Act::Bind(s))
-                    .desc("Enter, then press a key. Delete clears it.")
+                    .desc(tr!("Enter, then press a key. Delete clears it."))
             };
             for (idx, lk) in sk.keys.iter().enumerate().take(7) {
                 b.push(sub(
                     "keys.key_sub",
-                    format!("{n}P key {} (sub)", idx + 1),
+                    tr!("{n}P key {k} (sub)", n = n, k = idx + 1),
                     lk,
                     Slot::Key { side, idx },
                 ));
             }
             b.push(sub(
                 "keys.scratch_up_sub",
-                format!("{n}P scratch ↑ (sub)"),
+                tr!("{n}P scratch ↑ (sub)", n = n),
                 &sk.scratch_up,
                 Slot::ScratchUp(side),
             ));
             b.push(sub(
                 "keys.scratch_down_sub",
-                format!("{n}P scratch ↓ (sub)"),
+                tr!("{n}P scratch ↓ (sub)", n = n),
                 &sk.scratch_down,
                 Slot::ScratchDown(side),
             ));
@@ -532,7 +559,7 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
             for (i, lk) in k.pms.iter().enumerate().take(9) {
                 b.push(bind(
                     "keys.pms",
-                    format!("Button {}", i + 1),
+                    tr!("Button {n}", n = i + 1),
                     lk,
                     Slot::Pms(i),
                 ));
@@ -543,7 +570,7 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
                 for (i, lk) in keys.iter().enumerate() {
                     b.push(bind(
                         "keys.few",
-                        format!("{n}K key {}", i + 1),
+                        tr!("{n}K key {k}", n = n, k = i + 1),
                         lk,
                         Slot::Few(n, i),
                     ));

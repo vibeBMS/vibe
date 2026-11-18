@@ -736,3 +736,49 @@ fn profiles_are_made_switched_renamed_and_deleted() {
     assert_eq!(s.view, View::Page(Page::System));
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// Every page in every language: no `{placeholder}` left unfilled, and the
+/// language's text is shown (the language row itself stays findable).
+#[test]
+fn every_language_fills_every_row() {
+    use crate::i18n::{self, Lang};
+    let (root, ctx) = setup("langs");
+    let armed = Armed::default();
+    let english: Vec<String> = search::walk(&ctx, &armed)
+        .into_iter()
+        .map(|(_, r)| r.label)
+        .collect();
+    for lang in Lang::ALL {
+        i18n::set(lang);
+        let tree = search::walk(&ctx, &armed);
+        for (_, r) in &tree {
+            for s in [&r.label, &r.desc, &r.value] {
+                let open = s.find('{');
+                assert!(
+                    open.is_none_or(|i| !s[i..].contains('}')),
+                    "{}: {s:?} has an unfilled placeholder",
+                    lang.tag()
+                );
+            }
+        }
+        let labels: Vec<&String> = tree.iter().map(|(_, r)| &r.label).collect();
+        let same = labels
+            .iter()
+            .zip(&english)
+            .filter(|(a, b)| **a == *b)
+            .count();
+        if lang != Lang::En {
+            assert!(
+                same * 2 < labels.len(),
+                "{}: {same} of {} rows in English",
+                lang.tag(),
+                labels.len()
+            );
+        }
+        // search finds the language row in any language by its English name
+        let (rows, _) = search::find(&ctx, &armed, "language");
+        assert!(rows.iter().any(|r| r.id == "language"), "{}", lang.tag());
+    }
+    i18n::set(Lang::En);
+    let _ = std::fs::remove_dir_all(root);
+}
