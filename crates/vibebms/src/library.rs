@@ -1893,6 +1893,79 @@ mod tests {
         w.finish().unwrap().into_inner()
     }
 
+    /// Charts in a .tar.gz and a .tar: scanned as folders, played through
+    /// the file system; the .tar.gz decompressed once for its song, not
+    /// once for each of its files.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn charts_in_tar_archives() {
+        use crate::platform::arcfs;
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-tar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cache = dir.join("cache");
+        let chart = |title: &str| {
+            format!("#TITLE {title}\n#BPM 150\n#WAV01 kick.wav\n#00111:01\n#00112:0101\n")
+        };
+        let kick = wav(2205);
+        let a_chart = chart("A");
+        let files: [(&str, &[u8]); 4] = [
+            ("Song/a.bme", a_chart.as_bytes()),
+            ("Song/kick.wav", &kick),
+            ("Song/bga/stage.png", b"png"),
+            ("readme.txt", b"hi"),
+        ];
+        let tgz = dir.join("Pack.tar.gz");
+        std::fs::write(&tgz, bmseeker::testkit::tar_gz(&files)).unwrap();
+        let tar = dir.join("plain.tar");
+        let b = chart("B");
+        std::fs::write(&tar, bmseeker::testkit::tar(&[("b.bms", b.as_bytes())])).unwrap();
+        let p = Arc::new(ScanProgress::default());
+        scan(
+            cache.join("songs.json"),
+            vec![dir.clone()],
+            [cache.clone()].into_iter().collect(),
+            p,
+        );
+        let songs = Library::open(&cache, &cache, |_, _| None).songs();
+        let mut titles: Vec<(&str, &str)> = songs
+            .iter()
+            .map(|s| (s.title.as_str(), s.path.as_str()))
+            .collect();
+        titles.sort();
+        let a = arcfs::join(&tgz, Path::new("Song/a.bme"));
+        let b_path = arcfs::join(&tar, Path::new("b.bms"));
+        assert_eq!(
+            titles,
+            [("A", a.to_str().unwrap()), ("B", b_path.to_str().unwrap())]
+        );
+        assert_eq!(songs.iter().find(|s| s.title == "A").unwrap().notes, 3);
+        assert_eq!(arcfs::index_of(&tgz).unwrap().format, "tar.gz");
+        assert_eq!(arcfs::index_of(&tar).unwrap().format, "tar");
+        assert_eq!(arcfs::shown_name("Pack.tar.gz!"), "Pack.tar.gz");
+
+        // its files as the loaders see them; a file of its song read: the
+        // song unpacked, its other files then read from memory
+        let song = a.parent().unwrap();
+        assert!(vfs::is_dir(song) && vfs::is_file(&a));
+        let opened = arcfs::times_opened(&tgz);
+        let k = vfs::DirIndex::new(song)
+            .find("KICK.ogg", vfs::AUDIO_EXTS)
+            .unwrap();
+        assert_eq!(vfs::read(&k).unwrap(), kick);
+        assert!(arcfs::is_ready(&tgz, Path::new("Song/a.bme")));
+        assert_eq!(vfs::read(&song.join("bga/stage.png")).unwrap(), b"png");
+        assert_eq!(vfs::read(&a).unwrap(), chart("A").into_bytes());
+        assert_eq!(arcfs::times_opened(&tgz), opened + 1);
+        // a play: the song already unpacked, kept
+        vfs::prepare_songs(std::slice::from_ref(&a)).unwrap();
+        assert_eq!(vfs::read(&k).unwrap(), kick);
+        assert_eq!(arcfs::times_opened(&tgz), opened + 1);
+        assert_eq!(vfs::read(&b_path).unwrap(), b.as_bytes());
+        vfs::keep_song(None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// Charts in a zip, a solid 7z and a RAR: scanned as folders (an
     /// unchanged archive not opened again, a changed one read again), read
     /// and played through the file system as files on a disk are.

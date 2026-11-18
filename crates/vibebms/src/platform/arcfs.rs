@@ -1,9 +1,10 @@
-//! Songs kept in archives: a `.zip`, `.7z`, `.rar` or `.lzh` (`.lha`) in
-//! the library is read as a folder, without unpacking it. A file in one is
-//! named by the archive's path, a `!`, and its path in the archive:
-//! `bms/pack.zip!/Song/chart.bme` (a folder named so on a disk is taken for
-//! the archive). [`super::vfs`] reads such paths through here, so the
-//! chart, sound and image loaders read them as any other file.
+//! Songs kept in archives: a `.zip`, `.7z`, `.rar`, `.lzh` (`.lha`) or
+//! `.tar` (`.tar.gz`, `.tgz`) in the library is read as a folder, without
+//! unpacking it. A file in one is named by the archive's path, a `!`, and
+//! its path in the archive: `bms/pack.zip!/Song/chart.bme` (a folder named
+//! so on a disk is taken for the archive). [`super::vfs`] reads such
+//! paths through here, so the chart, sound and image loaders read them as
+//! any other file.
 //!
 //! - The scan lists an archive and reads its charts once per change of
 //!   its size and time ([`unpack`]); the list of its files (the index) is
@@ -14,12 +15,13 @@
 //!   natively into `cache/unpacked/` when it is large ([`MEMORY`]). One
 //!   song is kept so ([`retain`] lets it go when another is chosen).
 //! - A single file read when its song is not unpacked: a zip's own (zips
-//!   are read where a file is, nothing else decoded); in a 7z, RAR or LZH,
-//!   which are read from the start (a solid one cannot be read otherwise),
-//!   its song is unpacked, else the file alone (decoding stops there).
+//!   are read where a file is, nothing else decoded); in a 7z, RAR, LZH or
+//!   tar, which are read from the start (a solid one, or a gzip-compressed
+//!   tar, cannot be read otherwise), its song is unpacked, else the file
+//!   alone (decoding stops there).
 //!
 //! The formats are BMSeeker's (`bmseeker::unpack`, which decodes the 7z,
-//! RAR and LZH here: on the web too); a zip's files are read with the
+//! RAR, LZH and tar here: on the web too); a zip's files are read with the
 //! `zip` crate it uses, as names are decoded there (Shift_JIS, EUC-KR).
 //! Nothing is ever written into an archive.
 
@@ -34,8 +36,8 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 /// What follows an archive's name in a path to a file in it.
 pub const MARK: char = '!';
 
-/// Archive file names, by extension.
-const EXTS: &[&str] = &["zip", "7z", "rar", "lzh", "lha"];
+/// Archive file names, by extension (`tar.gz`: a name's last two).
+const EXTS: &[&str] = &["zip", "7z", "rar", "lzh", "lha", "tar", "tgz", "tar.gz"];
 
 /// A song this large or smaller is unpacked into memory; natively a larger
 /// one goes into a folder (`cache/unpacked/`). On the web, which has no
@@ -84,9 +86,19 @@ const RECENT_ONE: usize = 4 << 20;
 
 /// Whether `p` names an archive (by its extension).
 pub fn is_archive(p: &Path) -> bool {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| EXTS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+    p.file_name()
+        .is_some_and(|n| archive_stem(&n.to_string_lossy()).is_some())
+}
+
+/// The file name `name` without its archive extension, if it has one, in
+/// any case (`Song.TAR.GZ`: `Song`).
+pub fn archive_stem(name: &str) -> Option<&str> {
+    EXTS.iter().find_map(|e| {
+        let at = name.len().checked_sub(e.len() + 1)?;
+        let (stem, ext) = (name.get(..at)?, name.get(at..)?);
+        (ext.starts_with('.') && ext[1..].eq_ignore_ascii_case(e) && !stem.is_empty())
+            .then_some(stem)
+    })
 }
 
 /// `p` as the archive it is in and its path there, if it is in one
@@ -148,8 +160,8 @@ pub fn shown_name(name: &str) -> &str {
 pub struct Index {
     /// The archive's (modification time, size) then.
     pub stamp: (i64, i64),
-    /// Its format's extension ("zip", "7z", "rar", "lzh"); empty: it could
-    /// not be read.
+    /// Its format's extension ("zip", "7z", "rar", "lzh", "tar",
+    /// "tar.gz"); empty: it could not be read.
     pub format: String,
     /// Why it could not be read.
     pub error: String,
@@ -457,6 +469,9 @@ pub struct Unpacked {
     pub files: Vec<(PathBuf, Vec<u8>)>,
 }
 
+/// The first bytes of an archive its format is told by.
+const HEAD: usize = 4096;
+
 /// Said by [`Capture`] once it has what it wants (the rest is not decoded).
 const ENOUGH: &str = "vibebms: the files wanted are read";
 
@@ -466,8 +481,8 @@ fn too_large() -> io::Error {
 
 /// Read the archive `archive`: the files `want` takes into `dest` (at
 /// most `cap` bytes of them), and with `list` the list of all its files.
-/// `count`: how many files are wanted, if known (a 7z, RAR or LZH is not
-/// decoded past the last of them; not with `list`). An error of kind
+/// `count`: how many files are wanted, if known (a 7z, RAR, LZH or tar is
+/// not decoded past the last of them; not with `list`). An error of kind
 /// `WouldBlock` (web): the archive is not in memory yet.
 pub fn unpack(
     archive: &Path,
@@ -478,10 +493,11 @@ pub fn unpack(
     cap: u64,
 ) -> io::Result<Unpacked> {
     let mut r = open(archive)?;
-    let mut head = [0u8; 8];
-    let n = r.read(&mut head)?;
+    // (a tar's first header; a gzip's compressed)
+    let mut head = Vec::with_capacity(HEAD);
+    (&mut r).take(HEAD as u64).read_to_end(&mut head)?;
     r.seek(io::SeekFrom::Start(0))?;
-    let format = bmseeker::unpack::sniff(&head[..n])
+    let format = bmseeker::unpack::sniff(&head)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not an archive"))?;
     if format == bmseeker::unpack::Format::Zip {
         return unzip(r, want, list, dest, cap);
@@ -750,7 +766,7 @@ fn stamp_now(archive: &Path) -> (i64, i64) {
 
 /// `archive`'s index: as the scan left it; a zip's read now when there is
 /// none or it changed (its list is quick to read). With `slow`, a 7z's,
-/// RAR's or LZH's too (decoded in full: not for the main thread).
+/// RAR's, LZH's or tar's too (decoded in full: not for the main thread).
 fn index(archive: &Path, slow: bool) -> Option<Arc<Index>> {
     let now = stamp_now(archive);
     let have = index_of(archive);
@@ -872,8 +888,9 @@ pub fn read(archive: &Path, rel: &Path) -> io::Result<Vec<u8>> {
     let Some(&size) = ix.files.get(rel) else {
         return Err(not_found(archive, rel));
     };
-    // a 7z's, RAR's or LZH's file: its song unpacked (it is read from
-    // the archive's start all the same)
+    // a 7z's, RAR's, LZH's or tar's file: its song unpacked (it is read
+    // from the archive's start all the same: a .tar.gz is decompressed
+    // once for the song, not once a file)
     if ix.format != "zip" {
         if let Some(song) = ix.song_of(rel) {
             mount_one(archive, &song)?;
@@ -1134,7 +1151,18 @@ mod tests {
         );
         assert_eq!(shown_name("pack.zip!"), "pack.zip");
         assert_eq!(shown_name("wow!"), "wow!");
-        assert!(is_archive(Path::new("x.LZH")) && !is_archive(Path::new("x.tar")));
+        assert!(is_archive(Path::new("x.LZH")) && !is_archive(Path::new("x.gz")));
+        assert_eq!(
+            split(Path::new("/bms/Pack.TAR.GZ!/Song/a.bms")),
+            Some((
+                PathBuf::from("/bms/Pack.TAR.GZ"),
+                PathBuf::from("Song/a.bms")
+            ))
+        );
+        assert_eq!(shown_name("pack.tgz!"), "pack.tgz");
+        assert_eq!(shown_name("x.tar!"), "x.tar");
+        assert_eq!(archive_stem("Song.tar.gz"), Some("Song"));
+        assert_eq!(archive_stem(".tar.gz"), None);
     }
 
     /// A file of a RAR read alone: decoding stops once it is read.
