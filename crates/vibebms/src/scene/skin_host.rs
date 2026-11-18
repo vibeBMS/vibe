@@ -14,6 +14,9 @@ use std::cell::RefCell;
 pub struct SkinHost {
     pub skin: Option<LoadedSkin>,
     tried: bool,
+    /// What the skin was loaded from (`skinned::skin_key`): a screen over
+    /// this one (SETTINGS, the skin select) may change it.
+    from: Option<String>,
     /// The scene's start (skin time 0).
     pub created: Instant,
     /// The fade-out started (timer 2).
@@ -51,6 +54,7 @@ impl SkinHost {
         SkinHost {
             skin: None,
             tried: false,
+            from: None,
             created: Instant::now(),
             leaving: None,
             clicks: RefCell::default(),
@@ -60,6 +64,20 @@ impl SkinHost {
     /// True on the first call only: when the scene loads its skin.
     pub fn first_update(&mut self) -> bool {
         !std::mem::replace(&mut self.tried, true)
+    }
+
+    /// The skin is made from `key` (`skinned::skin_key`).
+    pub fn loaded_from(&mut self, key: String) {
+        self.from = Some(key);
+    }
+
+    /// The skin's settings are now `key`: when they are not what it was
+    /// loaded from, [`first_update`](Self::first_update) is true again
+    /// (the scene frees the old skin and loads the new one).
+    pub fn reload_if_changed(&mut self, key: &str) {
+        if self.tried && self.from.as_deref() != Some(key) {
+            self.tried = false;
+        }
     }
 
     /// Per frame: textures the skin asked for; the game events its scripts
@@ -267,6 +285,12 @@ mod tests {
         // no skin: no fade-out to wait for
         assert!(host.faded(t0 + crate::platform::Duration::from_millis(100)));
         assert!(host.first_update());
+        assert!(!host.first_update());
+        host.loaded_from("a".into());
+        host.reload_if_changed("a");
+        assert!(!host.first_update(), "the same settings: kept");
+        host.reload_if_changed("b");
+        assert!(host.first_update(), "other settings: loaded again");
         assert!(!host.first_update());
     }
 }
