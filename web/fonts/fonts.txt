@@ -1,3 +1,5 @@
 # Font files in this folder, one per line, loaded by the web build in order.
 # The web build has no system fonts: add a CJK font here (e.g. NotoSansJP-Regular.otf,
 # NotoSansKR-Regular.otf from https://fonts.google.com/noto) to display Japanese/Korean titles.
+# A line "file lang" (e.g. "NotoSansSC-Regular.otf zh-Hans") is loaded only while the UI is in
+# that language (en, ko, ja, zh-Hans, zh-Hant), and drawn with before the others.

@@ -306,6 +306,22 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   9200, shows its lamp and EX score) and its EX score as TARGET. On the web each profile's settings
   and records are in the page's storage too (`profiles/<id>/` in OPFS and localStorage), apart from the library
   that BMSeeker's page shares.
+- **UI languages** (`SETTINGS › SYSTEM › LANGUAGE`): English, Korean, Japanese, Simplified and Traditional Chinese,
+  applied at once. AUTO (the default) picks the system's: the OS locale on the desktop, Android and iOS
+  (`LANG` / `LC_ALL` / `LC_MESSAGES` on Linux), the browser's language on the web; any other language is English.
+  The setting is app-wide (every profile shares it). What is translated: the settings (pages, rows, descriptions,
+  words such as ON / OFF), messages (toasts), dialogs, the practice screen, the touch layout editor, the key config
+  screen's own text, the play screen's hints, the loading screen and the result's notes. What stays English: the
+  terms BMS players use in English in every language (EX SCORE, PGREAT, gauge and option names such as RANDOM,
+  HI-SPEED, SUDDEN+, LN / CN / HCN, BPM, judge presets), chart and skin text, the text skins read from vibeBMS (option
+  names and values on the select panels, song-list folder and command bars, the select screen's status lines: the
+  values beatoraja and LR2 skins read keep their English form), log messages and the command line. The Chinese tables
+  are machine-quality translations checked by hand (Traditional uses Taiwan terms; corrections welcome); some error
+  details come from servers in English. Text is looked up by its English in `crates/vibebms/assets/i18n/<lang>.toml`
+  (embedded; `en.toml` lists every text the code has, kept so by a test, `I18N_BLESS=1` rewrites it); a text a table
+  lacks shows in English. `tools/i18n_hant.py` makes `zh-Hant.toml` from `zh-Hans.toml`. Fonts: the desktop puts the
+  language's own CJK system font first (Noto Sans CJK KR / SC / TC, Malgun Gothic, Microsoft YaHei / JhengHei, PingFang
+  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA
@@ -599,7 +615,8 @@ records are kept in localStorage.
 - The browser paces the frames at the display's refresh rate, except Safari, which keeps pages at 60 frames a
   second unless "Prefer Page Rendering Updates near 60fps" is turned off (macOS: Develop › Feature Flags; iOS and
   iPadOS: Settings › Apps › Safari › Advanced › Feature Flags).
-- Browsers have no system fonts for the page, so CI puts Noto Sans CJK (JP/KR, SIL OFL) into `web/fonts/`. When
+- Browsers have no system fonts for the page, so CI puts Noto Sans CJK (JP/KR, SIL OFL) into `web/fonts/`, and SC /
+  TC loaded only while the UI is in Simplified / Traditional Chinese (a line `file lang` in `fonts.txt`). When
   building yourself, add CJK fonts there and list them in `fonts.txt`.
 - Difficulty table servers do not allow CORS, so the web build reads tables (page, header, data) through the vibeBMS
   proxy (`proxy.vibebms.workers.dev`) each time; tables you add work the same way. IR works when its server allows

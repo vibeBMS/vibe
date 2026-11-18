@@ -66,6 +66,9 @@ pub struct Text {
     /// The UI fonts in fallback order: a character is drawn with the first
     /// that has it.
     fonts: Vec<Slot>,
+    /// How many of `fonts` were there from the start (those added later
+    /// follow).
+    built_in: usize,
     /// Where the system fonts in `fonts` are read from.
     db: fontdb::Database,
     /// Fonts skins bring (by file), drawn with when `face` is set.
@@ -214,7 +217,35 @@ impl Text {
             db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
         }
         let mut used = std::collections::HashSet::new();
-        for fam in PREFERRED_FAMILIES {
+        // the UI language's own CJK fonts first: Chinese and Korean text
+        // drawn the way they write it, not with Japanese glyph forms
+        let own: &[&str] = match crate::i18n::current() {
+            crate::i18n::Lang::Ko => &[
+                "Noto Sans CJK KR",
+                "Source Han Sans K",
+                "Noto Sans KR",
+                "Malgun Gothic",
+                "Apple SD Gothic Neo",
+            ],
+            crate::i18n::Lang::ZhHans => &[
+                "Noto Sans CJK SC",
+                "Source Han Sans SC",
+                "Noto Sans SC",
+                "Microsoft YaHei UI",
+                "Microsoft YaHei",
+                "PingFang SC",
+            ],
+            crate::i18n::Lang::ZhHant => &[
+                "Noto Sans CJK TC",
+                "Source Han Sans TC",
+                "Noto Sans TC",
+                "Microsoft JhengHei UI",
+                "Microsoft JhengHei",
+                "PingFang TC",
+            ],
+            _ => &[],
+        };
+        for fam in own.iter().chain(PREFERRED_FAMILIES) {
             let q = fontdb::Query {
                 families: &[fontdb::Family::Name(fam)],
                 ..Default::default()
@@ -242,6 +273,7 @@ impl Text {
             log::error!("no usable font found; text will not be displayed. Put a .ttf into the fonts/ folder.");
         }
         Text {
+            built_in: fonts.len(),
             fonts,
             db,
             faces: Vec::new(),
@@ -257,13 +289,22 @@ impl Text {
         }
     }
 
-    /// Add a fallback font at runtime (e.g. downloaded by the web build).
-    pub fn add_font(&mut self, data: Vec<u8>) {
+    /// Add a fallback font at runtime (e.g. downloaded by the web build):
+    /// the last, or with `first` before the others downloaded (the UI
+    /// language's own: its characters drawn the way that language writes
+    /// them).
+    pub fn add_font(&mut self, data: Vec<u8>, first: bool) {
         match fontdue::Font::from_bytes(data, settings(0)) {
             Ok(f) => {
-                self.fonts.push(Slot::Ready(f));
-                // glyphs drawn with a stand-in so far: draw them again
-                self.font_of.retain(|_, v| v.is_some());
+                if first {
+                    self.fonts.insert(self.built_in, Slot::Ready(f));
+                    // (the fonts after it moved)
+                    self.font_of.clear();
+                } else {
+                    self.fonts.push(Slot::Ready(f));
+                    // glyphs drawn with a stand-in so far: draw them again
+                    self.font_of.retain(|_, v| v.is_some());
+                }
                 self.reset_atlas();
             }
             Err(e) => log::warn!("font: {e}"),
