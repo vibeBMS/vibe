@@ -88,6 +88,61 @@ vibebms_core::choices! {
 }
 
 vibebms_core::choices! {
+    /// When the BGA shows (beatoraja's BGA ON / AUTO / OFF, in its order:
+    /// skin button 72's index). AUTO: only when watching (autoplay, a
+    /// replay), not in a play of your own.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub enum BgaMode {
+        #[default]
+        On => "ON",
+        Auto => "AUTO",
+        Off => "OFF",
+    }
+}
+
+impl BgaMode {
+    /// Whether the BGA shows in a play that is watched (`watching`:
+    /// autoplay, a replay) or played.
+    pub fn shown(self, watching: bool) -> bool {
+        match self {
+            BgaMode::On => true,
+            BgaMode::Auto => watching,
+            BgaMode::Off => false,
+        }
+    }
+}
+
+/// Kept as it was before AUTO: ON `true`, OFF `false`; AUTO by its label.
+impl Serialize for BgaMode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            BgaMode::On => s.serialize_bool(true),
+            BgaMode::Off => s.serialize_bool(false),
+            m => s.serialize_str(m.label()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BgaMode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Label(String),
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Bool(true) => BgaMode::On,
+            Raw::Bool(false) => BgaMode::Off,
+            Raw::Label(l) => {
+                let m = BgaMode::ALL.into_iter().find(|m| m.label().eq_ignore_ascii_case(&l));
+                m.ok_or_else(|| serde::de::Error::custom(format!("BGA mode {l}")))?
+            }
+        })
+    }
+}
+
+vibebms_core::choices! {
     /// Which BPM a fixed green number is kept at (beatoraja HS-FIX order).
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
     pub enum HsFix {
@@ -182,7 +237,7 @@ pub struct PlayConfig {
     pub judge_offset_ms: i32,
     /// Shift the note display (ms).
     pub visual_offset_ms: i32,
-    pub bga: bool,
+    pub bga: BgaMode,
     pub bga_size: BgaSize,
     pub show_fast_slow: bool,
     /// FAST / SLOW only for a judgement more than this many ms off (0: any
@@ -446,7 +501,7 @@ impl Default for PlayConfig {
             lane_cover: false,
             judge_offset_ms: 0,
             visual_offset_ms: 0,
-            bga: true,
+            bga: BgaMode::On,
             bga_size: BgaSize::Normal,
             show_fast_slow: true,
             fast_slow_ms: 0,
@@ -468,6 +523,18 @@ impl Default for PlayConfig {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    #[test]
+    fn bga_mode_reads_and_writes_as_before() {
+        for (text, mode) in [("true", BgaMode::On), ("false", BgaMode::Off), ("\"AUTO\"", BgaMode::Auto)] {
+            let c: Config = toml::from_str(&format!("[play]\nbga = {text}\n")).unwrap();
+            assert_eq!(c.play.bga, mode);
+            let out = toml::to_string(&c).unwrap();
+            assert!(out.contains(&format!("bga = {text}\n")), "{out}");
+        }
+        assert!(BgaMode::Auto.shown(true) && !BgaMode::Auto.shown(false));
+        assert!(BgaMode::On.shown(false) && !BgaMode::Off.shown(true));
+    }
 
     #[test]
     fn fast_slow_beyond_the_threshold() {

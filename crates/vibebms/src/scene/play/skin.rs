@@ -296,7 +296,9 @@ impl<'a> PlayState<'a> {
             30 | 31 | 34..=39 => return display_option(p, id),
             50 => true,
             51 => false,
-            32 | 33 | 40..=43 | 1046 => return play_option(s.req.autoplay, p.bga, p.gauge, id),
+            32 | 33 | 40..=43 | 1046 => {
+                return play_option(s.req.autoplay, s.bga_shown(self.ctx), p.gauge, id)
+            }
             // the gauge in use (vibeBMS ids, as on the result screen)
             118..=125 => {
                 let g = self.engine.map_or(p.gauge, |e| e.gauge.current_type());
@@ -772,7 +774,7 @@ impl Hooks for PlayHooks<'_> {
     fn bga(&mut self, d: &mut Draw, rect: Rect) {
         let s = self.st.s;
         d.b.rect(rect, [0.0, 0.0, 0.0, 1.0]);
-        if !self.st.ctx.config.play.bga {
+        if !s.bga_shown(self.st.ctx) {
             return;
         }
         let mut shown = false;

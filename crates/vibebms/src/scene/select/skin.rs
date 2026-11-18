@@ -491,7 +491,7 @@ impl<'a> SelectState<'a> {
             2 => matches!(self.bar, Some(Bar::Song(_) | Bar::Missing(_))),
             3 => matches!(self.bar, Some(Bar::Course(_))),
             5 => song.is_some(),
-            32 | 33 | 40..=43 | 1046 => return play_option(p.autoplay, p.bga, p.gauge, id),
+            32 | 33 | 40..=43 | 1046 => return play_option(p.autoplay, p.bga.shown(p.autoplay), p.gauge, id),
             30 | 31 | 34..=39 => return display_option(p, id),
             100..=105 | 1100..=1104 => {
                 let c = self.best.map(|b| b.clear).unwrap_or(ClearType::NoPlay);

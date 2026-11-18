@@ -421,6 +421,16 @@ impl PlayScene {
         }
     }
 
+    /// The play is watched (autoplay, a replay), not played.
+    pub(crate) fn watching(&self) -> bool {
+        self.req.autoplay || self.req.replay.is_some()
+    }
+
+    /// The BGA shows in this play (BGA ON, or AUTO when watching).
+    pub(crate) fn bga_shown(&self, ctx: &Ctx) -> bool {
+        ctx.config.play.bga.shown(self.watching())
+    }
+
     fn ending_at(&self) -> Option<Instant> {
         match self.stage {
             Stage::Ending { since, .. } => Some(since),

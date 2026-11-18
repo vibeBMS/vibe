@@ -7,7 +7,7 @@ use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
-use crate::config::{AudioSettings, BgaSize, Ghost, PlayConfig};
+use crate::config::{AudioSettings, BgaMode, BgaSize, Ghost, PlayConfig};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
     HISPEED_STEP,
@@ -246,7 +246,7 @@ impl SelectOption {
             SelectOption::Hidden => pct(p.hidden),
             SelectOption::Lift => pct(p.lift),
             SelectOption::AutoScratch => onoff(p.auto_scratch).into(),
-            SelectOption::Bga => onoff(p.bga).into(),
+            SelectOption::Bga => p.bga.label().into(),
             SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
@@ -373,7 +373,7 @@ impl SelectScene {
             SelectOption::Hidden => cover(&mut p.hidden, d, 0.9),
             SelectOption::Lift => cover(&mut p.lift, d, 0.6),
             SelectOption::AutoScratch => p.auto_scratch ^= true,
-            SelectOption::Bga => p.bga ^= true,
+            SelectOption::Bga => p.bga = cycle(&BgaMode::ALL, p.bga, d),
             SelectOption::TimingAutoAdjust => p.timing_auto_adjust ^= true,
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
@@ -530,7 +530,7 @@ impl SelectScene {
                 true
             }
             72 => {
-                p.bga ^= true;
+                p.bga = cycle(&BgaMode::ALL, p.bga, d);
                 true
             }
             _ => false,

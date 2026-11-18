@@ -427,14 +427,8 @@ pub fn config_button(ctx: &Ctx, id: i32) -> Option<i64> {
         54 => super::option_panel::dp_index(p),
         // beatoraja HS-FIX: off, start, max, main, min BPM
         55 => p.hs_fix as i64,
-        // beatoraja BGA: 0 on, 2 off
-        72 => {
-            if p.bga {
-                0
-            } else {
-                2
-            }
-        }
+        // beatoraja BGA: 0 on, 1 auto, 2 off
+        72 => p.bga as i64,
         // beatoraja assist buttons vibeBMS has (0 off, 1 on)
         301 => p.expand_judge as i64,
         302 => (p.hispeed_mode == HiSpeedMode::Constant) as i64,

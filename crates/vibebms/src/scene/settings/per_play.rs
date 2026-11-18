@@ -5,7 +5,7 @@
 
 use super::row::{percent, Row, Rows};
 use crate::app::Ctx;
-use crate::config::{HsFix, HsType, Side, HISPEED_STEP};
+use crate::config::{BgaMode, HsFix, HsType, Side, HISPEED_STEP};
 use crate::scene::option_panel::{cycle, dp_index, onoff, set_dp_index};
 use crate::scene::select::REFERENCE_BPMS;
 use crate::scene::target;
@@ -310,8 +310,8 @@ pub(super) fn rows(b: &mut Rows) {
         Row::adjust("play.autoplay", "Autoplay", onoff(p.autoplay), |c, _| {
             c.config.play.autoplay ^= true
         }),
-        Row::adjust("play.bga", "BGA", onoff(p.bga), |c, _| {
-            c.config.play.bga ^= true
+        Row::adjust("play.bga", "BGA", p.bga.label(), |c, d| {
+            c.config.play.bga = cycle(&BgaMode::ALL, c.config.play.bga, d)
         }),
         Row::adjust(
             "play.show_fast_slow",
