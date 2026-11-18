@@ -15,7 +15,7 @@
 use super::options::{self, SelectOption};
 use super::preview::Rank;
 use super::status::{self, SIBLINGS};
-use super::tree::{table, Bar, CourseBar, Node};
+use super::tree::{table, Bar, BulkBar, CourseBar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
@@ -268,6 +268,7 @@ fn folder_kind(node: &Node) -> (usize, usize) {
         Node::Table(_) | Node::Level(..) => (BAR_TABLE, BAR_TABLE),
         Node::Search(_) => (BAR_SEARCH, BAR_SEARCH),
         Node::SameFolder(_) => (BAR_VIRTUAL, BAR_FOLDER),
+        Node::Downloads => (BAR_COMMAND, BAR_FOLDER),
         Node::Archive(_) => (BAR_EVENT, BAR_FOLDER),
         Node::Favorites => (BAR_FAVORITE, BAR_FOLDER),
         Node::Smart(_) => (BAR_VIRTUAL, BAR_FOLDER),
@@ -490,6 +491,56 @@ impl<'a> SelectState<'a> {
                     r => format!("RANDOM SELECT ({})", r.label()),
                 },
             ),
+            Bar::Bulk(b) => {
+                let bulk = &ctx.net.bulk;
+                let [queued, downloading, _, failed] = bulk.counts();
+                match b {
+                    BulkBar::Queue(_, n) => plain(
+                        BAR_COMMAND,
+                        BAR_COMMAND,
+                        format!("DOWNLOAD MISSING ({n} charts)"),
+                    ),
+                    BulkBar::RetryFailed => {
+                        plain(BAR_COMMAND, BAR_COMMAND, format!("RETRY FAILED ({failed})"))
+                    }
+                    BulkBar::CancelAll => plain(
+                        BAR_COMMAND,
+                        BAR_COMMAND,
+                        format!("CANCEL ({} to go)", queued + downloading),
+                    ),
+                    BulkBar::ClearFinished => {
+                        plain(BAR_COMMAND, BAR_COMMAND, "CLEAR FINISHED".into())
+                    }
+                    BulkBar::Item(k) => {
+                        let it = bulk.items.get(*k)?;
+                        let w = &it.want;
+                        let why = match &it.state {
+                            crate::bulk::State::Done(s) | crate::bulk::State::Failed(s) => {
+                                format!("  ({s})")
+                            }
+                            _ => String::new(),
+                        };
+                        let kind = match it.state {
+                            crate::bulk::State::Done(_) => BAR_SONG,
+                            _ => BAR_NOSONG,
+                        };
+                        BarInfo {
+                            level: w
+                                .level
+                                .chars()
+                                .filter(|c| c.is_ascii_digit())
+                                .collect::<String>()
+                                .parse()
+                                .ok(),
+                            ..plain(
+                                kind,
+                                kind,
+                                format!("[{}] {}{why}", it.state.label(), w.title),
+                            )
+                        }
+                    }
+                }
+            }
             Bar::Missing(m) => BarInfo {
                 // the table's level ("★12" -> 12)
                 level: m
@@ -1018,8 +1069,15 @@ impl Hooks for SelectHooks<'_> {
                 }
             }
             // a table song downloading: how far it has got, over its bar
-            if let Some(Bar::Missing(m)) = s.bars.get(idx) {
-                if let Some(p) = self.st.ctx.net.song_fetch.progress(&m.title, &m.artist) {
+            let fetching = match s.bars.get(idx) {
+                Some(Bar::Missing(m)) => Some((&m.title, &m.artist)),
+                Some(Bar::Bulk(BulkBar::Item(k))) => {
+                    (self.st.ctx.net.bulk.items.get(*k)).map(|i| (&i.want.title, &i.want.artist))
+                }
+                _ => None,
+            };
+            if let Some((title, artist)) = fetching {
+                if let Some(p) = self.st.ctx.net.song_fetch.progress(title, artist) {
                     download_progress(d, sr, p, now);
                 }
             }

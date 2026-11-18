@@ -94,6 +94,8 @@ pub struct Net {
     pub archives: crate::archive::Archives,
     /// Difficulty-table songs downloading.
     pub song_fetch: crate::songfetch::SongFetch,
+    /// A table's or a level's missing charts, downloaded in turn.
+    pub bulk: crate::bulk::Bulk,
     /// The desktop executable's self-update.
     pub updater: crate::update::Updater,
     /// Download pages to show in the in-app browser (song, then chart).
@@ -209,6 +211,7 @@ impl Ctx {
             hosts: crate::hosts::context(&config),
             archives: Default::default(),
             song_fetch: Default::default(),
+            bulk: Default::default(),
             updater: Default::default(),
             browse: None,
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
@@ -441,6 +444,7 @@ impl Ctx {
     pub fn poll_jobs(&mut self) {
         let mut events = self.net.archives.poll(&self.paths);
         events.extend(self.net.song_fetch.poll());
+        crate::bulk::tick(self, Instant::now());
         events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
         events.extend(self.skins.store.poll(&self.paths));
         let now = crate::platform::unix_ms();

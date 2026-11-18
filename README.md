@@ -228,6 +228,15 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   opens; a downloaded chart goes into its song's folder (the folder with the same title and artist, as the library
   was last read, that holds every sound it needs; when unsure, the app asks). Downloads are kept in `downloads/`. Android and iOS use the in-app
   browser too (over the game screen); the web build opens the system browser.
+- **Bulk downloads**: a table's folder and each of its levels start with DOWNLOAD MISSING (n charts) while the library
+  lacks any of their charts; choosing it queues them all. The queue downloads through the same path as a chart chosen
+  alone (its links, the other links known for it, the song before its separate chart), two at a time and a new one
+  2 s after the last at the soonest, so hosts are not hammered; a chart whose song another of its charts is
+  downloading waits for it, and one the library has by then is done at once. DOWNLOADS at the root (while the queue
+  is not empty) lists every chart as QUEUED, DOWNLOADING (with its progress), DONE, FAILED (with why), PAGE ONLY (its
+  links lead only to a page: choosing it opens the page, as for a chart chosen alone; the queue never opens pages) or
+  CANCELLED, after CANCEL, RETRY FAILED and CLEAR FINISHED. Choosing a queued or downloading chart cancels it, a
+  failed or cancelled one queues it again. The queue is kept until the game closes.
 - **Third-party mirrors** (`SETTINGS › LIBRARY`, off by default): other people's copies of dead uploaders and sites
   (darksabun.club, bms.hexlataia.xyz) and the community archive (bms.kyouko.moe). What is found there by name only
   goes into the library if it holds the chart wanted (by its MD5).

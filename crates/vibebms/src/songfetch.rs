@@ -32,10 +32,97 @@ impl SongId {
 #[derive(Default)]
 pub struct SongFetch {
     /// The songs downloading (one cancelled until it has stopped), and
-    /// what became of their links.
-    jobs: Vec<(SongId, Job<Vec<Done>>)>,
+    /// what became of their links; quiet: a bulk download's (no messages,
+    /// no pages opened: its outcome in `ended`).
+    jobs: Vec<(SongId, Job<Vec<Done>>, bool)>,
     /// Songs in the library, until the library has been read again.
     adding: Vec<(SongId, Arc<Progress>)>,
+    /// The quiet downloads that ended, until taken.
+    ended: Vec<(String, String, Outcome)>,
+}
+
+/// What a song's download came to, in a word.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Outcome {
+    /// In the library (how).
+    Got(String),
+    /// Only a page to download it from.
+    Page(String),
+    Failed(String),
+    Cancelled,
+}
+
+impl Outcome {
+    fn of(d: &[Done], cancelled: bool) -> Outcome {
+        let name = |p: &Path| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        if cancelled {
+            return Outcome::Cancelled;
+        }
+        for x in d {
+            match x {
+                Done::Added(dir, _) => return Outcome::Got(format!("added {}", name(dir))),
+                Done::Owned(dir) => return Outcome::Got(format!("already in {}", name(dir))),
+                Done::Placed(p) => {
+                    let dir = p.parent().map(name).unwrap_or_default();
+                    return Outcome::Got(format!("put into {dir}"));
+                }
+                _ => {}
+            }
+        }
+        if d.iter().any(|x| matches!(x, Done::Waiting(_))) {
+            return Outcome::Failed("the chart came, its song is not in the library".into());
+        }
+        if let Some(url) = d.iter().find_map(|x| match x {
+            Done::Page(u) => Some(u.clone()),
+            _ => None,
+        }) {
+            return Outcome::Page(url);
+        }
+        match d.iter().rev().find_map(|x| match x {
+            Done::Failed(e) => Some(e),
+            _ => None,
+        }) {
+            Some(e) if e.cancelled() => Outcome::Cancelled,
+            Some(e) => Outcome::Failed(e.to_string()),
+            None => Outcome::Failed("nothing came".into()),
+        }
+    }
+}
+
+/// What to download for a table's chart `w`: its links, then the others
+/// known for the chart (`known`), then `more`.
+pub fn entry(
+    known: &bmseeker::links::Links,
+    w: &crate::bulk::Wanted,
+    more: Vec<String>,
+) -> bmseeker::install::Entry {
+    let e = bmseeker::table::TableEntry {
+        md5: w.md5.clone(),
+        url: w.url.clone(),
+        url_diff: w.url_diff.clone(),
+        ..Default::default()
+    };
+    let mut song = known.song_links(&e);
+    for u in more {
+        if !song.contains(&u) {
+            song.push(u);
+        }
+    }
+    bmseeker::install::Entry {
+        md5: w.md5.clone(),
+        want: crate::hosts::Want {
+            title: w.title.clone(),
+            artist: w.artist.clone(),
+        },
+        org_md5: w.org_md5.clone(),
+        song,
+        chart: known.chart_links(&e),
+        ..Default::default()
+    }
 }
 
 /// What a link brought (`bytes`; a chart's own link: its file name
@@ -93,7 +180,7 @@ impl SongFetch {
         let id = SongId::new(title, artist);
         self.jobs
             .iter()
-            .map(|(s, job)| (s, job.progress()))
+            .map(|(s, job, _)| (s, job.progress()))
             .filter(|(_, p)| !p.cancelled())
             .chain(self.adding.iter().map(|(s, p)| (s, p)))
             .find(|(s, _)| **s == id)
@@ -107,9 +194,9 @@ impl SongFetch {
         match self
             .jobs
             .iter()
-            .find(|(s, job)| *s == id && !job.progress().cancelled())
+            .find(|(s, job, _)| *s == id && !job.progress().cancelled())
         {
-            Some((_, job)) => {
+            Some((_, job, _)) => {
                 job.cancel();
                 true
             }
@@ -127,7 +214,8 @@ impl SongFetch {
     /// add-ons `addons`, into the library as the player read it (`songs`):
     /// `bmseeker::install::EntryJob` (natively on a thread; on the web
     /// through the vibeBMS proxy, unpacked / placed in memory). False when
-    /// there is nothing to try.
+    /// there is nothing to try. `quiet` (a bulk download): no messages and
+    /// no pages opened, its outcome kept for [`Self::take_ended`].
     pub fn start(
         &mut self,
         root: &Path,
@@ -135,6 +223,7 @@ impl SongFetch {
         cx: &crate::hosts::Context,
         mut e: bmseeker::install::Entry,
         addons: Vec<String>,
+        quiet: bool,
     ) -> bool {
         use bmseeker::install::job::Installed;
         if self.is_busy(&e.want.title, &e.want.artist) {
@@ -180,27 +269,42 @@ impl SongFetch {
             crate::platform::run_job(job, Some(progress), finish);
         });
         if started {
-            self.jobs.push((id, job));
+            self.jobs.push((id, job, quiet));
         }
         started
+    }
+
+    /// The quiet downloads that ended since the last call: song title,
+    /// artist, outcome.
+    pub fn take_ended(&mut self) -> Vec<(String, String, Outcome)> {
+        std::mem::take(&mut self.ended)
     }
 
     /// What the songs that finished since the last call brought.
     pub fn poll(&mut self) -> Vec<AppEvent> {
         let mut done = Vec::new();
-        self.jobs.retain_mut(|(id, job)| match job.poll() {
+        self.jobs.retain_mut(|(id, job, quiet)| match job.poll() {
             Some(d) => {
-                done.push((std::mem::take(id), job.progress().clone(), d));
+                done.push((std::mem::take(id), job.progress().clone(), d, *quiet));
                 false
             }
             None => true,
         });
         let mut out = Vec::new();
-        for (id, p, d) in done {
+        for (id, p, d, quiet) in done {
             // in the library: until it is read again
             if !p.cancelled() && bmseeker::install::got(&d) {
                 p.set_stage(Stage::Adding);
-                self.adding.push((id.clone(), p));
+                self.adding.push((id.clone(), p.clone()));
+            }
+            if quiet {
+                // (the library read again for what came)
+                if bmseeker::install::got(&d) {
+                    out.push(AppEvent::Rescan);
+                }
+                let o = Outcome::of(&d, p.cancelled());
+                self.ended.push((id.title, id.artist, o));
+                continue;
             }
             out.extend(d.into_iter().flat_map(|d| events(&id.title, d)));
         }
@@ -290,6 +394,28 @@ mod tests {
             .flatten()
             .flatten()
             .all(|e| !e.file_name().to_string_lossy().starts_with(".take-"))
+    }
+
+    /// What a song's download came to, in a word, for the bulk queue.
+    #[test]
+    fn outcomes() {
+        use std::path::PathBuf;
+        let added = Done::Added(PathBuf::from("/bms/Song"), 3);
+        let page = Done::Page("https://example.org/dl".into());
+        let failed = Done::Failed(Failure::NotTheChart);
+        assert_eq!(
+            Outcome::of(&[failed.clone(), added], false),
+            Outcome::Got("added Song".into())
+        );
+        assert_eq!(
+            Outcome::of(&[page, failed.clone()], false),
+            Outcome::Page("https://example.org/dl".into())
+        );
+        assert!(matches!(
+            Outcome::of(std::slice::from_ref(&failed), false),
+            Outcome::Failed(_)
+        ));
+        assert_eq!(Outcome::of(&[failed], true), Outcome::Cancelled);
     }
 
     /// The web build's separate chart archive: the chart wanted waits (no
@@ -399,7 +525,7 @@ mod tests {
                 bmseeker::net::NetError::Cancelled,
             ))]
         });
-        f.jobs.push((SongId::new("Aurora", "alpha"), job));
+        f.jobs.push((SongId::new("Aurora", "alpha"), job, false));
         assert!(f.is_busy("Aurora", "alpha") && !f.is_busy("Aurora", "beta"));
         assert!(f.progress("Aurora", "beta").is_none());
         assert!(!f.cancel("Aurora", "beta"));

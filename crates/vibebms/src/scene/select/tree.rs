@@ -29,6 +29,8 @@ pub(crate) enum Node {
     Search(String),
     /// SAME FOLDER: the charts in a chart's folder (`song_dir`).
     SameFolder(String),
+    /// DOWNLOADS: the bulk download queue (`ctx.net.bulk`).
+    Downloads,
     /// A mirrored event, by its index's URL (the events are rebuilt as the
     /// lists arrive).
     Archive(String),
@@ -128,6 +130,36 @@ pub(crate) enum Bar {
     /// RANDOM SELECT: plays one of the folder's charts
     /// (`SelectConfig::random`).
     Random,
+    /// The bulk download queue's commands and charts.
+    Bulk(BulkBar),
+}
+
+/// A bar of the bulk downloads.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum BulkBar {
+    /// DOWNLOAD MISSING: every chart of this table or level the library
+    /// lacks queued (how many).
+    Queue(Node, usize),
+    RetryFailed,
+    CancelAll,
+    ClearFinished,
+    /// A chart in the queue (`ctx.net.bulk.items`).
+    Item(usize),
+}
+
+impl Missing {
+    /// What the bulk queue downloads of it.
+    pub(crate) fn wanted(&self) -> crate::bulk::Wanted {
+        crate::bulk::Wanted {
+            title: self.title.clone(),
+            artist: self.artist.clone(),
+            md5: self.md5.clone(),
+            org_md5: self.org_md5.clone(),
+            level: self.level.clone(),
+            url: self.url.clone(),
+            url_diff: self.url_diff.clone(),
+        }
+    }
 }
 
 /// A course in a list.
@@ -262,6 +294,7 @@ impl SelectScene {
             Bar::Missing(m) => format!("m:{}\u{1f}{}", m.title, m.artist),
             Bar::Course(c) => format!("c:{c:?}"),
             Bar::Random => "r".into(),
+            Bar::Bulk(b) => format!("b:{b:?}"),
         }
     }
 
@@ -286,6 +319,17 @@ impl SelectScene {
                     node: Node::All,
                     count: songs.iter().filter(|s| shown(s)).count(),
                 }];
+                // the bulk downloads, while there are any
+                let queue = &ctx.net.bulk;
+                if !queue.items.is_empty() {
+                    let [q, d, ..] = queue.counts();
+                    bars.push(Bar::Folder {
+                        label: "DOWNLOADS".into(),
+                        sub: format!("{} to go", q + d),
+                        node: Node::Downloads,
+                        count: queue.items.len(),
+                    });
+                }
                 bars.push(Bar::Folder {
                     label: "FAVORITE".into(),
                     sub: "♥".into(),
@@ -434,6 +478,21 @@ impl SelectScene {
                         .collect(),
                 )
             }
+            Node::Downloads => {
+                let [queued, downloading, _, failed] = ctx.net.bulk.counts();
+                let mut bars = Vec::new();
+                if queued + downloading > 0 {
+                    bars.push(Bar::Bulk(BulkBar::CancelAll));
+                }
+                if failed > 0 {
+                    bars.push(Bar::Bulk(BulkBar::RetryFailed));
+                }
+                if ctx.net.bulk.items.iter().any(|i| !i.state.active()) {
+                    bars.push(Bar::Bulk(BulkBar::ClearFinished));
+                }
+                bars.extend((0..ctx.net.bulk.items.len()).map(|k| Bar::Bulk(BulkBar::Item(k))));
+                bars
+            }
             Node::SameFolder(dir) => sorted(
                 (0..songs.len())
                     .filter(|i| super::status::song_dir(&songs[*i]) == *dir)
@@ -557,6 +616,11 @@ impl SelectScene {
     pub(super) fn listing(&self, ctx: &Ctx, node: &Node) -> Vec<Bar> {
         let mut bars = self.build(ctx, node, true);
         let count = bars.len();
+        // a table's or a level's: DOWNLOAD MISSING
+        let missing = self.missing_of(ctx, node).len();
+        if missing > 0 {
+            bars.insert(0, Bar::Bulk(BulkBar::Queue(node.clone(), missing)));
+        }
         if bars.iter().any(|b| matches!(b, Bar::Song(_))) {
             bars.insert(0, Bar::Random);
         }
@@ -625,6 +689,29 @@ impl SelectScene {
         Some(d)
     }
 
+    /// The charts a table (`Node::Table`) or a level lists that the
+    /// library lacks, as the bulk queue takes them.
+    pub(crate) fn missing_of(&self, ctx: &Ctx, node: &Node) -> Vec<crate::bulk::Wanted> {
+        let of = |bars: Vec<Bar>| -> Vec<crate::bulk::Wanted> {
+            (bars.into_iter())
+                .filter_map(|b| match b {
+                    Bar::Missing(m) => Some(m.wanted()),
+                    _ => None,
+                })
+                .collect()
+        };
+        match node {
+            Node::Level(..) => of(self.build(ctx, node, false)),
+            Node::Table(_) => (self.build(ctx, node, false).into_iter())
+                .flat_map(|b| match b {
+                    Bar::Folder { node, .. } => of(self.build(ctx, &node, false)),
+                    _ => Vec::new(),
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// The name of a folder, as the path shows it.
     pub(super) fn node_name(&self, ctx: &Ctx, n: &Node) -> String {
         match n {
@@ -642,6 +729,7 @@ impl SelectScene {
             Node::MyCourses(k) => format!("{} COURSES", k.label()),
             Node::Level(t, l) => table(ctx, t).map(|t| t.label(l)).unwrap_or_default(),
             Node::Search(q) => format!("SEARCH \"{q}\""),
+            Node::Downloads => "DOWNLOADS".into(),
             Node::SameFolder(d) => format!(
                 "SAME FOLDER {}",
                 Path::new(d)
@@ -984,6 +1072,64 @@ mod tests {
         ctx.config.play.judge_preset = JudgePreset::Lr2;
         ctx.config.select.random = RandomSelect::NotFc;
         assert_eq!(random_candidates(&ctx, &bars).len(), 4);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A level's (and its table's) missing charts: DOWNLOAD MISSING queues
+    /// them, and DOWNLOADS at the root lists the queue.
+    #[test]
+    fn download_missing_queues_a_level() {
+        use bmseeker::table::{DifficultyTable, TableEntry};
+        let root = std::env::temp_dir().join(format!("vibebms-bulk-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut have = song("have", PlayMode::Beat7K, 4, "1", 0);
+        have.md5 = "a".repeat(32);
+        ctx.lib.songs = Arc::new(vec![have]);
+        let entry = |md5: char, level: &str| TableEntry {
+            md5: md5.to_string().repeat(32),
+            level: level.into(),
+            title: format!("song {md5}"),
+            ..Default::default()
+        };
+        ctx.tables.list = vec![DifficultyTable {
+            source_url: "t".into(),
+            entries: vec![
+                entry('a', "1"),
+                entry('b', "1"),
+                entry('c', "1"),
+                entry('d', "2"),
+            ],
+            ..Default::default()
+        }];
+        let mut s = SelectScene::new(&mut ctx);
+        let level = Node::Level("t".into(), "1".into());
+        assert_eq!(s.missing_of(&ctx, &level).len(), 2);
+        assert_eq!(s.missing_of(&ctx, &Node::Table("t".into())).len(), 3);
+        s.enter(&mut ctx, level.clone());
+        let at = (s.bars.iter())
+            .position(|b| matches!(b, Bar::Bulk(BulkBar::Queue(_, 2))))
+            .unwrap();
+        s.cursor = at;
+        s.decide(&mut ctx, false);
+        assert_eq!(ctx.net.bulk.counts(), [2, 0, 0, 0]);
+        let root_bars = s.build(&ctx, &Node::Root, true);
+        assert!(root_bars.iter().any(|b| matches!(
+            b,
+            Bar::Folder {
+                node: Node::Downloads,
+                count: 2,
+                ..
+            }
+        )));
+        let queue = s.build(&ctx, &Node::Downloads, true);
+        assert!(matches!(
+            queue[..],
+            [
+                Bar::Bulk(BulkBar::CancelAll),
+                Bar::Bulk(BulkBar::Item(0)),
+                Bar::Bulk(BulkBar::Item(1))
+            ]
+        ));
         std::fs::remove_dir_all(&root).ok();
     }
 }
