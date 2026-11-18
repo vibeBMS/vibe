@@ -396,7 +396,7 @@ impl SelectScene {
 }
 
 /// Whether `code` is bound to a lane, a turntable or a START / SELECT key of
-/// either side (or PMS): a letter shortcut on such a key would fire on a
+/// either side (or PMS, or 4 / 6 / 8 keys): a letter shortcut on such a key would fire on a
 /// player's key press.
 fn is_play_key(keys: &KeyConfig, code: KeyCode) -> bool {
     let has = |l: &LaneKeys| l.keys.contains(&code);
@@ -404,6 +404,9 @@ fn is_play_key(keys: &KeyConfig, code: KeyCode) -> bool {
         .iter()
         .any(|s| s.keys.iter().any(has) || has(&s.scratch_up) || has(&s.scratch_down))
         || keys.pms.iter().any(has)
+        || [&keys.k4, &keys.k6, &keys.k8]
+            .into_iter()
+            .any(|k| k.iter().any(has))
         || [&keys.start, &keys.select, &keys.p2_start, &keys.p2_select]
             .into_iter()
             .any(has)

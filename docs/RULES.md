@@ -422,6 +422,30 @@ S-RANDOM's intervals are real time).
   own speed) play at 0. G-BATTLE plays at the opponent's replay's FREQ.
 * Replays keep it (a replay of before has 0) and play at it again; the play record (`RuleFacts::freq`) too.
 
+## 4, 6 and 8 keys (Qwilight-style charts)
+bmz-player plays "Qwilight / UE-style BMS (4K / 6K / 8K)" (its README) with key configs and the key mode filter
+ALL → 7K → 14K → 9K → 5K → 10K → 4K → 6K → 8K (`docs/controls.md`); its `docs/rule.md` says beatoraja has no mode
+for them, so they take 7 keys' rules. Qwilight's chart-making guide (taehui.net forum, Qwilight board, post 496)
+says a 4 key chart needs the `#4K` header and a 6 key chart `#6K`, and that "4 keys use neither the scratch nor
+lanes 3, 6 and 7; 6 keys neither the scratch nor lane 4". vibeBMS reads them so (`bms/build.rs`,
+`qwilight_lane`), in a `.bms` / `.bme` / `.bml` file with the header (without it the same channels are a 5 or 7
+key chart, as before):
+* `#4K` (`PlayMode::Key4`): keys 1, 2, 4, 5 (channels 11, 12, 14, 15 and their long note and mine channels) are
+  its 4 lanes; 13, 16, 18, 19 are on no lane.
+* `#6K` (`Key6`): keys 1-3, 5-7 (11, 12, 13, 15, 18, 19); 14 and 16 are on no lane.
+* `#8K` (`Key8`): no source says how 8 keys are written; vibeBMS takes the 7 key chart's eight lanes, the scratch
+  (16) as the leftmost key, then keys 1-7. bmz-player's 8K hi-speed key table (KEY1 to KEY8) shows 8 keys of
+  one kind, no scratch.
+* Channels 2x (2P) are on no lane; a bmson has no mode hint for them (`beat-4k` and the like are in no bmson
+  spec), so bmson charts are never these modes.
+* No scratch: the lanes are keys only. Judge windows and gauges are 7 keys' (`RuleFamily::SevenKeys`) under every
+  preset; empty POOR and the combo as 7 keys.
+* Records are the chart's (by its hash) as for any mode. No IR ranks these modes: no provider documents them,
+  and the rule profiles (vibe-LR2: 5/7/10/14 keys; vibe-beatoraja: beatoraja's five modes) do not take them, so
+  every IR, vibeBMS's own included, refuses them (`Refusal::KeyMode`).
+* No beatoraja or LR2 skin type exists for them: they play on the built-in default skins (vibeBMS's own types
+  104 / 106 / 108), or the touch perspective skin.
+
 ## Best scores
 The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
 the max combo, the min BP (BAD + POOR + empty POOR + notes not reached, skin number 76) and the min CB (combo

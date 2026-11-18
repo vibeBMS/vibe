@@ -36,6 +36,8 @@ pub enum Refusal {
     Aborted,
     /// Played at another FREQ (another speed and pitch).
     Freq,
+    /// A key mode no IR ranks (Qwilight's 4K / 6K / 8K).
+    KeyMode(PlayMode),
     Assist,
     /// Its rules are no profile's.
     LocalRules,
@@ -241,6 +243,10 @@ fn passes(rec: &PlayRecord, g: &Gate) -> Result<Profile, Refusal> {
     gate(rec.course.is_some(), Refusal::CourseStage)?;
     gate(f.aborted, Refusal::Aborted)?;
     gate(rec.rules.freq != 0, Refusal::Freq)?;
+    gate(
+        rec.chart.mode.is_qwilight(),
+        Refusal::KeyMode(rec.chart.mode),
+    )?;
     gate(rec.rules.assist.level() != Assist::None, Refusal::Assist)?;
     let profile = profile_of(rec).ok_or(Refusal::LocalRules)?;
     gate(g.third_party && (d.touch > 0 || d.touch_ui), Refusal::Touch)?;
@@ -696,6 +702,19 @@ mod tests {
         ] {
             assert_eq!(eligible(&practice, p), Err(Refusal::Practice), "{p:?}");
             assert_eq!(eligible(&freq, p), Err(Refusal::Freq), "{p:?}");
+        }
+        // no IR ranks 4K / 6K / 8K
+        for p in [
+            ProviderKind::VibeJson,
+            ProviderKind::Bokutachi,
+            ProviderKind::BmsIr,
+            ProviderKind::RianIr,
+        ] {
+            for mode in [PlayMode::Key4, PlayMode::Key6, PlayMode::Key8] {
+                let mut r = base();
+                r.chart.mode = mode;
+                assert_eq!(eligible(&r, p), Err(Refusal::KeyMode(mode)), "{p:?}");
+            }
         }
         // the gates that pass on: vibe-json takes what third parties do not
         let mut touch = base();

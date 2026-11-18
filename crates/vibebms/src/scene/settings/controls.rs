@@ -16,6 +16,8 @@ pub(super) enum KeySet {
     /// Side `.0` (0: 1P, 1: 2P): its 7 keys, scratch and turntable axis.
     Side(usize),
     Nine,
+    /// The 4 / 6 / 8 key modes' keys (their key count).
+    Few(u8),
     StartSelect,
 }
 
@@ -25,6 +27,9 @@ impl KeySet {
             KeySet::Side(0) => "1P KEYS",
             KeySet::Side(_) => "2P KEYS",
             KeySet::Nine => "9-BUTTON KEYS",
+            KeySet::Few(4) => "4-KEY KEYS",
+            KeySet::Few(6) => "6-KEY KEYS",
+            KeySet::Few(_) => "8-KEY KEYS",
             KeySet::StartSelect => "START / SELECT",
         }
     }
@@ -101,6 +106,17 @@ pub(super) fn rows(b: &mut Rows) {
         )
         .desc("Keys for 9-button (PMS) charts.")
         .keys("pop'n pms 9k bind"),
+        Row::sub(
+            "keys.few",
+            "4 / 6 / 8-key keys",
+            bound(k.k4.iter().chain(&k.k6).chain(&k.k8)),
+            Sub::Keys(KeySet::Few(4)),
+        )
+        .desc(
+            "Keys for Qwilight-style 4, 6 and 8 key charts (controllers also play them with their \
+             7 key buttons and turntable).",
+        )
+        .keys("4k 6k 8k qwilight bind"),
         Row::sub(
             "keys.start_select",
             "START / SELECT",
@@ -369,6 +385,18 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
                     lk,
                     Slot::Pms(i),
                 ));
+            }
+        }
+        KeySet::Few(_) => {
+            for (n, keys) in [(4u8, &k.k4), (6, &k.k6), (8, &k.k8)] {
+                for (i, lk) in keys.iter().enumerate() {
+                    b.push(bind(
+                        "keys.few",
+                        format!("{n}K key {}", i + 1),
+                        lk,
+                        Slot::Few(n, i),
+                    ));
+                }
             }
         }
         KeySet::StartSelect => b.extend([

@@ -671,6 +671,12 @@ pub enum SkinType {
     Play14,
     Play10,
     Play9,
+    /// vibeBMS's own types 104 / 106 / 108: 4 / 6 / 8 keys (Qwilight-style
+    /// charts). Neither beatoraja nor LR2 has a type for them, so only the
+    /// built-in default skins are of these.
+    Play4,
+    Play6,
+    Play8,
     /// LR2 types 12 / 13 (beatoraja's "7/5KEYS BATTLE"): a double play
     /// layout for two sides of a battle.
     Battle7,
@@ -705,6 +711,9 @@ impl SkinType {
             12 => SkinType::Battle7,
             13 => SkinType::Battle5,
             15 => SkinType::CourseResult,
+            104 => SkinType::Play4,
+            106 => SkinType::Play6,
+            108 => SkinType::Play8,
             n => SkinType::Other(n),
         }
     }
@@ -726,6 +735,9 @@ impl SkinType {
             SkinType::Battle7 => 12,
             SkinType::Battle5 => 13,
             SkinType::CourseResult => 15,
+            SkinType::Play4 => 104,
+            SkinType::Play6 => 106,
+            SkinType::Play8 => 108,
             SkinType::Other(n) => n,
         }
     }
@@ -738,6 +750,9 @@ impl SkinType {
             SkinType::Play14 | SkinType::Battle7 => Beat14K,
             SkinType::Play10 | SkinType::Battle5 => Beat10K,
             SkinType::Play9 => Popn9K,
+            SkinType::Play4 => Key4,
+            SkinType::Play6 => Key6,
+            SkinType::Play8 => Key8,
             _ => return None,
         })
     }

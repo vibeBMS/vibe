@@ -13,6 +13,9 @@ pub fn skin_type(mode: PlayMode) -> SkinType {
         PlayMode::Beat10K => SkinType::Play10,
         PlayMode::Beat14K => SkinType::Play14,
         PlayMode::Popn9K => SkinType::Play9,
+        PlayMode::Key4 => SkinType::Play4,
+        PlayMode::Key6 => SkinType::Play6,
+        PlayMode::Key8 => SkinType::Play8,
     }
 }
 

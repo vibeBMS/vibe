@@ -140,6 +140,38 @@ impl LaneMapper {
             add(&cfg.p2_start, crate::touch::START2 as usize, 0, m);
             add(&cfg.p2_select, crate::touch::SELECT2 as usize, 0, m);
         };
+        if let Some(own) = cfg.few(mode) {
+            for (i, lk) in own.iter().take(mode.lane_count()).enumerate() {
+                add(lk, i, 0, &mut m);
+            }
+            // controllers: their 7 key and turntable bindings, at the lanes
+            // where the chart has them in 7 key channels (8K's first key is
+            // the turntable)
+            let seven = mode.seven_key_lanes().unwrap_or_default();
+            let pads = |lk: &LaneKeys| LaneKeys {
+                keys: Vec::new(),
+                pad: lk.pad.clone(),
+            };
+            for side in [&cfg.p1, &cfg.p2] {
+                for (lane, s) in seven.iter().enumerate() {
+                    match side.keys.get(*s as usize) {
+                        Some(lk) if *s < 7 => add(&pads(lk), lane, 0, &mut m),
+                        _ => {
+                            add(&pads(&side.scratch_up), lane, 0, &mut m);
+                            add(&pads(&side.scratch_down), lane, 1, &mut m);
+                            for a in &side.scratch_axis {
+                                m.axes.insert(*a, lane as u8);
+                            }
+                            if cfg.any_axis_is_scratch {
+                                m.any_axis = vec![lane as u8];
+                            }
+                        }
+                    }
+                }
+            }
+            controls(&mut m);
+            return m;
+        }
         if mode == PlayMode::Popn9K {
             for (i, lk) in cfg.pms.iter().take(9).enumerate() {
                 add(lk, i, 0, &mut m);
@@ -458,6 +490,46 @@ mod tests {
         let f = LaneMapper::new(&cfg, PlayMode::Beat5K);
         assert_eq!(f.key(KeyCode::ShiftLeft), Some((5, 0)));
         assert_eq!(f.key(KeyCode::KeyF), None);
+    }
+
+    #[test]
+    fn four_six_eight_keys() {
+        let mut cfg = KeyConfig::default();
+        let m = LaneMapper::new(&cfg, PlayMode::Key4);
+        let keys = [KeyCode::KeyD, KeyCode::KeyF, KeyCode::KeyJ, KeyCode::KeyK];
+        for (i, k) in keys.into_iter().enumerate() {
+            assert_eq!(m.key(k), Some((i as u8, 0)));
+        }
+        // the 7 key keyboard layout is not theirs (its keys would clash)
+        assert_eq!(m.key(KeyCode::KeyZ), None);
+        assert_eq!(m.key(KeyCode::ShiftLeft), None);
+        let six = LaneMapper::new(&cfg, PlayMode::Key6);
+        assert_eq!(six.key(KeyCode::KeyS), Some((0, 0)));
+        assert_eq!(six.key(KeyCode::KeyL), Some((5, 0)));
+        let eight = LaneMapper::new(&cfg, PlayMode::Key8);
+        assert_eq!(eight.key(KeyCode::KeyA), Some((0, 0)));
+        assert_eq!(eight.key(KeyCode::Semicolon), Some((7, 0)));
+        // a controller's 7 key buttons and turntable play them where the
+        // chart's channels are: 4K keys 1 2 4 5, 8K the turntable first
+        for (i, k) in cfg.p1.keys.iter_mut().enumerate() {
+            k.pad = vec![i as u64];
+        }
+        cfg.p1.scratch_up.pad = vec![50];
+        cfg.p1.scratch_down.pad = vec![51];
+        cfg.p1.scratch_axis = vec![60];
+        let m = LaneMapper::new(&cfg, PlayMode::Key4);
+        let lanes: Vec<_> = (0..7).map(|b| m.pad(b).map(|l| l.0)).collect();
+        assert_eq!(
+            lanes,
+            [Some(0), Some(1), None, Some(2), Some(3), None, None]
+        );
+        assert_eq!(m.pad(50), None);
+        let eight = LaneMapper::new(&cfg, PlayMode::Key8);
+        assert_eq!(eight.pad(50), Some((0, 0)));
+        assert_eq!(eight.pad(51), Some((0, 1)));
+        assert_eq!(eight.pad(0), Some((1, 0)));
+        assert_eq!(eight.pad(6), Some((7, 0)));
+        assert_eq!(eight.axes.get(&60), Some(&0));
     }
 
     #[test]

@@ -24,12 +24,15 @@ use vibebms_core::PlayMode;
 use winit::keyboard::KeyCode;
 
 /// Key modes in menu order.
-const MODES: [PlayMode; 5] = [
+const MODES: [PlayMode; 8] = [
     PlayMode::Beat7K,
     PlayMode::Beat5K,
     PlayMode::Beat14K,
     PlayMode::Beat10K,
     PlayMode::Popn9K,
+    PlayMode::Key4,
+    PlayMode::Key6,
+    PlayMode::Key8,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq)]

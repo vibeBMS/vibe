@@ -60,6 +60,7 @@ fn playtype(mode: PlayMode, pms: Option<Device>) -> Option<(&'static str, &'stat
             Device::Controller => ("pms", "Controller"),
         },
         PlayMode::Beat5K | PlayMode::Beat10K => return None,
+        PlayMode::Key4 | PlayMode::Key6 | PlayMode::Key8 => return None,
     })
 }
 

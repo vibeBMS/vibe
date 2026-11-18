@@ -492,6 +492,10 @@ mod tests {
                 p1: side(0),
                 p2: side(1_000_000),
                 pms: (0..9).map(|i| lk(KeyCode::KeyA, 100 + i)).collect(),
+                // (newer fields at their defaults: written as before)
+                k4: KeyConfig::default().k4,
+                k6: KeyConfig::default().k6,
+                k8: KeyConfig::default().k8,
                 start: lk(KeyCode::Enter, 200),
                 select: lk(KeyCode::Space, 201),
                 p2_start: lk(KeyCode::Numpad1, 202),

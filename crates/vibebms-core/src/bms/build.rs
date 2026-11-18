@@ -8,6 +8,16 @@ use crate::mode::PlayMode;
 use crate::timing::{TimingEvent, TimingMap};
 use std::collections::HashMap;
 
+/// The lane of a 1P key (BMS channel space: 0..=6 keys 1-7, `SCRATCH`)
+/// in a Qwilight-style chart (`PlayMode::seven_key_lanes`): 4K keeps keys
+/// 1, 2, 4, 5; 6K keys 1-3 and 5-7; 8K the scratch as its leftmost key,
+/// then keys 1-7. The others are on no lane.
+fn qwilight_lane(mode: PlayMode, key: usize) -> Option<u8> {
+    let seven = if key == SCRATCH { 7 } else { key as u8 };
+    let lanes = mode.seven_key_lanes()?;
+    lanes.iter().position(|l| *l == seven).map(|l| l as u8)
+}
+
 pub(super) fn build(src: Source, p: Placed, pms: bool) -> Chart {
     let mut meta = src.meta;
     let mut chart = Chart::default();
@@ -37,6 +47,8 @@ pub(super) fn build(src: Source, p: Placed, pms: bool) -> Chart {
 
     let mode = if pms {
         PlayMode::Popn9K
+    } else if let Some(m) = src.qwilight {
+        m
     } else {
         let double = p
             .objs
@@ -55,6 +67,11 @@ pub(super) fn build(src: Source, p: Placed, pms: bool) -> Chart {
     };
     meta.mode = Some(mode);
     let lane_of = |o: &RawObj| -> Option<u8> {
+        if mode.is_qwilight() {
+            return (o.player == 0)
+                .then(|| qwilight_lane(mode, o.key))
+                .flatten();
+        }
         let key = if o.key == SCRATCH {
             mode.keys_per_player()
         } else {
