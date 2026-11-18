@@ -225,6 +225,12 @@ impl SelectScene {
     /// The cursor moved: the preview of the bar left stops.
     fn moved(&mut self, ctx: &mut Ctx) {
         self.last_move = Instant::now();
+        // a song unpacked from an archive (played) is let go once another
+        // is chosen
+        let chosen = self
+            .selected_song(ctx)
+            .map(|(_, s)| std::path::PathBuf::from(&s.path));
+        crate::platform::vfs::keep_song(chosen.as_deref());
         if self.preview_for.take().is_some() {
             ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         }
@@ -321,6 +327,11 @@ impl Scene for SelectScene {
         }
         self.repeat_keys(ctx, now);
         self.ease_scroll(now);
+        // the app not in use and silent: the preview stops, to start again
+        // from its beginning once it is heard (`app::activity`)
+        if self.preview_for.is_some() && ctx.audio.mute.faded(now) {
+            self.moved(ctx);
+        }
         self.update_preview(ctx);
         self.update_sounds(ctx);
         self.update_ranking(ctx);

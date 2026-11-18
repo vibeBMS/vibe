@@ -283,6 +283,7 @@ mod tests {
                 Cmd::BusVolume(Bus::Key, 1.0),
                 Cmd::BusVolume(Bus::Bgm, 0.6),
                 Cmd::BusVolume(Bus::System, 1.0),
+                Cmd::BusGain(Bus::Bgm, 0.5),
                 Cmd::Master(0.9),
                 Cmd::Volume(2, 0.8),
             ]
@@ -292,6 +293,11 @@ mod tests {
             st.apply(b);
         }
         for q in 0..4 {
+            if q == 1 {
+                // the master gliding down meanwhile
+                send(&mut w, Cmd::Master(0.3), 0);
+                st.apply(Cmd::Master(0.3));
+            }
             if q == 2 {
                 send(&mut w, Cmd::Stop(1), 0);
                 st.apply(Cmd::Stop(1));

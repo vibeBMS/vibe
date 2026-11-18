@@ -23,8 +23,23 @@ pub enum Versus {
     GhostBest,
     /// G-BATTLE against your latest replay of the chart.
     GhostLast,
+    /// G-BATTLE against the replay you saved in this slot (1-4).
+    GhostSlot(u8),
     /// Two players, one per side (VS).
     Local,
+}
+
+impl Versus {
+    /// G-BATTLE's opponent: which replay of the chart.
+    pub fn ghost(self) -> Option<crate::replay::Slot> {
+        use crate::replay::Slot;
+        match self {
+            Versus::GhostBest => Some(Slot::Best),
+            Versus::GhostLast => Some(Slot::Last),
+            Versus::GhostSlot(n) => Some(Slot::Saved(n)),
+            Versus::Off | Versus::Local => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]

@@ -5,10 +5,10 @@
 //! routes; a version 1 server still takes what version 2 sends.
 
 use crate::http::{enc, HttpRequest, HttpResponse, Secret};
-use crate::lamps::{LampSet, RankEntry, RankView, RemoteLamp};
+use crate::lamps::{LampSet, RankEntry, RankView, RemoteLamp, RemoteScore};
 use crate::provider::{
-    by_status, need, AuthKind, Avail, Caps, ChartKeys, Creds, Frozen, IrError, Op, Outcome,
-    Provider, ProviderId, Rate,
+    by_status, need, AuthKind, Avail, Caps, ChartId, ChartKeys, Creds, Frozen, IrError, Op,
+    Outcome, Provider, ProviderId, Rate,
 };
 use crate::rule::Profile;
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,8 @@ pub const VERSION: u32 = 2;
 pub struct VibeJson {
     slot: u8,
     base: String,
+    /// Its web page of a chart (`/me`'s `chart_page`), if it has one.
+    page: String,
 }
 
 impl VibeJson {
@@ -34,7 +36,15 @@ impl VibeJson {
         (!base.is_empty()).then(|| VibeJson {
             slot,
             base: base.to_string(),
+            page: String::new(),
         })
+    }
+
+    /// With the server's chart page (`AccountInfo::chart_page`): an
+    /// `http(s)` address with `{sha256}` or `{md5}` in it.
+    pub fn with_chart_page(mut self, page: &str) -> VibeJson {
+        self.page = page.trim().to_string();
+        self
     }
 
     fn get(&self, path: &str, creds: Option<&Creds>) -> HttpRequest {
@@ -123,8 +133,26 @@ impl Provider for VibeJson {
                 }
             }
             Op::Rivals => self.get("/rivals", Some(need(creds)?)),
+            Op::PlayerScores { player } => {
+                self.get(&format!("/players/{}/scores", enc(player)), creds)
+            }
             Op::Poll { .. } | Op::ChartInfo { .. } => return Err(IrError::NotOffered),
         })
+    }
+
+    fn chart_page(&self, chart: &ChartId, _view: &str) -> Result<String, IrError> {
+        let p = &self.page;
+        let web = p.starts_with("https://") || p.starts_with("http://");
+        if !web || !(p.contains("{sha256}") || p.contains("{md5}")) {
+            return Err(IrError::NotOffered);
+        }
+        if p.contains("{sha256}") && chart.sha256.is_empty()
+            || p.contains("{md5}") && chart.md5.is_empty()
+        {
+            return Err(IrError::NoChartId);
+        }
+        Ok(p.replace("{sha256}", &enc(&chart.sha256))
+            .replace("{md5}", &enc(&chart.md5)))
     }
 
     fn parse(&self, op: &Op, resp: &HttpResponse) -> Outcome {
@@ -140,7 +168,9 @@ impl Provider for VibeJson {
             },
             (_, 304) => Outcome::NotModified,
             // a version 1 server: no such route
-            (Op::Verify | Op::PlayerLamps { .. } | Op::Rivals, 404) => Outcome::Unsupported,
+            (Op::Verify | Op::PlayerLamps { .. } | Op::Rivals | Op::PlayerScores { .. }, 404) => {
+                Outcome::Unsupported
+            }
             (_, _) if !ok => Outcome::Rejected(error_text(resp)),
             (Op::Submit { .. }, _) => Outcome::Sent {
                 remote: None,
@@ -172,13 +202,17 @@ impl Provider for VibeJson {
                         ex: x.ex_score,
                         bp: x.min_bp,
                         at_ms: x.date_ms,
-                        remote: None,
+                        ..Default::default()
                     };
                     set.insert(hash, lamp);
                 }
                 Outcome::Lamps(set)
             }),
             (Op::Rivals, _) => json(resp, Outcome::Rivals),
+            (Op::PlayerScores { .. }, _) => json(resp, |b: Scores| Outcome::Scores {
+                player_name: b.player_name,
+                scores: b.scores.into_iter().map(Best::remote).collect(),
+            }),
             (Op::Poll { .. } | Op::ChartInfo { .. }, _) => Outcome::Rejected("not offered".into()),
         }
     }
@@ -243,6 +277,59 @@ struct Lamp {
     ex_score: Option<u32>,
     min_bp: Option<u32>,
     date_ms: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct Scores {
+    #[serde(default)]
+    player_name: String,
+    scores: Vec<Best>,
+}
+
+/// One of a player's bests (`/players/{id}/scores`).
+#[derive(Deserialize)]
+struct Best {
+    #[serde(default)]
+    sha256: String,
+    #[serde(default)]
+    md5: String,
+    #[serde(default)]
+    lntype: String,
+    #[serde(default)]
+    rule: String,
+    clear: ClearType,
+    ex_score: Option<u32>,
+    pgreat: Option<u32>,
+    great: Option<u32>,
+    good: Option<u32>,
+    bad: Option<u32>,
+    poor: Option<u32>,
+    max_combo: Option<u32>,
+    min_bp: Option<u32>,
+    notes: Option<u32>,
+    date_ms: Option<i64>,
+}
+
+impl Best {
+    fn remote(self) -> RemoteScore {
+        let judges = (|| Some([self.pgreat?, self.great?, self.good?, self.bad?, self.poor?]))();
+        RemoteScore {
+            ln: LnType::ALL.into_iter().find(|l| l.label() == self.lntype),
+            profile: Profile::ALL.into_iter().find(|p| p.wire() == self.rule),
+            sha256: self.sha256,
+            md5: self.md5,
+            score: RemoteLamp {
+                clear: self.clear,
+                ex: self.ex_score,
+                bp: self.min_bp,
+                at_ms: self.date_ms,
+                remote: None,
+                judges,
+                max_combo: self.max_combo,
+                notes: self.notes,
+            },
+        }
+    }
 }
 
 /// A ranking row.
@@ -600,9 +687,17 @@ mod tests {
             Outcome::Account(AccountInfo {
                 id: "7".into(),
                 name: "me".into(),
-                can_submit: true
+                can_submit: true,
+                chart_page: String::new(),
             })
         );
+        // (version 2: with its chart pages)
+        let page = r#"{"id":"7","name":"me","can_submit":true,
+            "chart_page":"https://ir.example/charts/{sha256}"}"#;
+        let Outcome::Account(info) = ir.parse(&Op::Verify, &resp(200, page)) else {
+            panic!()
+        };
+        assert_eq!(info.chart_page, "https://ir.example/charts/{sha256}");
         assert_eq!(ir.parse(&Op::Verify, &resp(404, "")), Outcome::Unsupported);
         assert_eq!(ir.parse(&Op::Rivals, &resp(404, "")), Outcome::Unsupported);
         assert_eq!(
@@ -689,5 +784,80 @@ mod tests {
         assert_eq!((sub.epg, sub.lpg, sub.lpr, sub.exscore), (1, 1, 1, 4));
         let j = serde_json::to_value(&sub).unwrap();
         assert_eq!(j["clear"], "Normal");
+    }
+
+    /// A server's chart page, as its `/me` gave it; none without one.
+    #[test]
+    fn chart_pages() {
+        let chart = ChartId {
+            sha256: "ab".repeat(32),
+            md5: "cd".repeat(16),
+            ..Default::default()
+        };
+        assert_eq!(server().chart_page(&chart, ""), Err(IrError::NotOffered));
+        let ir = server().with_chart_page(" https://ir.example/charts/{sha256}?md5={md5} ");
+        assert_eq!(
+            ir.chart_page(&chart, "").unwrap(),
+            format!(
+                "https://ir.example/charts/{}?md5={}",
+                "ab".repeat(32),
+                "cd".repeat(16)
+            )
+        );
+        // a bmson has no MD5
+        let ir = server().with_chart_page("https://ir.example/c/{md5}");
+        assert_eq!(
+            ir.chart_page(&ChartId::default(), ""),
+            Err(IrError::NoChartId)
+        );
+        // only a web address
+        let ir = server().with_chart_page("javascript:alert({sha256})");
+        assert_eq!(ir.chart_page(&chart, ""), Err(IrError::NotOffered));
+    }
+
+    /// A player's bests, each with the LN mode and rule profile it was
+    /// played in where the server says; a server without the route.
+    #[test]
+    fn player_scores() {
+        let ir = server();
+        let op = Op::PlayerScores { player: "a b" };
+        assert_eq!(
+            ir.request(&op, None).unwrap().url,
+            "https://ir.example/api/players/a%20b/scores"
+        );
+        let body = r#"{"player_name": "me", "scores": [
+            {"sha256": "aa", "md5": "bb", "lntype": "CN", "rule": "vibe-beatoraja",
+             "clear": "Hard", "ex_score": 1800, "pgreat": 800, "great": 200, "good": 3,
+             "bad": 1, "poor": 2, "max_combo": 999, "min_bp": 3, "notes": 1000,
+             "date_ms": 1767225600123},
+            {"md5": "cc", "clear": "Easy", "rule": "lr2"}]}"#;
+        let Outcome::Scores {
+            player_name,
+            scores,
+        } = ir.parse(&op, &resp(200, body))
+        else {
+            panic!()
+        };
+        assert_eq!(player_name, "me");
+        let a = &scores[0];
+        assert_eq!(
+            (a.ln, a.profile),
+            (Some(LnType::Cn), Some(Profile::VibeBeatoraja))
+        );
+        assert_eq!(
+            (a.score.clear, a.score.ex, a.score.judges, a.score.max_combo),
+            (
+                ClearType::Hard,
+                Some(1800),
+                Some([800, 200, 3, 1, 2]),
+                Some(999)
+            )
+        );
+        assert_eq!((a.score.bp, a.score.notes), (Some(3), Some(1000)));
+        // no LN mode, a rule that is no profile: left for the client
+        let b = &scores[1];
+        assert_eq!((b.md5.as_str(), b.ln, b.profile), ("cc", None, None));
+        assert_eq!(b.score.judges, None);
+        assert_eq!(ir.parse(&op, &resp(404, "")), Outcome::Unsupported);
     }
 }

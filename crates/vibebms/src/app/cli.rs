@@ -494,6 +494,13 @@ fn songs_list(paths: &crate::paths::Paths, json: bool) -> i32 {
     0
 }
 
+/// A chart through the file system (`pack.zip!/Song/a.bme` is a chart in
+/// an archive).
+fn read_chart(path: &std::path::Path) -> Result<vibebms_core::Chart, String> {
+    let b = crate::platform::vfs::read(path).map_err(|e| e.to_string())?;
+    vibebms_core::load_chart_bytes(path, &b, &Default::default()).map_err(|e| e.to_string())
+}
+
 /// The viewer's play: `path` autoplayed from `measure` (as practice plays
 /// it: from the measure's start with what was sounding there; nothing
 /// recorded), its chart read again.
@@ -502,7 +509,7 @@ pub(super) fn viewer_scene(
     path: &std::path::Path,
     measure: usize,
 ) -> Option<Box<dyn Scene>> {
-    let c = match vibebms_core::load_chart(path, &Default::default()) {
+    let c = match read_chart(path) {
         Ok(c) => c,
         Err(e) => {
             ctx.toast(format!("{}: {e}", path.display()));
@@ -546,7 +553,7 @@ pub(super) fn play_scene(ctx: &mut Ctx) -> Option<Box<dyn Scene>> {
         let path = std::path::absolute(&path).unwrap_or(path);
         return viewer_scene(ctx, &path, cli.measure.unwrap_or(0));
     }
-    let c = match vibebms_core::load_chart(&path, &Default::default()) {
+    let c = match read_chart(&path) {
         Ok(c) => c,
         Err(e) => {
             ctx.toast(format!("{}: {e}", path.display()));

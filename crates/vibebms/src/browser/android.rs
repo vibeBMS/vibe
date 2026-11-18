@@ -93,6 +93,11 @@ impl Downloads {
         false
     }
 
+    /// The browser is up (its dialog has the focus).
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
     /// Once per frame (while the browser is up or imports run).
     pub fn poll(&mut self, ctx: &mut Ctx) {
         if self.open {

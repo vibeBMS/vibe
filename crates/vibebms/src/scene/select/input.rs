@@ -214,6 +214,8 @@ impl SelectScene {
             KeyCode::KeyP if !is_play_key(keys, code) => return self.watch_replay(ctx),
             // PRACTICE (E: P is 2P START by default)
             KeyCode::KeyE if !is_play_key(keys, code) => return self.practice(ctx),
+            // the chart's IR page (F11 is full screen everywhere)
+            KeyCode::KeyI if !is_play_key(keys, code) => self.open_ir_page(ctx),
             // HELP and READ TEXT (LR2's buttons)
             KeyCode::KeyH if !is_play_key(keys, code) => self.toggle_panel(8),
             KeyCode::KeyT if !is_play_key(keys, code) => self.read_text(ctx),
@@ -322,6 +324,8 @@ impl SelectScene {
         }) else {
             return;
         };
+        // a song pack kept packed (`pack.7z!`): the archive
+        let dir = crate::platform::arcfs::split(&dir).map_or(dir, |(a, _)| a);
         let name = dir
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())

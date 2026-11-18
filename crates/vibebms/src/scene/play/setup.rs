@@ -220,6 +220,9 @@ impl PlayScene {
         opts.extend(trainer.as_deref());
         let freq = (rules.freq != 0).then(|| format!("FREQ {:+}", rules.freq));
         opts.extend(freq.as_deref());
+        let watch =
+            (self.watch_rate != 1.0).then(|| format!("WATCHED AT {:.0}%", self.watch_rate * 100.0));
+        opts.extend(watch.as_deref());
         // a song from an older library: its note counts and densities
         // (skin numbers 350-365) from the chart
         let song = &mut self.req.song;
@@ -241,6 +244,7 @@ impl PlayScene {
         };
         let nonstop = nonstop.map(std::sync::Arc::new);
         self.session = Session::new(chart, sides, vs, self.session.start);
+        self.session.rate = self.watch_rate;
         self.session.set_nonstop(nonstop);
         let cp = &ctx.config.play;
         self.session.fx = super::session::Fx {

@@ -56,16 +56,25 @@ fn table_link(ctx: &Ctx, s: &Song) -> Option<String> {
     web_link(&e.url_diff).or_else(|| web_link(&e.url))
 }
 
+/// What the file manager shows for `path`: the file, or for one inside an
+/// archive (`pack.zip!/Song/a.bme`) the archive.
+pub(crate) fn on_disk(path: &Path) -> std::path::PathBuf {
+    match crate::platform::arcfs::split(path) {
+        Some((archive, _)) => archive,
+        None => path.to_path_buf(),
+    }
+}
+
 impl SelectScene {
-    /// F3: the chart's folder in the system's file manager, its file
-    /// selected where the system can (a missing chart: nothing).
+    /// F3: the chart's folder in the system's file manager, its file (a
+    /// chart in an archive: the archive) selected where the system can (a
+    /// missing chart: nothing).
     pub(super) fn reveal_chart(&mut self, ctx: &mut Ctx) {
         let Some((_, s)) = self.selected_song(ctx) else {
             ctx.toast("Choose a chart to show its folder");
             return;
         };
-        let path = Path::new(&s.path);
-        if !open::reveal(path) {
+        if !open::reveal(&on_disk(Path::new(&s.path))) {
             ctx.toast("No file manager here");
         }
     }
@@ -140,6 +149,9 @@ mod tests {
             song("/bms/x/a.bms", "a"),
             song("/bms/y/b.bms", "b"),
             song("/bms/x/c.bms", "c"),
+            // an archive's folder of the same name is another
+            song("/bms/p.zip!/x/d.bms", "d"),
+            song("/bms/p.zip!/x/e.bms", "e"),
         ]);
         let mut s = SelectScene::new(&mut ctx);
         s.enter(&mut ctx, Node::All);
@@ -156,6 +168,12 @@ mod tests {
             .collect();
         assert_eq!(songs, [0, 2]);
         assert!(matches!(s.bars[s.cursor], Bar::Song(2)));
+        s.back(&mut ctx);
+        s.cursor = (s.bars.iter())
+            .position(|b| matches!(b, Bar::Song(4)))
+            .unwrap();
+        s.same_folder(&mut ctx);
+        assert_eq!(s.node, Node::SameFolder("/bms/p.zip!/x".into()));
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -175,5 +193,11 @@ mod tests {
         let j = br#"{"version":"1.0.0","info":{"title":"x","url":"http://e.org/x"}}"#;
         assert_eq!(url_in_chart(bmson, j).as_deref(), Some("http://e.org/x"));
         assert_eq!(url_in_chart(bmson, br#"{"info":{}}"#), None);
+        // a chart in an archive: the archive
+        assert_eq!(
+            on_disk(Path::new("/bms/pack.zip!/Song/a.bme")),
+            Path::new("/bms/pack.zip")
+        );
+        assert_eq!(on_disk(Path::new("/bms/a.bme")), Path::new("/bms/a.bme"));
     }
 }

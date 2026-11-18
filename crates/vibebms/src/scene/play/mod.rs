@@ -68,6 +68,8 @@ pub struct CourseRun {
     pub seed: Option<i64>,
     /// The gauge the last stage ended on, and its value.
     pub last_gauge: Option<(GaugeType, f32)>,
+    /// The course is watched: each stage's replay of this slot.
+    pub watch: Option<crate::replay::Slot>,
 }
 
 impl CourseRun {
@@ -88,6 +90,18 @@ impl CourseRun {
             totals: CourseTotals::default(),
             seed: None,
             last_gauge: None,
+            watch: None,
+        }
+    }
+
+    /// What the replays of stage `index` (NONSTOP: of the course) are
+    /// kept under: the MD5 of the course's identity (as LR2 names them),
+    /// an expert or class course's stage with its number after it.
+    pub fn replay_key(&self, index: usize) -> String {
+        let id = vibebms_core::bms::md5_hex(self.def.id().as_bytes());
+        match self.nonstop() {
+            true => id,
+            false => format!("{id}-{}", index + 1),
         }
     }
 
@@ -185,13 +199,7 @@ impl PlayRequest {
     /// stage by that and its number, else the chart's SHA-256.
     pub fn replay_key(&self) -> String {
         match &self.course {
-            Some(c) => {
-                let id = vibebms_core::bms::md5_hex(c.def.id().as_bytes());
-                match c.nonstop() {
-                    true => id,
-                    false => format!("{id}-{}", c.index + 1),
-                }
-            }
+            Some(c) => c.replay_key(c.index),
             None => self.song.sha256.clone(),
         }
     }
@@ -214,17 +222,27 @@ pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Ar
         song.fixed_ln() && !ln.force,
         slot,
     )
-    .ok_or_else(|| {
-        let which = match slot {
-            crate::replay::Slot::Best => "MY BEST",
-            crate::replay::Slot::Last => "LAST",
-        };
-        format!("G-BATTLE: no {which} replay of {}", song.title)
-    })?;
+    .ok_or_else(|| format!("G-BATTLE: no {} replay of {}", slot.label(), song.title))?;
     match crate::replay::ghost_refusal(&r, song, ln) {
         Some(why) => Err(format!("G-BATTLE: {why}")),
         None => Ok(Arc::new(r)),
     }
+}
+
+/// Stage `index`'s replay of course `run` in `slot` (NONSTOP: the
+/// course's), under the rule mode chosen; of whichever LN mode it was
+/// played in (the course's stages may differ).
+pub fn course_replay(
+    ctx: &Ctx,
+    run: &CourseRun,
+    index: usize,
+    slot: crate::replay::Slot,
+) -> Option<Replay> {
+    let ln = ctx.config.play.ln_pref().ty as i32;
+    let rule = ctx.config.play.judge_preset;
+    let key = run.replay_key(index);
+    crate::replay::load_filed(&ctx.paths.root, &key, ln, rule, true, slot)
+        .filter(|r| r.course.as_ref().is_some_and(|c| c.stage as usize == index))
 }
 
 /// Who plays the second side of a battle.
@@ -335,13 +353,20 @@ pub struct PlayScene {
     practice: Option<practice::Again>,
     /// GUIDE SE's sounds (when on).
     guide: Option<guide::GuideSounds>,
+    /// A replay watched: the speed it is watched at (1.0 otherwise).
+    watch_rate: f64,
 }
 
 impl PlayScene {
     pub fn new(ctx: &mut Ctx, req: PlayRequest) -> PlayScene {
         let now = Instant::now();
+        // a replay is watched at the watch speed (its judgements stay)
+        let watch_rate = match req.replay {
+            Some(_) => ctx.config.select.watch_rate(),
+            None => 1.0,
+        };
         PlayScene {
-            stage: Stage::Loading(Box::new(loading::Loading::start(ctx, &req))),
+            stage: Stage::Loading(Box::new(loading::Loading::start(ctx, &req, watch_rate))),
             facts: Facts {
                 skin_mode: PlayMode::Beat7K,
                 input_mode: PlayMode::Beat7K,
@@ -369,6 +394,7 @@ impl PlayScene {
             hs_view: Default::default(),
             practice: None,
             guide: None,
+            watch_rate,
             req,
         }
     }
@@ -567,6 +593,9 @@ impl Scene for PlayScene {
         vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)]
     }
     fn full_screen(&self) -> bool {
+        true
+    }
+    fn in_play(&self) -> bool {
         true
     }
 

@@ -165,7 +165,11 @@ impl SelectScene {
             }));
             return;
         }
-        if !ctx.config.audio.preview || self.last_move.elapsed() < PREVIEW_AFTER {
+        // (none while the app is silenced: not in use)
+        if !ctx.config.audio.preview
+            || self.last_move.elapsed() < PREVIEW_AFTER
+            || ctx.audio.mute.on()
+        {
             return;
         }
         let Some((_, song)) = self.selected_song(ctx) else {

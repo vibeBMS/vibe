@@ -176,6 +176,10 @@ pub(crate) struct Session {
     pub sides: Vec<SideState>,
     /// Chart time 0.
     pub start: Instant,
+    /// Chart time per real time: 1.0, or a replay watched at another
+    /// speed (only the clock moves so: the judges see the chart's own
+    /// times and the replay's ops at them).
+    pub rate: f64,
     pub ready_at: Option<Instant>,
     pub lanes: Vec<Lane>,
     /// The last judgement of each judge region.
@@ -223,6 +227,7 @@ impl Session {
             vs,
             sides,
             start,
+            rate: 1.0,
             ready_at: None,
             lanes,
             last_judge: [None; 3],
@@ -255,19 +260,36 @@ impl Session {
 
     /// Chart time (µs) at `t`.
     pub fn chart_us(&self, t: Instant) -> i64 {
-        if t >= self.start {
+        let real = if t >= self.start {
             t.duration_since(self.start).as_micros() as i64
         } else {
             -(self.start.duration_since(t).as_micros() as i64)
+        };
+        match self.rate {
+            1.0 => real,
+            r => (real as f64 * r).round() as i64,
         }
     }
 
     /// The moment of chart time `t` (µs).
     pub fn instant_at(&self, t: i64) -> Instant {
-        if t >= 0 {
-            self.start + Duration::from_micros(t as u64)
+        let real = match self.rate {
+            1.0 => t,
+            r => (t as f64 / r).round() as i64,
+        };
+        if real >= 0 {
+            self.start + Duration::from_micros(real as u64)
         } else {
-            self.start - Duration::from_micros(t.unsigned_abs())
+            self.start - Duration::from_micros(real.unsigned_abs())
+        }
+    }
+
+    /// Real time (µs) for `us` of chart time (a sound's length, a slice
+    /// into it).
+    pub fn real_us(&self, us: i64) -> i64 {
+        match self.rate {
+            1.0 => us,
+            r => (us as f64 / r).round() as i64,
         }
     }
 
@@ -673,6 +695,92 @@ mod tests {
                 return (false, t);
             }
             t += 16_667;
+        }
+    }
+
+    /// A replay watched at 25 % to 300 % judges as it was played: only
+    /// the clock runs at the speed (frames of real time farther apart or
+    /// closer in chart time), the judge has the replay's ops at their own
+    /// chart times. LN and HCN (whose gauge moves with time held).
+    #[test]
+    fn a_replay_judges_the_same_at_every_watch_speed() {
+        use crate::config::PlayConfig;
+        use vibebms_core::chart::LnType;
+        for ln in [LnType::Ln, LnType::Cn, LnType::Hcn] {
+            // (a groove gauge: the play is not cut short where it fails)
+            let play = RuleOptions {
+                ln_mode: ln,
+                ..RuleOptions::default()
+            };
+            let c = chart(&play);
+            // the play: the bot's keys (early, late, missed), frame by frame
+            let (mut e, _) = build_engine(&c, &play, None, false);
+            e.record();
+            let inputs = bot::inputs(&c, None, 7);
+            bot::drive(&mut e, &inputs, c.length() + 2_000_000);
+            let judged = |e: &Engine| {
+                let sc = &e.score;
+                (
+                    e.ghost.clone(),
+                    sc.counts,
+                    sc.ex_score(),
+                    sc.max_combo,
+                    sc.combo_breaks,
+                    e.gauge.value().to_bits(),
+                    e.is_failed(),
+                )
+            };
+            let played = judged(&e);
+            assert!(played.0.iter().any(|j| *j != Judge::PGreat), "{ln:?}");
+            let r = Arc::new(Replay {
+                version: crate::replay::VERSION,
+                sha256: String::new(),
+                md5: String::new(),
+                title: String::new(),
+                ln: ln as i32,
+                date: 0,
+                seed: 1,
+                play: PlayConfig {
+                    rules: play.clone(),
+                    ..PlayConfig::default()
+                },
+                ex_score: e.score.ex_score(),
+                clear: Default::default(),
+                ghost: e.ghost.clone(),
+                ops: e.recorded().to_vec(),
+                course: None,
+            });
+            for speed in [0.25, 0.5, 1.0, 1.25, 2.0, 3.0] {
+                let side = SideState::new(
+                    build_engine(&c, &play, None, false).0,
+                    Role::Replay(Feed::new(r.clone(), 0)),
+                );
+                let begin = Instant::now();
+                let mut s =
+                    Session::new(c.clone(), vec![side], false, begin + Duration::from_secs(2));
+                s.rate = speed;
+                let mut out = Vec::new();
+                let mut now = begin;
+                loop {
+                    let t = s.chart_us(now);
+                    if s.step(t, now, [0, 0], SHOW, &mut out) || s.over(t) {
+                        break;
+                    }
+                    now += Duration::from_micros(16_667);
+                }
+                let what = format!("{ln:?} at {speed}");
+                let w = &s.sides[0].engine;
+                assert_eq!(judged(w), played, "{what}");
+                assert_eq!(w.judge_log, e.judge_log, "{what}");
+                // the clock: chart time runs at the speed, and back (to
+                // the µs of real time)
+                let t = 4_000_000;
+                let at = s.instant_at(t);
+                assert!((s.chart_us(at) - t).abs() <= speed.ceil() as i64, "{what}");
+                let real = at.duration_since(s.start).as_micros() as f64;
+                assert!((real - t as f64 / speed).abs() <= 1.0, "{what}");
+                assert_eq!(s.real_us(1_000_000), (1_000_000.0 / speed) as i64);
+            }
         }
     }
 

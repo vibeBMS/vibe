@@ -6,6 +6,7 @@
 
 #[cfg(target_os = "android")]
 pub mod android;
+pub mod arcfs;
 mod drive;
 pub mod http;
 #[cfg(target_os = "ios")]

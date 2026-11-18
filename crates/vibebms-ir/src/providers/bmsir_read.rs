@@ -19,8 +19,8 @@
 use crate::http::{enc, unix_ms, HttpRequest, HttpResponse};
 use crate::lamps::{bmsir_lamp, ChartInfo, LampSet, RankEntry, RankView, RemoteLamp};
 use crate::provider::{
-    by_status, AuthKind, Avail, Caps, ChartKeys, Creds, Frozen, IrError, Op, Outcome, Provider,
-    ProviderId, Rate,
+    by_status, AuthKind, Avail, Caps, ChartId, ChartKeys, Creds, Frozen, IrError, Op, Outcome,
+    Provider, ProviderId, Rate,
 };
 use crate::rule::Profile;
 use serde::Deserialize;
@@ -182,6 +182,20 @@ impl Provider for BmsIrRead {
             Some(t) => req.header("If-None-Match", t),
             None => req,
         })
+    }
+
+    /// A song's page on the site, by its MD5 (`/new/song?songmd5=`, as
+    /// the site's own pages link them): the API's address without its
+    /// `/api/v1/public`.
+    fn chart_page(&self, chart: &ChartId, _view: &str) -> Result<String, IrError> {
+        if chart.md5.is_empty() {
+            return Err(IrError::NoChartId);
+        }
+        let site = self.base.trim_end_matches("/api/v1/public");
+        Ok(format!(
+            "{site}/song?songmd5={}",
+            enc(&chart.md5.to_ascii_lowercase())
+        ))
     }
 
     fn parse(&self, op: &Op, resp: &HttpResponse) -> Outcome {
@@ -665,5 +679,29 @@ mod tests {
         let n = keys.len();
         keys.dedup();
         assert_eq!(keys.len(), n);
+    }
+
+    /// A chart's page: its song page by MD5, on the site the API is of.
+    #[test]
+    fn chart_pages() {
+        let chart = ChartId {
+            md5: "0123456789ABCDEF0123456789ABCDEF".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            BmsIrRead::at("").chart_page(&chart, "lr2").unwrap(),
+            "https://www.bms-ir.org/new/song?songmd5=0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(
+            BmsIrRead::at("http://127.0.0.1:8/new/api/v1/public/")
+                .chart_page(&chart, "")
+                .unwrap(),
+            "http://127.0.0.1:8/new/song?songmd5=0123456789abcdef0123456789abcdef"
+        );
+        // a bmson: no MD5, no page
+        assert_eq!(
+            BmsIrRead::at("").chart_page(&ChartId::default(), ""),
+            Err(IrError::NoChartId)
+        );
     }
 }

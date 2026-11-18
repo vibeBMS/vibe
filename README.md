@@ -73,7 +73,7 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
 <root>/scores/scores.json      play records
 <root>/scores/player.json      totals over all plays (judgements, time played)
-<root>/cache/                  song scan, difficulty table and chart loudness caches (made again if deleted)
+<root>/cache/                  song scan, archives' file lists, difficulty table and chart loudness caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
 <root>/sounds/                 system sound sets (optional)
 <root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
@@ -89,11 +89,11 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
 | Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options (on the desktop F3 shows the chart's file in the system's file manager instead: Explorer and Finder select it, on Linux a file manager that takes the freedesktop `FileManager1` call does, else the folder opens; GAUGE stays on START + 3); T reads the song's text files in the game (O, or OPEN, then opens the file shown in the system's text viewer, desktop); U opens the chart's web page in the browser (its `#URL`, a bmson `info.url`, else the chart's or song's link in a difficulty table, a chart not installed too; http(s) only); B SAME FOLDER, the charts in the chosen chart's folder (these three also in the default skin's TAG EDITOR panel, and as select options 9043–9045 for any skin); F12 rescan; P watch the chart's replay; E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options (on the desktop F3 shows the chart's file in the system's file manager instead: Explorer and Finder select it, on Linux a file manager that takes the freedesktop `FileManager1` call does, else the folder opens; GAUGE stays on START + 3); T reads the song's text files in the game (O, or OPEN, then opens the file shown in the system's text viewer, desktop); U opens the chart's web page in the browser (its `#URL`, a bmson `info.url`, else the chart's or song's link in a difficulty table, a chart not installed too; http(s) only); B SAME FOLDER, the charts in the chosen chart's folder (these three also in the default skin's TAG EDITOR panel, and as select options 9045–9047 for any skin); F12 rescan; I the chart's IR page; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
-| Results | R / F5 retry, P watch this play again |
+| Results | R / F5 retry, P watch this play again, 1–4 keep its replay in that slot (the default skin's SAVE 1–4) |
 | Anywhere | F1 / Tab settings, F11 full screen |
 
 Entering a folder puts the cursor on the folder's own row; deciding on it closes the folder (as in LR2).
@@ -138,6 +138,22 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP, `#SCROLL` and
   beatoraja's `#SPEED` (channel SP: the whole lane's scroll speed, interpolated in time; not under CONSTANT), LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
+  The scan reads new and changed charts several at a time (up to 8 threads natively; one at a time on the web).
+- **Songs in archives**: a `.zip`, `.7z`, `.rar` or `.lzh` (`.lha`) in the library is played without unpacking it
+  yourself. It is scanned as a folder (its charts in sub-folders too) and its charts are named by the archive, a `!`
+  and their path in it: `bms/packs/pack.zip!/Song/chart.bme` (song select lists an archive right in a library
+  folder as a folder of its own, `pack.zip`; that path also plays from the command line). An archive is read
+  once when it is new or its size or time changed: its list of files goes into `cache/archives.json`, and only its
+  charts are read (a zip's charts alone; a 7z, RAR or LZH, solid ones included, is decoded from the start once, its
+  other files not kept). An unchanged archive is not opened by the scan. Playing a chart from one unpacks its song,
+  the folder that holds the chart in the archive with its sub-folders, once: into memory, or when it is larger than
+  512 MB (192 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
+  chosen (back from the result screen, playing it again unpacks nothing) and let go when another is chosen. The
+  song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
+  ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's or LZH's
+  song is unpacked on its first file read. Nothing is written into an archive: song downloads take the songs in
+  archives for not installed (a separate chart for one is not put into it). A chart that is also a file of its own
+  (the archive unpacked beside it) is listed once, as the file. Not read: archives in an archive, `.tar.gz`, encrypted archives.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
   those of the preset chosen.
@@ -184,6 +200,18 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
   off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
   read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
+- **Mute when inactive** (`SETTINGS › DISPLAY & AUDIO › Mute when inactive`, on by default): vibeBMS fades out (in
+  0.1 s) while it is not the app in use. Out of play that is when another app or window has the focus, or vibeBMS is
+  minimised, covered, in the background or (web) in a hidden tab or a page without the focus; the song preview stops
+  and starts again from its beginning when vibeBMS is back. In play only a hidden, minimised or backgrounded vibeBMS
+  is silent on the desktop and the web (a controller may play a window without the focus); on phones and tablets,
+  where only the app with the focus gets touches, keys and controllers, losing the focus silences play too. The play
+  goes on (there is no pause). The in-app download browser's window counts as vibeBMS. Off, vibeBMS is heard in the
+  background (the iOS app's audio session keeps playing there).
+- **Full screen on phones and tablets**: the iOS app hides the status bar and, until the screen is touched, the home
+  indicator; in play (and the touch layout editor) a swipe from the top or bottom edge is the game's, and the
+  system's gesture (home, Control Center, notifications) needs a second swipe. The Android app hides the status and
+  navigation bars (immersive: a swipe from an edge shows them for a moment).
 - **BGA**: image BGA (layers, POOR; a BMS chart without a POOR layer shows its `#BMP00` on a miss, as LR2 and
   beatoraja do), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path). BGA ON, AUTO or
   OFF (SYSTEM OPTION key 1), as beatoraja's: AUTO shows it only when watching (autoplay, a replay), not in a play
@@ -264,12 +292,21 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   ASSIST panel's FREQ row. A play below 0 is not saved at all (no score, lamp, replay or IR); one above 0 is saved
   as usual but not sent to IR (no IR takes a play at another speed). Courses and practice play at 0. Replays keep
   it and play at it again.
-- **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
+- **Replays and ghosts**: every play of your own (not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
-  web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
-  else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
-  kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
+  web build, in the browser), and four slots of your own: 1–4 on the results (the default skin's SAVE 1–4
+  buttons) keep that play's replay in the slot, replacing what it held. A course keeps its replays under the
+  course: a NONSTOP course's play, an expert or class course's each stage (its latest, and the slots its
+  results kept). Watch one with P on the results (that play) or in song select (P or REPLAY: the replay
+  SYSTEM OPTION's REPLAY picks, BEST, ELSE LAST by default, else MY BEST, LAST or SLOT 1–4; on a course's bar,
+  the course: an expert or class course's stages one after another, each its own replay of that slot, as
+  far as there is one); a replay watched is never recorded. REPLAY SPEED (25–300 %, steps of 25, `[select]`
+  `replay_speed`) watches it slower or faster: the clock, the scrolling, the BGA and the sounds (resampled,
+  their pitch with them) run at that speed while the judge still gets every recorded input at its own chart
+  time, so the judgements, score and gauge are the play's at any speed (it is chosen before watching, not
+  during). A BATTLE play's replay can be watched from its results and kept in a slot, but is not kept as
+  the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
   score at the same note, not the best score spread evenly over the chart.
 - **Practice**: E in song select (or the PRACTICE button) opens a chart's practice screen: its notes per
   measure as a graph, with a section of measures to play (tap the graph to move its nearer edge), a lead-in of
@@ -281,8 +318,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   moves by the whole chart's TOTAL and notes. In play R or Backspace starts the section again and Esc goes back
   to the practice screen, which shows the last try's judgements and timing. Practice plays are never recorded:
   no score, lamp, replay, play history or IR (settings in `[practice]`, the last section per chart).
-- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST or LAST replay of it (song select's BATTLE row,
-  F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST). The chart
+- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST, LAST or SLOT 1–4 replay of it (song select's
+  BATTLE row, F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST /
+  G-BATTLE SLOT 1–4 / VS). The chart
   is made with the replay's seed and lane option on both sides (as LR2 lends a ghost's random); you play the
   first side, the replay's inputs play the second again under its own options (judge, gauge, LN mode, AUTO
   SCRATCH), silently. Its EX score is the pacemaker target as it plays; if it ever judges other than its
@@ -303,6 +341,21 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
   player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
+  I in song select (or SCORE STATUS's IR PAGE button) opens the chosen chart's page on the IR the rankings
+  come from, in the system's browser (the web build: a new tab; F11 stays full screen): BMS-IR's song page by
+  the chart's MD5 (`/new/song?songmd5=`; a bmson has none), Bokutachi's chart page by its own chart id
+  (`/games/bms-7k/charts/<id>`, PMS by its playtype; the id is learnt from your PB lists, so a chart you have no
+  score on there has no page yet), a vibeBMS IR's page when its `/me` names one (`chart_page`).
+  Settings › ONLINE › an account › **Download my scores** takes your own scores there into your local records the
+  way the score database import does: per chart the better lamp, EX score (with its counts where the IR gives
+  them), combo and BP are kept, never a worse value over a better one, play counts untouched, and the same
+  download again changes nothing. Each score goes under the rule mode and LN mode it was played in: a vibeBMS
+  IR says so for each (`/players/{id}/scores`; a server without the route cannot list your scores, and is told
+  so); Bokutachi's PBs (read again unless read a moment ago) are LR2's and LR2oraja's under the LR2 rule mode as
+  LN for BMS 7K / 14K, beatoraja's for PMS; BMS-IR lists only your lamps, per difficulty table followed, filed
+  by whose scores count (LR2, OpenLR2: LR2 rules, LN; LR2oraja and its kin: LR2 rules; beatoraja: beatoraja's;
+  a mix of clients cannot be filed). A score whose LN mode is not said goes only on a chart whose plays are the
+  same in every LN mode.
 - **Audio**: low-latency output, keysounds scheduled to the sample, WAV/OGG/MP3/FLAC. On Windows, WASAPI of its own:
   SHARED (the default) at the small periods of IAudioClient3 where Windows 10+ and the driver offer them (the buffer
   size setting rounded to one the engine takes), else the usual shared stream; EXCLUSIVE
@@ -439,7 +492,11 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
 ## Web version
 
 Build it with `tools/build_web.sh` and serve `web/` over HTTP. The page's buttons take a folder, files or song pack
-`.zip`s (for iPad Safari), which are scanned and played in the browser; nothing is uploaded anywhere. Settings and
+`.zip`s (for iPad Safari), which are scanned and played in the browser; nothing is uploaded anywhere. Song packs
+(`.zip`, `.7z`, `.rar`, `.lzh`, picked on their own or in a folder) are unpacked as they come in, into a folder of
+their name. An archive already kept in the browser's storage (one picked inside a folder before) is read as on the
+desktop, all four formats; the page reads the archive into memory to scan it or to unpack a song from it (a song
+of up to 1 GB), and lets it go again. Settings and
 records are kept in localStorage.
 
 - Songs are kept in the browser (its Origin Private File System) and are there again the next time the page opens.

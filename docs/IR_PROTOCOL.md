@@ -13,9 +13,12 @@ fields, and the client treats a 404 on an optional route as "not supported".
 ## `GET {base}/me` (version 2, optional)
 Checks the token. Response:
 ```json
-{"id": "123", "name": "player name", "can_submit": true}
+{"id": "123", "name": "player name", "can_submit": true,
+ "chart_page": "https://ir.example/charts/{sha256}"}
 ```
 401 or 403: the token is refused. 404: a version 1 server; the token is used as it is.
+`chart_page` (optional): the server's web page of a chart, an `http(s)` address with `{sha256}` and/or `{md5}`
+in it; song select's IR PAGE (key I) opens it in the browser. Without it the server has no chart pages here.
 
 ## `GET {base}/ranking?sha256=...&md5=...&lntype=LN|CN|HCN[&limit=N]`
 Version 1 response: an array of rows. Version 2 may answer an object instead, with the number
@@ -74,6 +77,21 @@ One player's lamps, for rival lamps in song select:
    "date_ms": 1767225600123}]}
 ```
 `ex_score`, `min_bp` and `date_ms` may be left out. `ETag` and `304` as for the ranking.
+
+## `GET {base}/players/{id}/scores` (version 2, optional)
+One player's best scores, for "Download my scores" (settings, ONLINE): the client takes them into the
+player's local records where they are better (lamp, EX score, combo, BP), under the rule profile and LN mode
+of each. Sent with the token when there is one.
+```json
+{"player_name": "name", "scores": [
+  {"sha256": "...", "md5": "...", "lntype": "CN", "rule": "vibe-beatoraja", "clear": "Hard",
+   "ex_score": 1800, "pgreat": 800, "great": 200, "good": 3, "bad": 1, "poor": 2,
+   "max_combo": 999, "min_bp": 3, "notes": 1000, "date_ms": 1767225600123}]}
+```
+One entry per chart, `lntype` and `rule` (as sent with the play). `rule` is required: a score without a rule
+profile the client knows is left out. Without `lntype` a score is filed only on a chart whose plays are filed
+the same in every LN mode. The counts, `max_combo`, `min_bp`, `notes` and `date_ms` may be left out (all five
+counts or none). 404: the server has no such route.
 
 ## `GET {base}/rivals` (version 2, optional)
 The rivals the user set on the server: `[{"id": "55", "name": "rival"}]`.

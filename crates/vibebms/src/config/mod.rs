@@ -20,7 +20,10 @@ pub use play::{
     Versus, NORMAL_GREENS,
 };
 pub use practice::PracticeConfig;
-pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
+pub use select::{
+    DifficultyFilter, KeyFilter, RandomSelect, ReplayPick, SelectConfig, SortMode, WATCH_SPEED_MAX,
+    WATCH_SPEED_MIN,
+};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
     LENGTH_RANGE, OLD_TOUCH_HEIGHTS, PERSPECTIVE_LAYOUT, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
@@ -112,6 +115,9 @@ pub struct AudioSettings {
     pub preview: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub preview_once: bool,
+    /// Silent while the app is not the one in use (`app::activity`).
+    #[serde(skip_serializing_if = "is_true")]
+    pub mute_inactive: bool,
     /// The chart's sounds and the song preview played at a common loudness,
     /// `normalize_target` LUFS (`loudness`).
     #[serde(skip_serializing_if = "is_true")]
@@ -138,6 +144,7 @@ impl Default for AudioSettings {
             system: 0.7,
             preview: true,
             preview_once: false,
+            mute_inactive: true,
             normalize: true,
             normalize_target: NORMALIZE_TARGET,
             normalize_system: true,
@@ -478,6 +485,8 @@ mod tests {
                 key_filter: KeyFilter::K14,
                 difficulty_filter: DifficultyFilter::Another,
                 random: RandomSelect::NotHard,
+                replay: ReplayPick::Slot3,
+                replay_speed: 175,
             },
             keys: KeyConfig {
                 p1: side(0),
@@ -554,6 +563,7 @@ mod tests {
                 system: 0.125,
                 preview: false,
                 preview_once: true,
+                mute_inactive: true,
                 normalize: true,
                 normalize_target: NORMALIZE_TARGET,
                 normalize_system: true,
@@ -669,6 +679,18 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(Config::load(&path), c);
+    }
+
+    /// MUTE WHEN INACTIVE is written only when turned off.
+    #[test]
+    fn mute_inactive_off_is_kept() {
+        let mut c = Config::default();
+        assert!(c.audio.mute_inactive);
+        assert!(!c.to_toml().unwrap().contains("mute_inactive"));
+        c.audio.mute_inactive = false;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("mute_inactive = false"));
+        assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
     }
 
     /// Loudness normalisation is written only when it is not as it comes.

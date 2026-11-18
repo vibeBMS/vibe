@@ -19,9 +19,14 @@ pub const EVENT_RETRY: i32 = 9500;
 pub const EVENT_CONTINUE: i32 = 9501;
 /// vibeBMS: watch this play again (its replay).
 pub const EVENT_REPLAY: i32 = 9502;
+/// vibeBMS: keep this play's replay in slot 1..4 (`EVENT_SAVE_SLOT + n -
+/// 1`, as keys 1-4 do).
+pub const EVENT_SAVE_SLOT: i32 = 9510;
 
 /// vibeBMS option: the result of a battle (a second side to show).
 pub const OPTION_BATTLE: i32 = 9350;
+/// vibeBMS option: the play has a replay (it can be kept in a slot).
+pub const OPTION_HAS_REPLAY: i32 = 9352;
 /// vibeBMS text: who the second side was ("MY BEST", "LAST", "2P").
 pub const TEXT_OPPONENT: i32 = 9351;
 
@@ -61,6 +66,7 @@ impl<'a> ResultState<'a> {
         let rank = rank_index(sc.dj_level());
         Some(match id {
             OPTION_BATTLE => d.p2.is_some(),
+            OPTION_HAS_REPLAY => d.replay.is_some(),
             // the first side won, lost, drew (by EX score)
             352 => d.outcome() == Some(Outcome::Win),
             353 => d.outcome() == Some(Outcome::Lose),

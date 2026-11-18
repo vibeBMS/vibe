@@ -200,6 +200,7 @@ const OLD: &[(&str, &[&str])] = &[
             "audio.system",
             "audio.buffer_frames",
             "audio.preview",
+            "audio.mute_inactive",
             "audio.sound_set",
             "info.output",
         ],

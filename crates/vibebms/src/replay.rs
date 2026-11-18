@@ -1,6 +1,9 @@
 //! The replays kept (`vibebms_core::replay`): each chart (by SHA-256, LN
 //! mode and rule mode, as its record) keeps its latest play's replay and
-//! its best EX score's, in `<root>/scores/replays/`.
+//! its best EX score's, and up to four the player saved (slots 1-4, from
+//! the results), in `<root>/scores/replays/`. A course's stages and a
+//! NONSTOP course's play are kept the same way under the course
+//! (`PlayRequest::replay_key`).
 
 use crate::config::PlayConfig;
 use std::path::{Path, PathBuf};
@@ -17,13 +20,38 @@ pub enum Slot {
     Last,
     /// The best EX score.
     Best,
+    /// One the player saved: 1 to [`SAVED`].
+    Saved(u8),
 }
 
+/// How many replays the player can save per chart.
+pub const SAVED: u8 = 4;
+
 impl Slot {
-    fn name(self) -> &'static str {
+    /// The automatic replays, then the saved ones.
+    pub const ALL: [Slot; 2 + SAVED as usize] = [
+        Slot::Best,
+        Slot::Last,
+        Slot::Saved(1),
+        Slot::Saved(2),
+        Slot::Saved(3),
+        Slot::Saved(4),
+    ];
+
+    fn name(self) -> String {
         match self {
-            Slot::Last => "last",
-            Slot::Best => "best",
+            Slot::Last => "last".into(),
+            Slot::Best => "best".into(),
+            Slot::Saved(n) => format!("slot{n}"),
+        }
+    }
+
+    /// As shown: "MY BEST", "LAST", "SLOT 1".
+    pub fn label(self) -> String {
+        match self {
+            Slot::Best => "MY BEST".into(),
+            Slot::Last => "LAST".into(),
+            Slot::Saved(n) => format!("SLOT {n}"),
         }
     }
 }
@@ -97,17 +125,17 @@ pub fn load_filed(
         .filter_map(|k| load(root, sha256, k, rule, slot))
         .max_by_key(|r| match slot {
             Slot::Best => (r.ex_score as i64, r.date),
-            Slot::Last => (r.date, r.ex_score as i64),
+            Slot::Last | Slot::Saved(_) => (r.date, r.ex_score as i64),
         })
 }
 
-/// Whether `load_filed` finds a replay of the chart in either slot (the
+/// Whether `load_filed` finds a replay of the chart in any slot (the
 /// select screen dims its REPLAY button without one).
 pub fn exists(root: &Path, sha256: &str, ln: i32, rule: JudgePreset, fixed: bool) -> bool {
     let lns = if fixed { 0..3 } else { ln..ln + 1 };
     let is = |p: PathBuf| crate::platform::vfs::is_file(&p);
     lns.into_iter().any(|ln| {
-        [Slot::Best, Slot::Last].into_iter().any(|slot| {
+        Slot::ALL.into_iter().any(|slot| {
             is(file(root, sha256, ln, Some(rule), slot))
                 || is(file(root, sha256, ln, None, slot))
                     && load(root, sha256, ln, rule, slot).is_some()
@@ -203,6 +231,56 @@ mod tests {
         };
         save(&future, &root, Slot::Last).unwrap();
         assert!(load(Slot::Last).is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The four saved slots are kept apart from the latest and the best,
+    /// per chart, LN mode and rule mode; one alone makes the chart's
+    /// replays exist.
+    #[test]
+    fn saved_slots() {
+        let root = std::env::temp_dir().join(format!("vibebms-replay-slot-{}", std::process::id()));
+        let r = |ex: u32| Replay {
+            version: VERSION,
+            sha256: "ab".into(),
+            md5: String::new(),
+            title: "Song".into(),
+            ln: 1,
+            date: ex as i64,
+            seed: 1,
+            play: PlayConfig::default(),
+            ex_score: ex,
+            clear: ClearType::Easy,
+            ghost: Vec::new(),
+            ops: vec![Op::Update(5)],
+            course: None,
+        };
+        let rule = JudgePreset::Beatoraja;
+        assert!(!exists(&root, "ab", 1, rule, false));
+        save(&r(7), &root, Slot::Saved(3)).unwrap();
+        assert!(exists(&root, "ab", 1, rule, false));
+        assert!(!exists(&root, "ab", 0, rule, false));
+        assert!(!exists(&root, "ab", 1, JudgePreset::Lr2, false));
+        let get = |slot| load(&root, "ab", 1, rule, slot).map(|r| r.ex_score);
+        assert_eq!(get(Slot::Saved(3)), Some(7));
+        assert_eq!(
+            (get(Slot::Saved(1)), get(Slot::Last), get(Slot::Best)),
+            (None, None, None)
+        );
+        // a slot saved again holds the new replay
+        save(&r(9), &root, Slot::Saved(3)).unwrap();
+        save(&r(4), &root, Slot::Last).unwrap();
+        assert_eq!((get(Slot::Saved(3)), get(Slot::Last)), (Some(9), Some(4)));
+        // a chart whose long notes all have their type: found under any
+        assert_eq!(
+            load_filed(&root, "ab", 0, rule, true, Slot::Saved(3)).map(|r| r.ex_score),
+            Some(9)
+        );
+        let labels: Vec<String> = Slot::ALL.iter().map(|s| s.label()).collect();
+        assert_eq!(
+            labels,
+            ["MY BEST", "LAST", "SLOT 1", "SLOT 2", "SLOT 3", "SLOT 4"]
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 

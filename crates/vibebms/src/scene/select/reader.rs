@@ -130,10 +130,15 @@ impl Reader {
         self.files.get(k.unwrap_or(0))
     }
 
-    /// The file shown in the system's text viewer (desktop).
+    /// The file shown in the system's text viewer (desktop; one in an
+    /// archive: the archive in the file manager).
     fn open_shown(&self) {
-        if let Some(p) = self.file_shown() {
+        let Some(p) = self.file_shown() else { return };
+        let disk = super::files::on_disk(p);
+        if disk == *p {
             crate::platform::open::open_file(p);
+        } else {
+            crate::platform::open::reveal(&disk);
         }
     }
 

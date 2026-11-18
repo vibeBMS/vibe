@@ -10,7 +10,7 @@ use crate::library::{BestScore, RecordKey};
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{CourseRun, PlayRequest, PlayScene};
 use crate::scene::result_skin::{
-    ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY,
+    ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY, EVENT_SAVE_SLOT,
 };
 use crate::scene::skin_host::{SkinHost, Tap};
 use crate::scene::skinned;
@@ -184,7 +184,9 @@ impl ResultScene {
                 log::warn!("replay: {e}");
             }
         }
-        if stage && !d.autoplay {
+        // a replay watched (a course's too) is never recorded
+        let watched = d.record.flags.replay;
+        if stage && !d.autoplay && !watched {
             // a course's stage: its chart's record, partly (S-OLR2b 4.4)
             note = match (d.assist, ctx.lib.db.as_mut()) {
                 (Assist::None, Some(lib)) => {
@@ -198,7 +200,7 @@ impl ResultScene {
             };
         } else if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
             note = format!("{why}: not saved");
-        } else if recorded(d.autoplay, d.unranked) {
+        } else if recorded(d.autoplay, d.unranked) && !watched {
             let ranked = d.assist == Assist::None || d.course_total;
             if let Some(lib) = ctx.lib.db.as_mut() {
                 let play_ms = d.record.result.play_ms;
@@ -294,13 +296,30 @@ impl ResultScene {
             let mut c = self.d.course.clone().unwrap();
             c.index += 1;
             let song = c.songs[c.index].clone();
+            // a course watched: the next stage's replay of its slot, as
+            // far as there is one
+            let replay = match c.watch {
+                Some(slot) => match crate::scene::play::course_replay(ctx, &c, c.index, slot) {
+                    Some(r) => Some(std::sync::Arc::new(r)),
+                    None => {
+                        let stage = c.index + 1;
+                        ctx.toast(format!(
+                            "{}: no {} replay of stage {stage}",
+                            c.name,
+                            slot.label()
+                        ));
+                        return Next::Pop;
+                    }
+                },
+                None => None,
+            };
             return Next::Replace(Box::new(PlayScene::new(
                 ctx,
                 PlayRequest {
                     song,
                     autoplay: self.d.autoplay,
                     course: Some(c),
-                    replay: None,
+                    replay,
                     vs: None,
                     practice: None,
                 },
@@ -329,6 +348,24 @@ impl ResultScene {
                 ..self.d.request.clone()
             },
         )))
+    }
+
+    /// Keep this play's replay in saved slot `n` (keys 1-4): what a slot
+    /// had before is replaced. A course's stage is kept under its course
+    /// and stage, as its latest replay is.
+    fn keep_in_slot(&mut self, ctx: &mut Ctx, n: u8) {
+        let Some(r) = self.d.replay.as_ref() else {
+            ctx.toast("No replay of this play to keep".to_string());
+            return;
+        };
+        let slot = crate::replay::Slot::Saved(n);
+        match crate::replay::save(r, &ctx.paths.root, slot) {
+            Ok(()) => {
+                ctx.play_sound(crate::sysound::Sound::OptionChange);
+                ctx.toast(format!("{}: replay of {} kept", slot.label(), r.title));
+            }
+            Err(e) => ctx.toast(format!("{}: {e}", slot.label())),
+        }
     }
 
     /// Send the play now: the player was asked to (send policy ASK). (Not
@@ -382,7 +419,11 @@ impl Scene for ResultScene {
                 EVENT_RETRY => return self.leave(ctx, Leave::Retry),
                 EVENT_CONTINUE => return self.leave(ctx, Leave::Proceed),
                 EVENT_REPLAY => return self.watch(ctx),
-                _ => {}
+                n => {
+                    if let Some(k) = save_slot(n) {
+                        self.keep_in_slot(ctx, k);
+                    }
+                }
             }
         }
         if let Some(to) = self.leave_to.filter(|_| self.host.faded(now)) {
@@ -429,6 +470,13 @@ impl Scene for ResultScene {
                 if *code == KeyCode::KeyP {
                     return self.watch(ctx);
                 }
+                // 1-4: keep the replay in that slot (not a key that plays)
+                if let Some(n) =
+                    slot_key(*code).filter(|_| nav_from_key(*code, &ctx.config.keys).is_none())
+                {
+                    self.keep_in_slot(ctx, n);
+                    return Next::Stay;
+                }
                 if *code == KeyCode::KeyI && ctx.config.ir.submit == SubmitPolicy::Ask {
                     return self.send_asked(ctx);
                 }
@@ -461,6 +509,10 @@ impl Scene for ResultScene {
                     Tap::Script => Next::Stay,
                     Tap::Event(EVENT_RETRY, _) => self.leave(ctx, Leave::Retry),
                     Tap::Event(EVENT_REPLAY, _) => self.watch(ctx),
+                    Tap::Event(n, _) if save_slot(n).is_some() => {
+                        self.keep_in_slot(ctx, save_slot(n).unwrap_or(1));
+                        Next::Stay
+                    }
                     _ => self.leave(ctx, Leave::Proceed),
                 };
             }
@@ -536,6 +588,26 @@ impl Scene for ResultScene {
             TextStyle::new(14.0 * ui, theme::ACCENT, Align::Right),
         );
     }
+}
+
+/// The saved slot a number key keeps the replay in (1-4, either row).
+fn slot_key(code: KeyCode) -> Option<u8> {
+    use KeyCode::*;
+    Some(match code {
+        Digit1 | Numpad1 => 1,
+        Digit2 | Numpad2 => 2,
+        Digit3 | Numpad3 => 3,
+        Digit4 | Numpad4 => 4,
+        _ => return None,
+    })
+}
+
+/// The saved slot of a skin event (`EVENT_SAVE_SLOT` on).
+fn save_slot(event: i32) -> Option<u8> {
+    let n = event - EVENT_SAVE_SLOT + 1;
+    (1..=crate::replay::SAVED as i32)
+        .contains(&n)
+        .then_some(n as u8)
 }
 
 /// The sound set's sounds of a result: those it starts with, in the order
@@ -647,6 +719,17 @@ mod tests {
         assert_eq!(clear_sounds(1200, 1800), [ResultA, ResultClear]);
         assert_eq!(clear_sounds(1199, 1800), [ResultClear]);
         assert_eq!(clear_sounds(0, 0), [ResultClear]);
+    }
+
+    #[test]
+    fn keys_and_buttons_1_to_4_keep_the_replay_in_their_slot() {
+        assert_eq!(slot_key(KeyCode::Digit1), Some(1));
+        assert_eq!(slot_key(KeyCode::Numpad4), Some(4));
+        assert_eq!(slot_key(KeyCode::Digit5), None);
+        assert_eq!(save_slot(EVENT_SAVE_SLOT), Some(1));
+        assert_eq!(save_slot(EVENT_SAVE_SLOT + 3), Some(4));
+        assert_eq!(save_slot(EVENT_SAVE_SLOT + 4), None);
+        assert_eq!(save_slot(EVENT_REPLAY), None);
     }
 
     #[test]

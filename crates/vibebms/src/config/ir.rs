@@ -93,6 +93,10 @@ pub struct IrAccount {
     pub tables: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub rivals: Vec<String>,
+    /// A vibeBMS IR's web page of a chart, as its `/me` gave it
+    /// (`{sha256}`, `{md5}` in it).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub chart_page: String,
     /// A key a configuration of before kept (`[ir_server]`'s token): moved
     /// to the credentials store as the app starts, never written here.
     #[serde(skip_serializing)]
@@ -112,6 +116,7 @@ impl Default for IrAccount {
             view: String::new(),
             tables: Vec::new(),
             rivals: Vec::new(),
+            chart_page: String::new(),
             old_token: OldToken::default(),
         }
     }

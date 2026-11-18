@@ -111,6 +111,37 @@ fn refresh_lamps(c: &mut Ctx, i: usize) {
     }
 }
 
+/// Read the player's own scores and take them into the records.
+fn download_scores(c: &mut Ctx, i: usize) {
+    let Some(p) = c.config.ir.accounts.get(i).map(|a| a.provider) else {
+        return;
+    };
+    let said = match c.net.ir.download_scores(&c.config.ir, p) {
+        Ok(s) | Err(s) => s,
+    };
+    c.toast(said);
+}
+
+/// "Download my scores", for an account whose player is known.
+fn download_row(p: ProviderId, i: usize) -> Row {
+    Row::new(
+        "ir.download",
+        "Download my scores",
+        "↓",
+        Act::Run(download_scores, i),
+    )
+    .desc(match p {
+        ProviderId::BmsIr => {
+            "Your lamps on the tables read into your records, where better (LR2's as LN; others where the LN mode does not matter)."
+        }
+        ProviderId::Bokutachi => {
+            "Your PBs into your records, where better: BMS under LR2's rules as LN, PMS under beatoraja's."
+        }
+        _ => "Your best scores into your records, where better, each under its rule and LN mode.",
+    })
+    .keys("import scores pull sync records")
+}
+
 /// The choices of whose IR lamps show beside the player's: theirs, each
 /// rival, none.
 fn beside_choices(ctx: &Ctx) -> Vec<Beside> {
@@ -501,6 +532,7 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
     );
     if !a.user_id.is_empty() {
         b.push(lamps_row(ctx, a, i));
+        b.push(download_row(p, i));
     }
     let (label, desc) = if matches!(p, ProviderId::VibeJson(_)) {
         (
@@ -575,6 +607,7 @@ fn bmsir_rows(b: &mut Rows, i: usize) {
     ]);
     if !a.user_id.is_empty() {
         b.push(lamps_row(ctx, a, i));
+        b.push(download_row(a.provider, i));
     }
     let on = TABLES
         .iter()
