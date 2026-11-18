@@ -1,0 +1,26 @@
+# The F-Droid repository's metadata for the nightly app (read by
+# tools/fdroid_repo.sh; the icon is io.github.vibebms.nightly/en-US/icon.png,
+# a copy of assets/logo/icon-512.png). Each channel is its own app id
+# (tools/ci_version.sh), so a stable channel gets a file of its own.
+Categories:
+  - Games
+License: MIT OR Apache-2.0
+AuthorName: vibeBMS contributors
+WebSite: https://github.com/vibeBMS/vibe
+SourceCode: https://github.com/vibeBMS/vibe
+IssueTracker: https://github.com/vibeBMS/vibe/issues
+Changelog: https://github.com/vibeBMS/vibe/commits/main
+
+Name: vibeBMS Nightly
+Summary: BMS rhythm game player (nightly build)
+Description: |-
+    A cross-platform BMS player modelled on Lunatic Rave 2 and beatoraja: it plays
+    BMS, BME, BML, PMS and bmson charts with their judge and gauge rules, LR2 and
+    beatoraja skins, courses, replays and difficulty tables, with an on-screen
+    controller for touch screens.
+
+    This is the nightly build of the default branch: a new version comes with each
+    commit, and it is experimental on Android. It installs beside a stable build
+    (its own app id) and keeps its data in Android/data/io.github.vibebms.nightly/files:
+    copy BMS folders there over USB, or download songs a difficulty table lists in
+    the app's browser.
