@@ -53,6 +53,8 @@ pub const EVENT_SEARCH: i32 = 9903;
 pub const EVENT_PANEL: i32 = 9904;
 /// vibeBMS event: the chosen chart's practice screen.
 pub const EVENT_PRACTICE: i32 = 9905;
+/// vibeBMS: open the chosen chart's page on the IR (as key I).
+pub const EVENT_IR_PAGE: i32 = 9908;
 pub const EVENT_SIBLING: i32 = 9910;
 
 /// vibeBMS texts: the chart's key mode ("7KEYS"), the search shown, when
@@ -103,9 +105,10 @@ pub const PANEL_TILES: [&[i32]; PANELS] = [
     ],
     // SYSTEM OPTION: BGA, BGA SIZE, GAUGE AUTO SHIFT, JUDGE AUTO ADJUST,
     // JUDGE TIMING, GREEN NUMBER, VISUAL OFFSET, GHOST POSITION, SCORE
-    // GRAPH, FAST / SLOW, SCREEN MODE; KEY CONFIG, SKIN / SOUND, SETTINGS
+    // GRAPH, FAST / SLOW, SCREEN MODE, REPLAY, REPLAY SPEED; KEY CONFIG,
+    // SKIN / SOUND, SETTINGS
     &[
-        9036, 9029, 9002, 9037, 9019, 9020, 9021, 9030, 9031, 9022, 9023, 13, 14, 9009,
+        9036, 9029, 9002, 9037, 9019, 9020, 9021, 9030, 9031, 9022, 9023, 9043, 9044, 13, 14, 9009,
     ],
     &[],
     &[],

@@ -15,6 +15,26 @@ pub struct RemoteLamp {
     pub at_ms: Option<i64>,
     /// The service's own id of the chart (Tachi's `chartID`).
     pub remote: Option<String>,
+    /// The best EX score's PGREAT, GREAT, GOOD, BAD and POOR, the best
+    /// combo and the chart's notes, where the service gives them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judges: Option<[u32; 5]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_combo: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<u32>,
+}
+
+/// One of a player's best scores as an IR keeps them (a vibeBMS IR's
+/// `/players/{id}/scores`): its chart, the LN mode and rule profile it
+/// was played in where the service says, and the score.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RemoteScore {
+    pub sha256: String,
+    pub md5: String,
+    pub ln: Option<vibebms_core::chart::LnType>,
+    pub profile: Option<crate::rule::Profile>,
+    pub score: RemoteLamp,
 }
 
 /// One player's lamps, by chart hash (lower-case hexadecimal: an MD5 is 32

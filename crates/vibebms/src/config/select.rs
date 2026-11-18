@@ -103,17 +103,111 @@ impl RandomSelect {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+vibebms_core::choices! {
+    /// Which of a chart's replays REPLAY (P) watches.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum ReplayPick {
+        /// The best EX score's, else the latest.
+        #[default]
+        Auto => "BEST, ELSE LAST",
+        Best => "MY BEST",
+        Last => "LAST",
+        Slot1 => "SLOT 1",
+        Slot2 => "SLOT 2",
+        Slot3 => "SLOT 3",
+        Slot4 => "SLOT 4",
+    }
+}
+
+impl ReplayPick {
+    /// The replays it looks for, in order.
+    pub fn slots(self) -> Vec<crate::replay::Slot> {
+        use crate::replay::Slot;
+        match self {
+            ReplayPick::Auto => vec![Slot::Best, Slot::Last],
+            ReplayPick::Best => vec![Slot::Best],
+            ReplayPick::Last => vec![Slot::Last],
+            ReplayPick::Slot1 => vec![Slot::Saved(1)],
+            ReplayPick::Slot2 => vec![Slot::Saved(2)],
+            ReplayPick::Slot3 => vec![Slot::Saved(3)],
+            ReplayPick::Slot4 => vec![Slot::Saved(4)],
+        }
+    }
+}
+
+/// A replay is watched at 25 % to 300 % of its speed, in steps of 25.
+pub const WATCH_SPEED_MIN: u32 = 25;
+pub const WATCH_SPEED_MAX: u32 = 300;
+pub const WATCH_SPEED_STEP: u32 = 25;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct SelectConfig {
     pub sort: SortMode,
     pub key_filter: KeyFilter,
     pub difficulty_filter: DifficultyFilter,
     pub random: RandomSelect,
+    /// The replay REPLAY (P) watches.
+    pub replay: ReplayPick,
+    /// The speed replays are watched at (%): the chart's presentation and
+    /// sounds, never its judgements.
+    pub replay_speed: u32,
+}
+
+impl Default for SelectConfig {
+    fn default() -> SelectConfig {
+        SelectConfig {
+            sort: SortMode::default(),
+            key_filter: KeyFilter::default(),
+            difficulty_filter: DifficultyFilter::default(),
+            random: RandomSelect::default(),
+            replay: ReplayPick::default(),
+            replay_speed: 100,
+        }
+    }
 }
 
 impl SelectConfig {
     pub fn is_default(&self) -> bool {
         *self == SelectConfig::default()
+    }
+
+    /// The watch speed `d` steps on, within its range.
+    pub fn step_replay_speed(&mut self, d: i32) {
+        let v = self.replay_speed as i32 + d * WATCH_SPEED_STEP as i32;
+        self.replay_speed = v.clamp(WATCH_SPEED_MIN as i32, WATCH_SPEED_MAX as i32) as u32;
+    }
+
+    /// The watch speed as a rate (1.0: as played), within its range.
+    pub fn watch_rate(&self) -> f64 {
+        self.replay_speed.clamp(WATCH_SPEED_MIN, WATCH_SPEED_MAX) as f64 / 100.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::replay::Slot;
+
+    #[test]
+    fn replay_pick_and_watch_speed() {
+        assert_eq!(ReplayPick::Auto.slots(), [Slot::Best, Slot::Last]);
+        assert_eq!(ReplayPick::Slot2.slots(), [Slot::Saved(2)]);
+        let mut c = SelectConfig::default();
+        assert_eq!((c.replay_speed, c.watch_rate()), (100, 1.0));
+        c.step_replay_speed(-3);
+        assert_eq!(c.replay_speed, 25);
+        c.step_replay_speed(-1);
+        assert_eq!(c.replay_speed, 25);
+        c.step_replay_speed(20);
+        assert_eq!((c.replay_speed, c.watch_rate()), (300, 3.0));
+        c.step_replay_speed(-5);
+        assert_eq!(c.replay_speed, 175);
+        // a speed out of range in the file: kept within it
+        c.replay_speed = 1000;
+        assert_eq!(c.watch_rate(), 3.0);
+        // a config of before: the defaults
+        let old: SelectConfig = toml::from_str("sort = \"Level\"").unwrap();
+        assert_eq!((old.replay, old.replay_speed), (ReplayPick::Auto, 100));
     }
 }

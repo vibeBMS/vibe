@@ -122,9 +122,10 @@ pub fn set_dp_index(p: &mut PlayConfig, i: i64) {
 }
 
 /// DP OPTION with the battles that are not play options: BATTLE AS,
-/// then G-BATTLE (MY BEST, LAST) and VS (the select screen's panel and
-/// BATTLE row).
-pub const BATTLE_LABELS: [&str; 7] = [
+/// then G-BATTLE (MY BEST, LAST), VS and G-BATTLE against a saved slot
+/// (the select screen's panel and BATTLE row; chosen in the order of
+/// `battle_choices`).
+pub const BATTLE_LABELS: [&str; 11] = [
     "OFF",
     "FLIP",
     "BATTLE",
@@ -132,6 +133,10 @@ pub const BATTLE_LABELS: [&str; 7] = [
     "G-BATTLE MY BEST",
     "G-BATTLE LAST",
     "VS",
+    "G-BATTLE SLOT 1",
+    "G-BATTLE SLOT 2",
+    "G-BATTLE SLOT 3",
+    "G-BATTLE SLOT 4",
 ];
 
 pub fn battle_index(p: &PlayConfig) -> i64 {
@@ -140,6 +145,7 @@ pub fn battle_index(p: &PlayConfig) -> i64 {
         Versus::GhostBest => 4,
         Versus::GhostLast => 5,
         Versus::Local => 6,
+        Versus::GhostSlot(n) => 6 + n.clamp(1, 4) as i64,
     }
 }
 
@@ -149,17 +155,19 @@ pub fn set_battle_index(p: &mut PlayConfig, i: i64) {
         4 => Versus::GhostBest,
         5 => Versus::GhostLast,
         6 => Versus::Local,
+        7..=10 => Versus::GhostSlot((i - 6) as u8),
         _ => Versus::Off,
     };
 }
 
-/// The battle values that can be chosen now (VS needs a local second
-/// player's controls).
+/// The battle values that can be chosen now, in their order: the saved
+/// slots after LAST, VS last (it needs a local second player's
+/// controls).
 pub fn battle_choices(vs: bool) -> &'static [i64] {
     if vs {
-        &[0, 1, 2, 3, 4, 5, 6]
+        &[0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 6]
     } else {
-        &[0, 1, 2, 3, 4, 5]
+        &[0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
     }
 }
 
@@ -306,7 +314,7 @@ mod tests {
         key(&mut p, 1, 1, &b, 1);
         assert_eq!(p.random_1p, LaneOption::Off);
         // DP OPTION: OFF -> FLIP -> BATTLE -> BATTLE AS -> G-BATTLE (MY
-        // BEST, LAST) -> OFF
+        // BEST, LAST, SLOT 1-4) -> VS -> OFF
         key(&mut p, 1, 3, &b, 1);
         assert_eq!((p.dp_option, p.battle), (DoubleOption::Flip, false));
         key(&mut p, 1, 3, &b, 1);
@@ -318,6 +326,14 @@ mod tests {
         assert_eq!(p.versus, Versus::GhostBest);
         key(&mut p, 1, 3, &b, 1);
         assert_eq!(p.versus, Versus::GhostLast);
+        for n in 1..=4 {
+            key(&mut p, 1, 3, &b, 1);
+            assert_eq!(p.versus, Versus::GhostSlot(n));
+            assert_eq!(
+                BATTLE_LABELS[battle_index(&p) as usize],
+                format!("G-BATTLE SLOT {n}")
+            );
+        }
         key(&mut p, 1, 3, &b, 1);
         assert_eq!(p.versus, Versus::Local);
         key(&mut p, 1, 3, &b, 1);

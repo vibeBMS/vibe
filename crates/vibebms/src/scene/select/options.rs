@@ -9,8 +9,8 @@ use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
 use crate::config::{AudioSettings, BgaMode, BgaSize, Ghost, PlayConfig};
 use crate::config::{
-    Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
-    HISPEED_STEP,
+    Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, ReplayPick, Side, SortMode,
+    Versus, HISPEED_STEP,
 };
 use crate::gfx::Rect;
 use crate::input::{Nav, Repeat};
@@ -77,6 +77,8 @@ pub(crate) enum SelectOption {
     ScrollRemove,
     MineAdd,
     LnAdd,
+    Replay,
+    ReplaySpeed,
 }
 
 /// Full screen can be switched (desktop).
@@ -123,7 +125,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 43] = [
+    pub const ALL: [SelectOption; 45] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -167,6 +169,8 @@ impl SelectOption {
         SelectOption::ScrollRemove,
         SelectOption::MineAdd,
         SelectOption::LnAdd,
+        SelectOption::Replay,
+        SelectOption::ReplaySpeed,
     ];
 
     pub fn name(self) -> &'static str {
@@ -214,6 +218,8 @@ impl SelectOption {
             SelectOption::ScrollRemove => "SCROLL REMOVE",
             SelectOption::MineAdd => "MINE ADD",
             SelectOption::LnAdd => "LONGNOTE ADD",
+            SelectOption::Replay => "REPLAY",
+            SelectOption::ReplaySpeed => "REPLAY SPEED",
         }
     }
 
@@ -235,6 +241,8 @@ impl SelectOption {
             SelectOption::KeyFilter => sel.key_filter.label().into(),
             SelectOption::DifficultyFilter => sel.difficulty_filter.label().into(),
             SelectOption::RandomSelect => sel.random.label().into(),
+            SelectOption::Replay => sel.replay.label().into(),
+            SelectOption::ReplaySpeed => format!("{}%", sel.replay_speed),
             SelectOption::Screenshot => "SAVE".into(),
             SelectOption::LaneCover => if p.lane_cover { "SUDDEN+" } else { "OFF" }.into(),
             SelectOption::JudgeTiming => ms(p.judge_offset_ms),
@@ -288,14 +296,14 @@ impl SelectOption {
             SelectOption::Autoplay => onoff(p.autoplay).into(),
             SelectOption::Settings => "OPEN".into(),
             SelectOption::Battle => match option_panel::battle_index(p) {
-                2 => "BATTLE",
-                3 => "BATTLE AS",
-                4 => "G-BEST",
-                5 => "G-LAST",
-                6 => "VS",
-                _ => "OFF",
-            }
-            .into(),
+                2 => "BATTLE".into(),
+                3 => "BATTLE AS".into(),
+                4 => "G-BEST".into(),
+                5 => "G-LAST".into(),
+                6 => "VS".into(),
+                n @ 7..=10 => format!("G-SLOT{}", n - 6),
+                _ => "OFF".into(),
+            },
         }
     }
 }
@@ -340,6 +348,14 @@ impl SelectScene {
                 sel.random = cycle(&RandomSelect::ALL, sel.random, d);
                 false
             }
+            SelectOption::Replay => {
+                sel.replay = cycle(&ReplayPick::ALL, sel.replay, d);
+                false
+            }
+            SelectOption::ReplaySpeed => {
+                sel.step_replay_speed(d);
+                false
+            }
             _ => matches!(o, SelectOption::Judge | SelectOption::LnMode),
         };
         let p = &mut ctx.config.play;
@@ -362,7 +378,8 @@ impl SelectScene {
                 return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx)))
             }
             SelectOption::Battle => {
-                // OFF, BATTLE, BATTLE AS, G-BATTLE (MY BEST, LAST), VS
+                // OFF, BATTLE, BATTLE AS, G-BATTLE (MY BEST, LAST, SLOT
+                // 1-4), VS
                 let all = option_panel::battle_choices(true);
                 let row: Vec<i64> = all.iter().copied().filter(|i| *i != 1).collect();
                 let label = option_panel::step_battle(p, &row, d);
@@ -375,7 +392,9 @@ impl SelectScene {
             SelectOption::Sort
             | SelectOption::KeyFilter
             | SelectOption::DifficultyFilter
-            | SelectOption::RandomSelect => {
+            | SelectOption::RandomSelect
+            | SelectOption::Replay
+            | SelectOption::ReplaySpeed => {
                 // (skins without these show nothing of it)
                 ctx.toast(format!("{}: {}", o.name(), o.value(ctx, None, None)));
             }
@@ -529,8 +548,8 @@ impl SelectScene {
     /// `d` -1: the value before (a tap on its left half), else the next.
     pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32, d: i32) -> Next {
         use super::skin::{
-            EVENT_BACK, EVENT_PANEL, EVENT_PRACTICE, EVENT_READ_TEXT, EVENT_REPLAY, EVENT_SEARCH,
-            EVENT_SIBLING, OPTION_EVENT,
+            EVENT_BACK, EVENT_IR_PAGE, EVENT_PANEL, EVENT_PRACTICE, EVENT_READ_TEXT, EVENT_REPLAY,
+            EVENT_SEARCH, EVENT_SIBLING, OPTION_EVENT,
         };
         let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
@@ -592,6 +611,10 @@ impl SelectScene {
             }
             EVENT_REPLAY => self.watch_replay(ctx),
             EVENT_PRACTICE => self.practice(ctx),
+            EVENT_IR_PAGE => {
+                self.open_ir_page(ctx);
+                Next::Stay
+            }
             EVENT_PANEL => Next::Stay,
             EVENT_READ_TEXT => {
                 self.read_text(ctx);

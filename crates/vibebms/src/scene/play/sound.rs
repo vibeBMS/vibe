@@ -82,8 +82,12 @@ impl Audio {
                 volume: 1.0,
                 bus,
                 at: at.map(|t| s.instant_at(t)),
-                offset: m.us_to_frames(slice.start + into).max(0) as usize,
-                end: slice.end.map(|e| m.us_to_frames(e).max(0) as usize),
+                // (a replay watched at another speed: its sounds are
+                // resampled to it, their slices with them)
+                offset: m.us_to_frames(s.real_us(slice.start + into)).max(0) as usize,
+                end: slice
+                    .end
+                    .map(|e| m.us_to_frames(s.real_us(e)).max(0) as usize),
                 looping: false,
                 group: s
                     .nonstop
@@ -97,12 +101,14 @@ impl Audio {
     /// time `t`, to the mixer for exact timing (those over 100 ms late are
     /// left out).
     pub fn schedule(&mut self, m: &Mixer, s: &Session, t: i64) {
-        let horizon = t + 200_000;
+        // (in real time: a replay watched faster looks further ahead)
+        let horizon = t + (200_000.0 * s.rate) as i64;
+        let late = (100_000.0 * s.rate) as i64;
         while let Some(b) = s.chart.bgm.get(self.bgm_i) {
             if b.time > horizon {
                 break;
             }
-            if b.time >= t - 100_000 {
+            if b.time >= t - late {
                 self.play(m, s, b.sound, Some(b.time), 0, (Bus::Bgm, 0));
             }
             self.bgm_i += 1;
@@ -111,7 +117,7 @@ impl Audio {
             if time > horizon {
                 break;
             }
-            if time >= t - 100_000 {
+            if time >= t - late {
                 self.play(m, s, sound, Some(time), 0, (Bus::Key, side));
             }
             self.auto_i += 1;

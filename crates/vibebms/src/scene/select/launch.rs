@@ -5,7 +5,7 @@ use super::tree::{event, table, Bar, CourseBar, Missing, Node};
 use super::SelectScene;
 use crate::app::{Ctx, Next};
 use crate::config::Versus;
-use crate::replay::{self, Slot};
+use crate::replay;
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
 use crate::scene::practice::PracticeScene;
 use vibebms_core::rng::JavaRandom;
@@ -28,11 +28,7 @@ impl SelectScene {
             Some(Bar::Song(i)) => {
                 let song = ctx.lib.songs[i].clone();
                 // G-BATTLE: the opponent's replay, if it can be one
-                let slot = match ctx.config.play.versus {
-                    Versus::GhostBest => Some(Slot::Best),
-                    Versus::GhostLast => Some(Slot::Last),
-                    _ => None,
-                };
+                let slot = ctx.config.play.versus.ghost();
                 let vs = match slot.map(|s| play::ghost_for(ctx, &song, s).map(|r| (r, s))) {
                     Some(Ok((r, s))) => Some(play::Versus::Ghost(r, s)),
                     Some(Err(e)) => {
@@ -156,8 +152,13 @@ impl SelectScene {
         ctx.toast(msg);
     }
 
-    /// Watch the chosen chart's replay: its best play's, else its latest.
+    /// Watch the chosen chart's replay, the one REPLAY picks (the best
+    /// play's, else the latest; MY BEST; LAST; a saved slot), at the
+    /// watch speed; a course's (`watch_course`).
     pub(super) fn watch_replay(&mut self, ctx: &mut Ctx) -> Next {
+        if let Some(Bar::Course(c)) = self.bars.get(self.cursor).cloned() {
+            return self.watch_course(ctx, &c);
+        }
         let Some((_, song)) = self.selected_song(ctx) else {
             return Next::Stay;
         };
@@ -165,9 +166,10 @@ impl SelectScene {
         let ln = song.score_ln(ctx.config.play.ln_pref()) as i32;
         let fixed = song.fixed_ln() && !ctx.config.play.ln_force;
         let rule = ctx.config.play.judge_preset;
+        let pick = ctx.config.select.replay;
         let load = |slot| replay::load_filed(&ctx.paths.root, &song.sha256, ln, rule, fixed, slot);
-        let Some(r) = load(Slot::Best).or_else(|| load(Slot::Last)) else {
-            ctx.toast(format!("No replay of {}", song.title));
+        let Some(r) = pick.slots().into_iter().find_map(load) else {
+            ctx.toast(format!("No {} replay of {}", pick_name(pick), song.title));
             return Next::Stay;
         };
         self.stop_sounds(ctx);
@@ -180,6 +182,68 @@ impl SelectScene {
             practice: None,
         };
         Next::Push(Box::new(PlayScene::new(ctx, req)))
+    }
+
+    /// Watch a course's replay in the slot REPLAY picks: a NONSTOP
+    /// course's play, an expert or class course's stages one after
+    /// another (each stage's own replay of that slot, as far as there is
+    /// one).
+    fn watch_course(&mut self, ctx: &mut Ctx, c: &CourseBar) -> Next {
+        let mut run = match course_run(ctx, c) {
+            Ok(r) => r,
+            Err(e) => {
+                ctx.toast(e);
+                return Next::Stay;
+            }
+        };
+        let pick = ctx.config.select.replay;
+        let found = pick.slots().into_iter().find_map(|slot| {
+            let r = play::course_replay(ctx, &run, 0, slot)?;
+            Some((slot, r))
+        });
+        let Some((slot, r)) = found else {
+            ctx.toast(format!("No {} replay of {}", pick_name(pick), run.name));
+            return Next::Stay;
+        };
+        run.watch = Some(slot);
+        let song = run.songs[0].clone();
+        self.stop_sounds(ctx);
+        let req = PlayRequest {
+            song,
+            autoplay: false,
+            course: Some(run),
+            replay: Some(std::sync::Arc::new(r)),
+            vs: None,
+            practice: None,
+        };
+        Next::Push(Box::new(PlayScene::new(ctx, req)))
+    }
+
+    /// Open the chosen chart's page on the IR the rankings come from, in
+    /// the system's browser (the web: a new tab).
+    pub(super) fn open_ir_page(&mut self, ctx: &mut Ctx) {
+        let Some((_, song)) = self.selected_song(ctx) else {
+            ctx.toast("IR page: choose a chart".to_string());
+            return;
+        };
+        let chart = vibebms_ir::provider::ChartId {
+            md5: song.md5.clone(),
+            sha256: song.sha256.clone(),
+            mode: song.mode,
+            ln: song.score_ln(ctx.config.play.ln_pref()),
+            remote: None,
+        };
+        let title = song.title.clone();
+        match ctx.net.ir.chart_page(&ctx.config.ir, chart) {
+            Ok(url) => {
+                if crate::platform::open_url(&url) {
+                    ctx.toast(format!("IR page of {title}: opened in the browser"));
+                } else {
+                    ctx.toast(format!("IR page: cannot open {url}"));
+                }
+            }
+            Err(why) => ctx.toast(format!("IR page: {why}")),
+        }
     }
 
     /// The chosen chart's practice screen.
@@ -395,4 +459,12 @@ pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> 
     // a table course's identity: its charts' MD5s
     def.stages = found.iter().map(|s| s.md5.to_lowercase()).collect();
     Ok(CourseRun::new(name, def, found, constraints))
+}
+
+/// REPLAY's choice for people ("BEST, ELSE LAST": any kept).
+fn pick_name(p: crate::config::ReplayPick) -> &'static str {
+    match p {
+        crate::config::ReplayPick::Auto => "kept",
+        p => p.label(),
+    }
 }

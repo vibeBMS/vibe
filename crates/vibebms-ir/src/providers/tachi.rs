@@ -29,8 +29,8 @@ use crate::eligibility::{device_of, Device};
 use crate::http::{enc, HttpRequest, HttpResponse};
 use crate::lamps::{tachi_lamp, to_tachi_lamp, LampSet, RankEntry, RankView, RemoteLamp};
 use crate::provider::{
-    by_status, need, AccountInfo, AuthKind, Avail, Caps, ChartKeys, Creds, Frozen, IrError, Op,
-    Outcome, Provider, ProviderId, Rate,
+    by_status, need, AccountInfo, AuthKind, Avail, Caps, ChartId, ChartKeys, Creds, Frozen,
+    IrError, Op, Outcome, Provider, ProviderId, Rate,
 };
 use crate::rule::Profile;
 use serde::de::DeserializeOwned;
@@ -283,6 +283,23 @@ impl Provider for Tachi {
         })
     }
 
+    /// A chart's page on the site: `/games/<game>-<playtype>/charts/<chartID>`
+    /// (as the site links its charts), by the id learned from the PB
+    /// lists; a PMS chart's playtype as its ranking's (`view`).
+    fn chart_page(&self, chart: &ChartId, view: &str) -> Result<String, IrError> {
+        let pms = match view {
+            "Controller" => Device::Controller,
+            _ => Device::Keyboard,
+        };
+        let (game, pt) = playtype(chart.mode, Some(pms)).ok_or(IrError::NotOffered)?;
+        let id = chart.remote.as_deref().ok_or(IrError::NoChartId)?;
+        Ok(format!(
+            "{BASE}/games/{game}-{}/charts/{}",
+            pt.to_ascii_lowercase(),
+            enc(id)
+        ))
+    }
+
     fn parse(&self, op: &Op, resp: &HttpResponse) -> Outcome {
         if let Some(o) = by_status(resp, || description(resp), &[]) {
             return o;
@@ -326,6 +343,7 @@ fn read(op: &Op, resp: &HttpResponse) -> Result<Outcome, serde_json::Error> {
                 Some(id) => Outcome::Account(AccountInfo {
                     id: id.to_string(),
                     name: String::new(),
+                    chart_page: String::new(),
                     // the docs' example spells it score_submit
                     can_submit: s
                         .permissions
@@ -385,12 +403,16 @@ fn read(op: &Op, resp: &HttpResponse) -> Result<Outcome, serde_json::Error> {
                 ) else {
                     continue;
                 };
+                let sd = &pb.score_data;
                 let lamp = RemoteLamp {
                     clear,
-                    ex: Some(pb.score_data.score as u32),
-                    bp: pb.score_data.optional.bp,
+                    ex: Some(sd.score as u32),
+                    bp: sd.optional.bp,
                     at_ms: pb.time_achieved,
                     remote: Some(pb.chart_id.clone()),
+                    judges: sd.judgements.all(),
+                    max_combo: sd.optional.max_combo,
+                    notes: c.notecount,
                 };
                 let hash = if c.hash_sha256.is_empty() {
                     &c.hash_md5
@@ -481,7 +503,26 @@ struct ScoreData {
     score: f64,
     lamp: String,
     #[serde(default)]
+    judgements: Judgements,
+    #[serde(default)]
     optional: Optional,
+}
+
+/// A PB's judgements (each may be missing).
+#[derive(Default, Deserialize)]
+struct Judgements {
+    pgreat: Option<u32>,
+    great: Option<u32>,
+    good: Option<u32>,
+    bad: Option<u32>,
+    poor: Option<u32>,
+}
+
+impl Judgements {
+    /// All five, or none.
+    fn all(&self) -> Option<[u32; 5]> {
+        Some([self.pgreat?, self.great?, self.good?, self.bad?, self.poor?])
+    }
 }
 
 #[derive(Default, Deserialize)]
@@ -517,6 +558,8 @@ struct ChartData {
     hash_md5: String,
     #[serde(rename = "hashSHA256", default)]
     hash_sha256: String,
+    #[serde(default)]
+    notecount: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -741,7 +784,8 @@ mod tests {
             Outcome::Account(AccountInfo {
                 id: "1".into(),
                 name: String::new(),
-                can_submit: true
+                can_submit: true,
+                chart_page: String::new(),
             })
         );
         assert!(matches!(
@@ -882,6 +926,11 @@ mod tests {
             )
         );
         assert_eq!(hard.remote.as_deref(), Some("c7k1"));
+        // its judgements, combo and the chart's notes
+        assert_eq!(
+            (hard.judges, hard.max_combo, hard.notes),
+            (Some([780, 130, 5, 1, 2]), Some(500), Some(918))
+        );
         // a chart without its SHA-256: by MD5
         let failed = set.get("FEDCBA9876543210FEDCBA9876543210", "").unwrap();
         assert_eq!((failed.clear, failed.bp), (ClearType::Failed, None));
@@ -913,5 +962,38 @@ mod tests {
             (2, "player two", "2", ClearType::Normal, 1500)
         );
         assert_eq!(v.entries[0].max_combo, Some(500));
+    }
+
+    /// A chart's page: by its Tachi id, under its game and playtype.
+    #[test]
+    fn chart_pages() {
+        use vibebms_core::PlayMode;
+        let mut chart = ChartId {
+            mode: PlayMode::Beat7K,
+            ..Default::default()
+        };
+        assert_eq!(Tachi.chart_page(&chart, ""), Err(IrError::NoChartId));
+        chart.remote = Some("C19d35e1312b608ef54f".into());
+        assert_eq!(
+            Tachi.chart_page(&chart, "").unwrap(),
+            "https://boku.tachi.ac/games/bms-7k/charts/C19d35e1312b608ef54f"
+        );
+        chart.mode = PlayMode::Beat14K;
+        assert!(Tachi
+            .chart_page(&chart, "")
+            .unwrap()
+            .contains("/games/bms-14k/charts/"));
+        chart.mode = PlayMode::Popn9K;
+        assert!(Tachi
+            .chart_page(&chart, "Controller")
+            .unwrap()
+            .contains("/games/pms-controller/charts/"));
+        assert!(Tachi
+            .chart_page(&chart, "Keyboard")
+            .unwrap()
+            .contains("/games/pms-keyboard/charts/"));
+        // no Tachi playtype for 5 keys
+        chart.mode = PlayMode::Beat5K;
+        assert_eq!(Tachi.chart_page(&chart, ""), Err(IrError::NotOffered));
     }
 }
