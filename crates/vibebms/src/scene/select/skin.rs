@@ -51,6 +51,8 @@ pub const EVENT_SEARCH: i32 = 9903;
 /// vibeBMS event: a panel's body, so a tap on it reaches nothing under it
 /// (a tap beside the panel closes it).
 pub const EVENT_PANEL: i32 = 9904;
+/// vibeBMS event: the chosen chart's practice screen.
+pub const EVENT_PRACTICE: i32 = 9905;
 pub const EVENT_SIBLING: i32 = 9910;
 
 /// vibeBMS texts: the chart's key mode ("7KEYS"), the search shown, when

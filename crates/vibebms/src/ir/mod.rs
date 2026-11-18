@@ -252,7 +252,7 @@ impl IrService {
     /// A play has ended: it gets its play id and goes into the history
     /// (a play of the player's own: not autoplay, not a replay watched).
     pub fn record(&mut self, rec: &mut PlayRecord) {
-        if rec.flags.autoplay || rec.flags.replay {
+        if rec.flags.autoplay || rec.flags.replay || rec.flags.practice {
             return;
         }
         if let Err(e) = self.history.add(rec) {
@@ -833,6 +833,7 @@ pub fn refusal_words(r: Refusal) -> String {
     match r {
         Refusal::OldRecord => "a record of an older version".into(),
         Refusal::Autoplay => "autoplay".into(),
+        Refusal::Practice => "a practice play".into(),
         Refusal::Replay => "a replay".into(),
         Refusal::Versus => "a VS play".into(),
         Refusal::GhostBattle => "G-BATTLE".into(),

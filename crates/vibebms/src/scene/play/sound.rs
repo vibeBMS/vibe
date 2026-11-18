@@ -4,6 +4,7 @@
 use super::session::{Out, Session};
 use vibebms_audio::{Bus, Mixer, PlayOptions, SoundBank};
 use vibebms_core::chart::SoundId;
+use vibebms_core::practice::sounding_at;
 
 /// A sound's mixer voice: VS keeps each side's keysounds apart (a side's
 /// keysound, or its HCN muting, never cuts the other's).
@@ -56,8 +57,18 @@ impl Audio {
         }
     }
 
-    /// `sound` of `side` at chart time `at` (`None`: now).
-    fn play(&self, m: &Mixer, s: &Session, sound: SoundId, at: Option<i64>, bus: Bus, side: usize) {
+    /// `sound` on `bus` (`Bus::Key`: of `side`) at chart time `at`
+    /// (`None`: now), from `into` µs into it.
+    fn play(
+        &self,
+        m: &Mixer,
+        s: &Session,
+        sound: SoundId,
+        at: Option<i64>,
+        into: i64,
+        bus: (Bus, usize),
+    ) {
+        let (bus, side) = bus;
         let Some(slice) = s.chart.sounds.get(sound as usize) else {
             return;
         };
@@ -71,7 +82,7 @@ impl Audio {
                 volume: 1.0,
                 bus,
                 at: at.map(|t| s.instant_at(t)),
-                offset: m.us_to_frames(slice.start).max(0) as usize,
+                offset: m.us_to_frames(slice.start + into).max(0) as usize,
                 end: slice.end.map(|e| m.us_to_frames(e).max(0) as usize),
                 looping: false,
                 group: s
@@ -92,7 +103,7 @@ impl Audio {
                 break;
             }
             if b.time >= t - 100_000 {
-                self.play(m, s, b.sound, Some(b.time), Bus::Bgm, 0);
+                self.play(m, s, b.sound, Some(b.time), 0, (Bus::Bgm, 0));
             }
             self.bgm_i += 1;
         }
@@ -101,16 +112,36 @@ impl Audio {
                 break;
             }
             if time >= t - 100_000 {
-                self.play(m, s, sound, Some(time), Bus::Key, side);
+                self.play(m, s, sound, Some(time), 0, (Bus::Key, side));
             }
             self.auto_i += 1;
+        }
+    }
+
+    /// The play from chart time `t` on (a practice section's lead-in):
+    /// the background sounds started before it that still sound then
+    /// play on from there, the rest are scheduled as it comes.
+    pub fn start_at(&mut self, m: &Mixer, s: &Session, t: i64) {
+        let bgm = &s.chart.bgm;
+        self.bgm_i = bgm.partition_point(|b| b.time < t);
+        self.auto_i = self.auto_notes.partition_point(|n| n.0 < t);
+        let len = |sound: SoundId| {
+            let Some(slice) = s.chart.sounds.get(sound as usize) else {
+                return 0;
+            };
+            let frames = self.bank.get(slice.file).map_or(0, |x| x.frames as i64);
+            let whole = frames * 1_000_000 / m.sample_rate.max(1) as i64;
+            slice.end.unwrap_or(whole).min(whole) - slice.start
+        };
+        for (sound, into) in sounding_at(&bgm[..self.bgm_i], t, len) {
+            self.play(m, s, sound, Some(t), into, (Bus::Bgm, 0));
         }
     }
 
     /// A step's sound.
     pub fn out(&self, m: &Mixer, s: &Session, o: Out) {
         match o {
-            Out::Key { side, sound } => self.play(m, s, sound, None, Bus::Key, side),
+            Out::Key { side, sound } => self.play(m, s, sound, None, 0, (Bus::Key, side)),
             Out::Volume {
                 side,
                 sound,

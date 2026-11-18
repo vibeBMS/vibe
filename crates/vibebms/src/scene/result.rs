@@ -303,6 +303,7 @@ impl ResultScene {
                     course: Some(c),
                     replay: None,
                     vs: None,
+                    practice: None,
                 },
             )));
         }

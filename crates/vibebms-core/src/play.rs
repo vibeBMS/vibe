@@ -246,12 +246,26 @@ pub fn build_engine(
     player: Option<usize>,
     autoplay: bool,
 ) -> (Engine, f64) {
+    let total = chart.total_of(rules.ln_mode, rules.gauge_preset, player);
+    let notes = chart.total_judgements_of(rules.ln_mode, player);
+    let engine = build_engine_with(chart, rules, player, autoplay, total, notes);
+    (engine, total)
+}
+
+/// As `build_engine`, its gauge moved by `total` over `notes` judgements
+/// (a practice section's: the whole chart's).
+pub fn build_engine_with(
+    chart: &Chart,
+    rules: &RuleOptions,
+    player: Option<usize>,
+    autoplay: bool,
+    total: f64,
+    notes: usize,
+) -> Engine {
     let mode = chart.mode();
     let fam = mode.family();
     let rates = rules.expand_judge.then_some(rules.judge_rates);
     let judge = judge_rules(rules.judge_preset, fam, chart.meta.judge_rank, rates);
-    let total = chart.total_of(rules.ln_mode, rules.gauge_preset, player);
-    let notes = chart.total_judgements_of(rules.ln_mode, player);
     let gauge = GrooveGauge::new_in(
         rules.gauge_preset,
         fam,
@@ -271,7 +285,7 @@ pub fn build_engine(
         scratch_release_ends_bss: true,
         player,
     };
-    (Engine::new(chart, cfg, gauge), total)
+    Engine::new(chart, cfg, gauge)
 }
 
 #[cfg(test)]

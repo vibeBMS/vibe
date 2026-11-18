@@ -28,6 +28,7 @@ impl PlayScene {
             mut facts,
             ln_profile,
             nonstop,
+            section,
         } = *l;
         let mode = chart.mode();
         let vs = self.req.is_vs();
@@ -63,14 +64,17 @@ impl PlayScene {
         }
         // a NONSTOP course is recorded as a song is, under its identity;
         // an expert or class course's stages each partly, then the course
+        let practice = self.req.practice.as_ref();
         let unranked = course
             .filter(|c| !c.nonstop())
             .map(|_| "COURSE")
             .or(self.req.replay.as_ref().map(|_| "REPLAY"))
-            .or(vs.then_some("VS"));
-        // a course's rules (a replay's play options have them)
-        let rules = match (course, &self.req.replay) {
-            (Some(c), None) => c.rules(&p.rules),
+            .or(vs.then_some("VS"))
+            .or(practice.map(|_| "PRACTICE"));
+        // a course's rules (a replay's play options have them), practice's
+        let rules = match (course, &self.req.replay, practice) {
+            (Some(c), None, _) => c.rules(&p.rules),
+            (_, _, Some(run)) => run.rules(&p.rules),
             _ => p.rules.clone(),
         };
         let ln = rules.ln_mode;
@@ -83,7 +87,13 @@ impl PlayScene {
                 .any(|n| n.is_playable() && mode.is_scratch(n.lane as usize));
         // G-BATTLE, VS: the player judges the first side alone
         let side = (ghost.is_some() || vs).then_some(0);
-        let (mut engine, total) = build_engine(&chart, &rules, side, self.req.autoplay);
+        let (mut engine, total) = match (practice, &section) {
+            (Some(run), Some(s)) => (
+                vibebms_core::practice::engine(&chart, s, &rules, run.gauge_start),
+                s.total,
+            ),
+            _ => build_engine(&chart, &rules, side, self.req.autoplay),
+        };
         if let Some(ns) = &nonstop {
             engine.switch_rules(ns.rule_switches(rules.judge_preset, mode.family()));
         }
@@ -98,14 +108,13 @@ impl PlayScene {
         if let Some(v) = &carried {
             engine.gauge.set_values(v);
         }
-        // a play of its own: kept as a replay
-        if self.req.replay.is_none() && !self.req.autoplay && !vs {
+        if keeps_replay(&self.req) {
             engine.record();
         }
         // the best play's ghost: MY BEST's pacemaker at the same note
-        let best_ex = match self.req.replay {
-            Some(_) => None,
-            None => crate::replay::load_filed(
+        let best_ex = match (&self.req.replay, practice) {
+            (Some(_), _) | (_, Some(_)) => None,
+            _ => crate::replay::load_filed(
                 &ctx.paths.root,
                 &self.req.replay_key(),
                 score_ln as i32,
@@ -208,6 +217,11 @@ impl PlayScene {
         self.session.start = now + lead;
         self.session.ready_at = Some(now);
         self.stage = Stage::Playing;
+        if let (Some(_), Some(section)) = (practice, section) {
+            // (its lead-in starts at 0, the music as it is there)
+            self.audio.start_at(&ctx.audio.mixer, &self.session, 0);
+            self.practice = Some(super::practice::Again::new(rules, section, lead));
+        }
         self.skin_panel = self
             .skin
             .as_ref()
@@ -216,4 +230,10 @@ impl PlayScene {
             log::info!("skin: {}", sk.skin.name);
         }
     }
+}
+
+/// Whether a play keeps its replay: one of the player's own (not watched,
+/// autoplay, VS or practice).
+pub(super) fn keeps_replay(req: &super::PlayRequest) -> bool {
+    req.replay.is_none() && !req.autoplay && !req.is_vs() && req.practice.is_none()
 }

@@ -96,6 +96,7 @@ impl PlayScene {
             );
             y += 20.0 * ui;
         }
+        self.draw_practice(ctx, d, view);
         if let Stage::Ending { since, .. } = self.stage {
             let a = (now.duration_since(since).as_secs_f32() / 1.2).min(1.0);
             d.b.rect(

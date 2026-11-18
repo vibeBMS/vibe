@@ -12,6 +12,7 @@ mod layout;
 mod loading;
 mod notes;
 mod persp;
+mod practice;
 mod session;
 mod setup;
 mod skin;
@@ -19,6 +20,7 @@ mod sound;
 #[cfg(test)]
 mod tests;
 
+pub use practice::{PracticeResult, PracticeRun};
 pub(crate) use session::Session;
 #[cfg(test)]
 pub(crate) use {
@@ -162,6 +164,8 @@ pub struct PlayRequest {
     pub replay: Option<Arc<Replay>>,
     /// An opponent on the second side.
     pub vs: Option<Versus>,
+    /// A section practised (no records).
+    pub practice: Option<PracticeRun>,
 }
 
 impl PlayRequest {
@@ -325,6 +329,8 @@ pub struct PlayScene {
     released: Vec<LaneEv>,
     /// Each player's hi-speed as the notes show it.
     hs_view: [hsview::HsView; 2],
+    /// A practice play: what starts it again.
+    practice: Option<practice::Again>,
 }
 
 impl PlayScene {
@@ -357,6 +363,7 @@ impl PlayScene {
             out: Vec::new(),
             released: Vec::new(),
             hs_view: Default::default(),
+            practice: None,
             req,
         }
     }
@@ -496,6 +503,12 @@ impl PlayScene {
         let failed = self.session.step(t, now, offsets, show, &mut self.out);
         self.play_out(ctx);
         let quit = self.controls.quit;
+        // practice with LOOP: the section again at once
+        let repeat = self.req.practice.as_ref().is_some_and(|p| p.repeat);
+        if repeat && !quit && (failed || self.session.over(t)) {
+            self.practice_again(ctx, now);
+            return;
+        }
         // the play's end: the wall clock once, the real time it ran
         let ended = || (crate::platform::unix_ms(), t.max(0) as u64 / 1000);
         if failed || quit {

@@ -587,3 +587,34 @@ fn course_rules_and_view() {
     assert_eq!((view.hs_fix, view.sudden), (crate::config::HsFix::Off, 0.3));
     assert_eq!(ns.lanes(), None);
 }
+
+/// A practice play keeps no replay (and goes to no result screen, so no
+/// score, lamp or IR entry); a play of the player's own does.
+#[test]
+fn practice_plays_keep_no_replay() {
+    let mut req = PlayRequest {
+        song: crate::library::Song::default(),
+        autoplay: false,
+        course: None,
+        replay: None,
+        vs: None,
+        practice: None,
+    };
+    assert!(super::setup::keeps_replay(&req));
+    req.practice = Some(PracticeRun {
+        practice: vibebms_core::practice::Practice {
+            from: 0,
+            to: 3,
+            lead_in: 1,
+            speed: 100,
+            rank: None,
+            total: None,
+        },
+        gauge: GaugeType::Hard,
+        gauge_start: None,
+        repeat: false,
+        seed: 1,
+        result: Default::default(),
+    });
+    assert!(!super::setup::keeps_replay(&req));
+}

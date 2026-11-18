@@ -7,6 +7,7 @@ use crate::app::{Ctx, Next};
 use crate::config::Versus;
 use crate::replay::{self, Slot};
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
+use crate::scene::practice::PracticeScene;
 use vibebms_core::rng::JavaRandom;
 
 impl SelectScene {
@@ -55,6 +56,7 @@ impl SelectScene {
                         course: None,
                         replay: None,
                         vs,
+                        practice: None,
                     },
                 )
             }
@@ -111,6 +113,7 @@ impl SelectScene {
                             course: Some(run),
                             replay: None,
                             vs: None,
+                            practice: None,
                         },
                     )
                 }
@@ -174,8 +177,19 @@ impl SelectScene {
             course: None,
             replay: Some(std::sync::Arc::new(r)),
             vs: None,
+            practice: None,
         };
         Next::Push(Box::new(PlayScene::new(ctx, req)))
+    }
+
+    /// The chosen chart's practice screen.
+    pub(super) fn practice(&mut self, ctx: &mut Ctx) -> Next {
+        let Some((_, song)) = self.selected_song(ctx) else {
+            return Next::Stay;
+        };
+        let song = song.clone();
+        self.stop_sounds(ctx);
+        Next::Push(Box::new(PracticeScene::new(ctx, song)))
     }
 
     /// A chart not in the library: downloaded (from a mirrored event, or

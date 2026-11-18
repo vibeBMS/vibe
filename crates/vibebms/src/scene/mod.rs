@@ -5,6 +5,7 @@ pub mod keyconfig;
 pub mod option_panel;
 pub mod play;
 pub mod play_skin;
+pub mod practice;
 pub mod result;
 pub mod result_skin;
 pub mod select;
