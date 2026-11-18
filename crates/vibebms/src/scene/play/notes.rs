@@ -1,6 +1,7 @@
 //! The flat note field: notes, long notes, mines, bar lines, the judge
 //! area and BPM guide, drawn with the play skin's images.
 
+use super::session::held_at_line;
 use super::skin::PlayState;
 use crate::app::Draw;
 use crate::config::HiSpeedMode;
@@ -179,6 +180,11 @@ pub(super) fn draw(
             let n = &notes[ni];
             let cn = &s.chart.notes[n.chart_index];
             let y = y_of(cn.pos, n.time);
+            // LR2: an unjudged note waits at the line
+            let y = match p.hold_at_line && held_at_line(n, t_vis) {
+                true => y.min(judge_y),
+                false => y,
+            };
             if n.time > t_vis + 2_000_000 && y < r.y - r.h {
                 break;
             }

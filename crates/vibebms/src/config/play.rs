@@ -255,6 +255,9 @@ pub struct PlayConfig {
     pub result_wait: bool,
     pub good_clears_poor: bool,
     pub miss_keysound: bool,
+    /// LR2's note display: a note not yet judged waits at the judge line
+    /// until it is hit or missed, instead of scrolling past it.
+    pub hold_at_line: bool,
     /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
     /// 38 / 39), and where the gap to the target shows.
     pub score_graph: bool,
@@ -458,7 +461,8 @@ impl Serialize for PlayConfig {
             guide_se,
             result_wait,
             good_clears_poor,
-            miss_keysound
+            miss_keysound,
+            hold_at_line
         );
         st.end()
     }
@@ -521,6 +525,7 @@ impl Default for PlayConfig {
             result_wait: false,
             good_clears_poor: false,
             miss_keysound: false,
+            hold_at_line: false,
             score_graph: true,
             ghost: Ghost::Off,
             judge_area: false,

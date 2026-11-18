@@ -151,6 +151,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
     names (`guide-pg`, `guide-gr`, `guide-gd`, `guide-bd`, `guide-pr` for an empty POOR, `guide-ms` for a missed
     note; any audio format), and for what the set has none of (an LR2 sound set, the built-in set) a built-in tone.
     At the system sound volume; G-BATTLE's opponent is silent.
+  - Notes wait at the line (off by default): as LR2 draws them, a note (a long note's head) not yet judged stops
+    at the judge line once its time has come, until it is hit or missed, instead of scrolling past (the flat and
+    the perspective note fields; a skin's PMS falling notes as they are).
   - LR2oraja Endless Dream's extras, each off by default: RESULT WAIT (the play goes on to 5 s after the chart's
     last note, BGM or BGA layer, the POOR layer left out, instead of ending a second after the last judgement; not
     after a practice section, a quit or a fail; a long BGM sound is not followed to its end); GOOD clears the miss

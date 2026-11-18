@@ -412,6 +412,7 @@ mod tests {
                 result_wait: false,
                 good_clears_poor: false,
                 miss_keysound: false,
+                hold_at_line: false,
                 score_graph: true,
                 ghost: Default::default(),
                 judge_area: true,

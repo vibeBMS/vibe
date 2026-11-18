@@ -6,7 +6,7 @@ use crate::platform::{Duration, Instant};
 use crate::replay::Replay;
 use std::sync::Arc;
 use vibebms_core::chart::{BgaLayer, Chart, SoundId};
-use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op};
+use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op, PlayNote};
 use vibebms_core::judge::Judge;
 use vibebms_core::nonstop::Nonstop;
 use vibebms_core::record::{DeviceFacts, InputSource};
@@ -607,6 +607,13 @@ impl Session {
     }
 }
 
+/// LR2's way of drawing notes (the display option): a note (a long note's
+/// head) whose time `t` has passed while it is still unjudged waits at the
+/// judge line until it is hit or missed. Not a mine (never judged).
+pub(crate) fn held_at_line(n: &PlayNote, t: i64) -> bool {
+    n.time < t && n.state.is_none() && !n.is_mine()
+}
+
 /// What the scene does with a side's sound event: a keysound of a lane the
 /// player plays (an auto lane's is scheduled ahead), a volume.
 fn sound(side: usize, e: &Engine, ev: EngineEvent) -> Option<Out> {
@@ -762,6 +769,58 @@ mod tests {
             s.event(0, judge(Judge::Bad, 0), now, SHOW, &mut out);
             assert!(s.poor_until.is_some());
         }
+    }
+
+    #[test]
+    fn notes_wait_at_the_line_until_judged() {
+        let play = RuleOptions::default();
+        let c = chart(&play);
+        let sides = vec![side(&c, &play, None, false)];
+        let mut s = Session::new(c, sides, false, Instant::now());
+        let first = |s: &Session| {
+            let e = s.engine().unwrap();
+            let i = e.notes().iter().position(|n| !n.is_mine()).unwrap();
+            (i, e.notes()[i].time)
+        };
+        let (i, time) = first(&s);
+        let held = |s: &Session, t| held_at_line(&s.engine().unwrap().notes()[i], t);
+        let mut out = Vec::new();
+        s.step(
+            time - 10_000,
+            s.instant_at(time - 10_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(!held(&s, time - 10_000), "not yet at the line");
+        // past its time, unjudged: at the line, until the miss
+        s.step(
+            time + 100_000,
+            s.instant_at(time + 100_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(held(&s, time + 100_000));
+        s.step(
+            time + 400_000,
+            s.instant_at(time + 400_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(!held(&s, time + 400_000), "missed: scrolls on");
+        // a hit one never waits
+        let sides = vec![side(&s.chart, &play, None, true)];
+        let mut s = Session::new(s.chart.clone(), sides, false, Instant::now());
+        s.step(
+            time + 50_000,
+            s.instant_at(time + 50_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(!held(&s, time + 50_000));
     }
 
     #[test]

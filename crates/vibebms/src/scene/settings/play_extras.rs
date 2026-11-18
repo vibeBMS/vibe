@@ -9,7 +9,7 @@ pub(super) fn rows(b: &mut Rows) {
     b.group(
         "gameplay.extras",
         "PLAY EXTRAS",
-        "FAST / SLOW threshold, GUIDE SE, RESULT WAIT, miss BGA and keysound",
+        "FAST / SLOW threshold, GUIDE SE, notes at the line, RESULT WAIT, miss BGA and keysound",
     );
     b.extend([
         Row::adjust(
@@ -31,6 +31,14 @@ pub(super) fn rows(b: &mut Rows) {
         })
         .desc("A sound for each judgement: the sound set's guide-pg .. guide-ms, else built-in.")
         .keys("guide sound effect judgement se assist"),
+        Row::adjust(
+            "play.hold_at_line",
+            "Notes wait at the line",
+            onoff(p.hold_at_line),
+            |c, _| c.config.play.hold_at_line ^= true,
+        )
+        .desc("As LR2: a note not yet hit stays on the judge line until it is judged or missed.")
+        .keys("lr2 note display judge line hold stop unjudged"),
         Row::adjust(
             "play.result_wait",
             "RESULT WAIT",
