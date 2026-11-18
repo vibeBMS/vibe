@@ -204,7 +204,7 @@ fn bump(d: isize) {
         SAVED.with(|n| n.set(n.get() + 1));
         // a batch of writes done: safe to leave the page now
         if left == 0 && SAVED.with(|n| n.replace(0)) >= 20 {
-            note("Songs saved in this browser".into());
+            note(tr!("Songs saved in this browser").into());
         }
     }
 }
@@ -526,10 +526,11 @@ fn pump() {
                         log::warn!("library: {what}: {e}");
                         if e.starts_with("QuotaExceededError") {
                             note(
-                                "No room to keep the song: free some in Settings › LIBRARY".into(),
+                                tr!("No room to keep the song: free some in Settings › LIBRARY")
+                                    .into(),
                             );
                         } else {
-                            note(format!("Could not keep {what}: {e}"));
+                            note(tr!("Could not keep {what}: {e}", what = what, e = e));
                         }
                     }
                 }
@@ -619,12 +620,12 @@ pub fn write_text(name: &str, text: &str, replace: bool) {
         Box::new(move |r| {
             if let Err(e) = r {
                 log::warn!("store: {what}: {e}");
-                note(format!("Could not save {what}: {e}"));
+                note(tr!("Could not save {what}: {e}", what = what, e = e));
             }
         }),
     );
     if !sent {
-        note(format!("Could not save {name}"));
+        note(tr!("Could not save {what}", what = name));
     }
 }
 
@@ -705,7 +706,7 @@ pub fn request_persist() {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if !granted {
-            note("The browser did not promise to keep the songs (adding the page to the home screen helps)".into());
+            note(tr!("The browser did not promise to keep the songs (adding the page to the home screen helps)").into());
         }
         refresh_status();
     });

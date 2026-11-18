@@ -416,9 +416,10 @@ impl Archives {
                     self.busy.retain(|b| *b != k);
                     match r {
                         Ok((dir, n)) => {
-                            out.push(AppEvent::Toast(format!(
-                                "Added {} ({n} files)",
-                                dir.display()
+                            out.push(AppEvent::Toast(tr!(
+                                "Added {name} ({n} files)",
+                                name = dir.display(),
+                                n = n
                             )));
                             self.installed.insert(k, dir);
                             if let Ok(j) = serde_json::to_vec_pretty(&self.installed) {
@@ -433,12 +434,12 @@ impl Archives {
                         }
                         Err(Fail::Page(url)) => {
                             out.push(AppEvent::Toast(
-                                "No direct download: opening its page".into(),
+                                tr!("No direct download: opening its page").into(),
                             ));
                             out.push(AppEvent::Browse(url));
                         }
                         Err(Fail::Msg(e)) => {
-                            out.push(AppEvent::Toast(format!("Download failed: {e}")))
+                            out.push(AppEvent::Toast(tr!("Download failed: {url}", url = e)))
                         }
                     }
                 }

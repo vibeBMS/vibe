@@ -12,7 +12,7 @@ use crate::library::Song;
 use crate::platform::vfs::Prefetch;
 use crate::platform::{Duration, Instant, Job};
 use crate::scene::graphs::{self, Area};
-use crate::scene::option_panel::{cycle, onoff};
+use crate::scene::option_panel::cycle;
 use crate::scene::play::{PlayRequest, PlayScene, PracticeResult, PracticeRun};
 use crate::skin::TimingGraph;
 use crate::sysound::Sound;
@@ -73,18 +73,18 @@ const ROWS: [Row; 13] = [
 impl Row {
     fn name(self) -> &'static str {
         match self {
-            Row::From => "SECTION START",
-            Row::To => "SECTION END",
-            Row::LeadIn => "LEAD-IN",
-            Row::Speed => "SPEED",
+            Row::From => tr!("SECTION START"),
+            Row::To => tr!("SECTION END"),
+            Row::LeadIn => tr!("LEAD-IN"),
+            Row::Speed => tr!("SPEED"),
             Row::Gauge => "GAUGE",
-            Row::GaugeStart => "GAUGE START",
-            Row::Rank => "JUDGE RANK",
+            Row::GaugeStart => tr!("GAUGE START"),
+            Row::Rank => tr!("JUDGE RANK"),
             Row::Total => "TOTAL",
             Row::Random => "RANDOM",
             Row::Random2 => "RANDOM 2P",
             Row::LnMode => "LN MODE",
-            Row::Loop => "LOOP",
+            Row::Loop => tr!("LOOP"),
             Row::Start => "START",
         }
     }
@@ -185,7 +185,7 @@ impl PracticeScene {
                 None
             }
             Err(e) => {
-                ctx.toast(format!("Cannot load chart: {e}"));
+                ctx.toast(tr!("Cannot load chart: {e}", e = e));
                 Some(Next::Pop)
             }
         }
@@ -234,30 +234,30 @@ impl PracticeScene {
             Row::From => bar(self.from, self.from),
             Row::To => bar(self.to, self.to.saturating_add(1)),
             Row::LeadIn => match c.lead_in {
-                0 => "NONE".into(),
-                1 => "1 MEASURE".into(),
-                n => format!("{n} MEASURES"),
+                0 => tr!("NONE").into(),
+                1 => tr!("1 MEASURE").into(),
+                n => tr!("{n} MEASURES", n = n),
             },
             Row::Speed => format!("{}%", c.speed),
             Row::Gauge => c.gauge.label().into(),
             Row::GaugeStart => match c.gauge_start {
                 Some(v) => format!("{v}%"),
-                None => "THE GAUGE'S OWN".into(),
+                None => tr!("THE GAUGE'S OWN").into(),
             },
             Row::Rank => match c.rank {
                 Some(r) => RANKS[r.clamp(0, 4) as usize].into(),
-                None => format!("CHART ({})", self.chart_rank()),
+                None => tr!("CHART ({value})", value = self.chart_rank()),
             },
             Row::Total => match (c.total, self.chart_total(p)) {
                 (Some(t), _) => t.to_string(),
-                (None, Some(t)) => format!("CHART ({t:.0})"),
-                (None, None) => "CHART".into(),
+                (None, Some(t)) => tr!("CHART ({value})", value = format!("{t:.0}")),
+                (None, None) => tr!("CHART").into(),
             },
             Row::Random => p.random_1p.label().into(),
             Row::Random2 => p.random_2p.label().into(),
             Row::LnMode => p.ln_pref().label(),
-            Row::Loop => onoff(c.repeat).into(),
-            Row::Start => "▶  PLAY".into(),
+            Row::Loop => if c.repeat { tr!("ON") } else { tr!("OFF") }.into(),
+            Row::Start => format!("▶  {}", tr!("PLAY")),
         }
     }
 
@@ -458,7 +458,7 @@ impl PracticeScene {
         self.hits.push(panel, Hit::Graph);
         let Some(r) = self.read.as_ref() else {
             d.text(
-                "LOADING…",
+                tr!("LOADING…"),
                 panel.x + panel.w * 0.5,
                 panel.y + panel.h * 0.45,
                 TextStyle::new(16.0 * u, theme::TEXT_DIM, Align::Center),
@@ -519,13 +519,14 @@ impl PracticeScene {
         // what the section is
         let notes: u32 = r.density[self.from..=self.to].iter().sum();
         let real = (r.bars[self.to + 1] - r.bars[self.from]) as f64 * 100.0 / c.speed as f64;
-        let what = format!(
-            "#{:03} – #{:03}   ·   {} MEASURES   ·   {notes} NOTES   ·   {} AT {}%",
-            self.from,
-            self.to,
-            self.to - self.from + 1,
-            clock(real as i64),
-            c.speed
+        let what = tr!(
+            "#{from} – #{to}   ·   {n} MEASURES   ·   {notes} NOTES   ·   {time} AT {speed}%",
+            from = format!("{:03}", self.from),
+            to = format!("{:03}", self.to),
+            n = self.to - self.from + 1,
+            notes = notes,
+            time = clock(real as i64),
+            speed = c.speed
         );
         d.text(
             "NOTES",
@@ -597,15 +598,15 @@ impl PracticeScene {
         let head = TextStyle::new(13.0 * u, theme::TEXT_DIM, Align::Left);
         let result = self.result.lock().ok().and_then(|r| r.clone());
         let Some(res) = result else {
-            d.text("LAST TRY", x, y, head);
+            d.text(tr!("LAST TRY"), x, y, head);
             let lines = [
-                "No try yet: choose a section, then PLAY.",
+                tr!("No try yet: choose a section, then PLAY."),
                 "",
-                "Practice plays are not recorded: no score,",
-                "lamp, replay or IR entry.",
+                tr!("Practice plays are not recorded: no score,"),
+                tr!("lamp, replay or IR entry."),
                 "",
-                "In play: R or Backspace starts the section",
-                "again, Esc comes back here.",
+                tr!("In play: R or Backspace starts the section"),
+                tr!("again, Esc comes back here."),
             ];
             for (i, l) in lines.iter().enumerate() {
                 d.text(
@@ -618,7 +619,12 @@ impl PracticeScene {
             return;
         };
         let s = &res.score;
-        d.text(&format!("LAST TRY  ·  #{}", res.attempt), x, y, head);
+        d.text(
+            &format!("{}  ·  #{}", tr!("LAST TRY"), res.attempt),
+            x,
+            y,
+            head,
+        );
         let color = match res.outcome {
             "CLEAR" => theme::ACCENT,
             "FAILED" => theme::NOTE_SCRATCH,
@@ -775,7 +781,7 @@ impl Scene for PracticeScene {
         self.hits.clear();
         let m = 16.0 * u;
         d.text(
-            "PRACTICE",
+            tr!("PRACTICE"),
             m,
             12.0 * u,
             TextStyle::new(22.0 * u, theme::ACCENT, Align::Left),
@@ -808,7 +814,7 @@ impl Scene for PracticeScene {
             self.draw_result(ctx, d, Rect::new(x, y, w - m - x, h - y - hint));
         }
         d.text(
-            "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back",
+            tr!("↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back"),
             w * 0.5,
             h - hint + 6.0 * u,
             TextStyle::new(12.0 * u, theme::TEXT_DIM, Align::Center).fit(w - 2.0 * m),

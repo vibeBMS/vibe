@@ -82,7 +82,7 @@ impl Downloads {
             Err(e) => {
                 log::warn!("in-app browser: {e}");
                 if !crate::platform::open_url(&first) {
-                    ctx.toast("Could not open a browser");
+                    ctx.toast(tr!("Could not open a browser"));
                 }
             }
         }
@@ -104,8 +104,8 @@ impl Downloads {
             for ev in events() {
                 let (kind, rest) = ev.split_at(ev.char_indices().nth(1).map_or(ev.len(), |c| c.0));
                 match kind {
-                    "S" => ctx.toast(format!("Downloading {rest}…")),
-                    "E" => ctx.toast(format!("Download failed: {rest}")),
+                    "S" => ctx.toast(tr!("Downloading {name}…", name = rest)),
+                    "E" => ctx.toast(tr!("Download failed: {url}", url = rest)),
                     "C" => self.open = false,
                     "F" => self
                         .imports
@@ -118,7 +118,7 @@ impl Downloads {
         self.imports.poll(ctx, |ctx| {
             if let Some(url) = next.pop_front() {
                 if open(&url, &ctx.paths.root.join("downloads")).is_ok() {
-                    ctx.toast("Now the chart: download it from this page");
+                    ctx.toast(tr!("Now the chart: download it from this page"));
                 }
             }
         });

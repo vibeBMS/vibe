@@ -348,8 +348,12 @@ impl IrService {
         let title = a.title().to_string();
         let parsed = match (r, provider(a)) {
             (Ok(resp), Some(prov)) => prov.parse(&Op::PlayerScores { player: &a.user_id }, &resp),
-            (Ok(_), None) => return AppEvent::Toast(format!("{title}: not available here")),
-            (Err(why), _) => return AppEvent::Toast(format!("{title}: no answer ({why})")),
+            (Ok(_), None) => {
+                return AppEvent::Toast(tr!("{title}: not available here", title = title))
+            }
+            (Err(why), _) => {
+                return AppEvent::Toast(tr!("{title}: no answer ({why})", title = title, why = why))
+            }
         };
         match parsed {
             Outcome::Scores { scores, .. } => {
@@ -361,13 +365,22 @@ impl IrService {
                     why: Vec::new(),
                 }))
             }
-            Outcome::Unsupported => {
-                AppEvent::Toast(format!("{title}: this server cannot list your scores"))
-            }
+            Outcome::Unsupported => AppEvent::Toast(tr!(
+                "{title}: this server cannot list your scores",
+                title = title
+            )),
             Outcome::Rejected(why) | Outcome::Auth(why) | Outcome::Retry { why, .. } => {
-                AppEvent::Toast(format!("{title}: your scores could not be read ({why})"))
+                AppEvent::Toast(tr!(
+                    "{title}: your scores could not be read ({why})",
+                    title = title,
+                    why = why
+                ))
             }
-            o => AppEvent::Toast(format!("{title}: unexpected answer: {o:?}")),
+            o => AppEvent::Toast(tr!(
+                "{title}: unexpected answer: {answer}",
+                title = title,
+                answer = format!("{o:?}")
+            )),
         }
     }
 
@@ -738,9 +751,11 @@ impl IrService {
                 self.checking.retain(|&p| p != own.provider);
                 own.user.clear();
                 let player = &own.user_id;
-                Some(AppEvent::Toast(format!(
-                    "{}: player {player}: {why}",
-                    own.title()
+                Some(AppEvent::Toast(tr!(
+                    "{title}: player {player}: {why}",
+                    title = own.title(),
+                    player = player,
+                    why = why
                 )))
             }
             _ => None,
@@ -803,7 +818,7 @@ impl IrService {
                 if info.can_submit {
                     return None;
                 }
-                "this key cannot send scores".to_string()
+                tr!("this key cannot send scores").to_string()
             }
             // a server without the check (vibeBMS IR protocol 1)
             Ok(Outcome::Unsupported) => {
@@ -812,13 +827,13 @@ impl IrService {
             }
             Ok(Outcome::Auth(why)) => {
                 a.user.clear();
-                format!("the key was refused ({why})")
+                tr!("the key was refused ({why})", why = why)
             }
             Ok(Outcome::Rejected(why) | Outcome::Retry { why, .. }) => {
-                format!("the key could not be checked ({why})")
+                tr!("the key could not be checked ({why})", why = why)
             }
-            Ok(_) => "the key could not be checked".into(),
-            Err(why) => format!("no answer ({why})"),
+            Ok(_) => tr!("the key could not be checked").into(),
+            Err(why) => tr!("no answer ({why})", why = why),
         };
         Some(AppEvent::Toast(format!("{}: {said}", a.title())))
     }

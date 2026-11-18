@@ -326,7 +326,7 @@ impl TouchLayoutScene {
             let slot = touch::slot(self.mode(), ctx.portrait());
             ctx.config.touch.layouts.remove(&slot);
         } else {
-            ctx.toast("This layout is a preset already");
+            ctx.toast(tr!("This layout is a preset already"));
         }
         self.grab = None;
     }
@@ -506,7 +506,7 @@ impl TouchLayoutScene {
     fn layout_label(ctx: &Ctx) -> String {
         let t = &ctx.config.touch;
         match t.style {
-            TouchStyle::Custom => "CUSTOM".into(),
+            TouchStyle::Custom => tr!("CUSTOM").into(),
             s => s.label().into(),
         }
     }
@@ -581,7 +581,7 @@ impl Scene for TouchLayoutScene {
             ui::lift(theme::BACKGROUND, 0.02),
         );
         d.text(
-            "PLAY SCREEN",
+            tr!("PLAY SCREEN"),
             view.x + view.w * 0.5,
             view.y + (view.h - 20.0 * ui) * 0.5 + 30.0 * ui,
             TextStyle::new(20.0 * ui, with_alpha(theme::TEXT_DIM, 0.5), Align::Center),
@@ -619,7 +619,10 @@ impl Scene for TouchLayoutScene {
             let share = touch::controls_share(&ctx.config.touch, ctx.portrait());
             let size = 16.0 * ui;
             d.text(
-                &format!("CONTROLS {:.0}%", share * 100.0),
+                &tr!(
+                    "CONTROLS {percent}%",
+                    percent = format!("{:.0}", share * 100.0)
+                ),
                 w * 0.5,
                 area.y - gh - 3.0 * mm - size * 1.2,
                 TextStyle::new(size, theme::ACCENT, Align::Center),
@@ -661,7 +664,13 @@ impl Scene for TouchLayoutScene {
         let custom = self.custom(ctx);
         let t = &ctx.config.touch;
         let share = touch::controls_share(t, ctx.portrait());
-        let height = format!("◀ CONTROLS {:.0}% ▶", share * 100.0);
+        let height = format!(
+            "◀ {} ▶",
+            tr!(
+                "CONTROLS {percent}%",
+                percent = format!("{:.0}", share * 100.0)
+            )
+        );
         let side = format!("◀ START/SELECT {} ▶", t.start_select_side.label());
         let layout = format!("◀ {} ▶", Self::layout_label(ctx));
         let mode_label = format!("◀ {} ▶", mode.label());
@@ -671,14 +680,14 @@ impl Scene for TouchLayoutScene {
                 vec![
                     (Tool::Mode, 0.23, &mode_label),
                     (Tool::Layout, 0.23, &layout),
-                    (Tool::Reset, 0.16, "RESET"),
-                    (Tool::Cancel, 0.18, "CANCEL"),
-                    (Tool::Save, 0.20, "SAVE"),
+                    (Tool::Reset, 0.16, tr!("RESET")),
+                    (Tool::Cancel, 0.18, tr!("CANCEL")),
+                    (Tool::Save, 0.20, tr!("SAVE")),
                 ],
                 vec![
                     (Tool::Height, 0.36, &height),
                     (Tool::Side, 0.40, &side),
-                    (Tool::Flip, 0.24, "FLIP"),
+                    (Tool::Flip, 0.24, tr!("FLIP")),
                 ],
             ]
         } else {
@@ -686,10 +695,10 @@ impl Scene for TouchLayoutScene {
                 vec![(Tool::Mode, 0.5, &mode_label), (Tool::Layout, 0.5, &layout)],
                 vec![(Tool::Height, 0.45, &height), (Tool::Side, 0.55, &side)],
                 vec![
-                    (Tool::Flip, 0.22, "FLIP"),
-                    (Tool::Reset, 0.24, "RESET"),
-                    (Tool::Cancel, 0.27, "CANCEL"),
-                    (Tool::Save, 0.27, "SAVE"),
+                    (Tool::Flip, 0.22, tr!("FLIP")),
+                    (Tool::Reset, 0.24, tr!("RESET")),
+                    (Tool::Cancel, 0.27, tr!("CANCEL")),
+                    (Tool::Save, 0.27, tr!("SAVE")),
                 ],
             ]
         };
@@ -709,28 +718,28 @@ impl Scene for TouchLayoutScene {
             }
             y += bh + gap;
         }
-        let orient = if ctx.portrait() {
-            "PORTRAIT"
-        } else {
-            "LANDSCAPE"
-        };
-        let state = if custom {
-            format!("Custom {orient} layout")
-        } else {
-            format!(
-                "{} preset · editing it makes a custom {orient} layout",
-                touch::preset_of(&ctx.config.touch).label()
-            )
+        let preset = touch::preset_of(&ctx.config.touch).label();
+        let state = match (custom, ctx.portrait()) {
+            (true, true) => tr!("Custom portrait layout").to_string(),
+            (true, false) => tr!("Custom landscape layout").to_string(),
+            (false, true) => tr!(
+                "{preset} preset · editing it makes a custom portrait layout",
+                preset = preset
+            ),
+            (false, false) => tr!(
+                "{preset} preset · editing it makes a custom landscape layout",
+                preset = preset
+            ),
         };
         let small = 14.0 * ui;
         let lines = [
             (state.as_str(), theme::TEXT),
             (
-                "Drag a button to move it · drag its corners or pinch it to resize",
+                tr!("Drag a button to move it · drag its corners or pinch it to resize"),
                 theme::TEXT_DIM,
             ),
             (
-                "Drag the line above the controls to change their height",
+                tr!("Drag the line above the controls to change their height"),
                 theme::TEXT_DIM,
             ),
         ];

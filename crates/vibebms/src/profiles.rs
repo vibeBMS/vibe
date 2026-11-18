@@ -163,10 +163,10 @@ fn valid_id(id: &str) -> bool {
 fn clean_name(name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("A profile needs a name".into());
+        return Err(tr!("A profile needs a name").into());
     }
     if name.chars().any(char::is_control) {
-        return Err("A profile's name is one line".into());
+        return Err(tr!("A profile's name is one line").into());
     }
     if name.chars().count() > NAME_MAX {
         return Err(format!(
@@ -277,7 +277,7 @@ impl Registry {
         let taken = (self.profiles.iter())
             .any(|p| Some(p.id.as_str()) != id && p.name.to_lowercase() == name.to_lowercase());
         match taken {
-            true => Err(format!("There is a profile named {name} already")),
+            true => Err(tr!("There is a profile named {name} already", name = name)),
             false => Ok(()),
         }
     }
@@ -322,7 +322,7 @@ impl Registry {
         let name = clean_name(name)?;
         self.free_name(&name, Some(id))?;
         let Some(p) = self.profiles.iter_mut().find(|p| p.id == id) else {
-            return Err("No such profile".into());
+            return Err(tr!("No such profile").into());
         };
         p.name = name;
         self.save(root);
@@ -334,13 +334,13 @@ impl Registry {
     /// deleted, so there is always one left; nor is the one in use.
     pub fn delete(&mut self, paths: &Paths, id: &str) -> Result<(), String> {
         if id.is_empty() {
-            return Err("The default profile is not deleted (its data is the root's)".into());
+            return Err(tr!("The default profile is not deleted (its data is the root's)").into());
         }
         if id == paths.profile {
-            return Err("The profile in use is not deleted: switch to another first".into());
+            return Err(tr!("The profile in use is not deleted: switch to another first").into());
         }
         if !self.has(id) {
-            return Err("No such profile".into());
+            return Err(tr!("No such profile").into());
         }
         let dir = profile_dir(&paths.root, id);
         crate::platform::store::remove_below(&dir);

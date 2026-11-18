@@ -94,7 +94,7 @@ pub fn back_button(d: &mut Draw, w: f32, ui: f32) -> Rect {
     button(
         d,
         Rect::new(w - 110.0 * ui, 7.0 * ui, 100.0 * ui, 34.0 * ui),
-        "◀ BACK",
+        tr!("◀ BACK"),
         ui,
         false,
     )

@@ -632,7 +632,7 @@ impl Scene for SkinSelectScene {
             let r = Rect::new(w * 0.5 - 260.0 * ui, h - 34.0 * ui, 520.0 * ui, 26.0 * ui);
             d.b.rect(r, with_alpha(theme::BACKGROUND, 0.8 * a));
             d.text(
-                "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back",
+                tr!("↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back"),
                 w * 0.5,
                 r.y + 4.0 * ui,
                 TextStyle::new(15.0 * ui, with_alpha(theme::TEXT, a), Align::Center),

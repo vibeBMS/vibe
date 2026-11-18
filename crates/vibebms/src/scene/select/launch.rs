@@ -60,7 +60,7 @@ impl SelectScene {
                 let pick = super::tree::random_candidates(ctx, &self.bars);
                 if pick.is_empty() {
                     let kind = ctx.config.select.random.label();
-                    ctx.toast(format!("RANDOM SELECT: no chart here is {kind}"));
+                    ctx.toast(tr!("RANDOM SELECT: no chart here is {kind}", kind = kind));
                     return Next::Stay;
                 }
                 let seed = crate::platform::unix_ms();
@@ -96,7 +96,10 @@ impl SelectScene {
                         {
                             self.cursor = i;
                         }
-                        ctx.toast(format!("{}: a new course", crate::courses::RANDOM_MIX));
+                        ctx.toast(tr!(
+                            "{name}: a new course",
+                            name = crate::courses::RANDOM_MIX
+                        ));
                     }
                     Err(e) => ctx.toast(e),
                 }
@@ -141,14 +144,22 @@ impl SelectScene {
         let stage = crate::courses::Stage::of(song);
         let st = &mut ctx.lib.courses;
         let Some(c) = st.editing.and_then(|id| st.get_mut(id)) else {
-            ctx.toast("No course open in the editor (settings, COURSES)");
+            ctx.toast(tr!("No course open in the editor (settings, COURSES)"));
             return;
         };
         let msg = if c.stages.len() >= vibebms_core::course::MAX_STAGES {
-            format!("{} has its {} stages", c.title, c.stages.len())
+            tr!(
+                "{title} has its {n} stages",
+                title = c.title,
+                n = c.stages.len()
+            )
         } else {
             c.stages.push(stage);
-            let msg = format!("{}: stage {} added", c.title, c.stages.len());
+            let msg = tr!(
+                "{title}: stage {n} added",
+                title = c.title,
+                n = c.stages.len()
+            );
             st.save();
             ctx.lib.version += 1;
             msg
@@ -174,7 +185,11 @@ impl SelectScene {
         let load =
             |slot| replay::load_filed(&ctx.paths.player, &song.sha256, ln, rule, fixed, slot);
         let Some(r) = pick.slots().into_iter().find_map(load) else {
-            ctx.toast(format!("No {} replay of {}", pick_name(pick), song.title));
+            ctx.toast(tr!(
+                "No {pick} replay of {title}",
+                pick = pick_name(pick),
+                title = song.title
+            ));
             return Next::Stay;
         };
         self.stop_sounds(ctx);
@@ -207,7 +222,11 @@ impl SelectScene {
             Some((slot, r))
         });
         let Some((slot, r)) = found else {
-            ctx.toast(format!("No {} replay of {}", pick_name(pick), run.name));
+            ctx.toast(tr!(
+                "No {pick} replay of {title}",
+                pick = pick_name(pick),
+                title = run.name
+            ));
             return Next::Stay;
         };
         run.watch = Some(slot);
@@ -228,7 +247,7 @@ impl SelectScene {
     /// the system's browser (the web: a new tab).
     pub(super) fn open_ir_page(&mut self, ctx: &mut Ctx) {
         let Some((_, song)) = self.selected_song(ctx) else {
-            ctx.toast("IR page: choose a chart".to_string());
+            ctx.toast(tr!("IR page: choose a chart").to_string());
             return;
         };
         let chart = vibebms_ir::provider::ChartId {
@@ -242,12 +261,15 @@ impl SelectScene {
         match ctx.net.ir.chart_page(&ctx.config.ir, chart) {
             Ok(url) => {
                 if crate::platform::open_url(&url) {
-                    ctx.toast(format!("IR page of {title}: opened in the browser"));
+                    ctx.toast(tr!(
+                        "IR page of {title}: opened in the browser",
+                        title = title
+                    ));
                 } else {
-                    ctx.toast(format!("IR page: cannot open {url}"));
+                    ctx.toast(tr!("IR page: cannot open {url}", url = url));
                 }
             }
-            Err(why) => ctx.toast(format!("IR page: {why}")),
+            Err(why) => ctx.toast(tr!("IR page: {why}", why = why)),
         }
     }
 
@@ -271,21 +293,24 @@ impl SelectScene {
             BulkBar::Queue(node, _) => {
                 let wanted = self.missing_of(ctx, &node);
                 let n = ctx.net.bulk.queue(wanted);
-                format!(
-                    "{n} charts queued: {} at a time, in DOWNLOADS at the root",
-                    crate::bulk::AT_ONCE
+                tr!(
+                    "{n} charts queued: {at} at a time, in DOWNLOADS at the root",
+                    n = n,
+                    at = crate::bulk::AT_ONCE
                 )
             }
-            BulkBar::RetryFailed => format!("{} charts queued again", net.bulk.retry_failed()),
+            BulkBar::RetryFailed => {
+                tr!("{n} charts queued again", n = net.bulk.retry_failed())
+            }
             BulkBar::CancelAll => {
-                format!(
-                    "{} downloads cancelled",
-                    net.bulk.cancel_all(&mut net.song_fetch)
+                tr!(
+                    "{n} downloads cancelled",
+                    n = net.bulk.cancel_all(&mut net.song_fetch)
                 )
             }
             BulkBar::ClearFinished => {
                 net.bulk.clear_finished();
-                "Finished downloads cleared".into()
+                tr!("Finished downloads cleared").into()
             }
             BulkBar::Item(k) => {
                 let Some(it) = net.bulk.items.get(k).cloned() else {
@@ -312,8 +337,10 @@ impl SelectScene {
                     return;
                 }
                 match &net.bulk.items[k].state {
-                    crate::bulk::State::Queued => format!("{}: queued again", it.want.title),
-                    _ => format!("{}: cancelled", it.want.title),
+                    crate::bulk::State::Queued => {
+                        tr!("{title}: queued again", title = it.want.title)
+                    }
+                    _ => tr!("{title}: cancelled", title = it.want.title),
                 }
             }
         };
@@ -339,7 +366,7 @@ impl SelectScene {
         } = m;
         if let Some((event_url, num)) = archive {
             let root = ctx.paths.root.clone();
-            let got = event(ctx, &event_url).ok_or_else(|| "no such event".to_string());
+            let got = event(ctx, &event_url).ok_or_else(|| tr!("no such event").to_string());
             let msg =
                 match got.and_then(|e| ctx.net.archives.download(&root, &ctx.net.hosts, e, num)) {
                     Ok(m) => m,
@@ -349,11 +376,11 @@ impl SelectScene {
             return;
         }
         if ctx.net.song_fetch.cancel(&title, &artist) {
-            ctx.toast(format!("{title}: cancelled"));
+            ctx.toast(tr!("{title}: cancelled", title = title));
             return;
         }
         if ctx.net.song_fetch.is_busy(&title, &artist) {
-            ctx.toast(format!("{title}: being added to the library"));
+            ctx.toast(tr!("{title}: being added to the library", title = title));
             return;
         }
         let root = ctx.paths.root.clone();
@@ -381,12 +408,16 @@ impl SelectScene {
             .song_fetch
             .start(&root, &ctx.lib.songs, &ctx.net.hosts, entry, addons, false)
         {
-            ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
+            ctx.toast(tr!(
+                "Downloading {title}… (choose it again to cancel)",
+                title = title
+            ));
             return;
         }
         if have_song {
-            ctx.toast(format!(
-                "{title}: the song is in the library, but this chart has no download link"
+            ctx.toast(tr!(
+                "{title}: the song is in the library, but this chart has no download link",
+                title = title
             ));
             return;
         }
@@ -397,7 +428,7 @@ impl SelectScene {
             .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
             .collect();
         if crate::app::IN_APP_BROWSER && !pages.is_empty() {
-            ctx.toast(format!("Download {title} in the browser window"));
+            ctx.toast(tr!("Download {title} in the browser window", title = title));
             ctx.net.browse = Some(pages.iter().map(|u| u.to_string()).collect());
             return;
         }
@@ -406,11 +437,16 @@ impl SelectScene {
             .filter(|u| crate::platform::open_url(u))
             .count();
         ctx.toast(match (pages.len(), opened) {
-            (0, _) => format!("Not installed: {title} (no download link)"),
-            (_, 0) => format!("Not installed: {title} — {}", pages.join("  ")),
-            (1, _) => format!("Opened the download page of {title}"),
-            _ => format!(
-                "Opened the download pages of {title}: put the chart into the song's folder"
+            (0, _) => tr!("Not installed: {title} (no download link)", title = title),
+            (_, 0) => tr!(
+                "Not installed: {title} — {pages}",
+                title = title,
+                pages = pages.join("  ")
+            ),
+            (1, _) => tr!("Opened the download page of {title}", title = title),
+            _ => tr!(
+                "Opened the download pages of {title}: put the chart into the song's folder",
+                title = title
             ),
         });
     }
@@ -427,7 +463,7 @@ pub(crate) fn course_title(ctx: &Ctx, c: &CourseBar) -> String {
             .lib
             .courses
             .get(*id)
-            .map(|c| format!("{} ({} stages)", c.title, c.stages.len()))
+            .map(|c| tr!("{title} ({n} stages)", title = c.title, n = c.stages.len()))
             .unwrap_or_default(),
         CourseBar::RandomMix(_) => crate::courses::RANDOM_MIX.into(),
     }
@@ -467,7 +503,7 @@ pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> 
         CourseBar::Table(url, i) => {
             let tc = table(ctx, url)
                 .and_then(|t| t.header.courses.get(*i))
-                .ok_or("no such course")?;
+                .ok_or(tr!("no such course"))?;
             let n = tc.md5.len().max(tc.sha256.len());
             let stages = (0..n)
                 .map(|k| {
@@ -483,7 +519,7 @@ pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> 
             (tc.name.clone(), def, stages, tc.constraint.clone())
         }
         CourseBar::Mine(id) => {
-            let mc = ctx.lib.courses.get(*id).ok_or("no such course")?;
+            let mc = ctx.lib.courses.get(*id).ok_or(tr!("no such course"))?;
             let stages = mc
                 .stages
                 .iter()
@@ -491,20 +527,29 @@ pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> 
                 .collect();
             (mc.title.clone(), mc.def(), stages, Vec::new())
         }
-        CourseBar::RandomMix(_) => return Err("not a course".into()),
+        CourseBar::RandomMix(_) => return Err(tr!("not a course").into()),
     };
     if stages.is_empty() {
-        return Err(format!(
-            "Course {name}: no stages yet (add charts in the settings' COURSES)"
+        return Err(tr!(
+            "Course {name}: no stages yet (add charts in the settings' COURSES)",
+            name = name
         ));
     }
     if stages.len() > MAX_STAGES {
-        return Err(format!("Course {name}: more than {MAX_STAGES} stages"));
+        return Err(tr!(
+            "Course {name}: more than {max} stages",
+            name = name,
+            max = MAX_STAGES
+        ));
     }
     let mut found = Vec::new();
     for (k, (md5, sha)) in stages.iter().enumerate() {
         let Some(s) = find(songs, md5, sha) else {
-            return Err(format!("Course {name}: stage {} is not installed", k + 1));
+            return Err(tr!(
+                "Course {name}: stage {n} is not installed",
+                name = name,
+                n = k + 1
+            ));
         };
         found.push(s.clone());
     }
@@ -516,7 +561,7 @@ pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> 
 /// REPLAY's choice for people ("BEST, ELSE LAST": any kept).
 fn pick_name(p: crate::config::ReplayPick) -> &'static str {
     match p {
-        crate::config::ReplayPick::Auto => "kept",
+        crate::config::ReplayPick::Auto => tr!("kept"),
         p => p.label(),
     }
 }

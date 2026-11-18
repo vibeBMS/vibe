@@ -17,7 +17,10 @@ fn remove_folder(c: &mut Ctx, i: usize) {
 
 #[cfg(desktop)]
 fn browse(c: &mut Ctx, _: usize) {
-    if let Some(p) = rfd::FileDialog::new().set_title("BMS folder").pick_folder() {
+    if let Some(p) = rfd::FileDialog::new()
+        .set_title(tr!("BMS folder"))
+        .pick_folder()
+    {
         let s = p.to_string_lossy().into_owned();
         if !c.config.bms_dirs.contains(&s) {
             c.config.bms_dirs.push(s);

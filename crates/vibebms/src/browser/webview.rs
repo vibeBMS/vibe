@@ -170,7 +170,7 @@ impl Window {
         downloads: PathBuf,
     ) -> Result<Window, String> {
         let attrs = winit::window::Window::default_attributes()
-            .with_title("vibeBMS — download")
+            .with_title(format!("vibeBMS — {}", tr!("download")))
             .with_inner_size(winit::dpi::LogicalSize::new(1100.0, 800.0));
         let window = el.create_window(attrs).map_err(|e| e.to_string())?;
         let (tx, rx) = channel();
@@ -199,7 +199,7 @@ impl Window {
             gtk::init().map_err(|e| e.to_string())?;
         }
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
-        window.set_title("vibeBMS — download");
+        window.set_title(&format!("vibeBMS — {}", tr!("download")));
         window.set_default_size(1100, 800);
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
         window.add(&vbox);
@@ -296,7 +296,7 @@ impl Downloads {
                     .filter(|u| crate::platform::open_url(u))
                     .count();
                 if opened == 0 {
-                    ctx.toast("Could not open a browser");
+                    ctx.toast(tr!("Could not open a browser"));
                 }
             }
         }
@@ -338,8 +338,8 @@ impl Downloads {
         if let Some(w) = &self.window {
             for ev in w.rx.try_iter() {
                 match ev {
-                    Event::Started(name) => ctx.toast(format!("Downloading {name}…")),
-                    Event::Failed(url) => ctx.toast(format!("Download failed: {url}")),
+                    Event::Started(name) => ctx.toast(tr!("Downloading {name}…", name = name)),
+                    Event::Failed(url) => ctx.toast(tr!("Download failed: {url}", url = url)),
                     Event::Finished(p) => self.imports.start(p, ctx.paths.root.join("bms")),
                     Event::Closed => closed = true,
                 }
@@ -352,7 +352,7 @@ impl Downloads {
         self.imports.poll(ctx, |ctx| {
             if let (Some(url), Some(w)) = (next.pop_front(), window) {
                 let _ = w.webview.load_url(&url);
-                ctx.toast("Now the chart: download it from this page");
+                ctx.toast(tr!("Now the chart: download it from this page"));
             }
         });
     }

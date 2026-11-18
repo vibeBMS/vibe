@@ -194,12 +194,12 @@ impl ResultScene {
                     let b = crate::courses::save_stage(lib, &key, &d.score, d.clear);
                     ctx.lib.scores.insert(key, b.clone());
                     after = Some(b);
-                    "COURSE STAGE: best score and FULL COMBO kept".into()
+                    tr!("COURSE STAGE: best score and FULL COMBO kept").into()
                 }
-                _ => "COURSE STAGE: not saved".into(),
+                _ => tr!("COURSE STAGE: not saved").into(),
             };
         } else if let Some(why) = d.unranked.filter(|_| !d.autoplay) {
-            note = format!("{why}: not saved");
+            note = tr!("{why}: not saved", why = why);
         } else if recorded(d.autoplay, d.unranked) && !watched {
             let ranked = d.assist == Assist::None || d.course_total;
             if let Some(lib) = ctx.lib.db.as_mut() {
@@ -215,7 +215,7 @@ impl ResultScene {
                 after = Some(b);
             }
             if !ranked {
-                note = format!("{}: lamp only", d.clear.label());
+                note = tr!("{lamp}: lamp only", lamp = d.clear.label());
             }
             // a new best EX score: its replay is the chart's best (MY BEST's
             // ghost)
@@ -304,10 +304,11 @@ impl ResultScene {
                     Some(r) => Some(std::sync::Arc::new(r)),
                     None => {
                         let stage = c.index + 1;
-                        ctx.toast(format!(
-                            "{}: no {} replay of stage {stage}",
-                            c.name,
-                            slot.label()
+                        ctx.toast(tr!(
+                            "{course}: no {slot} replay of stage {stage}",
+                            course = c.name,
+                            slot = slot.label(),
+                            stage = stage
                         ));
                         return Next::Pop;
                     }
@@ -336,7 +337,7 @@ impl ResultScene {
     /// Watch this play again (its replay).
     fn watch(&mut self, ctx: &mut Ctx) -> Next {
         let Some(r) = self.d.replay.clone() else {
-            ctx.toast("No replay of this play".to_string());
+            ctx.toast(tr!("No replay of this play").to_string());
             return Next::Stay;
         };
         // (a NONSTOP play's chart is its course's)
@@ -356,14 +357,18 @@ impl ResultScene {
     /// and stage, as its latest replay is.
     fn keep_in_slot(&mut self, ctx: &mut Ctx, n: u8) {
         let Some(r) = self.d.replay.as_ref() else {
-            ctx.toast("No replay of this play to keep".to_string());
+            ctx.toast(tr!("No replay of this play to keep").to_string());
             return;
         };
         let slot = crate::replay::Slot::Saved(n);
         match crate::replay::save(r, &ctx.paths.player, slot) {
             Ok(()) => {
                 ctx.play_sound(crate::sysound::Sound::OptionChange);
-                ctx.toast(format!("{}: replay of {} kept", slot.label(), r.title));
+                ctx.toast(tr!(
+                    "{slot}: replay of {title} kept",
+                    slot = slot.label(),
+                    title = r.title
+                ));
             }
             Err(e) => ctx.toast(format!("{}: {e}", slot.label())),
         }

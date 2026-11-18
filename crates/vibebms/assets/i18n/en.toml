@@ -1,6 +1,53 @@
 # Every text vibeBMS translates, in English (the key the other tables use).
 # Generated from the code's tr!(...) calls: I18N_BLESS=1 cargo test -p vibebms i18n
 
+# app/ctx.rs
+"No such profile" = "No such profile"
+"Profile: {name}" = "Profile: {name}"
+"Library: {n} charts" = "Library: {n} charts"
+"{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here" = "{title}: {n} scores read: {new} new, {changed} improved, {unknown} of charts not here"
+", {n} left out (LN mode not said)" = ", {n} left out (LN mode not said)"
+", {n} left out (no rule mode)" = ", {n} left out (no rule mode)"
+"Reading {n} charts…" = "Reading {n} charts…"
+
+# app/mod.rs
+"Screenshot: {e}" = "Screenshot: {e}"
+"Screenshot: {path}" = "Screenshot: {path}"
+"Screenshots: this GPU's screen cannot be read" = "Screenshots: this GPU's screen cannot be read"
+"Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)" = "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)"
+
+# app/tables.rs
+"Table {name}: {e}" = "Table {name}: {e}"
+"Table updated: {name} ({n} charts)" = "Table updated: {name} ({n} charts)"
+
+# archive.rs
+"Added {name} ({n} files)" = "Added {name} ({n} files)"
+"No direct download: opening its page" = "No direct download: opening its page"
+"Download failed: {url}" = "Download failed: {url}"
+
+# browser/android.rs
+"Could not open a browser" = "Could not open a browser"
+"Downloading {name}…" = "Downloading {name}…"
+"Now the chart: download it from this page" = "Now the chart: download it from this page"
+
+# browser/imports.rs
+"Which song folder is {name} for?" = "Which song folder is {name} for?"
+"{name}: several songs could be it; it stays in downloads" = "{name}: several songs could be it; it stays in downloads"
+
+# browser/webview.rs
+"download" = "download"
+
+# import.rs
+"Could not unpack the download: {e}" = "Could not unpack the download: {e}"
+"{name} → its song" = "{name} → its song"
+"{name}: already installed" = "{name}: already installed"
+"{name}: download its song too" = "{name}: download its song too"
+"{name} is not a song (kept in downloads)" = "{name} is not a song (kept in downloads)"
+
+# input/gamepad.rs
+"Controller connected: {name} ({side})" = "Controller connected: {name} ({side})"
+"Controller disconnected: {name}" = "Controller disconnected: {name}"
+
 # ir/creds.rs
 "in the app's private storage" = "in the app's private storage"
 "in config/credentials.json, apart from config.toml" = "in config/credentials.json, apart from config.toml"
@@ -15,6 +62,182 @@
 "just now" = "just now"
 "{m} min ago" = "{m} min ago"
 "{h} h ago" = "{h} h ago"
+
+# ir/mod.rs
+"{title}: not available here" = "{title}: not available here"
+"{title}: no answer ({why})" = "{title}: no answer ({why})"
+"{title}: this server cannot list your scores" = "{title}: this server cannot list your scores"
+"{title}: your scores could not be read ({why})" = "{title}: your scores could not be read ({why})"
+"{title}: unexpected answer: {answer}" = "{title}: unexpected answer: {answer}"
+"{title}: player {player}: {why}" = "{title}: player {player}: {why}"
+"this key cannot send scores" = "this key cannot send scores"
+"the key was refused ({why})" = "the key was refused ({why})"
+"the key could not be checked ({why})" = "the key could not be checked ({why})"
+"the key could not be checked" = "the key could not be checked"
+"no answer ({why})" = "no answer ({why})"
+
+# platform/opfs.rs
+"Songs saved in this browser" = "Songs saved in this browser"
+"No room to keep the song: free some in Settings › LIBRARY" = "No room to keep the song: free some in Settings › LIBRARY"
+"Could not keep {what}: {e}" = "Could not keep {what}: {e}"
+"Could not save {what}: {e}" = "Could not save {what}: {e}"
+"Could not save {what}" = "Could not save {what}"
+"The browser did not promise to keep the songs (adding the page to the home screen helps)" = "The browser did not promise to keep the songs (adding the page to the home screen helps)"
+
+# profiles.rs
+"A profile needs a name" = "A profile needs a name"
+"A profile's name is one line" = "A profile's name is one line"
+"There is a profile named {name} already" = "There is a profile named {name} already"
+"The default profile is not deleted (its data is the root's)" = "The default profile is not deleted (its data is the root's)"
+"The profile in use is not deleted: switch to another first" = "The profile in use is not deleted: switch to another first"
+
+# replay.rs
+"G-BATTLE needs a 5 or 7 key chart" = "G-BATTLE needs a 5 or 7 key chart"
+"the replay is a BATTLE play" = "the replay is a BATTLE play"
+"the replay has no inputs" = "the replay has no inputs"
+"the replay is a LEGACY NOTE play" = "the replay is a LEGACY NOTE play"
+"the replay was played in another LN mode" = "the replay was played in another LN mode"
+
+# scene/keyconfig.rs
+"Keyboard" = "Keyboard"
+"Controller" = "Controller"
+"Axis" = "Axis"
+"KEY" = "KEY"
+"BINDING" = "BINDING"
+"INPUT" = "INPUT"
+"Enter: assign, Del: clear" = "Enter: assign, Del: clear"
+"Left / Right: key mode" = "Left / Right: key mode"
+"Esc: back" = "Esc: back"
+"Spin the turntable to bind its axis" = "Spin the turntable to bind its axis"
+"{key}: press a key or button, or spin the turntable  (Esc cancel, Del clear)" = "{key}: press a key or button, or spin the turntable  (Esc cancel, Del clear)"
+"{key}: press a key or button  (Esc cancel, Del clear)" = "{key}: press a key or button  (Esc cancel, Del clear)"
+"↑↓ row  Enter assign  ←→ mode  Del clear  Esc back" = "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back"
+
+# scene/play/hud.rs
+"REPLAY OF AN OLDER ENGINE" = "REPLAY OF AN OLDER ENGINE"
+"HOLD:" = "HOLD:"
+"QUIT" = "QUIT"
+"WHITE -0.25 / BLUE +0.25" = "WHITE -0.25 / BLUE +0.25"
+"TURNTABLE: COVER" = "TURNTABLE: COVER"
+"WHITE -0.01 / BLUE +0.01" = "WHITE -0.01 / BLUE +0.01"
+"TURNTABLE: HI-SPEED" = "TURNTABLE: HI-SPEED"
+
+# scene/play/input.rs
+"1P: controller {n}" = "1P: controller {n}"
+
+# scene/play/loading.rs
+"  ·  press a button on the 1P controller" = "  ·  press a button on the 1P controller"
+"1P left, 2P right" = "1P left, 2P right"
+"NONSTOP {n} STAGES" = "NONSTOP {n} STAGES"
+"STAGE {n}/{of}" = "STAGE {n}/{of}"
+"LOADING" = "LOADING"
+
+# scene/play/mod.rs
+"No {pick} replay of {title}" = "No {pick} replay of {title}"
+"VS needs a 5 or 7 key chart" = "VS needs a 5 or 7 key chart"
+"VS on a touch screen needs a tablet: this screen is too small for two players" = "VS on a touch screen needs a tablet: this screen is too small for two players"
+"Cannot load chart: {e}" = "Cannot load chart: {e}"
+
+# scene/practice.rs
+"SECTION START" = "SECTION START"
+"SECTION END" = "SECTION END"
+"LEAD-IN" = "LEAD-IN"
+"SPEED" = "SPEED"
+"GAUGE START" = "GAUGE START"
+"JUDGE RANK" = "JUDGE RANK"
+"LOOP" = "LOOP"
+"NONE" = "NONE"
+"1 MEASURE" = "1 MEASURE"
+"{n} MEASURES" = "{n} MEASURES"
+"THE GAUGE'S OWN" = "THE GAUGE'S OWN"
+"CHART ({value})" = "CHART ({value})"
+"CHART" = "CHART"
+"ON" = "ON"
+"OFF" = "OFF"
+"PLAY" = "PLAY"
+"LOADING…" = "LOADING…"
+"#{from} – #{to}   ·   {n} MEASURES   ·   {notes} NOTES   ·   {time} AT {speed}%" = "#{from} – #{to}   ·   {n} MEASURES   ·   {notes} NOTES   ·   {time} AT {speed}%"
+"LAST TRY" = "LAST TRY"
+"No try yet: choose a section, then PLAY." = "No try yet: choose a section, then PLAY."
+"Practice plays are not recorded: no score," = "Practice plays are not recorded: no score,"
+"lamp, replay or IR entry." = "lamp, replay or IR entry."
+"In play: R or Backspace starts the section" = "In play: R or Backspace starts the section"
+"again, Esc comes back here." = "again, Esc comes back here."
+"PRACTICE" = "PRACTICE"
+"↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back" = "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back"
+
+# scene/result.rs
+"COURSE STAGE: best score and FULL COMBO kept" = "COURSE STAGE: best score and FULL COMBO kept"
+"COURSE STAGE: not saved" = "COURSE STAGE: not saved"
+"{why}: not saved" = "{why}: not saved"
+"{lamp}: lamp only" = "{lamp}: lamp only"
+"{course}: no {slot} replay of stage {stage}" = "{course}: no {slot} replay of stage {stage}"
+"No replay of this play" = "No replay of this play"
+"No replay of this play to keep" = "No replay of this play to keep"
+"{slot}: replay of {title} kept" = "{slot}: replay of {title} kept"
+
+# scene/select/files.rs
+"Choose a chart to show its folder" = "Choose a chart to show its folder"
+"No file manager here" = "No file manager here"
+"Opening {u}" = "Opening {u}"
+"No web page for this chart (#URL, or a table's link)" = "No web page for this chart (#URL, or a table's link)"
+
+# scene/select/input.rs
+"Press back again to quit" = "Press back again to quit"
+"Press Delete again to delete {name} from this browser" = "Press Delete again to delete {name} from this browser"
+"Deleted {name}" = "Deleted {name}"
+"Added BMS folder: {s}" = "Added BMS folder: {s}"
+
+# scene/select/launch.rs
+"RANDOM SELECT: no chart here is {kind}" = "RANDOM SELECT: no chart here is {kind}"
+"{name}: a new course" = "{name}: a new course"
+"No course open in the editor (settings, COURSES)" = "No course open in the editor (settings, COURSES)"
+"{title} has its {n} stages" = "{title} has its {n} stages"
+"{title}: stage {n} added" = "{title}: stage {n} added"
+"IR page: choose a chart" = "IR page: choose a chart"
+"IR page of {title}: opened in the browser" = "IR page of {title}: opened in the browser"
+"IR page: cannot open {url}" = "IR page: cannot open {url}"
+"IR page: {why}" = "IR page: {why}"
+"{n} charts queued: {at} at a time, in DOWNLOADS at the root" = "{n} charts queued: {at} at a time, in DOWNLOADS at the root"
+"{n} charts queued again" = "{n} charts queued again"
+"{n} downloads cancelled" = "{n} downloads cancelled"
+"Finished downloads cleared" = "Finished downloads cleared"
+"{title}: queued again" = "{title}: queued again"
+"{title}: cancelled" = "{title}: cancelled"
+"no such event" = "no such event"
+"{title}: being added to the library" = "{title}: being added to the library"
+"Downloading {title}… (choose it again to cancel)" = "Downloading {title}… (choose it again to cancel)"
+"{title}: the song is in the library, but this chart has no download link" = "{title}: the song is in the library, but this chart has no download link"
+"Download {title} in the browser window" = "Download {title} in the browser window"
+"Not installed: {title} (no download link)" = "Not installed: {title} (no download link)"
+"Not installed: {title} — {pages}" = "Not installed: {title} — {pages}"
+"Opened the download page of {title}" = "Opened the download page of {title}"
+"Opened the download pages of {title}: put the chart into the song's folder" = "Opened the download pages of {title}: put the chart into the song's folder"
+"{title} ({n} stages)" = "{title} ({n} stages)"
+"no such course" = "no such course"
+"not a course" = "not a course"
+"Course {name}: no stages yet (add charts in the settings' COURSES)" = "Course {name}: no stages yet (add charts in the settings' COURSES)"
+"Course {name}: more than {max} stages" = "Course {name}: more than {max} stages"
+"Course {name}: stage {n} is not installed" = "Course {name}: stage {n} is not installed"
+"kept" = "kept"
+
+# scene/select/mod.rs
+"Empty folder" = "Empty folder"
+"SEARCH" = "SEARCH"
+
+# scene/select/options.rs
+"VS: 1P and 2P keys on one keyboard; many keyboards miss keys when several are held (rollover)" = "VS: 1P and 2P keys on one keyboard; many keyboards miss keys when several are held (rollover)"
+"KEY CONVERT: {mode} (such plays are not saved)" = "KEY CONVERT: {mode} (such plays are not saved)"
+"FAVORITE SONG: added {title}" = "FAVORITE SONG: added {title}"
+"FAVORITE SONG: removed {title}" = "FAVORITE SONG: removed {title}"
+"FAVORITE CHART: added {title}" = "FAVORITE CHART: added {title}"
+"FAVORITE CHART: removed {title}" = "FAVORITE CHART: removed {title}"
+
+# scene/select/reader.rs
+"READ TEXT" = "READ TEXT"
+"OPEN (O)" = "OPEN (O)"
+"Reading…" = "Reading…"
+"{title}: no text files" = "{title}: no text files"
 
 # scene/settings/controls.rs
 "1P KEYS" = "1P KEYS"
@@ -196,9 +419,7 @@
 "System volume" = "System volume"
 "Menu sounds and the song select music." = "Menu sounds and the song select music."
 "Song preview" = "Song preview"
-"OFF" = "OFF"
 "ONCE" = "ONCE"
-"LOOP" = "LOOP"
 "Play the chart's preview in the song select: LOOP, ONCE or OFF." = "Play the chart's preview in the song select: LOOP, ONCE or OFF."
 "Mute when inactive" = "Mute when inactive"
 "Silent while another app or window has the focus or vibeBMS is hidden; in play only while it is hidden (on a phone or tablet also without the focus)." = "Silent while another app or window has the focus or vibeBMS is hidden; in play only while it is hidden (on a phone or tablet also without the focus)."
@@ -239,7 +460,6 @@
 "Press a key or controller button" = "Press a key or controller button"
 "Esc = cancel, Delete = clear" = "Esc = cancel, Delete = clear"
 "SETTINGS" = "SETTINGS"
-"SEARCH" = "SEARCH"
 "↑↓←→ move   Enter open   / search   Esc back to the game" = "↑↓←→ move   Enter open   / search   Esc back to the game"
 "↑↓ results   ←→ change   Enter go there   Esc close" = "↑↓ results   ←→ change   Enter go there   Esc close"
 "←→↑↓ move in the grid   Enter toggle   Esc back" = "←→↑↓ move in the grid   Enter toggle   Esc back"
@@ -316,6 +536,7 @@
 "The GOOD window with EXPAND JUDGE on." = "The GOOD window with EXPAND JUDGE on."
 
 # scene/settings/library.rs
+"BMS folder" = "BMS folder"
 "Score import: {e}" = "Score import: {e}"
 "{source} scores: {imported} imported, {updated} updated, {unknown} unknown charts, {skipped} rows skipped" = "{source} scores: {imported} imported, {updated} updated, {unknown} unknown charts, {skipped} rows skipped"
 "LR2's LR2files/Database/Score/<player>.db, or beatoraja's player/<name>/score.db" = "LR2's LR2files/Database/Score/<player>.db, or beatoraja's player/<name>/score.db"
@@ -438,7 +659,6 @@
 "a profile deleted" = "a profile deleted"
 "none: paste one" = "none: paste one"
 "connected as {user}" = "connected as {user}"
-"kept" = "kept"
 "READ ONLY" = "READ ONLY"
 "NO KEY" = "NO KEY"
 "CONNECTED" = "CONNECTED"
@@ -595,9 +815,6 @@
 "Keysound on a missed note" = "Keysound on a missed note"
 "A note passed without a press plays its keysound as its POOR comes." = "A note passed without a press plays its keysound as its POOR comes."
 
-# scene/settings/row.rs
-"ON" = "ON"
-
 # scene/settings/search.rs
 "{option} → song select" = "{option} → song select"
 "SONG SELECT › {place}" = "SONG SELECT › {place}"
@@ -655,7 +872,6 @@
 "Terms" = "Terms"
 "Delete it" = "Delete it"
 "press again to delete" = "press again to delete"
-"Deleted {name}" = "Deleted {name}"
 
 # scene/settings/streaming.rs
 "STREAMING" = "STREAMING"
@@ -739,3 +955,47 @@
 "Deleted every song kept here" = "Deleted every song kept here"
 "Deleted {folders} ({size})" = "Deleted {folders} ({size})"
 "Deleted {name} ({size})" = "Deleted {name} ({size})"
+
+# scene/skinselect.rs
+"↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back" = "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back"
+
+# scene/touch_layout.rs
+"This layout is a preset already" = "This layout is a preset already"
+"CUSTOM" = "CUSTOM"
+"PLAY SCREEN" = "PLAY SCREEN"
+"CONTROLS {percent}%" = "CONTROLS {percent}%"
+"CANCEL" = "CANCEL"
+"SAVE" = "SAVE"
+"FLIP" = "FLIP"
+"Custom portrait layout" = "Custom portrait layout"
+"Custom landscape layout" = "Custom landscape layout"
+"{preset} preset · editing it makes a custom portrait layout" = "{preset} preset · editing it makes a custom portrait layout"
+"{preset} preset · editing it makes a custom landscape layout" = "{preset} preset · editing it makes a custom landscape layout"
+"Drag a button to move it · drag its corners or pinch it to resize" = "Drag a button to move it · drag its corners or pinch it to resize"
+"Drag the line above the controls to change their height" = "Drag the line above the controls to change their height"
+
+# skinstore.rs
+"too large for the browser: use the desktop or mobile app" = "too large for the browser: use the desktop or mobile app"
+"no such skin" = "no such skin"
+"{name} is downloading already" = "{name} is downloading already"
+"Installed {name} in skins/{folders}: choose it in SKINS" = "Installed {name} in skins/{folders}: choose it in SKINS"
+"{title}: no direct download, opening its page" = "{title}: no direct download, opening its page"
+"{title}: download failed ({e})" = "{title}: download failed ({e})"
+
+# songfetch.rs
+"{title}: already installed ({folder})" = "{title}: already installed ({folder})"
+"{title}: the song is in the library, but none of this chart's links works" = "{title}: the song is in the library, but none of this chart's links works"
+
+# ui/text_input.rs
+"(Enter = OK, Esc = cancel)" = "(Enter = OK, Esc = cancel)"
+"Cancel" = "Cancel"
+
+# update/mod.rs
+"Update available: {version} (SETTINGS › SYSTEM)" = "Update available: {version} (SETTINGS › SYSTEM)"
+"Updated to {ver}: restart to use it" = "Updated to {ver}: restart to use it"
+"The update failed: the executable's location is not known" = "The update failed: the executable's location is not known"
+
+# web.rs
+"{name}: add its song first, then this chart again" = "{name}: add its song first, then this chart again"
+"Which song is this chart for?" = "Which song is this chart for?"
+"Keep it separate" = "Keep it separate"

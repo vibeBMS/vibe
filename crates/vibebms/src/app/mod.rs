@@ -279,13 +279,13 @@ impl Running {
                 Ok(img) => {
                     self.shot_job = Some(crate::screenshot::save(img, name, &self.ctx.paths.root))
                 }
-                Err(e) => self.ctx.toast(format!("Screenshot: {e}")),
+                Err(e) => self.ctx.toast(tr!("Screenshot: {e}", e = e)),
             }
         }
         for r in Job::drain_slot(&mut self.shot_job) {
             match r {
-                Ok(path) => self.ctx.toast(format!("Screenshot: {path}")),
-                Err(e) => self.ctx.toast(format!("Screenshot: {e}")),
+                Ok(path) => self.ctx.toast(tr!("Screenshot: {path}", path = path)),
+                Err(e) => self.ctx.toast(tr!("Screenshot: {e}", e = e)),
             }
         }
     }
@@ -518,7 +518,7 @@ impl Running {
                 self.shot_name = Some(name);
             } else {
                 self.ctx
-                    .toast("Screenshots: this GPU's screen cannot be read");
+                    .toast(tr!("Screenshots: this GPU's screen cannot be read"));
             }
         }
         let waited = self
@@ -673,11 +673,11 @@ impl App {
                 f.used.label()
             );
             ctx.config.display.backend = f.used;
-            ctx.toast(format!(
-                "Graphics: {} could not start, {} is used instead \
+            ctx.toast(tr!(
+                "Graphics: {wanted} could not start, {used} is used instead \
                  (SETTINGS › DISPLAY & AUDIO › ADVANCED)",
-                f.wanted.label(),
-                f.used.label()
+                wanted = f.wanted.label(),
+                used = f.used.label()
             ));
         }
         ctx.open_records();

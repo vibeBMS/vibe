@@ -322,12 +322,16 @@ fn events(title: &str, d: Done) -> Vec<AppEvent> {
     let toast = |s: String| vec![AppEvent::Toast(s)];
     match d {
         Done::Added(dir, n) => vec![
-            AppEvent::Toast(format!("Added {} ({n} files)", name(&dir))),
+            AppEvent::Toast(tr!("Added {name} ({n} files)", name = name(&dir), n = n)),
             AppEvent::Rescan,
         ],
         // (files its folder lacked may have come in)
         Done::Owned(dir) => vec![
-            AppEvent::Toast(format!("{title}: already installed ({})", name(&dir))),
+            AppEvent::Toast(tr!(
+                "{title}: already installed ({folder})",
+                title = title,
+                folder = name(&dir)
+            )),
             AppEvent::Rescan,
         ],
         Done::Placed(p) => {
@@ -337,17 +341,21 @@ fn events(title: &str, d: Done) -> Vec<AppEvent> {
                 AppEvent::Rescan,
             ]
         }
-        Done::Waiting(p) => toast(format!("{}: download its song too", name(&p))),
+        Done::Waiting(p) => toast(tr!("{name}: download its song too", name = name(&p))),
         Done::Page(url) => vec![
-            AppEvent::Toast(format!("{title}: no direct download, opening its page")),
+            AppEvent::Toast(tr!(
+                "{title}: no direct download, opening its page",
+                title = title
+            )),
             AppEvent::Browse(url),
         ],
         // (cancelled: said when it was)
         Done::Failed(e) if e.cancelled() => Vec::new(),
-        Done::Failed(Failure::NoChartLink) => toast(format!(
-            "{title}: the song is in the library, but none of this chart's links works"
+        Done::Failed(Failure::NoChartLink) => toast(tr!(
+            "{title}: the song is in the library, but none of this chart's links works",
+            title = title
         )),
-        Done::Failed(e) => toast(format!("{title}: download failed ({e})")),
+        Done::Failed(e) => toast(tr!("{title}: download failed ({e})", title = title, e = e)),
         other => {
             log::warn!("{title}: {other:?}");
             Vec::new()

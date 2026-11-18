@@ -333,15 +333,17 @@ impl SelectOption {
 /// What VS needs of the controls, said when it is chosen.
 fn vs_hint(ctx: &mut Ctx) {
     if crate::scene::play::vs_touch_too_small(ctx) {
-        ctx.toast(crate::scene::play::VS_TOUCH_TOO_SMALL.to_string());
+        ctx.toast(crate::scene::play::vs_touch_too_small_text().to_string());
         return;
     }
     let pads = ctx.config.keys.p2.keys.iter().any(|k| !k.pad.is_empty());
     if !ctx.touch_enabled() && !pads {
         ctx.toast(
-            "VS: 1P and 2P keys on one keyboard; many keyboards miss keys when several are held \
-             (rollover)"
-                .to_string(),
+            tr!(
+                "VS: 1P and 2P keys on one keyboard; many keyboards miss keys when several are held \
+                 (rollover)"
+            )
+            .to_string(),
         );
     }
 }
@@ -462,9 +464,9 @@ impl SelectScene {
             SelectOption::KeyConvert => {
                 p.key_convert = cycle(&KeyConvert::ALL, p.key_convert, d);
                 // (skins other than the default show no such option)
-                ctx.toast(format!(
-                    "KEY CONVERT: {} (such plays are not saved)",
-                    ctx.config.play.key_convert.label()
+                ctx.toast(tr!(
+                    "KEY CONVERT: {mode} (such plays are not saved)",
+                    mode = ctx.config.play.key_convert.label()
                 ));
             }
             SelectOption::JudgeTiming => {
@@ -526,12 +528,13 @@ impl SelectScene {
             return;
         };
         let on = lib.toggle_favorite(&s, song);
-        let what = if song {
-            "FAVORITE SONG"
-        } else {
-            "FAVORITE CHART"
-        };
-        ctx.toast(format!("{what}: {} ({})", onoff(on), s.title));
+        let title = &s.title;
+        ctx.toast(match (song, on) {
+            (true, true) => tr!("FAVORITE SONG: added {title}", title = title),
+            (true, false) => tr!("FAVORITE SONG: removed {title}", title = title),
+            (false, true) => tr!("FAVORITE CHART: added {title}", title = title),
+            (false, false) => tr!("FAVORITE CHART: removed {title}", title = title),
+        });
         self.rebuild(ctx);
     }
 

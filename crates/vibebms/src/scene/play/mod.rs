@@ -222,7 +222,16 @@ pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Ar
         song.fixed_ln() && !ln.force,
         slot,
     )
-    .ok_or_else(|| format!("G-BATTLE: no {} replay of {}", slot.label(), song.title))?;
+    .ok_or_else(|| {
+        format!(
+            "G-BATTLE: {}",
+            tr!(
+                "No {pick} replay of {title}",
+                pick = slot.label(),
+                title = song.title
+            )
+        )
+    })?;
     match crate::replay::ghost_refusal(&r, song, ln) {
         Some(why) => Err(format!("G-BATTLE: {why}")),
         None => Ok(Arc::new(r)),
@@ -268,13 +277,15 @@ pub(crate) fn single_mode(mode: PlayMode) -> PlayMode {
 /// chart; with touch controls, a tablet-sized screen (two control sets).
 pub fn vs_refusal(ctx: &Ctx, song: &Song) -> Option<&'static str> {
     if !matches!(song.mode, PlayMode::Beat7K | PlayMode::Beat5K) {
-        return Some("VS needs a 5 or 7 key chart");
+        return Some(tr!("VS needs a 5 or 7 key chart"));
     }
-    vs_touch_too_small(ctx).then_some(VS_TOUCH_TOO_SMALL)
+    vs_touch_too_small(ctx).then(vs_touch_too_small_text)
 }
 
-pub const VS_TOUCH_TOO_SMALL: &str =
-    "VS on a touch screen needs a tablet: this screen is too small for two players";
+/// Why VS cannot be played with touch controls on this screen.
+pub fn vs_touch_too_small_text() -> &'static str {
+    tr!("VS on a touch screen needs a tablet: this screen is too small for two players")
+}
 
 /// Touch controls on a screen too small for two control sets (a phone:
 /// its short side under 12 cm).
@@ -669,7 +680,7 @@ impl Scene for PlayScene {
                 None => return Next::Stay,
                 Some(Ok(l)) => self.setup(ctx, gfx, l),
                 Some(Err(e)) => {
-                    ctx.toast(format!("Cannot load chart: {e}"));
+                    ctx.toast(tr!("Cannot load chart: {e}", e = e));
                     return Next::Pop;
                 }
             }

@@ -100,7 +100,7 @@ impl Tables {
             let t = match m {
                 TableMsg::Loaded(t) => *t,
                 TableMsg::Failed(n, e) => {
-                    out.push(AppEvent::Toast(format!("Table {n}: {e}")));
+                    out.push(AppEvent::Toast(tr!("Table {name}: {e}", name = n, e = e)));
                     continue;
                 }
             };
@@ -109,10 +109,10 @@ impl Tables {
             if let Ok(j) = serde_json::to_vec(&t) {
                 let _ = crate::platform::vfs::write(&cache_file(paths, &t.source_url), &j);
             }
-            out.push(AppEvent::Toast(format!(
-                "Table updated: {} ({} charts)",
-                t.header.name,
-                t.entries.len()
+            out.push(AppEvent::Toast(tr!(
+                "Table updated: {name} ({n} charts)",
+                name = t.header.name,
+                n = t.entries.len()
             )));
             match self.list.iter_mut().find(|o| o.source_url == t.source_url) {
                 Some(old) => *old = t,

@@ -119,7 +119,7 @@ impl SkinEntry {
     /// Why the web build cannot install it, if it cannot.
     pub fn web_refusal(&self) -> Option<&'static str> {
         (self.size > WEB_MAX_BYTES)
-            .then_some("too large for the browser: use the desktop or mobile app")
+            .then(|| tr!("too large for the browser: use the desktop or mobile app"))
     }
 }
 
@@ -280,9 +280,9 @@ impl SkinStore {
         cx: &crate::hosts::Context,
         idx: usize,
     ) -> Result<String, String> {
-        let e = self.catalog.skins.get(idx).cloned().ok_or("no such skin")?;
+        let e = (self.catalog.skins.get(idx).cloned()).ok_or(tr!("no such skin"))?;
         if self.busy.iter().any(|(id, _)| *id == e.id) {
-            return Err(format!("{} is downloading already", e.name));
+            return Err(tr!("{name} is downloading already", name = e.name));
         }
         if crate::platform::IS_WEB {
             if let Some(why) = e.web_refusal() {
@@ -295,7 +295,7 @@ impl SkinStore {
         } else {
             String::new()
         };
-        let msg = format!("Downloading {}{size}…", e.name);
+        let msg = tr!("Downloading {name}…", name = format!("{}{size}", e.name));
         let id = e.id.clone();
         #[cfg(not(target_arch = "wasm32"))]
         let job = {
@@ -339,9 +339,9 @@ impl SkinStore {
         paths: &crate::paths::Paths,
         idx: usize,
     ) -> Result<Vec<String>, String> {
-        let e = self.catalog.skins.get(idx).cloned().ok_or("no such skin")?;
+        let e = (self.catalog.skins.get(idx).cloned()).ok_or(tr!("no such skin"))?;
         if self.busy.iter().any(|(id, _)| *id == e.id) {
-            return Err(format!("{} is downloading", e.name));
+            return Err(tr!("{name} is downloading already", name = e.name));
         }
         let folders = self.old_folders(&e);
         for f in &folders {
@@ -387,9 +387,10 @@ impl SkinStore {
             let name = e.map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
             match r {
                 Ok(folders) => {
-                    out.push(AppEvent::Toast(format!(
-                        "Installed {name} in skins/{}: choose it in DISPLAY",
-                        folders.join(", skins/")
+                    out.push(AppEvent::Toast(tr!(
+                        "Installed {name} in skins/{folders}: choose it in SKINS",
+                        name = name,
+                        folders = folders.join(", skins/")
                     )));
                     let version = e.map(|e| e.version.clone()).unwrap_or_default();
                     self.installed.insert(id, Installed { version, folders });
@@ -397,18 +398,21 @@ impl SkinStore {
                     out.push(AppEvent::SkinsChanged);
                 }
                 Err(Fail::Page(url)) => {
-                    out.push(AppEvent::Toast(format!(
-                        "{name}: no direct download, opening its page"
+                    out.push(AppEvent::Toast(tr!(
+                        "{title}: no direct download, opening its page",
+                        title = name
                     )));
                     // (not the in-app browser: what it downloads goes to the library)
                     out.push(AppEvent::OpenUrl(url));
                 }
                 Err(Fail::Msg(e)) if e == bmseeker::progress::CANCELLED => {
-                    out.push(AppEvent::Toast(format!("{name}: cancelled")))
+                    out.push(AppEvent::Toast(tr!("{title}: cancelled", title = name)))
                 }
-                Err(Fail::Msg(e)) => {
-                    out.push(AppEvent::Toast(format!("{name}: download failed ({e})")))
-                }
+                Err(Fail::Msg(e)) => out.push(AppEvent::Toast(tr!(
+                    "{title}: download failed ({e})",
+                    title = name,
+                    e = e
+                ))),
             }
         }
         out
