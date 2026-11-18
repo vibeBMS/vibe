@@ -357,7 +357,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
     with it, not a plain one;
   - variants: the set's subfolders holding sound files are not sets of their own but its variants. One is drawn with
     the set and has only what it changes: a sound it has in either form (its `clear` before the set's
-    `clear.loop`) is its own, else the set's; `.enter` files likewise;
+    `clear.loop`) is its own, else the set's; `.enter` and GUIDE SE files likewise;
   - RANDOM (with two sets or more): a set drawn at random when the app starts and each time the song select comes
     back; a set with variants draws one again then too. Decide, play and result keep the set drawn.
 

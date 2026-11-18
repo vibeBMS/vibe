@@ -220,9 +220,10 @@ impl PlayScene {
             good_clears_poor: cp.good_clears_poor,
         };
         if ctx.config.play.guide_se {
-            let set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
+            // (the sound set drawn: its variant's, then its own)
+            let dirs = ctx.audio.sounds.folders();
             let rate = ctx.audio.mixer.sample_rate;
-            self.guide = Some(super::guide::GuideSounds::load(set, &ctx.paths.root, rate));
+            self.guide = Some(super::guide::GuideSounds::load(dirs, rate));
         }
         self.audio = Audio::new(bank, auto_notes);
         self.skin = super::skin::load(ctx, gfx, self);

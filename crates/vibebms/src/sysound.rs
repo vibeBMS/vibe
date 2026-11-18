@@ -440,9 +440,13 @@ fn built_in(s: Sound, rate: u32) -> Option<Sample> {
     })
 }
 
-/// The sounds decoded (the music's loudness with them), and whether
-/// drawing again could give other sounds.
-type Loaded = (Vec<((Sound, Form), Arc<Sample>, Option<Loudness>)>, bool);
+/// The sounds decoded (the music's loudness with them), whether drawing
+/// again could give other sounds, and the folders drawn (`folders`).
+type Loaded = (
+    Vec<((Sound, Form), Arc<Sample>, Option<Loudness>)>,
+    bool,
+    Vec<PathBuf>,
+);
 
 /// The chosen set's sounds, decoded off the main thread.
 #[derive(Default)]
@@ -462,6 +466,8 @@ pub struct SystemSounds {
     want_enter: Option<Sound>,
     /// The result's sounds playing.
     result: Vec<(Sound, Form)>,
+    /// The folders of the set drawn (see `folders`).
+    folders: Vec<PathBuf>,
 }
 
 /// One of `v`, at random.
@@ -495,6 +501,7 @@ impl SystemSounds {
         self.samples.clear();
         self.loudness.clear();
         self.random = false;
+        self.folders.clear();
         if value.is_empty() {
             for s in Sound::ALL {
                 if let Some(x) = built_in(s, rate) {
@@ -509,7 +516,7 @@ impl SystemSounds {
             let (path, many) = if value == RANDOM_SET {
                 let sets = find_sets(&root);
                 let Some(s) = draw(&sets) else {
-                    return (Vec::new(), false);
+                    return (Vec::new(), false, Vec::new());
                 };
                 (s.path, sets.len() > 1)
             } else {
@@ -545,18 +552,23 @@ impl SystemSounds {
                     Err(e) => log::warn!("sound set: {}: {e}", p.display()),
                 }
             }
-            (out, many || vars.len() > 1)
+            let folders = match vfs::is_dir(&path) {
+                true => variant.into_iter().chain([path]).collect(),
+                false => Vec::new(),
+            };
+            (out, many || vars.len() > 1, folders)
         }));
     }
 
     /// Take the decoded sounds once they are ready (`norm`: the loudness
     /// the music is played at, if it is normalised).
     pub fn poll(&mut self, mixer: &Mixer, norm: Option<f32>) {
-        let Some((v, random)) = self.job.as_mut().and_then(Job::poll) else {
+        let Some((v, random, folders)) = self.job.as_mut().and_then(Job::poll) else {
             return;
         };
         self.job = None;
         self.random = random;
+        self.folders = folders;
         for (k, x, l) in v {
             self.samples.insert(k, x);
             if let Some(l) = l {
@@ -584,6 +596,13 @@ impl SystemSounds {
         for &(s, f) in self.loudness.keys() {
             mixer.set_volume(s.key(f), self.volume((s, f), norm));
         }
+    }
+
+    /// The folders of the folder set drawn, to look for its other files
+    /// in (GUIDE SE): its variant's, then its own (none for an LR2 or the
+    /// built-in set, or while it loads).
+    pub fn folders(&self) -> Vec<PathBuf> {
+        self.folders.clone()
     }
 
     pub fn has(&self, s: Sound) -> bool {
@@ -875,6 +894,12 @@ mod tests {
         // (the files do not decode: nothing is loaded, but two sets
         // can be drawn from)
         assert!(s.job.is_none() && s.random);
+        // its folder, for GUIDE SE
+        let f = s.folders();
+        assert!(
+            f.len() == 1 && (f[0].ends_with("one") || f[0].ends_with("two")),
+            "{f:?}"
+        );
         s.redraw(&root, 44100);
         assert!(s.job.is_some());
         let info = set_info(&root.join(RANDOM_SET)).unwrap();
