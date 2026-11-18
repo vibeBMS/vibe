@@ -55,6 +55,17 @@ the BMS folders into the song cache as F12 does, `vibebms songs list [--json]` p
 line per chart: MD5, key mode, level, title, path; or the cache's records as JSON). An option that does not read
 stops with its error and exit code 2.
 
+**Chart viewer for BMS editors** (desktop): vibeBMS takes uBMplay's command line, as BMSE, iBMSC, BmsONE, woseq and
+BMS Maker 3 call their external viewer: `vibebms -P -N<measure> <chart>` autoplays the chart from that measure (0
+based, as the editors count; `-N 3` too; without `-N` from the start) and `vibebms -S` stops it. Set the editor's
+viewer to the vibeBMS executable with those arguments: BMSE and iBMSC send them as uBMplay's; in BmsONE the play
+arguments are `-P -N$(measure) "$(filename)"` and the stop argument `-S`; in BMS Maker 3 the play arguments with its
+measure and file name placeholders; woseq as it is. The first `-P` starts vibeBMS as the viewer and it stays running:
+a later `-P` (the editor's next play, its file saved again) or `-S` is a short process that hands the request to it
+over a loopback port (127.0.0.1:39177) and exits at once, and the viewer reads the chart again and plays it from the
+measure (as practice mode starts a section: from the measure's start, what was sounding there sounding) or stops,
+back to song select, and comes to the front. The play shows `VIEWER #<measure>` and is never recorded.
+
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
 

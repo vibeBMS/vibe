@@ -97,7 +97,13 @@ impl PlayScene {
         let side = (ghost.is_some() || vs).then_some(0);
         let (mut engine, total) = match (practice, &section) {
             (Some(run), Some(s)) => (
-                vibebms_core::practice::engine(&chart, s, &rules, run.gauge_start),
+                vibebms_core::practice::engine(
+                    &chart,
+                    s,
+                    &rules,
+                    run.gauge_start,
+                    self.req.autoplay,
+                ),
                 s.total,
             ),
             _ => build_engine(&chart, &rules, side, self.req.autoplay),

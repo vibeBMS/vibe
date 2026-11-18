@@ -5,6 +5,7 @@ mod ctx;
 mod events;
 mod pacing;
 mod tables;
+mod viewer;
 
 pub use ctx::{AppEvent, Ctx};
 
@@ -135,6 +136,8 @@ struct Running {
     /// The on-screen keyboard is asked for.
     ime_on: bool,
     downloads: crate::browser::Downloads,
+    /// The chart viewer's requests (`-P`: it stays running for them).
+    viewer: Option<viewer::Server>,
 }
 
 pub enum UserEvent {
@@ -314,6 +317,23 @@ impl Running {
         }
     }
 
+    /// A request to the chart viewer: what plays stops (back to song
+    /// select), the chart read again plays from its measure.
+    fn poll_viewer(&mut self, el: &ActiveEventLoop) {
+        let Some(req) = self.viewer.as_ref().and_then(viewer::Server::poll) else {
+            return;
+        };
+        while self.scenes.len() > 1 {
+            self.apply(el, Next::Pop);
+        }
+        if let viewer::Request::Play { path, measure } = req {
+            if let Some(s) = cli::viewer_scene(&mut self.ctx, &path, measure) {
+                self.apply(el, Next::Push(s));
+            }
+            self.window.focus_window();
+        }
+    }
+
     fn poll_gamepads(&mut self, el: &ActiveEventLoop) {
         let ctx = &mut self.ctx;
         for e in self.gamepads.poll(|m| ctx.toast(m)) {
@@ -330,6 +350,7 @@ impl Running {
         #[cfg(target_os = "ios")]
         crate::platform::ios::poll_keyboard();
         self.ctx.poll_jobs();
+        self.poll_viewer(el);
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
         }
@@ -588,6 +609,10 @@ impl App {
             redraw_pending: false,
             ime_on: false,
             downloads: Default::default(),
+            viewer: cli::args()
+                .viewer
+                .then(|| viewer::Server::start(viewer::PORT))
+                .flatten(),
         });
     }
 }

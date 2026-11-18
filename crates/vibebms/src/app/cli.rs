@@ -34,6 +34,11 @@ options for this launch (not saved to the config):
   --set <section.key>=<value> any setting of config.toml, e.g. --set play.sudden=0.3
   --print-effective-options   print the play options these make, and exit
 
+viewer for BMS editors (uBMplay's command line):
+  -P [-N<measure>] <chart>    autoplay the chart from the measure (0: the start); a viewer
+                              already running takes the request (reloads, seeks) instead
+  -S                          stop the running viewer's play
+
   songs scan                  scan the BMS folders (as F12 does) and exit
   songs list [--json]         list the library as last scanned and exit
   -h, --help                  this text";
@@ -51,6 +56,11 @@ pub struct Cli {
     pub sets: Vec<(String, String)>,
     pub print_options: bool,
     pub command: Option<Command>,
+    /// `-P`: the viewer's play (`-N`: from that measure).
+    pub viewer: bool,
+    pub measure: Option<usize>,
+    /// `-S`: stop the viewer's play.
+    pub stop: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -92,7 +102,19 @@ impl Cli {
                     .or_else(|| it.next().cloned())
                     .ok_or_else(|| format!("{what} needs a value"))
             };
+            // uBMplay's -N<measure>, -N <measure>
+            if let Some(m) = name.strip_prefix("-N") {
+                let m = match m {
+                    "" => value("-N")?,
+                    m => m.to_string(),
+                };
+                cli.measure = Some(m.trim().parse().map_err(|_| format!("-N{m}: a measure"))?);
+                cli.viewer = true;
+                continue;
+            }
             match name {
+                "-P" | "--viewer" => cli.viewer = true,
+                "-S" | "--viewer-stop" => cli.stop = true,
                 "-h" | "--help" => cli.command = Some(Command::Help),
                 "-a" | "--autoplay" => cli.autoplay = true,
                 "--vs" => cli.vs = true,
@@ -349,6 +371,26 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
             return Some(2);
         }
     };
+    // the viewer: a request for the one running, else this one is it
+    if cli.stop {
+        super::viewer::forward_to(super::viewer::PORT, &super::viewer::Request::Stop);
+        return Some(0);
+    }
+    if cli.viewer {
+        let Some(chart) = &cli.chart else {
+            attach_console();
+            eprintln!("vibebms: -P needs a chart\n\n{USAGE}");
+            return Some(2);
+        };
+        let path = std::path::absolute(chart).unwrap_or_else(|_| chart.clone());
+        let req = super::viewer::Request::Play {
+            path,
+            measure: cli.measure.unwrap_or(0),
+        };
+        if super::viewer::forward_to(super::viewer::PORT, &req) {
+            return Some(0);
+        }
+    }
     match &cli.command {
         Some(Command::Help) => {
             attach_console();
@@ -452,10 +494,58 @@ fn songs_list(paths: &crate::paths::Paths, json: bool) -> i32 {
     0
 }
 
+/// The viewer's play: `path` autoplayed from `measure` (as practice plays
+/// it: from the measure's start with what was sounding there; nothing
+/// recorded), its chart read again.
+pub(super) fn viewer_scene(
+    ctx: &mut Ctx,
+    path: &std::path::Path,
+    measure: usize,
+) -> Option<Box<dyn Scene>> {
+    let c = match vibebms_core::load_chart(path, &Default::default()) {
+        Ok(c) => c,
+        Err(e) => {
+            ctx.toast(format!("{}: {e}", path.display()));
+            return None;
+        }
+    };
+    let song = crate::library::song_from_chart(path, String::new(), &c);
+    let p = &ctx.config.play;
+    let run = crate::scene::play::PracticeRun {
+        practice: vibebms_core::practice::Practice {
+            from: measure,
+            to: usize::MAX,
+            lead_in: 0,
+            speed: 100,
+            rank: None,
+            total: None,
+        },
+        gauge: p.gauge,
+        gauge_start: None,
+        repeat: false,
+        seed: crate::platform::unix_ms(),
+        result: Default::default(),
+        viewer: true,
+    };
+    let req = PlayRequest {
+        song,
+        autoplay: true,
+        course: None,
+        replay: None,
+        vs: None,
+        practice: Some(run),
+    };
+    Some(Box::new(PlayScene::new(ctx, req)))
+}
+
 /// The play the command line asks for, if it names a chart.
 pub(super) fn play_scene(ctx: &mut Ctx) -> Option<Box<dyn Scene>> {
     let cli = args();
     let path = cli.chart.clone()?;
+    if cli.viewer {
+        let path = std::path::absolute(&path).unwrap_or(path);
+        return viewer_scene(ctx, &path, cli.measure.unwrap_or(0));
+    }
     let c = match vibebms_core::load_chart(&path, &Default::default()) {
         Ok(c) => c,
         Err(e) => {
@@ -541,6 +631,16 @@ mod tests {
         assert!(parse("--frobnicate").is_err());
         assert!(parse("a.bms b.bms").is_err());
         assert!(parse("songs dance").is_err());
+        // uBMplay's, as the editors call it
+        let c = parse("-P -N12 ___bmse_temp.bms").unwrap();
+        assert!(c.viewer && !c.stop);
+        assert_eq!(
+            (c.measure, c.chart),
+            (Some(12), Some("___bmse_temp.bms".into()))
+        );
+        assert_eq!(parse("-N 3 a.bms").unwrap().measure, Some(3));
+        assert!(parse("-S").unwrap().stop);
+        assert!(parse("-Nx a.bms").is_err());
     }
 
     #[test]

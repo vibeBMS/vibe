@@ -217,6 +217,7 @@ impl PracticeScene {
             repeat: c.repeat,
             seed: self.seed,
             result: self.result.clone(),
+            viewer: false,
         }
     }
 
