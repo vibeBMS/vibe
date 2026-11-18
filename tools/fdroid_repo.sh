@@ -81,10 +81,15 @@ build() {
     '[.packages[].versions[].file | select(.name == $name and .sha256 == $sha)] | length == 1' \
     "$work/fdroid/repo/index-v2.json" >/dev/null || die "index-v2.json does not list ${apks[0]##*/}"
   app_id="$(jq -r '.packages | keys[0]' "$work/fdroid/repo/index-v2.json")"
-  # the index is signed with this key (entry.jar for current clients, index-v1.jar for older ones)
+  # the index is signed with this key (entry.jar for current clients, index-v1.jar for older ones).
+  # The certificate is read from the signature block with openssl: index-v1.jar is signed with
+  # SHA-1 digests (for old clients), and a recent JDK's keytool treats such a jar as unsigned.
   for jar in entry.jar index-v1.jar; do
-    keytool -printcert -jarfile "$work/fdroid/repo/$jar" | grep -q "SHA256: $(sed 's/../&:/g; s/:$//' <<< "$fp_hex")" ||
-      die "$jar is not signed with the key $fp_hex"
+    signer="$(unzip -Z1 "$work/fdroid/repo/$jar" | grep -m1 -E '^META-INF/[^/]+\.(RSA|EC|DSA)$' || true)"
+    [ -n "$signer" ] || die "$jar has no signature"
+    got="$(unzip -p "$work/fdroid/repo/$jar" "$signer" | openssl pkcs7 -inform DER -print_certs |
+      openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | tr a-f A-F)"
+    [ "$got" = "$(tr a-f A-F <<< "$fp_hex")" ] || die "$jar is signed with the key ${got:-?}, not $fp_hex"
   done
 
   # what is published: the repository, without fdroidserver's run logs
