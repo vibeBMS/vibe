@@ -42,6 +42,10 @@ pub struct AssistFacts {
     /// LONGNOTE ADD made long notes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ln_add: bool,
+    /// KEY CONVERT played the chart in another key mode: the chart's own
+    /// mode (such a play is not saved and is sent to no IR).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_convert: Option<crate::PlayMode>,
 }
 
 impl AssistFacts {

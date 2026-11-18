@@ -742,6 +742,98 @@ mod tests {
         assert_eq!(save_slot(EVENT_REPLAY), None);
     }
 
+    /// A play of `song` that cleared, as the play scene leaves it.
+    fn played(song: &crate::library::Song, unranked: Option<&'static str>) -> ResultData {
+        let mut score = vibebms_core::score::Score {
+            total_notes: 10,
+            passed: 10,
+            ..Default::default()
+        };
+        score.counts[0][0] = 10;
+        let mut record = PlayRecord {
+            v: vibebms_core::record::VERSION,
+            client: crate::ir::build_id::client(),
+            ..Default::default()
+        };
+        record.chart.sha256 = song.sha256.clone();
+        ResultData {
+            request: crate::scene::play::PlayRequest {
+                song: song.clone(),
+                autoplay: false,
+                course: None,
+                replay: None,
+                vs: None,
+                practice: None,
+            },
+            title: song.title.clone(),
+            subtitle: String::new(),
+            artist: String::new(),
+            level: String::new(),
+            mode: song.mode,
+            ln: vibebms_core::LnType::Ln,
+            score,
+            clear: ClearType::Normal,
+            gauge_type: vibebms_core::gauge::GaugeType::Normal,
+            gauge_value: 100.0,
+            gauge_log: Vec::new(),
+            timing_log: Vec::new(),
+            windows: Vec::new(),
+            judge_log: Vec::new(),
+            notes_graph: Default::default(),
+            meta: Default::default(),
+            length_us: 1_000_000,
+            bpm_log: Vec::new(),
+            autoplay: false,
+            unranked,
+            assist: Assist::None,
+            options: String::new(),
+            course: None,
+            p2: None,
+            replay: None,
+            record,
+            course_total: false,
+        }
+    }
+
+    /// KEY CONVERT: the play keeps no record (its lamp neither) and is
+    /// sent to no IR; the same play unconverted is recorded.
+    #[test]
+    fn a_converted_play_is_not_saved() {
+        use vibebms_core::PlayMode;
+        let root = std::env::temp_dir().join(format!("vibebms-convert-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.db = Some(crate::library::Library::open(&root, &root, |_, _| None));
+        let song = crate::library::Song {
+            sha256: "ab".repeat(32),
+            mode: PlayMode::Beat7K,
+            title: "Song".into(),
+            ..Default::default()
+        };
+        let mut d = played(&song, Some("KEY CONVERT"));
+        d.mode = PlayMode::Popn9K;
+        d.record.chart.mode = PlayMode::Popn9K;
+        d.record.rules.assist.key_convert = Some(PlayMode::Beat7K);
+        for p in [
+            vibebms_ir::eligibility::ProviderKind::VibeJson,
+            vibebms_ir::eligibility::ProviderKind::BmsIr,
+        ] {
+            assert_eq!(
+                vibebms_ir::eligibility::eligible(&d.record, p),
+                Err(vibebms_ir::eligibility::Refusal::KeyConvert)
+            );
+        }
+        let key = RecordKey::new(&song.sha256, d.ln as i32, d.rule());
+        let scene = ResultScene::new(&mut ctx, d);
+        assert_eq!(scene.note, "KEY CONVERT: not saved");
+        assert!(scene.after.is_none());
+        assert!(ctx.best_key(&key.id, key.ln, key.rule).is_none());
+        let scene = ResultScene::new(&mut ctx, played(&song, None));
+        assert!(scene.after.is_some());
+        assert!(ctx.best_key(&key.id, key.ln, key.rule).is_some());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn only_own_ranked_plays_count() {
         assert!(recorded(false, None));

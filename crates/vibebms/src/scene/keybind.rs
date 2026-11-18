@@ -17,6 +17,8 @@ pub enum Slot {
     ScratchDown(usize),
     ScratchAxis(usize),
     Pms(usize),
+    /// A key of the 4 / 6 / 8 key modes: their key count, the lane.
+    Few(u8, usize),
     Start,
     Select,
     /// The second player's START / SELECT (VS).
@@ -33,6 +35,7 @@ impl Slot {
             Slot::ScratchDown(s) => format!("{}P-R-SCR", s + 1),
             Slot::ScratchAxis(s) => format!("{}P-SCR AXIS", s + 1),
             Slot::Pms(i) => format!("{} KEY", i + 1),
+            Slot::Few(n, i) => format!("{n}K-{} KEY", i + 1),
             Slot::Start => "START".into(),
             Slot::Select => "SELECT".into(),
             Slot::Start2 => "2P START".into(),
@@ -47,6 +50,14 @@ impl Slot {
             _ => None,
         }
     }
+}
+
+/// The 4 / 6 / 8 key mode of `n` keys.
+pub fn few_mode(n: u8) -> Option<vibebms_core::PlayMode> {
+    use vibebms_core::PlayMode::*;
+    [Key4, Key6, Key8]
+        .into_iter()
+        .find(|m| m.keys_per_player() == n as usize)
 }
 
 fn side(k: &KeyConfig, i: usize) -> &SideKeys {
@@ -71,6 +82,7 @@ pub fn slot_keys(k: &mut KeyConfig, s: Slot) -> Option<&mut LaneKeys> {
         Slot::ScratchUp(sd) => &mut side_mut(k, sd).scratch_up,
         Slot::ScratchDown(sd) => &mut side_mut(k, sd).scratch_down,
         Slot::Pms(i) => k.pms.get_mut(i)?,
+        Slot::Few(n, i) => k.few_mut(few_mode(n)?)?.get_mut(i)?,
         Slot::Start => &mut k.start,
         Slot::Select => &mut k.select,
         Slot::Start2 => &mut k.p2_start,
@@ -85,6 +97,7 @@ pub fn slot_keys_ref(k: &KeyConfig, s: Slot) -> Option<&LaneKeys> {
         Slot::ScratchUp(sd) => &side(k, sd).scratch_up,
         Slot::ScratchDown(sd) => &side(k, sd).scratch_down,
         Slot::Pms(i) => k.pms.get(i)?,
+        Slot::Few(n, i) => k.few(few_mode(n)?)?.get(i)?,
         Slot::Start => &k.start,
         Slot::Select => &k.select,
         Slot::Start2 => &k.p2_start,

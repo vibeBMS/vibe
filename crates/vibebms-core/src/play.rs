@@ -62,6 +62,10 @@ pub struct RuleOptions {
     /// the LR2 set's gauges (`GrooveGauge::new_in`). Not a player option.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub course: Option<CourseKind>,
+    /// KEY CONVERT: the chart played in another key mode (`convert`; such a
+    /// play is not saved).
+    #[serde(skip_serializing_if = "crate::convert::KeyConvert::is_off")]
+    pub key_convert: crate::convert::KeyConvert,
 }
 
 impl Default for RuleOptions {
@@ -91,6 +95,7 @@ impl Default for RuleOptions {
             trainer_order: lane_option::plain_order(7),
             freq: 0,
             course: None,
+            key_convert: crate::convert::KeyConvert::Off,
         }
     }
 }
@@ -136,7 +141,7 @@ impl RuleOptions {
     /// EX-CLASS), and no lane option, BATTLE, DP FLIP, assist or note
     /// option; an expert or NONSTOP course forces nothing (4.2). Under the
     /// other sets every course plays the set's dan gauges, as vibeBMS's
-    /// table courses do. No course has GAUGE AUTO SHIFT or FREQ (LR2
+    /// table courses do. No course has GAUGE AUTO SHIFT, KEY CONVERT or FREQ (LR2
     /// switches FREQ off in class and NONSTOP courses: S-OLR2b 3.8, 5.1).
     pub fn for_course(&self, kind: CourseKind) -> RuleOptions {
         let lr2 = self.gauge_preset == GaugePreset::Lr2;
@@ -144,6 +149,8 @@ impl RuleOptions {
             course: Some(kind),
             gauge_auto_shift: GaugeAutoShift::None,
             freq: 0,
+            // (a course is played in its charts' own key modes)
+            key_convert: crate::convert::KeyConvert::Off,
             ..self.clone()
         };
         match (lr2, kind) {
@@ -239,7 +246,11 @@ fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool
     if rate != 1.0 {
         chart = crate::practice::retime(chart, 0, rate);
     }
-    let mut facts = AssistFacts::default();
+    let mut facts = AssistFacts {
+        // (first: the lane options then work on the mode played)
+        key_convert: crate::convert::convert(&mut chart, rules.key_convert),
+        ..Default::default()
+    };
     if rules.battle && !chart.mode().is_double() {
         lane_option::battle(&mut chart);
         facts.battle = true;
@@ -313,6 +324,8 @@ pub fn build_battle_chart(
         random_1p: theirs.random_1p,
         trainer_order: theirs.trainer_order.clone(),
         freq: theirs.freq,
+        // (its inputs are on the lanes its conversion made)
+        key_convert: theirs.key_convert,
         battle: false,
         legacy_note: false,
         no_mine: false,

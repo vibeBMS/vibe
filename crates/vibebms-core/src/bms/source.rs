@@ -37,6 +37,8 @@ pub(super) struct Source<'a> {
     /// A `#RANK` / `#BPM` line was read (a NONSTOP stage's).
     pub rank_given: bool,
     pub bpm_given: bool,
+    /// Qwilight's `#4K` / `#6K` / `#8K` header: the chart's key mode.
+    pub qwilight: Option<crate::mode::PlayMode>,
 }
 
 /// The longest header name the parser knows (`DIFFICULTY`), with room.
@@ -68,6 +70,7 @@ pub(super) fn read<'a>(
         lines: Vec::new(),
         rank_given: false,
         bpm_given: false,
+        qwilight: None,
     };
     let (mut rank_given, mut bpm_given) = (false, false);
     let meta = &mut src.meta;
@@ -163,6 +166,9 @@ pub(super) fn read<'a>(
                 }
             }
             "BASE" => src.b62 = parse_i32(arg) == Some(62),
+            "4K" => src.qwilight = Some(crate::mode::PlayMode::Key4),
+            "6K" => src.qwilight = Some(crate::mode::PlayMode::Key6),
+            "8K" => src.qwilight = Some(crate::mode::PlayMode::Key8),
             _ => {
                 if let Some(id) = idx("WAV") {
                     src.wav.insert(id, arg);

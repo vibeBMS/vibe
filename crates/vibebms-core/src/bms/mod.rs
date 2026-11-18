@@ -299,6 +299,46 @@ mod tests {
     }
 
     #[test]
+    fn qwilight_key_modes() {
+        // every 1P channel (keys 1-7, scratch, free zone) and a 2P key
+        let all = "#00111:01\n#00112:01\n#00113:01\n#00114:01\n#00115:01\n\
+            #00116:01\n#00117:01\n#00118:01\n#00119:01\n#00121:01\n";
+        let lanes = |header: &str| {
+            let c = parse(&format!("{header}\n{all}"));
+            let mut v: Vec<u8> = c.notes.iter().map(|n| n.lane).collect();
+            v.sort_unstable();
+            (c.mode(), v)
+        };
+        assert_eq!(lanes("#4K"), (PlayMode::Key4, vec![0, 1, 2, 3]));
+        assert_eq!(lanes("#6k"), (PlayMode::Key6, (0..6).collect()));
+        assert_eq!(lanes("#8K"), (PlayMode::Key8, (0..8).collect()));
+        let lane_of = |header: &str, ch: &str| {
+            let c = parse(&format!("{header}\n#001{ch}:01\n"));
+            c.notes.first().map(|n| n.lane)
+        };
+        // 4K: 11 12 14 15
+        assert_eq!(lane_of("#4K", "14"), Some(2));
+        assert_eq!(lane_of("#4K", "15"), Some(3));
+        assert_eq!(lane_of("#4K", "13"), None);
+        assert_eq!(lane_of("#4K", "16"), None);
+        // 6K: 11 12 13 15 18 19
+        assert_eq!(lane_of("#6K", "15"), Some(3));
+        assert_eq!(lane_of("#6K", "19"), Some(5));
+        assert_eq!(lane_of("#6K", "14"), None);
+        // 8K: 16 11 12 13 14 15 18 19
+        assert_eq!(lane_of("#8K", "16"), Some(0));
+        assert_eq!(lane_of("#8K", "11"), Some(1));
+        assert_eq!(lane_of("#8K", "19"), Some(7));
+        assert_eq!(lane_of("#8K", "17"), None);
+        // long notes (51-59) follow the same lanes
+        let c = parse("#6K\n#00158:0101\n");
+        assert_eq!(c.notes.len(), 1);
+        assert_eq!(c.notes[0].lane, 4);
+        // without the header the same channels are a 7 key chart
+        assert_eq!(parse("#00111:01\n#00119:01").mode(), PlayMode::Beat7K);
+    }
+
+    #[test]
     fn pms_bme_type_layout() {
         let lanes = |src: &str| {
             let c = parse_bms(src.as_bytes(), "pms", &ParseOptions::default()).unwrap();

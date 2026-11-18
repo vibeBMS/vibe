@@ -11,6 +11,7 @@ use crate::library::Song;
 use crate::sysound::Sound;
 use std::cell::Ref;
 use std::path::PathBuf;
+use vibebms_core::convert::KeyConvert;
 use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
 use vibebms_core::score::{Assist, AssistFacts, ClearType};
 use vibebms_ir::lamps::RankView;
@@ -51,7 +52,10 @@ fn unknown(s: &Song) -> bool {
 /// no chart chosen every option counts.
 pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<ClearType>) {
     // (a FREQ below 0 saves nothing: `scene::play::setup`)
-    if p.autoplay || p.versus == Versus::Local || p.freq < 0 {
+    // (KEY MODE converting the chart saves nothing: `vibebms_core::convert`)
+    let converts = p.key_convert != KeyConvert::Off
+        && song.is_none_or(|s| vibebms_core::convert::lane_map(s.mode, p.key_convert).is_some());
+    if p.autoplay || p.versus == Versus::Local || p.freq < 0 || converts {
         return (Keep::Nothing, None);
     }
     let has = |f: fn(&Song) -> bool| song.is_none_or(f);
@@ -83,6 +87,7 @@ pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<Clea
         scroll_remove: p.scroll_remove,
         mine_add: p.mine_add != MineAdd::Off,
         ln_add: p.ln_add != LnAdd::Off,
+        key_convert: None,
     };
     match facts.level() {
         Assist::None => (Keep::All, Some(p.gauge.clear_type())),
@@ -372,6 +377,20 @@ mod tests {
         assert_eq!(outcome(&p, Some(&song)), full);
         p.autoplay = true;
         assert_eq!(outcome(&p, Some(&song)), (Keep::Nothing, None));
+        // KEY CONVERT keeps nothing where it converts the chart (7 keys
+        // to 9), all where it has no table (7 keys to 7)
+        let mut p = PlayConfig {
+            rules: vibebms_core::play::RuleOptions {
+                key_convert: KeyConvert::To9,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(outcome(&p, Some(&song)), (Keep::Nothing, None));
+        assert_eq!(outcome(&p, None), (Keep::Nothing, None));
+        p.key_convert = KeyConvert::To7;
+        assert_eq!(outcome(&p, Some(&song)).0, Keep::All);
+        assert_eq!(outcome(&p, Some(&five)), (Keep::Nothing, None));
     }
 
     #[test]
