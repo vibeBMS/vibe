@@ -20,7 +20,10 @@ pub use play::{
     Versus, NORMAL_GREENS,
 };
 pub use practice::PracticeConfig;
-pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
+pub use select::{
+    DifficultyFilter, KeyFilter, RandomSelect, ReplayPick, SelectConfig, SortMode, WATCH_SPEED_MAX,
+    WATCH_SPEED_MIN,
+};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
     LENGTH_RANGE, OLD_TOUCH_HEIGHTS, PERSPECTIVE_LAYOUT, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
@@ -474,6 +477,8 @@ mod tests {
                 key_filter: KeyFilter::K14,
                 difficulty_filter: DifficultyFilter::Another,
                 random: RandomSelect::NotHard,
+                replay: ReplayPick::Slot3,
+                replay_speed: 175,
             },
             keys: KeyConfig {
                 p1: side(0),

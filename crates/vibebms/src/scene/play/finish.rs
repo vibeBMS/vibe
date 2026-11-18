@@ -248,13 +248,7 @@ impl PlayScene {
         let side = self.session.sides.get(1)?;
         let e = &side.engine;
         let (name, desync) = match (&side.role, &self.req.vs) {
-            (Role::Ghost { desync, .. }, Some(Versus::Ghost(_, slot))) => {
-                let name = match slot {
-                    crate::replay::Slot::Best => "MY BEST",
-                    crate::replay::Slot::Last => "LAST",
-                };
-                (name.to_string(), *desync)
-            }
+            (Role::Ghost { desync, .. }, Some(Versus::Ghost(_, slot))) => (slot.label(), *desync),
             _ => ("2P".to_string(), false),
         };
         let gauge = &e.gauge;

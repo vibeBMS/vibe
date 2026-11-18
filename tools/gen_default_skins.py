@@ -487,6 +487,9 @@ def build_parts(fonts):
 
     a.add("btn_retry", label_button("RETRY", 120, 30, PINK))
     a.add("btn_continue", label_button("CONTINUE", 140, 30, TEAL))
+    # keep the replay in slot 1-4 (keys 1-4)
+    for n in range(1, 5):
+        a.add(f"btn_slot{n}", label_button(f"SAVE {n}", 64, 30, AMBER))
     for name, label in (("gt_normal", "NORMAL"), ("gt_hard", "HARD"), ("gt_hazard", "HAZARD"),
                         ("gt_easy", "EASY"), ("gt_aeasy", "ASSIST EASY"), ("gt_exhard", "EX-HARD")):
         a.add(name, text_img(fonts, label, "bold", 13, TEXT, DIM, (0, 0, 0), 1, pad=2))
@@ -1964,20 +1967,38 @@ def res_info(sk, img, f, x, y, w, h, stage=True):
             sk.number("n_small", 91, 3, fx + 60, fy, color=(130, 190, 255))
             draw_label(img, f, fx + 60 + cw * 3 + 6, fy + ch // 2, "-", 12, TEXT, anchor="mm")
             sk.number("n_small", 90, 3, fx + 72 + cw * 3, fy, color=(255, 130, 180))
-    res_buttons(sk, x + w - 14, y + h - 44)
+    # (portrait: the slots on the left of RETRY; landscape: above it)
+    r, by = x + w - 14, y + h - 44
+    if stage:
+        res_buttons(sk, r, by, r, by - 38)
+    else:
+        res_buttons(sk, r, by, r - 276, by)
 
 
-def res_buttons(sk, r, y):
-    """RETRY and CONTINUE ending at r."""
+# vibeBMS result events: keep this play's replay in slot 1..4; the option
+# "this play has a replay"
+EVENT_SAVE_SLOT, OPTION_HAS_REPLAY = 9510, 9352
+
+
+def res_button(sk, key, act, x, y, op=None):
+    bw_, bh_ = sk.parts.items[key][2:]
+    bid = key + "_act"
+    if bid not in sk._ids:
+        sk._ids.add(bid)
+        x_, y_, w_, h_ = sk.parts.items[key]
+        sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
+                              "act": act})
+    sk.put(bid, x, y, bw_, bh_, op=op)
+
+
+def res_buttons(sk, r, y, slots_r, slots_y):
+    """RETRY and CONTINUE ending at r; SAVE 1-4 (the replay's slots, when
+    the play has a replay) ending at slots_r on row slots_y."""
     for key, act, dx in (("btn_retry", 9500, 140 + 8 + 120), ("btn_continue", 9501, 140)):
-        bw_, bh_ = sk.parts.items[key][2:]
-        bid = key + "_act"
-        if bid not in sk._ids:
-            sk._ids.add(bid)
-            x_, y_, w_, h_ = sk.parts.items[key]
-            sk.j["image"].append({"id": bid, "src": "parts", "x": x_, "y": y_, "w": w_, "h": h_,
-                                  "act": act})
-        sk.put(bid, r - dx, y, bw_, bh_)
+        res_button(sk, key, act, r - dx, y)
+    for n in range(1, 5):
+        res_button(sk, f"btn_slot{n}", EVENT_SAVE_SLOT + n - 1, slots_r - (5 - n) * 70 + 6,
+                   slots_y, op=[OPTION_HAS_REPLAY])
 
 
 def res_graphs(sk, img, f, x, y, w, h):
@@ -2811,7 +2832,8 @@ SYSTEM_ROWS = [(["1"], "BGA", "Play the chart's background animation", 9036),
                ([], "SCORE GRAPH", "The score graph beside the lanes", 9031),
                ([], "FAST / SLOW", "FAST or SLOW under the judgement", 9022),
                ([], "SCREEN MODE", "Window or full screen (F11)", 9023),
-               ([], "REPLAY", "Kept for each chart", 0)]
+               ([], "REPLAY", "What P watches: best, last or a slot", 9043),
+               ([], "REPLAY SPEED", "Watch faster or slower; same judgements", 9044)]
 SYSTEM_BUTTONS = [("KEY CONFIG", 13), ("SKIN / SOUND", 14), ("ALL SETTINGS ›", EVENT_SETTINGS)]
 EFFECT_ROWS = [("MASTER", 9024), ("KEY SOUND", 9025), ("BGM", 9026), ("SYSTEM", 9027),
                ("PREVIEW", 9028)]
@@ -3168,7 +3190,7 @@ def system_option(sk, r, rw, portrait):
     by = y + h - 70
     for i, (name, ev) in enumerate(SYSTEM_BUTTONS):
         bx = x + 22 + i * (180 + 16)
-        focus_ring(sk, "focus180x48", bx, by, op, len(SYSTEM_ROWS) - 1 + i)
+        focus_ring(sk, "focus180x48", bx, by, op, len(SYSTEM_ROWS) + i)
         sel_put(sk, f"sb_{name}", bx, by, op=[op], act=ev)
 
 

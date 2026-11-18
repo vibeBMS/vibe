@@ -75,6 +75,8 @@ sort = "MissCount"
 key_filter = "K14"
 difficulty_filter = "Another"
 random = "NotHard"
+replay = "Slot3"
+replay_speed = 175
 
 [keys]
 any_axis_is_scratch = false

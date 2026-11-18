@@ -59,7 +59,9 @@ pub(super) struct Loading {
 }
 
 impl Loading {
-    pub fn start(ctx: &Ctx, req: &PlayRequest) -> Loading {
+    /// `watch_rate`: a replay watched at another speed (its sounds are
+    /// resampled to it; the chart and its judging stay as they were).
+    pub fn start(ctx: &Ctx, req: &PlayRequest, watch_rate: f64) -> Loading {
         let progress = Arc::new(AtomicUsize::new(0));
         let total_files = Arc::new(AtomicUsize::new(0));
         let path = PathBuf::from(&req.song.path);
@@ -135,6 +137,9 @@ impl Loading {
             let work = move || -> Result<Box<Loaded>, String> {
                 let seed = seed_now();
                 let mut l = load_nonstop(&paths, &joins, &play, seed, rate, &p2, &t2)?;
+                if watch_rate != 1.0 {
+                    resample(&mut l.bank, watch_rate);
+                }
                 // (measured each time: the stages joined are not one chart)
                 if normalize {
                     let m = crate::loudness::measure_chart(&l.chart, &l.bank, rate);
@@ -190,8 +195,8 @@ impl Loading {
                 )),
                 None => None,
             };
-            if speed != 1.0 {
-                resample(&mut bank, speed);
+            if speed * watch_rate != 1.0 {
+                resample(&mut bank, speed * watch_rate);
             }
             let (images, videos) = if play.bga == BgaMode::On {
                 load_images(&index, &chart.images)

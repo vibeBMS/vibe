@@ -68,11 +68,11 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
 | Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay; E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
-| Results | R / F5 retry, P watch this play again |
+| Results | R / F5 retry, P watch this play again, 1–4 keep its replay in that slot (the default skin's SAVE 1–4) |
 | Anywhere | F1 / Tab settings, F11 full screen |
 
 Entering a folder puts the cursor on the folder's own row; deciding on it closes the folder (as in LR2).
@@ -229,12 +229,21 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   ASSIST panel's FREQ row. A play below 0 is not saved at all (no score, lamp, replay or IR); one above 0 is saved
   as usual but not sent to IR (no IR takes a play at another speed). Courses and practice play at 0. Replays keep
   it and play at it again.
-- **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
+- **Replays and ghosts**: every play of your own (not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
-  web build, in the browser). Watch one with P on the results (that play) or in song select (the chart's best,
-  else its latest); a replay is not recorded. A BATTLE play's replay can be watched from its results but is not
-  kept as the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
+  web build, in the browser), and four slots of your own: 1–4 on the results (the default skin's SAVE 1–4
+  buttons) keep that play's replay in the slot, replacing what it held. A course keeps its replays under the
+  course: a NONSTOP course's play, an expert or class course's each stage (its latest, and the slots its
+  results kept). Watch one with P on the results (that play) or in song select (P or REPLAY: the replay
+  SYSTEM OPTION's REPLAY picks, BEST, ELSE LAST by default, else MY BEST, LAST or SLOT 1–4; on a course's bar,
+  the course: an expert or class course's stages one after another, each its own replay of that slot, as
+  far as there is one); a replay watched is never recorded. REPLAY SPEED (25–300 %, steps of 25, `[select]`
+  `replay_speed`) watches it slower or faster: the clock, the scrolling, the BGA and the sounds (resampled,
+  their pitch with them) run at that speed while the judge still gets every recorded input at its own chart
+  time, so the judgements, score and gauge are the play's at any speed (it is chosen before watching, not
+  during). A BATTLE play's replay can be watched from its results and kept in a slot, but is not kept as
+  the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
   score at the same note, not the best score spread evenly over the chart.
 - **Practice**: E in song select (or the PRACTICE button) opens a chart's practice screen: its notes per
   measure as a graph, with a section of measures to play (tap the graph to move its nearer edge), a lead-in of
@@ -246,8 +255,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   moves by the whole chart's TOTAL and notes. In play R or Backspace starts the section again and Esc goes back
   to the practice screen, which shows the last try's judgements and timing. Practice plays are never recorded:
   no score, lamp, replay, play history or IR (settings in `[practice]`, the last section per chart).
-- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST or LAST replay of it (song select's BATTLE row,
-  F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST). The chart
+- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST, LAST or SLOT 1–4 replay of it (song select's
+  BATTLE row, F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST /
+  G-BATTLE SLOT 1–4 / VS). The chart
   is made with the replay's seed and lane option on both sides (as LR2 lends a ghost's random); you play the
   first side, the replay's inputs play the second again under its own options (judge, gauge, LN mode, AUTO
   SCRATCH), silently. Its EX score is the pacemaker target as it plays; if it ever judges other than its
