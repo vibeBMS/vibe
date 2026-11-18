@@ -387,6 +387,22 @@ the same lanes (`lane_option.rs`).
   as OFF elsewhere. A RANDOM's lanes picked by the player are not a RANDOM play, so TRAINER is a light assist
   (L-ASSIST, the lamp and counts only, no IR) where it took effect; replays keep the order.
 
+## Chart modifiers
+bmz-player lists SCROLL REMOVE / ADD, LONGNOTE REMOVE / ADD LN, CN, HCN and MINE REMOVE / ADD RANDOM, NEAR, BLANK
+(`docs/select-detail-options.md`) without saying what the ADD ones add; vibeBMS has LONGNOTE REMOVE (LEGACY NOTE) and
+MINE REMOVE (NO MINE), and these, applied after the lane options (`lane_option.rs`):
+* SCROLL REMOVE: `#SCROLL` and `#SPEED` off (the notes at their beats). Not in a NONSTOP course (its scroll goes
+  by time).
+* LONGNOTE ADD LN / CN / HCN: each normal note a long note of that type, ending half way to the next object of its
+  lane, at most a beat on (a beat after its lane's last note); none shorter than a 32nd note (it stays a note).
+  LN MODE FORCE plays them as the forced type.
+* MINE ADD, drawn from the play's seed, at each time a side has notes, on its keys that are free then (no note at
+  that time, no long note held; never the scratch): RANDOM one key drawn at random, NEAR the keys beside each
+  note, BLANK every free key. Each mine takes 2 % (`ADDED_MINE_DAMAGE`). It comes after LONGNOTE ADD (no mine in an
+  added long note's body) and NO MINE (the chart's mines removed, the added ones kept).
+Their assist levels are above ("Clear lamps"). LR2's class courses switch them off; G-BATTLE plays neither ADD (each
+side's would make two charts). Replays keep them.
+
 ## FREQ
 FREQ (LR2's audio pitch option, as bmz-player documents it: `docs/settings.md` "FREQ") plays the whole chart
 s semitones higher, −12 ≤ s ≤ 12, at 2^(s / 12) times the speed (`play::freq_rate`; shown rounded, `+3 (119%)`).
@@ -414,7 +430,10 @@ at n/9 of max EX.
 
 Assists (as beatoraja's `BMSPlayer`; an option counts only when it took effect, `AssistFacts` in `score.rs`):
 * ASSIST: AUTO SCRATCH on a chart with scratch notes, LEGACY NOTE on a chart with long notes, EXPAND JUDGE over 100 %.
-* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, TRAINER on a chart of its key count, BATTLE, NO MINE that removed mines, BPM GUIDE on a
+* ASSIST also: LONGNOTE ADD that made long notes (as LEGACY NOTE, the option it undoes: the chart's notes change).
+* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, TRAINER on a chart of its key count, BATTLE, NO MINE
+  that removed mines, MINE ADD that added mines (as NO MINE), SCROLL REMOVE that took scroll changes off (a reading
+  aid, as BPM GUIDE), BPM GUIDE on a
   chart that changes BPM.
 
 An assisted play that is not FAILED gets that lamp whatever the gauge. It keeps only the lamp, the play and clear

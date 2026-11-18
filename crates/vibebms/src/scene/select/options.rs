@@ -23,7 +23,7 @@ use crate::sysound::Sound;
 use vibebms_audio::Bus;
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::judge::JudgePreset;
-use vibebms_core::lane_option::LaneOption;
+use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
 use vibebms_core::LnPref;
 
 /// beatoraja: a held panel key repeats after 300 ms, every 50 ms.
@@ -74,6 +74,9 @@ pub(crate) enum SelectOption {
     TimingAutoAdjust,
     Freq,
     TrainerOrder,
+    ScrollRemove,
+    MineAdd,
+    LnAdd,
 }
 
 /// Full screen can be switched (desktop).
@@ -120,7 +123,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 40] = [
+    pub const ALL: [SelectOption; 43] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -161,6 +164,9 @@ impl SelectOption {
         SelectOption::TimingAutoAdjust,
         SelectOption::Freq,
         SelectOption::TrainerOrder,
+        SelectOption::ScrollRemove,
+        SelectOption::MineAdd,
+        SelectOption::LnAdd,
     ];
 
     pub fn name(self) -> &'static str {
@@ -205,6 +211,9 @@ impl SelectOption {
             SelectOption::TimingAutoAdjust => "JUDGE AUTO ADJUST",
             SelectOption::Freq => "FREQ",
             SelectOption::TrainerOrder => "TRAINER ORDER",
+            SelectOption::ScrollRemove => "SCROLL REMOVE",
+            SelectOption::MineAdd => "MINE ADD",
+            SelectOption::LnAdd => "LONGNOTE ADD",
         }
     }
 
@@ -256,6 +265,9 @@ impl SelectOption {
             SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
             SelectOption::Freq => vibebms_core::play::freq_label(p.freq),
             SelectOption::TrainerOrder => p.trainer_order.clone(),
+            SelectOption::ScrollRemove => onoff(p.scroll_remove).into(),
+            SelectOption::MineAdd => p.mine_add.label().into(),
+            SelectOption::LnAdd => p.ln_add.label().into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -391,6 +403,9 @@ impl SelectScene {
             SelectOption::TrainerOrder => {
                 p.trainer_order = vibebms_core::lane_option::turn_order(&p.trainer_order, d)
             }
+            SelectOption::ScrollRemove => p.scroll_remove ^= true,
+            SelectOption::MineAdd => p.mine_add = cycle(&MineAdd::ALL, p.mine_add, d),
+            SelectOption::LnAdd => p.ln_add = cycle(&LnAdd::ALL, p.ln_add, d),
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
             }

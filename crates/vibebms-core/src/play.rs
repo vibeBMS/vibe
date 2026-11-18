@@ -7,7 +7,9 @@ use crate::course::{CourseKind, Join};
 use crate::engine::{Engine, EngineConfig, JudgeAlgorithm};
 use crate::gauge::{GaugeAutoShift, GaugePreset, GaugeType, GrooveGauge};
 use crate::judge::{judge_rules, JudgePreset};
-use crate::lane_option::{self, DoubleOption, LaneOption, LaneRules, SRandomInterval};
+use crate::lane_option::{
+    self, DoubleOption, LaneOption, LaneRules, LnAdd, MineAdd, SRandomInterval,
+};
 use crate::mode::PlayMode;
 use crate::score::AssistFacts;
 use serde::{Deserialize, Serialize};
@@ -36,6 +38,11 @@ pub struct RuleOptions {
     pub auto_scratch: bool,
     pub legacy_note: bool,
     pub no_mine: bool,
+    /// Chart modifiers (assists where they take effect): SCROLL REMOVE,
+    /// MINE ADD, LONGNOTE ADD.
+    pub scroll_remove: bool,
+    pub mine_add: MineAdd,
+    pub ln_add: LnAdd,
     /// EXPAND JUDGE (beatoraja custom judge): the judge windows scaled by
     /// `judge_rates` (PG, GR, GD in percent). Wider than 100 % is an assist
     /// (ASSIST EASY, the score is not saved).
@@ -74,6 +81,9 @@ impl Default for RuleOptions {
             auto_scratch: false,
             legacy_note: false,
             no_mine: false,
+            scroll_remove: false,
+            mine_add: MineAdd::Off,
+            ln_add: LnAdd::Off,
             expand_judge: false,
             judge_rates: [400, 400, 100],
             hran_threshold_bpm: 120,
@@ -146,6 +156,9 @@ impl RuleOptions {
                 r.auto_scratch = false;
                 r.legacy_note = false;
                 r.no_mine = false;
+                r.scroll_remove = false;
+                r.mine_add = MineAdd::Off;
+                r.ln_add = LnAdd::Off;
                 r.expand_judge = false;
             }
             (true, _) => {}
@@ -208,22 +221,20 @@ pub fn build_nonstop_chart(
         read.push(stage);
     }
     let (chart, ns) = crate::nonstop::join(read, joins).map_err(|e| e.to_string())?;
-    Ok((arrange(chart, rules, seed, None), ns))
+    // (its scroll goes by time: nothing for SCROLL REMOVE to take off)
+    let rules = RuleOptions {
+        scroll_remove: false,
+        ..rules.clone()
+    };
+    Ok((arrange(chart, &rules, seed, None), ns))
 }
 
 /// `chart` at FREQ's speed (so the lane options' intervals are real
-/// time), arranged by `rules` (`course`: as `build_chart`'s); with LN
-/// MODE FORCE its long notes have no type of their own (they play as the
-/// LN mode).
+/// time), arranged by `rules` (`course`: as `build_chart`'s), then its
+/// modifiers; with LN MODE FORCE its long notes (LONGNOTE ADD's too)
+/// have no type of their own (they play as the LN mode).
 fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool>) -> PlayChart {
     let ln_profile = chart.ln_profile();
-    if rules.ln_force {
-        for n in &mut chart.notes {
-            if let NoteKind::Long { ln_type, .. } = &mut n.kind {
-                *ln_type = None;
-            }
-        }
-    }
     let rate = rules.freq_rate();
     if rate != 1.0 {
         chart = crate::practice::retime(chart, 0, rate);
@@ -261,11 +272,29 @@ fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool
         lane_option::remove_mines_of(&mut chart, None);
         facts.no_mine = chart.notes.len() != n;
     }
+    modify(&mut chart, rules, seed, &mut facts);
+    if rules.ln_force {
+        for n in &mut chart.notes {
+            if let NoteKind::Long { ln_type, .. } = &mut n.kind {
+                *ln_type = None;
+            }
+        }
+    }
     PlayChart {
         chart,
         facts,
         ln_profile,
     }
+}
+
+/// The chart modifiers: SCROLL REMOVE, MINE ADD, LONGNOTE ADD (what took
+/// effect into `facts`).
+fn modify(chart: &mut Chart, rules: &RuleOptions, seed: i64, facts: &mut AssistFacts) {
+    if rules.scroll_remove {
+        facts.scroll_remove = lane_option::remove_scroll(chart);
+    }
+    facts.ln_add = lane_option::add_long_notes(chart, rules.ln_add);
+    facts.mine_add = lane_option::add_mines(chart, rules.mine_add, seed);
 }
 
 /// G-BATTLE's chart: the single play chart read with the opponent's seed
@@ -287,6 +316,9 @@ pub fn build_battle_chart(
         battle: false,
         legacy_note: false,
         no_mine: false,
+        // (each side's own would make two charts: none)
+        mine_add: MineAdd::Off,
+        ln_add: LnAdd::Off,
         ..mine.clone()
     };
     let mut p = build_chart(path, bytes, &single, seed, None)?;
@@ -384,6 +416,9 @@ mod tests {
             auto_scratch: true,
             legacy_note: true,
             no_mine: true,
+            scroll_remove: true,
+            mine_add: MineAdd::Blank,
+            ln_add: LnAdd::Hcn,
             expand_judge: true,
             gauge_auto_shift: GaugeAutoShift::BestClear,
             ..lr2()
@@ -408,6 +443,7 @@ mod tests {
             );
             assert_eq!(r.dp_option, DoubleOption::Off);
             assert!(!(r.battle || r.auto_scratch || r.legacy_note || r.no_mine || r.expand_judge));
+            assert!(!r.scroll_remove && r.mine_add == MineAdd::Off && r.ln_add == LnAdd::Off);
             assert_eq!(r.gauge_auto_shift, GaugeAutoShift::None);
             assert_eq!(r.course, Some(CourseKind::Class));
         }
@@ -506,6 +542,61 @@ mod tests {
         // a class course plays no lane option
         let c = build_chart(Path::new("c.bme"), seven.as_bytes(), &rules, 5, Some(false)).unwrap();
         assert_eq!(c.facts.lane, [LaneOption::Off]);
+    }
+
+    /// The chart modifiers are assists where they take effect: LONGNOTE
+    /// ADD as LEGACY NOTE, MINE ADD as NO MINE, SCROLL REMOVE as BPM GUIDE.
+    #[test]
+    fn chart_modifiers_are_assists_where_they_change_the_chart() {
+        use crate::score::Assist;
+        let text = crate::bot::chart_text(7, 11);
+        let with = |f: fn(&mut RuleOptions)| {
+            let mut r = RuleOptions::default();
+            f(&mut r);
+            build_chart(Path::new("c.bme"), text.as_bytes(), &r, 5, None).unwrap()
+        };
+        let plain = with(|_| {});
+        assert_eq!(plain.facts.level(), Assist::None);
+        // the bot's chart has no scroll changes: SCROLL REMOVE does nothing
+        let sr = with(|r| r.scroll_remove = true);
+        assert!(!sr.facts.scroll_remove);
+        assert_eq!(sr.facts.level(), Assist::None);
+        let mines = with(|r| r.mine_add = MineAdd::Near);
+        assert!(mines.facts.mine_add && mines.chart.meta.has_mine);
+        assert_eq!(mines.facts.level(), Assist::Light);
+        let lns = with(|r| r.ln_add = LnAdd::Cn);
+        assert!(lns.facts.ln_add);
+        assert_eq!(lns.facts.level(), Assist::Full);
+        // the added long notes are CN, judged at both ends
+        let rules = RuleOptions {
+            ln_add: LnAdd::Cn,
+            ..Default::default()
+        };
+        let (e, _) = build_engine(&lns.chart, &rules, None, false);
+        assert!(e.score.total_notes as usize > plain.chart.note_count());
+        // FORCE turns them too
+        let forced = with(|r| {
+            r.ln_add = LnAdd::Cn;
+            r.ln_force = true;
+        });
+        assert!(forced.chart.notes.iter().all(|n| !matches!(
+            n.kind,
+            NoteKind::Long {
+                ln_type: Some(_),
+                ..
+            }
+        )));
+        // a scroll gimmick: taken off, the notes at their beats
+        let sc = "#BPM 120\n#SCROLL01 0.5\n#SPEED01 3\n#001SC:01\n#001SP:01\n#00211:01\n";
+        let r = RuleOptions {
+            scroll_remove: true,
+            ..Default::default()
+        };
+        let p = build_chart(Path::new("c.bme"), sc.as_bytes(), &r, 1, None).unwrap();
+        assert!(p.facts.scroll_remove);
+        assert_eq!(p.facts.level(), Assist::Light);
+        assert!(!p.chart.timing.has_scroll_changes());
+        assert!(p.chart.notes.iter().all(|n| n.pos == n.beat));
     }
 
     /// FORCE plays every long note as the LN mode, whatever its type; the

@@ -190,6 +190,16 @@ impl PlayScene {
         if p.legacy_note {
             opts.push("LEGACY");
         }
+        let a = &rule_facts.assist;
+        for (on, name) in [
+            (a.scroll_remove, "SCROLL REMOVE"),
+            (a.mine_add, "MINE ADD"),
+            (a.ln_add, "LN ADD"),
+        ] {
+            if on {
+                opts.push(name);
+            }
+        }
         let order = ghost
             .as_ref()
             .map_or(&p.trainer_order, |g| &g.play.trainer_order);

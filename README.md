@@ -133,6 +133,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
   keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
   40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
+- **Chart modifiers** (ASSIST panel, hold SELECT): SCROLL REMOVE (`#SCROLL` and `#SPEED` off), MINE ADD (RANDOM,
+  NEAR, BLANK: mines on the keys free at each note's time) and LONGNOTE ADD (LN, CN, HCN: notes made long notes),
+  beside LEGACY NOTE and NO MINE. They are assists where they change the chart: LONGNOTE ADD as LEGACY NOTE,
+  MINE ADD and SCROLL REMOVE light ([docs/RULES.md](docs/RULES.md), "Chart modifiers").
 - **Random Trainer**: the TRAINER lane option (after MF-RANDOM in RANDOM's list) plays one fixed lane order instead
   of a draw, to practise a RANDOM: `SETTINGS › GAMEPLAY › ADVANCED › Random trainer order` takes the keys from the
   left (`3142576` puts key 3's notes on the first lane, key 1's on the second, ...; `7654321` is MIRROR), and the

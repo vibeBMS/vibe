@@ -78,7 +78,8 @@ pub(super) const MOVED: &[Moved] = &[
     },
     Moved {
         label: "Assist options",
-        keys: "auto scratch legacy note mines no mine expand judge judge area mark note bpm guide",
+        keys: "auto scratch legacy note mines no mine expand judge judge area mark note bpm guide \
+               scroll remove mine add longnote add ln add chart modifier",
         place: "ASSIST, hold SELECT",
         ids: &[
             "play.auto_scratch",

@@ -1,6 +1,6 @@
 //! Lane options (RANDOM family) and chart-transforming assist options.
 
-use crate::chart::{Chart, Note, NoteKind};
+use crate::chart::{Chart, LnType, Note, NoteKind, NO_SOUND};
 use crate::mode::PlayMode;
 use crate::rng::JavaRandom;
 use serde::{Deserialize, Serialize};
@@ -95,6 +95,172 @@ pub fn turn_order(order: &str, d: i32) -> String {
     }
     c.into_iter().collect()
 }
+crate::choices! {
+    /// MINE ADD (bmz-player's ADD RANDOM / NEAR / BLANK; what each adds
+    /// is vibeBMS's reading): mines at the times notes of a side are, on
+    /// its keys that are free then (no note there, no long note held).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum MineAdd {
+        #[default]
+        Off => "OFF",
+        /// One free key drawn at random.
+        Random => "RANDOM",
+        /// The free keys beside each note.
+        Near => "NEAR",
+        /// Every free key.
+        Blank => "BLANK",
+    }
+}
+
+crate::choices! {
+    /// LONGNOTE ADD: normal notes made long notes of a type.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    pub enum LnAdd {
+        #[default]
+        Off => "OFF",
+        Ln => "LN",
+        Cn => "CN",
+        Hcn => "HCN",
+    }
+}
+
+impl LnAdd {
+    pub fn ln_type(self) -> Option<LnType> {
+        match self {
+            LnAdd::Off => None,
+            LnAdd::Ln => Some(LnType::Ln),
+            LnAdd::Cn => Some(LnType::Cn),
+            LnAdd::Hcn => Some(LnType::Hcn),
+        }
+    }
+}
+
+/// The damage of a mine MINE ADD adds (gauge %).
+pub const ADDED_MINE_DAMAGE: f32 = 2.0;
+
+/// SCROLL REMOVE: `#SCROLL` and `#SPEED` taken off (the notes, long note
+/// ends and bar lines at their beats). Whether there were any.
+pub fn remove_scroll(chart: &mut Chart) -> bool {
+    if !chart.timing.has_scroll_changes() {
+        return false;
+    }
+    let t = chart.timing.without_scroll();
+    for n in &mut chart.notes {
+        n.pos = t.pos_at_beat(n.beat);
+        if let NoteKind::Long {
+            end_beat, end_pos, ..
+        } = &mut n.kind
+        {
+            *end_pos = t.pos_at_beat(*end_beat);
+        }
+    }
+    for b in &mut chart.bar_lines {
+        b.pos = t.pos_at_time(b.time as f64);
+    }
+    chart.timing = t;
+    true
+}
+
+/// MINE ADD on every side's keys, drawn from `seed`: whether it added
+/// any.
+pub fn add_mines(chart: &mut Chart, how: MineAdd, seed: i64) -> bool {
+    if how == MineAdd::Off {
+        return false;
+    }
+    let mode = chart.mode();
+    let mut rng = JavaRandom::new(seed ^ 0x4d49_4e45);
+    let mut busy_until = vec![i64::MIN; mode.lane_count()];
+    let mut added = Vec::new();
+    let notes = &chart.notes;
+    let mut i = 0;
+    while i < notes.len() {
+        let t = notes[i].time;
+        let j = i + notes[i..].iter().take_while(|n| n.time == t).count();
+        let here = &notes[i..j];
+        let taken = |l: usize| busy_until[l] >= t || here.iter().any(|n| n.lane as usize == l);
+        for p in 0..mode.players() {
+            let base = p * mode.lanes_per_player();
+            let keys: Vec<usize> = (base..base + mode.keys_per_player()).collect();
+            let hit: Vec<usize> = (here.iter())
+                .filter(|n| n.is_playable() && keys.contains(&(n.lane as usize)))
+                .map(|n| n.lane as usize)
+                .collect();
+            if hit.is_empty() {
+                continue;
+            }
+            let free: Vec<usize> = keys.iter().copied().filter(|l| !taken(*l)).collect();
+            let mines: Vec<usize> = match how {
+                MineAdd::Off => Vec::new(),
+                MineAdd::Random if free.is_empty() => Vec::new(),
+                MineAdd::Random => vec![free[rng.next_int_bounded(free.len() as i32) as usize]],
+                MineAdd::Near => (free.iter().copied())
+                    .filter(|l| hit.iter().any(|h| h.abs_diff(*l) == 1))
+                    .collect(),
+                MineAdd::Blank => free,
+            };
+            let at = &here[0];
+            added.extend(mines.into_iter().map(|lane| Note {
+                lane: lane as u8,
+                sound: NO_SOUND,
+                kind: NoteKind::Mine {
+                    damage: ADDED_MINE_DAMAGE,
+                },
+                ..at.clone()
+            }));
+        }
+        for n in here {
+            if let NoteKind::Long { end_time, .. } = n.kind {
+                busy_until[n.lane as usize] = end_time;
+            }
+        }
+        i = j;
+    }
+    let any = !added.is_empty();
+    chart.notes.extend(added);
+    chart
+        .notes
+        .sort_by(|a, b| a.time.cmp(&b.time).then(a.lane.cmp(&b.lane)));
+    chart.meta.has_mine |= any;
+    any
+}
+
+/// LONGNOTE ADD: each normal note made a long note of `how`'s type, to
+/// half way to the next object of its lane but at most a beat on (a beat
+/// after the lane's last note); none shorter than a 32nd note. Whether
+/// it made any.
+pub fn add_long_notes(chart: &mut Chart, how: LnAdd) -> bool {
+    let Some(ty) = how.ln_type() else {
+        return false;
+    };
+    let timing = &chart.timing;
+    let notes = &mut chart.notes;
+    let mut any = false;
+    for k in 0..notes.len() {
+        if notes[k].kind != NoteKind::Normal {
+            continue;
+        }
+        let (lane, beat) = (notes[k].lane, notes[k].beat);
+        let next = (notes[k + 1..].iter())
+            .find(|n| n.lane == lane && !matches!(n.kind, NoteKind::Invisible) && n.beat > beat)
+            .map(|n| n.beat);
+        let len = next.map_or(1.0, |b| ((b - beat) / 2.0).min(1.0));
+        if len < 0.125 {
+            continue;
+        }
+        let end_beat = beat + len;
+        notes[k].kind = NoteKind::Long {
+            end_time: timing.time_at_beat(end_beat),
+            end_beat,
+            end_pos: timing.pos_at_beat(end_beat),
+            end_sound: NO_SOUND,
+            ln_type: Some(ty),
+        };
+        any = true;
+    }
+    chart.meta.has_long |= any;
+    any
+}
+
 /// A 120 Hz frame (µs).
 const FRAME_120HZ: f64 = 1_000_000.0 / 120.0;
 
@@ -623,6 +789,90 @@ mod tests {
         }
         assert_eq!(trainer_order("21"), Some(vec![1, 0]));
         assert_eq!(LaneOption::Trainer.assist(), crate::score::Assist::Light);
+    }
+
+    #[test]
+    fn added_mines_go_on_free_keys_only() {
+        // a long note on key 1 over measure 1, chords and notes elsewhere,
+        // a 14-key side too
+        let src = "#00151:01\n#00251:01\n#00112:01010101\n#00113:0001\n#00119:01\n#00118:01\n\
+                   #00221:01\n";
+        let plain = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
+        let count = |how: MineAdd, seed: i64| {
+            let mut c = plain.clone();
+            let any = add_mines(&mut c, how, seed);
+            let mines: Vec<Note> = (c.notes.iter())
+                .filter(|n| matches!(n.kind, NoteKind::Mine { .. }))
+                .cloned()
+                .collect();
+            // never on a note's lane at its time, nor over a held long note,
+            // nor on the scratch
+            for m in &mines {
+                assert!(!plain.notes.iter().any(|n| n.lane == m.lane
+                    && (n.time == m.time || (n.time < m.time && m.time <= n.end_time()))));
+                assert!(!c.mode().is_scratch(m.lane as usize));
+                assert_eq!(
+                    m.kind,
+                    NoteKind::Mine {
+                        damage: ADDED_MINE_DAMAGE
+                    }
+                );
+            }
+            assert_eq!(any, !mines.is_empty());
+            (mines, c)
+        };
+        assert!(count(MineAdd::Off, 1).0.is_empty());
+        // RANDOM: one a time a side has notes (4 such times on 1P, 1 on 2P)
+        let (r1, _) = count(MineAdd::Random, 1);
+        assert_eq!(r1.len(), 5);
+        assert_eq!(r1, count(MineAdd::Random, 1).0);
+        // BLANK: every free key; NEAR: the free keys beside a note
+        let (blank, c) = count(MineAdd::Blank, 1);
+        let (near, _) = count(MineAdd::Near, 1);
+        assert!(near.len() < blank.len() && !near.is_empty());
+        assert!(c.meta.has_mine);
+        for m in &near {
+            assert!(plain.notes.iter().any(|n| n.time == m.time
+                && n.is_playable()
+                && (n.lane as i32 - m.lane as i32).abs() == 1));
+        }
+    }
+
+    #[test]
+    fn added_long_notes_end_before_the_next_note() {
+        // 120 BPM: key 1 at beats 4, 6 and 6.125, key 2 at 4 and 8
+        let key1 = format!("01{}0101{}", "00".repeat(15), "00".repeat(14));
+        let src = format!("#BPM 120\n#00111:{key1}\n#00112:01\n#00212:01\n");
+        let mut c = parse_bms(src.as_bytes(), "bme", &ParseOptions::default()).unwrap();
+        assert_eq!(c.notes.len(), 5);
+        assert!(!add_long_notes(&mut c, LnAdd::Off));
+        assert!(add_long_notes(&mut c, LnAdd::Hcn));
+        let long: Vec<(u8, f64, f64)> = (c.notes.iter())
+            .filter_map(|n| match n.kind {
+                NoteKind::Long {
+                    end_beat,
+                    ln_type: Some(LnType::Hcn),
+                    end_time,
+                    ..
+                } => {
+                    assert_eq!(end_time, c.timing.time_at_beat(end_beat));
+                    Some((n.lane, n.beat, end_beat))
+                }
+                _ => None,
+            })
+            .collect();
+        // key 1 at 4: a beat (half way to 6 is more); at 6: too short (a
+        // 32nd before the next); the last ones: a beat
+        assert_eq!(
+            long,
+            [
+                (0, 4.0, 5.0),
+                (1, 4.0, 5.0),
+                (0, 6.125, 7.125),
+                (1, 8.0, 9.0)
+            ]
+        );
+        assert!(c.meta.has_long);
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::library::Song;
 use crate::sysound::Sound;
 use std::cell::Ref;
 use std::path::PathBuf;
-use vibebms_core::lane_option::LaneOption;
+use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
 use vibebms_core::score::{Assist, AssistFacts, ClearType};
 use vibebms_ir::lamps::RankView;
 use vibebms_ir::outbox::State;
@@ -79,6 +79,10 @@ pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<Clea
         battle: p.battle && has(|s| !s.mode.is_double()),
         wide_judge: p.expand_judge && p.judge_rates.iter().any(|r| *r > 100),
         bpm_guide: p.bpm_guide && has(|s| s.min_bpm < s.max_bpm),
+        // (whether a chart has scroll changes is not kept: as if it had)
+        scroll_remove: p.scroll_remove,
+        mine_add: p.mine_add != MineAdd::Off,
+        ln_add: p.ln_add != LnAdd::Off,
     };
     match facts.level() {
         Assist::None => (Keep::All, Some(p.gauge.clear_type())),
@@ -127,6 +131,10 @@ pub(crate) fn assist_summary(p: &PlayConfig) -> String {
         (p.mark_notes, "MARK NOTE"),
         (p.bpm_guide, "BPM GUIDE"),
         (p.no_mine, "NO MINE"),
+        (p.scroll_remove, "SCROLL REMOVE"),
+        (p.mine_add != MineAdd::Off, "MINE ADD"),
+        (p.ln_add != LnAdd::Off, "LONGNOTE ADD"),
+        (p.freq != 0, "FREQ"),
     ]
     .into_iter()
     .filter_map(|(on, name)| on.then_some(name))
@@ -349,7 +357,16 @@ mod tests {
         assert_eq!(outcome(&p, Some(&song)), (Keep::Nothing, None));
         p.freq = 2;
         assert_eq!(outcome(&p, Some(&song)).0, Keep::All);
-        (p.freq, p.no_mine, p.bpm_guide) = (0, true, true);
+        // chart modifiers: MINE ADD light, LONGNOTE ADD full
+        p.freq = 0;
+        p.mine_add = MineAdd::Blank;
+        assert_eq!(outcome(&p, Some(&song)), light);
+        p.ln_add = LnAdd::Cn;
+        let full = (Keep::LampOnly, Some(ClearType::AssistEasy));
+        assert_eq!(outcome(&p, Some(&song)), full);
+        assert_eq!(assist_summary(&p), "2 ON");
+        (p.mine_add, p.ln_add) = (MineAdd::Off, LnAdd::Off);
+        (p.no_mine, p.bpm_guide) = (true, true);
         p.auto_scratch = true;
         let full = (Keep::LampOnly, Some(ClearType::AssistEasy));
         assert_eq!(outcome(&p, Some(&song)), full);
