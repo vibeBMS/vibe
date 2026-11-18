@@ -238,13 +238,16 @@ impl SelectScene {
             vfs::inside(dir, img).map(|p| p.to_string_lossy().into_owned())
         });
         if let Some(job) = self.banner_job.as_mut() {
-            let done = job.poll(false, |(w, h, px)| gfx.create_texture(w, h, &px));
+            let done = job.poll(false, |pic| crate::gfx::ImageTex::new(gfx, pic));
             if let (Some((_, t)), Some(b)) = (done.into_iter().next(), self.banner.as_mut()) {
                 b.1 = t;
             }
             if job.done() {
                 self.banner_job = None;
             }
+        }
+        if let Some((_, Some(t))) = self.banner.as_mut() {
+            t.tick(gfx);
         }
         if want.as_deref() == self.banner.as_ref().map(|b| b.0.as_str()) {
             return;
@@ -253,7 +256,7 @@ impl SelectScene {
             return; // don't decode while scrolling fast
         }
         if let Some((_, Some(t))) = self.banner.take() {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
         self.banner_job = want
             .as_ref()

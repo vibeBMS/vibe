@@ -5,7 +5,7 @@ use super::{PlayRequest, Versus};
 use crate::app::{Ctx, Draw};
 use crate::config::PlayConfig;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{with_alpha, Rect};
+use crate::gfx::{with_alpha, Picture, Rect};
 use crate::platform::vfs::Prefetch;
 use crate::platform::{Instant, Job};
 use crate::theme;
@@ -22,15 +22,15 @@ use vibebms_core::play::{
 use vibebms_core::practice::Section;
 use vibebms_core::score::AssistFacts;
 
-pub(super) type Rgba = (u32, u32, Vec<u8>);
-
 pub(super) struct Loaded {
     pub chart: Chart,
     pub bank: SoundBank,
-    pub images: Vec<Option<Rgba>>,
+    pub images: Vec<Option<Picture>>,
     /// Chart images that are videos (same indices).
     pub videos: Vec<Option<PathBuf>>,
-    pub stagefile: Option<Rgba>,
+    pub stagefile: Option<Picture>,
+    /// `#BACKBMP` (the play skin's background image 101).
+    pub backbmp: Option<Picture>,
     pub seed: i64,
     /// What the options did to the chart (for the assist level).
     pub facts: AssistFacts,
@@ -166,16 +166,15 @@ impl Loading {
             } else {
                 (Vec::new(), Vec::new())
             };
-            let stagefile = crate::platform::vfs::inside(&dir, &chart.meta.stagefile)
-                .filter(|_| !chart.meta.stagefile.is_empty())
-                .and_then(|p| crate::scene::select::resolve_image(&p))
-                .and_then(|p| crate::gfx::load_rgba(&p, false));
+            let stagefile = chart_image(&dir, &chart.meta.stagefile);
+            let backbmp = chart_image(&dir, &chart.meta.backbmp);
             Ok(Box::new(Loaded {
                 chart,
                 bank,
                 images,
                 videos,
                 stagefile,
+                backbmp,
                 seed,
                 facts,
                 ln_profile,
@@ -258,10 +257,18 @@ impl Loading {
     }
 }
 
-type Media = (Vec<Option<Rgba>>, Vec<Option<PathBuf>>);
+type Media = (Vec<Option<Picture>>, Vec<Option<PathBuf>>);
 
-/// A chart's images (`files`), each an image or a video (shown when
-/// ffmpeg is installed).
+/// A chart's `#STAGEFILE`, `#BACKBMP` (`name`, in `dir`).
+fn chart_image(dir: &Path, name: &str) -> Option<Picture> {
+    crate::platform::vfs::inside(dir, name)
+        .filter(|_| !name.is_empty())
+        .and_then(|p| crate::scene::select::resolve_image(&p))
+        .and_then(|p| crate::gfx::load_picture(&p, &|_| {}))
+}
+
+/// A chart's images (`files`), each an image (animated GIF, WebP and APNG
+/// with their frames) or a video (shown when ffmpeg is installed).
 fn load_images(index: &crate::platform::vfs::DirIndex, files: &[String]) -> Media {
     use crate::platform::vfs::IMAGE_EXTS;
     use crate::video::{is_video, VIDEO_EXTS};
@@ -269,7 +276,7 @@ fn load_images(index: &crate::platform::vfs::DirIndex, files: &[String]) -> Medi
         .iter()
         .map(|f| match index.find(f, IMAGE_EXTS) {
             Some(p) if is_video(&p) => (None, Some(p)),
-            Some(p) => (crate::gfx::load_rgba(&p, true), None),
+            Some(p) => (crate::gfx::load_picture(&p, &crate::gfx::key_black), None),
             None => (None, index.find(f, VIDEO_EXTS)),
         })
         .unzip()
@@ -323,16 +330,15 @@ fn load_nonstop(
         .first()
         .and_then(|p| p.parent())
         .unwrap_or(Path::new(""));
-    let stagefile = crate::platform::vfs::inside(first, &chart.meta.stagefile)
-        .filter(|_| !chart.meta.stagefile.is_empty())
-        .and_then(|p| crate::scene::select::resolve_image(&p))
-        .and_then(|p| crate::gfx::load_rgba(&p, false));
+    let stagefile = chart_image(first, &chart.meta.stagefile);
+    let backbmp = chart_image(first, &chart.meta.backbmp);
     Ok(Box::new(Loaded {
         chart,
         bank,
         images,
         videos,
         stagefile,
+        backbmp,
         seed,
         facts: pc.facts,
         ln_profile: pc.ln_profile,

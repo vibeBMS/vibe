@@ -792,7 +792,8 @@ impl Hooks for PlayHooks<'_> {
 
     fn ref_image(&self, id: i32) -> Option<TexId> {
         match id {
-            100 | 101 => self.st.s.bga.stage,
+            100 => self.st.s.bga.stage,
+            101 => self.st.s.bga.back,
             _ => None,
         }
     }

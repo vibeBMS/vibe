@@ -135,7 +135,7 @@ pub struct ResultScene {
     rules_line: String,
     pub(crate) host: SkinHost,
     /// The chart's stage file (skin reference image 100).
-    pub(crate) stage_tex: Option<crate::gfx::TexId>,
+    pub(crate) stage_tex: Option<crate::gfx::ImageTex>,
     /// Leaving (the skin's fade-out running): what follows.
     leave_to: Option<Leave>,
 }
@@ -360,7 +360,7 @@ impl Scene for ResultScene {
                     .unwrap_or(std::path::Path::new(""))
                     .join(&self.d.meta.stagefile);
                 self.stage_tex = crate::scene::select::resolve_image(&p)
-                    .and_then(|rp| gfx.load_image(&rp, false));
+                    .and_then(|rp| crate::gfx::ImageTex::load(gfx, &rp, &|_| {}));
             }
             let kind = if self.d.course_total {
                 SkinType::CourseResult
@@ -373,6 +373,9 @@ impl Scene for ResultScene {
                 skinned::load(ctx, gfx, kind, &stat, &st)
             };
             self.host.skin = skin;
+        }
+        if let Some(t) = self.stage_tex.as_mut() {
+            t.tick(gfx);
         }
         // events skin scripts asked for
         for ev in self.host.tick(gfx) {
@@ -393,7 +396,7 @@ impl Scene for ResultScene {
     fn exit(&mut self, _ctx: &mut Ctx, gfx: &mut Gfx) {
         self.host.free(gfx);
         if let Some(t) = self.stage_tex.take() {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
     }
 

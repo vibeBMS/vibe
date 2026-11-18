@@ -16,7 +16,7 @@ pub(crate) use tree::{Bar, Node};
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
-use crate::gfx::{Gfx, Rect, TexId};
+use crate::gfx::{Gfx, Rect};
 use crate::input::{AxisStepper, InputEv, Nav, Repeat};
 use crate::library::Song;
 use crate::platform::{Instant, Job};
@@ -90,7 +90,7 @@ pub struct SelectScene {
     /// The preview's file being read (the web: from the browser's storage)
     /// before it is decoded.
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
-    banner: Option<(String, Option<TexId>)>,
+    banner: Option<(String, Option<crate::gfx::ImageTex>)>,
     /// The banner's image while it is decoded.
     banner_job: Option<crate::skin::render::ImageJobs>,
     ranking: HashMap<String, Rank>,
@@ -286,7 +286,11 @@ impl SelectScene {
             let st = SelectState::new(self, ctx);
             let mut hooks = SelectHooks {
                 st: &st,
-                banner: self.banner.as_ref().and_then(|b| b.1),
+                banner: self
+                    .banner
+                    .as_ref()
+                    .and_then(|b| b.1.as_ref())
+                    .map(|t| t.tex),
                 bars: HitMap::default(),
                 pitch: None,
             };
@@ -378,7 +382,7 @@ impl Scene for SelectScene {
         self.stop_bgm(ctx);
         self.host.free(gfx);
         if let Some((_, Some(t))) = self.banner.take() {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
     }
 

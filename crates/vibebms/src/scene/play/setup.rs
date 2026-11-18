@@ -24,6 +24,7 @@ impl PlayScene {
             images,
             videos,
             stagefile,
+            backbmp,
             seed,
             mut facts,
             ln_profile,
@@ -166,7 +167,7 @@ impl PlayScene {
         let mut mapper = LaneMapper::new(&ctx.config.keys, input_mode);
         mapper.swap_pads = self.controls.swap_pads;
         self.controls.mapper = Some(mapper);
-        self.bga = Bga::new(gfx, images, &videos, stagefile);
+        self.bga = Bga::new(gfx, images, &videos, stagefile, backbmp);
         // (G-BATTLE: the opponent's lane option)
         let random_1p = ghost.as_ref().map_or(p.random_1p, |g| g.play.random_1p);
         let mut opts = vec![random_1p.label()];

@@ -138,6 +138,14 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
   read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
 - **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
+- **Images** (charts and skins): BMP, PNG, JPEG, GIF, WebP, TGA, DDS, CIM. Animated GIF, WebP and APNG play at their
+  own frame times: a BGA image from when it is first shown, a skin's images from when the skin loaded, a chart's
+  stage file, banner and `#BACKBMP` (the play skin's image 101; the stage file when the chart has none) from when
+  they loaded. The file's loop count is kept (then the last frame stays); a GIF or WebP frame of 10 ms or less lasts
+  100 ms, as in browsers. Each animation is one texture on the GPU, its frames kept in memory: up to 128 MB for one
+  image and 512 MB for all (32 and 96 MB on the web and mobile). One with more keeps every second frame (then every
+  fourth, ...), each shown as long as those it stands for, so it plays at its speed; one that cannot keep two frames
+  shows its first.
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
   (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the

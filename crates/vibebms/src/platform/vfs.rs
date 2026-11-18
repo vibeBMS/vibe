@@ -764,7 +764,7 @@ fn lower(s: &std::ffi::OsStr) -> String {
 }
 
 pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac"];
-pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "cim"];
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "webp", "apng", "cim"];
 
 /// Background read of lazily mounted files (web). Natively it completes immediately.
 pub struct Prefetch {
