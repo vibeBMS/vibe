@@ -119,6 +119,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
   those of the preset chosen.
+  The note a press takes when several are in reach (`SETTINGS › GAMEPLAY › Judge algorithm`): COMBO, DURATION,
+  LOWEST or SCORE (the next note only when the current one is beyond GREAT late and the next is within GREAT), as
+  beatoraja's; a replay keeps the one it was played with.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on

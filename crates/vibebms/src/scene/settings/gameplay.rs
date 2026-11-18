@@ -128,7 +128,7 @@ pub(super) fn rows(b: &mut Rows) {
             |c, d| {
                 use JudgeAlgorithm::*;
                 let a = &mut c.config.play.judge_algorithm;
-                *a = cycle(&[Combo, Duration, Lowest], *a, d)
+                *a = cycle(&[Combo, Duration, Lowest, Score], *a, d)
             },
         )
         .desc("Which note a press judges when several are in reach."),

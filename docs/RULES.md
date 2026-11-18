@@ -34,7 +34,12 @@ the BMS-making wikis) say nothing about it. One source is not enough to change h
 judges, so vibeBMS keeps NORMAL here until a second, independent description (or a measurement) agrees.
 
 Other rules: empty POOR does not consume the note; in 7 keys it keeps the combo, in 5 keys/PMS it breaks it;
-PMS notes can only produce one POOR. Note selection algorithms Combo / Duration / Lowest as in beatoraja.
+PMS notes can only produce one POOR. Note selection algorithms Combo / Duration / Lowest / Score as in beatoraja:
+Combo takes the next note once the current one is beyond GOOD late and the next one is within GOOD early [S17];
+Duration the closest unjudged note [S17]; Lowest always the earliest [S17]; Score as Combo with GREAT for GOOD: the
+next note once the current one is beyond GREAT late and the next one is within GREAT, else the earlier [S4: "GREAT
+以上の判定で取れる方を優先する。どちらも取れる場合やそれ以外の場合は下のノートを優先する"]. A replay keeps the
+algorithm it was played with (`judge_algorithm` in its play options) and is watched with it.
 
 ### LR2
 

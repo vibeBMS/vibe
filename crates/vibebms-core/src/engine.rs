@@ -64,6 +64,11 @@ pub enum JudgeAlgorithm {
     Duration,
     /// Always the earliest note in reach.
     Lowest,
+    /// As Combo with GREAT for GOOD: move on to the next note once the
+    /// current one is beyond GREAT (late) and the next one is within GREAT
+    /// (beatoraja's "score first": the note a press takes at GREAT or
+    /// better; when both or neither can be, the earlier).
+    Score,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -890,6 +895,7 @@ impl Engine {
         let table = w.table(ty);
         let (late, early) = self.reach;
         let good = table.get(Judge::Good as usize).copied().unwrap_or((0, 0));
+        let great = table.get(Judge::Great as usize).copied().unwrap_or((0, 0));
         let empty = table.get(EMPTY_POOR).copied();
         let notes = &self.lanes[lane].notes;
         // a quantised diff is within half a frame of the raw one
@@ -915,6 +921,9 @@ impl Engine {
                         JudgeAlgorithm::Combo => !judged && cur_raw < good.0 && raw <= good.1,
                         JudgeAlgorithm::Duration => !judged && raw.abs() < cur_raw.abs(),
                         JudgeAlgorithm::Lowest => false,
+                        JudgeAlgorithm::Score => {
+                            !judged && cur_raw < great.0 && great.0 <= raw && raw <= great.1
+                        }
                     };
                 if !competes {
                     continue;

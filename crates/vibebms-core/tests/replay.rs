@@ -41,3 +41,52 @@ fn an_older_format_is_read() {
     let not_one: Option<Replay> = Replay::decode(b"not a replay");
     assert!(not_one.is_none());
 }
+
+/// A replay keeps the note choice it was played with, and judged again
+/// with it (as watching it does) gives the play as it was.
+#[test]
+fn a_replay_keeps_its_note_choice() {
+    use vibebms_core::engine::JudgeAlgorithm;
+    use vibebms_core::play::RuleOptions;
+    let text = vibebms_core::bot::chart_text(7, 3);
+    let mut ghosts = Vec::new();
+    for algorithm in [JudgeAlgorithm::Combo, JudgeAlgorithm::Score] {
+        let rules = RuleOptions {
+            judge_algorithm: algorithm,
+            ..RuleOptions::default()
+        };
+        let chart = build_chart(Path::new("song/chart.bme"), text.as_bytes(), &rules, 1, None)
+            .unwrap()
+            .chart;
+        let (mut e, _) = build_engine(&chart, &rules, None, false);
+        e.record();
+        let inputs = vibebms_core::bot::inputs(&chart, None, 5);
+        vibebms_core::bot::drive(&mut e, &inputs, chart.length() + 2_000_000);
+        let r = Replay {
+            version: vibebms_core::replay::VERSION,
+            sha256: String::new(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 0,
+            seed: 1,
+            play: rules,
+            ex_score: e.score.ex_score(),
+            clear: ClearType::Failed,
+            ghost: e.ghost.clone(),
+            ops: e.recorded().to_vec(),
+            course: None,
+        };
+        let r: Replay = Replay::decode(&r.encode().unwrap()).unwrap();
+        assert_eq!(r.play.judge_algorithm, algorithm);
+        let (mut again, _) = build_engine(&chart, &r.play, None, false);
+        for op in &r.ops {
+            again.apply(*op);
+        }
+        assert_eq!(again.ghost, r.ghost, "{algorithm:?}");
+        assert_eq!(again.score.ex_score(), r.ex_score);
+        ghosts.push(r.ghost);
+    }
+    // (the chart and presses are ones where the choice matters)
+    assert_ne!(ghosts[0], ghosts[1]);
+}

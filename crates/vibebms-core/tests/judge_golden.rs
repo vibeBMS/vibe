@@ -1741,6 +1741,57 @@ fn selection_combo_gate() {
     assert_eq!(drain(&mut e), [snd(11, 0), jh(0, GOOD, 99_000, 1)]);
 }
 
+/// Score: the next note once the current one is beyond GREAT (late) and
+/// the next one within GREAT; else the earlier.
+#[test]
+fn selection_score() {
+    use JudgeAlgorithm::*;
+    // (notes, press, what each algorithm judges)
+    let cases = [
+        // the first note still inside GOOD, the next PGREAT: Combo keeps
+        // to the first, Score takes the better
+        (2_100, 2_085, [(Combo, 10, GOOD, -85_000), (Score, 11, PGREAT, 15_000)]),
+        // both GOOD: Duration the closer, Score the earlier
+        (2_200, 2_105, [(Duration, 11, GOOD, 95_000), (Score, 10, GOOD, -105_000)]),
+        // a late BAD, and the next note closer but in its empty POOR
+        // window (7 keys: BAD -280 .. +220, empty POOR up to +500)
+        (2_490, 2_260, [(Duration, 11, MISS, 230_000), (Score, 10, BAD, -260_000)]),
+    ];
+    for (second, at, want) in cases {
+        let c = chart7(vec![normal(0, 2 * SEC, 10), normal(0, second * MS, 11)]);
+        for (algorithm, sound, judge, diff) in want {
+            let mut e = engine(
+                &c,
+                &Setup {
+                    algorithm,
+                    ..Setup::default()
+                },
+            );
+            e.update(SEC);
+            press(&mut e, 0, at * MS);
+            let combo = u32::from(judge <= GOOD);
+            assert_eq!(
+                drain(&mut e),
+                [snd(sound, 0), jh(0, judge, diff, combo)],
+                "{algorithm:?} at {at}"
+            );
+        }
+    }
+    // with one of them judged, the other
+    let c = two_notes();
+    let s = Setup {
+        algorithm: Score,
+        ..Setup::default()
+    };
+    let mut e = engine(&c, &s);
+    e.update(SEC);
+    press(&mut e, 0, 2_190 * MS);
+    release(&mut e, 0, 2_195 * MS);
+    assert_eq!(drain(&mut e), [snd(11, 0), jh(0, PGREAT, 10_000, 1)]);
+    press(&mut e, 0, 2_200 * MS);
+    assert_eq!(drain(&mut e), [snd(10, 0), jh(0, BAD, -200_000, 0)]);
+}
+
 /// Worked example 2: a hit note far behind gives nothing; the next note's
 /// empty POOR window is used.
 #[test]
