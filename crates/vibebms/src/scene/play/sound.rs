@@ -147,7 +147,7 @@ impl Audio {
                 sound,
                 volume,
             } => m.set_volume(voice(sound, side, s.vs), volume),
-            Out::Adjust(_) => {}
+            Out::Adjust(_) | Out::Guide(_) => {}
         }
     }
 }

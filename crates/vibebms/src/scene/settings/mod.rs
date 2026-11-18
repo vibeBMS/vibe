@@ -19,6 +19,7 @@ mod gameplay;
 mod library;
 mod online;
 mod per_play;
+mod play_extras;
 mod row;
 mod search;
 mod skins;

@@ -3,7 +3,7 @@
 
 use super::{PlayRequest, Versus};
 use crate::app::{Ctx, Draw};
-use crate::config::PlayConfig;
+use crate::config::{BgaMode, PlayConfig};
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Rect};
 use crate::platform::vfs::Prefetch;
@@ -88,6 +88,12 @@ impl Loading {
         // a course: its rules (a replay's play options have them); a
         // practice play's
         let mut play = play;
+        // the BGA as the player has it now (AUTO: when watching)
+        let watching = req.autoplay || req.replay.is_some();
+        play.bga = match ctx.config.play.bga.shown(watching) {
+            true => BgaMode::On,
+            false => BgaMode::Off,
+        };
         if let (Some(c), None) = (&req.course, &req.replay) {
             play.rules = c.rules(&play.rules);
         }
@@ -161,7 +167,7 @@ impl Loading {
             if speed != 1.0 {
                 resample(&mut bank, speed);
             }
-            let (images, videos) = if play.bga {
+            let (images, videos) = if play.bga == BgaMode::On {
                 load_images(&index, &chart.images)
             } else {
                 (Vec::new(), Vec::new())
@@ -312,7 +318,7 @@ fn load_nonstop(
             resample(&mut own, span.ratio);
         }
         bank.samples.extend(own.samples);
-        if play.bga {
+        if play.bga == BgaMode::On {
             let files = &chart.images[span.images.start as usize..span.images.end as usize];
             let (i, v) = load_images(&index, files);
             images.extend(i);

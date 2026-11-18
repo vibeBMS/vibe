@@ -129,12 +129,14 @@ impl PlayScene {
             Some(r) => Role::Replay(Feed::new(r, 0)),
             None => Role::Player,
         };
+        engine.set_miss_sound(ctx.config.play.miss_keysound);
         let mut sides = vec![SideState::new(engine, role)];
         // VS: the second player with their own options
         if vs {
             let mut r = p.for_side(1).rules;
             r.ln_mode = ln;
-            let (engine, _) = build_engine(&chart, &r, Some(1), self.req.autoplay);
+            let (mut engine, _) = build_engine(&chart, &r, Some(1), self.req.autoplay);
+            engine.set_miss_sound(ctx.config.play.miss_keysound);
             sides.push(SideState::new(engine, Role::Player));
         }
         // the opponent: its replay's own rules on the second side
@@ -207,6 +209,18 @@ impl PlayScene {
         let nonstop = nonstop.map(std::sync::Arc::new);
         self.session = Session::new(chart, sides, vs, self.session.start);
         self.session.set_nonstop(nonstop);
+        let cp = &ctx.config.play;
+        self.session.fx = super::session::Fx {
+            guide_se: cp.guide_se,
+            // (a practice section ends where it ends)
+            result_wait: cp.result_wait && practice.is_none(),
+            good_clears_poor: cp.good_clears_poor,
+        };
+        if ctx.config.play.guide_se {
+            let set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
+            let rate = ctx.audio.mixer.sample_rate;
+            self.guide = Some(super::guide::GuideSounds::load(set, &ctx.paths.root, rate));
+        }
         self.audio = Audio::new(bank, auto_notes);
         self.skin = super::skin::load(ctx, gfx, self);
         // start: a lead-in so the first notes scroll in (the skin's

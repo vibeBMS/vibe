@@ -59,6 +59,7 @@ const ALGORITHMS: &[JudgeAlgorithm] = &[
     JudgeAlgorithm::Combo,
     JudgeAlgorithm::Duration,
     JudgeAlgorithm::Lowest,
+    JudgeAlgorithm::Score,
 ];
 
 /// LR2: its judge by `#RANK` and its gauges, P-ATTACK and G-ATTACK and the

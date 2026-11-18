@@ -119,6 +119,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
   those of the preset chosen.
+  The note a press takes when several are in reach (`SETTINGS › GAMEPLAY › Judge algorithm`): COMBO, DURATION,
+  LOWEST or SCORE (the next note only when the current one is beyond GREAT late and the next is within GREAT), as
+  beatoraja's; a replay keeps the one it was played with.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
 - **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
@@ -137,7 +140,27 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
   off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
   read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
-- **BGA**: image BGA (layers, POOR), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path).
+- **BGA**: image BGA (layers, POOR; a BMS chart without a POOR layer shows its `#BMP00` on a miss, as LR2 and
+  beatoraja do), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path). BGA ON, AUTO or
+  OFF (SYSTEM OPTION key 1), as beatoraja's: AUTO shows it only when watching (autoplay, a replay), not in a play
+  of your own.
+- **Play extras** (`SETTINGS › GAMEPLAY › PLAY EXTRAS`):
+  - FAST / SLOW threshold: the play skin's FAST and SLOW (options 1242 / 1243) show only for a judgement more
+    than this many ms off (0, the default: any; FAST / SLOW display off: never).
+  - GUIDE SE (off by default): a sound for each judgement as it is made, from the sound set chosen by beatoraja's
+    names (`guide-pg`, `guide-gr`, `guide-gd`, `guide-bd`, `guide-pr` for an empty POOR, `guide-ms` for a missed
+    note; any audio format), and for what the set has none of (an LR2 sound set, the built-in set) a built-in tone.
+    At the system sound volume; G-BATTLE's opponent is silent.
+  - Notes wait at the line (off by default): as LR2 draws them, a note (a long note's head) not yet judged stops
+    at the judge line once its time has come, until it is hit or missed, instead of scrolling past (the flat and
+    the perspective note fields; a skin's PMS falling notes as they are).
+  - LR2oraja Endless Dream's extras, each off by default: RESULT WAIT (the play goes on to 5 s after the chart's
+    last note, BGM or BGA layer, the POOR layer left out, instead of ending a second after the last judgement; not
+    after a practice section, a quit or a fail; a long BGM sound is not followed to its end); GOOD clears the miss
+    BGA (a PGREAT, GREAT or GOOD takes the POOR image away at once, the next BAD or POOR shows it again); keysound
+    on a missed note (a note passed without a press plays its keysound as its POOR comes: a CN / HCN's head once for
+    its two POORs, and its end sound when held past its end; not a note a press already sounded, an empty POOR, an
+    early release or a mine). None changes how a play is judged or recorded.
 - **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
   rank A–AAA, MAX- / MAX, an IR rival). The IR rivals your enabled accounts follow come after BEST in the TARGET list
   (`RIVAL <name>`): the target is the EX score the IR has of theirs for the chart (0 when it has none), paced at the

@@ -64,6 +64,11 @@ pub enum JudgeAlgorithm {
     Duration,
     /// Always the earliest note in reach.
     Lowest,
+    /// As Combo with GREAT for GOOD: move on to the next note once the
+    /// current one is beyond GREAT (late) and the next one is within GREAT
+    /// (beatoraja's "score first": the note a press takes at GREAT or
+    /// better; when both or neither can be, the earlier).
+    Score,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -255,6 +260,8 @@ pub struct Engine {
     /// Rules taken on at a time (a NONSTOP course's later stages), the
     /// next last.
     switches: Vec<(i64, JudgeRules)>,
+    /// A missed note plays its keysound (`set_miss_sound`).
+    miss_sound: bool,
 }
 
 impl Engine {
@@ -347,7 +354,18 @@ impl Engine {
             recorded: None,
             events: Vec::new(),
             switches: Vec::new(),
+            miss_sound: false,
         }
+    }
+
+    /// A note missed plays its keysound as its POOR is given (ED-rian's
+    /// MISS KEYSOUND; the judging is the same): a normal note or a long
+    /// note's head passed unpressed (a CN / HCN: the head's sound only, for
+    /// its two POORs), a CN / HCN held past its end (its end sound). Not a
+    /// note a press has already sounded without taking it (an empty POOR
+    /// on it, PMS's BAD), nor an empty POOR, an early release or a mine.
+    pub fn set_miss_sound(&mut self, on: bool) {
+        self.miss_sound = on;
     }
 
     /// Take on `rules` at each time given (a NONSTOP course's stages with
@@ -774,18 +792,24 @@ impl Engine {
                 }
                 let diff = n.time.saturating_sub(now);
                 let kind = n.kind;
+                // (MISS KEYSOUND: not a note a press has sounded)
+                let sound = (self.miss_sound && n.play_time.is_none()).then_some(n.sound);
                 match kind {
                     Kind::Normal => self.judge(i, Slot::Head, Judge::Poor, diff, true),
                     Kind::Long(LnType::Ln) => {
-                        if self.lanes[lane].held != Some(i) {
-                            self.ln_final(i, Judge::Poor, diff);
+                        if self.lanes[lane].held == Some(i) {
+                            continue;
                         }
+                        self.ln_final(i, Judge::Poor, diff);
                     }
                     Kind::Long(_) => {
                         self.judge(i, Slot::Head, Judge::Poor, diff, true);
                         self.judge(i, Slot::Tail, Judge::Poor, diff, true);
                     }
-                    Kind::Mine(_) => {}
+                    Kind::Mine(_) => continue,
+                }
+                if let Some(s) = sound {
+                    self.sound(lane, s);
                 }
             }
             // move the sweep's start past what it need never see again
@@ -809,6 +833,9 @@ impl Engine {
                 {
                     let diff = n.end_time.saturating_sub(now);
                     self.judge(h, Slot::Tail, Judge::Poor, diff, true);
+                    if self.miss_sound {
+                        self.sound(lane, self.notes[h].end_sound);
+                    }
                     self.release_hold(lane);
                 }
             }
@@ -890,6 +917,7 @@ impl Engine {
         let table = w.table(ty);
         let (late, early) = self.reach;
         let good = table.get(Judge::Good as usize).copied().unwrap_or((0, 0));
+        let great = table.get(Judge::Great as usize).copied().unwrap_or((0, 0));
         let empty = table.get(EMPTY_POOR).copied();
         let notes = &self.lanes[lane].notes;
         // a quantised diff is within half a frame of the raw one
@@ -915,6 +943,9 @@ impl Engine {
                         JudgeAlgorithm::Combo => !judged && cur_raw < good.0 && raw <= good.1,
                         JudgeAlgorithm::Duration => !judged && raw.abs() < cur_raw.abs(),
                         JudgeAlgorithm::Lowest => false,
+                        JudgeAlgorithm::Score => {
+                            !judged && cur_raw < great.0 && great.0 <= raw && raw <= great.1
+                        }
                     };
                 if !competes {
                     continue;

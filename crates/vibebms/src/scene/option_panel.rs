@@ -11,7 +11,7 @@
 //! Panel 3's green number keys repeat while held (`repeats`), by 10 ms
 //! after 50 steps. Number key 3 changes the LN mode, as in beatoraja.
 
-use crate::config::{Bpms, HiSpeedMode, HsFix, PlayConfig, Target, Versus};
+use crate::config::{BgaMode, Bpms, HiSpeedMode, HsFix, PlayConfig, Target, Versus};
 use crate::scene::target::{self, Rival};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
@@ -51,7 +51,7 @@ pub fn value(p: &PlayConfig, g: i32) -> Option<i64> {
         11 => b(p.legacy_note),
         12 => b(p.lane_cover),
         13 => b(p.no_mine),
-        14 => b(p.bga),
+        14 => b(p.bga != BgaMode::Off),
         15 => b(p.expand_judge),
         16 => b(p.judge_area),
         17 => b(p.mark_notes),
@@ -246,8 +246,8 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms, d: i32) -> Op
             format!("NO MINE: {}", onoff(p.no_mine))
         }
         (3, 0) => {
-            p.bga = !p.bga;
-            format!("BGA: {}", onoff(p.bga))
+            p.bga = cycle(&BgaMode::ALL, p.bga, d);
+            format!("BGA: {}", p.bga.label())
         }
         (3, 1) => {
             p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d);

@@ -91,7 +91,7 @@ impl<'a> DecideState<'a> {
         let p = &self.ctx.config.play;
         let auto = self.s.req.as_ref().is_some_and(|r| r.autoplay);
         match id {
-            32 | 33 | 40..=43 => play_option(auto, p.bga, p.gauge, id),
+            32 | 33 | 40..=43 => play_option(auto, p.bga.shown(auto), p.gauge, id),
             100..=105 | 1100..=1104 => {
                 lamp_option(self.best.map(|b| b.clear).unwrap_or_default(), id)
             }

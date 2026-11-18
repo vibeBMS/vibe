@@ -88,6 +88,63 @@ vibebms_core::choices! {
 }
 
 vibebms_core::choices! {
+    /// When the BGA shows (beatoraja's BGA ON / AUTO / OFF, in its order:
+    /// skin button 72's index). AUTO: only when watching (autoplay, a
+    /// replay), not in a play of your own.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub enum BgaMode {
+        #[default]
+        On => "ON",
+        Auto => "AUTO",
+        Off => "OFF",
+    }
+}
+
+impl BgaMode {
+    /// Whether the BGA shows in a play that is watched (`watching`:
+    /// autoplay, a replay) or played.
+    pub fn shown(self, watching: bool) -> bool {
+        match self {
+            BgaMode::On => true,
+            BgaMode::Auto => watching,
+            BgaMode::Off => false,
+        }
+    }
+}
+
+/// Kept as it was before AUTO: ON `true`, OFF `false`; AUTO by its label.
+impl Serialize for BgaMode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            BgaMode::On => s.serialize_bool(true),
+            BgaMode::Off => s.serialize_bool(false),
+            m => s.serialize_str(m.label()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BgaMode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Label(String),
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Bool(true) => BgaMode::On,
+            Raw::Bool(false) => BgaMode::Off,
+            Raw::Label(l) => {
+                let m = BgaMode::ALL
+                    .into_iter()
+                    .find(|m| m.label().eq_ignore_ascii_case(&l));
+                m.ok_or_else(|| serde::de::Error::custom(format!("BGA mode {l}")))?
+            }
+        })
+    }
+}
+
+vibebms_core::choices! {
     /// Which BPM a fixed green number is kept at (beatoraja HS-FIX order).
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
     pub enum HsFix {
@@ -182,9 +239,25 @@ pub struct PlayConfig {
     pub judge_offset_ms: i32,
     /// Shift the note display (ms).
     pub visual_offset_ms: i32,
-    pub bga: bool,
+    pub bga: BgaMode,
     pub bga_size: BgaSize,
     pub show_fast_slow: bool,
+    /// FAST / SLOW only for a judgement more than this many ms off (0: any
+    /// off at all).
+    pub fast_slow_ms: u32,
+    /// GUIDE SE: a guide sound for each judgement (the sound set's
+    /// `guide-*`, else built-in ones).
+    pub guide_se: bool,
+    /// ED-rian's extras: the play goes on until 5 s after the chart's last
+    /// note, BGM or BGA (RESULT WAIT); a PGREAT .. GOOD clears the POOR
+    /// BGA (MISSLAYER GOOD CLEAR); a missed note plays its keysound (MISS
+    /// KEYSOUND).
+    pub result_wait: bool,
+    pub good_clears_poor: bool,
+    pub miss_keysound: bool,
+    /// LR2's note display: a note not yet judged waits at the judge line
+    /// until it is hit or missed, instead of scrolling past it.
+    pub hold_at_line: bool,
     /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
     /// 38 / 39), and where the gap to the target shows.
     pub score_graph: bool,
@@ -383,9 +456,24 @@ impl Serialize for PlayConfig {
             target_rival,
             bga_size,
             score_graph,
-            ghost
+            ghost,
+            fast_slow_ms,
+            guide_se,
+            result_wait,
+            good_clears_poor,
+            miss_keysound,
+            hold_at_line
         );
         st.end()
+    }
+}
+
+impl PlayConfig {
+    /// Whether a judgement `diff` µs off (> 0: early) shows FAST
+    /// (`Some(true)`) or SLOW: with FAST / SLOW on, beyond `fast_slow_ms`.
+    pub fn fast_slow(&self, diff: i64) -> Option<bool> {
+        let beyond = diff.unsigned_abs() > self.fast_slow_ms as u64 * 1000;
+        (self.show_fast_slow && diff != 0 && beyond).then_some(diff > 0)
     }
 }
 
@@ -429,9 +517,15 @@ impl Default for PlayConfig {
             lane_cover: false,
             judge_offset_ms: 0,
             visual_offset_ms: 0,
-            bga: true,
+            bga: BgaMode::On,
             bga_size: BgaSize::Normal,
             show_fast_slow: true,
+            fast_slow_ms: 0,
+            guide_se: false,
+            result_wait: false,
+            good_clears_poor: false,
+            miss_keysound: false,
+            hold_at_line: false,
             score_graph: true,
             ghost: Ghost::Off,
             judge_area: false,
@@ -449,6 +543,35 @@ impl Default for PlayConfig {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    #[test]
+    fn bga_mode_reads_and_writes_as_before() {
+        for (text, mode) in [
+            ("true", BgaMode::On),
+            ("false", BgaMode::Off),
+            ("\"AUTO\"", BgaMode::Auto),
+        ] {
+            let c: Config = toml::from_str(&format!("[play]\nbga = {text}\n")).unwrap();
+            assert_eq!(c.play.bga, mode);
+            let out = toml::to_string(&c).unwrap();
+            assert!(out.contains(&format!("bga = {text}\n")), "{out}");
+        }
+        assert!(BgaMode::Auto.shown(true) && !BgaMode::Auto.shown(false));
+        assert!(BgaMode::On.shown(false) && !BgaMode::Off.shown(true));
+    }
+
+    #[test]
+    fn fast_slow_beyond_the_threshold() {
+        let mut p = PlayConfig::default();
+        assert_eq!(p.fast_slow(1), Some(true));
+        assert_eq!(p.fast_slow(-1), Some(false));
+        assert_eq!(p.fast_slow(0), None);
+        p.fast_slow_ms = 10;
+        assert_eq!(p.fast_slow(10_000), None);
+        assert_eq!(p.fast_slow(-10_001), Some(false));
+        p.show_fast_slow = false;
+        assert_eq!(p.fast_slow(-50_000), None);
+    }
 
     #[test]
     fn targets_as_beatoraja() {
