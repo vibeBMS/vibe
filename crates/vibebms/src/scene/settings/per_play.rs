@@ -91,6 +91,12 @@ pub(super) const MOVED: &[Moved] = &[
         ],
     },
     Moved {
+        label: "FREQ",
+        keys: "freq pitch speed semitone tempo rate faster slower",
+        place: "ASSIST, hold SELECT and turn the turntable",
+        ids: &[],
+    },
+    Moved {
         label: "Autoplay",
         keys: "auto play demo",
         place: "the AUTOPLAY button, or F5",

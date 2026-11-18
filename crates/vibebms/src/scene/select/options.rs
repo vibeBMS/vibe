@@ -72,6 +72,7 @@ pub(crate) enum SelectOption {
     AutoScratch,
     Bga,
     TimingAutoAdjust,
+    Freq,
 }
 
 /// Full screen can be switched (desktop).
@@ -118,7 +119,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 38] = [
+    pub const ALL: [SelectOption; 39] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -157,6 +158,7 @@ impl SelectOption {
         SelectOption::AutoScratch,
         SelectOption::Bga,
         SelectOption::TimingAutoAdjust,
+        SelectOption::Freq,
     ];
 
     pub fn name(self) -> &'static str {
@@ -199,6 +201,7 @@ impl SelectOption {
             SelectOption::AutoScratch => "AUTO SCRATCH",
             SelectOption::Bga => "BGA",
             SelectOption::TimingAutoAdjust => "JUDGE AUTO ADJUST",
+            SelectOption::Freq => "FREQ",
         }
     }
 
@@ -248,6 +251,7 @@ impl SelectOption {
             SelectOption::AutoScratch => onoff(p.auto_scratch).into(),
             SelectOption::Bga => onoff(p.bga).into(),
             SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
+            SelectOption::Freq => vibebms_core::play::freq_label(p.freq),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -375,6 +379,9 @@ impl SelectScene {
             SelectOption::AutoScratch => p.auto_scratch ^= true,
             SelectOption::Bga => p.bga ^= true,
             SelectOption::TimingAutoAdjust => p.timing_auto_adjust ^= true,
+            SelectOption::Freq => {
+                option_panel::step_freq(p, d);
+            }
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
             }

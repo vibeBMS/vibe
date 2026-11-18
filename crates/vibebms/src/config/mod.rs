@@ -385,6 +385,8 @@ mod tests {
                     expand_judge: true,
                     judge_rates: [200, 150, 75],
                     hran_threshold_bpm: 150,
+                    // (newer fields at their defaults: written as before)
+                    freq: 0,
                     course: None,
                 },
                 versus: Versus::Off,
@@ -640,6 +642,19 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    /// The newer rule options are written when set and read back.
+    #[test]
+    fn newer_rule_options_roundtrip() {
+        let mut c = Config::default();
+        c.play.freq = -3;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("freq = -3"));
+        let d: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c, d);
+        // at their defaults they are not written
+        assert!(!Config::default().to_toml().unwrap().contains("freq"));
     }
 
     /// Files written before the rules were split from the play options

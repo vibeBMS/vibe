@@ -266,7 +266,7 @@ Deliberately not as LR2 [S-OLR2b marks each ambiguous or an artefact]: a NONSTOP
 rule (LR2 places the third and later ones a stage's trim earlier); the current stage (skin options 280-283, the
 title shown) advances at every join (LR2: at gap joins only); the open `#IF` state is each stage's own (LR2 carries it
 on); an expert course's score is recomputed from its totals, its notes the sum of all stages' (LR2 `main`'s rule).
-Not followed: LR2's maniac judge options (vibeBMS has none); the audio pitch option (none); the `ir` course flag is
+Not followed: LR2's maniac judge options (vibeBMS has none); the `ir` course flag is
 kept, but nothing is sent to an internet ranking (a course play is no IR's); a NONSTOP stage whose `#BPMxx` came before
 its `#BPM` line is scaled with it; a NONSTOP mine converted by the overlap clean-up is dropped, not played; replays of
 an expert stage are kept (with the gauges it started from) but the song select does not list them.
@@ -348,6 +348,20 @@ of the arcade) may judge otherwise when played again.
   Records from before rule modes are filed under the rule of their best EX play's replay, where it can be read when
   the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
   the default preset; replays from before count for the preset they were played with.
+
+## FREQ
+FREQ (LR2's audio pitch option, as bmz-player documents it: `docs/settings.md` "FREQ") plays the whole chart
+s semitones higher, −12 ≤ s ≤ 12, at 2^(s / 12) times the speed (`play::freq_rate`; shown rounded, `+3 (119%)`).
+The chart is retimed once it is read (`practice::retime`: every time ÷ the rate, BPMs × it, stops and sound slices ÷
+it) and its sounds are resampled, so the pitch goes with the speed. The judge windows are in real time: the same
+milliseconds at every FREQ, so a faster play is harder. The lane options run on the retimed chart (H-RANDOM's and
+S-RANDOM's intervals are real time).
+* Below 0: the play is not saved at all, as practice is (no score, lamp, play count, replay or IR).
+* Above 0: saved as usual and filed with FREQ 0's plays (it is harder, the lamp and the score are earned at
+  least as well). Not sent to any IR, vibeBMS's own included (`Refusal::Freq`): no IR files a play by its speed.
+* Courses (every kind; LR2 switches it off in class and NONSTOP courses [S-OLR2b 3.8, 5.1]) and practice (it has its
+  own speed) play at 0. G-BATTLE plays at the opponent's replay's FREQ.
+* Replays keep it (a replay of before has 0) and play at it again; the play record (`RuleFacts::freq`) too.
 
 ## Best scores
 The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,

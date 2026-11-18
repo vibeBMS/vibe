@@ -174,6 +174,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   headers, so it downloads through the vibeBMS proxy `proxy.vibebms.workers.dev`, which passes on archives only,
   and unpacks them in memory (zip, 7z, rar). Other event lists or indexes can be added in the settings
   (`archives`).
+- **FREQ** (LR2's): the whole chart −12 to +12 semitones higher or lower, faster or slower with it (+12 is twice
+  as fast, −12 half; shown as `+3 (119%)`): every time, BPM and stop scaled, the sounds resampled (their pitch with
+  the speed); the judge windows stay in real time. Hold SELECT (the ASSIST panel) and turn the turntable, or the
+  ASSIST panel's FREQ row. A play below 0 is not saved at all (no score, lamp, replay or IR); one above 0 is saved
+  as usual but not sent to IR (no IR takes a play at another speed). Courses and practice play at 0. Replays keep
+  it and play at it again.
 - **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the

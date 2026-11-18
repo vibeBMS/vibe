@@ -49,7 +49,8 @@ fn unknown(s: &Song) -> bool {
 /// which options take effect (as `scene::play::setup` finds them); with
 /// no chart chosen every option counts.
 pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<ClearType>) {
-    if p.autoplay || p.versus == Versus::Local {
+    // (a FREQ below 0 saves nothing: `scene::play::setup`)
+    if p.autoplay || p.versus == Versus::Local || p.freq < 0 {
         return (Keep::Nothing, None);
     }
     let has = |f: fn(&Song) -> bool| song.is_none_or(f);

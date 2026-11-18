@@ -40,6 +40,10 @@ pub struct RuleOptions {
     pub judge_rates: [i64; 3],
     /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
     pub hran_threshold_bpm: u32,
+    /// FREQ (LR2's): the whole chart played `freq` semitones higher
+    /// (`FREQ_MIN..=FREQ_MAX`), faster by 2^(freq / 12), its sounds
+    /// resampled to match; the judge windows stay in real time.
+    pub freq: i32,
     /// A course's stage (NONSTOP: the course): its kind, which decides
     /// the LR2 set's gauges (`GrooveGauge::new_in`). Not a player option.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,24 +69,49 @@ impl Default for RuleOptions {
             expand_judge: false,
             judge_rates: [400, 400, 100],
             hran_threshold_bpm: 120,
+            freq: 0,
             course: None,
         }
     }
 }
 
+/// FREQ's range in semitones.
+pub const FREQ_MIN: i32 = -12;
+pub const FREQ_MAX: i32 = 12;
+
+/// The speed FREQ `semitones` plays at (1.0: as written).
+pub fn freq_rate(semitones: i32) -> f64 {
+    2f64.powf(semitones.clamp(FREQ_MIN, FREQ_MAX) as f64 / 12.0)
+}
+
+/// FREQ as shown: "OFF", "+3 (119%)", "-12 (50%)".
+pub fn freq_label(semitones: i32) -> String {
+    match semitones {
+        0 => "OFF".into(),
+        s => format!("{s:+} ({:.0}%)", freq_rate(s) * 100.0),
+    }
+}
+
 impl RuleOptions {
+    /// The speed the chart plays at (FREQ).
+    pub fn freq_rate(&self) -> f64 {
+        freq_rate(self.freq)
+    }
+
     /// The rules of a course of `kind` played on these options. Under the
     /// LR2 gauge set a class course forces LR2's settings (S-OLR2b 5.1):
     /// EASY and G-ATTACK play GROOVE (its class gauges, as HARD plays
     /// EX-CLASS), and no lane option, BATTLE, DP FLIP, assist or note
     /// option; an expert or NONSTOP course forces nothing (4.2). Under the
     /// other sets every course plays the set's dan gauges, as vibeBMS's
-    /// table courses do. No course has GAUGE AUTO SHIFT.
+    /// table courses do. No course has GAUGE AUTO SHIFT or FREQ (LR2
+    /// switches FREQ off in class and NONSTOP courses: S-OLR2b 3.8, 5.1).
     pub fn for_course(&self, kind: CourseKind) -> RuleOptions {
         let lr2 = self.gauge_preset == GaugePreset::Lr2;
         let mut r = RuleOptions {
             course: Some(kind),
             gauge_auto_shift: GaugeAutoShift::None,
+            freq: 0,
             ..self.clone()
         };
         match (lr2, kind) {
@@ -160,9 +189,14 @@ pub fn build_nonstop_chart(
     Ok((arrange(chart, rules, seed, None), ns))
 }
 
-/// `chart` arranged by `rules` (`course`: as `build_chart`'s).
+/// `chart` at FREQ's speed (so the lane options' intervals are real
+/// time), arranged by `rules` (`course`: as `build_chart`'s).
 fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool>) -> PlayChart {
     let ln_profile = chart.ln_profile();
+    let rate = rules.freq_rate();
+    if rate != 1.0 {
+        chart = crate::practice::retime(chart, 0, rate);
+    }
     let mut facts = AssistFacts::default();
     if rules.battle && !chart.mode().is_double() {
         lane_option::battle(&mut chart);
@@ -201,7 +235,8 @@ fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool
 
 /// G-BATTLE's chart: the single play chart read with the opponent's seed
 /// and arranged by its lane option, on both sides (as LR2 lends a ghost's
-/// random); each side's LEGACY NOTE and NO MINE apply to its own lanes.
+/// random), at its FREQ; each side's LEGACY NOTE and NO MINE apply to its
+/// own lanes.
 /// What the player's options did (the player's side is a single play).
 pub fn build_battle_chart(
     path: &Path,
@@ -212,6 +247,7 @@ pub fn build_battle_chart(
 ) -> Result<PlayChart, String> {
     let single = RuleOptions {
         random_1p: theirs.random_1p,
+        freq: theirs.freq,
         battle: false,
         legacy_note: false,
         no_mine: false,
@@ -360,6 +396,49 @@ mod tests {
             (b.gauge, b.random_1p),
             (GaugeType::ExClass, LaneOption::Random)
         );
+    }
+
+    /// FREQ retimes the whole chart: every time ÷ the rate, the BPMs ×
+    /// it, the lanes as at 0; the judge windows stay in real time;
+    /// courses play at 0.
+    #[test]
+    fn freq_plays_the_chart_faster_and_higher() {
+        let text = crate::bot::chart_text(7, 11);
+        let at = |freq: i32, random_1p: LaneOption| {
+            let rules = RuleOptions {
+                freq,
+                random_1p,
+                ..Default::default()
+            };
+            let p = build_chart(Path::new("c.bme"), text.as_bytes(), &rules, 5, None).unwrap();
+            let (e, _) = build_engine(&p.chart, &rules, None, false);
+            (p.chart, e.windows().note.clone())
+        };
+        let (plain, windows) = at(0, LaneOption::Random);
+        for freq in [-12, -1, 3, 12] {
+            let k = freq_rate(freq);
+            let (c, w) = at(freq, LaneOption::Random);
+            let want: Vec<(u8, i64)> = (plain.notes.iter())
+                .map(|n| (n.lane, (n.time as f64 / k).round() as i64))
+                .collect();
+            let got: Vec<(u8, i64)> = c.notes.iter().map(|n| (n.lane, n.time)).collect();
+            assert_eq!(got, want, "FREQ {freq}");
+            assert!((c.meta.initial_bpm - plain.meta.initial_bpm * k).abs() < 1e-9);
+            assert_eq!(w, windows);
+        }
+        assert!((freq_rate(12) - 2.0).abs() < 1e-12);
+        assert!((freq_rate(-12) - 0.5).abs() < 1e-12);
+        assert_eq!(freq_rate(40), freq_rate(12));
+        assert_eq!(
+            [freq_label(0), freq_label(3), freq_label(-12)],
+            ["OFF", "+3 (119%)", "-12 (50%)"]
+        );
+        for kind in [CourseKind::Class, CourseKind::Expert, CourseKind::Nonstop] {
+            for rules in [lr2(), RuleOptions::default()] {
+                let r = RuleOptions { freq: 5, ..rules }.for_course(kind);
+                assert_eq!(r.freq, 0, "{kind:?}");
+            }
+        }
     }
 
     /// Two stages of an expert course: the second starts from the first's

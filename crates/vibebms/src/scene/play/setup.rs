@@ -65,18 +65,23 @@ impl PlayScene {
         // a NONSTOP course is recorded as a song is, under its identity;
         // an expert or class course's stages each partly, then the course
         let practice = self.req.practice.as_ref();
+        // a course's rules (a replay's play options have them), practice's;
+        // G-BATTLE plays at the opponent's FREQ
+        let mut rules = match (course, &self.req.replay, practice) {
+            (Some(c), None, _) => c.rules(&p.rules),
+            (_, _, Some(run)) => run.rules(&p.rules),
+            _ => p.rules.clone(),
+        };
+        if let Some(g) = &ghost {
+            rules.freq = g.play.freq;
+        }
         let unranked = course
             .filter(|c| !c.nonstop())
             .map(|_| "COURSE")
             .or(self.req.replay.as_ref().map(|_| "REPLAY"))
             .or(vs.then_some("VS"))
-            .or(practice.map(|_| "PRACTICE"));
-        // a course's rules (a replay's play options have them), practice's
-        let rules = match (course, &self.req.replay, practice) {
-            (Some(c), None, _) => c.rules(&p.rules),
-            (_, _, Some(run)) => run.rules(&p.rules),
-            _ => p.rules.clone(),
-        };
+            .or(practice.map(|_| "PRACTICE"))
+            .or((rules.freq < 0).then_some("FREQ"));
         let ln = rules.ln_mode;
         let score_ln = ln_profile.score_ln(ln);
         // AUTO SCRATCH is an assist when it plays scored notes
@@ -185,6 +190,8 @@ impl PlayScene {
         if p.legacy_note {
             opts.push("LEGACY");
         }
+        let freq = (rules.freq != 0).then(|| format!("FREQ {:+}", rules.freq));
+        opts.extend(freq.as_deref());
         // a song from an older library: its note counts and densities
         // (skin numbers 350-365) from the chart
         let song = &mut self.req.song;

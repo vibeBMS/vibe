@@ -34,6 +34,8 @@ pub enum Refusal {
     Battle,
     CourseStage,
     Aborted,
+    /// Played at another FREQ (another speed and pitch).
+    Freq,
     Assist,
     /// Its rules are no profile's.
     LocalRules,
@@ -238,6 +240,7 @@ fn passes(rec: &PlayRecord, g: &Gate) -> Result<Profile, Refusal> {
     gate(rec.rules.assist.battle, Refusal::Battle)?;
     gate(rec.course.is_some(), Refusal::CourseStage)?;
     gate(f.aborted, Refusal::Aborted)?;
+    gate(rec.rules.freq != 0, Refusal::Freq)?;
     gate(rec.rules.assist.level() != Assist::None, Refusal::Assist)?;
     let profile = profile_of(rec).ok_or(Refusal::LocalRules)?;
     gate(g.third_party && (d.touch > 0 || d.touch_ui), Refusal::Touch)?;
@@ -437,6 +440,14 @@ mod tests {
                 bok,
                 Refusal::Aborted,
             ),
+            ("FREQ +1", base(), |r| r.rules.freq = 1, bok, Refusal::Freq),
+            (
+                "FREQ -12",
+                base(),
+                |r| r.rules.freq = -12,
+                bok,
+                Refusal::Freq,
+            ),
             (
                 "assist",
                 base(),
@@ -621,9 +632,12 @@ mod tests {
             edit(&mut rec);
             assert_eq!(passes(&rec, g), Err(*want), "{name}");
         }
-        // a practice play goes nowhere, vibeBMS's own servers neither
+        // a practice play goes nowhere, vibeBMS's own servers neither,
+        // and neither does a play at another FREQ
         let mut practice = base();
         practice.flags.practice = true;
+        let mut freq = base();
+        freq.rules.freq = 3;
         for p in [
             ProviderKind::VibeJson,
             ProviderKind::Bokutachi,
@@ -631,6 +645,7 @@ mod tests {
             ProviderKind::RianIr,
         ] {
             assert_eq!(eligible(&practice, p), Err(Refusal::Practice), "{p:?}");
+            assert_eq!(eligible(&freq, p), Err(Refusal::Freq), "{p:?}");
         }
         // the gates that pass on: vibe-json takes what third parties do not
         let mut touch = base();

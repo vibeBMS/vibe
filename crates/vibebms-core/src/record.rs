@@ -125,6 +125,14 @@ pub struct RuleFacts {
     pub seed: i64,
     /// What the options did (the lane options per side among them).
     pub assist: AssistFacts,
+    /// FREQ in semitones (0: the chart's own speed). Missing in older
+    /// records: 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub freq: i32,
+}
+
+fn is_zero(v: &i32) -> bool {
+    *v == 0
 }
 
 impl RuleFacts {
@@ -155,6 +163,7 @@ impl RuleFacts {
             dp_flip: mode.is_double() && rules.dp_option == DoubleOption::Flip,
             seed,
             assist,
+            freq: rules.freq,
         }
     }
 }

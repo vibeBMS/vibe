@@ -356,5 +356,8 @@ pub fn describe(rec: &PlayRecord) -> String {
     if let Some([pg, gr, gd]) = r.judge_rates {
         s += &format!(" / windows {pg}-{gr}-{gd} %");
     }
+    if r.freq != 0 {
+        s += &format!(" / FREQ {}", vibebms_core::play::freq_label(r.freq));
+    }
     s
 }

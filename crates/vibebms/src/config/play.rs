@@ -377,6 +377,7 @@ impl Serialize for PlayConfig {
             };
         }
         set_fields!(
+            freq,
             hs_type,
             hs_level,
             hs_anim_ms,
