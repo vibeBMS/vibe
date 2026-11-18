@@ -2842,7 +2842,10 @@ EFFECT_ROWS = [("MASTER", 9024), ("KEY SOUND", 9025), ("BGM", 9026), ("SYSTEM", 
                ("PREVIEW", 9028)]
 TAG_ROWS = [("FAVORITE SONG", "every chart of the song (key 8)", 9015),
             ("FAVORITE CHART", "this chart (key 9)", 9014),
-            ("RANDOM SELECT", "the charts it draws from (key 0)", 9016)]
+            ("RANDOM SELECT", "the charts it draws from (key 0)", 9016),
+            ("SAME FOLDER", "the charts of its folder (key B)", 9047),
+            ("WEB PAGE", "its #URL, or a table's link (key U)", 9046),
+            ("SONG FOLDER", "in the file manager (F3, desktop)", 9045)]
 HELP_TEXT = [
     ("KEYS", [("↑ ↓ / turntable", "move"), ("Enter / white keys", "play, open"),
               ("← / black keys, Esc", "close the folder, back"),
@@ -2851,7 +2854,8 @@ HELP_TEXT = [
               ("3", "LN mode"), ("8 / 9", "favourite song / chart"), ("F5", "autoplay"),
               ("P / E", "replay / practice"), ("I", "the chart's IR page"),
               ("/ or F10", "search"),
-              ("C / Insert", "add to a course"),
+              ("C / Insert", "add to a course"), ("T", "read the song's text"),
+              ("B / U / F3", "same folder, web page, song folder"),
               ("Tab", "settings")]),
     ("TOUCH", [("drag the list", "scroll"), ("tap a bar", "choose it"),
                ("tap it again", "play, open"), ("tap a tab's half", "the value before / after"),
@@ -3031,7 +3035,7 @@ def select_panel_parts(a, fonts):
                  "MIN BP", "MIN CB", "LAST PLAYED", "IR TOP 3", "PLAY TIME", "NOTES HIT",
                  "PLAYER"):
         a.add(f"sc_{name}", spaced(fonts, name, "semi", 11, DIM, 0.06))
-    a.add("help_land", help_img(fonts, 600, 360, 2))
+    a.add("help_land", help_img(fonts, 600, 404, 2))
     a.add("help_port", help_img(fonts, 600, 640, 1))
 
 
@@ -3235,7 +3239,7 @@ def tag_panel(sk, r, rw):
         sel_put(sk, f"rd_{name}", rx + 14, ry + 36, op=[op])
         sk.label_text(ev, rx + rw - 140, ry + 8, 126, 15, align=2, op=[op])
         sel_put(sk, "clear", rx, ry, rw, sk.size(f"row{rw}")[1], op=[op], act=ev, click=2)
-    sel_put(sk, "tag_note", rx, y + 72 + 3 * 56 + 16, op=[op])
+    sel_put(sk, "tag_note", rx, y + 72 + len(TAG_ROWS) * 56 + 16, op=[op])
 
 
 def stat_rows(sk, op, x, y, rows, colw=150):

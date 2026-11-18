@@ -45,6 +45,27 @@ cargo run --release                                  # song select
 cargo run --release -- path/to/song.bme --autoplay   # play a chart directly
 ```
 
+The command line (desktop; `vibebms --help`): a chart to play at start, with `--autoplay` (`-a`; without a chart,
+AUTOPLAY on in song select), `--ghost=best|last` (G-BATTLE) or `--vs`; options for this launch only, never written to
+`config.toml` (a setting changed in the game meanwhile is saved as usual): `--gauge=HARD`, `--random=MIRROR`,
+`--hs=3.25`, `--judge=lr2`, `--ln="FORCE CN"` (labels as the game shows them, or the config's names, in any case) and
+`--set <section.key>=<value>` for any setting of `config.toml` (`--set play.sudden=0.3`, `--set display.show_fps=true`);
+`--print-effective-options` prints the `[play]` options these make and exits. Subcommands: `vibebms songs scan` scans
+the BMS folders into the song cache as F12 does, `vibebms songs list [--json]` prints the library as last scanned (a
+line per chart: MD5, key mode, level, title, path; or the cache's records as JSON). An option that does not read
+stops with its error and exit code 2.
+
+**Chart viewer for BMS editors** (desktop): vibeBMS takes uBMplay's command line, as BMSE, iBMSC, BmsONE, woseq and
+BMS Maker 3 call their external viewer: `vibebms -P -N<measure> <chart>` autoplays the chart from that measure (0
+based, as the editors count; `-N 3` too; without `-N` from the start) and `vibebms -S` stops it. Set the editor's
+viewer to the vibeBMS executable with those arguments: BMSE and iBMSC send them as uBMplay's; in BmsONE the play
+arguments are `-P -N$(measure) "$(filename)"` and the stop argument `-S`; in BMS Maker 3 the play arguments with its
+measure and file name placeholders; woseq as it is. The first `-P` starts vibeBMS as the viewer and it stays running:
+a later `-P` (the editor's next play, its file saved again) or `-S` is a short process that hands the request to it
+over a loopback port (127.0.0.1:39177) and exits at once, and the viewer reads the chart again and plays it from the
+measure (as practice mode starts a section: from the measure's start, what was sounding there sounding) or stops,
+back to song select, and comes to the front. The play shows `VIEWER #<measure>` and is never recorded.
+
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
 
@@ -68,7 +89,7 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
 | Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options; F12 rescan; I the chart's IR page; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2–F9 options (on the desktop F3 shows the chart's file in the system's file manager instead: Explorer and Finder select it, on Linux a file manager that takes the freedesktop `FileManager1` call does, else the folder opens; GAUGE stays on START + 3); T reads the song's text files in the game (O, or OPEN, then opens the file shown in the system's text viewer, desktop); U opens the chart's web page in the browser (its `#URL`, a bmson `info.url`, else the chart's or song's link in a difficulty table, a chart not installed too; http(s) only); B SAME FOLDER, the charts in the chosen chart's folder (these three also in the default skin's TAG EDITOR panel, and as select options 9045–9047 for any skin); F12 rescan; I the chart's IR page; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
@@ -167,7 +188,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
   macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
   the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
-  reached.
+  reached. `Latency overlay` (off by default) shows in the top left the median, 95th percentile and maximum over the
+  last 512 of: the frame time (one frame's start to the next's), the audio output's callback interval (the time
+  between its requests for a buffer; not the web's audio worklet) and the input delay (an input event's time to its
+  handling by the screen: on the web and iOS and for controllers the event's own time, else when the window got it).
+  Off, nothing is measured. The start's phases (event loop, window, graphics, audio, library, tables and skins, song
+  select, first frame) are timed in the log (`startup:` lines).
 - **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
   the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
   keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
@@ -235,6 +261,15 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   opens; a downloaded chart goes into its song's folder (the folder with the same title and artist, as the library
   was last read, that holds every sound it needs; when unsure, the app asks). Downloads are kept in `downloads/`. Android and iOS use the in-app
   browser too (over the game screen); the web build opens the system browser.
+- **Bulk downloads**: a table's folder and each of its levels start with DOWNLOAD MISSING (n charts) while the library
+  lacks any of their charts; choosing it queues them all. The queue downloads through the same path as a chart chosen
+  alone (its links, the other links known for it, the song before its separate chart), two at a time and a new one
+  2 s after the last at the soonest, so hosts are not hammered; a chart whose song another of its charts is
+  downloading waits for it, and one the library has by then is done at once. DOWNLOADS at the root (while the queue
+  is not empty) lists every chart as QUEUED, DOWNLOADING (with its progress), DONE, FAILED (with why), PAGE ONLY (its
+  links lead only to a page: choosing it opens the page, as for a chart chosen alone; the queue never opens pages) or
+  CANCELLED, after CANCEL, RETRY FAILED and CLEAR FINISHED. Choosing a queued or downloading chart cancels it, a
+  failed or cancelled one queues it again. The queue is kept until the game closes.
 - **Third-party mirrors** (`SETTINGS › LIBRARY`, off by default): other people's copies of dead uploaders and sites
   (darksabun.club, bms.hexlataia.xyz) and the community archive (bms.kyouko.moe). What is found there by name only
   goes into the library if it holds the chart wanted (by its MD5).
@@ -380,7 +415,14 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   touch zones' opacity: 0, 25, 50, 75, 100 %; a skin without them draws them at the touch controls' opacity).
 - **LR2 skins** (`.lr2skin`): put them under `skins/` (`LR2files\Theme\…` paths are taken from `skins/`). Images,
   numbers, text, `#LR2FONT`, gauges, notes, judgements, bar graphs, sliders, buttons, panels, the song list, result
-  graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives.
+  graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives. On the song list's bars: `BAR_LABEL` (0 LN, 1
+  `#RANDOM`, 2 mines, 3 CN, 4 HCN; the long notes' type is the one the chart gives them, else the player's AUTO type,
+  never FORCE; a skin without a CN or HCN label shows its LN one; a course shows what its charts have, a course not
+  all installed nothing), `BAR_TROPHY` (0 bronze, 1 silver, 2 gold: on a table's class course, the last of the
+  table's trophies whose miss rate and score rate its best cleared play met) and `BAR_GRAPH` type 0 (a folder's lamp
+  distribution, the best lamps first, 11 source cells an animation frame; type 1, the DJ levels, is not drawn).
+  A skin without `#RESOLUTION` (`0`-`3`, or `#RESOLUTION,<width>,<height>`) gets the size its layout reaches: 640x480,
+  or 1280x720 / 1920x1080 for HD skins that do not say so.
 - **beatoraja skins**: JSON (`.json`) and Lua (`.luaskin`, embedded Lua 5.4 in a sandbox; the web build too).
   `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
   events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,

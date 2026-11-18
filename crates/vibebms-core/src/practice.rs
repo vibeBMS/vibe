@@ -196,9 +196,15 @@ pub fn retime(mut chart: Chart, from: i64, speed: f64) -> Chart {
 
 /// The judge of section `s` (its `chart`): the gauge moved by the whole
 /// chart's TOTAL and notes, started at `gauge_start` (`None`: the
-/// gauge's own start).
-pub fn engine(chart: &Chart, s: &Section, rules: &RuleOptions, gauge_start: Option<f32>) -> Engine {
-    let mut e = build_engine_with(chart, rules, None, false, s.total, s.judgements);
+/// gauge's own start); `autoplay` plays it (the chart viewer).
+pub fn engine(
+    chart: &Chart,
+    s: &Section,
+    rules: &RuleOptions,
+    gauge_start: Option<f32>,
+    autoplay: bool,
+) -> Engine {
+    let mut e = build_engine_with(chart, rules, None, autoplay, s.total, s.judgements);
     if let Some(v) = gauge_start {
         let current = e.gauge.current_type();
         let mut values = e.gauge.values();
@@ -381,7 +387,7 @@ mod tests {
         let pc = prepare(chart(), &p, &rules);
         assert_eq!(pc.chart.meta.judge_rank, JudgeRank::Rank(0));
         assert_eq!(pc.section.total, 500.0);
-        let e = engine(&pc.chart, &pc.section, &rules, Some(40.0));
+        let e = engine(&pc.chart, &pc.section, &rules, Some(40.0), false);
         assert_eq!(
             (e.gauge.current_type(), e.gauge.value()),
             (GaugeType::Hard, 40.0)
@@ -390,7 +396,7 @@ mod tests {
         assert_eq!(e.windows().note[0], (-8_000, 8_000));
         // the section's notes are judged, the gauge's start is the gauge's
         assert_eq!(e.score.total_notes, 4);
-        let e = engine(&pc.chart, &pc.section, &rules, None);
+        let e = engine(&pc.chart, &pc.section, &rules, None, false);
         assert_eq!(e.gauge.value(), 100.0);
     }
 

@@ -630,6 +630,7 @@ fn practice_plays_keep_no_replay() {
         repeat: false,
         seed: 1,
         result: Default::default(),
+        viewer: false,
     });
     assert!(!super::setup::keeps_replay(&req));
 }

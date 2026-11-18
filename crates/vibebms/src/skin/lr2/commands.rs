@@ -70,7 +70,12 @@ impl Loader<'_> {
                     (1920.0, 1080.0),
                     (3840.0, 2160.0),
                 ];
-                if let Some(&(w, h)) = s1.parse::<usize>().ok().and_then(|i| sizes.get(i)) {
+                // `#RESOLUTION,<width>,<height>` (as bmz-player takes it)
+                let size = match (v[1], v[2]) {
+                    (w, h) if w > 3 && h > 3 => Some((w as f32, h as f32)),
+                    _ => s1.parse::<usize>().ok().and_then(|i| sizes.get(i)).copied(),
+                };
+                if let Some((w, h)) = size {
                     self.skin.width = w;
                     self.skin.height = h;
                     self.resolution_set = true;
@@ -524,6 +529,47 @@ impl Loader<'_> {
                     add_dst(d, &v);
                 }
             }
+            // labels (0 LN, 1 #RANDOM, 2 mines, 3 CN, 4 HCN) and a class
+            // course's trophy (0 bronze, 1 silver, 2 gold)
+            "#SRC_BAR_LABEL" | "#SRC_BAR_TROPHY" => {
+                let k = v[1];
+                let s_ = src(&v, &self.images);
+                let (set, n) = bar_marks(self.songlist(), cmd);
+                if let Some(k) = usize::try_from(k).ok().filter(|k| *k < n) {
+                    if set.len() <= k {
+                        set.resize(k + 1, None);
+                    }
+                    set[k] = s_.map(|s_| (s_, Dst::default()));
+                }
+            }
+            "#DST_BAR_LABEL" | "#DST_BAR_TROPHY" => {
+                let k = usize::try_from(v[1]).unwrap_or(usize::MAX);
+                if let Some(Some((_, d))) = bar_marks(self.songlist(), cmd).0.get_mut(k) {
+                    add_dst(d, &v);
+                }
+            }
+            // a folder's lamp distribution (type 0: 11 cells a frame, lamps
+            // from the best on the left); type 1, the DJ levels, is not
+            // drawn
+            "#SRC_BAR_GRAPH" => {
+                if v[1] == 0 {
+                    let s_ = src(&v, &self.images);
+                    let sl = self.songlist();
+                    let g = sl
+                        .graph
+                        .get_or_insert_with(|| (Dst::default(), None, false));
+                    g.1 = s_;
+                } else {
+                    log::debug!("lr2 skin: #SRC_BAR_GRAPH type {} is not supported", v[1]);
+                }
+            }
+            "#DST_BAR_GRAPH" => {
+                if v[1] == 0 {
+                    if let Some((d, ..)) = self.songlist().graph.as_mut() {
+                        add_dst(d, &v);
+                    }
+                }
+            }
             _ => return false,
         }
         true
@@ -785,6 +831,16 @@ impl Loader<'_> {
 /// LR2's bar lamps (no play, failed, easy, clear, hard, full combo, ...)
 /// as clear types.
 const LR2_LAMPS: [usize; 8] = [0, 1, 4, 5, 6, 8, 9, 10];
+
+/// The bar labels or trophies a `#SRC_BAR_LABEL` / `_TROPHY` command
+/// sets, and how many there are.
+fn bar_marks<'a>(sl: &'a mut SongListSkin, cmd: &str) -> (&'a mut Vec<Option<(Src, Dst)>>, usize) {
+    if cmd.ends_with("_TROPHY") {
+        (&mut sl.trophy, 3)
+    } else {
+        (&mut sl.label, BAR_LABELS)
+    }
+}
 
 /// The bar lamps a `#SRC_BAR_*LAMP` / `#DST_BAR_*LAMP` command sets.
 fn bar_lamps<'a>(sl: &'a mut SongListSkin, cmd: &str) -> &'a mut Vec<Option<(Src, Dst)>> {

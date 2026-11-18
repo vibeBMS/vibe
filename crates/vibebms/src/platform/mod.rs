@@ -11,6 +11,7 @@ mod drive;
 pub mod http;
 #[cfg(target_os = "ios")]
 pub mod ios;
+pub mod open;
 #[cfg(target_arch = "wasm32")]
 pub mod opfs;
 pub mod screen;

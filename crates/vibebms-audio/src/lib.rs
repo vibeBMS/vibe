@@ -11,6 +11,7 @@
 
 mod clock;
 pub mod decode;
+pub mod diag;
 pub mod loudness;
 mod out;
 mod voice;

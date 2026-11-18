@@ -79,6 +79,12 @@ pub(crate) enum SelectOption {
     LnAdd,
     Replay,
     ReplaySpeed,
+    /// The chart's folder in the file manager (F3, desktop).
+    ChartFolder,
+    /// The chart's web page (U).
+    ChartUrl,
+    /// SAME FOLDER (B).
+    SameFolder,
 }
 
 /// Full screen can be switched (desktop).
@@ -125,7 +131,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 45] = [
+    pub const ALL: [SelectOption; 48] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -171,6 +177,9 @@ impl SelectOption {
         SelectOption::LnAdd,
         SelectOption::Replay,
         SelectOption::ReplaySpeed,
+        SelectOption::ChartFolder,
+        SelectOption::ChartUrl,
+        SelectOption::SameFolder,
     ];
 
     pub fn name(self) -> &'static str {
@@ -220,6 +229,9 @@ impl SelectOption {
             SelectOption::LnAdd => "LONGNOTE ADD",
             SelectOption::Replay => "REPLAY",
             SelectOption::ReplaySpeed => "REPLAY SPEED",
+            SelectOption::ChartFolder => "SONG FOLDER",
+            SelectOption::ChartUrl => "WEB PAGE",
+            SelectOption::SameFolder => "SAME FOLDER",
         }
     }
 
@@ -276,6 +288,10 @@ impl SelectOption {
             SelectOption::ScrollRemove => onoff(p.scroll_remove).into(),
             SelectOption::MineAdd => p.mine_add.label().into(),
             SelectOption::LnAdd => p.ln_add.label().into(),
+            SelectOption::ChartFolder if !crate::platform::open::CAN_OPEN_FILES => "—".into(),
+            SelectOption::ChartFolder | SelectOption::ChartUrl | SelectOption::SameFolder => {
+                "OPEN".into()
+            }
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -400,6 +416,18 @@ impl SelectScene {
             }
             SelectOption::Screenshot => {
                 ctx.view.want_screenshot = true;
+                return Next::Stay;
+            }
+            SelectOption::ChartFolder => {
+                self.reveal_chart(ctx);
+                return Next::Stay;
+            }
+            SelectOption::ChartUrl => {
+                self.open_chart_url(ctx);
+                return Next::Stay;
+            }
+            SelectOption::SameFolder => {
+                self.same_folder(ctx);
                 return Next::Stay;
             }
             SelectOption::FavoriteChart | SelectOption::FavoriteSong => {

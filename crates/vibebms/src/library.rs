@@ -349,6 +349,34 @@ fn save_json(path: &Path, v: &impl Serialize, what: &str) {
     }
 }
 
+/// The charts of the song cache at `file`, as the last scan left it (the
+/// command line's `songs list` too). One in an archive that is also a
+/// file of its own (the archive unpacked beside it) is left out: the file
+/// is the one listed.
+pub fn cached_songs(file: &Path) -> Vec<Song> {
+    let songs: Vec<Song> = load_songs(file)
+        .into_iter()
+        .filter(|r| r.skipped_by.is_none())
+        .map(|r| Song {
+            added: r.mtime,
+            ..r.song
+        })
+        .collect();
+    let packed = |s: &Song| arcfs::split(Path::new(&s.path)).is_some();
+    if !songs.iter().any(packed) {
+        return songs;
+    }
+    let loose: HashSet<String> = songs
+        .iter()
+        .filter(|s| !packed(s))
+        .map(|s| s.sha256.clone())
+        .collect();
+    songs
+        .into_iter()
+        .filter(|s| !packed(s) || !loose.contains(&s.sha256))
+        .collect()
+}
+
 fn load_songs(file: &Path) -> Vec<SongRecord> {
     vfs::read(file)
         .ok()
@@ -480,30 +508,9 @@ impl Library {
         &self.songs_file
     }
 
-    /// The charts. One in an archive that is also a file of its own (the
-    /// archive unpacked beside it) is left out: the file is the one listed.
+    /// The charts (`cached_songs`).
     pub fn songs(&self) -> Vec<Song> {
-        let songs: Vec<Song> = load_songs(&self.songs_file)
-            .into_iter()
-            .filter(|r| r.skipped_by.is_none())
-            .map(|r| Song {
-                added: r.mtime,
-                ..r.song
-            })
-            .collect();
-        let packed = |s: &Song| arcfs::split(Path::new(&s.path)).is_some();
-        if !songs.iter().any(packed) {
-            return songs;
-        }
-        let loose: HashSet<String> = songs
-            .iter()
-            .filter(|s| !packed(s))
-            .map(|s| s.sha256.clone())
-            .collect();
-        songs
-            .into_iter()
-            .filter(|s| !packed(s) || !loose.contains(&s.sha256))
-            .collect()
+        cached_songs(&self.songs_file)
     }
 
     /// The records.

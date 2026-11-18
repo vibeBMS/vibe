@@ -1,5 +1,6 @@
 //! Song select: folders, difficulty tables, courses, search, options.
 
+mod files;
 mod genpreview;
 mod input;
 mod launch;

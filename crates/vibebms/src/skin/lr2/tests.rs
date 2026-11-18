@@ -93,7 +93,12 @@ fn parses_select_bars() {
 #SRC_BAR_LEVEL,2,0,0,40,100,10,10,1,0,0,0,0,2\n#DST_BAR_LEVEL,2,0,80,4,8,10,0,255,255,255,255\n\
 #SRC_BAR_LAMP,3,0,0,50,4,20,1,1,0,0\n#DST_BAR_LAMP,3,0,2,0,4,20,0,255,255,255,255\n\
 #SRC_BAR_MY_LAMP,4,0,0,50,4,20,1,1,0,0\n#DST_BAR_MY_LAMP,4,0,2,0,2,20,0,255,255,255,255\n\
-#SRC_BAR_RIVAL_LAMP,1,0,0,50,4,20,1,1,0,0\n#DST_BAR_RIVAL_LAMP,1,0,4,0,2,20,0,255,255,255,255\n";
+#SRC_BAR_RIVAL_LAMP,1,0,0,50,4,20,1,1,0,0\n#DST_BAR_RIVAL_LAMP,1,0,4,0,2,20,0,255,255,255,255\n\
+#SRC_BAR_LABEL,2,0,0,0,10,10,1,1,0,0\n#DST_BAR_LABEL,2,0,90,0,-10,10,0,255,255,255,255\n\
+#SRC_BAR_LABEL,7,0,0,0,10,10,1,1,0,0\n\
+#SRC_BAR_TROPHY,1,0,10,0,10,10,1,1,0,0\n#DST_BAR_TROPHY,1,0,0,0,10,10,0,255,255,255,255\n\
+#SRC_BAR_GRAPH,0,0,0,0,110,4,11,2,200,0\n#DST_BAR_GRAPH,0,0,5,16,90,4,0,255,255,255,255\n\
+#SRC_BAR_GRAPH,1,0,0,0,280,4,28,1,0,0\n";
     std::fs::write(dir.join("select.lr2skin"), csv).unwrap();
     let size = |_: &Path| Some((128, 64));
     let s = load(
@@ -124,6 +129,16 @@ fn parses_select_bars() {
         .as_ref()
         .is_some_and(|(_, d)| d.keys[0].rect.x == 4.0));
     assert_eq!((sl.my_lamp.len(), sl.rival_lamp.len()), (7, 2));
+    // the mine label (its negative width turned around), no label 7, the
+    // silver trophy
+    assert_eq!(sl.label.len(), 3);
+    let (_, d) = sl.label[BAR_LABEL_MINE].as_ref().unwrap();
+    assert_eq!((d.keys[0].rect.x, d.keys[0].rect.w), (80.0, 10.0));
+    assert!(sl.trophy[1].is_some() && sl.trophy[0].is_none());
+    // the lamp distribution (type 0: two frames of 11), not the DJ levels'
+    let (d, src, rank) = sl.graph.as_ref().unwrap();
+    assert!(!rank && src.as_ref().is_some_and(|s| s.frames.len() == 22));
+    assert_eq!(d.keys[0].rect.w, 90.0);
 }
 
 #[test]
@@ -378,5 +393,40 @@ fn parses_play_skin() {
     assert!(s.lanes[0].note.is_some());
     assert!(s.objects.iter().any(|o| matches!(o.kind, Kind::Notes)));
     assert!(s.judges[0].judge[0].is_some()); // LR2 index 5 = PGREAT
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `#RESOLUTION` by its number or as a size; without it, the size the
+/// layout reaches (HD skins that do not say so), else 640x480.
+#[test]
+fn resolution_given_or_guessed() {
+    let dir = std::env::temp_dir().join(format!("vibebms-res-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let size = |_: &Path| Some((1280, 720));
+    let load_csv = |head: &str, body: &str| {
+        let csv = format!("#INFORMATION,0,Res,me\n{head}#IMAGE,a.png\n{body}");
+        std::fs::write(dir.join("p.lr2skin"), csv).unwrap();
+        let s = load(
+            &dir.join("p.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap();
+        (s.width, s.height)
+    };
+    let full = |w, h| {
+        format!(
+            "#SRC_IMAGE,0,0,0,0,{w},{h},1,1,0,0\n#DST_IMAGE,0,0,0,0,{w},{h},0,255,255,255,255\n"
+        )
+    };
+    assert_eq!(load_csv("#RESOLUTION,2\n", &full(10, 10)), (1920.0, 1080.0));
+    assert_eq!(
+        load_csv("#RESOLUTION,1600,900\n", &full(10, 10)),
+        (1600.0, 900.0)
+    );
+    assert_eq!(load_csv("", &full(1280, 720)), (1280.0, 720.0));
+    assert_eq!(load_csv("", &full(300, 200)), (640.0, 480.0));
     std::fs::remove_dir_all(&dir).ok();
 }

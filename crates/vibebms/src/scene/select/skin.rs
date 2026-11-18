@@ -15,7 +15,7 @@
 use super::options::{self, SelectOption};
 use super::preview::Rank;
 use super::status::{self, SIBLINGS};
-use super::tree::{table, Bar, CourseBar, Node};
+use super::tree::{table, Bar, BulkBar, CourseBar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
@@ -114,8 +114,9 @@ pub const PANEL_TILES: [&[i32]; PANELS] = [
     &[],
     // EFFECTS: the four volumes, PREVIEW, SKIN / SOUND
     &[9024, 9025, 9026, 9027, 9028, 14],
-    // TAG EDITOR: FAVORITE SONG, FAVORITE CHART, RANDOM SELECT's charts
-    &[9015, 9014, 9016],
+    // TAG EDITOR: FAVORITE SONG, FAVORITE CHART, RANDOM SELECT's charts;
+    // SAME FOLDER, WEB PAGE, SONG FOLDER
+    &[9015, 9014, 9016, 9047, 9046, 9045],
     &[],
     &[],
 ];
@@ -209,6 +210,50 @@ pub struct BarInfo {
     pub rival: Option<ClearType>,
     /// A folder's charts, a course's stages.
     pub count: Option<i64>,
+    /// Its labels (`BAR_LABEL_*`): a chart's, or what a course's charts
+    /// have.
+    pub labels: [bool; BAR_LABELS],
+    /// A class course's trophy achieved (0 bronze, 1 silver, 2 gold).
+    pub trophy: Option<usize>,
+}
+
+/// A chart's labels: its long notes by type (the type the chart gives them,
+/// else the player's AUTO type: not FORCE, which changes the play, not the
+/// chart), `#RANDOM`, mines.
+pub(crate) fn song_labels(s: &Song, pref: vibebms_core::LnPref) -> [bool; BAR_LABELS] {
+    use vibebms_core::chart::LnType;
+    let mut l = [false; BAR_LABELS];
+    if s.has_ln {
+        let ty = s.score_ln(vibebms_core::LnPref::auto(pref.ty));
+        l[match ty {
+            LnType::Ln => BAR_LABEL_LN,
+            LnType::Cn => BAR_LABEL_CN,
+            LnType::Hcn => BAR_LABEL_HCN,
+        }] = true;
+    }
+    l[BAR_LABEL_RANDOM] = s.has_random;
+    l[BAR_LABEL_MINE] = s.has_mine;
+    l
+}
+
+/// The trophy a class course's best play achieved (its index in the
+/// table's list, bronze first): the last whose miss rate and score rate
+/// the play met, cleared.
+pub(crate) fn course_trophy(
+    trophies: &[bmseeker::table::CourseTrophy],
+    best: &crate::library::BestScore,
+) -> Option<usize> {
+    if best.clear <= ClearType::Failed || best.notes == 0 {
+        return None;
+    }
+    let miss = best.min_bp as f64 * 100.0 / best.notes as f64;
+    let score = best.rate() * 100.0;
+    (0..trophies.len()).rev().find(|&k| {
+        // (bmseeker keeps the rates to itself; they are in its JSON)
+        let t = serde_json::to_value(&trophies[k]).unwrap_or_default();
+        let rate = |k: &str| t.get(k).and_then(serde_json::Value::as_f64);
+        rate("missrate").is_none_or(|m| miss <= m) && rate("scorerate").is_none_or(|r| score >= r)
+    })
 }
 
 /// A course's bar type.
@@ -225,6 +270,8 @@ fn folder_kind(node: &Node) -> (usize, usize) {
     match node {
         Node::Table(_) | Node::Level(..) => (BAR_TABLE, BAR_TABLE),
         Node::Search(_) => (BAR_SEARCH, BAR_SEARCH),
+        Node::SameFolder(_) => (BAR_VIRTUAL, BAR_FOLDER),
+        Node::Downloads => (BAR_COMMAND, BAR_FOLDER),
         Node::Archive(_) => (BAR_EVENT, BAR_FOLDER),
         Node::Favorites => (BAR_FAVORITE, BAR_FOLDER),
         Node::Smart(_) => (BAR_VIRTUAL, BAR_FOLDER),
@@ -406,6 +453,8 @@ impl<'a> SelectState<'a> {
             lamp: None,
             rival: None,
             count: None,
+            labels: [false; BAR_LABELS],
+            trophy: None,
         };
         Some(match self.s.bars.get(i)? {
             Bar::Folder {
@@ -433,6 +482,7 @@ impl<'a> SelectState<'a> {
                             .unwrap_or(ClearType::NoPlay),
                     ),
                     rival: self.rival_lamp(s),
+                    labels: song_labels(s, ctx.config.play.ln_pref()),
                     ..plain(BAR_SONG, BAR_SONG, String::new())
                 }
             }
@@ -444,6 +494,56 @@ impl<'a> SelectState<'a> {
                     r => format!("RANDOM SELECT ({})", r.label()),
                 },
             ),
+            Bar::Bulk(b) => {
+                let bulk = &ctx.net.bulk;
+                let [queued, downloading, _, failed] = bulk.counts();
+                match b {
+                    BulkBar::Queue(_, n) => plain(
+                        BAR_COMMAND,
+                        BAR_COMMAND,
+                        format!("DOWNLOAD MISSING ({n} charts)"),
+                    ),
+                    BulkBar::RetryFailed => {
+                        plain(BAR_COMMAND, BAR_COMMAND, format!("RETRY FAILED ({failed})"))
+                    }
+                    BulkBar::CancelAll => plain(
+                        BAR_COMMAND,
+                        BAR_COMMAND,
+                        format!("CANCEL ({} to go)", queued + downloading),
+                    ),
+                    BulkBar::ClearFinished => {
+                        plain(BAR_COMMAND, BAR_COMMAND, "CLEAR FINISHED".into())
+                    }
+                    BulkBar::Item(k) => {
+                        let it = bulk.items.get(*k)?;
+                        let w = &it.want;
+                        let why = match &it.state {
+                            crate::bulk::State::Done(s) | crate::bulk::State::Failed(s) => {
+                                format!("  ({s})")
+                            }
+                            _ => String::new(),
+                        };
+                        let kind = match it.state {
+                            crate::bulk::State::Done(_) => BAR_SONG,
+                            _ => BAR_NOSONG,
+                        };
+                        BarInfo {
+                            level: w
+                                .level
+                                .chars()
+                                .filter(|c| c.is_ascii_digit())
+                                .collect::<String>()
+                                .parse()
+                                .ok(),
+                            ..plain(
+                                kind,
+                                kind,
+                                format!("[{}] {}{why}", it.state.label(), w.title),
+                            )
+                        }
+                    }
+                }
+            }
             Bar::Missing(m) => BarInfo {
                 // the table's level ("★12" -> 12)
                 level: m
@@ -472,9 +572,27 @@ impl<'a> SelectState<'a> {
                     ),
                     CourseBar::RandomMix(kind) => (*kind, None),
                 };
+                // its charts' labels (a course not all installed: none), a
+                // table course's trophy
+                let (mut labels, mut trophy) = ([false; BAR_LABELS], None);
+                if !matches!(c, CourseBar::RandomMix(_)) {
+                    if let Ok(run) = super::launch::course_run(ctx, c) {
+                        for s in &run.songs {
+                            let l = song_labels(s, ctx.config.play.ln_pref());
+                            labels.iter_mut().zip(l).for_each(|(a, b)| *a |= b);
+                        }
+                        if let CourseBar::Table(url, k) = c {
+                            let def = table(ctx, url).and_then(|t| t.header.courses.get(*k));
+                            let best = super::launch::course_best(ctx, &run.def.id());
+                            trophy = def.zip(best).and_then(|(d, b)| course_trophy(&d.trophy, b));
+                        }
+                    }
+                }
                 BarInfo {
                     lamp: super::launch::course_lamp(ctx, c),
                     count: stages.map(|n| n as i64),
+                    labels,
+                    trophy,
                     ..plain(
                         course_kind(kind),
                         BAR_GRADE,
@@ -934,9 +1052,35 @@ impl Hooks for SelectHooks<'_> {
                     }
                 }
             }
+            // labels (a skin without a CN / HCN one: its LN one), the trophy
+            let label = |k: usize| sl.label.get(k).and_then(Option::as_ref);
+            for k in (0..BAR_LABELS).filter(|k| info.labels[*k]) {
+                let mark = match k {
+                    BAR_LABEL_CN | BAR_LABEL_HCN => label(k).or(label(BAR_LABEL_LN)),
+                    k => label(k),
+                };
+                if let Some((src, dst)) = mark {
+                    if let Some((lr, f)) = sub(dst) {
+                        skin.blit(d, src, now, st, lr, &f);
+                    }
+                }
+            }
+            let trophy = info.trophy.and_then(|k| sl.trophy.get(k.min(2))?.as_ref());
+            if let Some((src, dst)) = trophy {
+                if let Some((lr, f)) = sub(dst) {
+                    skin.blit(d, src, now, st, lr, &f);
+                }
+            }
             // a table song downloading: how far it has got, over its bar
-            if let Some(Bar::Missing(m)) = s.bars.get(idx) {
-                if let Some(p) = self.st.ctx.net.song_fetch.progress(&m.title, &m.artist) {
+            let fetching = match s.bars.get(idx) {
+                Some(Bar::Missing(m)) => Some((&m.title, &m.artist)),
+                Some(Bar::Bulk(BulkBar::Item(k))) => {
+                    (self.st.ctx.net.bulk.items.get(*k)).map(|i| (&i.want.title, &i.want.artist))
+                }
+                _ => None,
+            };
+            if let Some((title, artist)) = fetching {
+                if let Some(p) = self.st.ctx.net.song_fetch.progress(title, artist) {
                     download_progress(d, sr, p, now);
                 }
             }
@@ -1158,5 +1302,80 @@ mod tests {
         assert_eq!(st.text(TEXT_SAVE).as_deref(), Some("NO SAVE"));
         assert_eq!(st.text(TEXT_CLEAR).as_deref(), Some("—"));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Bar labels: the long notes' type (the chart's, else the player's
+    /// AUTO type, never FORCE), #RANDOM and mines.
+    #[test]
+    fn bar_labels() {
+        use vibebms_core::chart::{LnProfile, LnType};
+        use vibebms_core::LnPref;
+        let mut s = Song {
+            has_ln: true,
+            has_mine: true,
+            ..Default::default()
+        };
+        let on = |l: [bool; BAR_LABELS]| (0..BAR_LABELS).filter(|k| l[*k]).collect::<Vec<_>>();
+        // untyped: the player's type, FORCE or not
+        assert_eq!(
+            on(song_labels(&s, LnPref::forced(LnType::Hcn))),
+            [BAR_LABEL_MINE, BAR_LABEL_HCN]
+        );
+        // typed CN: CN whatever the player's
+        s.ln_profile = Some(
+            LnProfile {
+                undefined: false,
+                typed: [false, true, false],
+            }
+            .bits(),
+        );
+        s.has_mine = false;
+        s.has_random = true;
+        assert_eq!(
+            on(song_labels(&s, LnPref::auto(LnType::Ln))),
+            [BAR_LABEL_RANDOM, BAR_LABEL_CN]
+        );
+        s.has_ln = false;
+        assert_eq!(
+            on(song_labels(&s, LnPref::auto(LnType::Ln))),
+            [BAR_LABEL_RANDOM]
+        );
+    }
+
+    /// A class course's trophy: the last of the table's whose rates the
+    /// cleared best play met.
+    #[test]
+    fn course_trophies() {
+        use crate::library::BestScore;
+        let trophies: Vec<bmseeker::table::CourseTrophy> =
+            serde_json::from_value(serde_json::json!([
+                {"name": "bronzemedal", "missrate": 7.5, "scorerate": 55.0},
+                {"name": "silvermedal", "missrate": 5.0, "scorerate": 70.0},
+                {"name": "goldmedal", "missrate": 2.5, "scorerate": 85.0}
+            ]))
+            .unwrap();
+        let best = |clear, ex, bp| BestScore {
+            clear,
+            ex_score: ex,
+            notes: 1000,
+            min_bp: bp,
+            ..Default::default()
+        };
+        assert_eq!(
+            course_trophy(&trophies, &best(ClearType::Normal, 1500, 40)),
+            Some(1)
+        );
+        assert_eq!(
+            course_trophy(&trophies, &best(ClearType::Hard, 1800, 20)),
+            Some(2)
+        );
+        assert_eq!(
+            course_trophy(&trophies, &best(ClearType::Normal, 1000, 90)),
+            None
+        );
+        assert_eq!(
+            course_trophy(&trophies, &best(ClearType::Failed, 1900, 0)),
+            None
+        );
     }
 }

@@ -1,7 +1,7 @@
 //! Deciding on a bar: into a folder, to the play of a chart or a course,
 //! or getting a chart that is not in the library.
 
-use super::tree::{event, table, Bar, CourseBar, Missing, Node};
+use super::tree::{event, table, Bar, BulkBar, CourseBar, Missing, Node};
 use super::SelectScene;
 use crate::app::{Ctx, Next};
 use crate::config::Versus;
@@ -71,6 +71,10 @@ impl SelectScene {
             }
             Some(Bar::Missing(m)) => {
                 self.fetch(ctx, m);
+                Next::Stay
+            }
+            Some(Bar::Bulk(b)) => {
+                self.bulk(ctx, b);
                 Next::Stay
             }
             Some(Bar::Course(CourseBar::RandomMix(kind))) => {
@@ -256,6 +260,66 @@ impl SelectScene {
         Next::Push(Box::new(PracticeScene::new(ctx, song)))
     }
 
+    /// A bulk download bar: the table's or level's missing charts queued;
+    /// the queue's failed retried, its waiting cancelled, its finished
+    /// cleared; a chart of it cancelled or queued again (one that has only
+    /// a page: its page opened, as a chart chosen alone).
+    fn bulk(&mut self, ctx: &mut Ctx, b: BulkBar) {
+        let net = &mut ctx.net;
+        let msg = match b {
+            BulkBar::Queue(node, _) => {
+                let wanted = self.missing_of(ctx, &node);
+                let n = ctx.net.bulk.queue(wanted);
+                format!(
+                    "{n} charts queued: {} at a time, in DOWNLOADS at the root",
+                    crate::bulk::AT_ONCE
+                )
+            }
+            BulkBar::RetryFailed => format!("{} charts queued again", net.bulk.retry_failed()),
+            BulkBar::CancelAll => {
+                format!(
+                    "{} downloads cancelled",
+                    net.bulk.cancel_all(&mut net.song_fetch)
+                )
+            }
+            BulkBar::ClearFinished => {
+                net.bulk.clear_finished();
+                "Finished downloads cleared".into()
+            }
+            BulkBar::Item(k) => {
+                let Some(it) = net.bulk.items.get(k).cloned() else {
+                    return;
+                };
+                if let crate::bulk::State::Page(_) = it.state {
+                    let w = it.want;
+                    self.fetch(
+                        ctx,
+                        Missing {
+                            title: w.title,
+                            artist: w.artist,
+                            md5: w.md5,
+                            org_md5: w.org_md5,
+                            level: w.level,
+                            url: w.url,
+                            url_diff: w.url_diff,
+                            ..Missing::default()
+                        },
+                    );
+                    return;
+                }
+                if !net.bulk.toggle(k, &mut net.song_fetch) {
+                    return;
+                }
+                match &net.bulk.items[k].state {
+                    crate::bulk::State::Queued => format!("{}: queued again", it.want.title),
+                    _ => format!("{}: cancelled", it.want.title),
+                }
+            }
+        };
+        ctx.toast(msg);
+        ctx.lib.version += 1;
+    }
+
     /// A chart not in the library: downloaded (from a mirrored event, or
     /// its links), else its download pages opened. Chosen again while it
     /// downloads: cancelled.
@@ -292,31 +356,18 @@ impl SelectScene {
             return;
         }
         let root = ctx.paths.root.clone();
-        // its own links, then the others known for the chart
-        let e = bmseeker::table::TableEntry {
+        // its own links, then the others known for the chart; its separate
+        // chart's links; add-ons each after
+        let want = crate::bulk::Wanted {
+            title: title.clone(),
+            artist: artist.clone(),
             md5: md5.clone(),
+            org_md5,
             url: url.clone(),
             url_diff: url_diff.clone(),
             ..Default::default()
         };
-        let mut song = ctx.tables.links.known.song_links(&e);
-        for u in more {
-            if !song.contains(&u) {
-                song.push(u);
-            }
-        }
-        // its separate chart's links; add-ons each after
-        let entry = bmseeker::install::Entry {
-            md5: md5.clone(),
-            want: crate::hosts::Want {
-                title: title.clone(),
-                artist: artist.clone(),
-            },
-            org_md5,
-            song,
-            chart: ctx.tables.links.known.chart_links(&e),
-            ..Default::default()
-        };
+        let entry = crate::songfetch::entry(&ctx.tables.links.known, &want, more);
         // the song is in the library (another of its charts): what to say
         // when nothing can be tried
         let have_song = !md5.is_empty()
@@ -327,7 +378,7 @@ impl SelectScene {
         if ctx
             .net
             .song_fetch
-            .start(&root, &ctx.lib.songs, &ctx.net.hosts, entry, addons)
+            .start(&root, &ctx.lib.songs, &ctx.net.hosts, entry, addons, false)
         {
             ctx.toast(format!("Downloading {title}… (choose it again to cancel)"));
             return;

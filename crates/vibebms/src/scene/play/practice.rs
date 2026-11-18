@@ -31,6 +31,8 @@ pub struct PracticeRun {
     pub seed: i64,
     /// The last attempt's result, for the practice screen.
     pub result: Arc<Mutex<Option<PracticeResult>>>,
+    /// The chart viewer's play (from a measure to the end, autoplayed).
+    pub viewer: bool,
 }
 
 /// What an attempt came to.
@@ -65,6 +67,9 @@ impl PracticeRun {
     /// "PRACTICE  #012-#024  75%": what it is, for the screen.
     pub fn label(&self) -> String {
         let p = &self.practice;
+        if self.viewer {
+            return format!("VIEWER  #{:03}", p.from);
+        }
         format!("PRACTICE  #{:03}-#{:03}  {}%", p.from, p.to, p.speed)
     }
 }
@@ -142,8 +147,13 @@ impl PlayScene {
         m.stop_bus(Bus::Bgm);
         m.stop_bus(Bus::Key);
         let chart = std::mem::take(&mut self.session.chart);
-        let engine =
-            vibebms_core::practice::engine(&chart, &again.section, &again.rules, gauge_start);
+        let engine = vibebms_core::practice::engine(
+            &chart,
+            &again.section,
+            &again.rules,
+            gauge_start,
+            self.req.autoplay,
+        );
         let sides = vec![SideState::new(engine, Role::Player)];
         self.session = Session::new(chart, sides, false, now + again.lead);
         self.session.ready_at = Some(now);
@@ -161,7 +171,9 @@ impl PlayScene {
         };
         let ui = ctx.ui();
         let mut text = run.label();
-        text.push_str(&format!("  ·  TRY {}", again.attempt));
+        if !run.viewer {
+            text.push_str(&format!("  ·  TRY {}", again.attempt));
+        }
         if run.repeat {
             text.push_str("  ·  LOOP");
         }

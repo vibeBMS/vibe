@@ -14,6 +14,7 @@
 //! `#DST_NOTE2`, `#DST_NOTE_EXPANSION_RATE`, `#JUDGETIMER`, `#STRETCH`,
 //! `#CUSTOMOFFSET` and destination offsets (fields 21 on).
 //! `#SRC_ONMOUSE` images show while the mouse is over them.
+//! Select bars: `_BAR_LABEL`, `_BAR_TROPHY`, `_BAR_GRAPH` (type 0).
 //! Not yet: `#LOADSTART` / `#LOADEND`.
 
 mod commands;

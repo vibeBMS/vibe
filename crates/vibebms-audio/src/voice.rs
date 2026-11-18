@@ -222,6 +222,7 @@ impl State {
     pub fn render(&mut self, frames: usize, obs: Option<Obs>) -> &[f32] {
         if let Some(o) = obs {
             self.clock.observe(o);
+            crate::diag::audio_callback(o.now_us);
         }
         if self.mix.len() < frames * 2 {
             self.mix.resize(frames * 2, 0.0);
