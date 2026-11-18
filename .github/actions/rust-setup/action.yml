@@ -28,6 +28,11 @@ runs:
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: ${{ inputs.cache-key }}
+        # only the default branch writes the cache (pull requests and other
+        # branches read its entries): the repository's 10 GB cache is about
+        # one set of these, and each pull request's set evicted the default
+        # branch's
+        save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
     # whose key reads Cargo.toml)
     - if: inputs.stamp == 'true'

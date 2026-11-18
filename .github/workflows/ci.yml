@@ -427,6 +427,35 @@ jobs:
           name: vibeBMS-android
           path: vibeBMS.apk
 
+  # Deletes the Rust caches a newer one replaced and any left by other
+  # branches: each job keeps its newest entry. A Cargo.lock or toolchain
+  # change gives every job a new key; the old entries stayed until a week
+  # unused, and over the repository's 10 GB GitHub evicts the least recently
+  # used entries, often a job's current one.
+  cache-prune:
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, web, ios, android]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MAIN: refs/heads/${{ github.event.repository.default_branch }}
+        run: |
+          # key: v0-rust-<cache-key>-<job>-<os>-<arch>-<environment>-<lockfiles>
+          gh cache list --key v0-rust- --limit 1000 --sort created_at --order desc \
+            --json id,key,ref,sizeInBytes --jq '.[] | "\(.id)\t\(.key)\t\(.ref)\t\(.sizeInBytes)"' |
+            awk -F'\t' -v main="$MAIN" '{
+              job = $2; sub(/-[0-9a-f]+-[0-9a-f]+$/, "", job)
+              if ($3 != main || seen[job]++) print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"
+            }' |
+            while IFS=$'\t' read -r id key ref size; do
+              echo "delete $key ($ref, $size)"
+              gh cache delete "$id"
+            done
+
   # the "nightly" prerelease: the default branch's latest builds, each file
   # as it is (no zip but the web build's). A build that failed keeps its
   # previous file; the notes say which files this commit brought.
