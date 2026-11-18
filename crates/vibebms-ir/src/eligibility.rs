@@ -348,6 +348,12 @@ mod tests {
     fn the_base_plays_go() {
         let b = base();
         assert_eq!(passes(&b, &live(&BOKUTACHI)), Ok(Profile::VibeBeatoraja));
+        // F-RANDOM and MF-RANDOM are no assists
+        for o in [LaneOption::FRandom, LaneOption::MfRandom] {
+            let mut half = b.clone();
+            half.rules.assist.lane = vec![o];
+            assert_eq!(passes(&half, &live(&BOKUTACHI)), Ok(Profile::VibeBeatoraja));
+        }
         assert_eq!(
             eligible(&b, ProviderKind::Bokutachi),
             Err(Refusal::OperatorPending)
@@ -460,6 +466,27 @@ mod tests {
                 base(),
                 |r| r.rules.assist.lane = vec![LaneOption::HRandom],
                 bok,
+                Refusal::Assist,
+            ),
+            (
+                "TRAINER",
+                base(),
+                |r| r.rules.assist.lane = vec![LaneOption::Trainer],
+                &VIBE_JSON,
+                Refusal::Assist,
+            ),
+            (
+                "MINE ADD",
+                base(),
+                |r| r.rules.assist.mine_add = true,
+                &VIBE_JSON,
+                Refusal::Assist,
+            ),
+            (
+                "LONGNOTE ADD",
+                base(),
+                |r| r.rules.assist.ln_add = true,
+                &VIBE_JSON,
                 Refusal::Assist,
             ),
             (
