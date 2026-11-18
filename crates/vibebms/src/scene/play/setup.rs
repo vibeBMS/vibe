@@ -25,12 +25,14 @@ impl PlayScene {
             videos,
             stagefile,
             backbmp,
+            loudness,
             seed,
             mut facts,
             ln_profile,
             nonstop,
             section,
         } = *l;
+        crate::loudness::start_play(ctx, &self.req.song.sha256, loudness);
         let mode = chart.mode();
         let vs = self.req.is_vs();
         let ghost = match &self.req.vs {

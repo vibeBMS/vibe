@@ -10,6 +10,7 @@
 //!
 //! Sets are looked for in `<root>/sounds/` and `<root>/skins/`.
 
+use crate::loudness::Loudness;
 use crate::platform::{vfs, Job};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -102,6 +103,11 @@ impl Sound {
     /// Plays until stopped.
     fn looping(self) -> bool {
         self == Sound::Select
+    }
+
+    /// Music, brought to a common loudness with `[audio] normalize_system`.
+    fn music(self) -> bool {
+        matches!(self, Sound::Select | Sound::Decide)
     }
 
     /// Mixer voice key (one voice per sound).
@@ -306,7 +312,8 @@ fn built_in(s: Sound, rate: u32) -> Option<Sample> {
     })
 }
 
-type Loaded = Vec<(Sound, Arc<Sample>)>;
+/// The sounds decoded, the music's loudness with them.
+type Loaded = Vec<(Sound, Arc<Sample>, Option<Loudness>)>;
 
 /// The chosen set's sounds, decoded off the main thread.
 #[derive(Default)]
@@ -314,6 +321,8 @@ pub struct SystemSounds {
     /// The `config.skins` value loaded (`None`: nothing yet).
     value: Option<String>,
     samples: HashMap<Sound, Arc<Sample>>,
+    /// The music's loudness (the select BGM, the decide jingle).
+    loudness: HashMap<Sound, Loudness>,
     job: Option<Job<Loaded>>,
     /// A looping sound asked for while the set was loading.
     want_loop: Option<Sound>,
@@ -328,6 +337,7 @@ impl SystemSounds {
         }
         self.value = Some(value.to_string());
         self.samples.clear();
+        self.loudness.clear();
         if value.is_empty() {
             for s in Sound::ALL {
                 if let Some(x) = built_in(s, rate) {
@@ -350,7 +360,10 @@ impl SystemSounds {
                     .map_err(|e| e.to_string())
                     .and_then(|b| vibebms_audio::decode_bytes(b, &ext, rate))
                 {
-                    Ok(x) => out.push((s, Arc::new(x))),
+                    Ok(x) => {
+                        let l = s.music().then(|| crate::loudness::measure_sound(&x, rate));
+                        out.push((s, Arc::new(x), l))
+                    }
                     Err(e) => log::warn!("sound set: {}: {e}", p.display()),
                 }
             }
@@ -358,15 +371,36 @@ impl SystemSounds {
         }));
     }
 
-    /// Take the decoded sounds once they are ready.
-    pub fn poll(&mut self, mixer: &Mixer) {
+    /// Take the decoded sounds once they are ready (`norm`: the loudness
+    /// the music is played at, if it is normalised).
+    pub fn poll(&mut self, mixer: &Mixer, norm: Option<f32>) {
         let Some(v) = self.job.as_mut().and_then(Job::poll) else {
             return;
         };
         self.job = None;
-        self.samples.extend(v);
+        for (s, x, l) in v {
+            self.samples.insert(s, x);
+            if let Some(l) = l {
+                self.loudness.insert(s, l);
+            }
+        }
         if let Some(s) = self.want_loop.take() {
-            self.play(mixer, s);
+            self.play(mixer, s, norm);
+        }
+    }
+
+    /// The volume `s` plays at: its music brought to `norm` LUFS.
+    fn volume(&self, s: Sound, norm: Option<f32>) -> f32 {
+        match (norm, self.loudness.get(&s)) {
+            (Some(t), Some(l)) => crate::loudness::gain(l, t),
+            _ => 1.0,
+        }
+    }
+
+    /// Normalising changed: the music playing follows.
+    pub fn renormalize(&self, mixer: &Mixer, norm: Option<f32>) {
+        for s in [Sound::Select, Sound::Decide] {
+            mixer.set_volume(s.key(), self.volume(s, norm));
         }
     }
 
@@ -374,13 +408,14 @@ impl SystemSounds {
         self.samples.contains_key(&s)
     }
 
-    pub fn play(&mut self, mixer: &Mixer, s: Sound) {
+    pub fn play(&mut self, mixer: &Mixer, s: Sound, norm: Option<f32>) {
         match self.samples.get(&s) {
             Some(x) => mixer.play(
                 x,
                 PlayOptions {
                     key: s.key(),
                     bus: Bus::System,
+                    volume: self.volume(s, norm),
                     looping: s.looping(),
                     ..Default::default()
                 },

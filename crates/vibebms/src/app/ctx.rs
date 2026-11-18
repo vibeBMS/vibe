@@ -102,6 +102,8 @@ pub struct Net {
 pub struct Audio {
     pub mixer: Mixer,
     pub sounds: crate::sysound::SystemSounds,
+    /// The charts' loudness measured so far.
+    pub loudness: crate::loudness::LoudnessCache,
 }
 
 /// The window and the screen it is on.
@@ -182,6 +184,7 @@ impl Ctx {
         if net.ir.take_old_tokens(&mut config.ir) {
             config.save(&paths.config_file());
         }
+        let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
         Ctx {
             paths,
             config,
@@ -191,6 +194,7 @@ impl Ctx {
             audio: Audio {
                 mixer,
                 sounds: Default::default(),
+                loudness,
             },
             view,
             input: Input::default(),
@@ -497,7 +501,8 @@ impl Ctx {
             .map_or("", String::as_str);
         let rate = self.audio.mixer.sample_rate;
         self.audio.sounds.sync(set, &self.paths.root, rate);
-        self.audio.sounds.play(&self.audio.mixer, s);
+        let norm = crate::loudness::system_target(&self.config.audio);
+        self.audio.sounds.play(&self.audio.mixer, s, norm);
     }
 
     pub fn stop_sound(&mut self, s: crate::sysound::Sound) {

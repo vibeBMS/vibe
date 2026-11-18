@@ -6,6 +6,7 @@ use crate::app::{Ctx, Draw};
 use crate::config::PlayConfig;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Picture, Rect};
+use crate::loudness::Loudness;
 use crate::platform::vfs::Prefetch;
 use crate::platform::{Instant, Job};
 use crate::theme;
@@ -31,6 +32,8 @@ pub(super) struct Loaded {
     pub stagefile: Option<Picture>,
     /// `#BACKBMP` (the play skin's background image 101).
     pub backbmp: Option<Picture>,
+    /// The chart's loudness, and whether it was measured now (to be kept).
+    pub loudness: Option<(Loudness, bool)>,
     pub seed: i64,
     /// What the options did to the chart (for the assist level).
     pub facts: AssistFacts,
@@ -96,6 +99,10 @@ impl Loading {
             play.rules = run.rules(&play.rules);
         }
         let rate = ctx.audio.mixer.sample_rate;
+        // the chart's loudness, measured once its sounds are decoded unless
+        // known (or not wanted)
+        let normalize = crate::loudness::chart_target(&ctx.config.audio).is_some();
+        let known = ctx.audio.loudness.get(&req.song.sha256);
         let (p2, t2) = (progress.clone(), total_files.clone());
         let lanes = req.course.as_ref().and_then(|c| c.lanes());
         // (an expert or class course: every stage from the first's seed;
@@ -121,7 +128,13 @@ impl Loading {
             let joins = c.def.joins.clone();
             let work = move || -> Result<Box<Loaded>, String> {
                 let seed = seed_now();
-                load_nonstop(&paths, &joins, &play, seed, rate, &p2, &t2)
+                let mut l = load_nonstop(&paths, &joins, &play, seed, rate, &p2, &t2)?;
+                // (measured each time: the stages joined are not one chart)
+                if normalize {
+                    let m = crate::loudness::measure_chart(&l.chart, &l.bank, rate);
+                    l.loudness = Some((m, false));
+                }
+                Ok(l)
             };
             return Loading {
                 work: Some(Box::new(work)),
@@ -156,6 +169,13 @@ impl Loading {
             let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
             let read = |p: &Path| crate::platform::vfs::read(p).ok();
             let mut bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
+            let loudness = match known {
+                Some(l) => Some((l, false)),
+                None if normalize => {
+                    Some((crate::loudness::measure_chart(&chart, &bank, rate), true))
+                }
+                None => None,
+            };
             // practice at another speed: the sounds at it, their pitch too
             let speed = practice.as_ref().map_or(1.0, |p| p.practice.rate());
             if speed != 1.0 {
@@ -175,6 +195,7 @@ impl Loading {
                 videos,
                 stagefile,
                 backbmp,
+                loudness,
                 seed,
                 facts,
                 ln_profile,
@@ -339,6 +360,7 @@ fn load_nonstop(
         videos,
         stagefile,
         backbmp,
+        loudness: None,
         seed,
         facts: pc.facts,
         ln_profile: pc.ln_profile,

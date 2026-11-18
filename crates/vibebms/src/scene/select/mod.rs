@@ -30,9 +30,7 @@ use skin::{SelectHooks, PANELS};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tree::Distribution;
-use vibebms_audio::Sample;
 
 /// The BPMs hi-speeds are shown and set for without a chart (beatoraja's
 /// 150).
@@ -84,7 +82,7 @@ pub struct SelectScene {
     preview_until: Option<Instant>,
     /// The chart waits for a preview made of its sounds.
     preview_wait: bool,
-    preview_job: Option<Job<Option<Arc<Sample>>>>,
+    preview_job: Option<Job<Option<genpreview::Preview>>>,
     /// Previews made of charts' sounds (`genpreview`).
     generated: genpreview::Generated,
     /// The preview's file being read (the web: from the browser's storage)

@@ -132,6 +132,40 @@ pub(super) fn rows(b: &mut Rows) {
         )
         .desc("Play the chart's preview in the song select: LOOP, ONCE or OFF."),
         Row::adjust(
+            "audio.normalize",
+            "Normalize loudness",
+            onoff(a.normalize),
+            |c, _| c.config.audio.normalize ^= true,
+        )
+        .desc("Charts and song previews at the same loudness (a chart is measured when first played).")
+        .keys("loudness lufs volume normalise replaygain"),
+        Row::adjust(
+            "audio.normalize_target",
+            "Loudness target",
+            format!("{:.0} LUFS", a.normalize_target),
+            |c, d| {
+                let (lo, hi) = crate::loudness::TARGET_RANGE;
+                let t = &mut c.config.audio.normalize_target;
+                *t = (t.round() + d as f32).clamp(lo, hi);
+                let norm = crate::loudness::system_target(&c.config.audio);
+                c.audio.sounds.renormalize(&c.audio.mixer, norm);
+            },
+        )
+        .desc("The loudness normalized sounds play at; lower is quieter.")
+        .keys("loudness lufs volume normalise"),
+        Row::adjust(
+            "audio.normalize_system",
+            "Normalize sound set music",
+            onoff(a.normalize_system),
+            |c, _| {
+                c.config.audio.normalize_system ^= true;
+                let norm = crate::loudness::system_target(&c.config.audio);
+                c.audio.sounds.renormalize(&c.audio.mixer, norm);
+            },
+        )
+        .desc("The sound set's select music and decide jingle at the loudness target too.")
+        .keys("loudness lufs volume normalise bgm"),
+        Row::adjust(
             "audio.sound_set",
             "Sound set",
             skinned::choice_name(ctx, SkinType::SoundSet, sound_set).0,

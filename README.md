@@ -52,7 +52,7 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
 <root>/scores/scores.json      play records
 <root>/scores/player.json      totals over all plays (judgements, time played)
-<root>/cache/                  song scan and difficulty table caches (made again if deleted)
+<root>/cache/                  song scan, difficulty table and chart loudness caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
 <root>/sounds/                 system sound sets (optional)
 <root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
@@ -227,6 +227,21 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (`SETTINGS › DISPLAY & AUDIO › Output mode`, on restart) event driven at the device's smallest period, in the mixer's rate as float, 24-bit or 16-bit,
   else a format of the device's own, and back to shared with a message when the device refuses. ASIO/JACK feature
   flags for cpal.
+- **Loudness normalisation** (`SETTINGS › DISPLAY & AUDIO`: `Normalize loudness`, on by default; `Loudness target`,
+  -24 to -6 LUFS, -12 by default; `Normalize sound set music`): every chart plays at the same loudness. A chart is
+  measured the first time it is played, as its sounds are decoded: its BGM and every note's keysound autoplayed (a
+  sound played again cuts itself off, as in play) are mixed a tenth of a second at a time into an ITU-R BS.1770-4
+  meter (K-weighting, 400 ms blocks, the -70 LUFS and relative -10 LU gates), which gives its integrated loudness
+  and sample peak. That takes about a tenth of a second for a two-minute chart with 3000 keysounds over a BGM
+  (natively, on the loading thread); the web and mobile meter every second frame, half the work (frequencies above
+  a quarter of the rate fold down: a little off for very bright music). The result is kept by the chart's SHA-256 in
+  `cache/loudness.txt` (on the web in the browser's storage). In play the keysound and BGM buses are turned up or
+  down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
+  scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
+  own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
+  sound set's select music and decide jingle are measured as the set loads and brought to the target too (on its own
+  switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
+  each time (its stages joined are not one chart). The output's soft limiter stays as it was.
 - **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
   under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
   LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
