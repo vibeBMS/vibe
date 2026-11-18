@@ -576,7 +576,7 @@ impl Scene for ResultScene {
         });
         if let (Some(p2), Some(o), false) = (&self.d.p2, self.d.outcome(), shown) {
             let what = if p2.desync {
-                format!("{} (out of step)", p2.name)
+                tr!("{name} (out of step)", name = p2.name)
             } else {
                 p2.name.clone()
             };
