@@ -82,3 +82,23 @@ pub fn hide_system_bars() {
         log::warn!("system bars: {e}");
     }
 }
+
+/// The app's locale as a BCP 47 tag (`Locale.getDefault()`: the system's,
+/// or the one chosen for this app).
+pub fn locale() -> Option<String> {
+    with_java(|env, _| {
+        let l = env
+            .call_static_method(
+                "java/util/Locale",
+                "getDefault",
+                "()Ljava/util/Locale;",
+                &[],
+            )?
+            .l()?;
+        let tag = env
+            .call_method(&l, "toLanguageTag", "()Ljava/lang/String;", &[])?
+            .l()?;
+        Ok(env.get_string(&jni::objects::JString::from(tag))?.into())
+    })
+    .ok()
+}

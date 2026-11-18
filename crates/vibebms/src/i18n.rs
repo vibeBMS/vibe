@@ -152,6 +152,12 @@ pub fn system_locale() -> Option<String> {
     {
         web_sys::window().and_then(|w| w.navigator().language())
     }
+    // Android: the Java locale (the system properties sys-locale reads
+    // are not always there)
+    #[cfg(target_os = "android")]
+    if let Some(l) = crate::platform::android::locale() {
+        return Some(l);
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         sys_locale::get_locale()
