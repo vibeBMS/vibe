@@ -404,7 +404,7 @@ impl SelectScene {
                 *v = (*v + d as f32 * 0.05).clamp(0.0, 1.0);
                 match bus {
                     Some(b) => ctx.audio.mixer.set_bus_volume(b, *v),
-                    None => ctx.audio.mixer.set_master(*v),
+                    None => ctx.audio.set_master(*v),
                 }
             }
             SelectOption::Preview => {

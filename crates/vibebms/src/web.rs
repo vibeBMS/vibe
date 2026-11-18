@@ -312,6 +312,29 @@ fn stamp_time(stamp: f64) -> crate::platform::Instant {
     }
 }
 
+/// Tell `changed` when the page gets or loses the focus (another window
+/// or app is used): winit's `Focused` is the canvas', which a click on
+/// the page's own buttons takes too.
+pub fn install_page_focus(changed: impl Fn(bool) + 'static) {
+    let Some(w) = web_sys::window() else { return };
+    let changed = std::rc::Rc::new(changed);
+    for (kind, focused) in [("focus", true), ("blur", false)] {
+        let changed = changed.clone();
+        let f = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+            // the window's own, not an element's (they do not bubble, but
+            // a capture listener would see them)
+            let own = e
+                .target()
+                .is_some_and(|t| t.dyn_ref::<web_sys::Window>().is_some());
+            if own {
+                changed(focused);
+            }
+        });
+        let _ = w.add_event_listener_with_callback(kind, f.as_ref().unchecked_ref());
+        f.forget();
+    }
+}
+
 thread_local! {
     /// When the last finger left the screen, until the app takes it.
     static TOUCHES_GONE: std::cell::Cell<Option<crate::platform::Instant>> =

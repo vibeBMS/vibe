@@ -85,7 +85,7 @@ pub(super) fn rows(b: &mut Rows) {
             percent(a.master),
             |c, d| {
                 let v = volume(&mut c.config.audio.master, d);
-                c.audio.mixer.set_master(v);
+                c.audio.set_master(v);
             },
         )
         .desc("Everything vibeBMS plays."),
@@ -131,6 +131,17 @@ pub(super) fn rows(b: &mut Rows) {
             },
         )
         .desc("Play the chart's preview in the song select: LOOP, ONCE or OFF."),
+        Row::adjust(
+            "audio.mute_inactive",
+            "Mute when inactive",
+            onoff(a.mute_inactive),
+            |c, _| c.config.audio.mute_inactive ^= true,
+        )
+        .desc(
+            "Silent while another app or window has the focus or vibeBMS is hidden; \
+             in play only while it is hidden (on a phone or tablet also without the focus).",
+        )
+        .keys("background focus minimised silence"),
         Row::adjust(
             "audio.sound_set",
             "Sound set",

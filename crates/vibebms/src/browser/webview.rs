@@ -302,6 +302,11 @@ impl Downloads {
         }
     }
 
+    /// The browser is up (its window may have the focus).
+    pub fn is_open(&self) -> bool {
+        self.window.is_some()
+    }
+
     /// Events of the browser window; true when `id` is that window.
     pub fn window_event(&mut self, id: WindowId, event: &WindowEvent) -> bool {
         let Some(w) = &self.window else { return false };

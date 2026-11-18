@@ -97,10 +97,18 @@ pub struct AudioSettings {
     pub preview: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub preview_once: bool,
+    /// Silent while the app is not the one in use (`app::activity`).
+    #[serde(skip_serializing_if = "is_true")]
+    pub mute_inactive: bool,
     /// Windows: the device in WASAPI exclusive mode (else shared).
     #[cfg(windows)]
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub exclusive: bool,
+}
+
+/// (`skip_serializing_if` for a setting on by default)
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 impl Default for AudioSettings {
@@ -114,6 +122,7 @@ impl Default for AudioSettings {
             system: 0.7,
             preview: true,
             preview_once: false,
+            mute_inactive: true,
             #[cfg(windows)]
             exclusive: false,
         }
@@ -518,6 +527,7 @@ mod tests {
                 system: 0.125,
                 preview: false,
                 preview_once: true,
+                mute_inactive: true,
                 #[cfg(windows)]
                 exclusive: false,
             },
@@ -630,6 +640,18 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(Config::load(&path), c);
+    }
+
+    /// MUTE WHEN INACTIVE is written only when turned off.
+    #[test]
+    fn mute_inactive_off_is_kept() {
+        let mut c = Config::default();
+        assert!(c.audio.mute_inactive);
+        assert!(!c.to_toml().unwrap().contains("mute_inactive"));
+        c.audio.mute_inactive = false;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("mute_inactive = false"));
+        assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
     }
 
     #[test]

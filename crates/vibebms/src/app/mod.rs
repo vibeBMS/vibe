@@ -1,5 +1,6 @@
 //! Window, event loop, shared context and the scene stack.
 
+mod activity;
 mod cli;
 mod ctx;
 mod events;
@@ -87,6 +88,10 @@ pub trait Scene {
     fn full_screen(&self) -> bool {
         false
     }
+    /// A chart is being played (`activity`: heard without the focus).
+    fn in_play(&self) -> bool {
+        false
+    }
     /// Wants every frame redrawn ASAP (gameplay).
     fn realtime(&self) -> bool {
         false
@@ -135,6 +140,12 @@ struct Running {
     /// The on-screen keyboard is asked for.
     ime_on: bool,
     downloads: crate::browser::Downloads,
+    /// Whether the app is the one in use (silent when not).
+    activity: activity::Activity,
+    /// When to ask next whether the window is minimised (while it has no
+    /// focus: not every platform tells).
+    #[cfg(desktop)]
+    minimized_check: Instant,
 }
 
 pub enum UserEvent {
@@ -143,6 +154,9 @@ pub enum UserEvent {
     /// Hardware keyboard keys came in (`platform::ios::take_keys`).
     #[cfg(target_os = "ios")]
     Keys,
+    /// The page got or lost the focus (`web::install_page_focus`).
+    #[cfg(target_arch = "wasm32")]
+    PageFocus(bool),
 }
 
 pub struct App {
@@ -195,6 +209,12 @@ pub fn run() {
         crate::web::install_input_stamps();
         crate::web::install_touch_watch();
         crate::web::install_touch_input();
+        {
+            let proxy = app.proxy.clone();
+            crate::web::install_page_focus(move |f| {
+                let _ = proxy.send_event(UserEvent::PageFocus(f));
+            });
+        }
         // the songs kept in the browser: mounted, then read as picked ones
         // (the first scan waits for them)
         let replays = crate::replay::dir(&app.paths.root);
@@ -348,6 +368,9 @@ impl Running {
         // (judged, sounds scheduled) for now
         let shown = self.pacer.frame(now, self.gfx.frames_ahead());
         self.apply(el, next);
+        // in use again: heard from here (the scenes had their frame to stop
+        // what played meanwhile), or a scene of play over or begun
+        self.update_mute(true);
 
         self.batch.clear();
         let mut d = Draw {
@@ -574,6 +597,9 @@ impl App {
             redraw_pending: false,
             ime_on: false,
             downloads: Default::default(),
+            activity: Default::default(),
+            #[cfg(desktop)]
+            minimized_check: now,
         });
     }
 }
@@ -594,10 +620,20 @@ impl ApplicationHandler<UserEvent> for App {
                     r.ios_keys(el);
                 }
             }
+            #[cfg(target_arch = "wasm32")]
+            UserEvent::PageFocus(focused) => {
+                if let Some(r) = self.run.as_mut() {
+                    r.set_activity(|a| a.focused = focused);
+                }
+            }
         }
     }
 
     fn resumed(&mut self, el: &ActiveEventLoop) {
+        // (iOS: active again; Android: a surface again)
+        if let Some(r) = self.run.as_mut() {
+            r.set_activity(|a| a.suspended = false);
+        }
         if self.run.is_some() || self.pending.is_some() {
             return;
         }
@@ -663,14 +699,24 @@ impl ApplicationHandler<UserEvent> for App {
         r.window_event(el, event);
     }
 
+    fn suspended(&mut self, _el: &ActiveEventLoop) {
+        if let Some(r) = self.run.as_mut() {
+            r.set_activity(|a| a.suspended = true);
+        }
+    }
+
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(r) = self.run.as_mut() else { return };
         #[cfg(target_arch = "wasm32")]
         r.web_touches(el);
+        #[cfg(desktop)]
+        r.check_minimized(Instant::now());
         if let Some(pages) = r.ctx.net.browse.take() {
             r.downloads.browse(el, &r.window, &mut r.ctx, pages);
         }
         r.downloads.poll(&mut r.ctx);
+        let browsing = r.downloads.is_open();
+        r.set_activity(|a| a.browsing = browsing);
         let realtime = r.scenes.last().is_some_and(|s| s.realtime());
         let fps = r.ctx.config.display.max_fps;
         let now = Instant::now();

@@ -1,5 +1,6 @@
 //! The window's events as the scenes' input ([`InputEv`]).
 
+use super::activity::{Activity, Platform};
 use super::{surface_size, Running};
 use crate::input::{InputEv, Phase};
 use crate::platform::{Duration, Instant};
@@ -145,26 +146,80 @@ impl Running {
                 );
             }
             WindowEvent::DroppedFile(p) => self.dispatch(el, InputEv::Dropped(p)),
-            WindowEvent::Focused(false) => {
-                self.ctx.save_config();
-                // its key and touch releases go elsewhere now
-                self.dispatch(
-                    el,
-                    InputEv::Released {
-                        time: now,
-                        touch_only: false,
-                    },
-                );
+            WindowEvent::Focused(focused) => {
+                // (the web: the canvas' focus, not the page's: see
+                // `web::install_page_focus`)
+                #[cfg(not(target_arch = "wasm32"))]
+                self.set_activity(|a| {
+                    a.focused = focused;
+                    a.minimized &= !focused;
+                });
+                if !focused {
+                    self.ctx.save_config();
+                    // its key and touch releases go elsewhere now
+                    self.dispatch(
+                        el,
+                        InputEv::Released {
+                            time: now,
+                            touch_only: false,
+                        },
+                    );
+                }
             }
-            WindowEvent::Occluded(true) => self.dispatch(
-                el,
-                InputEv::Released {
-                    time: now,
-                    touch_only: false,
-                },
-            ),
+            WindowEvent::Occluded(occluded) => {
+                self.set_activity(|a| a.occluded = occluded);
+                if occluded {
+                    self.dispatch(
+                        el,
+                        InputEv::Released {
+                            time: now,
+                            touch_only: false,
+                        },
+                    );
+                }
+            }
             _ => {}
         }
+    }
+
+    /// What the platform tells of the app's use changed by `f`: silent
+    /// at once if it is not in use now; heard again at the next frame
+    /// (`update_mute`), once the scenes have seen it.
+    pub(super) fn set_activity(&mut self, f: impl FnOnce(&mut Activity)) {
+        let before = self.activity;
+        f(&mut self.activity);
+        if self.activity == before {
+            return;
+        }
+        log::debug!("activity: {:?}", self.activity);
+        self.update_mute(false);
+        if !self.redraw_pending {
+            self.redraw();
+        }
+    }
+
+    /// Silence the output while the app is not in use (`activity`); with
+    /// `unsilence`, hear it again when it is.
+    pub(super) fn update_mute(&mut self, unsilence: bool) {
+        let in_play = self.scenes.last().is_some_and(|s| s.in_play());
+        let enabled = self.ctx.config.audio.mute_inactive;
+        if self.activity.silent(in_play, Platform::THIS, enabled) {
+            self.ctx.audio.silence(Instant::now());
+        } else if unsilence {
+            self.ctx.audio.unsilence(self.ctx.config.audio.master);
+        }
+    }
+
+    /// While the window has no focus, now and then: whether it is
+    /// minimised (X11 and Wayland do not tell it as `Occluded`).
+    #[cfg(desktop)]
+    pub(super) fn check_minimized(&mut self, now: Instant) {
+        if self.activity.focused || now < self.minimized_check {
+            return;
+        }
+        self.minimized_check = now + Duration::from_millis(250);
+        let m = self.window.is_minimized() == Some(true);
+        self.set_activity(|a| a.minimized = m);
     }
 
     /// A key (`InputEv::Key`), or the window's own use of it.
