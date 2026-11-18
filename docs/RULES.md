@@ -358,6 +358,13 @@ of the arcade) may judge otherwise when played again.
   the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
   the default preset; replays from before count for the preset they were played with.
 
+## Scroll
+`#SCROLL` (channel SC) changes how fast the lane scrolls from a beat on (scroll positions are the integral of it).
+beatoraja's `#SPEED` (channel SP; bmz-player's `docs/hs.md`) multiplies the whole lane's scroll at the current time:
+linear in time between its points, from 1 at time 0 to the first, the last after it. Neither changes a note's
+time or the judge. Under CONSTANT the notes go by time, so neither has an effect. A NONSTOP course's scroll goes by
+time (above) and drops its stages' `#SCROLL` and `#SPEED`.
+
 ## Lane options
 Each side's lane option is drawn from the play's seed (2P from seed + 1) with Java's `Random`, so a replay draws
 the same lanes (`lane_option.rs`).
@@ -495,7 +502,12 @@ Not followed, and why no gap covers it:
   mine just behind a note not yet judged waits for that note; vibeBMS resolves each at its own time. It differs
   only when an LN head is within 200 ms minus GOOD, or a mine within 200 ms, after an unjudged note of its lane.
 - Objects that start inside an LN of their lane are dropped by LR2; vibeBMS drops notes there, not mines.
-- Battle and negative BPM: vibeBMS does not offer them. LR2's courses are followed (above, "LR2 courses"), but no
+- Battle and negative BPM: vibeBMS does not offer them. A negative `#BPMxx` is ignored (the BPM before it goes
+  on). LR2 plays it at its absolute value and folds the lane at it: the notes after it are drawn coming back the
+  other way, and bmz-player, which follows LR2, folds the judge's time at the same points too (its `docs/hs.md`).
+  vibeBMS's timing is one map from beats to time and scroll in which time only goes forward, and the judge reads
+  it; a folded lane would need a second, folding time for drawing and judging, which no source describes well
+  enough to judge by, so it is left out. LR2's courses are followed (above, "LR2 courses"), but no
   IR takes a course play. Of the IR adapters, Bokutachi cannot file a P-ATTACK or G-ATTACK play (Tachi's BMS gauges
   are EASY, NORMAL, HARD, EX-HARD) and refuses it; BMS-IR reads LR2's attack gauges (its change log: P-ATTACK apart
   from the clear, G-ATTACK clears shown as G-A); rianIR is not known to and refuses them.

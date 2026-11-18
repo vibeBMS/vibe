@@ -107,6 +107,8 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     let now = st.now;
     let t_vis = s.chart_us(now) + p.visual_offset_ms as i64 * 1000;
     let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
+    // `#SPEED` now (not under CONSTANT)
+    let speed = s.chart.timing.speed_at_time(t_vis as f64);
     let main_bpm = if s.chart.meta.main_bpm > 0.0 {
         s.chart.meta.main_bpm
     } else {
@@ -117,7 +119,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     let beats = dur_us / 1_000_000.0 * main_bpm / 60.0;
     let depth = |pos: f64, time: i64| -> f32 {
         match p.hispeed_mode {
-            HiSpeedMode::Floating => dep.at(pos - cur_pos, beats),
+            HiSpeedMode::Floating => dep.at((pos - cur_pos) * speed, beats),
             HiSpeedMode::Constant => dep.at((time - t_vis) as f64 / dur_us, 1.0),
         }
     };
