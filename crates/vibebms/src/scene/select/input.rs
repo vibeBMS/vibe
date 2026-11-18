@@ -196,6 +196,9 @@ impl SelectScene {
             KeyCode::Digit6 | KeyCode::Numpad6 => return self.skin_event(ctx, 13, 1),
             KeyCode::Digit7 | KeyCode::Numpad7 => return self.skin_event(ctx, 14, 1),
             KeyCode::F2 => return self.option(ctx, SelectOption::Random, 1),
+            // the chart's folder in the file manager (desktop; GAUGE
+            // elsewhere, and on the START panel's key 3)
+            KeyCode::F3 if crate::platform::open::CAN_OPEN_FILES => self.reveal_chart(ctx),
             KeyCode::F3 => return self.option(ctx, SelectOption::Gauge, 1),
             KeyCode::F4 => return self.option(ctx, SelectOption::LnMode, 1),
             KeyCode::F5 => return self.decide(ctx, true),
@@ -214,6 +217,9 @@ impl SelectScene {
             // HELP and READ TEXT (LR2's buttons)
             KeyCode::KeyH if !is_play_key(keys, code) => self.toggle_panel(8),
             KeyCode::KeyT if !is_play_key(keys, code) => self.read_text(ctx),
+            // the chart's web page, SAME FOLDER
+            KeyCode::KeyU if !is_play_key(keys, code) => self.open_chart_url(ctx),
+            KeyCode::KeyB if !is_play_key(keys, code) => self.same_folder(ctx),
             KeyCode::Insert => self.add_to_course(ctx),
             KeyCode::KeyC if !is_play_key(keys, code) => self.add_to_course(ctx),
             KeyCode::F12 => {

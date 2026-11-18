@@ -27,6 +27,8 @@ pub(crate) enum Node {
     /// The player's courses of a kind (LR2's course folders).
     MyCourses(CourseKind),
     Search(String),
+    /// SAME FOLDER: the charts in a chart's folder (`song_dir`).
+    SameFolder(String),
     /// A mirrored event, by its index's URL (the events are rebuilt as the
     /// lists arrive).
     Archive(String),
@@ -432,6 +434,11 @@ impl SelectScene {
                         .collect(),
                 )
             }
+            Node::SameFolder(dir) => sorted(
+                (0..songs.len())
+                    .filter(|i| super::status::song_dir(&songs[*i]) == *dir)
+                    .collect(),
+            ),
             Node::Table(t) => {
                 let Some(table) = table(ctx, t) else {
                     return Vec::new();
@@ -635,6 +642,13 @@ impl SelectScene {
             Node::MyCourses(k) => format!("{} COURSES", k.label()),
             Node::Level(t, l) => table(ctx, t).map(|t| t.label(l)).unwrap_or_default(),
             Node::Search(q) => format!("SEARCH \"{q}\""),
+            Node::SameFolder(d) => format!(
+                "SAME FOLDER {}",
+                Path::new(d)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ),
             Node::Archive(url) => event(ctx, url)
                 .map(|e| ctx.net.archives.events[e].label().to_string())
                 .unwrap_or_default(),

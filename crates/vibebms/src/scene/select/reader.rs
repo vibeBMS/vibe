@@ -22,8 +22,13 @@ pub(super) struct Reader {
     /// The files while they are read (the web: from the browser's storage).
     fetch: Option<(Prefetch, Vec<PathBuf>)>,
     lines: Vec<String>,
+    /// The file (index in `files`) each line is of.
+    line_file: Vec<usize>,
+    files: Vec<PathBuf>,
     /// `lines` wrapped to a width (px), and the width.
     wrapped: Vec<String>,
+    /// The line of `lines` each wrapped line is of.
+    wrapped_line: Vec<usize>,
     width: f32,
     /// The first line shown.
     scroll: f32,
@@ -31,17 +36,27 @@ pub(super) struct Reader {
     rows: f32,
     /// A press: its pointer, where it went down, the scroll then, moved.
     drag: Option<(u64, f32, f32, bool)>,
-    /// The box and its close button, as last drawn.
-    hits: HitMap<bool>,
+    /// The box, its close button and OPEN (desktop), as last drawn.
+    hits: HitMap<Hit>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Hit {
+    Box,
+    Close,
+    Open,
 }
 
 impl Reader {
     fn new(title: String, files: Vec<PathBuf>) -> Reader {
         Reader {
             title,
-            fetch: Some((Prefetch::files(files.clone()), files)),
+            fetch: Some((Prefetch::files(files.clone()), files.clone())),
             lines: Vec::new(),
+            line_file: Vec::new(),
+            files,
             wrapped: Vec::new(),
+            wrapped_line: Vec::new(),
             width: 0.0,
             scroll: 0.0,
             rows: 1.0,
@@ -74,6 +89,7 @@ impl Reader {
                 }
                 Err(e) => self.lines.push(format!("({e})")),
             }
+            self.line_file.resize(self.lines.len(), k);
         }
         self.width = 0.0;
     }
@@ -85,7 +101,8 @@ impl Reader {
         }
         self.width = w;
         self.wrapped.clear();
-        for line in &self.lines {
+        self.wrapped_line.clear();
+        for (n, line) in self.lines.iter().enumerate() {
             let mut cur = String::new();
             for c in line.chars() {
                 cur.push(c);
@@ -95,11 +112,28 @@ impl Reader {
                     let cut = cur.rfind(' ').filter(|i| *i > 0).unwrap_or(cur.len());
                     let rest = cur.split_off(cut);
                     self.wrapped.push(std::mem::take(&mut cur));
+                    self.wrapped_line.push(n);
                     cur = rest.trim_start().to_string();
                     cur.push(c);
                 }
             }
             self.wrapped.push(cur);
+            self.wrapped_line.push(n);
+        }
+    }
+
+    /// The file shown at the top of the view (the only one, or the one
+    /// whose text is there).
+    fn file_shown(&self) -> Option<&PathBuf> {
+        let line = self.wrapped_line.get(self.scroll.floor() as usize).copied();
+        let k = line.and_then(|l| self.line_file.get(l)).copied();
+        self.files.get(k.unwrap_or(0))
+    }
+
+    /// The file shown in the system's text viewer (desktop).
+    fn open_shown(&self) {
+        if let Some(p) = self.file_shown() {
+            crate::platform::open::open_file(p);
         }
     }
 
@@ -125,7 +159,7 @@ impl Reader {
             &self.title,
             r.x + pad + 130.0 * ui,
             r.y + 18.0 * ui,
-            TextStyle::new(14.0 * ui, theme::TEXT_DIM, Align::Left).fit(r.w - 260.0 * ui),
+            TextStyle::new(14.0 * ui, theme::TEXT_DIM, Align::Left).fit(r.w - 360.0 * ui),
         );
         let close = Rect::new(r.right() - 52.0 * ui, r.y + 6.0 * ui, 44.0 * ui, 44.0 * ui);
         d.text(
@@ -135,8 +169,14 @@ impl Reader {
             TextStyle::new(28.0 * ui, theme::TEXT_DIM, Align::Center),
         );
         self.hits.clear();
-        self.hits.push(r, false);
-        self.hits.push(close, true);
+        self.hits.push(r, Hit::Box);
+        self.hits.push(close, Hit::Close);
+        if crate::platform::open::CAN_OPEN_FILES {
+            // OPEN (O): the file shown in the system's viewer
+            let open = Rect::new(close.x - 96.0 * ui, r.y + 12.0 * ui, 88.0 * ui, 32.0 * ui);
+            crate::ui::button(d, open, "OPEN (O)", ui, false);
+            self.hits.push(open, Hit::Open);
+        }
         let body = Rect::new(
             r.x + pad,
             r.y + 56.0 * ui,
@@ -203,6 +243,7 @@ impl Reader {
                 KeyCode::Home => self.scroll = 0.0,
                 KeyCode::End => self.scroll_by(f32::MAX),
                 KeyCode::KeyT => return false,
+                KeyCode::KeyO => self.open_shown(),
                 c => return self.nav(nav_from_key(*c, &ctx.config.keys)),
             },
             InputEv::Pad {
@@ -230,8 +271,11 @@ impl Reader {
                     Phase::Up => {
                         let tap = self.drag.take().is_some_and(|d| d.0 == *id && !d.3);
                         // a tap outside the box or on its close button
-                        if tap && self.hits.at(*x, *y).is_none_or(|close| *close) {
-                            return false;
+                        match self.hits.at(*x, *y).copied().filter(|_| tap) {
+                            None if tap => return false,
+                            Some(Hit::Close) => return false,
+                            Some(Hit::Open) => self.open_shown(),
+                            _ => {}
                         }
                     }
                 }

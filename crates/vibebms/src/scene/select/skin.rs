@@ -111,8 +111,9 @@ pub const PANEL_TILES: [&[i32]; PANELS] = [
     &[],
     // EFFECTS: the four volumes, PREVIEW, SKIN / SOUND
     &[9024, 9025, 9026, 9027, 9028, 14],
-    // TAG EDITOR: FAVORITE SONG, FAVORITE CHART, RANDOM SELECT's charts
-    &[9015, 9014, 9016],
+    // TAG EDITOR: FAVORITE SONG, FAVORITE CHART, RANDOM SELECT's charts;
+    // SAME FOLDER, WEB PAGE, SONG FOLDER
+    &[9015, 9014, 9016, 9045, 9044, 9043],
     &[],
     &[],
 ];
@@ -222,6 +223,7 @@ fn folder_kind(node: &Node) -> (usize, usize) {
     match node {
         Node::Table(_) | Node::Level(..) => (BAR_TABLE, BAR_TABLE),
         Node::Search(_) => (BAR_SEARCH, BAR_SEARCH),
+        Node::SameFolder(_) => (BAR_VIRTUAL, BAR_FOLDER),
         Node::Archive(_) => (BAR_EVENT, BAR_FOLDER),
         Node::Favorites => (BAR_FAVORITE, BAR_FOLDER),
         Node::Smart(_) => (BAR_VIRTUAL, BAR_FOLDER),
