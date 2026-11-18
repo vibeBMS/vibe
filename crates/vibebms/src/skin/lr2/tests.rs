@@ -430,3 +430,32 @@ fn resolution_given_or_guessed() {
     assert_eq!(load_csv("", &full(300, 200)), (640.0, 480.0));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// `#HORIZONTAL`: each lane runs from its `#DST_NOTE` x (the judge
+/// position) to the right edge of the canvas, as tall as the note; notes
+/// are the `#DST_NOTE` width wide. `#HORIZONTAL,0` is a vertical skin.
+#[test]
+fn horizontal_lanes_run_to_the_right_edge() {
+    let dir = std::env::temp_dir().join(format!("vibebms-horiz-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let load_csv = |head: &str| {
+        let csv = format!(
+            "#INFORMATION,0,H,me\n#RESOLUTION,1\n{head}#IMAGE,a.png\n\
+#SRC_NOTE,1,0,0,0,6,20,1,1,0,0\n#DST_NOTE,1,0,100,200,12,30,0,255,255,255,255\n\
+#DST_NOTE,2,0,100,240,12,30,0,255,255,255,255\n"
+        );
+        std::fs::write(dir.join("h.lr2skin"), csv).unwrap();
+        let size = |_: &Path| Some((64, 64));
+        load(&dir.join("h.lr2skin"), &dir, &HashMap::new(), &|_| None, &size).unwrap()
+    };
+    let s = load_csv("#HORIZONTAL\n");
+    assert!(s.horizontal);
+    assert_eq!(s.lanes[0].rect, Some(Rect::new(100.0, 200.0, 1180.0, 30.0)));
+    assert_eq!(s.lanes[1].rect, Some(Rect::new(100.0, 240.0, 1180.0, 30.0)));
+    assert_eq!(s.lanes[0].note_h, Some(12.0));
+    let v = load_csv("#HORIZONTAL,0\n");
+    assert!(!v.horizontal);
+    assert_eq!(v.lanes[0].rect, Some(Rect::new(100.0, 0.0, 12.0, 230.0)));
+    assert_eq!(v.lanes[0].note_h, Some(30.0));
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -167,6 +167,8 @@ impl Loader<'_> {
                 self.fonts.push(font);
             }
             "#STRETCH" => self.stretch = v[1] as i32,
+            // a horizontal play skin: `#HORIZONTAL` (`#HORIZONTAL,0` is off)
+            "#HORIZONTAL" => self.skin.horizontal = s1.is_empty() || v[1] != 0,
             "#PLAYSTART" => self.skin.play_start_ms = Some(v[1].clamp(0, 10_000)),
             "#CLOSE" => self.skin.close_ms = Some(v[1].clamp(0, 10_000)),
             "#JUDGETIMER" => self.skin.judge_timer = Judge::of(v[1].clamp(0, 3) as usize),

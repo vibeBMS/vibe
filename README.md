@@ -423,6 +423,13 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   distribution, the best lamps first, 11 source cells an animation frame; type 1, the DJ levels, is not drawn).
   A skin without `#RESOLUTION` (`0`-`3`, or `#RESOLUTION,<width>,<height>`) gets the size its layout reaches: 640x480,
   or 1280x720 / 1920x1080 for HD skins that do not say so.
+  `#HORIZONTAL` (`#HORIZONTAL,0` is off) makes a play skin scroll right to left: a lane's `#DST_NOTE` x, y, w, h is
+  the note at the judge position, the lane runs from there to the right edge of the canvas, as tall as the note,
+  and notes come in from that edge, keeping their images' orientation (`#DST_NOTE` w wide). Long notes are drawn
+  with a horizontal body between their two ends, bar lines (`#DST_LINE`'s x is the judge position) and the BPM
+  guide move the same way, LIFT moves the judge position right, SUDDEN+ covers the right end and HIDDEN+ the left,
+  and the LIFT, lane cover and hidden cover offsets (3-5) move objects along x; `#DST_NOTE2` is the x missed notes
+  go to. A cover's disappear line still crops vertically.
 - **beatoraja skins**: JSON (`.json`) and Lua (`.luaskin`, embedded Lua 5.4 in a sandbox; the web build too).
   `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
   events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,

@@ -141,8 +141,11 @@ pub struct PlayState<'a> {
     play: [Cow<'a, PlayConfig>; 2],
     /// The second side's EX score.
     opp_ex: Option<i64>,
-    /// The height of the note field's lanes (skin pixels).
+    /// The length of the note field's lanes (skin pixels): their height,
+    /// a horizontal field's width.
     lane_h: Option<f32>,
+    /// The note field scrolls right to left (LR2 `#HORIZONTAL`).
+    horizontal: bool,
     pace: OnceCell<Pace>,
     table: OnceCell<Option<(String, String)>>,
 }
@@ -167,8 +170,11 @@ impl<'a> PlayState<'a> {
             lane_h: s
                 .skin
                 .as_ref()
-                .and_then(|sk| sk.skin.lanes.iter().find_map(|l| l.rect))
-                .map(|r| r.h),
+                .and_then(|sk| {
+                    let r = sk.skin.lanes.iter().find_map(|l| l.rect)?;
+                    Some(if sk.skin.horizontal { r.w } else { r.h })
+                }),
+            horizontal: s.skin.as_ref().is_some_and(|sk| sk.skin.horizontal),
             pace: OnceCell::new(),
             table: OnceCell::new(),
         }
@@ -431,13 +437,17 @@ impl SkinState for PlayState<'_> {
         // lane height in skin pixels (the first lane of the note field)
         let lane_h = self.lane_h?;
         let span = lane_h * (1.0 - p.lift);
+        // (horizontal: they move along x, away from the judge position
+        // to the right as they move up)
+        let along = |d: f32| match self.horizontal {
+            true => [d, 0.0, 0.0, 0.0, 0.0, 0.0],
+            false => [0.0, d, 0.0, 0.0, 0.0, 0.0],
+        };
         Some(match id {
-            OFFSET_LIFT => [0.0, p.lift * lane_h, 0.0, 0.0, 0.0, 0.0],
-            OFFSET_LANECOVER if p.lane_cover || p.sudden > 0.0 => {
-                [0.0, -p.sudden * span, 0.0, 0.0, 0.0, 0.0]
-            }
+            OFFSET_LIFT => along(p.lift * lane_h),
+            OFFSET_LANECOVER if p.lane_cover || p.sudden > 0.0 => along(-p.sudden * span),
             OFFSET_LANECOVER => [0.0; 6],
-            OFFSET_HIDDEN_COVER if p.hidden > 0.0 => [0.0, p.hidden * span, 0.0, 0.0, 0.0, 0.0],
+            OFFSET_HIDDEN_COVER if p.hidden > 0.0 => along(p.hidden * span),
             OFFSET_HIDDEN_COVER => [0.0, 0.0, 0.0, 0.0, 0.0, -255.0],
             _ => return None,
         })
