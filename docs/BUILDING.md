@@ -85,6 +85,58 @@ Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over U
 Touch controls turn on automatically. Songs a difficulty table lists can be downloaded in the
 app's browser (`Browser.java`), as on the desktop.
 
+CI signs the release APK with the repository's key when the secrets `ANDROID_KEYSTORE` (the keystore, base64) and
+`ANDROID_KEYSTORE_PASSWORD` (its password, also the key's) are set, else with a key made for the run, which installs
+but cannot update an APK signed by another. Make the keystore once and keep it: an APK signed by a new key cannot
+update the installed app (it has to be uninstalled, with its data).
+```sh
+keytool -genkeypair -keystore vibebms-android.p12 -storetype PKCS12 -alias vibebms \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=vibeBMS"
+base64 -w0 vibebms-android.p12    # the value of ANDROID_KEYSTORE (macOS: base64 -i vibebms-android.p12)
+```
+
+### F-Droid repository
+The nightly job also publishes an F-Droid repository with the nightly APK (`tools/fdroid_repo.sh`), at
+`https://raw.githubusercontent.com/vibeBMS/vibe/fdroid-repo/repo`, so F-Droid, Droid-ify and Neo Store offer each new
+nightly as an update. On each push to the default branch it:
+- runs `fdroid update` (fdroidserver 2.4.5, from pip) on the APK the release has, byte for byte, as its only version
+  (named `io.github.vibebms.nightly_<versionCode>.apk`, so each build has its own URL), with the metadata in
+  `platform/android/fdroid/metadata/` (name, summary, description, licence, links; the icon is
+  `io.github.vibebms.nightly/en-US/icon.png`, a copy of `assets/logo/icon-512.png`);
+- signs the index (`entry.jar` for current clients, `index-v1.jar` and `index.jar` for older ones) with
+  `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`);
+- after the release is published, replaces the branch `fdroid-repo` with one new commit (no parent), so the older
+  APKs are not kept in its history. The release's concurrency group and the check that the commit is still the
+  branch's head make the newest run win;
+- puts the address, the key's fingerprint and the links that add the repository (`fdroidrepos://...?fingerprint=`)
+  in the run's summary and in the release's `fdroid.txt`, the link as a QR code in `fdroid-qr.png`.
+
+It skips the repository, saying why in the summary, when the run built no APK, when the APK was signed with a key
+made for the run (it could not update the installed app), or when there is no key for the index (a key made per run
+would change the fingerprint the clients pinned). A failure there holds back no other file.
+
+The index's key is what clients pin: changing it later means every user adds the repository again. So whether the
+index keeps the APK's key or gets its own (F-Droid advises one; `FDROID_KEYSTORE`) is decided once, before users add
+the repository. A key of its own:
+```sh
+keytool -genkeypair -keystore vibebms-fdroid.p12 -storetype PKCS12 -alias vibebms-fdroid \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=vibeBMS F-Droid repository"
+base64 -w0 vibebms-fdroid.p12    # the value of FDROID_KEYSTORE; FDROID_KEYSTORE_PASSWORD is the password asked for
+```
+The secrets go in the repository's Settings › Secrets and variables › Actions. A keystore with one key is expected
+(its alias is read from it), with one password for the keystore and the key.
+
+To build the repository locally (Python 3, a JDK, the Android SDK's build-tools):
+```sh
+python3 -m venv /tmp/fdroid && /tmp/fdroid/bin/pip install fdroidserver==2.4.5
+PATH=/tmp/fdroid/bin:$PATH ANDROID_HOME=... FDROID_KEYSTORE_FILE=vibebms-fdroid.p12 FDROID_KEYSTORE_PASS=... \
+  FDROID_REPO_URL=http://192.168.1.2:8000/repo tools/fdroid_repo.sh build vibeBMS.apk /tmp/fdroid-work
+python3 -m http.server -d /tmp/fdroid-work/site 8000    # serves that address (this machine's, on the LAN)
+```
+`fdroid-repo` is a branch of this repository, so a plain `git clone` also fetches it (the APK, tens of MB);
+`git clone --single-branch https://github.com/vibeBMS/vibe` fetches only the default branch. Do not commit to it: the
+next nightly replaces it.
+
 ## iOS / iPadOS (experimental)
 ```sh
 rustup target add aarch64-apple-ios

@@ -33,6 +33,17 @@ systems (glibc 2.28) and without WebKitGTK, but has no download browser. `vibeBM
 bundles: `flatpak install --user vibeBMS-linux-x64.flatpak` (the runtime comes from Flathub), and the same with a newer
 bundle to update it; its data is in `~/.var/app/io.github.vibebms.nightly/data/vibeBMS`.
 
+On Android, the nightly APK also comes from an F-Droid repository: add it once in
+[F-Droid](https://f-droid.org/), [Droid-ify](https://github.com/Droid-ify/client) or
+[Neo Store](https://github.com/NeoApplications/Neo-Store) (in its repositories settings), and each new nightly is
+offered as an update of "vibeBMS Nightly" (`io.github.vibebms.nightly`). The address is
+`https://raw.githubusercontent.com/vibeBMS/vibe/fdroid-repo/repo`; give the fingerprint of its key too, so the client
+checks that the index is the project's. Both are in the nightly's
+[`fdroid.txt`](https://github.com/vibeBMS/vibe/releases/download/nightly/fdroid.txt), with a link that adds the
+repository in one tap (and as a QR code,
+[`fdroid-qr.png`](https://github.com/vibeBMS/vibe/releases/download/nightly/fdroid-qr.png)). An APK installed from
+the release by hand updates the same way, as it is signed with the same key.
+
 The desktop executables from there look for a newer nightly on start (`SETTINGS › SYSTEM › Check for updates`).
 When there is one, the song select says so and `SETTINGS › SYSTEM` updates in place ("Update now", then "Restart
 now"); a copy a package manager installed (or the Flatpak), or one in a folder that cannot be written to, does not
