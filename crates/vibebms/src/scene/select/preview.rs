@@ -213,7 +213,7 @@ impl SelectScene {
             md5: song.md5.clone(),
             sha256: song.sha256.clone(),
             mode: song.mode,
-            ln: song.score_ln(ctx.config.play.ln_mode),
+            ln: song.score_ln(ctx.config.play.ln_pref()),
             remote: None,
         };
         let sha = chart.sha256.clone();

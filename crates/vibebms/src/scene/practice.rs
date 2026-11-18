@@ -24,7 +24,7 @@ use vibebms_core::chart::{Chart, JudgeRank};
 use vibebms_core::judge::Judge;
 use vibebms_core::lane_option::LaneOption;
 use vibebms_core::practice::{self, Practice, LEAD_IN_MAX, SPEED_MAX, SPEED_MIN, SPEED_STEP};
-use vibebms_core::LnType;
+use vibebms_core::LnPref;
 use winit::keyboard::KeyCode;
 
 /// A held ← → steps again after this, then every `REPEAT_EVERY`.
@@ -254,7 +254,7 @@ impl PracticeScene {
             },
             Row::Random => p.random_1p.label().into(),
             Row::Random2 => p.random_2p.label().into(),
-            Row::LnMode => format!("{:?}", p.ln_mode).to_uppercase(),
+            Row::LnMode => p.ln_pref().label(),
             Row::Loop => onoff(c.repeat).into(),
             Row::Start => "▶  PLAY".into(),
         }
@@ -321,7 +321,10 @@ impl PracticeScene {
             }
             Row::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, d),
             Row::Random2 => p.random_2p = cycle(&LaneOption::ALL, p.random_2p, d),
-            Row::LnMode => p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode, d),
+            Row::LnMode => {
+                let ln = cycle(&LnPref::ALL, p.ln_pref(), d);
+                p.set_ln_pref(ln)
+            }
             Row::Loop => c.repeat ^= true,
             Row::Start => return if d > 0 { self.start(ctx) } else { Next::Stay },
         }

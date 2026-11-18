@@ -498,6 +498,29 @@ mod tests {
                 Refusal::LocalRules,
             ),
             (
+                "LR2, typed HCN forced to CN",
+                lr2(),
+                |r| {
+                    r.chart.ln.typed[LnType::Hcn as usize] = true;
+                    r.rules.ln_mode = LnType::Cn;
+                    r.rules.ln_force = true;
+                },
+                &VIBE_JSON,
+                Refusal::LocalRules,
+            ),
+            (
+                "beatoraja, typed LN forced to CN",
+                base(),
+                |r| {
+                    r.chart.ln.undefined = false;
+                    r.chart.ln.typed[LnType::Ln as usize] = true;
+                    r.rules.ln_mode = LnType::Cn;
+                    r.rules.ln_force = true;
+                },
+                &VIBE_JSON,
+                Refusal::LocalRules,
+            ),
+            (
                 "LR2, #DEFEXRANK",
                 lr2(),
                 |r| r.chart.judge_rank = JudgeRank::DefExRank(100.0),
@@ -667,6 +690,29 @@ mod tests {
         failed.wall_ms = 1000;
         failed.result.clear = ClearType::Failed;
         assert!(passes(&failed, &live(&RIAN_IR)).is_ok());
+    }
+
+    /// FORCE LN plays typed long notes as LR2 does (it reads no
+    /// `#LNMODE`); beatoraja's profile takes FORCE only where it changes
+    /// nothing.
+    #[test]
+    fn forced_ln_is_lr2s_and_a_no_op_force_beatorajas() {
+        let mut r = lr2();
+        r.chart.ln.typed = [true, true, true];
+        assert_eq!(profile_of(&r), None);
+        r.rules.ln_force = true;
+        assert_eq!(profile_of(&r), Some(Profile::VibeLr2));
+        assert_eq!(r.ln_filed(), LnType::Ln);
+        let mut b = base();
+        b.chart.ln.undefined = true;
+        b.chart.ln.typed[LnType::Cn as usize] = true;
+        b.rules.ln_mode = LnType::Cn;
+        b.rules.ln_force = true;
+        assert_eq!(profile_of(&b), Some(Profile::VibeBeatoraja));
+        b.rules.ln_mode = LnType::Hcn;
+        assert_eq!(profile_of(&b), None);
+        b.rules.ln_force = false;
+        assert_eq!(profile_of(&b), Some(Profile::VibeBeatoraja));
     }
 
     #[test]

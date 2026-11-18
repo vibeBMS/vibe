@@ -246,7 +246,7 @@ impl<'a> SelectState<'a> {
             ctx,
             bar,
             song,
-            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_mode)),
+            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_pref())),
             chart: song.map(ChartFacts::of_song),
             bpms: song.map_or(REFERENCE_BPMS, Bpms::of_song),
             rank: song.and_then(|x| s.ranking.get(&x.sha256)),
@@ -355,7 +355,7 @@ impl<'a> SelectState<'a> {
 
     /// A chart's lamp under the LN and rule modes chosen.
     fn lamp_of(&self, s: &Song) -> ClearType {
-        let best = self.ctx.best(s, self.ctx.config.play.ln_mode);
+        let best = self.ctx.best(s, self.ctx.config.play.ln_pref());
         best.map_or(ClearType::NoPlay, |b| b.clear)
     }
 
@@ -422,7 +422,7 @@ impl<'a> SelectState<'a> {
                     level: Some(s.level_num()),
                     difficulty: s.difficulty.clamp(0, 6) as usize,
                     lamp: Some(
-                        ctx.best(s, ctx.config.play.ln_mode)
+                        ctx.best(s, ctx.config.play.ln_pref())
                             .map(|b| b.clear)
                             .unwrap_or(ClearType::NoPlay),
                     ),

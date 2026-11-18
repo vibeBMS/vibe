@@ -337,10 +337,19 @@ of the arcade) may judge otherwise when played again.
 * **HCN** (`#LNMODE 3`): CN plus a gauge tick every 200 ms of the body: +GREAT×0.5 while held, BAD×0.5 while released.
 * Back-spin scratch: on a scratch CN/HCN the end is judged when the turntable is spun the other way. For
   keyboards and touch, releasing also ends it (configurable in the engine).
-* Scores, replays and IR entries are filed by LN mode: a chart without long notes under LN; a chart whose long
-  notes all have their type (`#LNMODE`, bmson `t`) under that type (with several types, the strongest:
-  HCN > CN > LN), whatever the player's LN mode; otherwise under the player's LN mode. Records such charts had
-  under the player's mode are merged into the chart's when the library loads.
+* LN MODE is AUTO (LN, CN, HCN: the type of the long notes the chart leaves untyped; a type the chart gives
+  wins) or FORCE (FORCE LN, CN, HCN: every long note plays as that type, whatever the chart gives; bmz-player's
+  `docs/ln.md`). FORCE takes the types off when the chart is arranged (`play::arrange`).
+* Scores, replays and IR entries are filed by LN mode: a chart without long notes under LN; under FORCE, the
+  forced type; a chart whose long notes all have their type (`#LNMODE`, bmson `t`) under that type (with several
+  types, the strongest: HCN > CN > LN), whatever the player's AUTO mode; otherwise under the player's LN mode.
+  Records such charts had under the player's mode are merged into the chart's when the library loads. A FORCE
+  play is filed with the AUTO plays of its type, and on a chart with both untyped and typed long notes they may
+  play differently (bmz-player keeps AUTO and FORCE apart there; vibeBMS's records have the three LN types only).
+  G-BATTLE takes a replay only when its long notes play as the player's would (`LnProfile::plays_alike`).
+* IR: FORCE LN is LR2's play of a chart that types its long notes (LR2 reads no `#LNMODE`: every long note an
+  LN), so the vibe-LR2 profile takes it; vibe-beatoraja takes FORCE only where it changes no type the chart
+  gives (beatoraja plays the chart's types). Other FORCE plays are local rules.
 * They are filed by rule mode too, the judge preset played with (beatoraja, LR2 or IIDX): each has its own best
   EX score, lamp, min BP, min CB, play counts and replays, and song select shows those of the judge preset chosen
   now. (The gauge set is not part of it: a play with LR2's windows and beatoraja's gauges is an LR2 play.) Course

@@ -18,6 +18,71 @@ pub enum LnType {
     Hcn,
 }
 
+impl LnType {
+    pub const ALL: [LnType; 3] = [LnType::Ln, LnType::Cn, LnType::Hcn];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LnType::Ln => "LN",
+            LnType::Cn => "CN",
+            LnType::Hcn => "HCN",
+        }
+    }
+}
+
+/// The player's LN mode: the type long notes the chart leaves untyped play
+/// as (AUTO), or, with `force`, every long note (FORCE: the chart's own
+/// types overridden).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct LnPref {
+    pub ty: LnType,
+    pub force: bool,
+}
+
+impl From<LnType> for LnPref {
+    fn from(ty: LnType) -> LnPref {
+        LnPref { ty, force: false }
+    }
+}
+
+impl LnPref {
+    /// AUTO LN, CN, HCN, then FORCE LN, CN, HCN (the order the LN MODE
+    /// option steps through).
+    pub const ALL: [LnPref; 6] = [
+        LnPref::auto(LnType::Ln),
+        LnPref::auto(LnType::Cn),
+        LnPref::auto(LnType::Hcn),
+        LnPref::forced(LnType::Ln),
+        LnPref::forced(LnType::Cn),
+        LnPref::forced(LnType::Hcn),
+    ];
+
+    pub const fn auto(ty: LnType) -> LnPref {
+        LnPref { ty, force: false }
+    }
+
+    pub const fn forced(ty: LnType) -> LnPref {
+        LnPref { ty, force: true }
+    }
+
+    /// "CN", "FORCE CN".
+    pub fn label(self) -> String {
+        match self.force {
+            true => format!("FORCE {}", self.ty.label()),
+            false => self.ty.label().into(),
+        }
+    }
+
+    /// The type a long note the chart gives type `typed` (`None`: none)
+    /// plays as.
+    pub fn plays(self, typed: Option<LnType>) -> LnType {
+        match typed {
+            Some(t) if !self.force => t,
+            _ => self.ty,
+        }
+    }
+}
+
 /// Which long notes a chart has: ones of no type (played as the player's
 /// LN mode) and ones typed by the chart (`#LNMODE`, bmson `t`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -33,13 +98,16 @@ impl LnProfile {
     }
 
     /// The LN mode a play's score, replay and IR entry are filed under:
-    /// without long notes LN (0); when every long note has its type the
-    /// chart plays the same whatever the player's mode, so the strongest
-    /// type the chart has (HCN > CN > LN; with one type, that type);
-    /// else the player's mode.
-    pub fn score_ln(self, pref: LnType) -> LnType {
-        if self.undefined {
-            pref
+    /// without long notes LN (0); with FORCE the forced type; when every
+    /// long note has its type the chart plays the same whatever the
+    /// player's AUTO mode, so the strongest type the chart has (HCN > CN >
+    /// LN; with one type, that type); else the player's mode.
+    pub fn score_ln(self, pref: impl Into<LnPref>) -> LnType {
+        let pref = pref.into();
+        if !self.has_long() {
+            LnType::Ln
+        } else if self.undefined || pref.force {
+            pref.ty
         } else if self.typed[2] {
             LnType::Hcn
         } else if self.typed[1] {
@@ -47,6 +115,15 @@ impl LnProfile {
         } else {
             LnType::Ln
         }
+    }
+
+    /// Whether the long notes play the same under `a` and `b`.
+    pub fn plays_alike(self, a: LnPref, b: LnPref) -> bool {
+        (!self.undefined || a.plays(None) == b.plays(None))
+            && LnType::ALL
+                .into_iter()
+                .filter(|t| self.typed[*t as usize])
+                .all(|t| a.plays(Some(t)) == b.plays(Some(t)))
     }
 
     /// Packed in a byte (for the song cache): bit 0 undefined, 1..3 typed.
@@ -357,6 +434,38 @@ mod tests {
         for p in [none, undefined, cn, mixed] {
             assert_eq!(LnProfile::from_bits(p.bits()), p);
         }
+        // FORCE: the forced type, but LN without long notes
+        let force = LnPref::forced(LnType::Hcn);
+        assert_eq!(
+            [none, undefined, cn, mixed].map(|p| p.score_ln(force)),
+            [LnType::Ln, LnType::Hcn, LnType::Hcn, LnType::Hcn]
+        );
+        assert_eq!(cn.score_ln(LnPref::forced(LnType::Ln)), LnType::Ln);
+    }
+
+    #[test]
+    fn forced_long_notes_play_as_forced() {
+        let (auto_cn, force_cn) = (LnPref::auto(LnType::Cn), LnPref::forced(LnType::Cn));
+        assert_eq!(auto_cn.plays(Some(LnType::Hcn)), LnType::Hcn);
+        assert_eq!(force_cn.plays(Some(LnType::Hcn)), LnType::Cn);
+        assert_eq!(auto_cn.plays(None), LnType::Cn);
+        assert_eq!(LnPref::ALL.map(|p| p.label())[3], "FORCE LN");
+        // a chart typed CN plays alike under AUTO (any) and FORCE CN, not
+        // under FORCE LN; untyped long notes go by the type alone
+        let cn = LnProfile {
+            undefined: false,
+            typed: [false, true, false],
+        };
+        let auto_ln = LnPref::auto(LnType::Ln);
+        assert!(cn.plays_alike(auto_ln, force_cn));
+        assert!(!cn.plays_alike(auto_ln, LnPref::forced(LnType::Ln)));
+        let both = LnProfile {
+            undefined: true,
+            ..cn
+        };
+        assert!(both.plays_alike(auto_cn, force_cn));
+        assert!(!both.plays_alike(LnPref::auto(LnType::Hcn), LnPref::forced(LnType::Hcn)));
+        assert!(LnProfile::default().plays_alike(auto_ln, force_cn));
     }
 
     #[test]

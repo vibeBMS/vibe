@@ -120,7 +120,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
   those of the preset chosen.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
-- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
+- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR). LN MODE (key 3 or F4 in song select,
+  PLAY OPTION's LN MODE) is AUTO LN / CN / HCN (for the long notes the chart leaves untyped) or FORCE LN / CN / HCN
+  (every long note, whatever the chart says); a FORCE play is filed under the forced type
+  ([docs/RULES.md](docs/RULES.md), "Long notes").
 - **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
   both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in

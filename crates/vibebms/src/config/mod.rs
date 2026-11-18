@@ -379,6 +379,7 @@ mod tests {
                     dp_option: DoubleOption::Flip,
                     battle: true,
                     ln_mode: LnType::Hcn,
+                    ln_force: false,
                     auto_scratch: true,
                     legacy_note: true,
                     no_mine: true,
@@ -649,12 +650,14 @@ mod tests {
     fn newer_rule_options_roundtrip() {
         let mut c = Config::default();
         c.play.freq = -3;
+        c.play.ln_force = true;
         let s = c.to_toml().unwrap();
-        assert!(s.contains("freq = -3"));
+        assert!(s.contains("freq = -3") && s.contains("ln_force = true"));
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
         // at their defaults they are not written
-        assert!(!Config::default().to_toml().unwrap().contains("freq"));
+        let d = Config::default().to_toml().unwrap();
+        assert!(!d.contains("freq") && !d.contains("ln_force"));
     }
 
     /// Files written before the rules were split from the play options

@@ -2,7 +2,7 @@
 //! chart and judge they make (the same for a play, a replay watched again
 //! and a replay checked without the app).
 
-use crate::chart::{Chart, LnProfile, LnType};
+use crate::chart::{Chart, LnPref, LnProfile, LnType, NoteKind};
 use crate::course::{CourseKind, Join};
 use crate::engine::{Engine, EngineConfig, JudgeAlgorithm};
 use crate::gauge::{GaugeAutoShift, GaugePreset, GaugeType, GrooveGauge};
@@ -29,7 +29,10 @@ pub struct RuleOptions {
     pub dp_option: DoubleOption,
     /// Play SP charts on both sides (BATTLE).
     pub battle: bool,
+    /// The LN mode: the type of the long notes the chart leaves untyped,
+    /// and with `ln_force` of every long note (LN MODE FORCE).
     pub ln_mode: LnType,
+    pub ln_force: bool,
     pub auto_scratch: bool,
     pub legacy_note: bool,
     pub no_mine: bool,
@@ -63,6 +66,7 @@ impl Default for RuleOptions {
             dp_option: DoubleOption::default(),
             battle: false,
             ln_mode: LnType::default(),
+            ln_force: false,
             auto_scratch: false,
             legacy_note: false,
             no_mine: false,
@@ -93,6 +97,18 @@ pub fn freq_label(semitones: i32) -> String {
 }
 
 impl RuleOptions {
+    /// The LN mode (AUTO or FORCE).
+    pub fn ln_pref(&self) -> LnPref {
+        LnPref {
+            ty: self.ln_mode,
+            force: self.ln_force,
+        }
+    }
+
+    pub fn set_ln_pref(&mut self, p: LnPref) {
+        (self.ln_mode, self.ln_force) = (p.ty, p.force);
+    }
+
     /// The speed the chart plays at (FREQ).
     pub fn freq_rate(&self) -> f64 {
         freq_rate(self.freq)
@@ -190,9 +206,18 @@ pub fn build_nonstop_chart(
 }
 
 /// `chart` at FREQ's speed (so the lane options' intervals are real
-/// time), arranged by `rules` (`course`: as `build_chart`'s).
+/// time), arranged by `rules` (`course`: as `build_chart`'s); with LN
+/// MODE FORCE its long notes have no type of their own (they play as the
+/// LN mode).
 fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool>) -> PlayChart {
     let ln_profile = chart.ln_profile();
+    if rules.ln_force {
+        for n in &mut chart.notes {
+            if let NoteKind::Long { ln_type, .. } = &mut n.kind {
+                *ln_type = None;
+            }
+        }
+    }
     let rate = rules.freq_rate();
     if rate != 1.0 {
         chart = crate::practice::retime(chart, 0, rate);
@@ -439,6 +464,45 @@ mod tests {
                 assert_eq!(r.freq, 0, "{kind:?}");
             }
         }
+    }
+
+    /// FORCE plays every long note as the LN mode, whatever its type; the
+    /// long notes as written stay the chart's (`ln_profile`).
+    #[test]
+    fn ln_mode_force_overrides_the_charts_types() {
+        // a CN typed by #LNMODE 2 on key 1 and a note on key 2
+        let text = "#BPM 120\n#LNMODE 2\n#WAV01 a.wav\n#00151:0101\n#00112:01\n";
+        let at = |ln_mode: LnType, ln_force: bool| {
+            let rules = RuleOptions {
+                ln_mode,
+                ln_force,
+                ..Default::default()
+            };
+            let p = build_chart(Path::new("c.bme"), text.as_bytes(), &rules, 1, None).unwrap();
+            let (e, _) = build_engine(&p.chart, &rules, None, false);
+            (p, e.score.total_notes, rules)
+        };
+        // AUTO: the chart's CN, its end judged (3 judgements)
+        let (p, n, _) = at(LnType::Hcn, false);
+        assert_eq!(n, 3);
+        assert_eq!(p.ln_profile.typed, [false, true, false]);
+        // FORCE LN: an LN, judged once; filed under LN
+        let (p, n, rules) = at(LnType::Ln, true);
+        assert_eq!(n, 2);
+        assert!(p.chart.notes.iter().all(|n| !matches!(
+            n.kind,
+            NoteKind::Long {
+                ln_type: Some(_),
+                ..
+            }
+        )));
+        assert_eq!(p.ln_profile.typed, [false, true, false]);
+        assert_eq!(p.ln_profile.score_ln(rules.ln_pref()), LnType::Ln);
+        // FORCE HCN: filed under HCN, the AUTO plays under CN
+        let (p, n, rules) = at(LnType::Hcn, true);
+        assert_eq!(n, 3);
+        assert_eq!(p.ln_profile.score_ln(rules.ln_pref()), LnType::Hcn);
+        assert_eq!(p.ln_profile.score_ln(LnType::Hcn), LnType::Cn);
     }
 
     /// Two stages of an expert course: the second starts from the first's

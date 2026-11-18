@@ -82,7 +82,7 @@ impl PlayScene {
             .or(vs.then_some("VS"))
             .or(practice.map(|_| "PRACTICE"))
             .or((rules.freq < 0).then_some("FREQ"));
-        let ln = rules.ln_mode;
+        let ln = rules.ln_pref();
         let score_ln = ln_profile.score_ln(ln);
         // AUTO SCRATCH is an assist when it plays scored notes
         facts.auto_scratch = p.auto_scratch
@@ -138,7 +138,7 @@ impl PlayScene {
         // VS: the second player with their own options
         if vs {
             let mut r = p.for_side(1).rules;
-            r.ln_mode = ln;
+            r.set_ln_pref(ln);
             let (engine, _) = build_engine(&chart, &r, Some(1), self.req.autoplay);
             sides.push(SideState::new(engine, Role::Player));
         }

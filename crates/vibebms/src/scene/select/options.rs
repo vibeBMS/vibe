@@ -24,7 +24,7 @@ use vibebms_audio::Bus;
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::LaneOption;
-use vibebms_core::LnType;
+use vibebms_core::LnPref;
 
 /// beatoraja: a held panel key repeats after 300 ms, every 50 ms.
 pub(super) const PANEL_REPEAT_DELAY: Duration = Duration::from_millis(300);
@@ -255,7 +255,7 @@ impl SelectOption {
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
-            SelectOption::LnMode => format!("{:?}", p.ln_mode).to_uppercase(),
+            SelectOption::LnMode => p.ln_pref().label(),
             SelectOption::HiSpeedDown => match p.hs_type {
                 HsType::Normal => format!("NHS {}", p.hs_level),
                 _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(REFERENCE_BPMS))),
@@ -334,7 +334,8 @@ impl SelectScene {
                 p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d)
             }
             SelectOption::LnMode => {
-                p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode, d)
+                let ln = cycle(&LnPref::ALL, p.ln_pref(), d);
+                p.set_ln_pref(ln)
             }
             SelectOption::HiSpeedDown => p.add_hispeed(-HISPEED_STEP * d as f32, &bpm),
             SelectOption::HiSpeedUp => p.add_hispeed(HISPEED_STEP * d as f32, &bpm),

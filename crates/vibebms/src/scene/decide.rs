@@ -78,7 +78,7 @@ impl<'a> DecideState<'a> {
             s,
             ctx,
             song,
-            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_mode)),
+            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_pref())),
             chart: song.map(ChartFacts::of_song),
             table: OnceCell::new(),
         }

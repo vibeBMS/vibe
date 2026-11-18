@@ -524,7 +524,7 @@ impl Ctx {
     /// The chart's record with the player's LN mode `pref` (filed under
     /// the chart's own when its long notes all have their type) under
     /// the player's rule mode.
-    pub fn best(&self, song: &Song, pref: vibebms_core::LnType) -> Option<&BestScore> {
+    pub fn best(&self, song: &Song, pref: impl Into<vibebms_core::LnPref>) -> Option<&BestScore> {
         let rule = self.config.play.judge_preset;
         self.best_key(&song.sha256, song.score_ln(pref) as i32, rule)
     }

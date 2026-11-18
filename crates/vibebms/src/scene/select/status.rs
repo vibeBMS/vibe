@@ -275,16 +275,18 @@ impl SelectScene {
         let p = &ctx.config.play;
         let key = format!(
             "{}\u{1f}{:?}\u{1f}{:?}",
-            song.path, p.ln_mode, p.judge_preset
+            song.path,
+            p.ln_pref(),
+            p.judge_preset
         );
         if self.files.borrow().key != key {
-            let ln = song.score_ln(p.ln_mode) as i32;
+            let ln = song.score_ln(p.ln_pref()) as i32;
             let replay = crate::replay::exists(
                 &ctx.paths.root,
                 &song.sha256,
                 ln,
                 p.judge_preset,
-                song.fixed_ln(),
+                song.fixed_ln() && !p.ln_force,
             );
             *self.files.borrow_mut() = ChartFiles {
                 key,

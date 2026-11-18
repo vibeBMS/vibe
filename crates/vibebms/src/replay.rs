@@ -121,8 +121,9 @@ pub fn exists(root: &Path, sha256: &str, ln: i32, rule: JudgePreset, fixed: bool
 pub fn ghost_refusal(
     r: &Replay,
     song: &crate::library::Song,
-    ln: vibebms_core::LnType,
+    ln: impl Into<vibebms_core::LnPref>,
 ) -> Option<&'static str> {
+    let ln = ln.into();
     use vibebms_core::PlayMode;
     Some(
         if !matches!(song.mode, PlayMode::Beat7K | PlayMode::Beat5K) {
@@ -133,7 +134,7 @@ pub fn ghost_refusal(
             "the replay has no inputs"
         } else if r.play.legacy_note {
             "the replay is a LEGACY NOTE play"
-        } else if song.score_ln(r.play.ln_mode) != song.score_ln(ln) {
+        } else if !song.plays_ln_alike(r.play.ln_pref(), ln) {
             "the replay was played in another LN mode"
         } else {
             return None;

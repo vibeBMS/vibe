@@ -11,7 +11,7 @@ use crate::scene::select::REFERENCE_BPMS;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
-use vibebms_core::LnType;
+use vibebms_core::LnPref;
 
 /// A judge offset: 1 ms steps within ±500.
 fn offset(o: &mut i32, d: i32) {
@@ -88,13 +88,14 @@ pub(super) fn rows(b: &mut Rows) {
         Row::adjust(
             "play.ln_mode",
             "LN mode",
-            format!("{:?}", p.ln_mode).to_uppercase(),
+            p.ln_pref().label(),
             |c, d| {
-                let all = [LnType::Ln, LnType::Cn, LnType::Hcn];
-                c.config.play.ln_mode = cycle(&all, c.config.play.ln_mode, d)
+                let p = &mut c.config.play;
+                let ln = cycle(&LnPref::ALL, p.ln_pref(), d);
+                p.set_ln_pref(ln)
             },
         )
-        .desc("For charts that do not say: LN, CN or HCN.")
+        .desc("For charts that do not say: LN, CN or HCN. FORCE: for every long note, whatever the chart says.")
         .keys("long note charge"),
         Row::adjust(
             "play.hispeed_mode",

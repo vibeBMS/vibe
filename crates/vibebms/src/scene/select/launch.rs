@@ -162,8 +162,8 @@ impl SelectScene {
             return Next::Stay;
         };
         let song = song.clone();
-        let ln = song.score_ln(ctx.config.play.ln_mode) as i32;
-        let fixed = song.fixed_ln();
+        let ln = song.score_ln(ctx.config.play.ln_pref()) as i32;
+        let fixed = song.fixed_ln() && !ctx.config.play.ln_force;
         let rule = ctx.config.play.judge_preset;
         let load = |slot| replay::load_filed(&ctx.paths.root, &song.sha256, ln, rule, fixed, slot);
         let Some(r) = load(Slot::Best).or_else(|| load(Slot::Last)) else {
