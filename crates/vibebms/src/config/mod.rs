@@ -94,6 +94,10 @@ pub struct AudioSettings {
     pub preview: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub preview_once: bool,
+    /// Windows: the device in WASAPI exclusive mode (else shared).
+    #[cfg(windows)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub exclusive: bool,
 }
 
 impl Default for AudioSettings {
@@ -107,6 +111,8 @@ impl Default for AudioSettings {
             system: 0.7,
             preview: true,
             preview_once: false,
+            #[cfg(windows)]
+            exclusive: false,
         }
     }
 }
@@ -494,6 +500,8 @@ mod tests {
                 system: 0.125,
                 preview: false,
                 preview_once: true,
+                #[cfg(windows)]
+                exclusive: false,
             },
             tables: vec![
                 TableConfig {

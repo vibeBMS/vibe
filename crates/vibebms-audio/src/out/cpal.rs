@@ -1,6 +1,7 @@
-//! The mixer on a cpal output stream, rendered in its callback. A device
-//! that goes away is opened again; meanwhile, and without any device, the
-//! mixer goes on silently by the wall clock (`null`).
+//! The mixer on a cpal output stream, rendered in its callback (on
+//! Windows first on a WASAPI stream of its own: `wasapi`). A device that
+//! goes away is opened again; meanwhile, and without any device, the mixer
+//! goes on silently by the wall clock (`null`).
 
 use super::null::{Silent, SILENT_BUFFER, SILENT_RATE};
 use super::{us_since, Device, Output};
@@ -33,10 +34,18 @@ impl Mix {
     }
 }
 
+/// An output stream: cpal's, or on Windows WASAPI's.
+enum Stream {
+    Cpal(cpal::Stream),
+    /// Only held: dropping it stops it.
+    #[cfg(windows)]
+    Wasapi(#[allow(dead_code)] super::wasapi::Stream),
+}
+
 pub(crate) struct CpalOut {
     tx: Sender<Cmd>,
     mix: Arc<Mutex<Mix>>,
-    stream: Option<cpal::Stream>,
+    stream: Option<Stream>,
     /// The stream reported its device gone.
     lost: Arc<AtomicBool>,
     /// Samples of the voices that ended, to drop here.
@@ -49,6 +58,9 @@ pub(crate) struct CpalOut {
     silent: Option<Silent>,
     /// When to try to open the output again (after it was lost).
     retry_at: Option<Instant>,
+    /// Exclusive mode was asked for and not had: why, for the player.
+    #[cfg(windows)]
+    notice: Option<String>,
 }
 
 impl CpalOut {
@@ -67,9 +79,11 @@ impl CpalOut {
             epoch,
             silent: None,
             retry_at: None,
+            #[cfg(windows)]
+            notice: None,
         };
-        match open_stream(cfg, &out.mix, &out.lost, epoch) {
-            Ok((stream, dev)) => {
+        match out.start(cfg) {
+            Ok(dev) => {
                 log::info!(
                     "audio: {} {} Hz, buffer {} frames",
                     dev.name,
@@ -77,7 +91,6 @@ impl CpalOut {
                     dev.buffer
                 );
                 out.rate = dev.rate;
-                out.stream = Some(stream);
                 (out, dev)
             }
             Err(e) => {
@@ -92,6 +105,29 @@ impl CpalOut {
                 (out, dev)
             }
         }
+    }
+
+    /// Open the output stream: on Windows WASAPI's (in exclusive mode when
+    /// asked and had, else shared), else, or when that fails, cpal's.
+    fn start(&mut self, cfg: &AudioConfig) -> Result<Device, String> {
+        #[cfg(windows)]
+        {
+            use super::wasapi;
+            let (opened, notice) = wasapi::exclusive_or_shared(cfg.exclusive, |mode| {
+                wasapi::open(mode, cfg, &self.mix, &self.lost, self.epoch)
+            });
+            self.notice = notice.or(self.notice.take());
+            match opened {
+                Ok((stream, dev)) => {
+                    self.stream = Some(Stream::Wasapi(stream));
+                    return Ok(dev);
+                }
+                Err(e) => log::warn!("audio: WASAPI output: {e}; trying cpal's"),
+            }
+        }
+        let (stream, dev) = open_stream(cfg, &self.mix, &self.lost, self.epoch)?;
+        self.stream = Some(Stream::Cpal(stream));
+        Ok(dev)
     }
 
     fn go_silent(&mut self) {
@@ -124,8 +160,8 @@ impl Output for CpalOut {
             sample_rate: self.rate,
             ..self.cfg.clone()
         };
-        match open_stream(&cfg, &self.mix, &self.lost, self.epoch) {
-            Ok((stream, dev)) => {
+        match self.start(&cfg) {
+            Ok(dev) => {
                 log::info!(
                     "audio: reopened {} {} Hz, buffer {} frames",
                     dev.name,
@@ -139,7 +175,6 @@ impl Output for CpalOut {
                         self.rate
                     );
                 }
-                self.stream = Some(stream);
                 self.silent = None;
                 self.retry_at = None;
                 Some(dev)
@@ -153,9 +188,14 @@ impl Output for CpalOut {
     }
 
     fn resume(&self) {
-        if let Some(s) = &self.stream {
+        if let Some(Stream::Cpal(s)) = &self.stream {
             let _ = s.play();
         }
+    }
+
+    #[cfg(windows)]
+    fn take_notice(&mut self) -> Option<String> {
+        self.notice.take()
     }
 }
 

@@ -1,0 +1,35 @@
+name: Rust setup
+description: >-
+  The stable toolchain with the given targets and components, the build cache,
+  and (for a build) the CI version stamped into Cargo.toml.
+
+inputs:
+  targets:
+    description: Extra targets, comma separated
+    default: ""
+  components:
+    description: Extra components, comma separated
+    default: ""
+  cache-key:
+    description: rust-cache key (empty for the job's default)
+    default: ""
+  stamp:
+    description: "true: stamp the CI version (tools/ci_version.sh)"
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      with:
+        toolchain: stable
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: ${{ inputs.cache-key }}
+    # CI builds are <version>-nightly.<run>+<commit> (after the cache step,
+    # whose key reads Cargo.toml)
+    - if: inputs.stamp == 'true'
+      run: ./tools/ci_version.sh
+      shell: bash

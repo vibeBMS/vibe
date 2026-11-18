@@ -3956,7 +3956,7 @@ fn windows_base_tables() {
         )
     );
     for mode in [PlayMode::Beat5K, PlayMode::Beat7K, PlayMode::Popn9K] {
-        // IIDX (DX MODE): 9 keys PMS's flags, every other mode 7 keys'
+        // IIDX: 9 keys PMS's flags, every other mode 7 keys'
         let a = rules(JudgePreset::Iidx, mode, JudgeRank::Rank(2), None);
         let like = match mode {
             PlayMode::Popn9K => mode,
@@ -4263,8 +4263,8 @@ fn windows_lr2() {
     assert_eq!(w.ln_margin, 0);
 }
 
-/// §2.6: IIDX preset (DX MODE), rank-independent: frames of 120 Hz; 9 keys
-/// pop'n's windows in ms, not quantised.
+/// §2.6: IIDX preset (the arcade), rank-independent: frames of 120 Hz; 9
+/// keys pop'n's windows in ms, not quantised.
 #[test]
 fn windows_iidx() {
     for rank in [
@@ -4278,13 +4278,13 @@ fn windows_iidx() {
                 (-16_667, 16_667),
                 (-33_333, 33_333),
                 (-116_667, 116_667),
-                (-200_000, 200_000),
-                (-200_000, 500_000),
+                (-250_000, 250_000),
+                (-150_000, 500_000),
             ];
             assert_eq!(w.note, note);
             assert_eq!(w.scratch, note);
             let good = (-116_667, 116_667);
-            let ln = [good, good, good, (-200_000, 200_000)];
+            let ln = [good, good, good, (-250_000, 250_000)];
             assert_eq!(w.ln_end, ln);
             assert_eq!(w.scratch_ln_end, ln);
             assert_eq!(

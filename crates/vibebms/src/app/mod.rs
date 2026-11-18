@@ -321,7 +321,9 @@ impl Running {
         }
         self.poll_gamepads(el);
         self.ctx.poll_jobs();
-        self.ctx.audio.mixer.keep_alive();
+        if let Some(m) = self.ctx.audio.mixer.keep_alive() {
+            self.ctx.toast(m);
+        }
         self.ctx.audio.sounds.poll(&self.ctx.audio.mixer);
         #[cfg(target_arch = "wasm32")]
         crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
@@ -470,6 +472,8 @@ impl App {
             bgm_volume: a.bgm,
             system_volume: a.system,
             max_voices: 512,
+            #[cfg(windows)]
+            exclusive: a.exclusive,
         });
         let size = {
             let (width, height) = surface_size(&window);

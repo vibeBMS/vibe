@@ -153,7 +153,7 @@ crate::choices! {
         Beatoraja => "beatoraja",
         /// beatoraja's LR2-compatible gauge set.
         Lr2 => "LR2",
-        /// IIDX DX MODE's gauges (9 keys: pop'n's).
+        /// The IIDX arcade's gauges (9 keys: pop'n's).
         Iidx => "IIDX",
     }
 }
@@ -229,7 +229,7 @@ const fn e(
     }
 }
 
-/// A survival gauge that empties below 2 % (LR2's, IIDX DX MODE's).
+/// A survival gauge that empties below 2 % (LR2's).
 const fn survival(g: GaugeElement) -> GaugeElement {
     GaugeElement { death: 2.0, ..g }
 }
@@ -271,7 +271,9 @@ const HARD_GUTS: &[(f32, f32)] = &[(10.0, 0.4), (20.0, 0.5), (30.0, 0.6), (40.0,
 #[rustfmt::skip]
 const CLASS_GUTS: &[(f32, f32)] = &[(5.0, 0.4), (10.0, 0.5), (15.0, 0.6), (20.0, 0.7), (25.0, 0.8)];
 const LR2_GUTS: &[(f32, f32)] = &[(32.0, 0.6)];
-const IIDX_GUTS: &[(f32, f32)] = &[(30.0, 0.5)];
+// at or below 30 %: below the f32 just above 30
+const IIDX_GUTS: &[(f32, f32)] = &[(f32::from_bits(30.0f32.to_bits() + 1), 0.5)];
+const POP_GUTS: &[(f32, f32)] = &[(30.0, 0.5)];
 
 // One row per GaugeType, in its order: e(modifier, min, max, init, border,
 // [PG, GR, GD, BD, POOR, empty POOR], guts).
@@ -334,23 +336,24 @@ const LR2: [GaugeElement; 11] = [
     survival(e(None,            0.0, 100.0, 100.0, 0.0,  [ 0.1, -1.0, -100.0, -100.0, -100.0, -100.0], LR2_GUTS)),
     survival(e(Some(Lr2Attack), 0.0, 100.0, 100.0, 0.0,  [-10.0, -1.0,  0.1,   -6.0,  -10.0,  -2.0], LR2_GUTS)),
 ];
-// IIDX DX MODE (docs/RULES.md, "IIDX set"): the groove gauges start at 22 %,
-// HARD and the CLASS gauge take half the damage below 30 %, the survival
-// gauges empty below 2 %. Gains use the chart's TOTAL.
+// The IIDX arcade (docs/RULES.md, "IIDX set"): the groove gauges start at
+// 22 %, HARD and the dan (CLASS) gauge take half the damage at or below
+// 30 %, the survival gauges fail at 0 %. Gains use the chart's TOTAL.
 #[rustfmt::skip]
 const IIDX: [GaugeElement; 9] = [
-    e(         Some(Total), 2.0, 100.0, 22.0,  60.0, [ 1.0,  1.0,  0.5,   -1.6,   -4.8,  -1.6], &[]),
-    e(         Some(Total), 2.0, 100.0, 22.0,  80.0, [ 1.0,  1.0,  0.5,   -1.6,   -4.8,  -1.6], &[]),
-    e(         Some(Total), 2.0, 100.0, 22.0,  80.0, [ 1.0,  1.0,  0.5,   -2.0,   -6.0,  -2.0], &[]),
-    survival(e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -4.5,   -9.0,  -4.5], IIDX_GUTS)),
-    survival(e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -9.0,  -18.0,  -9.0], &[])),
-    survival(e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0, -100.0, -100.0,  -9.0], &[])),
-    survival(e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -1.5,   -2.5,  -1.5], IIDX_GUTS)),
-    survival(e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -3.0,   -5.0,  -3.0], &[])),
-    survival(e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -6.0,  -10.0,  -6.0], &[])),
+    e(Some(Total), 2.0, 100.0, 22.0,  60.0, [ 1.0,  1.0,  0.5,   -1.6,   -4.8,  -1.6], &[]),
+    e(Some(Total), 2.0, 100.0, 22.0,  80.0, [ 1.0,  1.0,  0.5,   -1.6,   -4.8,  -1.6], &[]),
+    e(Some(Total), 2.0, 100.0, 22.0,  80.0, [ 1.0,  1.0,  0.5,   -2.0,   -6.0,  -2.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,   -5.0,   -9.0,  -5.0], IIDX_GUTS),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0,  -10.0,  -18.0, -10.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16,  0.0, -100.0, -100.0, -10.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -1.5,   -2.5,  -1.5], IIDX_GUTS),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -3.0,   -5.0,  -3.0], &[]),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.16, 0.16, 0.04,   -6.0,  -10.0,  -6.0], &[]),
 ];
-// 9 keys under the IIDX set: DX MODE's pop'n (POP) gauges. ASSIST EASY to
-// EX-HARD are groove gauges (2 .. 120 %, from 30 %); no 2 % rule.
+// 9 keys under the IIDX set: pop'n's (POP) gauges, the arcade pop'n's
+// 24-segment gauge on a 120 % scale. ASSIST EASY to EX-HARD are groove
+// gauges (2 .. 120 %, from 30 %); no 2 % rule.
 #[rustfmt::skip]
 const IIDX_POP: [GaugeElement; 9] = [
     e(Some(Total), 2.0, 120.0, 30.0,  65.0, [ 1.2,  1.2,  0.6,  -0.937,  -2.929,  -2.929], &[]),
@@ -359,7 +362,7 @@ const IIDX_POP: [GaugeElement; 9] = [
     e(Some(Total), 2.0, 120.0, 30.0,  85.0, [ 1.2,  1.2,  0.6,  -3.984, -11.952, -11.952], &[]),
     e(Some(Total), 2.0, 120.0, 30.0,  85.0, [ 1.2,  1.2,  0.6,  -7.968, -23.906, -23.906], &[]),
     e(None,        0.0, 100.0, 100.0, 0.0,  [0.15, 0.06,  0.0,  -100.0,  -100.0,  -100.0], &[]),
-    e(None,        0.0, 100.0, 100.0, 0.0,  [0.15, 0.15, 0.06,    -1.5,    -3.0,    -3.0], IIDX_GUTS),
+    e(None,        0.0, 100.0, 100.0, 0.0,  [0.15, 0.15, 0.06,    -1.5,    -3.0,    -3.0], POP_GUTS),
     e(None,        0.0, 100.0, 100.0, 0.0,  [0.15, 0.15, 0.03,    -3.0,    -6.0,    -6.0], &[]),
     e(None,        0.0, 100.0, 100.0, 0.0,  [0.15, 0.15,  0.0,    -5.0,   -10.0,   -10.0], &[]),
 ];
@@ -901,21 +904,33 @@ mod tests {
         assert!(!b.is_dead());
     }
 
-    /// The IIDX set as DX MODE (docs/RULES.md, S19): HARD -4.5, -9, -4.5
-    /// halved below 30 %, the survival gauges empty below 2 %; 9 keys the
-    /// POP gauges, whose HARD is a groove gauge from 30 %.
+    /// The IIDX set as the arcade (docs/RULES.md, "IIDX set"): HARD -5,
+    /// -9, -5 halved at or below 30 %, EX-HARD twice that and never
+    /// halved, the survival gauges failing at 0 %; 9 keys the POP gauges,
+    /// whose HARD is a groove gauge from 30 %.
     #[test]
-    fn iidx_dx_mode() {
+    fn iidx_arcade() {
         let set = |fam| gauge_elements(GaugePreset::Iidx, fam);
         let mut h = Gauge::new(GaugeType::Hard, &set(RuleFamily::SevenKeys)[3], 300.0, 1000);
         h.update(Judge::Bad, 1.0);
-        assert!((h.value() - 95.5).abs() < 1e-4);
-        h.set_value(29.0);
+        assert!((h.value() - 95.0).abs() < 1e-4);
+        h.set_value(30.0);
         h.update(Judge::Poor, 1.0);
-        assert!((h.value() - 24.5).abs() < 1e-4);
-        h.set_value(3.0);
-        h.update(Judge::Bad, 1.0);
+        assert!((h.value() - 25.5).abs() < 1e-4);
+        h.set_value(30.5);
+        h.update(Judge::Poor, 1.0);
+        assert!((h.value() - 21.5).abs() < 1e-4);
+        h.set_value(2.0);
+        h.update(Judge::Miss, 1.0);
         assert!(h.is_dead());
+        let ex = &set(RuleFamily::SevenKeys)[4];
+        let mut x = Gauge::new(GaugeType::ExHard, ex, 300.0, 1000);
+        x.set_value(19.0);
+        x.update(Judge::Poor, 1.0);
+        assert!((x.value() - 1.0).abs() < 1e-4);
+        assert!(!x.is_dead());
+        x.update(Judge::Bad, 1.0);
+        assert!(x.is_dead());
         for fam in [RuleFamily::FiveKeys, RuleFamily::SevenKeys] {
             assert_eq!(set(fam), &IIDX);
         }

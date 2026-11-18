@@ -15,7 +15,8 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
     let a = &ctx.config.audio;
     let mix = &ctx.audio.mixer;
     let sound_set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
-    vec![
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut v = vec![
         Row::adjust("Master volume", percent(a.master), |c, d| {
             let v = volume(&mut c.config.audio.master, d);
             c.audio.mixer.set_master(v);
@@ -77,5 +78,12 @@ pub(super) fn rows(ctx: &Ctx) -> Vec<Row> {
                 mix.latency_us() as f64 / 1000.0
             ),
         ),
-    ]
+    ];
+    #[cfg(windows)]
+    v.push(Row::adjust(
+        "Output mode (restart)",
+        if a.exclusive { "EXCLUSIVE" } else { "SHARED" },
+        |c, _| c.config.audio.exclusive ^= true,
+    ));
+    v
 }
