@@ -398,7 +398,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0-dev"
-source = "git+https://github.com/vibeBMS/BMSeeker#d56655f98a4f77053e51ec722bd64c82a31a46fa"
+source = "git+https://github.com/vibeBMS/BMSeeker#5c317966aaffe6077e279183d1aca1663803a6d1"
 dependencies = [
  "aes",
  "delharc",
@@ -410,6 +410,7 @@ dependencies = [
  "serde_json",
  "sevenz-rust2",
  "sha2 0.11.1",
+ "tar",
  "unicode-normalization",
  "unrar-rs",
  "ureq",
@@ -1982,7 +1983,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.58.0",
 ]
 
 [[package]]
@@ -4604,6 +4605,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4616,7 +4627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
