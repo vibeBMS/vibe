@@ -16,8 +16,8 @@ thread_local! {
 
 /// Hook up the pickers of `web/index.html`:
 /// `<input id="bms-input" webkitdirectory>` (a folder) and
-/// `<input id="bms-files" multiple>` (files and .zip / .7z / .rar / .lzh song packs; iPad
-/// Safari cannot pick folders).
+/// `<input id="bms-files" multiple>` (files and .zip / .7z / .rar / .lzh / .tar / .tar.gz
+/// song packs; iPad Safari cannot pick folders).
 pub fn install_file_input(root: PathBuf) {
     ROOT.with(|r| *r.borrow_mut() = Some(root.clone()));
     let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
@@ -39,11 +39,7 @@ pub fn install_file_input(root: PathBuf) {
                 crate::platform::vfs::add_files(&root, &files, "picked");
                 for i in 0..files.length() {
                     if let Some(f) = files.get(i) {
-                        let name = f.name().to_lowercase();
-                        if [".zip", ".7z", ".rar", ".lzh"]
-                            .iter()
-                            .any(|e| name.ends_with(e))
-                        {
+                        if crate::platform::arcfs::is_archive(Path::new(&f.name())) {
                             mount_zip_file(f);
                         }
                     }
@@ -55,7 +51,8 @@ pub fn install_file_input(root: PathBuf) {
     }
 }
 
-/// Read a picked song pack (.zip / .7z / .rar / .lzh) and unpack it.
+/// Read a picked song pack (.zip / .7z / .rar / .lzh / .tar / .tar.gz) and
+/// unpack it.
 fn mount_zip_file(f: web_sys::File) {
     wasm_bindgen_futures::spawn_local(async move {
         let name = f.name();
@@ -69,8 +66,8 @@ fn mount_zip_file(f: web_sys::File) {
     });
 }
 
-/// Unpack a song pack (.zip / .7z / .rar / .lzh) into the library. Returns the
-/// number of files added.
+/// Unpack a song pack (.zip / .7z / .rar / .lzh / .tar / .tar.gz) into the
+/// library. Returns the number of files added.
 fn mount_zip(name: &str, data: &[u8]) -> usize {
     let Some(root) = ROOT.with(|r| r.borrow().clone()) else {
         return 0;

@@ -456,18 +456,14 @@ mod imp {
     /// Mount files chosen with `<input type=file webkitdirectory>` below `<root>/bms/`.
     /// Mount picked files under `<root>/bms/` (by their path in a picked
     /// folder, else under `<root>/bms/<sub>/`). Song packs (.zip, .7z,
-    /// .rar, .lzh) are skipped: see `add_zip`.
+    /// .rar, .lzh, .tar, .tar.gz) are skipped: see `add_zip`.
     pub fn add_files(root: &Path, files: &web_sys::FileList, sub: &str) {
         FS.with(|fs| {
             let mut fs = fs.borrow_mut();
             for i in 0..files.length() {
                 let Some(f) = files.get(i) else { continue };
                 // (song packs are unpacked: `web::install_file_input`)
-                let name = f.name().to_lowercase();
-                if [".zip", ".7z", ".rar", ".lzh"]
-                    .iter()
-                    .any(|e| name.ends_with(e))
-                {
+                if super::super::arcfs::is_archive(Path::new(&f.name())) {
                     continue;
                 }
                 let rel = js_sys::Reflect::get(&f, &JsValue::from_str("webkitRelativePath"))
@@ -486,20 +482,19 @@ mod imp {
         });
     }
 
-    /// Unpack an archive (a song pack: .zip, .7z, .rar, .lzh) under
-    /// `<root>/bms/<archive name>/`. Returns the files added.
+    /// Unpack an archive (a song pack: .zip, .7z, .rar, .lzh, .tar,
+    /// .tar.gz) under `<root>/bms/<archive name>/`. Returns the files added.
     pub fn add_zip(root: &Path, name: &str, bytes: Vec<u8>) -> usize {
         add_archive_at(&root.join("bms"), name, bytes)
     }
 
-    /// Unpack an archive under `<dir>/<archive name>/` (entry names in
-    /// Shift_JIS / EUC-KR decoded; archives in one holding no chart
-    /// unpacked too).
+    /// Unpack an archive under `<dir>/<archive name>/` (`Song.tar.gz`:
+    /// `Song/`; entry names in Shift_JIS / EUC-KR decoded; archives in one
+    /// holding no chart unpacked too).
     pub fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
-        let stem = Path::new(name)
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
+        let stem = (super::super::arcfs::archive_stem(name).map(str::to_owned))
+            .or_else(|| Some(Path::new(name).file_stem()?.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
         match unpack(Blob::Bytes(bytes), &crate::placement::Vfs, &base, BUDGET) {
