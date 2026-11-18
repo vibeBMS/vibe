@@ -69,6 +69,11 @@ pub const OPTION_REPLAY: i32 = 9220;
 pub const OPTION_HAS_TEXT: i32 = 9221;
 /// vibeBMS option: a search's results are shown.
 pub const OPTION_SEARCH: i32 = 9222;
+/// vibeBMS options of SYSTEM OPTION: FAST / SLOW shown, full screen, full
+/// screen can be switched (desktop).
+pub const OPTION_FAST_SLOW: i32 = 9235;
+pub const OPTION_FULLSCREEN: i32 = 9236;
+pub const OPTION_WINDOWED: i32 = 9237;
 pub const OPTION_SAVE: i32 = 9230;
 pub const OPTION_ONLINE: i32 = 9233;
 pub const OPTION_OFFLINE: i32 = 9234;
@@ -80,6 +85,8 @@ pub const OPTION_CLEAR_RATE: i32 = 9251;
 /// and cleared (9300-9303).
 pub const NUMBER_CLEAR_RATE: i32 = 9250;
 pub const NUMBER_VOLUME: i32 = 9260;
+/// vibeBMS number: the visual offset (ms).
+pub const NUMBER_VISUAL_OFFSET: i32 = 9264;
 pub const NUMBER_FOLDER: i32 = 9300;
 /// vibeBMS numbers and rates: the selected folder's charts of lamp c
 /// (9310 + c, beatoraja order; 9321 FULL COMBO or better) and of DJ level
@@ -330,6 +337,9 @@ impl<'a> SelectState<'a> {
                 .is_some_and(|c| c as i32 == n - OPTION_CLEAR),
             OPTION_CLEAR_RATE => self.rank_view().and_then(status::clear_rate).is_some(),
             OPTION_SEARCH => self.s.query().is_some(),
+            OPTION_FAST_SLOW => ctx.config.play.show_fast_slow,
+            OPTION_FULLSCREEN => ctx.config.display.fullscreen,
+            OPTION_WINDOWED => super::options::WINDOWED,
             n @ OPTION_BAR..=9492 => self
                 .bar(self.s.cursor)
                 .is_some_and(|b| b.kind as i32 == n - OPTION_BAR),
@@ -443,6 +453,7 @@ impl<'a> SelectState<'a> {
             3 => matches!(self.bar, Some(Bar::Course(_))),
             5 => song.is_some(),
             32 | 33 | 40..=43 | 1046 => return play_option(p.autoplay, p.bga, p.gauge, id),
+            30 | 31 | 34..=39 => return display_option(p, id),
             100..=105 | 1100..=1104 => {
                 let c = self.best.map(|b| b.clear).unwrap_or(ClearType::NoPlay);
                 song.is_some() && lamp_option(c, id).unwrap_or(false)
@@ -508,6 +519,7 @@ impl SkinState for SelectState<'_> {
         Some(match id {
             20 => self.ctx.view.fps as i64,
             12 => p.judge_offset_ms as i64,
+            NUMBER_VISUAL_OFFSET => p.visual_offset_ms as i64,
             // a selected song's record (0 when never played)
             71 | 75..=84 | 102 | 103 | BEST_MIN_CB if song.is_some() => {
                 return best_number(self.best, id)

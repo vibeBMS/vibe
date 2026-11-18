@@ -7,7 +7,7 @@ use super::skin::{panel_of_op, PANELS};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
-use crate::config::AudioSettings;
+use crate::config::{AudioSettings, BgaSize, Ghost};
 use crate::config::{
     Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, Side, SortMode, Versus,
     HISPEED_STEP,
@@ -62,10 +62,13 @@ pub(crate) enum SelectOption {
     BgmVolume,
     SystemVolume,
     Preview,
+    BgaSize,
+    Ghost,
+    ScoreGraph,
 }
 
 /// Full screen can be switched (desktop).
-const WINDOWED: bool = !cfg!(any(target_arch = "wasm32", target_os = "android"));
+pub(super) const WINDOWED: bool = !cfg!(any(target_arch = "wasm32", target_os = "android"));
 
 /// The song preview: ONCE, LOOP, OFF.
 fn preview_index(a: &AudioSettings) -> i32 {
@@ -77,7 +80,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 29] = [
+    pub const ALL: [SelectOption; 32] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -107,6 +110,9 @@ impl SelectOption {
         SelectOption::BgmVolume,
         SelectOption::SystemVolume,
         SelectOption::Preview,
+        SelectOption::BgaSize,
+        SelectOption::Ghost,
+        SelectOption::ScoreGraph,
     ];
 
     pub fn name(self) -> &'static str {
@@ -140,6 +146,9 @@ impl SelectOption {
             SelectOption::BgmVolume => "BGM",
             SelectOption::SystemVolume => "SYSTEM",
             SelectOption::Preview => "PREVIEW",
+            SelectOption::BgaSize => "BGA SIZE",
+            SelectOption::Ghost => "GHOST POSITION",
+            SelectOption::ScoreGraph => "SCORE GRAPH",
         }
     }
 
@@ -180,6 +189,9 @@ impl SelectOption {
             SelectOption::Preview => {
                 ["ONCE", "LOOP", "OFF"][preview_index(&ctx.config.audio) as usize].into()
             }
+            SelectOption::BgaSize => p.bga_size.label().into(),
+            SelectOption::Ghost => p.ghost.label().into(),
+            SelectOption::ScoreGraph => onoff(p.score_graph).into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
@@ -298,6 +310,9 @@ impl SelectScene {
                 self.toggle_favorite(ctx, o == SelectOption::FavoriteSong)
             }
             SelectOption::LaneCover => p.lane_cover ^= true,
+            SelectOption::BgaSize => p.bga_size = cycle(&BgaSize::ALL, p.bga_size, d),
+            SelectOption::Ghost => p.ghost = cycle(&Ghost::ALL, p.ghost, d),
+            SelectOption::ScoreGraph => p.score_graph ^= true,
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
             }

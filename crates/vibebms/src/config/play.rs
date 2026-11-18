@@ -64,6 +64,30 @@ pub const NORMAL_GREENS: [u32; 20] = [
 ];
 
 vibebms_core::choices! {
+    /// Where the play skin shows the EX score's gap to the target (LR2's
+    /// GHOST POSITION: skin options 34-37).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum Ghost {
+        #[default]
+        Off => "OFF",
+        TypeA => "TYPE A",
+        TypeB => "TYPE B",
+        TypeC => "TYPE C",
+    }
+}
+
+vibebms_core::choices! {
+    /// How the BGA fills its frame (LR2's BGA SIZE: skin options 30 / 31):
+    /// fitted, or filling it, cropped.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum BgaSize {
+        #[default]
+        Normal => "NORMAL",
+        Extend => "EXTEND",
+    }
+}
+
+vibebms_core::choices! {
     /// Which BPM a fixed green number is kept at (beatoraja HS-FIX order).
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
     pub enum HsFix {
@@ -159,7 +183,12 @@ pub struct PlayConfig {
     /// Shift the note display (ms).
     pub visual_offset_ms: i32,
     pub bga: bool,
+    pub bga_size: BgaSize,
     pub show_fast_slow: bool,
+    /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
+    /// 38 / 39), and where the gap to the target shows.
+    pub score_graph: bool,
+    pub ghost: Ghost,
     /// JUDGE AREA: the judge windows drawn above the judge line.
     pub judge_area: bool,
     /// MARK NOTE: a note hit early keeps falling to the line, marked.
@@ -347,7 +376,15 @@ impl Serialize for PlayConfig {
                 })*
             };
         }
-        set_fields!(hs_type, hs_level, hs_anim_ms, target_rival);
+        set_fields!(
+            hs_type,
+            hs_level,
+            hs_anim_ms,
+            target_rival,
+            bga_size,
+            score_graph,
+            ghost
+        );
         st.end()
     }
 }
@@ -393,7 +430,10 @@ impl Default for PlayConfig {
             judge_offset_ms: 0,
             visual_offset_ms: 0,
             bga: true,
+            bga_size: BgaSize::Normal,
             show_fast_slow: true,
+            score_graph: true,
+            ghost: Ghost::Off,
             judge_area: false,
             mark_notes: false,
             bpm_guide: false,

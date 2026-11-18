@@ -293,9 +293,9 @@ impl<'a> PlayState<'a> {
         let p = &self.ctx.config.play;
         let course = s.req.course.as_ref();
         Some(match id {
-            30 | 34 | 39 | 50 => true,
-            // (38: no score graph)
-            31 | 35..=38 | 51 => false,
+            30 | 31 | 34..=39 => return display_option(p, id),
+            50 => true,
+            51 => false,
             32 | 33 | 40..=43 | 1046 => return play_option(s.req.autoplay, p.bga, p.gauge, id),
             // the gauge in use (vibeBMS ids, as on the result screen)
             118..=125 => {
@@ -774,8 +774,12 @@ impl Hooks for PlayHooks<'_> {
             return;
         }
         let mut shown = false;
+        let extend = self.st.ctx.config.play.bga_size == crate::config::BgaSize::Extend;
         for (t, alpha) in s.bga.textures(&s.session, self.st.now) {
-            d.image_fit(t, rect, alpha);
+            match extend {
+                true => d.image_cover(t, rect, alpha),
+                false => d.image_fit(t, rect, alpha),
+            }
             shown = true;
         }
         // charts without BGA show their stage file instead

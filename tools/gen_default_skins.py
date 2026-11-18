@@ -1153,6 +1153,14 @@ def judge_block(sk, player, jcx, jtop):
                    (fx_, fy, w, h, {"time": 0}),
                    (fx_, fy, w, h, {"time": 500}),
                ])
+    if player == 0:
+        # GHOST POSITION (LR2 options 35-37): the EX score's gap to the
+        # target under the judgement, above the timing, or large under it
+        for op, gy, scale in ((35, jtop + jh + 4, 1.0), (36, jtop - 2 * ch - 12, 1.0),
+                              (37, jtop + jh + 4, 1.6)):
+            gw = int(cw * scale)
+            sk.number("n_signed", 153, 5, jcx - 5 * gw // 2, gy, scale=scale, op=[op],
+                      fixed=True)
 
 
 def ready(sk, cx, cy):
@@ -1512,12 +1520,12 @@ def pace_graph(sk, img, f, x, y, w, h):
     panel(img, (x, y, w, h), "SCORE GRAPH", f, accent=PINK)
     sw = sk.num("n_signed", 154, 5)[1]
     nx = x + w - 12 - sw * 5
-    sk.number("n_signed", 154, 5, nx, y + 26)
+    sk.number("n_signed", 154, 5, nx, y + 26, op=[39])
     draw_label(img, f, x + 12, y + 29, "NEXT", 11)
     for k in range(8):
         rw, rh = sk.parts.items[f"rk_s{k}"][2:]
         # current rank AAA (op 200) -> next MAX, AA -> AAA, ...
-        sk.put(sk.img(f"rk_s{k}"), x + 50, y + 28, rw, rh, op=[200 + k])
+        sk.put(sk.img(f"rk_s{k}"), x + 50, y + 28, rw, rh, op=[39, 200 + k])
     d = ImageDraw.Draw(img)
     gx, gy, gw, gh = x + 12, y + 60, w - 46, h - 60 - 26
     for name, frac in (("A", 6 / 9), ("AA", 7 / 9), ("AAA", 8 / 9), ("MAX", 1.0)):
@@ -1532,9 +1540,14 @@ def pace_graph(sk, img, f, x, y, w, h):
     for i, (now, total, col, label) in enumerate(bars):
         bx = gx + gap + i * (bw + gap)
         if total:
-            sk.put(graph_bar(sk, total, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=60)
-        sk.put(graph_bar(sk, now, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=230)
+            sk.put(graph_bar(sk, total, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=60,
+                   op=[39])
+        sk.put(graph_bar(sk, now, 1), bx, gy, bw, gh, r=col[0], g=col[1], b=col[2], a=230,
+               op=[39])
         draw_label(img, f, bx + bw // 2, gy + gh + 6, label, 10, anchor="ma")
+    # SCORE GRAPH OFF (LR2 option 38): the panel stays, empty
+    sk.put(sk.img("white"), x + 2, y + 22, w - 4, h - 24, op=[38], r=PANEL[0], g=PANEL[1],
+           b=PANEL[2])
 
 
 def pace_rows(sk, img, f, x, y, w, rh=44, gap=6, target="TARGET"):

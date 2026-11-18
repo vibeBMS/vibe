@@ -11,14 +11,15 @@ select-song 17: n=0 b=0
 select-song 18: n=0 b=0
 select-song 19: n=0 b=0
 select-song 20: n=0 b=0
-select-song 30: n=12 b=12 t=""
+select-song 30: o n=12 b=12 t=""
 select-song 31: n=5 b=5
 select-song 32: o n=7 b=7
 select-song 33: n=0 b=0
-select-song 34: n=0 b=0
+select-song 34: o n=0 b=0
 select-song 35: n=0 b=0
 select-song 36: n=0 b=0
 select-song 37: n=0 b=0
+select-song 39: o
 select-song 40: b=2
 select-song 41: o
 select-song 42: o b=0
@@ -152,6 +153,9 @@ select-song 9025: t="100%"
 select-song 9026: t="100%"
 select-song 9027: t="70%"
 select-song 9028: t="LOOP"
+select-song 9029: t="NORMAL"
+select-song 9030: t="OFF"
+select-song 9031: t="ON"
 select-song 9100: t="RANDOM"
 select-song 9101: t="GAUGE"
 select-song 9102: t="AUTO SHIFT"
@@ -181,6 +185,9 @@ select-song 9125: t="KEY SOUND"
 select-song 9126: t="BGM"
 select-song 9127: t="SYSTEM"
 select-song 9128: t="PREVIEW"
+select-song 9129: t="BGA SIZE"
+select-song 9130: t="GHOST POSITION"
+select-song 9131: t="SCORE GRAPH"
 select-song 9210: t="7KEYS"
 select-song 9211: t=""
 select-song 9213: t="SAVE"
@@ -189,11 +196,14 @@ select-song 9215: t="OFF"
 select-song 9216: t="OFF"
 select-song 9217: t="OFF"
 select-song 9230: o
+select-song 9235: o
+select-song 9237: o
 select-song 9245: o
 select-song 9260: n=80 b=80 r=0.8
 select-song 9261: n=100 b=100 r=1
 select-song 9262: n=100 b=100 r=1
 select-song 9263: n=70 b=70 r=0.7
+select-song 9264: n=0 b=0
 select-song 9425: n=30 b=30
 select-song 9453: o n=11 b=11 r=0.9166667
 select-song 9463: o
@@ -208,14 +218,15 @@ select-folder 17: n=0 b=0
 select-folder 18: n=0 b=0
 select-folder 19: n=0 b=0
 select-folder 20: n=0 b=0
-select-folder 30: n=12 b=12 t=""
+select-folder 30: o n=12 b=12 t=""
 select-folder 31: n=5 b=5
 select-folder 32: o n=7 b=7
 select-folder 33: n=0 b=0
-select-folder 34: n=0 b=0
+select-folder 34: o n=0 b=0
 select-folder 35: n=0 b=0
 select-folder 36: n=0 b=0
 select-folder 37: n=0 b=0
+select-folder 39: o
 select-folder 40: b=2
 select-folder 41: o
 select-folder 42: o b=0
@@ -305,6 +316,9 @@ select-folder 9025: t="100%"
 select-folder 9026: t="100%"
 select-folder 9027: t="70%"
 select-folder 9028: t="LOOP"
+select-folder 9029: t="NORMAL"
+select-folder 9030: t="OFF"
+select-folder 9031: t="ON"
 select-folder 9100: t="RANDOM"
 select-folder 9101: t="GAUGE"
 select-folder 9102: t="AUTO SHIFT"
@@ -334,6 +348,9 @@ select-folder 9125: t="KEY SOUND"
 select-folder 9126: t="BGM"
 select-folder 9127: t="SYSTEM"
 select-folder 9128: t="PREVIEW"
+select-folder 9129: t="BGA SIZE"
+select-folder 9130: t="GHOST POSITION"
+select-folder 9131: t="SCORE GRAPH"
 select-folder 9211: t=""
 select-folder 9213: t="SAVE"
 select-folder 9214: t="CLEAR"
@@ -341,11 +358,14 @@ select-folder 9215: t="OFF"
 select-folder 9216: t="OFF"
 select-folder 9217: t="OFF"
 select-folder 9230: o
+select-folder 9235: o
+select-folder 9237: o
 select-folder 9245: o
 select-folder 9260: n=80 b=80 r=0.8
 select-folder 9261: n=100 b=100 r=1
 select-folder 9262: n=100 b=100 r=1
 select-folder 9263: n=70 b=70 r=0.7
+select-folder 9264: n=0 b=0
 select-folder 9300: n=1 b=1
 select-folder 9301: n=1 b=1
 select-folder 9302: n=1 b=1

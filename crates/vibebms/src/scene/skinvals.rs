@@ -313,6 +313,18 @@ pub fn play_option(autoplay: bool, bga: bool, gauge: GaugeType, id: i32) -> Opti
     })
 }
 
+/// LR2's display options: BGA NORMAL / EXTEND (30 / 31), GHOST OFF /
+/// TYPE A / B / C (34-37), SCORE GRAPH OFF / ON (38 / 39).
+pub fn display_option(p: &PlayConfig, id: i32) -> Option<bool> {
+    use crate::config::{BgaSize, Ghost};
+    Some(match id {
+        30 | 31 => (p.bga_size == BgaSize::Extend) == (id == 31),
+        34..=37 => Ghost::ALL.get((id - 34) as usize) == Some(&p.ghost),
+        38 | 39 => p.score_graph == (id == 39),
+        _ => return None,
+    })
+}
+
 /// The gauge in use (vibeBMS ids 118-125; 122 and 123 LR2's P-ATTACK and
 /// G-ATTACK).
 pub fn gauge_type_option(g: GaugeType, id: i32) -> Option<bool> {
@@ -604,5 +616,22 @@ mod tests {
         }
         // a BPM that only rounding changes is no BPM change
         assert_eq!(chart_option(&a, 176), Some(true));
+    }
+
+    /// LR2's BGA SIZE, GHOST POSITION and SCORE GRAPH options follow the
+    /// play options.
+    #[test]
+    fn display_options() {
+        use crate::config::{BgaSize, Ghost};
+        let on = |p: &PlayConfig| -> Vec<i32> {
+            (30..40)
+                .filter(|&id| display_option(p, id) == Some(true))
+                .collect()
+        };
+        let mut p = PlayConfig::default();
+        assert_eq!(on(&p), [30, 34, 39]);
+        (p.bga_size, p.ghost, p.score_graph) = (BgaSize::Extend, Ghost::TypeC, false);
+        assert_eq!(on(&p), [31, 37, 38]);
+        assert_eq!(display_option(&p, 32), None);
     }
 }
