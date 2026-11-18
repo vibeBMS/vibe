@@ -317,6 +317,10 @@ impl SelectScene {
 }
 
 impl Scene for SelectScene {
+    fn activity(&self) -> Option<crate::integrations::Activity> {
+        Some(crate::integrations::Activity::Select)
+    }
+
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if self.version != ctx.lib.version {
             self.rebuild(ctx);

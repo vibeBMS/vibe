@@ -39,6 +39,10 @@ vibebms_core::choices! {
         K9 => "9KEYS",
         K5 => "5KEYS",
         K10 => "10KEYS",
+        /// (then bmz-player's: Qwilight-style 4 / 6 / 8 keys)
+        K4 => "4KEYS",
+        K6 => "6KEYS",
+        K8 => "8KEYS",
     }
 }
 
@@ -51,6 +55,18 @@ impl KeyFilter {
             KeyFilter::K9 => mode == PlayMode::Popn9K,
             KeyFilter::K5 => mode == PlayMode::Beat5K,
             KeyFilter::K10 => mode == PlayMode::Beat10K,
+            KeyFilter::K4 => mode == PlayMode::Key4,
+            KeyFilter::K6 => mode == PlayMode::Key6,
+            KeyFilter::K8 => mode == PlayMode::Key8,
+        }
+    }
+
+    /// Skin button 11 (beatoraja's and LR2's six images): 4 / 6 / 8 keys
+    /// show as ALL there, as bmz-player has it; button 1407 has them all.
+    pub fn skin_index(self) -> i64 {
+        match self {
+            KeyFilter::K4 | KeyFilter::K6 | KeyFilter::K8 => 0,
+            f => KeyFilter::ALL.iter().position(|k| *k == f).unwrap_or(0) as i64,
         }
     }
 }

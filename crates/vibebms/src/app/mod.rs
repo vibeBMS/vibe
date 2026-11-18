@@ -104,6 +104,11 @@ pub trait Scene {
     fn screenshot_label(&self, _ctx: &Ctx) -> Vec<String> {
         Vec::new()
     }
+    /// The screen it is, for Discord and OBS (`integrations`); `None`: the
+    /// one under it says (settings over song select is song select).
+    fn activity(&self) -> Option<crate::integrations::Activity> {
+        None
+    }
 }
 
 /// Songs are downloaded in an in-app browser (desktop, Android, iOS).
@@ -117,6 +122,8 @@ struct Running {
     ctx: Ctx,
     scenes: Vec<Box<dyn Scene>>,
     gamepads: crate::input::gamepad::Gamepads,
+    /// The scenes changed: Discord and OBS are told the screen.
+    activity_dirty: bool,
     last_touch: Option<Instant>,
     /// The page's fingers down and where they last were (web).
     #[cfg(target_arch = "wasm32")]
@@ -346,6 +353,9 @@ impl Running {
     }
 
     fn apply(&mut self, el: &ActiveEventLoop, next: Next) {
+        if !matches!(next, Next::Stay) {
+            self.activity_dirty = true;
+        }
         match next {
             Next::Stay => {}
             Next::Push(s) => self.scenes.push(s),
@@ -367,6 +377,7 @@ impl Running {
             }
             Next::Quit => {
                 self.ctx.save_config();
+                self.ctx.streaming.stop();
                 el.exit();
             }
         }
@@ -409,9 +420,27 @@ impl Running {
         }
     }
 
+    /// Discord and OBS: started or stopped as the settings say, and told
+    /// the screen once it changed.
+    fn poll_streaming(&mut self) {
+        if std::mem::take(&mut self.activity_dirty) {
+            if let Some(a) = self.scenes.iter().rev().find_map(|s| s.activity()) {
+                self.ctx.streaming.set_activity(a);
+            }
+        }
+        self.ctx.streaming.sync(&self.ctx.config);
+    }
+
     fn poll_gamepads(&mut self, el: &ActiveEventLoop) {
-        let ctx = &mut self.ctx;
-        for e in self.gamepads.poll(|m| ctx.toast(m)) {
+        let mut toasts = Vec::new();
+        let evs = (self.gamepads).poll(&self.ctx.config.keys.controllers, |m| toasts.push(m));
+        for t in toasts {
+            self.ctx.toast(t);
+        }
+        if let Some(c) = self.gamepads.take_connected() {
+            self.ctx.input.pads = c;
+        }
+        for e in evs {
             self.dispatch(el, e);
         }
     }
@@ -429,6 +458,7 @@ impl Running {
         self.ctx.poll_jobs();
         self.poll_viewer(el);
         self.poll_profile(el);
+        self.poll_streaming();
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
         }
@@ -632,6 +662,23 @@ impl App {
             }
             ctx.overrides = o;
         }
+        // the graphics API chosen did not start: the one that did is kept
+        // (saved below), and said once
+        if let Some(f) = gfx.fallback.take() {
+            log::error!(
+                "gpu: {} could not start ({}); {} is used and kept",
+                f.wanted.label(),
+                f.error,
+                f.used.label()
+            );
+            ctx.config.display.backend = f.used;
+            ctx.toast(format!(
+                "Graphics: {} could not start, {} is used instead \
+                 (SETTINGS › DISPLAY & AUDIO › ADVANCED)",
+                f.wanted.label(),
+                f.used.label()
+            ));
+        }
         ctx.open_records();
         ctx.reload_library();
         diag::startup("library");
@@ -682,6 +729,7 @@ impl App {
             ctx,
             scenes,
             gamepads: crate::input::gamepad::Gamepads::open(),
+            activity_dirty: true,
             last_touch: None,
             #[cfg(target_arch = "wasm32")]
             touches: Default::default(),
@@ -792,6 +840,8 @@ impl ApplicationHandler<UserEvent> for App {
         };
         diag::startup("window");
         let mode = config.display.present_mode;
+        #[cfg(not(target_arch = "wasm32"))]
+        let backend = config.display.backend;
         self.pending = Some(config);
         #[cfg(target_arch = "wasm32")]
         {
@@ -802,7 +852,7 @@ impl ApplicationHandler<UserEvent> for App {
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
-        match Gfx::new(window.clone(), mode) {
+        match Gfx::new(window.clone(), mode, backend) {
             Ok(g) => self.init(window, g),
             Err(e) => {
                 log::error!("graphics init failed: {e}");

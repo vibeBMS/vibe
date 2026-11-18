@@ -737,6 +737,13 @@ def lane_kinds(mode):
         return ["w", "b", "w", "b", "w", "b", "w"], True
     if mode == "5":
         return ["w", "b", "w", "b", "w"], True
+    # Qwilight-style 4 / 6 / 8 keys: no scratch, symmetric colours
+    if mode == "4":
+        return ["w", "b", "b", "w"], False
+    if mode == "6":
+        return ["w", "b", "w", "w", "b", "w"], False
+    if mode == "8":
+        return ["w", "b", "w", "b", "b", "w", "b", "w"], False
     return ["pw", "py", "pg", "pb", "pr", "pb", "pg", "py", "pw"], False
 
 
@@ -1202,7 +1209,12 @@ TOUCH_LANE_H = TOUCH_H - 60
 # lane, the gauge and a LEVEL / GAUGE / HI-SPEED row beside it; beyond it a
 # title bar, a large BGA with the judge, BPM and status panels under it, and
 # the score graph with the score rows at the outer edge.
-LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 44)}
+LAND_SP = {"7": (78, 46), "5": (80, 64), "9": (0, 44), "4": (0, 80), "6": (0, 60), "8": (0, 50)}
+# skin types: beatoraja's, and vibeBMS's own for 4 / 6 / 8 keys (no
+# beatoraja or LR2 type has them)
+SP_KIND = {"7": 0, "5": 1, "9": 4, "4": 104, "6": 106, "8": 108}
+# the modes without a scratch: one centred layout, no 2P variant
+NO_SCRATCH = ("9", "4", "6", "8")
 SP_FX = 60
 SP_LANE_H, SP_KEYS_Y, SP_KEYS_H, SP_GAUGE_Y, SP_INFO_Y = 540, 546, 72, 616, 690
 GAUGE_BAR = 32
@@ -1394,15 +1406,15 @@ def combo_box(sk, img, f, x, y, w, h):
 
 
 def land_sp(fonts, parts, mode, side, touch=False):
-    """7/5 keys and 9 buttons: [field | title, BGA, panels | score graph] for
-    1P, mirrored for 2P. `touch`: the variant shown above on-screen controls
-    (no keys row)."""
+    """7/5 keys, 9 buttons and 4/6/8 keys: [field | title, BGA, panels | score
+    graph] for 1P, mirrored for 2P. `touch`: the variant shown above
+    on-screen controls (no keys row)."""
     W, H = 1280, (TOUCH_H if touch else 720)
     lane_h = TOUCH_LANE_H if touch else SP_LANE_H
-    kind = {"7": 0, "5": 1, "9": 4}[mode]
+    kind = SP_KIND[mode]
     name = f"vibeBMS Default {mode}K{' 2P' if side else ''}{' touch' if touch else ''}"
     sk = Skin(kind, name, W, H, parts)
-    bgname = {"9": "bg_land_9"}.get(mode, f"bg_land_{'2p' if side else '1p'}")
+    bgname = f"bg_land_{mode}" if mode in NO_SCRATCH else f"bg_land_{'2p' if side else '1p'}"
     bgname += "_touch.png" if touch else ".png"
     sk.source("bg", bgname)
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
@@ -1584,14 +1596,20 @@ def land_dp(fonts, parts, mode, touch=False, battle=False):
 
 
 # --- portrait single play: title, field, gauge, then SCORE | JUDGE | BPM -------
-PORT_SP = {"7": (102, 78), "5": (108, 104), "9": (0, 70)}
+PORT_SP = {"7": (102, 78), "5": (108, 104), "9": (0, 70), "4": (0, 120), "6": (0, 96),
+           "8": (0, 78)}
+
+
+def port_bg(mode):
+    """The portrait background (5/7/9 keys share one, drawn last for 9)."""
+    return "bg_port.png" if mode in ("7", "5", "9") else f"bg_port_{mode}.png"
 
 
 def port_sp(fonts, parts, mode, side):
     W, H = 720, 1280
-    kind = {"7": 0, "5": 1, "9": 4}[mode]
+    kind = SP_KIND[mode]
     sk = Skin(kind, f"vibeBMS Default {mode}K portrait{' 2P' if side else ''}", W, H, parts)
-    sk.source("bg", "bg_port.png")
+    sk.source("bg", port_bg(mode))
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
     img = background(W, H)
     f = fonts
@@ -1696,10 +1714,11 @@ def rate_best_panel(sk, img, f, x, y, w, h):
 
 
 def persp(fonts, parts, mode, portrait):
-    """Touch perspective skin for 5/7 keys, 9 buttons or double play."""
+    """Touch perspective skin for 5/7 keys, 9 buttons, 4/6/8 keys or double
+    play."""
     double = mode in ("14", "10")
     W, H = (720, 1280) if portrait else (1280, 720)
-    kind = {"7": 0, "5": 1, "14": 2, "10": 3, "9": 4}[mode]
+    kind = {"14": 2, "10": 3}.get(mode) or SP_KIND[mode]
     name = f"vibeBMS Touch Perspective {mode}K{' portrait' if portrait else ''}"
     sk = Skin(kind, name, W, H, parts)
     sk.j["perspective"] = True
@@ -2137,9 +2156,11 @@ BAR_KINDS = [
 ]
 SORT_LABELS = ["TITLE", "LEVEL", "CLEAR", "SCORE", "MISS COUNT", "LAST PLAYED", "NEW", "BPM",
                "ARTIST", "NOTES"]
-KEY_LABELS = ["ALL", "7KEYS", "14KEYS", "9KEYS", "5KEYS", "10KEYS"]
+KEY_LABELS = ["ALL", "7KEYS", "14KEYS", "9KEYS", "5KEYS", "10KEYS", "4KEYS", "6KEYS", "8KEYS"]
 DIFF_NAMES = ["ALL", "BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE"]
-TABS = [("SORT", 12, SORT_LABELS, TEAL), ("KEYS", 11, KEY_LABELS, AMBER),
+# (the key mode filter shows by vibeBMS's button 1407, which has 4 / 6 / 8
+# KEYS too; a click is button 11's)
+TABS = [("SORT", 12, SORT_LABELS, TEAL), ("KEYS", 1407, KEY_LABELS, AMBER),
         ("DIFFICULTY", 10, DIFF_NAMES, VIOLET)]
 # judge rank (options 180-184)
 JUDGE_RANKS = [("VERY HARD", RED), ("HARD", ORANGE), ("NORMAL", BLUE), ("EASY", GREEN),
@@ -2437,7 +2458,8 @@ def sel_header(sk, img, f, g):
         sid = f"tabset{ref}"
         if sid not in sk._ids:
             sk._ids.add(sid)
-            sk.j["imageset"].append({"id": sid, "ref": ref, "act": ref, "click": 2, "images": [
+            act = 11 if ref == 1407 else ref
+            sk.j["imageset"].append({"id": sid, "ref": ref, "act": act, "click": 2, "images": [
                 sk.img(f"tab{title}{v}") for v in range(len(labels))]})
         sk.put(sid, x, y, w, h)
     x, y, w, h = g["gear"]
@@ -3363,16 +3385,17 @@ def main():
         for side in (0, 1):
             sk, img, bg = land_sp(fonts, parts, mode, side)
             emit(sk, img, f"play{mode}{'_2p' if side else ''}.json", bg)
-    sk, img, bg = land_sp(fonts, parts, "9", 0)
-    emit(sk, img, "play9.json", bg)
-    for mode in ("7", "5", "9"):
-        for side in ((0, 1) if mode != "9" else (0,)):
+    for mode in NO_SCRATCH:
+        sk, img, bg = land_sp(fonts, parts, mode, 0)
+        emit(sk, img, f"play{mode}.json", bg)
+    for mode in ("7", "5") + NO_SCRATCH:
+        for side in ((0, 1) if mode not in NO_SCRATCH else (0,)):
             sk, img, bg = land_sp(fonts, parts, mode, side, touch=True)
             emit(sk, img, f"play{mode}_touch{'_2p' if side else ''}.json", bg)
-    for mode in ("7", "5", "9"):
-        for side in ((0, 1) if mode != "9" else (0,)):
+    for mode in ("7", "5") + NO_SCRATCH:
+        for side in ((0, 1) if mode not in NO_SCRATCH else (0,)):
             emit(*port_sp(fonts, parts, mode, side),
-                 f"play{mode}_portrait{'_2p' if side else ''}.json", "bg_port.png")
+                 f"play{mode}_portrait{'_2p' if side else ''}.json", port_bg(mode))
     for mode, name in (("7", "play14"), ("5", "play10")):
         for touch in (False, True):
             for battle in (False, True):
@@ -3380,7 +3403,7 @@ def main():
                 emit(sk, img, f"{name}{'_battle' if battle else ''}{'_touch' if touch else ''}.json",
                      bg)
     huds = {}
-    for mode in ("7", "5", "9", "14", "10"):
+    for mode in ("7", "5", "9", "14", "10", "4", "6", "8"):
         for portrait in (False, True):
             sk, img, hud = persp(fonts, parts, mode, portrait)
             sk.save(OUT / f"persp{mode}{'_portrait' if portrait else ''}.json")

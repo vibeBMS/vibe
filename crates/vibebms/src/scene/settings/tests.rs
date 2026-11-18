@@ -324,6 +324,9 @@ fn every_old_row_is_reachable() {
         ]);
     }
     slots.extend((0..9).map(Slot::Pms));
+    for n in [4u8, 6, 8] {
+        slots.extend((0..n as usize).map(|i| Slot::Few(n, i)));
+    }
     for slot in slots {
         assert!(
             tree.iter()

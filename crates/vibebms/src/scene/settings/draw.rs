@@ -419,7 +419,15 @@ impl SettingsScene {
         }
         self.draw_header(ctx, d);
         if let Some((tf, t)) = self.edit.as_mut() {
-            t.draw_modal(ctx, d, tf.title(), matches!(tf, super::TextField::IrKey(_)));
+            t.draw_modal(
+                ctx,
+                d,
+                tf.title(),
+                matches!(
+                    tf,
+                    super::TextField::IrKey(_) | super::TextField::ObsPassword
+                ),
+            );
         }
         if let Some(slot) = self.learn.slot {
             let ui = ctx.ui();
@@ -427,6 +435,11 @@ impl SettingsScene {
             ui::modal(d, w, h, r);
             let what = if matches!(slot, crate::scene::keybind::Slot::ScratchAxis(_)) {
                 "Spin the turntable"
+            } else if matches!(
+                self.view,
+                super::View::Sub(super::Sub::Keys(super::KeySet::SideSub(_)))
+            ) {
+                "Press a key"
             } else {
                 "Press a key or controller button"
             };

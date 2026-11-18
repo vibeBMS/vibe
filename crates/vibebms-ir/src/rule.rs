@@ -58,6 +58,15 @@ const BMS_MODES: &[PlayMode] = &[
     PlayMode::Beat14K,
 ];
 
+/// beatoraja's key modes (it has no 4K / 6K / 8K).
+const BEATORAJA_MODES: &[PlayMode] = &[
+    PlayMode::Beat5K,
+    PlayMode::Beat7K,
+    PlayMode::Beat10K,
+    PlayMode::Beat14K,
+    PlayMode::Popn9K,
+];
+
 const ALGORITHMS: &[JudgeAlgorithm] = &[
     JudgeAlgorithm::Combo,
     JudgeAlgorithm::Duration,
@@ -97,7 +106,7 @@ const VIBE_LR2: ProfileRules = ProfileRules {
 
 /// beatoraja: its windows and gauges per key mode, every LN mode, typed
 /// long notes as typed, every judge rank form, note choice and GAUGE AUTO
-/// SHIFT (player options in beatoraja too), every key mode.
+/// SHIFT (player options in beatoraja too), every key mode of beatoraja's.
 const VIBE_BEATORAJA: ProfileRules = ProfileRules {
     judge: JudgePreset::Beatoraja,
     gauge_set: GaugePreset::Beatoraja,
@@ -109,7 +118,7 @@ const VIBE_BEATORAJA: ProfileRules = ProfileRules {
     ex_rank: true,
     algorithms: ALGORITHMS,
     gauge_auto_shift: &GaugeAutoShift::ALL,
-    modes: &PlayMode::ALL,
+    modes: BEATORAJA_MODES,
 };
 
 impl Profile {

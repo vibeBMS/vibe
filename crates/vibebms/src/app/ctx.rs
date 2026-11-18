@@ -64,6 +64,8 @@ pub struct Ctx {
     pub overrides: super::cli::Overrides,
     /// The player profiles, the others' records as local rivals.
     pub profiles: crate::profiles::Profiles,
+    /// Discord Rich Presence and OBS (desktop).
+    pub streaming: crate::integrations::Integrations,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -170,6 +172,8 @@ pub struct Input {
     /// Where the mouse is (screen pixels); `None` before it moves and once
     /// it has left the window.
     pub pointer: Option<(f32, f32)>,
+    /// The game controllers connected, by number (0: 1P, 1: 2P).
+    pub pads: Vec<crate::input::gamepad::Connected>,
 }
 
 /// The skin catalog and its downloads, and the custom options and offsets
@@ -270,6 +274,7 @@ impl Ctx {
             skins: Skins::default(),
             overrides: Default::default(),
             profiles,
+            streaming: Default::default(),
         }
     }
 

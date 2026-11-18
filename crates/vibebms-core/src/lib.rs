@@ -83,6 +83,7 @@ pub mod bms;
 pub mod bmson;
 pub mod bot;
 pub mod chart;
+pub mod convert;
 pub mod course;
 pub mod encoding;
 pub mod engine;

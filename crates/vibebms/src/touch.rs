@@ -181,6 +181,11 @@ pub fn layout(
     scratch_right: bool,
     px_per_mm: f32,
 ) -> Vec<Zone> {
+    // 4 / 6 / 8 keys have no arcade keypad: a row of keys
+    let style = match mode.is_qwilight() {
+        true => TouchStyle::Keyboard,
+        false => style,
+    };
     // width units of a key and of the scratch
     let lane_width = [1.0, 1.7];
     let keys = mode.keys_per_player();

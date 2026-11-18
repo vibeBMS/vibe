@@ -68,7 +68,7 @@ pub fn slots(mode: usize) -> Vec<Slot> {
 pub fn lr2_button(s: Slot) -> i32 {
     match s {
         Slot::Key { side, idx } => 101 + 20 * side as i32 + idx as i32,
-        Slot::Pms(i) => 101 + i as i32,
+        Slot::Pms(i) | Slot::Few(_, i) => 101 + i as i32,
         Slot::ScratchUp(sd) => 110 + 20 * sd as i32,
         Slot::ScratchDown(sd) => 111 + 20 * sd as i32,
         Slot::ScratchAxis(sd) => 116 + 20 * sd as i32,
@@ -99,6 +99,8 @@ pub fn lr2_index(mode: usize, s: Slot) -> i64 {
         (_, Slot::Select2) => per + k as i64 + 4,
         (_, Slot::ScratchAxis(sd)) => 2 * per + 1 + sd as i64,
         (_, Slot::Pms(_)) => 0,
+        // (4 / 6 / 8 keys: CONTROLS only, no skin mode has them)
+        (_, Slot::Few(..)) => 0,
     }
 }
 
@@ -115,7 +117,7 @@ fn lv_text_slot(mode: usize, s: Slot) -> Option<i32> {
         Slot::Start2 => 31,
         Slot::Select2 => 32,
         Slot::ScratchAxis(sd) => 20 * sd as i32 + 13,
-        Slot::Pms(_) => return None,
+        Slot::Pms(_) | Slot::Few(..) => return None,
     })
 }
 

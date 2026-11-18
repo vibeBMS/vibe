@@ -31,6 +31,8 @@ pub(super) fn rows(b: &mut Rows) {
     updates(b);
     b.header("DATA");
     b.push(library::data_folder(ctx));
+    #[cfg(desktop)]
+    super::streaming::rows(b);
 }
 
 /// The profiles: each opens its page (switch, rename, delete); a new one.

@@ -25,6 +25,7 @@ impl Running {
         match event {
             WindowEvent::CloseRequested => {
                 self.ctx.save_config();
+                self.ctx.streaming.stop();
                 el.exit();
             }
             WindowEvent::Resized(_) => {

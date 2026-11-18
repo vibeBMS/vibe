@@ -21,6 +21,7 @@ use crate::scene::skin_host::Tap;
 use crate::scene::target::{self, Rival};
 use crate::sysound::Sound;
 use vibebms_audio::Bus;
+use vibebms_core::convert::KeyConvert;
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
@@ -85,6 +86,8 @@ pub(crate) enum SelectOption {
     ChartUrl,
     /// SAME FOLDER (B).
     SameFolder,
+    /// KEY CONVERT: the chart played in another key mode (not saved).
+    KeyConvert,
 }
 
 /// Full screen can be switched (desktop).
@@ -131,7 +134,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 48] = [
+    pub const ALL: [SelectOption; 49] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -180,6 +183,7 @@ impl SelectOption {
         SelectOption::ChartFolder,
         SelectOption::ChartUrl,
         SelectOption::SameFolder,
+        SelectOption::KeyConvert,
     ];
 
     pub fn name(self) -> &'static str {
@@ -232,6 +236,7 @@ impl SelectOption {
             SelectOption::ChartFolder => "SONG FOLDER",
             SelectOption::ChartUrl => "WEB PAGE",
             SelectOption::SameFolder => "SAME FOLDER",
+            SelectOption::KeyConvert => "KEY CONVERT",
         }
     }
 
@@ -288,6 +293,7 @@ impl SelectOption {
             SelectOption::ScrollRemove => onoff(p.scroll_remove).into(),
             SelectOption::MineAdd => p.mine_add.label().into(),
             SelectOption::LnAdd => p.ln_add.label().into(),
+            SelectOption::KeyConvert => p.key_convert.label().into(),
             SelectOption::ChartFolder if !crate::platform::open::CAN_OPEN_FILES => "—".into(),
             SelectOption::ChartFolder | SelectOption::ChartUrl | SelectOption::SameFolder => {
                 "OPEN".into()
@@ -453,6 +459,14 @@ impl SelectScene {
             SelectOption::ScrollRemove => p.scroll_remove ^= true,
             SelectOption::MineAdd => p.mine_add = cycle(&MineAdd::ALL, p.mine_add, d),
             SelectOption::LnAdd => p.ln_add = cycle(&LnAdd::ALL, p.ln_add, d),
+            SelectOption::KeyConvert => {
+                p.key_convert = cycle(&KeyConvert::ALL, p.key_convert, d);
+                // (skins other than the default show no such option)
+                ctx.toast(format!(
+                    "KEY CONVERT: {} (such plays are not saved)",
+                    ctx.config.play.key_convert.label()
+                ));
+            }
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
             }

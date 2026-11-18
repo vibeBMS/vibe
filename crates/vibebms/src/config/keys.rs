@@ -51,6 +51,14 @@ pub struct KeyConfig {
     pub p2: SideKeys,
     /// pop'n 9 button layout.
     pub pms: Vec<LaneKeys>,
+    /// Qwilight-style 4 / 6 / 8 keys (their lanes left to right; written
+    /// once changed).
+    #[serde(skip_serializing_if = "default_k4")]
+    pub k4: Vec<LaneKeys>,
+    #[serde(skip_serializing_if = "default_k6")]
+    pub k6: Vec<LaneKeys>,
+    #[serde(skip_serializing_if = "default_k8")]
+    pub k8: Vec<LaneKeys>,
     pub start: LaneKeys,
     pub select: LaneKeys,
     /// The second player's START / SELECT (VS).
@@ -61,6 +69,54 @@ pub struct KeyConfig {
     /// The analog turntable and the chatter filter (written once changed).
     #[serde(skip_serializing_if = "InputTuning::is_default")]
     pub tuning: InputTuning,
+    /// Which controller is 1P and which 2P (written once chosen).
+    #[serde(skip_serializing_if = "PadSides::is_default")]
+    pub controllers: PadSides,
+}
+
+/// A controller as it is recognised again: its name and its id (the
+/// vendor and product the system tells, as hex; empty where it tells none,
+/// as browsers).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PadId {
+    pub name: String,
+    pub id: String,
+}
+
+/// The controllers chosen as 1P and 2P (`input::gamepad::sides`): the
+/// controller numbers of the bindings (`Pad0`, `Pad1`) are theirs, and the
+/// others follow in connection order. One not chosen, or not connected,
+/// is the next controller in connection order, as without a choice.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PadSides {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p1: Option<PadId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p2: Option<PadId>,
+}
+
+impl PadSides {
+    pub fn is_default(&self) -> bool {
+        self.p1.is_none() && self.p2.is_none()
+    }
+
+    pub fn get(&self, side: usize) -> &Option<PadId> {
+        if side == 0 {
+            &self.p1
+        } else {
+            &self.p2
+        }
+    }
+
+    pub fn get_mut(&mut self, side: usize) -> &mut Option<PadId> {
+        if side == 0 {
+            &mut self.p1
+        } else {
+            &mut self.p2
+        }
+    }
 }
 
 /// How input from devices is taken.
@@ -95,6 +151,41 @@ impl InputTuning {
     }
 }
 
+fn default_k4(k: &[LaneKeys]) -> bool {
+    k == KeyConfig::default().k4
+}
+
+fn default_k6(k: &[LaneKeys]) -> bool {
+    k == KeyConfig::default().k6
+}
+
+fn default_k8(k: &[LaneKeys]) -> bool {
+    k == KeyConfig::default().k8
+}
+
+impl KeyConfig {
+    /// The keys of a 4 / 6 / 8 key mode (`None`: another mode).
+    pub fn few(&self, mode: vibebms_core::PlayMode) -> Option<&Vec<LaneKeys>> {
+        use vibebms_core::PlayMode::*;
+        match mode {
+            Key4 => Some(&self.k4),
+            Key6 => Some(&self.k6),
+            Key8 => Some(&self.k8),
+            _ => None,
+        }
+    }
+
+    pub fn few_mut(&mut self, mode: vibebms_core::PlayMode) -> Option<&mut Vec<LaneKeys>> {
+        use vibebms_core::PlayMode::*;
+        match mode {
+            Key4 => Some(&mut self.k4),
+            Key6 => Some(&mut self.k6),
+            Key8 => Some(&mut self.k8),
+            _ => None,
+        }
+    }
+}
+
 impl Default for KeyConfig {
     fn default() -> Self {
         use KeyCode::*;
@@ -107,6 +198,7 @@ impl Default for KeyConfig {
             s.scratch_down = LaneKeys::k(&[down]);
             s
         };
+        let row = |keys: &[KeyCode]| keys.iter().map(|k| LaneKeys::k(&[*k])).collect();
         KeyConfig {
             p1: side(
                 [KeyZ, KeyS, KeyX, KeyD, KeyC, KeyF, KeyV],
@@ -118,16 +210,17 @@ impl Default for KeyConfig {
                 ShiftRight,
                 ControlRight,
             ),
-            pms: [KeyA, KeyS, KeyD, KeyF, KeyG, KeyH, KeyJ, KeyK, KeyL]
-                .iter()
-                .map(|k| LaneKeys::k(&[*k]))
-                .collect(),
+            pms: row(&[KeyA, KeyS, KeyD, KeyF, KeyG, KeyH, KeyJ, KeyK, KeyL]),
+            k4: row(&[KeyD, KeyF, KeyJ, KeyK]),
+            k6: row(&[KeyS, KeyD, KeyF, KeyJ, KeyK, KeyL]),
+            k8: row(&[KeyA, KeyS, KeyD, KeyF, KeyJ, KeyK, KeyL, Semicolon]),
             start: LaneKeys::k(&[KeyQ]),
             select: LaneKeys::k(&[KeyW]),
             p2_start: LaneKeys::k(&[KeyP]),
             p2_select: LaneKeys::k(&[KeyO]),
             any_axis_is_scratch: true,
             tuning: InputTuning::default(),
+            controllers: PadSides::default(),
         }
     }
 }

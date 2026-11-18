@@ -18,6 +18,13 @@ crate::choices! {
         Beat14K => "14KEYS",
         /// pop'n music style 9 buttons, no scratch.
         Popn9K => "9KEYS",
+        /// Qwilight-style 4 keys, no scratch (`#4K`: BMS keys 1, 2, 4, 5).
+        Key4 => "4KEYS",
+        /// Qwilight-style 6 keys, no scratch (`#6K`: BMS keys 1-3, 5-7).
+        Key6 => "6KEYS",
+        /// Qwilight-style 8 keys, no scratch (`#8K`: the BMS scratch lane
+        /// as the leftmost key, then keys 1-7).
+        Key8 => "8KEYS",
     }
 }
 
@@ -43,11 +50,36 @@ impl PlayMode {
             PlayMode::Beat5K | PlayMode::Beat10K => 5,
             PlayMode::Beat7K | PlayMode::Beat14K => 7,
             PlayMode::Popn9K => 9,
+            PlayMode::Key4 => 4,
+            PlayMode::Key6 => 6,
+            PlayMode::Key8 => 8,
         }
     }
 
     pub fn has_scratch(self) -> bool {
-        !matches!(self, PlayMode::Popn9K)
+        !matches!(
+            self,
+            PlayMode::Popn9K | PlayMode::Key4 | PlayMode::Key6 | PlayMode::Key8
+        )
+    }
+
+    /// One of the Qwilight-style 4 / 6 / 8 key modes (no standard skin
+    /// type, no IR ranks them).
+    pub fn is_qwilight(self) -> bool {
+        matches!(self, PlayMode::Key4 | PlayMode::Key6 | PlayMode::Key8)
+    }
+
+    /// Where a 4 / 6 / 8 key mode's lanes are among 7 keys' lanes
+    /// (`[k1..k7, S]`): the 7 key channels its charts write them in (4K
+    /// keys 1, 2, 4, 5; 6K keys 1-3, 5-7; 8K the scratch, then keys 1-7).
+    /// `None` for the other modes.
+    pub fn seven_key_lanes(self) -> Option<&'static [u8]> {
+        Some(match self {
+            PlayMode::Key4 => &[0, 1, 3, 4],
+            PlayMode::Key6 => &[0, 1, 2, 4, 5, 6],
+            PlayMode::Key8 => &[7, 0, 1, 2, 3, 4, 5, 6],
+            _ => return None,
+        })
     }
 
     pub fn lanes_per_player(self) -> usize {
@@ -78,7 +110,9 @@ impl PlayMode {
     pub fn family(self) -> RuleFamily {
         match self {
             PlayMode::Beat5K | PlayMode::Beat10K => RuleFamily::FiveKeys,
+            // (4K / 6K / 8K: no rule of their own; 7 key windows and gauges)
             PlayMode::Beat7K | PlayMode::Beat14K => RuleFamily::SevenKeys,
+            PlayMode::Key4 | PlayMode::Key6 | PlayMode::Key8 => RuleFamily::SevenKeys,
             PlayMode::Popn9K => RuleFamily::Pms,
         }
     }
@@ -124,5 +158,15 @@ mod tests {
             PlayMode::Beat14K.display_order(1, true),
             vec![8, 9, 10, 11, 12, 13, 14, 15]
         );
+        for (m, n) in [
+            (PlayMode::Key4, 4),
+            (PlayMode::Key6, 6),
+            (PlayMode::Key8, 8),
+        ] {
+            assert_eq!(m.lane_count(), n);
+            assert!(!m.has_scratch() && !m.is_double() && m.is_qwilight());
+            assert_eq!(m.display_order(0, false), (0..n).collect::<Vec<_>>());
+            assert_eq!(m.family(), RuleFamily::SevenKeys);
+        }
     }
 }

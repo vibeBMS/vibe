@@ -17,6 +17,8 @@ pub enum Slot {
     ScratchDown(usize),
     ScratchAxis(usize),
     Pms(usize),
+    /// A key of the 4 / 6 / 8 key modes: their key count, the lane.
+    Few(u8, usize),
     Start,
     Select,
     /// The second player's START / SELECT (VS).
@@ -33,6 +35,7 @@ impl Slot {
             Slot::ScratchDown(s) => format!("{}P-R-SCR", s + 1),
             Slot::ScratchAxis(s) => format!("{}P-SCR AXIS", s + 1),
             Slot::Pms(i) => format!("{} KEY", i + 1),
+            Slot::Few(n, i) => format!("{n}K-{} KEY", i + 1),
             Slot::Start => "START".into(),
             Slot::Select => "SELECT".into(),
             Slot::Start2 => "2P START".into(),
@@ -47,6 +50,14 @@ impl Slot {
             _ => None,
         }
     }
+}
+
+/// The 4 / 6 / 8 key mode of `n` keys.
+pub fn few_mode(n: u8) -> Option<vibebms_core::PlayMode> {
+    use vibebms_core::PlayMode::*;
+    [Key4, Key6, Key8]
+        .into_iter()
+        .find(|m| m.keys_per_player() == n as usize)
 }
 
 fn side(k: &KeyConfig, i: usize) -> &SideKeys {
@@ -71,6 +82,7 @@ pub fn slot_keys(k: &mut KeyConfig, s: Slot) -> Option<&mut LaneKeys> {
         Slot::ScratchUp(sd) => &mut side_mut(k, sd).scratch_up,
         Slot::ScratchDown(sd) => &mut side_mut(k, sd).scratch_down,
         Slot::Pms(i) => k.pms.get_mut(i)?,
+        Slot::Few(n, i) => k.few_mut(few_mode(n)?)?.get_mut(i)?,
         Slot::Start => &mut k.start,
         Slot::Select => &mut k.select,
         Slot::Start2 => &mut k.p2_start,
@@ -85,6 +97,7 @@ pub fn slot_keys_ref(k: &KeyConfig, s: Slot) -> Option<&LaneKeys> {
         Slot::ScratchUp(sd) => &side(k, sd).scratch_up,
         Slot::ScratchDown(sd) => &side(k, sd).scratch_down,
         Slot::Pms(i) => k.pms.get(i)?,
+        Slot::Few(n, i) => k.few(few_mode(n)?)?.get(i)?,
         Slot::Start => &k.start,
         Slot::Select => &k.select,
         Slot::Start2 => &k.p2_start,
@@ -169,12 +182,40 @@ pub fn assign(
         return false;
     };
     if let Some(c) = key {
-        lk.keys = vec![c];
+        // the first key (KEYBOARD); a second one (KEYBOARD SUB) stays
+        lk.keys.retain(|k| *k != c);
+        if lk.keys.is_empty() {
+            lk.keys.push(c);
+        } else {
+            lk.keys[0] = c;
+            lk.keys.truncate(2);
+        }
     }
     if let Some(p) = pad {
         lk.pad = vec![p];
     }
     key.is_some() || pad.is_some()
+}
+
+/// Bind a second keyboard key to a row (KEYBOARD SUB): it replaces the
+/// row's second key (the first if it has none). Whether anything was bound.
+pub fn assign_sub(k: &mut KeyConfig, s: Slot, key: KeyCode) -> bool {
+    let Some(lk) = slot_keys(k, s) else {
+        return false;
+    };
+    if lk.keys.first() == Some(&key) {
+        return false;
+    }
+    lk.keys.truncate(1);
+    lk.keys.push(key);
+    true
+}
+
+/// Remove a row's second keyboard key (KEYBOARD SUB).
+pub fn clear_sub(k: &mut KeyConfig, s: Slot) {
+    if let Some(lk) = slot_keys(k, s) {
+        lk.keys.truncate(1);
+    }
 }
 
 /// Remove a row's bindings: of one kind (0 keys, 1 buttons, 2 axes), or
@@ -298,6 +339,33 @@ mod tests {
         clear(&mut k, Slot::ScratchUp(1), Some(2));
         assert!(k.p2.scratch_axis.is_empty());
         assert!(!k.p2.scratch_up.keys.is_empty());
+    }
+
+    /// KEYBOARD SUB: a second key per row, kept when the first changes.
+    #[test]
+    fn keyboard_sub() {
+        use KeyCode::*;
+        let mut k = KeyConfig::default();
+        let s = Slot::Key { side: 0, idx: 0 };
+        assert!(assign_sub(&mut k, s, KeyA));
+        assert_eq!(k.p1.keys[0].keys, [KeyZ, KeyA]);
+        // the same key as the first is no second
+        assert!(!assign_sub(&mut k, s, KeyZ));
+        assert!(assign_sub(&mut k, s, KeyB));
+        assert_eq!(k.p1.keys[0].keys, [KeyZ, KeyB]);
+        assert!(assign(&mut k, s, Some(KeyQ), None, None));
+        assert_eq!(k.p1.keys[0].keys, [KeyQ, KeyB]);
+        // the sub key as the first: it moves, and there is no second
+        assert!(assign(&mut k, s, Some(KeyB), None, None));
+        assert_eq!(k.p1.keys[0].keys, [KeyB]);
+        assert!(assign_sub(&mut k, s, KeyN));
+        clear_sub(&mut k, s);
+        assert_eq!(k.p1.keys[0].keys, [KeyB]);
+        // both drive the lane
+        assert!(assign_sub(&mut k, s, KeyN));
+        let m = crate::input::LaneMapper::new(&k, vibebms_core::PlayMode::Beat7K);
+        assert_eq!(m.key(KeyB), Some((0, 0)));
+        assert_eq!(m.key(KeyN), Some((0, 0)));
     }
 
     #[test]

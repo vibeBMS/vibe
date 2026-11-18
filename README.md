@@ -104,8 +104,9 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 1P 7 keys | `Z S X D C F V`, scratch `LShift` / `LCtrl` |
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
+| 4 / 6 / 8 keys | `D F J K` / `S D F J K L` / `A S D F J K L ;` (controllers: their 7 key buttons and turntable, at the chart's lanes) |
 | Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2 and F4–F9 options (GAUGE has no key of its own: START + 3 and the OPTIONS buttons); F3 shows the chart's file in the system's file manager (desktop: Explorer and Finder select it, on Linux a file manager that takes the freedesktop `FileManager1` call does, else the folder opens); T reads the song's text files in the game (O, or OPEN, then opens the file shown in the system's text viewer, desktop); U opens the chart's web page in the browser (its `#URL`, a bmson `info.url`, else the chart's or song's link in a difficulty table, a chart not installed too; http(s) only); B SAME FOLDER, the charts in the chosen chart's folder (these three also in the default skin's TAG EDITOR panel, and as select options 9045–9047 for any skin); F12 rescan; I the chart's IR page; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 KEYS), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
+| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2 and F4–F9 options (GAUGE has no key of its own: START + 3 and the OPTIONS buttons); F3 shows the chart's file in the system's file manager (desktop: Explorer and Finder select it, on Linux a file manager that takes the freedesktop `FileManager1` call does, else the folder opens); T reads the song's text files in the game (O, or OPEN, then opens the file shown in the system's text viewer, desktop); U opens the chart's web page in the browser (its `#URL`, a bmson `info.url`, else the chart's or song's link in a difficulty table, a chart not installed too; http(s) only); B SAME FOLDER, the charts in the chosen chart's folder (these three also in the default skin's TAG EDITOR panel, and as select options 9045–9047 for any skin); F12 rescan; I the chart's IR page; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 / 4 / 6 / 8 KEYS; skin button 11 shows 4 / 6 / 8 as ALL, as bmz-player's, button 1407 has them), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
 | Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
 | Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
 | Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
@@ -139,7 +140,17 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - Controllers (IIDX controllers included) are set in `SETTINGS › CONTROLS` by pressing their buttons. Analog
   turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
   default; see [docs/RULES.md](docs/RULES.md) "Input filters").
-- Touch (`SETTINGS › CONTROLS`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
+- Which controller is 1P and which 2P (`SETTINGS › CONTROLS › 1P controller` / `2P controller`): AUTO (the default:
+  the order they were connected in, as bindings show them, `Pad0` 1P, `Pad1` 2P) or one of the connected
+  controllers, kept by its name and id (USB vendor and product; browsers tell none, so there the name) in
+  `[keys.controllers]` and found again at the next launch. A chosen controller that is not connected leaves its
+  side to the next controller in connection order; two of the same model are 1P and 2P in the order they were
+  connected; choosing for one side the other side's controller swaps them, as `Swap 1P and 2P controllers` does.
+  The bindings follow the side, not the controller (`Pad0#3` is button 3 of whichever controller is 1P), and
+  `Connected controllers` lists each with its side. Each side also has a second keyboard map, `1P keyboard sub` /
+  `2P keyboard sub`: a second key for each key and scratch (the KEYBOARD SUB slot; the first key is the one the
+  side's page and the key config set).
+- Touch (`SETTINGS › CONTROLS`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS; 4 / 6 / 8 keys a single row), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
   them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
   turntable changes sides; custom layouts are otherwise used as placed, whatever the play side), and sets the height of
@@ -153,7 +164,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 
 - **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP, `#SCROLL` and
   beatoraja's `#SPEED` (channel SP: the whole lane's scroll speed, interpolated in time; not under CONSTANT), LN
-  (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
+  (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout), Qwilight-style 4 / 6 / 8 keys (`#4K` / `#6K` / `#8K`: no scratch, 7 keys' judge and gauges, played on built-in default skins only, ranked by no IR; [docs/RULES.md](docs/RULES.md) "4, 6 and 8 keys"); Shift_JIS, EUC-KR and UTF-8 detected.
   The scan reads new and changed charts several at a time (up to 8 threads natively; one at a time on the web).
 - **Songs in archives**: a `.zip`, `.7z`, `.rar` or `.lzh` (`.lha`) in the library is played without unpacking it
   yourself. It is scanned as a folder (its charts in sub-folders too) and its charts are named by the archive, a `!`
@@ -189,6 +200,11 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
   keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
   40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
+- **KEY CONVERT** (select option, after SAME FOLDER: OFF / 7KEYS / 9KEYS): play a chart in another key mode, as
+  bmz-player does: 7 keys as 9 buttons (keys on buttons 2-8, the scratch on button 1), 9 buttons as 7 keys
+  (buttons 1 and 9 on the scratch), 5 keys as 7 (keys 2-6), 4 / 6 / 8 keys as 7 (where their channels put them),
+  or any of these through 7 keys as 9. Such a play keeps nothing (no score, lamp or play count) and goes to no IR;
+  its replay keeps the conversion. Not in courses. Tables: [docs/RULES.md](docs/RULES.md) "KEY CONVERT".
 - **Chart modifiers** (ASSIST panel, hold SELECT): SCROLL REMOVE (`#SCROLL` and `#SPEED` off), MINE ADD (RANDOM,
   NEAR, BLANK: mines on the keys free at each note's time) and LONGNOTE ADD (LN, CN, HCN: notes made long notes),
   beside LEGACY NOTE and NO MINE. They are assists where they change the chart: LONGNOTE ADD as LEGACY NOTE,
@@ -210,6 +226,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   handling by the screen: on the web and iOS and for controllers the event's own time, else when the window got it).
   Off, nothing is measured. The start's phases (event loop, window, graphics, audio, library, tables and skins, song
   select, first frame) are timed in the log (`startup:` lines).
+- **Graphics API** (`SETTINGS › DISPLAY & AUDIO › ADVANCED › Graphics API`; not on the web): AUTO (the default; wgpu
+  chooses, Vulkan, Metal, DX12 then OpenGL as before) or one of the APIs the platform has: Vulkan, DX12 and OpenGL on
+  Windows, Vulkan and OpenGL on Linux and Android, Metal on macOS and iOS. It applies at the next launch. If the one
+  chosen does not start, the others are tried in AUTO's order; the one that started is kept as the setting (written to
+  `config.toml` as `display.backend`), logged, and said once in a message. A choice the platform lacks (a configuration
+  from another computer) starts as AUTO and stays as it is. The `GPU` line below it shows the device and API in use.
 - **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
   the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
   keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
@@ -269,9 +291,11 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   replays, IR accounts (their keys and outbox too) and settings: play options and offsets, keys, touch layout,
   volumes, the skins chosen with their options and offsets. Shared by every profile: the library and its caches,
   difficulty tables, events and download settings, the skins and sound sets installed, and the app-wide settings,
-  which belong to the machine: the window and graphics (`[display]`), the audio device (buffer, sample rate, WASAPI
-  exclusive, silent when not in use), the song folders, tables and download sources, the update check; these stay in
-  the root's `config.toml` whichever profile changes them. The data that was there before profiles is the default
+  which belong to the machine: the window and graphics (`[display]`, the graphics API too), the audio device (buffer,
+  sample rate, WASAPI exclusive, silent when not in use), which controller is 1P and which 2P (`[keys.controllers]`:
+  the machine's devices; the bindings, 4K / 6K / 8K included, are each profile's), Discord and OBS (`[discord]`,
+  `[obs]`: this machine's apps, OBS's password among them), the song folders, tables and download sources, the update
+  check; these stay in the root's `config.toml` whichever profile changes them. The data that was there before profiles is the default
   profile, in place; another one is `profiles/<id>/` (its own `config/config.toml` without the app-wide settings,
   `scores/`), listed with its name in `config/profiles.toml` (a profile folder copied into `profiles/` shows up by
   its folder's name). NEW PROFILE starts from the settings in use, without the IR accounts, and with no records;
@@ -373,7 +397,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   cut the other's); a player who fails stops (FAILED over their side) and the other plays on; the play ends
   when both have finished or failed. The results show both sides and the winner. Nothing is saved: no
   scores, lamps, replays or play counts. Controllers: press a button on the 1P controller while the chart
-  loads (the order they were connected in can swap them). On one keyboard, many keyboards miss keys when
+  loads (it is the 1P one for this play; which one that is by default is `SETTINGS › CONTROLS › 1P controller`). On one keyboard, many keyboards miss keys when
   several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
   player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
@@ -418,6 +442,25 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
   judgements) and max combo, the lower min BP, and the play and clear counts as the higher of the two (not summed,
   so importing again changes nothing). Courses and charts not in the library are counted and left out.
+- **Discord Rich Presence** (desktop; `SETTINGS › SYSTEM › STREAMING`, off by default): your Discord status shows
+  the screen: "Choosing a song" in song select, the chart as `title [DIFFICULTY]` on the decide screen, in play
+  ("Playing", "Watching autoplay", "Watching a replay", "Practising") and on the result ("Result: HARD CLEAR"), with
+  the time on that screen. It talks only to the Discord app on the same computer, through its local IPC socket
+  (`discord-ipc-0` to `-9` in `$XDG_RUNTIME_DIR` or the temporary folder, the Flatpak and Snap folders included, or the
+  `\\.\pipe\discord-ipc-N` named pipe on Windows): a handshake with the application id, then `SET_ACTIVITY`
+  commands, at most one every 4 seconds (Discord's rate limit), the newest winning. It needs a Discord application
+  id (`discord.application_id`; make an application at Discord's developer portal, its name is the game you are
+  shown playing): none is built in, and without one the row says it needs one. When Discord is not running it
+  tries again, waiting longer each time (up to a minute); `Discord` below shows the state.
+- **OBS** (desktop; `SETTINGS › SYSTEM › STREAMING › OBS`, off by default): connects to obs-websocket 5 (OBS 28 or
+  later, `Tools › WebSocket Server Settings`) at `obs.host` / `obs.port` (127.0.0.1:4455 by default) with the
+  server's password if it has one (the SHA-256 challenge of its protocol; the password is kept in `config.toml`).
+  For each screen (song select, decide, play, result) a scene can be named; on entering that screen OBS switches to
+  it (`SetCurrentProgramScene`; empty: no switch). With `Record plays`, OBS starts recording as a play starts and
+  stops when its result is left (a retry or the next course stage stops it and starts another; turning OBS off or
+  quitting stops it too). It runs on a thread of its own, so a slow or absent OBS never holds up the game, and
+  reconnects after 1, 2, 4 … up to 30 seconds; `OBS` shows the state, and failed requests (a scene that does not
+  exist) are logged. The WebSocket client is vibeBMS's own (RFC 6455, no TLS, which obs-websocket does not use).
 
 ## Skins
 
@@ -527,7 +570,7 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   set music` is on; the other sounds are not.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
-  (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks). A graph with
+  (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks); button 1407 the key mode filter with 4 / 6 / 8 KEYS (indices 6-8); play skin types 104 / 106 / 108 are 4 / 6 / 8 keys (only the built-in skins are: such charts play on them). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
   using timer 21, the app draws a hi-speed panel beside the lanes.

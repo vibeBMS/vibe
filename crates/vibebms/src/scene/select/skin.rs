@@ -763,7 +763,9 @@ impl SkinState for SelectState<'_> {
             // LR2 / beatoraja: difficulty filter, key mode filter (in
             // beatoraja's order), sort
             10 => sel.difficulty_filter as i64,
-            11 => index_of(&KeyFilter::ALL, sel.key_filter),
+            11 => sel.key_filter.skin_index(),
+            // vibeBMS: every key mode filter (4 / 6 / 8 KEYS after 10 KEYS)
+            1407 => index_of(&KeyFilter::ALL, sel.key_filter),
             12 => index_of(&SortMode::ALL, sel.sort),
             _ => return config_button(self.ctx, id).or_else(|| self.number(id)),
         })

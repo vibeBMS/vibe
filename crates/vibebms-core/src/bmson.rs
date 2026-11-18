@@ -169,6 +169,8 @@ fn map_lane(mode: PlayMode, x: i64) -> Option<u8> {
                 .map(|l| l + player * 6)
         }
         PlayMode::Beat7K | PlayMode::Beat14K => (x < 8 * mode.players()).then_some(x),
+        // (no bmson mode hint names them: never read so)
+        PlayMode::Key4 | PlayMode::Key6 | PlayMode::Key8 => (x < mode.lane_count()).then_some(x),
     };
     lane.map(|l| l as u8)
 }

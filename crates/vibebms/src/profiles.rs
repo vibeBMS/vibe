@@ -10,8 +10,9 @@
 //!
 //! Shared by every profile: the library and its caches (`cache/`), skins
 //! and sound sets, fonts, and the app-wide settings ([`take_app_wide`]:
-//! the window and graphics, the audio device, the song folders, tables and
-//! download sources, updates), which stay in the root's `config.toml`. The
+//! the window and graphics, the audio device, which controller is 1P and
+//! which 2P, the song folders, tables and download sources, updates,
+//! Discord and OBS), which stay in the root's `config.toml`. The
 //! rest of the settings is the profile's: play options and offsets, keys
 //! and touch, volumes, skins and their options, IR accounts (their keys
 //! too: `ir::creds` under `paths.private`).
@@ -61,8 +62,14 @@ const APP_KEYS: &[&str] = &[
     "third_party_mirrors",
     "name_song_folders",
     "check_updates",
+    // this machine's other apps (OBS's password among them)
+    "discord",
+    "obs",
 ];
 const APP_AUDIO_KEYS: &[&str] = &["buffer_frames", "sample_rate", "mute_inactive", "exclusive"];
+/// Of `[keys]`: which physical controller is 1P and which 2P (the
+/// machine's devices; the bindings are the profile's).
+const APP_KEYS_KEYS: &[&str] = &["controllers"];
 
 /// The app-wide settings of `from` into `into` (the rest is the profile's).
 pub fn take_app_wide(into: &mut Config, from: &Config) {
@@ -74,6 +81,9 @@ pub fn take_app_wide(into: &mut Config, from: &Config) {
     into.third_party_mirrors = from.third_party_mirrors;
     into.name_song_folders = from.name_song_folders;
     into.check_updates = from.check_updates;
+    into.discord = from.discord.clone();
+    into.obs = from.obs.clone();
+    into.keys.controllers = from.keys.controllers.clone();
     let (a, b) = (&mut into.audio, &from.audio);
     a.buffer_frames = b.buffer_frames;
     a.sample_rate = b.sample_rate;
@@ -126,6 +136,11 @@ fn profile_toml(c: &Config) -> Result<String, toml::ser::Error> {
         }
         if let Some(a) = t.get_mut("audio").and_then(toml::Value::as_table_mut) {
             for k in APP_AUDIO_KEYS {
+                a.remove(*k);
+            }
+        }
+        if let Some(a) = t.get_mut("keys").and_then(toml::Value::as_table_mut) {
+            for k in APP_KEYS_KEYS {
                 a.remove(*k);
             }
         }
@@ -496,6 +511,13 @@ mod tests {
         c.display.fullscreen = true;
         c.audio.buffer_frames = 1024;
         c.bms_dirs.push("D:/bms".into());
+        c.obs.password = "secret".into();
+        c.discord.enabled = true;
+        c.keys.controllers.p1 = Some(crate::config::PadId {
+            name: "pad".into(),
+            id: "1".into(),
+        });
+        c.keys.k4[0].keys.clear();
         // (a local rival as TARGET and beside: written and read back)
         c.play.target_profile = Some("friend".into());
         c.ir.beside = crate::config::Beside::Profile("friend".into());
@@ -510,12 +532,23 @@ mod tests {
             !text.contains("buffer_frames") && text.contains("master"),
             "{text}"
         );
+        assert!(
+            !text.contains("secret") && !text.contains("controllers"),
+            "{text}"
+        );
+        assert!(text.contains("k4"), "the 4K keys are the profile's: {text}");
         let d = load_config(&paths);
         assert_eq!(d.play.judge_offset_ms, 5);
         assert_eq!(d.audio.master, Config::default().audio.master);
         assert!(d.display.fullscreen);
         assert_eq!(d.audio.buffer_frames, 1024);
         assert_eq!(d.bms_dirs, ["D:/bms"]);
+        assert_eq!(
+            (d.obs.password.as_str(), d.discord.enabled),
+            ("secret", true)
+        );
+        assert_eq!(d.keys.controllers, c.keys.controllers);
+        assert_eq!(d.keys.k4, Config::default().keys.k4);
         assert_eq!(load_config(&b), c);
         std::fs::remove_dir_all(&root).ok();
     }
