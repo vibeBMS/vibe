@@ -2769,7 +2769,7 @@ PANELS = {
     7: ("TAG EDITOR", "favourites · keys 8 and 9", VIOLET),
     8: ("HELP", "keys and touches", TEAL),
 }
-LAND_POP = {1: (48, 72, 912, 576), 3: (48, 72, 744, 576)}
+LAND_POP = {1: (48, 72, 912, 576), 2: (268, 72, 744, 576), 3: (48, 72, 744, 576)}
 LAND_POP_OTHER = (320, 120, 640, 480)
 PORT_POP = (24, 160, 672, 960)
 # PLAY OPTION: the key options' name, keys, accent, event (text 9600 + 3t)
@@ -2785,7 +2785,7 @@ MORE_TILES = [("HI-SPEED", 9004, 9005, AMBER, 9005), ("LANE COVER", 9018, 9217, 
               ("ASSIST", 9216, "SELECT: the assist panel", VIOLET, 2),
               ("PLAY SIDE", 9006, "the scratch's side", GREEN, 9006),
               ("JUDGE RULES", 9007, "windows of the play", PINK, 9007)]
-# ASSIST: key, name, note, option group (ON / OFF), event
+# ASSIST: key, name, note, option group (ON / OFF; None: the event's text), event
 ASSIST_ROWS = [("1", "EXPAND JUDGE", "wider judge windows", 15, 301),
                ("2", "CONSTANT", "notes at one speed", 10, 302),
                ("3", "JUDGE AREA", "the windows drawn on the lanes", 16, 303),
@@ -2793,7 +2793,12 @@ ASSIST_ROWS = [("1", "EXPAND JUDGE", "wider judge windows", 15, 301),
                ("5", "MARK NOTE", "an early hit keeps falling, marked", 17, 305),
                ("6", "BPM GUIDE", "BPM changes shown on the lanes", 18, 306),
                ("7", "NO MINE", "mines removed", 13, 307),
-               ("", "AUTO SCRATCH", "the turntable plays itself", 9, 9035)]
+               ("", "AUTO SCRATCH", "the turntable plays itself", 9, 9035),
+               ("TT", "FREQ", "speed and pitch, a semitone a step", None, 9038),
+               ("", "SCROLL REMOVE", "no SCROLL or SPEED changes", None, 9040),
+               ("", "MINE ADD", "mines on the free keys", None, 9041),
+               ("", "LONGNOTE ADD", "notes made long notes", None, 9042),
+               ("", "TRAINER ORDER", "TRAINER's lanes, a turn a step", None, 9039)]
 # SYSTEM OPTION: keys, name, note, event (its value: text event), 0: fixed
 SYSTEM_ROWS = [(["1"], "BGA", "Play the chart's background animation", 9036),
                ([], "BGA SIZE", "Fit the frame, or fill it and crop", 9029),
@@ -3145,8 +3150,10 @@ def list_rows(sk, r, op, rows, rw, y0, pitch=36):
 def assist_panel(sk, r, rw):
     op = PANEL_OPS[2]
     pop_frame(sk, 2, r, op)
-    rows = [([k] if k else [], name, note, (g,), ev) for k, name, note, g, ev in ASSIST_ROWS]
-    list_rows(sk, r, op, rows, rw, r[1] + 68, 44)
+    rows = [([k] if k else [], name, note, ev if g is None else (g,), ev)
+            for k, name, note, g, ev in ASSIST_ROWS]
+    # (landscape: thirteen rows in the panel's height)
+    list_rows(sk, r, op, rows, rw, r[1] + (68 if rw > 640 else 64), 44 if rw > 640 else 38)
 
 
 def system_option(sk, r, rw, portrait):

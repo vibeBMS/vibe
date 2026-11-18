@@ -52,7 +52,7 @@ dropped on the window or added in `SETTINGS › LIBRARY`. Building for each plat
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
 <root>/scores/scores.json      play records
 <root>/scores/player.json      totals over all plays (judgements, time played)
-<root>/cache/                  song scan, archives' file lists and difficulty table caches (made again if deleted)
+<root>/cache/                  song scan, archives' file lists, difficulty table and chart loudness caches (made again if deleted)
 <root>/skins/                  LR2 / beatoraja skins
 <root>/sounds/                 system sound sets (optional)
 <root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
@@ -114,7 +114,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 
 ## Features
 
-- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP and `#SCROLL`, LN
+- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes, STOP, `#SCROLL` and
+  beatoraja's `#SPEED` (channel SP: the whole lane's scroll speed, interpolated in time; not under CONSTANT), LN
   (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout); Shift_JIS, EUC-KR and UTF-8 detected.
   The scan reads new and changed charts several at a time (up to 8 threads natively; one at a time on the web).
 - **Songs in archives**: a `.zip`, `.7z`, `.rar` or `.lzh` (`.lha`) in the library is played without unpacking it
@@ -130,8 +131,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
   ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's or LZH's
   song is unpacked on its first file read. Nothing is written into an archive: song downloads take the songs in
-  archives for not installed (a separate chart for one is not put into it). A chart that is also a file of its own (the archive unpacked beside it) is
-  listed once, as the file. Not read: archives in an archive, `.tar.gz`, encrypted archives.
+  archives for not installed (a separate chart for one is not put into it). A chart that is also a file of its own
+  (the archive unpacked beside it) is listed once, as the file. Not read: archives in an archive, `.tar.gz`, encrypted archives.
 - **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
   Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
   those of the preset chosen.
@@ -139,11 +140,28 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LOWEST or SCORE (the next note only when the current one is beyond GREAT late and the next is within GREAT), as
   beatoraja's; a replay keeps the one it was played with.
 - **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
-- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR).
-- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
+- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR). LN MODE (key 3 or F4 in song select,
+  PLAY OPTION's LN MODE) is AUTO LN / CN / HCN (for the long notes the chart leaves untyped) or FORCE LN / CN / HCN
+  (every long note, whatever the chart says); a FORCE play is filed under the forced type
+  ([docs/RULES.md](docs/RULES.md), "Long notes").
+- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, S-RANDOM+, F-RANDOM / MF-RANDOM (half random and
+  mirrored half random: each half of the keys shuffled on its own side, or onto the other; the middle key and the
+  scratch stay), DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
   both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
-  a course leave no record for the song.
+  a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
+  keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
+  40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
+- **Chart modifiers** (ASSIST panel, hold SELECT): SCROLL REMOVE (`#SCROLL` and `#SPEED` off), MINE ADD (RANDOM,
+  NEAR, BLANK: mines on the keys free at each note's time) and LONGNOTE ADD (LN, CN, HCN: notes made long notes),
+  beside LEGACY NOTE and NO MINE. They are assists where they change the chart: LONGNOTE ADD as LEGACY NOTE,
+  MINE ADD and SCROLL REMOVE light ([docs/RULES.md](docs/RULES.md), "Chart modifiers").
+- **Random Trainer**: the TRAINER lane option (after MF-RANDOM in RANDOM's list) plays one fixed lane order instead
+  of a draw, to practise a RANDOM: `SETTINGS › GAMEPLAY › ADVANCED › Random trainer order` takes the keys from the
+  left (`3142576` puts key 3's notes on the first lane, key 1's on the second, ...; `7654321` is MIRROR), and the
+  TRAINER ORDER select option turns it a lane at a time. It plays on charts of as many keys (a 7-digit order on 7
+  keys) and does nothing on others. A chosen order is not a draw, so a TRAINER play is LIGHT ASSIST: its lamp is
+  L-ASSIST, no score is kept and it is not sent to IR. Replays keep the order.
 - **Display** (`SETTINGS › DISPLAY & AUDIO › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
   for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
@@ -156,10 +174,30 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
   off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
   read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
+- **Mute when inactive** (`SETTINGS › DISPLAY & AUDIO › Mute when inactive`, on by default): vibeBMS fades out (in
+  0.1 s) while it is not the app in use. Out of play that is when another app or window has the focus, or vibeBMS is
+  minimised, covered, in the background or (web) in a hidden tab or a page without the focus; the song preview stops
+  and starts again from its beginning when vibeBMS is back. In play only a hidden, minimised or backgrounded vibeBMS
+  is silent on the desktop and the web (a controller may play a window without the focus); on phones and tablets,
+  where only the app with the focus gets touches, keys and controllers, losing the focus silences play too. The play
+  goes on (there is no pause). The in-app download browser's window counts as vibeBMS. Off, vibeBMS is heard in the
+  background (the iOS app's audio session keeps playing there).
+- **Full screen on phones and tablets**: the iOS app hides the status bar and, until the screen is touched, the home
+  indicator; in play (and the touch layout editor) a swipe from the top or bottom edge is the game's, and the
+  system's gesture (home, Control Center, notifications) needs a second swipe. The Android app hides the status and
+  navigation bars (immersive: a swipe from an edge shows them for a moment).
 - **BGA**: image BGA (layers, POOR; a BMS chart without a POOR layer shows its `#BMP00` on a miss, as LR2 and
   beatoraja do), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path). BGA ON, AUTO or
   OFF (SYSTEM OPTION key 1), as beatoraja's: AUTO shows it only when watching (autoplay, a replay), not in a play
   of your own.
+- **Images** (charts and skins): BMP, PNG, JPEG, GIF, WebP, TGA, DDS, CIM. Animated GIF, WebP and APNG play at their
+  own frame times: a BGA image from when it is first shown, a skin's images from when the skin loaded, a chart's
+  stage file, banner and `#BACKBMP` (the play skin's image 101; the stage file when the chart has none) from when
+  they loaded. The file's loop count is kept (then the last frame stays); a GIF or WebP frame of 10 ms or less lasts
+  100 ms, as in browsers. Each animation is one texture on the GPU, its frames kept in memory: up to 128 MB for one
+  image and 512 MB for all (32 and 96 MB on the web and mobile). One with more keeps every second frame (then every
+  fourth, ...), each shown as long as those it stands for, so it plays at its speed; one that cannot keep two frames
+  shows its first.
 - **Play extras** (`SETTINGS › GAMEPLAY › PLAY EXTRAS`):
   - FAST / SLOW threshold: the play skin's FAST and SLOW (options 1242 / 1243) show only for a judgement more
     than this many ms off (0, the default: any; FAST / SLOW display off: never).
@@ -213,6 +251,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   headers, so it downloads through the vibeBMS proxy `proxy.vibebms.workers.dev`, which passes on archives only,
   and unpacks them in memory (zip, 7z, rar). Other event lists or indexes can be added in the settings
   (`archives`).
+- **FREQ** (LR2's): the whole chart −12 to +12 semitones higher or lower, faster or slower with it (+12 is twice
+  as fast, −12 half; shown as `+3 (119%)`): every time, BPM and stop scaled, the sounds resampled (their pitch with
+  the speed); the judge windows stay in real time. Hold SELECT (the ASSIST panel) and turn the turntable, or the
+  ASSIST panel's FREQ row. A play below 0 is not saved at all (no score, lamp, replay or IR); one above 0 is saved
+  as usual but not sent to IR (no IR takes a play at another speed). Courses and practice play at 0. Replays keep
+  it and play at it again.
 - **Replays and ghosts**: every play of your own (not a course stage, not autoplay) keeps a replay: what drove the
   judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
   it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
@@ -258,6 +302,21 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (`SETTINGS › DISPLAY & AUDIO › Output mode`, on restart) event driven at the device's smallest period, in the mixer's rate as float, 24-bit or 16-bit,
   else a format of the device's own, and back to shared with a message when the device refuses. ASIO/JACK feature
   flags for cpal.
+- **Loudness normalisation** (`SETTINGS › DISPLAY & AUDIO`: `Normalize loudness`, on by default; `Loudness target`,
+  -24 to -6 LUFS, -12 by default; `Normalize sound set music`): every chart plays at the same loudness. A chart is
+  measured the first time it is played, as its sounds are decoded: its BGM and every note's keysound autoplayed (a
+  sound played again cuts itself off, as in play) are mixed a tenth of a second at a time into an ITU-R BS.1770-4
+  meter (K-weighting, 400 ms blocks, the -70 LUFS and relative -10 LU gates), which gives its integrated loudness
+  and sample peak. That takes about a tenth of a second for a two-minute chart with 3000 keysounds over a BGM
+  (natively, on the loading thread); the web and mobile meter every second frame, half the work (frequencies above
+  a quarter of the rate fold down: a little off for very bright music). The result is kept by the chart's SHA-256 in
+  `cache/loudness.txt` (on the web in the browser's storage). In play the keysound and BGM buses are turned up or
+  down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
+  scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
+  own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
+  sound set's music (the select music, the decide jingle, `.loop` files) is measured as the set loads and brought to
+  the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
+  each time (its stages joined are not one chart). The output's soft limiter stays as it was.
 - **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
   under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
   LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
@@ -338,7 +397,24 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
   `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
   under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
-  sets their volume.
+  sets their volume. A folder set may also use bmz-player's conventions (as its documentation describes them):
+  - the result music by outcome: `fail` for a failed play; for a clear `aaa`, `aa` or `a` at that rank (the play's
+    EX score from 8/9, 7/9, 6/9 of what can be had), else `clear` (a missing rank sound falls back on `clear`, not
+    on a lower rank); a course's result keeps `course_clear` / `course_fail`;
+  - `<name>.loop.<ext>` (`select.loop.ogg`, `clear.loop.ogg`, `aaa.loop.wav`, `course_clear.loop.ogg`, ...) plays
+    over and over until the screen ends, before `<name>.<ext>` in the same folder (which the select music loops
+    anyway and a result plays once);
+  - `<name>.enter.<ext>` (`select.enter`, `clear.enter`, `aaa.enter`, ...) plays once as the screen comes (the song
+    select: at start and each time it comes back), with the screen's music; a result with one plays a `.loop` music
+    with it, not a plain one;
+  - variants: the set's subfolders holding sound files are not sets of their own but its variants. One is drawn with
+    the set and has only what it changes: a sound it has in either form (its `clear` before the set's
+    `clear.loop`) is its own, else the set's; `.enter` and GUIDE SE files likewise;
+  - RANDOM (with two sets or more): a set drawn at random when the app starts and each time the song select comes
+    back; a set with variants draws one again then too. Decide, play and result keep the set drawn.
+
+  The select music, the decide jingle and `.loop` music are normalised to the loudness target when `Normalize sound
+  set music` is on; the other sounds are not.
 - vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
   `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
   (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks). A graph with

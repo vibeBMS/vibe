@@ -271,7 +271,7 @@ Deliberately not as LR2 [S-OLR2b marks each ambiguous or an artefact]: a NONSTOP
 rule (LR2 places the third and later ones a stage's trim earlier); the current stage (skin options 280-283, the
 title shown) advances at every join (LR2: at gap joins only); the open `#IF` state is each stage's own (LR2 carries it
 on); an expert course's score is recomputed from its totals, its notes the sum of all stages' (LR2 `main`'s rule).
-Not followed: LR2's maniac judge options (vibeBMS has none); the audio pitch option (none); the `ir` course flag is
+Not followed: LR2's maniac judge options (vibeBMS has none); the `ir` course flag is
 kept, but nothing is sent to an internet ranking (a course play is no IR's); a NONSTOP stage whose `#BPMxx` came before
 its `#BPM` line is scaled with it; a NONSTOP mine converted by the overlap clean-up is dropped, not played; replays of
 an expert stage are kept (with the gauges it started from) but the song select does not list them.
@@ -342,10 +342,19 @@ of the arcade) may judge otherwise when played again.
 * **HCN** (`#LNMODE 3`): CN plus a gauge tick every 200 ms of the body: +GREAT×0.5 while held, BAD×0.5 while released.
 * Back-spin scratch: on a scratch CN/HCN the end is judged when the turntable is spun the other way. For
   keyboards and touch, releasing also ends it (configurable in the engine).
-* Scores, replays and IR entries are filed by LN mode: a chart without long notes under LN; a chart whose long
-  notes all have their type (`#LNMODE`, bmson `t`) under that type (with several types, the strongest:
-  HCN > CN > LN), whatever the player's LN mode; otherwise under the player's LN mode. Records such charts had
-  under the player's mode are merged into the chart's when the library loads.
+* LN MODE is AUTO (LN, CN, HCN: the type of the long notes the chart leaves untyped; a type the chart gives
+  wins) or FORCE (FORCE LN, CN, HCN: every long note plays as that type, whatever the chart gives; bmz-player's
+  `docs/ln.md`). FORCE takes the types off when the chart is arranged (`play::arrange`).
+* Scores, replays and IR entries are filed by LN mode: a chart without long notes under LN; under FORCE, the
+  forced type; a chart whose long notes all have their type (`#LNMODE`, bmson `t`) under that type (with several
+  types, the strongest: HCN > CN > LN), whatever the player's AUTO mode; otherwise under the player's LN mode.
+  Records such charts had under the player's mode are merged into the chart's when the library loads. A FORCE
+  play is filed with the AUTO plays of its type, and on a chart with both untyped and typed long notes they may
+  play differently (bmz-player keeps AUTO and FORCE apart there; vibeBMS's records have the three LN types only).
+  G-BATTLE takes a replay only when its long notes play as the player's would (`LnProfile::plays_alike`).
+* IR: FORCE LN is LR2's play of a chart that types its long notes (LR2 reads no `#LNMODE`: every long note an
+  LN), so the vibe-LR2 profile takes it; vibe-beatoraja takes FORCE only where it changes no type the chart
+  gives (beatoraja plays the chart's types). Other FORCE plays are local rules.
 * They are filed by rule mode too, the judge preset played with (beatoraja, LR2 or IIDX): each has its own best
   EX score, lamp, min BP, min CB, play counts and replays, and song select shows those of the judge preset chosen
   now. (The gauge set is not part of it: a play with LR2's windows and beatoraja's gauges is an LR2 play.) Course
@@ -353,6 +362,65 @@ of the arcade) may judge otherwise when played again.
   Records from before rule modes are filed under the rule of their best EX play's replay, where it can be read when
   the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
   the default preset; replays from before count for the preset they were played with.
+
+## Scroll
+`#SCROLL` (channel SC) changes how fast the lane scrolls from a beat on (scroll positions are the integral of it).
+beatoraja's `#SPEED` (channel SP; bmz-player's `docs/hs.md`) multiplies the whole lane's scroll at the current time:
+linear in time between its points, from 1 at time 0 to the first, the last after it. Neither changes a note's
+time or the judge. Under CONSTANT the notes go by time, so neither has an effect. A NONSTOP course's scroll goes by
+time (above) and drops its stages' `#SCROLL` and `#SPEED`.
+
+## Lane options
+Each side's lane option is drawn from the play's seed (2P from seed + 1) with Java's `Random`, so a replay draws
+the same lanes (`lane_option.rs`).
+* F-RANDOM and MF-RANDOM are bmz-player's (its change log calls them HALF RANDOM and MIRROR HALF RANDOM; its
+  documentation does not say more, and this is vibeBMS's reading): the keys left of the middle are shuffled among
+  themselves, and those right of it; the middle key (5, 7 and 9 keys) and the scratch stay. MF-RANDOM then swaps
+  the halves (the left half's notes are shuffled onto the right), so MIRROR of an F-RANDOM is an MF-RANDOM, as
+  bmz-player pairs them. Both are kept and sent as usual (bmz-player's rule, `docs/score-persistence.md`); a
+  beatoraja skin shows them as RANDOM, Bokutachi gets RANDOM.
+* S-RANDOM interval (`SRandomInterval`, bmz-player's `docs/settings.md` "S-RANDOMの補正"), for S-RANDOM and
+  S-RANDOM+: OFF (LR2's, the default and vibeBMS's rule before the setting) looks at no interval, only at notes at
+  the same time and held long notes; 40 MS (beatoraja's) takes a lane whose last note ended less than 40 ms before
+  last; 120 HZ counts the interval in whole 120 Hz frames (8.33 ms) and takes a lane last below 5 frames, one more
+  for each note of the side in a row closer than 8 frames to the one before, up to 8 (bmz-player describes it as
+  widening to 6–8 frames on runs; the base and the steps are vibeBMS's reading). A lane taken last is still taken
+  when no other is free. It does not change how a play is saved or sent; replays keep it.
+* TRAINER (bmz-player's Random Trainer, `docs/settings.md`): the side's keys in the player's order
+  (`RuleOptions::trainer_order`, the keys from the left as digits), not drawn. bmz-player keeps it for 7 keys 1P
+  and calls it a practice tool; vibeBMS plays it on either side of any chart whose key count is the order's, and
+  as OFF elsewhere. A RANDOM's lanes picked by the player are not a RANDOM play, so TRAINER is a light assist
+  (L-ASSIST, the lamp and counts only, no IR) where it took effect; replays keep the order.
+
+## Chart modifiers
+bmz-player lists SCROLL REMOVE / ADD, LONGNOTE REMOVE / ADD LN, CN, HCN and MINE REMOVE / ADD RANDOM, NEAR, BLANK
+(`docs/select-detail-options.md`) without saying what the ADD ones add; vibeBMS has LONGNOTE REMOVE (LEGACY NOTE) and
+MINE REMOVE (NO MINE), and these, applied after the lane options (`lane_option.rs`):
+* SCROLL REMOVE: `#SCROLL` and `#SPEED` off (the notes at their beats). Not in a NONSTOP course (its scroll goes
+  by time).
+* LONGNOTE ADD LN / CN / HCN: each normal note a long note of that type, ending half way to the next object of its
+  lane, at most a beat on (a beat after its lane's last note); none shorter than a 32nd note (it stays a note).
+  LN MODE FORCE plays them as the forced type.
+* MINE ADD, drawn from the play's seed, at each time a side has notes, on its keys that are free then (no note at
+  that time, no long note held; never the scratch): RANDOM one key drawn at random, NEAR the keys beside each
+  note, BLANK every free key. Each mine takes 2 % (`ADDED_MINE_DAMAGE`). It comes after LONGNOTE ADD (no mine in an
+  added long note's body) and NO MINE (the chart's mines removed, the added ones kept).
+Their assist levels are above ("Clear lamps"). LR2's class courses switch them off; G-BATTLE plays neither ADD (each
+side's would make two charts). Replays keep them.
+
+## FREQ
+FREQ (LR2's audio pitch option, as bmz-player documents it: `docs/settings.md` "FREQ") plays the whole chart
+s semitones higher, −12 ≤ s ≤ 12, at 2^(s / 12) times the speed (`play::freq_rate`; shown rounded, `+3 (119%)`).
+The chart is retimed once it is read (`practice::retime`: every time ÷ the rate, BPMs × it, stops and sound slices ÷
+it) and its sounds are resampled, so the pitch goes with the speed. The judge windows are in real time: the same
+milliseconds at every FREQ, so a faster play is harder. The lane options run on the retimed chart (H-RANDOM's and
+S-RANDOM's intervals are real time).
+* Below 0: the play is not saved at all, as practice is (no score, lamp, play count, replay or IR).
+* Above 0: saved as usual and filed with FREQ 0's plays (it is harder, the lamp and the score are earned at
+  least as well). Not sent to any IR, vibeBMS's own included (`Refusal::Freq`): no IR files a play by its speed.
+* Courses (every kind; LR2 switches it off in class and NONSTOP courses [S-OLR2b 3.8, 5.1]) and practice (it has its
+  own speed) play at 0. G-BATTLE plays at the opponent's replay's FREQ.
+* Replays keep it (a replay of before has 0) and play at it again; the play record (`RuleFacts::freq`) too.
 
 ## Best scores
 The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
@@ -367,7 +435,10 @@ at n/9 of max EX.
 
 Assists (as beatoraja's `BMSPlayer`; an option counts only when it took effect, `AssistFacts` in `score.rs`):
 * ASSIST: AUTO SCRATCH on a chart with scratch notes, LEGACY NOTE on a chart with long notes, EXPAND JUDGE over 100 %.
-* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, BATTLE, NO MINE that removed mines, BPM GUIDE on a
+* ASSIST also: LONGNOTE ADD that made long notes (as LEGACY NOTE, the option it undoes: the chart's notes change).
+* LIGHT ASSIST: SPIRAL, H-RANDOM, ALL-SCR, RANDOM+, S-RANDOM+, TRAINER on a chart of its key count, BATTLE, NO MINE
+  that removed mines, MINE ADD that added mines (as NO MINE), SCROLL REMOVE that took scroll changes off (a reading
+  aid, as BPM GUIDE), BPM GUIDE on a
   chart that changes BPM.
 
 An assisted play that is not FAILED gets that lamp whatever the gauge. It keeps only the lamp, the play and clear
@@ -397,7 +468,7 @@ check it.
 | A2 | empty POOR window and its combo and note rules | closed: more than 200 and less than 1000 ms early, never late [S1, S2, S3, S4, S-OLR2]; keeps the combo, never takes the note [S4, S-OLR2] |
 | A3 | `#RANK 4`, out-of-range and non-numeric `#RANK`, `#DEFEXRANK`, bmson | closed: LR2 reads `#RANK`'s leading digits, 0 when there are none, and plays every value but 0, 1, 3 NORMAL [S-OLR2; S13 and S16 agree for `#RANK 4`]; vibeBMS does the same. LR2 has no `#DEFEXRANK` [S9, S-OLR2] or bmson, and the profile leaves both out |
 | A4 | HARD gauge damage factor and the 30 % rule | narrowed to HARD on charts of 21 .. 29 notes where the note-count factor is the larger: S-OLR2 marks that segment (10 − 0.2 a note above 20, then 7 at 30) unchecked; a continuous 10 − 0.3 a note would differ. The kit's `a4-n29` and `a4-n30` settle it (50 vs 56 at 29 notes). Everything else: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the two factors, × 0.6 at 30 % shown or less, empty below 2 % [S1, S3, S7, S-OLR2]; the TOTAL factor [S-OLR2; S1's measurements agree, 200 shows the same, above]; the note-count factor from 30 notes up [S-OLR2; S1 from 125 up]. HAZARD is LR2's DEATH gauge [S8, S-OLR2] |
-| A5 | LN mode and typed CN / HCN | closed: LR2 has only LNs without a tail judgement [S8, S-OLR2]; the profile takes LN mode and no typed CN / HCN; LR2's LN rules above [S-OLR2; S4, S7 for the release window] |
+| A5 | LN mode and typed CN / HCN | closed: LR2 has only LNs without a tail judgement [S8, S-OLR2]; the profile takes LN mode and no typed CN / HCN played as typed (LN MODE FORCE LN plays them as LR2 does, and is taken); LR2's LN rules above [S-OLR2; S4, S7 for the release window] |
 | A6 | combo, note consumption and one-POOR rules | closed: LR2's in every key mode [S4, S8, S-OLR2] |
 | A7 | default TOTAL | closed: `#TOTAL` an integer; missing or below 1, floor(160 + 0.16 (n + clamp(n − 400, 0, 200))) [S-OLR2; the formula as S13 gives it, without the floor] |
 | A8 | mines, scratch long note ends | closed: the value as percent on every gauge, held as it passes or pressed up to GREAT early, one POOR [S-OLR2; S14 has the damage and the press, with GOOD for GREAT]. S9 and S15 (value / 2 %, nanasi's) and S10's GROOVE readings (−8, −8, −10, −12, −16 % for 1, 2, 3, 5, 10 %) do not fit; S-OLR2 notes that LR2 may show a mine as 2 POORs on screen while it counts 1, which may be what S10 saw. Scratch LN ends: LN mode only, judged as keys' [S4, S7]. GAUGE AUTO SHIFT: the profile takes none |
@@ -455,7 +526,12 @@ Not followed, and why no gap covers it:
   mine just behind a note not yet judged waits for that note; vibeBMS resolves each at its own time. It differs
   only when an LN head is within 200 ms minus GOOD, or a mine within 200 ms, after an unjudged note of its lane.
 - Objects that start inside an LN of their lane are dropped by LR2; vibeBMS drops notes there, not mines.
-- Battle and negative BPM: vibeBMS does not offer them. LR2's courses are followed (above, "LR2 courses"), but no
+- Battle and negative BPM: vibeBMS does not offer them. A negative `#BPMxx` is ignored (the BPM before it goes
+  on). LR2 plays it at its absolute value and folds the lane at it: the notes after it are drawn coming back the
+  other way, and bmz-player, which follows LR2, folds the judge's time at the same points too (its `docs/hs.md`).
+  vibeBMS's timing is one map from beats to time and scroll in which time only goes forward, and the judge reads
+  it; a folded lane would need a second, folding time for drawing and judging, which no source describes well
+  enough to judge by, so it is left out. LR2's courses are followed (above, "LR2 courses"), but no
   IR takes a course play. Of the IR adapters, Bokutachi cannot file a P-ATTACK or G-ATTACK play (Tachi's BMS gauges
   are EASY, NORMAL, HARD, EX-HARD) and refuses it; BMS-IR reads LR2's attack gauges (its change log: P-ATTACK apart
   from the clear, G-ATTACK clears shown as G-A); rianIR is not known to and refuses them.

@@ -450,6 +450,13 @@ impl Serialize for PlayConfig {
             };
         }
         set_fields!(
+            scroll_remove,
+            mine_add,
+            ln_add,
+            trainer_order,
+            s_random_interval,
+            ln_force,
+            freq,
             hs_type,
             hs_level,
             hs_anim_ms,

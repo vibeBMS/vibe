@@ -28,6 +28,8 @@ pub(super) struct Source<'a> {
     pub bpm: HashMap<u32, f64>,
     pub stop: HashMap<u32, f64>,
     pub scroll: HashMap<u32, f64>,
+    /// `#SPEEDxx` (beatoraja's scroll speed points, channel SP).
+    pub speed: HashMap<u32, f64>,
     pub lnobj: HashSet<u32>,
     /// Measure lengths other than 1 (channel 02).
     pub measure_len: HashMap<u32, f64>,
@@ -60,6 +62,7 @@ pub(super) fn read<'a>(
         bpm: HashMap::new(),
         stop: HashMap::new(),
         scroll: HashMap::new(),
+        speed: HashMap::new(),
         lnobj: HashSet::new(),
         measure_len: HashMap::new(),
         lines: Vec::new(),
@@ -176,6 +179,10 @@ pub(super) fn read<'a>(
                 } else if let Some(id) = idx("SCROLL") {
                     if let Some(v) = parse_f64(arg) {
                         src.scroll.insert(id, v);
+                    }
+                } else if let Some(id) = idx("SPEED") {
+                    if let Some(v) = parse_f64(arg) {
+                        src.speed.insert(id, v);
                     }
                 }
             }

@@ -83,6 +83,17 @@ impl Default for DisplayConfig {
     }
 }
 
+/// The loudness normalised sounds play at by default (LUFS).
+pub const NORMALIZE_TARGET: f32 = -12.0;
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn is_normal_target(t: &f32) -> bool {
+    *t == NORMALIZE_TARGET
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct AudioSettings {
@@ -97,6 +108,18 @@ pub struct AudioSettings {
     pub preview: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub preview_once: bool,
+    /// Silent while the app is not the one in use (`app::activity`).
+    #[serde(skip_serializing_if = "is_true")]
+    pub mute_inactive: bool,
+    /// The chart's sounds and the song preview played at a common loudness,
+    /// `normalize_target` LUFS (`loudness`).
+    #[serde(skip_serializing_if = "is_true")]
+    pub normalize: bool,
+    #[serde(skip_serializing_if = "is_normal_target")]
+    pub normalize_target: f32,
+    /// The sound set's music (select, decide, `.loop` files) too.
+    #[serde(skip_serializing_if = "is_true")]
+    pub normalize_system: bool,
     /// Windows: the device in WASAPI exclusive mode (else shared).
     #[cfg(windows)]
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -114,6 +137,10 @@ impl Default for AudioSettings {
             system: 0.7,
             preview: true,
             preview_once: false,
+            mute_inactive: true,
+            normalize: true,
+            normalize_target: NORMALIZE_TARGET,
+            normalize_system: true,
             #[cfg(windows)]
             exclusive: false,
         }
@@ -379,12 +406,20 @@ mod tests {
                     dp_option: DoubleOption::Flip,
                     battle: true,
                     ln_mode: LnType::Hcn,
+                    ln_force: false,
                     auto_scratch: true,
                     legacy_note: true,
                     no_mine: true,
                     expand_judge: true,
                     judge_rates: [200, 150, 75],
                     hran_threshold_bpm: 150,
+                    // (newer fields at their defaults: written as before)
+                    scroll_remove: false,
+                    mine_add: Default::default(),
+                    ln_add: Default::default(),
+                    s_random_interval: Default::default(),
+                    trainer_order: "1234567".into(),
+                    freq: 0,
                     course: None,
                 },
                 versus: Versus::Off,
@@ -518,6 +553,10 @@ mod tests {
                 system: 0.125,
                 preview: false,
                 preview_once: true,
+                mute_inactive: true,
+                normalize: true,
+                normalize_target: NORMALIZE_TARGET,
+                normalize_system: true,
                 #[cfg(windows)]
                 exclusive: false,
             },
@@ -632,6 +671,31 @@ mod tests {
         assert_eq!(Config::load(&path), c);
     }
 
+    /// MUTE WHEN INACTIVE is written only when turned off.
+    #[test]
+    fn mute_inactive_off_is_kept() {
+        let mut c = Config::default();
+        assert!(c.audio.mute_inactive);
+        assert!(!c.to_toml().unwrap().contains("mute_inactive"));
+        c.audio.mute_inactive = false;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("mute_inactive = false"));
+        assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
+    }
+
+    /// Loudness normalisation is written only when it is not as it comes.
+    #[test]
+    fn normalizing_is_written_when_changed() {
+        let mut c = Config::default();
+        assert!(!c.to_toml().unwrap().contains("normalize"));
+        (c.audio.normalize, c.audio.normalize_target) = (false, -16.0);
+        c.audio.normalize_system = false;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("normalize = false") && s.contains("normalize_target = -16.0"));
+        let d: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c, d);
+    }
+
     #[test]
     fn roundtrip_toml() {
         let c = Config::default();
@@ -646,6 +710,31 @@ mod tests {
         assert_eq!(p.play.hispeed, 4.0);
         assert!((p.play.duration_ms(&Bpms::flat(150.0)) - 400.0).abs() < 0.5);
         assert_eq!(p.keys, KeyConfig::default());
+    }
+
+    /// The newer rule options are written when set and read back.
+    #[test]
+    fn newer_rule_options_roundtrip() {
+        let mut c = Config::default();
+        c.play.freq = -3;
+        c.play.ln_force = true;
+        c.play.s_random_interval = vibebms_core::lane_option::SRandomInterval::Ms40;
+        c.play.trainer_order = "3142576".into();
+        c.play.mine_add = vibebms_core::lane_option::MineAdd::Near;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("s_random_interval = \"Ms40\""));
+        assert!(s.contains("trainer_order = \"3142576\""));
+        assert!(s.contains("mine_add = \"Near\""));
+        assert!(s.contains("freq = -3") && s.contains("ln_force = true"));
+        let d: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c, d);
+        // at their defaults they are not written
+        let d = Config::default().to_toml().unwrap();
+        for f in [
+            "freq", "ln_force", "s_random", "trainer", "mine_add", "ln_add", "scroll",
+        ] {
+            assert!(!d.contains(f), "{f}");
+        }
     }
 
     /// Files written before the rules were split from the play options

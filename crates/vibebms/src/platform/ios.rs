@@ -118,7 +118,9 @@ unsafe extern "C-unwind" fn touches(
         let time = since_boot(first.unwrap_or_else(|| t.timestamp()));
         let id = Retained::as_ptr(&t) as u64;
         STAMPS.with_borrow_mut(|s| {
-            s.retain(|e| e.0 != id);
+            // (by phase: should winit queue the touch, as it does while the
+            // app's handler runs, its start keeps its time through a move)
+            s.retain(|e| (e.0, e.1) != (id, phase));
             // (touches winit never sent on, e.g. while there was no app)
             if s.len() >= 32 {
                 s.remove(0);
@@ -137,7 +139,12 @@ unsafe extern "C-unwind" fn touches(
 pub fn touch_time(id: u64, phase: TouchPhase) -> Option<Instant> {
     STAMPS.with_borrow_mut(|s| {
         let i = s.iter().position(|e| e.0 == id && e.1 == phase)?;
-        Some(s.swap_remove(i).2)
+        let t = s.remove(i).2;
+        // a touch over: nothing of it is left (UIKit reuses the address)
+        if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+            s.retain(|e| e.0 != id);
+        }
+        Some(t)
     })
 }
 

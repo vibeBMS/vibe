@@ -40,5 +40,9 @@ impl Downloads {
         false
     }
 
+    pub fn is_open(&self) -> bool {
+        false
+    }
+
     pub fn poll(&mut self, _ctx: &mut crate::app::Ctx) {}
 }

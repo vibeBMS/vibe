@@ -84,7 +84,7 @@ fn rank_of(best: Option<&crate::library::BestScore>) -> u8 {
 impl Smart {
     /// Whether `s` is in this folder of charts (at Unix time `now`).
     fn has(&self, ctx: &Ctx, s: &Song, now: i64) -> bool {
-        let best = ctx.best(s, ctx.config.play.ln_mode);
+        let best = ctx.best(s, ctx.config.play.ln_pref());
         let since = now - RECENT_DAYS * 86_400;
         match self {
             Smart::LampUpdate => best.is_some_and(|b| b.lamp_updated >= since),
@@ -174,7 +174,7 @@ pub(crate) fn shown(ctx: &Ctx, s: &Song) -> bool {
 /// The bars RANDOM SELECT may draw from `bars`: the charts whose lamp
 /// (under the LN and rule modes chosen) its kind takes.
 pub(crate) fn random_candidates(ctx: &Ctx, bars: &[Bar]) -> Vec<usize> {
-    let ln = ctx.config.play.ln_mode;
+    let ln = ctx.config.play.ln_pref();
     let kind = ctx.config.select.random;
     (0..bars.len())
         .filter(|&i| match &bars[i] {
@@ -196,7 +196,7 @@ pub(crate) fn favorite(ctx: &Ctx, s: &Song) -> bool {
 /// difficulty and level.
 fn sort_songs(ctx: &Ctx, v: &mut [usize]) {
     let songs = &ctx.lib.songs;
-    let ln = ctx.config.play.ln_mode;
+    let ln = ctx.config.play.ln_pref();
     let sort = ctx.config.select.sort;
     // the record under the LN and rule modes chosen
     let best = |s: &Song| ctx.best(s, ln);
@@ -586,7 +586,7 @@ impl SelectScene {
         }
         let mut lamps = [0u32; 11];
         let mut ranks = [0u32; 9];
-        let ln = ctx.config.play.ln_mode;
+        let ln = ctx.config.play.ln_pref();
         let mut count = |bars: &[Bar]| {
             for b in bars {
                 let Some(song) = (match b {

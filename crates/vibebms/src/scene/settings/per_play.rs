@@ -78,7 +78,8 @@ pub(super) const MOVED: &[Moved] = &[
     },
     Moved {
         label: "Assist options",
-        keys: "auto scratch legacy note mines no mine expand judge judge area mark note bpm guide",
+        keys: "auto scratch legacy note mines no mine expand judge judge area mark note bpm guide \
+               scroll remove mine add longnote add ln add chart modifier",
         place: "ASSIST, hold SELECT",
         ids: &[
             "play.auto_scratch",
@@ -89,6 +90,18 @@ pub(super) const MOVED: &[Moved] = &[
             "play.mark_notes",
             "play.bpm_guide",
         ],
+    },
+    Moved {
+        label: "Random trainer",
+        keys: "random trainer lane order fixed",
+        place: "RANDOM: TRAINER (PLAY OPTION keys 1 / 2); its order in GAMEPLAY › ADVANCED",
+        ids: &[],
+    },
+    Moved {
+        label: "FREQ",
+        keys: "freq pitch speed semitone tempo rate faster slower",
+        place: "ASSIST, hold SELECT and turn the turntable",
+        ids: &[],
     },
     Moved {
         label: "Autoplay",

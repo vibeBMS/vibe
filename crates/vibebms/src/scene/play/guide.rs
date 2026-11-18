@@ -6,7 +6,7 @@
 
 use crate::platform::{vfs, Job};
 use crate::sysound::tone;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use vibebms_audio::{Bus, Mixer, PlayOptions, Sample};
 use vibebms_core::judge::Judge;
@@ -50,17 +50,19 @@ pub(crate) struct GuideSounds {
 }
 
 impl GuideSounds {
-    /// The guide sounds of the set `value` names (a path relative to
-    /// `root`; empty: the built-in set): the built-in ones at once, the
-    /// set's own when decoded.
-    pub fn load(value: &str, root: &Path, rate: u32) -> GuideSounds {
+    /// The guide sounds of the sound set in folders `dirs` (each looked in
+    /// in turn: a variant's, then its set's; none: the built-in set): the
+    /// built-in ones at once, the set's own when decoded.
+    pub fn load(dirs: Vec<PathBuf>, rate: u32) -> GuideSounds {
         let samples = Judge::ALL.map(|j| Some(Arc::new(built_in(j, rate))));
-        let dir = root.join(value);
-        let job = (!value.is_empty() && vfs::is_dir(&dir)).then(|| {
+        let job = (!dirs.is_empty()).then(|| {
             Job::spawn("guide SE", move |_| {
                 let mut out = Vec::new();
                 for j in Judge::ALL {
-                    let Some(p) = vfs::find_by_stem(&dir, file(j), vfs::AUDIO_EXTS) else {
+                    let found = dirs
+                        .iter()
+                        .find_map(|d| vfs::find_by_stem(d, file(j), vfs::AUDIO_EXTS));
+                    let Some(p) = found else {
                         continue;
                     };
                     let ext = p
@@ -120,7 +122,7 @@ mod tests {
         assert!(vfs::find_by_stem(&set, file(Judge::Great), vfs::AUDIO_EXTS).is_none());
         std::fs::remove_dir_all(&root).ok();
         // none in the set: every judgement has a built-in sound, each its own
-        let g = GuideSounds::load("", Path::new("/nonexistent"), 44100);
+        let g = GuideSounds::load(Vec::new(), 44100);
         assert!(g.job.is_none() && g.samples.iter().all(Option::is_some));
         let lens: Vec<usize> = Judge::ALL
             .iter()

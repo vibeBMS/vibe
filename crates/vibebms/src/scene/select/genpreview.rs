@@ -43,19 +43,22 @@ enum Stage {
     Plan(Job<Option<Plan>>),
     /// The sound files being read (the web).
     Files(Prefetch, Box<Plan>),
-    Mix(Job<Option<Sample>>),
+    Mix(Job<Option<Preview>>),
 }
+
+/// A preview's sound and its loudness.
+pub(super) type Preview = (Arc<Sample>, crate::loudness::Loudness);
 
 /// The previews made, newest last, and the one being made.
 #[derive(Default)]
 pub(super) struct Generated {
-    cache: VecDeque<(String, Arc<Sample>)>,
+    cache: VecDeque<(String, Preview)>,
     making: Option<(String, Stage)>,
 }
 
 impl Generated {
     /// The preview made for the chart at `path`, if it is kept.
-    pub fn cached(&mut self, path: &str) -> Option<Arc<Sample>> {
+    pub fn cached(&mut self, path: &str) -> Option<Preview> {
         let i = self.cache.iter().position(|(p, _)| p == path)?;
         let hit = self.cache.remove(i)?;
         let s = hit.1.clone();
@@ -76,7 +79,7 @@ impl Generated {
 
     /// Take the next step; the chart and its preview once made (`None`
     /// for the sample when it could not be).
-    pub fn poll(&mut self, rate: u32) -> Option<(String, Option<Arc<Sample>>)> {
+    pub fn poll(&mut self, rate: u32) -> Option<(String, Option<Preview>)> {
         let (path, stage) = self.making.take()?;
         let next = match stage {
             Stage::Chart(f) if f.finished() => {
@@ -93,12 +96,13 @@ impl Generated {
             },
             Stage::Files(f, plan) if f.finished() => {
                 Stage::Mix(Job::spawn("preview mix", move |_| {
-                    Some(mix_plan(&plan, rate))
+                    let s = mix_plan(&plan, rate);
+                    let l = crate::loudness::measure_sound(&s, rate);
+                    Some((Arc::new(s), l))
                 }))
             }
             Stage::Mix(mut job) => match job.poll() {
                 Some(s) => {
-                    let s = s.map(Arc::new);
                     if let Some(s) = &s {
                         if self.cache.len() >= KEPT {
                             self.cache.pop_front();
@@ -327,9 +331,12 @@ mod tests {
         }
         let (p, s) = made.expect("made");
         let s = s.expect("a preview");
+        let (s, l) = (s.0, s.1);
         assert_eq!((p.as_str(), s.channels), (path.as_str(), 2));
         assert_eq!(s.frames as i64, LEN_US * 8000 / 1_000_000);
         assert!(s.data.iter().any(|v| *v != 0));
+        // measured as it was made
+        assert!(l.lufs.is_some() && l.peak > 0.0);
         assert!(!g.busy() && g.cached(&path).is_some());
         std::fs::remove_dir_all(&dir).ok();
     }

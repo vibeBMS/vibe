@@ -11,6 +11,7 @@ use crate::library::Song;
 use crate::sysound::Sound;
 use std::cell::Ref;
 use std::path::PathBuf;
+use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
 use vibebms_core::score::{Assist, AssistFacts, ClearType};
 use vibebms_ir::lamps::RankView;
 use vibebms_ir::outbox::State;
@@ -49,15 +50,25 @@ fn unknown(s: &Song) -> bool {
 /// which options take effect (as `scene::play::setup` finds them); with
 /// no chart chosen every option counts.
 pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<ClearType>) {
-    if p.autoplay || p.versus == Versus::Local {
+    // (a FREQ below 0 saves nothing: `scene::play::setup`)
+    if p.autoplay || p.versus == Versus::Local || p.freq < 0 {
         return (Keep::Nothing, None);
     }
     let has = |f: fn(&Song) -> bool| song.is_none_or(f);
     let double = song.is_some_and(|s| s.mode.is_double());
+    // (TRAINER on a chart of another key count does nothing)
+    let keys = song.map(|s| s.mode.keys_per_player());
+    let order = vibebms_core::lane_option::trainer_order(&p.trainer_order);
+    let fits = order.is_some_and(|o| keys.is_none_or(|k| k == o.len()));
+    let took = |o: LaneOption| match o {
+        LaneOption::Trainer if !fits => LaneOption::Off,
+        o => o,
+    };
     let facts = AssistFacts {
         lane: [p.random_1p]
             .into_iter()
             .chain(double.then_some(p.random_2p))
+            .map(took)
             .collect(),
         auto_scratch: p.auto_scratch
             && has(|s| {
@@ -68,6 +79,10 @@ pub(crate) fn outcome(p: &PlayConfig, song: Option<&Song>) -> (Keep, Option<Clea
         battle: p.battle && has(|s| !s.mode.is_double()),
         wide_judge: p.expand_judge && p.judge_rates.iter().any(|r| *r > 100),
         bpm_guide: p.bpm_guide && has(|s| s.min_bpm < s.max_bpm),
+        // (whether a chart has scroll changes is not kept: as if it had)
+        scroll_remove: p.scroll_remove,
+        mine_add: p.mine_add != MineAdd::Off,
+        ln_add: p.ln_add != LnAdd::Off,
     };
     match facts.level() {
         Assist::None => (Keep::All, Some(p.gauge.clear_type())),
@@ -116,6 +131,10 @@ pub(crate) fn assist_summary(p: &PlayConfig) -> String {
         (p.mark_notes, "MARK NOTE"),
         (p.bpm_guide, "BPM GUIDE"),
         (p.no_mine, "NO MINE"),
+        (p.scroll_remove, "SCROLL REMOVE"),
+        (p.mine_add != MineAdd::Off, "MINE ADD"),
+        (p.ln_add != LnAdd::Off, "LONGNOTE ADD"),
+        (p.freq != 0, "FREQ"),
     ]
     .into_iter()
     .filter_map(|(on, name)| on.then_some(name))
@@ -274,16 +293,18 @@ impl SelectScene {
         let p = &ctx.config.play;
         let key = format!(
             "{}\u{1f}{:?}\u{1f}{:?}",
-            song.path, p.ln_mode, p.judge_preset
+            song.path,
+            p.ln_pref(),
+            p.judge_preset
         );
         if self.files.borrow().key != key {
-            let ln = song.score_ln(p.ln_mode) as i32;
+            let ln = song.score_ln(p.ln_pref()) as i32;
             let replay = crate::replay::exists(
                 &ctx.paths.root,
                 &song.sha256,
                 ln,
                 p.judge_preset,
-                song.fixed_ln(),
+                song.fixed_ln() && !p.ln_force,
             );
             *self.files.borrow_mut() = ChartFiles {
                 key,
@@ -320,6 +341,32 @@ mod tests {
         assert_eq!(outcome(&p, None).0, Keep::LampOnly);
         p.random_1p = LaneOption::Random;
         assert_eq!(outcome(&p, Some(&song)).0, Keep::All);
+        // TRAINER: L-ASSIST where its order fits the chart's keys
+        (p.no_mine, p.bpm_guide) = (false, false);
+        p.random_1p = LaneOption::Trainer;
+        let light = (Keep::LampOnly, Some(ClearType::LightAssistEasy));
+        assert_eq!(outcome(&p, Some(&song)), light);
+        let five = Song {
+            mode: vibebms_core::PlayMode::Beat5K,
+            ..song.clone()
+        };
+        assert_eq!(outcome(&p, Some(&five)).0, Keep::All);
+        // FREQ below 0 keeps nothing, above 0 all
+        p.random_1p = LaneOption::Random;
+        p.freq = -1;
+        assert_eq!(outcome(&p, Some(&song)), (Keep::Nothing, None));
+        p.freq = 2;
+        assert_eq!(outcome(&p, Some(&song)).0, Keep::All);
+        // chart modifiers: MINE ADD light, LONGNOTE ADD full
+        p.freq = 0;
+        p.mine_add = MineAdd::Blank;
+        assert_eq!(outcome(&p, Some(&song)), light);
+        p.ln_add = LnAdd::Cn;
+        let full = (Keep::LampOnly, Some(ClearType::AssistEasy));
+        assert_eq!(outcome(&p, Some(&song)), full);
+        assert_eq!(assist_summary(&p), "2 ON");
+        (p.mine_add, p.ln_add) = (MineAdd::Off, LnAdd::Off);
+        (p.no_mine, p.bpm_guide) = (true, true);
         p.auto_scratch = true;
         let full = (Keep::LampOnly, Some(ClearType::AssistEasy));
         assert_eq!(outcome(&p, Some(&song)), full);

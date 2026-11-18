@@ -74,7 +74,7 @@ fn ctx() -> Ctx {
     let root = std::env::temp_dir().join(format!("vibebms-golden-{}", std::process::id()));
     let mut ctx = Ctx::for_test(root);
     let s = song();
-    let ln = s.score_ln(ctx.config.play.ln_mode) as i32;
+    let ln = s.score_ln(ctx.config.play.ln_pref()) as i32;
     let key = crate::library::RecordKey::new(&s.sha256, ln, ctx.config.play.judge_preset);
     ctx.lib.scores.insert(key, best());
     ctx.tables.list.push(bmseeker::table::DifficultyTable {

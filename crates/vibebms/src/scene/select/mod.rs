@@ -16,7 +16,7 @@ pub(crate) use tree::{Bar, Node};
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
-use crate::gfx::{Gfx, Rect, TexId};
+use crate::gfx::{Gfx, Rect};
 use crate::input::{AxisStepper, InputEv, Nav, Repeat};
 use crate::library::Song;
 use crate::platform::{Instant, Job};
@@ -30,9 +30,7 @@ use skin::{SelectHooks, PANELS};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tree::Distribution;
-use vibebms_audio::Sample;
 
 /// The BPMs hi-speeds are shown and set for without a chart (beatoraja's
 /// 150).
@@ -84,13 +82,13 @@ pub struct SelectScene {
     preview_until: Option<Instant>,
     /// The chart waits for a preview made of its sounds.
     preview_wait: bool,
-    preview_job: Option<Job<Option<Arc<Sample>>>>,
+    preview_job: Option<Job<Option<genpreview::Preview>>>,
     /// Previews made of charts' sounds (`genpreview`).
     generated: genpreview::Generated,
     /// The preview's file being read (the web: from the browser's storage)
     /// before it is decoded.
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
-    banner: Option<(String, Option<TexId>)>,
+    banner: Option<(String, Option<crate::gfx::ImageTex>)>,
     /// The banner's image while it is decoded.
     banner_job: Option<crate::skin::render::ImageJobs>,
     ranking: HashMap<String, Rank>,
@@ -164,6 +162,7 @@ impl SelectScene {
             dist_cache: Default::default(),
         };
         s.rebuild(ctx);
+        ctx.select_entered();
         s
     }
 
@@ -292,7 +291,11 @@ impl SelectScene {
             let st = SelectState::new(self, ctx);
             let mut hooks = SelectHooks {
                 st: &st,
-                banner: self.banner.as_ref().and_then(|b| b.1),
+                banner: self
+                    .banner
+                    .as_ref()
+                    .and_then(|b| b.1.as_ref())
+                    .map(|t| t.tex),
                 bars: HitMap::default(),
                 pitch: None,
             };
@@ -323,6 +326,11 @@ impl Scene for SelectScene {
         }
         self.repeat_keys(ctx, now);
         self.ease_scroll(now);
+        // the app not in use and silent: the preview stops, to start again
+        // from its beginning once it is heard (`app::activity`)
+        if self.preview_for.is_some() && ctx.audio.mute.faded(now) {
+            self.moved(ctx);
+        }
         self.update_preview(ctx);
         self.update_sounds(ctx);
         self.update_ranking(ctx);
@@ -356,7 +364,7 @@ impl Scene for SelectScene {
             return Vec::new();
         };
         let mut v = vec![s.title.clone(), crate::screenshot::difficulty(s.difficulty)];
-        if let Some(b) = ctx.best(s, ctx.config.play.ln_mode) {
+        if let Some(b) = ctx.best(s, ctx.config.play.ln_pref()) {
             v.extend([b.clear.label().to_string(), b.ex_score.to_string()]);
         }
         v
@@ -372,7 +380,9 @@ impl Scene for SelectScene {
     }
 
     fn resumed(&mut self, ctx: &mut Ctx) {
-        // the BGM again (a screen over this one may have stopped it)
+        // the BGM again (a screen over this one may have stopped it), of
+        // the set drawn again if it is drawn at random
+        ctx.select_entered();
         self.bgm_on = false;
         // scores may have changed (rebuild forgets the counts)
         self.rebuild(ctx);
@@ -384,7 +394,7 @@ impl Scene for SelectScene {
         self.stop_bgm(ctx);
         self.host.free(gfx);
         if let Some((_, Some(t))) = self.banner.take() {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
     }
 

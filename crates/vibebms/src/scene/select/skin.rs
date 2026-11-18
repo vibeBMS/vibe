@@ -96,8 +96,11 @@ pub const PANEL_TILES: [&[i32]; PANELS] = [
     &[
         42, 40, 54, 55, 43, 77, 9005, 9018, 9032, 9033, 9034, 9003, 2, 9006, 9007,
     ],
-    // ASSIST: beatoraja's seven, AUTO SCRATCH
-    &[301, 302, 303, 304, 305, 306, 307, 9035],
+    // ASSIST: beatoraja's seven, AUTO SCRATCH, FREQ, SCROLL REMOVE, MINE
+    // ADD, LONGNOTE ADD, TRAINER ORDER
+    &[
+        301, 302, 303, 304, 305, 306, 307, 9035, 9038, 9040, 9041, 9042, 9039,
+    ],
     // SYSTEM OPTION: BGA, BGA SIZE, GAUGE AUTO SHIFT, JUDGE AUTO ADJUST,
     // JUDGE TIMING, GREEN NUMBER, VISUAL OFFSET, GHOST POSITION, SCORE
     // GRAPH, FAST / SLOW, SCREEN MODE; KEY CONFIG, SKIN / SOUND, SETTINGS
@@ -246,7 +249,7 @@ impl<'a> SelectState<'a> {
             ctx,
             bar,
             song,
-            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_mode)),
+            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_pref())),
             chart: song.map(ChartFacts::of_song),
             bpms: song.map_or(REFERENCE_BPMS, Bpms::of_song),
             rank: song.and_then(|x| s.ranking.get(&x.sha256)),
@@ -355,7 +358,7 @@ impl<'a> SelectState<'a> {
 
     /// A chart's lamp under the LN and rule modes chosen.
     fn lamp_of(&self, s: &Song) -> ClearType {
-        let best = self.ctx.best(s, self.ctx.config.play.ln_mode);
+        let best = self.ctx.best(s, self.ctx.config.play.ln_pref());
         best.map_or(ClearType::NoPlay, |b| b.clear)
     }
 
@@ -422,7 +425,7 @@ impl<'a> SelectState<'a> {
                     level: Some(s.level_num()),
                     difficulty: s.difficulty.clamp(0, 6) as usize,
                     lamp: Some(
-                        ctx.best(s, ctx.config.play.ln_mode)
+                        ctx.best(s, ctx.config.play.ln_pref())
                             .map(|b| b.clear)
                             .unwrap_or(ClearType::NoPlay),
                     ),

@@ -3,10 +3,12 @@
 //! Supported:
 //! * headers: TITLE, SUBTITLE, ARTIST, SUBARTIST, GENRE, BPM, PLAYLEVEL, RANK,
 //!   DEFEXRANK, TOTAL, DIFFICULTY, STAGEFILE, BANNER, BACKBMP, PREVIEW,
-//!   LNTYPE, LNOBJ, LNMODE, BASE, WAVxx, BMPxx, BPMxx/EXBPMxx, STOPxx, SCROLLxx
+//!   LNTYPE, LNOBJ, LNMODE, BASE, WAVxx, BMPxx, BPMxx/EXBPMxx, STOPxx, SCROLLxx,
+//!   SPEEDxx
 //! * control flow: RANDOM / SETRANDOM / IF / ELSEIF / ELSE / ENDIF / ENDRANDOM,
 //!   SWITCH / SETSWITCH / CASE / SKIP / DEF / ENDSW (nested)
-//! * channels: 01 BGM, 02 measure length, 03/08 BPM, 09 STOP, SC scroll,
+//! * channels: 01 BGM, 02 measure length, 03/08 BPM, 09 STOP, SC scroll, SP
+//!   speed (beatoraja's),
 //!   04/06/07/0A BGA, 1x/2x notes, 3x/4x invisible, 5x/6x long notes,
 //!   Dx/Ex mines
 //!
@@ -250,6 +252,9 @@ mod tests {
             "#STOP01 1e300\n#00109:01",
             "#STOP01 -1e9\n#00109:01",
             "#SCROLL01 1e300\n#001SC:01",
+            "#SPEED01 1e300\n#001SP:01",
+            "#SPEED01 NaN\n#001SP:01",
+            "#SPEED01 -2\n#001SP:0101",
             "#DEFEXRANK 1e300",
             "#TOTAL 1e300",
         ] {
@@ -263,8 +268,24 @@ mod tests {
             let _ = c.timing.bpm_stats(c.length());
             for t in [0.0, 1e6, 1e12] {
                 let _ = (c.timing.beat_at_time(t), c.timing.bpm_at_time(t));
+                let _ = c.timing.speed_at_time(t);
             }
         }
+    }
+
+    /// `#SPEEDxx` and channel SP: speed points at their times.
+    #[test]
+    fn speed_channel() {
+        // 120 BPM: SPEED 2 at measure 1 (2 s), 0.5 half way through it
+        let c = parse("#BPM 120\n#SPEED01 2\n#SPEED02 0.5\n#001SP:0102\n#00211:01");
+        let at = |t: f64| c.timing.speed_at_time(t);
+        assert!((at(1_000_000.0) - 1.5).abs() < 1e-9);
+        assert_eq!(at(2_000_000.0), 2.0);
+        assert!((at(2_500_000.0) - 1.25).abs() < 1e-9);
+        assert_eq!(at(5_000_000.0), 0.5);
+        // an id with no #SPEED line is no point
+        let c = parse("#BPM 120\n#001SP:01\n#00211:01");
+        assert!(!c.timing.has_scroll_changes());
     }
 
     #[test]

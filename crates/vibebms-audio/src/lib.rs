@@ -1,5 +1,6 @@
 //! Audio for vibeBMS.
 //!
+//! * [`loudness`]: BS.1770 loudness of a signal or of sounds mixed.
 //! * [`decode`]: decode WAV/OGG/MP3/FLAC into 16-bit PCM at the mixer rate,
 //!   with BMS-style file name fallback (`a.wav` -> `a.ogg`).
 //! * [`Mixer`]: one mixer (`voice`) with sample-accurate scheduling (BGM is
@@ -10,6 +11,7 @@
 
 mod clock;
 pub mod decode;
+pub mod loudness;
 mod out;
 mod voice;
 
@@ -20,6 +22,10 @@ use out::{us_since, Device, Output};
 use std::sync::Arc;
 use voice::{Cmd, Due, Voice};
 use web_time::Instant;
+
+/// How long the master volume takes to glide over its whole range
+/// (`Mixer::set_master`): a mute fades out in this time.
+pub const MASTER_GLIDE_MS: u32 = 100;
 
 #[derive(Clone, Debug)]
 pub struct AudioConfig {
@@ -163,6 +169,13 @@ impl Mixer {
     pub fn set_bus_volume(&self, bus: Bus, v: f32) {
         self.out.send(Cmd::BusVolume(bus, v));
     }
+    /// A gain on bus `bus` besides its volume: the chart's sounds brought
+    /// to a common loudness (`loudness`).
+    pub fn set_bus_gain(&self, bus: Bus, g: f32) {
+        self.out.send(Cmd::BusGain(bus, g));
+    }
+    /// The master volume: it glides there, full scale in
+    /// [`MASTER_GLIDE_MS`] (0 fades the output out).
     pub fn set_master(&self, v: f32) {
         self.out.send(Cmd::Master(v));
     }

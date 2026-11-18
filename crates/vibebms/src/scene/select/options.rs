@@ -23,8 +23,8 @@ use crate::sysound::Sound;
 use vibebms_audio::Bus;
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::judge::JudgePreset;
-use vibebms_core::lane_option::LaneOption;
-use vibebms_core::LnType;
+use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
+use vibebms_core::LnPref;
 
 /// beatoraja: a held panel key repeats after 300 ms, every 50 ms.
 pub(super) const PANEL_REPEAT_DELAY: Duration = Duration::from_millis(300);
@@ -72,6 +72,11 @@ pub(crate) enum SelectOption {
     AutoScratch,
     Bga,
     TimingAutoAdjust,
+    Freq,
+    TrainerOrder,
+    ScrollRemove,
+    MineAdd,
+    LnAdd,
 }
 
 /// Full screen can be switched (desktop).
@@ -118,7 +123,7 @@ fn preview_index(a: &AudioSettings) -> i32 {
 }
 
 impl SelectOption {
-    pub const ALL: [SelectOption; 38] = [
+    pub const ALL: [SelectOption; 43] = [
         SelectOption::Random,
         SelectOption::Gauge,
         SelectOption::AutoShift,
@@ -157,6 +162,11 @@ impl SelectOption {
         SelectOption::AutoScratch,
         SelectOption::Bga,
         SelectOption::TimingAutoAdjust,
+        SelectOption::Freq,
+        SelectOption::TrainerOrder,
+        SelectOption::ScrollRemove,
+        SelectOption::MineAdd,
+        SelectOption::LnAdd,
     ];
 
     pub fn name(self) -> &'static str {
@@ -199,6 +209,11 @@ impl SelectOption {
             SelectOption::AutoScratch => "AUTO SCRATCH",
             SelectOption::Bga => "BGA",
             SelectOption::TimingAutoAdjust => "JUDGE AUTO ADJUST",
+            SelectOption::Freq => "FREQ",
+            SelectOption::TrainerOrder => "TRAINER ORDER",
+            SelectOption::ScrollRemove => "SCROLL REMOVE",
+            SelectOption::MineAdd => "MINE ADD",
+            SelectOption::LnAdd => "LONGNOTE ADD",
         }
     }
 
@@ -248,10 +263,15 @@ impl SelectOption {
             SelectOption::AutoScratch => onoff(p.auto_scratch).into(),
             SelectOption::Bga => p.bga.label().into(),
             SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
+            SelectOption::Freq => vibebms_core::play::freq_label(p.freq),
+            SelectOption::TrainerOrder => p.trainer_order.clone(),
+            SelectOption::ScrollRemove => onoff(p.scroll_remove).into(),
+            SelectOption::MineAdd => p.mine_add.label().into(),
+            SelectOption::LnAdd => p.ln_add.label().into(),
             SelectOption::Random => p.random_1p.label().into(),
             SelectOption::Gauge => p.gauge.label().into(),
             SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
-            SelectOption::LnMode => format!("{:?}", p.ln_mode).to_uppercase(),
+            SelectOption::LnMode => p.ln_pref().label(),
             SelectOption::HiSpeedDown => match p.hs_type {
                 HsType::Normal => format!("NHS {}", p.hs_level),
                 _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(REFERENCE_BPMS))),
@@ -330,7 +350,8 @@ impl SelectScene {
                 p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d)
             }
             SelectOption::LnMode => {
-                p.ln_mode = cycle(&[LnType::Ln, LnType::Cn, LnType::Hcn], p.ln_mode, d)
+                let ln = cycle(&LnPref::ALL, p.ln_pref(), d);
+                p.set_ln_pref(ln)
             }
             SelectOption::HiSpeedDown => p.add_hispeed(-HISPEED_STEP * d as f32, &bpm),
             SelectOption::HiSpeedUp => p.add_hispeed(HISPEED_STEP * d as f32, &bpm),
@@ -375,6 +396,16 @@ impl SelectScene {
             SelectOption::AutoScratch => p.auto_scratch ^= true,
             SelectOption::Bga => p.bga = cycle(&BgaMode::ALL, p.bga, d),
             SelectOption::TimingAutoAdjust => p.timing_auto_adjust ^= true,
+            SelectOption::Freq => {
+                option_panel::step_freq(p, d);
+            }
+            // a lane on (or back): the order turned
+            SelectOption::TrainerOrder => {
+                p.trainer_order = vibebms_core::lane_option::turn_order(&p.trainer_order, d)
+            }
+            SelectOption::ScrollRemove => p.scroll_remove ^= true,
+            SelectOption::MineAdd => p.mine_add = cycle(&MineAdd::ALL, p.mine_add, d),
+            SelectOption::LnAdd => p.ln_add = cycle(&LnAdd::ALL, p.ln_add, d),
             SelectOption::JudgeTiming => {
                 p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
             }
@@ -404,7 +435,7 @@ impl SelectScene {
                 *v = (*v + d as f32 * 0.05).clamp(0.0, 1.0);
                 match bus {
                     Some(b) => ctx.audio.mixer.set_bus_volume(b, *v),
-                    None => ctx.audio.mixer.set_master(*v),
+                    None => ctx.audio.set_master(*v),
                 }
             }
             SelectOption::Preview => {

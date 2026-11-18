@@ -1,50 +1,66 @@
-//! The chart's BGA images and videos on the GPU, and its stage file.
+//! The chart's BGA images (animated ones too) and videos on the GPU, and
+//! its stage file and back image.
 
-use super::loading::Rgba;
 use super::session::Session;
-use crate::gfx::{Gfx, TexId};
+use crate::gfx::{Gfx, ImageTex, Picture, TexId};
 use crate::platform::Instant;
 use crate::video::Video;
 use std::path::PathBuf;
 
 #[derive(Default)]
 pub(super) struct Bga {
-    /// By chart image: its texture, or its video.
-    tex: Vec<Option<TexId>>,
+    /// By chart image: its texture (animated from when it was first
+    /// shown), or its video.
+    tex: Vec<Option<ImageTex>>,
     video: Vec<Option<Video>>,
     pub stage: Option<TexId>,
+    /// `#BACKBMP`, else the stage file.
+    pub back: Option<TexId>,
+    /// The stage file and back image, animated from when the play loaded.
+    still: Vec<ImageTex>,
 }
 
 impl Bga {
     pub fn new(
         gfx: &mut Gfx,
-        images: Vec<Option<Rgba>>,
+        images: Vec<Option<Picture>>,
         videos: &[Option<PathBuf>],
-        stagefile: Option<Rgba>,
+        stagefile: Option<Picture>,
+        backbmp: Option<Picture>,
     ) -> Bga {
+        let stage = stagefile.map(|p| ImageTex::new(gfx, p));
+        let back = backbmp.map(|p| ImageTex::new(gfx, p));
+        let (stage_tex, back_tex) = (stage.as_ref().map(|t| t.tex), back.as_ref().map(|t| t.tex));
         Bga {
             tex: images
                 .into_iter()
-                .map(|i| i.map(|(w, h, px)| gfx.create_texture(w, h, &px)))
+                .map(|i| i.map(|p| ImageTex::new(gfx, p)))
                 .collect(),
             video: videos
                 .iter()
                 .map(|v| v.as_deref().and_then(|p| Video::open(p, false)))
                 .collect(),
-            stage: stagefile.map(|(w, h, px)| gfx.create_texture(w, h, &px)),
+            stage: stage_tex,
+            back: back_tex.or(stage_tex),
+            still: stage.into_iter().chain(back).collect(),
         }
     }
 
-    /// The videos shown at `now`, each from the chart time it was first
-    /// shown.
+    /// The videos and animated images shown at `now`, each from the chart
+    /// time it was first shown.
     pub fn update(&mut self, gfx: &mut Gfx, s: &Session, now: Instant) {
-        if self.video.is_empty() {
-            return;
+        for t in &mut self.still {
+            t.tick(gfx);
         }
         let t = s.chart_us(now);
         for (v, start) in self.video.iter_mut().zip(&s.bga_start) {
             if let (Some(v), Some(start)) = (v, start) {
                 v.update(gfx, (t - start) / 1000);
+            }
+        }
+        for (img, start) in self.tex.iter_mut().zip(&s.bga_start) {
+            if let (Some(img), Some(start)) = (img, start) {
+                img.show(gfx, (t - start) / 1000);
             }
         }
     }
@@ -56,7 +72,11 @@ impl Bga {
         let layers: &[usize] = if poor { &[3] } else { &[0, 1, 2] };
         let tex = |i: u32| match self.video.get(i as usize) {
             Some(Some(v)) => v.texture(),
-            _ => self.tex.get(i as usize).copied().flatten(),
+            _ => self
+                .tex
+                .get(i as usize)
+                .and_then(|t| t.as_ref())
+                .map(|t| t.tex),
         };
         let shown = |bga: &[Option<u32>; 4], alpha: f32| {
             layers
@@ -80,8 +100,10 @@ impl Bga {
     }
 
     pub fn free(&mut self, gfx: &mut Gfx) {
-        for t in self.tex.drain(..).flatten().chain(self.stage.take()) {
-            gfx.free_texture(t);
+        self.stage = None;
+        self.back = None;
+        for t in self.tex.drain(..).flatten().chain(self.still.drain(..)) {
+            t.free(gfx);
         }
         for mut v in self.video.drain(..).flatten() {
             v.free(gfx);

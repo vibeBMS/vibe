@@ -5,7 +5,7 @@
 //! | panel        | 1            | 2           | 3              | 4           | 5         | 6          | 7           | turntable |
 //! |--------------|--------------|-------------|----------------|-------------|-----------|------------|-------------|-----------|
 //! | 1 START      | RANDOM ▼     | RANDOM ▲    | GAUGE          | DP OPTION   | HS-FIX    | RANDOM 2P ▲| RANDOM 2P ▼ | TARGET    |
-//! | 2 SELECT     | EXPAND JUDGE | CONSTANT    | JUDGE AREA     | LEGACY NOTE | MARK NOTE | BPM GUIDE  | NO MINE     |           |
+//! | 2 SELECT     | EXPAND JUDGE | CONSTANT    | JUDGE AREA     | LEGACY NOTE | MARK NOTE | BPM GUIDE  | NO MINE     | FREQ      |
 //! | 3 both       | BGA          | GAUGE SHIFT | TIMING AUTO    | GREEN −1 ms | TIMING −1 | GREEN +1 ms| TIMING +1   |           |
 //!
 //! Panel 3's green number keys repeat while held (`repeats`), by 10 ms
@@ -16,6 +16,7 @@ use crate::scene::target::{self, Rival};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::{DoubleOption, LaneOption};
+use vibebms_core::play::{freq_label, FREQ_MAX, FREQ_MIN};
 use vibebms_core::LnType;
 
 /// The panel START / SELECT open: 1, 2, 3 (both), or 0.
@@ -275,8 +276,15 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms, d: i32) -> Op
 pub fn turn(p: &mut PlayConfig, panel: usize, dir: i32, rivals: &[Rival]) -> Option<String> {
     Some(match panel {
         1 => format!("TARGET: {}", target::step(p, rivals, -dir)),
+        2 => step_freq(p, dir),
         _ => return None,
     })
+}
+
+/// FREQ one semitone up (`d` = 1) or down, within its range.
+pub fn step_freq(p: &mut PlayConfig, d: i32) -> String {
+    p.freq = (p.freq + d).clamp(FREQ_MIN, FREQ_MAX);
+    format!("FREQ: {}", freq_label(p.freq))
 }
 
 fn hispeed_label(p: &PlayConfig, b: &Bpms) -> String {
@@ -322,5 +330,11 @@ mod tests {
         key(&mut p, 2, 0, &b, 1);
         assert!(p.expand_judge);
         assert!(key(&mut p, 2, 7, &b, 1).is_none());
+        // ASSIST's turntable: FREQ, a semitone a step, -12 ..= +12
+        assert_eq!(turn(&mut p, 2, 1, &[]).unwrap(), "FREQ: +1 (106%)");
+        for _ in 0..30 {
+            turn(&mut p, 2, -1, &[]);
+        }
+        assert_eq!(p.freq, -12);
     }
 }
