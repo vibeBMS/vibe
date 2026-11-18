@@ -225,13 +225,7 @@ impl<'a> PlayState<'a> {
             };
         }
         let song = &self.s.req.song;
-        let target = crate::scene::target::score(
-            self.ctx,
-            &song.md5,
-            &song.sha256,
-            sc.max_ex(),
-            best as u32,
-        ) as i64;
+        let target = crate::scene::target::score(self.ctx, song, sc.max_ex(), best as u32) as i64;
         let target_now = if self.ctx.config.play.target == crate::config::Target::Best {
             best_now
         } else {

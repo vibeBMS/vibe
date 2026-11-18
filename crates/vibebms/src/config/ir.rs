@@ -30,6 +30,8 @@ pub enum Beside {
     Off,
     /// A rival's (or the player's own) on one account.
     Player(PlayerKey),
+    /// Another profile's records (a local rival; its id).
+    Profile(String),
 }
 
 impl Beside {

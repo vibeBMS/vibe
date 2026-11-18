@@ -171,7 +171,8 @@ impl SelectScene {
         let fixed = song.fixed_ln() && !ctx.config.play.ln_force;
         let rule = ctx.config.play.judge_preset;
         let pick = ctx.config.select.replay;
-        let load = |slot| replay::load_filed(&ctx.paths.root, &song.sha256, ln, rule, fixed, slot);
+        let load =
+            |slot| replay::load_filed(&ctx.paths.player, &song.sha256, ln, rule, fixed, slot);
         let Some(r) = pick.slots().into_iter().find_map(load) else {
             ctx.toast(format!("No {} replay of {}", pick_name(pick), song.title));
             return Next::Stay;

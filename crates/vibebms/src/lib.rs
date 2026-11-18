@@ -22,6 +22,7 @@ pub mod paths;
 pub mod perspective;
 pub mod placement;
 pub mod platform;
+pub mod profiles;
 pub mod replay;
 pub mod scene;
 pub mod scoredb;

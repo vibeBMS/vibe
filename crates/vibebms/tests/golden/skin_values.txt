@@ -230,6 +230,7 @@ select-song 9214: t="CLEAR"
 select-song 9215: t="OFF"
 select-song 9216: t="OFF"
 select-song 9217: t="OFF"
+select-song 9218: t="DEFAULT"
 select-song 9230: o
 select-song 9237: o
 select-song 9245: o
@@ -425,6 +426,7 @@ select-folder 9214: t="CLEAR"
 select-folder 9215: t="OFF"
 select-folder 9216: t="OFF"
 select-folder 9217: t="OFF"
+select-folder 9218: t="DEFAULT"
 select-folder 9230: o
 select-folder 9237: o
 select-folder 9238: o

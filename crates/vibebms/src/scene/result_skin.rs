@@ -180,8 +180,7 @@ impl SkinState for ResultState<'_> {
         let best = self.best_ex() as i64;
         let target = || {
             let song = &self.s.d.request.song;
-            let (md5, sha) = (&song.md5, &song.sha256);
-            crate::scene::target::score(self.ctx, md5, sha, sc.max_ex(), self.best_ex()) as i64
+            crate::scene::target::score(self.ctx, song, sc.max_ex(), self.best_ex()) as i64
         };
         let (avg, dev) = self.s.timing_stats;
         Some(match id {

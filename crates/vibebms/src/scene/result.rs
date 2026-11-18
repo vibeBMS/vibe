@@ -180,7 +180,7 @@ impl ResultScene {
         // every play of its own keeps its replay as the chart's latest
         // (a BATTLE play's would replace a single play's: it is not kept)
         if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
-            if let Err(e) = crate::replay::save(r, &ctx.paths.root, crate::replay::Slot::Last) {
+            if let Err(e) = crate::replay::save(r, &ctx.paths.player, crate::replay::Slot::Last) {
                 log::warn!("replay: {e}");
             }
         }
@@ -225,7 +225,8 @@ impl ResultScene {
                 .as_ref()
                 .filter(|r| r.keepable() && ranked && d.score.ex_score() > best_before)
             {
-                if let Err(e) = crate::replay::save(r, &ctx.paths.root, crate::replay::Slot::Best) {
+                if let Err(e) = crate::replay::save(r, &ctx.paths.player, crate::replay::Slot::Best)
+                {
                     log::warn!("replay: {e}");
                 }
             }
@@ -359,7 +360,7 @@ impl ResultScene {
             return;
         };
         let slot = crate::replay::Slot::Saved(n);
-        match crate::replay::save(r, &ctx.paths.root, slot) {
+        match crate::replay::save(r, &ctx.paths.player, slot) {
             Ok(()) => {
                 ctx.play_sound(crate::sysound::Sound::OptionChange);
                 ctx.toast(format!("{}: replay of {} kept", slot.label(), r.title));

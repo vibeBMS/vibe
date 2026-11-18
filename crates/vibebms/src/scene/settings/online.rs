@@ -154,6 +154,7 @@ fn beside_choices(ctx: &Ctx) -> Vec<Beside> {
             })
         }));
     }
+    v.extend(ctx.profiles.rivals().map(|p| Beside::Profile(p.id.clone())));
     v.push(Beside::Off);
     v
 }
@@ -173,6 +174,10 @@ fn beside_label(ctx: &Ctx) -> String {
         Beside::Mine => "yours on the IR".into(),
         Beside::Off => "none".into(),
         Beside::Player(k) => player_label(ctx, k.provider, &k.player),
+        Beside::Profile(id) => match ctx.profiles.registry.get(id) {
+            Some(p) => format!("{} (profile)", p.name),
+            None => "a profile deleted".into(),
+        },
     }
 }
 
@@ -364,12 +369,14 @@ pub(super) fn rows(b: &mut Rows) {
         .desc("The IR whose ranking and clear rate the song select shows."),
         Row::adjust(
             "ir.beside",
-            "IR lamps beside yours",
+            "Rival lamps beside yours",
             beside_label(ctx),
             step_beside,
         )
-        .desc("A second lamp on each song bar: yours on the IR, or a rival's.")
-        .keys("rival lamp"),
+        .desc(
+            "A second lamp on each song bar: yours on the IR, an IR rival's, or another profile's.",
+        )
+        .keys("rival lamp local profile"),
     ]);
     if ctx.net.ir.reads_only() {
         b.push(Row::note(

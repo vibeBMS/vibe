@@ -129,14 +129,14 @@ impl Page {
             Page::System => (
                 "SY",
                 if cfg!(desktop) {
-                    "PROFILE, UPDATES, STREAMING"
+                    "PROFILES, UPDATES, STREAMING"
                 } else {
-                    "PROFILE, UPDATES"
+                    "PROFILES, UPDATES"
                 },
                 if cfg!(desktop) {
-                    "Player name, version and updates, where your data is kept; Discord and OBS."
+                    "Player name, profiles (switch, make, delete), updates, your data; Discord and OBS."
                 } else {
-                    "Player name, version and updates, where your data is kept."
+                    "Player name, profiles (switch, make, delete), version and updates, your data."
                 },
             ),
         }
@@ -185,7 +185,10 @@ impl Page {
                 vec![format!("{n} courses")]
             }
             Page::Online => online::chips(ctx),
-            Page::System => vec![crate::update::VERSION.to_string()],
+            Page::System => vec![
+                (ctx.profiles.registry.name(&ctx.paths.profile)).to_string(),
+                crate::update::VERSION.to_string(),
+            ],
         }
     }
 
@@ -209,6 +212,8 @@ enum Sub {
     Course(u64),
     Account(ProviderId),
     Outbox,
+    /// A profile, by id.
+    Profile(String),
     #[cfg(target_arch = "wasm32")]
     Storage,
 }
@@ -244,6 +249,7 @@ impl Sub {
                 .map_or("", |a| a.title())
                 .to_string(),
             Sub::Outbox => "OUTBOX".into(),
+            Sub::Profile(id) => ctx.profiles.registry.name(id).to_string(),
             #[cfg(target_arch = "wasm32")]
             Sub::Storage => "STORAGE".into(),
         }
@@ -260,6 +266,7 @@ impl Sub {
             Sub::Course(id) => courses::editor(b, *id),
             Sub::Account(p) => online::account(b, *p),
             Sub::Outbox => online::outbox(b),
+            Sub::Profile(id) => system::profile(b, id),
             #[cfg(target_arch = "wasm32")]
             Sub::Storage => web_storage::rows(b),
         }
@@ -273,6 +280,7 @@ impl Sub {
             Sub::Table(url) => ctx.config.tables.iter().any(|t| t.url == *url),
             Sub::Course(id) => ctx.lib.courses.get(*id).is_some(),
             Sub::Account(p) => ctx.config.ir.account(*p).is_some(),
+            Sub::Profile(id) => ctx.profiles.registry.has(id),
             _ => true,
         }
     }
@@ -323,6 +331,10 @@ enum TextField {
     ImportLr2,
     ImportScores,
     TrainerOrder,
+    /// A new profile's name.
+    NewProfile,
+    /// Profile `.0`'s (of the list) name.
+    ProfileName(usize),
     /// SYSTEM › STREAMING (desktop).
     #[cfg_attr(not(desktop), allow(dead_code))]
     DiscordAppId,
@@ -353,6 +365,8 @@ impl TextField {
             TextField::ImportLr2 => "LR2's folder (or its song.db)",
             TextField::ImportScores => "Score database (or its folder)",
             TextField::TrainerOrder => "TRAINER's lane order (keys from the left, as 3142576)",
+            TextField::NewProfile => "New profile's name",
+            TextField::ProfileName(_) => "Profile name",
             TextField::DiscordAppId => "Discord application id",
             TextField::ObsHost => "OBS host",
             TextField::ObsPort => "OBS WebSocket port",
@@ -378,6 +392,8 @@ enum Confirm {
     /// Install the installed catalog skin with this id again.
     Reinstall(String),
     DeleteSkin(String),
+    /// Delete the profile with this id.
+    DeleteProfile(String),
     #[cfg(target_arch = "wasm32")]
     DeleteKept(usize),
 }
@@ -637,6 +653,7 @@ impl SettingsScene {
             Act::SkinOffset(t, i, f) => skins::step_skin_offset(ctx, t, i, f, step),
             Act::SkinGet(i) => skins::get(ctx, &mut self.armed, i),
             Act::SkinDelete(i) => skins::delete(ctx, &mut self.armed, i),
+            Act::ProfileDelete(i) => system::delete_profile(ctx, &mut self.armed, i),
             #[cfg(target_arch = "wasm32")]
             Act::DeleteKept(i) => web_storage::delete(ctx, &mut self.armed, i),
             Act::Text(tf) if enter || d != 0 => {
@@ -644,6 +661,8 @@ impl SettingsScene {
                     TextField::PlayerName => ctx.config.player_name.clone(),
                     TextField::CourseTitle => courses::title(ctx),
                     TextField::TrainerOrder => ctx.config.play.trainer_order.clone(),
+                    TextField::NewProfile => String::new(),
+                    TextField::ProfileName(i) => system::profile_name(ctx, i),
                     #[cfg(desktop)]
                     TextField::DiscordAppId
                     | TextField::ObsHost
@@ -876,6 +895,8 @@ impl SettingsScene {
                 }
             }
             TextField::CourseTitle => courses::rename(ctx, s),
+            TextField::NewProfile => system::new_profile(ctx, &s),
+            TextField::ProfileName(i) => system::rename_profile(ctx, i, &s),
             TextField::ImportLr2 => courses::import(ctx, &s),
             TextField::ImportScores => library::import_scores(ctx, &s),
             TextField::TrainerOrder => match vibebms_core::lane_option::trainer_order(&s) {

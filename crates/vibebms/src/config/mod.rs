@@ -519,6 +519,7 @@ mod tests {
                     provider: vibebms_ir::ProviderId::BmsIr,
                     player: "100005".into(),
                 }),
+                target_profile: None,
                 p2: SideOptions {
                     gauge: GaugeType::Hazard,
                     hispeed: 1.5,

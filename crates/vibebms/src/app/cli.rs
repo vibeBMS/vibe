@@ -416,7 +416,7 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
         }
         None => {}
     }
-    let mut config = Config::load(&paths.config_file());
+    let mut config = crate::profiles::load_config(paths);
     let ov = match Overrides::apply(&cli, &mut config) {
         Ok(o) => o,
         Err(e) => {
@@ -446,7 +446,7 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
 /// `songs scan`: the BMS folders scanned into the song cache.
 fn songs_scan(paths: &crate::paths::Paths) -> i32 {
     use std::sync::atomic::Ordering;
-    let config = Config::load(&paths.config_file());
+    let config = crate::profiles::load_config(paths);
     let roots = super::ctx::scan_roots(&config, paths);
     let skip = super::ctx::internal_dirs(paths);
     for r in &roots {

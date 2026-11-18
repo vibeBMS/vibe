@@ -291,6 +291,9 @@ pub struct PlayConfig {
     /// IR rival when it is one.
     pub target: Target,
     pub target_rival: Option<super::PlayerKey>,
+    /// A local rival instead: another profile (its folder's name), whose
+    /// records are read only (`profiles`).
+    pub target_profile: Option<String>,
     /// The second player's own options in VS.
     pub p2: SideOptions,
 }
@@ -484,7 +487,8 @@ impl Serialize for PlayConfig {
             result_wait,
             good_clears_poor,
             miss_keysound,
-            hold_at_line
+            hold_at_line,
+            target_profile
         );
         st.end()
     }
@@ -556,6 +560,7 @@ impl Default for PlayConfig {
             timing_auto_adjust: false,
             target: Target::Best,
             target_rival: None,
+            target_profile: None,
             p2: SideOptions::blank(),
         }
     }

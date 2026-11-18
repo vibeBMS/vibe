@@ -56,6 +56,8 @@ pub const EVENT_PRACTICE: i32 = 9905;
 /// vibeBMS: open the chosen chart's page on the IR (as key I).
 pub const EVENT_IR_PAGE: i32 = 9908;
 pub const EVENT_SIBLING: i32 = 9910;
+/// vibeBMS event: the profiles, in settings (switch, make, rename, delete).
+pub const EVENT_PROFILES: i32 = 9920;
 
 /// vibeBMS texts: the chart's key mode ("7KEYS"), the search shown, when
 /// the chart was last played, what a play would be kept as ("SAVE",
@@ -69,6 +71,8 @@ pub const TEXT_CLEAR: i32 = 9214;
 pub const TEXT_NETWORK: i32 = 9215;
 pub const TEXT_ASSIST: i32 = 9216;
 pub const TEXT_COVER: i32 = 9217;
+/// vibeBMS text: the profile in use's name.
+pub const TEXT_PROFILE: i32 = 9218;
 
 /// vibeBMS options: the chart has a replay, text files; a play would be
 /// saved / keep its lamp only / be kept not at all (9230-9232); the IR is
@@ -192,6 +196,8 @@ pub struct SelectState<'a> {
     siblings: [Option<&'a Song>; SIBLINGS],
     /// Whose IR lamps show beside the player's.
     beside: Option<(ProviderId, &'a str)>,
+    /// Or whose records: a local rival (another profile).
+    local: Option<&'a str>,
     table: OnceCell<Option<(String, String)>>,
     clock: Clock,
 }
@@ -304,6 +310,12 @@ impl<'a> SelectState<'a> {
             bpms: song.map_or(REFERENCE_BPMS, Bpms::of_song),
             rank: song.and_then(|x| s.ranking.get(&x.sha256)),
             beside: ctx.net.ir.beside(&ctx.config.ir),
+            local: match &ctx.config.ir.beside {
+                crate::config::Beside::Profile(id) => {
+                    Some(id.as_str()).filter(|id| ctx.profiles.rival(id).is_some())
+                }
+                _ => None,
+            },
             table: OnceCell::new(),
             clock: Clock::now(),
         }
@@ -344,6 +356,10 @@ impl<'a> SelectState<'a> {
 
     /// The lamp of the player chosen beside on a song.
     fn rival_lamp(&self, s: &Song) -> Option<ClearType> {
+        if let Some(id) = self.local {
+            let best = self.ctx.rival_best_of(id, s);
+            return Some(best.map_or(ClearType::NoPlay, |b| b.clear));
+        }
         let (p, player) = self.beside?;
         let lamp = self.ctx.net.ir.lamp(p, player, &s.md5, &s.sha256);
         Some(lamp.map_or(ClearType::NoPlay, |l| l.clear))
@@ -354,6 +370,14 @@ impl<'a> SelectState<'a> {
     fn ir_line(&self) -> Option<String> {
         let song = self.song?;
         let mut parts = Vec::new();
+        // a local rival: their lamp and EX score
+        if let Some(id) = self.local {
+            let who = self.ctx.profiles.registry.name(id);
+            parts.push(match self.ctx.rival_best_of(id, song) {
+                Some(b) => format!("{who} {} EX {}", b.clear.label(), b.ex_score),
+                None => format!("{who} {}", ClearType::NoPlay.label()),
+            });
+        }
         if let (Some(lamp), Some((p, player))) = (self.rival_lamp(song), self.beside) {
             let ir = &self.ctx.config.ir;
             let mine = ir.account(p).is_some_and(|a| a.user_id == player);
@@ -794,6 +818,9 @@ impl SkinState for SelectState<'_> {
             TEXT_NETWORK => status::network(self.ctx).0,
             TEXT_ASSIST => status::assist_summary(&self.ctx.config.play),
             TEXT_COVER => status::lane_cover_summary(&self.ctx.config.play),
+            TEXT_PROFILE => (self.ctx.profiles.registry)
+                .name(&self.ctx.paths.profile)
+                .to_string(),
             30 => self
                 .s
                 .search_edit
@@ -1151,6 +1178,27 @@ mod tests {
         let st = SelectState::new(&s, &ctx);
         assert_eq!(st.bar(0).unwrap().rival, None);
         assert_eq!(st.text(TEXT_IR).as_deref(), Some("#3 / 40"));
+        // another profile beside: its lamps, its lamp and EX on the line
+        let scores = root.join("profiles/friend/scores");
+        std::fs::create_dir_all(&scores).unwrap();
+        let rec = serde_json::json!([{"sha256": "2", "ln": 0, "rule": "Beatoraja",
+            "clear": "ExHard", "ex_score": 149}]);
+        std::fs::write(scores.join("scores.json"), rec.to_string()).unwrap();
+        ctx.profiles = crate::profiles::Profiles::open(&ctx.paths);
+        ctx.config.ir.beside = crate::config::Beside::Profile("friend".into());
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(
+            (st.bar(0).unwrap().rival, st.bar(1).unwrap().rival),
+            (Some(ClearType::NoPlay), Some(ClearType::ExHard))
+        );
+        assert_eq!(
+            st.text(TEXT_IR).as_deref(),
+            Some("friend NO PLAY   #3 / 40")
+        );
+        s.cursor = 1;
+        let st = SelectState::new(&s, &ctx);
+        assert_eq!(st.text(TEXT_IR).as_deref(), Some("friend EX-HARD EX 149"));
+        assert_eq!(st.text(TEXT_PROFILE).as_deref(), Some("DEFAULT"));
         std::fs::remove_dir_all(&root).ok();
     }
 

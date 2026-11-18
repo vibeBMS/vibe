@@ -215,7 +215,7 @@ impl PlayRequest {
 pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Arc<Replay>, String> {
     let ln = ctx.config.play.ln_pref();
     let r = crate::replay::load_filed(
-        &ctx.paths.root,
+        &ctx.paths.player,
         &song.sha256,
         song.score_ln(ln) as i32,
         ctx.config.play.judge_preset,
@@ -241,7 +241,7 @@ pub fn course_replay(
     let ln = ctx.config.play.ln_pref().ty as i32;
     let rule = ctx.config.play.judge_preset;
     let key = run.replay_key(index);
-    crate::replay::load_filed(&ctx.paths.root, &key, ln, rule, true, slot)
+    crate::replay::load_filed(&ctx.paths.player, &key, ln, rule, true, slot)
         .filter(|r| r.course.as_ref().is_some_and(|c| c.stage as usize == index))
 }
 

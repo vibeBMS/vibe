@@ -52,12 +52,29 @@ pub fn limited() -> bool {
 
 /// Whether this program sends the IR outbox and writes its file: `None`
 /// while that is being asked. Natively always. On the web the first tab
-/// that asks holds the lock `vibebms-outbox` (`navigator.locks`, with
-/// `ifAvailable`) until it closes; another tab only reads, and asks again
-/// every [`LOCK_RETRY_MS`]. A browser without the Locks API has its tabs
-/// send each on their own.
-pub fn outbox_lock() -> Option<bool> {
-    imp::outbox_lock()
+/// that asks holds the lock `name` (`navigator.locks`, with `ifAvailable`;
+/// one per profile, [`outbox_lock_name`]) until it closes or asks for
+/// another; another tab only reads, and asks again every
+/// [`LOCK_RETRY_MS`]. A browser without the Locks API has its tabs send
+/// each on their own.
+pub fn outbox_lock(name: &str) -> Option<bool> {
+    imp::outbox_lock(name)
+}
+
+/// The outbox lock of profile `profile` ("": the default's, the name it
+/// had before there were profiles).
+pub fn outbox_lock_name(profile: &str) -> String {
+    match profile {
+        "" => "vibebms-outbox".into(),
+        p => format!("vibebms-outbox:{p}"),
+    }
+}
+
+/// Forget the files below `dir` (a profile deleted): on the web those kept
+/// in OPFS or `localStorage`; natively they are files there, removed with
+/// the folder.
+pub fn remove_below(dir: &Path) {
+    imp::remove_below(dir)
 }
 
 /// How often a tab without the outbox lock asks for it again.
@@ -122,9 +139,11 @@ mod imp {
         false
     }
 
-    pub fn outbox_lock() -> Option<bool> {
+    pub fn outbox_lock(_name: &str) -> Option<bool> {
         Some(true)
     }
+
+    pub fn remove_below(_dir: &Path) {}
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -181,13 +200,20 @@ mod imp {
         !opfs::has_worker()
     }
 
-    pub fn outbox_lock() -> Option<bool> {
-        lock::held()
+    pub fn outbox_lock(name: &str) -> Option<bool> {
+        lock::held(name)
+    }
+
+    pub fn remove_below(dir: &Path) {
+        if opfs::has_worker() {
+            opfs::remove_name(&name(dir));
+        }
+        local::remove_below(dir);
     }
 
     mod lock {
         use super::super::LOCK_RETRY_MS;
-        use std::cell::Cell;
+        use std::cell::{Cell, RefCell};
         use wasm_bindgen::closure::Closure;
         use wasm_bindgen::{JsCast, JsValue};
 
@@ -202,16 +228,32 @@ mod imp {
 
         thread_local! {
             static STATE: Cell<State> = const { Cell::new(State::Unasked) };
+            /// The lock asked for (the profile's).
+            static NAME: RefCell<String> = const { RefCell::new(String::new()) };
+            /// Lets the lock held go (the promise it waits for, resolved).
+            static RELEASE: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
         }
 
-        pub fn held() -> Option<bool> {
+        fn asked(name: &str) -> bool {
+            NAME.with(|n| *n.borrow() == name)
+        }
+
+        pub fn held(name: &str) -> Option<bool> {
+            if !asked(name) {
+                // another profile's: that one goes, this one is asked
+                if let Some(f) = RELEASE.with(|r| r.borrow_mut().take()) {
+                    let _ = f.call0(&JsValue::UNDEFINED);
+                }
+                NAME.with(|n| *n.borrow_mut() = name.to_string());
+                STATE.set(State::Unasked);
+            }
             match STATE.get() {
                 State::Held => return Some(true),
                 State::Asking => return None,
                 State::Other(at) if js_sys::Date::now() < at => return Some(false),
                 State::Unasked | State::Other(_) => {}
             }
-            if ask().is_some() {
+            if ask(name).is_some() {
                 STATE.set(State::Asking);
                 None
             } else {
@@ -221,11 +263,11 @@ mod imp {
             }
         }
 
-        /// `navigator.locks.request("vibebms-outbox", {ifAvailable: true},
-        /// cb)`: `cb` gets the lock, or `null` when another tab has it; the
-        /// promise it returns for the lock never settles, so the lock is
-        /// held while the page lives.
-        fn ask() -> Option<()> {
+        /// `navigator.locks.request(name, {ifAvailable: true}, cb)`: `cb`
+        /// gets the lock, or `null` when another tab has it; the promise it
+        /// returns for the lock settles only when another is asked for, so
+        /// the lock is held while the page lives on this profile.
+        fn ask(name: &str) -> Option<()> {
             let nav = web_sys::window()?.navigator();
             let locks = js_sys::Reflect::get(&nav, &"locks".into())
                 .ok()
@@ -236,18 +278,24 @@ mod imp {
                 .ok()?;
             let opts = js_sys::Object::new();
             js_sys::Reflect::set(&opts, &"ifAvailable".into(), &true.into()).ok()?;
-            let cb = Closure::once_into_js(|lock: JsValue| -> JsValue {
+            let mine = name.to_string();
+            let cb = Closure::once_into_js(move |lock: JsValue| -> JsValue {
+                // (asked for another meanwhile: this one goes at once)
+                if !asked(&mine) {
+                    return JsValue::UNDEFINED;
+                }
                 if lock.is_null() {
                     STATE.set(State::Other(js_sys::Date::now() + LOCK_RETRY_MS));
                     JsValue::UNDEFINED
                 } else {
                     STATE.set(State::Held);
-                    js_sys::Promise::new(&mut |_, _| {}).into()
+                    js_sys::Promise::new(&mut |resolve, _| {
+                        RELEASE.with(|r| *r.borrow_mut() = Some(resolve));
+                    })
+                    .into()
                 }
             });
-            request
-                .call3(&locks, &"vibebms-outbox".into(), &opts, &cb)
-                .ok()?;
+            request.call3(&locks, &name.into(), &opts, &cb).ok()?;
             Some(())
         }
     }
@@ -278,6 +326,19 @@ mod imp {
             storage()?
                 .set_item(&key(p), text)
                 .map_err(|_| io::Error::other("the browser's storage is full"))
+        }
+
+        /// Every value of a file below `dir` removed.
+        pub fn remove_below(dir: &Path) {
+            let Ok(s) = storage() else { return };
+            let prefix = format!("{}/", key(dir));
+            let keys: Vec<String> = (0..s.length().unwrap_or(0))
+                .filter_map(|i| s.key(i).ok().flatten())
+                .filter(|k| k.starts_with(&prefix))
+                .collect();
+            for k in keys {
+                let _ = s.remove_item(&k);
+            }
         }
     }
 }
