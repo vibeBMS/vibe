@@ -7,7 +7,7 @@ use crate::course::{CourseKind, Join};
 use crate::engine::{Engine, EngineConfig, JudgeAlgorithm};
 use crate::gauge::{GaugeAutoShift, GaugePreset, GaugeType, GrooveGauge};
 use crate::judge::{judge_rules, JudgePreset};
-use crate::lane_option::{self, DoubleOption, LaneOption};
+use crate::lane_option::{self, DoubleOption, LaneOption, LaneRules, SRandomInterval};
 use crate::mode::PlayMode;
 use crate::score::AssistFacts;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,8 @@ pub struct RuleOptions {
     pub judge_rates: [i64; 3],
     /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
     pub hran_threshold_bpm: u32,
+    /// How S-RANDOM avoids jacks.
+    pub s_random_interval: SRandomInterval,
     /// FREQ (LR2's): the whole chart played `freq` semitones higher
     /// (`FREQ_MIN..=FREQ_MAX`), faster by 2^(freq / 12), its sounds
     /// resampled to match; the judge windows stay in real time.
@@ -73,6 +75,7 @@ impl Default for RuleOptions {
             expand_judge: false,
             judge_rates: [400, 400, 100],
             hran_threshold_bpm: 120,
+            s_random_interval: SRandomInterval::default(),
             freq: 0,
             course: None,
         }
@@ -227,16 +230,19 @@ fn arrange(mut chart: Chart, rules: &RuleOptions, seed: i64, course: Option<bool
         lane_option::battle(&mut chart);
         facts.battle = true;
     }
-    let thr = 60_000_000 / (rules.hran_threshold_bpm.max(1) as i64 * 4);
+    let lanes = LaneRules {
+        hran_threshold: 60_000_000 / (rules.hran_threshold_bpm.max(1) as i64 * 4),
+        s_random: rules.s_random_interval,
+    };
     let allowed = |o: LaneOption| match course {
         Some(mirror) if !(mirror && o == LaneOption::Mirror) => LaneOption::Off,
         _ => o,
     };
-    lane_option::apply(&mut chart, 0, allowed(rules.random_1p), seed, thr);
+    lane_option::apply_with(&mut chart, 0, allowed(rules.random_1p), seed, &lanes);
     facts.lane.push(allowed(rules.random_1p));
     if chart.mode().is_double() {
         let random_2p = allowed(rules.random_2p);
-        lane_option::apply(&mut chart, 1, random_2p, seed.wrapping_add(1), thr);
+        lane_option::apply_with(&mut chart, 1, random_2p, seed.wrapping_add(1), &lanes);
         facts.lane.push(random_2p);
         if rules.dp_option == DoubleOption::Flip {
             lane_option::flip(&mut chart);

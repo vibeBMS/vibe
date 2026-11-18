@@ -358,6 +358,23 @@ of the arcade) may judge otherwise when played again.
   the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
   the default preset; replays from before count for the preset they were played with.
 
+## Lane options
+Each side's lane option is drawn from the play's seed (2P from seed + 1) with Java's `Random`, so a replay draws
+the same lanes (`lane_option.rs`).
+* F-RANDOM and MF-RANDOM are bmz-player's (its change log calls them HALF RANDOM and MIRROR HALF RANDOM; its
+  documentation does not say more, and this is vibeBMS's reading): the keys left of the middle are shuffled among
+  themselves, and those right of it; the middle key (5, 7 and 9 keys) and the scratch stay. MF-RANDOM then swaps
+  the halves (the left half's notes are shuffled onto the right), so MIRROR of an F-RANDOM is an MF-RANDOM, as
+  bmz-player pairs them. Both are kept and sent as usual (bmz-player's rule, `docs/score-persistence.md`); a
+  beatoraja skin shows them as RANDOM, Bokutachi gets RANDOM.
+* S-RANDOM interval (`SRandomInterval`, bmz-player's `docs/settings.md` "S-RANDOMの補正"), for S-RANDOM and
+  S-RANDOM+: OFF (LR2's, the default and vibeBMS's rule before the setting) looks at no interval, only at notes at
+  the same time and held long notes; 40 MS (beatoraja's) takes a lane whose last note ended less than 40 ms before
+  last; 120 HZ counts the interval in whole 120 Hz frames (8.33 ms) and takes a lane last below 5 frames, one more
+  for each note of the side in a row closer than 8 frames to the one before, up to 8 (bmz-player describes it as
+  widening to 6–8 frames on runs; the base and the steps are vibeBMS's reading). A lane taken last is still taken
+  when no other is free. It does not change how a play is saved or sent; replays keep it.
+
 ## FREQ
 FREQ (LR2's audio pitch option, as bmz-player documents it: `docs/settings.md` "FREQ") plays the whole chart
 s semitones higher, −12 ≤ s ≤ 12, at 2^(s / 12) times the speed (`play::freq_rate`; shown rounded, `+3 (119%)`).

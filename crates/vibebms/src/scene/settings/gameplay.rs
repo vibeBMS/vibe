@@ -11,6 +11,7 @@ use crate::scene::select::REFERENCE_BPMS;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
+use vibebms_core::lane_option::SRandomInterval;
 use vibebms_core::LnPref;
 
 /// A judge offset: 1 ms steps within ±500.
@@ -118,7 +119,7 @@ pub(super) fn rows(b: &mut Rows) {
     b.group(
         "gameplay.advanced",
         "ADVANCED",
-        "Judge algorithm, expanded judge windows, H-RANDOM threshold, hi-speed changes",
+        "Judge algorithm, expanded judge windows, H-RANDOM threshold, S-RANDOM interval, hi-speed changes",
     );
     let rates = &p.judge_rates;
     b.extend([
@@ -150,6 +151,17 @@ pub(super) fn rows(b: &mut Rows) {
             },
         )
         .desc("H-RANDOM keeps notes this fast from landing on the same key."),
+        Row::adjust(
+            "play.s_random_interval",
+            "S-RANDOM interval",
+            p.s_random_interval.label(),
+            |c, d| {
+                let s = &mut c.config.play.s_random_interval;
+                *s = cycle(&SRandomInterval::ALL, *s, d)
+            },
+        )
+        .desc("How S-RANDOM keeps a note off the key just played: OFF as LR2, 40 ms, or 120 Hz frames.")
+        .keys("s-random jack correction interval"),
         Row::adjust(
             "play.hs_anim_ms",
             "Hi-speed change while playing",

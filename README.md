@@ -124,10 +124,14 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   PLAY OPTION's LN MODE) is AUTO LN / CN / HCN (for the long notes the chart leaves untyped) or FORCE LN / CN / HCN
   (every long note, whatever the chart says); a FORCE play is filed under the forced type
   ([docs/RULES.md](docs/RULES.md), "Long notes").
-- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
+- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, S-RANDOM+, F-RANDOM / MF-RANDOM (half random and
+  mirrored half random: each half of the keys shuffled on its own side, or onto the other; the middle key and the
+  scratch stay), DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
   both sides), assists, floating / fixed hi-speed,
   SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
-  a course leave no record for the song.
+  a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
+  keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
+  40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
 - **Display** (`SETTINGS › DISPLAY & AUDIO › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
   for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on

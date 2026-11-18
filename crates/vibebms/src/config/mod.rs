@@ -387,6 +387,7 @@ mod tests {
                     judge_rates: [200, 150, 75],
                     hran_threshold_bpm: 150,
                     // (newer fields at their defaults: written as before)
+                    s_random_interval: Default::default(),
                     freq: 0,
                     course: None,
                 },
@@ -651,13 +652,15 @@ mod tests {
         let mut c = Config::default();
         c.play.freq = -3;
         c.play.ln_force = true;
+        c.play.s_random_interval = vibebms_core::lane_option::SRandomInterval::Ms40;
         let s = c.to_toml().unwrap();
+        assert!(s.contains("s_random_interval = \"Ms40\""));
         assert!(s.contains("freq = -3") && s.contains("ln_force = true"));
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
         // at their defaults they are not written
         let d = Config::default().to_toml().unwrap();
-        assert!(!d.contains("freq") && !d.contains("ln_force"));
+        assert!(!d.contains("freq") && !d.contains("ln_force") && !d.contains("s_random"));
     }
 
     /// Files written before the rules were split from the play options
