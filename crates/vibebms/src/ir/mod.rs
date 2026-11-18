@@ -16,6 +16,7 @@
 
 pub mod build_id;
 pub mod creds;
+pub mod download;
 pub mod lamps;
 pub mod store;
 
@@ -46,6 +47,8 @@ enum Ticket {
     Verify,
     /// A lamp set is read.
     Lamps(SetKey),
+    /// The player's own scores are read (a vibeBMS IR's scores route).
+    Scores,
 }
 
 /// Why a ranking was not asked for.
@@ -96,6 +99,9 @@ pub struct IrService {
     checking: Vec<ProviderId>,
     /// What to tell the player at the next poll.
     notes: Vec<String>,
+    /// Accounts whose player's own lamp sets are being read for "download
+    /// my scores": taken into the records once all are.
+    downloads: Vec<ProviderId>,
 }
 
 /// The adapter of an account, where this build has one.
@@ -157,6 +163,7 @@ impl IrService {
             lamps_ms: 0,
             checking: Vec::new(),
             notes: Vec::new(),
+            downloads: Vec::new(),
         }
     }
 
@@ -249,6 +256,116 @@ impl IrService {
                 let _ = tx.send(read);
             })
         }))
+    }
+
+    /// Read the player's own scores at `p` to take them into the records
+    /// (`download`): a vibeBMS IR's scores route; Bokutachi's PB lists and
+    /// BMS-IR's lamps on the tables followed, as the lamp sets are read
+    /// (again, unless they were a moment ago). What is under way, for
+    /// people; why it cannot be.
+    pub fn download_scores(&mut self, ir: &IrSettings, p: ProviderId) -> Result<String, String> {
+        let a = ir.account(p).ok_or("no such account")?;
+        let title = a.title().to_string();
+        if !a.enabled {
+            return Err(format!("{title}: switched off"));
+        }
+        if a.user_id.is_empty() {
+            return Err(match p {
+                ProviderId::BmsIr => format!("{title}: enter your player id first"),
+                _ => format!("{title}: enter a key and let it be checked first"),
+            });
+        }
+        let prov = provider(a).ok_or_else(|| format!("{title}: not available here"))?;
+        match p {
+            ProviderId::VibeJson(_) => {
+                let now = crate::platform::unix_ms();
+                let op = Op::PlayerScores { player: &a.user_id };
+                let req = (prov.request(&op, self.keys.get(p).as_ref()))
+                    .map_err(|e| format!("{title}: {e}"))?;
+                if self.limiter(p, &*prov, now).start(now).is_err() {
+                    return Err(format!("{title}: busy, try again in a moment"));
+                }
+                self.send(p, Ticket::Scores, req);
+            }
+            ProviderId::Bokutachi | ProviderId::BmsIr => {
+                if p == ProviderId::BmsIr && a.tables.is_empty() {
+                    return Err(format!(
+                        "{title} lists your lamps per difficulty table: choose the tables first"
+                    ));
+                }
+                self.lamps.follow(followed(ir));
+                self.lamps.refresh(p, crate::platform::unix_ms(), false);
+                self.lamps_ms = 0;
+                if !self.downloads.contains(&p) {
+                    self.downloads.push(p);
+                }
+            }
+            ProviderId::RianIr => return Err(format!("{title} cannot list your scores")),
+        }
+        Ok(format!("{title}: reading your scores…"))
+    }
+
+    /// The downloads whose lamp sets are all read: their scores, for the
+    /// records.
+    fn downloads_done(&mut self, ir: &IrSettings) -> Vec<AppEvent> {
+        let mut out = Vec::new();
+        let lamps = &self.lamps;
+        self.downloads.retain(|&p| {
+            let Some(a) = ir.account(p) else {
+                return false;
+            };
+            let Some(sets) = lamps.settled_sets(p, &a.user_id) else {
+                return true;
+            };
+            let mut d = download::Download {
+                title: a.title().to_string(),
+                ..Default::default()
+            };
+            for (k, c) in sets {
+                if let Some(e) = &c.error {
+                    d.why.push(format!("{}: {e}", k.scope));
+                }
+                match download::rows_of_set(p, &k.scope, &c.view, &c.set) {
+                    Ok(rows) => d.rows.extend(rows),
+                    Err(why) => {
+                        d.left_out += c.set.by_chart.len();
+                        d.why.push(why);
+                    }
+                }
+            }
+            d.why.dedup();
+            out.push(AppEvent::IrScores(Box::new(d)));
+            false
+        });
+        out
+    }
+
+    /// The answer to a vibeBMS IR's scores route.
+    fn scores_came(a: &IrAccount, r: Result<HttpResponse, String>) -> AppEvent {
+        let title = a.title().to_string();
+        let parsed = match (r, provider(a)) {
+            (Ok(resp), Some(prov)) => prov.parse(&Op::PlayerScores { player: &a.user_id }, &resp),
+            (Ok(_), None) => return AppEvent::Toast(format!("{title}: not available here")),
+            (Err(why), _) => return AppEvent::Toast(format!("{title}: no answer ({why})")),
+        };
+        match parsed {
+            Outcome::Scores { scores, .. } => {
+                let (rows, left_out) = download::rows_of_scores(&scores);
+                AppEvent::IrScores(Box::new(download::Download {
+                    title,
+                    rows,
+                    left_out,
+                    why: Vec::new(),
+                }))
+            }
+            Outcome::Unsupported => {
+                AppEvent::Toast(format!("{title}: this server cannot list your scores"))
+            }
+            Outcome::Rejected(why) | Outcome::Auth(why) | Outcome::Retry { why, .. } => {
+                AppEvent::Toast(format!("{title}: your scores could not be read ({why})"))
+            }
+            o => AppEvent::Toast(format!("{title}: unexpected answer: {o:?}")),
+        }
     }
 
     /// The web page of `chart` at the account the rankings come from
@@ -475,7 +592,7 @@ impl IrService {
             changed = true;
         }
         for a in Job::drain_all(&mut self.jobs) {
-            if let (Ticket::Item(_) | Ticket::Lamps(_), Some(l)) =
+            if let (Ticket::Item(_) | Ticket::Lamps(_) | Ticket::Scores, Some(l)) =
                 (&a.ticket, self.limiters.get_mut(&a.p))
             {
                 l.finish();
@@ -500,7 +617,10 @@ impl IrService {
                         o.items.retain(|i| i.id != id);
                     }
                 }
-                (Ticket::Verify, None) => {}
+                (Ticket::Scores, Some(account)) => {
+                    events.push(Self::scores_came(account, a.r));
+                }
+                (Ticket::Verify | Ticket::Scores, None) => {}
             }
         }
         if self.sends {
@@ -515,6 +635,9 @@ impl IrService {
             if self.sends {
                 self.read_lamps(ir, now_ms);
             }
+        }
+        if !self.downloads.is_empty() {
+            events.extend(self.downloads_done(ir));
         }
         if changed {
             self.save();
@@ -891,6 +1014,8 @@ pub fn refusal_words(r: Refusal) -> String {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use vibebms_core::judge::JudgePreset;
+    use vibebms_core::LnType;
 
     /// An `[ir_server]` of before: its token leaves config.toml for the
     /// credentials store the first time the app starts.
@@ -1062,10 +1187,6 @@ mod tests {
         Box::leak(text.into_boxed_str())
     }
 
-    /// A BMS-IR player id is checked through its lamps: one not public is
-    /// told and not kept as the player's; a public one's lamps are kept in
-    /// the cache with their ETag, asked again with it once stale (a 304
-    /// keeps them), and not before.
     /// The chosen chart's page is the rankings' account's: by MD5 on
     /// BMS-IR, by the id its PB lists gave on Bokutachi, by `/me`'s page
     /// on a vibeBMS IR; why there is none otherwise.
@@ -1117,6 +1238,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// A BMS-IR player id is checked through its lamps: one not public is
+    /// told and not kept as the player's; a public one's lamps are kept in
+    /// the cache with their ETag, asked again with it once stale (a 304
+    /// keeps them), and not before.
     #[test]
     fn a_bmsir_player_is_checked_and_its_lamps_kept() {
         let lamps = include_str!("../../../vibebms-ir/tests/fixtures/bmsir/player_lamps.json");
@@ -1184,6 +1309,121 @@ mod tests {
         again.poll(later, &mut s);
         assert!(again.has_lamps(p, "100002"));
         assert_eq!(again.player_name(p, "100002"), Some("プレイヤー"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// "Download my scores": a vibeBMS IR's scores route, its scores
+    /// with their rules; a server without the route is told.
+    #[test]
+    fn a_vibe_ir_lists_the_players_scores() {
+        let body = r#"{"player_name":"me","scores":[
+            {"sha256":"AA","lntype":"CN","rule":"vibe-lr2","clear":"Hard","ex_score":5},
+            {"sha256":"BB","clear":"Easy"}]}"#;
+        let (url, seen) = crate::platform::http::tests::serve(vec![
+            // (the player's lamps, read as the account is followed)
+            answer("404 Not Found", "", ""),
+            answer("200 OK", "", body),
+            answer("404 Not Found", "", ""),
+        ]);
+        let root = std::env::temp_dir().join(format!("vibebms-ir-dl-{}", std::process::id()));
+        let paths = Paths::at(root.clone());
+        let mut s = IrSettings {
+            accounts: vec![IrAccount {
+                provider: ProviderId::VibeJson(0),
+                name: "IR".into(),
+                url: format!("{url}/api"),
+                user_id: "7".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let p = ProviderId::VibeJson(0);
+        let t0 = crate::platform::unix_ms();
+        let mut ir = IrService::new(&paths, t0);
+        events(&mut ir, &mut s, t0);
+        assert!(seen
+            .recv()
+            .unwrap()
+            .starts_with("GET /api/players/7/lamps "));
+        assert_eq!(
+            ir.download_scores(&s, p).unwrap(),
+            "IR: reading your scores…"
+        );
+        let got = events(&mut ir, &mut s, t0);
+        assert!(seen
+            .recv()
+            .unwrap()
+            .starts_with("GET /api/players/7/scores "));
+        let [AppEvent::IrScores(d)] = &got[..] else {
+            panic!("{got:?}")
+        };
+        assert_eq!((d.title.as_str(), d.rows.len(), d.left_out), ("IR", 1, 1));
+        let r = &d.rows[0];
+        assert_eq!(
+            (r.hash.as_str(), r.rule, r.ln),
+            ("aa", JudgePreset::Lr2, Some(LnType::Cn))
+        );
+        // a server of protocol 1
+        ir.download_scores(&s, p).unwrap();
+        assert_eq!(
+            events(&mut ir, &mut s, t0),
+            [AppEvent::Toast(
+                "IR: this server cannot list your scores".into()
+            )]
+        );
+        // no player yet
+        s.accounts[0].user_id.clear();
+        assert!(ir.download_scores(&s, p).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// BMS-IR: the player's lamps on the tables followed, read again
+    /// unless just read, then given for the records under the view's
+    /// rule mode.
+    #[test]
+    fn bmsir_lamps_are_the_players_scores() {
+        let lamps = include_str!("../../../vibebms-ir/tests/fixtures/bmsir/player_lamps.json");
+        let (url, _seen) = crate::platform::http::tests::serve(vec![answer("200 OK", "", lamps)]);
+        let root = std::env::temp_dir().join(format!("vibebms-ir-dlb-{}", std::process::id()));
+        let paths = Paths::at(root.clone());
+        let mut s = IrSettings {
+            accounts: vec![IrAccount {
+                provider: ProviderId::BmsIr,
+                url: format!("{url}/api"),
+                user_id: "100002".into(),
+                view: "lr2".into(),
+                submit: false,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let p = ProviderId::BmsIr;
+        let t0 = crate::platform::unix_ms();
+        let mut ir = IrService::new(&paths, t0);
+        assert!(ir
+            .download_scores(&s, p)
+            .unwrap_err()
+            .contains("choose the tables"));
+        s.accounts[0].tables = vec!["satellite".into()];
+        ir.download_scores(&s, p).unwrap();
+        let mut got = Vec::new();
+        for _ in 0..50 {
+            got.extend(events(&mut ir, &mut s, t0));
+            if got.iter().any(|e| matches!(e, AppEvent::IrScores(_))) {
+                break;
+            }
+        }
+        let Some(AppEvent::IrScores(d)) = got.iter().find(|e| matches!(e, AppEvent::IrScores(_)))
+        else {
+            panic!("{got:?}")
+        };
+        // the fixture's five charts, NO PLAY left out; LR2's: as LN
+        assert_eq!(d.rows.len(), 4, "{d:?}");
+        assert!(d
+            .rows
+            .iter()
+            .all(|r| r.rule == JudgePreset::Lr2 && r.ln == Some(LnType::Ln)));
+        assert!(ir.downloads.is_empty());
         std::fs::remove_dir_all(&root).ok();
     }
 

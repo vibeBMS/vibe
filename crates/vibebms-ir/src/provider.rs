@@ -5,7 +5,7 @@
 
 use crate::eligibility::ProviderKind;
 use crate::http::{HttpRequest, HttpResponse, RetryAfter, Secret};
-use crate::lamps::{ChartInfo, LampSet, RankView};
+use crate::lamps::{ChartInfo, LampSet, RankView, RemoteScore};
 use crate::rule::Profile;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -222,6 +222,8 @@ pub enum Op<'a> {
     },
     /// The rivals the user set on the server.
     Rivals,
+    /// Every best score of a player (a vibeBMS IR's own scores route).
+    PlayerScores { player: &'a str },
 }
 
 /// What an answer means.
@@ -244,6 +246,11 @@ pub enum Outcome {
     Ranking(RankView),
     Charts(Vec<ChartInfo>),
     Lamps(LampSet),
+    /// A player's best scores, and the name the service gives them.
+    Scores {
+        player_name: String,
+        scores: Vec<RemoteScore>,
+    },
     Rivals(Vec<PlayerRef>),
     /// The cached answer still holds (304).
     NotModified,

@@ -76,6 +76,11 @@ impl Cached {
     pub fn want_view(&self) -> &str {
         &self.want_view
     }
+
+    /// Being read (its file, or from the server), or asked for again.
+    fn busy(&self) -> bool {
+        self.state != Load::Ready || self.forced
+    }
 }
 
 /// A set's file.
@@ -280,6 +285,15 @@ impl LampCache {
         (self.of(p, player))
             .filter_map(|c| c.set.get(md5, sha256))
             .max_by_key(|l| l.clear)
+    }
+
+    /// `player`'s sets on `p` with their keys, once none is being read
+    /// (`None` while one is).
+    pub fn settled_sets(&self, p: ProviderId, player: &str) -> Option<Vec<(&SetKey, &Cached)>> {
+        let sets: Vec<(&SetKey, &Cached)> = (self.sets.iter())
+            .filter(|(k, _)| k.provider == p && k.player == player)
+            .collect();
+        (!sets.iter().any(|(_, c)| c.busy())).then_some(sets)
     }
 
     /// Whether any of `player`'s sets on `p` has been read.

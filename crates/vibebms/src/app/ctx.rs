@@ -36,6 +36,9 @@ pub enum AppEvent {
     /// configuration keeps it. (The outbox's progress is read as it is
     /// shown.)
     IrChanged,
+    /// The player's own scores read from an IR: to be taken into the
+    /// records (`ir::download`).
+    IrScores(Box<crate::ir::download::Download>),
 }
 
 /// Shared state available to every scene.
@@ -445,6 +448,7 @@ impl Ctx {
                 }
                 AppEvent::SkinsChanged => self.skins.files_changed(),
                 AppEvent::IrChanged => self.save_config(),
+                AppEvent::IrScores(d) => self.take_ir_scores(&d),
             }
         }
         if !pages.is_empty() {
@@ -461,6 +465,35 @@ impl Ctx {
             self.ensure_scanned("bms");
             self.start_scan();
         }
+    }
+
+    /// The player's own IR scores taken into the records, as a score
+    /// database's are (better values only; the same again changes
+    /// nothing); what came of it told.
+    fn take_ir_scores(&mut self, d: &crate::ir::download::Download) {
+        let f = crate::ir::download::records(&d.rows, &self.lib.songs);
+        let Some(db) = self.lib.db.as_mut() else {
+            return;
+        };
+        let (new, changed) = db.import(&f.records);
+        self.lib.scores = db.scores();
+        self.lib.version += 1;
+        let mut said = format!(
+            "{}: {} scores read: {new} new, {changed} improved, {} of charts not here",
+            d.title,
+            d.rows.len() + d.left_out,
+            f.unknown
+        );
+        if f.ln_unknown > 0 {
+            said += &format!(", {} left out (LN mode not said)", f.ln_unknown);
+        }
+        if d.left_out > 0 {
+            said += &format!(", {} left out (no rule mode)", d.left_out);
+        }
+        for w in &d.why {
+            said += &format!("; {w}");
+        }
+        self.toast(said);
     }
 
     /// The scan, and on the web the files picked or kept in the browser.

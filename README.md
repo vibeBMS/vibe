@@ -283,6 +283,16 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   the chart's MD5 (`/new/song?songmd5=`; a bmson has none), Bokutachi's chart page by its own chart id
   (`/games/bms-7k/charts/<id>`, PMS by its playtype; the id is learnt from your PB lists, so a chart you have no
   score on there has no page yet), a vibeBMS IR's page when its `/me` names one (`chart_page`).
+  Settings › ONLINE › an account › **Download my scores** takes your own scores there into your local records the
+  way the score database import does: per chart the better lamp, EX score (with its counts where the IR gives
+  them), combo and BP are kept, never a worse value over a better one, play counts untouched, and the same
+  download again changes nothing. Each score goes under the rule mode and LN mode it was played in: a vibeBMS
+  IR says so for each (`/players/{id}/scores`; a server without the route cannot list your scores, and is told
+  so); Bokutachi's PBs (read again unless read a moment ago) are LR2's and LR2oraja's under the LR2 rule mode as
+  LN for BMS 7K / 14K, beatoraja's for PMS; BMS-IR lists only your lamps, per difficulty table followed, filed
+  by whose scores count (LR2, OpenLR2: LR2 rules, LN; LR2oraja and its kin: LR2 rules; beatoraja: beatoraja's;
+  a mix of clients cannot be filed). A score whose LN mode is not said goes only on a chart whose plays are the
+  same in every LN mode.
 - **Audio**: low-latency output, keysounds scheduled to the sample, WAV/OGG/MP3/FLAC. On Windows, WASAPI of its own:
   SHARED (the default) at the small periods of IAudioClient3 where Windows 10+ and the driver offer them (the buffer
   size setting rounded to one the engine takes), else the usual shared stream; EXCLUSIVE

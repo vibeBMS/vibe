@@ -403,12 +403,16 @@ fn read(op: &Op, resp: &HttpResponse) -> Result<Outcome, serde_json::Error> {
                 ) else {
                     continue;
                 };
+                let sd = &pb.score_data;
                 let lamp = RemoteLamp {
                     clear,
-                    ex: Some(pb.score_data.score as u32),
-                    bp: pb.score_data.optional.bp,
+                    ex: Some(sd.score as u32),
+                    bp: sd.optional.bp,
                     at_ms: pb.time_achieved,
                     remote: Some(pb.chart_id.clone()),
+                    judges: sd.judgements.all(),
+                    max_combo: sd.optional.max_combo,
+                    notes: c.notecount,
                 };
                 let hash = if c.hash_sha256.is_empty() {
                     &c.hash_md5
@@ -499,7 +503,26 @@ struct ScoreData {
     score: f64,
     lamp: String,
     #[serde(default)]
+    judgements: Judgements,
+    #[serde(default)]
     optional: Optional,
+}
+
+/// A PB's judgements (each may be missing).
+#[derive(Default, Deserialize)]
+struct Judgements {
+    pgreat: Option<u32>,
+    great: Option<u32>,
+    good: Option<u32>,
+    bad: Option<u32>,
+    poor: Option<u32>,
+}
+
+impl Judgements {
+    /// All five, or none.
+    fn all(&self) -> Option<[u32; 5]> {
+        Some([self.pgreat?, self.great?, self.good?, self.bad?, self.poor?])
+    }
 }
 
 #[derive(Default, Deserialize)]
@@ -535,6 +558,8 @@ struct ChartData {
     hash_md5: String,
     #[serde(rename = "hashSHA256", default)]
     hash_sha256: String,
+    #[serde(default)]
+    notecount: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -901,6 +926,11 @@ mod tests {
             )
         );
         assert_eq!(hard.remote.as_deref(), Some("c7k1"));
+        // its judgements, combo and the chart's notes
+        assert_eq!(
+            (hard.judges, hard.max_combo, hard.notes),
+            (Some([780, 130, 5, 1, 2]), Some(500), Some(918))
+        );
         // a chart without its SHA-256: by MD5
         let failed = set.get("FEDCBA9876543210FEDCBA9876543210", "").unwrap();
         assert_eq!((failed.clear, failed.bp), (ClearType::Failed, None));
