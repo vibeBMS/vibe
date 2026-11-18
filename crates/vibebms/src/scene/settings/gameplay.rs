@@ -128,7 +128,7 @@ pub(super) fn rows(b: &mut Rows) {
             |c, d| {
                 use JudgeAlgorithm::*;
                 let a = &mut c.config.play.judge_algorithm;
-                *a = cycle(&[Combo, Duration, Lowest], *a, d)
+                *a = cycle(&[Combo, Duration, Lowest, Score], *a, d)
             },
         )
         .desc("Which note a press judges when several are in reach."),
@@ -164,6 +164,7 @@ pub(super) fn rows(b: &mut Rows) {
         .desc("How long the notes take to reach a hi-speed changed in play.")
         .keys("hispeed animation"),
     ]);
+    super::play_extras::rows(b);
     b.group(
         "gameplay.vs",
         "VS SECOND PLAYER",

@@ -4,6 +4,7 @@
 //! Notes move in lane space as on a flat lane (the green number holds);
 //! only where a depth is on the screen differs.
 
+use super::session::held_at_line;
 use super::skin::PlayState;
 use crate::app::Draw;
 use crate::config::HiSpeedMode;
@@ -269,6 +270,11 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
                 let n = &notes[ni];
                 let cn = &s.chart.notes[n.chart_index];
                 let nd = depth(cn.pos, n.time);
+                // LR2: an unjudged note waits at the line
+                let nd = match p.hold_at_line && held_at_line(n, t_vis) {
+                    true => nd.max(dep.judge),
+                    false => nd,
+                };
                 if n.time > t_vis + 2_000_000 && nd > 2.0 {
                     break;
                 }

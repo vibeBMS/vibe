@@ -395,7 +395,7 @@ pub fn set_files(
 }
 
 /// A short tone gliding from `f0` to `f1` Hz with a quick decay.
-fn tone(rate: u32, ms: f32, f0: f32, f1: f32, amp: f32) -> Sample {
+pub(crate) fn tone(rate: u32, ms: f32, f0: f32, f1: f32, amp: f32) -> Sample {
     let n = (rate as f32 * ms / 1000.0) as usize;
     let mut phase = 0.0f32;
     let data = (0..n)

@@ -6,7 +6,7 @@ use crate::platform::{Duration, Instant};
 use crate::replay::Replay;
 use std::sync::Arc;
 use vibebms_core::chart::{BgaLayer, Chart, SoundId};
-use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op};
+use vibebms_core::engine::{Engine, EngineEvent, InputEvent, Op, PlayNote};
 use vibebms_core::judge::Judge;
 use vibebms_core::nonstop::Nonstop;
 use vibebms_core::record::{DeviceFacts, InputSource};
@@ -139,6 +139,21 @@ pub(crate) enum Out {
     /// The first side judged a key early (> 0) or late: the judge offset
     /// goes this many ms the other way (timing auto adjust).
     Adjust(i32),
+    /// A judgement's guide sound (GUIDE SE).
+    Guide(Judge),
+}
+
+/// The play options that change what a session does with its judges'
+/// events (none changes how it judges).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Fx {
+    /// GUIDE SE: each judgement's guide sound.
+    pub guide_se: bool,
+    /// RESULT WAIT: the play goes on until 5 s after the chart's last
+    /// note, BGM or BGA layer (not the POOR layer).
+    pub result_wait: bool,
+    /// A PGREAT, GREAT or GOOD clears the POOR BGA at once.
+    pub good_clears_poor: bool,
 }
 
 /// What the skin decides of a judgement's effects.
@@ -183,6 +198,7 @@ pub(crate) struct Session {
     pub bpm_log: Vec<(i64, f64)>,
     /// The first side's presses that reached its judge, by source.
     pub device: DeviceFacts,
+    pub fx: Fx,
     /// This step's events: (side, event).
     events: Vec<(usize, EngineEvent)>,
 }
@@ -219,6 +235,7 @@ impl Session {
             finished_instant: None,
             bpm_log,
             device: DeviceFacts::default(),
+            fx: Fx::default(),
             events: Vec::new(),
             nonstop: None,
             stage_bga: Vec::new(),
@@ -446,6 +463,9 @@ impl Session {
                 ..
             } => {
                 let lane = lane as usize;
+                if self.fx.guide_se && !ghost {
+                    out.push(Out::Guide(judge));
+                }
                 // timing auto adjust (beatoraja): PG..GOOD within 150 ms
                 // move the timing a ms per 30 ms off
                 if k == 0
@@ -477,6 +497,8 @@ impl Session {
                 // (beatoraja; an empty POOR in 7KEYS keeps the combo)
                 if combo == 0 && !ghost {
                     self.poor_until = Some(now + Duration::from_millis(500));
+                } else if self.fx.good_clears_poor && judge <= Judge::Good && !ghost {
+                    self.poor_until = None;
                 }
             }
             EngineEvent::Mine { .. } => {}
@@ -539,11 +561,22 @@ impl Session {
     }
 
     /// Every side's notes judged a second ago and the chart's sounds over
-    /// (chart time `t`): the play is done.
+    /// (chart time `t`): the play is done. RESULT WAIT: every note judged
+    /// and 5 s past the chart's last note, BGM and BGA layer (the POOR
+    /// layer left out; a BGM's sound is not followed to its end).
     pub fn over(&self, t: i64) -> bool {
         let Some(ft) = self.finished_at else {
             return false;
         };
+        if self.fx.result_wait {
+            let bga = self.chart.bga.iter().filter(|b| b.layer != BgaLayer::Poor);
+            let last = bga
+                .map(|b| b.time)
+                .max()
+                .unwrap_or(0)
+                .max(self.chart.length());
+            return t > last + 5_000_000;
+        }
         let tail = self
             .chart
             .bgm
@@ -572,6 +605,13 @@ impl Session {
             }
         }
     }
+}
+
+/// LR2's way of drawing notes (the display option): a note (a long note's
+/// head) whose time `t` has passed while it is still unjudged waits at the
+/// judge line until it is hit or missed. Not a mine (never judged).
+pub(crate) fn held_at_line(n: &PlayNote, t: i64) -> bool {
+    n.time < t && n.state.is_none() && !n.is_mine()
 }
 
 /// What the scene does with a side's sound event: a keysound of a lane the
@@ -660,6 +700,127 @@ mod tests {
             assert_eq!(l.cursor, l.notes.len());
             assert!(l.judge.is_some() || l.notes.iter().all(|&i| e.notes()[i].is_mine()));
         }
+    }
+
+    #[test]
+    fn guide_se_sounds_each_judgement() {
+        let play = RuleOptions::default();
+        let c = chart(&play);
+        let sides = vec![side(&c, &play, None, true)];
+        let mut s = Session::new(c, sides, false, Instant::now());
+        s.fx.guide_se = true;
+        let mut out = Vec::new();
+        run(&mut s, &mut out, |_, _| {});
+        let e = s.engine().unwrap();
+        assert!(!e.judge_log.is_empty());
+        let guides: Vec<Out> = e.judge_log.iter().map(|j| Out::Guide(j.1)).collect();
+        assert_eq!(out, guides);
+    }
+
+    #[test]
+    fn result_wait_plays_on_to_the_last_bga() {
+        let play = RuleOptions::default();
+        let mut ends = Vec::new();
+        for wait in [false, true] {
+            let mut c = chart(&play);
+            // a BGA layer 3 s after the chart's last sound, and a POOR
+            // image later still (not waited for)
+            let last = c.length() + 3_000_000;
+            for (time, layer) in [(last, BgaLayer::Base), (last + 9_000_000, BgaLayer::Poor)] {
+                c.bga.push(vibebms_core::chart::BgaEvent {
+                    time,
+                    layer,
+                    image: None,
+                });
+            }
+            let sides = vec![side(&c, &play, None, true)];
+            let mut s = Session::new(c, sides, false, Instant::now());
+            s.fx.result_wait = wait;
+            let (failed, t) = run(&mut s, &mut Vec::new(), |_, _| {});
+            assert!(!failed);
+            ends.push((t, last));
+        }
+        let ((plain, last), (waited, _)) = (ends[0], ends[1]);
+        assert!(plain < last, "{plain} {last}");
+        assert!(waited > last + 5_000_000 && waited < last + 5_100_000);
+    }
+
+    #[test]
+    fn a_good_clears_the_poor_bga() {
+        let play = RuleOptions::default();
+        let c = chart(&play);
+        let judge = |judge, combo| EngineEvent::Judge {
+            lane: 0,
+            judge,
+            diff: 0,
+            combo,
+            tail: false,
+        };
+        for clear in [false, true] {
+            let sides = vec![side(&c, &play, None, false)];
+            let mut s = Session::new(c.clone(), sides, false, Instant::now());
+            s.fx.good_clears_poor = clear;
+            let (now, mut out) = (Instant::now(), Vec::new());
+            s.event(0, judge(Judge::Poor, 0), now, SHOW, &mut out);
+            assert!(s.poor_until.is_some());
+            s.event(0, judge(Judge::Good, 1), now, SHOW, &mut out);
+            assert_eq!(s.poor_until.is_none(), clear);
+            // the next BAD shows it again
+            s.event(0, judge(Judge::Bad, 0), now, SHOW, &mut out);
+            assert!(s.poor_until.is_some());
+        }
+    }
+
+    #[test]
+    fn notes_wait_at_the_line_until_judged() {
+        let play = RuleOptions::default();
+        let c = chart(&play);
+        let sides = vec![side(&c, &play, None, false)];
+        let mut s = Session::new(c, sides, false, Instant::now());
+        let first = |s: &Session| {
+            let e = s.engine().unwrap();
+            let i = e.notes().iter().position(|n| !n.is_mine()).unwrap();
+            (i, e.notes()[i].time)
+        };
+        let (i, time) = first(&s);
+        let held = |s: &Session, t| held_at_line(&s.engine().unwrap().notes()[i], t);
+        let mut out = Vec::new();
+        s.step(
+            time - 10_000,
+            s.instant_at(time - 10_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(!held(&s, time - 10_000), "not yet at the line");
+        // past its time, unjudged: at the line, until the miss
+        s.step(
+            time + 100_000,
+            s.instant_at(time + 100_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(held(&s, time + 100_000));
+        s.step(
+            time + 400_000,
+            s.instant_at(time + 400_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(!held(&s, time + 400_000), "missed: scrolls on");
+        // a hit one never waits
+        let sides = vec![side(&s.chart, &play, None, true)];
+        let mut s = Session::new(s.chart.clone(), sides, false, Instant::now());
+        s.step(
+            time + 50_000,
+            s.instant_at(time + 50_000),
+            [0, 0],
+            SHOW,
+            &mut out,
+        );
+        assert!(!held(&s, time + 50_000));
     }
 
     #[test]
