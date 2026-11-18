@@ -202,6 +202,18 @@ pub(super) fn build(src: Source, p: Placed, pms: bool) -> Chart {
         })
         .collect();
     meta.has_bga = !chart.bga.is_empty();
+    // no POOR layer: `#BMP00` is the POOR image (as LR2 and beatoraja)
+    if !chart.bga.iter().any(|b| b.layer == BgaLayer::Poor) {
+        if let Some(&image) = bmp_map.get(&0) {
+            let event = BgaEvent {
+                time: 0,
+                layer: BgaLayer::Poor,
+                image: Some(image),
+            };
+            let at = chart.bga.partition_point(|b| b.time < 0);
+            chart.bga.insert(at, event);
+        }
+    }
 
     chart.bar_lines = p
         .measure_start

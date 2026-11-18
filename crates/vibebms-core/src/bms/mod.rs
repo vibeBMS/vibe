@@ -217,6 +217,25 @@ mod tests {
     }
 
     #[test]
+    fn bmp00_is_the_poor_image_without_a_poor_layer() {
+        let head = "#BPM 120\n#BMP00 miss.bmp\n#BMP01 a.bmp\n#BMP02 b.bmp\n#00111:01\n#00104:01\n";
+        let c = parse(head);
+        let poor: Vec<_> = c.bga.iter().filter(|b| b.layer == BgaLayer::Poor).collect();
+        assert_eq!(poor.len(), 1);
+        assert_eq!(poor[0].time, 0);
+        assert_eq!(c.images[poor[0].image.unwrap() as usize], "miss.bmp");
+        assert!(c.bga.windows(2).all(|w| w[0].time <= w[1].time));
+        // the chart's own POOR layer: as it is
+        let c = parse(&format!("{head}#00106:02\n"));
+        let poor: Vec<_> = c.bga.iter().filter(|b| b.layer == BgaLayer::Poor).collect();
+        assert_eq!(poor.len(), 1);
+        assert_eq!(c.images[poor[0].image.unwrap() as usize], "b.bmp");
+        // no #BMP00: none
+        let c = parse("#BMP01 a.bmp\n#00111:01\n#00104:01\n");
+        assert!(c.bga.iter().all(|b| b.layer != BgaLayer::Poor));
+    }
+
+    #[test]
     fn hostile_numbers_do_not_panic() {
         for head in [
             "#00102:1e999",
