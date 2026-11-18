@@ -45,6 +45,16 @@ cargo run --release                                  # song select
 cargo run --release -- path/to/song.bme --autoplay   # play a chart directly
 ```
 
+The command line (desktop; `vibebms --help`): a chart to play at start, with `--autoplay` (`-a`; without a chart,
+AUTOPLAY on in song select), `--ghost=best|last` (G-BATTLE) or `--vs`; options for this launch only, never written to
+`config.toml` (a setting changed in the game meanwhile is saved as usual): `--gauge=HARD`, `--random=MIRROR`,
+`--hs=3.25`, `--judge=lr2`, `--ln="FORCE CN"` (labels as the game shows them, or the config's names, in any case) and
+`--set <section.key>=<value>` for any setting of `config.toml` (`--set play.sudden=0.3`, `--set display.show_fps=true`);
+`--print-effective-options` prints the `[play]` options these make and exits. Subcommands: `vibebms songs scan` scans
+the BMS folders into the song cache as F12 does, `vibebms songs list [--json]` prints the library as last scanned (a
+line per chart: MD5, key mode, level, title, path; or the cache's records as JSON). An option that does not read
+stops with its error and exit code 2.
+
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
 

@@ -349,6 +349,19 @@ fn save_json(path: &Path, v: &impl Serialize, what: &str) {
     }
 }
 
+/// The charts of the song cache at `file`, as the last scan left it (the
+/// command line's `songs list`).
+pub fn cached_songs(file: &Path) -> Vec<Song> {
+    load_songs(file)
+        .into_iter()
+        .filter(|r| r.skipped_by.is_none())
+        .map(|r| Song {
+            added: r.mtime,
+            ..r.song
+        })
+        .collect()
+}
+
 fn load_songs(file: &Path) -> Vec<SongRecord> {
     vfs::read(file)
         .ok()
@@ -479,14 +492,7 @@ impl Library {
     }
 
     pub fn songs(&self) -> Vec<Song> {
-        load_songs(&self.songs_file)
-            .into_iter()
-            .filter(|r| r.skipped_by.is_none())
-            .map(|r| Song {
-                added: r.mtime,
-                ..r.song
-            })
-            .collect()
+        cached_songs(&self.songs_file)
     }
 
     /// The records.

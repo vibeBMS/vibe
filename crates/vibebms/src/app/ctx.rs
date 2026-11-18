@@ -56,6 +56,9 @@ pub struct Ctx {
     pub toasts: Vec<(String, Instant)>,
     /// The skin catalog, and what was read of skin files.
     pub skins: Skins,
+    /// This launch's command-line options, which the saved config leaves
+    /// out.
+    pub overrides: super::cli::Overrides,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -170,6 +173,35 @@ impl Skins {
     }
 }
 
+/// The folders the scan reads: the root (when chosen), then the BMS
+/// folders not inside one already.
+pub fn scan_roots(config: &Config, paths: &Paths) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if config.scan_root {
+        roots.push(paths.root.clone());
+    }
+    for d in &config.bms_dirs {
+        let p = PathBuf::from(d);
+        let p = if p.is_absolute() {
+            p
+        } else {
+            paths.root.join(p)
+        };
+        if !roots.iter().any(|r| p.starts_with(r)) {
+            roots.push(p);
+        }
+    }
+    roots
+}
+
+/// The app's own folders, which the scan skips.
+pub fn internal_dirs(paths: &Paths) -> HashSet<PathBuf> {
+    crate::paths::INTERNAL_DIRS
+        .iter()
+        .map(|d| paths.root.join(d))
+        .collect()
+}
+
 impl Ctx {
     /// A context with nothing loaded yet.
     pub fn new(paths: Paths, mut config: Config, mixer: Mixer, view: View) -> Ctx {
@@ -200,6 +232,7 @@ impl Ctx {
             input: Input::default(),
             toasts: Vec::new(),
             skins: Skins::default(),
+            overrides: Default::default(),
         }
     }
 
@@ -244,8 +277,12 @@ impl Ctx {
         }
     }
 
+    /// The config saved, without this launch's command-line options.
     pub fn save_config(&self) {
-        self.config.save(&self.paths.config_file());
+        match self.overrides.for_saving(&self.config) {
+            Some(c) => c.save(&self.paths.config_file()),
+            None => self.config.save(&self.paths.config_file()),
+        }
     }
 
     /// UI scale relative to a 720p layout.
@@ -287,30 +324,12 @@ impl Ctx {
     }
 
     pub fn scan_roots(&self) -> Vec<PathBuf> {
-        let mut roots = Vec::new();
-        if self.config.scan_root {
-            roots.push(self.paths.root.clone());
-        }
-        for d in &self.config.bms_dirs {
-            let p = PathBuf::from(d);
-            let p = if p.is_absolute() {
-                p
-            } else {
-                self.paths.root.join(p)
-            };
-            if !roots.iter().any(|r| p.starts_with(r)) {
-                roots.push(p);
-            }
-        }
-        roots
+        scan_roots(&self.config, &self.paths)
     }
 
     /// The app's own folders, which the scan skips.
     fn internal_dirs(&self) -> HashSet<PathBuf> {
-        crate::paths::INTERNAL_DIRS
-            .iter()
-            .map(|d| self.paths.root.join(d))
-            .collect()
+        internal_dirs(&self.paths)
     }
 
     /// A scan that has ended: its songs into the list (always before another

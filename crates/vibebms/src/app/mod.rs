@@ -173,6 +173,10 @@ impl App {
 
 pub fn run() {
     let paths = Paths::detect();
+    // the command line's subcommands, its help and its errors
+    if let Some(code) = cli::run_before_window(&paths) {
+        std::process::exit(code);
+    }
     log::info!("data root: {}", paths.root.display());
     let event_loop = match EventLoop::<UserEvent>::with_user_event().build() {
         Ok(e) => e,
@@ -509,6 +513,14 @@ impl App {
             want_screenshot: false,
         };
         let mut ctx = Ctx::new(self.paths.clone(), config, mixer, view);
+        // this launch's options (not saved; `run` refused ones that do not
+        // apply)
+        if let Ok(o) = cli::Overrides::apply(cli::args(), &mut ctx.config) {
+            for l in o.describe() {
+                log::info!("command line: {l}");
+            }
+            ctx.overrides = o;
+        }
         let root = ctx.paths.root.clone();
         ctx.lib.db = Some(Library::open(
             &ctx.paths.cache,
