@@ -1,6 +1,7 @@
 //! Web: the songs kept in the browser, and how much room they take.
 
-use super::{Act, Armed, Confirm, Row};
+use super::row::{Act, Row, Rows};
+use super::{Armed, Confirm};
 use crate::app::Ctx;
 use crate::platform::vfs::{self, Kept};
 
@@ -53,9 +54,26 @@ fn stale_folders(ctx: &Ctx, folders: &[Kept]) -> Vec<usize> {
         .collect()
 }
 
-pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>, v: &mut Vec<Row>) {
+/// How much room the kept songs take, of how much.
+pub(super) fn summary() -> String {
+    let st = crate::platform::opfs::status();
+    if !st.available {
+        return "until the page closes".into();
+    }
+    if st.quota > 0.0 {
+        format!("{} of {}", bytes(st.usage), bytes(st.quota))
+    } else {
+        bytes(st.usage)
+    }
+}
+
+/// LIBRARY › STORAGE.
+pub(super) fn rows(b: &mut Rows) {
+    let (ctx, armed) = (b.ctx, b.armed);
+    b.header("SONGS KEPT IN THIS BROWSER");
     // BMSeeker's web page, beside this one: what it adds shows here at once
-    v.push(Row::new(
+    b.push(Row::new(
+        "storage.bmseeker",
         "Manage the library with BMSeeker (difficulty tables, downloads)",
         "open ↗",
         Act::Run(
@@ -69,23 +87,21 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>, v: &mut Vec<Row>) {
     ));
     let st = crate::platform::opfs::status();
     if !st.available {
-        v.push(Row::note(
+        b.push(Row::note(
+            "storage.none",
             "Songs stay until the page closes (this browser keeps no files)",
             "",
         ));
         return;
     }
-    let room = if st.quota > 0.0 {
-        format!("{} of {}", bytes(st.usage), bytes(st.quota))
-    } else {
-        bytes(st.usage)
-    };
+    let room = summary();
     let saving = if st.pending > 0 {
         format!(" · saving {}", st.pending)
     } else {
         String::new()
     };
-    v.push(Row::new(
+    b.push(Row::new(
+        "storage.persist",
         format!("Songs kept in this browser: {room}{saving}"),
         if st.persisted {
             "kept for good"
@@ -109,7 +125,8 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>, v: &mut Vec<Row>) {
     let stale = stale_folders(ctx, &folders);
     if !stale.is_empty() {
         let total: u64 = stale.iter().map(|&i| folders[i].bytes).sum();
-        v.push(Row::new(
+        b.push(Row::new(
+            "storage.delete_stale",
             format!(
                 "Delete songs not played for {STALE_DAYS} days ({} folder{}, {})",
                 stale.len(),
@@ -122,7 +139,8 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>, v: &mut Vec<Row>) {
     }
     if !folders.is_empty() {
         let total: u64 = folders.iter().map(|f| f.bytes).sum();
-        v.push(Row::new(
+        b.push(Row::new(
+            "storage.delete_all",
             format!(
                 "Delete every song kept here ({} folder{}, {})",
                 folders.len(),
@@ -139,8 +157,9 @@ pub(super) fn rows(ctx: &Ctx, armed: &Armed<Confirm>, v: &mut Vec<Row>) {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        v.push(Row::new(
-            format!("    {name}  ({} files)", k.files),
+        b.push(Row::new(
+            "storage.folder",
+            format!("{name}  ({} files)", k.files),
             delete(i, format!("{}  delete ×", bytes(k.bytes as f64))),
             Act::DeleteKept(i),
         ));
