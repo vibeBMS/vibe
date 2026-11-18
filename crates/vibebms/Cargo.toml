@@ -49,6 +49,9 @@ ehttp = { version = "0.7", features = ["streaming"] }
 toml = { version = "1", features = ["preserve_order"] }
 json5 = "1"
 flate2 = "1"
+# a zip's files read where they are (charts in archives: platform/arcfs.rs;
+# the version and features BMSeeker unpacks with)
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
 # download pages of charts a difficulty table lists but the library lacks
 webbrowser = "1"
 
@@ -104,3 +107,5 @@ web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlE
 [dev-dependencies]
 # archives for tests
 bmseeker = { workspace = true, features = ["testkit"] }
+# 7z archives made for tests (the version BMSeeker reads)
+sevenz-rust2 = { version = "0.25", default-features = false, features = ["compress"] }

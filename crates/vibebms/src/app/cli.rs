@@ -12,7 +12,11 @@ pub(super) fn play_scene(ctx: &mut Ctx) -> Option<Box<dyn Scene>> {
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let path = PathBuf::from(args.iter().find(|a| !a.starts_with('-'))?);
-    let c = match vibebms_core::load_chart(&path, &Default::default()) {
+    // (through the file system: `pack.zip!/Song/a.bme` is a chart in an archive)
+    let read = crate::platform::vfs::read(&path).map_err(|e| e.to_string());
+    let c = match read.and_then(|b| {
+        vibebms_core::load_chart_bytes(&path, &b, &Default::default()).map_err(|e| e.to_string())
+    }) {
         Ok(c) => c,
         Err(e) => {
             ctx.toast(format!("{}: {e}", path.display()));

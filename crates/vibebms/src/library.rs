@@ -5,7 +5,7 @@
 //! plays) so it works identically on every platform, including the web
 //! build. Scanning runs in the background.
 
-use crate::platform::vfs;
+use crate::platform::{arcfs, vfs};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -421,6 +421,8 @@ impl Library {
             }
             totals.judges = Some(j);
         }
+        // the files of the archives in the library (`platform::arcfs`)
+        crate::platform::arcfs::load_index(&cache.join("archives.json"));
         let favorites_file = data.join("favorites.json");
         let favorites = vfs::read(&favorites_file)
             .ok()
@@ -468,14 +470,29 @@ impl Library {
         &self.songs_file
     }
 
+    /// The charts. One in an archive that is also a file of its own (the
+    /// archive unpacked beside it) is left out: the file is the one listed.
     pub fn songs(&self) -> Vec<Song> {
-        load_songs(&self.songs_file)
+        let songs: Vec<Song> = load_songs(&self.songs_file)
             .into_iter()
             .filter(|r| r.skipped_by.is_none())
             .map(|r| Song {
                 added: r.mtime,
                 ..r.song
             })
+            .collect();
+        let packed = |s: &Song| arcfs::split(Path::new(&s.path)).is_some();
+        if !songs.iter().any(packed) {
+            return songs;
+        }
+        let loose: HashSet<String> = songs
+            .iter()
+            .filter(|s| !packed(s))
+            .map(|s| s.sha256.clone())
+            .collect();
+        songs
+            .into_iter()
+            .filter(|s| !packed(s) || !loose.contains(&s.sha256))
             .collect()
     }
 
@@ -687,20 +704,23 @@ pub(crate) fn is_chart(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Chart files under `dir` into `out`; folders that cannot be read (a
-/// drive not mounted, no permission) into `unreadable`.
-fn walk(
-    dir: &Path,
-    depth: usize,
-    skip: &HashSet<PathBuf>,
-    out: &mut Vec<PathBuf>,
-    unreadable: &mut Vec<PathBuf>,
-) {
+/// What the scan finds below a folder.
+#[derive(Default)]
+struct Found {
+    charts: Vec<PathBuf>,
+    /// Archives (read as folders: `platform::arcfs`).
+    archives: Vec<PathBuf>,
+    /// Folders that cannot be read (a drive not mounted, no permission).
+    unreadable: Vec<PathBuf>,
+}
+
+/// Chart files and archives under `dir` into `out`.
+fn walk(dir: &Path, depth: usize, skip: &HashSet<PathBuf>, out: &mut Found) {
     if depth > 16 {
         return;
     }
     let Ok(entries) = vfs::read_dir(dir) else {
-        unreadable.push(dir.to_path_buf());
+        out.unreadable.push(dir.to_path_buf());
         return;
     };
     for e in entries {
@@ -714,21 +734,99 @@ fn walk(
         }
         if e.is_dir {
             if !skip.contains(&e.path) {
-                walk(&e.path, depth + 1, skip, out, unreadable);
+                walk(&e.path, depth + 1, skip, out);
             }
         } else if is_chart(&e.path) {
-            out.push(e.path);
+            out.charts.push(e.path);
+        } else if arcfs::is_archive(&e.path) {
+            out.archives.push(e.path);
         }
     }
 }
 
-/// Chart files under `roots` (used by the web build to prefetch them).
+/// Chart files under `roots` (used by the web build to prefetch them; the
+/// archives that changed are read in when the scan asks: `ScanProgress::unread`).
 pub fn find_charts(roots: &[PathBuf], skip: &HashSet<PathBuf>) -> Vec<PathBuf> {
-    let mut v = Vec::new();
+    let mut found = Found::default();
     for r in roots {
-        walk(r, 0, skip, &mut v, &mut Vec::new());
+        walk(r, 0, skip, &mut found);
     }
-    v
+    found.charts
+}
+
+/// The library folder a chart (or an archive) below `root` is listed under:
+/// `root`'s sub-folder it is in, else `root`.
+fn folder_of(root: &Path, f: &Path) -> String {
+    let first = f
+        .strip_prefix(root)
+        .ok()
+        .and_then(|r| r.components().next())
+        .map(|c| root.join(c.as_os_str()));
+    match first {
+        Some(p) if p != f => p.to_string_lossy().into_owned(),
+        _ => root.to_string_lossy().into_owned(),
+    }
+}
+
+/// The archives found that changed since the scan before: listed, and
+/// their charts read (several at once natively). Their indexes are updated;
+/// the charts' bytes by path. Archives that cannot be read now go into
+/// `unreadable` (web: not in memory yet, also into `unread`).
+fn read_archives(
+    archives: &[(PathBuf, (i64, i64))],
+    progress: &ScanProgress,
+    unreadable: &mut Vec<PathBuf>,
+) -> (HashMap<PathBuf, Vec<u8>>, bool) {
+    let changed: Vec<usize> = (0..archives.len())
+        .filter(|&i| {
+            let (a, stamp) = &archives[i];
+            arcfs::index_of(a).map(|ix| ix.stamp) != Some(*stamp)
+        })
+        .collect();
+    let read: Mutex<Vec<(usize, std::io::Result<arcfs::Unpacked>)>> = Mutex::default();
+    crate::platform::parallel_for(changed.len(), |k| {
+        let i = changed[k];
+        let a = &archives[i].0;
+        *progress.current.lock().unwrap() = a.display().to_string();
+        let r = arcfs::read_charts(a, None);
+        read.lock().unwrap().push((i, r));
+    });
+    let mut read = read.into_inner().unwrap();
+    read.sort_by_key(|(i, _)| *i);
+    let mut bytes = HashMap::new();
+    let mut indexed = false;
+    for (i, r) in read {
+        let (a, stamp) = &archives[i];
+        match r {
+            Ok(u) => {
+                let files = u.listing.unwrap_or_default();
+                log::info!(
+                    "scan: {} ({} files, {} charts)",
+                    a.display(),
+                    files.len(),
+                    u.files.len()
+                );
+                arcfs::set_index(a, arcfs::Index::new(*stamp, &u.format, files));
+                for (rel, b) in u.files {
+                    bytes.insert(arcfs::join(a, &rel), b);
+                }
+                indexed = true;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                log::warn!("scan: {}: {e}", a.display());
+                arcfs::set_index(a, arcfs::Index::failed(*stamp, e.to_string()));
+                indexed = true;
+            }
+            Err(e) => {
+                log::debug!("scan: {} not read: {e}", a.display());
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    progress.unread.lock().unwrap().push(a.clone());
+                }
+                unreadable.push(arcfs::join(a, Path::new("")));
+            }
+        }
+    }
+    (bytes, indexed)
 }
 
 /// Notes by kind and the densities of a chart (see `Song`).
@@ -889,26 +987,45 @@ pub fn scan(
         })
         .map(|r| (r.song.path.clone(), (r.mtime, r.size)))
         .collect();
+    let index_file = songs_file.with_file_name("archives.json");
+    arcfs::load_index(&index_file);
     let mut files: Vec<(PathBuf, String)> = Vec::new();
+    // (each with the root it is below)
+    let mut archives: Vec<(PathBuf, &Path)> = Vec::new();
     let mut unreadable: Vec<PathBuf> = Vec::new();
     for root in &roots {
         *progress.current.lock().unwrap() = root.display().to_string();
-        let mut found = Vec::new();
-        walk(root, 0, &skip, &mut found, &mut unreadable);
-        for f in found {
-            let first = f
-                .strip_prefix(root)
-                .ok()
-                .and_then(|r| r.components().next())
-                .map(|c| root.join(c.as_os_str()));
-            let folder = match first {
-                Some(p) if p != f => p.to_string_lossy().into_owned(),
-                _ => root.to_string_lossy().into_owned(),
-            };
+        let mut found = Found::default();
+        walk(root, 0, &skip, &mut found);
+        for f in found.charts {
+            let folder = folder_of(root, &f);
             files.push((f, folder));
         }
+        archives.extend(found.archives.into_iter().map(|a| (a, root.as_path())));
+        unreadable.extend(found.unreadable);
         progress.found.store(files.len(), Ordering::Relaxed);
     }
+    // archives: those that changed read (their charts in `pre`), every
+    // one's charts from its index; a chart in one has the archive's stamp
+    let stamped: Vec<(PathBuf, (i64, i64))> = archives
+        .iter()
+        .map(|(a, _)| (a.clone(), vfs::stamp(a)))
+        .collect();
+    let (mut pre, indexed) = read_archives(&stamped, &progress, &mut unreadable);
+    let mut archive_stamp: HashMap<PathBuf, (i64, i64)> = HashMap::new();
+    for ((a, root), (_, stamp)) in archives.iter().zip(&stamped) {
+        let Some(ix) = arcfs::index_of(a).filter(|ix| ix.stamp == *stamp) else {
+            continue;
+        };
+        for rel in ix.charts() {
+            let p = arcfs::join(a, rel);
+            archive_stamp.insert(p.clone(), *stamp);
+            // (an archive right in the root is a folder of its own)
+            let folder = folder_of(root, &p);
+            files.push((p, folder));
+        }
+    }
+    progress.found.store(files.len(), Ordering::Relaxed);
     let mut seen: HashSet<String> = files
         .iter()
         .map(|(f, _)| f.to_string_lossy().into_owned())
@@ -926,22 +1043,71 @@ pub fn scan(
     if !unreadable.is_empty() {
         log::warn!("scan: cannot read {}", unreadable[0].display());
     }
+    // (each file's stamp: on a slow drive, several at once)
+    let stamps: Vec<(i64, i64)> = {
+        let out: Vec<Mutex<(i64, i64)>> = files.iter().map(|_| Mutex::default()).collect();
+        crate::platform::parallel_for(files.len(), |i| {
+            let f = &files[i].0;
+            let stamp = archive_stamp
+                .get(f)
+                .copied()
+                .unwrap_or_else(|| vfs::stamp(f));
+            *out[i].lock().unwrap() = stamp;
+        });
+        out.into_iter().map(|m| m.into_inner().unwrap()).collect()
+    };
     let todo: Vec<(PathBuf, String, (i64, i64))> = files
         .into_iter()
-        .filter_map(|(f, folder)| {
-            let stamp = vfs::stamp(&f);
+        .zip(stamps)
+        .filter_map(|((f, folder), stamp)| {
             let key = f.to_string_lossy().into_owned();
             (known.get(&key) != Some(&stamp)).then_some((f, folder, stamp))
         })
         .collect();
     progress.to_parse.store(todo.len(), Ordering::Relaxed);
+    // charts in archives that did not change but are read again (records
+    // of an older version): each archive read once for them
+    let mut again: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+    for (f, _, _) in &todo {
+        if let Some((a, rel)) = arcfs::split(f).filter(|_| !pre.contains_key(f)) {
+            again.entry(a).or_default().insert(rel);
+        }
+    }
+    let mut again: Vec<(PathBuf, HashSet<PathBuf>)> = again.into_iter().collect();
+    again.sort_by(|a, b| a.0.cmp(&b.0));
+    let reread: Mutex<Vec<(PathBuf, Vec<u8>)>> = Mutex::default();
+    crate::platform::parallel_for(again.len(), |i| {
+        let (a, want) = &again[i];
+        match arcfs::read_charts(a, Some(want)) {
+            Ok(u) => reread.lock().unwrap().extend(
+                u.files
+                    .into_iter()
+                    .map(|(rel, b)| (arcfs::join(a, &rel), b)),
+            ),
+            Err(e) => log::debug!("scan: {} not read: {e}", a.display()),
+        }
+    });
+    pre.extend(reread.into_inner().unwrap());
+    // (taken as each is parsed)
+    let pre: Vec<Mutex<Option<Vec<u8>>>> = todo
+        .iter()
+        .map(|(f, _, _)| Mutex::new(pre.remove(f)))
+        .collect();
 
     let results: Mutex<Vec<SongRecord>> = Mutex::new(Vec::new());
     crate::platform::parallel_for(todo.len(), |i| {
         let (f, folder, stamp) = &todo[i];
         let opts = vibebms_core::bms::ParseOptions::default();
         // (a file that cannot be read now is tried again next time)
-        let parsed = vfs::read(f).map(|b| {
+        let bytes = match pre[i].lock().unwrap().take() {
+            Some(b) => Ok(b),
+            None if arcfs::split(f).is_some() => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "not read from its archive",
+            )),
+            None => vfs::read(f),
+        };
+        let parsed = bytes.map(|b| {
             // a parser bug on one file skips that file
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 vibebms_core::load_chart_bytes(f, &b, &opts).map_err(|e| e.to_string())
@@ -981,6 +1147,20 @@ pub fn scan(
         progress.parsed.fetch_add(1, Ordering::Relaxed);
     });
     let new = results.into_inner().unwrap();
+    // the archives' indexes: those found (and those in folders that cannot
+    // be read now, or not below these roots) kept
+    let found_archives: HashSet<&Path> = archives.iter().map(|(a, _)| a.as_path()).collect();
+    let keep_archive = |a: &Path| {
+        found_archives.contains(a)
+            || !roots.iter().any(|r| a.starts_with(r))
+            || unreadable
+                .iter()
+                .any(|d| a.starts_with(d) || arcfs::join(a, Path::new("")) == *d)
+    };
+    let gone = arcfs::indexed().iter().any(|a| !keep_archive(a));
+    if indexed || gone || (!archives.is_empty() && !vfs::is_file(&index_file)) {
+        arcfs::save_index(&index_file, &keep_archive);
+    }
     // (records read again count too: their file may be gone)
     let removed = known_records
         .iter()
@@ -1630,6 +1810,247 @@ mod tests {
         );
         assert!(p.changed.load(Ordering::Relaxed));
         assert!(open(&cache).songs().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A small WAV (16-bit mono, 22050 Hz).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wav(frames: u32) -> Vec<u8> {
+        let data = frames * 2;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&22050u32.to_le_bytes());
+        b.extend_from_slice(&44100u32.to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&data.to_le_bytes());
+        b.extend((0..frames).flat_map(|i| ((i as i16).wrapping_mul(300) as u16).to_le_bytes()));
+        b
+    }
+
+    /// A solid 7z (LZMA2) of `files`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn seven(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
+        let mut w = ArchiveWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
+        let entries = files
+            .iter()
+            .map(|(n, _)| ArchiveEntry::new_file(n))
+            .collect();
+        let readers = files.iter().map(|(_, b)| SourceReader::new(*b)).collect();
+        w.push_archive_entries(entries, readers).unwrap();
+        w.finish().unwrap().into_inner()
+    }
+
+    /// Charts in a zip, a solid 7z and a RAR: scanned as folders (an
+    /// unchanged archive not opened again, a changed one read again), read
+    /// and played through the file system as files on a disk are.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn charts_in_archives() {
+        use crate::platform::arcfs;
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-arc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let packs = dir.join("packs");
+        std::fs::create_dir_all(&packs).unwrap();
+        let cache = dir.join("cache");
+        let chart = |title: &str| {
+            format!("#TITLE {title}\n#BPM 150\n#WAV01 kick.wav\n#00111:01\n#00112:0101\n")
+        };
+        let kick = wav(2205);
+        let zip_of = |extra: bool| {
+            let mut files: Vec<(&str, Vec<u8>)> = vec![
+                ("Song/a.bme", chart("A").into_bytes()),
+                ("Song/kick.wav", kick.clone()),
+                ("Song/bga/stage.png", b"png".to_vec()),
+                // a song in a folder of the song's (its own folder)
+                ("Song/Another/b.bms", chart("B").into_bytes()),
+                ("readme.txt", b"hi".to_vec()),
+            ];
+            if extra {
+                files.push(("New/d.bme", chart("D").into_bytes()));
+            }
+            bmseeker::testkit::zip(&files)
+        };
+        let zip = packs.join("pack.zip");
+        std::fs::write(&zip, zip_of(false)).unwrap();
+        let c = chart("C");
+        let seven_bytes = seven(&[
+            ("notes/readme.txt", b"read me"),
+            ("Other/c.bme", c.as_bytes()),
+            ("Other/kick.wav", &kick),
+            ("Other/big.bin", &[7u8; 50_000]),
+        ]);
+        let sz = dir.join("solid.7z");
+        std::fs::write(&sz, seven_bytes).unwrap();
+        // (a chart with no notes: listed, no song)
+        std::fs::write(dir.join("song.rar"), bmseeker::testkit::SONG_RAR).unwrap();
+        let run = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(
+                cache.join("songs.json"),
+                vec![dir.clone()],
+                [cache.clone()].into_iter().collect(),
+                p.clone(),
+            );
+            p
+        };
+        let p = run();
+        assert!(p.changed.load(Ordering::Relaxed));
+        let songs = Library::open(&cache, &cache, |_, _| None).songs();
+        let mut titles: Vec<(&str, &str)> = songs
+            .iter()
+            .map(|s| (s.title.as_str(), s.path.as_str()))
+            .collect();
+        titles.sort();
+        let a = arcfs::join(&zip, Path::new("Song/a.bme"));
+        let c_path = arcfs::join(&sz, Path::new("Other/c.bme"));
+        assert_eq!(
+            titles,
+            [
+                ("A", a.to_str().unwrap()),
+                (
+                    "B",
+                    arcfs::join(&zip, Path::new("Song/Another/b.bms"))
+                        .to_str()
+                        .unwrap()
+                ),
+                ("C", c_path.to_str().unwrap()),
+            ]
+        );
+        let song_a = songs.iter().find(|s| s.title == "A").unwrap();
+        assert_eq!(song_a.notes, 3);
+        assert_eq!(song_a.folder, packs.to_string_lossy());
+        let song_c = songs.iter().find(|s| s.title == "C").unwrap();
+        assert_eq!(
+            song_c.folder,
+            arcfs::join(&sz, Path::new("")).to_string_lossy()
+        );
+        assert_eq!(arcfs::shown_name("solid.7z!"), "solid.7z");
+        assert!(arcfs::index_of(&dir.join("song.rar")).is_some_and(|ix| ix.files.len() == 2));
+
+        // the folders and files in the archive, as the loaders see them
+        let song = a.parent().unwrap();
+        assert!(vfs::is_dir(song) && vfs::is_dir(&arcfs::join(&zip, Path::new(""))));
+        assert!(vfs::is_file(&a) && !vfs::is_dir(&a));
+        assert!(!vfs::is_file(&song.join("none.wav")));
+        let mut names: Vec<String> = vfs::read_dir(song)
+            .unwrap()
+            .into_iter()
+            .map(|e| {
+                format!(
+                    "{}{}",
+                    e.path.file_name().unwrap().to_string_lossy(),
+                    if e.is_dir { "/" } else { "" }
+                )
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, ["Another/", "a.bme", "bga/", "kick.wav"]);
+        assert_eq!(vfs::read(&a).unwrap(), chart("A").into_bytes());
+        assert_eq!(vfs::stamp(&song.join("kick.wav")).1, kick.len() as i64);
+        // a keysound found (`#WAV01 kick.wav`) and decoded as in a play
+        let index = vfs::DirIndex::new(song);
+        let k = index.find("KICK.ogg", vfs::AUDIO_EXTS).unwrap();
+        assert_eq!(k, song.join("kick.wav"));
+        let bytes = vfs::read(&k).unwrap();
+        assert!(vibebms_audio::decode_bytes(bytes, "wav", 44100).is_ok());
+        // nothing is written into an archive
+        assert!(vfs::write(&song.join("x.txt"), b"x").is_err());
+        assert!(!dir.join("packs/pack.zip!").exists());
+
+        // a play: its song unpacked once, kept until another is chosen
+        let opened = arcfs::times_opened(&zip);
+        vfs::prepare_songs(std::slice::from_ref(&a)).unwrap();
+        assert_eq!(arcfs::times_opened(&zip), opened + 1);
+        assert!(arcfs::is_ready(&zip, Path::new("Song/bga/stage.png")));
+        assert_eq!(vfs::read(&song.join("bga/stage.png")).unwrap(), b"png");
+        vfs::prepare_songs(std::slice::from_ref(&a)).unwrap();
+        vfs::keep_song(Some(&a));
+        assert_eq!(arcfs::times_opened(&zip), opened + 1);
+        assert_eq!(vfs::read(&k).unwrap(), kick);
+        assert_eq!(arcfs::times_opened(&zip), opened + 1);
+        vfs::keep_song(Some(&c_path));
+        assert!(!arcfs::is_ready(&zip, Path::new("Song/a.bme")));
+
+        // a 7z's file: its song unpacked (read from the start), then read
+        // from memory
+        let other = c_path.parent().unwrap();
+        let opened = arcfs::times_opened(&sz);
+        // (a file of no song: read alone, the rest not decoded)
+        let notes = arcfs::join(&sz, Path::new("notes/readme.txt"));
+        assert_eq!(vfs::read(&notes).unwrap(), b"read me");
+        assert_eq!(vfs::read(&notes).unwrap(), b"read me");
+        assert_eq!(arcfs::times_opened(&sz), opened + 1);
+        let opened = opened + 1;
+        assert_eq!(vfs::read(&other.join("kick.wav")).unwrap(), kick);
+        assert_eq!(
+            vfs::read(&other.join("big.bin")).unwrap(),
+            vec![7u8; 50_000]
+        );
+        assert_eq!(vfs::read(&c_path).unwrap(), c.as_bytes());
+        assert_eq!(arcfs::times_opened(&sz), opened + 1);
+        // a large song goes into a folder: a video's file is there
+        arcfs::set_memory_limit(Some(1000));
+        vfs::prepare_songs(std::slice::from_ref(&a)).unwrap();
+        arcfs::set_memory_limit(None);
+        assert!(arcfs::in_folder(&zip, Path::new("Song/kick.wav")));
+        assert_eq!(vfs::read(&k).unwrap(), kick);
+        let on_disk = vfs::native_path(&k).unwrap();
+        // (in the first cache's `unpacked/` of the run)
+        assert!(on_disk.is_file() && arcfs::split(&on_disk).is_none());
+        assert!(on_disk.parent().unwrap().ends_with("Song"));
+        assert_eq!(std::fs::read(&on_disk).unwrap(), kick);
+        vfs::keep_song(None);
+
+        // unchanged: no archive opened, nothing read
+        let opens = || [&zip, &sz, &dir.join("song.rar")].map(|a| arcfs::times_opened(a));
+        let before = opens();
+        let p = run();
+        assert_eq!(opens(), before);
+        assert_eq!(p.to_parse.load(Ordering::Relaxed), 0);
+        assert!(!p.changed.load(Ordering::Relaxed));
+        // (nor from the index kept on disk)
+        let kept = std::fs::read_to_string(cache.join("archives.json")).unwrap();
+        assert!(kept.contains("Song/kick.wav"), "{kept}");
+
+        // the zip changed: read again (the 7z not)
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(&zip, zip_of(true)).unwrap();
+        let before = opens();
+        let p = run();
+        assert!(p.changed.load(Ordering::Relaxed));
+        assert_eq!(opens(), [before[0] + 1, before[1], before[2]]);
+        let songs = Library::open(&cache, &cache, |_, _| None).songs();
+        assert_eq!(songs.len(), 4);
+        assert!(songs.iter().any(|s| s.title == "D"
+            && s.path == arcfs::join(&zip, Path::new("New/d.bme")).to_string_lossy()));
+
+        // the zip unpacked beside it: its charts listed once, as files
+        let copy = packs.join("pack/Song");
+        std::fs::create_dir_all(&copy).unwrap();
+        std::fs::write(copy.join("a.bme"), chart("A")).unwrap();
+        run();
+        let songs = Library::open(&cache, &cache, |_, _| None).songs();
+        let a_paths: Vec<&str> = songs
+            .iter()
+            .filter(|s| s.title == "A")
+            .map(|s| s.path.as_str())
+            .collect();
+        assert_eq!(a_paths, [copy.join("a.bme").to_str().unwrap()]);
+        std::fs::remove_dir_all(packs.join("pack")).unwrap();
+
+        // the archive gone: its charts go
+        std::fs::remove_file(&sz).unwrap();
+        run();
+        let songs = Library::open(&cache, &cache, |_, _| None).songs();
+        assert_eq!(songs.len(), 3);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

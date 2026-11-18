@@ -326,7 +326,10 @@ impl SelectScene {
                 for (f, n) in folders {
                     let name = Path::new(&f)
                         .file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
+                        .map(|s| {
+                            let s = s.to_string_lossy();
+                            crate::platform::arcfs::shown_name(&s).to_string()
+                        })
                         .unwrap_or_else(|| f.clone());
                     bars.push(Bar::Folder {
                         label: name,

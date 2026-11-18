@@ -118,6 +118,14 @@ impl Generated {
 
 /// The chart at `path` read, its stretch chosen, the files it needs found.
 fn plan(path: &Path) -> Option<Plan> {
+    // a song in an archive: unpacked (its sounds are read one by one; kept
+    // for a play of it while it is chosen)
+    if crate::platform::arcfs::split(path).is_some() {
+        if let Err(e) = vfs::prepare_songs(&[path.to_path_buf()]) {
+            log::warn!("preview: {e}");
+            return None;
+        }
+    }
     let bytes = vfs::read(path).ok()?;
     let chart = vibebms_core::load_chart_bytes(path, &bytes, &Default::default()).ok()?;
     let start = start_of(&chart, LEN_US);

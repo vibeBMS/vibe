@@ -55,6 +55,10 @@ impl bmseeker::fs::Fs for Vfs {
 impl bmseeker::fs::Store for Vfs {
     #[cfg(not(target_arch = "wasm32"))]
     fn create(&self, p: &Path, mtime: Option<i64>) -> std::io::Result<Box<dyn Write + '_>> {
+        // (nothing is written into an archive)
+        if crate::platform::arcfs::split(p).is_some() {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
         bmseeker::fs::Store::create(&bmseeker::fs::Disk, p, mtime)
     }
     /// Held in memory (and kept in the browser's storage) once written.
@@ -113,14 +117,21 @@ pub fn chart_info(path: &Path) -> Option<ChartInfo> {
 /// The library below `<root>/bms` as bmseeker sees it, its charts as the
 /// player's library has them (their hashes, titles and artists: a web
 /// page cannot read its library's charts when it likes).
+/// Charts in archives are left out: nothing is written into an archive, so
+/// their songs' folders take no file.
 pub fn library(root: &Path, songs: &[crate::library::Song]) -> bmseeker::library::Library {
-    let owned = songs.iter().map(|s| bmseeker::library::Owned {
-        path: s.path.clone().into(),
-        md5: s.md5.clone(),
-        sha256: s.sha256.clone(),
-        title: s.title.clone(),
-        artist: s.artist.clone(),
-    });
+    let in_archive =
+        |s: &&crate::library::Song| crate::platform::arcfs::split(Path::new(&s.path)).is_some();
+    let owned = songs
+        .iter()
+        .filter(|s| !in_archive(s))
+        .map(|s| bmseeker::library::Owned {
+            path: s.path.clone().into(),
+            md5: s.md5.clone(),
+            sha256: s.sha256.clone(),
+            title: s.title.clone(),
+            artist: s.artist.clone(),
+        });
     bmseeker::library::Library::from_catalog(&root.join("bms"), owned)
 }
 
