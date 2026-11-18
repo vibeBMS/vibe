@@ -10,6 +10,7 @@ mod migrate;
 mod play;
 mod practice;
 mod select;
+mod streaming;
 mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
@@ -24,6 +25,7 @@ pub use select::{
     DifficultyFilter, KeyFilter, RandomSelect, ReplayPick, SelectConfig, SortMode, WATCH_SPEED_MAX,
     WATCH_SPEED_MIN,
 };
+pub use streaming::{DiscordConfig, ObsConfig, ObsScenes};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
     LENGTH_RANGE, OLD_TOUCH_HEIGHTS, PERSPECTIVE_LAYOUT, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
@@ -270,6 +272,12 @@ pub struct Config {
     /// RANDOM MIX's settings (written once changed).
     #[serde(skip_serializing_if = "crate::courses::RandomMix::is_default")]
     pub random_mix: crate::courses::RandomMix,
+    /// Discord Rich Presence (desktop; written once changed).
+    #[serde(skip_serializing_if = "DiscordConfig::is_default")]
+    pub discord: DiscordConfig,
+    /// OBS WebSocket (desktop; written once changed).
+    #[serde(skip_serializing_if = "ObsConfig::is_default")]
+    pub obs: ObsConfig,
 }
 
 impl Default for Config {
@@ -306,6 +314,8 @@ impl Default for Config {
             skin_offsets: Default::default(),
             practice: Default::default(),
             random_mix: Default::default(),
+            discord: Default::default(),
+            obs: Default::default(),
         }
     }
 }
@@ -665,6 +675,8 @@ mod tests {
             // (written only once changed: `practice_settings_roundtrip`)
             practice: Default::default(),
             random_mix: Default::default(),
+            discord: Default::default(),
+            obs: Default::default(),
         }
     }
 

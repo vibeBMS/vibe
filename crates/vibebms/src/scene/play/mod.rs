@@ -585,6 +585,21 @@ impl PlayScene {
 }
 
 impl Scene for PlayScene {
+    fn activity(&self) -> Option<crate::integrations::Activity> {
+        use crate::integrations::{Activity, Chart, PlayKind};
+        let r = &self.req;
+        let kind = if r.practice.is_some() {
+            PlayKind::Practice
+        } else if r.replay.is_some() {
+            PlayKind::Replay
+        } else if r.autoplay {
+            PlayKind::Autoplay
+        } else {
+            PlayKind::Play
+        };
+        Some(Activity::Play(Chart::of(&r.song), kind))
+    }
+
     fn realtime(&self) -> bool {
         true
     }

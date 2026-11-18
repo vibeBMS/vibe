@@ -419,7 +419,15 @@ impl SettingsScene {
         }
         self.draw_header(ctx, d);
         if let Some((tf, t)) = self.edit.as_mut() {
-            t.draw_modal(ctx, d, tf.title(), matches!(tf, super::TextField::IrKey(_)));
+            t.draw_modal(
+                ctx,
+                d,
+                tf.title(),
+                matches!(
+                    tf,
+                    super::TextField::IrKey(_) | super::TextField::ObsPassword
+                ),
+            );
         }
         if let Some(slot) = self.learn.slot {
             let ui = ctx.ui();

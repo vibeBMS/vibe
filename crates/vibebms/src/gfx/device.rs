@@ -589,6 +589,7 @@ fn available_in(enabled: wgpu::Backends) -> Vec<GraphicsBackend> {
 /// The settings tried in turn for `chosen`: it first, then each API of
 /// `avail` not tried yet, in AUTO's order. A choice this platform does not
 /// have (a configuration from another computer) is AUTO.
+#[cfg(not(target_arch = "wasm32"))]
 fn attempts(chosen: GraphicsBackend, avail: &[GraphicsBackend]) -> Vec<GraphicsBackend> {
     let first = if chosen.is_auto() || avail.contains(&chosen) {
         chosen

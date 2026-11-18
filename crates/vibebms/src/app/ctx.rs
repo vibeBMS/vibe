@@ -62,6 +62,8 @@ pub struct Ctx {
     /// This launch's command-line options, which the saved config leaves
     /// out.
     pub overrides: super::cli::Overrides,
+    /// Discord Rich Presence and OBS (desktop).
+    pub streaming: crate::integrations::Integrations,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -268,6 +270,7 @@ impl Ctx {
             toasts: Vec::new(),
             skins: Skins::default(),
             overrides: Default::default(),
+            streaming: Default::default(),
         }
     }
 

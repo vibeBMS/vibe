@@ -398,6 +398,25 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
   judgements) and max combo, the lower min BP, and the play and clear counts as the higher of the two (not summed,
   so importing again changes nothing). Courses and charts not in the library are counted and left out.
+- **Discord Rich Presence** (desktop; `SETTINGS › SYSTEM › STREAMING`, off by default): your Discord status shows
+  the screen: "Choosing a song" in song select, the chart as `title [DIFFICULTY]` on the decide screen, in play
+  ("Playing", "Watching autoplay", "Watching a replay", "Practising") and on the result ("Result: HARD CLEAR"), with
+  the time on that screen. It talks only to the Discord app on the same computer, through its local IPC socket
+  (`discord-ipc-0` to `-9` in `$XDG_RUNTIME_DIR` or the temporary folder, the Flatpak and Snap folders included, or the
+  `\\.\pipe\discord-ipc-N` named pipe on Windows): a handshake with the application id, then `SET_ACTIVITY`
+  commands, at most one every 4 seconds (Discord's rate limit), the newest winning. It needs a Discord application
+  id (`discord.application_id`; make an application at Discord's developer portal, its name is the game you are
+  shown playing): none is built in, and without one the row says it needs one. When Discord is not running it
+  tries again, waiting longer each time (up to a minute); `Discord` below shows the state.
+- **OBS** (desktop; `SETTINGS › SYSTEM › STREAMING › OBS`, off by default): connects to obs-websocket 5 (OBS 28 or
+  later, `Tools › WebSocket Server Settings`) at `obs.host` / `obs.port` (127.0.0.1:4455 by default) with the
+  server's password if it has one (the SHA-256 challenge of its protocol; the password is kept in `config.toml`).
+  For each screen (song select, decide, play, result) a scene can be named; on entering that screen OBS switches to
+  it (`SetCurrentProgramScene`; empty: no switch). With `Record plays`, OBS starts recording as a play starts and
+  stops when its result is left (a retry or the next course stage stops it and starts another; turning OBS off or
+  quitting stops it too). It runs on a thread of its own, so a slow or absent OBS never holds up the game, and
+  reconnects after 1, 2, 4 … up to 30 seconds; `OBS` shows the state, and failed requests (a scene that does not
+  exist) are logged. The WebSocket client is vibeBMS's own (RFC 6455, no TLS, which obs-websocket does not use).
 
 ## Skins
 

@@ -388,6 +388,16 @@ impl ResultScene {
 }
 
 impl Scene for ResultScene {
+    fn activity(&self) -> Option<crate::integrations::Activity> {
+        let d = &self.d;
+        let mut c = crate::integrations::Chart::of(&d.request.song);
+        c.title = d.title.clone();
+        Some(crate::integrations::Activity::Result(
+            c,
+            d.clear.label().into(),
+        ))
+    }
+
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if self.host.first_update() {
             if !self.d.meta.stagefile.is_empty() {

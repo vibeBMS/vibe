@@ -208,10 +208,7 @@ impl Gamepads {
         // (gilrs stamps with std's clock, which the web can read but not
         // ask for the time: compare in Unix milliseconds)
         let now_ms = crate::platform::unix_ms();
-        loop {
-            let Some(e) = self.gilrs.as_mut().and_then(|g| g.next_event()) else {
-                break;
-            };
+        while let Some(e) = self.gilrs.as_mut().and_then(|g| g.next_event()) {
             let at_ms = e
                 .time
                 .duration_since(std::time::UNIX_EPOCH)
