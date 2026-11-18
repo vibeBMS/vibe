@@ -67,6 +67,9 @@ pub struct DisplayConfig {
     pub max_fps: u32,
     pub ui_scale: f32,
     pub show_fps: bool,
+    /// The latency overlay (`app::diag`); written only when on.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub show_latency: bool,
 }
 
 impl Default for DisplayConfig {
@@ -79,6 +82,7 @@ impl Default for DisplayConfig {
             max_fps: 0,
             ui_scale: 1.0,
             show_fps: false,
+            show_latency: false,
         }
     }
 }
@@ -539,6 +543,7 @@ mod tests {
                 max_fps: 144,
                 ui_scale: 1.25,
                 show_fps: true,
+                show_latency: false,
             },
             audio: AudioSettings {
                 buffer_frames: 128,

@@ -172,7 +172,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
   macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
   the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
-  reached.
+  reached. `Latency overlay` (off by default) shows in the top left the median, 95th percentile and maximum over the
+  last 512 of: the frame time (one frame's start to the next's), the audio output's callback interval (the time
+  between its requests for a buffer; not the web's audio worklet) and the input delay (an input event's time to its
+  handling by the screen: on the web and iOS and for controllers the event's own time, else when the window got it).
+  Off, nothing is measured. The start's phases (event loop, window, graphics, audio, library, tables and skins, song
+  select, first frame) are timed in the log (`startup:` lines).
 - **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
   the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
   keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth

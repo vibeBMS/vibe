@@ -2,6 +2,7 @@
 
 mod cli;
 mod ctx;
+mod diag;
 mod events;
 mod pacing;
 mod tables;
@@ -124,6 +125,10 @@ struct Running {
     cursor: (f32, f32),
     frame_count: u32,
     fps_since: Instant,
+    /// When the last frame started (the latency overlay's frame time).
+    last_frame: Option<Instant>,
+    /// No frame drawn yet (the start's last phase).
+    first_frame: bool,
     /// When to start the next frame (a frame rate cap, or with vsync when
     /// its image will be free).
     next_frame: Instant,
@@ -175,6 +180,7 @@ impl App {
 }
 
 pub fn run() {
+    diag::startup("");
     let paths = Paths::detect();
     // the command line's subcommands, its help and its errors
     if let Some(code) = cli::run_before_window(&paths) {
@@ -188,6 +194,7 @@ pub fn run() {
             return;
         }
     };
+    diag::startup("event loop");
     event_loop.set_control_flow(if crate::platform::IS_WEB {
         ControlFlow::Wait
     } else {
@@ -286,6 +293,7 @@ impl Running {
         let Some(top) = self.scenes.last_mut() else {
             return;
         };
+        diag::input(&ev, Instant::now());
         let next = top.input(&mut self.ctx, &ev);
         self.apply(el, next);
     }
@@ -343,6 +351,8 @@ impl Running {
 
     fn frame(&mut self, el: &ActiveEventLoop) {
         let now = Instant::now();
+        diag::set(self.ctx.config.display.show_latency);
+        diag::frame(self.last_frame.replace(now), now);
         for f in Job::drain_slot(&mut self.font_job) {
             self.text.add_font(f);
         }
@@ -419,6 +429,10 @@ impl Running {
             self.next_frame = self.pacer.next_start(waited);
         }
         self.poll_screenshot();
+        if self.first_frame {
+            self.first_frame = false;
+            diag::startup("first frame");
+        }
         self.frame_count += 1;
         let el_t = now.duration_since(self.fps_since);
         if el_t >= Duration::from_millis(500) {
@@ -477,6 +491,7 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         );
         y += r.h + 6.0 * ui;
     }
+    diag::draw(ctx, d);
     if ctx.config.display.show_fps {
         let s = format!("{:.0} FPS", ctx.view.fps);
         d.text(
@@ -490,6 +505,7 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
 
 impl App {
     fn init(&mut self, window: Arc<Window>, mut gfx: Gfx) {
+        diag::startup("graphics");
         let config = self
             .pending
             .take()
@@ -507,6 +523,7 @@ impl App {
             #[cfg(windows)]
             exclusive: a.exclusive,
         });
+        diag::startup("audio");
         let size = {
             let (width, height) = surface_size(&window);
             // the renderer started from winit's idea of the size
@@ -550,6 +567,7 @@ impl App {
         ));
         ctx.lib.courses = crate::courses::CourseStore::open(&ctx.paths.scores);
         ctx.reload_library();
+        diag::startup("library");
         ctx.load_cached_tables();
         // the web build's first scan comes once the songs kept in the
         // browser are mounted
@@ -570,9 +588,11 @@ impl App {
             ctx.net.browse = Some(vec![url]);
         }
         ctx.save_config(); // writes defaults on first launch
+        diag::startup("tables, events, skins");
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
         scenes.extend(cli::play_scene(&mut ctx));
+        diag::startup("song select");
         #[cfg(target_os = "ios")]
         {
             let proxy = self.proxy.clone();
@@ -603,6 +623,8 @@ impl App {
             cursor: (0.0, 0.0),
             frame_count: 0,
             fps_since: now,
+            last_frame: None,
+            first_frame: true,
             next_frame: now,
             pacer,
             refresh_hz,
@@ -674,6 +696,7 @@ impl ApplicationHandler<UserEvent> for App {
                 return;
             }
         };
+        diag::startup("window");
         let mode = config.display.present_mode;
         self.pending = Some(config);
         #[cfg(target_arch = "wasm32")]

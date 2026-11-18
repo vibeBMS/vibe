@@ -75,6 +75,17 @@ pub(super) fn rows(b: &mut Rows) {
             c.config.display.show_fps ^= true
         })
         .desc("Frame rate in the corner."),
+        Row::adjust(
+            "display.show_latency",
+            "Latency overlay",
+            onoff(d.show_latency),
+            |c, _| c.config.display.show_latency ^= true,
+        )
+        .desc(
+            "Frame time, audio callback interval and input delay (median, 95th percentile, \
+             maximum) in the top left.",
+        )
+        .keys("diagnostics debug timing"),
     ]);
     b.header("SOUND");
     let sound_set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);

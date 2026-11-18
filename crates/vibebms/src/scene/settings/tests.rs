@@ -186,6 +186,7 @@ const OLD: &[(&str, &[&str])] = &[
             "display.max_fps",
             "display.ui_scale",
             "display.show_fps",
+            "display.show_latency",
             "info.gpu",
             "skins.choice",
         ],
