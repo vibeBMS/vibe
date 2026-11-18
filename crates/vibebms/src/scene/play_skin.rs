@@ -94,6 +94,16 @@ pub fn configured_path(ctx: &Ctx, value: &str) -> Option<PathBuf> {
     })
 }
 
+/// The skin file whose options and offsets a `config.skins` value of a
+/// type sets: a configured file, or the built-in perspective skin of the
+/// type's mode (the same options serve every mode and orientation).
+pub fn options_path(ctx: &Ctx, kind: SkinType, value: &str) -> Option<PathBuf> {
+    match kind.mode() {
+        Some(m) if value == PERSPECTIVE => Some(perspective_skin(m, ctx.portrait())),
+        _ => configured_path(ctx, value),
+    }
+}
+
 /// The play skin's width / height as far as it is known without loading
 /// it (the touch layout editor): a JSON skin's own (the default skins
 /// are), else 16:9.

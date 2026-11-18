@@ -392,6 +392,11 @@ fn builtin_perspective_skins_load_and_reflow() {
             let mut sk = load(&path, &HashMap::new(), &size)
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             assert!(sk.perspective, "{}", path.display());
+            // the touch zones are hidden unless the TOUCH AREA option shows them
+            let area = crate::perspective::touch_area_opacity;
+            assert_eq!(area(&sk.options_on, 0.85), 0.0, "{}", path.display());
+            let half = load(&path, &HashMap::from([(962, true)]), &size).unwrap();
+            assert_eq!(area(&half.options_on, 0.85), 0.5, "{}", path.display());
             assert_eq!(sk.kind.mode(), Some(mode));
             assert_eq!(sk.lanes.len(), mode.lane_count());
             assert_eq!(sk.width > sk.height, !portrait);

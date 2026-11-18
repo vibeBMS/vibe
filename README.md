@@ -247,12 +247,14 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   white and a blue key the boundary bends, so the white key is wider below the line and the blue key above it.
   The outer zones reach the screen's edges (in double play, the middle) and the gap beside the scratch is shared
   by its neighbours; fingers can slide between lanes, the scratch lane takes taps and sideways swipes (a change of
-  direction is a new scratch), and START / SELECT sit in a top corner. There is no strip of controls: the play
+  direction is a new scratch), and START / SELECT sit in a top corner. The zones are not drawn unless the skin's
+  TOUCH AREA option (`SETTINGS › SKINS`, the skin's options) shows them at 25-100 %. There is no strip of controls: the play
   screen fills the screen. `SETTINGS › CONTROLS` sets the perspective (0 % is flat), how far up the lanes reach and
   the touch area's height (`[perspective]` in the config; a touch area left at an older version's default moves
   to the new one). The skin's canvas takes the screen's shape: objects in the JSON carry a vibeBMS
   `"anchor": [x, y, w, h]` (the share of the added width or height they move and grow by), and
-  `"perspective": true` makes the game draw the note field as fans.
+  `"perspective": true` makes the game draw the note field as fans (a skin's options with ops 960-964 set the
+  touch zones' opacity: 0, 25, 50, 75, 100 %; a skin without them draws them at the touch controls' opacity).
 - **LR2 skins** (`.lr2skin`): put them under `skins/` (`LR2files\Theme\…` paths are taken from `skins/`). Images,
   numbers, text, `#LR2FONT`, gauges, notes, judgements, bar graphs, sliders, buttons, panels, the song list, result
   graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives.

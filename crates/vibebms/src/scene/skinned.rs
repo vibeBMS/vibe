@@ -121,7 +121,7 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
 /// The skin file a choice of a type stands for (the built-in default for
 /// an empty one, where there is one).
 pub fn choice_path(ctx: &Ctx, kind: SkinType, value: &str) -> Option<PathBuf> {
-    if let Some(p) = super::play_skin::configured_path(ctx, value) {
+    if let Some(p) = super::play_skin::options_path(ctx, kind, value) {
         return Some(p);
     }
     match kind.mode() {

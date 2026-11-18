@@ -928,6 +928,9 @@ pub struct Skin {
     /// vibeBMS `perspective`: the note field is drawn as lanes in
     /// perspective (`scene::play_persp`), filling the canvas.
     pub perspective: bool,
+    /// The ops of the skin's own options in effect (each property's
+    /// chosen item), for what the game draws itself.
+    pub options_on: std::collections::HashSet<i32>,
 }
 
 impl Skin {
@@ -962,6 +965,7 @@ impl Skin {
             offsets: HashMap::new(),
             skin_select: None,
             perspective: false,
+            options_on: Default::default(),
         }
     }
 

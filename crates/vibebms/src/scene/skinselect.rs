@@ -75,7 +75,7 @@ pub fn items(ctx: &Ctx, kind: SkinType, value: &str) -> Vec<Item> {
     if kind == SkinType::SoundSet {
         return Vec::new();
     }
-    let Some(p) = super::play_skin::configured_path(ctx, value) else {
+    let Some(p) = super::play_skin::options_path(ctx, kind, value) else {
         return Vec::new();
     };
     let mut v: Vec<Item> = ctx
@@ -652,6 +652,24 @@ mod tests {
         assert_eq!(type_button(SkinType::KeyConfig), 178);
         assert_eq!(type_button(SkinType::SoundSet), 180);
         assert_eq!(type_button(SkinType::CourseResult), 185);
+    }
+
+    #[test]
+    fn the_perspective_skin_lists_its_touch_area_option() {
+        let dir = std::env::temp_dir().join(format!("vibebms-ssp-{}", std::process::id()));
+        let ctx = Ctx::for_test(dir.clone());
+        let persp = crate::scene::play_skin::PERSPECTIVE;
+        for kind in [SkinType::Play7, SkinType::Play5, SkinType::Play14] {
+            let rows = items(&ctx, kind, persp);
+            let Some(Item::Option(o)) = rows.first() else {
+                panic!("{kind:?}: no option rows");
+            };
+            assert_eq!(o.name, "TOUCH AREA");
+            assert_eq!(item_value(&ctx, persp, &rows[0]), "OFF");
+        }
+        // the default skins have no options
+        assert!(items(&ctx, SkinType::Play7, "").is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn write(p: &std::path::Path, s: &str) {

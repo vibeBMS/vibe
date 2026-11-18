@@ -1700,6 +1700,14 @@ def persp(fonts, parts, mode, portrait):
     name = f"vibeBMS Touch Perspective {mode}K{' portrait' if portrait else ''}"
     sk = Skin(kind, name, W, H, parts)
     sk.j["perspective"] = True
+    # how visible the touch zones are (crates/vibebms/src/perspective.rs
+    # TOUCH_AREA_OPS): hidden unless the player shows them
+    sk.j["property"] = [{
+        "name": "TOUCH AREA",
+        "item": [{"name": n, "op": op} for n, op in
+                 (("OFF", 960), ("25%", 961), ("50%", 962), ("75%", 963), ("100%", 964))],
+        "def": "OFF",
+    }]
     f = fonts
     sk.source("bg", "bg_persp.png")
     sk.anchor = (0, 0, 1, 1)

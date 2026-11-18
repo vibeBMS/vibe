@@ -29,6 +29,20 @@ use vibebms_core::PlayMode;
 pub const PORTRAIT: (f32, f32) = (720.0, 1280.0);
 pub const LANDSCAPE: (f32, f32) = (1280.0, 720.0);
 
+/// The default perspective skins' TOUCH AREA option: its ops (skin option
+/// ids) and how opaque each draws the touch zones (OFF draws none).
+pub const TOUCH_AREA_OPS: [(i32, f32); 5] =
+    [(960, 0.0), (961, 0.25), (962, 0.5), (963, 0.75), (964, 1.0)];
+
+/// How opaque to draw the touch zones: the skin's TOUCH AREA option, else
+/// (a skin without it) the touch controls' opacity.
+pub fn touch_area_opacity(options_on: &std::collections::HashSet<i32>, fallback: f32) -> f32 {
+    TOUCH_AREA_OPS
+        .iter()
+        .find(|(op, _)| options_on.contains(op))
+        .map_or(fallback, |(_, a)| *a)
+}
+
 /// Width of the scratch lane and of the gap beside it, in key widths.
 const SCRATCH_W: f32 = 1.7;
 const SCRATCH_GAP: f32 = 0.12;

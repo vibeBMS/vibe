@@ -164,8 +164,9 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
             );
         }
         // the touch area (what a touch hits) and the scratch's swipe marks
-        if ctx.touch_enabled() {
-            let opacity = ctx.config.touch.opacity;
+        let opacity =
+            crate::perspective::touch_area_opacity(&sk.skin.options_on, ctx.config.touch.opacity);
+        if ctx.touch_enabled() && opacity > 0.0 {
             for z in scene
                 .touch
                 .zones
