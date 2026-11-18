@@ -342,6 +342,11 @@ impl Scene for SelectScene {
         self.update_reader();
         self.update_banner(ctx, gfx);
         if self.host.first_update() {
+            // again after a screen over this one changed it
+            self.host.free(gfx);
+            self.bar_pitch = None;
+            self.host
+                .loaded_from(skinned::skin_key(ctx, SkinType::Select));
             let skin = {
                 let st = SelectState::new(self, ctx);
                 let stat = |id: i32| st.static_option(id);
@@ -389,6 +394,10 @@ impl Scene for SelectScene {
         // the set drawn again if it is drawn at random
         ctx.select_entered();
         self.bgm_on = false;
+        // SETTINGS or the skin select may have changed the skin or its
+        // options: loaded again on the next frame
+        self.host
+            .reload_if_changed(&skinned::skin_key(ctx, SkinType::Select));
         // scores may have changed (rebuild forgets the counts)
         self.rebuild(ctx);
         self.moved(ctx);

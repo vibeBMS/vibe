@@ -1428,4 +1428,38 @@ mod tests {
             None
         );
     }
+
+    /// A skin or its options changed in a screen over song select
+    /// (SETTINGS, the skin select): back on top, song select loads its
+    /// skin again; with nothing changed it keeps the one it has.
+    #[test]
+    fn back_from_settings_the_changed_skin_is_loaded() {
+        use crate::app::Scene;
+        use crate::scene::skinned;
+        use crate::skin::SkinType;
+        let root =
+            std::env::temp_dir().join(format!("vibebms-select-reskin-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SelectScene::new(&mut ctx);
+        assert!(s.host.first_update());
+        s.host
+            .loaded_from(skinned::skin_key(&ctx, SkinType::Select));
+        s.resumed(&mut ctx);
+        assert!(!s.host.first_update(), "nothing changed: kept");
+        ctx.config
+            .skins
+            .insert("SELECT".into(), "skins/a/select.json".into());
+        s.resumed(&mut ctx);
+        assert!(s.host.first_update(), "another skin: loaded again");
+        s.host
+            .loaded_from(skinned::skin_key(&ctx, SkinType::Select));
+        let mut opts = std::collections::BTreeMap::new();
+        opts.insert("Color".to_string(), "Blue".to_string());
+        ctx.config
+            .skin_options
+            .insert("skins/a/select.json".into(), opts);
+        s.resumed(&mut ctx);
+        assert!(s.host.first_update(), "another option: loaded again");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

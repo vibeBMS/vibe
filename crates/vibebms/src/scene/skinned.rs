@@ -28,6 +28,23 @@ pub fn configured_skin(ctx: &Ctx, kind: SkinType) -> Option<PathBuf> {
     super::play_skin::configured_path(ctx, v)
 }
 
+/// What a screen's skin is made from: the skin chosen for it, its custom
+/// options and offsets, and the orientation (the built-in default has a
+/// portrait version). A screen that stays under others (song select)
+/// loads its skin again when this changed meanwhile.
+pub fn skin_key(ctx: &Ctx, kind: SkinType) -> String {
+    let value = kind
+        .config_key()
+        .and_then(|k| ctx.config.skins.get(k))
+        .map_or("", String::as_str);
+    format!(
+        "{value}\n{:?}\n{:?}\n{}",
+        ctx.config.skin_options.get(value),
+        ctx.config.skin_offsets.get(value),
+        ctx.portrait()
+    )
+}
+
 /// Load the skin for a screen: the configured one, else the built-in
 /// default. `static_option` answers options at load time (LR2 `#IF`),
 /// `state` the values Lua skins read while they are built. A
