@@ -6,7 +6,6 @@
 //! which a second `ffmpeg` run puts beside the frames.
 
 use super::{Ctx, Draw, Next, Scene};
-use crate::config::Config;
 use crate::gfx::text::Text;
 use crate::gfx::{Batch, Offscreen};
 use crate::paths::Paths;
@@ -390,7 +389,7 @@ pub fn export_video(
     let song = crate::library::song_from_chart(&path, String::new(), &chart);
     let rate = chart_rate(&path, &chart);
 
-    let mut config = Config::load(&paths.config_file());
+    let mut config = crate::profiles::load_config(paths);
     // as watched, the whole screen the play's, at the speed it was played
     config.touch.mode = crate::config::TouchMode::Off;
     config.select.replay_speed = 100;
@@ -426,20 +425,17 @@ pub fn export_video(
         want_screenshot: false,
     };
     let mut ctx = Ctx::new(paths.clone(), config, mixer, view);
-    let root = ctx.paths.root.clone();
-    ctx.lib.db = Some(crate::library::Library::open(
-        &ctx.paths.cache,
-        &ctx.paths.scores,
-        |sha, ln| crate::replay::rule_of_old(&root, sha, ln, Slot::Best),
-    ));
+    ctx.open_records();
     ctx.reload_library();
     let replay = match opts.replay {
         Some(slot) => {
             let p = &ctx.config.play;
             let ln = song.score_ln(p.ln_pref()) as i32;
             let fixed = song.fixed_ln() && !p.ln_force;
-            let r = crate::replay::load_filed(&root, &song.sha256, ln, p.judge_preset, fixed, slot)
-                .ok_or_else(|| format!("no {} replay of {}", slot.label(), song.title))?;
+            let player = &ctx.paths.player;
+            let r =
+                crate::replay::load_filed(player, &song.sha256, ln, p.judge_preset, fixed, slot)
+                    .ok_or_else(|| format!("no {} replay of {}", slot.label(), song.title))?;
             Some(std::sync::Arc::new(r))
         }
         None => None,

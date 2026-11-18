@@ -415,6 +415,34 @@ fn load_scores(file: &Path) -> Vec<ScoreRecord> {
     records
 }
 
+/// The records in the score file of `data` (another profile's, as a local
+/// rival), read only: a record that does not read is left out, one from
+/// before records were kept per rule mode is the default rule's, and
+/// nothing is written.
+pub fn read_records(data: &Path) -> HashMap<RecordKey, BestScore> {
+    let list: Vec<serde_json::Value> = vfs::read(&data.join("scores.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let mut scores: HashMap<RecordKey, BestScore> = HashMap::new();
+    for r in list
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<ScoreRecord>(v).ok())
+    {
+        let key = RecordKey {
+            id: r.sha256,
+            ln: r.ln,
+            rule: r.rule.unwrap_or_default(),
+        };
+        let best = match scores.remove(&key) {
+            Some(b) => b.merge(&r.best),
+            None => r.best,
+        };
+        scores.insert(key, best);
+    }
+    scores
+}
+
 impl Library {
     /// `cache` holds the scan cache, `data` the score file. A record from
     /// before records were kept per rule mode goes under `rule_of`'s rule

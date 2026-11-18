@@ -258,6 +258,8 @@ pub fn start(
         (root.join("bms"), "bms"),
         (crate::replay::dir(root), "replays"),
         (root.join("skins"), "skins"),
+        // the other profiles' replays (`profiles`)
+        (root.join("profiles"), "profiles"),
     ];
     KEPT.with(|k| *k.borrow_mut() = kept_dirs.clone());
     let has_opfs = web_sys::window()
@@ -555,6 +557,23 @@ pub fn remove(p: &Path) {
                 log::warn!("library: remove {what}: {e}");
             }
             refresh_status();
+        }),
+    );
+}
+
+/// Remove `name` in the storage and what is below it (a folder of the
+/// store's: `platform::store::remove_below`).
+pub fn remove_name(name: &str) {
+    let what = name.to_string();
+    send(
+        "remove",
+        name,
+        JsValue::NULL,
+        None,
+        Box::new(move |r| {
+            if let Err(e) = r {
+                log::warn!("store: remove {what}: {e}");
+            }
         }),
     );
 }

@@ -79,6 +79,8 @@ pub struct IrService {
     history: store::History,
     pub keys: creds::Keys,
     outbox_file: PathBuf,
+    /// The profile's outbox lock (`store::outbox_lock`).
+    lock: String,
     /// `None` until the file is read (at once natively; on the web when the
     /// storage worker answers).
     outbox: Option<Outbox>,
@@ -152,6 +154,7 @@ impl IrService {
             history,
             keys: creds::Keys::open(paths),
             outbox_file: paths.outbox.join("outbox.json"),
+            lock: crate::platform::store::outbox_lock_name(&paths.profile),
             outbox: None,
             loading: None,
             early: Vec::new(),
@@ -180,7 +183,7 @@ impl IrService {
     /// Whether this tab sends the outbox now (asked of the lock); it is
     /// read again when the lock comes, and every `RELOAD_MS` without it.
     fn lock(&mut self, now_ms: i64) {
-        let Some(held) = crate::platform::store::outbox_lock() else {
+        let Some(held) = crate::platform::store::outbox_lock(&self.lock) else {
             return;
         };
         if held && !self.sends {
@@ -514,7 +517,7 @@ impl IrService {
     pub fn beside<'a>(&self, ir: &'a IrSettings) -> Option<(ProviderId, &'a str)> {
         let read = |&(p, player): &(ProviderId, &str)| self.lamps.has(p, player);
         match &ir.beside {
-            Beside::Off => None,
+            Beside::Off | Beside::Profile(_) => None,
             Beside::Player(k) => Some((k.provider, k.player.as_str())).filter(read),
             // the rankings' account first
             Beside::Mine => (ir.primary().into_iter())
@@ -913,7 +916,7 @@ impl IrService {
 
     /// Whether another tab sends the outbox (this one only reads it).
     pub fn reads_only(&self) -> bool {
-        crate::platform::store::outbox_lock() == Some(false)
+        crate::platform::store::outbox_lock(&self.lock) == Some(false)
     }
 
     /// One line per enabled account on what became of play `rec`: sent,

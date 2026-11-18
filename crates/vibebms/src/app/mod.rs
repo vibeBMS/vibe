@@ -17,7 +17,6 @@ use crate::config::Config;
 use crate::gfx::text::{Align, Text, TextStyle};
 use crate::gfx::{rgba, with_alpha, Batch, Gfx, Rect, TexId};
 use crate::input::{InputEv, Phase};
-use crate::library::Library;
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant, Job};
 use crate::theme;
@@ -207,6 +206,9 @@ pub fn run() {
         std::process::exit(code);
     }
     log::info!("data root: {}", paths.root.display());
+    if !paths.profile.is_empty() {
+        log::info!("profile: {}", paths.player.display());
+    }
     let event_loop = match EventLoop::<UserEvent>::with_user_event().build() {
         Ok(e) => e,
         Err(e) => {
@@ -237,7 +239,7 @@ pub fn run() {
         }
         // the songs kept in the browser: mounted, then read as picked ones
         // (the first scan waits for them)
-        let replays = crate::replay::dir(&app.paths.root);
+        let replays = app.paths.replays();
         let skins = app.paths.skins.clone();
         crate::platform::opfs::start(&app.paths.root, crate::platform::vfs::mount, move |n| {
             if n > 0 {
@@ -387,6 +389,26 @@ impl Running {
         }
     }
 
+    /// A profile chosen (settings, song select): back to song select,
+    /// the profile's settings and records read, the song select made
+    /// again with them (its skin, key config, the IR's).
+    fn poll_profile(&mut self, el: &ActiveEventLoop) {
+        let Some(id) = self.ctx.profiles.switch_to.take() else {
+            return;
+        };
+        if id == self.ctx.paths.profile {
+            return;
+        }
+        while self.scenes.len() > 1 {
+            self.apply(el, Next::Pop);
+        }
+        if self.ctx.switch_profile(&id) {
+            // (the display settings are app-wide: the window stays)
+            let select = crate::scene::select::SelectScene::new(&mut self.ctx);
+            self.apply(el, Next::Replace(Box::new(select)));
+        }
+    }
+
     fn poll_gamepads(&mut self, el: &ActiveEventLoop) {
         let ctx = &mut self.ctx;
         for e in self.gamepads.poll(|m| ctx.toast(m)) {
@@ -406,6 +428,7 @@ impl Running {
         crate::platform::ios::poll_keyboard();
         self.ctx.poll_jobs();
         self.poll_viewer(el);
+        self.poll_profile(el);
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
         }
@@ -559,7 +582,7 @@ impl App {
         let config = self
             .pending
             .take()
-            .unwrap_or_else(|| Config::load(&self.paths.config_file()));
+            .unwrap_or_else(|| crate::profiles::load_config(&self.paths));
         let text = Text::new(&[self.paths.fonts.as_path()]);
         let a = &config.audio;
         let mixer = Mixer::new(&AudioConfig {
@@ -609,13 +632,7 @@ impl App {
             }
             ctx.overrides = o;
         }
-        let root = ctx.paths.root.clone();
-        ctx.lib.db = Some(Library::open(
-            &ctx.paths.cache,
-            &ctx.paths.scores,
-            |sha, ln| crate::replay::rule_of_old(&root, sha, ln, crate::replay::Slot::Best),
-        ));
-        ctx.lib.courses = crate::courses::CourseStore::open(&ctx.paths.scores);
+        ctx.open_records();
         ctx.reload_library();
         diag::startup("library");
         ctx.load_cached_tables();
@@ -729,7 +746,7 @@ impl ApplicationHandler<UserEvent> for App {
         if self.run.is_some() || self.pending.is_some() {
             return;
         }
-        let config = Config::load(&self.paths.config_file());
+        let config = crate::profiles::load_config(&self.paths);
         let mut attrs = Window::default_attributes().with_title("vibeBMS");
         // a phone or tablet window fills the screen (a size given here
         // would be used as is, and the screen would show part of it)

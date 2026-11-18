@@ -576,8 +576,8 @@ impl SelectScene {
     /// `d` -1: the value before (a tap on its left half), else the next.
     pub(super) fn skin_event(&mut self, ctx: &mut Ctx, act: i32, d: i32) -> Next {
         use super::skin::{
-            EVENT_BACK, EVENT_IR_PAGE, EVENT_PANEL, EVENT_PRACTICE, EVENT_READ_TEXT, EVENT_REPLAY,
-            EVENT_SEARCH, EVENT_SIBLING, OPTION_EVENT,
+            EVENT_BACK, EVENT_IR_PAGE, EVENT_PANEL, EVENT_PRACTICE, EVENT_PROFILES,
+            EVENT_READ_TEXT, EVENT_REPLAY, EVENT_SEARCH, EVENT_SIBLING, OPTION_EVENT,
         };
         let rivals = crate::scene::target::rivals(ctx);
         let p = &mut ctx.config.play;
@@ -644,6 +644,10 @@ impl SelectScene {
                 Next::Stay
             }
             EVENT_PANEL => Next::Stay,
+            EVENT_PROFILES => {
+                use crate::scene::settings::{Page, SettingsScene};
+                Next::Push(Box::new(SettingsScene::at(ctx, Page::System)))
+            }
             EVENT_READ_TEXT => {
                 self.read_text(ctx);
                 Next::Stay

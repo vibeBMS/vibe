@@ -401,6 +401,17 @@ mod imp {
             fs.added = true;
         });
         super::super::opfs::remove(dir);
+        // the small files written below it
+        if let Some(s) = storage() {
+            let prefix = format!("{LS_PREFIX}{}/", dir.display());
+            let keys: Vec<String> = (0..s.length().unwrap_or(0))
+                .filter_map(|i| s.key(i).ok().flatten())
+                .filter(|k| k.starts_with(&prefix))
+                .collect();
+            for k in keys {
+                let _ = s.remove_item(&k);
+            }
+        }
     }
 
     /// A folder right below the library: its size and when it was last

@@ -62,6 +62,8 @@ pub struct Ctx {
     /// This launch's command-line options, which the saved config leaves
     /// out.
     pub overrides: super::cli::Overrides,
+    /// The player profiles, the others' records as local rivals.
+    pub profiles: crate::profiles::Profiles,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -246,9 +248,10 @@ impl Ctx {
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
         if net.ir.take_old_tokens(&mut config.ir) {
-            config.save(&paths.config_file());
+            crate::profiles::save_config(&config, &paths);
         }
         let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
+        let profiles = crate::profiles::Profiles::open(&paths);
         Ctx {
             paths,
             config,
@@ -266,6 +269,7 @@ impl Ctx {
             toasts: Vec::new(),
             skins: Skins::default(),
             overrides: Default::default(),
+            profiles,
         }
     }
 
@@ -312,10 +316,118 @@ impl Ctx {
 
     /// The config saved, without this launch's command-line options.
     pub fn save_config(&self) {
-        match self.overrides.for_saving(&self.config) {
-            Some(c) => c.save(&self.paths.config_file()),
-            None => self.config.save(&self.paths.config_file()),
+        crate::profiles::save_config(&self.saved_config(), &self.paths);
+    }
+
+    /// The config as it is saved: without this launch's command-line
+    /// options.
+    pub fn saved_config(&self) -> Config {
+        (self.overrides.for_saving(&self.config)).unwrap_or_else(|| self.config.clone())
+    }
+
+    /// The profile's records (the library database's score files), its
+    /// courses, and the others' as rivals; `lib.scores` follows with
+    /// `reload_library` (or `reload_scores`).
+    pub fn open_records(&mut self) {
+        let player = self.paths.player.clone();
+        self.lib.db = Some(Library::open(
+            &self.paths.cache,
+            &self.paths.scores,
+            |sha, ln| crate::replay::rule_of_old(&player, sha, ln, crate::replay::Slot::Best),
+        ));
+        self.lib.courses = crate::courses::CourseStore::open(&self.paths.scores);
+        self.profiles = crate::profiles::Profiles::open(&self.paths);
+    }
+
+    /// `lib.scores` from the database, the charts as they are.
+    fn reload_scores(&mut self) {
+        if let Some(db) = &mut self.lib.db {
+            db.merge_fixed_ln(&self.lib.songs);
+            self.lib.scores = db.scores();
         }
+        self.lib.version += 1;
+    }
+
+    /// Use profile `id` from now on: the one in use saved, then the
+    /// other's settings, records, IR accounts and outbox read (what depends
+    /// on them, the song select, the app makes again: `Running::
+    /// poll_profile`). False when there is no such profile.
+    pub fn switch_profile(&mut self, id: &str) -> bool {
+        if !self.profiles.registry.has(id) {
+            self.toast("No such profile");
+            return false;
+        }
+        self.save_config();
+        self.paths = self.paths.with_profile(id);
+        let mut registry = crate::profiles::Registry::load(&self.paths.root);
+        registry.active = id.to_string();
+        registry.save(&self.paths.root);
+        let mut config = crate::profiles::load_config(&self.paths);
+        self.net.ir = crate::ir::IrService::new(&self.paths, crate::platform::unix_ms());
+        if self.net.ir.take_old_tokens(&mut config.ir) {
+            crate::profiles::save_config(&config, &self.paths);
+        }
+        self.config = config;
+        self.overrides = Default::default();
+        self.net.hosts = crate::hosts::context(&self.config);
+        self.open_records();
+        self.reload_scores();
+        let a = &self.config.audio;
+        self.audio.set_master(a.master);
+        let m = &self.audio.mixer;
+        m.set_bus_volume(vibebms_audio::Bus::Key, a.key);
+        m.set_bus_volume(vibebms_audio::Bus::Bgm, a.bgm);
+        m.set_bus_volume(vibebms_audio::Bus::System, a.system);
+        self.skins.files_changed();
+        // web: the replays read now (see `app::run`)
+        #[cfg(target_arch = "wasm32")]
+        let _ = crate::platform::vfs::Prefetch::dirs(&[self.paths.replays()]);
+        let name = self.profiles.registry.name(id).to_string();
+        log::info!("profile: {name} ({})", self.paths.player.display());
+        self.toast(format!("Profile: {name}"));
+        true
+    }
+
+    /// A new profile named `name`, its settings the ones in use but the
+    /// player's name and the IR accounts; its id.
+    pub fn create_profile(&mut self, name: &str) -> Result<String, String> {
+        let from = self.saved_config();
+        let r = self.profiles.registry.create(&self.paths, name, &from);
+        self.profiles = crate::profiles::Profiles::open(&self.paths);
+        r
+    }
+
+    pub fn rename_profile(&mut self, id: &str, name: &str) -> Result<(), String> {
+        let r = self.profiles.registry.rename(&self.paths.root, id, name);
+        self.profiles = crate::profiles::Profiles::open(&self.paths);
+        r
+    }
+
+    /// Delete profile `id` (not the default, not the one in use).
+    pub fn delete_profile(&mut self, id: &str) -> Result<(), String> {
+        let r = self.profiles.registry.delete(&self.paths, id);
+        self.profiles = crate::profiles::Profiles::open(&self.paths);
+        r
+    }
+
+    /// Local rival `profile`'s record of `id` under LN mode `ln` and rule
+    /// mode `rule` (`best_key`'s, of another profile).
+    pub fn rival_best(
+        &self,
+        profile: &str,
+        id: &str,
+        ln: i32,
+        rule: JudgePreset,
+    ) -> Option<&BestScore> {
+        let recs = self.profiles.rival(profile)?;
+        recs.get(&(id, ln, rule) as &dyn ScoreKey)
+    }
+
+    /// Local rival `profile`'s record of `song` as the player's own is
+    /// looked up ([`Ctx::best`]).
+    pub fn rival_best_of(&self, profile: &str, song: &Song) -> Option<&BestScore> {
+        let ln = song.score_ln(self.config.play.ln_pref()) as i32;
+        self.rival_best(profile, &song.sha256, ln, self.config.play.judge_preset)
     }
 
     /// UI scale relative to a 720p layout.

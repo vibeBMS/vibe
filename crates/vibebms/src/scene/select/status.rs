@@ -300,7 +300,7 @@ impl SelectScene {
         if self.files.borrow().key != key {
             let ln = song.score_ln(p.ln_pref()) as i32;
             let replay = crate::replay::exists(
-                &ctx.paths.root,
+                &ctx.paths.player,
                 &song.sha256,
                 ln,
                 p.judge_preset,
