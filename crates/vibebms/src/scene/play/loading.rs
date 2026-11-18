@@ -19,6 +19,7 @@ use vibebms_core::nonstop::Nonstop;
 use vibebms_core::play::{
     build_battle_chart, build_chart, build_nonstop_chart, PlayChart, RuleOptions,
 };
+use vibebms_core::practice::Section;
 use vibebms_core::score::AssistFacts;
 
 pub(super) type Rgba = (u32, u32, Vec<u8>);
@@ -37,6 +38,8 @@ pub(super) struct Loaded {
     pub ln_profile: vibebms_core::LnProfile,
     /// A NONSTOP course's stages in the chart.
     pub nonstop: Option<Nonstop>,
+    /// A practice play's section (the chart is the section's).
+    pub section: Option<Section>,
 }
 
 type Work = Box<dyn FnOnce() -> Result<Box<Loaded>, String> + Send>;
@@ -82,16 +85,24 @@ impl Loading {
         } else {
             play
         };
-        // a course: its rules (a replay's play options have them)
+        // a course: its rules (a replay's play options have them); a
+        // practice play's
         let mut play = play;
         if let (Some(c), None) = (&req.course, &req.replay) {
             play.rules = c.rules(&play.rules);
         }
+        let practice = req.practice.clone();
+        if let Some(run) = &practice {
+            play.rules = run.rules(&play.rules);
+        }
         let rate = ctx.audio.mixer.sample_rate;
         let (p2, t2) = (progress.clone(), total_files.clone());
         let lanes = req.course.as_ref().and_then(|c| c.lanes());
-        // (an expert or class course: every stage from the first's seed)
-        let replay_seed = replay_seed.or(req.course.as_ref().and_then(|c| c.seed));
+        // (an expert or class course: every stage from the first's seed;
+        // practice: every attempt from one)
+        let replay_seed = replay_seed
+            .or(req.course.as_ref().and_then(|c| c.seed))
+            .or(practice.as_ref().map(|p| p.seed));
         let song_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let seed_now = move || {
             replay_seed.unwrap_or_else(|| {
@@ -132,12 +143,24 @@ impl Loading {
                 Some(g) => build_battle_chart(&path, &bytes, &play, &g.play, seed)?,
                 None => build_chart(&path, &bytes, &play, seed, lanes)?,
             };
+            let (chart, section) = match &practice {
+                Some(run) => {
+                    let pc = vibebms_core::practice::prepare(chart, &run.practice, &play.rules);
+                    (pc.chart, Some(pc.section))
+                }
+                None => (chart, None),
+            };
             let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
             t2.store(chart.sound_files.len(), Ordering::Relaxed);
             let index = crate::platform::vfs::DirIndex::new(&dir);
             let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
             let read = |p: &Path| crate::platform::vfs::read(p).ok();
-            let bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
+            let mut bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
+            // practice at another speed: the sounds at it, their pitch too
+            let speed = practice.as_ref().map_or(1.0, |p| p.practice.rate());
+            if speed != 1.0 {
+                resample(&mut bank, speed);
+            }
             let (images, videos) = if play.bga {
                 load_images(&index, &chart.images)
             } else {
@@ -157,6 +180,7 @@ impl Loading {
                 facts,
                 ln_profile,
                 nonstop: None,
+                section,
             }))
         };
         Loading {
@@ -214,6 +238,9 @@ impl Loading {
                 h * 0.22,
                 TextStyle::new(22.0 * ui, theme::ACCENT, Align::Center),
             );
+        }
+        if let Some(p) = &req.practice {
+            line(d, &p.label(), h * 0.22, 22.0, theme::ACCENT);
         }
         let total = self.total_files.load(Ordering::Relaxed).max(1);
         let done = self.progress.load(Ordering::Relaxed);
@@ -282,9 +309,7 @@ fn load_nonstop(
         let files = &chart.sound_files[span.files.start as usize..span.files.end as usize];
         let mut own = SoundBank::load_with(files, rate, progress, &resolve, &read);
         if span.ratio != 1.0 {
-            for s in own.samples.iter_mut().flatten() {
-                *s = std::sync::Arc::new(s.resampled(span.ratio));
-            }
+            resample(&mut own, span.ratio);
         }
         bank.samples.extend(own.samples);
         if play.bga {
@@ -312,5 +337,13 @@ fn load_nonstop(
         facts: pc.facts,
         ln_profile: pc.ln_profile,
         nonstop: Some(ns),
+        section: None,
     }))
+}
+
+/// Every sound of `bank` played `speed` times as fast (and as high).
+fn resample(bank: &mut SoundBank, speed: f64) {
+    for s in bank.samples.iter_mut().flatten() {
+        *s = Arc::new(s.resampled(speed));
+    }
 }

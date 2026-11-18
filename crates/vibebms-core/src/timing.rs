@@ -212,6 +212,34 @@ impl TimingMap {
         map
     }
 
+    /// The map with time `t` at `(t - from) / speed`: played from `from`
+    /// on, `speed` times as fast (the BPMs × `speed`, the stops ÷ it);
+    /// beats and scroll positions stay.
+    pub fn retimed(&self, from: i64, speed: f64) -> TimingMap {
+        let at = |t: f64| (t - from as f64) / speed;
+        TimingMap {
+            segs: self
+                .segs
+                .iter()
+                .map(|s| TimeSeg {
+                    beat: s.beat,
+                    time: at(s.time),
+                    bpm: s.bpm * speed,
+                })
+                .collect(),
+            scroll: self.scroll.clone(),
+            stops: self
+                .stops
+                .iter()
+                .map(|s| StopEvent {
+                    beat: s.beat,
+                    time: at(s.time as f64).round() as i64,
+                    duration: (s.duration as f64 / speed).round() as i64,
+                })
+                .collect(),
+        }
+    }
+
     fn seg_before_beat(&self, beat: f64) -> &TimeSeg {
         // last segment whose beat is strictly less than `beat`, else the first one
         let idx = self.segs.partition_point(|s| s.beat < beat);
@@ -362,6 +390,32 @@ mod tests {
         assert_eq!(m.bpm_at_time(1_500_000.0), 240.0);
         assert_eq!(m.stops.len(), 1);
         assert!((m.beat_at_time(3_500_000.0) - (2.0 + 4.0 + 4.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn retimed_moves_and_scales_the_time() {
+        // 120 BPM, 240 and a one-beat stop at beat 4: from 1 s on, at half
+        // speed
+        let m = TimingMap::build(
+            120.0,
+            vec![
+                (4.0, TimingEvent::StopBeats(1.0)),
+                (4.0, TimingEvent::Bpm(240.0)),
+                (6.0, TimingEvent::Scroll(0.5)),
+            ],
+        );
+        let r = m.retimed(1_000_000, 0.5);
+        for beat in [0.0, 1.0, 4.0, 5.0, 7.5] {
+            let t = (m.time_at_beat(beat) - 1_000_000) * 2;
+            assert!((r.time_at_beat(beat) - t).abs() <= 1, "{beat}");
+            assert!((r.beat_at_time(t as f64) - beat).abs() < 1e-9, "{beat}");
+            assert_eq!(r.pos_at_beat(beat), m.pos_at_beat(beat));
+        }
+        assert_eq!(r.bpm_at_time(-1.0), 60.0);
+        assert_eq!(r.bpm_at_time(4_000_000.0), 120.0);
+        // the stop: twice as long, from the time it starts at
+        assert_eq!((r.stops[0].time, r.stops[0].duration), (2_000_000, 500_000));
+        assert!((r.beat_at_time(2_400_000.0) - 4.0).abs() < 1e-9);
     }
 
     #[test]

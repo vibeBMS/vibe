@@ -8,6 +8,7 @@ mod ir;
 mod keys;
 mod migrate;
 mod play;
+mod practice;
 mod select;
 mod touch;
 
@@ -18,6 +19,7 @@ pub use play::{
     BgaSize, Ghost, HiSpeedMode, HsFix, HsType, PlayConfig, Side, SideOptions, Target, Versus,
     NORMAL_GREENS,
 };
+pub use practice::PracticeConfig;
 pub use select::{DifficultyFilter, KeyFilter, RandomSelect, SelectConfig, SortMode};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
@@ -186,6 +188,9 @@ pub struct Config {
     /// Skin offsets: skin -> offset name -> x, y, w, h, angle, alpha.
     pub skin_offsets:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, [i32; 6]>>,
+    /// Practice mode's settings (written once changed).
+    #[serde(skip_serializing_if = "PracticeConfig::is_default")]
+    pub practice: PracticeConfig,
     /// RANDOM MIX's settings (written once changed).
     #[serde(skip_serializing_if = "crate::courses::RandomMix::is_default")]
     pub random_mix: crate::courses::RandomMix,
@@ -223,6 +228,7 @@ impl Default for Config {
             skins: Default::default(),
             skin_options: Default::default(),
             skin_offsets: Default::default(),
+            practice: Default::default(),
             random_mix: Default::default(),
         }
     }
@@ -557,6 +563,8 @@ mod tests {
                 "skins/a/play7.lr2skin".into(),
                 BTreeMap::from([("JUDGE".into(), [1, -2, 3, 4, 5, 255])]),
             )]),
+            // (written only once changed: `practice_settings_roundtrip`)
+            practice: Default::default(),
             random_mix: Default::default(),
         }
     }
@@ -682,6 +690,34 @@ mod tests {
         one.lift = 0.2;
         p.set_side(0, &one);
         assert_eq!((p.lift, p.p2.hispeed), (0.2, 5.0));
+    }
+
+    /// Practice mode's settings in a section of their own, read back as
+    /// written; a file without them has the defaults.
+    #[test]
+    fn practice_settings_roundtrip() {
+        let mut c = Config::default();
+        assert!(!c.to_toml().unwrap().contains("[practice]"));
+        c.practice = PracticeConfig {
+            speed: 75,
+            lead_in: 2,
+            gauge: GaugeType::Hard,
+            gauge_start: Some(60),
+            rank: Some(0),
+            total: Some(250),
+            repeat: true,
+            sections: [("ab".repeat(32), [12, 24])].into(),
+        };
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("[practice]") && s.contains("loop = true"));
+        assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
+        let none: Config = toml::from_str("player_name = \"ME\"\n").unwrap();
+        assert_eq!(none.practice, PracticeConfig::default());
+        // a value of the wrong type resets the practice settings, the
+        // others stay
+        let s = "player_name = \"ME\"\n[practice]\nspeed = \"fast\"\nlead_in = 3\n";
+        let c = Config::lenient(&toml::from_str(s).unwrap());
+        assert_eq!((c.player_name.as_str(), c.practice.lead_in), ("ME", 1));
     }
 
     #[test]

@@ -235,6 +235,9 @@ pub struct PlayFlags {
     pub ghost_battle: bool,
     /// Quit by the player.
     pub aborted: bool,
+    /// A practice play (`practice`): never recorded or sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub practice: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

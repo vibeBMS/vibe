@@ -2115,13 +2115,16 @@ TABS = [("SORT", 12, SORT_LABELS, TEAL), ("KEYS", 11, KEY_LABELS, AMBER),
 # judge rank (options 180-184)
 JUDGE_RANKS = [("VERY HARD", RED), ("HARD", ORANGE), ("NORMAL", BLUE), ("EASY", GREEN),
                ("VERY EASY", TEAL)]
-# the six panel buttons: name, hint, accent, event (panel), the panel's option
+# the bottom buttons: the six panels, then PRACTICE: name, hint, accent,
+# event (panel), the panel's option (PRACTICE: none; the chart's screen)
+EVENT_PRACTICE = 9905
 BIG_BUTTONS = [("PLAY\nOPTION", "hold START", TEAL, 1, 21),
-               ("SYSTEM\nOPTION", "START + SELECT", AMBER, 3, 23),
+               ("SYSTEM\nOPTION", "START+SELECT", AMBER, 3, 23),
                ("SCORE\nSTATUS", "tap", PINK, 4, 24),
                ("TAG\nEDITOR", "key 8 · 9", VIOLET, 7, 9027),
                ("EFFECTS", "sound", BLUE, 6, 26),
-               ("PLAYER\nSTATUS", "tap", GREEN, 5, 25)]
+               ("PLAYER\nSTATUS", "tap", GREEN, 5, 25),
+               ("PRACTICE", "key E", ORANGE, EVENT_PRACTICE, None)]
 # CLEAR LAMPS rows: name, lamp (number 9310 + lamp; 11 is FULL COMBO or better)
 LAMP_ROWS = [("FULL COMBO", 11, 8), ("EX-HARD", 7, 7), ("HARD", 6, 6), ("NORMAL", 5, 5),
              ("EASY", 4, 4), ("L-ASSIST", 3, 3), ("ASSIST", 2, 2), ("FAILED", 1, 1),
@@ -2341,9 +2344,9 @@ def build_select(fonts):
                     bd.line((tx - icon, ly, tx - 6, ly), fill=col + (255,), width=2)
             a.add(f"btn_{key}{'' if on else '_off'}", b)
     a.add("big_on", rounded(16, 16, 4, (31, 53, 64, 255)))
-    for i, (name, hint, acc, _ev, _op) in enumerate(BIG_BUTTONS):
-        for on in (False, True):
-            w, h = 101, 80
+    for i, (name, hint, acc, _ev, op) in enumerate(BIG_BUTTONS):
+        for on in (False, True) if op else (False,):
+            w, h = 86, 80
             b = Image.new("RGBA", (w, h))
             d = ImageDraw.Draw(b)
             d.rounded_rectangle((0, 0, w - 1, h - 1), 9, fill=((31, 53, 64) if on else PANEL_HI) + (255,),
@@ -2645,9 +2648,15 @@ def sel_bottom(sk, img, f, g):
     x, y, w, h = g["bottom"]
     panel(img, (x, y, w, h), accent=TEAL)
     bh = g["big_h"]
-    bw = (w - 20 - 5 * 7) / 6
+    n = len(BIG_BUTTONS)
+    bw = (w - 20 - (n - 1) * 7) / n
     for i, (_n, _h, _acc, ev, op) in enumerate(BIG_BUTTONS):
         bx = x + 10 + i * (bw + 7)
+        if not op:
+            # (a chart chosen; dimmed on a folder)
+            sel_put(sk, f"big{i}", bx, y + 10, bw, bh, op=[5], act=ev)
+            sel_put(sk, f"big{i}", bx, y + 10, bw, bh, op=[-5], a=90)
+            continue
         sel_put(sk, f"big{i}", bx, y + 10, bw, bh, op=[-op], act=ev)
         sel_put(sk, f"big{i}_on", bx, y + 10, bw, bh, op=[op], act=ev)
     sy = y + g["stat_y"] + 15
@@ -2802,7 +2811,8 @@ HELP_TEXT = [
               ("hold START", "PLAY OPTION"), ("hold SELECT", "ASSIST"),
               ("hold START + SELECT", "SYSTEM OPTION"), ("1 / 2 / 4", "keys, sort, difficulty"),
               ("3", "LN mode"), ("8 / 9", "favourite song / chart"), ("F5", "autoplay"),
-              ("P", "replay"), ("/ or F10", "search"), ("C / Insert", "add to a course"),
+              ("P", "replay"), ("E", "practice"), ("/ or F10", "search"),
+              ("C / Insert", "add to a course"),
               ("Tab", "settings")]),
     ("TOUCH", [("drag the list", "scroll"), ("tap a bar", "choose it"),
                ("tap it again", "play, open"), ("tap a tab's half", "the value before / after"),

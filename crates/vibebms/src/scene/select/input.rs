@@ -209,6 +209,8 @@ impl SelectScene {
             // letter shortcuts give way to a lane or 2P key bound to the same
             // key (C is 1P key 5, P 2P START, / 2P key 7 by default)
             KeyCode::KeyP if !is_play_key(keys, code) => return self.watch_replay(ctx),
+            // PRACTICE (E: P is 2P START by default)
+            KeyCode::KeyE if !is_play_key(keys, code) => return self.practice(ctx),
             // HELP and READ TEXT (LR2's buttons)
             KeyCode::KeyH if !is_play_key(keys, code) => self.toggle_panel(8),
             KeyCode::KeyT if !is_play_key(keys, code) => self.read_text(ctx),

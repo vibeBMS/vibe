@@ -24,6 +24,9 @@ pub enum Refusal {
     /// An older record, or one without the client that made it.
     OldRecord,
     Autoplay,
+    /// A practice play: a section, its speed, gauge and rules the
+    /// player's own.
+    Practice,
     /// A replay watched.
     Replay,
     Versus,
@@ -227,6 +230,7 @@ fn passes(rec: &PlayRecord, g: &Gate) -> Result<Profile, Refusal> {
         rec.v != VERSION || rec.client.name.is_empty(),
         Refusal::OldRecord,
     )?;
+    gate(f.practice, Refusal::Practice)?;
     gate(f.autoplay, Refusal::Autoplay)?;
     gate(f.replay, Refusal::Replay)?;
     gate(f.versus, Refusal::Versus)?;
@@ -383,6 +387,13 @@ mod tests {
                 |r| r.flags.autoplay = true,
                 bok,
                 Refusal::Autoplay,
+            ),
+            (
+                "practice",
+                base(),
+                |r| r.flags.practice = true,
+                bok,
+                Refusal::Practice,
             ),
             (
                 "replay",
@@ -609,6 +620,17 @@ mod tests {
             let mut rec = rec.clone();
             edit(&mut rec);
             assert_eq!(passes(&rec, g), Err(*want), "{name}");
+        }
+        // a practice play goes nowhere, vibeBMS's own servers neither
+        let mut practice = base();
+        practice.flags.practice = true;
+        for p in [
+            ProviderKind::VibeJson,
+            ProviderKind::Bokutachi,
+            ProviderKind::BmsIr,
+            ProviderKind::RianIr,
+        ] {
+            assert_eq!(eligible(&practice, p), Err(Refusal::Practice), "{p:?}");
         }
         // the gates that pass on: vibe-json takes what third parties do not
         let mut touch = base();

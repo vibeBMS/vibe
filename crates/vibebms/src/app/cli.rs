@@ -54,6 +54,7 @@ pub(super) fn play_scene(ctx: &mut Ctx) -> Option<Box<dyn Scene>> {
         course: None,
         replay: None,
         vs,
+        practice: None,
     };
     Some(Box::new(PlayScene::new(ctx, req)))
 }

@@ -12,6 +12,7 @@
 //! * [`lane_option`]: RANDOM / MIRROR / S-RANDOM / H-RANDOM / ... and assist options
 //! * [`engine`]: the real-time judge engine (normal notes, LN / CN / HCN, mines, BSS)
 //! * [`play`]: the rule options and the chart and judge they make
+//! * [`practice`]: a section of a chart played alone, slower or faster
 //! * [`replay`]: a play's inputs, to judge it again (headless)
 //! * [`record`]: a finished play as facts (its chart, rules, devices, result)
 
@@ -91,6 +92,7 @@ pub mod lane_option;
 pub mod mode;
 pub mod nonstop;
 pub mod play;
+pub mod practice;
 pub mod record;
 pub mod replay;
 pub mod rng;

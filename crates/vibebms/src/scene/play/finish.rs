@@ -34,6 +34,11 @@ impl PlayScene {
         ended_ms: i64,
         wall_ms: u64,
     ) -> Next {
+        // practice: back to its screen, the attempt's result there
+        if self.req.practice.is_some() {
+            self.keep_practice_result(failed);
+            return Next::Pop;
+        }
         let Some(side) = self.session.sides.first() else {
             return Next::Pop;
         };
@@ -109,6 +114,7 @@ impl PlayScene {
                 versus: self.req.is_vs(),
                 ghost_battle: matches!(self.req.vs, Some(Versus::Ghost(..))),
                 aborted: self.controls.quit,
+                practice: self.req.practice.is_some(),
             },
             result: PlayResult {
                 score: score.clone(),

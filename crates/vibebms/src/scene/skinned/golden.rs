@@ -137,6 +137,7 @@ fn request() -> PlayRequest {
         course: None,
         replay: None,
         vs: None,
+        practice: None,
     }
 }
 

@@ -54,6 +54,13 @@ impl PlayScene {
                             }
                             self.controls.quit = true;
                         }
+                        // practice: the section again
+                        KeyCode::KeyR | KeyCode::Backspace
+                            if self.req.practice.is_some()
+                                && !matches!(self.stage, Stage::Loading(_)) =>
+                        {
+                            self.practice_again(ctx, Instant::now());
+                        }
                         KeyCode::ArrowUp | KeyCode::ArrowDown => {
                             let step = match code {
                                 KeyCode::ArrowUp => HISPEED_STEP,
