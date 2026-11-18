@@ -117,7 +117,9 @@ would change the fingerprint the clients pinned). A failure there holds back no 
 
 The index's key is what clients pin: changing it later means every user adds the repository again. So whether the
 index keeps the APK's key or gets its own (F-Droid advises one; `FDROID_KEYSTORE`) is decided once, before users add
-the repository. A key of its own:
+the repository. It must be an RSA key: fdroidserver signs the index older clients read with SHA1withRSA, and with an
+EC key that index would be left unsigned (CI then skips the repository and says so). An APK key made as an EC key
+(Android Studio's and `keytool`'s defaults differ) therefore needs a key of its own here. A key of its own:
 ```sh
 keytool -genkeypair -keystore vibebms-fdroid.p12 -storetype PKCS12 -alias vibebms-fdroid \
   -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=vibeBMS F-Droid repository"

@@ -725,6 +725,13 @@ jobs:
           echo "::add-mask::$pass"
           export FDROID_KEYSTORE_FILE="$RUNNER_TEMP/fdroid.keystore" FDROID_KEYSTORE_PASS="$pass"
           echo "$b64" | base64 -d > "$FDROID_KEYSTORE_FILE"
+          # the index for older clients is signed with SHA1withRSA: an EC key (as the APK's may be)
+          # would leave it unsigned
+          if ! keytool -list -v -keystore "$FDROID_KEYSTORE_FILE" -storepass "$pass" |
+            grep -q '^Subject Public Key Algorithm: .*RSA'; then
+            rm "$FDROID_KEYSTORE_FILE"
+            skip "its key is not an RSA key, which F-Droid's index needs: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\` with an RSA key $secrets."
+          fi
           python3 -m venv "$RUNNER_TEMP/fdroidserver"
           "$RUNNER_TEMP/fdroidserver/bin/pip" install -q fdroidserver==2.4.5
           PATH="$RUNNER_TEMP/fdroidserver/bin:$PATH" src/tools/fdroid_repo.sh build out/vibeBMS.apk "$RUNNER_TEMP/fdroid"

@@ -43,6 +43,11 @@ build() {
   # the key: a keystore made for this has one (as the APK's does)
   alias="$(keytool -list -keystore "$ks" -storepass "$FDROID_KEYSTORE_PASS" | grep -m1 PrivateKeyEntry | cut -d, -f1)"
   [ -n "$alias" ] || die "no private key in the keystore"
+  # fdroidserver signs index-v1.jar (for older clients) with SHA1withRSA and does not notice when
+  # that fails, so a key of another type leaves it unsigned: the repository key must be RSA
+  keytool -list -v -keystore "$ks" -storepass "$FDROID_KEYSTORE_PASS" -alias "$alias" |
+    grep -q '^Subject Public Key Algorithm: .*RSA' ||
+    die "the key $alias is not an RSA key; F-Droid's index needs one (docs/BUILDING.md)"
   # what clients pin: the SHA-256 of the key's certificate
   fp_hex="$(keytool -exportcert -keystore "$ks" -storepass "$FDROID_KEYSTORE_PASS" -alias "$alias" |
     sha256sum | cut -d' ' -f1 | tr a-f A-F)"
