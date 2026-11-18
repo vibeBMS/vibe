@@ -140,12 +140,15 @@ struct Running {
 pub enum UserEvent {
     /// GPU initialisation finished (asynchronous in browsers).
     GfxReady(Arc<Window>, Box<Result<Gfx, String>>),
+    /// Hardware keyboard keys came in (`platform::ios::take_keys`).
+    #[cfg(target_os = "ios")]
+    Keys,
 }
 
 pub struct App {
     run: Option<Running>,
     paths: Paths,
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    #[cfg_attr(not(any(target_arch = "wasm32", target_os = "ios")), allow(dead_code))]
     proxy: EventLoopProxy<UserEvent>,
     /// The configuration while the window and renderer are being created.
     pending: Option<Config>,
@@ -320,6 +323,8 @@ impl Running {
             self.text.add_font(f);
         }
         self.poll_gamepads(el);
+        #[cfg(target_os = "ios")]
+        crate::platform::ios::poll_keyboard();
         self.ctx.poll_jobs();
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
@@ -533,6 +538,13 @@ impl App {
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
         scenes.extend(cli::play_scene(&mut ctx));
+        #[cfg(target_os = "ios")]
+        {
+            let proxy = self.proxy.clone();
+            crate::platform::ios::install(move || {
+                let _ = proxy.send_event(UserEvent::Keys);
+            });
+        }
         let now = Instant::now();
         let refresh_hz = refresh_hz(&window);
         log::info!("display: {refresh_hz:.1} Hz");
@@ -576,6 +588,12 @@ impl ApplicationHandler<UserEvent> for App {
                     el.exit();
                 }
             },
+            #[cfg(target_os = "ios")]
+            UserEvent::Keys => {
+                if let Some(r) = self.run.as_mut() {
+                    r.ios_keys(el);
+                }
+            }
         }
     }
 

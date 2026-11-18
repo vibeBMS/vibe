@@ -67,6 +67,13 @@ gilrs = "0.11"
 wry = { version = "0.57", optional = true }
 # IR keys in the Keychain (ir/creds.rs)
 security-framework = "3"
+# input events' own times, the hardware keyboard (platform/ios.rs)
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSEnumerator", "NSSet"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIEvent", "UITouch"] }
+objc2-game-controller = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "objc2-core-foundation", "GCControllerButtonInput", "GCControllerElement", "GCDevice", "GCKeyCodes", "GCKeyboard", "GCKeyboardInput", "GCPhysicalInputProfile"] }
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 
 
 # the download browser (Java, platform/android) through JNI
