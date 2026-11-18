@@ -169,12 +169,40 @@ pub fn assign(
         return false;
     };
     if let Some(c) = key {
-        lk.keys = vec![c];
+        // the first key (KEYBOARD); a second one (KEYBOARD SUB) stays
+        lk.keys.retain(|k| *k != c);
+        if lk.keys.is_empty() {
+            lk.keys.push(c);
+        } else {
+            lk.keys[0] = c;
+            lk.keys.truncate(2);
+        }
     }
     if let Some(p) = pad {
         lk.pad = vec![p];
     }
     key.is_some() || pad.is_some()
+}
+
+/// Bind a second keyboard key to a row (KEYBOARD SUB): it replaces the
+/// row's second key (the first if it has none). Whether anything was bound.
+pub fn assign_sub(k: &mut KeyConfig, s: Slot, key: KeyCode) -> bool {
+    let Some(lk) = slot_keys(k, s) else {
+        return false;
+    };
+    if lk.keys.first() == Some(&key) {
+        return false;
+    }
+    lk.keys.truncate(1);
+    lk.keys.push(key);
+    true
+}
+
+/// Remove a row's second keyboard key (KEYBOARD SUB).
+pub fn clear_sub(k: &mut KeyConfig, s: Slot) {
+    if let Some(lk) = slot_keys(k, s) {
+        lk.keys.truncate(1);
+    }
 }
 
 /// Remove a row's bindings: of one kind (0 keys, 1 buttons, 2 axes), or
@@ -298,6 +326,33 @@ mod tests {
         clear(&mut k, Slot::ScratchUp(1), Some(2));
         assert!(k.p2.scratch_axis.is_empty());
         assert!(!k.p2.scratch_up.keys.is_empty());
+    }
+
+    /// KEYBOARD SUB: a second key per row, kept when the first changes.
+    #[test]
+    fn keyboard_sub() {
+        use KeyCode::*;
+        let mut k = KeyConfig::default();
+        let s = Slot::Key { side: 0, idx: 0 };
+        assert!(assign_sub(&mut k, s, KeyA));
+        assert_eq!(k.p1.keys[0].keys, [KeyZ, KeyA]);
+        // the same key as the first is no second
+        assert!(!assign_sub(&mut k, s, KeyZ));
+        assert!(assign_sub(&mut k, s, KeyB));
+        assert_eq!(k.p1.keys[0].keys, [KeyZ, KeyB]);
+        assert!(assign(&mut k, s, Some(KeyQ), None, None));
+        assert_eq!(k.p1.keys[0].keys, [KeyQ, KeyB]);
+        // the sub key as the first: it moves, and there is no second
+        assert!(assign(&mut k, s, Some(KeyB), None, None));
+        assert_eq!(k.p1.keys[0].keys, [KeyB]);
+        assert!(assign_sub(&mut k, s, KeyN));
+        clear_sub(&mut k, s);
+        assert_eq!(k.p1.keys[0].keys, [KeyB]);
+        // both drive the lane
+        assert!(assign_sub(&mut k, s, KeyN));
+        let m = crate::input::LaneMapper::new(&k, vibebms_core::PlayMode::Beat7K);
+        assert_eq!(m.key(KeyB), Some((0, 0)));
+        assert_eq!(m.key(KeyN), Some((0, 0)));
     }
 
     #[test]

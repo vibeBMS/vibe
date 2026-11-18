@@ -123,6 +123,16 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - Controllers (IIDX controllers included) are set in `SETTINGS › CONTROLS` by pressing their buttons. Analog
   turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
   default; see [docs/RULES.md](docs/RULES.md) "Input filters").
+- Which controller is 1P and which 2P (`SETTINGS › CONTROLS › 1P controller` / `2P controller`): AUTO (the default:
+  the order they were connected in, as bindings show them, `Pad0` 1P, `Pad1` 2P) or one of the connected
+  controllers, kept by its name and id (USB vendor and product; browsers tell none, so there the name) in
+  `[keys.controllers]` and found again at the next launch. A chosen controller that is not connected leaves its
+  side to the next controller in connection order; two of the same model are 1P and 2P in the order they were
+  connected; choosing for one side the other side's controller swaps them, as `Swap 1P and 2P controllers` does.
+  The bindings follow the side, not the controller (`Pad0#3` is button 3 of whichever controller is 1P), and
+  `Connected controllers` lists each with its side. Each side also has a second keyboard map, `1P keyboard sub` /
+  `2P keyboard sub`: a second key for each key and scratch (the KEYBOARD SUB slot; the first key is the one the
+  side's page and the key config set).
 - Touch (`SETTINGS › CONTROLS`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
   them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
@@ -343,7 +353,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   cut the other's); a player who fails stops (FAILED over their side) and the other plays on; the play ends
   when both have finished or failed. The results show both sides and the winner. Nothing is saved: no
   scores, lamps, replays or play counts. Controllers: press a button on the 1P controller while the chart
-  loads (the order they were connected in can swap them). On one keyboard, many keyboards miss keys when
+  loads (it is the 1P one for this play; which one that is by default is `SETTINGS › CONTROLS › 1P controller`). On one keyboard, many keyboards miss keys when
   several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
   player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).

@@ -386,8 +386,15 @@ impl Running {
     }
 
     fn poll_gamepads(&mut self, el: &ActiveEventLoop) {
-        let ctx = &mut self.ctx;
-        for e in self.gamepads.poll(|m| ctx.toast(m)) {
+        let mut toasts = Vec::new();
+        let evs = (self.gamepads).poll(&self.ctx.config.keys.controllers, |m| toasts.push(m));
+        for t in toasts {
+            self.ctx.toast(t);
+        }
+        if let Some(c) = self.gamepads.take_connected() {
+            self.ctx.input.pads = c;
+        }
+        for e in evs {
             self.dispatch(el, e);
         }
     }

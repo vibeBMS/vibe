@@ -14,7 +14,7 @@ mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
 pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
-pub use keys::{InputTuning, KeyConfig, LaneKeys, SideKeys};
+pub use keys::{InputTuning, KeyConfig, LaneKeys, PadId, PadSides, SideKeys};
 pub use play::{
     BgaMode, BgaSize, Ghost, HiSpeedMode, HsFix, HsType, PlayConfig, Side, SideOptions, Target,
     Versus, NORMAL_GREENS,
@@ -544,6 +544,7 @@ mod tests {
                     turntable_stop_ms: 150,
                     chatter_ms: 8,
                 },
+                controllers: Default::default(),
             },
             touch: TouchConfig {
                 mode: TouchMode::On,

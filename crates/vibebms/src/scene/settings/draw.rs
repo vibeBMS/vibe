@@ -427,6 +427,11 @@ impl SettingsScene {
             ui::modal(d, w, h, r);
             let what = if matches!(slot, crate::scene::keybind::Slot::ScratchAxis(_)) {
                 "Spin the turntable"
+            } else if matches!(
+                self.view,
+                super::View::Sub(super::Sub::Keys(super::KeySet::SideSub(_)))
+            ) {
+                "Press a key"
             } else {
                 "Press a key or controller button"
             };

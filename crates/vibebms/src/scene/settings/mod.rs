@@ -865,9 +865,17 @@ impl SettingsScene {
         let Some(slot) = self.learn.slot else {
             return;
         };
+        // KEYBOARD SUB's page: a second keyboard key only
+        let sub = matches!(self.view, View::Sub(Sub::Keys(KeySet::SideSub(_))));
         match self.learn.input(ev) {
             Learned::Waiting | Learned::Cancel => return,
+            Learned::Clear if sub => keybind::clear_sub(&mut ctx.config.keys, slot),
             Learned::Clear => keybind::clear(&mut ctx.config.keys, slot, None),
+            Learned::Bind(Some(key), _, _) if sub => {
+                keybind::assign_sub(&mut ctx.config.keys, slot, key);
+                self.list.sel = (self.list.sel + 1).min(self.rows.len().saturating_sub(1));
+            }
+            Learned::Bind(..) if sub => return,
             Learned::Bind(key, pad, axis) => {
                 keybind::assign(&mut ctx.config.keys, slot, key, pad, axis);
                 // on to the next row for quick setup

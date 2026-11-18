@@ -168,6 +168,8 @@ pub struct Input {
     /// Where the mouse is (screen pixels); `None` before it moves and once
     /// it has left the window.
     pub pointer: Option<(f32, f32)>,
+    /// The game controllers connected, by number (0: 1P, 1: 2P).
+    pub pads: Vec<crate::input::gamepad::Connected>,
 }
 
 /// The skin catalog and its downloads, and the custom options and offsets
