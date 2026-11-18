@@ -7,6 +7,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use super::arcfs;
+
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub path: PathBuf,
@@ -87,6 +89,7 @@ mod imp {
         Vec::new()
     }
     pub fn release_charts() {}
+    pub fn release(_p: &Path) {}
 
     pub fn take_added() -> bool {
         false
@@ -347,6 +350,22 @@ mod imp {
         })
     }
 
+    /// `p` (an archive read in) is read from its stored copy again: its
+    /// bytes leave memory.
+    pub fn release(p: &Path) {
+        FS.with(|fs| {
+            let mut fs = fs.borrow_mut();
+            let fs = &mut *fs;
+            if let Some(file) = fs.stored_charts.remove(p) {
+                if let Some(n) = fs.files.get_mut(p) {
+                    if matches!(n.data, Data::Bytes(_)) && n.size == file.size() as i64 {
+                        n.data = Data::File(file);
+                    }
+                }
+            }
+        })
+    }
+
     /// A file kept in the browser's storage, mounted (read when needed).
     pub fn mount(p: PathBuf, file: web_sys::File) {
         FS.with(|fs| {
@@ -425,14 +444,19 @@ mod imp {
 
     /// Mount files chosen with `<input type=file webkitdirectory>` below `<root>/bms/`.
     /// Mount picked files under `<root>/bms/` (by their path in a picked
-    /// folder, else under `<root>/bms/<sub>/`). Zip files are skipped:
-    /// see `add_zip`.
+    /// folder, else under `<root>/bms/<sub>/`). Song packs (.zip, .7z,
+    /// .rar, .lzh) are skipped: see `add_zip`.
     pub fn add_files(root: &Path, files: &web_sys::FileList, sub: &str) {
         FS.with(|fs| {
             let mut fs = fs.borrow_mut();
             for i in 0..files.length() {
                 let Some(f) = files.get(i) else { continue };
-                if f.name().to_lowercase().ends_with(".zip") {
+                // (song packs are unpacked: `web::install_file_input`)
+                let name = f.name().to_lowercase();
+                if [".zip", ".7z", ".rar", ".lzh"]
+                    .iter()
+                    .any(|e| name.ends_with(e))
+                {
                     continue;
                 }
                 let rel = js_sys::Reflect::get(&f, &JsValue::from_str("webkitRelativePath"))
@@ -553,8 +577,15 @@ mod imp {
                     if let Ok(buf) = wasm_bindgen_futures::JsFuture::from(f.array_buffer()).await {
                         let bytes = js_sys::Uint8Array::new(&buf).to_vec();
                         FS.with(|fs| {
-                            if let Some(n) = fs.borrow_mut().files.get_mut(&p) {
+                            let mut fs = fs.borrow_mut();
+                            let fs = &mut *fs;
+                            if let Some(n) = fs.files.get_mut(&p) {
                                 n.data = Data::Bytes(Rc::new(bytes));
+                                // an archive leaves memory again once read
+                                // (`release`, `release_charts`)
+                                if super::super::arcfs::is_archive(&p) {
+                                    fs.stored_charts.insert(p.clone(), f);
+                                }
                             }
                         });
                     }
@@ -585,9 +616,12 @@ pub fn decode_name(raw: &[u8]) -> String {
     vibebms_core::encoding::decode_text(raw)
 }
 
-/// Read a file (built-in files first; a folder may be packed as
-/// `folder.dxa`, as LR2 skins do).
+/// Read a file (built-in files first; a file in an archive (`a.zip!/x`:
+/// `arcfs`); a folder may be packed as `folder.dxa`, as LR2 skins do).
 pub fn read(p: &Path) -> io::Result<Vec<u8>> {
+    if let Some((a, rel)) = arcfs::split(p) {
+        return arcfs::read(&a, &rel);
+    }
     match builtin(p) {
         Some(b) => Ok(b.to_vec()),
         None => imp::read(p).or_else(|e| {
@@ -602,6 +636,11 @@ pub fn read(p: &Path) -> io::Result<Vec<u8>> {
 /// The first `n` bytes of a file (all of it when shorter); natively the
 /// rest is not read.
 pub fn read_head(p: &Path, n: usize) -> io::Result<Vec<u8>> {
+    if arcfs::split(p).is_some() {
+        let mut b = read(p)?;
+        b.truncate(n);
+        return Ok(b);
+    }
     if let Some(b) = builtin(p) {
         return Ok(b[..n.min(b.len())].to_vec());
     }
@@ -619,6 +658,88 @@ pub fn read_head(p: &Path, n: usize) -> io::Result<Vec<u8>> {
     let mut b = read(p)?;
     b.truncate(n);
     Ok(b)
+}
+
+/// Nothing is written into an archive.
+fn in_archive(p: &Path) -> io::Result<()> {
+    match arcfs::split(p) {
+        Some(_) => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{}: in an archive", p.display()),
+        )),
+        None => Ok(()),
+    }
+}
+
+pub fn write(p: &Path, data: &[u8]) -> io::Result<()> {
+    in_archive(p)?;
+    imp::write(p, data)
+}
+
+pub fn remove_file(p: &Path) -> io::Result<()> {
+    in_archive(p)?;
+    imp::remove_file(p)
+}
+
+pub fn create_dir_all(p: &Path) -> io::Result<()> {
+    in_archive(p)?;
+    imp::create_dir_all(p)
+}
+
+/// Move a file; false when `to` exists or the move fails (or either is in
+/// an archive).
+pub fn rename(from: &Path, to: &Path) -> bool {
+    in_archive(from).and(in_archive(to)).is_ok() && imp::rename(from, to)
+}
+
+pub fn read_dir(p: &Path) -> io::Result<Vec<Entry>> {
+    match arcfs::split(p) {
+        Some((a, rel)) => arcfs::read_dir(&a, &rel),
+        None => imp::read_dir(p),
+    }
+}
+
+pub fn is_file(p: &Path) -> bool {
+    match arcfs::split(p) {
+        Some((a, rel)) => arcfs::is_file(&a, &rel),
+        None => imp::is_file(p),
+    }
+}
+
+pub fn is_dir(p: &Path) -> bool {
+    match arcfs::split(p) {
+        Some((a, rel)) => arcfs::is_dir(&a, &rel),
+        None => imp::is_dir(p),
+    }
+}
+
+/// (modification time in seconds, size); a file in an archive has the
+/// archive's time.
+pub fn stamp(p: &Path) -> (i64, i64) {
+    match arcfs::split(p) {
+        Some((a, rel)) => arcfs::stamp(&a, &rel),
+        None => imp::stamp(p),
+    }
+}
+
+/// Have the songs of `charts` that are in archives unpacked (played next);
+/// other songs unpacked before are let go.
+pub fn prepare_songs(charts: &[PathBuf]) -> io::Result<()> {
+    arcfs::prepare(charts)
+}
+
+/// `chart` is chosen: a song unpacked from an archive that is not its own
+/// is let go.
+pub fn keep_song(chart: Option<&Path>) {
+    arcfs::retain(chart)
+}
+
+/// A file on a disk with `p`'s bytes, for a program that opens files
+/// itself (ffmpeg): `p`, or for a file in an archive one written out of
+/// its unpacked song.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn native_path(p: &Path) -> Option<PathBuf> {
+    arcfs::native_path(p)
 }
 
 pub fn read_to_string(p: &Path) -> io::Result<String> {
@@ -774,15 +895,34 @@ pub struct Prefetch {
 }
 
 impl Prefetch {
-    /// Load every not-yet-read file below `dirs`.
+    /// Load every not-yet-read file below `dirs` (a folder in an archive:
+    /// the archive, unless its song is unpacked).
     pub fn dirs(dirs: &[PathBuf]) -> Prefetch {
-        let mut v: Vec<PathBuf> = dirs.iter().flat_map(|d| unloaded_under(d)).collect();
+        let mut v: Vec<PathBuf> = dirs
+            .iter()
+            .flat_map(|d| match arcfs::split(d) {
+                Some((a, rel)) if arcfs::is_ready(&a, &rel) => Vec::new(),
+                Some((a, _)) => unloaded_under(&a),
+                None => unloaded_under(d),
+            })
+            .collect();
         v.sort();
         v.dedup();
         Self::files(v)
     }
 
+    /// Load the files `paths` (a file in an archive: the archive, unless
+    /// its song is unpacked).
     pub fn files(paths: Vec<PathBuf>) -> Prefetch {
+        let mut paths: Vec<PathBuf> = paths
+            .into_iter()
+            .filter_map(|p| match arcfs::split(&p) {
+                Some((a, rel)) if arcfs::is_ready(&a, &rel) => None,
+                Some((a, _)) => Some(a),
+                None => Some(p),
+            })
+            .collect();
+        paths.dedup();
         #[cfg(target_arch = "wasm32")]
         {
             let done = std::rc::Rc::new(std::cell::Cell::new(0));

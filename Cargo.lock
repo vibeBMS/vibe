@@ -5102,6 +5102,7 @@ dependencies = [
  "self-replace",
  "serde",
  "serde_json",
+ "sevenz-rust2",
  "sha2 0.10.9",
  "toml 1.2.1+spec-1.1.0",
  "ttf-parser",
@@ -5117,6 +5118,7 @@ dependencies = [
  "wgpu",
  "winit",
  "wry",
+ "zip",
 ]
 
 [[package]]

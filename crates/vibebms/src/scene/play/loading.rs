@@ -134,6 +134,8 @@ impl Loading {
             let joins = c.def.joins.clone();
             let work = move || -> Result<Box<Loaded>, String> {
                 let seed = seed_now();
+                // songs in archives unpacked
+                crate::platform::vfs::prepare_songs(&paths).map_err(|e| e.to_string())?;
                 let mut l = load_nonstop(&paths, &joins, &play, seed, rate, &p2, &t2)?;
                 // (measured each time: the stages joined are not one chart)
                 if normalize {
@@ -153,6 +155,9 @@ impl Loading {
         }
         let work = move || -> Result<Box<Loaded>, String> {
             let seed = seed_now();
+            // a song in an archive unpacked (kept while it is chosen)
+            crate::platform::vfs::prepare_songs(std::slice::from_ref(&path))
+                .map_err(|e| e.to_string())?;
             let bytes = crate::platform::vfs::read(&path).map_err(|e| e.to_string())?;
             let PlayChart {
                 chart,
@@ -308,8 +313,20 @@ fn load_images(index: &crate::platform::vfs::DirIndex, files: &[String]) -> Medi
     files
         .iter()
         .map(|f| match index.find(f, IMAGE_EXTS) {
+            // (ffmpeg reads a file: one in an archive written out of its song)
+            #[cfg(not(target_arch = "wasm32"))]
+            Some(p) if is_video(&p) => (None, crate::platform::vfs::native_path(&p)),
+            #[cfg(target_arch = "wasm32")]
             Some(p) if is_video(&p) => (None, Some(p)),
             Some(p) => (crate::gfx::load_picture(&p, &crate::gfx::key_black), None),
+            #[cfg(not(target_arch = "wasm32"))]
+            None => (
+                None,
+                index
+                    .find(f, VIDEO_EXTS)
+                    .and_then(|p| crate::platform::vfs::native_path(&p)),
+            ),
+            #[cfg(target_arch = "wasm32")]
             None => (None, index.find(f, VIDEO_EXTS)),
         })
         .unzip()

@@ -316,6 +316,8 @@ impl SelectScene {
         }) else {
             return;
         };
+        // a song pack kept packed (`pack.7z!`): the archive
+        let dir = crate::platform::arcfs::split(&dir).map_or(dir, |(a, _)| a);
         let name = dir
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
