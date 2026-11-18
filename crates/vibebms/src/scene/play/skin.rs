@@ -167,13 +167,10 @@ impl<'a> PlayState<'a> {
             bpms: s.bpms_at(now),
             play: [s.side_config(p, 0), s.side_config(p, 1)],
             opp_ex: s.session.opponent_ex(),
-            lane_h: s
-                .skin
-                .as_ref()
-                .and_then(|sk| {
-                    let r = sk.skin.lanes.iter().find_map(|l| l.rect)?;
-                    Some(if sk.skin.horizontal { r.w } else { r.h })
-                }),
+            lane_h: s.skin.as_ref().and_then(|sk| {
+                let r = sk.skin.lanes.iter().find_map(|l| l.rect)?;
+                Some(if sk.skin.horizontal { r.w } else { r.h })
+            }),
             horizontal: s.skin.as_ref().is_some_and(|sk| sk.skin.horizontal),
             pace: OnceCell::new(),
             table: OnceCell::new(),

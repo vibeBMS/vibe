@@ -446,7 +446,14 @@ fn horizontal_lanes_run_to_the_right_edge() {
         );
         std::fs::write(dir.join("h.lr2skin"), csv).unwrap();
         let size = |_: &Path| Some((64, 64));
-        load(&dir.join("h.lr2skin"), &dir, &HashMap::new(), &|_| None, &size).unwrap()
+        load(
+            &dir.join("h.lr2skin"),
+            &dir,
+            &HashMap::new(),
+            &|_| None,
+            &size,
+        )
+        .unwrap()
     };
     let s = load_csv("#HORIZONTAL\n");
     assert!(s.horizontal);
