@@ -398,7 +398,7 @@ impl TouchLayoutScene {
         }
         match hit.or_else(|| touch::pick(&zones, x, y)) {
             Some(i) => {
-                let z = zones[i];
+                let z = &zones[i];
                 self.sel = Some(z.lane);
                 self.grab = Some(Grab::Move {
                     id,

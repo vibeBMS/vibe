@@ -9,9 +9,11 @@ const LEGACY_BPM: f64 = 150.0;
 /// keep the speed it gave at 150 BPM. The mirror's one event (BOF22)
 /// became its list of events. Tables that moved are read from their new
 /// address. The one IR server (`[ir_server]`) became an account of
-/// `[ir]`.
+/// `[ir]`. The perspective lanes' touch area of an older layout, left at
+/// its default, becomes the current default.
 pub fn migrate(v: &mut toml::Value) {
     ir_server(v);
+    perspective(v);
     if let Some(tables) = v.get_mut("tables").and_then(|t| t.as_array_mut()) {
         for t in tables.iter_mut() {
             let Some(url) = t.get_mut("url") else {
@@ -66,6 +68,33 @@ pub fn migrate(v: &mut toml::Value) {
     play.insert("hispeed".into(), toml::Value::Float(hs));
 }
 
+/// `[perspective]` of an older lane layout (no `layout`): a touch area
+/// left at that layout's default takes the current one's (the judge line
+/// moved up; the old height would leave little room above it). A height
+/// the player chose is kept.
+fn perspective(v: &mut toml::Value) {
+    use super::{PerspectiveConfig, OLD_TOUCH_HEIGHTS, PERSPECTIVE_LAYOUT};
+    let Some(p) = v.get_mut("perspective").and_then(|p| p.as_table_mut()) else {
+        return;
+    };
+    if p.contains_key("layout") {
+        return;
+    }
+    let old = p.get("touch_height").and_then(|h| h.as_float());
+    if old.is_some_and(|h| {
+        OLD_TOUCH_HEIGHTS
+            .iter()
+            .any(|&d| (h - d as f64).abs() < 1e-4)
+    }) {
+        let new = PerspectiveConfig::default().touch_height;
+        p.insert("touch_height".into(), toml::Value::Float(new as f64));
+    }
+    p.insert(
+        "layout".into(),
+        toml::Value::Integer(PERSPECTIVE_LAYOUT as i64),
+    );
+}
+
 /// `[ir_server]` as a vibeBMS IR account of `[ir]`. Its token is read
 /// into the account (`IrAccount::old_token`), which is never written back:
 /// the app moves it to the credentials store.
@@ -101,6 +130,29 @@ fn ir_server(v: &mut toml::Value) {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    #[test]
+    fn old_perspective_touch_area() {
+        // an older layout's default moves to the current one
+        for old in ["0.4", "0.30000001192092896"] {
+            let mut v: toml::Value =
+                toml::from_str(&format!("[perspective]\ntouch_height = {old}\n")).unwrap();
+            migrate(&mut v);
+            let c: Config = v.try_into().unwrap();
+            assert_eq!(c.perspective, crate::config::PerspectiveConfig::default());
+        }
+        // a height chosen is kept, and so is one saved with this layout
+        for s in [
+            "[perspective]\ntouch_height = 0.55\n",
+            "[perspective]\ntouch_height = 0.4\nlayout = 2\n",
+        ] {
+            let mut v: toml::Value = toml::from_str(s).unwrap();
+            let h = v["perspective"]["touch_height"].as_float().unwrap() as f32;
+            migrate(&mut v);
+            let c: Config = v.try_into().unwrap();
+            assert_eq!((c.perspective.touch_height, c.perspective.layout), (h, 2));
+        }
+    }
 
     #[test]
     fn moved_tables() {

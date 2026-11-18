@@ -428,7 +428,13 @@ fn builtin_perspective_skins_load_and_reflow() {
                 let (rw, rh) = crate::perspective::reflowed_size(w, h, aspect);
                 let mut re = sk.clone();
                 re.reflow(rw, rh);
-                let fans = crate::perspective::layout(mode, false, rw, rh, &Default::default());
+                // the scratch on either side (1P, 2P)
+                let fans: Vec<_> = [false, true]
+                    .into_iter()
+                    .flat_map(|side2| {
+                        crate::perspective::layout(mode, side2, rw, rh, &Default::default())
+                    })
+                    .collect();
                 for o in &re.objects {
                     let (Some(k), Some(a)) = (o.dst.keys.first(), o.dst.anchor) else {
                         continue;

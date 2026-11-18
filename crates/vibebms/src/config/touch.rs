@@ -116,21 +116,33 @@ pub struct PerspectiveConfig {
     /// How far up the lanes reach: share of the room above the judge line.
     pub length: f32,
     /// Touch area: share of the screen height from the bottom in which the
-    /// lanes are played (with touch controls).
+    /// lanes are played (with touch controls). The judge line is at a
+    /// quarter of the height from the bottom: by default it is in the
+    /// middle of the touch area.
     pub touch_height: f32,
+    /// The lane layout these settings were saved with
+    /// (`PERSPECTIVE_LAYOUT`); files of older layouts have none, and their
+    /// default touch area moves to this one's (`migrate`).
+    pub layout: u32,
 }
 
 /// Limits of `PerspectiveConfig`.
 pub const PERSPECTIVE_MAX: f32 = 0.9;
 pub const LENGTH_RANGE: (f32, f32) = (0.4, 1.0);
-pub const TOUCH_HEIGHT_RANGE: (f32, f32) = (0.1, 0.6);
+pub const TOUCH_HEIGHT_RANGE: (f32, f32) = (0.3, 0.7);
+/// The current perspective lane layout: the judge line at 3/4 of the
+/// screen's height, the touch area its bottom half.
+pub const PERSPECTIVE_LAYOUT: u32 = 2;
+/// Touch area heights older layouts had as their default.
+pub const OLD_TOUCH_HEIGHTS: [f32; 2] = [0.3, 0.4];
 
 impl Default for PerspectiveConfig {
     fn default() -> Self {
         PerspectiveConfig {
             strength: 0.75,
             length: 1.0,
-            touch_height: 0.4,
+            touch_height: 0.5,
+            layout: PERSPECTIVE_LAYOUT,
         }
     }
 }

@@ -1124,14 +1124,17 @@ def judge_panel(sk, img, f, x, y, w, h):
     panel(img, (x, y, w, h), "JUDGE", f)
     d = ImageDraw.Draw(img)
     wide = w >= 300
+    # narrow: the counts only
+    narrow = w < 180
     cw = sk.num("n_small", 110, 4)[1]
     keta = 4 if wide else 3
-    tot_r = x + (w * 50) // 100
+    tot_r = x + w - 12 if narrow else x + (w * 50) // 100
     fast_r = x + (w * 76) // 100
     slow_r = x + w - 12
     fast_c, slow_c = (140, 195, 255), (255, 140, 150)
-    draw_label(img, f, fast_r - cw * keta // 2, y + 7, "FAST", 11, BLUE, anchor="ma")
-    draw_label(img, f, slow_r - cw * keta // 2, y + 7, "SLOW", 11, RED, anchor="ma")
+    if not narrow:
+        draw_label(img, f, fast_r - cw * keta // 2, y + 7, "FAST", 11, BLUE, anchor="ma")
+        draw_label(img, f, slow_r - cw * keta // 2, y + 7, "SLOW", 11, RED, anchor="ma")
     rh = min(24, (h - 42) // 6)
     top = y + 24 + ((h - 32) - rh * 6 - 4) // 2
     names = ["PERFECT", "GREAT", "GOOD", "BAD", "POOR"] if wide else ["PG", "GR", "GD", "BD", "PR"]
@@ -1139,14 +1142,16 @@ def judge_panel(sk, img, f, x, y, w, h):
         ry = top + i * rh
         draw_label(img, f, x + 12, ry + 2, name, 13, TEXT)
         sk.number("n_small", ref, 4, tot_r - cw * 4, ry)
-        sk.number("n_small", 410 + i * 2, keta, fast_r - cw * keta, ry, color=fast_c)
-        sk.number("n_small", 411 + i * 2, keta, slow_r - cw * keta, ry, color=slow_c)
+        if not narrow:
+            sk.number("n_small", 410 + i * 2, keta, fast_r - cw * keta, ry, color=fast_c)
+            sk.number("n_small", 411 + i * 2, keta, slow_r - cw * keta, ry, color=slow_c)
     ry = top + 5 * rh + 4
     d.line((x + 10, ry - 3, x + w - 10, ry - 3), fill=EDGE + (255,), width=1)
     draw_label(img, f, x + 12, ry + 2, "COMBO BREAK" if wide else "CB", 13, AMBER)
     sk.number("n_small", 425, 4, tot_r - cw * 4, ry, color=(255, 220, 140))
-    sk.number("n_small", 423, keta, fast_r - cw * keta, ry, color=fast_c)
-    sk.number("n_small", 424, keta, slow_r - cw * keta, ry, color=slow_c)
+    if not narrow:
+        sk.number("n_small", 423, keta, fast_r - cw * keta, ry, color=fast_c)
+        sk.number("n_small", 424, keta, slow_r - cw * keta, ry, color=slow_c)
 
 
 def bpm_panel(sk, img, f, x, y, w, h):
@@ -1622,8 +1627,12 @@ def port_sp(fonts, parts, mode, side):
 # screen's shape: every object has an anchor (the share of the added width /
 # height it moves by), and the panels are separate images so that they move
 # with their numbers. Room is left in the top corners for START / SELECT.
-PERSP_TOP = {True: 212, False: 96}     # perspective::top_of_lanes
-PERSP_BASE = {True: 0.14, False: 0.16}  # perspective::base_gap
+# In landscape the lanes reach near the top of the screen, the line between
+# the middle keys upright in its middle, the scratch leaning out to its side
+# (either side: 1P or 2P), so the panels fill the two top corners beside
+# them, narrower further down.
+PERSP_TOP = {True: 212, False: 43}     # perspective::top_of_lanes (0.06 H)
+PERSP_BASE = {True: 0.25, False: 0.25}  # 1 - perspective::BASE_Y
 
 
 class Plates:
@@ -1677,7 +1686,8 @@ def rate_best_panel(sk, img, f, x, y, w, h):
     rh = (h - 24) // 2
     for i, label in enumerate(("RATE", "BEST")):
         draw_label(img, f, x + 12, y + 24 + i * rh + rh // 2, label, 13, TEXT, anchor="lm")
-    rate_number(sk, img, f, r, y + 24 + (rh - sk.num("n_mid", 102, 3)[2]) // 2)
+    key = "n_mid" if w >= 190 else "n_small"
+    rate_number(sk, img, f, r, y + 24 + (rh - sk.num(key, 102, 3)[2]) // 2, key)
     sw, sh = sk.num("n_signed", 152, 5)[1:]
     sk.number("n_signed", 152, 5, r - sw * 5, y + 24 + rh + (rh - sh) // 2)
 
@@ -1717,22 +1727,25 @@ def persp(fonts, parts, mode, portrait):
         pl.start((16, 162, 688, 42), (0.5, 0))
         persp_stats(sk, pl.img, f, 16, 162, 688, 42)
     elif not double:
-        # the lanes span most of the width at the bottom: the panels go in
-        # the top corners beside their far end, narrower further down
-        pl.start((300, 8, 680, 72), (0.5, 0))
-        header(sk, pl.img, f, 300, 8, 680, 72)
-        pl.start((12, 96, 278, 148), (0, 0))
-        score_panel(sk, pl.img, f, 12, 96, 278, 148)
-        pl.start((12, 252, 232, 152), (0, 0))
-        judge_panel(sk, pl.img, f, 12, 252, 232, 152)
-        pl.start((986, 96, 284, 156), (1, 0))
-        gauge_block(sk, pl.img, f, 990, 96, 278)
-        bpm_panel(sk, pl.img, f, 990, 160, 278, 92)
-        pl.start((1036, 260, 232, 130), (1, 0))
-        status_panel(sk, pl.img, f, 1036, 260, 232, 130)
+        # the lanes reach near the top in the middle: the panels go in the
+        # top corners beside them, narrower further down (the scratch may
+        # be on either side), START / SELECT in the outer corners
+        pl.start((168, 8, 272, 72), (0, 0))
+        header(sk, pl.img, f, 168, 8, 272, 72)
+        pl.start((12, 88, 278, 148), (0, 0))
+        score_panel(sk, pl.img, f, 12, 88, 278, 148)
+        pl.start((12, 244, 130, 148), (0, 0))
+        judge_panel(sk, pl.img, f, 12, 244, 130, 148)
+        pl.start((840, 8, 272, 72), (1, 0))
+        panel(pl.img, (840, 8, 272, 72))
+        gauge_block(sk, pl.img, f, 852, 14, 248)
+        pl.start((990, 88, 278, 92), (1, 0))
+        bpm_panel(sk, pl.img, f, 990, 88, 278, 92)
+        pl.start((1062, 188, 206, 130), (1, 0))
+        status_panel(sk, pl.img, f, 1062, 188, 206, 130)
     else:
-        pl.start((300, 8, 680, 72), (0.5, 0))
-        header(sk, pl.img, f, 300, 8, 680, 72)
+        pl.start((404, 8, 472, 72), (0.5, 0))
+        header(sk, pl.img, f, 404, 8, 472, 72)
         pl.start((466, 94, 348, 112), (0.5, 0))
         gauge_block(sk, pl.img, f, 470, 96, 340)
         persp_stats(sk, pl.img, f, 470, 156, 340, 42)
@@ -1740,8 +1753,8 @@ def persp(fonts, parts, mode, portrait):
         # beside them only has room for the rate and the best's difference
         pl.start((520, 212, 240, 152), (0.5, 0))
         judge_panel(sk, pl.img, f, 520, 212, 240, 152)
-        pl.start((12, 96, 200, 80), (0, 0))
-        rate_best_panel(sk, pl.img, f, 12, 96, 200, 80)
+        pl.start((12, 88, 164, 80), (0, 0))
+        rate_best_panel(sk, pl.img, f, 12, 88, 164, 80)
     # judgements over each fan, the hi-speed panel and READY
     sk.anchor = (0.5, 0.5)
     centres = [W // 4, W * 3 // 4] if double else [W // 2]
