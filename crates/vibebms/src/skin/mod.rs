@@ -942,6 +942,11 @@ pub struct Skin {
     /// vibeBMS `perspective`: the note field is drawn as lanes in
     /// perspective (`scene::play_persp`), filling the canvas.
     pub perspective: bool,
+    /// LR2 `#HORIZONTAL`: the note field scrolls right to left. Each
+    /// lane's rect runs from the judge position (its left edge) to the
+    /// right edge of the canvas; `LaneSkin::note_h` is then the notes'
+    /// width.
+    pub horizontal: bool,
     /// The ops of the skin's own options in effect (each property's
     /// chosen item), for what the game draws itself.
     pub options_on: std::collections::HashSet<i32>,
@@ -979,6 +984,7 @@ impl Skin {
             offsets: HashMap::new(),
             skin_select: None,
             perspective: false,
+            horizontal: false,
             options_on: Default::default(),
         }
     }

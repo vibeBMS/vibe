@@ -6,7 +6,7 @@
 //! `_BARGRAPH`, `_SLIDER`, `_GROOVEGAUGE`, `_BGA`, `_NOTE`, `_LN_*`,
 //! `_MINE`, `_LINE`, `_JUDGELINE`, `_NOWJUDGE_1P/2P`, `_NOWCOMBO_1P/2P`,
 //! `#STARTINPUT`, `#SCENETIME`, `#FADEOUT`, `#FINISHMARGIN`, `#PLAYSTART`,
-//! `#CLOSE`, and the note / BPM / timing charts.
+//! `#CLOSE`, `#HORIZONTAL`, and the note / BPM / timing charts.
 //!
 //! beatoraja's additions: `#IMAGESET`, `.cim` images, `_HCN_*`, `_HIDDEN`,
 //! `_LIFT`, `_TIMING_1P`, `_GROOVEGAUGE_EX`, `_SLIDER_REFNUMBER`,
@@ -421,6 +421,9 @@ pub fn load_with(
     if !l.resolution_set {
         (skin.width, skin.height) = guess_resolution(&skin);
     }
+    if skin.horizontal {
+        turn_lanes(&mut skin);
+    }
     // text is anchored at x: its left edge, centre or right edge by align
     let anchor = |d: &mut Dst, align: i32| {
         let k = align.clamp(0, 2) as f32 * 0.5;
@@ -441,6 +444,20 @@ pub fn load_with(
         return Err(format!("{}: no drawable objects", path.display()));
     }
     Ok(skin)
+}
+
+/// `#HORIZONTAL`: a lane's `#DST_NOTE` x, y, w, h is still the note at the
+/// judge position, which is now its left edge; notes come in from the
+/// right edge of the canvas, w wide. (`#DST_NOTE` made the lane run from
+/// the top of the screen down to y + h.)
+fn turn_lanes(skin: &mut Skin) {
+    let width = skin.width;
+    for ls in &mut skin.lanes {
+        if let (Some(r), Some(h)) = (ls.rect, ls.note_h) {
+            ls.rect = Some(Rect::new(r.x, r.h - h, (width - r.x).max(1.0), h));
+            ls.note_h = Some(r.w);
+        }
+    }
 }
 
 /// Screen size of a skin without `#RESOLUTION`: HD-patched LR2 builds run

@@ -1,12 +1,13 @@
 //! Where the mixer's frames go: a cpal stream (`cpal`, silent by the wall
 //! clock while there is no device: `null`; on Windows a WASAPI stream of
 //! its own first: `wasapi`), or on the web an AudioWorklet (`web`, the
-//! worklet's side in `worklet`).
+//! worklet's side in `worklet`); or made when asked for (`offline`).
 
 pub(crate) mod cpal;
 #[cfg(target_os = "ios")]
 mod ios;
 mod null;
+pub(crate) mod offline;
 #[cfg(any(windows, test))]
 mod wasapi;
 #[cfg(target_arch = "wasm32")]
@@ -35,6 +36,12 @@ pub(crate) trait Output {
     /// for and not had), once.
     fn take_notice(&mut self) -> Option<String> {
         None
+    }
+    /// An offline output: its frames up to `us` on the judge's clock
+    /// appended to `out` (stereo, interleaved, clipped); `false` for an
+    /// output that plays them itself.
+    fn render_until(&mut self, _us: f64, _out: &mut Vec<f32>) -> bool {
+        false
     }
 }
 

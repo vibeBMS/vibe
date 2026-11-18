@@ -5,6 +5,8 @@ mod cli;
 mod ctx;
 mod diag;
 mod events;
+#[cfg(desktop)]
+pub mod export;
 mod pacing;
 mod tables;
 mod viewer;

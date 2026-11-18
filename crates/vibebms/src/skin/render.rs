@@ -316,7 +316,13 @@ impl LoadedSkin {
     /// Load the font sheets drawing asked for and advance videos (call
     /// once per frame).
     pub fn load_pending(&mut self, gfx: &mut Gfx) {
-        let ms = self.loaded_at.elapsed().as_millis() as i64;
+        self.load_pending_at(gfx, crate::platform::Instant::now());
+    }
+
+    /// [`Self::load_pending`] with the videos and animations at `now`
+    /// (a frame drawn offline: its own time).
+    pub fn load_pending_at(&mut self, gfx: &mut Gfx, now: crate::platform::Instant) {
+        let ms = now.saturating_duration_since(self.loaded_at).as_millis() as i64;
         for (i, v) in &mut self.videos {
             v.update(gfx, ms);
             self.tex[*i] = v.texture();

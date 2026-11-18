@@ -7,7 +7,7 @@
 //!   queued ahead as moments on the judge's clock, turned into frames by
 //!   the output's clock: see `clock`), on an output (`out`): a cpal stream,
 //!   silence by the wall clock without a device, or on the web an
-//!   AudioWorklet.
+//!   AudioWorklet; or offline, its frames made when asked for.
 
 mod clock;
 pub mod decode;
@@ -114,6 +114,29 @@ impl Mixer {
         }
         let (out, dev) = out::cpal::CpalOut::open(cfg, epoch);
         Mixer::on(Box::new(out), dev, epoch)
+    }
+
+    /// A mixer that plays nothing: its frames are made by
+    /// [`Mixer::render_until`] (a video's sound track), at `rate`, frame 0
+    /// at the moment it is made.
+    pub fn offline(cfg: &AudioConfig, rate: u32) -> Mixer {
+        let epoch = Instant::now();
+        let rate = rate.max(1);
+        let out = out::offline::OfflineOut::new(cfg, rate);
+        let dev = Device {
+            rate,
+            buffer: 0,
+            name: "offline".into(),
+        };
+        Mixer::on(Box::new(out), dev, epoch)
+    }
+
+    /// An offline mixer ([`Mixer::offline`]): its frames from the last
+    /// call up to `until` appended to `out` (stereo, interleaved, clipped
+    /// as an output plays them); `false` (nothing made) for one that plays
+    /// to a device.
+    pub fn render_until(&mut self, until: Instant, out: &mut Vec<f32>) -> bool {
+        self.out.render_until(us_since(self.epoch, until), out)
     }
 
     fn on(out: Box<dyn Output>, dev: Device, epoch: Instant) -> Mixer {

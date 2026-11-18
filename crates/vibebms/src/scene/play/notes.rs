@@ -1,5 +1,9 @@
 //! The flat note field: notes, long notes, mines, bar lines, the judge
 //! area and BPM guide, drawn with the play skin's images.
+//!
+//! An LR2 `#HORIZONTAL` skin scrolls right to left: the field is laid out
+//! as a vertical one in a frame turned a quarter (`Axis`), so that down to
+//! the judge line is left to the judge position.
 
 use super::session::held_at_line;
 use super::skin::PlayState;
@@ -31,11 +35,22 @@ pub(super) fn draw(
     let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
     // `#SPEED` now: the whole lane faster or slower (not under CONSTANT)
     let speed = s.chart.timing.speed_at_time(t_vis as f64);
+    let axis = Axis {
+        horizontal: skin.skin.horizontal,
+        edge: xf.ox + skin.skin.width * xf.sx,
+    };
+    // (a note's width and height %; laid out, horizontal, its height and width)
     let pulse = note_pulse(skin.skin.note_expansion, &s.chart.timing, t_vis);
-    let fall_y = skin
-        .skin
-        .note_fall_y
-        .map(|y| xf.rect(Rect::new(0.0, y, 0.0, 0.0)).y);
+    let pulse = if axis.horizontal {
+        (pulse.1, pulse.0)
+    } else {
+        pulse
+    };
+    // (horizontal: the x the notes go to)
+    let fall_y = skin.skin.note_fall_y.map(|y| match axis.horizontal {
+        true => axis.edge - (xf.ox + y * xf.sx),
+        false => xf.rect(Rect::new(0.0, y, 0.0, 0.0)).y,
+    });
     let main_bpm = if s.chart.meta.main_bpm > 0.0 {
         s.chart.meta.main_bpm
     } else {
@@ -87,7 +102,7 @@ pub(super) fn draw(
         let side = s.mode.player_of_lane(lane).min(1);
         let p = per[side];
         let dur_us = dur_of(side);
-        let r = xf.rect(lr);
+        let r = axis.unmap(xf.rect(lr));
         let judge_y = r.bottom() - p.lift * r.h;
         let top = r.y
             + if p.lane_cover || p.sudden > 0.0 {
@@ -105,20 +120,17 @@ pub(super) fn draw(
                 }
             }
         };
-        let note_h = |src: &crate::skin::Src| match ls.note_h {
-            Some(h) => h * xf.sy,
-            None => src.frames.first().map(|f| f[3] * xf.sy).unwrap_or(4.0),
-        };
+        let note_h = |src: &crate::skin::Src| axis.length(ls.note_h, src, xf, 4.0);
         // HIDDEN+ hides notes above the judge line
         let bottom = judge_y + 2.0 - p.hidden * (judge_y - top);
         // (wide enough for pulsing notes)
         let grow = r.w * (pulse.0 - 1.0).max(0.0) * 0.5;
-        d.b.set_clip(Some(Rect::new(
+        d.b.set_clip(Some(axis.map(Rect::new(
             r.x - grow,
             top,
             r.w + 2.0 * grow,
             (bottom - top).max(0.0),
-        )));
+        ))));
         let at = |t: i64| y_of(s.chart.timing.pos_at_time(t as f64), t);
         // JUDGE AREA: each judgement's early window as a band above the
         // line (beatoraja's colours: PG blue .. POOR red)
@@ -140,7 +152,7 @@ pub(super) fn draw(
             for (k, (_, early)) in win.iter().enumerate().take(COLORS.len()) {
                 let hi = at(t_vis + early).max(top);
                 if hi < lo {
-                    d.b.rect(Rect::new(r.x, hi, r.w, lo - hi), COLORS[k]);
+                    d.b.rect(axis.map(Rect::new(r.x, hi, r.w, lo - hi)), COLORS[k]);
                     lo = hi;
                 }
             }
@@ -230,23 +242,26 @@ pub(super) fn draw(
                             b,
                             now,
                             st,
-                            Rect::new(r.x, ye, r.w, (yh - ye).max(0.0)),
+                            axis.map(Rect::new(r.x, ye, r.w, (yh - ye).max(0.0))),
                             &ident,
                         );
                     }
                     if let Some(e) = ln_end.or(ls.note.as_ref()) {
                         let h = note_h(e);
-                        skin.blit(d, e, now, st, Rect::new(r.x, ye - h, r.w, h), &ident);
+                        let er = axis.map(Rect::new(r.x, ye - h, r.w, h));
+                        skin.blit(d, e, now, st, er, &ident);
                     }
                     if let Some(h0) = ln_start.or(ls.note.as_ref()) {
                         let h = note_h(h0);
-                        skin.blit(d, h0, now, st, Rect::new(r.x, yh - h, r.w, h), &ident);
+                        let hr = axis.map(Rect::new(r.x, yh - h, r.w, h));
+                        skin.blit(d, h0, now, st, hr, &ident);
                     }
                 }
                 NoteKind::Mine { .. } => {
                     if let Some(m) = ls.mine.as_ref() {
                         let h = note_h(m);
-                        skin.blit(d, m, now, st, Rect::new(r.x, y - h, r.w, h), &ident);
+                        let mr = axis.map(Rect::new(r.x, y - h, r.w, h));
+                        skin.blit(d, m, now, st, mr, &ident);
                     }
                 }
                 _ => {
@@ -266,7 +281,7 @@ pub(super) fn draw(
                         let fr = if mark { &marked } else { &ident };
                         let (w2, h2) = (r.w * pulse.0, h * pulse.1);
                         let nr = Rect::new(r.x - (w2 - r.w) * 0.5, y - h - (h2 - h) * 0.5, w2, h2);
-                        skin.blit(d, src, now, st, nr, fr);
+                        skin.blit(d, src, now, st, axis.map(nr), fr);
                     }
                 }
             }
@@ -286,21 +301,23 @@ pub(super) fn draw(
             for ni in falling {
                 let y = at(notes[ni].time + bad).max(judge_y);
                 if y <= vanish {
-                    skin.blit(d, src, now, st, Rect::new(r.x, y - h, r.w, h), &ident);
+                    let fr = axis.map(Rect::new(r.x, y - h, r.w, h));
+                    skin.blit(d, src, now, st, fr, &ident);
                 }
             }
         }
     }
     for (pl, y, label, c) in &guide_y {
         if let Some((x0, x1)) = guide_span[*pl] {
-            d.b.rect(Rect::new(x0, *y - 1.0, x1 - x0, 2.0), *c);
+            let line = axis.map(Rect::new(x0, *y - 1.0, x1 - x0, 2.0));
+            d.b.rect(line, *c);
             let size = (14.0 * xf.sy).max(10.0);
-            d.text(
-                label,
-                (x0 + x1) * 0.5,
-                *y - size - 4.0,
-                TextStyle::new(size, *c, Align::Center),
-            );
+            // (horizontal: above the lanes)
+            let (tx, ty) = match axis.horizontal {
+                true => (line.x + line.w * 0.5, line.y - size - 4.0),
+                false => ((x0 + x1) * 0.5, *y - size - 4.0),
+            };
+            d.text(label, tx, ty, TextStyle::new(size, *c, Align::Center));
         }
     }
     // bar lines span each lane group
@@ -308,7 +325,13 @@ pub(super) fn draw(
         let p = per[i.min(1)];
         let dur_us = dur_of(i.min(1));
         if let Some(fr) = dst.eval(now, st) {
-            let field = xf.rect(fr.rect);
+            // (horizontal: the line at the judge position, the field on to
+            // the right edge of the canvas)
+            let mut fr_rect = fr.rect;
+            if axis.horizontal {
+                fr_rect.w = (skin.skin.width - fr_rect.x).max(1.0);
+            }
+            let field = axis.unmap(xf.rect(fr_rect));
             let judge_y = field.bottom() - p.lift * field.h;
             let top = field.y + p.sudden * field.h;
             let ppb = (judge_y - top).max(1.0) as f64 / (dur_us / 1_000_000.0 * main_bpm / 60.0);
@@ -322,14 +345,51 @@ pub(super) fn draw(
                 if y < top {
                     break;
                 }
-                let h = src
-                    .frames
-                    .first()
-                    .map(|f| f[3] * xf.sy)
-                    .unwrap_or(1.0)
-                    .max(1.0);
-                skin.blit(d, src, now, st, Rect::new(field.x, y - h, field.w, h), &fr);
+                let h = axis.length(None, src, xf, 1.0).max(1.0);
+                let lr = axis.map(Rect::new(field.x, y - h, field.w, h));
+                skin.blit(d, src, now, st, lr, &fr);
             }
+        }
+    }
+}
+
+/// The direction of the note field. Vertical, rects are drawn as they
+/// are; horizontal, the field is laid out as a vertical one whose y is the
+/// distance left from the right `edge` of the canvas and whose x is the
+/// screen's y.
+#[derive(Clone, Copy)]
+struct Axis {
+    horizontal: bool,
+    edge: f32,
+}
+
+impl Axis {
+    /// A rect of the layout on screen.
+    fn map(&self, r: Rect) -> Rect {
+        match self.horizontal {
+            true => Rect::new(self.edge - r.bottom(), r.x, r.h, r.w),
+            false => r,
+        }
+    }
+
+    /// A screen rect in the layout.
+    fn unmap(&self, r: Rect) -> Rect {
+        match self.horizontal {
+            true => Rect::new(r.y, self.edge - r.right(), r.h, r.w),
+            false => r,
+        }
+    }
+
+    /// How long a note (or line) image is along the scroll on screen: the
+    /// skin's size, else its source frame's (height, horizontal: width).
+    fn length(&self, skin_len: Option<f32>, src: &crate::skin::Src, xf: &Xf, or: f32) -> f32 {
+        let (k, scale) = match self.horizontal {
+            true => (2, xf.sx),
+            false => (3, xf.sy),
+        };
+        match skin_len {
+            Some(l) => l * scale,
+            None => src.frames.first().map(|f| f[k] * scale).unwrap_or(or),
         }
     }
 }
@@ -361,4 +421,36 @@ fn note_pulse(
     }
     .max(0.0) as f32;
     (1.0 + (w / 100.0 - 1.0) * k, 1.0 + (h / 100.0 - 1.0) * k)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Horizontal: the layout's lane runs down to the judge line as the
+    /// screen's runs left to its judge position; a note at the line is
+    /// drawn to the right of it, the far end is the canvas's right edge.
+    #[test]
+    fn a_horizontal_field_is_a_vertical_one_turned() {
+        let axis = Axis {
+            horizontal: true,
+            edge: 1280.0,
+        };
+        let lane = Rect::new(100.0, 200.0, 1180.0, 30.0);
+        let v = axis.unmap(lane);
+        assert_eq!(v, Rect::new(200.0, 0.0, 30.0, 1180.0));
+        assert_eq!(axis.map(v), lane);
+        // a 12 px note whose bottom is at the judge line
+        let note = Rect::new(v.x, v.bottom() - 12.0, v.w, 12.0);
+        assert_eq!(axis.map(note), Rect::new(100.0, 200.0, 12.0, 30.0));
+        // further up the layout is further right on screen
+        let later = Rect::new(v.x, v.bottom() - 512.0, v.w, 12.0);
+        assert_eq!(axis.map(later).x, 600.0);
+        let vertical = Axis {
+            horizontal: false,
+            edge: 1280.0,
+        };
+        assert_eq!(vertical.map(lane), lane);
+        assert_eq!(vertical.unmap(lane), lane);
+    }
 }

@@ -9,7 +9,9 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 pub struct Gfx {
-    pub surface: wgpu::Surface<'static>,
+    /// The window's (`None`: headless, drawn into a texture of
+    /// `offscreen`).
+    pub surface: Option<wgpu::Surface<'static>>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
@@ -37,7 +39,7 @@ pub struct Gfx {
     capture: Option<super::capture::Pending>,
     pub adapter_name: String,
     /// Told before each present (Wayland paces frames by it).
-    window: Arc<winit::window::Window>,
+    window: Option<Arc<winit::window::Window>>,
 }
 
 impl Gfx {
@@ -116,7 +118,29 @@ impl Gfx {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
+        Ok(Self::with_device(
+            device,
+            queue,
+            config,
+            &caps,
+            &info,
+            Some((surface, window)),
+        ))
+    }
 
+    /// The pipelines, buffers and atlas for drawing on `device` into
+    /// images of `config` (`out`: the window's surface; without it,
+    /// headless).
+    pub(super) fn with_device(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        config: wgpu::SurfaceConfiguration,
+        caps: &wgpu::SurfaceCapabilities,
+        info: &wgpu::AdapterInfo,
+        out: Option<(wgpu::Surface<'static>, Arc<winit::window::Window>)>,
+    ) -> Gfx {
+        let (surface, window) = out.unzip();
+        let format = config.format;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("2d"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -297,7 +321,7 @@ impl Gfx {
         }
         let id = g.create_texture(ATLAS_SIZE, ATLAS_SIZE, &px);
         debug_assert_eq!(id, ATLAS);
-        Ok(g)
+        g
     }
 
     pub fn width(&self) -> f32 {
@@ -313,7 +337,9 @@ impl Gfx {
         }
         self.config.width = w;
         self.config.height = h;
-        self.surface.configure(&self.device, &self.config);
+        if let Some(s) = &self.surface {
+            s.configure(&self.device, &self.config);
+        }
         self.queue.write_buffer(
             &self.uniform_buf,
             0,
@@ -325,7 +351,9 @@ impl Gfx {
         let m = choose_present_mode(&self.present_modes, mode);
         self.config.present_mode = m;
         self.config.desired_maximum_frame_latency = frame_latency(m);
-        self.surface.configure(&self.device, &self.config);
+        if let Some(s) = &self.surface {
+            s.configure(&self.device, &self.config);
+        }
     }
 
     /// Copy the next frame for a screenshot ([`Self::take_capture`]);
@@ -333,13 +361,16 @@ impl Gfx {
     /// surface is made copyable the first time (not before: it may cost
     /// some GPUs' compression of it).
     pub fn request_capture(&mut self) -> bool {
+        let Some(surface) = self.surface.as_ref() else {
+            return false;
+        };
         if !self.can_copy || !super::capture::readable(self.config.format) {
             return false;
         }
         let copy = wgpu::TextureUsages::COPY_SRC;
         if !self.config.usage.contains(copy) {
             self.config.usage |= copy;
-            self.surface.configure(&self.device, &self.config);
+            surface.configure(&self.device, &self.config);
         }
         self.capture_next = true;
         true
@@ -372,15 +403,47 @@ impl Gfx {
     /// there).
     pub fn render(&mut self, batch: &Batch, clear: Color) -> Result<Duration, wgpu::SurfaceError> {
         let t0 = Instant::now();
-        let frame = match self.surface.get_current_texture() {
+        let Some(surface) = self.surface.as_ref() else {
+            return Ok(Duration::ZERO);
+        };
+        let frame = match surface.get_current_texture() {
             Ok(f) => f,
             Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
-                self.surface.configure(&self.device, &self.config);
+                surface.configure(&self.device, &self.config);
                 return Ok(Duration::ZERO);
             }
             Err(e) => return Err(e),
         };
         let waited = t0.elapsed();
+        let mut enc = self.encode(batch, clear, &frame.texture);
+        let capture = match std::mem::take(&mut self.capture_next) {
+            true if self.capture.is_none() => {
+                super::capture::copy(&self.device, &mut enc, &frame.texture)
+            }
+            _ => None,
+        };
+        self.queue.submit(Some(enc.finish()));
+        if let Some(c) = capture {
+            c.start();
+            self.capture = Some(c);
+        }
+        // winit: on Wayland the next redraw request follows the compositor's
+        // frame callback only when told a frame is about to be shown
+        if let Some(w) = &self.window {
+            w.pre_present_notify();
+        }
+        frame.present();
+        Ok(waited)
+    }
+
+    /// A frame's batch uploaded and its drawing into `target` (of the
+    /// config's size and format) recorded.
+    pub(super) fn encode(
+        &mut self,
+        batch: &Batch,
+        clear: Color,
+        target: &wgpu::Texture,
+    ) -> wgpu::CommandEncoder {
         let n = batch.verts.len() as u64;
         if n > self.vcap {
             self.vcap = n.next_power_of_two();
@@ -413,7 +476,7 @@ impl Gfx {
             }
             self.queue.write_buffer(&self.sdf_buf, 0, &bytes);
         }
-        let view = frame.texture.create_view(&Default::default());
+        let view = target.create_view(&Default::default());
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -468,22 +531,7 @@ impl Gfx {
                 pass.draw(c.start..c.start + c.count, 0..1);
             }
         }
-        let capture = match std::mem::take(&mut self.capture_next) {
-            true if self.capture.is_none() => {
-                super::capture::copy(&self.device, &mut enc, &frame.texture)
-            }
-            _ => None,
-        };
-        self.queue.submit(Some(enc.finish()));
-        if let Some(c) = capture {
-            c.start();
-            self.capture = Some(c);
-        }
-        // winit: on Wayland the next redraw request follows the compositor's
-        // frame callback only when told a frame is about to be shown
-        self.window.pre_present_notify();
-        frame.present();
-        Ok(waited)
+        enc
     }
 }
 
