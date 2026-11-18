@@ -82,6 +82,9 @@ fn random(o: LaneOption) -> Option<&'static str> {
         LaneOption::Random => Some("RANDOM"),
         LaneOption::RRandom => Some("R-RANDOM"),
         LaneOption::SRandom => Some("S-RANDOM"),
+        // a lane order drawn at random, of a half each (Tachi has no
+        // name of its own for them)
+        LaneOption::FRandom | LaneOption::MfRandom => Some("RANDOM"),
         _ => None,
     }
 }

@@ -17,6 +17,13 @@ struct ScrollSeg {
     scroll: f64,
 }
 
+/// A `#SPEED` value from a time on (µs).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SpeedPoint {
+    time: f64,
+    speed: f64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct StopEvent {
     pub beat: f64,
@@ -30,12 +37,30 @@ pub struct BpmChange {
     pub bpm: f64,
 }
 
-/// Piecewise-linear mapping between beats, real time and scroll position.
-#[derive(Clone, Debug, PartialEq)]
+/// Piecewise-linear mapping between beats, real time and scroll position,
+/// and the `#SPEED` multiplier of the whole lane over time.
+#[derive(Clone, PartialEq)]
 pub struct TimingMap {
     segs: Vec<TimeSeg>,
     scroll: Vec<ScrollSeg>,
     pub stops: Vec<StopEvent>,
+    /// `#SPEED` points in time order (none: 1 throughout).
+    speeds: Vec<SpeedPoint>,
+}
+
+/// (Without `#SPEED` points, as it was before them: the parser corpus's
+/// digests of charts without them stay.)
+impl std::fmt::Debug for TimingMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("TimingMap");
+        d.field("segs", &self.segs)
+            .field("scroll", &self.scroll)
+            .field("stops", &self.stops);
+        if !self.speeds.is_empty() {
+            d.field("speeds", &self.speeds);
+        }
+        d.finish()
+    }
 }
 
 impl Default for TimingMap {
@@ -53,6 +78,9 @@ pub enum TimingEvent {
     /// Stop length in microseconds (independent of BPM).
     StopMicros(f64),
     Scroll(f64),
+    /// beatoraja's `#SPEED` (channel SP): the scroll speed of the whole
+    /// lane, reached at this point, interpolated in time from the last.
+    Speed(f64),
 }
 
 impl TimingMap {
@@ -74,6 +102,7 @@ impl TimingMap {
                 scroll: 1.0,
             }],
             stops: Vec::new(),
+            speeds: Vec::new(),
         }
     }
 
@@ -85,7 +114,7 @@ impl TimingMap {
             a.0.total_cmp(&b.0).then_with(|| {
                 let rank = |e: &TimingEvent| match e {
                     TimingEvent::Bpm(_) => 0,
-                    TimingEvent::Scroll(_) => 1,
+                    TimingEvent::Scroll(_) | TimingEvent::Speed(_) => 1,
                     _ => 2,
                 };
                 rank(&a.1).cmp(&rank(&b.1))
@@ -99,6 +128,7 @@ impl TimingMap {
             let mut stop_beats = 0.0;
             let mut stop_us = 0.0;
             let mut new_scroll = None;
+            let mut new_speed = None;
             while j < events.len() && events[j].0.max(0.0) == beat {
                 match events[j].1 {
                     TimingEvent::Bpm(b) if b > 0.0 => new_bpm = Some(b),
@@ -106,11 +136,16 @@ impl TimingMap {
                     TimingEvent::StopBeats(s) if s > 0.0 => stop_beats += s,
                     TimingEvent::StopMicros(s) if s > 0.0 => stop_us += s,
                     TimingEvent::Scroll(s) => new_scroll = Some(s),
+                    TimingEvent::Speed(s) if s.is_finite() => new_speed = Some(s),
                     _ => {}
                 }
                 j += 1;
             }
             let t = map.time_at_beat_f(beat);
+            if let Some(speed) = new_speed {
+                // (at the time the beat is reached, before a stop there)
+                map.speeds.push(SpeedPoint { time: t, speed });
+            }
             let last = map.segs.last().unwrap();
             let bpm = new_bpm.unwrap_or(last.bpm);
             let stop = stop_us + stop_beats * 60_000_000.0 / bpm;
@@ -237,7 +272,55 @@ impl TimingMap {
                     duration: (s.duration as f64 / speed).round() as i64,
                 })
                 .collect(),
+            speeds: (self.speeds.iter())
+                .map(|p| SpeedPoint {
+                    time: at(p.time),
+                    speed: p.speed,
+                })
+                .collect(),
         }
+    }
+
+    /// The map without scroll gimmicks (SCROLL REMOVE): the scroll
+    /// position is the beat, `#SPEED` is 1 throughout.
+    pub fn without_scroll(&self) -> TimingMap {
+        TimingMap {
+            scroll: vec![ScrollSeg {
+                beat: 0.0,
+                pos: 0.0,
+                scroll: 1.0,
+            }],
+            speeds: Vec::new(),
+            ..self.clone()
+        }
+    }
+
+    /// The scroll changes anywhere (`#SCROLL`, `#SPEED`, a NONSTOP
+    /// course's time-based scroll).
+    pub fn has_scroll_changes(&self) -> bool {
+        !self.speeds.is_empty() || self.scroll.iter().any(|s| s.scroll != 1.0)
+    }
+
+    /// The `#SPEED` multiplier at time `t` (µs): linear in time between
+    /// its points (beatoraja's, as bmz-player documents it), from 1 at 0
+    /// to the first point, the last point's value after it.
+    pub fn speed_at_time(&self, t: f64) -> f64 {
+        let p = &self.speeds;
+        let i = p.partition_point(|s| s.time <= t);
+        let start = SpeedPoint {
+            time: 0.0,
+            speed: 1.0,
+        };
+        let (a, b) = match i {
+            _ if p.is_empty() => return 1.0,
+            0 => (start, p[0]),
+            i if i == p.len() => return p[i - 1].speed,
+            i => (p[i - 1], p[i]),
+        };
+        if t <= a.time || b.time <= a.time {
+            return if t <= a.time { a.speed } else { b.speed };
+        }
+        a.speed + (b.speed - a.speed) * (t - a.time) / (b.time - a.time)
     }
 
     fn seg_before_beat(&self, beat: f64) -> &TimeSeg {
@@ -416,6 +499,39 @@ mod tests {
         // the stop: twice as long, from the time it starts at
         assert_eq!((r.stops[0].time, r.stops[0].duration), (2_000_000, 500_000));
         assert!((r.beat_at_time(2_400_000.0) - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn speed_is_interpolated_in_time() {
+        // 120 BPM (a beat 0.5 s): SPEED 2 at beat 4 (2 s), 0.5 at beat 8
+        // (4 s), with a one-beat stop at beat 6
+        let m = TimingMap::build(
+            120.0,
+            vec![
+                (4.0, TimingEvent::Speed(2.0)),
+                (6.0, TimingEvent::StopBeats(1.0)),
+                (9.0, TimingEvent::Speed(0.5)),
+            ],
+        );
+        let at = |t: f64| m.speed_at_time(t);
+        // from 1 at 0 to the first point
+        assert_eq!(at(-1.0), 1.0);
+        assert!((at(1_000_000.0) - 1.5).abs() < 1e-9);
+        assert_eq!(at(2_000_000.0), 2.0);
+        // beat 9 is at 5 s with the stop: half way at 3.5 s
+        assert!((at(3_500_000.0) - 1.25).abs() < 1e-9);
+        assert_eq!(at(9_000_000.0), 0.5);
+        assert!(m.has_scroll_changes());
+        // a retimed map keeps it in its time; SCROLL REMOVE drops it
+        let r = m.retimed(0, 2.0);
+        assert!((r.speed_at_time(500_000.0) - 1.5).abs() < 1e-9);
+        let plain = m.without_scroll();
+        assert_eq!(plain.speed_at_time(3_500_000.0), 1.0);
+        assert!(!plain.has_scroll_changes());
+        assert!(!TimingMap::build(120.0, vec![]).has_scroll_changes());
+        let sc = TimingMap::build(120.0, vec![(2.0, TimingEvent::Scroll(0.5))]);
+        assert!(sc.has_scroll_changes());
+        assert_eq!(sc.without_scroll().pos_at_beat(4.0), 4.0);
     }
 
     #[test]

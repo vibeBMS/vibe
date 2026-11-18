@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use vibebms_core::judge::{Judge, JudgePreset};
 use vibebms_core::score::{ClearType, Score};
-use vibebms_core::{LnProfile, LnType, PlayMode};
+use vibebms_core::{LnPref, LnProfile, LnType, PlayMode};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -75,11 +75,21 @@ impl Song {
     }
     /// The LN mode its scores, replays and IR entries are filed under
     /// with the player's mode `pref` (`LnProfile::score_ln`).
-    pub fn score_ln(&self, pref: LnType) -> LnType {
+    pub fn score_ln(&self, pref: impl Into<LnPref>) -> LnType {
+        let pref = pref.into();
         match self.ln_profile {
             Some(b) => LnProfile::from_bits(b).score_ln(pref),
-            None if self.has_ln => pref,
+            None if self.has_ln => pref.ty,
             None => LnType::Ln,
+        }
+    }
+
+    /// Its long notes play the same under LN modes `a` and `b` (not known:
+    /// they are filed alike and AUTO or FORCE alike).
+    pub fn plays_ln_alike(&self, a: LnPref, b: LnPref) -> bool {
+        match self.ln_profile {
+            Some(bits) => LnProfile::from_bits(bits).plays_alike(a, b),
+            None => self.score_ln(a) == self.score_ln(b) && (a.force == b.force || !self.has_ln),
         }
     }
 

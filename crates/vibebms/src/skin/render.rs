@@ -4,7 +4,7 @@ use super::script::Overlay;
 use super::*;
 use crate::app::Draw;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{Gfx, TexId};
+use crate::gfx::{Gfx, ImageTex, Picture, TexId};
 
 /// A skin with its textures uploaded.
 pub struct LoadedSkin {
@@ -21,25 +21,27 @@ pub struct LoadedSkin {
     ready: bool,
     /// Images that are videos (looping from when the skin loaded).
     videos: Vec<(usize, crate::video::Video)>,
+    /// Animated images (GIF, WebP, APNG), from when the skin loaded; their
+    /// textures are in `tex`.
+    anims: Vec<crate::gfx::ImageTex>,
     loaded_at: crate::platform::Instant,
 }
 
-pub type Rgba = (u32, u32, Vec<u8>);
-
-/// An image file's pixels; `key` turns that colour transparent if the
-/// image has no alpha of its own (LR2 `#TRANSCOLOR`).
-fn decode(path: &std::path::Path, key: Option<[u8; 3]>) -> Option<Rgba> {
-    let (w, h, mut px) = crate::gfx::load_rgba(path, false)?;
-    if let Some(k) = key {
-        if px.as_chunks::<4>().0.iter().all(|p| p[3] == 255) {
-            for p in px.as_chunks_mut::<4>().0 {
-                if p[..3] == k {
-                    p[3] = 0;
+/// An image file's pixels (an animation's frames); `key` turns that colour
+/// transparent if the image has no alpha of its own (LR2 `#TRANSCOLOR`).
+fn decode(path: &std::path::Path, key: Option<[u8; 3]>) -> Option<Picture> {
+    let keyed = |px: &mut [u8]| {
+        if let Some(k) = key {
+            if px.as_chunks::<4>().0.iter().all(|p| p[3] == 255) {
+                for p in px.as_chunks_mut::<4>().0 {
+                    if p[..3] == k {
+                        p[3] = 0;
+                    }
                 }
             }
         }
-    }
-    Some((w, h, px))
+    };
+    crate::gfx::load_picture(path, &keyed)
 }
 
 /// Image files decoded off the main thread, one after another on a worker
@@ -52,7 +54,7 @@ pub struct ImageJobs {
 }
 
 enum Source {
-    Worker(std::sync::mpsc::Receiver<Option<Rgba>>),
+    Worker(std::sync::mpsc::Receiver<Option<Picture>>),
     Here(Vec<PathBuf>, Option<[u8; 3]>),
 }
 
@@ -90,7 +92,7 @@ impl ImageJobs {
     pub fn poll<T>(
         &mut self,
         wait: bool,
-        mut upload: impl FnMut(Rgba) -> T,
+        mut upload: impl FnMut(Picture) -> T,
     ) -> Vec<(usize, Option<T>)> {
         use std::sync::mpsc::TryRecvError;
         let mut out = Vec::new();
@@ -283,6 +285,7 @@ impl LoadedSkin {
             lazy,
             wanted: Default::default(),
             videos,
+            anims: Vec::new(),
             loaded_at: crate::platform::Instant::now(),
         };
         sk.take_decoded(gfx, false);
@@ -297,10 +300,11 @@ impl LoadedSkin {
 
     fn take_decoded(&mut self, gfx: &mut Gfx, wait: bool) {
         for (jobs, users) in &mut self.decoding {
-            for (f, t) in jobs.poll(wait, |(w, h, px)| gfx.create_texture(w, h, &px)) {
+            for (f, t) in jobs.poll(wait, |pic| ImageTex::new(gfx, pic)) {
                 for &i in &users[f] {
-                    self.tex[i] = t;
+                    self.tex[i] = t.as_ref().map(|t| t.tex);
                 }
+                self.anims.extend(t.filter(|t| t.is_animated()));
             }
         }
         if self.decoding.first().is_some_and(|(j, _)| j.done()) {
@@ -316,6 +320,9 @@ impl LoadedSkin {
         for (i, v) in &mut self.videos {
             v.update(gfx, ms);
             self.tex[*i] = v.texture();
+        }
+        for a in &mut self.anims {
+            a.show(gfx, ms);
         }
         self.take_decoded(gfx, false);
         // (asked for once: a sheet that cannot load is not asked for again)
@@ -338,6 +345,8 @@ impl LoadedSkin {
             self.tex[i] = None;
             v.free(gfx);
         }
+        // (their textures are freed with the others)
+        self.anims.clear();
         let mut ids: Vec<TexId> = self.tex.drain(..).flatten().collect();
         ids.sort_unstable();
         ids.dedup();
@@ -1098,7 +1107,7 @@ mod tests {
         img.save(dir.join("a.png")).unwrap();
         image::RgbImage::new(5, 4).save(dir.join("b.png")).unwrap();
         let paths = ["a.png", "none.png", "b.png"].map(|f| dir.join(f)).to_vec();
-        let size = |(w, h, _): Rgba| (w, h);
+        let size = |p: Picture| (p.w, p.h);
         let mut jobs = ImageJobs::start(paths.clone(), None);
         let mut got = Vec::new();
         while !jobs.done() {
@@ -1107,7 +1116,7 @@ mod tests {
         assert_eq!(got, vec![(0, Some((3, 2))), (1, None), (2, Some((5, 4)))]);
         // the colour key (black): in images without alpha only
         let mut jobs = ImageJobs::start(paths, Some([0, 0, 0]));
-        let px = jobs.poll(true, |(_, _, px)| px[3]);
+        let px = jobs.poll(true, |p| p.px[3]);
         assert_eq!(
             px.iter().map(|p| p.1).collect::<Vec<_>>(),
             [Some(255), None, Some(0)]

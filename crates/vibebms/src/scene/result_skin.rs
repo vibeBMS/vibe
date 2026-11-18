@@ -273,7 +273,7 @@ pub struct ResultHooks<'a> {
 impl Hooks for ResultHooks<'_> {
     fn ref_image(&self, id: i32) -> Option<crate::gfx::TexId> {
         match id {
-            100 | 101 => self.st.s.stage_tex,
+            100 | 101 => self.st.s.stage_tex.as_ref().map(|t| t.tex),
             _ => None,
         }
     }

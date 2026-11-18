@@ -104,6 +104,8 @@ pub struct Audio {
     pub sounds: crate::sysound::SystemSounds,
     /// Silenced while the app is not the one in use (`app::activity`).
     pub mute: super::activity::Mute,
+    /// The charts' loudness measured so far.
+    pub loudness: crate::loudness::LoudnessCache,
 }
 
 impl Audio {
@@ -208,6 +210,7 @@ impl Ctx {
         if net.ir.take_old_tokens(&mut config.ir) {
             config.save(&paths.config_file());
         }
+        let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
         Ctx {
             paths,
             config,
@@ -218,6 +221,7 @@ impl Ctx {
                 mixer,
                 sounds: Default::default(),
                 mute: Default::default(),
+                loudness,
             },
             view,
             input: Input::default(),
@@ -517,6 +521,17 @@ impl Ctx {
     /// Play a system sound of the chosen sound set (loaded when the choice
     /// has changed: a string compare otherwise).
     pub fn play_sound(&mut self, s: crate::sysound::Sound) {
+        self.sync_sounds();
+        let norm = crate::loudness::system_target(&self.config.audio);
+        self.audio.sounds.play(&self.audio.mixer, s, norm);
+    }
+
+    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
+        self.audio.sounds.stop(&self.audio.mixer, s);
+    }
+
+    /// The sound set chosen, loaded if it is not.
+    fn sync_sounds(&mut self) {
         let set = self
             .config
             .skins
@@ -524,11 +539,31 @@ impl Ctx {
             .map_or("", String::as_str);
         let rate = self.audio.mixer.sample_rate;
         self.audio.sounds.sync(set, &self.paths.root, rate);
-        self.audio.sounds.play(&self.audio.mixer, s);
     }
 
-    pub fn stop_sound(&mut self, s: crate::sysound::Sound) {
-        self.audio.sounds.stop(&self.audio.mixer, s);
+    /// The song select comes (back): a sound set drawn at random (or one of
+    /// its variants) drawn again, and its `select.enter` sound played.
+    pub fn select_entered(&mut self) {
+        self.sync_sounds();
+        let rate = self.audio.mixer.sample_rate;
+        self.audio.sounds.redraw(&self.paths.root, rate);
+        let norm = crate::loudness::system_target(&self.config.audio);
+        let s = crate::sysound::Sound::Select;
+        self.audio.sounds.play_enter(&self.audio.mixer, s, norm);
+    }
+
+    /// A result comes: its music by outcome (`sounds`, in the order they
+    /// are looked for).
+    pub fn play_result(&mut self, sounds: &[crate::sysound::Sound]) {
+        self.sync_sounds();
+        let norm = crate::loudness::system_target(&self.config.audio);
+        self.audio
+            .sounds
+            .play_result(&self.audio.mixer, sounds, norm);
+    }
+
+    pub fn stop_result(&mut self) {
+        self.audio.sounds.stop_result(&self.audio.mixer);
     }
 
     /// What the user chose for the skin configured as `value` (a
@@ -551,7 +586,7 @@ impl Ctx {
     /// The chart's record with the player's LN mode `pref` (filed under
     /// the chart's own when its long notes all have their type) under
     /// the player's rule mode.
-    pub fn best(&self, song: &Song, pref: vibebms_core::LnType) -> Option<&BestScore> {
+    pub fn best(&self, song: &Song, pref: impl Into<vibebms_core::LnPref>) -> Option<&BestScore> {
         let rule = self.config.play.judge_preset;
         self.best_key(&song.sha256, song.score_ln(pref) as i32, rule)
     }

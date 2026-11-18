@@ -122,9 +122,10 @@ impl CourseRun {
             r.gauge_preset = GaugePreset::Lr2;
         }
         let mut r = r.for_course(self.kind());
+        // (a table's LN mode is beatoraja's: AUTO)
         for (c, ln) in [("ln", LnType::Ln), ("cn", LnType::Cn), ("hcn", LnType::Hcn)] {
             if self.has(c) {
-                r.ln_mode = ln;
+                r.set_ln_pref(ln.into());
                 break;
             }
         }
@@ -204,13 +205,13 @@ impl PlayRequest {
 /// The chart's replay `slot` as a G-BATTLE opponent, or why it cannot be
 /// one.
 pub fn ghost_for(ctx: &Ctx, song: &Song, slot: crate::replay::Slot) -> Result<Arc<Replay>, String> {
-    let ln = ctx.config.play.ln_mode;
+    let ln = ctx.config.play.ln_pref();
     let r = crate::replay::load_filed(
         &ctx.paths.root,
         &song.sha256,
         song.score_ln(ln) as i32,
         ctx.config.play.judge_preset,
-        song.fixed_ln(),
+        song.fixed_ln() && !ln.force,
         slot,
     )
     .ok_or_else(|| {
@@ -636,6 +637,7 @@ impl Scene for PlayScene {
         }
         ctx.audio.mixer.stop_bus(Bus::Bgm);
         ctx.audio.mixer.stop_bus(Bus::Key);
+        crate::loudness::end_play(&ctx.audio.mixer);
         self.bga.free(gfx);
         ctx.save_config();
     }

@@ -24,12 +24,15 @@ impl PlayScene {
             images,
             videos,
             stagefile,
+            backbmp,
+            loudness,
             seed,
             mut facts,
             ln_profile,
             nonstop,
             section,
         } = *l;
+        crate::loudness::start_play(ctx, &self.req.song.sha256, loudness);
         let mode = chart.mode();
         let vs = self.req.is_vs();
         let ghost = match &self.req.vs {
@@ -65,19 +68,24 @@ impl PlayScene {
         // a NONSTOP course is recorded as a song is, under its identity;
         // an expert or class course's stages each partly, then the course
         let practice = self.req.practice.as_ref();
+        // a course's rules (a replay's play options have them), practice's;
+        // G-BATTLE plays at the opponent's FREQ
+        let mut rules = match (course, &self.req.replay, practice) {
+            (Some(c), None, _) => c.rules(&p.rules),
+            (_, _, Some(run)) => run.rules(&p.rules),
+            _ => p.rules.clone(),
+        };
+        if let Some(g) = &ghost {
+            rules.freq = g.play.freq;
+        }
         let unranked = course
             .filter(|c| !c.nonstop())
             .map(|_| "COURSE")
             .or(self.req.replay.as_ref().map(|_| "REPLAY"))
             .or(vs.then_some("VS"))
-            .or(practice.map(|_| "PRACTICE"));
-        // a course's rules (a replay's play options have them), practice's
-        let rules = match (course, &self.req.replay, practice) {
-            (Some(c), None, _) => c.rules(&p.rules),
-            (_, _, Some(run)) => run.rules(&p.rules),
-            _ => p.rules.clone(),
-        };
-        let ln = rules.ln_mode;
+            .or(practice.map(|_| "PRACTICE"))
+            .or((rules.freq < 0).then_some("FREQ"));
+        let ln = rules.ln_pref();
         let score_ln = ln_profile.score_ln(ln);
         // AUTO SCRATCH is an assist when it plays scored notes
         facts.auto_scratch = p.auto_scratch
@@ -134,7 +142,7 @@ impl PlayScene {
         // VS: the second player with their own options
         if vs {
             let mut r = p.for_side(1).rules;
-            r.ln_mode = ln;
+            r.set_ln_pref(ln);
             let (mut engine, _) = build_engine(&chart, &r, Some(1), self.req.autoplay);
             engine.set_miss_sound(ctx.config.play.miss_keysound);
             sides.push(SideState::new(engine, Role::Player));
@@ -168,7 +176,7 @@ impl PlayScene {
         let mut mapper = LaneMapper::new(&ctx.config.keys, input_mode);
         mapper.swap_pads = self.controls.swap_pads;
         self.controls.mapper = Some(mapper);
-        self.bga = Bga::new(gfx, images, &videos, stagefile);
+        self.bga = Bga::new(gfx, images, &videos, stagefile, backbmp);
         // (G-BATTLE: the opponent's lane option)
         let random_1p = ghost.as_ref().map_or(p.random_1p, |g| g.play.random_1p);
         let mut opts = vec![random_1p.label()];
@@ -187,6 +195,25 @@ impl PlayScene {
         if p.legacy_note {
             opts.push("LEGACY");
         }
+        let a = &rule_facts.assist;
+        for (on, name) in [
+            (a.scroll_remove, "SCROLL REMOVE"),
+            (a.mine_add, "MINE ADD"),
+            (a.ln_add, "LN ADD"),
+        ] {
+            if on {
+                opts.push(name);
+            }
+        }
+        let order = ghost
+            .as_ref()
+            .map_or(&p.trainer_order, |g| &g.play.trainer_order);
+        let trained =
+            (rule_facts.assist.lane).contains(&vibebms_core::lane_option::LaneOption::Trainer);
+        let trainer = trained.then(|| format!("ORDER {order}"));
+        opts.extend(trainer.as_deref());
+        let freq = (rules.freq != 0).then(|| format!("FREQ {:+}", rules.freq));
+        opts.extend(freq.as_deref());
         // a song from an older library: its note counts and densities
         // (skin numbers 350-365) from the chart
         let song = &mut self.req.song;
@@ -217,9 +244,10 @@ impl PlayScene {
             good_clears_poor: cp.good_clears_poor,
         };
         if ctx.config.play.guide_se {
-            let set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
+            // (the sound set drawn: its variant's, then its own)
+            let dirs = ctx.audio.sounds.folders();
             let rate = ctx.audio.mixer.sample_rate;
-            self.guide = Some(super::guide::GuideSounds::load(set, &ctx.paths.root, rate));
+            self.guide = Some(super::guide::GuideSounds::load(dirs, rate));
         }
         self.audio = Audio::new(bank, auto_notes);
         self.skin = super::skin::load(ctx, gfx, self);

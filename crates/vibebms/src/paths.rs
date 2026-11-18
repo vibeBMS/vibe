@@ -7,6 +7,7 @@
 //! <root>/vibebms(.exe)
 //! <root>/config/config.toml
 //! <root>/cache/songs.json        (scan cache, safe to delete)
+//! <root>/cache/loudness.txt      (charts' measured loudness, safe to delete)
 //! <root>/scores/scores.json      (your records)
 //! <root>/scores/player.json      (totals over all plays)
 //! <root>/scores/history/         (every play, a file per month: `ir::store`)

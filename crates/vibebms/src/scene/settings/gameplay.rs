@@ -2,8 +2,8 @@
 //! player's own in VS, and the per-play options still shown here.
 
 use super::per_play::{self, SHOW_PER_PLAY};
-use super::row::{ms, Kind, Row, Rows};
-use super::Sub;
+use super::row::{ms, Act, Kind, Row, Rows};
+use super::{Sub, TextField};
 use crate::app::Ctx;
 use crate::config::{HiSpeedMode, HsType};
 use crate::scene::option_panel::{cycle, onoff};
@@ -11,7 +11,8 @@ use crate::scene::select::REFERENCE_BPMS;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
-use vibebms_core::LnType;
+use vibebms_core::lane_option::SRandomInterval;
+use vibebms_core::LnPref;
 
 /// A judge offset: 1 ms steps within ±500.
 fn offset(o: &mut i32, d: i32) {
@@ -88,13 +89,14 @@ pub(super) fn rows(b: &mut Rows) {
         Row::adjust(
             "play.ln_mode",
             "LN mode",
-            format!("{:?}", p.ln_mode).to_uppercase(),
+            p.ln_pref().label(),
             |c, d| {
-                let all = [LnType::Ln, LnType::Cn, LnType::Hcn];
-                c.config.play.ln_mode = cycle(&all, c.config.play.ln_mode, d)
+                let p = &mut c.config.play;
+                let ln = cycle(&LnPref::ALL, p.ln_pref(), d);
+                p.set_ln_pref(ln)
             },
         )
-        .desc("For charts that do not say: LN, CN or HCN.")
+        .desc("For charts that do not say: LN, CN or HCN. FORCE: for every long note, whatever the chart says.")
         .keys("long note charge"),
         Row::adjust(
             "play.hispeed_mode",
@@ -117,7 +119,7 @@ pub(super) fn rows(b: &mut Rows) {
     b.group(
         "gameplay.advanced",
         "ADVANCED",
-        "Judge algorithm, expanded judge windows, H-RANDOM threshold, hi-speed changes",
+        "Judge algorithm, expanded judge windows, H-RANDOM threshold, S-RANDOM interval, random trainer, hi-speed changes",
     );
     let rates = &p.judge_rates;
     b.extend([
@@ -149,6 +151,25 @@ pub(super) fn rows(b: &mut Rows) {
             },
         )
         .desc("H-RANDOM keeps notes this fast from landing on the same key."),
+        Row::adjust(
+            "play.s_random_interval",
+            "S-RANDOM interval",
+            p.s_random_interval.label(),
+            |c, d| {
+                let s = &mut c.config.play.s_random_interval;
+                *s = cycle(&SRandomInterval::ALL, *s, d)
+            },
+        )
+        .desc("How S-RANDOM keeps a note off the key just played: OFF as LR2, 40 ms, or 120 Hz frames.")
+        .keys("s-random jack correction interval"),
+        Row::new(
+            "play.trainer_order",
+            "Random trainer order",
+            p.trainer_order.clone(),
+            Act::Text(TextField::TrainerOrder),
+        )
+        .desc("The lanes the TRAINER lane option plays: the keys from the left (7654321 is MIRROR). L-ASSIST.")
+        .keys("random trainer lane order fixed practice"),
         Row::adjust(
             "play.hs_anim_ms",
             "Hi-speed change while playing",

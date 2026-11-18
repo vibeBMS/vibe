@@ -1,6 +1,7 @@
 //! Minimal, fast 2D renderer on wgpu: one textured-quad pipeline, batched by
 //! texture. Works on Vulkan / Metal / DX12 / GL(ES).
 
+mod anim;
 mod batch;
 mod capture;
 mod device;
@@ -8,7 +9,8 @@ mod image;
 pub mod text;
 mod texture;
 
-pub use self::image::{load_rgba, load_rgba_bytes};
+pub use self::image::{key_black, load_picture, load_picture_bytes, Picture};
+pub use anim::{Animation, ImageTex};
 pub use batch::{Batch, Blend, SdfStyle};
 pub use device::Gfx;
 

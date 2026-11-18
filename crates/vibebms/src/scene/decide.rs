@@ -7,7 +7,7 @@ use super::skinned;
 use super::skinvals::*;
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
-use crate::gfx::{Gfx, Rect, TexId};
+use crate::gfx::{Gfx, ImageTex, Rect, TexId};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::{BestScore, Song};
 use crate::platform::Instant;
@@ -34,8 +34,8 @@ pub struct DecideScene {
     req: Option<PlayRequest>,
     /// (Play follows when the fade-out ends.)
     host: SkinHost,
-    stage_tex: Option<TexId>,
-    banner_tex: Option<TexId>,
+    stage_tex: Option<ImageTex>,
+    banner_tex: Option<ImageTex>,
 }
 
 impl DecideScene {
@@ -78,7 +78,7 @@ impl<'a> DecideState<'a> {
             s,
             ctx,
             song,
-            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_mode)),
+            best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_pref())),
             chart: song.map(ChartFacts::of_song),
             table: OnceCell::new(),
         }
@@ -189,7 +189,7 @@ impl Scene for DecideScene {
                 (!name.is_empty())
                     .then(|| super::select::resolve_image(&dir.join(name)))
                     .flatten()
-                    .and_then(|p| gfx.load_image(&p, false))
+                    .and_then(|p| ImageTex::load(gfx, &p, &|_| {}))
             };
             self.stage_tex = load(&song.stagefile);
             self.banner_tex = load(&song.banner);
@@ -204,6 +204,12 @@ impl Scene for DecideScene {
             n => n,
         };
         self.host.tick(gfx);
+        for t in [&mut self.stage_tex, &mut self.banner_tex]
+            .into_iter()
+            .flatten()
+        {
+            t.tick(gfx);
+        }
         if self.host.ms(now) >= scene {
             self.host.leave(now);
         }
@@ -219,7 +225,7 @@ impl Scene for DecideScene {
             .into_iter()
             .flatten()
         {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
     }
 
@@ -263,8 +269,8 @@ impl Scene for DecideScene {
         let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let st = DecideState::new(self, ctx);
         let mut hooks = DecideHooks {
-            stage: self.stage_tex,
-            banner: self.banner_tex,
+            stage: self.stage_tex.as_ref().map(|t| t.tex),
+            banner: self.banner_tex.as_ref().map(|t| t.tex),
         };
         self.host.draw(d, view, now, &st, &mut hooks);
     }

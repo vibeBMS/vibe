@@ -372,7 +372,9 @@ impl Running {
         if let Some(m) = self.ctx.audio.mixer.keep_alive() {
             self.ctx.toast(m);
         }
-        self.ctx.audio.sounds.poll(&self.ctx.audio.mixer);
+        let norm = crate::loudness::system_target(&self.ctx.config.audio);
+        self.ctx.audio.sounds.poll(&self.ctx.audio.mixer, norm);
+        self.ctx.audio.loudness.poll();
         #[cfg(target_arch = "wasm32")]
         crate::web::show_page_buttons(!self.scenes.last().is_some_and(|s| s.full_screen()));
         if let Some(fs) = self.ctx.view.want_fullscreen.take() {

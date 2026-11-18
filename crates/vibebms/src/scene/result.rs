@@ -135,7 +135,7 @@ pub struct ResultScene {
     rules_line: String,
     pub(crate) host: SkinHost,
     /// The chart's stage file (skin reference image 100).
-    pub(crate) stage_tex: Option<crate::gfx::TexId>,
+    pub(crate) stage_tex: Option<crate::gfx::ImageTex>,
     /// Leaving (the skin's fade-out running): what follows.
     leave_to: Option<Leave>,
 }
@@ -232,7 +232,7 @@ impl ResultScene {
             let now = crate::platform::unix_ms();
             ctx.net.ir.submit(&d.record, &ctx.config.ir, false, now);
         }
-        ctx.play_sound(result_sound(&d).0);
+        ctx.play_result(&result_sound(&d).0);
         let rules_line = vibebms_ir::rule::describe(&d.record);
         ResultScene {
             timing_stats: super::graphs::timing_stats(&d.timing_log),
@@ -266,9 +266,8 @@ impl ResultScene {
     }
 
     fn go(&mut self, ctx: &mut Ctx, to: Leave) -> Next {
-        let (playing, close) = result_sound(&self.d);
-        ctx.stop_sound(playing);
-        ctx.play_sound(close);
+        ctx.stop_result();
+        ctx.play_sound(result_sound(&self.d).1);
         match to {
             Leave::Proceed => self.proceed(ctx),
             Leave::Retry => self.retry(ctx),
@@ -360,7 +359,7 @@ impl Scene for ResultScene {
                     .unwrap_or(std::path::Path::new(""))
                     .join(&self.d.meta.stagefile);
                 self.stage_tex = crate::scene::select::resolve_image(&p)
-                    .and_then(|rp| gfx.load_image(&rp, false));
+                    .and_then(|rp| crate::gfx::ImageTex::load(gfx, &rp, &|_| {}));
             }
             let kind = if self.d.course_total {
                 SkinType::CourseResult
@@ -373,6 +372,9 @@ impl Scene for ResultScene {
                 skinned::load(ctx, gfx, kind, &stat, &st)
             };
             self.host.skin = skin;
+        }
+        if let Some(t) = self.stage_tex.as_mut() {
+            t.tick(gfx);
         }
         // events skin scripts asked for
         for ev in self.host.tick(gfx) {
@@ -390,10 +392,11 @@ impl Scene for ResultScene {
         Next::Stay
     }
 
-    fn exit(&mut self, _ctx: &mut Ctx, gfx: &mut Gfx) {
+    fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         self.host.free(gfx);
+        ctx.stop_result();
         if let Some(t) = self.stage_tex.take() {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
     }
 
@@ -535,16 +538,37 @@ impl Scene for ResultScene {
     }
 }
 
-/// The sound set's sounds of a result: the one it starts with (clear /
-/// fail; the course's once a course ends) and the one it closes with.
-fn result_sound(d: &ResultData) -> (Sound, Sound) {
+/// The sound set's sounds of a result: those it starts with, in the order
+/// they are looked for (fail; a clear's rank, AAA / AA / A by the play's EX
+/// score, then clear; the course's once a course ends), and the one it
+/// closes with.
+fn result_sound(d: &ResultData) -> (Vec<Sound>, Sound) {
     let failed = d.clear == ClearType::Failed;
     match (d.course_total, failed) {
-        (true, false) => (Sound::CourseClear, Sound::CourseClose),
-        (true, true) => (Sound::CourseFail, Sound::CourseClose),
-        (false, false) => (Sound::ResultClear, Sound::ResultClose),
-        (false, true) => (Sound::ResultFail, Sound::ResultClose),
+        (true, false) => (vec![Sound::CourseClear], Sound::CourseClose),
+        (true, true) => (vec![Sound::CourseFail], Sound::CourseClose),
+        (false, true) => (vec![Sound::ResultFail], Sound::ResultClose),
+        (false, false) => {
+            let v = clear_sounds(d.score.ex_score(), d.score.max_ex());
+            (v, Sound::ResultClose)
+        }
     }
+}
+
+/// A clear's sounds: its rank's (AAA from 8/9 of the EX score that can be
+/// had, AA from 7/9, A from 6/9), then clear; a lower rank's is not looked
+/// for (no notes: clear).
+fn clear_sounds(ex: u32, max: u32) -> Vec<Sound> {
+    let (ex, max) = (ex as u64, max as u64);
+    let rank = [
+        (8, Sound::ResultAaa),
+        (7, Sound::ResultAa),
+        (6, Sound::ResultA),
+    ]
+    .into_iter()
+    .find(|(n, _)| max > 0 && ex * 9 >= max * n)
+    .map(|(_, s)| s);
+    rank.into_iter().chain([Sound::ResultClear]).collect()
 }
 
 /// An expert or class course's result once its last stage is played (or
@@ -612,6 +636,18 @@ fn course_result(last: &ResultData) -> ResultData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_result_music_by_rank() {
+        use Sound::*;
+        // 900 notes: 1800 EX can be had; AAA from 1600, AA 1400, A 1200
+        assert_eq!(clear_sounds(1600, 1800), [ResultAaa, ResultClear]);
+        assert_eq!(clear_sounds(1599, 1800), [ResultAa, ResultClear]);
+        assert_eq!(clear_sounds(1400, 1800), [ResultAa, ResultClear]);
+        assert_eq!(clear_sounds(1200, 1800), [ResultA, ResultClear]);
+        assert_eq!(clear_sounds(1199, 1800), [ResultClear]);
+        assert_eq!(clear_sounds(0, 0), [ResultClear]);
+    }
 
     #[test]
     fn only_own_ranked_plays_count() {

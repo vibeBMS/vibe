@@ -3,7 +3,7 @@
 //! ends; whatever is sent or shown of the play later (IR, history, the
 //! result's rules line) reads these, never the options as they are now.
 
-use crate::chart::{Chart, JudgeRank, LnProfile, LnType};
+use crate::chart::{Chart, JudgeRank, LnPref, LnProfile, LnType};
 use crate::engine::{Engine, JudgeAlgorithm};
 use crate::gauge::{GaugeAutoShift, GaugePreset, GaugeType};
 use crate::judge::{judge_rules, JudgePreset};
@@ -40,7 +40,7 @@ pub struct PlayRecord {
 impl PlayRecord {
     /// The LN mode the play is filed under (`LnProfile::score_ln`).
     pub fn ln_filed(&self) -> LnType {
-        self.chart.ln.score_ln(self.rules.ln_mode)
+        self.chart.ln.score_ln(self.rules.ln_pref())
     }
 }
 
@@ -114,8 +114,12 @@ pub struct RuleFacts {
     /// The gauge played from.
     pub gauge: GaugeType,
     pub gas: GaugeAutoShift,
-    /// The LN mode of long notes the chart leaves untyped.
+    /// The LN mode of long notes the chart leaves untyped (with
+    /// `ln_force`, of every long note).
     pub ln_mode: LnType,
+    /// LN MODE FORCE. Missing in older records: AUTO.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ln_force: bool,
     /// A back-spin scratch played as CN or HCN: there a key release can
     /// end it (vibeBMS's rule for keyboards and touch).
     pub charge_bss: bool,
@@ -125,6 +129,24 @@ pub struct RuleFacts {
     pub seed: i64,
     /// What the options did (the lane options per side among them).
     pub assist: AssistFacts,
+    /// FREQ in semitones (0: the chart's own speed). Missing in older
+    /// records: 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub freq: i32,
+}
+
+impl RuleFacts {
+    /// The LN mode played (AUTO or FORCE).
+    pub fn ln_pref(&self) -> LnPref {
+        LnPref {
+            ty: self.ln_mode,
+            force: self.ln_force,
+        }
+    }
+}
+
+fn is_zero(v: &i32) -> bool {
+    *v == 0
 }
 
 impl RuleFacts {
@@ -151,10 +173,12 @@ impl RuleFacts {
             gauge: engine.gauge.selected_type(),
             gas: rules.gauge_auto_shift,
             ln_mode: rules.ln_mode,
+            ln_force: rules.ln_force,
             charge_bss,
             dp_flip: mode.is_double() && rules.dp_option == DoubleOption::Flip,
             seed,
             assist,
+            freq: rules.freq,
         }
     }
 }

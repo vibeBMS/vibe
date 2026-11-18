@@ -52,11 +52,12 @@ pub struct PracticeResult {
 
 impl PracticeRun {
     /// The rules of its plays on the player's `rules`: its gauge, no
-    /// GAUGE AUTO SHIFT.
+    /// GAUGE AUTO SHIFT, no FREQ (its own speed instead).
     pub fn rules(&self, rules: &RuleOptions) -> RuleOptions {
         RuleOptions {
             gauge: self.gauge,
             gauge_auto_shift: GaugeAutoShift::None,
+            freq: 0,
             ..rules.clone()
         }
     }

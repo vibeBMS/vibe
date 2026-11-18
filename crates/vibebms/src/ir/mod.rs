@@ -840,6 +840,7 @@ pub fn refusal_words(r: Refusal) -> String {
         Refusal::Battle => "BATTLE".into(),
         Refusal::CourseStage => "a course stage".into(),
         Refusal::Aborted => "quit".into(),
+        Refusal::Freq => "played at another FREQ".into(),
         Refusal::Assist => "assist options".into(),
         Refusal::LocalRules => "not under vibe-LR2 or vibe-beatoraja rules".into(),
         Refusal::Touch => "touch".into(),

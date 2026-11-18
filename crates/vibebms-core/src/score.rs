@@ -33,12 +33,25 @@ pub struct AssistFacts {
     pub wide_judge: bool,
     /// BPM guide on a chart that changes BPM.
     pub bpm_guide: bool,
+    /// SCROLL REMOVE took `#SCROLL` / `#SPEED` off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scroll_remove: bool,
+    /// MINE ADD added mines.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mine_add: bool,
+    /// LONGNOTE ADD made long notes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ln_add: bool,
 }
 
 impl AssistFacts {
     pub fn level(&self) -> Assist {
-        let full = self.auto_scratch || self.legacy_note || self.wide_judge;
+        // (LONGNOTE ADD as LEGACY NOTE, MINE ADD as NO MINE, SCROLL
+        // REMOVE as BPM GUIDE: the options they undo or stand beside)
+        let full = self.auto_scratch || self.legacy_note || self.wide_judge || self.ln_add;
         let light = self.no_mine
+            || self.mine_add
+            || self.scroll_remove
             || self.battle
             || self.bpm_guide
             || self.lane.iter().any(|o| o.assist() != Assist::None);

@@ -29,6 +29,8 @@ pub(super) fn draw(
     let per = [ps.side_play(0), ps.side_play(1)];
     let t_vis = s.chart_us(ps.now) + p.visual_offset_ms as i64 * 1000;
     let cur_pos = s.chart.timing.pos_at_time(t_vis as f64);
+    // `#SPEED` now: the whole lane faster or slower (not under CONSTANT)
+    let speed = s.chart.timing.speed_at_time(t_vis as f64);
     let pulse = note_pulse(skin.skin.note_expansion, &s.chart.timing, t_vis);
     let fall_y = skin
         .skin
@@ -97,7 +99,7 @@ pub(super) fn draw(
         let ppb = visible as f64 / (dur_us / 1_000_000.0 * main_bpm / 60.0);
         let y_of = |pos: f64, time: i64| -> f32 {
             match p.hispeed_mode {
-                HiSpeedMode::Floating => judge_y - ((pos - cur_pos) * ppb) as f32,
+                HiSpeedMode::Floating => judge_y - ((pos - cur_pos) * ppb * speed) as f32,
                 HiSpeedMode::Constant => {
                     judge_y - ((time - t_vis) as f64 / dur_us * visible as f64) as f32
                 }

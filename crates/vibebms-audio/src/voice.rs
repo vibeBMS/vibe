@@ -114,6 +114,7 @@ pub(crate) enum Cmd {
     Stop(u64),
     StopBus(Bus),
     BusVolume(Bus, f32),
+    BusGain(Bus, f32),
     Master(f32),
     GroupVolume(u8, f32),
 }
@@ -122,6 +123,8 @@ pub(crate) struct State {
     pub voices: Vec<Voice>,
     pub frame: u64,
     bus: [f32; 3],
+    /// Each bus's gain besides its volume (loudness normalisation).
+    gain: [f32; 3],
     /// Group 0 (none) is always 1.
     group: [f32; GROUPS as usize + 1],
     /// The master volume asked for, and the one the last frame had: it
@@ -146,6 +149,7 @@ impl State {
             voices: Vec::with_capacity(cfg.max_voices),
             frame: 0,
             bus: [cfg.key_volume, cfg.bgm_volume, cfg.system_volume],
+            gain: [1.0; 3],
             group: [1.0; GROUPS as usize + 1],
             master: cfg.master,
             master_now: cfg.master,
@@ -200,6 +204,7 @@ impl State {
                 .voices
                 .retain(|v| v.bus != b || retire(&self.retired, v)),
             Cmd::BusVolume(b, v) => self.bus[b as usize] = v,
+            Cmd::BusGain(b, v) => self.gain[b as usize] = v,
             Cmd::Master(v) => {
                 self.master = v;
                 // (set up before anything was heard: at once)
@@ -243,7 +248,8 @@ impl State {
         // the master in the voices' gain, or while it glides on the sum
         let steady = self.master_now == self.master;
         let master = if steady { self.master } else { 1.0 };
-        let (bus, group, retired) = (self.bus, self.group, &self.retired);
+        let bus = [0, 1, 2].map(|b| self.bus[b] * self.gain[b]);
+        let (group, retired) = (self.group, &self.retired);
         self.voices.retain_mut(|v| {
             let g = v.vol * bus[v.bus as usize] * group[v.group as usize] * master;
             v.render(mix, now, g) || retire(retired, v)
@@ -353,6 +359,27 @@ pub(crate) mod tests {
         let mix = st.render(glide, None).to_vec();
         assert!(mix[0] > 0.0 && mix[0] < 0.001);
         assert!((mix[2 * glide - 2] - 0.5).abs() < 1e-3);
+        assert!((st.render(4, None)[0] - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn bus_gains_scale_their_bus_besides_its_volume() {
+        let mut st = state();
+        let s = sample(16, 16384);
+        let o = |bus| PlayOptions {
+            bus,
+            ..Default::default()
+        };
+        st.apply(Cmd::BusVolume(Bus::Key, 0.5));
+        st.apply(Cmd::BusGain(Bus::Key, 0.5));
+        st.apply(Cmd::BusGain(Bus::Bgm, 2.0));
+        st.apply(Cmd::Play(Voice::new(s.clone(), &o(Bus::Key), None)));
+        assert!((st.render(4, None)[0] - 0.125).abs() < 1e-3);
+        st.apply(Cmd::Stop(0));
+        st.apply(Cmd::Play(Voice::new(s.clone(), &o(Bus::Bgm), None)));
+        assert!((st.render(4, None)[0] - 1.0).abs() < 1e-3);
+        st.apply(Cmd::Stop(0));
+        st.apply(Cmd::Play(Voice::new(s, &o(Bus::System), None)));
         assert!((st.render(4, None)[0] - 0.5).abs() < 1e-3);
     }
 
