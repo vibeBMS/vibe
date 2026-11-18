@@ -93,11 +93,12 @@ pub fn skin_choices(ctx: &Ctx, kind: SkinType) -> Vec<String> {
     };
     let mut out = vec![String::new()];
     if kind == SkinType::SoundSet {
-        out.extend(
-            crate::sysound::find_sets(&ctx.paths.root)
-                .into_iter()
-                .map(|s| rel(s.path)),
-        );
+        let sets = crate::sysound::find_sets(&ctx.paths.root);
+        // (one of them drawn each time the song select comes)
+        if sets.len() > 1 {
+            out.push(crate::sysound::RANDOM_SET.into());
+        }
+        out.extend(sets.into_iter().map(|s| rel(s.path)));
         return out;
     }
     // play skins: the built-in perspective one too

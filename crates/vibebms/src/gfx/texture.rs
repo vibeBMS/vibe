@@ -1,6 +1,6 @@
 //! Textures on the GPU: made, updated, freed; images loaded into them.
 
-use super::{load_rgba, Gfx, TexId, ATLAS};
+use super::{Gfx, TexId, ATLAS};
 
 pub struct GpuTexture {
     pub texture: wgpu::Texture,
@@ -136,12 +136,5 @@ impl Gfx {
                 *t = None;
             }
         }
-    }
-
-    /// Load an image; `color_key_black` makes pure black transparent (BMS
-    /// BGA layer convention).
-    pub fn load_image(&mut self, path: &std::path::Path, color_key_black: bool) -> Option<TexId> {
-        let img = load_rgba(path, color_key_black)?;
-        Some(self.create_texture(img.0, img.1, &img.2))
     }
 }

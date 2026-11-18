@@ -41,7 +41,7 @@ fontdue = "0.9"
 fontdb = "0.24"
 # the characters of a fallback font before fontdue parses it (the version fontdue reads with)
 ttf-parser = { version = "0.25", default-features = false }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga", "webp"] }
 web-time = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 ehttp = { version = "0.7", features = ["streaming"] }
@@ -104,3 +104,6 @@ web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlE
 [dev-dependencies]
 # archives for tests
 bmseeker = { workspace = true, features = ["testkit"] }
+# animated PNG and WebP fixtures for the image tests (the versions image uses)
+png = "0.18"
+image-webp = "0.2"

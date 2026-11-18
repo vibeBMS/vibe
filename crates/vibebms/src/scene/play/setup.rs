@@ -24,12 +24,15 @@ impl PlayScene {
             images,
             videos,
             stagefile,
+            backbmp,
+            loudness,
             seed,
             mut facts,
             ln_profile,
             nonstop,
             section,
         } = *l;
+        crate::loudness::start_play(ctx, &self.req.song.sha256, loudness);
         let mode = chart.mode();
         let vs = self.req.is_vs();
         let ghost = match &self.req.vs {
@@ -173,7 +176,7 @@ impl PlayScene {
         let mut mapper = LaneMapper::new(&ctx.config.keys, input_mode);
         mapper.swap_pads = self.controls.swap_pads;
         self.controls.mapper = Some(mapper);
-        self.bga = Bga::new(gfx, images, &videos, stagefile);
+        self.bga = Bga::new(gfx, images, &videos, stagefile, backbmp);
         // (G-BATTLE: the opponent's lane option)
         let random_1p = ghost.as_ref().map_or(p.random_1p, |g| g.play.random_1p);
         let mut opts = vec![random_1p.label()];
@@ -241,9 +244,10 @@ impl PlayScene {
             good_clears_poor: cp.good_clears_poor,
         };
         if ctx.config.play.guide_se {
-            let set = ctx.config.skins.get("SOUND_SET").map_or("", String::as_str);
+            // (the sound set drawn: its variant's, then its own)
+            let dirs = ctx.audio.sounds.folders();
             let rate = ctx.audio.mixer.sample_rate;
-            self.guide = Some(super::guide::GuideSounds::load(set, &ctx.paths.root, rate));
+            self.guide = Some(super::guide::GuideSounds::load(dirs, rate));
         }
         self.audio = Audio::new(bank, auto_notes);
         self.skin = super::skin::load(ctx, gfx, self);

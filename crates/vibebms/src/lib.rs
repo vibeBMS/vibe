@@ -14,6 +14,7 @@ pub mod input;
 pub mod ir;
 pub mod library;
 pub mod links;
+pub mod loudness;
 pub mod lr2db;
 pub mod paths;
 pub mod perspective;

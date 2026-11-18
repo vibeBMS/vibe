@@ -2,6 +2,7 @@
 //! rests on it: the song's preview, its banner and its IR ranking; and the
 //! sound set's BGM and panel sounds.
 
+use super::genpreview::Preview;
 use super::SelectScene;
 use crate::app::Ctx;
 use crate::gfx::Gfx;
@@ -13,7 +14,7 @@ use crate::skin::render::ImageJobs;
 use crate::sysound::Sound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use vibebms_audio::{Bus, PlayOptions, Sample};
+use vibebms_audio::{Bus, PlayOptions};
 use vibebms_ir::lamps::RankView;
 
 pub const PREVIEW_KEY: u64 = u64::MAX - 1;
@@ -108,23 +109,26 @@ impl SelectScene {
         self.stop_bgm(ctx);
     }
 
-    /// Play preview `s` (once, or looping), or with none the select BGM.
-    fn play_preview(&mut self, ctx: &mut Ctx, s: Option<Arc<Sample>>) {
+    /// Play preview `s` (once, or looping; at the common loudness when
+    /// normalising), or with none the select BGM.
+    fn play_preview(&mut self, ctx: &mut Ctx, s: Option<Preview>) {
         self.preview_wait = false;
         let once = ctx.config.audio.preview_once;
         let rate = ctx.audio.mixer.sample_rate.max(1) as u64;
         self.preview_until = match &s {
             None => Some(Instant::now()),
-            Some(s) if once => {
+            Some((s, _)) if once => {
                 Some(Instant::now() + Duration::from_millis(s.frames as u64 * 1000 / rate))
             }
             Some(_) => None,
         };
-        if let Some(s) = s {
+        if let Some((s, l)) = s {
+            let gain = crate::loudness::chart_target(&ctx.config.audio)
+                .map_or(1.0, |t| crate::loudness::gain(&l, t));
             let opts = PlayOptions {
                 key: PREVIEW_KEY,
                 bus: Bus::Bgm,
-                volume: 0.8,
+                volume: 0.8 * gain,
                 looping: !once,
                 ..Default::default()
             };
@@ -153,10 +157,11 @@ impl SelectScene {
                     .extension()
                     .map(|e| e.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
-                vfs::read(&p)
+                let s = vfs::read(&p)
                     .ok()
-                    .and_then(|bytes| vibebms_audio::decode_bytes(bytes, &ext, rate).ok())
-                    .map(Arc::new)
+                    .and_then(|bytes| vibebms_audio::decode_bytes(bytes, &ext, rate).ok())?;
+                let l = crate::loudness::measure_sound(&s, rate);
+                Some((Arc::new(s), l))
             }));
             return;
         }
@@ -238,13 +243,16 @@ impl SelectScene {
             vfs::inside(dir, img).map(|p| p.to_string_lossy().into_owned())
         });
         if let Some(job) = self.banner_job.as_mut() {
-            let done = job.poll(false, |(w, h, px)| gfx.create_texture(w, h, &px));
+            let done = job.poll(false, |pic| crate::gfx::ImageTex::new(gfx, pic));
             if let (Some((_, t)), Some(b)) = (done.into_iter().next(), self.banner.as_mut()) {
                 b.1 = t;
             }
             if job.done() {
                 self.banner_job = None;
             }
+        }
+        if let Some((_, Some(t))) = self.banner.as_mut() {
+            t.tick(gfx);
         }
         if want.as_deref() == self.banner.as_ref().map(|b| b.0.as_str()) {
             return;
@@ -253,7 +261,7 @@ impl SelectScene {
             return; // don't decode while scrolling fast
         }
         if let Some((_, Some(t))) = self.banner.take() {
-            gfx.free_texture(t);
+            t.free(gfx);
         }
         self.banner_job = want
             .as_ref()

@@ -6,10 +6,23 @@
 //!   `f-open.wav`, ...; any audio format), as beatoraja's sound / BGM sets;
 //! - an LR2 sound set file (`.lr2ss`, `#INFORMATION,10,...` then
 //!   `#SELECT,LR2files\Bgm\...`);
-//! - none: the built-in set, a few short generated clicks.
+//! - none: the built-in set, a few short generated clicks;
+//! - RANDOM ([`RANDOM_SET`]): one of the sets drawn when the app starts and
+//!   each time the song select comes back.
 //!
-//! Sets are looked for in `<root>/sounds/` and `<root>/skins/`.
+//! Sets are looked for in `<root>/sounds/` and `<root>/skins/`: the first
+//! folder down holding sound files is a set. Its subfolders holding sound
+//! files are its variants: one is drawn with the set, and a sound it lacks
+//! is the set's own (a variant has only what it changes).
+//!
+//! A folder set follows bmz-player's sound set conventions (its
+//! documentation): the result music by outcome (`fail`; `aaa`, `aa` or `a`
+//! for a clear at that rank, else `clear`), `<name>.loop.<ext>` playing
+//! over and over until the screen ends (`select.loop`, `clear.loop`, ...),
+//! `<name>.enter.<ext>` once as the screen comes (`select.enter`,
+//! `clear.enter`, ...).
 
+use crate::loudness::Loudness;
 use crate::platform::{vfs, Job};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,10 +48,31 @@ pub enum Sound {
     CourseClear,
     CourseFail,
     CourseClose,
+    /// A clear at rank A, AA, AAA (bmz-player's sound sets).
+    ResultA,
+    ResultAa,
+    ResultAaa,
 }
 
+/// How a sound set's file of a sound plays: as it is, `<name>.loop` (over
+/// and over until the screen ends) or `<name>.enter` (once as the screen
+/// comes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Form {
+    Plain,
+    Loop,
+    Enter,
+}
+
+impl Form {
+    const ALL: [Form; 3] = [Form::Plain, Form::Loop, Form::Enter];
+}
+
+/// The value of `config.skins["SOUND_SET"]` that draws a set at random.
+pub const RANDOM_SET: &str = "*random*";
+
 impl Sound {
-    pub const ALL: [Sound; 16] = [
+    pub const ALL: [Sound; 19] = [
         Sound::Select,
         Sound::Decide,
         Sound::Scratch,
@@ -55,6 +89,9 @@ impl Sound {
         Sound::CourseClear,
         Sound::CourseFail,
         Sound::CourseClose,
+        Sound::ResultA,
+        Sound::ResultAa,
+        Sound::ResultAaa,
     ];
 
     /// beatoraja's file name.
@@ -76,7 +113,36 @@ impl Sound {
             Sound::CourseClear => "course_clear.wav",
             Sound::CourseFail => "course_fail.wav",
             Sound::CourseClose => "course_close.wav",
+            Sound::ResultA => "a.wav",
+            Sound::ResultAa => "aa.wav",
+            Sound::ResultAaa => "aaa.wav",
         }
+    }
+
+    /// The file name of its `form` (`clear.loop.wav`), if it has one.
+    fn file_of(self, form: Form) -> Option<String> {
+        let stem = self.file().trim_end_matches(".wav");
+        match form {
+            Form::Plain => Some(self.file().to_string()),
+            Form::Loop | Form::Enter if !self.scene_music() => None,
+            Form::Loop => Some(format!("{stem}.loop.wav")),
+            Form::Enter => Some(format!("{stem}.enter.wav")),
+        }
+    }
+
+    /// A screen's music, which may have `.loop` and `.enter` files.
+    fn scene_music(self) -> bool {
+        matches!(
+            self,
+            Sound::Select
+                | Sound::ResultClear
+                | Sound::ResultFail
+                | Sound::ResultA
+                | Sound::ResultAa
+                | Sound::ResultAaa
+                | Sound::CourseClear
+                | Sound::CourseFail
+        )
     }
 
     /// The LR2 sound set command.
@@ -95,18 +161,30 @@ impl Sound {
             Sound::ResultFail => "#FAIL",
             Sound::CourseClear => "#COURSECLEAR",
             Sound::CourseFail => "#COURSEFAIL",
-            Sound::PlayReady | Sound::ResultClose | Sound::CourseClose => return None,
+            Sound::PlayReady
+            | Sound::ResultClose
+            | Sound::CourseClose
+            | Sound::ResultA
+            | Sound::ResultAa
+            | Sound::ResultAaa => return None,
         })
     }
 
-    /// Plays until stopped.
-    fn looping(self) -> bool {
-        self == Sound::Select
+    /// Plays until stopped: `.loop` files, and the select music in either
+    /// form.
+    fn looping(self, form: Form) -> bool {
+        form == Form::Loop || (self == Sound::Select && form == Form::Plain)
     }
 
-    /// Mixer voice key (one voice per sound).
-    fn key(self) -> u64 {
-        u64::MAX - 100 + self as u64
+    /// Music, brought to a common loudness with `[audio] normalize_system`:
+    /// what loops and the decide jingle.
+    fn music(self, form: Form) -> bool {
+        self.looping(form) || (self == Sound::Decide && form == Form::Plain)
+    }
+
+    /// Mixer voice key (one voice per sound and form).
+    fn key(self, form: Form) -> u64 {
+        u64::MAX - 100 + self as u64 * 3 + form as u64
     }
 }
 
@@ -133,11 +211,35 @@ pub fn lr2ss_header(path: &Path) -> Option<(String, String)> {
     })
 }
 
-/// A folder holding beatoraja's sound files.
+/// The sound files in `dir`, by sound and form.
+fn folder_files(dir: &Path) -> HashMap<(Sound, Form), PathBuf> {
+    let index = vfs::DirIndex::new(dir);
+    let mut out = HashMap::new();
+    for s in Sound::ALL {
+        for f in Form::ALL {
+            if let Some(p) = s.file_of(f).and_then(|n| index.find(&n, vfs::AUDIO_EXTS)) {
+                out.insert((s, f), p);
+            }
+        }
+    }
+    out
+}
+
+/// A folder holding beatoraja's (or bmz-player's) sound files.
 fn is_sound_folder(dir: &Path) -> bool {
-    Sound::ALL
-        .iter()
-        .any(|s| vfs::find_by_stem(dir, s.file(), vfs::AUDIO_EXTS).is_some())
+    !folder_files(dir).is_empty()
+}
+
+/// A folder set's variants: its subfolders holding sound files.
+pub fn variants(set: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = vfs::read_dir(set)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.is_dir && is_sound_folder(&e.path))
+        .map(|e| e.path)
+        .collect();
+    v.sort();
+    v
 }
 
 /// The sound sets in `<root>/sounds` and `<root>/skins`, by path.
@@ -161,6 +263,8 @@ pub fn find_sets(root: &Path) -> Vec<SetInfo> {
                         name,
                         author: String::new(),
                     });
+                    // (its subfolders are its variants)
+                    continue;
                 }
                 walk(&e.path, depth + 1, out);
             } else if e
@@ -187,6 +291,13 @@ pub fn find_sets(root: &Path) -> Vec<SetInfo> {
 
 /// A set's name and author (the folder's name for a folder).
 pub fn set_info(path: &Path) -> Option<SetInfo> {
+    if path.ends_with(RANDOM_SET) {
+        return Some(SetInfo {
+            path: path.to_path_buf(),
+            name: "RANDOM".into(),
+            author: String::new(),
+        });
+    }
     let (name, author) = if vfs::is_dir(path) {
         let n = path.file_name()?.to_string_lossy().into_owned();
         (n, String::new())
@@ -226,17 +337,40 @@ fn lr2_path(set: &Path, root: &Path, raw: &str) -> Option<PathBuf> {
     None
 }
 
-/// The files of a set (a folder or an `.lr2ss`), by sound.
-pub fn set_files(path: &Path, root: &Path) -> HashMap<Sound, PathBuf> {
-    let mut out = HashMap::new();
+/// The files of a set (a folder or an `.lr2ss`), by sound and form; a
+/// folder's with those of its `variant` (a subfolder) first. A sound is
+/// taken from the variant if it has the sound in any form (its `clear`
+/// before the set's `clear.loop`), else from the set; its `.enter` file
+/// on its own.
+pub fn set_files(
+    path: &Path,
+    variant: Option<&Path>,
+    root: &Path,
+) -> HashMap<(Sound, Form), PathBuf> {
     if vfs::is_dir(path) {
+        let own = folder_files(path);
+        let Some(var) = variant.map(folder_files) else {
+            return own;
+        };
+        let mut out = HashMap::new();
         for s in Sound::ALL {
-            if let Some(p) = vfs::find_by_stem(path, s.file(), vfs::AUDIO_EXTS) {
-                out.insert(s, p);
+            let has = |f| var.contains_key(&(s, f));
+            let from = match has(Form::Plain) || has(Form::Loop) {
+                true => &var,
+                false => &own,
+            };
+            for f in [Form::Plain, Form::Loop] {
+                if let Some(p) = from.get(&(s, f)) {
+                    out.insert((s, f), p.clone());
+                }
+            }
+            if let Some(p) = var.get(&(s, Form::Enter)).or(own.get(&(s, Form::Enter))) {
+                out.insert((s, Form::Enter), p.clone());
             }
         }
         return out;
     }
+    let mut out = HashMap::new();
     let Ok(b) = vfs::read(path) else {
         return out;
     };
@@ -250,11 +384,11 @@ pub fn set_files(path: &Path, root: &Path) -> HashMap<Sound, PathBuf> {
             continue;
         };
         // the first line of a sound counts
-        if out.contains_key(&s) {
+        if out.contains_key(&(s, Form::Plain)) {
             continue;
         }
         if let Some(p) = f.get(1).and_then(|raw| lr2_path(path, root, raw)) {
-            out.insert(s, p);
+            out.insert((s, Form::Plain), p);
         }
     }
     out
@@ -306,42 +440,102 @@ fn built_in(s: Sound, rate: u32) -> Option<Sample> {
     })
 }
 
-type Loaded = Vec<(Sound, Arc<Sample>)>;
+/// The sounds decoded (the music's loudness with them), whether drawing
+/// again could give other sounds, and the folders drawn (`folders`).
+type Loaded = (
+    Vec<((Sound, Form), Arc<Sample>, Option<Loudness>)>,
+    bool,
+    Vec<PathBuf>,
+);
 
 /// The chosen set's sounds, decoded off the main thread.
 #[derive(Default)]
 pub struct SystemSounds {
     /// The `config.skins` value loaded (`None`: nothing yet).
     value: Option<String>,
-    samples: HashMap<Sound, Arc<Sample>>,
+    samples: HashMap<(Sound, Form), Arc<Sample>>,
+    /// The music's loudness (what loops, the decide jingle).
+    loudness: HashMap<(Sound, Form), Loudness>,
     job: Option<Job<Loaded>>,
-    /// A looping sound asked for while the set was loading.
+    /// The set was drawn at random, or with one of its variants: drawn
+    /// again when the song select comes back.
+    random: bool,
+    /// A looping sound and a screen's entry sound asked for while the set
+    /// was loading.
     want_loop: Option<Sound>,
+    want_enter: Option<Sound>,
+    /// The result's sounds playing.
+    result: Vec<(Sound, Form)>,
+    /// The folders of the set drawn (see `folders`).
+    folders: Vec<PathBuf>,
+}
+
+/// One of `v`, at random.
+fn draw<T: Clone>(v: &[T]) -> Option<T> {
+    let n = i32::try_from(v.len()).ok().filter(|n| *n > 0)?;
+    let k = vibebms_core::rng::JavaRandom::new(crate::platform::unix_ms()).next_int_bounded(n);
+    v.get(k as usize).cloned()
 }
 
 impl SystemSounds {
     /// Load the set `value` names (a path relative to `root`; empty: the
-    /// built-in one) unless it is the one loaded.
+    /// built-in one; [`RANDOM_SET`]) unless it is the one loaded.
     pub fn sync(&mut self, value: &str, root: &Path, rate: u32) {
         if self.value.as_deref() == Some(value) {
             return;
         }
         self.value = Some(value.to_string());
+        self.load(root, rate);
+    }
+
+    /// The song select comes back: a set drawn at random, or one with
+    /// variants, is drawn again.
+    pub fn redraw(&mut self, root: &Path, rate: u32) {
+        if self.random && self.job.is_none() {
+            self.load(root, rate);
+        }
+    }
+
+    fn load(&mut self, root: &Path, rate: u32) {
+        let value = self.value.clone().unwrap_or_default();
         self.samples.clear();
+        self.loudness.clear();
+        self.random = false;
+        self.folders.clear();
         if value.is_empty() {
             for s in Sound::ALL {
                 if let Some(x) = built_in(s, rate) {
-                    self.samples.insert(s, Arc::new(x));
+                    self.samples.insert((s, Form::Plain), Arc::new(x));
                 }
             }
             self.job = None;
             return;
         }
-        let path = root.join(value);
         let root = root.to_path_buf();
         self.job = Some(Job::spawn("sound set", move |_| {
+            let (path, many) = if value == RANDOM_SET {
+                let sets = find_sets(&root);
+                let Some(s) = draw(&sets) else {
+                    return (Vec::new(), false, Vec::new());
+                };
+                (s.path, sets.len() > 1)
+            } else {
+                (root.join(&value), false)
+            };
+            let vars = match vfs::is_dir(&path) {
+                true => variants(&path),
+                false => Vec::new(),
+            };
+            let variant = draw(&vars);
+            log::info!(
+                "sound set {}{}",
+                path.display(),
+                variant
+                    .as_ref()
+                    .map_or(String::new(), |v| format!(" ({})", v.display()))
+            );
             let mut out = Vec::new();
-            for (s, p) in set_files(&path, &root) {
+            for (k, p) in set_files(&path, variant.as_deref(), &root) {
                 let ext = p
                     .extension()
                     .map(|e| e.to_string_lossy().to_lowercase())
@@ -350,51 +544,149 @@ impl SystemSounds {
                     .map_err(|e| e.to_string())
                     .and_then(|b| vibebms_audio::decode_bytes(b, &ext, rate))
                 {
-                    Ok(x) => out.push((s, Arc::new(x))),
+                    Ok(x) => {
+                        let music = k.0.music(k.1);
+                        let l = music.then(|| crate::loudness::measure_sound(&x, rate));
+                        out.push((k, Arc::new(x), l))
+                    }
                     Err(e) => log::warn!("sound set: {}: {e}", p.display()),
                 }
             }
-            out
+            let folders = match vfs::is_dir(&path) {
+                true => variant.into_iter().chain([path]).collect(),
+                false => Vec::new(),
+            };
+            (out, many || vars.len() > 1, folders)
         }));
     }
 
-    /// Take the decoded sounds once they are ready.
-    pub fn poll(&mut self, mixer: &Mixer) {
-        let Some(v) = self.job.as_mut().and_then(Job::poll) else {
+    /// Take the decoded sounds once they are ready (`norm`: the loudness
+    /// the music is played at, if it is normalised).
+    pub fn poll(&mut self, mixer: &Mixer, norm: Option<f32>) {
+        let Some((v, random, folders)) = self.job.as_mut().and_then(Job::poll) else {
             return;
         };
         self.job = None;
-        self.samples.extend(v);
-        if let Some(s) = self.want_loop.take() {
-            self.play(mixer, s);
+        self.random = random;
+        self.folders = folders;
+        for (k, x, l) in v {
+            self.samples.insert(k, x);
+            if let Some(l) = l {
+                self.loudness.insert(k, l);
+            }
         }
+        if let Some(s) = self.want_enter.take() {
+            self.play_enter(mixer, s, norm);
+        }
+        if let Some(s) = self.want_loop.take() {
+            self.play(mixer, s, norm);
+        }
+    }
+
+    /// The volume `s` plays at: its music brought to `norm` LUFS.
+    fn volume(&self, k: (Sound, Form), norm: Option<f32>) -> f32 {
+        match (norm, self.loudness.get(&k)) {
+            (Some(t), Some(l)) => crate::loudness::gain(l, t),
+            _ => 1.0,
+        }
+    }
+
+    /// Normalising changed: the music playing follows.
+    pub fn renormalize(&self, mixer: &Mixer, norm: Option<f32>) {
+        for &(s, f) in self.loudness.keys() {
+            mixer.set_volume(s.key(f), self.volume((s, f), norm));
+        }
+    }
+
+    /// The folders of the folder set drawn, to look for its other files
+    /// in (GUIDE SE): its variant's, then its own (none for an LR2 or the
+    /// built-in set, or while it loads).
+    pub fn folders(&self) -> Vec<PathBuf> {
+        self.folders.clone()
     }
 
     pub fn has(&self, s: Sound) -> bool {
-        self.samples.contains_key(&s)
+        self.samples.contains_key(&(s, Form::Plain))
     }
 
-    pub fn play(&mut self, mixer: &Mixer, s: Sound) {
-        match self.samples.get(&s) {
-            Some(x) => mixer.play(
-                x,
-                PlayOptions {
-                    key: s.key(),
-                    bus: Bus::System,
-                    looping: s.looping(),
-                    ..Default::default()
-                },
-            ),
-            None if s.looping() && self.job.is_some() => self.want_loop = Some(s),
-            None => {}
+    fn start(&self, mixer: &Mixer, k: (Sound, Form), norm: Option<f32>) -> bool {
+        let Some(x) = self.samples.get(&k) else {
+            return false;
+        };
+        let o = PlayOptions {
+            key: k.0.key(k.1),
+            bus: Bus::System,
+            volume: self.volume(k, norm),
+            looping: k.0.looping(k.1),
+            ..Default::default()
+        };
+        mixer.play(x, o);
+        true
+    }
+
+    /// Play `s`: the select music as `select.loop`, else `select` (both
+    /// over and over); any other sound once.
+    pub fn play(&mut self, mixer: &Mixer, s: Sound, norm: Option<f32>) {
+        let started = (s == Sound::Select && self.start(mixer, (s, Form::Loop), norm))
+            || self.start(mixer, (s, Form::Plain), norm);
+        if !started && s.looping(Form::Plain) && self.job.is_some() {
+            self.want_loop = Some(s);
         }
     }
 
+    /// A screen comes: its `<name>.enter` sound, once.
+    pub fn play_enter(&mut self, mixer: &Mixer, s: Sound, norm: Option<f32>) {
+        if !self.start(mixer, (s, Form::Enter), norm) && self.job.is_some() {
+            self.want_enter = Some(s);
+        }
+    }
+
+    /// Stop `s` (its plain and `.loop` files).
     pub fn stop(&mut self, mixer: &Mixer, s: Sound) {
         if self.want_loop == Some(s) {
             self.want_loop = None;
         }
-        mixer.stop(s.key());
+        // (a screen's entry sound plays out)
+        for f in [Form::Plain, Form::Loop] {
+            mixer.stop(s.key(f));
+        }
+    }
+
+    /// A result comes: of `sounds` (the outcome's, then those it falls back
+    /// on: `aaa`, `clear`), the first's `.enter` sound found, and the music:
+    /// the first's `.loop` (over and over) or plain file (once) found. With
+    /// an `.enter` sound, only a `.loop` is music (a plain one is not played
+    /// over it).
+    pub fn play_result(&mut self, mixer: &Mixer, sounds: &[Sound], norm: Option<f32>) {
+        self.stop_result(mixer);
+        let found = |f: Form| {
+            sounds
+                .iter()
+                .map(|&s| (s, f))
+                .find(|k| self.samples.contains_key(k))
+        };
+        let enter = found(Form::Enter);
+        let music = sounds.iter().find_map(|&s| {
+            let forms: &[Form] = match enter {
+                Some(_) => &[Form::Loop],
+                None => &[Form::Loop, Form::Plain],
+            };
+            forms
+                .iter()
+                .map(|&f| (s, f))
+                .find(|k| self.samples.contains_key(k))
+        });
+        for k in enter.into_iter().chain(music) {
+            self.start(mixer, k, norm);
+            self.result.push(k);
+        }
+    }
+
+    /// The result ends: its sounds stop.
+    pub fn stop_result(&mut self, mixer: &Mixer) {
+        for (s, f) in self.result.drain(..) {
+            mixer.stop(s.key(f));
+        }
     }
 }
 
@@ -424,17 +716,195 @@ mod tests {
         // LR2's BGM folder holds beatoraja's select.wav: a set too
         assert_eq!(names, vec!["e2e", "E2E", "raja"]);
         assert_eq!(sets[1].author, "me");
-        let raja = set_files(&snd.join("raja"), &root);
+        let raja = set_files(&snd.join("raja"), None, &root);
         assert_eq!(raja.len(), 2);
-        assert!(raja[&Sound::Decide].ends_with("decide.ogg"));
-        assert!(raja[&Sound::FolderOpen].ends_with("F-OPEN.wav"));
-        let lr2 = set_files(&snd.join("LR2/Sound/e2e.lr2ss"), &root);
+        assert!(raja[&(Sound::Decide, Form::Plain)].ends_with("decide.ogg"));
+        assert!(raja[&(Sound::FolderOpen, Form::Plain)].ends_with("F-OPEN.wav"));
+        let lr2 = set_files(&snd.join("LR2/Sound/e2e.lr2ss"), None, &root);
         // chosen like a skin of type 10
         let h = crate::skin::header(&snd.join("LR2/Sound/e2e.lr2ss"));
         std::fs::remove_dir_all(&root).ok();
         assert_eq!(lr2.len(), 1);
-        assert!(lr2[&Sound::Select].ends_with("Bgm/e2e/select.wav"));
+        assert!(lr2[&(Sound::Select, Form::Plain)].ends_with("Bgm/e2e/select.wav"));
         assert_eq!(h, Some((crate::skin::SkinType::SoundSet, "E2E".into())));
+    }
+
+    fn touch(p: &Path) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b"x").unwrap();
+    }
+
+    /// bmz-player's conventions: `.loop` and `.enter` files, the rank
+    /// sounds, variants in subfolders taking what they lack from the set.
+    #[test]
+    fn loops_entries_and_variants() {
+        let root = std::env::temp_dir().join(format!("vibebms-ssetv-{}", std::process::id()));
+        let set = root.join("sounds/bmz");
+        for f in [
+            "select.ogg",
+            "select.enter.wav",
+            "decide.ogg",
+            "clear.loop.ogg",
+            "fail.wav",
+            "AAA.WAV",
+            "style-a/select.ogg",
+            "style-a/clear.ogg",
+            "style-b/aaa.loop.wav",
+            "style-b/clear.enter.ogg",
+            "notes/readme.txt",
+        ] {
+            touch(&set.join(f));
+        }
+        // the variants are the set's, not sets of their own
+        let names: Vec<String> = find_sets(&root).into_iter().map(|s| s.name).collect();
+        assert_eq!(names, ["bmz"]);
+        assert_eq!(variants(&set), [set.join("style-a"), set.join("style-b")]);
+        let name = |m: &HashMap<(Sound, Form), PathBuf>, s, f| {
+            m.get(&(s, f))
+                .map(|p| p.strip_prefix(&set).unwrap().display().to_string())
+        };
+        use Form::*;
+        use Sound::*;
+        let own = set_files(&set, None, &root);
+        assert_eq!(
+            name(&own, Select, Enter).as_deref(),
+            Some("select.enter.wav")
+        );
+        assert_eq!(
+            name(&own, ResultClear, Loop).as_deref(),
+            Some("clear.loop.ogg")
+        );
+        assert_eq!(name(&own, ResultClear, Plain), None);
+        assert_eq!(name(&own, ResultAaa, Plain).as_deref(), Some("AAA.WAV"));
+        assert_eq!(own.len(), 6);
+        // style-a: its select and its clear (before the set's clear.loop);
+        // the rest the set's
+        let a = set_files(&set, Some(&set.join("style-a")), &root);
+        assert_eq!(
+            name(&a, Select, Plain).as_deref(),
+            Some("style-a/select.ogg")
+        );
+        assert_eq!(name(&a, Select, Enter).as_deref(), Some("select.enter.wav"));
+        assert_eq!(
+            name(&a, ResultClear, Plain).as_deref(),
+            Some("style-a/clear.ogg")
+        );
+        assert_eq!(name(&a, ResultClear, Loop), None);
+        assert_eq!(name(&a, Decide, Plain).as_deref(), Some("decide.ogg"));
+        // style-b: its aaa.loop (the set's aaa not with it), its clear.enter
+        let b = set_files(&set, Some(&set.join("style-b")), &root);
+        assert_eq!(
+            name(&b, ResultAaa, Loop).as_deref(),
+            Some("style-b/aaa.loop.wav")
+        );
+        assert_eq!(name(&b, ResultAaa, Plain), None);
+        assert_eq!(
+            name(&b, ResultClear, Loop).as_deref(),
+            Some("clear.loop.ogg")
+        );
+        assert_eq!(
+            name(&b, ResultClear, Enter).as_deref(),
+            Some("style-b/clear.enter.ogg")
+        );
+        // other sounds have no .loop or .enter files
+        assert_eq!(Sound::Decide.file_of(Form::Loop), None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn mixer() -> Mixer {
+        Mixer::new(&vibebms_audio::AudioConfig {
+            buffer_frames: 0,
+            sample_rate: 44100,
+            master: 0.0,
+            key_volume: 0.0,
+            bgm_volume: 0.0,
+            system_volume: 0.0,
+            max_voices: 16,
+            #[cfg(windows)]
+            exclusive: false,
+        })
+    }
+
+    /// The result's music: the outcome's `.loop`, else its plain file,
+    /// then clear's; with an `.enter` sound only a `.loop` is music.
+    #[test]
+    fn result_music() {
+        use Form::*;
+        use Sound::*;
+        let m = mixer();
+        let with = |keys: &[(Sound, Form)]| {
+            let mut s = SystemSounds::default();
+            for k in keys {
+                s.samples.insert(*k, Arc::new(Sample::default()));
+            }
+            s
+        };
+        let aaa = [ResultAaa, ResultClear];
+        let mut s = with(&[(ResultAaa, Plain), (ResultClear, Loop)]);
+        s.play_result(&m, &aaa, None);
+        assert_eq!(s.result, [(ResultAaa, Plain)]);
+        let mut s = with(&[(ResultAaa, Plain), (ResultAaa, Loop), (ResultClear, Loop)]);
+        s.play_result(&m, &aaa, None);
+        assert_eq!(s.result, [(ResultAaa, Loop)]);
+        // no aaa: clear (not aa)
+        let mut s = with(&[(ResultAa, Plain), (ResultClear, Plain)]);
+        s.play_result(&m, &aaa, None);
+        assert_eq!(s.result, [(ResultClear, Plain)]);
+        // an entry sound, with a .loop but not over a plain file
+        let mut s = with(&[
+            (ResultClear, Enter),
+            (ResultAaa, Plain),
+            (ResultClear, Loop),
+        ]);
+        s.play_result(&m, &aaa, None);
+        assert_eq!(s.result, [(ResultClear, Enter), (ResultClear, Loop)]);
+        let mut s = with(&[(ResultAaa, Enter), (ResultAaa, Plain)]);
+        s.play_result(&m, &aaa, None);
+        assert_eq!(s.result, [(ResultAaa, Enter)]);
+        s.stop_result(&m);
+        assert!(s.result.is_empty());
+        // looping: the select music in any form, the .loop files
+        assert!(Select.looping(Plain) && ResultClear.looping(Loop) && !ResultClear.looping(Plain));
+        assert!(Decide.music(Plain) && !ResultClear.music(Plain) && !Select.music(Enter));
+        // one voice key each
+        let keys: std::collections::HashSet<u64> = Sound::ALL
+            .iter()
+            .flat_map(|s| Form::ALL.map(|f| s.key(f)))
+            .collect();
+        assert_eq!(keys.len(), Sound::ALL.len() * 3);
+        assert!(keys.iter().all(|k| *k < u64::MAX - 2));
+    }
+
+    /// RANDOM: a set drawn among those found, again when asked.
+    #[test]
+    fn a_set_drawn_at_random() {
+        let root = std::env::temp_dir().join(format!("vibebms-ssetr-{}", std::process::id()));
+        touch(&root.join("sounds/one/decide.wav"));
+        touch(&root.join("sounds/two/decide.wav"));
+        let mut s = SystemSounds::default();
+        let m = mixer();
+        s.sync(RANDOM_SET, &root, 44100);
+        for _ in 0..500 {
+            s.poll(&m, None);
+            if s.job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // (the files do not decode: nothing is loaded, but two sets
+        // can be drawn from)
+        assert!(s.job.is_none() && s.random);
+        // its folder, for GUIDE SE
+        let f = s.folders();
+        assert!(
+            f.len() == 1 && (f[0].ends_with("one") || f[0].ends_with("two")),
+            "{f:?}"
+        );
+        s.redraw(&root, 44100);
+        assert!(s.job.is_some());
+        let info = set_info(&root.join(RANDOM_SET)).unwrap();
+        assert_eq!(info.name, "RANDOM");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

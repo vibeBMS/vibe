@@ -83,6 +83,17 @@ impl Default for DisplayConfig {
     }
 }
 
+/// The loudness normalised sounds play at by default (LUFS).
+pub const NORMALIZE_TARGET: f32 = -12.0;
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn is_normal_target(t: &f32) -> bool {
+    *t == NORMALIZE_TARGET
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct AudioSettings {
@@ -97,6 +108,15 @@ pub struct AudioSettings {
     pub preview: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub preview_once: bool,
+    /// The chart's sounds and the song preview played at a common loudness,
+    /// `normalize_target` LUFS (`loudness`).
+    #[serde(skip_serializing_if = "is_true")]
+    pub normalize: bool,
+    #[serde(skip_serializing_if = "is_normal_target")]
+    pub normalize_target: f32,
+    /// The sound set's music (select, decide, `.loop` files) too.
+    #[serde(skip_serializing_if = "is_true")]
+    pub normalize_system: bool,
     /// Windows: the device in WASAPI exclusive mode (else shared).
     #[cfg(windows)]
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -114,6 +134,9 @@ impl Default for AudioSettings {
             system: 0.7,
             preview: true,
             preview_once: false,
+            normalize: true,
+            normalize_target: NORMALIZE_TARGET,
+            normalize_system: true,
             #[cfg(windows)]
             exclusive: false,
         }
@@ -526,6 +549,9 @@ mod tests {
                 system: 0.125,
                 preview: false,
                 preview_once: true,
+                normalize: true,
+                normalize_target: NORMALIZE_TARGET,
+                normalize_system: true,
                 #[cfg(windows)]
                 exclusive: false,
             },
@@ -638,6 +664,19 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(Config::load(&path), c);
+    }
+
+    /// Loudness normalisation is written only when it is not as it comes.
+    #[test]
+    fn normalizing_is_written_when_changed() {
+        let mut c = Config::default();
+        assert!(!c.to_toml().unwrap().contains("normalize"));
+        (c.audio.normalize, c.audio.normalize_target) = (false, -16.0);
+        c.audio.normalize_system = false;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("normalize = false") && s.contains("normalize_target = -16.0"));
+        let d: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c, d);
     }
 
     #[test]

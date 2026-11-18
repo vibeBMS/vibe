@@ -22,6 +22,7 @@ const BUS_VOLUME: u8 = 4;
 const MASTER: u8 = 5;
 const FREE: u8 = 6;
 const GROUP_VOLUME: u8 = 7;
+const BUS_GAIN: u8 = 8;
 
 fn wire(op: u8, args: &[f64]) -> Wire {
     let mut w = [0.0; 10];
@@ -56,6 +57,7 @@ pub(crate) fn encode(c: &Cmd, sample: u32) -> Wire {
         Cmd::Stop(k) => wire(STOP, &[*k as f64]),
         Cmd::StopBus(b) => wire(STOP_BUS, &[*b as u32 as f64]),
         Cmd::BusVolume(b, v) => wire(BUS_VOLUME, &[*b as u32 as f64, *v as f64]),
+        Cmd::BusGain(b, v) => wire(BUS_GAIN, &[*b as u32 as f64, *v as f64]),
         Cmd::Master(v) => wire(MASTER, &[*v as f64]),
         Cmd::GroupVolume(g, v) => wire(GROUP_VOLUME, &[*g as f64, *v as f64]),
     }
@@ -141,6 +143,7 @@ impl Worklet {
             STOP => Cmd::Stop(w[1] as u64),
             STOP_BUS => Cmd::StopBus(bus(w[1])),
             BUS_VOLUME => Cmd::BusVolume(bus(w[1]), w[2] as f32),
+            BUS_GAIN => Cmd::BusGain(bus(w[1]), w[2] as f32),
             MASTER => Cmd::Master(w[1] as f32),
             GROUP_VOLUME => Cmd::GroupVolume(w[1] as u8, w[2] as f32),
             FREE => {
