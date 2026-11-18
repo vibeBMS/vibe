@@ -174,6 +174,11 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
   keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
   40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
+- **KEY CONVERT** (select option, after SAME FOLDER: OFF / 7KEYS / 9KEYS): play a chart in another key mode, as
+  bmz-player does: 7 keys as 9 buttons (keys on buttons 2-8, the scratch on button 1), 9 buttons as 7 keys
+  (buttons 1 and 9 on the scratch), 5 keys as 7 (keys 2-6), 4 / 6 / 8 keys as 7 (where their channels put them),
+  or any of these through 7 keys as 9. Such a play keeps nothing (no score, lamp or play count) and goes to no IR;
+  its replay keeps the conversion. Not in courses. Tables: [docs/RULES.md](docs/RULES.md) "KEY CONVERT".
 - **Chart modifiers** (ASSIST panel, hold SELECT): SCROLL REMOVE (`#SCROLL` and `#SPEED` off), MINE ADD (RANDOM,
   NEAR, BLANK: mines on the keys free at each note's time) and LONGNOTE ADD (LN, CN, HCN: notes made long notes),
   beside LEGACY NOTE and NO MINE. They are assists where they change the chart: LONGNOTE ADD as LEGACY NOTE,

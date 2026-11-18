@@ -446,6 +446,31 @@ key chart, as before):
 * No beatoraja or LR2 skin type exists for them: they play on the built-in default skins (vibeBMS's own types
   104 / 106 / 108), or the touch perspective skin.
 
+## KEY CONVERT (key mode conversion)
+bmz-player's `docs/score-persistence.md` ("Key mode 変換"): a chart played in another key mode saves nothing, lamp
+and play count included, and sends nothing to IR. vibeBMS's KEY CONVERT select option (`convert.rs`, OFF / 7KEYS
+/ 9KEYS) moves each note to a lane of the target mode by a fixed table, its time and kind kept (lanes as
+`PlayMode` numbers them: keys left to right, the scratch last):
+
+| from | to | lanes |
+|---|---|---|
+| 7K | 9K | keys 1-7 on buttons 2-8, the scratch on button 1 (button 9 has none) |
+| 9K | 7K | buttons 2-8 on keys 1-7, buttons 1 and 9 on the scratch |
+| 5K | 7K | keys 1-5 on keys 2-6, the scratch on the scratch |
+| 4K / 6K / 8K | 7K | where the chart has them in 7 key channels (8K's first key on the scratch) |
+| 5K, 4K, 6K, 8K | 9K | through 7K, then 7K → 9K |
+
+A note that lands where a note of another of the chart's lanes is (at the same time, or inside its long note)
+plays as a background sound (9K → 7K's buttons 1 and 9); notes of one lane stay as the chart has them. A mode
+with no table (10K, 14K; 7K to 7KEYS) plays as written and is not a converted play. The play takes the target
+mode's rules (7K → 9K plays PMS windows and gauges) and skin; the conversion comes before the lane options and
+BATTLE, so RANDOM shuffles the target's lanes.
+* Not saved at all ("KEY CONVERT: not saved"): no score, lamp, play count or best replay; never sent to an IR
+  (`Refusal::KeyConvert`). Song select's SAVE status says NO SAVE when it would convert the chart.
+* Replays keep it (`RuleOptions::key_convert`): a converted play's replay is the chart's LAST (and can be kept in
+  a slot), and watching it makes the converted chart again. G-BATTLE plays the opponent replay's conversion.
+* Courses play their charts as written (`RuleOptions::for_course`).
+
 ## Best scores
 The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
 the max combo, the min BP (BAD + POOR + empty POOR + notes not reached, skin number 76) and the min CB (combo

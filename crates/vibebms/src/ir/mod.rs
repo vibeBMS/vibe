@@ -993,6 +993,7 @@ pub fn refusal_words(r: Refusal) -> String {
         Refusal::CourseStage => "a course stage".into(),
         Refusal::Aborted => "quit".into(),
         Refusal::Freq => "played at another FREQ".into(),
+        Refusal::KeyConvert => "played in another key mode (KEY MODE)".into(),
         Refusal::KeyMode(m) => format!("no IR ranks {}", m.label()),
         Refusal::Assist => "assist options".into(),
         Refusal::LocalRules => "not under vibe-LR2 or vibe-beatoraja rules".into(),

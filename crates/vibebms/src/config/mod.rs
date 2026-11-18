@@ -428,6 +428,7 @@ mod tests {
                     trainer_order: "1234567".into(),
                     freq: 0,
                     course: None,
+                    key_convert: Default::default(),
                 },
                 versus: Versus::Off,
                 side: Side::P2,

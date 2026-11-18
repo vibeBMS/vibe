@@ -84,7 +84,10 @@ impl PlayScene {
             .or(self.req.replay.as_ref().map(|_| "REPLAY"))
             .or(vs.then_some("VS"))
             .or(practice.map(|_| "PRACTICE"))
-            .or((rules.freq < 0).then_some("FREQ"));
+            .or((rules.freq < 0).then_some("FREQ"))
+            // (bmz-player's rule: a chart played in another key mode
+            // keeps nothing; its replay keeps the conversion)
+            .or(facts.key_convert.map(|_| "KEY CONVERT"));
         let ln = rules.ln_pref();
         let score_ln = ln_profile.score_ln(ln);
         // AUTO SCRATCH is an assist when it plays scored notes
@@ -189,6 +192,11 @@ impl PlayScene {
         if input_mode.is_double() {
             opts.push(p.random_2p.label());
         }
+        let converted = rule_facts
+            .assist
+            .key_convert
+            .map(|from| format!("{} TO {}", from.label(), mode.label()));
+        opts.extend(converted.as_deref());
         if ghost.is_some() {
             opts.push("G-BATTLE");
         }
