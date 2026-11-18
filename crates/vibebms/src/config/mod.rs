@@ -10,11 +10,12 @@ mod migrate;
 mod play;
 mod practice;
 mod select;
+mod streaming;
 mod touch;
 
 pub use hispeed::{Bpms, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
 pub use ir::{provider_name, Beside, IrAccount, IrSettings, OldToken, PlayerKey, SubmitPolicy};
-pub use keys::{InputTuning, KeyConfig, LaneKeys, SideKeys};
+pub use keys::{InputTuning, KeyConfig, LaneKeys, PadId, PadSides, SideKeys};
 pub use play::{
     BgaMode, BgaSize, Ghost, HiSpeedMode, HsFix, HsType, PlayConfig, Side, SideOptions, Target,
     Versus, NORMAL_GREENS,
@@ -24,6 +25,7 @@ pub use select::{
     DifficultyFilter, KeyFilter, RandomSelect, ReplayPick, SelectConfig, SortMode, WATCH_SPEED_MAX,
     WATCH_SPEED_MIN,
 };
+pub use streaming::{DiscordConfig, ObsConfig, ObsScenes};
 pub use touch::{
     PerspectiveConfig, TouchButton, TouchConfig, TouchLayout, TouchMode, TouchSide, TouchStyle,
     LENGTH_RANGE, OLD_TOUCH_HEIGHTS, PERSPECTIVE_LAYOUT, PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
@@ -59,6 +61,43 @@ impl PresentMode {
     }
 }
 
+/// The graphics API the GPU is driven through (`gfx::device`; desktop,
+/// Android). AUTO lets wgpu choose among the ones the platform has
+/// (Vulkan, Metal, DX12, then OpenGL), as before the setting existed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum GraphicsBackend {
+    #[default]
+    Auto,
+    Vulkan,
+    Metal,
+    Dx12,
+    OpenGl,
+}
+
+impl GraphicsBackend {
+    /// The ones that can be chosen, in the order AUTO prefers them.
+    pub const APIS: [GraphicsBackend; 4] = [
+        GraphicsBackend::Vulkan,
+        GraphicsBackend::Metal,
+        GraphicsBackend::Dx12,
+        GraphicsBackend::OpenGl,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GraphicsBackend::Auto => "AUTO",
+            GraphicsBackend::Vulkan => "VULKAN",
+            GraphicsBackend::Metal => "METAL",
+            GraphicsBackend::Dx12 => "DX12",
+            GraphicsBackend::OpenGl => "OPENGL",
+        }
+    }
+
+    pub fn is_auto(&self) -> bool {
+        *self == GraphicsBackend::Auto
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct DisplayConfig {
@@ -66,6 +105,10 @@ pub struct DisplayConfig {
     pub width: u32,
     pub height: u32,
     pub present_mode: PresentMode,
+    /// Read at start: a change applies at the next launch. One that cannot
+    /// start is replaced by the one that did.
+    #[serde(skip_serializing_if = "GraphicsBackend::is_auto")]
+    pub backend: GraphicsBackend,
     /// 0 = unlimited.
     pub max_fps: u32,
     pub ui_scale: f32,
@@ -82,6 +125,7 @@ impl Default for DisplayConfig {
             width: 1280,
             height: 720,
             present_mode: PresentMode::VSync,
+            backend: GraphicsBackend::Auto,
             max_fps: 0,
             ui_scale: 1.0,
             show_fps: false,
@@ -228,6 +272,12 @@ pub struct Config {
     /// RANDOM MIX's settings (written once changed).
     #[serde(skip_serializing_if = "crate::courses::RandomMix::is_default")]
     pub random_mix: crate::courses::RandomMix,
+    /// Discord Rich Presence (desktop; written once changed).
+    #[serde(skip_serializing_if = "DiscordConfig::is_default")]
+    pub discord: DiscordConfig,
+    /// OBS WebSocket (desktop; written once changed).
+    #[serde(skip_serializing_if = "ObsConfig::is_default")]
+    pub obs: ObsConfig,
 }
 
 impl Default for Config {
@@ -264,6 +314,8 @@ impl Default for Config {
             skin_offsets: Default::default(),
             practice: Default::default(),
             random_mix: Default::default(),
+            discord: Default::default(),
+            obs: Default::default(),
         }
     }
 }
@@ -502,6 +554,7 @@ mod tests {
                     turntable_stop_ms: 150,
                     chatter_ms: 8,
                 },
+                controllers: Default::default(),
             },
             touch: TouchConfig {
                 mode: TouchMode::On,
@@ -549,6 +602,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
                 present_mode: PresentMode::VSync,
+                backend: GraphicsBackend::Auto,
                 max_fps: 144,
                 ui_scale: 1.25,
                 show_fps: true,
@@ -621,6 +675,8 @@ mod tests {
             // (written only once changed: `practice_settings_roundtrip`)
             practice: Default::default(),
             random_mix: Default::default(),
+            discord: Default::default(),
+            obs: Default::default(),
         }
     }
 

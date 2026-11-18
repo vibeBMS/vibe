@@ -14,7 +14,7 @@ mod texture;
 pub use self::image::{key_black, load_picture, load_picture_bytes, Picture};
 pub use anim::{Animation, ImageTex};
 pub use batch::{Batch, Blend, SdfStyle};
-pub use device::Gfx;
+pub use device::{available_backends, Fallback, Gfx};
 #[cfg(desktop)]
 pub use offscreen::Offscreen;
 

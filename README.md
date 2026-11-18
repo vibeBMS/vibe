@@ -137,6 +137,16 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
 - Controllers (IIDX controllers included) are set in `SETTINGS › CONTROLS` by pressing their buttons. Analog
   turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
   default; see [docs/RULES.md](docs/RULES.md) "Input filters").
+- Which controller is 1P and which 2P (`SETTINGS › CONTROLS › 1P controller` / `2P controller`): AUTO (the default:
+  the order they were connected in, as bindings show them, `Pad0` 1P, `Pad1` 2P) or one of the connected
+  controllers, kept by its name and id (USB vendor and product; browsers tell none, so there the name) in
+  `[keys.controllers]` and found again at the next launch. A chosen controller that is not connected leaves its
+  side to the next controller in connection order; two of the same model are 1P and 2P in the order they were
+  connected; choosing for one side the other side's controller swaps them, as `Swap 1P and 2P controllers` does.
+  The bindings follow the side, not the controller (`Pad0#3` is button 3 of whichever controller is 1P), and
+  `Connected controllers` lists each with its side. Each side also has a second keyboard map, `1P keyboard sub` /
+  `2P keyboard sub`: a second key for each key and scratch (the KEYBOARD SUB slot; the first key is the one the
+  side's page and the key config set).
 - Touch (`SETTINGS › CONTROLS`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS), a single row
   of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
   them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
@@ -208,6 +218,12 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   handling by the screen: on the web and iOS and for controllers the event's own time, else when the window got it).
   Off, nothing is measured. The start's phases (event loop, window, graphics, audio, library, tables and skins, song
   select, first frame) are timed in the log (`startup:` lines).
+- **Graphics API** (`SETTINGS › DISPLAY & AUDIO › ADVANCED › Graphics API`; not on the web): AUTO (the default; wgpu
+  chooses, Vulkan, Metal, DX12 then OpenGL as before) or one of the APIs the platform has: Vulkan, DX12 and OpenGL on
+  Windows, Vulkan and OpenGL on Linux and Android, Metal on macOS and iOS. It applies at the next launch. If the one
+  chosen does not start, the others are tried in AUTO's order; the one that started is kept as the setting (written to
+  `config.toml` as `display.backend`), logged, and said once in a message. A choice the platform lacks (a configuration
+  from another computer) starts as AUTO and stays as it is. The `GPU` line below it shows the device and API in use.
 - **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
   the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
   keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
@@ -351,7 +367,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   cut the other's); a player who fails stops (FAILED over their side) and the other plays on; the play ends
   when both have finished or failed. The results show both sides and the winner. Nothing is saved: no
   scores, lamps, replays or play counts. Controllers: press a button on the 1P controller while the chart
-  loads (the order they were connected in can swap them). On one keyboard, many keyboards miss keys when
+  loads (it is the 1P one for this play; which one that is by default is `SETTINGS › CONTROLS › 1P controller`). On one keyboard, many keyboards miss keys when
   several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
   player's START / SELECT on their side); phones refuse it.
 - **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
@@ -396,6 +412,25 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
   judgements) and max combo, the lower min BP, and the play and clear counts as the higher of the two (not summed,
   so importing again changes nothing). Courses and charts not in the library are counted and left out.
+- **Discord Rich Presence** (desktop; `SETTINGS › SYSTEM › STREAMING`, off by default): your Discord status shows
+  the screen: "Choosing a song" in song select, the chart as `title [DIFFICULTY]` on the decide screen, in play
+  ("Playing", "Watching autoplay", "Watching a replay", "Practising") and on the result ("Result: HARD CLEAR"), with
+  the time on that screen. It talks only to the Discord app on the same computer, through its local IPC socket
+  (`discord-ipc-0` to `-9` in `$XDG_RUNTIME_DIR` or the temporary folder, the Flatpak and Snap folders included, or the
+  `\\.\pipe\discord-ipc-N` named pipe on Windows): a handshake with the application id, then `SET_ACTIVITY`
+  commands, at most one every 4 seconds (Discord's rate limit), the newest winning. It needs a Discord application
+  id (`discord.application_id`; make an application at Discord's developer portal, its name is the game you are
+  shown playing): none is built in, and without one the row says it needs one. When Discord is not running it
+  tries again, waiting longer each time (up to a minute); `Discord` below shows the state.
+- **OBS** (desktop; `SETTINGS › SYSTEM › STREAMING › OBS`, off by default): connects to obs-websocket 5 (OBS 28 or
+  later, `Tools › WebSocket Server Settings`) at `obs.host` / `obs.port` (127.0.0.1:4455 by default) with the
+  server's password if it has one (the SHA-256 challenge of its protocol; the password is kept in `config.toml`).
+  For each screen (song select, decide, play, result) a scene can be named; on entering that screen OBS switches to
+  it (`SetCurrentProgramScene`; empty: no switch). With `Record plays`, OBS starts recording as a play starts and
+  stops when its result is left (a retry or the next course stage stops it and starts another; turning OBS off or
+  quitting stops it too). It runs on a thread of its own, so a slow or absent OBS never holds up the game, and
+  reconnects after 1, 2, 4 … up to 30 seconds; `OBS` shows the state, and failed requests (a scene that does not
+  exist) are logged. The WebSocket client is vibeBMS's own (RFC 6455, no TLS, which obs-websocket does not use).
 
 ## Skins
 

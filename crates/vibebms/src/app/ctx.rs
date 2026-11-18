@@ -62,6 +62,8 @@ pub struct Ctx {
     /// This launch's command-line options, which the saved config leaves
     /// out.
     pub overrides: super::cli::Overrides,
+    /// Discord Rich Presence and OBS (desktop).
+    pub streaming: crate::integrations::Integrations,
 }
 
 /// The library: its database, the charts as last read, the records, and
@@ -168,6 +170,8 @@ pub struct Input {
     /// Where the mouse is (screen pixels); `None` before it moves and once
     /// it has left the window.
     pub pointer: Option<(f32, f32)>,
+    /// The game controllers connected, by number (0: 1P, 1: 2P).
+    pub pads: Vec<crate::input::gamepad::Connected>,
 }
 
 /// The skin catalog and its downloads, and the custom options and offsets
@@ -266,6 +270,7 @@ impl Ctx {
             toasts: Vec::new(),
             skins: Skins::default(),
             overrides: Default::default(),
+            streaming: Default::default(),
         }
     }
 

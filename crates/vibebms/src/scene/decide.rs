@@ -169,6 +169,13 @@ impl Hooks for DecideHooks {
 }
 
 impl Scene for DecideScene {
+    fn activity(&self) -> Option<crate::integrations::Activity> {
+        let s = self.song()?;
+        Some(crate::integrations::Activity::Decide(
+            crate::integrations::Chart::of(s),
+        ))
+    }
+
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if self.host.first_update() {
             let skin = {

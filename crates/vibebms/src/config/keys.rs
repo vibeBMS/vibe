@@ -61,6 +61,54 @@ pub struct KeyConfig {
     /// The analog turntable and the chatter filter (written once changed).
     #[serde(skip_serializing_if = "InputTuning::is_default")]
     pub tuning: InputTuning,
+    /// Which controller is 1P and which 2P (written once chosen).
+    #[serde(skip_serializing_if = "PadSides::is_default")]
+    pub controllers: PadSides,
+}
+
+/// A controller as it is recognised again: its name and its id (the
+/// vendor and product the system tells, as hex; empty where it tells none,
+/// as browsers).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PadId {
+    pub name: String,
+    pub id: String,
+}
+
+/// The controllers chosen as 1P and 2P (`input::gamepad::sides`): the
+/// controller numbers of the bindings (`Pad0`, `Pad1`) are theirs, and the
+/// others follow in connection order. One not chosen, or not connected,
+/// is the next controller in connection order, as without a choice.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PadSides {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p1: Option<PadId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p2: Option<PadId>,
+}
+
+impl PadSides {
+    pub fn is_default(&self) -> bool {
+        self.p1.is_none() && self.p2.is_none()
+    }
+
+    pub fn get(&self, side: usize) -> &Option<PadId> {
+        if side == 0 {
+            &self.p1
+        } else {
+            &self.p2
+        }
+    }
+
+    pub fn get_mut(&mut self, side: usize) -> &mut Option<PadId> {
+        if side == 0 {
+            &mut self.p1
+        } else {
+            &mut self.p2
+        }
+    }
 }
 
 /// How input from devices is taken.
@@ -128,6 +176,7 @@ impl Default for KeyConfig {
             p2_select: LaneKeys::k(&[KeyO]),
             any_axis_is_scratch: true,
             tuning: InputTuning::default(),
+            controllers: PadSides::default(),
         }
     }
 }

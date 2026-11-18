@@ -4,6 +4,7 @@
 use super::batch::Vertex;
 use super::texture::GpuTexture;
 use super::{Batch, Color, SdfStyle, ATLAS, ATLAS_SIZE};
+use crate::config::GraphicsBackend;
 use crate::platform::{Duration, Instant};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -38,18 +39,55 @@ pub struct Gfx {
     capture_next: bool,
     capture: Option<super::capture::Pending>,
     pub adapter_name: String,
+    /// Set when the graphics API chosen did not start (`Gfx::new`).
+    pub fallback: Option<Fallback>,
     /// Told before each present (Wayland paces frames by it).
     window: Option<Arc<winit::window::Window>>,
 }
 
+/// The graphics API asked for could not start and another one did
+/// (`Gfx::new`): the app says so once and keeps the one that started.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fallback {
+    pub wanted: GraphicsBackend,
+    pub used: GraphicsBackend,
+    pub error: String,
+}
+
 impl Gfx {
-    /// Blocking constructor for native platforms.
+    /// Blocking constructor for native platforms: the graphics API chosen
+    /// (`backend`), else the next one the platform has that starts
+    /// (`attempts`); `fallback` then says which.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new(
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
+        backend: GraphicsBackend,
     ) -> Result<Gfx, String> {
-        pollster::block_on(Self::create(window, mode))
+        let mut errors: Vec<(GraphicsBackend, String)> = Vec::new();
+        for b in attempts(backend, &available_backends()) {
+            match pollster::block_on(Self::create_with(window.clone(), mode, wgpu_backends(b))) {
+                Ok(mut g) => {
+                    if let Some((_, e)) = errors.first() {
+                        g.fallback = Some(Fallback {
+                            wanted: backend,
+                            used: b,
+                            error: e.clone(),
+                        });
+                    }
+                    return Ok(g);
+                }
+                Err(e) => {
+                    log::warn!("gpu: {} could not start: {e}", b.label());
+                    errors.push((b, e));
+                }
+            }
+        }
+        Err(errors
+            .iter()
+            .map(|(b, e)| format!("{}: {e}", b.label()))
+            .collect::<Vec<_>>()
+            .join("; "))
     }
 
     /// Async constructor (required in browsers). Uses WebGPU when available
@@ -58,8 +96,16 @@ impl Gfx {
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
     ) -> Result<Gfx, String> {
+        Self::create_with(window, mode, wgpu::Backends::all()).await
+    }
+
+    async fn create_with(
+        window: Arc<winit::window::Window>,
+        mode: crate::config::PresentMode,
+        backends: wgpu::Backends,
+    ) -> Result<Gfx, String> {
         let desc = wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             ..Default::default()
         };
         let instance = if web_gl_only() {
@@ -309,6 +355,7 @@ impl Gfx {
             capture_next: false,
             capture: None,
             adapter_name: format!("{} ({:?})", info.name, info.backend),
+            fallback: None,
             window,
         };
         // atlas: transparent with a white block in the corner
@@ -562,6 +609,46 @@ fn sdf_buffer(
     (buf, bind)
 }
 
+/// The wgpu backends of a setting (AUTO: all, and wgpu picks).
+pub fn wgpu_backends(b: GraphicsBackend) -> wgpu::Backends {
+    match b {
+        GraphicsBackend::Auto => wgpu::Backends::all(),
+        GraphicsBackend::Vulkan => wgpu::Backends::VULKAN,
+        GraphicsBackend::Metal => wgpu::Backends::METAL,
+        GraphicsBackend::Dx12 => wgpu::Backends::DX12,
+        GraphicsBackend::OpenGl => wgpu::Backends::GL,
+    }
+}
+
+/// The graphics APIs this build has on this platform (Windows: Vulkan,
+/// DX12, OpenGL; macOS and iOS: Metal; Linux and Android: Vulkan, OpenGL),
+/// in AUTO's order; the settings offer these.
+pub fn available_backends() -> Vec<GraphicsBackend> {
+    available_in(wgpu::Instance::enabled_backend_features())
+}
+
+fn available_in(enabled: wgpu::Backends) -> Vec<GraphicsBackend> {
+    GraphicsBackend::APIS
+        .into_iter()
+        .filter(|&b| enabled.contains(wgpu_backends(b)))
+        .collect()
+}
+
+/// The settings tried in turn for `chosen`: it first, then each API of
+/// `avail` not tried yet, in AUTO's order. A choice this platform does not
+/// have (a configuration from another computer) is AUTO.
+#[cfg(not(target_arch = "wasm32"))]
+fn attempts(chosen: GraphicsBackend, avail: &[GraphicsBackend]) -> Vec<GraphicsBackend> {
+    let first = if chosen.is_auto() || avail.contains(&chosen) {
+        chosen
+    } else {
+        GraphicsBackend::Auto
+    };
+    let mut v = vec![first];
+    v.extend(avail.iter().copied().filter(|&b| b != first));
+    v
+}
+
 /// In a browser: draw with WebGL2 even where WebGPU is offered, when the
 /// page's address says `?gpu=webgl` (to compare the two).
 fn web_gl_only() -> bool {
@@ -626,6 +713,23 @@ mod tests {
         for name in ["vs_main", "fs_main", "fs_sdf"] {
             assert!(module.entry_points.iter().any(|e| e.name == name), "{name}");
         }
+    }
+
+    /// The chosen API first, then the platform's others in AUTO's order;
+    /// one the platform lacks is AUTO.
+    #[test]
+    fn backend_attempts() {
+        use super::{attempts, available_in};
+        use crate::config::GraphicsBackend::*;
+        let windows =
+            available_in(wgpu::Backends::VULKAN | wgpu::Backends::DX12 | wgpu::Backends::GL);
+        assert_eq!(windows, [Vulkan, Dx12, OpenGl]);
+        assert_eq!(available_in(wgpu::Backends::METAL), [Metal]);
+        assert_eq!(attempts(Auto, &windows), [Auto, Vulkan, Dx12, OpenGl]);
+        assert_eq!(attempts(Dx12, &windows), [Dx12, Vulkan, OpenGl]);
+        assert_eq!(attempts(OpenGl, &windows), [OpenGl, Vulkan, Dx12]);
+        assert_eq!(attempts(Metal, &windows), [Auto, Vulkan, Dx12, OpenGl]);
+        assert_eq!(attempts(Metal, &[Metal]), [Metal]);
     }
 
     /// Tearing only when asked for; FIFO, two frames queued, where the mode

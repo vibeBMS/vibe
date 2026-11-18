@@ -29,6 +29,8 @@ pub(super) fn rows(b: &mut Rows) {
     updates(b);
     b.header("DATA");
     b.push(library::data_folder(ctx));
+    #[cfg(desktop)]
+    super::streaming::rows(b);
 }
 
 fn updates(v: &mut Rows) {

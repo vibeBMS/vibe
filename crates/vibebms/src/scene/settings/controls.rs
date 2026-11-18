@@ -4,10 +4,11 @@
 use super::row::{percent, Act, Row, Rows};
 use super::{skins, Screen, Sub};
 use crate::config::{
-    KeyConfig, LaneKeys, TouchMode, TouchSide, TouchStyle, LENGTH_RANGE, PERSPECTIVE_MAX,
-    TOUCH_HEIGHT_RANGE,
+    KeyConfig, LaneKeys, PadId, PadSides, TouchMode, TouchSide, TouchStyle, LENGTH_RANGE,
+    PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
 };
-use crate::scene::keybind::{keys_label, Slot};
+use crate::input::gamepad::side_name;
+use crate::scene::keybind::{key_label, keys_label, Slot};
 use crate::scene::option_panel::{cycle, onoff};
 
 /// The bindings, a sub-page each.
@@ -15,6 +16,8 @@ use crate::scene::option_panel::{cycle, onoff};
 pub(super) enum KeySet {
     /// Side `.0` (0: 1P, 1: 2P): its 7 keys, scratch and turntable axis.
     Side(usize),
+    /// Side `.0`'s second keyboard key of each (KEYBOARD SUB).
+    SideSub(usize),
     Nine,
     StartSelect,
 }
@@ -24,6 +27,8 @@ impl KeySet {
         match self {
             KeySet::Side(0) => "1P KEYS",
             KeySet::Side(_) => "2P KEYS",
+            KeySet::SideSub(0) => "1P KEYBOARD SUB",
+            KeySet::SideSub(_) => "2P KEYBOARD SUB",
             KeySet::Nine => "9-BUTTON KEYS",
             KeySet::StartSelect => "START / SELECT",
         }
@@ -92,6 +97,27 @@ pub(super) fn rows(b: &mut Rows) {
             .keys("bind controller turntable"),
         );
     }
+    for side in 0..2 {
+        let sk = [&k.p1, &k.p2][side];
+        let n = sk
+            .keys
+            .iter()
+            .take(7)
+            .chain([&sk.scratch_up, &sk.scratch_down])
+            .filter(|lk| lk.keys.len() > 1)
+            .count();
+        b.push(
+            Row::sub(
+                "keys.side_sub",
+                format!("{}P keyboard sub", side + 1),
+                format!("{n} of 9 bound"),
+                Sub::Keys(KeySet::SideSub(side)),
+            )
+            .desc("A second keyboard key for each key and scratch of the side (KEYBOARD SUB).")
+            .keys("keyboard second alternative bind"),
+        );
+    }
+    pads(b);
     b.extend([
         Row::sub(
             "keys.pms",
@@ -310,6 +336,102 @@ pub(super) fn rows(b: &mut Rows) {
     );
 }
 
+/// A controller choice as shown: the name, `(not connected)` when it is
+/// not.
+fn pad_choice(ctx: &crate::app::Ctx, p: &Option<PadId>) -> String {
+    match p {
+        None => "AUTO (connection order)".into(),
+        Some(p) if ctx.input.pads.iter().any(|c| c.pad == *p) => p.name.clone(),
+        Some(p) => format!("{} (not connected)", p.name),
+    }
+}
+
+/// Side `side`'s controller: AUTO, then the connected controllers (and the
+/// one chosen if it is not connected), `d` steps on. A controller the
+/// other side has changes sides with this side's.
+fn step_pad(c: &mut crate::app::Ctx, side: usize, d: i32) {
+    let mut all: Vec<Option<PadId>> = vec![None];
+    let cur = c.config.keys.controllers.get(side).clone();
+    for p in c
+        .input
+        .pads
+        .iter()
+        .map(|p| Some(p.pad.clone()))
+        .chain([cur.clone()])
+    {
+        if !all.contains(&p) {
+            all.push(p);
+        }
+    }
+    let i = all.iter().position(|p| *p == cur).unwrap_or(0) as i32;
+    let new = all[(i + d).rem_euclid(all.len() as i32) as usize].clone();
+    let sides = &mut c.config.keys.controllers;
+    if new.is_some() && *sides.get(1 - side) == new {
+        *sides.get_mut(1 - side) = cur;
+    }
+    *sides.get_mut(side) = new;
+}
+
+/// Which controller is 1P and which 2P.
+fn pads(b: &mut Rows) {
+    let ctx = b.ctx;
+    let ch = &ctx.config.keys.controllers;
+    let connected = if ctx.input.pads.is_empty() {
+        "none".to_string()
+    } else {
+        ctx.input
+            .pads
+            .iter()
+            .map(|p| format!("{}: {}", side_name(p.number), p.pad.name))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    };
+    b.extend([
+        Row::adjust(
+            "keys.controllers.p1",
+            "1P controller",
+            pad_choice(ctx, &ch.p1),
+            |c, d| step_pad(c, 0, d),
+        )
+        .desc("The controller for the 1P bindings (Pad0), kept by name and id; AUTO: connection order.")
+        .keys("gamepad controller assign player side order"),
+        Row::adjust(
+            "keys.controllers.p2",
+            "2P controller",
+            pad_choice(ctx, &ch.p2),
+            |c, d| step_pad(c, 1, d),
+        )
+        .desc(
+            "The controller for the 2P bindings (Pad1); AUTO: the next one in connection order.",
+        )
+        .keys("gamepad controller assign player side order"),
+        Row::new(
+            "keys.controllers.swap",
+            "Swap 1P and 2P controllers",
+            "swap",
+            Act::Run(
+                |c, _| {
+                    let pad = |n| {
+                        c.input
+                            .pads
+                            .iter()
+                            .find(|p| p.number == n)
+                            .map(|p| p.pad.clone())
+                    };
+                    let (p1, p2) = (pad(1), pad(0));
+                    c.config.keys.controllers = PadSides { p1, p2 };
+                },
+                0,
+            ),
+        )
+        .desc("The 2P controller becomes 1P and the 1P one 2P (both then chosen by name).")
+        .keys("gamepad controller assign player side"),
+        Row::note("info.controllers", "Connected controllers", connected)
+            .desc("Each connected controller and the side its buttons are.")
+            .keys("gamepad controller"),
+    ]);
+}
+
 /// CONTROLS › one set of bindings: Enter waits for a key or button.
 pub(super) fn keys(b: &mut Rows, set: KeySet) {
     let k = &b.ctx.config.keys;
@@ -360,6 +482,35 @@ pub(super) fn keys(b: &mut Rows, set: KeySet) {
                 )
                 .desc("Enter, then spin the turntable. Delete clears it."),
             );
+        }
+        KeySet::SideSub(side) => {
+            let sk = [&k.p1, &k.p2][side];
+            let n = side + 1;
+            let sub = |id, label: String, lk: &LaneKeys, s: Slot| {
+                let v = lk.keys.get(1).map_or("—".into(), |c| key_label(*c));
+                Row::new(id, label, v, Act::Bind(s))
+                    .desc("Enter, then press a key. Delete clears it.")
+            };
+            for (idx, lk) in sk.keys.iter().enumerate().take(7) {
+                b.push(sub(
+                    "keys.key_sub",
+                    format!("{n}P key {} (sub)", idx + 1),
+                    lk,
+                    Slot::Key { side, idx },
+                ));
+            }
+            b.push(sub(
+                "keys.scratch_up_sub",
+                format!("{n}P scratch ↑ (sub)"),
+                &sk.scratch_up,
+                Slot::ScratchUp(side),
+            ));
+            b.push(sub(
+                "keys.scratch_down_sub",
+                format!("{n}P scratch ↓ (sub)"),
+                &sk.scratch_down,
+                Slot::ScratchDown(side),
+            ));
         }
         KeySet::Nine => {
             for (i, lk) in k.pms.iter().enumerate().take(9) {

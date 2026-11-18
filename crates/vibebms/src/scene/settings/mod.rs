@@ -23,6 +23,8 @@ mod play_extras;
 mod row;
 mod search;
 mod skins;
+#[cfg(desktop)]
+mod streaming;
 mod system;
 #[cfg(target_arch = "wasm32")]
 mod web_storage;
@@ -126,8 +128,16 @@ impl Page {
             ),
             Page::System => (
                 "SY",
-                "PROFILE, UPDATES",
-                "Player name, version and updates, where your data is kept.",
+                if cfg!(desktop) {
+                    "PROFILE, UPDATES, STREAMING"
+                } else {
+                    "PROFILE, UPDATES"
+                },
+                if cfg!(desktop) {
+                    "Player name, version and updates, where your data is kept; Discord and OBS."
+                } else {
+                    "Player name, version and updates, where your data is kept."
+                },
             ),
         }
     }
@@ -313,6 +323,18 @@ enum TextField {
     ImportLr2,
     ImportScores,
     TrainerOrder,
+    /// SYSTEM › STREAMING (desktop).
+    #[cfg_attr(not(desktop), allow(dead_code))]
+    DiscordAppId,
+    #[cfg_attr(not(desktop), allow(dead_code))]
+    ObsHost,
+    #[cfg_attr(not(desktop), allow(dead_code))]
+    ObsPort,
+    #[cfg_attr(not(desktop), allow(dead_code))]
+    ObsPassword,
+    /// The OBS scene of screen `.0` (`ObsScenes::get`).
+    #[cfg_attr(not(desktop), allow(dead_code))]
+    ObsScene(usize),
 }
 
 impl TextField {
@@ -331,6 +353,11 @@ impl TextField {
             TextField::ImportLr2 => "LR2's folder (or its song.db)",
             TextField::ImportScores => "Score database (or its folder)",
             TextField::TrainerOrder => "TRAINER's lane order (keys from the left, as 3142576)",
+            TextField::DiscordAppId => "Discord application id",
+            TextField::ObsHost => "OBS host",
+            TextField::ObsPort => "OBS WebSocket port",
+            TextField::ObsPassword => "OBS WebSocket password (paste)",
+            TextField::ObsScene(_) => "OBS scene name",
         }
     }
 }
@@ -617,6 +644,12 @@ impl SettingsScene {
                     TextField::PlayerName => ctx.config.player_name.clone(),
                     TextField::CourseTitle => courses::title(ctx),
                     TextField::TrainerOrder => ctx.config.play.trainer_order.clone(),
+                    #[cfg(desktop)]
+                    TextField::DiscordAppId
+                    | TextField::ObsHost
+                    | TextField::ObsPort
+                    | TextField::ObsPassword
+                    | TextField::ObsScene(_) => streaming::current(ctx, tf),
                     tf => online::current(ctx, tf),
                 };
                 self.edit = Some((tf, TextInput::new(cur)));
@@ -854,6 +887,16 @@ impl SettingsScene {
                     return;
                 }
             },
+            #[cfg(desktop)]
+            TextField::DiscordAppId
+            | TextField::ObsHost
+            | TextField::ObsPort
+            | TextField::ObsPassword
+            | TextField::ObsScene(_) => {
+                if !streaming::commit(ctx, tf, s) {
+                    return;
+                }
+            }
             tf => online::commit(ctx, tf, s),
         }
         ctx.save_config();
@@ -865,9 +908,17 @@ impl SettingsScene {
         let Some(slot) = self.learn.slot else {
             return;
         };
+        // KEYBOARD SUB's page: a second keyboard key only
+        let sub = matches!(self.view, View::Sub(Sub::Keys(KeySet::SideSub(_))));
         match self.learn.input(ev) {
             Learned::Waiting | Learned::Cancel => return,
+            Learned::Clear if sub => keybind::clear_sub(&mut ctx.config.keys, slot),
             Learned::Clear => keybind::clear(&mut ctx.config.keys, slot, None),
+            Learned::Bind(Some(key), _, _) if sub => {
+                keybind::assign_sub(&mut ctx.config.keys, slot, key);
+                self.list.sel = (self.list.sel + 1).min(self.rows.len().saturating_sub(1));
+            }
+            Learned::Bind(..) if sub => return,
             Learned::Bind(key, pad, axis) => {
                 keybind::assign(&mut ctx.config.keys, slot, key, pad, axis);
                 // on to the next row for quick setup
