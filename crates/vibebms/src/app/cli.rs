@@ -5,7 +5,8 @@
 //! `--gauge`, `--random`, `--hs`, `--judge`, `--ln`, `--autoplay`, `--set
 //! <section.key>=<value>`; `--print-effective-options` prints the play
 //! options they make and exits. `--ghost=best|last` and `--vs` choose a
-//! battle for the chart. Subcommands: `songs scan`, `songs list [--json]`.
+//! battle for the chart. Subcommands: `songs scan`, `songs list [--json]`,
+//! `export video` (`export`).
 
 use super::{Ctx, Scene};
 use crate::config::Config;
@@ -19,6 +20,7 @@ pub const USAGE: &str = "\
 usage: vibebms [<chart>] [options]
        vibebms songs scan
        vibebms songs list [--json]
+       vibebms export video <chart> [--replay <slot>] [--out <file>] [--size WxH] [--fps <fps>]
 
   <chart>                     play this chart at start (song select after it)
   -a, --autoplay              autoplay it (no chart: AUTOPLAY on in song select)
@@ -41,6 +43,8 @@ viewer for BMS editors (uBMplay's command line):
 
   songs scan                  scan the BMS folders (as F12 does) and exit
   songs list [--json]         list the library as last scanned and exit
+  export video <chart> ...    render its autoplay or a replay to a video file
+                              (`vibebms export video --help`)
   -h, --help                  this text";
 
 /// What the command line asks for.
@@ -363,6 +367,11 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
         return None;
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(desktop)]
+    if args.first().is_some_and(|a| a == "export") {
+        attach_console();
+        return Some(super::export::run(paths, &args[1..]));
+    }
     let cli = match Cli::parse(&args) {
         Ok(c) => c,
         Err(e) => {
@@ -496,7 +505,7 @@ fn songs_list(paths: &crate::paths::Paths, json: bool) -> i32 {
 
 /// A chart through the file system (`pack.zip!/Song/a.bme` is a chart in
 /// an archive).
-fn read_chart(path: &std::path::Path) -> Result<vibebms_core::Chart, String> {
+pub(super) fn read_chart(path: &std::path::Path) -> Result<vibebms_core::Chart, String> {
     let b = crate::platform::vfs::read(path).map_err(|e| e.to_string())?;
     vibebms_core::load_chart_bytes(path, &b, &Default::default()).map_err(|e| e.to_string())
 }

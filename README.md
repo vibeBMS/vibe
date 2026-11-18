@@ -55,6 +55,20 @@ the BMS folders into the song cache as F12 does, `vibebms songs list [--json]` p
 line per chart: MD5, key mode, level, title, path; or the cache's records as JSON). An option that does not read
 stops with its error and exit code 2.
 
+**Video export** (desktop): `vibebms export video <chart> [--replay <best|last|1-4>] [--out <file.mp4>] [--size
+<W>x<H>] [--fps <fps>] [--duration <seconds>]` renders the chart's autoplay, or its replay in that slot (as watched
+from song select, at 100 %), to a video file, from the play's lead-in to the end of the play as shown before the
+result (or for `--duration` seconds). It is drawn offline, frame by frame at a fixed step of the play's own clock (60
+frames a second unless `--fps` says otherwise, 1280x720 unless `--size` does; even sizes), with the play skin chosen
+for the chart's mode and the settings of `config.toml` (touch controls off), into a texture with no window: a GPU
+or a software renderer (Mesa's lavapipe, say) is needed, else it says that drawing without a window is not
+available. The chart's sounds are mixed offline at the sample rate its sound files are recorded at (the most common
+of its first ones, else 44.1 kHz) at the configured volumes. Frames and sound go to the installed `ffmpeg` (the one
+video BGA uses: `VIBEBMS_FFMPEG`, else `ffmpeg` on the `PATH`), which encodes the frames (yuv420p, its default codec
+for the file's container: `.mp4`, `.mkv`, `.mov`, `.webm`, ...) and then puts the sound beside them; videos in the BGA
+and the skin wait for each of their frames. The progress is printed as it goes; Ctrl-C stops it and leaves no file
+behind (exit code 130). The default file is the chart's name with `.mp4`, in the current folder.
+
 **Chart viewer for BMS editors** (desktop): vibeBMS takes uBMplay's command line, as BMSE, iBMSC, BmsONE, woseq and
 BMS Maker 3 call their external viewer: `vibebms -P -N<measure> <chart>` autoplays the chart from that measure (0
 based, as the editors count; `-N 3` too; without `-N` from the start) and `vibebms -S` stops it. Set the editor's

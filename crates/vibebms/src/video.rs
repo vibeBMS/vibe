@@ -25,7 +25,7 @@ pub fn is_video(p: &Path) -> bool {
 pub const FPS: u32 = 30;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{size, Video};
+pub use native::{ffmpeg, set_offline, size, Video};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
@@ -33,12 +33,26 @@ mod native {
     use std::io::Read;
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{sync_channel, Receiver};
     use std::sync::OnceLock;
 
+    /// Frames are drawn offline (a video export): each waits for its
+    /// video frames, so they show at their times however slowly they
+    /// decode.
+    static OFFLINE: AtomicBool = AtomicBool::new(false);
+
+    /// Videos wait for their frames from now on ([`OFFLINE`]).
+    pub fn set_offline(on: bool) {
+        OFFLINE.store(on, Ordering::Relaxed);
+    }
+
+    /// How long an offline frame waits for a video's frame at most.
+    const OFFLINE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
     /// The ffmpeg to run (`VIBEBMS_FFMPEG`, else `ffmpeg` on the PATH), if
     /// it runs.
-    fn ffmpeg() -> Option<&'static str> {
+    pub fn ffmpeg() -> Option<&'static str> {
         static FF: OnceLock<Option<String>> = OnceLock::new();
         FF.get_or_init(|| {
             let exe = std::env::var("VIBEBMS_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
@@ -205,8 +219,18 @@ mod native {
                 self.start();
             }
             let mut latest = None;
+            let offline = OFFLINE.load(Ordering::Relaxed);
             while self.shown < due && !self.ended {
-                match self.rx.as_ref().map(|r| r.try_recv()) {
+                let next = self.rx.as_ref().map(|r| match offline {
+                    true => r.recv_timeout(OFFLINE_WAIT).map_err(|e| match e {
+                        std::sync::mpsc::RecvTimeoutError::Timeout => {
+                            std::sync::mpsc::TryRecvError::Empty
+                        }
+                        _ => std::sync::mpsc::TryRecvError::Disconnected,
+                    }),
+                    false => r.try_recv(),
+                });
+                match next {
                     Some(Ok(f)) => {
                         if self.shown < 0 {
                             log::debug!("video {}: first frame", self.path.display());

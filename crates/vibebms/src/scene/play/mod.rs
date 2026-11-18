@@ -458,6 +458,39 @@ impl PlayScene {
         ctx.config.play.bga.shown(self.watching())
     }
 
+    /// How long the play's end is shown before its result: a failed
+    /// one's the skin's `#CLOSE` (else 1.5 s).
+    fn ending_ms(&self, failed: bool) -> Duration {
+        let ms = match failed {
+            true => (self.skin.as_ref())
+                .and_then(|s| s.skin.close_ms)
+                .unwrap_or(1500),
+            false => 1200,
+        };
+        Duration::from_millis(ms as u64)
+    }
+
+    /// Loaded and set up: when its lead-in began (a video export's first
+    /// frame).
+    #[cfg(desktop)]
+    pub(crate) fn began(&self) -> Option<Instant> {
+        match self.stage {
+            Stage::Loading(_) => None,
+            _ => self.session.ready_at,
+        }
+    }
+
+    /// Its end has been shown at `now`: the result would come next.
+    #[cfg(desktop)]
+    pub(crate) fn shown_to_end(&self, now: Instant) -> bool {
+        match self.stage {
+            Stage::Ending { since, failed, .. } => {
+                now.saturating_duration_since(since) > self.ending_ms(failed)
+            }
+            _ => false,
+        }
+    }
+
     fn ending_at(&self) -> Option<Instant> {
         match self.stage {
             Stage::Ending { since, .. } => Some(since),
@@ -610,7 +643,7 @@ impl Scene for PlayScene {
         // no game events are run from play skin scripts yet
         if let Some(sk) = self.skin.as_mut() {
             sk.script_events();
-            sk.load_pending(gfx);
+            sk.load_pending_at(gfx, now);
         }
         self.bga.update(gfx, &self.session, now);
         if let Some(g) = self.guide.as_mut() {
@@ -634,15 +667,7 @@ impl Scene for PlayScene {
                 ended_ms,
                 wall_ms,
             } => {
-                let wait = match failed {
-                    true => self
-                        .skin
-                        .as_ref()
-                        .and_then(|s| s.skin.close_ms)
-                        .unwrap_or(1500),
-                    false => 1200,
-                };
-                if now.duration_since(since) > Duration::from_millis(wait as u64) {
+                if now.duration_since(since) > self.ending_ms(failed) {
                     ctx.audio.mixer.stop_bus(Bus::Bgm);
                     ctx.audio.mixer.stop_bus(Bus::Key);
                     return self.finish(ctx, failed, ended_ms, wall_ms);

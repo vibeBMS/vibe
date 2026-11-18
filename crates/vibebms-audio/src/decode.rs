@@ -94,6 +94,34 @@ pub fn decode_bytes(bytes: Vec<u8>, ext: &str, rate: u32) -> Result<Sample, Stri
     })
 }
 
+/// The sample rate an audio file is recorded at (`ext`: a format hint),
+/// without decoding it.
+pub fn native_rate(bytes: Vec<u8>, ext: &str) -> Option<u32> {
+    let riff = (bytes.len() >= 28 && &bytes[0..4] == b"RIFF" && &bytes[12..16] == b"fmt ")
+        .then(|| u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]));
+    let mss = MediaSourceStream::new(
+        Box::new(std::io::Cursor::new(Bytes(Arc::new(bytes)))),
+        Default::default(),
+    );
+    let mut hint = Hint::new();
+    hint.with_extension(ext);
+    let probed = symphonia::default::get_probe().format(
+        &hint,
+        mss,
+        &FormatOptions::default(),
+        &MetadataOptions::default(),
+    );
+    let rate = probed.ok().and_then(|p| {
+        p.format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .and_then(|t| t.codec_params.sample_rate)
+    });
+    // (a RIFF header symphonia rejects: its fmt chunk's)
+    rate.or(riff).filter(|&r| r > 0)
+}
+
 fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32) -> Result<Sample, String> {
     let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
@@ -411,6 +439,17 @@ mod tests {
             b.extend_from_slice(&(((i as f32 * 0.05).sin() * 10000.0) as i16).to_le_bytes());
         }
         b
+    }
+
+    #[test]
+    fn native_rates() {
+        assert_eq!(native_rate(wav(22_050, 100, 1), "wav"), Some(22_050));
+        assert_eq!(native_rate(wav(48_000, 100, 2), ""), Some(48_000));
+        // a broken RIFF size: the fmt chunk's rate
+        let mut b = wav(32_000, 100, 1);
+        b[4..8].copy_from_slice(&7u32.to_le_bytes());
+        assert_eq!(native_rate(b, "wav"), Some(32_000));
+        assert_eq!(native_rate(b"not audio".to_vec(), "ogg"), None);
     }
 
     /// How a file was converted before, all at once: what the conversion
