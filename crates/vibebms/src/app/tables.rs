@@ -5,6 +5,7 @@ use super::AppEvent;
 use crate::config::TableConfig;
 use crate::paths::Paths;
 use crate::platform::Job;
+use bmseeker::links::Links;
 use bmseeker::table::DifficultyTable;
 use std::path::PathBuf;
 
@@ -29,19 +30,39 @@ fn cache_file(paths: &Paths, url: &str) -> PathBuf {
     paths.tables.join(format!("{h}.json"))
 }
 
+/// The enabled tables of `config` from their caches, in its order, their
+/// missing or dead links filled from each other's; and their links.
+pub fn read_cached(paths: &Paths, config: &[TableConfig]) -> (Vec<DifficultyTable>, Links) {
+    let mut list: Vec<DifficultyTable> = (config.iter().filter(|t| t.enabled))
+        .filter_map(|t| {
+            let b = crate::platform::vfs::read(&cache_file(paths, &t.url)).ok()?;
+            serde_json::from_slice(&b).ok()
+        })
+        .collect();
+    let links = own_links(&mut list);
+    (list, links)
+}
+
+/// The links `list` gives, its missing or dead ones filled from them.
+fn own_links(list: &mut [DifficultyTable]) -> Links {
+    let links = Links::from_tables(&*list);
+    for t in list {
+        links.fill(&mut t.entries);
+    }
+    links
+}
+
 impl Tables {
     /// The enabled tables of `config` from their caches.
     pub fn load_cached(&mut self, paths: &Paths, config: &[TableConfig]) {
-        self.list.clear();
-        for t in config.iter().filter(|t| t.enabled) {
-            if let Some(dt) = crate::platform::vfs::read(&cache_file(paths, &t.url))
-                .ok()
-                .and_then(|b| serde_json::from_slice::<DifficultyTable>(&b).ok())
-            {
-                self.list.push(dt);
-            }
-        }
-        self.fill_links();
+        let (list, links) = read_cached(paths, config);
+        self.set(list, links);
+    }
+
+    /// `list` as the tables, `links` theirs ([`read_cached`]).
+    pub fn set(&mut self, list: Vec<DifficultyTable>, links: Links) {
+        self.list = list;
+        self.links.set_tables(links, &mut self.list);
     }
 
     /// Fetch the enabled tables of `config` in the background. `force`
@@ -80,19 +101,16 @@ impl Tables {
 
     /// The tables' missing or dead links filled from the other links known
     /// for their charts (the other tables', the Stella uploader's).
-    pub fn fill_links(&mut self) {
-        self.links.rebuild(&self.list);
-        for t in &mut self.list {
-            self.links.known.fill(&mut t.entries);
-        }
+    fn fill_links(&mut self) {
+        let links = own_links(&mut self.list);
+        self.links.set_tables(links, &mut self.list);
     }
 
     /// The links list and the tables that came since the last frame (cached,
     /// in `config`'s order).
     pub fn poll(&mut self, paths: &Paths, config: &[TableConfig]) -> Vec<AppEvent> {
         let mut out = Vec::new();
-        if self.links.poll() {
-            self.fill_links();
+        if self.links.poll(&mut self.list) {
             out.push(AppEvent::LibraryChanged);
         }
         let mut loaded = false;

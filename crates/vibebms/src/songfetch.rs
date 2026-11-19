@@ -96,7 +96,7 @@ impl Outcome {
 /// What to download for a table's chart `w`: its links, then the others
 /// known for the chart (`known`), then `more`.
 pub fn entry(
-    known: &bmseeker::links::Links,
+    known: &crate::links::LinkLists,
     w: &crate::bulk::Wanted,
     more: Vec<String>,
 ) -> bmseeker::install::Entry {

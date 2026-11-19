@@ -8,6 +8,7 @@ mod events;
 #[cfg(desktop)]
 pub mod export;
 mod pacing;
+mod startup;
 mod tables;
 mod viewer;
 
@@ -123,6 +124,8 @@ struct Running {
     text: Text,
     batch: Batch,
     ctx: Ctx,
+    /// The caches being read at start.
+    startup: startup::Startup,
     scenes: Vec<Box<dyn Scene>>,
     /// Third parties' copies are on without the player having said OK to
     /// what they are (a build that has them on, a setting from before it
@@ -135,11 +138,7 @@ struct Running {
     /// The page's fingers down and where they last were (web).
     #[cfg(target_arch = "wasm32")]
     touches: std::collections::HashMap<u64, (f32, f32)>,
-    /// Fonts downloaded in the background (web build), each with whether
-    /// it is the UI language's own (drawn with before the others).
-    font_jobs: Vec<Job<(Vec<u8>, bool)>>,
-    /// The languages whose own fonts were asked for (web build).
-    fonts_for: Vec<crate::i18n::Lang>,
+    fonts: WebFonts,
     /// A screenshot's file name while its frame is read back, then its
     /// saving.
     shot_name: Option<String>,
@@ -474,19 +473,14 @@ impl Running {
         let now = Instant::now();
         diag::set(self.ctx.config.display.show_latency);
         diag::frame(self.last_frame.replace(now), now);
-        for (f, own) in Job::drain_all(&mut self.font_jobs) {
+        for (f, own) in self.fonts.poll(crate::i18n::current()) {
             self.text.add_font(f, own);
-        }
-        // the language changed: its own fonts (web)
-        let lang = crate::i18n::current();
-        if !self.fonts_for.contains(&lang) {
-            self.fonts_for.push(lang);
-            self.font_jobs.extend(web_fonts(Some(lang)));
         }
         self.poll_gamepads(el);
         #[cfg(target_os = "ios")]
         crate::platform::ios::poll_keyboard();
         self.ctx.poll_jobs();
+        self.startup.poll(&mut self.ctx);
         self.poll_viewer(el);
         self.poll_profile(el);
         self.poll_streaming();
@@ -586,39 +580,70 @@ impl Running {
     }
 }
 
+/// `fonts.txt`'s lines: a file name, and its language's tag.
+type FontList = Vec<(String, Option<String>)>;
+
 /// Web build: fonts listed in `fonts/fonts.txt` next to index.html, a file
 /// name a line. A line `file lang` (`NotoSansSC-Regular.otf zh-Hans`) is a
-/// font of that UI language's, loaded only when the UI is in it. `lang`:
-/// the fonts of that language (else those of none).
-fn web_fonts(lang: Option<crate::i18n::Lang>) -> Option<Job<(Vec<u8>, bool)>> {
-    if !crate::platform::IS_WEB {
-        return None;
+/// font of that UI language's, loaded only once the UI is in it.
+#[derive(Default)]
+struct WebFonts {
+    /// The list (read once).
+    list: Option<FontList>,
+    list_job: Option<Job<FontList>>,
+    /// Downloading: each font, and whether it is a language's own (drawn
+    /// with before the others).
+    jobs: Vec<Job<(Vec<u8>, bool)>>,
+    /// The languages whose fonts were asked for (`None`: those of none).
+    asked: Vec<Option<&'static str>>,
+}
+
+impl WebFonts {
+    fn start() -> WebFonts {
+        let list_job = crate::platform::IS_WEB.then(|| {
+            Job::get("fonts/fonts.txt", |r| {
+                let text = String::from_utf8_lossy(&r.unwrap_or_default()).into_owned();
+                (text.lines().map(str::trim))
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .filter_map(|l| {
+                        let mut words = l.split_whitespace();
+                        Some((words.next()?.to_string(), words.next().map(str::to_string)))
+                    })
+                    .collect()
+            })
+        });
+        WebFonts {
+            list_job,
+            ..Default::default()
+        }
     }
-    let tag = lang.map(|l| l.tag());
-    Some(Job::start(move |tx, _| {
-        crate::platform::http_get("fonts/fonts.txt", move |r| {
-            let Ok(list) = r else { return };
-            for line in String::from_utf8_lossy(&list)
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            {
-                let mut words = line.split_whitespace();
-                let (Some(name), of) = (words.next(), words.next()) else {
-                    continue;
-                };
-                if of != tag {
+
+    /// The fonts that came; those of none and of the UI language `lang`
+    /// asked for once the list is read.
+    fn poll(&mut self, lang: crate::i18n::Lang) -> Vec<(Vec<u8>, bool)> {
+        if let Some(list) = Job::drain_slot(&mut self.list_job).pop() {
+            self.list = Some(list);
+        }
+        if let Some(list) = &self.list {
+            for tag in [None, Some(lang.tag())] {
+                if self.asked.contains(&tag) {
                     continue;
                 }
-                let tx = tx.clone();
-                crate::platform::http_get(&format!("fonts/{name}"), move |r| {
-                    if let Ok(b) = r {
-                        let _ = tx.send((b, tag.is_some()));
-                    }
-                });
+                self.asked.push(tag);
+                for (name, _) in list.iter().filter(|(_, of)| of.as_deref() == tag) {
+                    let url = format!("fonts/{name}");
+                    self.jobs.push(Job::start(|tx, _| {
+                        crate::platform::http_get(&url, move |r| {
+                            if let Ok(b) = r {
+                                let _ = tx.send((b, tag.is_some()));
+                            }
+                        })
+                    }));
+                }
             }
-        });
-    }))
+        }
+        Job::drain_all(&mut self.jobs)
+    }
 }
 
 /// Whether to say at start what third parties' copies are: they are on and
@@ -754,27 +779,13 @@ impl App {
         ctx.open_records();
         ctx.reload_library();
         diag::startup("library");
-        ctx.load_cached_tables();
-        // the web build's first scan comes once the songs kept in the
-        // browser are mounted
-        if !crate::platform::IS_WEB {
-            ctx.start_scan();
-        }
-        ctx.tables.refresh(&ctx.config.tables, false);
-        ctx.tables.links.start(&ctx.paths.cache);
-        ctx.net.archives = crate::archive::Archives::load(&ctx.paths, &ctx.config.archives);
-        ctx.net.archives.refresh(false);
-        ctx.skins.store = crate::skinstore::SkinStore::load(&ctx.paths);
-        ctx.skins.store.refresh(false);
-        // a newer nightly (desktop CI builds), in the background
-        ctx.net.updater.check(ctx.config.check_updates);
+        let startup = startup::Startup::begin(&mut ctx);
         // tests: open the download browser on this page at start
         #[cfg(not(target_arch = "wasm32"))]
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
             ctx.net.browse = Some(vec![url]);
         }
         ctx.save_config(); // writes defaults on first launch
-        diag::startup("tables, events, skins");
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
         scenes.extend(cli::play_scene(&mut ctx));
@@ -801,6 +812,7 @@ impl App {
             text,
             batch: Batch::default(),
             ctx,
+            startup,
             scenes,
             third_party_notice,
             gamepads: crate::input::gamepad::Gamepads::open(),
@@ -808,11 +820,7 @@ impl App {
             last_touch: None,
             #[cfg(target_arch = "wasm32")]
             touches: Default::default(),
-            font_jobs: web_fonts(None)
-                .into_iter()
-                .chain(web_fonts(Some(crate::i18n::current())))
-                .collect(),
-            fonts_for: vec![crate::i18n::current()],
+            fonts: WebFonts::start(),
             shot_name: None,
             shot_job: None,
             mouse_down: false,
