@@ -697,8 +697,9 @@ impl Scene for PlayScene {
             view.update(p, &bpm, now);
         }
         self.reshape_skin(ctx, gfx);
-        // no game events are run from play skin scripts yet
         if let Some(sk) = self.skin.as_mut() {
+            // (play skins' scripts start no game events: taken so that
+            // they do not pile up)
             sk.script_events();
             sk.load_pending_at(gfx, now);
         }
@@ -732,6 +733,7 @@ impl Scene for PlayScene {
             }
             Stage::Loading(_) => {}
         }
+        self.session.advance_cursors(self.session.chart_us(now));
         Next::Stay
     }
 

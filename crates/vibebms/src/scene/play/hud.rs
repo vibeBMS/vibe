@@ -106,7 +106,6 @@ impl PlayScene {
                 with_alpha(rgba(0x000000ff), a * 0.85),
             );
         }
-        self.session.advance_cursors(self.session.chart_us(now));
     }
 
     /// A hi-speed change the player made, shown over the top of their
@@ -132,7 +131,7 @@ impl PlayScene {
         let ui = ctx.ui();
         let size = (15.0 * ui).min(f.w * 0.08);
         let (w, h) = ((size * 13.0).min(f.w * 0.95), size * 2.0);
-        let top = f.y + f.h * (0.06 + p.sudden * (p.lane_cover || p.sudden > 0.0) as u8 as f32);
+        let top = f.y + f.h * (0.06 + p.sudden);
         let r = Rect::new(f.x + (f.w - w) * 0.5, top.min(f.bottom() - h), w, h);
         let a = 1.0 - fade;
         d.b.rect(r, with_alpha(rgba(0x05060aff), 0.8 * a));
