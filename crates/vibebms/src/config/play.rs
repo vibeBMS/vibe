@@ -219,7 +219,9 @@ impl Target {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+/// The options newer than the first replays are written only when set, so
+/// a replay or configuration of before is written again as it was.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct PlayConfig {
     /// What makes the chart and judges it (read through the play options:
@@ -243,8 +245,11 @@ pub struct PlayConfig {
     pub fixed_duration_ms: f32,
     /// How the hi-speed is set, NORMAL's level (1 ..= 20), and how long a
     /// change made while playing takes to reach the notes (ms; 0: at once).
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub hs_type: HsType,
+    #[serde(skip_serializing_if = "default_level")]
     pub hs_level: u8,
+    #[serde(skip_serializing_if = "default_anim")]
     pub hs_anim_ms: u32,
     pub sudden: f32,
     pub hidden: f32,
@@ -255,27 +260,36 @@ pub struct PlayConfig {
     /// Shift the note display (ms).
     pub visual_offset_ms: i32,
     pub bga: BgaMode,
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub bga_size: BgaSize,
     pub show_fast_slow: bool,
     /// FAST / SLOW only for a judgement more than this many ms off (0: any
     /// off at all).
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub fast_slow_ms: u32,
     /// GUIDE SE: a guide sound for each judgement (the sound set's
     /// `guide-*`, else built-in ones).
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub guide_se: bool,
     /// ED-rian's extras: the play goes on until 5 s after the chart's last
     /// note, BGM or BGA (RESULT WAIT); a PGREAT .. GOOD clears the POOR
     /// BGA (MISSLAYER GOOD CLEAR); a missed note plays its keysound (MISS
     /// KEYSOUND).
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub result_wait: bool,
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub good_clears_poor: bool,
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub miss_keysound: bool,
     /// LR2's note display: a note not yet judged waits at the judge line
     /// until it is hit or missed, instead of scrolling past it.
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub hold_at_line: bool,
     /// The score graph beside the lanes (LR2's SCORE GRAPH: skin options
     /// 38 / 39), and where the gap to the target shows.
+    #[serde(skip_serializing_if = "super::is_true")]
     pub score_graph: bool,
+    #[serde(skip_serializing_if = "vibebms_core::is_default")]
     pub ghost: Ghost,
     /// JUDGE AREA: the judge windows drawn above the judge line.
     pub judge_area: bool,
@@ -290,9 +304,11 @@ pub struct PlayConfig {
     /// The score the pacemaker and the result compare against, and the
     /// IR rival when it is one.
     pub target: Target,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_rival: Option<super::PlayerKey>,
     /// A local rival instead: another profile (its folder's name), whose
     /// records are read only (`profiles`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_profile: Option<String>,
     /// The second player's own options in VS.
     pub p2: SideOptions,
@@ -319,9 +335,14 @@ pub struct SideOptions {
 }
 
 const DEFAULT_LEVEL: u8 = 10;
+const DEFAULT_ANIM_MS: u32 = 150;
 
 fn default_level(l: &u8) -> bool {
     *l == DEFAULT_LEVEL
+}
+
+fn default_anim(ms: &u32) -> bool {
+    *ms == DEFAULT_ANIM_MS
 }
 
 impl Default for SideOptions {
@@ -405,95 +426,6 @@ impl PlayConfig {
     }
 }
 
-/// Written field by field in the order they had before the rules moved to
-/// `RuleOptions` (a flattened derive writes the rules first): saved
-/// configurations and replays keep their bytes. A new field goes here too.
-impl Serialize for PlayConfig {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let (p, r) = (self, &self.rules);
-        let mut st = s.serialize_struct("PlayConfig", 40)?;
-        macro_rules! fields {
-            ($($o:ident.$f:ident),* $(,)?) => {
-                $(st.serialize_field(stringify!($f), &$o.$f)?;)*
-            };
-        }
-        fields!(
-            r.gauge,
-            r.gauge_auto_shift,
-            r.gauge_preset,
-            r.judge_preset,
-            r.judge_algorithm,
-            r.random_1p,
-            r.random_2p,
-            r.dp_option,
-            r.battle,
-            p.side,
-            r.ln_mode,
-            r.auto_scratch,
-            r.legacy_note,
-            r.no_mine,
-            p.autoplay,
-            p.hispeed_mode,
-            p.hispeed,
-            p.hs_fix,
-            p.fixed_duration_ms,
-            p.sudden,
-            p.hidden,
-            p.lift,
-            p.lane_cover,
-            p.judge_offset_ms,
-            p.visual_offset_ms,
-            p.bga,
-            p.show_fast_slow,
-            r.expand_judge,
-            r.judge_rates,
-            p.judge_area,
-            p.mark_notes,
-            p.bpm_guide,
-            p.timing_auto_adjust,
-            r.hran_threshold_bpm,
-            p.target,
-            p.p2,
-        );
-        // newer fields only when set: files of before are written again
-        // as they were
-        let d = PlayConfig::default();
-        macro_rules! set_fields {
-            ($($f:ident),* $(,)?) => {
-                $(match p.$f == d.$f {
-                    true => st.skip_field(stringify!($f))?,
-                    false => st.serialize_field(stringify!($f), &p.$f)?,
-                })*
-            };
-        }
-        set_fields!(
-            scroll_remove,
-            mine_add,
-            ln_add,
-            trainer_order,
-            s_random_interval,
-            ln_force,
-            freq,
-            hs_type,
-            hs_level,
-            hs_anim_ms,
-            target_rival,
-            bga_size,
-            score_graph,
-            ghost,
-            fast_slow_ms,
-            guide_se,
-            result_wait,
-            good_clears_poor,
-            miss_keysound,
-            hold_at_line,
-            target_profile
-        );
-        st.end()
-    }
-}
-
 impl PlayConfig {
     /// Whether a judgement `diff` µs off (> 0: early) shows FAST
     /// (`Some(true)`) or SLOW: with FAST / SLOW on, beyond `fast_slow_ms`.
@@ -536,7 +468,7 @@ impl Default for PlayConfig {
             fixed_duration_ms: 600.0,
             hs_type: HsType::Classic,
             hs_level: DEFAULT_LEVEL,
-            hs_anim_ms: 150,
+            hs_anim_ms: DEFAULT_ANIM_MS,
             sudden: 0.0,
             hidden: 0.0,
             lift: 0.0,

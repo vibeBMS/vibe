@@ -300,6 +300,31 @@ fn replays_judge_as_before() {
     assert_eq!(got, want);
 }
 
+/// A KEY CONVERT play's replay and a course stage's keep what made their
+/// chart and gauges: watched, they judge as they did.
+#[test]
+fn converted_and_course_replays_judge_as_played() {
+    use vibebms_core::convert::KeyConvert;
+    use vibebms_core::course::CourseKind;
+    let convert = |key_convert| RuleOptions {
+        key_convert,
+        ..RuleOptions::default()
+    };
+    let lr2 = RuleOptions {
+        gauge_preset: GaugePreset::Lr2,
+        judge_preset: JudgePreset::Lr2,
+        ..RuleOptions::default()
+    };
+    for (keys, play) in [
+        (7, convert(KeyConvert::To9)),
+        (5, convert(KeyConvert::To7)),
+        (7, lr2.for_course(CourseKind::Expert)),
+        (7, lr2.for_course(CourseKind::Class)),
+    ] {
+        play_and_watch(keys, &play);
+    }
+}
+
 /// G-BATTLE: a replay made on the single play chart plays again as the
 /// opponent on the battle chart's second side, judging the same; the
 /// player's side judges as the single play chart with the opponent's
@@ -525,6 +550,10 @@ fn only_fitting_replays_are_opponents() {
     assert!(bad(|r| r.ops.clear()));
     assert!(bad(|r| r.play.ln_mode = LnType::Hcn));
     assert!(bad(|r| r.play.ln_force = true));
+    // a KEY CONVERT play to 9 keys; to 7 a 7 key chart is as it is
+    use vibebms_core::convert::KeyConvert;
+    assert!(bad(|r| r.play.key_convert = KeyConvert::To9));
+    assert!(!bad(|r| r.play.key_convert = KeyConvert::To7));
     // a chart typed CN plays the same in AUTO and FORCE CN, not FORCE LN
     let typed = crate::library::Song {
         ln_profile: Some(

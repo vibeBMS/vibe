@@ -237,6 +237,7 @@ impl PlayScene {
         if let Some(Versus::Ghost(g, _)) = &self.req.vs {
             p.random_1p = g.play.random_1p;
             p.freq = g.play.freq;
+            p.key_convert = g.play.key_convert;
             p.trainer_order = g.play.trainer_order.clone();
             p.battle = false;
         }

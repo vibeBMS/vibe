@@ -17,7 +17,8 @@ use std::path::Path;
 
 /// The play options that decide the chart and how it is judged (the rest
 /// of the player's options only change what is shown). A replay keeps
-/// them.
+/// them. Those newer than the first replays are written only when set, so
+/// a replay or configuration of before is written again as it was.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct RuleOptions {
@@ -34,14 +35,18 @@ pub struct RuleOptions {
     /// The LN mode: the type of the long notes the chart leaves untyped,
     /// and with `ln_force` of every long note (LN MODE FORCE).
     pub ln_mode: LnType,
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub ln_force: bool,
     pub auto_scratch: bool,
     pub legacy_note: bool,
     pub no_mine: bool,
     /// Chart modifiers (assists where they take effect): SCROLL REMOVE,
     /// MINE ADD, LONGNOTE ADD.
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub scroll_remove: bool,
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub mine_add: MineAdd,
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub ln_add: LnAdd,
     /// EXPAND JUDGE (beatoraja custom judge): the judge windows scaled by
     /// `judge_rates` (PG, GR, GD in percent). Wider than 100 % is an assist
@@ -51,12 +56,15 @@ pub struct RuleOptions {
     /// H-RANDOM / ALL-SCR jack threshold in BPM (16th notes).
     pub hran_threshold_bpm: u32,
     /// How S-RANDOM avoids jacks.
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub s_random_interval: SRandomInterval,
     /// TRAINER's lane order (`lane_option::trainer_order`).
+    #[serde(skip_serializing_if = "is_plain_order")]
     pub trainer_order: String,
     /// FREQ (LR2's): the whole chart played `freq` semitones higher
     /// (`FREQ_MIN..=FREQ_MAX`), faster by 2^(freq / 12), its sounds
     /// resampled to match; the judge windows stay in real time.
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub freq: i32,
     /// A course's stage (NONSTOP: the course): its kind, which decides
     /// the LR2 set's gauges (`GrooveGauge::new_in`). Not a player option.
@@ -64,7 +72,7 @@ pub struct RuleOptions {
     pub course: Option<CourseKind>,
     /// KEY CONVERT: the chart played in another key mode (`convert`; such a
     /// play is not saved).
-    #[serde(skip_serializing_if = "crate::convert::KeyConvert::is_off")]
+    #[serde(skip_serializing_if = "crate::is_default")]
     pub key_convert: crate::convert::KeyConvert,
 }
 
@@ -98,6 +106,10 @@ impl Default for RuleOptions {
             key_convert: crate::convert::KeyConvert::Off,
         }
     }
+}
+
+fn is_plain_order(o: &String) -> bool {
+    *o == lane_option::plain_order(7)
 }
 
 /// FREQ's range in semitones.

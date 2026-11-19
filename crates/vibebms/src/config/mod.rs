@@ -701,8 +701,10 @@ mod tests {
 
     /// A configuration as written now (`tests/golden/config_accounts.toml`,
     /// and the play options as a replay stores them, `play_config.json`)
-    /// reads back as it was and is written byte for byte the same.
-    /// `GOLDEN_BLESS=1` writes the files anew.
+    /// reads back as it was and is written again with the same keys and
+    /// values (`[play]`'s rules come first since they are derived: files
+    /// of before had them mixed with the view's). `GOLDEN_BLESS=1` writes
+    /// the files anew.
     #[test]
     fn full_config_stays_the_same() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
@@ -718,12 +720,65 @@ mod tests {
         let s = std::fs::read_to_string(&toml_path).unwrap();
         let read: Config = toml::from_str(&s).unwrap();
         assert_eq!(read, c);
-        assert_eq!(read.to_toml().unwrap(), s);
+        let toml = |s: &str| s.parse::<toml::Table>().unwrap();
+        assert_eq!(toml(&read.to_toml().unwrap()), toml(&s));
         assert_eq!(Config::load(&toml_path), c);
         let j = std::fs::read(&json_path).unwrap();
         let play: PlayConfig = serde_json::from_slice(&j).unwrap();
         assert_eq!(play, c.play);
-        assert_eq!(serde_json::to_vec(&play).unwrap(), j);
+        let json = |b: &[u8]| serde_json::from_slice::<serde_json::Value>(b).unwrap();
+        assert_eq!(json(&serde_json::to_vec(&play).unwrap()), json(&j));
+    }
+
+    /// Every play option away from its default (KEY CONVERT and a course
+    /// stage's kind too) comes back from the configuration file and from a
+    /// replay.
+    #[test]
+    fn every_play_option_comes_back() {
+        use vibebms_core::lane_option::{LnAdd, MineAdd, SRandomInterval};
+        let mut c = full_config();
+        let p = &mut c.play;
+        p.rules.ln_force = true;
+        p.rules.scroll_remove = true;
+        p.rules.mine_add = MineAdd::Near;
+        p.rules.ln_add = LnAdd::Cn;
+        p.rules.s_random_interval = SRandomInterval::Ms40;
+        p.rules.trainer_order = "7654321".into();
+        p.rules.freq = -3;
+        p.rules.course = Some(vibebms_core::course::CourseKind::Class);
+        p.rules.key_convert = vibebms_core::convert::KeyConvert::To9;
+        p.bga_size = BgaSize::Extend;
+        p.fast_slow_ms = 12;
+        (p.guide_se, p.result_wait, p.good_clears_poor) = (true, true, true);
+        (p.miss_keysound, p.hold_at_line, p.score_graph) = (true, true, false);
+        p.ghost = Ghost::TypeB;
+        p.target_profile = Some("RIVAL".into());
+        // (every option written, each off its default)
+        let json = |p: &PlayConfig| serde_json::to_value(p).unwrap();
+        let (set, d) = (json(&c.play), json(&PlayConfig::default()));
+        for (k, v) in set.as_object().unwrap() {
+            assert_ne!(Some(v), d.get(k), "{k}");
+        }
+        assert!(d.as_object().unwrap().keys().all(|k| set.get(k).is_some()));
+        let back: Config = toml::from_str(&c.to_toml().unwrap()).unwrap();
+        assert_eq!(back, c);
+        let r = crate::replay::Replay {
+            version: crate::replay::VERSION,
+            sha256: String::new(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 0,
+            seed: 1,
+            play: c.play.clone(),
+            ex_score: 0,
+            clear: Default::default(),
+            ghost: Vec::new(),
+            ops: Vec::new(),
+            course: None,
+        };
+        let back = crate::replay::Replay::decode(&r.encode().unwrap()).unwrap();
+        assert_eq!(back.play, c.play);
     }
 
     /// The same configuration written before the IR accounts

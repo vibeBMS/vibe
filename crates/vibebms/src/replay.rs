@@ -153,21 +153,22 @@ pub fn ghost_refusal(
 ) -> Option<&'static str> {
     let ln = ln.into();
     use vibebms_core::PlayMode;
-    Some(
-        if !matches!(song.mode, PlayMode::Beat7K | PlayMode::Beat5K) {
-            tr!("G-BATTLE needs a 5 or 7 key chart")
-        } else if r.play.battle {
-            tr!("the replay is a BATTLE play")
-        } else if r.ops.is_empty() {
-            tr!("the replay has no inputs")
-        } else if r.play.legacy_note {
-            tr!("the replay is a LEGACY NOTE play")
-        } else if !song.plays_ln_alike(r.play.ln_pref(), ln) {
-            tr!("the replay was played in another LN mode")
-        } else {
-            return None;
-        },
-    )
+    let five_or_seven = |m| matches!(m, PlayMode::Beat7K | PlayMode::Beat5K);
+    // (a KEY CONVERT play's chart is in the mode it converted to)
+    let played = vibebms_core::convert::target(song.mode, r.play.key_convert);
+    Some(if !five_or_seven(song.mode) || !five_or_seven(played) {
+        tr!("G-BATTLE needs a 5 or 7 key chart")
+    } else if r.play.battle {
+        tr!("the replay is a BATTLE play")
+    } else if r.ops.is_empty() {
+        tr!("the replay has no inputs")
+    } else if r.play.legacy_note {
+        tr!("the replay is a LEGACY NOTE play")
+    } else if !song.plays_ln_alike(r.play.ln_pref(), ln) {
+        tr!("the replay was played in another LN mode")
+    } else {
+        return None;
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]

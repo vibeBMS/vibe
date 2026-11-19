@@ -42,8 +42,6 @@ struct Sdf {
 
 const SMOOTHING: f32 = 0.0625;
 
-// fs_sdf was written from a behaviour specification of the text style,
-// not from another program's code.
 @fragment
 fn fs_sdf(i: VsOut) -> @location(0) vec4<f32> {
     let d = textureSample(tex, samp, i.uv).a;

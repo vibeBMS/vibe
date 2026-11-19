@@ -14,3 +14,11 @@ md-5.workspace = true
 sha2.workspace = true
 encoding_rs.workspace = true
 flate2 = "1"
+
+[features]
+# the test bot (`bot`) for the app's tests
+testing = []
+
+[dev-dependencies]
+# (its integration tests use the bot too)
+vibebms-core = { path = ".", features = ["testing"] }
