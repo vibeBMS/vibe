@@ -159,15 +159,16 @@ fn custom(ctx: &Ctx) -> usize {
         .count()
 }
 
-/// The catalog skins with an update waiting.
+/// The catalog skins with an update waiting (that can be downloaded now).
 pub(super) fn updates(ctx: &Ctx) -> usize {
     let store = &ctx.skins.store;
     (store.catalog.skins.iter())
         .filter(|e| {
-            matches!(
-                store.state(&ctx.paths.skins, e),
-                State::Installed { update: true }
-            )
+            offered(ctx, e)
+                && matches!(
+                    store.state(&ctx.paths.skins, e),
+                    State::Installed { update: true }
+                )
         })
         .count()
 }
@@ -197,7 +198,7 @@ pub(super) fn rows(b: &mut Rows) {
         .catalog
         .skins
         .iter()
-        .filter(|e| shown(e))
+        .filter(|e| shown(ctx, e))
         .count();
     let value = match updates(ctx) {
         0 => tr!("{n} skins", n = n),
@@ -276,9 +277,23 @@ pub(super) fn skin(b: &mut Rows, t: SkinType) {
     }
 }
 
-/// The browser leaves out what it cannot install (the largest skins).
-fn shown(e: &SkinEntry) -> bool {
-    !IS_WEB || e.web_refusal().is_none()
+/// Third-party sources are on, or `e` is the author's own: it can be
+/// downloaded.
+fn offered(ctx: &Ctx, e: &SkinEntry) -> bool {
+    e.third_party_refusal(ctx.net.hosts.config.third_party)
+        .is_none()
+}
+
+/// The browser leaves out what it cannot install (the largest skins), and
+/// third parties' copies are left out while their sources are off (unless
+/// installed: they can be deleted).
+pub(super) fn shown(ctx: &Ctx, e: &SkinEntry) -> bool {
+    (!IS_WEB || e.web_refusal().is_none())
+        && (offered(ctx, e)
+            || matches!(
+                ctx.skins.store.state(&ctx.paths.skins, e),
+                State::Installed { .. }
+            ))
 }
 
 /// What can be done with catalog skin `e` now.
@@ -290,6 +305,7 @@ fn state_value(ctx: &Ctx, armed: &Armed<Confirm>, e: &SkinEntry) -> String {
     };
     match ctx.skins.store.state(&ctx.paths.skins, e) {
         State::Busy(p) => format!("{}  {}", p.label(), tr!("cancel ×")),
+        State::Installed { update: true } if !offered(ctx, e) => tr!("installed ✓").into(),
         State::Installed { update: true } => tr!("update ↓{size}", size = size),
         State::Installed { .. } if armed.is(&Confirm::Reinstall(e.id.clone())) => {
             tr!("press again to reinstall").into()
@@ -298,6 +314,7 @@ fn state_value(ctx: &Ctx, armed: &Armed<Confirm>, e: &SkinEntry) -> String {
         State::Absent if IS_WEB && e.web_refusal().is_some() => {
             tr!("desktop / mobile app only").into()
         }
+        State::Absent if !offered(ctx, e) => tr!("third-party source: turn on in LIBRARY").into(),
         State::Absent => tr!("install ↓{size}", size = size),
     }
 }
@@ -346,8 +363,23 @@ pub(super) fn catalog(b: &mut Rows) {
             "",
         ));
     }
+    let hidden = (store.catalog.skins.iter())
+        .filter(|e| !shown(ctx, e) && (!IS_WEB || e.web_refusal().is_none()))
+        .count();
+    if hidden > 0 {
+        b.push(
+            Row::note(
+                "catalog.third_party",
+                tr!("{n} more from third-party sources", n = hidden),
+                "",
+            )
+            .desc(tr!(
+                "Other people's copies, not their authors' own downloads: they are listed with Third-party sources on (SETTINGS › LIBRARY)."
+            )),
+        );
+    }
     b.header(tr!("SKINS"));
-    for e in store.catalog.skins.iter().filter(|e| shown(e)) {
+    for e in store.catalog.skins.iter().filter(|e| shown(ctx, e)) {
         let version = if e.version.is_empty() {
             String::new()
         } else {
@@ -411,6 +443,13 @@ pub(super) fn catalog_skin(b: &mut Rows, id: &str) {
         )
         .desc(tr!("The skin's own page, in the browser.")),
     );
+    if e.third_party() {
+        b.push(
+            Row::note("catalog.source", tr!("Third-party source"), "").desc(tr!(
+                "Someone else's copy, not the author's own download: it is downloaded only with Third-party sources on (SETTINGS › LIBRARY)."
+            )),
+        );
+    }
     // the author's terms, on a line of their own (they can be long)
     if !e.license.is_empty() {
         b.push(Row::note("catalog.terms", tr!("Terms"), "").desc(e.license.clone()));
