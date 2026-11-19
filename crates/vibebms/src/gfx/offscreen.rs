@@ -20,10 +20,8 @@ impl Offscreen {
     }
 
     async fn create(w: u32, h: u32) -> Result<Offscreen, String> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance =
+            wgpu::Instance::new(super::device::instance_desc(wgpu::Backends::all(), None));
         let mut adapter = None;
         for fallback in [false, true] {
             adapter = instance
@@ -31,8 +29,10 @@ impl Offscreen {
                     power_preference: wgpu::PowerPreference::HighPerformance,
                     compatible_surface: None,
                     force_fallback_adapter: fallback,
+                    apply_limit_buckets: false,
                 })
-                .await;
+                .await
+                .ok();
             if adapter.is_some() {
                 break;
             }
@@ -48,19 +48,10 @@ impl Offscreen {
             ));
         }
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("vibebms headless"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
-                    memory_hints: wgpu::MemoryHints::Performance,
-                },
-                None,
-            )
+            .request_device(&super::device::device_desc("vibebms headless", &adapter))
             .await
             .map_err(|e| e.to_string())?;
-        device.on_uncaptured_error(Box::new(|e| log::error!("gpu: {e}")));
+        device.on_uncaptured_error(std::sync::Arc::new(|e| log::error!("gpu: {e}")));
         let usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC;
         let config = wgpu::SurfaceConfiguration {
             usage,
@@ -71,9 +62,12 @@ impl Offscreen {
             desired_maximum_frame_latency: 1,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: vec![],
+            color_space: wgpu::SurfaceColorSpace::Auto,
         };
         let caps = wgpu::SurfaceCapabilities {
             formats: vec![FORMAT],
+            // (not read)
+            format_capabilities: Vec::new(),
             present_modes: vec![wgpu::PresentMode::Fifo],
             alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
             usages: usage,
@@ -106,12 +100,12 @@ impl Offscreen {
             .ok_or("the frame's format cannot be read")?;
         gfx.queue.submit(Some(enc.finish()));
         copy.start();
-        let _ = gfx.device.poll(wgpu::Maintain::Wait);
+        let _ = gfx.device.poll(wgpu::PollType::wait_indefinitely());
         loop {
             if let Some(img) = copy.take() {
                 return img.map(|i| i.into_raw());
             }
-            let _ = gfx.device.poll(wgpu::Maintain::Wait);
+            let _ = gfx.device.poll(wgpu::PollType::wait_indefinitely());
             std::thread::yield_now();
         }
     }

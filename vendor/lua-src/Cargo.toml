@@ -1,0 +1,28 @@
+# lua-src 551.0.2 (crates.io), for Lua 5.4 only, with two changes
+# (src/lib.rs, marked "vibeBMS"): Lua 5.4.9's sources are
+# crates/vibebms-lua-web/lua (the same files as lua-src's lua-5.4.9), and they
+# are compiled in name order. Upstream adds them in fs::read_dir
+# order, which on Linux's ext4 is the order of a hash seeded per file system:
+# two machines (or two runner image versions) linked Lua's objects in
+# different orders, so the release executables differed (docs/BUILDING.md,
+# "Reproducible builds"). The root Cargo.toml's [patch.crates-io] uses it;
+# moving to another lua-src means taking its sources here again, with the
+# same change.
+[package]
+name = "lua-src"
+version = "551.0.2"
+authors = ["Aleksandr Orlenko <zxteam@protonmail.com>"]
+edition = "2024"
+repository = "https://github.com/mlua-rs/lua-src-rs"
+readme = "README.md"
+license = "MIT"
+description = """
+Sources of Lua 5.4 and logic to build them (lua-src 551.0.2, its sources in name order).
+"""
+publish = false
+
+[features]
+ucid = [] # accept UniCode IDentifiers
+
+[dependencies]
+cc = "1.2"

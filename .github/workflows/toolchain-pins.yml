@@ -1,0 +1,376 @@
+# Keeps the pins of tools/repro.env current that Dependabot cannot read
+# (docs/BUILDING.md, "Reproducible builds"): the macOS and Windows runner
+# labels, Xcode, the MSVC toolset and the Windows SDK (looked up on the
+# runners), the Android tools (their registries) and, in the first week of a
+# month or when asked, the container images' digests and UBUNTU_SNAPSHOT.
+# Rust is Dependabot's (rust-toolchain.toml).
+#
+# What it finds goes into at most two pull requests, each one commit on the
+# default branch that changes only pins (tools/repro_pins.py choose):
+# - toolchain-pins/update: newer tools on the same runner labels (Xcode within
+#   its major), the images' new digests, the snapshot, the Android tools
+#   within their majors. The merge workflow (dependabot-merge.yml) merges it
+#   once CI has passed on it.
+# - toolchain-pins/major: a newer runner label with its newest tools, a new
+#   major version of Xcode or an Android tool. Held for a person, like a
+#   Dependabot major update: a new image or major brings a new SDK, linker and
+#   defaults, which CI's builds pass but cannot judge (behaviour on users'
+#   systems, the oldest systems supported).
+# Each run makes the branches again from the default branch (a pull request
+# whose pins are current is closed). Pull requests and pushes made with
+# GITHUB_TOKEN start no workflow, so CI is dispatched on the branch (ci.yml's
+# workflow_dispatch), and the merge workflow takes that run as the pull
+# request's.
+#
+# Needs Settings > Actions > General > "Allow GitHub Actions to create and
+# approve pull requests".
+name: Toolchain pins
+
+on:
+  schedule:
+    # Tuesdays (Dependabot's run is on Mondays)
+    - cron: "23 2 * * 2"
+  workflow_dispatch:
+    inputs:
+      images:
+        description: Also move the container images' digests and UBUNTU_SNAPSHOT
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-pins
+  cancel-in-progress: false
+
+jobs:
+  # the labels pinned and the newest GA ones (actions/runner-images' README)
+  labels:
+    runs-on: ubuntu-latest
+    outputs:
+      macos: ${{ steps.labels.outputs.macos }}
+      windows: ${{ steps.labels.outputs.windows }}
+      probes: ${{ steps.labels.outputs.probes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/repro.env
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: labels
+        run: |
+          . tools/repro.env
+          curl -fsSL --retry 3 -o readme.md https://raw.githubusercontent.com/actions/runner-images/main/README.md
+          cat > "$RUNNER_TEMP/labels.py" <<'EOF'
+          import re, sys
+          # "| <image> | <arch> | `label`, `label` | ... |": GA images only (no
+          # beta, preview or deprecated badge); macOS on arm64, Windows on x64
+          mac, win = [], []
+          for row in open(sys.argv[1]):
+              cells = [c.strip() for c in row.strip().strip("|").split("|")]
+              if len(cells) < 3 or re.search(r"beta|preview|deprecated", cells[0], re.I):
+                  continue
+              for label in re.findall(r"`([^`]+)`", cells[2]):
+                  if cells[1] == "arm64" and re.fullmatch(r"macos-\d+", label):
+                      mac.append((int(label[6:]), label))
+                  m = re.fullmatch(r"windows-(\d{4})(?:-vs(\d{4}))?", label)
+                  if cells[1] == "x64" and m:
+                      win.append((int(m[1]), int(m[2] or 0), label))
+          print(max(mac)[-1] if mac else "", max(win)[-1] if win else "")
+          EOF
+          read -r mac win < <(python3 -I "$RUNNER_TEMP/labels.py" readme.md)
+          [ -n "$mac" ] || { echo "::warning::no macOS label in runner-images' README: keeping $MACOS_RUNNER"; mac="$MACOS_RUNNER"; }
+          [ -n "$win" ] || { echo "::warning::no Windows label in runner-images' README: keeping $WINDOWS_RUNNER"; win="$WINDOWS_RUNNER"; }
+          echo "pinned $MACOS_RUNNER, $WINDOWS_RUNNER; newest $mac, $win"
+          probes="$(printf '%s\n' "macos $MACOS_RUNNER" "macos $mac" "windows $WINDOWS_RUNNER" "windows $win" | sort -u |
+            jq -Rnc '[inputs | split(" ") | {kind: .[0], label: .[1]}]')"
+          {
+            echo "macos=$mac"
+            echo "windows=$win"
+            echo "probes=$probes"
+          } >> "$GITHUB_OUTPUT"
+
+  # the Xcodes, MSVC toolsets and Windows SDKs of each label's image, each
+  # checked the way tools/toolchain.sh selects it
+  probe:
+    name: ${{ matrix.label }}
+    needs: labels
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.labels.outputs.probes) }}
+    runs-on: ${{ matrix.label }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools
+          persist-credentials: false
+      - name: Xcode
+        if: matrix.kind == 'macos'
+        run: |
+          # the major.minor releases of /Applications/Xcode_<version>.app
+          # (released versions only; XCODE_VERSION is a major.minor release, its
+          # newest patch there: tools/toolchain.sh)
+          list=""
+          for d in /Applications/Xcode_*.app; do
+            if [ ! -d "$d" ] || [ -L "$d" ]; then continue; fi
+            v="${d#/Applications/Xcode_}" v="${v%.app}"
+            [[ "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]] || continue
+            have="$(DEVELOPER_DIR="$d/Contents/Developer" xcodebuild -version 2>/dev/null | head -1)"
+            if [ "$have" = "Xcode $v" ]; then list="$list $(cut -d. -f1-2 <<< "$v")"; else echo "::warning::$d is ${have:-no Xcode}"; fi
+          done
+          list="$(tr ' ' '\n' <<< "$list" | sed '/^$/d' | sort -u | paste -sd ' ' -)"
+          echo "Xcode: $list"
+          echo "xcode@${{ matrix.label }}=$list" > facts.txt
+      - name: MSVC and Windows SDK
+        if: matrix.kind == 'windows'
+        run: |
+          # the side-by-side toolsets installed with their x64 tools (the
+          # installer's components Microsoft.VisualStudio.Component.VC.<a.b.c.d>.x86.x64,
+          # which no image update replaces; CI adds the ARM64 ones), in every
+          # Visual Studio; SDKs with both architectures' libraries
+          vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          msvc="$("$vswhere" -all -products '*' -include packages -format json |
+            grep -o '"Microsoft\.VisualStudio\.Component\.VC\.[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\.x86\.x64"' |
+            sed 's/^"Microsoft\.VisualStudio\.Component\.VC\.//; s/\.x86\.x64"$//' | sort -u | paste -sd ' ' -)"
+          sdk=""
+          for d in "/c/Program Files (x86)/Windows Kits/10/Lib"/10.*/; do
+            d="${d%/}"
+            for a in x64 arm64; do
+              if [ ! -f "$d/um/$a/kernel32.lib" ] || [ ! -d "$d/ucrt/$a" ]; then continue 2; fi
+            done
+            sdk="$sdk $(basename "$d")"
+          done
+          echo "MSVC: $msvc; SDK:$sdk"
+          # the newest pair works through vcvarsall.bat (x64: the ARM64 tools
+          # are added by the build that needs them)
+          MSVC_COMPONENT="$(tr ' ' '\n' <<< "$msvc" | sort -V | tail -1)"
+          WINDOWS_SDK="$(tr ' ' '\n' <<< "$sdk" | sort -V | tail -1)"
+          if [ -z "$MSVC_COMPONENT" ] || [ -z "$WINDOWS_SDK" ]; then
+            echo "::error::no side-by-side MSVC toolset or Windows SDK for x64 and arm64 on ${{ matrix.label }}"
+            exit 1
+          fi
+          export REPRO_STRICT=1
+          . tools/toolchain.sh
+          use_msvc x64
+          echo "$TOOLCHAIN"
+          {
+            echo "msvc@${{ matrix.label }}=$msvc"
+            echo "sdk@${{ matrix.label }}=${sdk# }"
+          } > facts.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: facts-${{ matrix.label }}
+          path: facts.txt
+          retention-days: 7
+
+  # the Android tools' newest releases and, in the first week of a month
+  # (or when asked), the images' digests and the snapshot's time
+  registries:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.registries.outputs.images }}
+      linux-arm64: ${{ steps.registries.outputs.linux-arm64 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/repro.env
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: registries
+        env:
+          IMAGES: ${{ inputs.images }}
+        run: |
+          . tools/repro.env
+          get() { curl -fsSL --retry 3 -A "toolchain-pins (GitHub Actions)" "$@"; }
+          {
+            echo "CARGO_NDK_VERSION=$(get https://crates.io/api/v1/crates/cargo-ndk | jq -r .crate.max_stable_version)"
+            echo "GRADLE_VERSION=$(get https://services.gradle.org/versions/current | jq -r .version)"
+            # Temurin, the newest of JAVA_VERSION's major
+            j="${JAVA_VERSION%%.*}"
+            echo "JAVA_VERSION=$(get "https://api.adoptium.net/v3/info/release_versions?release_type=ga&vendor=eclipse&sort_order=DESC&page_size=1&version=%5B$j%2C$((j + 1))%29" |
+              jq -r '.versions[0] | "\(.major).\(.minor).\(.security)"')"
+            # the newest NDK on sdkmanager's stable channel
+            get -o repo.xml https://dl.google.com/android/repository/repository2-3.xml
+            python3 -I - repo.xml <<'EOF'
+          import re, sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          stable = {c.get("id") for c in root.iter("channel") if c.text == "stable"}
+          v = [p.get("path")[4:] for p in root.iter("remotePackage") if p.get("path", "").startswith("ndk;")
+               and p.find("channelRef") is not None and p.find("channelRef").get("ref") in stable]
+          v = [x for x in v if re.fullmatch(r"[\d.]+", x)]
+          print("NDK_VERSION=" + (max(v, key=lambda x: [int(n) for n in x.split(".")]) if v else ""))
+          EOF
+          } > facts.txt
+          # an image's newest digest: <repository>[:<tag>] <amd64|arm64|index>
+          # (Docker Hub's API for Docker Hub, Quay's for quay.io)
+          digest() {
+            local repo="${1%:*}" tag="${1##*:}"
+            if [ "$repo" = "$1" ] || [[ "$tag" = */* ]]; then repo="$1" tag=latest; fi
+            case "$repo" in
+              docker.io/library/*)
+                get "https://hub.docker.com/v2/repositories/library/${repo#docker.io/library/}/tags/$tag" |
+                  if [ "$2" = index ]; then jq -r .digest
+                  else jq -r --arg a "$2" '.images[] | select(.architecture == $a and .os == "linux") | .digest'; fi ;;
+              quay.io/*)
+                get "https://quay.io/api/v1/repository/${repo#quay.io/}/tag/?specificTag=$tag&onlyActiveTags=true" |
+                  jq -r '.tags[0].manifest_digest' ;;
+            esac
+          }
+          if [ "$IMAGES" = true ] || { [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$(date -u +%-d)" -le 7 ]; }; then
+            for key in LINUX_IMAGE_X64 LINUX_IMAGE_ARM64 PORTABLE_IMAGE_X64 PORTABLE_IMAGE_ARM64 WEB_IMAGE; do
+              ref="${!key}" ref="${ref%@*}"
+              case "$key" in *_X64) a=amd64 ;; *_ARM64) a=arm64 ;; *) a=index ;; esac
+              d="$(digest "$ref" "$a" || true)"
+              if [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "$key=$ref@$d" >> facts.txt
+              else
+                echo "::warning::no digest for $ref ($a): $d"
+              fi
+            done
+            # now: after every image's packages, so none is newer than the snapshot's
+            echo "UBUNTU_SNAPSHOT=$(date -u +%Y%m%dT%H%M%SZ)" >> facts.txt
+            {
+              echo images=true
+              echo "linux-arm64=$(sed -n 's/^LINUX_IMAGE_ARM64=//p' facts.txt | grep . || echo "$LINUX_IMAGE_ARM64")"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          cat facts.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: facts-registries
+          path: facts.txt
+          retention-days: 7
+
+  # with the images: the lock of linux-arm64's packages again (the ports
+  # archive has no snapshot), resolved in its image as it moves
+  lock:
+    needs: registries
+    if: needs.registries.outputs.images == 'true'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: tools
+      - env:
+          IMAGE: ${{ needs.registries.outputs.linux-arm64 }}
+        run: |
+          # (the image the update pins: its header names it)
+          sed -i "s|^LINUX_IMAGE_ARM64=.*|LINUX_IMAGE_ARM64=$IMAGE|" tools/repro.env
+          docker run --rm --platform linux/arm64 -v "$PWD:/vibe" -w /vibe "$IMAGE" \
+            tools/build_deps.sh lock linux-arm64 > "$RUNNER_TEMP/linux-arm64.lock"
+          head -4 "$RUNNER_TEMP/linux-arm64.lock"
+          grep -vc '^#' "$RUNNER_TEMP/linux-arm64.lock"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lock-linux-arm64
+          path: ${{ runner.temp }}/linux-arm64.lock
+          retention-days: 7
+
+  pr:
+    name: pull requests
+    needs: [labels, probe, registries, lock]
+    # (a probe or registry that failed leaves its pins as they are)
+    if: ${{ !cancelled() && needs.labels.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: facts-*
+          path: facts
+      - uses: actions/download-artifact@v8
+        if: needs.lock.result == 'success'
+        with:
+          name: lock-linux-arm64
+          path: lock
+      - name: choose
+        env:
+          MAC: ${{ needs.labels.outputs.macos }}
+          WIN: ${{ needs.labels.outputs.windows }}
+        run: |
+          { cat facts/*/facts.txt; echo "macos_newest=$MAC"; echo "windows_newest=$WIN"; } > "$RUNNER_TEMP/facts.txt"
+          cat "$RUNNER_TEMP/facts.txt"
+          python3 -I tools/repro_pins.py choose tools/repro.env "$RUNNER_TEMP/facts.txt" \
+            "$RUNNER_TEMP/update.env" "$RUNNER_TEMP/major.env" | tee "$RUNNER_TEMP/changes.tsv"
+          # the new lock of linux-arm64 goes with the update when that pins its image
+          cp tools/linux-arm64.lock "$RUNNER_TEMP/update.lock"
+          cp tools/linux-arm64.lock "$RUNNER_TEMP/major.lock"
+          new=lock/linux-arm64.lock
+          if [ -f "$new" ]; then
+            image="$(sed -n 's/^LINUX_IMAGE_ARM64=//p' "$RUNNER_TEMP/update.env")"
+            if [ "$(sed -n 's/^# image: //p' "$new")" != "$image" ]; then
+              echo "::warning::the new lock is for another image than the update's"
+            elif ! diff -q <(grep -v '^# resolved' "$new") <(grep -v '^# resolved' tools/linux-arm64.lock) > /dev/null; then
+              cp "$new" "$RUNNER_TEMP/update.lock"
+              printf 'update\ttools/linux-arm64.lock\t%s packages\t%s packages\n' "$(grep -vc '^#' tools/linux-arm64.lock)" \
+                "$(grep -vc '^#' "$new")" | tee -a "$RUNNER_TEMP/changes.tsv"
+            fi
+          fi
+      - name: pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          main="$(git rev-parse HEAD)"
+          {
+            echo "### Toolchain pins"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for kind in update major; do
+            git switch -q --detach "$main"
+            branch="toolchain-pins/$kind"
+            open="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+            if cmp -s "$RUNNER_TEMP/$kind.env" tools/repro.env && cmp -s "$RUNNER_TEMP/$kind.lock" tools/linux-arm64.lock; then
+              echo "$kind: the pins are current" | tee -a "$GITHUB_STEP_SUMMARY"
+              [ -z "$open" ] || gh pr close "$open" --delete-branch --comment "The pins are current."
+              continue
+            fi
+            changes="$(awk -F'\t' -v k="$kind" '$1 == k { print "- `" $2 "`: `" $3 "` → `" $4 "`" }' "$RUNNER_TEMP/changes.tsv")"
+            names="$(awk -F'\t' -v k="$kind" '$1 == k { print $2 " " $4 }' "$RUNNER_TEMP/changes.tsv" | paste -sd, - | sed 's/,/, /g')"
+            title="Toolchain pins: $names"
+            [ ${#title} -le 120 ] || title="Toolchain pins: $(awk -F'\t' -v k="$kind" '$1 == k { print $2 }' "$RUNNER_TEMP/changes.tsv" | paste -sd, - | sed 's/,/, /g')"
+            {
+              echo "tools/repro.env (and tools/linux-arm64.lock), as the runner images and registries have them:"
+              echo
+              echo "$changes"
+              echo
+              if [ "$kind" = major ]; then
+                echo "Held for review (a new runner image or major version): merge it by hand once CI has passed."
+              else
+                echo "Merged once CI passes on it (.github/workflows/dependabot-merge.yml)."
+              fi
+              echo
+              echo "Made by the Toolchain pins workflow (.github/workflows/toolchain-pins.yml); its next run makes it again from $BASE."
+            } > "$RUNNER_TEMP/body.md"
+            cp "$RUNNER_TEMP/$kind.env" tools/repro.env
+            cp "$RUNNER_TEMP/$kind.lock" tools/linux-arm64.lock
+            git commit -q -m "$title" -m "$changes" tools/repro.env tools/linux-arm64.lock
+            # nothing to do when the branch is already this change on this commit
+            if [ -n "$open" ] && git fetch -q origin "$branch" 2>/dev/null &&
+              [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse 'HEAD^{tree}')" ] &&
+              [ "$(git rev-parse 'FETCH_HEAD^')" = "$main" ]; then
+              echo "$kind: #$open is up to date" | tee -a "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            git push -q -f origin "HEAD:refs/heads/$branch"
+            if [ -n "$open" ]; then
+              gh pr edit "$open" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            else
+              gh pr create --base "$BASE" --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            fi
+            gh workflow run ci.yml --ref "$branch"
+            { echo "$kind: $title"; echo; echo "$changes"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          git switch -q --detach "$main"

@@ -95,7 +95,9 @@ impl Pending {
             MAPPING => None,
             FAILED => Some(Err("the frame could not be read".into())),
             _ => {
-                let data = self.buf.slice(..).get_mapped_range();
+                let Ok(data) = self.buf.slice(..).get_mapped_range() else {
+                    return Some(Err("the frame could not be read".into()));
+                };
                 let mut px = Vec::with_capacity((self.width * self.height * 4) as usize);
                 for line in data.chunks(self.row as usize) {
                     for p in line[..(self.width * 4) as usize].as_chunks::<4>().0 {
