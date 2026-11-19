@@ -32,7 +32,7 @@ keys on every ref.
 | gauge | `lr2probe` takes screenshots of LR2's window at chart times: five 40 ms apart for each reading. `e2e.py gauge` reads the gauge bar's highest lit segment (2 % each). It finds the bar from a GROOVE screenshot before the first note (20 %). The HARD gauge is `config.xml`'s `play/gauge` = 1; every A4 play's start reading of 100 % confirms it. |
 | compare | `e2e.py compare`: the README's tolerances for counts ("12 of 16 or more decides"), exact for A8's counts and the gauge. |
 
-## Results (run 44607740845)
+## Results (runs 44607740845 and 44624982986)
 
 All of vibeBMS's rows that LR2 was asked for came out as vibeBMS predicts, except two A7 readings that are one
 segment up (below):
@@ -47,18 +47,21 @@ segment up (below):
 | A4, HARD after 3 empty POORs, at 20 29 30 31 45 60 90 110 124 125 notes | 40 50 58 58 64 70 72 74 74 76 | the same: **A4 closes on vibeBMS's row** (50 at 29 notes, not 56) |
 | A4 `a4-t200`, after each POOR | 84 70 56 42 | the same: TOTAL 200's factor is 10/7, not S1's 1.5 |
 | A8 run 1 (GROOVE, key 1 held), after each mine | 96 76 26 2, POOR 4, max combo 8, `clear` 5 | 96 76 26 2, POOR 4, FULL COMBO |
-| A7 `a7-n200` | 30 40 48 58 68 78 88 96 100 | 28 38 48 58 68 76 86 96 100 |
-| A7 `a7-n500` | 24 30 34 40 46 50 56 60 66 70 76 80 86 92 96 100 | 24 30 34 40 44 50 54 60 66 70 76 80 86 90 96 100 |
+| A7 `a7-n200` | 30 40 48 58 68 78 88 96 100 (second run: 98 for the 96) | 28 38 48 58 68 76 86 96 100 |
+| A7 `a7-n500` | 24 30 34 40 46 50 56 60 66 70 76 80 86 92 96 100 (both runs) | 24 30 34 40 44 50 54 60 66 70 76 80 86 90 96 100 |
+| A7 `a7-n1000` | 22 26 30 34 36 40 44 48 52 54 58 62 66 68 72 76 80 82 86 90 94 96 100 | 22 26 30 34 36 40 44 48 50 54 58 62 64 68 72 76 78 82 86 90 92 96 100 |
 
-A7: every LR2 reading is vibeBMS's or one segment (2 %) above it. Each "above" comes where vibeBMS's exact
-gauge is at least 0.6 of a segment past the number shown (for example 29.6 % read as 30, 45.6 as 46). LR2's bar
-lights the next segment at times when the gauge is well into it. The bar reading therefore cannot tell 28 from 30
-there, but it rules out the README's TOTAL 160 rows by a wide margin. Reading the gauge's digits instead of its
-bar would settle these. In the same run, `a7-n1000` did not start: LR2 never reached the click. The play is now
-retried once.
+A7: every LR2 reading is vibeBMS's or one segment (2 %) above it. Almost every "above" comes where vibeBMS's
+exact gauge is well into the next segment (29.6 % read as 30, 45.6 as 46, 51.68 as 52), and one came at 0.4 of a
+segment (96.8 read as 98, in one of two runs). LR2's bar lights the segment above the shown number at times. The
+bar reading therefore cannot tell 28 from 30 there, but it rules out the README's TOTAL 160 rows by a wide margin.
+Reading the gauge's digits instead of its bar would settle these readings. `a7-n1000` did not start in the first
+run (LR2 never reached the click), so a play is now retried once.
+
+Both runs passed the comparison step (`compare.md` in the artifact; the second run's job is 135916281981).
 
 Other measurements, all from the score database:
-- LR2's GOOD windows are ±40 ms on VERY HARD (fine sweeps: 40.5 to 41.5 with 1 ms steps) and about ±120 ms on
+- LR2's GOOD windows are ±40 ms on VERY HARD (fine sweeps: 39.5 to 41.5 with 1 ms steps) and about ±120 ms on
   EASY (coarse: 115 to 122.5 with 2.5 ms steps).
 - About 17 to 18 PGREATs per ms-stepped sweep on VERY HARD, which suggests ±8 ms.
 - `clear` codes seen: 1 on a failed GROOVE play, 3 on a cleared one, 5 on A8's FULL COMBO.
@@ -66,12 +69,12 @@ Other measurements, all from the score database:
 ## Limits
 
 - **The start signal moves from play to play.** Three calibrated VERY HARD sweeps (`cal-f3` .. `f5`) were 9.5,
-  3.5 and 11.5 ms early. The likely cause is that LR2 starts a sound on its next mix buffer (cut from 384 to 128
+  3.5 and 11.5 ms early in one run, and 0.5, 5.5 and 3.5 ms late in the next. The likely cause is that LR2 starts a sound on its next mix buffer (cut from 384 to 128
   samples for this; not measured apart). That is fine for these trials, whose margins are tens of ms. A comparison that needs 1 ms would
   need a sweep inside each play.
 - **Not covered:** A8 runs 2 and 3 (tapping the mines, and HARD held), since one chart keeps one score row. They
   would need copies of the chart.
-- **Run time:** about 45 minutes. Each play costs about 9 s of loading plus the chart. A11, A3 and A8 alone take
+- **Run time:** about 42 minutes (job 135916281981). Each play costs about 9 s of loading plus the chart. A11, A3 and A8 alone take
   about 20 minutes. The runs could be split over parallel jobs, each with its own setup and calibration (about 6
   minutes).
 - **JUKEBOX in config.xml:** `config.xml` has a `jukebox/path` element, so the folder could also be set there.
