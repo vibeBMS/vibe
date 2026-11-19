@@ -1,10 +1,6 @@
 //! The real-time judge engine: normal notes, long notes (LN / CN / HCN),
 //! mines, back-spin scratch ends, autoplay lanes and battle sides.
 //!
-//! This file was written from a behaviour specification of vibe's judge
-//! rules (note selection, release and miss handling, HCN body ticks, event
-//! order), not from another program's code.
-//!
 //! Time is in microseconds of chart time. A timing difference ("diff") is
 //! always `note time - input time`: positive is early (FAST).
 //!

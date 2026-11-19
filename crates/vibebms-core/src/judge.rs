@@ -270,8 +270,6 @@ impl WindowRule {
         pct.clamp(1, 10_000)
     }
 
-    // Written from a behaviour specification (window scaling by rank
-    // percentage, then the custom rates), not from another program's code.
     /// Scale a base table (µs) by the rank percentage `judgerank` and the
     /// custom rates `rate` (PG, GR, GD in percent).
     fn create(&self, org: &[(i64, i64)], judgerank: i64, rate: WindowRate) -> Vec<(i64, i64)> {
