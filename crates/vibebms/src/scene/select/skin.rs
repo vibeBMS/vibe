@@ -487,11 +487,11 @@ impl<'a> SelectState<'a> {
             std::array::from_fn(|n| {
                 let (t, d) = (n / 3, n as i32 % 3 - 1);
                 if d == 0 {
-                    return options::key_option_label(now, t, &rivals);
+                    return options::key_option_label(now, t, &self.bpms, &rivals);
                 }
                 let mut p = now.clone();
                 options::step_key_option(&mut p, t, d, &self.bpms, &rivals);
-                options::key_option_label(&p, t, &rivals)
+                options::key_option_label(&p, t, &self.bpms, &rivals)
             })
         })
     }
@@ -737,7 +737,7 @@ impl SkinState for SelectState<'_> {
     }
 
     fn button(&self, id: i32) -> Option<i64> {
-        use crate::scene::option_panel::index_of;
+        use crate::scene::index_of;
         let sel = &self.ctx.config.select;
         Some(match id {
             // LR2 / beatoraja: difficulty filter, key mode filter (in

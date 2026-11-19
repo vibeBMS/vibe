@@ -32,7 +32,7 @@ pub(super) fn rows(b: &mut Rows) {
             tr!("Language"),
             language_name(ctx.config.language),
             |c, d| {
-                let l = crate::scene::option_panel::cycle(&Language::ALL, c.config.language, d);
+                let l = crate::scene::cycle(&Language::ALL, c.config.language, d);
                 c.config.language = l;
                 crate::i18n::apply(l);
             },
