@@ -92,6 +92,8 @@ back to song select, and comes to the front. The play shows `VIEWER #<measure>` 
 
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
+Release builds are reproducible: `tools/reproduce.sh <commit> <run number>` rebuilds one and checks its SHA-256
+against the release's ([docs/BUILDING.md](docs/BUILDING.md#reproducible-builds)).
 
 ```text
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
@@ -334,7 +336,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (embedded; `en.toml` lists every text the code has, kept so by a test, `I18N_BLESS=1` rewrites it); a text a table
   lacks shows in English. `tools/i18n_hant.py` makes `zh-Hant.toml` from `zh-Hans.toml`. Fonts: the desktop puts the
   language's own CJK system font first (Noto Sans CJK KR / SC / TC, Malgun Gothic, Microsoft YaHei / JhengHei, PingFang
-  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese.
+  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese. A font's glyphs are read from
+  its file as they are drawn (system fonts are mapped, not loaded, and a CJK collection's faces share one copy), so
+  fonts take memory for the characters on screen, not for their tens of thousands of glyphs.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA

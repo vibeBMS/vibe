@@ -514,7 +514,7 @@ fn web_fetch_files(
 ) {
     use bmseeker::install::job::Files;
     let job = Files::new(sources(&files), PathBuf::new(), cx);
-    crate::platform::run_job(job, None, move |r| {
+    crate::platform::run_job(job, cx, move |r| {
         let got = match r {
             Ok(got) => got,
             Err(m) => return done(Err(missed(&files, m))),
@@ -603,7 +603,8 @@ fn fetch_work(
             .collect(),
     };
     let tmps: Vec<PathBuf> = driver.slots.iter().map(|(s, _)| s.clone()).collect();
-    let got = run_job(&mut Files::new(sources(files), slots, cx), &driver);
+    let net = bmseeker::refusal::Guarded::new(&driver, cx);
+    let got = run_job(&mut Files::new(sources(files), slots, cx), &net);
     let r = (|| {
         got.map_err(|m| missed(files, m))?;
         let mut n = 0;

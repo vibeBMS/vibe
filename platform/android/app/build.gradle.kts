@@ -44,6 +44,15 @@ android {
 
     sourceSets["main"].jniLibs.srcDirs("jniLibs")
 
+    // the library as cargo built it (stripped already): AGP strips only with
+    // an NDK of its own version, so the APK would depend on the NDKs the
+    // machine has installed (reproducible builds, docs/BUILDING.md)
+    packaging {
+        jniLibs {
+            keepDebugSymbols += "**/*.so"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
