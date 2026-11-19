@@ -34,12 +34,6 @@ crate::choices! {
     }
 }
 
-impl KeyConvert {
-    pub fn is_off(&self) -> bool {
-        *self == KeyConvert::Off
-    }
-}
-
 /// The lane each of `from`'s lanes goes to in 7K (`None`: none). For 4K,
 /// 6K and 8K it is where the chart has the lane in 7K's channels.
 fn to_seven(from: PlayMode) -> Option<&'static [u8]> {

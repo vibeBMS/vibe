@@ -79,6 +79,11 @@ pub mod by_label {
     }
 }
 
+/// For `skip_serializing_if`: a field written only when set.
+pub fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
 pub mod bms;
 pub mod bmson;
 pub mod bot;
