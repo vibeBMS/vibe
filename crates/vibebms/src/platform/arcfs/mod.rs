@@ -39,7 +39,9 @@ pub use mount::native_path;
 #[cfg(test)]
 pub use mount::set_memory_limit;
 pub use mount::{is_ready, prepare, read, retain};
-pub use unpack::{read_charts, times_opened, Unpacked};
+#[cfg(test)]
+pub use unpack::times_opened;
+pub use unpack::{read_charts, Unpacked};
 
 use mount::{Mount, Recent};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -145,6 +147,7 @@ struct State {
     /// Single files read lately: (path, archive's stamp, bytes).
     recent: VecDeque<Recent>,
     /// How many times each archive was opened (tests).
+    #[cfg(test)]
     opened: HashMap<PathBuf, usize>,
 }
 

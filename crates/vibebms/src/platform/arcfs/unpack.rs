@@ -1,7 +1,7 @@
 //! Reading an archive: its list of files, the files wanted (into memory
 //! or a folder), the rest not kept.
 
-use super::{bmseeker_safe_rel, state};
+use super::bmseeker_safe_rel;
 use crate::platform::vfs;
 use bmseeker::fs::ReadSeek;
 use std::collections::{BTreeMap, HashSet};
@@ -13,12 +13,19 @@ use std::sync::Mutex;
 const CHART_MAX: u64 = 32 << 20;
 
 /// How many times `archive` was opened (tests).
+#[cfg(test)]
 pub fn times_opened(archive: &Path) -> usize {
-    state().opened.get(archive).copied().unwrap_or(0)
+    super::state().opened.get(archive).copied().unwrap_or(0)
 }
 
 fn open(archive: &Path) -> io::Result<Box<dyn ReadSeek + Send>> {
-    *state().opened.entry(archive.to_path_buf()).or_default() += 1;
+    #[cfg(test)]
+    {
+        *super::state()
+            .opened
+            .entry(archive.to_path_buf())
+            .or_default() += 1;
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         Ok(Box::new(io::BufReader::new(std::fs::File::open(archive)?)))

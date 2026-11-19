@@ -155,7 +155,7 @@ pub fn read(archive: &Path, rel: &Path) -> io::Result<Vec<u8>> {
     // once for the song, not once a file)
     if ix.format != "zip" {
         if let Some(song) = ix.song_of(rel) {
-            mount_one(archive, &song)?;
+            prepare_folders(&[(archive.to_path_buf(), song)])?;
             if let Some(r) = mounted(archive, rel).and_then(|m| m.read(rel)) {
                 return r;
             }
@@ -189,6 +189,11 @@ fn song_folder(chart: &Path) -> Option<(PathBuf, PathBuf)> {
 pub fn prepare(charts: &[PathBuf]) -> io::Result<()> {
     let mut want: Vec<(PathBuf, PathBuf)> = charts.iter().filter_map(|c| song_folder(c)).collect();
     want.dedup();
+    prepare_folders(&want)
+}
+
+/// Unpack the songs `want` (archive, folder in it), as [`prepare`].
+fn prepare_folders(want: &[(PathBuf, PathBuf)]) -> io::Result<()> {
     let _one = MOUNTING.lock().unwrap_or_else(|e| e.into_inner());
     let stamps: Vec<(i64, i64)> = want.iter().map(|(a, _)| vfs::stamp(a)).collect();
     let mut have: Vec<Arc<Mount>> = Vec::new();
@@ -210,12 +215,6 @@ pub fn prepare(charts: &[PathBuf]) -> io::Result<()> {
         have.push(m);
     }
     Ok(())
-}
-
-/// Unpack the song `folder` of `archive` in place of those unpacked (a
-/// file of it was read).
-fn mount_one(archive: &Path, folder: &Path) -> io::Result<()> {
-    prepare(&[join(archive, &folder.join("_"))])
 }
 
 /// Let go of the songs unpacked unless `chart` is of one of them (another
