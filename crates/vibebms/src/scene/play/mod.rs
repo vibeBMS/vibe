@@ -14,6 +14,7 @@ mod loading;
 mod notes;
 mod persp;
 mod practice;
+mod scroll;
 mod session;
 mod setup;
 mod skin;
