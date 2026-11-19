@@ -107,6 +107,8 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator", "Location", "Event", "AddEventListenerOptions", "EventTarget", "Performance", "TouchEvent", "TouchList", "Touch", "Worker", "MessageEvent", "Blob", "BlobPropertyBag", "Url"] }
 
 [dev-dependencies]
+# the test bot
+vibebms-core = { workspace = true, features = ["testing"] }
 # archives for tests
 bmseeker = { workspace = true, features = ["testkit"] }
 # 7z archives made for tests (the version BMSeeker reads)

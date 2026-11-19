@@ -96,6 +96,7 @@ pub fn is_default<T: Default + PartialEq>(v: &T) -> bool {
 
 pub mod bms;
 pub mod bmson;
+#[cfg(any(test, feature = "testing"))]
 pub mod bot;
 pub mod chart;
 pub mod convert;
