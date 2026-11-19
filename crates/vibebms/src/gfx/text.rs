@@ -1,12 +1,16 @@
-//! Text rendering with fontdue and a glyph atlas.
+//! Text rendering with a glyph atlas.
 //!
 //! Fonts are looked up in `<root>/fonts` and then the system
 //! (CJK-capable fonts first, since BMS titles are mostly Japanese/Korean).
-//! Missing glyphs fall back font by font.
+//! Missing glyphs fall back font by font. Glyphs are read from the font
+//! files as they are drawn (`font`): the memory fonts take follows what is
+//! drawn, not how many glyphs they have.
 
+use super::font::{Bytes, Font, Metrics};
 use super::{Batch, Color, Gfx, Rect, ATLAS, ATLAS_SIZE};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
@@ -71,9 +75,15 @@ pub struct Text {
     built_in: usize,
     /// Where the system fonts in `fonts` are read from.
     db: fontdb::Database,
+    /// The system font files read so far: the faces of one file (a CJK
+    /// collection's Korean and Japanese ones) share its bytes.
+    files: HashMap<PathBuf, Arc<Bytes>>,
     /// Fonts skins bring (by file), drawn with when `face` is set.
-    faces: Vec<fontdue::Font>,
-    face_of: HashMap<std::path::PathBuf, Option<u16>>,
+    faces: Vec<Font>,
+    face_of: HashMap<PathBuf, Option<u16>>,
+    /// Whether skin font `face` has a character (asked each time one is
+    /// drawn with it).
+    face_has: HashMap<(u16, char), bool>,
     /// The skin font drawing uses now (0 = the UI fonts).
     face: u16,
     cache: HashMap<(u16, char, u16), Option<Glyph>>,
@@ -86,14 +96,13 @@ pub struct Text {
     pub generation: u64,
 }
 
-/// A UI font. CJK fonts take long to parse (tens of thousands of glyphs) and
-/// most fallbacks are never needed, so they are parsed when first drawn with.
+/// A UI font. Most fallbacks are never needed, so a font's file is opened
+/// when a character the fonts before it lack is drawn.
 enum Slot {
-    Ready(fontdue::Font),
-    /// Not parsed yet: what to parse, and the characters it maps (as
-    /// fontdue would).
-    Pending(Source, Vec<char>),
-    /// fontdue could not parse it.
+    Ready(Font),
+    /// Not opened yet.
+    Pending(Source),
+    /// Not a font that can be read.
     Failed,
 }
 
@@ -134,47 +143,28 @@ const PREFERRED_FAMILIES: &[&str] = &[
     "Unifont",
 ];
 
-fn settings(collection_index: u32) -> fontdue::FontSettings {
-    fontdue::FontSettings {
-        collection_index,
-        scale: 32.0,
-        ..Default::default()
+/// The system's fonts (not read yet: what fontdb knows of them).
+fn system_fonts() -> fontdb::Database {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    // fontdb loads no system fonts on Android
+    #[cfg(target_os = "android")]
+    db.load_fonts_dir("/system/fonts");
+    // the simulator's own iOS file system (fontdb loads the host's)
+    #[cfg(target_os = "ios")]
+    if let Some(sim) = std::env::var_os("IPHONE_SIMULATOR_ROOT") {
+        db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
     }
-}
-
-impl Slot {
-    /// A font to parse when needed; `None` when fontdue could not parse it.
-    /// The characters are read as fontdue reads them, without the outlines.
-    fn pending(source: Source, data: &[u8], index: u32) -> Option<Slot> {
-        let face = ttf_parser::Face::parse(data, index).ok()?;
-        let glyphs = face.number_of_glyphs();
-        // fontdue fails on a glyph id out of range
-        let mut in_range = glyphs > 0;
-        let mut chars = Vec::new();
-        for t in face.tables().cmap.into_iter().flat_map(|c| c.subtables) {
-            t.codepoints(|cp| {
-                let g = t.glyph_index(cp).filter(|g| g.0 != 0);
-                if let (Some(g), Some(c)) = (g, char::from_u32(cp)) {
-                    in_range &= g.0 < glyphs;
-                    chars.push(c);
-                }
-            });
-        }
-        chars.sort_unstable();
-        chars.dedup();
-        in_range.then_some(Slot::Pending(source, chars))
-    }
-
-    fn system(db: &fontdb::Database, id: fontdb::ID) -> Option<Slot> {
-        db.with_face_data(id, |data, index| {
-            Slot::pending(Source::System(id), data, index)
-        })
-        .flatten()
-    }
+    db
 }
 
 impl Text {
     pub fn new(extra_dirs: &[&Path]) -> Text {
+        Text::with_fonts(extra_dirs, system_fonts())
+    }
+
+    /// The user's fonts in `extra_dirs`, then those of `db`.
+    fn with_fonts(extra_dirs: &[&Path], db: fontdb::Database) -> Text {
         let mut fonts = Vec::new();
         // user supplied fonts first
         for dir in extra_dirs {
@@ -196,25 +186,15 @@ impl Text {
                     continue;
                 }
                 if let Ok(data) = crate::platform::vfs::read(&p) {
-                    match fontdue::Font::from_bytes(data, settings(0)) {
-                        Ok(f) => {
+                    match Font::new(Arc::new(Bytes::Owned(data)), 0) {
+                        Some(f) => {
                             log::info!("font: {}", p.display());
                             fonts.push(Slot::Ready(f))
                         }
-                        Err(e) => log::warn!("font {}: {e}", p.display()),
+                        None => log::warn!("font {}: not a font", p.display()),
                     }
                 }
             }
-        }
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        // fontdb loads no system fonts on Android
-        #[cfg(target_os = "android")]
-        db.load_fonts_dir("/system/fonts");
-        // the simulator's own iOS file system (fontdb loads the host's)
-        #[cfg(target_os = "ios")]
-        if let Some(sim) = std::env::var_os("IPHONE_SIMULATOR_ROOT") {
-            db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
         }
         let mut used = std::collections::HashSet::new();
         // the UI language's own CJK fonts first: Chinese and Korean text
@@ -254,10 +234,8 @@ impl Text {
                 if !used.insert(id) {
                     continue;
                 }
-                if let Some(f) = Slot::system(&db, id) {
-                    log::info!("font: {fam}");
-                    fonts.push(f);
-                }
+                log::info!("font: {fam}");
+                fonts.push(Slot::Pending(Source::System(id)));
             }
             if fonts.len() >= 6 {
                 break;
@@ -265,19 +243,23 @@ impl Text {
         }
         if fonts.is_empty() {
             // anything at all
-            fonts.extend(db.faces().next().and_then(|f| Slot::system(&db, f.id)));
+            let any = db.faces().next().map(|f| f.id);
+            fonts.extend(any.map(|id| Slot::Pending(Source::System(id))));
         }
         // bundled Latin fallback (always available, e.g. in the web build)
-        fonts.extend(Slot::pending(Source::Embedded, EMBEDDED_FONT, 0));
-        if fonts.is_empty() {
-            log::error!("no usable font found; text will not be displayed. Put a .ttf into the fonts/ folder.");
-        }
+        fonts.push(Slot::Pending(Source::Embedded));
+        Text::with_slots(fonts, db)
+    }
+
+    fn with_slots(fonts: Vec<Slot>, db: fontdb::Database) -> Text {
         Text {
             built_in: fonts.len(),
             fonts,
             db,
+            files: HashMap::new(),
             faces: Vec::new(),
             face_of: HashMap::new(),
+            face_has: HashMap::new(),
             face: 0,
             cache: HashMap::new(),
             font_of: HashMap::new(),
@@ -294,8 +276,8 @@ impl Text {
     /// language's own: its characters drawn the way that language writes
     /// them).
     pub fn add_font(&mut self, data: Vec<u8>, first: bool) {
-        match fontdue::Font::from_bytes(data, settings(0)) {
-            Ok(f) => {
+        match Font::new(Arc::new(Bytes::Owned(data)), 0) {
+            Some(f) => {
                 if first {
                     self.fonts.insert(self.built_in, Slot::Ready(f));
                     // (the fonts after it moved)
@@ -307,7 +289,7 @@ impl Text {
                 }
                 self.reset_atlas();
             }
-            Err(e) => log::warn!("font: {e}"),
+            None => log::warn!("font: not a font"),
         }
     }
 
@@ -317,9 +299,11 @@ impl Text {
             return *f;
         }
         let font = crate::platform::vfs::read(path).ok().and_then(|data| {
-            fontdue::Font::from_bytes(data, settings(0))
-                .map_err(|e| log::warn!("font {}: {e}", path.display()))
-                .ok()
+            let f = Font::new(Arc::new(Bytes::Owned(data)), 0);
+            if f.is_none() {
+                log::warn!("font {}: not a font", path.display());
+            }
+            f
         });
         let id = font.map(|f| {
             self.faces.push(f);
@@ -334,17 +318,31 @@ impl Text {
         self.face = face;
     }
 
-    /// Parse UI font `i` if it is pending; whether it can be drawn with.
+    /// System font `id`, its file read once for all its faces.
+    fn system_font(&mut self, id: fontdb::ID) -> Option<Font> {
+        let (source, index) = self.db.face_source(id)?;
+        let data = match source {
+            fontdb::Source::File(path) => match self.files.get(&path) {
+                Some(d) => d.clone(),
+                None => {
+                    let d = Arc::new(Bytes::system_file(&path)?);
+                    self.files.insert(path, d.clone());
+                    d
+                }
+            },
+            fontdb::Source::SharedFile(_, d) | fontdb::Source::Binary(d) => {
+                Arc::new(Bytes::Shared(d))
+            }
+        };
+        Font::new(data, index)
+    }
+
+    /// Open UI font `i` if it is pending; whether it can be drawn with.
     fn load(&mut self, i: usize) -> bool {
-        if let Slot::Pending(source, _) = &self.fonts[i] {
-            let font = match source {
-                Source::System(id) => self
-                    .db
-                    .with_face_data(*id, |data, index| {
-                        fontdue::Font::from_bytes(data, settings(index)).ok()
-                    })
-                    .flatten(),
-                Source::Embedded => fontdue::Font::from_bytes(EMBEDDED_FONT, settings(0)).ok(),
+        if let Slot::Pending(source) = &self.fonts[i] {
+            let font = match *source {
+                Source::System(id) => self.system_font(id),
+                Source::Embedded => Font::new(Arc::new(Bytes::Static(EMBEDDED_FONT)), 0),
             };
             self.fonts[i] = match font {
                 Some(f) => Slot::Ready(f),
@@ -357,18 +355,10 @@ impl Text {
         matches!(self.fonts[i], Slot::Ready(_))
     }
 
-    fn ready(&self, i: usize) -> Option<&fontdue::Font> {
+    fn ready(&self, i: usize) -> Option<&Font> {
         match &self.fonts[i] {
             Slot::Ready(f) => Some(f),
             _ => None,
-        }
-    }
-
-    fn has(&self, i: usize, c: char) -> bool {
-        match &self.fonts[i] {
-            Slot::Ready(f) => f.lookup_glyph_index(c) != 0,
-            Slot::Pending(_, chars) => chars.binary_search(&c).is_ok(),
-            Slot::Failed => false,
         }
     }
 
@@ -377,7 +367,7 @@ impl Text {
             return *f;
         }
         let f = (0..self.fonts.len())
-            .find(|&i| self.has(i, c) && self.load(i))
+            .find(|&i| self.load(i) && self.ready(i).is_some_and(|f| f.has(c)))
             .map(|i| i as u16);
         self.font_of.insert(c, f);
         f
@@ -391,28 +381,34 @@ impl Text {
         self.generation += 1;
     }
 
-    /// The skin font in use, if it has `c`.
-    fn face_font(&self, c: char) -> Option<&fontdue::Font> {
-        let f = self.faces.get((self.face as usize).checked_sub(1)?)?;
-        (f.lookup_glyph_index(c) != 0).then_some(f)
+    /// Whether the skin font in use has `c`.
+    fn face_has(&mut self, c: char) -> bool {
+        let Some(f) = (self.face as usize).checked_sub(1) else {
+            return false;
+        };
+        let faces = &self.faces;
+        *(self.face_has)
+            .entry((self.face, c))
+            .or_insert_with(|| faces.get(f).is_some_and(|f| f.has(c)))
     }
 
-    fn glyph(&mut self, gfx: &Gfx, c: char, px: u16) -> Option<Glyph> {
-        let face = if self.face_font(c).is_some() {
-            self.face
-        } else {
-            0
-        };
-        if let Some(g) = self.cache.get(&(face, c, px)) {
-            return *g;
-        }
+    /// `c` drawn at `px` with skin font `face` (0: the UI fonts).
+    fn rasterize(&mut self, face: u16, c: char, px: u16) -> Option<(Metrics, Vec<u8>)> {
         let font = if face != 0 {
             &self.faces[face as usize - 1]
         } else {
             let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
             self.ready(fi as usize)?
         };
-        let (m, bitmap) = font.rasterize(c, px as f32);
+        Some(font.rasterize(c, px as f32))
+    }
+
+    fn glyph(&mut self, gfx: &Gfx, c: char, px: u16) -> Option<Glyph> {
+        let face = if self.face_has(c) { self.face } else { 0 };
+        if let Some(g) = self.cache.get(&(face, c, px)) {
+            return *g;
+        }
+        let (m, bitmap) = self.rasterize(face, c, px)?;
         let (w, h) = (m.width as u32, m.height as u32);
         let mut g = Glyph {
             uv: [0.0; 4],
@@ -461,9 +457,7 @@ impl Text {
                 .find(|&i| self.load(i))
                 .and_then(|i| self.ready(i)),
         };
-        font.and_then(|f| f.horizontal_line_metrics(px))
-            .map(|m| m.ascent)
-            .unwrap_or(px * 0.8)
+        font.map_or(px * 0.8, |f| f.ascent(px))
     }
 
     pub fn measure(&mut self, gfx: &Gfx, s: &str, size: f32) -> f32 {
@@ -561,15 +555,222 @@ impl Text {
 mod tests {
     use super::*;
 
-    #[test]
-    fn pending_fonts_know_the_characters_fontdue_maps() {
-        let Some(Slot::Pending(_, chars)) = Slot::pending(Source::Embedded, EMBEDDED_FONT, 0)
-        else {
-            panic!("the embedded font is readable");
+    /// Korean, kana, kanji and Latin: a select screen's worth.
+    fn sample_chars() -> Vec<char> {
+        let hangul = (0xAC00..0xD7A4).step_by(37);
+        let kana = 0x3041..0x30FF;
+        let kanji = (0x4E00..0x9FA0).step_by(67);
+        let ascii = 0x20..0x7F;
+        hangul
+            .chain(kana)
+            .chain(kanji)
+            .chain(ascii)
+            .filter_map(char::from_u32)
+            .collect()
+    }
+
+    /// This process's resident memory in kB: all, anonymous (what
+    /// Android's memory limiter counts) and file-backed (mapped files).
+    fn rss() -> [u64; 3] {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        let kb = |key: &str| {
+            status
+                .lines()
+                .find_map(|l| l.strip_prefix(key))
+                .and_then(|v| v.split_whitespace().next()?.parse().ok())
+                .unwrap_or(0)
         };
-        let font = fontdue::Font::from_bytes(EMBEDDED_FONT, settings(0)).unwrap();
-        let mut mapped: Vec<char> = font.chars().keys().copied().collect();
-        mapped.sort_unstable();
-        assert_eq!(chars, mapped);
+        [kb("VmRSS:"), kb("RssAnon:"), kb("RssFile:")]
+    }
+
+    /// The memory the UI fonts take: start-up and a screen of Korean,
+    /// Japanese and Latin text drawn at three sizes. The fonts are
+    /// `VIBE_FONT_DIR`'s (else the system's), the UI in `VIBE_LANG`
+    /// (`ko`, `ja`, `en`, ...). One test to a process:
+    /// `VIBE_FONT_DIR=dir VIBE_LANG=ko cargo test -p vibebms --lib font_memory -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement: run it alone, see its comment"]
+    fn font_memory() {
+        let lang = std::env::var("VIBE_LANG").unwrap_or_default();
+        crate::i18n::set(crate::i18n::Lang::from_locale(&lang));
+        let before = rss();
+        let t0 = std::time::Instant::now();
+        let mut db = fontdb::Database::new();
+        match std::env::var_os("VIBE_FONT_DIR") {
+            Some(dir) => db.load_fonts_dir(dir),
+            None => db = system_fonts(),
+        }
+        let scanned = t0.elapsed();
+        let mut text = Text::with_fonts(&[], db);
+        let started = t0.elapsed();
+        let after_start = rss();
+        let chars = sample_chars();
+        let mut drawn = 0;
+        for px in [16, 24, 40] {
+            for &c in &chars {
+                drawn += text.rasterize(0, c, px).is_some() as usize;
+            }
+        }
+        let after_draw = rss();
+        let loaded = (text.fonts.iter())
+            .filter(|f| matches!(f, Slot::Ready(_)))
+            .count();
+        println!(
+            "  {loaded} of {} UI fonts opened, {} files",
+            text.fonts.len(),
+            text.files.len()
+        );
+        let d = |a: [u64; 3]| [0, 1, 2].map(|i| a[i] as i64 - before[i] as i64);
+        println!(
+            "lang {lang:?}: scan {scanned:?}, start {started:?}, drew {drawn} glyphs in {:?}",
+            t0.elapsed() - started
+        );
+        println!("  [VmRSS, RssAnon, RssFile] kB over the baseline {before:?}");
+        println!("  after start: {:?}", d(after_start));
+        println!("  after drawing: {:?}", d(after_draw));
+    }
+
+    /// How far `font`'s glyphs are from fontdue's (`data`, face `index`)
+    /// for `chars` at a few sizes: metrics must be the same, coverage
+    /// within rounding. The largest and mean coverage differences.
+    fn against_fontdue(font: &Font, data: &[u8], index: u32, chars: &[char]) -> (u8, f64) {
+        let settings = fontdue::FontSettings {
+            collection_index: index,
+            scale: 32.0,
+            ..Default::default()
+        };
+        let old = fontdue::Font::from_bytes(data, settings).unwrap();
+        let (mut max, mut sum, mut n) = (0, 0u64, 0u64);
+        for px in [12.0, 16.0, 24.0, 40.0, 72.0] {
+            assert_eq!(
+                font.ascent(px),
+                old.horizontal_line_metrics(px).unwrap().ascent
+            );
+            for &c in chars {
+                assert_eq!(font.has(c), old.lookup_glyph_index(c) != 0, "{c:?}");
+                let (m, bitmap) = font.rasterize(c, px);
+                let (om, old_bitmap) = old.rasterize(c, px);
+                let om = Metrics {
+                    xmin: om.xmin,
+                    ymin: om.ymin,
+                    width: om.width,
+                    height: om.height,
+                    advance_width: om.advance_width,
+                };
+                assert_eq!(m, om, "{c:?} at {px}");
+                for (a, b) in bitmap.iter().zip(&old_bitmap) {
+                    let d = a.abs_diff(*b);
+                    max = max.max(d);
+                    sum += d as u64;
+                    n += 1;
+                }
+            }
+        }
+        (max, sum as f64 / n.max(1) as f64)
+    }
+
+    #[test]
+    fn glyphs_are_drawn_as_fontdue_drew_them() {
+        let font = Font::new(Arc::new(Bytes::Static(EMBEDDED_FONT)), 0).unwrap();
+        let chars: Vec<char> = (' '..='~').chain("éßØ€“”…→".chars()).collect();
+        let (max, mean) = against_fontdue(&font, EMBEDDED_FONT, 0, &chars);
+        assert!(
+            max <= 2 && mean < 0.01,
+            "coverage off by up to {max}, {mean} on average"
+        );
+    }
+
+    /// As `glyphs_are_drawn_as_fontdue_drew_them`, with the CJK fonts of
+    /// `VIBE_FONT_DIR` (else the system's): Hangul, kana and kanji. fontdue
+    /// reads every glyph of each (hundreds of MB): run it on its own.
+    #[test]
+    #[ignore = "reads whole CJK fonts with fontdue"]
+    fn cjk_glyphs_are_drawn_as_fontdue_drew_them() {
+        let mut db = fontdb::Database::new();
+        match std::env::var_os("VIBE_FONT_DIR") {
+            Some(dir) => db.load_fonts_dir(dir),
+            None => db = system_fonts(),
+        }
+        let chars: Vec<char> = "가나다한국어설정곡選曲設定日本語あいうアイウ漢字譜面ＡＢ１２ABCabc"
+            .chars()
+            .chain(sample_chars().into_iter().step_by(7))
+            .collect();
+        let mut compared = 0;
+        for fam in ["Noto Sans CJK KR", "Noto Sans CJK JP", "WenQuanYi Zen Hei"] {
+            let q = fontdb::Query {
+                families: &[fontdb::Family::Name(fam)],
+                ..Default::default()
+            };
+            let Some(id) = db.query(&q) else { continue };
+            let mut text = Text::with_slots(vec![Slot::Pending(Source::System(id))], db.clone());
+            assert!(text.load(0));
+            let font = text.ready(0).unwrap();
+            let (max, mean) = db
+                .with_face_data(id, |data, index| against_fontdue(font, data, index, &chars))
+                .unwrap();
+            println!("{fam}: coverage off by up to {max}, {mean:.4} on average");
+            assert!(max <= 2 && mean < 0.01);
+            compared += 1;
+        }
+        assert!(compared > 0, "no CJK font");
+    }
+
+    /// A font file stands for Inter.
+    fn font_file(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vibebms-text-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, EMBEDDED_FONT).unwrap();
+        path
+    }
+
+    #[test]
+    fn fonts_are_opened_when_a_character_needs_them() {
+        let mut db = fontdb::Database::new();
+        db.load_font_file(font_file("lazy.otf")).unwrap();
+        let id = db.faces().next().unwrap().id;
+        let fonts = vec![
+            Slot::Pending(Source::Embedded),
+            Slot::Pending(Source::System(id)),
+        ];
+        let mut text = Text::with_slots(fonts, db);
+        let opened = |t: &Text| {
+            t.fonts
+                .iter()
+                .map(|f| matches!(f, Slot::Ready(_)))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(opened(&text), [false, false]);
+        assert!(text.files.is_empty());
+        // the first font has it: the second is not opened
+        assert_eq!(text.font_for('A'), Some(0));
+        assert!(text.rasterize(0, 'A', 24).is_some_and(|(m, _)| m.width > 0));
+        assert_eq!(opened(&text), [true, false]);
+        assert!(text.files.is_empty());
+        // one the first lacks: the second is looked at
+        assert_eq!(text.font_for('가'), None);
+        assert_eq!(opened(&text), [true, true]);
+        assert_eq!(text.files.len(), 1);
+    }
+
+    #[test]
+    fn faces_of_one_file_share_its_bytes() {
+        let path = font_file("shared.otf");
+        let mut db = fontdb::Database::new();
+        // (two faces of one file, as a CJK collection's Korean and Japanese)
+        db.load_font_file(&path).unwrap();
+        db.load_font_file(&path).unwrap();
+        let ids: Vec<_> = db.faces().map(|f| f.id).collect();
+        assert_eq!(ids.len(), 2);
+        let fonts = ids
+            .iter()
+            .map(|&id| Slot::Pending(Source::System(id)))
+            .collect();
+        let mut text = Text::with_slots(fonts, db);
+        assert!(text.load(0) && text.load(1));
+        let (a, b) = (text.ready(0).unwrap(), text.ready(1).unwrap());
+        assert!(Arc::ptr_eq(a.data(), b.data()));
+        assert_eq!(text.files.len(), 1);
+        assert_eq!(Arc::strong_count(&text.files[&path]), 3);
     }
 }
