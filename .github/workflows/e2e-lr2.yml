@@ -1,0 +1,207 @@
+name: e2e LR2
+
+# Phase 2 of the e2e plan: Lunatic Rave 2 (100201) on a hosted Windows runner,
+# as a black box, against vibeBMS's rows of tools/lr2-measure
+# (tools/e2e/lr2/README.md). LR2 is downloaded once into the Actions cache,
+# keyed by its SHA-256; no LR2 file is committed or uploaded: the artifact
+# holds only this workflow's own outputs (logs, screenshots, tables).
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: Also run the runner probes (D3D9, sound, locale, SendInput) without LR2
+        type: boolean
+        default: false
+  push:
+    branches: ['e2e/**']
+    paths: ['tools/e2e/lr2/**', '.github/workflows/e2e-lr2.yml']
+
+concurrency:
+  group: e2e-lr2-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # LR2's official download was http://www.dream-pro.info/~lavalse/LR2_100201.zip
+  # (LR2IR's host, gone since LR2IR closed on 2026-05-31); the owner approved
+  # the Internet Archive's capture of that URL.
+  LR2_URL: https://web.archive.org/web/20190802100906id_/http://www.dream-pro.info/~lavalse/LR2_100201.zip
+  # the cache key; CI's cache prune keeps e2e-* keys on every ref
+  LR2_SHA256: 34294ea6661b232071688a93de31631e4e8114a82314d3386541e6875a74ff41
+  OUT: ${{ github.workspace }}\e2e-lr2-out
+  PROBE: ${{ github.event.inputs.probe == 'true' }}
+
+jobs:
+  lr2:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The scripts parse
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem tools/e2e/lr2 -Filter *.ps1) {
+            $e = $null
+            [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref] $null, [ref] $e)
+            foreach ($x in $e) { Write-Host "::error file=$($f.Name),line=$($x.Extent.StartLineNumber)::$($x.Message)"; $bad++ }
+          }
+          exit $bad
+
+      # ---- LR2: the zip, from the cache or the download
+      - name: LR2 from the cache
+        id: cache
+        if: env.LR2_SHA256 != ''
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}\lr2-zip
+          key: e2e-lr2-${{ env.LR2_SHA256 }}
+      - name: LR2 download
+        id: fetch
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/e2e/lr2/fetch.ps1 -Url $env:LR2_URL -Out "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Sha256 $env:LR2_SHA256
+      - name: Keep LR2 in the cache
+        if: steps.fetch.outcome == 'success' && env.LR2_SHA256 != ''
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}\lr2-zip
+          key: e2e-lr2-${{ env.LR2_SHA256 }}
+
+      # ---- tools: the probe (also the key presser), ffmpeg, a sound card
+      - name: Build the probe
+        run: cmd /c tools\e2e\lr2\build.cmd "$env:RUNNER_TEMP\lr2probe.exe"
+      - name: ffmpeg (gdigrab)
+        run: |
+          # Chocolatey's, or BtbN's build when Chocolatey fails (it does now and then)
+          for ($i = 0; $i -lt 2 -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue); $i++) {
+            choco install ffmpeg -y --no-progress | Select-Object -Last 3
+            $env:PATH = "$env:ProgramData\chocolatey\bin;$env:PATH"
+          }
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            $d = "$env:RUNNER_TEMP\ffmpeg"
+            gh release download latest --repo BtbN/FFmpeg-Builds --pattern 'ffmpeg-master-latest-win64-lgpl.zip' --dir $d
+            Expand-Archive "$d\ffmpeg-master-latest-win64-lgpl.zip" $d
+            $bin = (Get-ChildItem $d -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+            $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+            $env:PATH = "$bin;$env:PATH"
+          }
+          ffmpeg -hide_banner -version | Select-Object -First 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # ---- the runner without LR2 (on request)
+      - name: Runner
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage env -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Direct3D 9, windowed
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage d3d9 -Tag windowed -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Direct3D 9, fullscreen
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage d3d9 -Tag fullscreen -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Sound, as the runner comes
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag none -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+
+      - name: Virtual sound card (LABSN/sound-ci-helpers, VB-CABLE)
+        id: vbcable
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
+      - name: Virtual sound card, again (its download host fails now and then)
+        if: steps.vbcable.outcome == 'failure'
+        run: Start-Sleep -Seconds 20
+      - name: Virtual sound card, second try
+        if: steps.vbcable.outcome == 'failure'
+        uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
+
+      - name: Sound, with the virtual card
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag vbcable -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Code page and fonts
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage acp -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Locale Emulator
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/e2e/lr2/probe.ps1 -Stage le -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: SendInput timing
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage input -Tag poll -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: SendInput timing, into a D3D9 window polling once a frame
+        if: env.PROBE == 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage input -Tag d3d9 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+
+      # ---- LR2 (tools/e2e/lr2/lr2.ps1); its files stay in $RUNNER_TEMP\lr2
+      - name: LR2 setup (player, windowed, vsync off, the charts' folder)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage setup -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip"
+      - name: LR2 autoplay (-A -NS)
+        continue-on-error: true
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage autoplay -Chart a8-mines
+      - name: Latency of the start signal (our own click)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage loop
+      - name: Calibration sweep cal-c1
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-c1
+      - name: Calibration sweep cal-c2
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-c2
+      - name: Calibrate (coarse)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage calibrate -Kind c
+      - name: Calibration sweep cal-f1
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f1
+      - name: Calibration sweep cal-f2
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f2
+      - name: Calibrate (fine)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage calibrate -Kind f
+      - name: The start signal from play to play (three more fine sweeps)
+        continue-on-error: true
+        run: |
+          tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f3,cal-f4,cal-f5
+          tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage jitter
+      # the lr2-measure trials pressed as its README says (e2e.py plan)
+      - name: lr2-measure A11
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a11-1,a11-2,a11-3
+      - name: lr2-measure A3
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a3-rank0-70,a3-rank0-110,a3-rank2-70,a3-rank2-110,a3-rank3-70,a3-rank3-110,a3-rank4-70,a3-rank4-110,a3-rank5-70,a3-rank5-110,a3-rankm1-70,a3-rankm1-110
+      - name: lr2-measure A8 (run 1, GROOVE, key 1 held)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a8-mines
+      - name: lr2-measure A7 (LR2's autoplay, GROOVE)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Auto -Chart a7-n200,a7-n500,a7-n1000
+      - name: lr2-measure A4 (HARD)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Gauge 1 -Chart a4-n20,a4-n29,a4-n30,a4-n31,a4-n45,a4-n60,a4-n90,a4-n110,a4-n124,a4-n125,a4-t200
+      - name: Gauge readings
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage gauge
+      - name: LR2 against vibeBMS
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage compare
+
+      - name: Summary
+        if: always()
+        run: |
+          $s = @("## LR2 on the runner", "")
+          foreach ($f in Get-ChildItem $env:OUT -Filter *.txt -ErrorAction SilentlyContinue) {
+            $s += "### $($f.BaseName)", '```', (Get-Content $f.FullName -Raw), '```'
+          }
+          $s -join "`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      # this workflow's own outputs only: no LR2 file is ever in $OUT
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-lr2
+          path: ${{ env.OUT }}
+          retention-days: 14
