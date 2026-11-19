@@ -1,12 +1,39 @@
 //! HTTP (ehttp: ureq natively, `fetch` in browsers). Callbacks run on a
 //! worker thread natively and on the event loop on the web. Nothing here
 //! logs a request: its headers can carry credentials.
+//!
+//! Natively every request names vibeBMS ([`USER_AGENT`]) unless it names
+//! itself; in browsers the browser's own User-Agent goes, which a page
+//! cannot change (nothing here tries).
 
 use super::{Duration, Instant};
 use bmseeker::hosts::STALL_MS;
 use bmseeker::net::{Answer, NetError};
 use bmseeker::progress::Progress;
 use std::sync::{Arc, Mutex, MutexGuard};
+
+/// What vibeBMS's own requests are sent with natively (IR, difficulty
+/// tables, the updater, skins, the event mirror's lists): its name, version
+/// and where it is from, never a browser's. bmseeker's own downloads are
+/// sent with `hosts::user_agent`.
+pub const USER_AGENT: &str = concat!(
+    "vibeBMS/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/vibeBMS/vibe)"
+);
+
+/// `req` with vibeBMS's User-Agent, natively, unless it has one.
+fn identified(req: ehttp::Request) -> ehttp::Request {
+    #[cfg(not(target_arch = "wasm32"))]
+    let req = {
+        let mut req = req;
+        if req.headers.get("user-agent").is_none() {
+            req.headers.insert("User-Agent", USER_AGENT);
+        }
+        req
+    };
+    req
+}
 
 /// A request: `method` is `GET`, `POST`, `PUT` or `DELETE` (anything else
 /// is a GET); a JSON body needs its `Content-Type` among `headers`.
@@ -43,7 +70,7 @@ pub struct Response {
 
 /// Send `req`: its answer, or why none came.
 fn call(req: ehttp::Request, on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static) {
-    ehttp::fetch(req, move |r| {
+    ehttp::fetch(identified(req), move |r| {
         on_done(match r {
             Ok(r) => Ok(Response {
                 status: r.status,
@@ -195,7 +222,7 @@ pub fn stream(
             false
         });
     }
-    ehttp::streaming::fetch(ehttp::Request::get(url), move |part| {
+    ehttp::streaming::fetch(identified(ehttp::Request::get(url)), move |part| {
         let mut g = lock(&state);
         if g.done.is_none() {
             return ControlFlow::Break(());
@@ -291,12 +318,21 @@ pub(crate) mod tests {
         let r = send(request("GET", &format!("{url}/a"), &[], Vec::new())).unwrap();
         assert_eq!((r.status, r.body.as_slice()), (429, &b"slow"[..]));
         assert_eq!(r.headers.get("retry-after"), Some("120"));
-        assert!(seen.recv().unwrap().starts_with("GET /a HTTP/1.1"));
+        let got = seen.recv().unwrap();
+        assert!(got.starts_with("GET /a HTTP/1.1"), "{got}");
+        // vibeBMS names itself, as itself
+        let ua = format!("user-agent: {}\r\n", USER_AGENT.to_lowercase());
+        assert!(got.to_lowercase().contains(&ua), "{got}");
+        assert!(USER_AGENT.starts_with("vibeBMS/") && !USER_AGENT.contains("Mozilla"));
 
-        let r = send(request("GET", &format!("{url}/b"), &[], Vec::new())).unwrap();
+        // a request that names itself keeps its own
+        let own = vec![("User-Agent".to_string(), "tester/1".to_string())];
+        let r = send(request("GET", &format!("{url}/b"), &own, Vec::new())).unwrap();
         assert_eq!(r.status, 429);
         assert_eq!(r.headers.get("Retry-After"), None);
-        seen.recv().unwrap();
+        let got = seen.recv().unwrap().to_lowercase();
+        assert!(got.contains("user-agent: tester/1\r\n"), "{got}");
+        assert!(!got.contains("vibebms/"), "{got}");
 
         let tag = vec![("If-None-Match".to_string(), "\"v2\"".to_string())];
         let r = send(request("GET", &format!("{url}/c"), &tag, Vec::new())).unwrap();
