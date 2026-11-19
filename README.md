@@ -359,9 +359,19 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   links lead only to a page: choosing it opens the page, as for a chart chosen alone; the queue never opens pages) or
   CANCELLED, after CANCEL, RETRY FAILED and CLEAR FINISHED. Choosing a queued or downloading chart cancels it, a
   failed or cancelled one queues it again. The queue is kept until the game closes.
-- **Third-party mirrors** (`SETTINGS › LIBRARY`, off by default): other people's copies of dead uploaders and sites
-  (darksabun.club, bms.hexlataia.xyz) and the community archive (bms.kyouko.moe). What is found there by name only
-  goes into the library if it holds the chart wanted (by its MD5).
+- **Third-party sources** (`SETTINGS › LIBRARY`, off by default): other people's copies of dead uploaders and sites
+  (darksabun.club, bms.hexlataia.xyz), lookups of a chart's package by its MD5 (Ginger, Konmai) and the community
+  archive (bms.kyouko.moe). What is found there by name only goes into the library if it holds the chart wanted (by
+  its MD5). Off, downloads use only the authors' own links (as the tables, BMS SEARCH and Stella list them) and the event mirror. Turning them on asks once: they are
+  other people's copies, not the authors' links; whether a site allows this and whether it is up differs from site
+  to site; using them is your own responsibility (each site's terms, the rights of the songs' copyright holders). OK
+  turns them on and is remembered (`third_party_acknowledged`, app-wide); Cancel leaves them off. A build that has
+  them on by default (the web build's `WEB_THIRD_PARTY`), or a setting turned on before this was asked, says the same
+  once at start, with OK and Turn off. vibeBMS names itself on its own requests (`vibeBMS/<version>
+  (+https://github.com/vibeBMS/vibe)`, before BMSeeker's own name on downloads; the web build sends the browser's,
+  which a page cannot change), never poses as a browser, and does not get around a site's access controls. See
+  BMSeeker's [Third-party sources and
+  disclaimer](https://github.com/vibeBMS/BMSeeker#third-party-sources-and-disclaimer).
 - **Name song folders after their charts** (`SETTINGS › LIBRARY`, off by default): a song downloaded into the library
   gets a folder named `[artist] title` from what its charts share, as BeMusicSeeker names one (a folder its archive
   wraps everything in left out), instead of the song's title; a song the library has under another folder name (a
@@ -622,7 +632,8 @@ records are kept in localStorage.
   keeps it.
 - CI publishes a web build to the `gh-pages` branch on every push (the default branch at the site's root, other
   branches under `preview/<branch>/`). Turn on GitHub Pages (Settings › Pages › `gh-pages` / root) to open it.
-  The repository variable `WEB_THIRD_PARTY=1` turns the third-party mirrors on by default in that build.
+  The repository variable `WEB_THIRD_PARTY=1` turns the third-party sources on by default in that build; the page
+  then says once, at its first start, what they are (OK keeps them on, Turn off turns them off).
 - A separate chart added on its own (📦) goes into its song's folder: the folder with the same title and artist that
   holds every sound it needs. When that cannot be decided, the page asks which song it is for.
 - The browser paces the frames at the display's refresh rate, except Safari, which keeps pages at 60 frames a

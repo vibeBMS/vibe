@@ -3,11 +3,13 @@
 mod confirm;
 mod hit;
 mod list;
+mod notice;
 mod text_input;
 
 pub use confirm::Armed;
 pub use hit::HitMap;
 pub use list::ListView;
+pub use notice::Notice;
 pub use text_input::{TextEvent, TextInput};
 
 use crate::app::Draw;
@@ -98,6 +100,52 @@ pub fn back_button(d: &mut Draw, w: f32, ui: f32) -> Rect {
         ui,
         false,
     )
+}
+
+/// `s` cut to `w` wide with an ellipsis.
+pub fn ellipsize(d: &mut Draw, s: &str, size: f32, w: f32) -> String {
+    if d.measure(s, size) <= w {
+        return s.to_string();
+    }
+    let mut chars: Vec<char> = s.chars().collect();
+    while !chars.is_empty() {
+        chars.pop();
+        let t: String = chars.iter().collect::<String>() + "…";
+        if d.measure(&t, size) <= w {
+            return t;
+        }
+    }
+    String::new()
+}
+
+/// `s` broken into at most `max` lines `w` wide (the last cut short), at
+/// spaces and between Chinese and Japanese characters.
+pub fn wrap(d: &mut Draw, s: &str, size: f32, w: f32, max: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let words = break_words(s);
+    for (k, &(space, word)) in words.iter().enumerate() {
+        let sep = if space && !cur.is_empty() { " " } else { "" };
+        let next = format!("{cur}{sep}{word}");
+        if !cur.is_empty() && d.measure(&next, size) > w {
+            if lines.len() + 1 == max {
+                let mut rest = cur;
+                for &(space, word) in &words[k..] {
+                    rest.push_str(if space { " " } else { "" });
+                    rest.push_str(word);
+                }
+                lines.push(ellipsize(d, &rest, size, w));
+                return lines;
+            }
+            lines.push(std::mem::replace(&mut cur, word.to_string()));
+        } else {
+            cur = next;
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(ellipsize(d, &cur, size, w));
+    }
+    lines
 }
 
 /// Where a line of `s` may break: its words, each with whether a space

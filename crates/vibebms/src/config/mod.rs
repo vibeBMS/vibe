@@ -252,6 +252,11 @@ pub struct Config {
     /// dead sites and uploaders, the community archive (bmseeker's
     /// `third_party`).
     pub third_party_mirrors: bool,
+    /// The player has read what turning on third parties' copies means
+    /// and said OK (app-wide; written once set): turning them on in the
+    /// settings asks first until then.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub third_party_acknowledged: bool,
     /// A song downloaded into the library gets a folder named after its
     /// charts (`[artist] title`, as BeMusicSeeker names one), not after
     /// the song's title (bmseeker's `folder_naming`).
@@ -310,6 +315,7 @@ impl Default for Config {
                 .map(|s| s.to_string())
                 .collect(),
             third_party_mirrors: THIRD_PARTY_DEFAULT,
+            third_party_acknowledged: false,
             name_song_folders: false,
             ir: IrSettings::default(),
             check_updates: true,
@@ -649,6 +655,8 @@ mod tests {
             ],
             archives: vec!["https://example.org/events/index.json".into()],
             third_party_mirrors: !THIRD_PARTY_DEFAULT,
+            // (written only once set: `third_party_acknowledgement_is_written_once_set`)
+            third_party_acknowledged: false,
             name_song_folders: true,
             ir: IrSettings {
                 primary: Some(vibebms_ir::ProviderId::Bokutachi),
@@ -756,6 +764,17 @@ mod tests {
         c.language = crate::i18n::Language::ZhHant;
         let s = c.to_toml().unwrap();
         assert!(s.contains("language = \"zh-Hant\""), "{s}");
+        assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
+    }
+
+    /// The third-party notice's OK is written only once given.
+    #[test]
+    fn third_party_acknowledgement_is_written_once_set() {
+        let mut c = Config::default();
+        assert!(!c.to_toml().unwrap().contains("third_party_acknowledged"));
+        c.third_party_acknowledged = true;
+        let s = c.to_toml().unwrap();
+        assert!(s.contains("third_party_acknowledged = true"), "{s}");
         assert_eq!(toml::from_str::<Config>(&s).unwrap(), c);
     }
 

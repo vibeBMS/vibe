@@ -1,7 +1,7 @@
 //! A settings row and the builder pages emit them with: sections, foldable
 //! groups (their rows only while open), and the section each row is in.
 
-use super::{Confirm, Screen, Sub, TextField};
+use super::{Ask, Confirm, Screen, Sub, TextField};
 use crate::app::Ctx;
 use crate::scene::keybind::Slot;
 use crate::skin::SkinType;
@@ -40,6 +40,8 @@ pub(super) enum Act {
     DeleteKept(usize),
     /// Leave and start the updated executable.
     Restart,
+    /// Ask first (a dialog over the settings); OK does what it asks.
+    Ask(Ask),
 }
 
 impl Act {
@@ -48,6 +50,7 @@ impl Act {
         matches!(
             self,
             Act::Adjust(_)
+                | Act::Ask(_)
                 | Act::Toggle(..)
                 | Act::CycleSkin(_)
                 | Act::SkinOption(..)

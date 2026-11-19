@@ -121,6 +121,10 @@ struct Running {
     batch: Batch,
     ctx: Ctx,
     scenes: Vec<Box<dyn Scene>>,
+    /// Third parties' copies are on without the player having said OK to
+    /// what they are (a build that has them on, a setting from before it
+    /// asked): said once over the song select, OK or turn them off.
+    third_party_notice: Option<crate::ui::Notice>,
     gamepads: crate::input::gamepad::Gamepads,
     /// The scenes changed: Discord and OBS are told the screen.
     activity_dirty: bool,
@@ -347,6 +351,16 @@ impl Running {
         {
             self.ctx.audio.mixer.resume();
         }
+        if let Some(n) = self.third_party_notice.as_mut() {
+            // (keys let go unseen still reach the scene)
+            if !matches!(ev, InputEv::Released { .. }) {
+                if let Some(ok) = n.input(&ev, &self.ctx.config.keys) {
+                    self.third_party_notice = None;
+                    answer_third_party_notice(&mut self.ctx, ok);
+                }
+                return;
+            }
+        }
         let Some(top) = self.scenes.last_mut() else {
             return;
         };
@@ -516,6 +530,15 @@ impl Running {
                 self.window.set_ime_allowed(self.ime_on);
             }
         }
+        if let Some(n) = self.third_party_notice.as_mut() {
+            n.draw(
+                &self.ctx,
+                &mut d,
+                tr!("Third-party sources are on"),
+                crate::hosts::third_party_notice(),
+                tr!("Turn off"),
+            );
+        }
         draw_overlay(&mut self.ctx, &mut d, now);
         if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
             if self.gfx.request_capture() {
@@ -588,6 +611,26 @@ fn web_fonts(lang: Option<crate::i18n::Lang>) -> Option<Job<(Vec<u8>, bool)>> {
             }
         });
     }))
+}
+
+/// Whether to say at start what third parties' copies are: they are on and
+/// the player has not said OK to them (in the settings or here). Not
+/// over a chart played from the command line.
+fn third_party_notice_due(config: &Config, scenes: usize) -> bool {
+    config.third_party_mirrors && !config.third_party_acknowledged && scenes == 1
+}
+
+/// The start's third-party notice answered: OK keeps them on (and is not
+/// asked again), Turn off turns them off (the settings ask before they
+/// are on again).
+fn answer_third_party_notice(ctx: &mut Ctx, ok: bool) {
+    if ok {
+        ctx.config.third_party_acknowledged = true;
+    } else {
+        ctx.config.third_party_mirrors = false;
+        ctx.net.hosts = crate::hosts::context(&ctx.config);
+    }
+    ctx.save_config();
 }
 
 fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
@@ -727,6 +770,8 @@ impl App {
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
         scenes.extend(cli::play_scene(&mut ctx));
+        let third_party_notice =
+            third_party_notice_due(&ctx.config, scenes.len()).then(crate::ui::Notice::default);
         diag::startup("song select");
         #[cfg(target_os = "ios")]
         {
@@ -749,6 +794,7 @@ impl App {
             batch: Batch::default(),
             ctx,
             scenes,
+            third_party_notice,
             gamepads: crate::input::gamepad::Gamepads::open(),
             activity_dirty: true,
             last_touch: None,
@@ -1017,5 +1063,37 @@ mod tests {
     #[test]
     fn window_icon_decodes() {
         assert!(super::window_icon().is_some());
+    }
+
+    /// Third parties' copies on without the player's OK (a build that has
+    /// them on): said once at start; OK is kept, Turn off turns them off.
+    #[test]
+    fn a_build_with_third_parties_on_says_so_once() {
+        use super::*;
+        let root = std::env::temp_dir().join(format!("vibebms-tp-notice-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.config.third_party_mirrors = true;
+        ctx.config.third_party_acknowledged = false;
+        assert!(third_party_notice_due(&ctx.config, 1));
+        // not over a chart played from the command line
+        assert!(!third_party_notice_due(&ctx.config, 2));
+        answer_third_party_notice(&mut ctx, true);
+        assert!(ctx.config.third_party_mirrors && ctx.config.third_party_acknowledged);
+        assert!(!third_party_notice_due(&ctx.config, 1));
+        assert!(crate::profiles::load_config(&ctx.paths).third_party_acknowledged);
+        // Turn off
+        ctx.config.third_party_acknowledged = false;
+        answer_third_party_notice(&mut ctx, false);
+        assert!(!ctx.config.third_party_mirrors && !ctx.net.hosts.config.third_party);
+        assert!(!third_party_notice_due(&ctx.config, 1));
+        // off, or said OK to: nothing to say
+        let mut c = Config {
+            third_party_mirrors: false,
+            ..Default::default()
+        };
+        assert!(!third_party_notice_due(&c, 1));
+        (c.third_party_mirrors, c.third_party_acknowledged) = (true, true);
+        assert!(!third_party_notice_due(&c, 1));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

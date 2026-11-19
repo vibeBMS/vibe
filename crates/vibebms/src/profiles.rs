@@ -60,6 +60,7 @@ const APP_KEYS: &[&str] = &[
     "tables",
     "archives",
     "third_party_mirrors",
+    "third_party_acknowledged",
     "name_song_folders",
     "check_updates",
     "language",
@@ -80,6 +81,7 @@ pub fn take_app_wide(into: &mut Config, from: &Config) {
     into.tables = from.tables.clone();
     into.archives = from.archives.clone();
     into.third_party_mirrors = from.third_party_mirrors;
+    into.third_party_acknowledged = from.third_party_acknowledged;
     into.name_song_folders = from.name_song_folders;
     into.check_updates = from.check_updates;
     into.language = from.language;
@@ -515,6 +517,7 @@ mod tests {
         c.bms_dirs.push("D:/bms".into());
         c.obs.password = "secret".into();
         c.discord.enabled = true;
+        c.third_party_acknowledged = true;
         c.keys.controllers.p1 = Some(crate::config::PadId {
             name: "pad".into(),
             id: "1".into(),
@@ -538,6 +541,7 @@ mod tests {
             !text.contains("secret") && !text.contains("controllers"),
             "{text}"
         );
+        assert!(!text.contains("third_party"), "{text}");
         assert!(text.contains("k4"), "the 4K keys are the profile's: {text}");
         let d = load_config(&paths);
         assert_eq!(d.play.judge_offset_ms, 5);
@@ -550,6 +554,7 @@ mod tests {
             ("secret", true)
         );
         assert_eq!(d.keys.controllers, c.keys.controllers);
+        assert!(d.third_party_acknowledged);
         assert_eq!(d.keys.k4, Config::default().keys.k4);
         assert_eq!(load_config(&b), c);
         std::fs::remove_dir_all(&root).ok();

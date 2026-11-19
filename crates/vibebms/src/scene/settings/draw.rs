@@ -9,6 +9,7 @@ use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Color, Rect};
 use crate::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
 use crate::ui;
+use crate::ui::{ellipsize, wrap};
 
 /// A row with a description (UI units); the others are sized by kind.
 pub(super) const ROW_H: f32 = 52.0;
@@ -154,52 +155,6 @@ fn value_text(row: &Row) -> String {
         _ if row.open.is_some() => format!("{v}  ›"),
         _ => v.clone(),
     }
-}
-
-/// `s` cut to `w` wide with an ellipsis.
-fn ellipsize(d: &mut Draw, s: &str, size: f32, w: f32) -> String {
-    if d.measure(s, size) <= w {
-        return s.to_string();
-    }
-    let mut chars: Vec<char> = s.chars().collect();
-    while !chars.is_empty() {
-        chars.pop();
-        let t: String = chars.iter().collect::<String>() + "…";
-        if d.measure(&t, size) <= w {
-            return t;
-        }
-    }
-    String::new()
-}
-
-/// `s` broken into at most `max` lines `w` wide (the last cut short), at
-/// spaces and between Chinese and Japanese characters.
-fn wrap(d: &mut Draw, s: &str, size: f32, w: f32, max: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    let words = ui::break_words(s);
-    for (k, &(space, word)) in words.iter().enumerate() {
-        let sep = if space && !cur.is_empty() { " " } else { "" };
-        let next = format!("{cur}{sep}{word}");
-        if !cur.is_empty() && d.measure(&next, size) > w {
-            if lines.len() + 1 == max {
-                let mut rest = cur;
-                for &(space, word) in &words[k..] {
-                    rest.push_str(if space { " " } else { "" });
-                    rest.push_str(word);
-                }
-                lines.push(ellipsize(d, &rest, size, w));
-                return lines;
-            }
-            lines.push(std::mem::replace(&mut cur, word.to_string()));
-        } else {
-            cur = next;
-        }
-    }
-    if !cur.is_empty() {
-        lines.push(ellipsize(d, &cur, size, w));
-    }
-    lines
 }
 
 /// Text pieces in their colours, one after another; the width drawn.
@@ -431,6 +386,9 @@ impl SettingsScene {
                     super::TextField::IrKey(_) | super::TextField::ObsPassword
                 ),
             );
+        }
+        if let Some((q, n)) = self.ask.as_mut() {
+            n.draw(ctx, d, q.title(), q.text(), tr!("Cancel"));
         }
         if let Some(slot) = self.learn.slot {
             let ui = ctx.ui();

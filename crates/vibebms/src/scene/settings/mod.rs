@@ -403,6 +403,40 @@ enum Confirm {
     DeleteKept(usize),
 }
 
+/// A question a row asks before it acts: a dialog over the settings, OK
+/// or Cancel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Ask {
+    /// Turn third parties' copies on (`third_party_mirrors`): asked until
+    /// the player has said OK once (`third_party_acknowledged`).
+    ThirdParty,
+}
+
+impl Ask {
+    fn title(self) -> &'static str {
+        match self {
+            Ask::ThirdParty => tr!("Use third-party sources?"),
+        }
+    }
+
+    fn text(self) -> &'static str {
+        match self {
+            Ask::ThirdParty => crate::hosts::third_party_notice(),
+        }
+    }
+
+    /// OK: what was asked.
+    fn accept(self, ctx: &mut Ctx) {
+        match self {
+            Ask::ThirdParty => {
+                ctx.config.third_party_acknowledged = true;
+                ctx.config.third_party_mirrors = true;
+                ctx.net.hosts = crate::hosts::context(&ctx.config);
+            }
+        }
+    }
+}
+
 /// What the player did in settings this session: the groups opened, the
 /// last changes (the top level lists them).
 #[derive(Default)]
@@ -449,6 +483,8 @@ pub struct SettingsScene {
     rail: bool,
     search: Option<Search>,
     edit: Option<(TextField, TextInput)>,
+    /// A row's question, waiting for OK or Cancel.
+    ask: Option<(Ask, ui::Notice)>,
     learn: Learn,
     armed: Armed<Confirm>,
     /// What was drawn where (the last frame).
@@ -475,6 +511,7 @@ impl SettingsScene {
             rail: false,
             search: None,
             edit: None,
+            ask: None,
             learn: Learn::default(),
             armed: Armed::default(),
             hits: ui::HitMap::default(),
@@ -695,6 +732,10 @@ impl SettingsScene {
             Act::Restart => {
                 ctx.net.updater.relaunch_on_exit();
                 self.then = Some(Next::Quit);
+            }
+            Act::Ask(q) => {
+                self.ask = Some((q, ui::Notice::default()));
+                return;
             }
         }
         ctx.save_config();
@@ -1002,6 +1043,22 @@ impl SettingsScene {
     fn input_inner(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next {
         if self.learn.on() {
             self.learn_input(ctx, ev);
+            return Next::Stay;
+        }
+        if let Some((q, n)) = self.ask.as_mut() {
+            if let Some(ok) = n.input(ev, &ctx.config.keys) {
+                let q = *q;
+                self.ask = None;
+                if ok {
+                    q.accept(ctx);
+                    ctx.save_config();
+                    let changed = self.row().map(|r| (r.id, r.label.clone()));
+                    self.refresh(ctx);
+                    if let Some(key) = changed {
+                        self.remember(key);
+                    }
+                }
+            }
             return Next::Stay;
         }
         if let Some((tf, t)) = self.edit.as_mut() {
