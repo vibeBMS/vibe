@@ -415,9 +415,11 @@ files only through `tools/build_release.sh`. Both are moved for you:
   week of a month (or with the `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` and
   `tools/linux-arm64.lock` resolved again in its image. `tools/repro_pins.py` splits the changes
   into two pull requests, each one commit that changes only pins, on which the workflow dispatches CI (a pull request
-  made with `GITHUB_TOKEN` starts none): `toolchain-pins/update` (newer tools on the same labels, Xcode and the
-  Android tools within their major versions, digests, the snapshot), which the merge workflow merges once that CI run
-  passes, after checking with the default branch's `tools/repro_pins.py` that only pins' values changed; and
+  made with `GITHUB_TOKEN` starts none, and its pull request's CI waits for a person's approval):
+  `toolchain-pins/update` (newer tools on the same labels, Xcode and the Android tools within their major versions,
+  digests, the snapshot), which the workflow's merge job merges once that CI run passes (it waits for it: such a run
+  starts no other workflow), after checking with the default branch's `tools/repro_pins.py` that only pins' values
+  changed; and
   `toolchain-pins/major` (a new runner label with its tools, a new major version), which waits for a person, as a
   Dependabot major update does. Each run makes both again from the default branch, and closes one whose pins are
   current. It needs Settings › Actions › General › "Allow GitHub Actions to create and approve pull requests".
