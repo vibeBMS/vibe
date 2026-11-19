@@ -13,9 +13,9 @@ A cross-platform BMS player modelled on [Lunatic Rave 2](http://www.lr2.sakura.n
 Written in Rust with wgpu and cpal, it runs on Windows, macOS and Linux (x64/ARM) and in web browsers (wasm),
 and has an on-screen controller for touch devices such as iPads and Android tablets.
 
-The *vibe* in the name means two things: the vibe of the music in a rhythm game, and that this project was made
-by **vibe coding**. Nearly all of the code and the default skins were written in conversation with an AI coding
-agent (Claude Code); a person set the direction and checked the results by playing.
+The *vibe* in the name is the vibe of the music, and **vibe coding**: nearly all of the code and the default skins
+were written with an AI coding agent (Claude Code), while a person set the direction and checked the results by
+playing.
 
 - No launcher: it starts at song select, and every setting is changed in the game.
 - Settings, scores and caches live in a folder next to the executable (portable).
@@ -23,91 +23,35 @@ agent (Claude Code); a person set the direction and checked the results by playi
 
 > Status: early development (0.1).
 
-## Quick start
+## Get it
 
-Builds of the latest commit, for every platform, are on the
-[Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease: the executables, the Android `.apk` and
-the unsigned iOS `.ipa` as they are, the web build as a zip. On Linux, `vibebms-linux-*-portable` starts on older
-systems (glibc 2.28) and without WebKitGTK, but has no download browser. `vibeBMS-linux-x64.flatpak` / `-arm64.flatpak` are Flatpak
-bundles: `flatpak install --user vibeBMS-linux-x64.flatpak` (the runtime comes from Flathub), and the same with a newer
-bundle to update it; its data is in `~/.var/app/io.github.vibebms.nightly/data/vibeBMS`.
+Builds of the latest commit are on the [Nightly](https://github.com/vibeBMS/vibe/releases/tag/nightly) prerelease:
 
-On Android, the nightly APK also comes from an F-Droid repository: add it once in
-[F-Droid](https://f-droid.org/), [Droid-ify](https://github.com/Droid-ify/client) or
-[Neo Store](https://github.com/NeoApplications/Neo-Store) (in its repositories settings), and each new nightly is
-offered as an update of "vibeBMS Nightly" (`io.github.vibebms.nightly`). The address is
-`https://raw.githubusercontent.com/vibeBMS/vibe/fdroid-repo/repo`; give the fingerprint of its key too, so the client
-checks that the index is the project's. Both are in the nightly's
-[`fdroid.txt`](https://github.com/vibeBMS/vibe/releases/download/nightly/fdroid.txt), with a link that adds the
-repository in one tap (and as a QR code,
-[`fdroid-qr.png`](https://github.com/vibeBMS/vibe/releases/download/nightly/fdroid-qr.png)). An APK installed from
-the release by hand updates the same way, as it is signed with the same key.
+- **Windows, macOS, Linux**: the executables. The macOS app is `vibeBMS-macos-universal.dmg`.
+- **Linux, older systems**: `vibebms-linux-*-portable` starts with glibc 2.28 and without WebKitGTK, but has no
+  in-app browser.
+- **Flatpak**: `flatpak install --user vibeBMS-linux-x64.flatpak` (or `-arm64`); a newer bundle installs over it.
+- **Android**: `vibeBMS.apk`, also as an F-Droid repository for updates (its address is in the release's
+  [`fdroid.txt`](https://github.com/vibeBMS/vibe/releases/download/nightly/fdroid.txt)).
+- **iOS / iPadOS**: the unsigned `vibeBMS-unsigned.ipa`, to sideload; the release also has an AltStore / SideStore
+  source.
+- **Web**: [vibebms.github.io/vibe](https://vibebms.github.io/vibe/), or the release's web build to serve yourself.
 
-The desktop executables from there look for a newer nightly on start (`SETTINGS › SYSTEM › Check for updates`).
-When there is one, the song select says so and `SETTINGS › SYSTEM` updates in place ("Update now", then "Restart
-now"); a copy a package manager installed (or the Flatpak), or one in a folder that cannot be written to, does not
-check.
+The desktop executables look for a newer nightly on start and update in place from `SETTINGS › SYSTEM`. Building for
+each platform, and checking that a release build is reproducible: [docs/BUILDING.md](docs/BUILDING.md).
 
-Or build it yourself:
+## Run it
+
+Put the executable in a folder and put your BMS folders inside it. Folders elsewhere can be dropped on the window or
+added in `SETTINGS › LIBRARY`. Or build and run it:
 
 ```sh
 cargo run --release                                  # song select
 cargo run --release -- path/to/song.bme --autoplay   # play a chart directly
 ```
 
-The command line (desktop; `vibebms --help`): a chart to play at start, with `--autoplay` (`-a`; without a chart,
-AUTOPLAY on in song select), `--ghost=best|last` (G-BATTLE) or `--vs`; options for this launch only, never written to
-`config.toml` (a setting changed in the game meanwhile is saved as usual): `--gauge=HARD`, `--random=MIRROR`,
-`--hs=3.25`, `--judge=lr2`, `--ln="FORCE CN"` (labels as the game shows them, or the config's names, in any case) and
-`--set <section.key>=<value>` for any setting of `config.toml` (`--set play.sudden=0.3`, `--set display.show_fps=true`);
-`--print-effective-options` prints the `[play]` options these make and exits. Subcommands: `vibebms songs scan` scans
-the BMS folders into the song cache as F12 does, `vibebms songs list [--json]` prints the library as last scanned (a
-line per chart: MD5, key mode, level, title, path; or the cache's records as JSON). An option that does not read
-stops with its error and exit code 2.
-
-**Video export** (desktop): `vibebms export video <chart> [--replay <best|last|1-4>] [--out <file.mp4>] [--size
-<W>x<H>] [--fps <fps>] [--duration <seconds>]` renders the chart's autoplay, or its replay in that slot (as watched
-from song select, at 100 %), to a video file, from the play's lead-in to the end of the play as shown before the
-result (or for `--duration` seconds). It is drawn offline, frame by frame at a fixed step of the play's own clock (60
-frames a second unless `--fps` says otherwise, 1280x720 unless `--size` does; even sizes), with the play skin chosen
-for the chart's mode and the settings of `config.toml` (touch controls off), into a texture with no window: a GPU
-or a software renderer (Mesa's lavapipe, say) is needed, else it says that drawing without a window is not
-available. The chart's sounds are mixed offline at the sample rate its sound files are recorded at (the most common
-of its first ones, else 44.1 kHz) at the configured volumes. Frames and sound go to the installed `ffmpeg` (the one
-video BGA uses: `VIBEBMS_FFMPEG`, else `ffmpeg` on the `PATH`), which encodes the frames (yuv420p, its default codec
-for the file's container: `.mp4`, `.mkv`, `.mov`, `.webm`, ...) and then puts the sound beside them; videos in the BGA
-and the skin wait for each of their frames. The progress is printed as it goes; Ctrl-C stops it and leaves no file
-behind (exit code 130). The default file is the chart's name with `.mp4`, in the current folder.
-
-**Chart viewer for BMS editors** (desktop): vibeBMS takes uBMplay's command line, as BMSE, iBMSC, BmsONE, woseq and
-BMS Maker 3 call their external viewer: `vibebms -P -N<measure> <chart>` autoplays the chart from that measure (0
-based, as the editors count; `-N 3` too; without `-N` from the start) and `vibebms -S` stops it. Set the editor's
-viewer to the vibeBMS executable with those arguments: BMSE and iBMSC send them as uBMplay's; in BmsONE the play
-arguments are `-P -N$(measure) "$(filename)"` and the stop argument `-S`; in BMS Maker 3 the play arguments with its
-measure and file name placeholders; woseq as it is. The first `-P` starts vibeBMS as the viewer and it stays running:
-a later `-P` (the editor's next play, its file saved again) or `-S` is a short process that hands the request to it
-over a loopback port (127.0.0.1:39177) and exits at once, and the viewer reads the chart again and plays it from the
-measure (as practice mode starts a section: from the measure's start, what was sounding there sounding) or stops,
-back to song select, and comes to the front. The play shows `VIEWER #<measure>` and is never recorded.
-
-Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
-dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
-Release builds are reproducible: `tools/reproduce.sh <commit> <run number>` rebuilds one and checks its SHA-256
-against the release's ([docs/BUILDING.md](docs/BUILDING.md#reproducible-builds)).
-
-```text
-<root>/config/config.toml      settings (edited in the game; editing by hand works too)
-<root>/config/profiles.toml    the profiles and the one in use (see Profiles)
-<root>/scores/scores.json      play records
-<root>/scores/player.json      totals over all plays (judgements, time played)
-<root>/profiles/<id>/          another profile's config/config.toml and scores/ (the same files)
-<root>/cache/                  song scan, archives' file lists, difficulty table and chart loudness caches (made again if deleted)
-<root>/skins/                  LR2 / beatoraja skins
-<root>/sounds/                 system sound sets (optional)
-<root>/fonts/*.ttf|otf|ttc     fonts to use (optional)
-```
-
-If the executable's folder cannot be written to, the user data folder is used; `VIBEBMS_ROOT` sets the location.
+The data folder (`config/`, `scores/`, `cache/`, `skins/`) is next to the executable; `VIBEBMS_ROOT` moves it. The
+command line, the data folder on each platform and every setting: [docs/MANUAL.md](docs/MANUAL.md).
 
 ## Controls
 
@@ -116,554 +60,96 @@ If the executable's folder cannot be written to, the user data folder is used; `
 | 1P 7 keys | `Z S X D C F V`, scratch `LShift` / `LCtrl` |
 | 2P 7 keys | `M K , L . ; /`, scratch `RShift` / `RCtrl` |
 | 9 keys (PMS) | `A S D F G H J K L` |
-| 4 / 6 / 8 keys | `D F J K` / `S D F J K L` / `A S D F J K L ;` (controllers: their 7 key buttons and turntable, at the chart's lanes) |
-| Anywhere | F11 full screen; Print Screen (F13 on Apple keyboards; song select's SCREENSHOT button) saves the frame as `screenshots/YYYYMMDD-HHMMSS_<title>_<difficulty>_<lamp>_<EX>.png` in the data folder (Android and iOS: the app's storage, no share sheet yet; web: a download). The frame is copied on the GPU and read back a few frames later, so play does not stall |
-| Song select | ↑↓ move; Enter, → or a white key: decide (open a folder, play a song); ← or a blue key: close the folder; Backspace / Esc back; `/` search; F2 and F4–F9 options (GAUGE has no key of its own: START + 3 and the OPTIONS buttons); F3 shows the chart's file in the system's file manager (desktop: Explorer and Finder select it, on Linux a file manager that takes the freedesktop `FileManager1` call does, else the folder opens); T reads the song's text files in the game (O, or OPEN, then opens the file shown in the system's text viewer, desktop); U opens the chart's web page in the browser (its `#URL`, a bmson `info.url`, else the chart's or song's link in a difficulty table, a chart not installed too; http(s) only); B SAME FOLDER, the charts in the chosen chart's folder (these three also in the default skin's TAG EDITOR panel, and as select options 9045–9047 for any skin); F12 rescan; I the chart's IR page; P watch the chart's replay (or a course's: SYSTEM OPTION's REPLAY and REPLAY SPEED choose which and how fast); E practice the chart (PRACTICE, the last bottom button); 6 key config, 7 skin select; 1 key mode filter (ALL / 7 / 14 / 9 / 5 / 10 / 4 / 6 / 8 KEYS; skin button 11 shows 4 / 6 / 8 as ALL, as bmz-player's, button 1407 has them), 2 sort (title, level, clear, score rate, miss count, last played, newest, BPM, artist, notes), 4 difficulty filter (ALL / BEGINNER … INSANE): kept in `[select]`, also on the OPTIONS buttons and skin buttons 10 / 11 / 12; 8 / 9 favourite song (every chart in its folder) / chart, listed in the FAVORITE folder at the root and marked ♥ (`scores/favorites.json`; on touch, the OPTIONS buttons FAV CHART / FAV SONG); after it, virtual folders: LAMP UPDATE and SCORE UPDATE (charts whose lamp a play raised to a clear, or whose best EX score a play raised, in the last 7 days; records from before this was kept are in neither until played again), CLEAR TYPE (a folder per lamp), SCORE RANK (per DJ level, NO PLAY last), LEVEL (per level) and NEW (charts whose file came or changed in the last 7 days, the time the newest sort goes by), all with the filters and by the records of the judge preset chosen; RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random (as filtered), 0 (or its OPTIONS button) choosing from which: ANY, NOT CLEAR (below CLEAR), NOT HARD (below HARD), NOT FC, by the lamps of the judge preset chosen |
-| Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit |
-| Song select, holding START (`Q`) / SELECT (`W`) | play option panels (beatoraja's key layout). START: 1▼2▲ RANDOM, 3 GAUGE, 4 DP OPTION, 5 HS-FIX, 6▲7▼ 2P RANDOM, turntable TARGET. SELECT: 1 EXPAND JUDGE, 2 CONSTANT, 3 JUDGE AREA, 4 LEGACY NOTE, 5 MARK NOTE, 6 BPM GUIDE, 7 NO MINE. Both (or number key 5): 1 BGA, 2 GAUGE AUTO SHIFT, 3 judge timing auto-adjust, 4·6 green number −/+ (repeats while held), 5·7 judge timing −/+. Number key 3: LN mode |
-| Play, START (`Q`) / SELECT (`W`) | beatoraja's in-play panel: START + white key hi-speed −0.25, blue key +0.25; START + turntable lane cover (LIFT without a cover); START twice toggles the cover; SELECT + keys / turntable hi-speed ±0.01; START + SELECT for a second quits |
-| Results | R / F5 retry, P watch this play again, 1–4 keep its replay in that slot (the default skin's SAVE 1–4) |
-| Anywhere | F1 / Tab settings, F11 full screen |
+| 4 / 6 / 8 keys | `D F J K` / `S D F J K L` / `A S D F J K L ;` |
 
-Entering a folder puts the cursor on the folder's own row; deciding on it closes the folder (as in LR2).
+| Where | Keys |
+|---|---|
+| Song select | ↑↓ move; Enter or a white key decide; ← or a blue key close the folder; Esc back; `/` search |
+| Song select | F2, F4–F9 options; P watch a replay; E practice; F12 rescan; 1 / 2 / 4 key mode, sort, difficulty |
+| Song select, holding START (`Q`) / SELECT (`W`) | beatoraja's play option panels |
+| Play | ↑↓ hi-speed, PgUp/PgDn SUDDEN+, ←→ judge offset, Esc quit; START / SELECT for the in-play panel |
+| Results | R retry, P watch this play again, 1–4 keep its replay in that slot |
+| Anywhere | F1 / Tab settings, F11 full screen, Print Screen screenshot |
 
-- beatoraja's assist options: EXPAND JUDGE (wider windows; PG/GR/GD ratios in the settings), JUDGE AREA (the judge
-  windows drawn above the judge line), MARK NOTE (notes hit early stay grey down to the judge line), BPM GUIDE (BPM
-  changes and stops shown), judge timing auto-adjust. As in beatoraja, EXPAND JUDGE over 100% makes the play
-  ASSIST EASY and BPM GUIDE on a chart whose BPM changes LIGHT ASSIST EASY; such plays keep only their lamp and
-  play count (see Clear lamps in `docs/RULES.md`).
-- Hi-speed (`SETTINGS › GAMEPLAY › Hi-speed type`):
-  - CLASSIC (default): you set the multiplier (in steps of 0.25); the green number (how long notes are visible)
-    follows from it, the BPM and the lane cover. HS-FIX (START BPM / MAX BPM / MAIN BPM / MIN BPM) does the
-    opposite: the green number stays and the multiplier follows each chart's BPM.
-  - NORMAL: IIDX's normal hi-speed, levels 1 to 20 that are green numbers of the whole lane (1200, 1000, 800,
-    700, 650 … 300, 280, 260, as bmz-player documents IIDX's), at the HS-FIX BPM (MAIN without HS-FIX); the hi-speed
-    keys step a level.
-  - FLOATING: IIDX's floating hi-speed. The green number is kept: through the lane cover and LIFT, and while
-    playing through the chart's BPM changes (the multiplier follows the BPM of the moment; before the start, the
-    HS-FIX BPM). The hi-speed keys set a new green number.
-  - LR2: the multiplier, as LR2 has it; with HS-FIX it is the speed at 150 BPM (the notes of a chart's HS-FIX BPM
-    move as a 150 BPM chart's at that setting), the setting is what the screen and skins show, and the lane cover
-    leaves it as it is.
-
-  A change made while playing reaches the notes over 150 ms, easing out (`Hi-speed change while playing`, 0 to
-  1000 ms; 0: at once), and the new hi-speed and green number show over the note field for a moment. A change the
-  chart makes (FLOATING through a BPM change) is not eased.
-- Controllers (IIDX controllers included) are set in `SETTINGS › CONTROLS` by pressing their buttons. Analog
-  turntables work; their dead band (sensitivity) and stop time are set there, with a key chatter filter (off by
-  default; see [docs/RULES.md](docs/RULES.md) "Input filters").
-- Which controller is 1P and which 2P (`SETTINGS › CONTROLS › 1P controller` / `2P controller`): AUTO (the default:
-  the order they were connected in, as bindings show them, `Pad0` 1P, `Pad1` 2P) or one of the connected
-  controllers, kept by its name and id (USB vendor and product; browsers tell none, so there the name) in
-  `[keys.controllers]` and found again at the next launch. A chosen controller that is not connected leaves its
-  side to the next controller in connection order; two of the same model are 1P and 2P in the order they were
-  connected; choosing for one side the other side's controller swaps them, as `Swap 1P and 2P controllers` does.
-  The bindings follow the side, not the controller (`Pad0#3` is button 3 of whichever controller is 1P), and
-  `Connected controllers` lists each with its side. Each side also has a second keyboard map, `1P keyboard sub` /
-  `2P keyboard sub`: a second key for each key and scratch (the KEYBOARD SUB slot; the first key is the one the
-  side's page and the key config set).
-- Touch (`SETTINGS › CONTROLS`): a BM layout (turntable and two rows of keys; round pop'n buttons for PMS; 4 / 6 / 8 keys a single row), a single row
-  of keys, or your own: the layout editor (`KEY CONFIG › Touch controller layout`) moves and resizes the buttons (drag
-  them, drag their corners or pinch them) for each key mode and orientation, flips a layout left to right (the
-  turntable changes sides; custom layouts are otherwise used as placed, whatever the play side), and sets the height of
-  the controls (drag their top edge). Portrait or landscape SP and landscape DP, multi-touch and sliding. A touch
-  between keys plays the nearest one. Keys are sized like an arcade's (the screen size is guessed from the device and
-  can be set), and the START / SELECT buttons in the letterbox beside the play screen (on the turntable's side: a
-  custom layout's turntable, else left for 1P and DP, right for 2P; or the side chosen) open the panels above. A key whose release the browser never delivers
-  (an iPad's home bar dragged with a key held) is let go once no finger is on the screen.
+Controllers, IIDX controllers included, are bound in `SETTINGS › CONTROLS`. Touch screens get an on-screen
+controller, with layouts of your own. Every key: [docs/MANUAL.md](docs/MANUAL.md#controls).
 
 ## Features
 
-- **Charts**: BMS/BME/BML/PMS and BMSON. `#RANDOM`/`#SWITCH` control flow, BPM changes (a negative `#BPMxx` as LR2:
-  its absolute value, the lane and the judge's clock running back from it, so the notes after it never come back
-  and a play with notes left ends FAILED; [docs/RULES.md](docs/RULES.md) "Negative BPM"), STOP, `#SCROLL` and
-  beatoraja's `#SPEED` (channel SP: the whole lane's scroll speed, interpolated in time; not under CONSTANT), LN
-  (`#LNTYPE`/`#LNOBJ`/`#LNMODE`), mines, 5/7/10/14/9 keys (`.pms` in the standard or the BME-type layout), Qwilight-style 4 / 6 / 8 keys (`#4K` / `#6K` / `#8K`: no scratch, 7 keys' judge and gauges, played on built-in default skins only, ranked by no IR; [docs/RULES.md](docs/RULES.md) "4, 6 and 8 keys"); Shift_JIS, EUC-KR and UTF-8 detected.
-  The scan reads new and changed charts several at a time (up to 8 threads natively; one at a time on the web).
-- **Songs in archives**: a `.zip`, `.7z`, `.rar`, `.lzh` (`.lha`) or `.tar` (`.tar.gz`, `.tgz`: told by its bytes
-  too) in the library is played without unpacking it yourself. It is scanned as a folder (its charts in sub-folders too) and its charts are named by the archive, a `!`
-  and their path in it: `bms/packs/pack.zip!/Song/chart.bme` (song select lists an archive right in a library
-  folder as a folder of its own, `pack.zip`; that path also plays from the command line). An archive is read
-  once when it is new or its size or time changed: its list of files goes into `cache/archives.json`, and only its
-  charts are read (a zip's charts alone; a 7z, RAR, LZH or tar, solid 7z/RAR and gzip-compressed tars included,
-  is decoded from the start once, its other files not kept). An unchanged archive is not opened by the scan. Playing a chart from one unpacks its song,
-  the folder that holds the chart in the archive with its sub-folders, once: into memory, or when it is larger than
-  512 MB (32 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
-  chosen (back from the result screen, playing it again unpacks nothing) and let go when another is chosen. The
-  song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
-  ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's, LZH's or
-  tar's song is unpacked on its first file read (a `.tar.gz` is decompressed once for the song, not once a file). Nothing is written into an archive: song downloads take the songs in
-  archives for not installed (a separate chart for one is not put into it). A chart that is also a file of its own
-  (the archive unpacked beside it) is listed once, as the file. Not read: archives in an archive, encrypted archives,
-  tars compressed other than with gzip (`.tar.xz`, `.tar.bz2`, `.tar.zst`).
-- **Judging**: beatoraja / LR2 / IIDX presets and custom windows. Rules and sources: [docs/RULES.md](docs/RULES.md).
-  Each preset keeps its own records (best EX score, lamp, min BP and min CB) and replays of a chart; song select shows
-  those of the preset chosen.
-  The note a press takes when several are in reach (`SETTINGS › GAMEPLAY › Judge algorithm`): COMBO, DURATION,
-  LOWEST or SCORE (the next note only when the current one is beyond GREAT late and the next is within GREAT), as
-  beatoraja's; a replay keeps the one it was played with.
-- **Gauges**: ASSIST EASY to HAZARD, dan gauges, GAUGE AUTO SHIFT.
-- **Notes**: LN / CN / HCN, back-spin scratch, mines, empty POOR (空POOR). LN MODE (key 3 or F4 in song select,
-  PLAY OPTION's LN MODE) is AUTO LN / CN / HCN (for the long notes the chart leaves untyped) or FORCE LN / CN / HCN
-  (every long note, whatever the chart says); a FORCE play is filed under the forced type
-  ([docs/RULES.md](docs/RULES.md), "Long notes").
-- **Options**: MIRROR, (R/S/H-)RANDOM, SPIRAL, ALL-SCR, RANDOM+, S-RANDOM+, F-RANDOM / MF-RANDOM (half random and
-  mirrored half random: each half of the keys shuffled on its own side, or onto the other; the middle key and the
-  scratch stay), DP FLIP, BATTLE / BATTLE AS (with AUTO SCRATCH on
-  both sides), assists, floating / fixed hi-speed,
-  SUDDEN+ / HIDDEN+ / LIFT. Assisted plays keep only their lamp and play count and are not sent to IR; plays in
-  a course leave no record for the song. `SETTINGS › GAMEPLAY › ADVANCED › S-RANDOM interval` chooses how S-RANDOM
-  keeps notes off the key just played: OFF (LR2's, the default: only notes at the same time and held long notes),
-  40 MS (beatoraja's) or 120 HZ (whole 120 Hz frames, 5 widening to 8 on a stream); replays keep it.
-- **KEY CONVERT** (select option, after SAME FOLDER: OFF / 7KEYS / 9KEYS): play a chart in another key mode, as
-  bmz-player does: 7 keys as 9 buttons (keys on buttons 2-8, the scratch on button 1), 9 buttons as 7 keys
-  (buttons 1 and 9 on the scratch), 5 keys as 7 (keys 2-6), 4 / 6 / 8 keys as 7 (where their channels put them),
-  or any of these through 7 keys as 9. Such a play keeps nothing (no score, lamp or play count) and goes to no IR;
-  its replay keeps the conversion. Not in courses. Tables: [docs/RULES.md](docs/RULES.md) "KEY CONVERT".
-- **Chart modifiers** (ASSIST panel, hold SELECT): SCROLL REMOVE (`#SCROLL` and `#SPEED` off), MINE ADD (RANDOM,
-  NEAR, BLANK: mines on the keys free at each note's time) and LONGNOTE ADD (LN, CN, HCN: notes made long notes),
-  beside LEGACY NOTE and NO MINE. They are assists where they change the chart: LONGNOTE ADD as LEGACY NOTE,
-  MINE ADD and SCROLL REMOVE light ([docs/RULES.md](docs/RULES.md), "Chart modifiers").
-- **Random Trainer**: the TRAINER lane option (after MF-RANDOM in RANDOM's list) plays one fixed lane order instead
-  of a draw, to practise a RANDOM: `SETTINGS › GAMEPLAY › ADVANCED › Random trainer order` takes the keys from the
-  left (`3142576` puts key 3's notes on the first lane, key 1's on the second, ...; `7654321` is MIRROR), and the
-  TRAINER ORDER select option turns it a lane at a time. It plays on charts of as many keys (a 7-digit order on 7
-  keys) and does nothing on others. A chosen order is not a draw, so a TRAINER play is LIGHT ASSIST: its lamp is
-  L-ASSIST, no score is kept and it is not sent to IR. Replays keep the order.
-- **Display** (`SETTINGS › DISPLAY & AUDIO › Present mode`): SMOOTH (the default: vsync with two frames queued, each drawn
-  for when it will be on the screen; even motion at the display's refresh rate, 120 Hz and more included), LOW
-  LATENCY (the newest frame at each vblank without tearing, where the GPU has mailbox presentation; elsewhere, as on
-  macOS and iOS, the same as SMOOTH) and UNLIMITED (as many frames as the GPU makes, with tearing). Android asks for
-  the screen's highest refresh rate; the iOS app allows ProMotion iPhones above 60 Hz. `Show FPS` shows the rate
-  reached. `Latency overlay` (off by default) shows in the top left the median, 95th percentile and maximum over the
-  last 512 of: the frame time (one frame's start to the next's), the audio output's callback interval (the time
-  between its requests for a buffer; not the web's audio worklet) and the input delay (an input event's time to its
-  handling by the screen: on the web and iOS and for controllers the event's own time, else when the window got it).
-  Off, nothing is measured. The start's phases (event loop, window, graphics, audio, library, tables and skins, song
-  select, first frame) are timed in the log (`startup:` lines).
-- **Graphics API** (`SETTINGS › DISPLAY & AUDIO › ADVANCED › Graphics API`; not on the web): AUTO (the default; wgpu
-  chooses, Vulkan, Metal, DX12 then OpenGL as before) or one of the APIs the platform has: Vulkan, DX12 and OpenGL on
-  Windows, Vulkan and OpenGL on Linux and Android, Metal on macOS and iOS. It applies at the next launch. If the one
-  chosen does not start, the others are tried in AUTO's order; the one that started is kept as the setting (written to
-  `config.toml` as `display.backend`), logged, and said once in a message. A choice the platform lacks (a configuration
-  from another computer) starts as AUTO and stays as it is. The `GPU` line below it shows the device and API in use.
-- **Song preview** (`SETTINGS › DISPLAY & AUDIO › Song preview`: LOOP, the default; ONCE, then the select BGM again; OFF):
-  the chart's `#PREVIEW`, else a `preview*` sound in its folder, else one made of the chart's sounds: its BGM and
-  keysounds mixed over 15 s (10 s on the web and mobile) from its first dense part (the first stretch from a fifth
-  of the chart on with 85 % of the notes of the densest, from its bar line). It is made in the background (natively
-  off the main thread; on the web only once the cursor has rested 1.2 s, and only the sound files of that stretch are
-  read), at the preview volume, and the last 8 made (3 on the web and mobile) are kept in memory.
-- **Mute when inactive** (`SETTINGS › DISPLAY & AUDIO › Mute when inactive`, on by default): vibeBMS fades out (in
-  0.1 s) while it is not the app in use. Out of play that is when another app or window has the focus, or vibeBMS is
-  minimised, covered, in the background or (web) in a hidden tab or a page without the focus; the song preview stops
-  and starts again from its beginning when vibeBMS is back. In play only a hidden, minimised or backgrounded vibeBMS
-  is silent on the desktop and the web (a controller may play a window without the focus); on phones and tablets,
-  where only the app with the focus gets touches, keys and controllers, losing the focus silences play too. The play
-  goes on (there is no pause). The in-app download browser's window counts as vibeBMS. Off, vibeBMS is heard in the
-  background (the iOS app's audio session keeps playing there).
-- **Full screen on phones and tablets**: the iOS app hides the status bar and, until the screen is touched, the home
-  indicator; in play (and the touch layout editor) a swipe from the top or bottom edge is the game's, and the
-  system's gesture (home, Control Center, notifications) needs a second swipe. The Android app hides the status and
-  navigation bars (immersive: a swipe from an edge shows them for a moment).
-- **BGA**: image BGA (layers, POOR; a BMS chart without a POOR layer shows its `#BMP00` on a miss, as LR2 and
-  beatoraja do), video BGA (desktop, with an installed `ffmpeg`; `VIBEBMS_FFMPEG` sets its path). BGA ON, AUTO or
-  OFF (SYSTEM OPTION key 1), as beatoraja's: AUTO shows it only when watching (autoplay, a replay), not in a play
-  of your own.
-- **Images** (charts and skins): BMP, PNG, JPEG, GIF, WebP, TGA, DDS, CIM. Animated GIF, WebP and APNG play at their
-  own frame times: a BGA image from when it is first shown, a skin's images from when the skin loaded, a chart's
-  stage file, banner and `#BACKBMP` (the play skin's image 101; the stage file when the chart has none) from when
-  they loaded. The file's loop count is kept (then the last frame stays); a GIF or WebP frame of 10 ms or less lasts
-  100 ms, as in browsers. Each animation is one texture on the GPU, its frames kept in memory: up to 128 MB for one
-  image and 512 MB for all (32 and 96 MB on the web and mobile). One with more keeps every second frame (then every
-  fourth, ...), each shown as long as those it stands for, so it plays at its speed; one that cannot keep two frames
-  shows its first.
-- **Play extras** (`SETTINGS › GAMEPLAY › PLAY EXTRAS`):
-  - FAST / SLOW threshold: the play skin's FAST and SLOW (options 1242 / 1243) show only for a judgement more
-    than this many ms off (0, the default: any; FAST / SLOW display off: never).
-  - GUIDE SE (off by default): a sound for each judgement as it is made, from the sound set chosen by beatoraja's
-    names (`guide-pg`, `guide-gr`, `guide-gd`, `guide-bd`, `guide-pr` for an empty POOR, `guide-ms` for a missed
-    note; any audio format), and for what the set has none of (an LR2 sound set, the built-in set) a built-in tone.
-    At the system sound volume; G-BATTLE's opponent is silent.
-  - Notes wait at the line (off by default): as LR2 draws them, a note (a long note's head) not yet judged stops
-    at the judge line once its time has come, until it is hit or missed, instead of scrolling past (the flat and
-    the perspective note fields; a skin's PMS falling notes as they are).
-  - LR2oraja Endless Dream's extras, each off by default: RESULT WAIT (the play goes on to 5 s after the chart's
-    last note, BGM or BGA layer, the POOR layer left out, instead of ending a second after the last judgement; not
-    after a practice section, a quit or a fail; a long BGM sound is not followed to its end); GOOD clears the miss
-    BGA (a PGREAT, GREAT or GOOD takes the POOR image away at once, the next BAD or POOR shows it again); keysound
-    on a missed note (a note passed without a press plays its keysound as its POOR comes: a CN / HCN's head once for
-    its two POORs, and its end sound when held past its end; not a note a press already sounded, an empty POOR, an
-    early release or a mine). None changes how a play is judged or recorded.
-- **Dan / courses**, clear lamps, EX score, FAST/SLOW, gauge and timing graphs, target score (personal best,
-  rank A–AAA, MAX- / MAX, an IR rival, a local rival). The IR rivals your enabled accounts follow come after BEST in
-  the TARGET list (`RIVAL <name>`), then the other profiles (local rivals): the target is the EX score the IR has of
-  theirs for the chart, or the other profile's best EX score of it under the LN mode and judge preset chosen (0 when
-  there is none), paced at the share of the notes judged, as the IRs and the records give no per-note data; skins get
-  the rival's name as text 1 and the target's name as text 3, its EX score as the target's numbers.
-- **Profiles**: several players on one library, switched without restarting (`SETTINGS › SYSTEM › PROFILE`, or the
-  default skin's PLAYER STATUS panel: PROFILES ›, select event 9920; text 9218 is the profile's name). Each profile
-  has its own records (best scores and lamps, totals, favourites, courses and their records, the play history),
-  replays, IR accounts (their keys and outbox too) and settings: play options and offsets, keys, touch layout,
-  volumes, the skins chosen with their options and offsets. Shared by every profile: the library and its caches,
-  difficulty tables, events and download settings, the skins and sound sets installed, and the app-wide settings,
-  which belong to the machine: the window and graphics (`[display]`, the graphics API too), the audio device (buffer,
-  sample rate, WASAPI exclusive, silent when not in use), which controller is 1P and which 2P (`[keys.controllers]`:
-  the machine's devices; the bindings, 4K / 6K / 8K included, are each profile's), Discord and OBS (`[discord]`,
-  `[obs]`: this machine's apps, OBS's password among them), the song folders, tables and download sources, the update
-  check; these stay in the root's `config.toml` whichever profile changes them. The data that was there before profiles is the default
-  profile, in place; another one is `profiles/<id>/` (its own `config/config.toml` without the app-wide settings,
-  `scores/`), listed with its name in `config/profiles.toml` (a profile folder copied into `profiles/` shows up by
-  its folder's name). NEW PROFILE starts from the settings in use, without the IR accounts, and with no records;
-  choosing a profile goes back to song select with its settings, records and IR accounts. A profile can be renamed
-  (its folder keeps its name); deleting one asks for a second press and deletes its records, replays and settings;
-  the default profile (the data folder's own) and the one in use are never deleted. Another profile is a local
-  rival: read only, its lamps beside yours (`SETTINGS › ONLINE › Rival lamps beside yours`; the IR line, text
-  9200, shows its lamp and EX score) and its EX score as TARGET. On the web each profile's settings
-  and records are in the page's storage too (`profiles/<id>/` in OPFS and localStorage), apart from the library
-  that BMSeeker's page shares.
-- **UI languages** (`SETTINGS › SYSTEM › LANGUAGE`): English, Korean, Japanese, Simplified and Traditional Chinese,
-  applied at once. AUTO (the default) picks the system's: the OS locale on the desktop, Android and iOS
-  (`LANG` / `LC_ALL` / `LC_MESSAGES` on Linux), the browser's language on the web; any other language is English.
-  The setting is app-wide (every profile shares it). What is translated: the settings (pages, rows, descriptions,
-  words such as ON / OFF), messages (toasts), dialogs, the practice screen, the touch layout editor, the key config
-  screen's own text, the play screen's hints, the loading screen and the result's notes. What stays English: the
-  terms BMS players use in English in every language (EX SCORE, PGREAT, gauge and option names such as RANDOM,
-  HI-SPEED, SUDDEN+, LN / CN / HCN, BPM, judge presets), chart and skin text, the text skins read from vibeBMS (option
-  names and values on the select panels, song-list folder and command bars, the select screen's status lines: the
-  values beatoraja and LR2 skins read keep their English form), log messages and the command line. The Chinese tables
-  are machine-quality translations checked by hand (Traditional uses Taiwan terms; corrections welcome); some error
-  details come from servers in English. Text is looked up by its English in `crates/vibebms/assets/i18n/<lang>.toml`
-  (embedded; `en.toml` lists every text the code has, kept so by a test, `I18N_BLESS=1` rewrites it); a text a table
-  lacks shows in English. `tools/i18n_hant.py` makes `zh-Hant.toml` from `zh-Hans.toml`. Fonts: the desktop puts the
-  language's own CJK system font first (Noto Sans CJK KR / SC / TC, Malgun Gothic, Microsoft YaHei / JhengHei, PingFang
-  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese. A font's glyphs are read from
-  its file as they are drawn (system fonts are mapped, not loaded, and a CJK collection's faces share one copy), so
-  fonts take memory for the characters on screen, not for their tens of thousands of glyphs.
-- **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
-  start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
-  chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA
-  and plain archive servers work; the web build goes through the vibeBMS proxy). When the song is in the library
-  already, only the chart is fetched, and a message says when none of its links works. What a download holds is
-  sorted first, the same on the desktop and the web: a song new to the library gets a folder of its own; a song the
-  library has already is not added again ("already installed"; only files its folder lacks come in); a separate
-  chart goes into its song's folder with its own files as they are laid out (its `sound/` folder too), the song found
-  by the library's charts in the same download, then by the song's own charts the table names (`org_md5`), then by
-  the sounds it uses and its title and artist; when two folders are as likely, it waits rather than picking one.
-  Links that cannot be downloaded directly (OneDrive, uploaders, deleted files) open their download page: on the
-  desktop in a browser window in the app, whose downloaded zip/7z/rar/lzh/tar/tar.gz is unpacked into `bms/` before the chart's page
-  opens; a downloaded chart goes into its song's folder (the folder with the same title and artist, as the library
-  was last read, that holds every sound it needs; when unsure, the app asks). Downloads are kept in `downloads/`. Android and iOS use the in-app
-  browser too (over the game screen); the web build opens the system browser.
-- **Bulk downloads**: a table's folder and each of its levels start with DOWNLOAD MISSING (n charts) while the library
-  lacks any of their charts; choosing it queues them all. The queue downloads through the same path as a chart chosen
-  alone (its links, the other links known for it, the song before its separate chart), two at a time and a new one
-  2 s after the last at the soonest, so hosts are not hammered; a chart whose song another of its charts is
-  downloading waits for it, and one the library has by then is done at once. DOWNLOADS at the root (while the queue
-  is not empty) lists every chart as QUEUED, DOWNLOADING (with its progress), DONE, FAILED (with why), PAGE ONLY (its
-  links lead only to a page: choosing it opens the page, as for a chart chosen alone; the queue never opens pages) or
-  CANCELLED, after CANCEL, RETRY FAILED and CLEAR FINISHED. Choosing a queued or downloading chart cancels it, a
-  failed or cancelled one queues it again. The queue is kept until the game closes.
-- **Third-party sources** (`SETTINGS › LIBRARY`, off by default): other people's copies of dead uploaders and sites
-  (darksabun.club, bms.hexlataia.xyz), lookups of a chart's package by its MD5 (Ginger, Konmai) and the community
-  archive (bms.kyouko.moe). What is found there by name only goes into the library if it holds the chart wanted (by
-  its MD5). Off, downloads use only the authors' own links (as the tables, BMS SEARCH and Stella list them) and the event mirror. Turning them on asks once: they are
-  other people's copies, not the authors' links; whether a site allows this and whether it is up differs from site
-  to site; using them is your own responsibility (each site's terms, the rights of the songs' copyright holders). OK
-  turns them on and is remembered (`third_party_acknowledged`, app-wide); Cancel leaves them off. A build that has
-  them on by default (the web build's `WEB_THIRD_PARTY`), or a setting turned on before this was asked, says the same
-  once at start, with OK and Turn off. vibeBMS names itself on its own requests after the HTTP library's own name
-  (`ureq/<version> vibeBMS/<version> (+https://github.com/vibeBMS/vibe)`; on downloads after BMSeeker's,
-  `ureq/<version> BMSeeker/<version> (+https://github.com/vibeBMS/BMSeeker) vibeBMS/<version>
-  (+https://github.com/vibeBMS/vibe)`; the web build sends the browser's, which a page cannot change), never poses as a browser, and does not get around a site's access controls. See
-  BMSeeker's [Third-party sources and
-  disclaimer](https://github.com/vibeBMS/BMSeeker#third-party-sources-and-disclaimer).
-- **Name song folders after their charts** (`SETTINGS › LIBRARY`, off by default): a song downloaded into the library
-  gets a folder named `[artist] title` from what its charts share, as BeMusicSeeker names one (a folder its archive
-  wraps everything in left out), instead of the song's title; a song the library has under another folder name (a
-  chart of the same title and artist) goes into that folder.
-- **Event mirror**: the BOF events of [vibeBMS/BMS](https://github.com/vibeBMS/BMS) (BOF22 to BOF2004) show as
-  folders in song select. For events mirrored as they were (BOF22, BOF21, BOF:TT, BOF:XVII, BOF:XVI), a work not
-  installed is downloaded from the mirror and unpacked into `bms/<event>/`; for the others the app downloads from
-  the authors' links (Google Drive files and folders, Dropbox files and folders, MediaFire, MEGA, servers that send
-  the archive). A link that needs a person on its page (OneDrive, uploaders), or that gives a page instead of an
-  archive, opens that page. The web build works the same way: these hosts and GitHub's releases send no CORS
-  headers, so it downloads through the vibeBMS proxy `proxy.vibebms.workers.dev`, which passes on archives only,
-  and unpacks them in memory (zip, 7z, rar). Other event lists or indexes can be added in the settings
-  (`archives`).
-- **FREQ** (LR2's): the whole chart −12 to +12 semitones higher or lower, faster or slower with it (+12 is twice
-  as fast, −12 half; shown as `+3 (119%)`): every time, BPM and stop scaled, the sounds resampled (their pitch with
-  the speed); the judge windows stay in real time. Hold SELECT (the ASSIST panel) and turn the turntable, or the
-  ASSIST panel's FREQ row. A play below 0 is not saved at all (no score, lamp, replay or IR); one above 0 is saved
-  as usual but not sent to IR (no IR takes a play at another speed). Courses and practice play at 0. Replays keep
-  it and play at it again.
-- **Replays and ghosts**: every play of your own (not autoplay) keeps a replay: what drove the
-  judge (inputs and the times it was advanced to) with the seed and play options that made the chart, so watching
-  it judges exactly the same. Each chart keeps its latest play's and its best EX score's, per LN mode and judge preset (`scores/replays/`; in the
-  web build, in the browser), and four slots of your own: 1–4 on the results (the default skin's SAVE 1–4
-  buttons) keep that play's replay in the slot, replacing what it held. A course keeps its replays under the
-  course: a NONSTOP course's play, an expert or class course's each stage (its latest, and the slots its
-  results kept). Watch one with P on the results (that play) or in song select (P or REPLAY: the replay
-  SYSTEM OPTION's REPLAY picks, BEST, ELSE LAST by default, else MY BEST, LAST or SLOT 1–4; on a course's bar,
-  the course: an expert or class course's stages one after another, each its own replay of that slot, as
-  far as there is one); a replay watched is never recorded. REPLAY SPEED (25–300 %, steps of 25, `[select]`
-  `replay_speed`) watches it slower or faster: the clock, the scrolling, the BGA and the sounds (resampled,
-  their pitch with them) run at that speed while the judge still gets every recorded input at its own chart
-  time, so the judgements, score and gauge are the play's at any speed (it is chosen before watching, not
-  during). A BATTLE play's replay can be watched from its results and kept in a slot, but is not kept as
-  the chart's latest or best. With TARGET MY BEST, the pacemaker is the best play's ghost: its EX
-  score at the same note, not the best score spread evenly over the chart.
-- **Practice**: E in song select (or the PRACTICE button) opens a chart's practice screen: its notes per
-  measure as a graph, with a section of measures to play (tap the graph to move its nearer edge), a lead-in of
-  0–4 measures before it (the music only), speed 50–200 % in 5 % steps (the sounds resampled, their pitch with
-  the speed; the judge windows stay in real time, so a slower play is easier), the gauge and its start value,
-  `#RANK` and TOTAL in place of the chart's, RANDOM, LN mode and LOOP (the section again at once when it ends or
-  the gauge empties). The play starts at the lead-in with what was sounding there; a long note that starts
-  before the section is not played (its sound is background), one that starts in it is played whole; the gauge
-  moves by the whole chart's TOTAL and notes. In play R or Backspace starts the section again and Esc goes back
-  to the practice screen, which shows the last try's judgements and timing. Practice plays are never recorded:
-  no score, lamp, replay, play history or IR (settings in `[practice]`, the last section per chart).
-- **G-BATTLE**: play a 5 or 7 key chart against your own MY BEST, LAST or SLOT 1–4 replay of it (song select's
-  BATTLE row, F1, or DP OPTION in the START panel: OFF / BATTLE / BATTLE AS / G-BATTLE MY BEST / G-BATTLE LAST /
-  G-BATTLE SLOT 1–4 / VS). The chart
-  is made with the replay's seed and lane option on both sides (as LR2 lends a ghost's random); you play the
-  first side, the replay's inputs play the second again under its own options (judge, gauge, LN mode, AUTO
-  SCRATCH), silently. Its EX score is the pacemaker target as it plays; if it ever judges other than its
-  replay did (a judge that changed since), the play shows GHOST DESYNC and the replay's EX score at your note
-  stands in. Your side is saved as a normal play (lamp, scores, replays and IR as any other, the opponent's
-  lane option counting for the assist level). Replays of BATTLE or LEGACY NOTE plays, of another LN mode, or
-  without inputs cannot be opponents. On a phone held upright the single play skin is shown and the opponent
-  is only the pacemaker. The results name the winner by EX score; RETRY plays the same battle again.
-- **VS**: two players here, one per side of a 5 or 7 key chart (the BATTLE row's last value, or DP OPTION's).
-  Each has their own keys (1P / 2P key config), START / SELECT (2P: `P` / `O` by default, `2P START` / `2P
-  SELECT` in the key config), hi-speed, lane cover, LIFT, HIDDEN+, gauge, AUTO SCRATCH and judge offset
-  (`[play.p2]` in the config; each player's START panel changes their own) and lane option (RANDOM / RANDOM
-  2P). Each side has its own judge, gauge, score and keysound voices (one side's keysounds or HCN muting never
-  cut the other's); a player who fails stops (FAILED over their side) and the other plays on; the play ends
-  when both have finished or failed. The results show both sides and the winner. Nothing is saved: no
-  scores, lamps, replays or play counts. Controllers: press a button on the 1P controller while the chart
-  loads (it is the 1P one for this play; which one that is by default is `SETTINGS › CONTROLS › 1P controller`). On one keyboard, many keyboards miss keys when
-  several are held (rollover). With touch controls, VS needs a tablet-sized screen (two control sets, each
-  player's START / SELECT on their side); phones refuse it.
-- **IR**: rankings and score submission over a JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)).
-  I in song select (or SCORE STATUS's IR PAGE button) opens the chosen chart's page on the IR the rankings
-  come from, in the system's browser (the web build: a new tab; F11 stays full screen): BMS-IR's song page by
-  the chart's MD5 (`/new/song?songmd5=`; a bmson has none), Bokutachi's chart page by its own chart id
-  (`/games/bms-7k/charts/<id>`, PMS by its playtype; the id is learnt from your PB lists, so a chart you have no
-  score on there has no page yet), a vibeBMS IR's page when its `/me` names one (`chart_page`).
-  Settings › ONLINE › an account › **Download my scores** takes your own scores there into your local records the
-  way the score database import does: per chart the better lamp, EX score (with its counts where the IR gives
-  them), combo and BP are kept, never a worse value over a better one, play counts untouched, and the same
-  download again changes nothing. Each score goes under the rule mode and LN mode it was played in: a vibeBMS
-  IR says so for each (`/players/{id}/scores`; a server without the route cannot list your scores, and is told
-  so); Bokutachi's PBs (read again unless read a moment ago) are LR2's and LR2oraja's under the LR2 rule mode as
-  LN for BMS 7K / 14K, beatoraja's for PMS; BMS-IR lists only your lamps, per difficulty table followed, filed
-  by whose scores count (LR2, OpenLR2: LR2 rules, LN; LR2oraja and its kin: LR2 rules; beatoraja: beatoraja's;
-  a mix of clients cannot be filed). A score whose LN mode is not said goes only on a chart whose plays are the
-  same in every LN mode.
-- **Audio**: low-latency output, keysounds scheduled to the sample, WAV/OGG/MP3/FLAC. On Windows, WASAPI of its own:
-  SHARED (the default) at the small periods of IAudioClient3 where Windows 10+ and the driver offer them (the buffer
-  size setting rounded to one the engine takes), else the usual shared stream; EXCLUSIVE
-  (`SETTINGS › DISPLAY & AUDIO › Output mode`, on restart) event driven at the device's smallest period, in the mixer's rate as float, 24-bit or 16-bit,
-  else a format of the device's own, and back to shared with a message when the device refuses. ASIO/JACK feature
-  flags for cpal.
-- **Loudness normalisation** (`SETTINGS › DISPLAY & AUDIO`: `Normalize loudness`, on by default; `Loudness target`,
-  -24 to -6 LUFS, -12 by default; `Normalize sound set music`): every chart plays at the same loudness. A chart is
-  measured the first time it is played, as its sounds are decoded: its BGM and every note's keysound autoplayed (a
-  sound played again cuts itself off, as in play) are mixed a tenth of a second at a time into an ITU-R BS.1770-4
-  meter (K-weighting, 400 ms blocks, the -70 LUFS and relative -10 LU gates), which gives its integrated loudness
-  and sample peak. That takes about a tenth of a second for a two-minute chart with 3000 keysounds over a BGM
-  (natively, on the loading thread); the web and mobile meter every second frame, half the work (frequencies above
-  a quarter of the rate fold down: a little off for very bright music). The result is kept by the chart's SHA-256 in
-  `cache/loudness.txt` (on the web in the browser's storage). In play the keysound and BGM buses are turned up or
-  down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
-  scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
-  own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
-  sound set's music (the select music, the decide jingle, `.loop` files) is measured as it is first decoded and
-  brought to the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
-  each time (its stages joined are not one chart). The output's soft limiter stays as it was.
-- **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
-  under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
-  LR2oraja program is in the install folder). For the charts in the library: the better lamp, EX score (with its
-  judgements) and max combo, the lower min BP, and the play and clear counts as the higher of the two (not summed,
-  so importing again changes nothing). Courses and charts not in the library are counted and left out.
-- **Discord Rich Presence** (desktop; `SETTINGS › SYSTEM › STREAMING`, off by default): your Discord status shows
-  the screen: "Choosing a song" in song select, the chart as `title [DIFFICULTY]` on the decide screen, in play
-  ("Playing", "Watching autoplay", "Watching a replay", "Practising") and on the result ("Result: HARD CLEAR"), with
-  the time on that screen. It talks only to the Discord app on the same computer, through its local IPC socket
-  (`discord-ipc-0` to `-9` in `$XDG_RUNTIME_DIR` or the temporary folder, the Flatpak and Snap folders included, or the
-  `\\.\pipe\discord-ipc-N` named pipe on Windows): a handshake with the application id, then `SET_ACTIVITY`
-  commands, at most one every 4 seconds (Discord's rate limit), the newest winning. It needs a Discord application
-  id (`discord.application_id`; make an application at Discord's developer portal, its name is the game you are
-  shown playing): none is built in, and without one the row says it needs one. When Discord is not running it
-  tries again, waiting longer each time (up to a minute); `Discord` below shows the state.
-- **OBS** (desktop; `SETTINGS › SYSTEM › STREAMING › OBS`, off by default): connects to obs-websocket 5 (OBS 28 or
-  later, `Tools › WebSocket Server Settings`) at `obs.host` / `obs.port` (127.0.0.1:4455 by default) with the
-  server's password if it has one (the SHA-256 challenge of its protocol; the password is kept in `config.toml`).
-  For each screen (song select, decide, play, result) a scene can be named; on entering that screen OBS switches to
-  it (`SetCurrentProgramScene`; empty: no switch). With `Record plays`, OBS starts recording as a play starts and
-  stops when its result is left (a retry or the next course stage stops it and starts another; turning OBS off or
-  quitting stops it too). It runs on a thread of its own, so a slow or absent OBS never holds up the game, and
-  reconnects after 1, 2, 4 … up to 30 seconds; `OBS` shows the state, and failed requests (a scene that does not
-  exist) are logged. The WebSocket client is vibeBMS's own (RFC 6455, no TLS, which obs-websocket does not use).
+**Charts**
+- BMS, BME, BML, PMS and BMSON in 5, 7, 10, 14 and 9 keys, and Qwilight-style 4, 6 and 8 keys.
+- Shift_JIS, EUC-KR and UTF-8; `#RANDOM`, `#SCROLL`, `#SPEED`, negative BPM, long notes and mines.
+- Songs in zip, 7z, RAR, LZH and tar archives are played without unpacking them yourself.
+
+**Rules** ([docs/RULES.md](docs/RULES.md))
+- beatoraja, LR2 and IIDX judge presets and gauge sets, each with its own records; custom windows.
+- LN, CN and HCN, LN MODE, back-spin scratch, empty POOR (空POOR).
+- Lane options from MIRROR to S-RANDOM+, F-RANDOM and TRAINER; DP FLIP; BATTLE.
+- beatoraja's assists, chart modifiers (SCROLL REMOVE, MINE ADD, LONGNOTE ADD), LR2's FREQ, KEY CONVERT.
+
+**Play**
+- Hi-speed types: classic, HS-FIX, IIDX's NORMAL and FLOATING, LR2's; SUDDEN+, HIDDEN+, LIFT.
+- Image and video BGA; animated images in charts and skins.
+- Replays of every play, watched at any speed, and ghosts; a practice screen for a section of measures.
+- G-BATTLE against your own replay; VS for two players on one machine.
+- Dan and courses, LR2's course kinds (class, expert, NONSTOP) included; target scores and rivals.
+- Clear lamps, EX score, FAST / SLOW, gauge and timing graphs.
+
+**Library**
+- Difficulty tables: a chart not installed is downloaded with its song in the app, or a whole level at once.
+- Separate charts (差分) go into their song's folder.
+- The BOF events of [vibeBMS/BMS](https://github.com/vibeBMS/BMS) as folders, downloaded from the event mirror.
+- Score import from LR2 and beatoraja; profiles for several players on one library.
+
+**Third-party sources** are off by default. They are other people's copies of songs whose links are dead; vibeBMS
+says what they are and asks once before they are on. Using them is your own responsibility: see BMSeeker's
+[Third-party sources and disclaimer](https://github.com/vibeBMS/BMSeeker#third-party-sources-and-disclaimer).
+
+**Online**
+- IR rankings and score submission over vibeBMS's JSON protocol ([docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md)), and
+  adapters for Bokutachi and BMS-IR.
+- Your scores on an IR downloaded into your local records.
+
+**Audio and display**
+- Low-latency output with keysounds scheduled to the sample; WASAPI exclusive on Windows; ASIO and JACK as build
+  features.
+- Loudness normalisation, so every chart plays at the same loudness.
+- Present modes from smooth vsync to unlimited; the graphics API can be chosen.
+
+**Other**
+- English, Korean, Japanese, Simplified and Traditional Chinese.
+- Discord Rich Presence and OBS scene switching and recording.
+- Screenshots, video export of a chart's autoplay or replay, and a chart viewer for BMS editors.
 
 ## Skins
 
-Play, song select and results are all drawn by skins, chosen in `SETTINGS › SKINS`.
+Play, song select and results are drawn by skins, chosen in `SETTINGS › SKINS`; a change applies without a restart.
 
-- **Built-in default skins**: landscape and portrait layouts for every mode, original art drawn from shapes and
-  the Inter font by `tools/gen_default_skins.py`. Edit the script and run it to make
-  `crates/vibebms/assets/builtin/skins/default/` again (CI checks with `--check` that the committed files are
-  what it makes). The song select's images are pages of at most 2048×2048: one for the screen, one for each panel,
-  loaded when the panel first opens.
-- **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › SKINS` like the others):
-  each player's lanes are a fan seen in perspective, narrow at the far end and wider toward the judge line, notes
-  growing as they come. The judge line is at three quarters of the screen's height and the lanes reach near its
-  top; the keys are about a tenth of the screen wide at the line, and the line between the middle keys (7 keys:
-  3|4, 5 keys: 2|3; 2P mirrored) stands upright in the middle of the screen, so the keys sit under the hands and
-  the scratch, the wider red-tinted lane at the outer edge (left for 1P, right for 2P), leans out to its side (its
-  bottom may run off the screen). The panels go in the top corners beside the lanes. Double play shows two fans
-  side by side, meeting at the bottom. The hi-speed and green number mean what they do on flat lanes: notes travel
-  the lane at the same rate, and the perspective only changes where a distance is on the screen (SUDDEN+, HIDDEN+
-  and LIFT cover the same share of the lane, which looks smaller at the far end). With touch controls the lanes
-  themselves are the controls, in the bottom half of the screen (the judge line in its middle), in zones that
-  fill the width like a beatmania controller's keys: at the judge line each key's zone is its lane; between a
-  white and a blue key the boundary bends, so the white key is wider below the line and the blue key above it.
-  The outer zones reach the screen's edges (in double play, the middle) and the gap beside the scratch is shared
-  by its neighbours; fingers can slide between lanes, the scratch lane takes taps and sideways swipes (a change of
-  direction is a new scratch), and START / SELECT sit in a top corner. The zones are not drawn unless the skin's
-  TOUCH AREA option (`SETTINGS › SKINS`, the skin's options) shows them at 25-100 %. There is no strip of controls: the play
-  screen fills the screen. `SETTINGS › CONTROLS` sets the perspective (0 % is flat), how far up the lanes reach and
-  the touch area's height (`[perspective]` in the config; a touch area left at an older version's default moves
-  to the new one). The skin's canvas takes the screen's shape: objects in the JSON carry a vibeBMS
-  `"anchor": [x, y, w, h]` (the share of the added width or height they move and grow by), and
-  `"perspective": true` makes the game draw the note field as fans (a skin's options with ops 960-964 set the
-  touch zones' opacity: 0, 25, 50, 75, 100 %; a skin without them draws them at the touch controls' opacity).
-- **LR2 skins** (`.lr2skin`): put them under `skins/` (`LR2files\Theme\…` paths are taken from `skins/`). Images,
-  numbers, text, `#LR2FONT`, gauges, notes, judgements, bar graphs, sliders, buttons, panels, the song list, result
-  graphs, `#CUSTOMOPTION`/`#CUSTOMFILE`, DxLib `.dxa` archives. On the song list's bars: `BAR_LABEL` (0 LN, 1
-  `#RANDOM`, 2 mines, 3 CN, 4 HCN; the long notes' type is the one the chart gives them, else the player's AUTO type,
-  never FORCE; a skin without a CN or HCN label shows its LN one; a course shows what its charts have, a course not
-  all installed nothing), `BAR_TROPHY` (0 bronze, 1 silver, 2 gold: on a table's class course, the last of the
-  table's trophies whose miss rate and score rate its best cleared play met) and `BAR_GRAPH` type 0 (a folder's lamp
-  distribution, the best lamps first, 11 source cells an animation frame; type 1, the DJ levels, is not drawn).
-  A skin without `#RESOLUTION` (`0`-`3`, or `#RESOLUTION,<width>,<height>`) gets the size its layout reaches: 640x480,
-  or 1280x720 / 1920x1080 for HD skins that do not say so.
-  `#HORIZONTAL` (`#HORIZONTAL,0` is off) makes a play skin scroll right to left: a lane's `#DST_NOTE` x, y, w, h is
-  the note at the judge position, the lane runs from there to the right edge of the canvas, as tall as the note,
-  and notes come in from that edge, keeping their images' orientation (`#DST_NOTE` w wide). Long notes are drawn
-  with a horizontal body between their two ends, bar lines (`#DST_LINE`'s x is the judge position) and the BPM
-  guide move the same way, LIFT moves the judge position right, SUDDEN+ covers the right end and HIDDEN+ the left,
-  and the LIFT, lane cover and hidden cover offsets (3-5) move objects along x; `#DST_NOTE2` is the x missed notes
-  go to. A cover's disappear line still crops vertically.
-- **beatoraja skins**: JSON (`.json`) and Lua (`.luaskin`, embedded Lua 5.4 in a sandbox; the web build too).
-  `main_state`, `timer_util`, `event_util` and `skin_config` are provided, and conditions, timers, values and
-  events given in Lua are evaluated every frame. Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`,
-  `timingdistributiongraph`, the timing visualizer) and blend modes are supported. Text outline and shadow are
-  drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the text in half its colour
-  at the offset), distance-field `.fnt` fonts (font `type` 1 / 2) the outline, shadow colour and softness too.
-- **Battle skins** (types 12 / 13, "7KEYS BATTLE" / "5KEYS BATTLE" in `SETTINGS › SKINS`; a 14 / 10 key skin
-  can be chosen there too): drawn when both sides of a battle are shown (G-BATTLE, VS). The built-in ones have a
-  gauge per side and the opponent as the target. LR2 `#SRC_GROOVEGAUGE` with 1 in its first field (vibeBMS JSON:
-  a gauge destination's `"side": 1`) is the second side's gauge. When there is an opponent: numbers 120-136 are
-  its values as LR2's 2P (score, EX, rate, combo, max combo, notes, gauge, next rank, PG..POOR, total rate),
-  108 is 1P minus 2P and 121 / 151 / 128 / 153 / bar graphs 114 / 115 its EX score as the target; timers 43 / 45
-  / 49 / 144 its gauge rising, full, full combo and last note (42 / 143 the first side's); options 44 / 45 its
-  groove / survival gauge, 56 / 57 its AUTO SCRATCH, 210-217 its DJ level, 352 / 353 / 354 the first side
-  winning / losing / level. A skin's 2P judge region shows the opponent's judgements; a single play skin shown
-  over a battle (a phone held upright) never does. Results: numbers 120-136 and options 352-354 likewise,
-  vibeBMS option 9350 "a battle", text 9351 the opponent's name, numbers 9376 / 9370 its miss count and lamp.
-- Player totals for skins (numbers 17-19, 30-37, 333): plays and clears are summed over the charts' records;
-  judgements and time played are counted after every recorded play (not autoplay or replays). Judgements from
-  before vibeBMS kept them count each chart's best play only; time played starts at zero.
-- **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS › GET SKINS` lists the skins in
-  [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
-  downloads, unpacks and installs one into `skins/` from the link it lists (Google Drive, Dropbox, MEGA, GitHub,
-  plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
-  homepage and the terms its author states, and where its download comes from (`source`): `official` is a skin whose
-  terms state that it may be freely used and redistributed (a license such as MIT, Apache-2.0 or GPL, or the
-  author's own words), downloaded from the author's own link; `third_party` is every other one: a skin whose terms
-  say nothing of it or forbid redistribution (even from the author's own link), a re-upload, an archive of a dead
-  site, a pack of several authors' skins. Third-party entries are listed and downloaded only with
-  **Third-party sources** on (`SETTINGS › LIBRARY`, the same choice and notice as for songs: they are other people's
-  copies, not the authors' distribution); while it is off GET SKINS says how many it leaves out, and a skin of
-  theirs already installed stays (listed, to be deleted). An entry without `source` is the author's own in a catalog
-  of version 1 (from before the field, all of whose entries were), else third-party; a value vibeBMS does not know
-  is third-party. In the current catalog, 9 skins are `official` and 7 are `third_party`. Builds from before `source` read the new
-  catalog as before (they skip what they do not know) and list every entry. The web build keeps them in the browser's
-  storage, but does not unpack skins over 400 MB.
-- A skin's custom options and offsets are on its screen's page in `SETTINGS › SKINS` (Enter on the screen's row).
-- **Key config, skin select and sound set** (skin types 8, 9 and 10): with a KEY_CONFIG skin chosen, key `6` in song
-  select (or the skin's key config button, or `SETTINGS › CONTROLS`) opens the key config screen it draws: ↑↓ or
-  the turntable pick a key, ←→ the mode (7 / 14 keys, 9 keys, 5 / 10 keys), Enter, a white key or a tap on the key
-  waits for a key, controller button or turntable axis to bind, Delete clears it, Esc / SELECT / BACK leaves (it
-  saves as it goes). beatoraja's rows are drawn over beatoraja skins as beatoraja does; LR2 skins use their key
-  buttons (101-136, 140-143, slots 150-159; Lunatic Vibes' texts 300-384 too). Without such a skin, `6` opens the
-  settings' CONTROLS. With a SKIN_SELECT skin chosen, key `7` (or the skin button) opens the skin select screen:
-  ↑↓ the skin or one of its options, ←→ change it, PgUp / PgDn the skin type, with the skin's preview (beatoraja
-  `skinpreview`, LR2 image 105); without one, `7` opens `SETTINGS › SKINS`. Mouse and touch use the skins'
-  buttons, and both screens have a BACK button.
-- **Sound sets** (`SETTINGS › DISPLAY & AUDIO`, or SOUND SET in the skin select screen): the song select music, the decide
-  jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
-  `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
-  under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
-  sets their volume. A screen's music (the select music, the result's) is decoded each time it starts and let go
-  when it stops; the other sounds stay decoded. A folder set may also use bmz-player's conventions (as its documentation describes them):
-  - the result music by outcome: `fail` for a failed play; for a clear `aaa`, `aa` or `a` at that rank (the play's
-    EX score from 8/9, 7/9, 6/9 of what can be had), else `clear` (a missing rank sound falls back on `clear`, not
-    on a lower rank); a course's result keeps `course_clear` / `course_fail`;
-  - `<name>.loop.<ext>` (`select.loop.ogg`, `clear.loop.ogg`, `aaa.loop.wav`, `course_clear.loop.ogg`, ...) plays
-    over and over until the screen ends, before `<name>.<ext>` in the same folder (which the select music loops
-    anyway and a result plays once);
-  - `<name>.enter.<ext>` (`select.enter`, `clear.enter`, `aaa.enter`, ...) plays once as the screen comes (the song
-    select: at start and each time it comes back), with the screen's music; a result with one plays a `.loop` music
-    with it, not a plain one;
-  - variants: the set's subfolders holding sound files are not sets of their own but its variants. One is drawn with
-    the set and has only what it changes: a sound it has in either form (its `clear` before the set's
-    `clear.loop`) is its own, else the set's; `.enter` and GUIDE SE files likewise;
-  - RANDOM (with two sets or more): a set drawn at random when the app starts and each time the song select comes
-    back; a set with variants draws one again then too. Decide, play and result keep the set drawn.
+- Built-in skins with landscape and portrait layouts for every mode, and a touch perspective play skin whose lanes
+  are the controls.
+- LR2 skins (`.lr2skin`), and beatoraja JSON and Lua skins, put under `skins/`.
+- `GET SKINS` downloads skins from a catalog. vibeBMS bundles no third-party skins; skins whose terms do not allow
+  redistribution need third-party sources on.
+- Sound sets: beatoraja's, LR2's, and bmz-player's conventions.
 
-  The select music, the decide jingle and `.loop` music are normalised to the loudness target when `Normalize sound
-  set music` is on; the other sounds are not.
-- vibeBMS extensions for skins: song select option text `9000+i` (value) and `9100+i` (name) and click events
-  `9000+i`; result events 9500 (retry), 9501 (continue) and 9502 (watch the replay); song select events 9900
-  (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks); button 1407 the key mode filter with 4 / 6 / 8 KEYS (indices 6-8); play skin types 104 / 106 / 108 are 4 / 6 / 8 keys (only the built-in skins are: such charts play on them). A graph with
-  `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
-  open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
-  using timer 21, the app draws a hi-speed panel beside the lanes. A beatoraja `source` with `"lazy": true` is loaded
-  when something is first drawn from it (the built-in song select's panels).
+What is supported, and vibeBMS's skin extensions: [docs/SKINS.md](docs/SKINS.md).
 
 ## Web version
 
-Build it with `tools/build_web.sh` and serve `web/` over HTTP. The page's buttons take a folder, files or song pack
-`.zip`s (for iPad Safari), which are scanned and played in the browser; nothing is uploaded anywhere. Song packs
-(`.zip`, `.7z`, `.rar`, `.lzh`, `.tar`, `.tar.gz`, picked on their own or in a folder) are unpacked as they come in, into a folder of
-their name. An archive already kept in the browser's storage (one picked inside a folder before) is read as on the
-desktop, all of these formats; the page reads the archive into memory to scan it or to unpack a song from it (a song
-of up to 1 GB), and lets it go again. Settings and
-records are kept in localStorage.
+The web build runs in the browser: [vibebms.github.io/vibe](https://vibebms.github.io/vibe/). Pick a folder, files or
+song packs; they are kept in the browser, and nothing is uploaded anywhere. Add the page to the home screen to run it
+full screen. How it differs from the desktop: [docs/MANUAL.md](docs/MANUAL.md#web-build); building it:
+[docs/BUILDING.md](docs/BUILDING.md#web-wasm32).
 
-- Songs are kept in the browser (its Origin Private File System) and are there again the next time the page opens.
-  `SETTINGS › LIBRARY` shows how much room they take of what the browser allows, asks the browser to keep them for
-  good, lists the song folders by size with a delete for each, and deletes those not played for 30 days or all of
-  them; in song select, Delete removes the chosen song's folder (each delete asks for a second press). Add the page to
-  the home screen: it runs full screen, and Safari, which may clear a site's storage after 7 days without a visit,
-  keeps it.
-- CI publishes a web build to the `gh-pages` branch on every push (the default branch at the site's root, other
-  branches under `preview/<branch>/`). Turn on GitHub Pages (Settings › Pages › `gh-pages` / root) to open it.
-  The repository variable `WEB_THIRD_PARTY=1` turns the third-party sources on by default in that build; the page
-  then says once, at its first start, what they are (OK keeps them on, Turn off turns them off).
-- A separate chart added on its own (📦) goes into its song's folder: the folder with the same title and artist that
-  holds every sound it needs. When that cannot be decided, the page asks which song it is for.
-- The browser paces the frames at the display's refresh rate, except Safari, which keeps pages at 60 frames a
-  second unless "Prefer Page Rendering Updates near 60fps" is turned off (macOS: Develop › Feature Flags; iOS and
-  iPadOS: Settings › Apps › Safari › Advanced › Feature Flags).
-- Browsers have no system fonts for the page, so CI puts Noto Sans CJK (JP/KR, SIL OFL) into `web/fonts/`, and SC /
-  TC loaded only while the UI is in Simplified / Traditional Chinese (a line `file lang` in `fonts.txt`). When
-  building yourself, add CJK fonts there and list them in `fonts.txt`.
-- Difficulty table servers do not allow CORS, so the web build reads tables (page, header, data) through the vibeBMS
-  proxy (`proxy.vibebms.workers.dev`) each time; tables you add work the same way. IR works when its server allows
-  CORS.
+## Documentation
+
+- [docs/MANUAL.md](docs/MANUAL.md): controls, settings, the library and downloads, replays, IR, the web build.
+- [docs/SKINS.md](docs/SKINS.md): skin support and vibeBMS's skin extensions.
+- [docs/RULES.md](docs/RULES.md): judging, gauges, options and what a play records, with their sources.
+- [docs/LR2_BEHAVIOUR.md](docs/LR2_BEHAVIOUR.md), [docs/LR2_COURSES.md](docs/LR2_COURSES.md): the LR2 behaviour
+  specifications RULES.md follows.
+- [docs/IR_PROTOCOL.md](docs/IR_PROTOCOL.md): the JSON protocol for IR servers.
+- [docs/BUILDING.md](docs/BUILDING.md): building, packaging and releases.
 
 ## Layout
 
@@ -673,28 +159,21 @@ crates/vibebms-audio    decoders and mixer
 crates/vibebms-ir       IR client
 crates/vibebms          the app (winit + wgpu, skins, scenes)
 crates/vibebms-web      web entry point
+crates/vibebms-lua-web  Lua for the web build
 crates/vibebms-android  Android entry point
 ```
 
 Difficulty tables, song downloads, unpacking and placing separate charts come from
 [BMSeeker](https://github.com/vibeBMS/BMSeeker) (a library and a CLI).
 
-## Not implemented yet
-
-Adapters for particular IR services (such as MochaIR).
-
 ## License
 
-`MIT OR Apache-2.0` (LICENSE-MIT, LICENSE-APACHE). The embedded Inter font is SIL OFL 1.1
-(`crates/vibebms/assets/fonts/OFL.txt`). The logo's letters (`assets/logo/`, made by `tools/gen_logo.py`) are Inter
-converted to outlines. Downloaded `.rar` files are unpacked with
-[unrar-rs](https://github.com/scryer-media/rarpar/tree/main/crates/unrar-rs) (Apache-2.0, with the UnRAR license
-restriction); its RAR engine is based on the UnRAR source, whose terms are:
+`MIT OR Apache-2.0` (LICENSE-MIT, LICENSE-APACHE). The embedded Inter font is SIL OFL 1.1; the logo's letters are
+Inter converted to outlines. Lua's pattern matcher (ported) and the BeMusicSeeker fork's rules are MIT. RAR files are
+unpacked with unrar-rs, under the UnRAR licence restriction. These notices are in full in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-> UnRAR source code may be used in any software to handle RAR archives without limitations free of charge, but cannot be used to develop RAR (WinRAR) compatible archiver and to re-create RAR compression algorithm, which is proprietary. Distribution of modified UnRAR source code in separate form or as a part of other software is permitted, provided that full text of this paragraph, starting from "UnRAR source code" words, is included in license, or in documentation if license is not available, and in source code comments of resulting package.
-
-Lua's pattern matcher (ported) and the BeMusicSeeker fork's rules (through bmseeker) are MIT; their notices are in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The judging, gauge and skin rules follow the behaviour of beatoraja,
-LR2oraja and LR2 (see [docs/RULES.md](docs/RULES.md)), but no code is taken from these players: the judge engine,
-judge windows, gauge damage rules, chart metrics, skin path matching and the SDF text shader were written from a
-behaviour specification and tests, without reference to their code. No charts or music are included.
+The judging, gauge and skin rules follow the documented behaviour of beatoraja, LR2oraja and LR2
+([docs/RULES.md](docs/RULES.md)), but no code is taken from these players: the judge engine, gauges, chart metrics,
+skin path matching and the SDF text shader were written from behaviour specifications and tests. No charts or music
+are included.

@@ -1,4 +1,15 @@
-# Judge and gauge rules
+# Play rules
+
+How vibeBMS judges, scores and records a play: judge presets, gauges, long notes, scroll, lane options, chart
+modifiers, FREQ, key modes, replays, records and clear lamps, and how a play maps to LR2's rules for an IR, with the
+sources each rule rests on.
+
+Contents: [Judge presets](#judge-presets) · [Gauges](#gauges) · [Long notes](#long-notes) · [Scroll](#scroll) ·
+[Negative BPM](#negative-bpm) · [Lane options](#lane-options) · [Chart modifiers](#chart-modifiers) · [FREQ](#freq) ·
+[4, 6 and 8 keys](#4-6-and-8-keys-qwilight-style-charts) · [KEY CONVERT](#key-convert-key-mode-conversion) ·
+[Replay formats](#replay-formats) · [Best scores](#best-scores) ·
+[Imported and downloaded scores](#imported-and-downloaded-scores) · [Clear lamps](#clear-lamps) ·
+[Input filters](#input-filters) · [LR2 equivalence](#lr2-equivalence-the-vibe-lr2-profile) · [Sources](#sources)
 
 All constants live in `crates/vibebms-core/src/judge.rs` and `gauge.rs`.
 Timing difference is `note_time - press_time` (positive = early / FAST).
@@ -27,11 +38,8 @@ For PMS, PG and BAD are fixed and GR/GD scale 33/50/70/100/133 %, clamped betwee
 Custom judge (PG/GR/GD %) is applied afterwards and clamped to BAD.
 A chart without `#RANK` plays NORMAL, as one whose `#RANK` is out of range (below 0, above 4) or not a number;
 a bmson `judge_rank` of 0 or less is 100 %. bmz-player's documentation (`docs/rule.md`, "Beatoraja") says
-beatoraja judges a chart without `#RANK` at 100 % (EASY) instead. That is the only public description found:
-beatoraja's own manual (`manual/extension.txt`) covers `#RANK 4` and `#DEFEXRANK` but not a missing `#RANK`, and
-the community write-ups read for this list (S2, S3, S4, S13, the mBMplay patch notes, beatoraja issue 468,
-the BMS-making wikis) say nothing about it. One source is not enough to change how every chart without `#RANK`
-judges, so vibeBMS keeps NORMAL here until a second, independent description (or a measurement) agrees.
+beatoraja judges a chart without `#RANK` at 100 % (EASY) instead; it is the only public description of that, and one
+source is not enough to change how every chart without `#RANK` judges, so vibeBMS keeps NORMAL.
 
 Other rules: empty POOR does not consume the note; in 7 keys it keeps the combo, in 5 keys/PMS it breaks it;
 PMS notes can only produce one POOR. Note selection algorithms Combo / Duration / Lowest / Score as in beatoraja:
@@ -205,7 +213,7 @@ start at 100, empty below 2 %, have no border and clear (HARD CLEAR) at any valu
 The gauge option cycles them in LR2's order under the LR2 set: GROOVE, HARD, HAZARD, EASY, P-ATTACK, G-ATTACK, then the
 set's ASSIST EASY and EX-HARD (vibeBMS's); the other sets do not offer them, and play one chosen under the LR2 set as
 HARD. A play adds the attack gauge it is on to the set's nine (it is simulated with them); every other play has the
-nine as before. They are drawn as HARD (no colour of their own, no 80 % border, the "clear" colours on every segment
+nine. They are drawn as HARD (no colour of their own, no 80 % border, the "clear" colours on every segment
 [S-OLR2b 1.3]): a skin's gauge type for them is HARD's (beatoraja's index 3, `skinvals::skin_gauge`), LR2's skin
 options 122 and 123 are P-ATTACK and G-ATTACK, 119 (survival) and 43 hold for both.
 
@@ -234,13 +242,13 @@ Gauges under the LR2 set (`GrooveGauge::new_in`): every gauge starts at 100, has
 [S-OLR2b, correcting S-OLR2 3.1]); a mine still stops GROOVE and EASY at 2 % [S-OLR2 3.6, inferred]. Expert and
 NONSTOP: GROOVE 0.1, 0.1, 0.04, −1.5, −2, −1.5; EASY 0.12, 0.12, 0.048, −1.2, −1.6, −1.2; HARD, HAZARD and the attack
 gauges as single play. Class: CLASS (GROOVE's) and EX-CLASS (HARD's) above, HAZARD and P-ATTACK as single play. Under
-the other gauge sets every course plays the set's dan gauges, as vibeBMS's table courses always did.
+the other gauge sets every course plays the set's dan gauges.
 
 - **Class** [S-OLR2b 5]: under the LR2 gauge set a class course forces LR2's settings for its stages
   (`RuleOptions::for_course`): EASY and G-ATTACK play GROOVE, no lane option, BATTLE, DP FLIP, AUTO SCRATCH, LEGACY
   NOTE, NO MINE or EXPAND JUDGE, no lane cover, SUDDEN or HIDDEN; hi-speed and timing as set. LR2 changes the
   player's own settings and keeps them changed (inferred); vibeBMS changes them for the course only. Under the other
-  sets a table course's constraints apply as before (`grade_mirror`, `gauge_lr2`, an LN mode).
+  sets a table course's constraints apply (`grade_mirror`, `gauge_lr2`, an LN mode).
 - **Expert** [S-OLR2b 4]: a play per stage, its stage result between; the gauges carried over with their exact
   values, the course combo (shown in play) and the course's totals (empty POORs in, mines out), and the seed of the
   first stage; failing a stage (or quitting it) ends the course. A stage's lamp: LR2's rule with the course gauges.
@@ -248,7 +256,9 @@ the other gauge sets every course plays the set's dan gauges, as vibeBMS's table
   lamp only to FULL COMBO, no play count. The course's result follows the last stage (or the failed one): its lamp is
   FAILED below 2 or unfinished, else FULL COMBO when the course's max combo is its notes, else the gauge's lamp when
   it ends strictly above 2 (2.0 fails), no lamp cap; under the other sets the worst stage's. The notes of stages not
-  played count as not judged (min BP). No retry. Class courses are expert courses with the settings above.
+  played count as not judged (min BP). No retry. Class courses are expert courses with the settings above. Each
+  stage's replay is kept under the course, with the course's settings and the gauges the stage started from, so it
+  judges as played; song select watches a course's stages one after another.
 - **NONSTOP** [S-OLR2b 3]: the stages joined into one chart (`nonstop::join`) and played as one: stage N+1's bar
   line nearest its first note (a half rounding down; gap 1: 0.5 to 1.5 measures before it; gap 2: its start) is put
   on stage N's bar line nearest stage N's last note (a tie: the earlier; gap 2: the first more than 5 s on); stage N's
@@ -273,8 +283,7 @@ title shown) advances at every join (LR2: at gap joins only); the open `#IF` sta
 on); an expert course's score is recomputed from its totals, its notes the sum of all stages' (LR2 `main`'s rule).
 Not followed: LR2's maniac judge options (vibeBMS has none); the `ir` course flag is
 kept, but nothing is sent to an internet ranking (a course play is no IR's); a NONSTOP stage whose `#BPMxx` came before
-its `#BPM` line is scaled with it; a NONSTOP mine converted by the overlap clean-up is dropped, not played; replays of
-an expert stage are kept (with the gauges it started from) but the song select does not list them.
+its `#BPM` line is scaled with it; a NONSTOP mine converted by the overlap clean-up is dropped, not played.
 
 ### IIDX set (the arcade)
 
@@ -356,12 +365,10 @@ of the arcade) may judge otherwise when played again.
   LN), so the vibe-LR2 profile takes it; vibe-beatoraja takes FORCE only where it changes no type the chart
   gives (beatoraja plays the chart's types). Other FORCE plays are local rules.
 * They are filed by rule mode too, the judge preset played with (beatoraja, LR2 or IIDX): each has its own best
-  EX score, lamp, min BP, min CB, play counts and replays, and song select shows those of the judge preset chosen
-  now. (The gauge set is not part of it: a play with LR2's windows and beatoraja's gauges is an LR2 play.) Course
+  EX score, lamp, min BP, min CB, play counts and replays, and song select shows those of the judge preset chosen.
+  (The gauge set is not part of it: a play with LR2's windows and beatoraja's gauges is an LR2 play.) Course
   records are filed the same way under the course's identity. The IR lamps are the IR's and stay as they are.
-  Records from before rule modes are filed under the rule of their best EX play's replay, where it can be read when
-  the game starts (desktop and mobile; in the web build the replays are not read yet then), else under beatoraja,
-  the default preset; replays from before count for the preset they were played with.
+  Records without a rule mode: "Best scores", "Older records".
 
 ## Scroll
 `#SCROLL` (channel SC) changes how fast the lane scrolls from a beat on (scroll positions are the integral of it).
@@ -373,7 +380,7 @@ time (above) and drops its stages' `#SCROLL` and `#SPEED`.
 ## Negative BPM
 A BMS chart's `#BPMxx` (or `#EXBPMxx`) below 0, used by a channel 08 object, is played as LR2 plays it, the way
 bmz-player describes and follows LR2's [S36]: LR2 "reverses" the scroll there [S37] and the notes after it run
-backwards and do not come back [S38]. A chart without a negative BPM is played exactly as before (`timing.rs`, `engine.rs`).
+backwards and do not come back [S38]. A chart without a negative BPM is not affected (`timing.rs`, `engine.rs`).
 
 - **Tempo**: the absolute value. The notes, BGM, keysounds, BGA and STOPs are timed as with that positive BPM (a STOP's
   length in beats at the absolute value) [S36]: chart time only goes forward. The BPM shown (play skins, the BPM guide,
@@ -399,11 +406,11 @@ backwards and do not come back [S38]. A chart without a negative BPM is played e
   whose notes are judged at the last note's time would (a second after it, 0.5 s after the last BGM; RESULT WAIT: 5 s
   after the last note, BGM or BGA layer), and FAILED [S36]. (LR2 plays on until it is quit [S38].)
 - **Replays** keep chart times; the judge folds them as it reads them, so a replay judges as it was played [S36]. A
-  replay of such a chart recorded before vibeBMS played negative BPMs (it ignored them) may judge otherwise; the replay
-  format is unchanged.
+  replay of such a chart recorded by a vibeBMS that ignored negative BPMs may judge otherwise; the replay format is
+  the same.
 - Practice sections, the chart viewer (both played from a time) and NONSTOP courses keep the fold points, moved with
   the section's or stage's time: a section after a fold point is judged on the folded clock too.
-- Not folded: a negative `#BPM` header (130 BPM, as before: what LR2 does is not known); channel 03 (hexadecimal, never
+- Not folded: a negative `#BPM` header (130 BPM: what LR2 does is not known); channel 03 (hexadecimal, never
   negative); bmson (a BPM below 0 is still ignored). Two objects LR2 reads otherwise are not followed: an 08 object whose
   `#BPMxx` is not defined (LR2: −1, so backwards [S37]; vibeBMS ignores it) and `#BPMxx 0` (LR2 stops [S37]; vibeBMS
   ignores it). What does not fold: the BPM and density graphs, generated previews and the loudness measure go by chart
@@ -425,7 +432,7 @@ the same lanes (`lane_option.rs`).
   bmz-player pairs them. Both are kept and sent as usual (bmz-player's rule, `docs/score-persistence.md`); a
   beatoraja skin shows them as RANDOM, Bokutachi gets RANDOM.
 * S-RANDOM interval (`SRandomInterval`, bmz-player's `docs/settings.md` "S-RANDOMの補正"), for S-RANDOM and
-  S-RANDOM+: OFF (LR2's, the default and vibeBMS's rule before the setting) looks at no interval, only at notes at
+  S-RANDOM+: OFF (LR2's, the default) looks at no interval, only at notes at
   the same time and held long notes; 40 MS (beatoraja's) takes a lane whose last note ended less than 40 ms before
   last; 120 HZ counts the interval in whole 120 Hz frames (8.33 ms) and takes a lane last below 5 frames, one more
   for each note of the side in a row closer than 8 frames to the one before, up to 8 (bmz-player describes it as
@@ -465,7 +472,7 @@ S-RANDOM's intervals are real time).
   least as well). Not sent to any IR, vibeBMS's own included (`Refusal::Freq`): no IR files a play by its speed.
 * Courses (every kind; LR2 switches it off in class and NONSTOP courses [S-OLR2b 3.8, 5.1]) and practice (it has its
   own speed) play at 0. G-BATTLE plays at the opponent's replay's FREQ.
-* Replays keep it (a replay of before has 0) and play at it again; the play record (`RuleFacts::freq`) too.
+* Replays keep it (a replay without it has 0) and play at it again; the play record (`RuleFacts::freq`) too.
 
 ## 4, 6 and 8 keys (Qwilight-style charts)
 bmz-player plays "Qwilight / UE-style BMS (4K / 6K / 8K)" (its README) with key configs and the key mode filter
@@ -474,7 +481,7 @@ for them, so they take 7 keys' rules. Qwilight's chart-making guide (taehui.net 
 says a 4 key chart needs the `#4K` header and a 6 key chart `#6K`, and that "4 keys use neither the scratch nor
 lanes 3, 6 and 7; 6 keys neither the scratch nor lane 4". vibeBMS reads them so (`bms/build.rs`,
 `qwilight_lane`), in a `.bms` / `.bme` / `.bml` file with the header (without it the same channels are a 5 or 7
-key chart, as before):
+key chart):
 * `#4K` (`PlayMode::Key4`): keys 1, 2, 4, 5 (channels 11, 12, 14, 15 and their long note and mine channels) are
   its 4 lanes; 13, 16, 18, 19 are on no lane.
 * `#6K` (`Key6`): keys 1-3, 5-7 (11, 12, 13, 15, 18, 19); 14 and 16 are on no lane.
@@ -534,7 +541,32 @@ the judge of now.
 The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
 the max combo, the min BP (BAD + POOR + empty POOR + notes not reached, skin number 76) and the min CB (combo
 breaks, the notes a failed play never reached counted; vibeBMS skin number 9425, as 425 is the play's). An
-assisted play keeps its lamp and counts only. Records from before the min CB was kept show 0 until a play sets it.
+assisted play keeps its lamp and counts only.
+
+### Older records
+- Records without a rule mode are filed under the rule of their best EX play's replay, where it can be read when the
+  game starts (desktop and mobile; the web build does not read replays then), else under beatoraja, the default
+  preset. Their replays count for the preset they were played with.
+- Records without a min CB show 0 until a play sets it.
+- Player totals: for plays older than the totals, each chart's best play's judgements count, and time played starts
+  at zero.
+
+## Imported and downloaded scores
+Scores taken in from another player's database (`SETTINGS › LIBRARY › Import scores`) or from an IR (an account's
+Download my scores) merge into the local records per chart: the better lamp, EX score (with its counts where the
+source gives them), max combo and BP; never a worse value over a better one. The same import again changes nothing.
+An import takes the play and clear counts as the higher of the two (not summed); a download leaves them untouched.
+
+Which rule mode and LN mode a score is filed under:
+- LR2's score database: the LR2 judge preset. beatoraja's: the beatoraja preset; LR2oraja's (an LR2oraja program in
+  the install folder) the LR2 preset.
+- A vibeBMS IR says so for each score (`/players/{id}/scores`, [IR_PROTOCOL.md](IR_PROTOCOL.md)).
+- Bokutachi's PBs: LR2's and LR2oraja's under the LR2 rule mode as LN for BMS 7K / 14K; beatoraja's for PMS.
+- BMS-IR lists only your lamps, per difficulty table followed, filed by whose scores the table counts: LR2 and
+  OpenLR2 under LR2 rules as LN; LR2oraja and its kin under LR2 rules; beatoraja under beatoraja's. A table mixing
+  clients cannot be filed.
+- A score whose LN mode is not said goes only on a chart whose plays are the same in every LN mode.
+- Courses and charts not in the library are left out.
 
 ## Clear lamps
 FAILED < ASSIST (assist options) < L-ASSIST (light assist options, ASSIST EASY gauge) < EASY < CLEAR < HARD <
@@ -559,6 +591,21 @@ at 40 % is one; empty POORs and mines keep the combo); else HARD (HARD, P-ATTACK
 and the one IR is sent. The EX score (2 × PGREAT + GREAT) and the DJ level (k / 9 of the max EX) are LR2's
 [S-OLR2 7.1]; LR2's 200 000-point score is not shown.
 
+## Input filters
+Input filters are set in `SETTINGS › CONTROLS › TURNTABLE AND KEYS` (kept in `[keys.tuning]`):
+- **Key chatter filter** (off by default; 1–50 ms): a key or controller button press that comes sooner than this
+  after the last press of its lane (and turntable direction) let through is dropped, and so is the release that
+  ends it, so presses and releases still pair. It goes by the inputs' own timestamps, not by when a frame sees
+  them, so a press is never moved in time: the presses let through are judged at their own times as without it.
+  What it changes in judging: a dropped press hits no note and is no empty POOR; two notes of one lane closer than
+  the setting cannot both be hit (16th notes at 300 BPM are 50 ms apart; keep it well under the charts' fastest
+  jacks); a bounce while a long note is held is a release and a press far from the last press, which it does not
+  drop. Touch and analog turntables are not filtered. A replay keeps the presses the judge got, so it is watched
+  the same whatever the setting.
+- **Analog turntable**: a movement between two reports smaller than the dead band (default 0.004 of the axis's
+  −1..1 range; higher is less sensitive) is not a turn, and a turntable that has not moved for the stop time
+  (default 100 ms) is let go, its release at the time it last moved plus that time.
+
 ## LR2 equivalence (the vibe-LR2 profile)
 
 The vibe-LR2 rule profile (`crates/vibebms-ir/src/rule.rs`) is sent to a third-party IR as LR2 rules only for
@@ -570,9 +617,13 @@ code) that someone else wrote from a reading of OpenLR2, a decompilation-based r
 written from it alone (clean room). `tools/lr2-measure/` holds test charts and steps for a player with LR2 to
 check it.
 
+### Gaps
+The table is the same list as `EQUIVALENCE` in `crates/vibebms-ir/src/rule.rs`, which is the authority: edit the
+two together.
+
 | gap | what | state |
 |---|---|---|
-| A1 | judge and gauge presets were separate settings | closed: the profile takes only the LR2 judge with the LR2 gauge set |
+| A1 | the judge preset and the gauge set are separate settings | closed: the profile takes only the LR2 judge with the LR2 gauge set |
 | A2 | empty POOR window and its combo and note rules | closed: more than 200 and less than 1000 ms early, never late [S1, S2, S3, S4, S-OLR2]; keeps the combo, never takes the note [S4, S-OLR2] |
 | A3 | `#RANK 4`, out-of-range and non-numeric `#RANK`, `#DEFEXRANK`, bmson | closed: LR2 reads `#RANK`'s leading digits, 0 when there are none, and plays every value but 0, 1, 3 NORMAL [S-OLR2; S13 and S16 agree for `#RANK 4`]; vibeBMS does the same. LR2 has no `#DEFEXRANK` [S9, S-OLR2] or bmson, and the profile leaves both out |
 | A4 | HARD gauge damage factor and the 30 % rule | narrowed to HARD on charts of 21 .. 29 notes where the note-count factor is the larger: S-OLR2 marks that segment (10 − 0.2 a note above 20, then 7 at 30) unchecked; a continuous 10 − 0.3 a note would differ. The kit's `a4-n29` and `a4-n30` settle it (50 vs 56 at 29 notes). Everything else: the base values, BAD = POOR × 0.6, empty POOR = POOR × 0.2, the larger of the two factors, × 0.6 at 30 % shown or less, empty below 2 % [S1, S3, S7, S-OLR2]; the TOTAL factor [S-OLR2; S1's measurements agree, 200 shows the same, above]; the note-count factor from 30 notes up [S-OLR2; S1 from 125 up]. HAZARD is LR2's DEATH gauge [S8, S-OLR2] |
@@ -584,6 +635,7 @@ check it.
 | A10 | gauges LR2 does not have | closed: the LR2 set offers ASSIST EASY and EX-HARD (and EXHARD-CLASS in courses), which LR2 has not [S8, S-OLR2]; the set keeps them, but the profile takes only EASY, NORMAL, HARD, HAZARD, P-ATTACK, G-ATTACK, CLASS and EX-CLASS, so a play on the others is local rules |
 | A11 | the note a press takes among several in reach | closed: the lane's earliest unresolved object, then the BAD chain [S-OLR2]. The note choice option has no effect under the LR2 judge, and the profile takes any. The earlier sources described beatoraja's "combo" choice as "reportedly" LR2's [S4, S17]; S-OLR2 does not support that. `tools/lr2-measure`'s A11 charts check it (`a11-1`: POOR ≈ 0 with the chain, 16 without) |
 
+### What rests on which source
 What rests on S-OLR2b alone (`docs/LR2_COURSES.md`; no other source describes them): P-ATTACK's and G-ATTACK's
 values (S8 and S14 only name them), their option order and look; everything under "LR2 courses" (the course
 kinds, the packed string, the expert / NONSTOP gauge values, the joins, fades, tempo match, time-based scroll,
@@ -603,25 +655,12 @@ factor at the multiples of 10 [S1], the note-count factor from 125 notes up [S1]
 the combo rules [S4]. Mine damage has S14 (not said to be measured) and contradicting readings (S10). The kit's
 tables give S-OLR2's predictions, which are vibeBMS's rows.
 
-Input filters (`SETTINGS › CONTROLS › TURNTABLE AND KEYS`, kept in `[keys.tuning]`):
-- **Key chatter filter** (off by default; 1–50 ms): a key or controller button press that comes sooner than this
-  after the last press of its lane (and turntable direction) let through is dropped, and so is the release that
-  ends it, so presses and releases still pair. It goes by the inputs' own timestamps, not by when a frame sees
-  them, so a press is never moved in time: the presses let through are judged at their own times as without it.
-  What it changes in judging: a dropped press hits no note and is no empty POOR; two notes of one lane closer than
-  the setting cannot both be hit (16th notes at 300 BPM are 50 ms apart; keep it well under the charts' fastest
-  jacks); a bounce while a long note is held is a release and a press far from the last press, which it does not
-  drop. Touch and analog turntables are not filtered. A replay keeps the presses the judge got, so it is watched
-  the same whatever the setting.
-- **Analog turntable**: a movement between two reports smaller than the dead band (default 0.004 of the axis's
-  −1..1 range; higher is less sensitive) is not a turn, and a turntable that has not moved for the stop time
-  (default 100 ms) is let go, its release at the time it last moved plus that time.
-
-Not followed, and why no gap covers it:
+### Not followed
+What vibeBMS does not follow, and why no gap covers it:
 - The judging clock. LR2 judges a press on the first game tick that sees it, ticks at most every 2 ms with its
   threaded loop (else once a frame), and has an input debounce; vibeBMS judges each press at its own time, LR2 at
-  an unbounded tick rate, and has no debounce by default (the chatter filter below is off). This is deliberate. LR2's tick only delays when a press is seen,
-  by less than one tick (2 ms or more, a frame without the threaded loop), as a device's latency does: it changes
+  an unbounded tick rate, and has no debounce by default (the chatter filter, "Input filters", is off). This is
+  deliberate. LR2's tick only delays when a press is seen, by less than one tick (2 ms or more, a frame without the threaded loop), as a device's latency does: it changes
   a judgement only at a window's edge, by the player's setup, not by a scoring rule, and the measured windows
   (S5, taken with vertical sync off) already carry it. Windows are still compared in whole milliseconds as LR2
   does. One consequence of LR2's polling, that a press on the very tick a note is missed is dropped, cannot
@@ -634,17 +673,22 @@ Not followed, and why no gap covers it:
   mine just behind a note not yet judged waits for that note; vibeBMS resolves each at its own time. It differs
   only when an LN head is within 200 ms minus GOOD, or a mine within 200 ms, after an unjudged note of its lane.
 - Objects that start inside an LN of their lane are dropped by LR2; vibeBMS drops notes there, not mines.
-- Battle: vibeBMS does not offer it. A negative BPM is played as bmz-player describes LR2's (above, "Negative BPM"),
-  which no one compared with LR2 [S36]; no gap covers it. LR2's courses are followed (above, "LR2 courses"), but no
-  IR takes a course play. Of the IR adapters, Bokutachi cannot file a P-ATTACK or G-ATTACK play (Tachi's BMS gauges
-  are EASY, NORMAL, HARD, EX-HARD) and refuses it; BMS-IR reads LR2's attack gauges (its change log: P-ATTACK apart
-  from the clear, G-ATTACK clears shown as G-A); rianIR is not known to and refuses them.
+- Battle: BATTLE, G-BATTLE and VS plays are never sent to an IR (`Refusal::Battle`, `GhostBattle`, `Versus`). A
+  negative BPM is played as bmz-player describes LR2's (above, "Negative BPM"), which no one compared with LR2
+  [S36]; no gap covers it. LR2's courses are followed (above, "LR2 courses"), but no
+  IR takes a course play.
+
+### IR adapters
+Bokutachi cannot file a P-ATTACK or G-ATTACK play (Tachi's BMS gauges are EASY, NORMAL, HARD, EX-HARD) and refuses
+it; BMS-IR reads LR2's attack gauges (its change log: P-ATTACK apart from the clear, G-ATTACK clears shown as G-A);
+rianIR is not known to and refuses them.
 
 Bokutachi takes LR2 and LR2oraja plays into its BMS 7K and 14K rankings [S18]. With no open gap reaching every
 vibe-LR2 play, vibeBMS's Bokutachi BMS adapter is on (`BOKUTACHI_BMS`); nothing is sent until Tachi lists
 vibeBMS as a client (`TACHI_ACCEPTS_VIBE`), and A4 refuses the plays it reaches. BMS-IR takes vibe-LR2 plays in
-5/7/10/14 keys once its operator allows vibeBMS (not yet).
+5/7/10/14 keys once its operator allows vibeBMS.
 
+### The beatoraja profile
 The beatoraja profile's gaps stay open: no public description was found of beatoraja's 5-key EX-HARD note-count
 term (B1) or of how beatoraja ends a back-spin scratch CN / HCN played on a keyboard (B3), and beatoraja's source
 is not read. (S4's description of beatoraja's combo choice differs from vibeBMS's Combo when both notes are late
@@ -652,7 +696,7 @@ beyond GOOD; it is not on the list, being one reading of one source.)
 
 ### Sources
 
-Read for this list (2026-11). "Measured" means the author timed LR2 itself.
+"Measured" means the author timed LR2 itself.
 
 - **S-OLR2** `docs/LR2_BEHAVIOUR.md`: a clean-room behaviour specification of LR2 beta3 100201 (its judging,
   gauges, scores and lamps), written by someone else from a reading of OpenLR2 branch `LR2Beta3-v100201`, a
@@ -673,9 +717,9 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   "10刻みで設定されている？1の位以下は切り捨て" (set in steps of 10?; the ones digit and below are dropped); it
   names a script that sets TOTAL 159 to get 150's damage. Below 1000 notes POOR damage grows 0.02 % a note down to
   500 and 0.04 % a note down to 250, "…という補正" (and so on), then as a graph (`file/tn_graph.png`; its marks: 125
-  notes 40, 0 notes 100; the archived image would not load for this pass). The larger of the two is taken; BAD is
-  POOR × 0.6, empty POOR POOR × 0.2. At 30 % (as shown) or less, HARD damage × 0.6. Re-read 2026-11 from the
-  archived page itself (captures of 2013-09 and 2019-02 agree).
+  notes 40, 0 notes 100). The larger of the two is taken; BAD is
+  POOR × 0.6, empty POOR POOR × 0.2. At 30 % (as shown) or less, HARD damage × 0.6. The
+  captures of 2013-09 and 2019-02 agree.
 - **S2** 園田うき, "beatoraja vs Lunatic Rave2(LR2)", 2019,
   <https://www.ukitouchtypist.org/2019/09/17/beatoraja-vs-lunatic-rave2/>. LR2 EASY ±21 / ±60 / ±120 / ±200, empty POOR
   +1000; NORMAL ±18 / ±40 / ±100 / ±200, +1000. EASY and HARD gauges as S1; HARD × 0.6 at 30 % and below. Its LR2
@@ -705,7 +749,7 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   empty POOR costs nothing), P-ATTACK, G-ATTACK; "LR2 has no ASSISTED-EASY and EX-HARD". A chart without a judge
   rank plays NORMAL. A full combo in any gauge is a FULL COMBO. LR2 cannot change the LN type; LNs have no tail
   judgement.
-- **S9** hitkey, "BMS command memo", <https://hitkey.nekokan.dyndns.info/cmds.htm> (read in full 2026-11): LR2
+- **S9** hitkey, "BMS command memo", <https://hitkey.nekokan.dyndns.info/cmds.htm> (read in full): LR2
   applies `#RANK 2` when `#RANK` is missing; LR2 is not among the players listed for `#RANK 4` (nanasi, fgt++,
   iBMSC, Angolmois, Sonorous, TechnicalGroove) or `#DEFEXRANK`; LR2's default `#TOTAL` is given as "`160`? (Note:
   NORMAL Gauge)"; landmines (`#xxxD1-E9`, LR2 among their players) take value / 2 % of the gauge and `ZZ` fails the
@@ -746,7 +790,7 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   beatoraja's options, not a measurement of LR2.
 - **S18** BMS Community, "resources", <https://bms-community.github.io/resources>: Bokutachi "Supports beatoraja (PMS
   only), LR2oraja (including Endless Dream) and LR2."
-- **S19** bmz-player, `docs/rule.md`, section "DX" (prose; read 2026-11 with its code blocks removed),
+- **S19** bmz-player, `docs/rule.md`, section "DX" (prose, with its code blocks removed),
   <https://github.com/hyrorre/bmz-player/blob/main/docs/rule.md>: DX MODE as LR2oraja Endless Dream has it. Windows
   for all modes but 9 keys: PGREAT ±16.666, GREAT ±33.333, GOOD ±116.666, BAD ±200 ms, empty POOR 500 ms early and
   200 late (following LR2oraja Endless Dream-rian 1.5.0), LN and long scratch ends ±116.666 to GOOD and ±200 BAD;
@@ -755,7 +799,7 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   below 30 %, the survival gauges closing below 2 % (not the POP gauges). bmz says its rules were taken from
   LR2oraja Endless Dream's source; it is cited here as DX MODE's documented behaviour.
 - **S20** iidx.org, "Life Gauge Calculation and Timing Windows in beatmania IIDX",
-  <https://iidx.org/compendium/gauges_and_timing> (read 2026-11, with its two images), and "IIDX LR2 beatoraja
+  <https://iidx.org/compendium/gauges_and_timing> (with its two images), and "IIDX LR2 beatoraja
   differences" (S3): PGREAT ±16.67, GREAT ±33.33, GOOD ±116.67, BAD ±250 ms, POOR beyond -250; the empty POOR window
   "?" (a FAST empty POOR "slightly before the FAST BAD window" does not erase the note; a SLOW one is a second press
   soon after a judged note, unless within the next note's BAD window); empty POOR keeps the combo; a press in the BAD
@@ -765,7 +809,7 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   -2, HARD 0.16, 0.16, 0, -5, -9, -5 halved at or below 30 %, EX-HARD -10, -18, -10, DAN 0.16, 0.16, 0.04, -1.5,
   -2.5, -1.5 halved, EX-DAN -3, -5, -3; groove gauges from 22 % (80 % / 60 % to clear), survival gauges fail at 0 %.
   Its "a-value" graph: a = 260 / x for x ≤ 338 notes, 760.5 / (x + 650) above, with a table in steps of 0.02.
-- **S21** beatmania IIDX SP攻略 @ wiki, "ゲーム仕様解説" (as of 32 Pinky Crush; read 2026-11),
+- **S21** beatmania IIDX SP攻略 @ wiki, "ゲーム仕様解説" (as of 32 Pinky Crush),
   <https://w.atwiki.jp/bemani2sp/pages/4662.html>: NORMAL clears at 80 %, its gain depends on the total notes (GOOD half
   of a GREAT), BAD and empty POOR -2, POOR -6; EASY the same gain, 80 % of NORMAL's damage; ASSISTED EASY as EASY,
   60 %; HARD +0.16 for a GREAT or better, nothing for a GOOD, BAD and empty POOR -5, POOR -9, "30%補正" halving at
@@ -822,7 +866,7 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
 - **S35** RemyWiki, "beatmania IIDX Arcade General Information", <https://remywiki.com/AC_General_Info>: HAZARD mode
   (EMPRESS on), "a single combo break will trigger instant stage failure"; EXPERT mode's gauge starts at 100 % and
   "when the gauge hits 0% at any point, it is a game over".
-- **S36** bmz-player (a player that follows LR2), its docs, read 2026-11 (prose only):
+- **S36** bmz-player (a player that follows LR2), its docs (prose only):
   `docs/hs.md` "BMSの負のBPM", `docs/gameplay-runtime.md` "採点の確定とResultのゲージ履歴" and the note
   `notes/2026/2026-11-14-lr2-negative-bpm.md`, <https://github.com/hyrorre/bmz-player>. A channel 08 negative `#BPMxx`
   is "LR2互換で" (as LR2) its absolute value as the tempo: `-83` times the notes, BGM and STOPs at 83 BPM, and 83 is
@@ -843,14 +887,12 @@ Read for this list (2026-11). "Measured" means the author timed LR2 itself.
   backwards, then it loops on and only Esc ends the play), and that negative BPM is no part of the BMS format but each
   player's own.
 
-S4 (re-read 2026-11) describes beatoraja's three note choices: コンボ優先 takes the note a GOOD or better can take,
+S4 describes beatoraja's three note choices: コンボ優先 takes the note a GOOD or better can take,
 and when both or neither can, the lower; "LR2に近い処理（らしい）" (reportedly close to LR2). スコア優先 the same with
 GREAT; 最下ノーツ優先 always the lower.
 
-Searched without a further find for the IIDX preset (2026-11): a second source for S20's a-value formula and its
-rounding; the arcade empty POOR window; the arcade HCN's damage step; pop'n music's GREAT, GOOD and BAD windows
-(BEMANIwiki, RemyWiki, Japanese blogs). Reddit's "Hit windows/timings of Bemani games" could not be read.
-
-Searched without a further find (2026-11): LR2 仕様, ゲージ 減少量, TOTAL 未定義, 地雷 ダメージ, 判定 優先 ノーツ,
-#RANK 4 in LR2, Tachi's docs on LR2. A summarising search pointed at bmz-player's `docs/rule.md` for `#RANK 4`;
-it was not opened (bmz-player is off limits here).
+### Open questions
+- A second source for S20's a-value formula and its rounding.
+- The arcade's empty POOR window and HCN damage step.
+- pop'n music's GREAT, GOOD and BAD windows.
+- LR2's behaviour where only S-OLR2 describes it ("What rests on which source").
