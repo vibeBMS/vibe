@@ -5089,7 +5089,7 @@ dependencies = [
  "image",
  "image-webp",
  "include_dir",
- "jni 0.21.1",
+ "jni 0.22.4",
  "js-sys",
  "json5",
  "log",

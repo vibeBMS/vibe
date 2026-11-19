@@ -1,49 +1,65 @@
 //! The app's Java side (platform/android) through JNI.
 
-use jni::objects::{JClass, JObject, JValue};
-use jni::JNIEnv;
+use jni::objects::{JClass, JObject, JString, JValue};
+use jni::{jni_sig, jni_str, Env};
 
 /// Run `f` with the JVM and the activity (the app's NativeActivity).
 pub fn with_java<R>(
-    f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>,
+    f: impl FnOnce(&mut Env, &JObject) -> jni::errors::Result<R>,
 ) -> Result<R, String> {
     let ctx = ndk_context::android_context();
     // SAFETY: android-activity sets the context to the process' JavaVM and
     // the activity (a global reference that lives as long as the process)
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| e.to_string())?;
-    let mut env = vm
-        .attach_current_thread_permanently()
-        .map_err(|e| e.to_string())?;
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
-    let r = f(&mut env, &activity);
-    if env.exception_check().unwrap_or(false) {
-        let _ = env.exception_describe();
-        let _ = env.exception_clear();
-    }
-    r.map_err(|e| e.to_string())
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
+    // (attaches this thread for good; the local references made in `f` go
+    // with the frame pushed for it)
+    vm.attach_current_thread(|env| -> jni::errors::Result<_> {
+        // SAFETY: as above
+        let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
+        let r = f(env, &activity);
+        if env.exception_check() {
+            env.exception_describe();
+            env.exception_clear();
+        }
+        Ok(r)
+    })
+    .and_then(|r| r)
+    .map_err(|e| e.to_string())
+}
+
+/// The text of `s`, a `java.lang.String`.
+pub fn string(env: &Env, s: JObject) -> jni::errors::Result<String> {
+    // SAFETY: the callers' `s` are what methods returning a `String` gave
+    unsafe { JString::from_raw(env, s.into_raw()) }.try_to_string(env)
 }
 
 /// One of the app's classes (`io.github.vibebms.<name>`), through the
 /// activity's class loader: this thread is not a Java one, and the system
 /// loader does not know app classes.
 pub fn app_class<'a>(
-    env: &mut JNIEnv<'a>,
+    env: &mut Env<'a>,
     activity: &JObject,
     name: &str,
 ) -> jni::errors::Result<JClass<'a>> {
     let loader = env
-        .call_method(activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+        .call_method(
+            activity,
+            jni_str!("getClassLoader"),
+            jni_sig!("()Ljava/lang/ClassLoader;"),
+            &[],
+        )?
         .l()?;
     let name = env.new_string(format!("io.github.vibebms.{name}"))?;
     let class = env
         .call_method(
             &loader,
-            "loadClass",
-            "(Ljava/lang/String;)Ljava/lang/Class;",
+            jni_str!("loadClass"),
+            jni_sig!("(Ljava/lang/String;)Ljava/lang/Class;"),
             &[JValue::Object(&name)],
         )?
         .l()?;
-    Ok(JClass::from(class))
+    // SAFETY: `ClassLoader.loadClass` returns a `Class` (or throws)
+    Ok(unsafe { JClass::from_raw(env, class.into_raw()) })
 }
 
 /// Ask for the display's highest refresh rate (screens of 90 Hz and more
@@ -53,8 +69,8 @@ pub fn use_highest_refresh_rate() -> Option<f64> {
         let class = app_class(env, activity, "RefreshRate")?;
         env.call_static_method(
             class,
-            "useHighest",
-            "(Landroid/app/Activity;)F",
+            jni_str!("useHighest"),
+            jni_sig!("(Landroid/app/Activity;)F"),
             &[JValue::Object(activity)],
         )?
         .f()
@@ -72,8 +88,8 @@ pub fn hide_system_bars() {
         let class = app_class(env, activity, "SystemBars")?;
         env.call_static_method(
             class,
-            "hide",
-            "(Landroid/app/Activity;)V",
+            jni_str!("hide"),
+            jni_sig!("(Landroid/app/Activity;)V"),
             &[JValue::Object(activity)],
         )?
         .v()
@@ -87,18 +103,24 @@ pub fn hide_system_bars() {
 /// or the one chosen for this app).
 pub fn locale() -> Option<String> {
     with_java(|env, _| {
+        let class = env.find_class(jni_str!("java/util/Locale"))?;
         let l = env
             .call_static_method(
-                "java/util/Locale",
-                "getDefault",
-                "()Ljava/util/Locale;",
+                &class,
+                jni_str!("getDefault"),
+                jni_sig!("()Ljava/util/Locale;"),
                 &[],
             )?
             .l()?;
         let tag = env
-            .call_method(&l, "toLanguageTag", "()Ljava/lang/String;", &[])?
+            .call_method(
+                &l,
+                jni_str!("toLanguageTag"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
             .l()?;
-        Ok(env.get_string(&jni::objects::JString::from(tag))?.into())
+        string(env, tag)
     })
     .ok()
 }
