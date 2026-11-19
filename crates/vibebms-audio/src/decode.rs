@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use symphonia::core::codecs::audio::well_known::CODEC_ID_VORBIS;
-use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, Track, TrackType};
@@ -131,18 +130,11 @@ fn audio_track(format: &dyn FormatReader) -> Option<&Track> {
     format.first_track_known_codec(TrackType::Audio)
 }
 
-/// Decoder options: no gapless trimming (encoder delay and padding frames
-/// are kept, as symphonia 0.5 decoded them).
+/// Decoder options: gapless, so a keysound starts on its first sample: an
+/// MP3's encoder delay (about 25 ms with LAME) and a stream's padding are
+/// trimmed.
 fn decoder_options() -> AudioDecoderOptions {
-    AudioDecoderOptions::default().gapless(false)
-}
-
-/// Whether the first packet decoded is no audio: a Vorbis stream's. Not
-/// trimming, symphonia 0.6 renders half a block of it (with nothing before
-/// it to overlap; counted in the track's delay frames), where 0.5 rendered
-/// none.
-fn skips_first_packet(params: &AudioCodecParameters) -> bool {
-    params.codec == CODEC_ID_VORBIS
+    AudioDecoderOptions::default().gapless(true)
 }
 
 fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32) -> Result<Sample, String> {
@@ -165,16 +157,13 @@ fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32) -> Result<Sample, String
         .and_then(|p| p.audio())
         .ok_or("no audio track")?
         .clone();
-    // all the frames the decoder makes: the playable ones and, not trimmed,
-    // the encoder's delay and padding
-    let extra = u64::from(track.delay.unwrap_or(0)) + u64::from(track.padding.unwrap_or(0));
-    let n_frames = track.num_frames.map(|n| n.saturating_add(extra));
+    // the playable frames: gapless, the decoder trims the rest
+    let n_frames = track.num_frames;
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(&params, &decoder_options())
         .map_err(|e| e.to_string())?;
     let mut conv: Option<Convert> = None;
     let mut buf: Vec<f32> = Vec::new();
-    let mut first = true;
     loop {
         let packet = match format.next_packet() {
             Ok(Some(p)) => p,
@@ -194,20 +183,9 @@ fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32) -> Result<Sample, String
             Ok(decoded) => {
                 let spec = decoded.spec();
                 let (channels, sr) = (spec.channels().count() as u16, spec.rate());
-                let skip = std::mem::take(&mut first) && skips_first_packet(&params);
-                let skipped = if skip { decoded.frames() as u64 } else { 0 };
-                let c = conv.get_or_insert_with(|| {
-                    Convert::new(
-                        channels,
-                        sr,
-                        rate,
-                        n_frames.map(|n| n.saturating_sub(skipped)),
-                    )
-                });
-                if !skip {
-                    decoded.copy_to_vec_interleaved(&mut buf);
-                    c.push(&buf);
-                }
+                let c = conv.get_or_insert_with(|| Convert::new(channels, sr, rate, n_frames));
+                decoded.copy_to_vec_interleaved(&mut buf);
+                c.push(&buf);
             }
             Err(SymError::DecodeError(_)) => continue,
             Err(_) => break,
@@ -524,7 +502,6 @@ mod tests {
         let mut dec = symphonia::default::get_codecs()
             .make_audio_decoder(params, &decoder_options())
             .unwrap();
-        let mut skip = skips_first_packet(params);
         let (mut ch, mut sr, mut out) = (0, 0, Vec::new());
         while let Ok(Some(p)) = format.next_packet() {
             if p.track_id != id {
@@ -533,9 +510,6 @@ mod tests {
             let Ok(d) = dec.decode(&p) else { continue };
             let spec = d.spec();
             (ch, sr) = (spec.channels().count() as u16, spec.rate());
-            if std::mem::take(&mut skip) {
-                continue;
-            }
             let mut b = Vec::<f32>::new();
             d.copy_to_vec_interleaved(&mut b);
             out.extend_from_slice(&b);
@@ -603,11 +577,30 @@ mod tests {
     }
 
     #[test]
-    fn vorbis_frames_as_symphonia_0_5_decoded_them() {
-        // its delay and padding frames kept, its first packet's none
+    fn gapless_vorbis_is_its_playable_frames() {
+        // no encoder delay or padding: as many frames as the stream plays
         let ogg = include_bytes!("../tests/data/tone.ogg").to_vec();
-        let s = decode_bytes(ogg, "ogg", 22_050).unwrap();
-        assert_eq!((s.channels, s.frames), (2, 13_696));
+        let mss = MediaSourceStream::new(
+            Box::new(std::io::Cursor::new(ogg.clone())),
+            Default::default(),
+        );
+        let mut hint = Hint::new();
+        hint.with_extension("ogg");
+        let format = symphonia::default::get_probe()
+            .probe(&hint, mss, Default::default(), Default::default())
+            .unwrap();
+        let track = format.default_track(TrackType::Audio).unwrap();
+        let rate = track
+            .codec_params
+            .as_ref()
+            .unwrap()
+            .audio()
+            .unwrap()
+            .sample_rate
+            .unwrap();
+        let playable = track.num_frames.unwrap();
+        let s = decode_bytes(ogg, "ogg", rate).unwrap();
+        assert_eq!((s.channels, s.frames as u64), (2, playable));
     }
 
     #[test]
