@@ -201,8 +201,9 @@ jobs:
   flatpak:
     name: Flatpak ${{ matrix.name }}
     needs: build-linux
-    # (each architecture's whether or not the other's build passed)
-    if: ${{ !cancelled() }}
+    # (each architecture's whether or not the other's build passed; none
+    # when the builds did not run, after the tests failed)
+    if: ${{ !cancelled() && needs.build-linux.result != 'skipped' }}
     strategy:
       fail-fast: false
       matrix:
