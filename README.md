@@ -570,10 +570,19 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   before vibeBMS kept them count each chart's best play only; time played starts at zero.
 - **Skin downloads**: vibeBMS bundles no third-party skins. `SETTINGS › SKINS › GET SKINS` lists the skins in
   [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
-  downloads, unpacks and installs one into `skins/` from its author's own link (Google Drive, Dropbox, MEGA, GitHub,
+  downloads, unpacks and installs one into `skins/` from the link it lists (Google Drive, Dropbox, MEGA, GitHub,
   plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
-  homepage and the terms its author states. The web build keeps them in the browser's storage, but does not unpack
-  skins over 400 MB.
+  homepage and the terms its author states, and where its download comes from (`source`): `official` is the
+  author's own (their site, their GitHub releases or repository, their own upload or a link they published) or a
+  copy its license allows; `third_party` is anyone else's (a re-upload, an archive of a dead site, a pack of several
+  authors' skins, or one whose permission is not known). Third-party entries are listed and downloaded only with
+  **Third-party sources** on (`SETTINGS › LIBRARY`, the same choice and notice as for songs: they are other people's
+  copies, not the authors' distribution); while it is off GET SKINS says how many it leaves out, and a skin of
+  theirs already installed stays (listed, to be deleted). An entry without `source` is the author's own in a catalog
+  of version 1 (from before the field, all of whose entries were), else third-party; a value vibeBMS does not know
+  is third-party. Every entry of the current catalog is `official`. Builds from before `source` read the new
+  catalog as before (they skip what they do not know) and list every entry. The web build keeps them in the browser's
+  storage, but does not unpack skins over 400 MB.
 - A skin's custom options and offsets are on its screen's page in `SETTINGS › SKINS` (Enter on the screen's row).
 - **Key config, skin select and sound set** (skin types 8, 9 and 10): with a KEY_CONFIG skin chosen, key `6` in song
   select (or the skin's key config button, or `SETTINGS › CONTROLS`) opens the key config screen it draws: ↑↓ or
