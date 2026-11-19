@@ -170,21 +170,22 @@ switch ($Stage) {
         & $Probe ui 'LR2 SETUP' text p/1002 e2e
         & $Probe ui 'LR2 SETUP' check p/1006 1
         Log 'player.txt' { '=== main'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
-        $tabs = [ordered]@{ jukebox1 = 91; jukebox2 = 163; option = 224; select = 277; system = 333 }
-        foreach ($t in $tabs.Keys) {
-            & $Probe ui 'LR2 SETUP' mouse $tabs[$t] 74 | Out-Null
-            Dismiss (Popups "tab-$t")
-            Log 'player.txt' { "=== tab $t"; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' -and $_ -match 'p/' } }
-        }
-        # the charts, dropped onto JUKEBOX1's folder tree
+        $tabs = [ordered]@{ main = 36; jukebox1 = 91; jukebox2 = 163; option = 224; select = 277; system = 333 }
+        # the charts, dropped onto JUKEBOX1's folder tree (the tab warns
+        # first that no folder is registered)
         $songs = Join-Path $root 'songs'
         New-Item -ItemType Directory -Force (Join-Path $songs 'lr2-measure') | Out-Null
         Copy-Item (Join-Path $PSScriptRoot '..\..\lr2-measure\charts\*.bme') (Join-Path $songs 'lr2-measure')
         & $Probe ui 'LR2 SETUP' mouse $tabs['jukebox1'] 74 | Out-Null
-        Start-Sleep -Milliseconds 500
+        Dismiss (Popups 'tab-jukebox1')
         Log 'player.txt' { '=== drop'; & $Probe drop 'LR2 SETUP' 300 270 $songs }
         Dismiss (Popups 'drop')
         Shot 'player-dropped.png'
+        foreach ($t in 'jukebox2', 'option', 'select', 'system', 'main') {
+            & $Probe ui 'LR2 SETUP' mouse $tabs[$t] 74 | Out-Null
+            Dismiss (Popups "tab-$t")
+            Log 'player.txt' { "=== tab $t"; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' -and $_ -match 'p/' } }
+        }
         # LR2 itself
         & $Probe ui 'LR2 SETUP' click 1003
         foreach ($t in 5, 15, 30) {
