@@ -16,6 +16,9 @@ on:
   push:
     branches: ['e2e/**']
     paths: ['tools/e2e/lr2/**', '.github/workflows/e2e-lr2.yml']
+  # weekly, on the default branch (about 42 minutes)
+  schedule:
+    - cron: "41 3 * * 0"
 
 concurrency:
   group: e2e-lr2-${{ github.ref }}
