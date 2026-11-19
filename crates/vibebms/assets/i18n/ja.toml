@@ -6,13 +6,6 @@ _untranslated = [
     "TOUCH PERSPECTIVE",
     "RANDOM MIX",
     "EXPAND JUDGE",
-    "HS-FIX",
-    "SUDDEN+",
-    "HIDDEN+",
-    "LIFT",
-    "JUDGE AREA",
-    "MARK NOTE",
-    "BPM GUIDE",
     "FREQ",
     "BGA",
     "GUIDE SE",
@@ -324,8 +317,6 @@ _untranslated = [
 "The second player's own assist, in VS." = "VS での 2P 自身のアシスト。"
 "2P judge offset" = "2P の判定オフセット"
 "The second player's own judge offset, in VS." = "VS での 2P 自身の判定オフセット。"
-"ALSO IN THE SONG SELECT" = "選曲画面にもあるもの"
-"Random, gauge, hi-speed, lane cover, target, assist, BGA: changed between songs" = "ランダム、ゲージ、ハイスピード、レーンカバー、ターゲット、アシスト、BGA：曲ごとに変えるもの"
 "PGREAT window" = "PGREAT の幅"
 "The PGREAT window with EXPAND JUDGE on, in % of the rule's." = "EXPAND JUDGE オン時の PGREAT の幅（ルールの幅に対する %）。"
 "GREAT window" = "GREAT の幅"
@@ -576,16 +567,6 @@ _untranslated = [
 "the DIFFICULTY tab" = "DIFFICULTY タブ"
 "Random select" = "ランダムセレクト"
 "RANDOM SELECT, the bar at the top of each folder" = "RANDOM SELECT、各フォルダの一番上のバー"
-"On the song select: {p}." = "選曲画面：{p}。"
-"Random (1P)" = "ランダム（1P）"
-"Random (2P)" = "ランダム（2P）"
-"DP option" = "DP オプション"
-"Battle" = "バトル"
-"Hi-speed" = "ハイスピード"
-"Lane cover" = "レーンカバー"
-"Auto scratch" = "オートスクラッチ"
-"Legacy note" = "レガシーノート"
-"Remove mines" = "地雷を消す"
 
 # scene/settings/play_extras.rs
 "PLAY EXTRAS" = "プレーの追加機能"

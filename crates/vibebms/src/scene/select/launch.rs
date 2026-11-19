@@ -8,6 +8,7 @@ use crate::config::Versus;
 use crate::replay;
 use crate::scene::play::{self, CourseRun, PlayRequest, PlayScene};
 use crate::scene::practice::PracticeScene;
+use vibebms_core::course::{CourseDef, CourseKind, MAX_STAGES};
 use vibebms_core::rng::JavaRandom;
 
 impl SelectScene {
@@ -105,7 +106,7 @@ impl SelectScene {
                 }
                 Next::Stay
             }
-            Some(Bar::Course(c)) => match course_run(ctx, &c) {
+            Some(Bar::Course(c)) => match self.course_run(ctx, &c) {
                 Ok(run) => {
                     let song = run.songs[0].clone();
                     self.launch(
@@ -209,7 +210,7 @@ impl SelectScene {
     /// another (each stage's own replay of that slot, as far as there is
     /// one).
     fn watch_course(&mut self, ctx: &mut Ctx, c: &CourseBar) -> Next {
-        let mut run = match course_run(ctx, c) {
+        let mut run = match self.course_run(ctx, c) {
             Ok(r) => r,
             Err(e) => {
                 ctx.toast(e);
@@ -452,21 +453,36 @@ impl SelectScene {
     }
 }
 
-/// The title of a course bar.
-pub(crate) fn course_title(ctx: &Ctx, c: &CourseBar) -> String {
-    match c {
-        CourseBar::Table(url, i) => table(ctx, url)
-            .and_then(|t| t.header.courses.get(*i))
-            .map(|c| c.name.clone())
-            .unwrap_or_default(),
-        CourseBar::Mine(id) => ctx
-            .lib
-            .courses
-            .get(*id)
-            .map(|c| tr!("{title} ({n} stages)", title = c.title, n = c.stages.len()))
-            .unwrap_or_default(),
-        CourseBar::RandomMix(_) => crate::courses::RANDOM_MIX.into(),
-    }
+/// What a course bar shows that only the library, the tables and the
+/// player's courses change: found once per library version
+/// (`SelectScene::course_facts`), not per frame.
+pub(crate) struct CourseFacts {
+    pub kind: CourseKind,
+    /// Its stages (RANDOM MIX: none).
+    pub stages: Option<usize>,
+    pub title: String,
+    /// Its identity (`CourseDef::id`): its record (a table course's, when
+    /// its charts are installed).
+    pub id: Option<String>,
+    /// Its charts (library indices), when all are installed.
+    pub songs: Vec<usize>,
+    /// A table course's trophies: the miss rate and score rate each asks.
+    pub trophies: Vec<Trophy>,
+}
+
+/// A class course trophy's limits (%).
+pub(crate) type Trophy = (Option<f64>, Option<f64>);
+
+/// The limits of a table course's trophies, bronze first.
+pub(crate) fn trophy_rates(trophies: &[bmseeker::table::CourseTrophy]) -> Vec<Trophy> {
+    (trophies.iter())
+        .map(|t| {
+            // (bmseeker keeps the rates to itself; they are in its JSON)
+            let t = serde_json::to_value(t).unwrap_or_default();
+            let rate = |k: &str| t.get(k).and_then(serde_json::Value::as_f64);
+            (rate("missrate"), rate("scorerate"))
+        })
+        .collect()
 }
 
 /// A course's record (its identity's, in any LN mode, under the rule
@@ -478,28 +494,16 @@ pub(crate) fn course_best<'a>(ctx: &'a Ctx, id: &str) -> Option<&'a crate::libra
         .max_by_key(|b| b.clear)
 }
 
-/// The lamp of a course bar's course (`None`: not played, or RANDOM MIX).
-pub(crate) fn course_lamp(ctx: &Ctx, c: &CourseBar) -> Option<vibebms_core::score::ClearType> {
-    let def = match c {
-        CourseBar::Mine(id) => ctx.lib.courses.get(*id)?.def(),
-        CourseBar::Table(..) => course_run(ctx, c).ok()?.def,
-        CourseBar::RandomMix(_) => return None,
-    };
-    course_best(ctx, &def.id()).map(|b| b.clear)
+/// A course of a bar: its name, kind and joins, stages and constraints.
+struct Course {
+    name: String,
+    def: CourseDef,
+    stages: Vec<(String, String)>,
+    constraints: Vec<String>,
 }
 
-/// The course of a bar, ready to play: its stages found in the library
-/// (else why it cannot be played).
-pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> {
-    use crate::courses::find;
-    use vibebms_core::course::{CourseDef, CourseKind, MAX_STAGES};
-    let songs = &ctx.lib.songs;
-    let (name, mut def, stages, constraints): (
-        String,
-        CourseDef,
-        Vec<(String, String)>,
-        Vec<String>,
-    ) = match c {
+fn course_of(ctx: &Ctx, c: &CourseBar) -> Result<Course, String> {
+    match c {
         CourseBar::Table(url, i) => {
             let tc = table(ctx, url)
                 .and_then(|t| t.header.courses.get(*i))
@@ -516,46 +520,152 @@ pub(crate) fn course_run(ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> 
                 kind: CourseKind::Class,
                 ..Default::default()
             };
-            (tc.name.clone(), def, stages, tc.constraint.clone())
+            Ok(Course {
+                name: tc.name.clone(),
+                def,
+                stages,
+                constraints: tc.constraint.clone(),
+            })
         }
         CourseBar::Mine(id) => {
             let mc = ctx.lib.courses.get(*id).ok_or(tr!("no such course"))?;
-            let stages = mc
-                .stages
-                .iter()
-                .map(|s| (s.md5.clone(), s.sha256.clone()))
+            let stages = (mc.stages.iter())
+                .map(|s| (s.md5.to_lowercase(), s.sha256.to_lowercase()))
                 .collect();
-            (mc.title.clone(), mc.def(), stages, Vec::new())
+            Ok(Course {
+                name: mc.title.clone(),
+                def: mc.def(),
+                stages,
+                constraints: Vec::new(),
+            })
         }
-        CourseBar::RandomMix(_) => return Err(tr!("not a course").into()),
-    };
-    if stages.is_empty() {
-        return Err(tr!(
-            "Course {name}: no stages yet (add charts in the settings' COURSES)",
-            name = name
-        ));
+        CourseBar::RandomMix(_) => Err(tr!("not a course").into()),
     }
-    if stages.len() > MAX_STAGES {
-        return Err(tr!(
-            "Course {name}: more than {max} stages",
-            name = name,
-            max = MAX_STAGES
-        ));
+}
+
+impl SelectScene {
+    /// The library's chart a course stage names: by its MD5, else its
+    /// SHA-256 (both lower case).
+    fn stage_chart(&self, md5: &str, sha: &str) -> Option<usize> {
+        let md5 = (!md5.is_empty()).then(|| self.md5_map.get(md5)).flatten();
+        md5.or_else(|| (!sha.is_empty()).then(|| self.sha_map.get(sha)).flatten())
+            .copied()
     }
-    let mut found = Vec::new();
-    for (k, (md5, sha)) in stages.iter().enumerate() {
-        let Some(s) = find(songs, md5, sha) else {
+
+    /// A course's charts (library indices), else why it cannot be played.
+    fn stage_charts(&self, c: &Course) -> Result<Vec<usize>, String> {
+        let name = &c.name;
+        if c.stages.is_empty() {
             return Err(tr!(
-                "Course {name}: stage {n} is not installed",
-                name = name,
-                n = k + 1
+                "Course {name}: no stages yet (add charts in the settings' COURSES)",
+                name = name
             ));
-        };
-        found.push(s.clone());
+        }
+        if c.stages.len() > MAX_STAGES {
+            return Err(tr!(
+                "Course {name}: more than {max} stages",
+                name = name,
+                max = MAX_STAGES
+            ));
+        }
+        (c.stages.iter().enumerate())
+            .map(|(k, (md5, sha))| {
+                self.stage_chart(md5, sha).ok_or_else(|| {
+                    tr!(
+                        "Course {name}: stage {n} is not installed",
+                        name = name,
+                        n = k + 1
+                    )
+                })
+            })
+            .collect()
     }
-    // a table course's identity: its charts' MD5s
-    def.stages = found.iter().map(|s| s.md5.to_lowercase()).collect();
-    Ok(CourseRun::new(name, def, found, constraints))
+
+    /// The course of a bar, ready to play: its stages found in the library
+    /// (else why it cannot be played).
+    pub(super) fn course_run(&self, ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> {
+        let mut course = course_of(ctx, c)?;
+        let found: Vec<_> = (self.stage_charts(&course)?.into_iter())
+            .map(|i| ctx.lib.songs[i].clone())
+            .collect();
+        // a table course's identity: its charts' MD5s
+        course.def.stages = found.iter().map(|s| s.md5.to_lowercase()).collect();
+        Ok(CourseRun::new(
+            course.name,
+            course.def,
+            found,
+            course.constraints,
+        ))
+    }
+
+    /// What course bar `c` shows (`CourseFacts`), worked out when first
+    /// asked for in this library version.
+    pub(crate) fn course_facts<T>(
+        &self,
+        ctx: &Ctx,
+        c: &CourseBar,
+        f: impl FnOnce(&CourseFacts) -> T,
+    ) -> T {
+        if let Some(facts) = self.courses.borrow().get(c) {
+            return f(facts);
+        }
+        let facts = self.find_course_facts(ctx, c);
+        let t = f(&facts);
+        self.courses.borrow_mut().insert(c.clone(), facts);
+        t
+    }
+
+    fn find_course_facts(&self, ctx: &Ctx, c: &CourseBar) -> CourseFacts {
+        let table_course =
+            |url: &str, k: usize| table(ctx, url).and_then(|t| t.header.courses.get(k));
+        let (kind, stages, title) = match c {
+            CourseBar::Mine(id) => match ctx.lib.courses.get(*id) {
+                Some(c) => (
+                    c.kind,
+                    Some(c.stages.len()),
+                    tr!("{title} ({n} stages)", title = c.title, n = c.stages.len()),
+                ),
+                None => (CourseKind::Expert, None, String::new()),
+            },
+            CourseBar::Table(url, k) => {
+                let tc = table_course(url, *k);
+                (
+                    CourseKind::Class,
+                    tc.map(|c| c.md5.len().max(c.sha256.len())),
+                    tc.map(|c| c.name.clone()).unwrap_or_default(),
+                )
+            }
+            CourseBar::RandomMix(kind) => (*kind, None, crate::courses::RANDOM_MIX.into()),
+        };
+        let course = course_of(ctx, c).ok();
+        let songs = (course.as_ref())
+            .and_then(|c| self.stage_charts(c).ok())
+            .unwrap_or_default();
+        let id = match (c, course) {
+            (CourseBar::Mine(_), Some(c)) => Some(c.def.id()),
+            (CourseBar::Table(..), Some(mut c)) if !songs.is_empty() => {
+                c.def.stages = (songs.iter())
+                    .map(|&i| ctx.lib.songs[i].md5.to_lowercase())
+                    .collect();
+                Some(c.def.id())
+            }
+            _ => None,
+        };
+        let trophies = match c {
+            CourseBar::Table(url, k) if !songs.is_empty() => table_course(url, *k)
+                .map(|c| trophy_rates(&c.trophy))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        CourseFacts {
+            kind,
+            stages,
+            title,
+            id,
+            songs,
+            trophies,
+        }
+    }
 }
 
 /// REPLAY's choice for people ("BEST, ELSE LAST": any kept).

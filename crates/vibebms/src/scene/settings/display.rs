@@ -5,7 +5,7 @@ use super::row::{percent, Row, Rows};
 use super::{skins, Sub};
 use crate::app::Ctx;
 use crate::config::PresentMode;
-use crate::scene::option_panel::cycle;
+use crate::scene::cycle;
 use crate::scene::skinned;
 use crate::skin::SkinType;
 use vibebms_audio::Bus;

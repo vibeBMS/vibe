@@ -11,12 +11,14 @@
 //! Panel 3's green number keys repeat while held (`repeats`), by 10 ms
 //! after 50 steps. Number key 3 changes the LN mode, as in beatoraja.
 
-use crate::config::{BgaMode, Bpms, HiSpeedMode, HsFix, PlayConfig, Target, Versus};
+use crate::config::{BgaMode, Bpms, HiSpeedMode, HsFix, PlayConfig, Target};
+use crate::scene::index_of;
+use crate::scene::play_opts::*;
+use crate::scene::select::REFERENCE_BPMS;
 use crate::scene::target::{self, Rival};
 use vibebms_core::gauge::{GaugeAutoShift, GaugeType};
 use vibebms_core::judge::JudgePreset;
-use vibebms_core::lane_option::{DoubleOption, LaneOption};
-use vibebms_core::play::{freq_label, FREQ_MAX, FREQ_MIN};
+use vibebms_core::lane_option::LaneOption;
 use vibebms_core::LnType;
 
 /// The panel START / SELECT open: 1, 2, 3 (both), or 0.
@@ -74,113 +76,6 @@ pub fn option(p: &PlayConfig, id: i32) -> Option<bool> {
     Some(value(p, g)? == v as i64)
 }
 
-/// Position of `v` in `all` (an image set index).
-pub fn index_of<T: PartialEq>(all: &[T], v: T) -> i64 {
-    all.iter().position(|x| *x == v).unwrap_or(0) as i64
-}
-
-/// `v` moved `d` places along `all`, around the end.
-pub fn cycle<T: Copy + PartialEq>(all: &[T], v: T, d: i32) -> T {
-    let n = all.len() as i32;
-    let i = all.iter().position(|x| *x == v).unwrap_or(0) as i32;
-    all[(i + d).rem_euclid(n) as usize]
-}
-
-pub fn onoff(b: bool) -> &'static str {
-    if b {
-        "ON"
-    } else {
-        "OFF"
-    }
-}
-
-/// DP OPTION as beatoraja lists it (skin button 54): OFF, FLIP, BATTLE,
-/// BATTLE AS (BATTLE with AUTO SCRATCH on both sides).
-pub fn dp_index(p: &PlayConfig) -> i64 {
-    match (p.battle, p.auto_scratch) {
-        (true, true) => 3,
-        (true, false) => 2,
-        _ => p.dp_option as i64,
-    }
-}
-
-/// Set DP OPTION to `i` (as `dp_index`): BATTLE AS turns AUTO SCRATCH on,
-/// leaving it turns it off again.
-pub fn set_dp_index(p: &mut PlayConfig, i: i64) {
-    if dp_index(p) == 3 && i != 3 {
-        p.auto_scratch = false;
-    }
-    p.battle = i >= 2;
-    if i == 3 {
-        p.auto_scratch = true;
-    }
-    p.dp_option = if i == 1 {
-        DoubleOption::Flip
-    } else {
-        DoubleOption::Off
-    };
-}
-
-/// DP OPTION with the battles that are not play options: BATTLE AS,
-/// then G-BATTLE (MY BEST, LAST), VS and G-BATTLE against a saved slot
-/// (the select screen's panel and BATTLE row; chosen in the order of
-/// `battle_choices`).
-pub const BATTLE_LABELS: [&str; 11] = [
-    "OFF",
-    "FLIP",
-    "BATTLE",
-    "BATTLE AS",
-    "G-BATTLE MY BEST",
-    "G-BATTLE LAST",
-    "VS",
-    "G-BATTLE SLOT 1",
-    "G-BATTLE SLOT 2",
-    "G-BATTLE SLOT 3",
-    "G-BATTLE SLOT 4",
-];
-
-pub fn battle_index(p: &PlayConfig) -> i64 {
-    match p.versus {
-        Versus::Off => dp_index(p),
-        Versus::GhostBest => 4,
-        Versus::GhostLast => 5,
-        Versus::Local => 6,
-        Versus::GhostSlot(n) => 6 + n.clamp(1, 4) as i64,
-    }
-}
-
-pub fn set_battle_index(p: &mut PlayConfig, i: i64) {
-    set_dp_index(p, if i <= 3 { i } else { 0 });
-    p.versus = match i {
-        4 => Versus::GhostBest,
-        5 => Versus::GhostLast,
-        6 => Versus::Local,
-        7..=10 => Versus::GhostSlot((i - 6) as u8),
-        _ => Versus::Off,
-    };
-}
-
-/// The battle values that can be chosen now, in their order: the saved
-/// slots after LAST, VS last (it needs a local second player's
-/// controls).
-pub fn battle_choices(vs: bool) -> &'static [i64] {
-    if vs {
-        &[0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 6]
-    } else {
-        &[0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
-    }
-}
-
-/// The next of `choices` after the current battle value (`d` = ±1).
-pub fn step_battle(p: &mut PlayConfig, choices: &[i64], d: i32) -> &'static str {
-    let cur = battle_index(p);
-    let n = choices.len() as i32;
-    let i = choices.iter().position(|c| *c == cur).unwrap_or(0) as i32;
-    let next = choices[(i + d).rem_euclid(n) as usize];
-    set_battle_index(p, next);
-    BATTLE_LABELS[next as usize]
-}
-
 /// Keys that repeat while held: panel 3's green number (keys 4 and 6).
 pub fn repeats(panel: usize, key: usize) -> bool {
     panel == 3 && matches!(key, 3 | 5)
@@ -192,90 +87,44 @@ pub fn repeat(p: &mut PlayConfig, key: usize, step: f64, b: &Bpms) -> String {
     hispeed_label(p, b)
 }
 
+/// The option key `key` (0 = key 1) changes with panel `panel` open, and
+/// which way.
+fn panel_key(panel: usize, key: usize) -> Option<(&'static PlayOpt, i32)> {
+    Some(match (panel, key) {
+        (1, 0) => (&RANDOM, 1),
+        (1, 1) => (&RANDOM, -1),
+        (1, 2) => (&GAUGE, 1),
+        (1, 3) => (&DP_OPTION, 1),
+        (1, 4) => (&HS_FIX, 1),
+        (1, 5) => (&RANDOM_2P, -1),
+        (1, 6) => (&RANDOM_2P, 1),
+        (2, 0) => (&EXPAND_JUDGE, 1),
+        (2, 1) => (&CONSTANT, 1),
+        (2, 2) => (&JUDGE_AREA, 1),
+        (2, 3) => (&LEGACY_NOTE, 1),
+        (2, 4) => (&MARK_NOTE, 1),
+        (2, 5) => (&BPM_GUIDE, 1),
+        (2, 6) => (&NO_MINE, 1),
+        (3, 0) => (&BGA, 1),
+        (3, 1) => (&AUTO_SHIFT, 1),
+        (3, 2) => (&TIMING_AUTO_ADJUST, 1),
+        (3, 3) => (&GREEN_NUMBER, -1),
+        (3, 4) => (&JUDGE_TIMING, -1),
+        (3, 5) => (&GREEN_NUMBER, 1),
+        (3, 6) => (&JUDGE_TIMING, 1),
+        _ => return None,
+    })
+}
+
 /// Key `key` (0 = key 1) pressed with panel `panel` open: change the option
 /// (the other way for `d` = -1: a tap on a value's left half) and name it
-/// with its new value.
+/// with its new value (the green number keys: the hi-speed with it).
 pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms, d: i32) -> Option<String> {
-    Some(match (panel, key) {
-        (1, 0 | 1) => {
-            let d = if key == 0 { d } else { -d };
-            p.random_1p = cycle(&LaneOption::ALL, p.random_1p, d);
-            format!("RANDOM: {}", p.random_1p.label())
-        }
-        (1, 2) => {
-            p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, d);
-            format!("GAUGE: {}", p.gauge.label())
-        }
-        (1, 3) => {
-            let label = step_battle(p, battle_choices(true), d);
-            format!("DP OPTION: {label}")
-        }
-        (1, 4) => {
-            let f = cycle(&HsFix::ALL, p.hs_fix, d);
-            p.set_hs_fix(f, b);
-            format!("HS-FIX: {}", f.label())
-        }
-        (1, 5 | 6) => {
-            let d = if key == 6 { d } else { -d };
-            p.random_2p = cycle(&LaneOption::ALL, p.random_2p, d);
-            format!("RANDOM 2P: {}", p.random_2p.label())
-        }
-        (2, 0) => {
-            p.expand_judge = !p.expand_judge;
-            format!("EXPAND JUDGE: {}", onoff(p.expand_judge))
-        }
-        (2, 1) => {
-            p.hispeed_mode = match p.hispeed_mode {
-                HiSpeedMode::Floating => HiSpeedMode::Constant,
-                HiSpeedMode::Constant => HiSpeedMode::Floating,
-            };
-            format!(
-                "CONSTANT: {}",
-                onoff(p.hispeed_mode == HiSpeedMode::Constant)
-            )
-        }
-        (2, 2) => {
-            p.judge_area = !p.judge_area;
-            format!("JUDGE AREA: {}", onoff(p.judge_area))
-        }
-        (2, 3) => {
-            p.legacy_note = !p.legacy_note;
-            format!("LEGACY NOTE: {}", onoff(p.legacy_note))
-        }
-        (2, 4) => {
-            p.mark_notes = !p.mark_notes;
-            format!("MARK NOTE: {}", onoff(p.mark_notes))
-        }
-        (2, 5) => {
-            p.bpm_guide = !p.bpm_guide;
-            format!("BPM GUIDE: {}", onoff(p.bpm_guide))
-        }
-        (2, 6) => {
-            p.no_mine = !p.no_mine;
-            format!("NO MINE: {}", onoff(p.no_mine))
-        }
-        (3, 0) => {
-            p.bga = cycle(&BgaMode::ALL, p.bga, d);
-            format!("BGA: {}", p.bga.label())
-        }
-        (3, 1) => {
-            p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d);
-            format!("GAUGE AUTO SHIFT: {}", p.gauge_auto_shift.label())
-        }
-        (3, 2) => {
-            p.timing_auto_adjust = !p.timing_auto_adjust;
-            format!("TIMING AUTO ADJUST: {}", onoff(p.timing_auto_adjust))
-        }
-        (3, 3 | 5) => {
-            p.add_duration(if key == 5 { d } else { -d } as f64, b);
-            hispeed_label(p, b)
-        }
-        (3, 4 | 6) => {
-            p.judge_offset_ms =
-                (p.judge_offset_ms + if key == 6 { d } else { -d }).clamp(-500, 500);
-            format!("JUDGE TIMING: {:+} ms", p.judge_offset_ms)
-        }
-        _ => return None,
+    let (o, sign) = panel_key(panel, key)?;
+    (o.step)(p, sign * d, b);
+    Some(match repeats(panel, key) {
+        true => hispeed_label(p, b),
+        false => o.said(p, b),
     })
 }
 
@@ -284,15 +133,12 @@ pub fn key(p: &mut PlayConfig, panel: usize, key: usize, b: &Bpms, d: i32) -> Op
 pub fn turn(p: &mut PlayConfig, panel: usize, dir: i32, rivals: &[Rival]) -> Option<String> {
     Some(match panel {
         1 => format!("TARGET: {}", target::step(p, rivals, -dir)),
-        2 => step_freq(p, dir),
+        2 => {
+            (FREQ.step)(p, dir, &REFERENCE_BPMS);
+            FREQ.said(p, &REFERENCE_BPMS)
+        }
         _ => return None,
     })
-}
-
-/// FREQ one semitone up (`d` = 1) or down, within its range.
-pub fn step_freq(p: &mut PlayConfig, d: i32) -> String {
-    p.freq = (p.freq + d).clamp(FREQ_MIN, FREQ_MAX);
-    format!("FREQ: {}", freq_label(p.freq))
 }
 
 fn hispeed_label(p: &PlayConfig, b: &Bpms) -> String {
@@ -302,6 +148,8 @@ fn hispeed_label(p: &PlayConfig, b: &Bpms) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Versus;
+    use vibebms_core::lane_option::DoubleOption;
 
     #[test]
     fn keys_follow_beatoraja() {

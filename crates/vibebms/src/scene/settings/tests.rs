@@ -1,4 +1,3 @@
-use super::per_play::{MOVED, SHOW_PER_PLAY};
 use super::*;
 use crate::config::IrAccount;
 use crate::courses::{Course, Stage};
@@ -92,6 +91,35 @@ fn setup(name: &str) -> (std::path::PathBuf, Ctx) {
     });
     (root, ctx)
 }
+
+/// The rows of `OLD` that moved to the song select's panels
+/// (`per_play::MOVED` points to them).
+const MOVED_IDS: &[&str] = &[
+    "play.random_1p",
+    "play.random_2p",
+    "play.dp_option",
+    "play.battle",
+    "play.side",
+    "play.hispeed",
+    "play.hs_fix",
+    "play.lane_cover",
+    "play.sudden",
+    "play.hidden",
+    "play.lift",
+    "play.target",
+    "play.gauge",
+    "play.gauge_auto_shift",
+    "play.auto_scratch",
+    "play.legacy_note",
+    "play.no_mine",
+    "play.expand_judge",
+    "play.judge_area",
+    "play.mark_notes",
+    "play.bpm_guide",
+    "play.autoplay",
+    "play.bga",
+    "play.show_fast_slow",
+];
 
 /// Every row of the old twelve pages (by what it sets or does) and where
 /// it was. Rows that only show while something happens (an update, plays
@@ -300,11 +328,13 @@ fn every_old_row_is_reachable() {
     let armed = Armed::default();
     let tree = search::walk(&ctx, &armed);
     let has = |id: &str| tree.iter().any(|(_, r)| r.id == id);
-    // (the per-play rows are on the song select once they leave settings)
-    let moved = |id: &str| !SHOW_PER_PLAY && MOVED.iter().any(|m| m.ids.contains(&id));
+    // (the per-play rows are on the song select, and only there)
     for (page, ids) in OLD {
         for id in *ids {
-            assert!(has(id) || moved(id), "{page}: {id} is nowhere");
+            match MOVED_IDS.contains(id) {
+                true => assert!(!has(id), "{page}: {id} is in settings too"),
+                false => assert!(has(id), "{page}: {id} is nowhere"),
+            }
         }
     }
     // every skin type's choice, every BMS-IR table, every binding
@@ -338,36 +368,6 @@ fn every_old_row_is_reachable() {
     for (path, r) in &tree {
         if r.acts() && !matches!(r.kind, Kind::Cell { .. }) {
             assert!(!r.desc.is_empty(), "{path:?} {}: no description", r.label);
-        }
-    }
-    std::fs::remove_dir_all(&root).ok();
-}
-
-#[test]
-fn per_play_rows_are_listed_once() {
-    let (root, ctx) = setup("perplay");
-    let armed = Armed::default();
-    let moved: Vec<&str> = MOVED.iter().flat_map(|m| m.ids.iter().copied()).collect();
-    let gameplay = View::Page(Page::Gameplay).rows(&ctx, &armed, Folds::All);
-    let per_play: Vec<&str> = (gameplay.iter())
-        .filter(|r| r.group == Some("gameplay.per_play"))
-        .map(|r| r.id)
-        .collect();
-    // the per-play rows are exactly the moved ones: removing them is
-    // SHOW_PER_PLAY alone
-    if SHOW_PER_PLAY {
-        let mut a = per_play.clone();
-        let mut b = moved.clone();
-        a.sort();
-        b.sort();
-        assert_eq!(a, b);
-    } else {
-        assert!(per_play.is_empty());
-    }
-    // and no other page has one of them
-    for (path, r) in search::walk(&ctx, &armed) {
-        if moved.contains(&r.id) {
-            assert_eq!(r.group, Some("gameplay.per_play"), "{path:?} {}", r.label);
         }
     }
     std::fs::remove_dir_all(&root).ok();

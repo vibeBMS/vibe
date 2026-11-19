@@ -163,7 +163,7 @@ impl Missing {
 }
 
 /// A course in a list.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum CourseBar {
     /// A table's (its URL), by its index there.
     Table(String, usize),
