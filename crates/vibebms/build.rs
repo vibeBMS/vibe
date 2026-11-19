@@ -10,12 +10,16 @@ fn main() {
     // their own lists.
     let os = var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let desktop = var("CARGO_CFG_WINDOWS").is_ok() || os == "macos" || os == "linux";
+    let mobile = os == "android" || os == "ios";
+    let web = var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32");
     let browser = var("CARGO_FEATURE_BROWSER").is_ok();
     let groups = [
         // the executables that update themselves (`update`)
         ("desktop", desktop),
         // phones and tablets
-        ("mobile", os == "android" || os == "ios"),
+        ("mobile", mobile),
+        // smaller memory and CPU budgets (the web, phones)
+        ("small_device", web || mobile),
         // songs are downloaded in an in-app web view (`browser`)
         (
             "in_app_browser",
@@ -23,7 +27,7 @@ fn main() {
         ),
         // game controllers through gilrs (`input::gamepad`; the web through
         // the browser's Gamepad API)
-        ("gamepads", os != "android" && os != "ios"),
+        ("gamepads", !mobile),
     ];
     for (name, on) in groups {
         println!("cargo::rustc-check-cfg=cfg({name})");

@@ -34,15 +34,7 @@ pub const TARGET_RANGE: (f32, f32) = (-24.0, -6.0);
 
 /// The web and mobile measure a chart from every second frame (half the
 /// work, a little off for very bright music); elsewhere every frame.
-const STEP: usize = if cfg!(any(
-    target_arch = "wasm32",
-    target_os = "android",
-    target_os = "ios"
-)) {
-    2
-} else {
-    1
-};
+const STEP: usize = if cfg!(small_device) { 2 } else { 1 };
 
 /// The loudness a chart's sounds and previews are played at, if they are
 /// normalised.
