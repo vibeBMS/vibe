@@ -12,29 +12,19 @@ pub const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
 /// What the app resolves links and installs songs with: bmseeker's default
 /// settings and hosts, with the player's choices (third parties' copies
 /// used, a song's folder named after its charts); on the web a download
-/// that fails is a page (the proxy passes archives only).
+/// that fails is a page (the proxy passes archives only). Natively its
+/// requests name the HTTP library, bmseeker, then vibeBMS
+/// ([`PRODUCT`](crate::platform::http::PRODUCT)): `ureq/3.5.2
+/// BMSeeker/0.1.0 (+…BMSeeker) vibeBMS/0.1.0 (+…vibe)`.
 pub fn context(config: &crate::config::Config) -> Context {
     Context {
         failures_are_pages: crate::platform::IS_WEB,
         ..Context::new(bmseeker::config::Config {
-            user_agent: user_agent(&bmseeker::config::Config::default().user_agent),
+            user_agent: bmseeker::config::user_agent_with(crate::platform::http::PRODUCT),
             third_party: config.third_party_mirrors,
             folder_naming: config.name_song_folders,
             ..Default::default()
         })
-    }
-}
-
-/// What bmseeker's own requests (native downloads) are sent with:
-/// vibeBMS's name and version before bmseeker's default, `vibeBMS/0.1.0
-/// BMSeeker/0.1.0 (+…)`. A default that is a browser's (`Mozilla/…`) is
-/// never sent: vibeBMS's own User-Agent instead. On the web the browser
-/// sends its own, whatever this says.
-pub fn user_agent(bmseeker_default: &str) -> String {
-    if bmseeker_default.is_empty() || bmseeker_default.starts_with("Mozilla/") {
-        crate::platform::http::USER_AGENT.to_string()
-    } else {
-        format!("vibeBMS/{} {bmseeker_default}", crate::update::VERSION)
     }
 }
 
@@ -69,22 +59,21 @@ pub fn via_proxy(url: &str) -> String {
 mod tests {
     use super::*;
 
-    /// bmseeker's downloads name vibeBMS before bmseeker; a browser's
-    /// User-Agent is never sent.
+    /// bmseeker's downloads name the HTTP library, bmseeker and vibeBMS, in
+    /// that order; a browser is never named.
     #[test]
-    fn downloads_name_vibebms_and_bmseeker() {
-        let v = crate::update::VERSION;
-        let named = "BMSeeker/0.2.0 (+https://github.com/vibeBMS/BMSeeker)";
-        assert_eq!(
-            user_agent(named),
-            format!("vibeBMS/{v} BMSeeker/0.2.0 (+https://github.com/vibeBMS/BMSeeker)")
-        );
-        let browser = "Mozilla/5.0 (X11; Linux x86_64) Chrome/126 Safari/537.36";
-        assert_eq!(user_agent(browser), crate::platform::http::USER_AGENT);
-        assert_eq!(user_agent(""), crate::platform::http::USER_AGENT);
-        // what the app's downloads are sent with, from bmseeker's default
+    fn downloads_name_ureq_bmseeker_and_vibebms() {
+        use bmseeker::config::{native_user_agent, HTTP_CLIENT, USER_AGENT};
         let ua = context(&Default::default()).config.user_agent.clone();
-        assert!(ua.starts_with(&format!("vibeBMS/{v}")), "{ua}");
+        let vibe = crate::platform::http::PRODUCT;
+        assert_eq!(ua, format!("{USER_AGENT} {vibe}"));
+        assert!(USER_AGENT.starts_with("BMSeeker/"), "{USER_AGENT}");
+        assert!(vibe.starts_with(&format!("vibeBMS/{} (+", crate::update::VERSION)));
+        // on the wire, natively
+        assert_eq!(
+            native_user_agent(&ua),
+            format!("{HTTP_CLIENT} {USER_AGENT} {vibe}")
+        );
         assert!(!ua.contains("Mozilla"), "{ua}");
     }
 }
