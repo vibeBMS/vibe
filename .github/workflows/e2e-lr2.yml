@@ -127,3 +127,10 @@ jobs:
           name: e2e-lr2
           path: ${{ env.OUT }}
           retention-days: 14
+      # the probes above only say what the runner gives LR2: without LR2 the
+      # comparison has not run, and the run says so by failing
+      - name: Verdict
+        if: steps.cache.outputs.cache-hit != 'true' && steps.fetch.outcome != 'success'
+        run: |
+          Write-Host "::error::no LR2: its official download ($env:LR2_URL) is unreachable, and no mirror is used (tools/e2e/lr2/README.md, Status)"
+          exit 1
