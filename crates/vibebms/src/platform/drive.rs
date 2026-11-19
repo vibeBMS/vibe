@@ -3,110 +3,154 @@
 //! `native::Native`, on a thread of their own: to disk.) A job asks again
 //! after a server's passing failure itself.
 
-use super::http::{fetch, request};
+use super::http::{call, request};
 use super::IS_WEB;
-use bmseeker::install::job::{Effect, Fed, Job, Served, Step, TaskJob, Unserved};
-use bmseeker::net::Request;
+use bmseeker::hosts::Context;
+use bmseeker::install::job::{Effect, Fed, Job, Step, TaskJob, Unserved};
+use bmseeker::net::{NetError, Request};
 use bmseeker::progress::Progress;
+use bmseeker::refusal::Refusals;
+use bmseeker::web::{proxied, sends_cors, served, unserved, PROXY};
 use std::sync::{Arc, Mutex};
 
 type Done<O> = Box<dyn FnOnce(O) + Send>;
 
-/// Run a bmseeker job: on the web its requests through the vibeBMS proxy
-/// (but to hosts that send CORS headers) and its files through the proxy
-/// too (where the redirects ended from the proxy's `X-Final-Url`); its
-/// files reporting to `progress`, ended by its cancel or a stall, a MEGA
-/// file decrypted here; its waits on a timer. Then `on_done` with its
-/// result.
-pub fn run_job<J>(
-    mut job: J,
+/// What a job's effects are done with: the progress its files report to,
+/// the refusals they keep to (none for a table's load: vibeBMS's own).
+#[derive(Clone, Default)]
+struct Net {
     progress: Option<Arc<Progress>>,
-    on_done: impl FnOnce(J::Output) + Send + 'static,
-) where
+    refused: Option<Arc<Refusals>>,
+}
+
+/// Run a bmseeker job kept to `cx`'s refusals (a service that refused is
+/// not asked again): on the web its requests and files through the vibeBMS
+/// proxy (but to hosts that send CORS headers; where the redirects ended
+/// from the proxy's `X-Final-Url`); its files reporting to `cx`'s
+/// progress, ended by its cancel or a stall, a MEGA file decrypted here;
+/// its waits on a timer. Then `on_done` with its result.
+pub fn run_job<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
+where
+    J: Job + 'static,
+    J::Output: Send + 'static,
+{
+    let net = Net {
+        progress: cx.progress.clone(),
+        refused: Some(cx.refused.clone()),
+    };
+    drive(job, net, on_done)
+}
+
+fn drive<J>(mut job: J, net: Net, on_done: impl FnOnce(J::Output) + Send + 'static)
+where
     J: Job + 'static,
     J::Output: Send + 'static,
 {
     let next = job.start();
-    step(job, next, progress, Box::new(on_done));
+    step(job, next, net, Box::new(on_done));
 }
 
-fn step<J>(
-    mut job: J,
-    next: Step<J::Output>,
-    progress: Option<Arc<Progress>>,
-    on_done: Done<J::Output>,
-) where
+fn step<J>(mut job: J, next: Step<J::Output>, net: Net, on_done: Done<J::Output>)
+where
     J: Job + 'static,
     J::Output: Send + 'static,
 {
     match next {
         Step::Done(out) => on_done(out),
-        Step::Do(effect) => perform(effect, progress.clone(), move |fed| {
+        Step::Do(effect) => perform(effect, net.clone(), move |fed| {
             let next = job.feed(fed);
-            step(job, next, progress, on_done)
+            step(job, next, net, on_done)
         }),
     }
 }
 
-/// Do `effect`, then `then` with what came of it.
-fn perform(
-    effect: Effect,
-    progress: Option<Arc<Progress>>,
-    then: impl FnOnce(Fed) + Send + 'static,
-) {
-    let proxied = |u: &str| {
+/// Do `effect`, kept to `net`'s refusals, then `then` with what came of
+/// it.
+fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
+    let Net { progress, refused } = net;
+    if let Some(fed) = refused
+        .as_ref()
+        .and_then(|r| r.before(&effect, progress.as_deref()))
+    {
+        return then(fed);
+    }
+    let kept = {
+        let progress = progress.clone();
+        move |url: &str, fed: Fed| match &refused {
+            Some(r) => r.after(url, fed, progress.as_deref()),
+            None => fed,
+        }
+    };
+    let asked = |u: &str| {
         if IS_WEB {
-            crate::hosts::via_proxy(u)
+            proxied(PROXY, u)
         } else {
             u.to_string()
         }
     };
     match effect {
         Effect::Http(r) => {
-            let url = |u: &str| {
-                if crate::hosts::sends_cors(u) {
-                    u.to_string()
-                } else {
-                    proxied(u)
-                }
-            };
+            let url = r.url().to_string();
+            let through = IS_WEB && !sends_cors(&url);
             let req = match r {
-                Request::Get(u) => ehttp::Request::get(url(&u)),
+                Request::Get(u) => ehttp::Request::get(asked(&u)),
                 Request::Post { url: u, body } => request(
                     "POST",
-                    &url(&u),
+                    &asked(&u),
                     &[("Content-Type".into(), "application/json".into())],
                     body,
                 ),
             };
-            fetch(req, move |a| then(Fed::Http(a)))
+            call(req, move |a| {
+                let a = a.and_then(|r| match r.status {
+                    200..=299 => Ok(r.body),
+                    n => Err(unserved(
+                        &url,
+                        n,
+                        through,
+                        r.headers.get("x-final-url"),
+                        &r.body,
+                    )),
+                });
+                then(kept(&url, Fed::Http(a)))
+            })
         }
         Effect::Download { target, .. } => {
+            let through = IS_WEB && !sends_cors(&target.url);
             let body = Arc::new(Mutex::new(Vec::new()));
             let sink = body.clone();
+            let announced = progress.clone();
             super::stream(
-                &proxied(&target.url),
+                &asked(&target.url),
                 progress,
                 move |c| {
-                    sink.lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .extend_from_slice(c);
+                    let mut b = sink.lock().unwrap_or_else(|e| e.into_inner());
+                    // (the size the answer announced: `stream` told the
+                    // progress)
+                    if b.capacity() == 0 {
+                        let n = announced.as_ref().and_then(|p| p.bytes().1);
+                        if let Some(n) = n.and_then(|n| usize::try_from(n).ok()) {
+                            let _ = b.try_reserve_exact(n);
+                        }
+                    }
+                    b.extend_from_slice(c);
                     Ok(())
                 },
                 move |r, at| {
                     let fed = match r {
                         Ok(()) => {
-                            let mut b = std::mem::take(
+                            let b = std::mem::take(
                                 &mut *body.lock().unwrap_or_else(|e| e.into_inner()),
                             );
-                            if let Some(k) = &target.mega_key {
-                                bmseeker::hosts::MegaCipher::new(k).apply(&mut b);
-                            }
-                            Ok(Served::bytes(b, None, at))
+                            Ok(served(&target, b, None, at))
                         }
+                        Err(NetError::Status(n)) => Err(Unserved {
+                            error: unserved(&target.url, n, through, at.as_deref(), &[]),
+                            at,
+                        }),
                         Err(error) => Err(Unserved { error, at }),
                     };
-                    then(Fed::Downloaded(fed))
+                    then(kept(&target.url, Fed::Downloaded(fed)))
                 },
             )
         }
@@ -120,9 +164,9 @@ pub fn load_table(
     on_done: impl FnOnce(Result<bmseeker::table::DifficultyTable, String>) + Send + 'static,
 ) {
     // web: table servers send no CORS headers; the vibeBMS proxy does
-    run_job(
+    drive(
         TaskJob::new(bmseeker::table::TableLoader::new(url)),
-        None,
+        Net::default(),
         move |r| on_done(r.map_err(|e| e.to_string())),
     );
 }
@@ -195,7 +239,8 @@ mod tests {
             urls,
             got: Vec::new(),
         };
-        run_job(job, Some(progress.clone()), move |got| {
+        let cx = Context::default().with_progress(progress.clone());
+        run_job(job, &cx, move |got| {
             let _ = tx.send(got);
         });
         let got = rx.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -209,5 +254,25 @@ mod tests {
             ]
         );
         assert_eq!(progress.bytes(), (4, Some(4)));
+    }
+
+    /// A service that refused is not asked again: not its other pages, not
+    /// its files.
+    #[test]
+    fn keeps_to_refusals() {
+        let refusing = serve("403 Forbidden", b"");
+        let other = refusing.replace("/f", "/g");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let job = Steps {
+            urls: vec![refusing, other.clone(), other],
+            got: Vec::new(),
+        };
+        let cx = Context::default();
+        run_job(job, &cx, move |got| {
+            let _ = tx.send(got);
+        });
+        let got = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(got[..3].iter().all(|g| g.contains("Refused")), "{got:?}");
+        assert_eq!(got[3], "woke");
     }
 }
