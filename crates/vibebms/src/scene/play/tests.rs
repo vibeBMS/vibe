@@ -147,7 +147,9 @@ fn autoplay_plays_every_chart_through() {
 }
 
 /// Replays of plays with these options judge the same as before the
-/// play scene took several judges (the digests were taken then).
+/// play scene took several judges (the digests were taken then; those with
+/// LNs again when an LN judged after an early release took its larger
+/// error for FAST / SLOW, the judgements the same).
 #[test]
 fn replays_judge_as_before() {
     let d = RuleOptions::default;
@@ -272,27 +274,27 @@ fn replays_judge_as_before() {
     ];
     let got: Vec<(u64, u32)> = cases.iter().map(|(k, p)| play_and_watch(*k, p)).collect();
     let want = [
-        (0x6e7befe494f86dc7, 474),
+        (0xa76a1763fdf66101, 474),
         (0xbf6ca1516b2dc3a6, 336),
-        (0x758a4f4820ee6ab0, 932),
-        (0x941e7fce3f15bed2, 654),
-        (0x5fc6086c2dda718e, 480),
-        (0x40624123b4d9a015, 470),
-        (0xce76d9ba6ff28c18, 471),
-        (0x8cd4c2f2d3cbd667, 493),
+        (0x4123cac824bd1084, 932),
+        (0xaf54e52ddda836f6, 654),
+        (0x489f7e223e851801, 480),
+        (0x2cab6841aa33d654, 470),
+        (0xe6485c1bb000e555, 471),
+        (0x1f81fa3451400fb3, 493),
         (0xd42210a62c598fbb, 558),
         (0x32364c7127b745df, 558),
         // the LR2 judge as docs/LR2_BEHAVIOUR.md has it (replay format 5)
         (0x1bdbeee50682a22e, 434),
         // the IIDX preset as the arcade (replay format 7)
-        (0x730d25115364c1dd, 434),
-        (0xffe1584f208e5414, 550),
+        (0x3b74b92abb25d2f7, 434),
+        (0x942b757e8f497dae, 550),
         (0x47dc09ae4c89eab1, 468),
-        (0xe4283ac5977abf9e, 950),
-        (0xbf481f7d42daafcf, 473),
-        (0x4135924bdf310df1, 945),
-        (0xe349c363d5d76f7b, 780),
-        (0x6a8d0564b558f304, 947),
+        (0x4a1e755cb4dd1dbc, 950),
+        (0x5fd2ceb15419ce21, 473),
+        (0x39e58bd8cc14d9ce, 945),
+        (0x80c2d3c11291ba9f, 780),
+        (0x7faa492050c6e7d1, 947),
     ];
     if want.len() != got.len() {
         panic!("digests: {got:x?}");

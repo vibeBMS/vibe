@@ -458,6 +458,23 @@ fn s03b_ln_head_great_release_on_time() {
     assert_eq!(e.holding(0), None);
 }
 
+/// S3 (b), head early: the head's error is the larger, and the judgement
+/// (which waits for the end, as an early one does) is FAST by it, as
+/// beatoraja counts it (tools/e2e/beatoraja, case ln-ln).
+#[test]
+fn s03b_ln_head_early_release_on_time_is_fast() {
+    let c = ln_chart();
+    let mut e = engine(&c, &Setup::ln(LnType::Ln));
+    e.update(SEC);
+    press(&mut e, 0, 1_960 * MS);
+    assert_eq!(drain(&mut e), [snd(10, 0)]);
+    release(&mut e, 0, 3 * SEC);
+    assert_eq!(drain(&mut e), NONE);
+    e.update(3 * SEC + 1);
+    assert_eq!(drain(&mut e), [jh(0, GREAT, 40_000, 1), snd(50, 0)]);
+    assert_eq!((e.score.fast(), e.score.slow()), (1, 0));
+}
+
 /// S3 (c) and Q2 (a rule): an early release inside the windows waits for
 /// the end, and reports the release's error.
 #[test]
