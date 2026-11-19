@@ -294,12 +294,12 @@ fn updates(v: &mut Rows) {
                 ));
             }
         }
-        Status::Downloading(o, p) => v.push(Row::note(
+        Status::Downloading(o) => v.push(Row::note(
             "update.state",
             tr!(
                 "Downloading {version}… {percent}%",
                 version = o.version,
-                percent = p.percent()
+                percent = ctx.net.updater.percent()
             ),
             "",
         )),
