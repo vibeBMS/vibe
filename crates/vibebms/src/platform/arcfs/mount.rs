@@ -257,13 +257,7 @@ fn mount(archive: &Path, folder: &Path, stamp: (i64, i64)) -> io::Result<Mount> 
     );
     #[cfg(not(target_arch = "wasm32"))]
     let files = if total > memory_limit() {
-        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let work = state()
-            .work
-            .clone()
-            .unwrap_or_else(|| std::env::temp_dir().join("vibebms-unpacked"));
-        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = work.join(format!("{}-{n}", std::process::id()));
+        let dir = work_dir("");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
         let dest = Dest::Folder(dir.clone());
@@ -310,6 +304,17 @@ fn mount(archive: &Path, folder: &Path, stamp: (i64, i64)) -> io::Result<Mount> 
     })
 }
 
+/// A new folder in `cache/unpacked/` (named for this run, `kind` and a
+/// count).
+#[cfg(not(target_arch = "wasm32"))]
+fn work_dir(kind: &str) -> PathBuf {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let work =
+        (state().work.clone()).unwrap_or_else(|| std::env::temp_dir().join("vibebms-unpacked"));
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    work.join(format!("{}-{kind}{n}", std::process::id()))
+}
+
 fn memory_files(
     archive: &Path,
     want: &(dyn Fn(&Path) -> bool + Sync),
@@ -343,21 +348,7 @@ pub fn native_path(p: &Path) -> Option<PathBuf> {
         Files::Memory(files) => {
             let bytes = files.get(&rel)?;
             let mut spill = m.spill.lock().unwrap_or_else(|e| e.into_inner());
-            let dir = match &*spill {
-                Some(d) => d.clone(),
-                None => {
-                    static N: std::sync::atomic::AtomicUsize =
-                        std::sync::atomic::AtomicUsize::new(0);
-                    let work = state()
-                        .work
-                        .clone()
-                        .unwrap_or_else(|| std::env::temp_dir().join("vibebms-unpacked"));
-                    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let d = work.join(format!("{}-spill-{n}", std::process::id()));
-                    *spill = Some(d.clone());
-                    d
-                }
-            };
+            let dir = spill.get_or_insert_with(|| work_dir("spill-")).clone();
             let to = dir.join(&rel);
             if !to.is_file() {
                 std::fs::create_dir_all(to.parent()?).ok()?;
