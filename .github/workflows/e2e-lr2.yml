@@ -128,7 +128,7 @@ jobs:
       - name: LR2's setup dialog
         env:
           GH_TOKEN: ${{ github.token }}
-        run: tools/e2e/lr2/lr2.ps1 -Stage setup -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+        run: tools/e2e/lr2/lr2.ps1 -Stage player -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       - name: Summary
         if: always()

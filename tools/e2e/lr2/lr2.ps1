@@ -132,5 +132,45 @@ switch ($Stage) {
         }
         Get-Process -Name LR2 -ErrorAction SilentlyContinue | Stop-Process -Force
     }
+    'player' {
+        # a player and a song folder, through the setup dialog: what each
+        # button opens is recorded (screenshot, controls)
+        $root = Unpack
+        $le = & (Join-Path $PSScriptRoot 'le.ps1') | Select-Object -Last 1
+        $p = Start-Process -FilePath $le -ArgumentList @("`"$(Join-Path $root 'LR2.exe')`"") -WorkingDirectory $root -PassThru
+        Start-Sleep -Seconds 4
+        $n = 0
+        function Popups([string] $tag) {
+            Start-Sleep -Seconds 2
+            Shot "player-$tag.png"
+            $ids = @(Get-Process -Name LR2, LR2body -ErrorAction SilentlyContinue | ForEach-Object Id)
+            $wins = & $Probe windows | Where-Object { $_ -match '^(0x[0-9A-Fa-f]+) pid (\d+) \[([^\]]*)\] "(.*)"' -and $ids -contains [int]$Matches[2] -and $Matches[4] -ne 'LR2 SETUP' }
+            Log 'player.txt' { "=== $tag"; $wins }
+            foreach ($w in $wins) {
+                $null = $w -match '^(0x[0-9A-Fa-f]+)'
+                Log 'player.txt' { "--- controls of $($Matches[1])"; & $Probe ui $Matches[1] dump }
+            }
+            return $wins
+        }
+        function Dismiss($wins) {
+            foreach ($w in $wins) {
+                if ($w -match '^(0x[0-9A-Fa-f]+) .*\[#32770\]') { & $Probe ui $Matches[1] key 0D | Out-Null; Start-Sleep -Milliseconds 500 }
+            }
+        }
+        Log 'player.txt' { '=== main before'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
+        & $Probe ui 'LR2 SETUP' text p/1001 e2e
+        & $Probe ui 'LR2 SETUP' text p/1002 e2e
+        & $Probe ui 'LR2 SETUP' click p/1003
+        Dismiss (Popups 'new-player')
+        Dismiss (Popups 'after-new-player')
+        Log 'player.txt' { '=== main after'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
+        & $Probe ui 'LR2 SETUP' mouse 91 74 | Out-Null
+        Dismiss (Popups 'jukebox1')
+        & $Probe ui 'LR2 SETUP' click p/1035
+        $w = Popups 'add-root'
+        Shot 'player-add-root-2.png'
+        Get-Process -Name LR2 -ErrorAction SilentlyContinue | Stop-Process -Force
+        Log 'player.txt' { '--- files'; Get-ChildItem (Join-Path $root 'LR2files') -Recurse -File | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) } | ForEach-Object { "$($_.FullName.Substring($root.Length + 1)) $($_.Length)" } }
+    }
     default { throw "unknown stage $Stage" }
 }

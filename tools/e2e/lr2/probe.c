@@ -31,6 +31,7 @@
 #include <dsound.h>
 #include <dinput.h>
 #include <objbase.h>
+#include <shellapi.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -680,13 +681,19 @@ static void click_at(int x, int y)
 
 static int ui(int argc, char **argv)
 {
-    /* argv: TITLE ACTION ARGS */
-    wchar_t title[256];
+    /* argv: TITLE ACTION ARGS; the title and a text in UTF-16, as given
+     * (the char argv has them in the ANSI code page) */
+    int wargc = 0;
+    wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    const wchar_t *title = wargc > 2 ? wargv[2] : L"";
     HWND dlg, h;
     int i;
-    MultiByteToWideChar(CP_UTF8, 0, argv[0], -1, title, 256);
-    for (i = 0; i < 100 && !(dlg = FindWindowW(NULL, title)); i++)
-        Sleep(100);
+    /* TITLE, or a window handle as 0x... */
+    if (!wcsncmp(title, L"0x", 2))
+        dlg = (HWND)(INT_PTR)wcstoul(title + 2, NULL, 16);
+    else
+        for (i = 0; i < 100 && !(dlg = FindWindowW(NULL, title)); i++)
+            Sleep(100);
     if (!dlg) {
         fprintf(stderr, "no window %s\n", argv[0]);
         return 2;
@@ -711,11 +718,9 @@ static int ui(int argc, char **argv)
         return 0;
     }
     if (!strcmp(argv[1], "text") && argc >= 4) {
-        wchar_t text[512];
-        if (!(h = ctl(dlg, argv[2])))
+        if (!(h = ctl(dlg, argv[2])) || wargc < 6)
             return 3;
-        MultiByteToWideChar(CP_UTF8, 0, argv[3], -1, text, 512);
-        SendMessageTimeoutW(h, WM_SETTEXT, 0, (LPARAM)text, SMTO_ABORTIFHUNG, 2000, NULL);
+        SendMessageTimeoutW(h, WM_SETTEXT, 0, (LPARAM)wargv[5], SMTO_ABORTIFHUNG, 2000, NULL);
         return 0;
     }
     if (!strcmp(argv[1], "mouse") && argc >= 4) {
@@ -752,7 +757,7 @@ static BOOL CALLBACK list_window(HWND h, LPARAM l)
     GetWindowRect(h, &r);
     WideCharToMultiByte(CP_UTF8, 0, title, -1, t8, sizeof t8, NULL, NULL);
     WideCharToMultiByte(CP_UTF8, 0, cls, -1, c8, sizeof c8, NULL, NULL);
-    printf("%p pid %lu [%s] \"%s\" %ld,%ld %ldx%ld%s\n", (void *)h, pid, c8, t8, r.left, r.top,
+    printf("0x%p pid %lu [%s] \"%s\" %ld,%ld %ldx%ld%s\n", (void *)h, pid, c8, t8, r.left, r.top,
            r.right - r.left, r.bottom - r.top, h == GetForegroundWindow() ? " (foreground)" : "");
     return TRUE;
 }
