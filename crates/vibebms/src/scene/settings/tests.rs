@@ -781,3 +781,56 @@ fn every_language_fills_every_row() {
     i18n::set(Lang::En);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Third parties' copies stay off until the player has said OK to what
+/// they are; once said, the row turns them on and off without asking.
+#[test]
+fn third_party_sources_ask_once() {
+    let (root, mut ctx) = setup("third-party");
+    ctx.config.third_party_mirrors = false;
+    ctx.config.third_party_acknowledged = false;
+    let mut s = SettingsScene::at(&mut ctx, Page::Library);
+    if !s.rows.iter().any(|r| r.id == "third_party_mirrors") {
+        s.fold(&ctx, "library.downloads");
+    }
+    let pick = |s: &mut SettingsScene| {
+        s.rail = false;
+        s.list.sel = (s.rows.iter())
+            .position(|r| r.id == "third_party_mirrors")
+            .unwrap();
+    };
+    let on = |ctx: &Ctx| ctx.net.hosts.config.third_party;
+    pick(&mut s);
+    // Enter asks; Esc (and Cancel, chosen at first) leave them off
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(s.ask.is_some());
+    s.input(&mut ctx, &key(KeyCode::Escape));
+    assert!(s.ask.is_none());
+    assert_eq!(
+        s.view,
+        View::Page(Page::Library),
+        "Esc closed only the dialog"
+    );
+    s.input(&mut ctx, &key(KeyCode::ArrowRight));
+    assert!(s.ask.is_some(), "→ asks too");
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(!ctx.config.third_party_mirrors && !ctx.config.third_party_acknowledged);
+    assert!(!on(&ctx));
+    // OK: on, and remembered
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    s.input(&mut ctx, &key(KeyCode::ArrowLeft));
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(s.ask.is_none());
+    assert!(ctx.config.third_party_mirrors && ctx.config.third_party_acknowledged);
+    assert!(on(&ctx));
+    assert_eq!(s.row().map(|r| r.id), Some("third_party_mirrors"));
+    // off and on again: no question
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(s.ask.is_none() && !ctx.config.third_party_mirrors && !on(&ctx));
+    s.input(&mut ctx, &key(KeyCode::Enter));
+    assert!(s.ask.is_none() && ctx.config.third_party_mirrors && on(&ctx));
+    // the OK is saved with the settings
+    let saved = crate::profiles::load_config(&ctx.paths);
+    assert!(saved.third_party_acknowledged && saved.third_party_mirrors);
+    std::fs::remove_dir_all(&root).ok();
+}

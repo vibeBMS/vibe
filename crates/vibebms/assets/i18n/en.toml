@@ -13,6 +13,8 @@
 # app/mod.rs
 "Screenshot: {e}" = "Screenshot: {e}"
 "Screenshot: {path}" = "Screenshot: {path}"
+"Third-party sources are on" = "Third-party sources are on"
+"Turn off" = "Turn off"
 "Screenshots: this GPU's screen cannot be read" = "Screenshots: this GPU's screen cannot be read"
 "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)" = "Graphics: {wanted} could not start, {used} is used instead (SETTINGS › DISPLAY & AUDIO › ADVANCED)"
 
@@ -36,6 +38,15 @@
 
 # browser/webview.rs
 "download" = "download"
+
+# hosts.rs
+"""
+These are other people's copies and mirrors of songs, not the links their authors give.
+Whether a site allows this, and whether it is up, differs from site to site.
+Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders.""" = """
+These are other people's copies and mirrors of songs, not the links their authors give.
+Whether a site allows this, and whether it is up, differs from site to site.
+Using them is your own responsibility: follow each site's terms and respect the rights of the songs' copyright holders."""
 
 # import.rs
 "Could not unpack the download: {e}" = "Could not unpack the download: {e}"
@@ -500,6 +511,7 @@
 "vibeBMS {version} to install" = "vibeBMS {version} to install"
 "update" = "update"
 "failed" = "failed"
+"Cancel" = "Cancel"
 "Spin the turntable" = "Spin the turntable"
 "Press a key" = "Press a key"
 "Press a key or controller button" = "Press a key or controller button"
@@ -614,7 +626,7 @@
 "DOWNLOADS" = "DOWNLOADS"
 "Third-party sources, song folder names, the default tables" = "Third-party sources, song folder names, the default tables"
 "Third-party sources" = "Third-party sources"
-"Use mirrors and MD5 lookups (Ginger, Konmai) to find downloads." = "Use mirrors and MD5 lookups (Ginger, Konmai) to find downloads."
+"Use other people's copies and mirrors (Ginger, Konmai, the community archive) to find downloads." = "Use other people's copies and mirrors (Ginger, Konmai, the community archive) to find downloads."
 "Name song folders after their charts" = "Name song folders after their charts"
 'New downloads go into "[artist] title" folders.' = 'New downloads go into "[artist] title" folders.'
 "Restore default tables" = "Restore default tables"
@@ -689,6 +701,7 @@
 "OBS WebSocket port" = "OBS WebSocket port"
 "OBS WebSocket password (paste)" = "OBS WebSocket password (paste)"
 "OBS scene name" = "OBS scene name"
+"Use third-party sources?" = "Use third-party sources?"
 "Not a folder: {s}" = "Not a folder: {s}"
 "Not an order of the keys: {s} (each of 1 to n once)" = "Not an order of the keys: {s} (each of 1 to n once)"
 
@@ -1032,7 +1045,6 @@
 
 # ui/text_input.rs
 "(Enter = OK, Esc = cancel)" = "(Enter = OK, Esc = cancel)"
-"Cancel" = "Cancel"
 
 # update/mod.rs
 "Update available: {version} (SETTINGS › SYSTEM)" = "Update available: {version} (SETTINGS › SYSTEM)"

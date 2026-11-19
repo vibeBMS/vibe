@@ -387,6 +387,9 @@ impl SettingsScene {
                 ),
             );
         }
+        if let Some((q, n)) = self.ask.as_mut() {
+            n.draw(ctx, d, q.title(), q.text(), tr!("Cancel"));
+        }
         if let Some(slot) = self.learn.slot {
             let ui = ctx.ui();
             let r = Rect::new(w * 0.2, h * 0.38, w * 0.6, 90.0 * ui);

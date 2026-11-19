@@ -4,7 +4,7 @@
 
 use super::row::onoff;
 use super::row::{Act, Row, Rows};
-use super::{Sub, TextField};
+use super::{Ask, Sub, TextField};
 use crate::app::Ctx;
 use crate::config::TableConfig;
 
@@ -254,17 +254,22 @@ pub(super) fn rows(b: &mut Rows) {
         tr!("Third-party sources, song folder names, the default tables"),
     );
     b.extend([
-        Row::adjust(
+        Row::new(
             "third_party_mirrors",
             tr!("Third-party sources"),
             onoff(c.third_party_mirrors),
-            |c, _| {
-                c.config.third_party_mirrors ^= true;
-                c.net.hosts = crate::hosts::context(&c.config);
+            // turned on the first time: what it means, OK or Cancel
+            if c.third_party_mirrors || c.third_party_acknowledged {
+                Act::Adjust(|c, _| {
+                    c.config.third_party_mirrors ^= true;
+                    c.net.hosts = crate::hosts::context(&c.config);
+                })
+            } else {
+                Act::Ask(Ask::ThirdParty)
             },
         )
         .desc(tr!(
-            "Use mirrors and MD5 lookups (Ginger, Konmai) to find downloads."
+            "Use other people's copies and mirrors (Ginger, Konmai, the community archive) to find downloads."
         ))
         .keys("mirror ginger konmai md5"),
         Row::adjust(

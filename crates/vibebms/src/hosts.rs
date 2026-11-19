@@ -38,6 +38,17 @@ pub fn user_agent(bmseeker_default: &str) -> String {
     }
 }
 
+/// What turning third parties' copies on means, as the settings ask it
+/// and as a build that has them on says it once.
+pub fn third_party_notice() -> &'static str {
+    tr!(
+        "These are other people's copies and mirrors of songs, not the links their authors give.\n\
+         Whether a site allows this, and whether it is up, differs from site to site.\n\
+         Using them is your own responsibility: follow each site's terms and respect the rights of \
+         the songs' copyright holders."
+    )
+}
+
 /// Whether `url`'s host sends CORS headers (a web page reads it itself):
 /// BMS SEARCH's API, GitHub's raw files (the event mirror's lists),
 /// Konmai's (a chart's package by its MD5).
