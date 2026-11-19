@@ -34,44 +34,38 @@ pub use touch::{
 use migrate::migrate;
 use serde::{Deserialize, Serialize};
 
-/// How frames reach the screen (`gfx::device::choose_present_mode`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum PresentMode {
-    /// "Smooth": vsync (FIFO) with two frames queued, each drawn for when
-    /// it will be shown: even motion at the display's rate, about a frame
-    /// more from a key to the screen.
-    #[default]
-    VSync,
-    /// "Low latency": the newest frame at each vblank, without tearing
-    /// (mailbox); where the GPU has none (Apple's Metal, some drivers),
-    /// the same as Smooth.
-    LowLatency,
-    /// "Unlimited": as many frames as the GPU makes, shown at once
-    /// (immediate, tearing), else mailbox, else Smooth.
-    Immediate,
-}
-
-impl PresentMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            PresentMode::VSync => "SMOOTH (VSYNC, BUFFERED)",
-            PresentMode::LowLatency => "LOW LATENCY",
-            PresentMode::Immediate => "UNLIMITED (TEARING)",
-        }
+vibebms_core::choices! {
+    /// How frames reach the screen (`gfx::device::choose_present_mode`).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum PresentMode {
+        /// "Smooth": vsync (FIFO) with two frames queued, each drawn for
+        /// when it will be shown: even motion at the display's rate, about a
+        /// frame more from a key to the screen.
+        #[default]
+        VSync => "SMOOTH (VSYNC, BUFFERED)",
+        /// "Low latency": the newest frame at each vblank, without tearing
+        /// (mailbox); where the GPU has none (Apple's Metal, some drivers),
+        /// the same as Smooth.
+        LowLatency => "LOW LATENCY",
+        /// "Unlimited": as many frames as the GPU makes, shown at once
+        /// (immediate, tearing), else mailbox, else Smooth.
+        Immediate => "UNLIMITED (TEARING)",
     }
 }
 
-/// The graphics API the GPU is driven through (`gfx::device`; desktop,
-/// Android). AUTO lets wgpu choose among the ones the platform has
-/// (Vulkan, Metal, DX12, then OpenGL), as before the setting existed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum GraphicsBackend {
-    #[default]
-    Auto,
-    Vulkan,
-    Metal,
-    Dx12,
-    OpenGl,
+vibebms_core::choices! {
+    /// The graphics API the GPU is driven through (`gfx::device`; desktop,
+    /// Android). AUTO lets wgpu choose among the ones the platform has
+    /// (Vulkan, Metal, DX12, then OpenGL), as before the setting existed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum GraphicsBackend {
+        #[default]
+        Auto => "AUTO",
+        Vulkan => "VULKAN",
+        Metal => "METAL",
+        Dx12 => "DX12",
+        OpenGl => "OPENGL",
+    }
 }
 
 impl GraphicsBackend {
@@ -82,16 +76,6 @@ impl GraphicsBackend {
         GraphicsBackend::Dx12,
         GraphicsBackend::OpenGl,
     ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            GraphicsBackend::Auto => "AUTO",
-            GraphicsBackend::Vulkan => "VULKAN",
-            GraphicsBackend::Metal => "METAL",
-            GraphicsBackend::Dx12 => "DX12",
-            GraphicsBackend::OpenGl => "OPENGL",
-        }
-    }
 
     pub fn is_auto(&self) -> bool {
         *self == GraphicsBackend::Auto
