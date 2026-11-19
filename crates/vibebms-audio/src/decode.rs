@@ -86,8 +86,12 @@ impl AsRef<[u8]> for Bytes {
 }
 
 /// Decode in-memory file data (`ext` is a format hint such as "ogg").
-pub fn decode_bytes(bytes: Vec<u8>, ext: &str, rate: u32) -> Result<Sample, String> {
-    let bytes = Bytes(Arc::new(bytes));
+pub fn decode_bytes(
+    bytes: impl Into<Arc<Vec<u8>>>,
+    ext: &str,
+    rate: u32,
+) -> Result<Sample, String> {
+    let bytes = Bytes(bytes.into());
     decode_symphonia(bytes.clone(), ext, rate).or_else(|e| {
         // tolerate broken RIFF headers that symphonia rejects
         decode_wav_fallback(&bytes.0, rate).ok_or(e)
@@ -373,7 +377,7 @@ impl SoundBank {
         rate: u32,
         progress: &AtomicUsize,
         resolve: &(dyn Fn(&str) -> Option<PathBuf> + Sync),
-        read: &(dyn Fn(&Path) -> Option<Vec<u8>> + Sync),
+        read: &(dyn Fn(&Path) -> Option<Arc<Vec<u8>>> + Sync),
     ) -> SoundBank {
         let n = files.len();
         let mut slots: Vec<Option<Arc<Sample>>> = vec![None; n];
@@ -583,7 +587,7 @@ mod tests {
             48000,
             &progress,
             &|name| Some(dir.join(name)),
-            &|p| std::fs::read(p).ok(),
+            &|p| std::fs::read(p).ok().map(Arc::new),
         );
         assert!(bank.get(0).is_some());
         assert!(bank.get(1).is_none());

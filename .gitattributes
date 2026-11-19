@@ -1,2 +1,7 @@
+# no line-ending conversion: every checkout has the committed bytes, so the
+# files built into the executables (translations, the shader, the skin
+# catalog) are the same on Windows, whatever git's core.autocrlf says there
+# (reproducible builds, docs/BUILDING.md)
+* -text
 # shell scripts run on the Windows runners too (bash cannot read CRLF)
 *.sh text eol=lf

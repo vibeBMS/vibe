@@ -1,6 +1,8 @@
 # Building vibeBMS
 
-Requires Rust 1.95+ (`rustup`). Release builds use fat LTO; expect a few minutes.
+Requires Rust (`rustup`): `rust-toolchain.toml` names the exact release every build uses (rustup installs it on
+the first `cargo` in the folder; add `rustup component add rustfmt clippy` for those). Release builds use fat
+LTO; expect a few minutes.
 
 ```sh
 cargo build --release            # target/release/vibebms(.exe)
@@ -79,7 +81,7 @@ A bare executable keeps its data next to itself. The app keeps it in the folder 
 The APK is a Gradle project (`platform/android`) around the Rust library, which
 `cargo-ndk` builds into it. Needs the Android SDK (platform 34) with the NDK, and JDK 17+.
 ```sh
-cargo install cargo-ndk
+cargo install cargo-ndk               # CI's versions of it, the NDK, JDK and Gradle: tools/repro.env
 rustup target add aarch64-linux-android x86_64-linux-android
 export ANDROID_HOME=... ANDROID_NDK_HOME=...
 cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs build --release -p vibebms-android
@@ -172,7 +174,8 @@ The web build compiles Lua (for Lua skins) from C, so it also needs **clang with
 llvm)/bin/llvm-ar`). Lua raises errors as WebAssembly exceptions, so `wasm-opt`, if installed, runs with
 `--enable-exception-handling`, and the page needs a browser with them (Chrome 95, Firefox 100, Safari 15.2 or
 later). `build_web.sh` ends by checking (with Node, if installed) that the module imports no C function nothing
-defined (`node tools/check_wasm_imports.mjs`).
+defined (`node tools/check_wasm_imports.mjs`). The release's web build is `tools/build_release.sh web`: the same
+without wasm-opt, plus the CJK fonts (see Reproducible builds).
 
 ## Versions
 `Cargo.toml` names the version being worked towards as a prerelease: `0.1.0-dev` is what local builds report.
@@ -272,3 +275,64 @@ executable to find itself in it). `latest.json` stays as it is, for the self-upd
   is expected to give the same bytes (not yet checked).
 - A local or a distribution's build is not in it: an IR that accepts clients by hash does not accept it. A hash says
   which build a client is, but proves nothing about an open-source client's plays.
+
+## Reproducible builds
+A release build can be made again from its commit, to the same bytes: anyone can check that a published executable
+is that commit's source (and an IR operator that accepts clients by SHA-256, `builds.json`, need not trust CI).
+What a build depends on is the commit plus these inputs:
+- the run number of the CI run that built it, the `N` in `0.1.0-nightly.N+abc1234` (the version the build reports,
+  and in `latest.json` and `builds.json`): `tools/ci_version.sh <run> <commit>` stamps it, as CI does with its own;
+- the channel (`nightly`);
+- for the web build, the repository variable `WEB_THIRD_PARTY` (`VIBEBMS_THIRD_PARTY`), which is built in.
+
+Everything else is fixed by the commit:
+- **compilers and tools**: Rust by `rust-toolchain.toml`; wasm-bindgen by `Cargo.lock` (checked); in
+  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, Ubuntu 26.04 for the web
+  build), the web build's packages (clang among them) from the Ubuntu snapshot of a given time, the Android NDK,
+  cargo-ndk, the JDK and Gradle (the Android Gradle plugin in `platform/android`); the web build's CJK fonts by commit
+  and SHA-256 (`tools/build_release.sh`);
+- **the build itself**: `tools/build_release.sh <artifact>`, which CI's jobs run: `Cargo.lock` as committed
+  (`--locked`), the checkout, `CARGO_HOME` and the target folder remapped to `/vibe`, `/cargo`, `/target`
+  (`--remap-path-prefix`, `-ffile-prefix-map`: no build path in panic messages or C's `__FILE__`), Windows' linker
+  `/Brepro` (no link time in the PE header), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
+  deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
+- **dates**: `SOURCE_DATE_EPOCH` is the commit's time; zips (the web zip, the iOS `.ipa`, the macOS app's zip) are
+  made with every file at that time, mode 644/755, in name order, no extra fields, TZ=UTC
+  (`tools/build_release.sh zip`); the Flatpak's release date and OSTree commit take it, and the bundle's own
+  timestamp is set through `faketime`;
+- **checkouts**: `.gitattributes` turns off line-ending conversion, so a Windows checkout has the same bytes as any
+  other (the translations and the shader are built in).
+
+Rebuild the portable Linux executable or the web build (needs git, Docker, python3; the build runs in the pinned
+image, a few tens of minutes):
+```sh
+tools/reproduce.sh <commit> <run number> [nightly] [linux-x64-portable|linux-arm64-portable|web]
+# e.g. tools/reproduce.sh 9454dfe 300 nightly linux-x64-portable
+# VIBEBMS_THIRD_PARTY=1 tools/reproduce.sh <commit> <run> nightly web   (if WEB_THIRD_PARTY was set)
+```
+It prints each file's SHA-256 (`repro-out/<artifact>/SHA256SUMS`) and compares it with `builds.json` (every
+nightly executable of the last 90 days) and, while the nightly release is that commit's, with the release's files;
+it exits 1 if one differs. The other builds are made on CI's runner images (`tools/build_release.sh`, after
+`tools/ci_version.sh`), which the workflow below does.
+
+The **Reproducible builds** workflow (`.github/workflows/reproducible.yml`, Actions > Run workflow; inputs: the
+commit, default the nightly's, its run number, default from `builds.json`, the channel and what to build) builds each
+artifact twice in different folders, with different `CARGO_HOME`, parallel jobs and umask (the container builds also
+on two runner images, through `tools/reproduce.sh`), fails if the two differ (diffoscope's report in the summary and
+as an artifact) or if either differs from the release, and lists the results in the run's summary. Commits before
+`tools/build_release.sh` existed cannot be rebuilt this way.
+
+How far each build is reproducible:
+
+| build | reproducible | what can differ |
+|---|---|---|
+| `vibebms-linux-x64-portable`, `-arm64-portable` | yes: pinned image, packages, Rust | nothing known |
+| web (`vibeBMS-web.zip`) | yes: pinned image and packages (Ubuntu snapshot), Rust, wasm-bindgen, fonts | nothing known |
+| `vibebms-linux-x64`, `-arm64`, the Flatpaks | on the same runner image | built on GitHub's Ubuntu 22.04 image: its gcc, binutils and libraries are the image's, and its updates can change the bytes (rare); the Flatpak also needs Ubuntu 22.04's appstream and faketime |
+| `vibebms-windows-*.exe` | on the same runner image | the MSVC linker and libraries are the image's Visual Studio; a newer one changes the bytes |
+| Android: the library, the APK's files | on the same runner image (NDK, JDK, Gradle pinned) | the APK's signature: a rebuild is signed by another key, so its files are compared (`tools/build_release.sh apk-entries`), not the APK |
+| macOS (`vibebms-macos-*`, the app's zip) | expected on the same Xcode, not checked | the Xcode of `macos-latest` (linker, SDK); the `.dmg` (hdiutil writes times and IDs) is not reproducible: compare the app inside it |
+| iOS `.ipa` | expected on the same Xcode, not checked | as macOS; a signed copy (AltStore, the App Store) differs anyway |
+
+To keep it so: move the pins (`rust-toolchain.toml`, `tools/repro.env`) in commits of their own, and build release
+files only through `tools/build_release.sh`.

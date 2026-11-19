@@ -21,3 +21,5 @@ __pycache__/
 /platform/android/build/
 /platform/android/.gradle/
 /platform/android/local.properties
+# tools/reproduce.sh
+/repro-out/

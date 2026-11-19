@@ -183,7 +183,7 @@ impl Loading {
             t2.store(chart.sound_files.len(), Ordering::Relaxed);
             let index = crate::platform::vfs::DirIndex::new(&dir);
             let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
-            let read = |p: &Path| crate::platform::vfs::read(p).ok();
+            let read = |p: &Path| crate::platform::vfs::read_shared(p).ok();
             let mut bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
             // practice at another speed, FREQ (G-BATTLE: the opponent's):
             // the sounds at it, their pitch too
@@ -367,7 +367,7 @@ fn load_nonstop(
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let index = crate::platform::vfs::DirIndex::new(&dir);
         let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
-        let read = |p: &Path| crate::platform::vfs::read(p).ok();
+        let read = |p: &Path| crate::platform::vfs::read_shared(p).ok();
         let files = &chart.sound_files[span.files.start as usize..span.files.end as usize];
         let mut own = SoundBank::load_with(files, rate, progress, &resolve, &read);
         if span.ratio != 1.0 {

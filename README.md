@@ -92,6 +92,8 @@ back to song select, and comes to the front. The play shows `VIEWER #<measure>` 
 
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
+Release builds are reproducible: `tools/reproduce.sh <commit> <run number>` rebuilds one and checks its SHA-256
+against the release's ([docs/BUILDING.md](docs/BUILDING.md#reproducible-builds)).
 
 ```text
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
@@ -186,7 +188,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   charts are read (a zip's charts alone; a 7z, RAR, LZH or tar, solid 7z/RAR and gzip-compressed tars included,
   is decoded from the start once, its other files not kept). An unchanged archive is not opened by the scan. Playing a chart from one unpacks its song,
   the folder that holds the chart in the archive with its sub-folders, once: into memory, or when it is larger than
-  512 MB (192 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
+  512 MB (32 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
   chosen (back from the result screen, playing it again unpacks nothing) and let go when another is chosen. The
   song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
   ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's, LZH's or
@@ -334,7 +336,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (embedded; `en.toml` lists every text the code has, kept so by a test, `I18N_BLESS=1` rewrites it); a text a table
   lacks shows in English. `tools/i18n_hant.py` makes `zh-Hant.toml` from `zh-Hans.toml`. Fonts: the desktop puts the
   language's own CJK system font first (Noto Sans CJK KR / SC / TC, Malgun Gothic, Microsoft YaHei / JhengHei, PingFang
-  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese.
+  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese. A font's glyphs are read from
+  its file as they are drawn (system fonts are mapped, not loaded, and a CJK collection's faces share one copy), so
+  fonts take memory for the characters on screen, not for their tens of thousands of glyphs.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA
