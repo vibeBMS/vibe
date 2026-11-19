@@ -164,6 +164,9 @@ switch ($Stage) {
         & $Probe ui 'NEW PLAYER' text 1008 e2e
         & $Probe ui 'NEW PLAYER' click 1
         Dismiss (Popups 'new-player')
+        Log 'player.txt' { '=== players'; & $Probe ui 'LR2 SETUP' items p/1001 }
+        Log 'player.txt' { & $Probe ui 'LR2 SETUP' select p/1001 e2etest }
+        Dismiss (Popups 'select-player')
         & $Probe ui 'LR2 SETUP' text p/1002 e2e
         & $Probe ui 'LR2 SETUP' check p/1006 1
         Log 'player.txt' { '=== main'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
@@ -188,6 +191,7 @@ switch ($Stage) {
             Start-Sleep -Seconds 5
             Shot "player-lr2-$t.png"
             Log 'player.txt' { "=== LR2 started, about $t s"; & $Probe windows | Where-Object { $_ -match 'LR2|Lunatic|#32770' } }
+            $null = Popups "lr2-$t"
         }
         Get-Process -Name LR2body, LR2 -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }
         Start-Sleep -Seconds 3

@@ -18,6 +18,9 @@
  *       click [p/]ID          presses a button (p/: on the shown tab page)
  *       check [p/]ID 0|1      sets a check box or radio button
  *       text [p/]ID TEXT      sets a control's text
+ *       items [p/]ID          lists a combo box's items
+ *       select [p/]ID TEXT    selects a combo box's item, as a person's
+ *                             choice would (CBN_SELCHANGE to its dialog)
  *       mouse X Y             clicks at X, Y in the window
  *       key VK                presses a virtual key (hex) in the window
  *
@@ -725,6 +728,37 @@ static int ui(int argc, char **argv)
         if (!(h = ctl(dlg, argv[2])) || wargc < 6)
             return 3;
         SendMessageTimeoutW(h, WM_SETTEXT, 0, (LPARAM)wargv[5], SMTO_ABORTIFHUNG, 2000, NULL);
+        return 0;
+    }
+    if (!strcmp(argv[1], "items") && argc >= 3) {
+        DWORD_PTR n = 0, len = 0, k;
+        if (!(h = ctl(dlg, argv[2])))
+            return 3;
+        SendMessageTimeoutW(h, CB_GETCOUNT, 0, 0, SMTO_ABORTIFHUNG, 1000, &n);
+        SendMessageTimeoutW(h, CB_GETCURSEL, 0, 0, SMTO_ABORTIFHUNG, 1000, &k);
+        printf("%lu items, selected %ld\n", (unsigned long)n, (long)k);
+        for (k = 0; k < n; k++) {
+            wchar_t item[512];
+            char i8[1536];
+            SendMessageTimeoutW(h, CB_GETLBTEXTLEN, k, 0, SMTO_ABORTIFHUNG, 1000, &len);
+            if (len >= 512)
+                continue;
+            SendMessageTimeoutW(h, CB_GETLBTEXT, k, (LPARAM)item, SMTO_ABORTIFHUNG, 1000, NULL);
+            WideCharToMultiByte(CP_UTF8, 0, item, -1, i8, sizeof i8, NULL, NULL);
+            printf("  %lu \"%s\"\n", (unsigned long)k, i8);
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "select") && argc >= 4) {
+        DWORD_PTR k = (DWORD_PTR)-1;
+        if (!(h = ctl(dlg, argv[2])) || wargc < 6)
+            return 3;
+        SendMessageTimeoutW(h, CB_SELECTSTRING, (WPARAM)-1, (LPARAM)wargv[5], SMTO_ABORTIFHUNG, 1000, &k);
+        printf("selected item %ld\n", (long)k);
+        if (k == (DWORD_PTR)-1)
+            return 4;
+        SendMessageTimeoutW(GetParent(h), WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(h), CBN_SELCHANGE), (LPARAM)h,
+                            SMTO_ABORTIFHUNG, 2000, NULL);
         return 0;
     }
     if (!strcmp(argv[1], "mouse") && argc >= 4) {
