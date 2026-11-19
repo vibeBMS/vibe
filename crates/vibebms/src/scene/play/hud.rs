@@ -15,6 +15,7 @@ use crate::ui;
 
 impl PlayScene {
     pub(super) fn draw_play(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+        self.sync_sides(&ctx.config.play);
         let areas = self.touch_areas(ctx);
         self.rebuild_zones(ctx, &areas);
         let (view, _) = self.play_view(ctx, &areas);
@@ -113,8 +114,8 @@ impl PlayScene {
     /// A hi-speed change the player made, shown over the top of their
     /// note field for a moment (`hsview::SHOWN`), fading out.
     fn draw_hs_change(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant, who: usize) {
-        let p = self.side_config(&ctx.config.play, who);
-        let Some((text, fade)) = self.hs_view[who].shown(&p, &self.bpms_at(now), now) else {
+        let p = self.side_config(who);
+        let Some((text, fade)) = self.hs_view[who].shown(p, &self.bpms_at(now), now) else {
             return;
         };
         let fields = self.fields(view);

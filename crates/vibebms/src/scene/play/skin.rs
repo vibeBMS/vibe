@@ -14,7 +14,6 @@ use crate::scene::play_skin::{
 use crate::scene::skinvals::*;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
-use std::borrow::Cow;
 use std::cell::OnceCell;
 use vibebms_core::course::CourseKind;
 use vibebms_core::engine::Engine;
@@ -137,8 +136,6 @@ pub struct PlayState<'a> {
     best: Option<&'a crate::library::BestScore>,
     chart: ChartFacts<'a>,
     bpms: crate::config::Bpms,
-    /// Each player's options (VS: the second player's own).
-    play: [Cow<'a, PlayConfig>; 2],
     /// The second side's EX score.
     opp_ex: Option<i64>,
     /// The length of the note field's lanes (skin pixels): their height,
@@ -152,20 +149,14 @@ pub struct PlayState<'a> {
 
 impl<'a> PlayState<'a> {
     pub fn new(s: &'a PlayScene, ctx: &'a Ctx, now: Instant) -> PlayState<'a> {
-        let p = &ctx.config.play;
         PlayState {
             s,
             ctx,
             now,
             engine: s.session.engine(),
-            best: ctx.best_key(
-                &s.req.record_key(),
-                s.facts.score_ln as i32,
-                s.facts.rules.judge,
-            ),
+            best: ctx.best_key(&s.record_key, s.facts.score_ln as i32, s.facts.rules.judge),
             chart: ChartFacts::of_meta(&s.session.chart.meta, s.facts.skin_mode),
             bpms: s.bpms_at(now),
-            play: [s.side_config(p, 0), s.side_config(p, 1)],
             opp_ex: s.session.opponent_ex(),
             lane_h: s.skin.as_ref().and_then(|sk| {
                 let r = sk.skin.lanes.iter().find_map(|l| l.rect)?;
@@ -179,7 +170,7 @@ impl<'a> PlayState<'a> {
 
     /// A player's options (VS: the second player's own).
     pub fn side_play(&self, side: usize) -> &PlayConfig {
-        &self.play[side.min(1)]
+        self.s.side_config(side)
     }
 
     /// The last judgement of a judge region as the skin shows it: a

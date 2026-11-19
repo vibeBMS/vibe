@@ -30,12 +30,14 @@ pub(crate) use {
 };
 
 use crate::app::{Ctx, Draw, Next, Scene};
+use crate::config::PlayConfig;
 use crate::gfx::Gfx;
 use crate::input::{InputEv, LaneEv};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
 use crate::replay::Replay;
 use session::{Out, Show};
+use std::borrow::Cow;
 use std::sync::Arc;
 use vibebms_audio::Bus;
 use vibebms_core::chart::Chart;
@@ -156,7 +158,7 @@ impl CourseRun {
     /// LR2's settings forced on the player's view: a class course under
     /// the LR2 gauges has no lane cover or HIDDEN (S-OLR2b 5.1); a NONSTOP
     /// course scrolls at the hi-speed set, HS-FIX off (3.3).
-    pub fn view(&self, p: &mut std::borrow::Cow<'_, crate::config::PlayConfig>) {
+    pub fn view(&self, p: &mut Cow<'_, PlayConfig>) {
         match self.kind() {
             CourseKind::Class if self.rules(&p.rules).gauge_preset == GaugePreset::Lr2 => {
                 let p = p.to_mut();
@@ -187,7 +189,7 @@ pub struct PlayRequest {
 impl PlayRequest {
     /// What its records are kept under: a NONSTOP course's identity (it is
     /// recorded as one song, S-OLR2b 3.8), else the chart's SHA-256.
-    pub fn record_key(&self) -> std::borrow::Cow<'_, str> {
+    pub fn record_key(&self) -> Cow<'_, str> {
         match &self.course {
             Some(c) if c.nonstop() => c.def.id().into(),
             _ => self.song.sha256.as_str().into(),
@@ -340,11 +342,41 @@ pub(crate) struct Facts {
     pub gauge_in: Option<Vec<f32>>,
 }
 
+/// Each player's options as the play shows them (VS: the second player's
+/// own; a course's view over them), made again when the options change.
+struct SideConfigs {
+    /// The play options they were made from.
+    from: PlayConfig,
+    sides: [PlayConfig; 2],
+}
+
+impl SideConfigs {
+    fn new(p: &PlayConfig, vs: bool, course: Option<&CourseRun>) -> SideConfigs {
+        let side = |side: usize| {
+            let mut p = match vs && side == 1 {
+                true => Cow::Owned(p.for_side(side)),
+                false => Cow::Borrowed(p),
+            };
+            if let Some(c) = course {
+                c.view(&mut p);
+            }
+            p.into_owned()
+        };
+        SideConfigs {
+            from: p.clone(),
+            sides: [side(0), side(1)],
+        }
+    }
+}
+
 pub struct PlayScene {
     pub(crate) req: PlayRequest,
+    /// What its records are kept under (`PlayRequest::record_key`).
+    record_key: String,
     stage: Stage,
     pub(crate) facts: Facts,
     pub(crate) session: Session,
+    sides: SideConfigs,
     audio: sound::Audio,
     bga: bga::Bga,
     controls: control::Controls,
@@ -392,6 +424,8 @@ impl PlayScene {
                 gauge_in: None,
             },
             session: Session::new(Chart::default(), Vec::new(), req.is_vs(), now),
+            sides: SideConfigs::new(&ctx.config.play, req.is_vs(), req.course.as_ref()),
+            record_key: req.record_key().into_owned(),
             audio: Default::default(),
             bga: Default::default(),
             controls: Default::default(),
@@ -420,19 +454,15 @@ impl PlayScene {
 
     /// A player's options (VS: the second player's own; a course's view
     /// over them).
-    pub(crate) fn side_config<'a>(
-        &self,
-        p: &'a crate::config::PlayConfig,
-        side: usize,
-    ) -> std::borrow::Cow<'a, crate::config::PlayConfig> {
-        let mut p = match self.session.vs {
-            true => std::borrow::Cow::Owned(p.for_side(side)),
-            false => std::borrow::Cow::Borrowed(p),
-        };
-        if let Some(c) = &self.req.course {
-            c.view(&mut p);
+    pub(crate) fn side_config(&self, side: usize) -> &PlayConfig {
+        &self.sides.sides[side.min(1)]
+    }
+
+    /// `side_config` made again if the play options `p` changed.
+    fn sync_sides(&mut self, p: &PlayConfig) {
+        if self.sides.from != *p {
+            self.sides = SideConfigs::new(p, self.session.vs, self.req.course.as_ref());
         }
-        p
     }
 
     /// The hi-speed each player's notes are drawn at.
@@ -663,9 +693,9 @@ impl Scene for PlayScene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         let bpm = self.bpms_at(now);
         self.controls.tick(&mut ctx.config.play, &bpm, now);
-        for side in 0..2 {
-            let p = self.side_config(&ctx.config.play, side).into_owned();
-            self.hs_view[side].update(&p, &bpm, now);
+        self.sync_sides(&ctx.config.play);
+        for (view, p) in self.hs_view.iter_mut().zip(&self.sides.sides) {
+            view.update(p, &bpm, now);
         }
         self.reshape_skin(ctx, gfx);
         // no game events are run from play skin scripts yet
