@@ -407,10 +407,16 @@ def compare(scores_json, out):
                 bad += 1
                 continue
             start, got = reads[0][1], [v for _, v in reads[1:]]
-            ok = got == want
-            bad += not ok
+            # the gauge is read off its bar: the segment just above the
+            # number LR2 shows (rounded down to 2 %) flickers on when the
+            # gauge is well into it, so a reading may be one segment up
+            exact = got == want and start == GAUGE_START[chart[:2]]
+            near = (len(got) == len(want) and start == GAUGE_START[chart[:2]]
+                    and all(g - w in (0, 2) for g, w in zip(got, want)))
+            bad += not near
+            verdict = "ok" if exact else "ok, within one segment" if near else "DIFFERS"
             lines.append(f"| {chart} | {start} (want {GAUGE_START[chart[:2]]}) | {' '.join(map(str, want))} | "
-                         f"{' '.join(map(str, got))} | {'ok' if ok else 'DIFFERS'} |")
+                         f"{' '.join(map(str, got))} | {verdict} |")
     lamp = rows.get("a8-mines")
     if lamp:
         lines.append(f"| a8-mines | clear (LR2's lamp code) | FULL COMBO | {lamp['clear']} | |")

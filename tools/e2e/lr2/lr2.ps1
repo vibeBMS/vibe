@@ -119,6 +119,7 @@ function Play([string] $name) {
         }
     }
     Get-Content (Join-Path $Out "play-$name.txt") | Write-Host
+    if ($p.ExitCode -eq 5) { Write-Host "::warning::$name`: no click, LR2 did not start the chart"; Stop-LR2; return $false }
     # the result screen
     Start-Sleep -Seconds 4
     Shot "result-$name.png"
@@ -128,6 +129,7 @@ function Play([string] $name) {
     }
     Stop-LR2
     & $Py -I $E2e scores $ScoreDb $Charts (Join-Path $Out 'scores.json') | Select-String "^$name " | Tee-Object -FilePath (Join-Path $Out "scores-$name.txt") | Write-Host
+    return $true
 }
 
 switch ($Stage) {
@@ -226,7 +228,10 @@ switch ($Stage) {
         # -Chart: one chart or several, comma-separated, one after another
         Set-Config 'gauge' $Gauge
         foreach ($name in ($Chart -join ',').Split(',')) {
-            try { Play $name } catch { Write-Host "::warning::$name`: $($_.Exception.Message)"; Stop-LR2 }
+            # once more when LR2 did not start the chart (it happens)
+            for ($try = 0; $try -lt 2; $try++) {
+                try { if (Play $name) { break } } catch { Write-Host "::warning::$name`: $($_.Exception.Message)"; Stop-LR2 }
+            }
         }
         Set-Config 'gauge' 0
     }

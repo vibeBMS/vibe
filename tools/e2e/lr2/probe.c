@@ -1124,8 +1124,8 @@ static int probe_play(const char *sched, double click_ms, double lat_ms, const c
     timeBeginPeriod(1);
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     fprintf(lf, "t_ms,scan,down,due_us,sent_us\n");
-    /* up to 5 minutes for LR2 to load and reach the click */
-    while (now_us() - start < 300000000LL) {
+    /* up to a minute for LR2 to load and reach the click (about 9 s) */
+    while (c->onset >= 0 || now_us() - start < 60000000LL) {
         if (capture_poll(c, c->rate * 2)) {
             lr2 = FindWindowA(NULL, "LR2 beta3 version 100201");
             t0 = capture_onset_us(c) - (click_ms + lat_ms) * 1000.0;
@@ -1164,7 +1164,9 @@ static int probe_play(const char *sched, double click_ms, double lat_ms, const c
     fclose(lf);
     capture_close(c);
     printf("sent %d of %d key events\n", i, n);
-    return c->onset >= 0 && i == n ? 0 : 4;
+    if (c->onset < 0)
+        printf("no click: LR2 did not start the chart\n");
+    return c->onset < 0 ? 5 : i == n ? 0 : 4;
 }
 
 /* ----------------------------------------------------- drag and drop */
