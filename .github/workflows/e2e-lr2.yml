@@ -95,16 +95,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: tools/e2e/lr2/probe.ps1 -Stage le -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
-      - name: Japanese fonts (Feature on Demand)
-        continue-on-error: true
-        timeout-minutes: 10
-        run: tools/e2e/lr2/probe.ps1 -Stage fonts -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
-      - name: Code page and fonts, after
-        continue-on-error: true
-        run: tools/e2e/lr2/probe.ps1 -Stage acp -Tag after -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: SendInput timing
         continue-on-error: true
-        run: tools/e2e/lr2/probe.ps1 -Stage input -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+        run: tools/e2e/lr2/probe.ps1 -Stage input -Tag poll -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: SendInput timing, into a D3D9 window polling once a frame
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage input -Tag d3d9 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       - name: Summary
         if: always()

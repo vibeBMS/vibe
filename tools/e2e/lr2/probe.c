@@ -6,7 +6,8 @@
  *   lr2probe d3d9 SECONDS [fullscreen]   a D3D9 device, drawn to for SECONDS
  *   lr2probe sound                       waveOut, DirectSound, WASAPI endpoints
  *   lr2probe acp [OUT]                   code page, locale, Japanese fonts
- *   lr2probe recv N CSV                  a window that logs N key presses
+ *   lr2probe recv N CSV [d3d9]           a window that logs N key presses (with
+ *                                        d3d9: drawing with D3D9, one poll a frame)
  *   lr2probe send N PERIOD_MS CSV        N presses of Z, PERIOD_MS apart, to it
  *   lr2probe focus TITLE                 brings a window to the front
  *
@@ -114,24 +115,45 @@ static int pump(void)
     return 1;
 }
 
-/* A process that is not in front may not take the focus: an ALT press
- * first lets it (the foreground lock does not apply after input). */
+static void vk(WORD k, int down)
+{
+    INPUT in;
+    memset(&in, 0, sizeof in);
+    in.type = INPUT_KEYBOARD;
+    in.ki.wVk = k;
+    in.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+    SendInput(1, &in, sizeof in);
+}
+
+/* Brings HWND to the front. A process that is not in front may not take
+ * the focus until it has sent input; F24 is a key nothing acts on. ALT is
+ * the last resort, held around the call with F24 pressed inside it: a lone
+ * ALT tap would leave the window's menu waiting for the next key. */
 static int focus(HWND hwnd)
 {
-    INPUT in[2];
     int i;
-    for (i = 0; i < 20; i++) {
-        memset(in, 0, sizeof in);
-        in[0].type = in[1].type = INPUT_KEYBOARD;
-        in[0].ki.wVk = in[1].ki.wVk = VK_MENU;
-        in[1].ki.dwFlags = KEYEVENTF_KEYUP;
-        SendInput(2, in, sizeof(INPUT));
+    for (i = 0; i < 30; i++) {
+        int how = i % 3;
         ShowWindow(hwnd, SW_RESTORE);
+        if (how == 1) {
+            vk(VK_F24, 1);
+            vk(VK_F24, 0);
+        }
+        if (how == 2)
+            vk(VK_MENU, 1);
         SetForegroundWindow(hwnd);
+        if (how == 2) {
+            vk(VK_F24, 1);
+            vk(VK_F24, 0);
+            vk(VK_MENU, 0);
+        }
         Sleep(100);
-        if (GetForegroundWindow() == hwnd)
+        if (GetForegroundWindow() == hwnd) {
+            printf("focus: %s\n", how == 0 ? "SetForegroundWindow" : how == 1 ? "after F24" : "with ALT held");
             return 1;
+        }
     }
+    printf("focus: FAILED\n");
     return 0;
 }
 
@@ -142,19 +164,67 @@ typedef struct {
     DWORD color;
 } Vertex;
 
+/* A HAL device on HWND, windowed or fullscreen 640x480, vsync off. */
+static IDirect3DDevice9 *make_device(IDirect3D9 *d3d, HWND hwnd, int fullscreen, int verbose)
+{
+    IDirect3DDevice9 *dev = NULL;
+    D3DPRESENT_PARAMETERS pp;
+    DWORD vp[2] = {D3DCREATE_HARDWARE_VERTEXPROCESSING, D3DCREATE_SOFTWARE_VERTEXPROCESSING};
+    const char *vpname[2] = {"hardware", "software"};
+    HRESULT hr;
+    int i;
+    memset(&pp, 0, sizeof pp);
+    pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    pp.hDeviceWindow = hwnd;
+    pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+    if (fullscreen) {
+        pp.Windowed = FALSE;
+        pp.BackBufferWidth = 640;
+        pp.BackBufferHeight = 480;
+        pp.BackBufferFormat = D3DFMT_X8R8G8B8;
+    } else {
+        pp.Windowed = TRUE;
+        pp.BackBufferFormat = D3DFMT_UNKNOWN;
+    }
+    for (i = 0; i < 2 && !dev; i++) {
+        hr = IDirect3D9_CreateDevice(d3d, 0, D3DDEVTYPE_HAL, hwnd, vp[i], &pp, &dev);
+        if (verbose || FAILED(hr))
+            printf("CreateDevice(HAL, %s vertex processing, %s): hr=0x%08lx\n", vpname[i],
+                   fullscreen ? "fullscreen 640x480" : "windowed", (unsigned long)hr);
+    }
+    if (dev)
+        IDirect3DDevice9_SetRenderState(dev, D3DRS_CULLMODE, D3DCULL_NONE);
+    return dev;
+}
+
+/* One frame: a turning triangle on purple, so a screenshot shows both the
+ * clear and the rasterizer. */
+static HRESULT draw_frame(IDirect3DDevice9 *dev, long long t)
+{
+    float k = (float)(t % 2000000) / 2000000.0f;
+    Vertex v[3] = {
+        {320.0f + 200.0f * (float)cos(6.2832 * k), 240.0f + 200.0f * (float)sin(6.2832 * k), 0.5f, 1.0f, 0xffffff00},
+        {120.0f, 420.0f, 0.5f, 1.0f, 0xff00ffff},
+        {520.0f, 420.0f, 0.5f, 1.0f, 0xffff00ff},
+    };
+    IDirect3DDevice9_Clear(dev, 0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(40, 0, 90), 1.0f, 0);
+    IDirect3DDevice9_BeginScene(dev);
+    IDirect3DDevice9_SetFVF(dev, D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+    IDirect3DDevice9_DrawPrimitiveUP(dev, D3DPT_TRIANGLELIST, 1, v, sizeof(Vertex));
+    IDirect3DDevice9_EndScene(dev);
+    return IDirect3DDevice9_Present(dev, NULL, NULL, NULL, NULL);
+}
+
 static int probe_d3d9(int seconds, int fullscreen)
 {
     IDirect3D9 *d3d;
-    IDirect3DDevice9 *dev = NULL;
-    D3DPRESENT_PARAMETERS pp;
+    IDirect3DDevice9 *dev;
     D3DCAPS9 caps;
     D3DDISPLAYMODE mode;
     HRESULT hr;
     HWND hwnd;
     UINT a, n;
-    DWORD vp[2] = {D3DCREATE_HARDWARE_VERTEXPROCESSING, D3DCREATE_SOFTWARE_VERTEXPROCESSING};
-    const char *vpname[2] = {"hardware", "software"};
-    int i, frames = 0, lost = 0;
+    int frames = 0, lost = 0;
     long long t0, t;
 
     d3d = Direct3DCreate9(D3D_SDK_VERSION);
@@ -184,44 +254,14 @@ static int probe_d3d9(int seconds, int fullscreen)
     printf("\n");
 
     hwnd = make_window("lr2probe d3d9", 640, 480, fullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW);
-    memset(&pp, 0, sizeof pp);
-    pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    pp.hDeviceWindow = hwnd;
-    pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE; /* vsync off */
-    if (fullscreen) {
-        pp.Windowed = FALSE;
-        pp.BackBufferWidth = 640;
-        pp.BackBufferHeight = 480;
-        pp.BackBufferFormat = D3DFMT_X8R8G8B8;
-        pp.FullScreen_RefreshRateInHz = 0;
-    } else {
-        pp.Windowed = TRUE;
-        pp.BackBufferFormat = D3DFMT_UNKNOWN;
-    }
-    for (i = 0; i < 2 && !dev; i++) {
-        hr = IDirect3D9_CreateDevice(d3d, 0, D3DDEVTYPE_HAL, hwnd, vp[i], &pp, &dev);
-        printf("CreateDevice(HAL, %s vertex processing, %s): hr=0x%08lx\n", vpname[i],
-               fullscreen ? "fullscreen 640x480" : "windowed", (unsigned long)hr);
-    }
+    dev = make_device(d3d, hwnd, fullscreen, 1);
     if (!dev) {
         IDirect3D9_Release(d3d);
         return 3;
     }
     t0 = now_us();
     while ((t = now_us()) - t0 < seconds * 1000000LL && pump()) {
-        float k = (float)((t - t0) % 2000000) / 2000000.0f;
-        Vertex v[3] = {
-            {320.0f + 200.0f * (float)cos(6.2832 * k), 240.0f + 200.0f * (float)sin(6.2832 * k), 0.5f, 1.0f, 0xffffff00},
-            {120.0f, 420.0f, 0.5f, 1.0f, 0xff00ffff},
-            {520.0f, 420.0f, 0.5f, 1.0f, 0xffff00ff},
-        };
-        IDirect3DDevice9_Clear(dev, 0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(40, 0, 90), 1.0f, 0);
-        IDirect3DDevice9_BeginScene(dev);
-        IDirect3DDevice9_SetFVF(dev, D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-        IDirect3DDevice9_DrawPrimitiveUP(dev, D3DPT_TRIANGLELIST, 1, v, sizeof(Vertex));
-        IDirect3DDevice9_EndScene(dev);
-        hr = IDirect3DDevice9_Present(dev, NULL, NULL, NULL, NULL);
-        if (FAILED(hr))
+        if (FAILED(draw_frame(dev, t - t0)))
             lost++;
         frames++;
     }
@@ -414,9 +454,12 @@ static int probe_acp(void)
 
 /* ----------------------------------------------------------------- input */
 
-static int probe_recv(int n, const char *csv)
+static int probe_recv(int n, const char *csv, int render)
 {
-    HWND hwnd = make_window(RECV_TITLE, 320, 200, WS_OVERLAPPEDWINDOW);
+    HWND hwnd = make_window(RECV_TITLE, 640, 480, WS_OVERLAPPEDWINDOW);
+    IDirect3D9 *d3d = NULL;
+    IDirect3DDevice9 *dev = NULL;
+    long long frames = 0, t_start = now_us();
     LPDIRECTINPUT8 di = NULL;
     LPDIRECTINPUTDEVICE8 kb = NULL;
     DIPROPDWORD prop;
@@ -426,6 +469,10 @@ static int probe_recv(int n, const char *csv)
     long long last = now_us();
 
     timeBeginPeriod(1);
+    if (render && (d3d = Direct3DCreate9(D3D_SDK_VERSION)) != NULL)
+        dev = make_device(d3d, hwnd, 0, 0);
+    if (render)
+        printf("drawing with D3D9: %s\n", dev ? "yes" : "NO");
     hr = DirectInput8Create(GetModuleHandleA(NULL), DIRECTINPUT_VERSION, &IID_IDirectInput8A, (void **)&di, NULL);
     printf("DirectInput8Create: hr=0x%08lx\n", (unsigned long)hr);
     if (SUCCEEDED(hr)) {
@@ -461,14 +508,20 @@ static int probe_recv(int n, const char *csv)
                 downs_m += events[i].src == 'm' && events[i].code == SCAN_Z && events[i].down;
             last = events[n_events - 1].t_us;
         }
-        /* a game polls once a frame; this polls about every 0.5 ms */
-        {
+        /* a game polls once a frame; without a device this polls about
+         * every 0.5 ms */
+        if (dev) {
+            draw_frame(dev, now_us());
+            frames++;
+        } else {
             long long until = now_us() + 500;
             while (now_us() < until)
                 YieldProcessor();
         }
     }
     printf("received: %d downs by message, %d by DirectInput, %d events\n", downs_m, downs_d, n_events);
+    if (dev)
+        printf("frames: %lld, %.1f fps\n", frames, frames * 1e6 / (double)(now_us() - t_start));
     f = fopen(csv, "w");
     if (!f)
         return 2;
@@ -483,6 +536,10 @@ static int probe_recv(int n, const char *csv)
     }
     if (di)
         IDirectInput8_Release(di);
+    if (dev)
+        IDirect3DDevice9_Release(dev);
+    if (d3d)
+        IDirect3D9_Release(d3d);
     DestroyWindow(hwnd);
     return downs_m >= n ? 0 : 3;
 }
@@ -519,7 +576,7 @@ static int probe_send(int n, int period_ms, const char *csv)
         printf("no receiver window\n");
         return 2;
     }
-    printf("focus: %s\n", focus(hwnd) ? "ok" : "FAILED");
+    focus(hwnd);
     timeBeginPeriod(1);
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     Sleep(500);
@@ -559,13 +616,13 @@ int main(int argc, char **argv)
         return probe_acp();
     }
     if (argc >= 4 && !strcmp(argv[1], "recv"))
-        return probe_recv(atoi(argv[2]), argv[3]);
+        return probe_recv(atoi(argv[2]), argv[3], argc >= 5 && !strcmp(argv[4], "d3d9"));
     if (argc >= 5 && !strcmp(argv[1], "send"))
         return probe_send(atoi(argv[2]), atoi(argv[3]), argv[4]);
     if (argc >= 3 && !strcmp(argv[1], "focus")) {
         HWND h = FindWindowA(NULL, argv[2]);
         return h && focus(h) ? 0 : 1;
     }
-    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV | send N PERIOD_MS CSV | focus TITLE\n");
+    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE\n");
     return 64;
 }

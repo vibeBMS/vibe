@@ -1,6 +1,6 @@
 # Runs one stage of the runner probe (README.md) and writes its outputs to
 # $Out: logs, screenshots and timing tables, nothing of LR2's.
-#   probe.ps1 -Stage env|d3d9|sound|acp|le|fonts|input -Probe lr2probe.exe -Out DIR
+#   probe.ps1 -Stage env|d3d9|sound|acp|le|input -Probe lr2probe.exe -Out DIR [-Tag TAG]
 param(
     [Parameter(Mandatory)] [string] $Stage,
     [Parameter(Mandatory)] [string] $Probe,
@@ -62,7 +62,8 @@ switch ($Stage) {
     'acp' { exit (RunProbe @('acp') "$name.txt") }
     'le' {
         # Locale Emulator (open source, LGPL) runs the probe as if the
-        # system locale were Japanese
+        # system locale were Japanese: `LEProc.exe PATH ARGS` is its default
+        # ja-JP profile
         $le = Join-Path $env:RUNNER_TEMP 'le'
         New-Item -ItemType Directory -Force $le | Out-Null
         & gh release download --repo xupefei/Locale-Emulator --pattern '*.zip' --dir $le --clobber
@@ -70,28 +71,23 @@ switch ($Stage) {
         Get-ChildItem $le -Filter *.zip | ForEach-Object { Write-Host "Locale Emulator $($_.Name)"; Expand-Archive $_.FullName -DestinationPath $le -Force }
         $leproc = Get-ChildItem $le -Recurse -Filter LEProc.exe | Select-Object -First 1
         $res = Join-Path $Out 'le-acp.txt'
-        $p = Start-Process -FilePath $leproc.FullName -ArgumentList @('-run', "`"$Probe`"", 'acp', "`"$res`"") -PassThru
+        $p = Start-Process -FilePath $leproc.FullName -ArgumentList @("`"$Probe`"", 'acp', "`"$res`"") -PassThru
         $p.WaitForExit(30000) | Out-Null
-        Start-Sleep -Seconds 3
+        Write-Host "LEProc exit code $($p.ExitCode)"
+        for ($i = 0; $i -lt 15 -and -not (Test-Path $res); $i++) { Start-Sleep -Seconds 1 }
+        Start-Sleep -Seconds 1
         Shot 'le.png'
         if (Test-Path $res) { Get-Content $res | Write-Host } else { Write-Host '::warning::no output from the probe under Locale Emulator'; exit 1 }
         if (-not (Select-String -Quiet -Path $res -Pattern 'GetACP: 932')) { exit 1 }
-    }
-    'fonts' {
-        # the Japanese supplemental fonts (MS Gothic), a Feature on Demand:
-        # on a runner it may need Windows Update, so it gets 8 minutes
-        $cap = 'Language.Fonts.Jpan~~~und-JPAN~0.0.1.0'
-        Get-WindowsCapability -Online -Name $cap | Format-List Name, State | Out-String | Write-Host
-        $job = Start-Job { param($c) Add-WindowsCapability -Online -Name $c } -ArgumentList $cap
-        if (Wait-Job $job -Timeout 480) { Receive-Job $job | Format-List | Out-String | Write-Host } else { Write-Host '::warning::Add-WindowsCapability did not finish in 8 minutes'; Stop-Job $job }
-        Get-WindowsCapability -Online -Name $cap | Format-List Name, State | Out-String | Tee-Object -FilePath (Join-Path $Out 'fonts.txt') | Write-Host
     }
     'input' {
         # 200 presses of Z, 100 ms apart (1/16 notes at BPM 150), into a
         # window reading the keyboard by message and by DirectInput
         $recv = Join-Path $Out "$name-recv.csv"
         $send = Join-Path $Out "$name-send.csv"
-        $r = Start-Process -FilePath $Probe -ArgumentList @('recv', '200', "`"$recv`"") -PassThru -NoNewWindow `
+        # -Tag d3d9: the window draws with D3D9 and polls once a frame, as a game
+        $render = if ($Tag -eq 'd3d9') { @('d3d9') } else { @() }
+        $r = Start-Process -FilePath $Probe -ArgumentList (@('recv', '200', "`"$recv`"") + $render) -PassThru -NoNewWindow `
             -RedirectStandardOutput (Join-Path $Out "$name-recv.txt")
         Start-Sleep -Seconds 1
         & $Probe send 200 100 $send
