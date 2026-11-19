@@ -118,10 +118,11 @@ switch ($Stage) {
         & $Probe ui 'LR2 SETUP' click 1003
         Start-Sleep -Seconds 15
         Shot 'title.png'
-        & $Probe ui $Title key 0D | Out-Null
+        # LR2 reads keys through DirectInput: scan codes (Enter)
+        & $Probe ui $Title scan 1C | Out-Null
         Start-Sleep -Seconds 5
         Shot 'select.png'
-        & $Probe ui $Title key 28 | Out-Null  # down: the next song
+        & $Probe ui $Title scan 1F | Out-Null  # key 2: the next song
         Start-Sleep -Seconds 2
         Shot 'select-2.png'
         Log 'setup.txt' { '--- windows'; & $Probe windows | Where-Object { $_ -match 'LR2|#32770' } }
@@ -149,6 +150,15 @@ switch ($Stage) {
         Stop-LR2
     }
     'loop' {
+        # desktop programs may use the microphone (VB-CABLE's capture side
+        # is one)
+        foreach ($h in 'HKCU:', 'HKLM:') {
+            $k = "$h\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"
+            foreach ($key in $k, "$k\NonPackaged") {
+                if (-not (Test-Path $key)) { New-Item $key -Force | Out-Null }
+                Set-ItemProperty $key -Name Value -Value Allow
+            }
+        }
         Log 'loop.txt' { & $Probe loop (Join-Path $Out 'loop.csv') }
         $vals = @(Import-Csv (Join-Path $Out 'loop.csv') | ForEach-Object { [double]$_.latency_ms } | Sort-Object)
         if (-not $vals.Count) { throw 'the click was not heard' }
@@ -181,7 +191,7 @@ switch ($Stage) {
         Start-Sleep -Seconds 4
         Shot "result-$Chart.png"
         for ($i = 0; $i -lt 10 -and (Get-Process -Name LR2body -ErrorAction SilentlyContinue); $i++) {
-            & $Probe ui $Title key 0D | Out-Null
+            & $Probe ui $Title scan 1C | Out-Null
             Start-Sleep -Seconds 2
         }
         Stop-LR2

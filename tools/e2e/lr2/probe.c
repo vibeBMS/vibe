@@ -32,6 +32,8 @@
  *                             choice would (CBN_SELCHANGE to its dialog)
  *       mouse X Y             clicks at X, Y in the window
  *       key VK                presses a virtual key (hex) in the window
+ *       scan SC               presses a key by scan code (hex), as
+ *                             DirectInput reads it (LR2's own window)
  *       type TEXT             types TEXT into the window's focused control
  *       msg [p/]ID MSG W L    sends a message without pointers (numbers in
  *                             hex), prints the result
@@ -806,6 +808,14 @@ static int ui(int argc, char **argv)
         }
         return 0;
     }
+    if (!strcmp(argv[1], "scan") && argc >= 3) {
+        focus(dlg);
+        key((WORD)strtol(argv[2], NULL, 16), 1);
+        Sleep(50);
+        key((WORD)strtol(argv[2], NULL, 16), 0);
+        Sleep(100);
+        return 0;
+    }
     if (!strcmp(argv[1], "key") && argc >= 3) {
         focus(dlg);
         vk((WORD)strtol(argv[2], NULL, 16), 1);
@@ -833,7 +843,8 @@ typedef struct {
     WAVEHDR hdr[NBUF];
     short data[NBUF][BUF_SAMPLES];
     int next;
-    long long n;     /* samples so far */
+    int channels, rate;
+    long long n;     /* samples (frames) so far */
     double a_us;     /* time of sample 0 */
     long long onset; /* sample of the click, -1 before */
     long long cand;  /* a loud sample that may be the click, -1 none */
@@ -858,17 +869,26 @@ static int capture_open(Capture *c)
     memset(c, 0, sizeof *c);
     c->onset = c->cand = -1;
     c->a_us = 1e300;
-    memset(&wf, 0, sizeof wf);
-    wf.wFormatTag = WAVE_FORMAT_PCM;
-    wf.nChannels = 1;
-    wf.nSamplesPerSec = RATE;
-    wf.wBitsPerSample = 16;
-    wf.nBlockAlign = 2;
-    wf.nAvgBytesPerSec = RATE * 2;
-    r = waveInOpen(&c->in, dev, &wf, 0, 0, CALLBACK_NULL);
-    if (r != MMSYSERR_NOERROR) {
-        printf("waveInOpen: %u\n", r);
-        return 0;
+    {
+        /* the first format the device takes */
+        static const int fmts[][2] = {{44100, 1}, {44100, 2}, {48000, 2}, {48000, 1}};
+        for (i = 0; i < 4; i++) {
+            memset(&wf, 0, sizeof wf);
+            wf.wFormatTag = WAVE_FORMAT_PCM;
+            wf.nChannels = (WORD)fmts[i][1];
+            wf.nSamplesPerSec = fmts[i][0];
+            wf.wBitsPerSample = 16;
+            wf.nBlockAlign = (WORD)(2 * wf.nChannels);
+            wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
+            r = waveInOpen(&c->in, dev, &wf, 0, 0, CALLBACK_NULL);
+            printf("waveInOpen %d Hz, %d channels: %u\n", fmts[i][0], fmts[i][1], r);
+            if (r == MMSYSERR_NOERROR)
+                break;
+        }
+        if (r != MMSYSERR_NOERROR)
+            return 0;
+        c->rate = fmts[i][0];
+        c->channels = fmts[i][1];
     }
     for (i = 0; i < NBUF; i++) {
         c->hdr[i].lpData = (LPSTR)c->data[i];
@@ -890,30 +910,30 @@ static int capture_poll(Capture *c, long long ignore_before)
     while (c->hdr[c->next].dwFlags & WHDR_DONE) {
         WAVEHDR *h = &c->hdr[c->next];
         long long t = now_us();
-        int k, len = h->dwBytesRecorded / 2;
+        int k, len = h->dwBytesRecorded / 2 / c->channels, R = c->rate;
         for (k = 0; k < len; k++) {
             long long s = c->n + k;
-            int v = abs(c->data[c->next][k]);
+            int v = abs(c->data[c->next][k * c->channels]);
             if (c->onset >= 0 || s < ignore_before)
                 continue;
             if (v > CLICK_LEVEL) {
-                if (c->cand < 0 && s - c->last_loud > RATE / 5) {
+                if (c->cand < 0 && s - c->last_loud > R / 5) {
                     c->cand = s;
                     c->peak = 0;
-                } else if (c->cand >= 0 && s - c->cand > RATE / 25) {
+                } else if (c->cand >= 0 && s - c->cand > R / 25) {
                     c->cand = -1; /* too long for the click */
                 }
                 c->last_loud = s;
                 if (c->cand >= 0 && v > c->peak)
                     c->peak = v;
-            } else if (c->cand >= 0 && s - c->cand > RATE * 3 / 10) {
+            } else if (c->cand >= 0 && s - c->cand > R * 3 / 10) {
                 c->onset = c->cand;
                 found = 1;
             }
         }
         c->n += len;
-        if (t - c->n * 1e6 / RATE < c->a_us)
-            c->a_us = t - c->n * 1e6 / RATE;
+        if (t - c->n * 1e6 / R < c->a_us)
+            c->a_us = t - c->n * 1e6 / R;
         h->dwFlags &= ~WHDR_DONE;
         waveInAddBuffer(c->in, h, sizeof(WAVEHDR));
         c->next = (c->next + 1) % NBUF;
@@ -923,7 +943,7 @@ static int capture_poll(Capture *c, long long ignore_before)
 
 static double capture_onset_us(Capture *c)
 {
-    return c->a_us + c->onset * 1e6 / RATE;
+    return c->a_us + c->onset * 1e6 / c->rate;
 }
 
 static void capture_close(Capture *c)
@@ -1054,7 +1074,7 @@ static int probe_play(const char *sched, double click_ms, double lat_ms, const c
     fprintf(lf, "t_ms,scan,down,due_us,sent_us\n");
     /* up to 5 minutes for LR2 to load and reach the click */
     while (now_us() - start < 300000000LL) {
-        if (capture_poll(c, RATE / 2)) {
+        if (capture_poll(c, c->rate / 2)) {
             HWND lr2 = FindWindowA(NULL, "LR2 beta3 version 100201");
             t0 = capture_onset_us(c) - (click_ms + lat_ms) * 1000.0;
             printf("click heard (peak %d) %.1f s after the start; LR2 window %s\n", c->peak,
