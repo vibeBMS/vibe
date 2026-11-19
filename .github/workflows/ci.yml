@@ -50,11 +50,13 @@ jobs:
         run: |
           # rust-cache: v0-rust-<key>-<job>-<os>-<arch>-<environment>-<lockfiles>;
           # setup-go: setup-go-<os>-<arch>-<image>-go-<version>-<go.sum hash>;
-          # any other key: only other refs' entries
+          # e2e-*: the comparison tests' downloads (LR2, beatoraja), kept on
+          # every ref; any other key: only other refs' entries
           gh cache list --limit 1000 --sort created_at --order desc \
             --json id,key,ref,sizeInBytes --jq '.[] | "\(.id)\t\(.key)\t\(.ref)\t\(.sizeInBytes)"' |
             awk -F'\t' -v main="$MAIN" '{
               job = $2
+              if (job ~ /^e2e-/) next
               if (job ~ /^v0-rust-/) sub(/-[0-9a-f]+-[0-9a-f]+$/, "", job)
               else if (job ~ /^setup-go-/) sub(/-[0-9a-f]+$/, "", job)
               if ($3 != main || (job != $2 && seen[job]++)) print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"
