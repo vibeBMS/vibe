@@ -486,7 +486,7 @@ there from the start; others can be added in `SETTINGS › LIBRARY`.
 - What a download holds is sorted before it enters the library, the same on the desktop and the web: a new song gets
   a folder of its own; a song the library has already is not added again (only files its folder lacks come in); a
   separate chart goes into its song's folder, or waits when two folders are as likely. The rules are in BMSeeker's
-  [DESIGN.md](https://github.com/vibeBMS/BMSeeker/blob/main/DESIGN.md).
+  [DESIGN.md](https://github.com/vibeBMS/BMSeeker/blob/main/DESIGN.md#into-the-library).
 - Links that cannot be downloaded directly (OneDrive, uploaders, deleted files) open their download page: on the
   desktop, Android and iOS in the in-app browser, whose downloaded archive is unpacked into `bms/` before the chart's
   page opens. A downloaded chart goes into its song's folder; when unsure, the app asks. The web build opens the
