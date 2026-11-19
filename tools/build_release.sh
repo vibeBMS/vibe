@@ -5,7 +5,8 @@
 #
 #   tools/build_release.sh <artifact> [<out dir>]
 #   tools/build_release.sh zip <zip> <dir>     zip a folder, the same bytes anywhere
-#   tools/build_release.sh apk-entries <apk>   the SHA-256 of each file in an APK
+#   tools/build_release.sh entries <file>      the SHA-256 of each file in an APK,
+#                                              a zip (.ipa, the macOS app's) or a .dmg
 #
 #   <artifact>            what                          in the release
 #   linux-x64             with the in-app browser       vibebms-linux-x64
@@ -21,8 +22,9 @@
 #
 # Executables stay where cargo puts them (target/<triple>/release/) and the web
 # build in web/. With <out dir> (needed for ios and android) each file is also
-# copied there under its name in the release, with SHA256SUMS (an APK's files
-# too, as vibeBMS.apk/<path>: its signature differs by key) and build.txt.
+# copied there under its name in the release, with SHA256SUMS (an APK's and the
+# .ipa's files too, as vibeBMS.apk/<path>: an APK's signature differs by key)
+# and build.txt.
 #
 # The version is Cargo.toml's: tools/ci_version.sh stamps a CI build's first.
 # What would make two builds of a commit differ is fixed here:
@@ -39,7 +41,9 @@
 #   units, CI's trade of a few percent of speed for much faster links; a
 #   stable build and a local one keep Cargo.toml's fat LTO.
 # The compilers are pinned outside: Rust by rust-toolchain.toml, wasm-bindgen
-# by Cargo.lock (checked here), the containers and packages by tools/repro.env.
+# by Cargo.lock (checked here), the containers and packages by tools/repro.env;
+# on the runner images, Xcode and the MSVC toolset and Windows SDK of
+# tools/repro.env are selected here (tools/toolchain.sh: CI stops without them).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 die() { echo "$*" >&2; exit 1; }
@@ -69,23 +73,37 @@ repro_zip() {
   rm -f "$list"
 }
 
-# apk-entries <apk>: "<sha256>  <apk name>/<path>" for each file in the APK but
-# the v1 signature's (whose bytes depend on the key)
-apk_entries() {
-  python3 - "$1" <<'PY'
+# entries <file>: "<sha256>  <file name>/<path>" for each file in an APK (but
+# the v1 signature's, whose bytes depend on the key), a zip or a .dmg (mounted
+# with hdiutil: macOS), in name order
+entries() {
+  local f="$1" mnt rc=0
+  case "$f" in
+    *.dmg)
+      mnt="$(mktemp -d)"
+      hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$f"
+      (cd "$mnt" && find . -type f | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r n; do
+        printf '%s  %s/%s\n' "$(sha256 "$n" | cut -c1-64)" "$(basename "$f")" "$n"
+      done) || rc=$?
+      hdiutil detach -quiet "$mnt"
+      rmdir "$mnt"
+      return "$rc"
+      ;;
+  esac
+  python3 - "$f" <<'PY'
 import hashlib, os, re, sys, zipfile
-apk = sys.argv[1]
-with zipfile.ZipFile(apk) as z:
+f = sys.argv[1]
+with zipfile.ZipFile(f) as z:
     for n in sorted(z.namelist()):
-        if n.endswith("/") or re.fullmatch(r"META-INF/[^/]+\.(SF|RSA|DSA|EC)", n):
+        if n.endswith("/") or (f.endswith(".apk") and re.fullmatch(r"META-INF/[^/]+\.(SF|RSA|DSA|EC)", n)):
             continue
-        print(f"{hashlib.sha256(z.read(n)).hexdigest()}  {os.path.basename(apk)}/{n}")
+        print(f"{hashlib.sha256(z.read(n)).hexdigest()}  {os.path.basename(f)}/{n}")
 PY
 }
 
 case "${1:-}" in
   zip) [ $# -eq 3 ] || die "usage: $0 zip <zip> <dir>"; repro_zip "$2" "$3"; exit 0 ;;
-  apk-entries) [ $# -eq 2 ] || die "usage: $0 apk-entries <apk>"; apk_entries "$2"; exit 0 ;;
+  entries | apk-entries) [ $# -eq 2 ] || die "usage: $0 entries <file>"; entries "$2"; exit 0 ;;
 esac
 { [ $# -ge 1 ] && [ $# -le 2 ]; } || die "usage: $0 <artifact> [<out dir>] (see the top of $0)"
 artifact="$1" out="${2:-}"
@@ -93,6 +111,8 @@ if [ -n "$out" ]; then mkdir -p "$out" && out="$(cd "$out" && pwd)"; fi
 cd "$root"
 # shellcheck source=tools/repro.env
 . tools/repro.env
+# shellcheck source=tools/toolchain.sh
+. tools/toolchain.sh
 
 case "$artifact" in
   linux-x64 | linux-x64-portable) triples=(x86_64-unknown-linux-gnu) ;;
@@ -171,10 +191,21 @@ if [ -n "${VIBEBMS_CHANNEL:-}" ] && [ "$VIBEBMS_CHANNEL" != stable ]; then
 else
   unset CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
 fi
+# the C compiler and linker: Xcode and MSVC as pinned (tools/toolchain.sh); in
+# the containers, the pinned packages' (gcc's version stands for them)
+case "$artifact" in
+  macos | ios) use_xcode ;;
+  windows-x64) use_msvc x64 ;;
+  windows-arm64) use_msvc arm64 ;;
+  android) TOOLCHAIN="NDK $NDK_VERSION" ;;
+  web) TOOLCHAIN="$("${CC_wasm32_unknown_unknown:-$WEB_CC}" --version 2>/dev/null | head -1 || true)" ;;
+  *) TOOLCHAIN="$(cc --version 2>/dev/null | head -1 || true)" ;;
+esac
 # Cargo.lock as committed: a build that would change it stops here
 cargo metadata --locked --format-version 1 > /dev/null
 
 echo "building $artifact $version ($commit) with $(rustc -V)"
+echo "  toolchain: ${TOOLCHAIN:-unknown}"
 echo "  rustflags: ${rustflags[*]}"
 [ -z "${CFLAGS:-}" ] || echo "  cflags: $CFLAGS"
 echo "  SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-unset} CARGO_PROFILE_RELEASE_LTO=${CARGO_PROFILE_RELEASE_LTO:-(profile)}"
@@ -299,7 +330,7 @@ for f in "${files[@]}"; do cp "${f%%:*}" "$out/${f#*:}"; done
   for f in "${files[@]}"; do names+=("${f#*:}"); done
   sha256 "${names[@]}"
   for n in "${names[@]}"; do
-    case "$n" in *.apk) apk_entries "$n" ;; esac
+    case "$n" in *.apk | *.ipa) entries "$n" ;; esac
   done
 ) > "$out/SHA256SUMS"
 {
@@ -307,5 +338,6 @@ for f in "${files[@]}"; do cp "${f%%:*}" "$out/${f#*:}"; done
   echo "version=$version"
   echo "commit=$commit"
   echo "rustc=$(rustc -V)"
+  echo "toolchain=${TOOLCHAIN:-unknown}"
 } > "$out/build.txt"
 cat "$out/SHA256SUMS"

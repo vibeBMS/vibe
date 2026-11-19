@@ -8,7 +8,8 @@
 #
 # The identity comes from tools/ci_version.sh (VIBEBMS_APP_ID, VIBEBMS_APP_NAME,
 # VIBEBMS_BASE_VERSION, VIBEBMS_BUILD); a local run is io.github.vibebms.dev.
-# Needs lipo, codesign, ditto and hdiutil (macOS). DRY_RUN=1 runs it anywhere:
+# Needs lipo, codesign, ditto and hdiutil (macOS): lipo and codesign of the
+# Xcode tools/repro.env pins (tools/toolchain.sh). DRY_RUN=1 runs it anywhere:
 # the first executable stands in for the universal one, nothing is signed,
 # `zip` makes the zip and there is no .dmg.
 set -euo pipefail
@@ -16,6 +17,13 @@ set -euo pipefail
 arm="$1" x64="$2" out="$3"
 dry="${DRY_RUN:-}"
 step() { echo "== $*"; }
+if [ -z "$dry" ]; then
+  # shellcheck source=tools/repro.env
+  . "$(dirname "$0")/repro.env"
+  # shellcheck source=tools/toolchain.sh
+  . "$(dirname "$0")/toolchain.sh"
+  use_xcode
+fi
 
 base="$(perl -ne 'if (/^\[workspace\.package\]/) { $w = 1 } elsif (/^\[/) { $w = 0 }
   if ($w && /^version = "(\d+\.\d+\.\d+)/) { print $1; exit }' "$(dirname "$0")/../Cargo.toml")"
