@@ -154,6 +154,11 @@ jobs:
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f2
       - name: Calibrate (fine)
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage calibrate -Kind f
+      - name: The start signal from play to play (three more fine sweeps)
+        continue-on-error: true
+        run: |
+          tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f3,cal-f4,cal-f5
+          tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage jitter
       # the lr2-measure trials pressed as its README says (e2e.py plan)
       - name: lr2-measure A11
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a11-1,a11-2,a11-3

@@ -832,7 +832,7 @@ static int ui(int argc, char **argv)
 #define RATE 44100
 #define BUF_SAMPLES 220 /* 5 ms */
 #define NBUF 64
-#define CLICK_LEVEL 3000
+#define CLICK_LEVEL 12000 /* the click peaks near 20000 */
 
 /* VB-CABLE's capture side ("CABLE Output"), read in 5 ms buffers. Sample
  * n arrived at a + n / RATE, a being the lower envelope of the buffers'
@@ -1074,7 +1074,7 @@ static int probe_play(const char *sched, double click_ms, double lat_ms, const c
     fprintf(lf, "t_ms,scan,down,due_us,sent_us\n");
     /* up to 5 minutes for LR2 to load and reach the click */
     while (now_us() - start < 300000000LL) {
-        if (capture_poll(c, c->rate / 2)) {
+        if (capture_poll(c, c->rate * 2)) {
             HWND lr2 = FindWindowA(NULL, "LR2 beta3 version 100201");
             t0 = capture_onset_us(c) - (click_ms + lat_ms) * 1000.0;
             printf("click heard (peak %d) %.1f s after the start; LR2 window %s\n", c->peak,

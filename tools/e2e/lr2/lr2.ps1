@@ -143,6 +143,9 @@ switch ($Stage) {
         # vsync off (the lr2-measure README)
         Tab 'system'
         & $Probe ui 'LR2 SETUP' check p/1016 0
+        # a shorter sound buffer (384 by default): a sound starts on the
+        # next buffer, so the start signal moves by up to one buffer
+        & $Probe ui 'LR2 SETUP' text p/1002 128
         Shot 'setup-system.png'
         Tab 'main'
         # LR2 started: it writes config.xml and reads the song folder
@@ -166,7 +169,7 @@ switch ($Stage) {
             '--- config.xml elements'
             ([regex]::Matches($text, '<([A-Za-z_][A-Za-z0-9_]*)>') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique) -join ' '
             '--- set here'
-            foreach ($k in 'screenmode', 'vsync') { if ($text -match "<$k>([^<]*)</$k>") { "$k = $($Matches[1])" } }
+            foreach ($k in 'screenmode', 'vsync', 'bufferlength', 'numbuffers') { if ($text -match "<$k>([^<]*)</$k>") { "$k = $($Matches[1])" } }
         }
         Log 'setup.txt' { '--- score database'; & $Py -I -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); [print(r[0], r[1]) for r in c.execute('select name, sql from sqlite_master')]" $ScoreDb }
     }
@@ -215,6 +218,9 @@ switch ($Stage) {
         $new = $lat + $j.x_ms
         Log 'calibrate.txt' { "latency now: $new ms" }
         "$new" | Out-File -Encoding ascii $LatFile
+    }
+    'jitter' {
+        Log 'calibrate.txt' { & $Py -I $E2e jitter (Join-Path $Out 'scores.json') }
     }
     'compare' {
         & $Py -I $E2e compare (Join-Path $Out 'scores.json') (Join-Path $Out 'compare.md')

@@ -48,8 +48,11 @@ LANE = {"11": 1, "12": 2, "13": 3, "14": 4, "15": 5, "18": 6, "19": 7, "16": "S"
 CAL = {
     "c1": (3, -200.0, 2.5), "c2": (3, -10.0, 2.5),
     "f1": (0, -80.0, 1.0), "f2": (0, -10.0, 1.0),
+    # f1 again, once calibrated: each play's own offset (its hits less
+    # 10 + G + 1), how much the start signal moves from play to play
+    "f3": (0, -80.0, 1.0), "f4": (0, -80.0, 1.0), "f5": (0, -80.0, 1.0),
 }
-CAL_NOTES = {"c1": 85, "c2": 85, "f1": 91, "f2": 91}
+CAL_NOTES = {"c1": 85, "c2": 85, "f1": 91, "f2": 91, "f3": 91, "f4": 91, "f5": 91}
 CAL_GAP_MS = 400
 
 
@@ -210,6 +213,18 @@ def calibrate(scores_json, kind):
     return x, g, ok
 
 
+def jitter(scores_json):
+    rows = json.load(open(scores_json))["charts"]
+    _, g, _ = calibrate(scores_json, "f")
+    out = {}
+    for k in ("f3", "f4", "f5"):
+        r = rows.get(f"cal-{k}")
+        if r:
+            # hits = (10 + G + x) + 1 with 1 ms steps
+            out[k] = hits(r) - 11 - g
+    print(json.dumps({"good_window_ms": g, "offset_ms_per_play": out}))
+
+
 # vibeBMS's rows: (judgement, count) for the counts lr2_measure.rs and the
 # README read; 12 of 16 decides ("about", README)
 EXPECT = {
@@ -278,6 +293,8 @@ if __name__ == "__main__":
     elif cmd == "calibrate":
         x, g, ok = calibrate(sys.argv[2], sys.argv[3])
         sys.exit(0 if ok else 1)
+    elif cmd == "jitter":
+        jitter(sys.argv[2])
     elif cmd == "compare":
         sys.exit(1 if compare(sys.argv[2], sys.argv[3]) else 0)
     else:
