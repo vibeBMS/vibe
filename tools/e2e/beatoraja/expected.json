@@ -1,0 +1,20 @@
+{
+ "about": "Known differences between vibeBMS and beatoraja in the behaviour cases (compare.py). kind: intended (vibeBMS's rules say so: rules names the docs/RULES.md section), vibebms-bug (vibeBMS should change; listed so that the run tells new differences from it), harness (the comparison's, not the players'). A difference not listed fails the run.",
+ "differences": [
+  {
+   "cases": [
+    "bss-cn",
+    "bss-hcn"
+   ],
+   "fields": [
+    "pg",
+    "pr",
+    "ex",
+    "max_combo"
+   ],
+   "kind": "intended",
+   "reason": "a back-spin scratch (scratch CN / HCN) let go at its end on the keyboard: vibeBMS ends it there (PGREAT), beatoraja 0.8.9 gives the end a POOR (only turning the other way ends it, as the case's other trials show); this answers open gap B3",
+   "rules": "Long notes (keyboards: releasing also ends it); LR2 equivalence, The beatoraja profile (B3)"
+  }
+ ]
+}

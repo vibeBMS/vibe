@@ -209,8 +209,9 @@ struct Lane {
     swept: usize,
     /// The long note being held.
     held: Option<usize>,
-    /// An early release waiting to be judged: (input time, judgement).
-    pending: Option<(i64, Judge)>,
+    /// An early release waiting to be judged: (input time, judgement,
+    /// the timing it is counted FAST or SLOW by).
+    pending: Option<(i64, Judge, i64)>,
     /// LN mode: the held note's head judgement and diff.
     head: (Judge, i64),
     /// Scratch: the key that started the hold.
@@ -747,15 +748,15 @@ impl Engine {
                 let pending = self.lanes[lane].pending;
                 if !self.notes[h].is_charge() {
                     match pending {
-                        Some((rt, Judge::Bad)) if rt.saturating_add(margin) <= m => {
+                        Some((rt, Judge::Bad, d)) if rt.saturating_add(margin) <= m => {
                             self.mute(h);
-                            self.ln_final(h, Judge::Bad, end.saturating_sub(rt));
+                            self.ln_final(h, Judge::Bad, d);
                             self.sound(lane, self.notes[h].end_sound);
                             self.release_hold(lane);
                         }
                         _ if end < m => {
                             let (j, d) = match pending {
-                                Some((rt, j)) => (j, end.saturating_sub(rt)),
+                                Some((_, j, d)) => (j, d),
                                 None => self.lanes[lane].head,
                             };
                             self.ln_final(h, j, d);
@@ -764,10 +765,10 @@ impl Engine {
                         }
                         _ => {}
                     }
-                } else if let Some((rt, j)) = pending {
+                } else if let Some((rt, j, d)) = pending {
                     if rt.saturating_add(margin) <= m {
                         self.mute(h);
-                        self.judge(h, Slot::Tail, j, end.saturating_sub(rt), true);
+                        self.judge(h, Slot::Tail, j, d, true);
                         self.sound(lane, self.notes[h].end_sound);
                         self.release_hold(lane);
                     }
@@ -1020,7 +1021,7 @@ impl Engine {
             self.lr2_release(lane, h, t);
         } else if charge {
             if r >= Judge::Bad && d > 0 {
-                self.lanes[lane].pending = Some((t, r));
+                self.lanes[lane].pending = Some((t, r, d));
             } else {
                 self.judge(h, Slot::Tail, r, d, true);
                 self.sound(lane, self.notes[h].end_sound);
@@ -1030,8 +1031,10 @@ impl Engine {
             let (hj, hd) = self.lanes[lane].head;
             let j = r.max(hj);
             let dd = if hd.abs() > d.abs() { hd } else { d };
+            // (counted FAST or SLOW by the timing that decided it, the
+            // head's or the release's, as when it is judged at once)
             if dd > 0 {
-                self.lanes[lane].pending = Some((t, j.min(Judge::Bad)));
+                self.lanes[lane].pending = Some((t, j.min(Judge::Bad), dd));
             } else {
                 self.ln_final(h, j, dd);
                 self.sound(lane, self.notes[h].end_sound);

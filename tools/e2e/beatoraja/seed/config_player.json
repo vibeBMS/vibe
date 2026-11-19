@@ -1,0 +1,1603 @@
+{
+ "id": "player1",
+ "name": "NO NAME",
+ "gauge": 2,
+ "random": 0,
+ "random2": 0,
+ "doubleoption": 0,
+ "chartReplicationMode": "RIVALCHART",
+ "targetid": "MAX",
+ "targetlist": [
+  "RATE_A-",
+  "RATE_A",
+  "RATE_A+",
+  "RATE_AA-",
+  "RATE_AA",
+  "RATE_AA+",
+  "RATE_AAA-",
+  "RATE_AAA",
+  "RATE_AAA+",
+  "RATE_MAX-",
+  "MAX",
+  "RANK_NEXT",
+  "IR_NEXT_1",
+  "IR_NEXT_2",
+  "IR_NEXT_3",
+  "IR_NEXT_4",
+  "IR_NEXT_5",
+  "IR_NEXT_10",
+  "IR_RANK_1",
+  "IR_RANK_5",
+  "IR_RANK_10",
+  "IR_RANK_20",
+  "IR_RANK_30",
+  "IR_RANK_40",
+  "IR_RANK_50",
+  "IR_RANKRATE_5",
+  "IR_RANKRATE_10",
+  "IR_RANKRATE_15",
+  "IR_RANKRATE_20",
+  "IR_RANKRATE_25",
+  "IR_RANKRATE_30",
+  "IR_RANKRATE_35",
+  "IR_RANKRATE_40",
+  "IR_RANKRATE_45",
+  "IR_RANKRATE_50",
+  "RIVAL_RANK_1",
+  "RIVAL_RANK_2",
+  "RIVAL_RANK_3",
+  "RIVAL_NEXT_1",
+  "RIVAL_NEXT_2",
+  "RIVAL_NEXT_3"
+ ],
+ "judgetiming": 0,
+ "notesDisplayTimingAutoAdjust": false,
+ "mode": null,
+ "modeFilter": "ALL",
+ "enabledModeFilters": [
+  "ALL",
+  "BEAT_7K",
+  "BEAT_14K",
+  "POPN_9K",
+  "BEAT_5K",
+  "BEAT_10K",
+  "KEYBOARD_24K",
+  "KEYBOARD_24K_DOUBLE"
+ ],
+ "difficultyFilter": "ALL",
+ "misslayerDuration": 500,
+ "lnmode": 0,
+ "scrollMode": 0,
+ "scrollSection": 4,
+ "scrollRate": 0.5,
+ "longnoteMode": 0,
+ "longnoteRate": 1,
+ "customJudge": false,
+ "keyJudgeWindowRatePerfectGreat": 400,
+ "keyJudgeWindowRateGreat": 400,
+ "keyJudgeWindowRateGood": 100,
+ "scratchJudgeWindowRatePerfectGreat": 400,
+ "scratchJudgeWindowRateGreat": 400,
+ "scratchJudgeWindowRateGood": 100,
+ "longnoteMarginRate": 100,
+ "mineMode": 0,
+ "bpmguide": false,
+ "extranoteType": 0,
+ "extranoteDepth": 0,
+ "extranoteScratch": false,
+ "showjudgearea": false,
+ "markprocessednote": false,
+ "hranThresholdBPM": 120,
+ "gaugeAutoShift": 0,
+ "bottomShiftableGauge": 0,
+ "autosavereplay": [
+  0,
+  0,
+  0,
+  0
+ ],
+ "sevenToNinePattern": 0,
+ "sevenToNineType": 0,
+ "exitPressDuration": 1000,
+ "isGuideSE": false,
+ "isWindowHold": false,
+ "isRandomSelect": false,
+ "skin": [
+  {
+   "path": "skin/default/play/play7.luaskin",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/play5.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/play14.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/play10.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/play9.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/select.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/decide/decide.luaskin",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/e2e/result.luaskin",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/keyconfig/keyconfig.luaskin",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/skinselect/skinselect.luaskin",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  null,
+  null,
+  null,
+  null,
+  null,
+  {
+   "path": "skin/default/graderesult.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/play24.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  {
+   "path": "skin/default/play24double.json",
+   "properties": {
+    "option": [],
+    "file": [],
+    "offset": []
+   }
+  },
+  null
+ ],
+ "skinHistory": [],
+ "mode5": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    54,
+    47,
+    52,
+    32,
+    31,
+    59,
+    129
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 47
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 48
+   }
+  },
+  "version": 1
+ },
+ "mode7": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    54,
+    47,
+    52,
+    32,
+    31,
+    34,
+    50,
+    59,
+    129
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 47
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 48
+   }
+  },
+  "version": 1
+ },
+ "mode10": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    54,
+    47,
+    52,
+    32,
+    31,
+    59,
+    129,
+    55,
+    40,
+    56,
+    74,
+    76,
+    60,
+    130
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   },
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 47
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 48
+   }
+  },
+  "version": 1
+ },
+ "mode14": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    54,
+    47,
+    52,
+    32,
+    31,
+    34,
+    50,
+    59,
+    129,
+    55,
+    40,
+    56,
+    74,
+    76,
+    75,
+    0,
+    60,
+    130
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   },
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 47
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 48
+   }
+  },
+  "version": 1
+ },
+ "mode9": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    54,
+    47,
+    52,
+    32,
+    31,
+    34,
+    50,
+    35,
+    30
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 47
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 48
+   }
+  },
+  "version": 1
+ },
+ "mode24": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    {
+     "type": "NOTE",
+     "value": 48
+    },
+    {
+     "type": "NOTE",
+     "value": 49
+    },
+    {
+     "type": "NOTE",
+     "value": 50
+    },
+    {
+     "type": "NOTE",
+     "value": 51
+    },
+    {
+     "type": "NOTE",
+     "value": 52
+    },
+    {
+     "type": "NOTE",
+     "value": 53
+    },
+    {
+     "type": "NOTE",
+     "value": 54
+    },
+    {
+     "type": "NOTE",
+     "value": 55
+    },
+    {
+     "type": "NOTE",
+     "value": 56
+    },
+    {
+     "type": "NOTE",
+     "value": 57
+    },
+    {
+     "type": "NOTE",
+     "value": 58
+    },
+    {
+     "type": "NOTE",
+     "value": 59
+    },
+    {
+     "type": "NOTE",
+     "value": 60
+    },
+    {
+     "type": "NOTE",
+     "value": 61
+    },
+    {
+     "type": "NOTE",
+     "value": 62
+    },
+    {
+     "type": "NOTE",
+     "value": 63
+    },
+    {
+     "type": "NOTE",
+     "value": 64
+    },
+    {
+     "type": "NOTE",
+     "value": 65
+    },
+    {
+     "type": "NOTE",
+     "value": 66
+    },
+    {
+     "type": "NOTE",
+     "value": 67
+    },
+    {
+     "type": "NOTE",
+     "value": 68
+    },
+    {
+     "type": "NOTE",
+     "value": 69
+    },
+    {
+     "type": "NOTE",
+     "value": 70
+    },
+    {
+     "type": "NOTE",
+     "value": 71
+    },
+    {
+     "type": "PITCH_BEND",
+     "value": 1
+    },
+    {
+     "type": "PITCH_BEND",
+     "value": -1
+    }
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 44
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 46
+   }
+  },
+  "version": 1
+ },
+ "mode24double": {
+  "playconfig": {
+   "hispeed": 1,
+   "duration": 500,
+   "enableConstant": false,
+   "constantFadeinTime": 100,
+   "fixhispeed": 3,
+   "hispeedmargin": 0.25,
+   "lanecover": 0.2,
+   "enablelanecover": true,
+   "lift": 0.1,
+   "enablelift": false,
+   "hidden": 0.1,
+   "enablehidden": false,
+   "lanecovermarginlow": 0.001,
+   "lanecovermarginhigh": 0.01,
+   "lanecoverswitchduration": 500,
+   "hispeedautoadjust": false,
+   "judgetype": "Combo"
+  },
+  "keyboard": {
+   "mouseScratchConfig": {
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": -1,
+    "select": -1,
+    "mouseScratchEnabled": false,
+    "mouseScratchTimeThreshold": 150,
+    "mouseScratchDistance": 12,
+    "mouseScratchMode": 0
+   },
+   "keys": [
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1
+   ],
+   "start": 45,
+   "select": 51,
+   "duration": 16
+  },
+  "controller": [
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   },
+   {
+    "name": "",
+    "keys": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    "start": 8,
+    "select": 9,
+    "duration": 16,
+    "jkoc_hack": false,
+    "analogScratch": false,
+    "analogScratchMode": 0,
+    "analogScratchThreshold": 100
+   }
+  ],
+  "midi": {
+   "keys": [
+    {
+     "type": "NOTE",
+     "value": 48
+    },
+    {
+     "type": "NOTE",
+     "value": 49
+    },
+    {
+     "type": "NOTE",
+     "value": 50
+    },
+    {
+     "type": "NOTE",
+     "value": 51
+    },
+    {
+     "type": "NOTE",
+     "value": 52
+    },
+    {
+     "type": "NOTE",
+     "value": 53
+    },
+    {
+     "type": "NOTE",
+     "value": 54
+    },
+    {
+     "type": "NOTE",
+     "value": 55
+    },
+    {
+     "type": "NOTE",
+     "value": 56
+    },
+    {
+     "type": "NOTE",
+     "value": 57
+    },
+    {
+     "type": "NOTE",
+     "value": 58
+    },
+    {
+     "type": "NOTE",
+     "value": 59
+    },
+    {
+     "type": "NOTE",
+     "value": 60
+    },
+    {
+     "type": "NOTE",
+     "value": 61
+    },
+    {
+     "type": "NOTE",
+     "value": 62
+    },
+    {
+     "type": "NOTE",
+     "value": 63
+    },
+    {
+     "type": "NOTE",
+     "value": 64
+    },
+    {
+     "type": "NOTE",
+     "value": 65
+    },
+    {
+     "type": "NOTE",
+     "value": 66
+    },
+    {
+     "type": "NOTE",
+     "value": 67
+    },
+    {
+     "type": "NOTE",
+     "value": 68
+    },
+    {
+     "type": "NOTE",
+     "value": 69
+    },
+    {
+     "type": "NOTE",
+     "value": 70
+    },
+    {
+     "type": "NOTE",
+     "value": 71
+    },
+    {
+     "type": "PITCH_BEND",
+     "value": 1
+    },
+    {
+     "type": "PITCH_BEND",
+     "value": -1
+    },
+    {
+     "type": "NOTE",
+     "value": 72
+    },
+    {
+     "type": "NOTE",
+     "value": 73
+    },
+    {
+     "type": "NOTE",
+     "value": 74
+    },
+    {
+     "type": "NOTE",
+     "value": 75
+    },
+    {
+     "type": "NOTE",
+     "value": 76
+    },
+    {
+     "type": "NOTE",
+     "value": 77
+    },
+    {
+     "type": "NOTE",
+     "value": 78
+    },
+    {
+     "type": "NOTE",
+     "value": 79
+    },
+    {
+     "type": "NOTE",
+     "value": 80
+    },
+    {
+     "type": "NOTE",
+     "value": 81
+    },
+    {
+     "type": "NOTE",
+     "value": 82
+    },
+    {
+     "type": "NOTE",
+     "value": 83
+    },
+    {
+     "type": "NOTE",
+     "value": 84
+    },
+    {
+     "type": "NOTE",
+     "value": 85
+    },
+    {
+     "type": "NOTE",
+     "value": 86
+    },
+    {
+     "type": "NOTE",
+     "value": 87
+    },
+    {
+     "type": "NOTE",
+     "value": 88
+    },
+    {
+     "type": "NOTE",
+     "value": 89
+    },
+    {
+     "type": "NOTE",
+     "value": 90
+    },
+    {
+     "type": "NOTE",
+     "value": 91
+    },
+    {
+     "type": "NOTE",
+     "value": 92
+    },
+    {
+     "type": "NOTE",
+     "value": 93
+    },
+    {
+     "type": "NOTE",
+     "value": 94
+    },
+    {
+     "type": "NOTE",
+     "value": 95
+    },
+    {
+     "type": "NOTE",
+     "value": 99
+    },
+    {
+     "type": "NOTE",
+     "value": 97
+    }
+   ],
+   "start": {
+    "type": "NOTE",
+    "value": 44
+   },
+   "select": {
+    "type": "NOTE",
+    "value": 46
+   }
+  },
+  "version": 1
+ },
+ "showhiddennote": false,
+ "showpastnote": false,
+ "chartPreview": true,
+ "sort": 0,
+ "sortid": "TITLE",
+ "enabledBarSorters": [
+  "TITLE",
+  "ARTIST",
+  "BPM",
+  "LENGTH",
+  "LEVEL",
+  "CLEAR",
+  "SCORE",
+  "MISSCOUNT"
+ ],
+ "musicselectinput": 0,
+ "irconfig": [
+  {
+   "irname": "mocha",
+   "userid": "",
+   "cuserid": "",
+   "password": "",
+   "cpassword": "",
+   "irsend": 0,
+   "importscore": false,
+   "importrival": true
+  }
+ ],
+ "twitterConsumerKey": null,
+ "twitterConsumerSecret": null,
+ "twitterAccessToken": null,
+ "twitterAccessTokenSecret": null,
+ "enableRequest": false,
+ "notifyRequest": false,
+ "maxRequestCount": 30,
+ "eventMode": false
+}
