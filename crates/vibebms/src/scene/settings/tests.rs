@@ -5,7 +5,7 @@ use crate::courses::{Course, Stage};
 use crate::gfx::Rect;
 use crate::platform::Instant;
 use crate::scene::keybind::Slot;
-use crate::skinstore::SkinEntry;
+use crate::skinstore::{SkinEntry, Source};
 use vibebms_core::course::CourseKind;
 
 fn key(code: KeyCode) -> InputEv {
@@ -87,6 +87,7 @@ fn setup(name: &str) -> (std::path::PathBuf, Ctx) {
         id: "skin".into(),
         name: "A skin".into(),
         license: "free".into(),
+        source: Some(Source::Official),
         ..Default::default()
     });
     (root, ctx)
@@ -832,5 +833,62 @@ fn third_party_sources_ask_once() {
     // the OK is saved with the settings
     let saved = crate::profiles::load_config(&ctx.paths);
     assert!(saved.third_party_acknowledged && saved.third_party_mirrors);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// GET SKINS lists third parties' copies only with their sources on (an
+/// installed one stays, to be deleted), says how many it leaves out, and
+/// does not download one while they are off.
+#[test]
+fn third_party_skins_are_offered_with_their_sources_on() {
+    let (root, mut ctx) = setup("third-party-skins");
+    let skin = |id: &str, source| SkinEntry {
+        id: id.into(),
+        name: id.to_uppercase(),
+        kind: "beatoraja".into(),
+        folder: id.into(),
+        downloads: vec!["https://example.com/s.zip".into()],
+        source,
+        ..Default::default()
+    };
+    ctx.skins.store.catalog.skins = vec![
+        skin("own", Some(Source::Official)),
+        skin("copy", Some(Source::ThirdParty)),
+        skin("kept", Some(Source::ThirdParty)),
+    ];
+    std::fs::create_dir_all(ctx.paths.skins.join("kept")).unwrap();
+    let set = |ctx: &mut Ctx, on: bool| {
+        ctx.config.third_party_mirrors = on;
+        ctx.net.hosts = crate::hosts::context(&ctx.config);
+    };
+    let armed = Armed::default();
+    let listed = |ctx: &Ctx| -> (Vec<String>, Vec<&'static str>) {
+        let rows = View::Sub(Sub::Catalog).rows(ctx, &armed, Folds::All);
+        let skins = (rows.iter())
+            .filter(|r| r.id == "catalog.skin")
+            .map(|r| r.label.clone())
+            .collect();
+        (skins, rows.iter().map(|r| r.id).collect())
+    };
+    set(&mut ctx, false);
+    let (skins, ids) = listed(&ctx);
+    assert_eq!(skins, ["OWN", "KEPT"]);
+    assert!(ids.contains(&"catalog.third_party"));
+    // the count on SKINS is what is listed
+    let rows = View::Page(Page::Skins).rows(&ctx, &armed, Folds::All);
+    let get = rows.iter().find(|r| r.id == "catalog").unwrap();
+    assert!(get.value.starts_with("2 "), "{}", get.value);
+    // its own page says so, and it is not downloaded
+    let sub = View::Sub(Sub::CatalogSkin("copy".into())).rows(&ctx, &armed, Folds::All);
+    assert!(sub.iter().any(|r| r.id == "catalog.source"));
+    let r = ctx.skins.store.install(&ctx.paths, &ctx.net.hosts, 1);
+    assert!(r.unwrap_err().contains("LIBRARY"));
+    let sub = View::Sub(Sub::CatalogSkin("own".into())).rows(&ctx, &armed, Folds::All);
+    assert!(!sub.iter().any(|r| r.id == "catalog.source"));
+    // on: all of them, no note
+    set(&mut ctx, true);
+    let (skins, ids) = listed(&ctx);
+    assert_eq!(skins, ["OWN", "COPY", "KEPT"]);
+    assert!(!ids.contains(&"catalog.third_party"));
     std::fs::remove_dir_all(&root).ok();
 }

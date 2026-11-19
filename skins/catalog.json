@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "skins": [
     {
       "id": "brook",
@@ -14,6 +14,7 @@
       "downloads": ["https://drive.google.com/file/d/1ei0w7_gMkZ7TU9q79WkQ5RPnTIbhWbOk/view"],
       "homepage": "https://isocosa.neocities.org/bms_skins.html",
       "license": "No license stated; credits in ReadMe.txt",
+      "source": "official",
       "folder": "isocosa_brook"
     },
     {
@@ -29,6 +30,7 @@
       "downloads": ["https://isocosa.neocities.org/files/bms_skin/isocosa_duplex_alpha1.zip"],
       "homepage": "https://isocosa.neocities.org/bms_skins.html",
       "license": "No license stated",
+      "source": "official",
       "folder": "isocosa_duplex_alpha1"
     },
     {
@@ -44,6 +46,7 @@
       "downloads": ["https://drive.google.com/file/d/1-OzcuwOEzhQ4hfb_nXK2bHYlpu6QQarx/view"],
       "homepage": "https://fezikedifficulty.futene.net/skin.html",
       "license": "Edits and redistribution allowed if the readme credits FZ-Skin; fonts under their own licenses",
+      "source": "official",
       "folder": "Fezike_skin"
     },
     {
@@ -59,6 +62,7 @@
       "downloads": ["https://drive.google.com/file/d/1CR8PuLaBNFCHqBkGYrToPTxDQtQ6AQke/view"],
       "homepage": "https://fezikedifficulty.futene.net/skin.html",
       "license": "In development: the author asks not to redistribute it",
+      "source": "official",
       "folder": "FLATZ"
     },
     {
@@ -74,6 +78,7 @@
       "downloads": ["https://drive.google.com/file/d/1Vu1MI7Pt8uoy1XGpmHI7Oasf5yr7PJBG/view"],
       "homepage": "https://drive.google.com/drive/folders/1ugqMTKVnSIlYY8VT8F615DzbvqNfJDak",
       "license": "Free to use, modify and redistribute (readme); fonts and voices under their own terms",
+      "source": "official",
       "folder": "m_select"
     },
     {
@@ -89,6 +94,7 @@
       "downloads": ["https://drive.google.com/file/d/1SsZrC740aTO35aifabRMocy9G37g3MWh/view"],
       "homepage": "https://drive.google.com/drive/folders/1ugqMTKVnSIlYY8VT8F615DzbvqNfJDak",
       "license": "Free to use, modify and redistribute (readme); fonts under their own licenses",
+      "source": "official",
       "folder": "simple-play"
     },
     {
@@ -104,6 +110,7 @@
       "downloads": ["https://drive.google.com/file/d/1Ms0saBfLTnhLL9MxgcQU7GuPOAvpvF1-/view"],
       "homepage": "https://youtu.be/IX5D6dLt3cQ",
       "license": "Do not redistribute; edits are fine but not for distribution (readme)",
+      "source": "official",
       "folder": "hij_simple"
     },
     {
@@ -119,6 +126,7 @@
       "downloads": ["https://drive.google.com/file/d/1QPI-K1MrqcoVYiimUQmJ_aFOd_bx4iF3/view"],
       "homepage": "https://note.com/egret_sb/n/nf49aeb476f55",
       "license": "Use, modification and redistribution allowed, but not for money; fonts under their own licenses",
+      "source": "official",
       "folder": "Luxe_Flat"
     },
     {
@@ -132,8 +140,9 @@
       "version": "4.7.2",
       "size": 694793853,
       "downloads": ["https://drive.google.com/file/d/1VnwuK_lYtKCgE82oTAbFxhsrQhpBXY6y/view"],
-      "homepage": "https://www.kasacontent.com/musicgame/beatoraja/4194/",
+      "homepage": "https://www.kasacontent.com/musicgame/beatoraja/6411/",
       "license": "No redistribution without the author's permission; edited versions must credit KASAKO",
+      "source": "official",
       "folder": "ModernChic"
     },
     {
@@ -149,6 +158,7 @@
       "downloads": ["https://github.com/catcraze777/ccplay/releases/download/release-1.5/cc-play-1.5.zip"],
       "homepage": "https://github.com/catcraze777/ccplay",
       "license": "GPL-3.0",
+      "source": "official",
       "folder": "CC-Play"
     },
     {
@@ -164,6 +174,7 @@
       "downloads": ["https://github.com/gibgib1212/Rm-skin/archive/refs/heads/main.zip"],
       "homepage": "https://github.com/gibgib1212/Rm-skin",
       "license": "GPL-3.0; files named with \"!\" CC BY-NC-ND 4.0; fonts under their own licenses",
+      "source": "official",
       "folder": "Rm-skin"
     },
     {
@@ -179,6 +190,7 @@
       "downloads": ["https://github.com/Shimi9999/GenericTheme/archive/refs/heads/master.zip"],
       "homepage": "https://github.com/Shimi9999/GenericTheme",
       "license": "GPL-3.0 (Lua), CC BY-SA 3.0 (images)",
+      "source": "official",
       "folder": "GenericTheme"
     },
     {
@@ -194,6 +206,7 @@
       "downloads": ["https://github.com/Shimi9999/DarkTheme/archive/refs/heads/master.zip"],
       "homepage": "https://github.com/Shimi9999/DarkTheme",
       "license": "Apache-2.0; fonts under their own licenses",
+      "source": "official",
       "folder": "DarkTheme"
     },
     {
@@ -209,6 +222,7 @@
       "downloads": ["https://github.com/szsz8390/Dozer_result/releases/download/v1.3.0/Dozer_result.zip"],
       "homepage": "https://github.com/szsz8390/Dozer_result",
       "license": "MIT; fonts and photos under their own terms",
+      "source": "official",
       "folder": "Dozer_result"
     },
     {
@@ -224,6 +238,7 @@
       "downloads": ["https://wwwdobryrap.pl/assets/result/proste%20g%C3%B3wno.7z"],
       "homepage": "https://wwwdobryrap.pl/2021/05/07/prostegowno.html",
       "license": "No license stated",
+      "source": "official",
       "folder": "proste gówno"
     },
     {
@@ -239,6 +254,7 @@
       "downloads": ["https://github.com/kkkkkst/lr2-simple-skin/archive/refs/heads/master.zip"],
       "homepage": "https://github.com/kkkkkst/lr2-simple-skin",
       "license": "No license stated",
+      "source": "official",
       "folder": "Hex_Simple_FHD"
     }
   ]
