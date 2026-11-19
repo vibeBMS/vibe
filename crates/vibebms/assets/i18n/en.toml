@@ -270,12 +270,12 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Not installed: {title} — {pages}" = "Not installed: {title} — {pages}"
 "Opened the download page of {title}" = "Opened the download page of {title}"
 "Opened the download pages of {title}: put the chart into the song's folder" = "Opened the download pages of {title}: put the chart into the song's folder"
-"{title} ({n} stages)" = "{title} ({n} stages)"
 "no such course" = "no such course"
 "not a course" = "not a course"
 "Course {name}: no stages yet (add charts in the settings' COURSES)" = "Course {name}: no stages yet (add charts in the settings' COURSES)"
 "Course {name}: more than {max} stages" = "Course {name}: more than {max} stages"
 "Course {name}: stage {n} is not installed" = "Course {name}: stage {n} is not installed"
+"{title} ({n} stages)" = "{title} ({n} stages)"
 "kept" = "kept"
 
 # scene/select/mod.rs

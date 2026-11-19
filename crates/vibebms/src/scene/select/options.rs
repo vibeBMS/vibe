@@ -348,6 +348,13 @@ fn vs_hint(ctx: &mut Ctx) {
     }
 }
 
+/// Does `skin` have panels (objects shown only with a panel option)?
+pub(super) fn has_panels(skin: Option<&crate::skin::render::LoadedSkin>) -> bool {
+    skin.is_some_and(|s| {
+        (s.skin.objects.iter()).any(|o| o.dst.ops.iter().any(|op| panel_of_op(*op).is_some()))
+    })
+}
+
 impl SelectScene {
     /// Change option `o`: the next value, the one before for `d` = -1 (a
     /// tap on a value's left half).
@@ -579,14 +586,9 @@ impl SelectScene {
         Next::Stay
     }
 
-    /// Does the skin have panels (objects shown only with a panel option)?
+    /// Does the skin have panels (`has_panels`, found at its load)?
     pub(super) fn skin_has_panels(&self) -> bool {
-        self.host.skin.as_ref().is_some_and(|s| {
-            s.skin
-                .objects
-                .iter()
-                .any(|o| o.dst.ops.iter().any(|op| panel_of_op(*op).is_some()))
-        })
+        self.has_panels
     }
 
     /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids);

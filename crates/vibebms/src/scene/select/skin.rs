@@ -12,10 +12,11 @@
 //! the player's rank, 180 the chart's players. The bar list draws the
 //! lamp of the player chosen in `IrSettings::beside` as the rival lamp.
 
+use super::launch::{course_best, Trophy};
 use super::options::{self, SelectOption};
 use super::preview::Rank;
-use super::status::{self, SIBLINGS};
-use super::tree::{table, Bar, BulkBar, CourseBar, Node};
+use super::status::{self, Keep, SIBLINGS};
+use super::tree::{table, Bar, BulkBar, Node};
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Draw};
 use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
@@ -25,6 +26,7 @@ use crate::library::{BestScore, Song};
 use crate::scene::skinvals::*;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::*;
+use std::borrow::Cow;
 use std::cell::OnceCell;
 use vibebms_core::course::CourseKind;
 use vibebms_core::score::{ClearType, DjLevel};
@@ -144,7 +146,8 @@ pub const NUMBER_FOLDER: i32 = 9300;
 pub const FOLDER_LAMPS: i32 = 9310;
 pub const FOLDER_RANKS: i32 = 9330;
 
-/// vibeBMS option 9480 + t: the selected bar is of type t (`BAR_*`).
+/// vibeBMS option 9480 + t: the selected bar is of type t (`BAR_*`: the
+/// vibeBMS type, not the beatoraja one a list without its body draws).
 pub const OPTION_BAR: i32 = 9480;
 
 /// The song's charts by difficulty slot k (BEGINNER .. INSANE): option
@@ -199,16 +202,20 @@ pub struct SelectState<'a> {
     /// Or whose records: a local rival (another profile).
     local: Option<&'a str>,
     table: OnceCell<Option<(String, String)>>,
+    /// What a play would be kept as (`status::outcome`).
+    outcome: OnceCell<(Keep, Option<ClearType>)>,
+    /// Texts 9600-9617 (`key_option_texts`).
+    key_options: OnceCell<[String; 18]>,
     clock: Clock,
 }
 
 /// What a bar shows.
-pub struct BarInfo {
+pub struct BarInfo<'a> {
     /// Its `BAR_*` type, and the beatoraja one (0-7) for skins without a
     /// body for vibeBMS's types.
     pub kind: usize,
     pub base: usize,
-    pub title: String,
+    pub title: Cow<'a, str>,
     pub level: Option<i64>,
     pub difficulty: usize,
     pub lamp: Option<ClearType>,
@@ -245,21 +252,22 @@ pub(crate) fn song_labels(s: &Song, pref: vibebms_core::LnPref) -> [bool; BAR_LA
 /// The trophy a class course's best play achieved (its index in the
 /// table's list, bronze first): the last whose miss rate and score rate
 /// the play met, cleared.
-pub(crate) fn course_trophy(
-    trophies: &[bmseeker::table::CourseTrophy],
-    best: &crate::library::BestScore,
-) -> Option<usize> {
+pub(crate) fn course_trophy(trophies: &[Trophy], best: &BestScore) -> Option<usize> {
     if best.clear <= ClearType::Failed || best.notes == 0 {
         return None;
     }
     let miss = best.min_bp as f64 * 100.0 / best.notes as f64;
     let score = best.rate() * 100.0;
     (0..trophies.len()).rev().find(|&k| {
-        // (bmseeker keeps the rates to itself; they are in its JSON)
-        let t = serde_json::to_value(&trophies[k]).unwrap_or_default();
-        let rate = |k: &str| t.get(k).and_then(serde_json::Value::as_f64);
-        rate("missrate").is_none_or(|m| miss <= m) && rate("scorerate").is_none_or(|r| score >= r)
+        let (m, r) = trophies[k];
+        m.is_none_or(|m| miss <= m) && r.is_none_or(|r| score >= r)
     })
+}
+
+/// The digits of a table level ("★12" -> 12).
+fn level_digits(level: &str) -> Option<i64> {
+    let digits: String = level.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
 }
 
 /// A course's bar type.
@@ -317,6 +325,8 @@ impl<'a> SelectState<'a> {
                 _ => None,
             },
             table: OnceCell::new(),
+            outcome: OnceCell::new(),
+            key_options: OnceCell::new(),
             clock: Clock::now(),
         }
     }
@@ -443,22 +453,19 @@ impl<'a> SelectState<'a> {
         Some(match id {
             OPTION_REPLAY => files().is_some_and(|f| f.replay),
             OPTION_HAS_TEXT => files().is_some_and(|f| !f.texts.is_empty()),
-            n @ OPTION_SAVE..=9232 => {
-                status::outcome(&ctx.config.play, self.song).0 as i32 == n - OPTION_SAVE
-            }
+            n @ OPTION_SAVE..=9232 => self.outcome().0 as i32 == n - OPTION_SAVE,
             OPTION_ONLINE | OPTION_OFFLINE => status::network(ctx).1 == Some(id == OPTION_ONLINE),
-            n @ OPTION_CLEAR..=9250 => status::outcome(&ctx.config.play, self.song)
-                .1
-                .is_some_and(|c| c as i32 == n - OPTION_CLEAR),
+            n @ OPTION_CLEAR..=9250 => {
+                (self.outcome().1).is_some_and(|c| c as i32 == n - OPTION_CLEAR)
+            }
             OPTION_CLEAR_RATE => self.rank_view().and_then(status::clear_rate).is_some(),
             OPTION_SEARCH => self.s.query().is_some(),
             OPTION_WINDOWED => super::options::WINDOWED,
             OPTION_RANDOM_2P => {
                 ctx.config.play.battle || self.song.is_none_or(|s| s.mode.is_double())
             }
-            n @ OPTION_BAR..=9492 => self
-                .bar(self.s.cursor)
-                .is_some_and(|b| b.kind as i32 == n - OPTION_BAR),
+            n @ OPTION_BAR..=9492 => (self.bar.and_then(|b| self.bar_kind(b)))
+                .is_some_and(|(kind, _)| kind as i32 == n - OPTION_BAR),
             n @ SIBLING..=9454 => self.sibling(n, SIBLING).is_some(),
             n @ SIBLING_CURRENT..=9464 => (self.sibling(n, SIBLING_CURRENT).zip(self.song))
                 .is_some_and(|(a, b)| std::ptr::eq(a, b)),
@@ -466,12 +473,100 @@ impl<'a> SelectState<'a> {
         })
     }
 
-    pub fn bar(&self, i: usize) -> Option<BarInfo> {
+    /// What a play would be kept as, and the lamp a clear would give.
+    fn outcome(&self) -> (Keep, Option<ClearType>) {
+        *(self.outcome).get_or_init(|| status::outcome(&self.ctx.config.play, self.song))
+    }
+
+    /// PLAY OPTION's key options one back, now and one on (texts
+    /// 9600-9617).
+    fn key_option_texts(&self) -> &[String; 18] {
+        self.key_options.get_or_init(|| {
+            let rivals = crate::scene::target::rivals(self.ctx);
+            let now = &self.ctx.config.play;
+            std::array::from_fn(|n| {
+                let (t, d) = (n / 3, n as i32 % 3 - 1);
+                if d == 0 {
+                    return options::key_option_label(now, t, &rivals);
+                }
+                let mut p = now.clone();
+                options::step_key_option(&mut p, t, d, &self.bpms, &rivals);
+                options::key_option_label(&p, t, &rivals)
+            })
+        })
+    }
+
+    /// A bar's `BAR_*` type and the beatoraja one.
+    fn bar_kind(&self, bar: &Bar) -> Option<(usize, usize)> {
         let ctx = self.ctx;
-        let plain = |kind, base, title| BarInfo {
+        let same = |k| Some((k, k));
+        match bar {
+            Bar::Folder { node, .. } => Some(folder_kind(node)),
+            Bar::Song(_) => same(BAR_SONG),
+            Bar::Bulk(BulkBar::Item(k)) => match ctx.net.bulk.items.get(*k)?.state {
+                crate::bulk::State::Done(_) => same(BAR_SONG),
+                _ => same(BAR_NOSONG),
+            },
+            Bar::Random | Bar::Bulk(_) => same(BAR_COMMAND),
+            Bar::Missing(_) => same(BAR_NOSONG),
+            Bar::Course(c) => Some((
+                course_kind(self.s.course_facts(ctx, c, |f| f.kind)),
+                BAR_GRADE,
+            )),
+        }
+    }
+
+    /// The title a bar shows.
+    fn bar_title(&self, bar: &'a Bar) -> Option<Cow<'a, str>> {
+        let ctx = self.ctx;
+        Some(match bar {
+            Bar::Folder { label, .. } => label.as_str().into(),
+            Bar::Song(k) => {
+                let s = ctx.lib.songs.get(*k)?;
+                // a favourite: marked
+                match super::tree::favorite(ctx, s) {
+                    true => format!("♥ {}", s.full_title()).into(),
+                    false if s.subtitle.is_empty() => s.title.as_str().into(),
+                    false => s.full_title().into(),
+                }
+            }
+            Bar::Random => match ctx.config.select.random {
+                RandomSelect::Any => "RANDOM SELECT".into(),
+                r => format!("RANDOM SELECT ({})", r.label()).into(),
+            },
+            Bar::Bulk(b) => {
+                let bulk = &ctx.net.bulk;
+                let [queued, downloading, _, failed] = bulk.counts();
+                match b {
+                    BulkBar::Queue(_, n) => format!("DOWNLOAD MISSING ({n} charts)").into(),
+                    BulkBar::RetryFailed => format!("RETRY FAILED ({failed})").into(),
+                    BulkBar::CancelAll => format!("CANCEL ({} to go)", queued + downloading).into(),
+                    BulkBar::ClearFinished => "CLEAR FINISHED".into(),
+                    BulkBar::Item(k) => {
+                        let it = bulk.items.get(*k)?;
+                        let why = match &it.state {
+                            crate::bulk::State::Done(s) | crate::bulk::State::Failed(s) => {
+                                format!("  ({s})")
+                            }
+                            _ => String::new(),
+                        };
+                        format!("[{}] {}{why}", it.state.label(), it.want.title).into()
+                    }
+                }
+            }
+            Bar::Missing(m) => m.title.as_str().into(),
+            Bar::Course(c) => self.s.course_facts(ctx, c, |f| f.title.clone()).into(),
+        })
+    }
+
+    pub fn bar(&self, i: usize) -> Option<BarInfo<'a>> {
+        let ctx = self.ctx;
+        let bar = self.s.bars.get(i)?;
+        let (kind, base) = self.bar_kind(bar)?;
+        let mut b = BarInfo {
             kind,
             base,
-            title,
+            title: self.bar_title(bar)?,
             level: None,
             difficulty: 0,
             lamp: None,
@@ -480,151 +575,36 @@ impl<'a> SelectState<'a> {
             labels: [false; BAR_LABELS],
             trophy: None,
         };
-        Some(match self.s.bars.get(i)? {
-            Bar::Folder {
-                label, node, count, ..
-            } => {
-                let (kind, base) = folder_kind(node);
-                BarInfo {
-                    count: Some(*count as i64),
-                    ..plain(kind, base, label.clone())
-                }
-            }
+        let ln = ctx.config.play.ln_pref();
+        match bar {
+            Bar::Folder { count, .. } => b.count = Some(*count as i64),
             Bar::Song(k) => {
-                let s = ctx.lib.songs.get(*k)?;
-                BarInfo {
-                    // a favourite: marked
-                    title: match super::tree::favorite(ctx, s) {
-                        true => format!("♥ {}", s.full_title()),
-                        false => s.full_title(),
-                    },
-                    level: Some(s.level_num()),
-                    difficulty: s.difficulty.clamp(0, 6) as usize,
-                    lamp: Some(
-                        ctx.best(s, ctx.config.play.ln_pref())
-                            .map(|b| b.clear)
-                            .unwrap_or(ClearType::NoPlay),
-                    ),
-                    rival: self.rival_lamp(s),
-                    labels: song_labels(s, ctx.config.play.ln_pref()),
-                    ..plain(BAR_SONG, BAR_SONG, String::new())
-                }
+                let s = &ctx.lib.songs[*k];
+                b.level = Some(s.level_num());
+                b.difficulty = s.difficulty.clamp(0, 6) as usize;
+                b.lamp = Some(self.lamp_of(s));
+                b.rival = self.rival_lamp(s);
+                b.labels = song_labels(s, ln);
             }
-            Bar::Random => plain(
-                BAR_COMMAND,
-                BAR_COMMAND,
-                match ctx.config.select.random {
-                    RandomSelect::Any => "RANDOM SELECT".into(),
-                    r => format!("RANDOM SELECT ({})", r.label()),
-                },
-            ),
-            Bar::Bulk(b) => {
-                let bulk = &ctx.net.bulk;
-                let [queued, downloading, _, failed] = bulk.counts();
-                match b {
-                    BulkBar::Queue(_, n) => plain(
-                        BAR_COMMAND,
-                        BAR_COMMAND,
-                        format!("DOWNLOAD MISSING ({n} charts)"),
-                    ),
-                    BulkBar::RetryFailed => {
-                        plain(BAR_COMMAND, BAR_COMMAND, format!("RETRY FAILED ({failed})"))
-                    }
-                    BulkBar::CancelAll => plain(
-                        BAR_COMMAND,
-                        BAR_COMMAND,
-                        format!("CANCEL ({} to go)", queued + downloading),
-                    ),
-                    BulkBar::ClearFinished => {
-                        plain(BAR_COMMAND, BAR_COMMAND, "CLEAR FINISHED".into())
-                    }
-                    BulkBar::Item(k) => {
-                        let it = bulk.items.get(*k)?;
-                        let w = &it.want;
-                        let why = match &it.state {
-                            crate::bulk::State::Done(s) | crate::bulk::State::Failed(s) => {
-                                format!("  ({s})")
-                            }
-                            _ => String::new(),
-                        };
-                        let kind = match it.state {
-                            crate::bulk::State::Done(_) => BAR_SONG,
-                            _ => BAR_NOSONG,
-                        };
-                        BarInfo {
-                            level: w
-                                .level
-                                .chars()
-                                .filter(|c| c.is_ascii_digit())
-                                .collect::<String>()
-                                .parse()
-                                .ok(),
-                            ..plain(
-                                kind,
-                                kind,
-                                format!("[{}] {}{why}", it.state.label(), w.title),
-                            )
-                        }
-                    }
-                }
+            Bar::Bulk(BulkBar::Item(k)) => {
+                b.level = level_digits(&ctx.net.bulk.items[*k].want.level)
             }
-            Bar::Missing(m) => BarInfo {
-                // the table's level ("★12" -> 12)
-                level: m
-                    .level
-                    .chars()
-                    .filter(|c| c.is_ascii_digit())
-                    .collect::<String>()
-                    .parse()
-                    .ok(),
-                ..plain(BAR_NOSONG, BAR_NOSONG, m.title.clone())
-            },
-            Bar::Course(c) => {
-                let (kind, stages) = match c {
-                    CourseBar::Mine(id) => ctx
-                        .lib
-                        .courses
-                        .get(*id)
-                        .map_or((CourseKind::Expert, None), |c| {
-                            (c.kind, Some(c.stages.len()))
-                        }),
-                    CourseBar::Table(url, k) => (
-                        CourseKind::Class,
-                        table(ctx, url)
-                            .and_then(|t| t.header.courses.get(*k))
-                            .map(|c| c.md5.len().max(c.sha256.len())),
-                    ),
-                    CourseBar::RandomMix(kind) => (*kind, None),
-                };
-                // its charts' labels (a course not all installed: none), a
-                // table course's trophy
-                let (mut labels, mut trophy) = ([false; BAR_LABELS], None);
-                if !matches!(c, CourseBar::RandomMix(_)) {
-                    if let Ok(run) = super::launch::course_run(ctx, c) {
-                        for s in &run.songs {
-                            let l = song_labels(s, ctx.config.play.ln_pref());
-                            labels.iter_mut().zip(l).for_each(|(a, b)| *a |= b);
-                        }
-                        if let CourseBar::Table(url, k) = c {
-                            let def = table(ctx, url).and_then(|t| t.header.courses.get(*k));
-                            let best = super::launch::course_best(ctx, &run.def.id());
-                            trophy = def.zip(best).and_then(|(d, b)| course_trophy(&d.trophy, b));
-                        }
-                    }
+            Bar::Missing(m) => b.level = level_digits(&m.level),
+            Bar::Course(c) => self.s.course_facts(ctx, c, |f| {
+                b.count = f.stages.map(|n| n as i64);
+                // its charts' labels (a course not all installed: none)
+                for &k in &f.songs {
+                    let l = song_labels(&ctx.lib.songs[k], ln);
+                    b.labels.iter_mut().zip(l).for_each(|(a, b)| *a |= b);
                 }
-                BarInfo {
-                    lamp: super::launch::course_lamp(ctx, c),
-                    count: stages.map(|n| n as i64),
-                    labels,
-                    trophy,
-                    ..plain(
-                        course_kind(kind),
-                        BAR_GRADE,
-                        super::launch::course_title(ctx, c),
-                    )
-                }
-            }
-        })
+                let best = f.id.as_deref().and_then(|id| course_best(ctx, id));
+                b.lamp = best.map(|b| b.clear);
+                // a table course's trophy
+                b.trophy = best.and_then(|best| course_trophy(&f.trophies, best));
+            }),
+            Bar::Random | Bar::Bulk(_) => {}
+        }
+        Some(b)
     }
 
     /// Options fixed while a bar stays selected (also used at load time).
@@ -776,7 +756,7 @@ impl SkinState for SelectState<'_> {
         Some(match id {
             2 => self.ctx.config.player_name.clone(),
             // folders and courses show their name as the title
-            10 | 12 if song.is_none() => self.bar(self.s.cursor)?.title,
+            10 | 12 if song.is_none() => self.bar_title(self.bar?)?.into_owned(),
             11 if song.is_none() => match self.bar? {
                 Bar::Folder { sub, .. } => sub.clone(),
                 _ => return None,
@@ -789,16 +769,7 @@ impl SkinState for SelectState<'_> {
             120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
             TEXT_IR => return self.ir_line(),
             n @ TEXT_KEY_OPTION..=9617 => {
-                let (t, k) = (
-                    ((n - TEXT_KEY_OPTION) / 3) as usize,
-                    (n - TEXT_KEY_OPTION) % 3,
-                );
-                let rivals = crate::scene::target::rivals(self.ctx);
-                let mut p = self.ctx.config.play.clone();
-                if k != 1 {
-                    options::step_key_option(&mut p, t, k - 1, &self.bpms, &rivals);
-                }
-                options::key_option_label(&p, t, &rivals)
+                self.key_option_texts()[(n - TEXT_KEY_OPTION) as usize].clone()
             }
             TEXT_MODE => status::mode_label(song?),
             TEXT_QUERY => self.s.query().unwrap_or_default().into(),
@@ -807,11 +778,8 @@ impl SkinState for SelectState<'_> {
                 let local = chrono::DateTime::from_timestamp(t, 0)?.with_timezone(&chrono::Local);
                 (t > 0).then(|| local.format("%Y-%m-%d").to_string())?
             }
-            TEXT_SAVE => status::outcome(&self.ctx.config.play, song)
-                .0
-                .label()
-                .into(),
-            TEXT_CLEAR => match status::outcome(&self.ctx.config.play, song).1 {
+            TEXT_SAVE => self.outcome().0.label().into(),
+            TEXT_CLEAR => match self.outcome().1 {
                 Some(c) => c.label().into(),
                 None => "—".into(),
             },
@@ -1404,6 +1372,7 @@ mod tests {
                 {"name": "goldmedal", "missrate": 2.5, "scorerate": 85.0}
             ]))
             .unwrap();
+        let trophies = super::super::launch::trophy_rates(&trophies);
         let best = |clear, ex, bp| BestScore {
             clear,
             ex_score: ex,

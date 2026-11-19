@@ -12,8 +12,10 @@ use crate::sysound::Sound;
 use std::cell::Ref;
 use std::path::PathBuf;
 use vibebms_core::convert::KeyConvert;
+use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
 use vibebms_core::score::{Assist, AssistFacts, ClearType};
+use vibebms_core::LnPref;
 use vibebms_ir::lamps::RankView;
 use vibebms_ir::outbox::State;
 
@@ -208,17 +210,16 @@ pub(crate) fn folder_facts(count: usize, (lamps, _): &Distribution) -> [i64; 4] 
 #[derive(Default)]
 pub(crate) struct ChartFiles {
     /// The chart (its path, LN and rule modes) these are of.
-    key: String,
+    key: Option<(String, LnPref, JudgePreset)>,
     pub replay: bool,
     pub texts: Vec<PathBuf>,
 }
 
 /// The folder of a chart's file: its song's (`Song::folder` is the
 /// library folder it is listed under).
-pub(crate) fn song_dir(s: &Song) -> String {
+pub(crate) fn song_dir(s: &Song) -> &str {
     let p = std::path::Path::new(&s.path);
-    p.parent()
-        .map_or_else(String::new, |d| d.to_string_lossy().into_owned())
+    p.parent().and_then(std::path::Path::to_str).unwrap_or("")
 }
 
 /// A chart folder's text files (LR2's READ TEXT), by name.
@@ -250,7 +251,7 @@ impl SelectScene {
             return out;
         };
         let level = |k: usize| songs[k].level_num();
-        for &k in self.song_dirs.get(&song_dir(me)).into_iter().flatten() {
+        for &k in self.song_dirs.get(song_dir(me)).into_iter().flatten() {
             let s = &songs[k];
             let Some(slot) = (s.difficulty as usize)
                 .checked_sub(1)
@@ -296,13 +297,10 @@ impl SelectScene {
     /// chart (and LN and rule mode).
     pub(crate) fn chart_files(&self, ctx: &Ctx, song: &Song) -> Ref<'_, ChartFiles> {
         let p = &ctx.config.play;
-        let key = format!(
-            "{}\u{1f}{:?}\u{1f}{:?}",
-            song.path,
-            p.ln_pref(),
-            p.judge_preset
-        );
-        if self.files.borrow().key != key {
+        let of = |(path, ln, rule): &(String, LnPref, JudgePreset)| {
+            *path == song.path && *ln == p.ln_pref() && *rule == p.judge_preset
+        };
+        if !self.files.borrow().key.as_ref().is_some_and(of) {
             let ln = song.score_ln(p.ln_pref()) as i32;
             let replay = crate::replay::exists(
                 &ctx.paths.player,
@@ -312,7 +310,7 @@ impl SelectScene {
                 song.fixed_ln() && !p.ln_force,
             );
             *self.files.borrow_mut() = ChartFiles {
-                key,
+                key: Some((song.path.clone(), p.ln_pref(), p.judge_preset)),
                 replay,
                 texts: texts_of(song),
             };

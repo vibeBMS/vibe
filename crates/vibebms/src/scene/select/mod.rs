@@ -13,7 +13,9 @@ mod tree;
 
 pub use preview::{resolve_image, PREVIEW_KEY};
 pub(crate) use skin::SelectState;
-pub(crate) use tree::{Bar, CourseBar, Missing, Node};
+#[cfg(test)]
+pub(crate) use tree::Missing;
+pub(crate) use tree::{Bar, CourseBar, Node};
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
@@ -44,7 +46,7 @@ pub(crate) const REFERENCE_BPMS: Bpms = Bpms {
 };
 
 /// Time constant (s) of the list easing toward the cursor: 30 % of the
-/// way per frame at 60 Hz, as it went by frames before.
+/// way per 1/60 s.
 const SCROLL_TAU: f32 = 0.0467;
 
 pub struct SelectScene {
@@ -113,6 +115,10 @@ pub struct SelectScene {
     panel_repeat: Option<Repeat<PanelKey>>,
     /// Lamp / rank counts per folder, counted when first shown.
     dist_cache: RefCell<HashMap<Node, Distribution>>,
+    /// The course bars' facts, found when first shown.
+    courses: RefCell<HashMap<CourseBar, launch::CourseFacts>>,
+    /// The skin has panels (`skin_has_panels`).
+    has_panels: bool,
 }
 
 impl SelectScene {
@@ -161,36 +167,48 @@ impl SelectScene {
             num5_held: false,
             panel_repeat: None,
             dist_cache: Default::default(),
+            courses: Default::default(),
+            has_panels: false,
         };
         s.rebuild(ctx);
         ctx.select_entered();
         s
     }
 
-    /// The library or the tables changed: the lists again.
+    /// The library or the tables changed (else the records, or what the
+    /// lists show): the lists again.
     fn rebuild(&mut self, ctx: &Ctx) {
-        self.version = ctx.lib.version;
-        self.dist_cache.borrow_mut().clear();
-        self.md5_map.clear();
-        self.sha_map.clear();
-        self.song_dirs.clear();
-        *self.files.borrow_mut() = Default::default();
-        for (i, s) in ctx.lib.songs.iter().enumerate() {
-            if !s.md5.is_empty() {
-                self.md5_map.insert(s.md5.clone(), i);
-            }
-            self.sha_map.insert(s.sha256.clone(), i);
-            self.song_dirs
-                .entry(status::song_dir(s))
-                .or_default()
-                .push(i);
+        if self.version != ctx.lib.version {
+            self.version = ctx.lib.version;
+            self.index(ctx);
         }
+        self.dist_cache.borrow_mut().clear();
+        *self.files.borrow_mut() = Default::default();
         let key = self.bars.get(self.cursor).map(|b| self.bar_key(ctx, b));
         self.bars = self.listing(ctx, &self.node);
         // keep the cursor on the same item if possible
         self.cursor = key
             .and_then(|k| self.bars.iter().position(|b| self.bar_key(ctx, b) == k))
             .unwrap_or(self.cursor.min(self.bars.len().saturating_sub(1)));
+    }
+
+    /// The library's charts by MD5, SHA-256 and folder, and the course
+    /// bars' facts, again.
+    fn index(&mut self, ctx: &Ctx) {
+        self.md5_map.clear();
+        self.sha_map.clear();
+        self.song_dirs.clear();
+        self.courses.get_mut().clear();
+        for (i, s) in ctx.lib.songs.iter().enumerate() {
+            if !s.md5.is_empty() {
+                self.md5_map.insert(s.md5.clone(), i);
+            }
+            self.sha_map.insert(s.sha256.clone(), i);
+            self.song_dirs
+                .entry(status::song_dir(s).into())
+                .or_default()
+                .push(i);
+        }
     }
 
     fn enter(&mut self, ctx: &mut Ctx, node: Node) {
@@ -352,6 +370,7 @@ impl Scene for SelectScene {
                 let stat = |id: i32| st.static_option(id);
                 skinned::load(ctx, gfx, SkinType::Select, &stat, &st)
             };
+            self.has_panels = options::has_panels(skin.as_ref());
             self.host.skin = skin;
         }
         // events skin scripts asked for
@@ -398,7 +417,7 @@ impl Scene for SelectScene {
         // options: loaded again on the next frame
         self.host
             .reload_if_changed(&skinned::skin_key(ctx, SkinType::Select));
-        // scores may have changed (rebuild forgets the counts)
+        // records may have changed (rebuild forgets the counts)
         self.rebuild(ctx);
         self.moved(ctx);
     }
