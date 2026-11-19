@@ -11,7 +11,9 @@ which are compiled into the executable.
     python3 tools/gen_default_skins.py [--fonts DIR] [--check]
 
 Requires Pillow. Bold/italic Inter faces are taken from --fonts (or the
-system font directory) and fall back to the bundled Inter Regular.
+system font directory) and fall back to the bundled Inter Regular. The
+committed files are made with Pillow 12.3.0 and Inter 4.0 (Ubuntu's
+fonts-inter 4.0+ds-1), as CI's check uses: other versions draw other pixels.
 """
 
 import argparse
