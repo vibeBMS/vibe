@@ -104,7 +104,9 @@ impl Gfx {
         mode: crate::config::PresentMode,
         backends: wgpu::Backends,
     ) -> Result<Gfx, String> {
-        let desc = instance_desc(backends);
+        // (OpenGL on Linux presents through the window's display connection)
+        let display: Box<dyn wgpu::wgt::WgpuHasDisplayHandle> = Box::new(window.clone());
+        let desc = instance_desc(backends, Some(display));
         let instance = if web_gl_only() {
             wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::GL,
@@ -600,10 +602,20 @@ fn sdf_buffer(
     (buf, bind)
 }
 
-/// An instance of `backends`, with wgpu's defaults.
-pub(super) fn instance_desc(backends: wgpu::Backends) -> wgpu::InstanceDescriptor {
-    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+/// An instance of `backends` (`display`: the window's, which OpenGL on
+/// Linux presents through), with wgpu's defaults but for DX12's shader
+/// compiler: FXC, as ever (wgpu's default is now DXC where its DLL is
+/// found).
+pub(super) fn instance_desc(
+    backends: wgpu::Backends,
+    display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
+) -> wgpu::InstanceDescriptor {
+    let mut desc = match display {
+        Some(d) => wgpu::InstanceDescriptor::new_with_display_handle(d),
+        None => wgpu::InstanceDescriptor::new_without_display_handle(),
+    };
     desc.backends = backends;
+    desc.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
     desc
 }
 

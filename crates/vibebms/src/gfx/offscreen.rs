@@ -20,7 +20,8 @@ impl Offscreen {
     }
 
     async fn create(w: u32, h: u32) -> Result<Offscreen, String> {
-        let instance = wgpu::Instance::new(super::device::instance_desc(wgpu::Backends::all()));
+        let instance =
+            wgpu::Instance::new(super::device::instance_desc(wgpu::Backends::all(), None));
         let mut adapter = None;
         for fallback in [false, true] {
             adapter = instance
