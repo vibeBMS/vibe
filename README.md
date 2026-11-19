@@ -92,6 +92,8 @@ back to song select, and comes to the front. The play shows `VIEWER #<measure>` 
 
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
+Release builds are reproducible: `tools/reproduce.sh <commit> <run number>` rebuilds one and checks its SHA-256
+against the release's ([docs/BUILDING.md](docs/BUILDING.md#reproducible-builds)).
 
 ```text
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
