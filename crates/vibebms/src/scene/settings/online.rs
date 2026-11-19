@@ -428,15 +428,6 @@ pub(super) fn rows(b: &mut Rows) {
         }
     }
     b.push(
-        Row::note("ir.rianir", "rianIR", "")
-            .desc(tr!("waiting for its operator"))
-            .kind(Kind::Card {
-                badge: badge(ProviderId::RianIr),
-                state: tr!("SOON").into(),
-                tone: Tone::Dim,
-            }),
-    );
-    b.push(
         Row::new(
             "ir.add_server",
             tr!("Add a vibeBMS IR server…"),

@@ -278,7 +278,6 @@ const OLD: &[(&str, &[&str])] = &[
             "ir.rivals",
             "ir.table",
             "ir.add_server",
-            "ir.rianir",
             "ir.outbox",
         ],
     ),

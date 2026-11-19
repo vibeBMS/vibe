@@ -735,8 +735,6 @@
 "Enter: add your account (an API key)" = "Enter: add your account (an API key)"
 "Enter: add your player id (rankings and lamps, read only)" = "Enter: add your player id (rankings and lamps, read only)"
 "ADD +" = "ADD +"
-"waiting for its operator" = "waiting for its operator"
-"SOON" = "SOON"
 "Add a vibeBMS IR server…" = "Add a vibeBMS IR server…"
 "Paste its URL; its API key goes on its page." = "Paste its URL; its API key goes on its page."
 "{waiting} waiting, {failed} failed" = "{waiting} waiting, {failed} failed"
