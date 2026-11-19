@@ -13,7 +13,6 @@ use crate::config::Config;
 use crate::scene::play::{ghost_for, vs_refusal, PlayRequest, PlayScene, Versus};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use vibebms_core::Labeled;
 
 pub const USAGE: &str = "\
@@ -146,17 +145,14 @@ impl Cli {
     }
 }
 
-/// This launch's command line (empty on the web and mobile, and when it
-/// does not read: `run` exits on that first).
-pub fn args() -> &'static Cli {
-    static CLI: OnceLock<Cli> = OnceLock::new();
-    CLI.get_or_init(|| {
-        if crate::platform::IS_WEB || cfg!(any(target_os = "android", target_os = "ios")) {
-            return Cli::default();
-        }
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        Cli::parse(&args).unwrap_or_default()
-    })
+/// What `run` keeps of the command line for the window (desktop): what it
+/// asks for, and the settings read with this launch's options applied.
+#[derive(Default)]
+pub struct Launch {
+    pub cli: Cli,
+    /// `None` on the web and mobile (read as the window is made).
+    pub config: Option<Config>,
+    pub overrides: Overrides,
 }
 
 /// A `choices!` value by its label or its name in the config, any case,
@@ -294,8 +290,13 @@ fn parent_mut<'a, 'k>(
 impl Overrides {
     /// `cli`'s options applied to `config`.
     pub fn apply(cli: &Cli, config: &mut Config) -> Result<Overrides, String> {
-        let before = toml::Value::try_from(&*config).map_err(|e| e.to_string())?;
+        let unchanged = config.clone();
         apply_options(cli, config)?;
+        // (the usual launch: nothing to compare)
+        if *config == unchanged {
+            return Ok(Overrides::default());
+        }
+        let before = toml::Value::try_from(&unchanged).map_err(|e| e.to_string())?;
         let after = toml::Value::try_from(&*config).map_err(|e| e.to_string())?;
         let mut keys = Vec::new();
         diff("", Some(&before), Some(&after), &mut keys);
@@ -360,36 +361,36 @@ fn attach_console() {
 }
 
 /// Before the window: a command line that does not read, `--help`, the
-/// subcommands and `--print-effective-options` are done here; `Some(code)`
+/// subcommands and `--print-effective-options` are done here; `Err(code)`
 /// is the exit code then.
-pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
-    if crate::platform::IS_WEB || cfg!(any(target_os = "android", target_os = "ios")) {
-        return None;
+pub fn run_before_window(paths: &crate::paths::Paths) -> Result<Launch, i32> {
+    if crate::platform::IS_WEB || cfg!(mobile) {
+        return Ok(Launch::default());
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(desktop)]
     if args.first().is_some_and(|a| a == "export") {
         attach_console();
-        return Some(super::export::run(paths, &args[1..]));
+        return Err(super::export::run(paths, &args[1..]));
     }
     let cli = match Cli::parse(&args) {
         Ok(c) => c,
         Err(e) => {
             attach_console();
             eprintln!("vibebms: {e}\n\n{USAGE}");
-            return Some(2);
+            return Err(2);
         }
     };
     // the viewer: a request for the one running, else this one is it
     if cli.stop {
         super::viewer::forward_to(super::viewer::PORT, &super::viewer::Request::Stop);
-        return Some(0);
+        return Err(0);
     }
     if cli.viewer {
         let Some(chart) = &cli.chart else {
             attach_console();
             eprintln!("vibebms: -P needs a chart\n\n{USAGE}");
-            return Some(2);
+            return Err(2);
         };
         let path = std::path::absolute(chart).unwrap_or_else(|_| chart.clone());
         let req = super::viewer::Request::Play {
@@ -397,37 +398,37 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
             measure: cli.measure.unwrap_or(0),
         };
         if super::viewer::forward_to(super::viewer::PORT, &req) {
-            return Some(0);
+            return Err(0);
         }
     }
     match &cli.command {
         Some(Command::Help) => {
             attach_console();
             println!("{USAGE}");
-            return Some(0);
+            return Err(0);
         }
         Some(Command::SongsScan) => {
             attach_console();
-            return Some(songs_scan(paths));
+            return Err(songs_scan(paths));
         }
         Some(Command::SongsList { json }) => {
             attach_console();
-            return Some(songs_list(paths, *json));
+            return Err(songs_list(paths, *json));
         }
         None => {}
     }
     let mut config = crate::profiles::load_config(paths);
-    let ov = match Overrides::apply(&cli, &mut config) {
+    let overrides = match Overrides::apply(&cli, &mut config) {
         Ok(o) => o,
         Err(e) => {
             attach_console();
             eprintln!("vibebms: {e}");
-            return Some(2);
+            return Err(2);
         }
     };
     if cli.print_options {
         attach_console();
-        for l in ov.describe() {
+        for l in overrides.describe() {
             println!("# overridden: {l}");
         }
         let v = toml::Value::try_from(&config).ok();
@@ -438,9 +439,13 @@ pub fn run_before_window(paths: &crate::paths::Paths) -> Option<i32> {
             play.unwrap_or(toml::Value::Table(Default::default())),
         );
         println!("{}", toml::to_string_pretty(&t).unwrap_or_default());
-        return Some(0);
+        return Err(0);
     }
-    None
+    Ok(Launch {
+        cli,
+        config: Some(config),
+        overrides,
+    })
 }
 
 /// `songs scan`: the BMS folders scanned into the song cache.
@@ -554,9 +559,8 @@ pub(super) fn viewer_scene(
     Some(Box::new(PlayScene::new(ctx, req)))
 }
 
-/// The play the command line asks for, if it names a chart.
-pub(super) fn play_scene(ctx: &mut Ctx) -> Option<Box<dyn Scene>> {
-    let cli = args();
+/// The play `cli` asks for, if it names a chart.
+pub(super) fn play_scene(ctx: &mut Ctx, cli: &Cli) -> Option<Box<dyn Scene>> {
     let path = cli.chart.clone()?;
     if cli.viewer {
         let path = std::path::absolute(&path).unwrap_or(path);
@@ -692,5 +696,12 @@ mod tests {
         // a setting at its default (not written) can be set
         Overrides::apply(&parse("--set play.freq=2").unwrap(), &mut c).unwrap();
         assert_eq!(c.play.freq, 2);
+        // nothing asked, or the value it has: nothing overridden
+        let before = c.clone();
+        for args in ["", "song.bme", "--set play.freq=2"] {
+            let ov = Overrides::apply(&parse(args).unwrap(), &mut c).unwrap();
+            assert!(ov.is_empty() && ov.for_saving(&c).is_none(), "{args}");
+            assert_eq!(c, before);
+        }
     }
 }

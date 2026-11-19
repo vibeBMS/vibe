@@ -191,14 +191,23 @@ pub enum UserEvent {
 pub struct App {
     run: Option<Running>,
     paths: Paths,
+    /// Until the window's start takes them.
+    profiles: crate::profiles::Profiles,
     #[cfg_attr(not(any(target_arch = "wasm32", target_os = "ios")), allow(dead_code))]
     proxy: EventLoopProxy<UserEvent>,
-    /// The configuration while the window and renderer are being created.
-    pending: Option<Config>,
+    /// The command line's, and the configuration until the window's start
+    /// takes it.
+    launch: cli::Launch,
+    /// The window and renderer are being created.
+    creating: bool,
 }
 
 impl App {
-    pub fn new(paths: Paths, proxy: EventLoopProxy<UserEvent>) -> App {
+    pub fn new(
+        paths: Paths,
+        profiles: crate::profiles::Profiles,
+        proxy: EventLoopProxy<UserEvent>,
+    ) -> App {
         // now: a self-update replaces the file later (Windows), while this
         // build runs on
         #[cfg(desktop)]
@@ -208,19 +217,19 @@ impl App {
         App {
             run: None,
             paths,
+            profiles,
             proxy,
-            pending: None,
+            launch: Default::default(),
+            creating: false,
         }
     }
 }
 
 pub fn run() {
     diag::startup("");
-    let paths = Paths::detect();
+    let (paths, profiles) = crate::profiles::Profiles::open_at(Paths::detect_root());
     // the command line's subcommands, its help and its errors
-    if let Some(code) = cli::run_before_window(&paths) {
-        std::process::exit(code);
-    }
+    let launch = cli::run_before_window(&paths).unwrap_or_else(|code| std::process::exit(code));
     log::info!("data root: {}", paths.root.display());
     if !paths.profile.is_empty() {
         log::info!("profile: {}", paths.player.display());
@@ -239,7 +248,8 @@ pub fn run() {
         ControlFlow::Poll
     });
     #[allow(unused_mut)]
-    let mut app = App::new(paths, event_loop.create_proxy());
+    let mut app = App::new(paths, profiles, event_loop.create_proxy());
+    app.launch = launch;
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
@@ -705,9 +715,7 @@ fn draw_overlay(ctx: &mut Ctx, d: &mut Draw, now: Instant) {
 impl App {
     fn init(&mut self, window: Arc<Window>, mut gfx: Gfx) {
         diag::startup("graphics");
-        let config = self
-            .pending
-            .take()
+        let config = (self.launch.config.take())
             .unwrap_or_else(|| crate::profiles::load_config(&self.paths));
         crate::i18n::apply(config.language);
         let text = Text::new(&[self.paths.fonts.as_path()]);
@@ -750,15 +758,13 @@ impl App {
             want_present_mode: false,
             want_screenshot: false,
         };
-        let mut ctx = Ctx::new(self.paths.clone(), config, mixer, view);
-        // this launch's options (not saved; `run` refused ones that do not
-        // apply)
-        if let Ok(o) = cli::Overrides::apply(cli::args(), &mut ctx.config) {
-            for l in o.describe() {
-                log::info!("command line: {l}");
-            }
-            ctx.overrides = o;
+        // this launch's options (not saved)
+        let overrides = std::mem::take(&mut self.launch.overrides);
+        for l in overrides.describe() {
+            log::info!("command line: {l}");
         }
+        let profiles = std::mem::take(&mut self.profiles);
+        let mut ctx = Ctx::new(self.paths.clone(), profiles, config, overrides, mixer, view);
         // the graphics API chosen did not start: the one that did is kept
         // (saved below), and said once
         if let Some(f) = gfx.fallback.take() {
@@ -788,7 +794,7 @@ impl App {
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];
-        scenes.extend(cli::play_scene(&mut ctx));
+        scenes.extend(cli::play_scene(&mut ctx, &self.launch.cli));
         let third_party_notice =
             third_party_notice_due(&ctx.config, scenes.len()).then(crate::ui::Notice::default);
         diag::startup("song select");
@@ -835,8 +841,7 @@ impl App {
             redraw_pending: false,
             ime_on: false,
             downloads: Default::default(),
-            viewer: cli::args()
-                .viewer
+            viewer: (self.launch.cli.viewer)
                 .then(|| viewer::Server::start(viewer::PORT))
                 .flatten(),
             activity: Default::default(),
@@ -878,10 +883,12 @@ impl ApplicationHandler<UserEvent> for App {
         if let Some(r) = self.run.as_mut() {
             r.set_activity(|a| a.suspended = false);
         }
-        if self.run.is_some() || self.pending.is_some() {
+        if self.run.is_some() || self.creating {
             return;
         }
-        let config = crate::profiles::load_config(&self.paths);
+        let paths = &self.paths;
+        let config =
+            (self.launch.config).get_or_insert_with(|| crate::profiles::load_config(paths));
         let mut attrs = Window::default_attributes().with_title("vibeBMS");
         // a phone or tablet window fills the screen (a size given here
         // would be used as is, and the screen would show part of it)
@@ -929,7 +936,7 @@ impl ApplicationHandler<UserEvent> for App {
         let mode = config.display.present_mode;
         #[cfg(not(target_arch = "wasm32"))]
         let backend = config.display.backend;
-        self.pending = Some(config);
+        self.creating = true;
         #[cfg(target_arch = "wasm32")]
         {
             let proxy = self.proxy.clone();

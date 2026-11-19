@@ -424,7 +424,15 @@ pub fn export_video(
         want_present_mode: false,
         want_screenshot: false,
     };
-    let mut ctx = Ctx::new(paths.clone(), config, mixer, view);
+    let profiles = crate::profiles::Profiles::open(paths);
+    let mut ctx = Ctx::new(
+        paths.clone(),
+        profiles,
+        config,
+        Default::default(),
+        mixer,
+        view,
+    );
     ctx.open_records();
     ctx.reload_library();
     let replay = match opts.replay {

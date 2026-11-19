@@ -360,10 +360,21 @@ pub struct Profiles {
 }
 
 impl Profiles {
+    /// The profiles at `root`, and the folders of the one in use.
+    pub fn open_at(root: PathBuf) -> (Paths, Profiles) {
+        let registry = Registry::load(&root);
+        let paths = Paths::at(root).with_profile(&registry.active);
+        let profiles = Profiles::new(registry, &paths);
+        (paths, profiles)
+    }
+
     /// The profiles at `paths`' root; the others than the one in use are
     /// the local rivals.
     pub fn open(paths: &Paths) -> Profiles {
-        let registry = Registry::load(&paths.root);
+        Profiles::new(Registry::load(&paths.root), paths)
+    }
+
+    fn new(registry: Registry, paths: &Paths) -> Profiles {
         let rivals = (registry.profiles.iter())
             .filter(|p| p.id != paths.profile)
             .map(|p| (p.id.clone(), OnceCell::new()))
@@ -374,6 +385,15 @@ impl Profiles {
             root: paths.root.clone(),
             switch_to: None,
         }
+    }
+
+    /// The profile of `paths` in use from now on (saved); the one left is a
+    /// local rival.
+    pub fn set_active(&mut self, paths: &Paths) {
+        let mut registry = std::mem::take(&mut self.registry);
+        registry.active.clone_from(&paths.profile);
+        registry.save(&paths.root);
+        *self = Profiles::new(registry, paths);
     }
 
     /// Local rival `id`'s records (another profile's), as they were when
@@ -418,7 +438,7 @@ mod tests {
     #[test]
     fn default_profile_is_the_old_layout() {
         let root = temp("default");
-        let p = Paths::open(root.clone());
+        let p = Profiles::open_at(root.clone()).0;
         assert_eq!(p.profile, "");
         assert_eq!(p.player, root);
         assert_eq!(p.config_file(), root.join("config/config.toml"));
@@ -443,7 +463,7 @@ mod tests {
     #[test]
     fn create_rename_switch_delete() {
         let root = temp("crud");
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let mut r = Registry::load(&root);
         let mut mine = Config::default();
         mine.play.judge_offset_ms = 12;
@@ -467,7 +487,7 @@ mod tests {
         // switched to: the file says so, and the paths follow
         r.active.clone_from(&id);
         r.save(&root);
-        assert_eq!(Paths::open(root.clone()).player, a.player);
+        assert_eq!(Profiles::open_at(root.clone()).0.player, a.player);
         // renamed: the folder stays
         r.rename(&root, &id, "Carol").unwrap();
         assert!(r.rename(&root, &id, "  ").is_err());
@@ -491,7 +511,7 @@ mod tests {
     #[test]
     fn app_wide_settings_are_shared() {
         let root = temp("shared");
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let mut r = Registry::load(&root);
         let mut def = Config::default();
         def.play.judge_offset_ms = 5;
@@ -554,7 +574,7 @@ mod tests {
     #[test]
     fn every_app_wide_setting_round_trips() {
         let root = temp("app-wide");
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let b = paths.with_profile(
             &Registry::load(&root)
                 .create(&paths, "B", &Config::default())
@@ -640,7 +660,7 @@ mod tests {
             "play_count":4,"clear_count":4,"last_played":0},
             {"sha256":5}]"#;
         std::fs::write(scores.join("scores.json"), rec).unwrap();
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let p = Profiles::open(&paths);
         assert_eq!(p.registry.name("friend"), "friend");
         let names: Vec<&str> = p.rivals().map(|r| r.id.as_str()).collect();
