@@ -9,17 +9,18 @@ a low score.
                       --work <dir> --out <dir> [--display :78]
 
 Both are driven with their keys (xdotool), as a player would: song select
-with the chart under the cursor, the decide screen, the play (one key
-pressed, every note missed: a play needs a key for beatoraja to show its
-result), the result. The play is recorded at 10 frames a second; its
-frames are matched by chart time: beatoraja's from the time its log says
-the play began, vibeBMS's by the shift (within the recording) that makes
-them look most alike, as vibeBMS logs no such time. Needs Pillow and NumPy,
+with the chart under the cursor and the decide screen; then the play of
+every note on time (a replay in beatoraja, autoplay in vibeBMS) and its
+result. The play is recorded at 10 frames a second; its frames are matched
+by chart time: beatoraja's from the time its log says the play began,
+vibeBMS's by the shift (within its recording) that makes them look most
+alike, as vibeBMS logs no such time. Needs Pillow and NumPy,
 ffmpeg and xdotool.
 """
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -39,7 +40,7 @@ import run  # noqa: E402
 W, H = 1280, 720
 FPS = 10
 PLAY_TIMES = [3.0, 6.0, 9.0, 12.0, 15.0]  # s of chart time
-RECORD_S = 36
+PLAY_S = 40  # s from vibeBMS's start to its result
 
 
 class Display:
@@ -108,9 +109,18 @@ def wait_for(cond, limit):
     return False
 
 
-def capture(d, out, start, focus_name, ready, navigate):
-    """One app: started by `start`, ready when `ready()`, `navigate` puts
-    the chart under song select's cursor. Shots and the recording in `out`."""
+def kill(proc):
+    proc.terminate()
+    try:
+        proc.wait(10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def capture_select(d, out, start, focus_name, ready, navigate):
+    """Song select and decide: started by `start`, ready when `ready()`,
+    `navigate` puts the chart under the cursor; the 1 key decides."""
     os.makedirs(out, exist_ok=True)
     proc = start()
     try:
@@ -121,23 +131,61 @@ def capture(d, out, start, focus_name, ready, navigate):
         navigate()
         time.sleep(1.5)
         d.shot(os.path.join(out, "select.png"))
-        rec, rec_t0 = d.record(os.path.join(out, "frames"))
-        time.sleep(0.5)
-        decide_t = time.time()
-        d.key("z")
-        time.sleep(8)
-        d.key("z")  # one key in play
-        time.sleep(RECORD_S - 8.5)
-        stop(rec)
-        time.sleep(2)
-        d.shot(os.path.join(out, "result.png"))
-        return {"recording_start": rec_t0, "decide": decide_t}
+        d.key("z", hold=0.05)
+        time.sleep(0.65)
+        d.shot(os.path.join(out, "decide.png"))
     finally:
-        proc.terminate()
-        try:
-            proc.wait(10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        kill(proc)
+
+
+def capture_play(d, out, start, focus_name, ready, finished):
+    """The play and its result: recorded from when `ready()` until
+    `finished()` (then 3 s for the result to show)."""
+    os.makedirs(out, exist_ok=True)
+    proc = start()
+    try:
+        if not wait_for(ready, 90):
+            raise RuntimeError("did not start")
+        d.focus(focus_name)
+        rec, rec_t0 = d.record(os.path.join(out, "frames"))
+        ok = wait_for(finished, 120)
+        stop(rec)
+        time.sleep(4)
+        d.shot(os.path.join(out, "result.png"))
+        if not ok:
+            raise RuntimeError("the play did not end")
+        return rec_t0
+    finally:
+        kill(proc)
+
+
+def perfect_inputs(text):
+    """The presses that hit every note of a chart at BPM 150 on time (long
+    notes held to their end), as run.py's key logs."""
+    inputs, starts = [], {}
+    for line in text.splitlines():
+        m = re.match(r"#(\d{3})([15])(\w):(\S+)", line)
+        if not m:
+            continue
+        measure, kind, ch, data = int(m[1]), m[2], m[3], m[4]
+        lane = run_lane(ch)
+        n = len(data) // 2
+        for k in range(n):
+            if data[2 * k:2 * k + 2] == "00":
+                continue
+            t = round((measure + k / n) * 1600 * 1000)
+            if kind == "1":
+                inputs += [[t, lane, 0, True], [t + 60000, lane, 0, False]]
+            elif lane in starts:
+                inputs += [[starts.pop(lane), lane, 0, True], [t, lane, 0, False]]
+            else:
+                starts[lane] = t
+    return sorted(inputs, key=lambda i: (i[0], i[3]))
+
+
+def run_lane(ch):
+    """A 1P channel's last digit as vibeBMS's lane (7 keys)."""
+    return {"1": 0, "2": 1, "3": 2, "4": 3, "5": 4, "8": 5, "9": 6, "6": 7}[ch]
 
 
 def frames(folder):
@@ -207,22 +255,35 @@ def main():
     s.update(bmsroot=[songs], updatesong=True)
     json.dump(s, open(p, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 
-    def bja_start():
-        return subprocess.Popen(run.java_cmd(a.java, ["-s"]), cwd=bw, env=d.env,
-                                stdout=open(os.path.join(bw, "stdout.log"), "wb"),
-                                stderr=subprocess.STDOUT)
+    def bja(args):
+        return lambda: subprocess.Popen(
+            run.java_cmd(a.java, args), cwd=bw, env=d.env,
+            stdout=open(os.path.join(bw, "stdout.log"), "wb"), stderr=subprocess.STDOUT)
 
     def bja_nav():
-        # the cursor starts by NEW (the folder of charts added today): into
-        # it, into TODAY, on the chart
-        for k in ("Up", "z", "z"):
+        # (a fresh song database) the cursor starts below the song folder:
+        # into it, the chart under the cursor
+        for k in ("Up", "z"):
             d.key(k)
             time.sleep(1.5)
 
-    t = capture(d, os.path.join(work, "shots-beatoraja"), bja_start, "^beatoraja",
-                lambda: log_times(bw, "初期化時間"), bja_nav)
-    plays = [x for x in log_times(bw, "STATE_PLAY") if x > t["decide"]]
-    t["play"] = plays[0] if plays else None
+    bdir = os.path.join(work, "shots-beatoraja")
+    capture_select(d, bdir, bja(["-s"]), "^beatoraja", lambda: log_times(bw, "初期化時間"), bja_nav)
+    # the play: a replay of every note hit on time (its result screen shows
+    # a play that hit no note only briefly)
+    chart = os.path.join(songs, "render", "render.bme")
+    data = open(chart, "rb").read()
+    sha = hashlib.sha256(data).hexdigest()
+    run.write_replay(os.path.join(bw, "player", "player1", "replay", sha + ".brd"), sha, 2,
+                     perfect_inputs(data.decode("ascii")), True)
+    for f in ("beatoraja_log.xml", "beatoraja_log.xml.lck"):
+        if os.path.exists(os.path.join(bw, f)):
+            os.remove(os.path.join(bw, f))
+    b_rec0 = capture_play(d, bdir, bja(["-r1", chart]), "^beatoraja",
+                          lambda: bool(log_times(bw, "STATE_READY")),
+                          lambda: bool(log_times(bw, "STATE_FINISHED")))
+    plays = log_times(bw, "STATE_PLAY")
+    b_play = plays[0] if plays else None
 
     # vibeBMS: the same skin files, the same song folder
     vw = os.path.join(work, "vibebms")
@@ -245,10 +306,13 @@ RESULT = {json.dumps(skin + "/result/result.luaskin")}
                    stdout=subprocess.DEVNULL)
     vlog = os.path.join(vw, "stdout.log")
 
-    def vibe_start():
+    def vibe(args):
         # beatoraja's hi-speed (its default 2.56 at this chart's BPM)
-        return subprocess.Popen([a.vibebms, "--hs", "2.56"], env=venv,
-                                stdout=open(vlog, "wb"), stderr=subprocess.STDOUT)
+        return lambda: subprocess.Popen([a.vibebms, "--hs", "2.56", *args], env=venv,
+                                        stdout=open(vlog, "wb"), stderr=subprocess.STDOUT)
+
+    def vibe_ready():
+        return os.path.exists(vlog) and "startup: library" in open(vlog, errors="replace").read()
 
     def vibe_nav():
         # the cursor starts on ALL SONGS, the song's folder 4 above; in a
@@ -257,12 +321,16 @@ RESULT = {json.dumps(skin + "/result/result.luaskin")}
             d.key(k)
             time.sleep(0.8)
 
-    v = capture(d, os.path.join(work, "shots-vibebms"), vibe_start, "vibeBMS",
-                lambda: os.path.exists(vlog) and "startup: library" in open(vlog, errors="replace").read(),
-                vibe_nav)
+    vdir = os.path.join(work, "shots-vibebms")
+    capture_select(d, vdir, vibe([]), "vibeBMS", vibe_ready, vibe_nav)
+    # the play: its autoplay (every note on time, as the replay above);
+    # it logs no time for the play's start or end
+    started = []
+    capture_play(d, vdir, vibe([chart, "--autoplay"]), "vibeBMS",
+                 lambda: vibe_ready() and not started.append(time.time()),
+                 lambda: time.time() - started[0] > PLAY_S)
 
     # pairs
-    bdir, vdir = os.path.join(work, "shots-beatoraja"), os.path.join(work, "shots-vibebms")
     bf, vf = frames(os.path.join(bdir, "frames")), frames(os.path.join(vdir, "frames"))
     rows = []
 
@@ -274,17 +342,10 @@ RESULT = {json.dumps(skin + "/result/result.luaskin")}
 
     pair("1-select", "song select, the chart under the cursor",
          os.path.join(bdir, "select.png"), os.path.join(vdir, "select.png"))
-
-    def at(fs, t0, rec0, s):
-        k = int(round((t0 + s - rec0) * FPS))
-        return fs[k] if 0 <= k < len(fs) else None
-
-    db = at(bf, t["decide"], t["recording_start"], 0.7)
-    dv = at(vf, v["decide"], v["recording_start"], 0.7)
-    if db and dv:
-        pair("2-decide", "decide, 0.7 s after the key", db, dv)
-    if t["play"] and bf and vf:
-        bk = [int(round((t["play"] + s - t["recording_start"]) * FPS)) for s in PLAY_TIMES]
+    pair("2-decide", "decide, 0.7 s after the key",
+         os.path.join(bdir, "decide.png"), os.path.join(vdir, "decide.png"))
+    if b_play and bf and vf:
+        bk = [int(round((b_play + s - b_rec0) * FPS)) for s in PLAY_TIMES]
         bk = [k for k in bk if 0 <= k < len(bf)]
         gb = {k: gray(bf[k]) for k in bk}
         gv = [gray(f) for f in vf]
@@ -298,10 +359,11 @@ RESULT = {json.dumps(skin + "/result/result.luaskin")}
             m = np.mean([ssim(gb[k], gv[k + sh]) for k in ks])
             if m > best:
                 best, shift = m, sh
+        lag = shift / FPS
         for s, k in zip(PLAY_TIMES, bk):
             pair(f"3-play-{s:04.1f}s", f"play, chart time {s:.1f} s", bf[k], vf[k + shift],
-                 note=f"vibeBMS frame matched at {shift / FPS:+.1f} s")
-    pair("4-result", "result (every note missed but one key)",
+                 note=f"vibeBMS's frame: the best match, {lag:+.1f} s along its recording")
+    pair("4-result", "result (every note hit on time)",
          os.path.join(bdir, "result.png"), os.path.join(vdir, "result.png"))
 
     json.dump(rows, open(os.path.join(out, "report.json"), "w"), indent=1)

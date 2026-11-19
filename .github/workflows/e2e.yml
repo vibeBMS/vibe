@@ -82,7 +82,7 @@ jobs:
         with:
           packages: >-
             xserver-xorg-video-dummy x11-xserver-utils xdotool libgl1-mesa-dri mesa-vulkan-drivers
-            ffmpeg libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+            libxkbcommon-x11-0 ffmpeg libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
       - uses: actions/cache@v6
         with:
           path: ${{ env.E2E_DIST }}

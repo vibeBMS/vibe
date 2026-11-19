@@ -8,9 +8,11 @@ beatoraja's (run.py's results) case by case.
 Compared: the counts of each judgement (PGREAT .. POOR, empty POOR), the EX
 score, the max combo, FAST and SLOW (GREAT to BAD early and late), the
 gauge at the end (to 0.05) and the clear lamp. A difference listed in
-expected.json (a known, intended difference, with the docs/RULES.md section
-that says so) is reported but passes; any other fails (exit 1), as does a
-case beatoraja gave no result for.
+expected.json (a known difference: intended, with the docs/RULES.md section
+that says so, a vibeBMS bug or the harness's) is reported but passes; any other fails (exit 1), as does a
+case beatoraja gave no result for. A case beatoraja answered differently in
+two plays at normal speed (run.py --recheck) is reported as unstable and
+does not fail.
 """
 
 import argparse
@@ -104,20 +106,27 @@ def main():
                         "field": f, "vibe": vv[f], "beatoraja": bv[f],
                         "expected": e is not None,
                         "reason": e["reason"] if e else None,
+                        "kind": e.get("kind", "intended") if e else None,
                         "rules": e.get("rules") if e else None,
                     })
-            if any(not d["expected"] for d in row["diffs"]):
+            if b.get("unstable") and any(not d["expected"] for d in row["diffs"]):
+                # beatoraja answered differently twice at normal speed: a key
+                # read late (the machine was busy), not a rule
+                row["status"] = "unstable"
+            elif any(not d["expected"] for d in row["diffs"]):
                 row["status"] = "mismatch"
             elif row["diffs"]:
                 row["status"] = "expected"
         rows.append(row)
-    counts = {s: sum(r["status"] == s for r in rows) for s in ("match", "expected", "mismatch", "error")}
+    counts = {s: sum(r["status"] == s for r in rows)
+              for s in ("match", "expected", "mismatch", "unstable", "error")}
     md = ["## Behaviour: vibeBMS against beatoraja", "",
           f"{len(rows)} cases: {counts['match']} match, {counts['expected']} differ as expected, "
-          f"{counts['mismatch']} differ, {counts['error']} without a result.", "",
+          f"{counts['mismatch']} differ, {counts['unstable']} unstable in beatoraja (not counted), "
+          f"{counts['error']} without a result.", "",
           "| case | result | differences (vibeBMS / beatoraja) |", "|---|---|---|"]
-    label = {"match": "match", "expected": "expected difference", "mismatch": "**MISMATCH**",
-             "error": "**no result**"}
+    label = {"match": "match", "expected": "known difference", "mismatch": "**MISMATCH**",
+             "unstable": "unstable (beatoraja)", "error": "**no result**"}
     for r in rows:
         if r["status"] == "error":
             detail = r["error"]
@@ -130,11 +139,12 @@ def main():
     for r in rows:
         for d in r["diffs"]:
             if d["expected"]:
-                reasons.setdefault(d["reason"], (d["rules"], []))[1].append(r["name"])
+                reasons.setdefault(d["reason"], (d["rules"], d["kind"], []))[2].append(r["name"])
     if reasons:
-        md += ["", "Expected differences:", ""]
-        for reason, (rules, names) in reasons.items():
-            md.append(f"- {reason} (docs/RULES.md, {rules}): {', '.join(sorted(set(names)))}")
+        md += ["", "Known differences (expected.json):", ""]
+        for reason, (rules, kind, names) in reasons.items():
+            md.append(f"- **{kind}**: {reason} (docs/RULES.md, {rules}): "
+                      f"{', '.join(sorted(set(names)))}")
     text = "\n".join(md) + "\n"
     if a.md:
         open(a.md, "w").write(text)

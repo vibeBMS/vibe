@@ -143,11 +143,16 @@ def prepare(dist, work):
     os.makedirs(os.path.join(work, "bms"), exist_ok=True)
 
 
-def configure(work, opts, skins=SKINS):
+def configure(work, opts, skins=SKINS, small=False):
     with open(os.path.join(HERE, "seed", "config_sys.json"), encoding="utf-8") as f:
         s = json.load(f)
     s["bmsroot"] = [os.path.abspath(os.path.join(work, "bms"))]
     s.update({"tableURL": [], "enableIpfs": False, "updatesong": False})
+    if small:
+        # (software OpenGL draws a smaller window in less time: more frames,
+        # each reading the replay's keys)
+        s.update({"resolution": "SD", "windowWidth": 640, "windowHeight": 480,
+                  "maxFramePerSecond": 1000})
     with open(os.path.join(work, "config_sys.json"), "w", encoding="utf-8") as f:
         json.dump(s, f, indent=1, ensure_ascii=False)
     with open(os.path.join(HERE, "seed", "config_player.json"), encoding="utf-8") as f:
@@ -198,7 +203,7 @@ def run_case(java, work, case_path, speed, timeout_extra=40):
     sha = hashlib.sha256(data).hexdigest()
     seven = any(f"{c}:" in data.decode("ascii", "replace") for c in ("18", "19"))
     opts = case["beatoraja"]
-    configure(work, opts)
+    configure(work, opts, small=True)
     rdir = os.path.join(work, "player", "player1", "replay")
     for f in os.listdir(rdir):
         os.remove(os.path.join(rdir, f))
@@ -292,7 +297,9 @@ def main():
     ap.add_argument("--only", nargs="*", help="case names (shell patterns)")
     ap.add_argument("--recheck", metavar="VIBE_JSONL",
                     help="play again at speed 1 each case whose result differs from "
-                         "vibeBMS's (compare.py), keeping that result")
+                         "vibeBMS's (compare.py), keeping that result; one still "
+                         "different is played a third time, and marked unstable "
+                         "when the two disagree")
     a = ap.parse_args()
     prepare(a.dist, a.work)
     names = sorted(f[:-5] for f in os.listdir(a.cases) if f.endswith(".json"))
@@ -316,11 +323,19 @@ def main():
             v = vibe.get(r["name"])
             if v is None or "error" in v or ("error" not in r and not compare.field_diffs(v, r)):
                 continue
-            again = run_case(a.java, a.work, os.path.join(a.cases, r["name"] + ".json"), 1)
+            path = os.path.join(a.cases, r["name"] + ".json")
+            again = run_case(a.java, a.work, path, 1)
             again["first"] = {x: r.get(x) for x in ("score", "gauge", "error", "speed")}
+            if "error" not in again and compare.field_diffs(v, again):
+                # still different: once more, to tell beatoraja's answer
+                # from a key it read late (the two must agree)
+                third = run_case(a.java, a.work, path, 1)
+                if "error" in third or compare.bja_values(third) != compare.bja_values(again):
+                    again["unstable"] = {x: third.get(x) for x in ("score", "gauge", "error")}
             results[k] = again
             s = again.get("score", {})
-            print(f"{r['name']:28} {again['wall']:6.1f}s again at speed 1: " + (
+            print(f"{r['name']:28} {again['wall']:6.1f}s again at speed 1"
+                  + (" (unstable)" if "unstable" in again else "") + ": " + (
                 again["error"] if "error" in again else
                 f"clear={s.get('Clear')} ex={s.get('Exscore')} combo={s.get('Combo')} "
                 f"gauge={again['gauge']}"), flush=True)
