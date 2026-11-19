@@ -97,10 +97,7 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn hex(b: &[u8]) -> String {
-        b.iter().map(|x| format!("{x:02x}")).collect()
-    }
+    use vibebms_core::hex;
 
     /// RFC 4648's test vectors.
     #[test]

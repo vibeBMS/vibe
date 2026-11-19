@@ -79,8 +79,24 @@ pub mod by_label {
     }
 }
 
+/// `b` in lowercase hexadecimal.
+pub fn hex(b: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(b.len() * 2);
+    for x in b {
+        let _ = write!(s, "{x:02x}");
+    }
+    s
+}
+
+/// For `skip_serializing_if`: a field written only when set.
+pub fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
 pub mod bms;
 pub mod bmson;
+#[cfg(any(test, feature = "testing"))]
 pub mod bot;
 pub mod chart;
 pub mod convert;

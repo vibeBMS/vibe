@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io;
 use std::path::{Path, PathBuf};
+use vibebms_core::hex;
 use vibebms_core::record::PlayRecord;
 
 /// How long a play keeps its gauge log in the history (the rest of the
@@ -236,10 +237,6 @@ fn random_id(now_ms: i64) -> String {
         h.update(js_sys::Math::random().to_le_bytes());
     }
     hex(&h.finalize()[..16])
-}
-
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 #[cfg(test)]

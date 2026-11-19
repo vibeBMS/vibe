@@ -40,20 +40,11 @@ pub struct ParseOptions {
 }
 
 pub fn md5_hex(bytes: &[u8]) -> String {
-    hex(&Md5::digest(bytes))
+    crate::hex(&Md5::digest(bytes))
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    hex(&Sha256::digest(bytes))
-}
-
-fn hex(b: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut s = String::with_capacity(b.len() * 2);
-    for x in b {
-        let _ = write!(s, "{x:02x}");
-    }
-    s
+    crate::hex(&Sha256::digest(bytes))
 }
 
 fn base36(c: u8) -> Option<u32> {

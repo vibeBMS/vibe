@@ -51,6 +51,8 @@ ehttp = { version = "0.7", features = ["streaming"] }
 toml = { version = "1", features = ["preserve_order"] }
 json5 = "1"
 flate2 = "1"
+# the translation tables' hash (the version mlua builds with)
+rustc-hash = "2"
 # a zip's files read where they are (charts in archives: platform/arcfs.rs;
 # the version and features BMSeeker unpacks with)
 zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
@@ -118,3 +120,5 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = ["compre
 # animated PNG and WebP fixtures for the image tests (the versions image uses)
 png = "0.18"
 image-webp = "0.2"
+# the test bot
+vibebms-core = { workspace = true, features = ["testing"] }
