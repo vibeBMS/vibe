@@ -66,8 +66,12 @@ jobs:
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
-  # Linux and Windows are separate jobs so the Flatpak packaging (which
-  # needs only the Linux executables) starts as soon as Linux is built
+  # each Linux executable, then the same executable as a Flatpak: as it is,
+  # on the GNOME runtime (it has WebKitGTK 4.1), a bundle per architecture
+  # (a bundle holds one; tools/package_flatpak.sh, platform/flatpak). One job
+  # per architecture: one runner and checkout, no artifact round trip. The
+  # executable's artifact is uploaded before the Flatpak steps, so a Flatpak
+  # that fails fails the job but the nightly still has the executable
   build-linux:
     name: build ${{ matrix.name }}
     needs: test
@@ -77,19 +81,71 @@ jobs:
         include:
           # the oldest runner with WebKitGTK 4.1 (glibc 2.35: Ubuntu 22.04,
           # Debian 12 and newer); `build-linux-portable` has the rest
-          - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-          - { name: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            arch: x64
+            loader: /lib64/ld-linux-x86-64.so.2
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            arch: arm64
+            loader: /lib/ld-linux-aarch64.so.1
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/apt
         with:
           packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+          # the Flatpak's (appstream-compose for `appstreamcli compose`),
+          # without their Recommends (desktop portals, speech data: not needed
+          # to package)
+          packages-without-recommends: flatpak desktop-file-utils appstream appstream-compose
+      # (it also runs tools/ci_version.sh: the version, and the app id, name
+      # and branch the Flatpak takes, e.g. io.github.vibebms.nightly, "vibeBMS
+      # Nightly")
       - uses: ./.github/actions/rust-build
         with:
           name: ${{ matrix.name }}
           target: ${{ matrix.target }}
           cache-key: ${{ matrix.target }}-${{ matrix.os }}
+      - name: Flatpak runtime
+        run: |
+          # org.gnome.Platform//51, from the manifest
+          echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd/ | sed 's|/|//|')" >> "$GITHUB_ENV"
+          # Ubuntu 24.04 and newer deny unprivileged user namespaces to
+          # programs without an AppArmor profile; `flatpak run`'s bubblewrap
+          # (the check) needs them (22.04 may not have the setting)
+          f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ "$(cat "$f" 2>/dev/null)" = 1 ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      # the runtime alone (about 430 MB from Flathub; the packaging needs
+      # neither it nor the SDK, the check runs in it), installed for the user
+      # by the first run with this runtime. (Until 2026-11 the key was
+      # flatpak-<arch>-<runtime> and held the SDK and the GL drivers too, over
+      # 1.5 GB: those entries are no longer restored and age out of the cache.)
+      - uses: actions/cache@v6
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
+      - run: tools/package_flatpak.sh target/${{ matrix.target }}/release/vibebms out
+      # the bundle installs, and every library the executable links (WebKitGTK
+      # 4.1 among them) is in the runtime. --no-related leaves out the runtime's
+      # GL drivers, codecs and translations (another ~1 GB in the cache), which
+      # the check does not need
+      - name: check the Flatpak
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive --no-related flathub "$RUNTIME"
+          flatpak install --user --noninteractive --no-related out/vibeBMS-linux-${{ matrix.arch }}.flatpak
+          flatpak run --command=${{ matrix.loader }} "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
+          grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
+          ! grep 'not found' out/libs.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vibeBMS-linux-${{ matrix.arch }}-flatpak
+          path: out/vibeBMS-linux-${{ matrix.arch }}.flatpak
 
   build-windows:
     name: build ${{ matrix.name }}
@@ -155,83 +211,6 @@ jobs:
             out/vibeBMS-macos-universal.dmg
             out/vibebms-macos-universal.app.zip
             out/version.txt
-
-  # the Flatpak: each Linux executable as it is, on the GNOME runtime (it
-  # has WebKitGTK 4.1), as a bundle per architecture (a bundle holds one;
-  # tools/package_flatpak.sh, platform/flatpak)
-  flatpak:
-    name: package Flatpak (${{ matrix.arch }})
-    needs: build-linux
-    # this architecture's build can have succeeded when another build failed
-    if: always() && !cancelled()
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { arch: x64, os: ubuntu-24.04, loader: /lib64/ld-linux-x86-64.so.2 }
-          - { arch: arm64, os: ubuntu-24.04-arm, loader: /lib/ld-linux-aarch64.so.1 }
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          name: vibeBMS-linux-${{ matrix.arch }}
-          path: art
-      - name: the build
-        id: builds
-        run: |
-          if [ ! -f art/vibebms ]; then
-            echo "::warning::no linux-${{ matrix.arch }} build: no Flatpak this time"
-            exit 0
-          fi
-          echo "ok=true" >> "$GITHUB_OUTPUT"
-          # org.gnome.Platform//51, from the manifest
-          echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd/ | sed 's|/|//|')" >> "$GITHUB_ENV"
-      - if: steps.builds.outputs.ok
-        uses: ./.github/actions/apt
-        with:
-          # (appstream-compose for `appstreamcli compose`); without their
-          # Recommends (desktop portals, speech data: not needed to package)
-          packages: flatpak desktop-file-utils appstream appstream-compose
-          recommends: "false"
-      # Ubuntu 24.04 denies unprivileged user namespaces to programs without
-      # an AppArmor profile; `flatpak run`'s bubblewrap (the check) needs them
-      - if: steps.builds.outputs.ok
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # the runtime alone (about 430 MB from Flathub; the packaging needs
-      # neither it nor the SDK, the check runs in it), installed for the user
-      # by the first run with this runtime. (Until 2026-11 the key was
-      # flatpak-<arch>-<runtime> and held the SDK and the GL drivers too, over
-      # 1.5 GB: those entries are no longer restored and age out of the cache.)
-      - if: steps.builds.outputs.ok
-        uses: actions/cache@v6
-        with:
-          path: ~/.local/share/flatpak
-          key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
-      # the app id, name and branch (io.github.vibebms.nightly, "vibeBMS Nightly")
-      - if: steps.builds.outputs.ok
-        run: ./tools/ci_version.sh
-      - if: steps.builds.outputs.ok
-        run: tools/package_flatpak.sh art/vibebms out
-      # the bundle installs, and every library the executable links (WebKitGTK
-      # 4.1 among them) is in the runtime. --no-related leaves out the runtime's
-      # GL drivers, codecs and translations (another ~1 GB in the cache), which
-      # the check does not need
-      - if: steps.builds.outputs.ok
-        name: check
-        run: |
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive --no-related flathub "$RUNTIME"
-          flatpak install --user --noninteractive --no-related out/vibeBMS-linux-${{ matrix.arch }}.flatpak
-          flatpak run --command=${{ matrix.loader }} "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
-          grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
-          ! grep 'not found' out/libs.txt
-      - if: steps.builds.outputs.ok
-        uses: actions/upload-artifact@v7
-        with:
-          name: vibeBMS-linux-${{ matrix.arch }}-flatpak
-          path: out/vibeBMS-linux-${{ matrix.arch }}.flatpak
 
   # Linux without the download browser (no WebKitGTK / GTK), built against
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
@@ -487,7 +466,7 @@ jobs:
   # run) and, for a push to the default branch, the rolling nightly release
   nightly:
     name: downloads & nightly
-    needs: [build-linux, build-windows, build-linux-portable, macos, flatpak, android, ios, web]
+    needs: [build-linux, build-windows, build-linux-portable, macos, android, ios, web]
     if: always()
     runs-on: ubuntu-latest
     env:
