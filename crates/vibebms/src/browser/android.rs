@@ -5,8 +5,9 @@
 
 use super::imports::Imports;
 use crate::app::Ctx;
-use crate::platform::android::{app_class, with_java};
-use jni::objects::{JString, JValue};
+use crate::platform::android::{app_class, string, with_java};
+use jni::objects::JValue;
+use jni::{jni_sig, jni_str};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use winit::event::WindowEvent;
@@ -30,8 +31,10 @@ fn open(url: &str, dir: &std::path::Path) -> Result<(), String> {
         let script = env.new_string(bmseeker::hosts::PRESS_DOWNLOAD_JS)?;
         env.call_static_method(
             class,
-            "open",
-            "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            jni_str!("open"),
+            jni_sig!(
+                "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
+            ),
             &[
                 JValue::Object(activity),
                 JValue::Object(&url),
@@ -50,12 +53,17 @@ fn events() -> Vec<String> {
         let mut out = Vec::new();
         loop {
             let ev = env
-                .call_static_method(&class, "poll", "()Ljava/lang/String;", &[])?
+                .call_static_method(
+                    &class,
+                    jni_str!("poll"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )?
                 .l()?;
             if ev.is_null() {
                 break;
             }
-            out.push(env.get_string(&JString::from(ev))?.into());
+            out.push(string(env, ev)?);
         }
         Ok(out)
     })
