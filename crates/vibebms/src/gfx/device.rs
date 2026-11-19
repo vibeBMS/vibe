@@ -104,17 +104,16 @@ impl Gfx {
         mode: crate::config::PresentMode,
         backends: wgpu::Backends,
     ) -> Result<Gfx, String> {
-        let desc = wgpu::InstanceDescriptor {
-            backends,
-            ..Default::default()
-        };
+        // (OpenGL on Linux presents through the window's display connection)
+        let display: Box<dyn wgpu::wgt::WgpuHasDisplayHandle> = Box::new(window.clone());
+        let desc = instance_desc(backends, Some(display));
         let instance = if web_gl_only() {
-            wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::GL,
                 ..desc
             })
         } else {
-            wgpu::util::new_instance_with_webgpu_detection(&desc).await
+            wgpu::util::new_instance_with_webgpu_detection(desc).await
         };
         let surface = instance
             .create_surface(window.clone())
@@ -124,26 +123,18 @@ impl Gfx {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
-            .ok_or("no suitable GPU adapter")?;
+            .map_err(|_| "no suitable GPU adapter")?;
         let info = adapter.get_info();
         log::info!("gpu: {} ({:?})", info.name, info.backend);
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("vibebms"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
-                    memory_hints: wgpu::MemoryHints::Performance,
-                },
-                None,
-            )
+            .request_device(&device_desc("vibebms", &adapter))
             .await
             .map_err(|e| e.to_string())?;
         // a bad draw or texture is logged, not fatal
-        device.on_uncaptured_error(Box::new(|e| log::error!("gpu: {e}")));
+        device.on_uncaptured_error(Arc::new(|e| log::error!("gpu: {e}")));
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -162,6 +153,7 @@ impl Gfx {
             desired_maximum_frame_latency: frame_latency(present_mode),
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
+            color_space: wgpu::SurfaceColorSpace::Auto,
         };
         surface.configure(&device, &config);
         Ok(Self::with_device(
@@ -240,8 +232,8 @@ impl Gfx {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("2d"),
-            bind_group_layouts: &[&uniform_layout, &tex_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_layout), Some(&tex_layout)],
+            immediate_size: 0,
         });
         let sdf_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sdf"),
@@ -258,8 +250,8 @@ impl Gfx {
         });
         let sdf_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("sdf"),
-            bind_group_layouts: &[&uniform_layout, &tex_layout, &sdf_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_layout), Some(&tex_layout), Some(&sdf_layout)],
+            immediate_size: 0,
         });
         let make_with = |blend: wgpu::BlendState, sdf: bool| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -268,11 +260,11 @@ impl Gfx {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4],
-                }],
+                })],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -288,7 +280,7 @@ impl Gfx {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
         };
@@ -422,7 +414,7 @@ impl Gfx {
     /// for the GPU: some frames after it was asked for).
     pub fn take_capture(&mut self) -> Option<Result<::image::RgbaImage, String>> {
         let r = self.capture.as_ref()?;
-        let _ = self.device.poll(wgpu::Maintain::Poll);
+        let _ = self.device.poll(wgpu::PollType::Poll);
         let img = r.take()?;
         self.capture = None;
         Some(img)
@@ -442,19 +434,23 @@ impl Gfx {
 
     /// Draw and present a frame; how long it waited for its image (with
     /// FIFO, the display holding it back: Vulkan, DX12 and Metal wait
-    /// there).
-    pub fn render(&mut self, batch: &Batch, clear: Color) -> Result<Duration, wgpu::SurfaceError> {
+    /// there). An image that could not be had is an error, its frame not
+    /// drawn (a covered window's, on macOS: none, quietly).
+    pub fn render(&mut self, batch: &Batch, clear: Color) -> Result<Duration, &'static str> {
         let t0 = Instant::now();
         let Some(surface) = self.surface.as_ref() else {
             return Ok(Duration::ZERO);
         };
+        use wgpu::CurrentSurfaceTexture as C;
         let frame = match surface.get_current_texture() {
-            Ok(f) => f,
-            Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
+            C::Success(f) | C::Suboptimal(f) => f,
+            C::Outdated | C::Lost => {
                 surface.configure(&self.device, &self.config);
                 return Ok(Duration::ZERO);
             }
-            Err(e) => return Err(e),
+            C::Occluded => return Ok(Duration::ZERO),
+            C::Timeout => return Err("timed out waiting for the window's next image"),
+            C::Validation => return Err("the window's next image could not be had"),
         };
         let waited = t0.elapsed();
         let mut enc = self.encode(batch, clear, &frame.texture);
@@ -474,7 +470,7 @@ impl Gfx {
         if let Some(w) = &self.window {
             w.pre_present_notify();
         }
-        frame.present();
+        self.queue.present(frame);
         Ok(waited)
     }
 
@@ -525,6 +521,7 @@ impl Gfx {
                 label: Some("main"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -539,6 +536,7 @@ impl Gfx {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.pipelines[0]);
             pass.set_bind_group(0, &self.uniform_bind, &[]);
@@ -602,6 +600,40 @@ fn sdf_buffer(
         }],
     });
     (buf, bind)
+}
+
+/// An instance of `backends` (`display`: the window's, which OpenGL on
+/// Linux presents through), with wgpu's defaults but for DX12's shader
+/// compiler: FXC, as ever (wgpu's default is now DXC where its DLL is
+/// found).
+pub(super) fn instance_desc(
+    backends: wgpu::Backends,
+    display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
+) -> wgpu::InstanceDescriptor {
+    let mut desc = match display {
+        Some(d) => wgpu::InstanceDescriptor::new_with_display_handle(d),
+        None => wgpu::InstanceDescriptor::new_without_display_handle(),
+    };
+    desc.backends = backends;
+    desc.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
+    desc
+}
+
+/// The device asked of `adapter`: no optional features, WebGL2's limits
+/// but for the adapter's largest textures.
+pub(super) fn device_desc<'a>(
+    label: &'a str,
+    adapter: &wgpu::Adapter,
+) -> wgpu::DeviceDescriptor<'a> {
+    wgpu::DeviceDescriptor {
+        label: Some(label),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+            .using_resolution(adapter.limits()),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        memory_hints: wgpu::MemoryHints::Performance,
+        trace: wgpu::Trace::Off,
+    }
 }
 
 /// The wgpu backends of a setting (AUTO: all, and wgpu picks).
