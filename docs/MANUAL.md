@@ -159,7 +159,7 @@ frames later, so play does not stall.
 | holding START (`Q`) / SELECT (`W`) | the play option panels (below) |
 
 - On Linux, F3 selects the file in a file manager that takes the freedesktop `FileManager1` call, else opens the
-  folder. T, U and B are also in the default skin's TAG EDITOR panel.
+  folder. F3, U and B are also in the default skin's TAG EDITOR panel.
 - The filters and the sort are kept in `[select]` and are also on the OPTIONS buttons. Favourites are listed in the
   FAVORITE folder at the root and marked ♥; on touch, the OPTIONS buttons FAV CHART / FAV SONG set them.
 - Virtual folders at the root, after FAVORITE, all with the filters and by the records of the judge preset chosen:
