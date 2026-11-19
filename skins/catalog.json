@@ -14,7 +14,7 @@
       "downloads": ["https://drive.google.com/file/d/1ei0w7_gMkZ7TU9q79WkQ5RPnTIbhWbOk/view"],
       "homepage": "https://isocosa.neocities.org/bms_skins.html",
       "license": "No license stated; credits in ReadMe.txt",
-      "source": "official",
+      "source": "third_party",
       "folder": "isocosa_brook"
     },
     {
@@ -30,7 +30,7 @@
       "downloads": ["https://isocosa.neocities.org/files/bms_skin/isocosa_duplex_alpha1.zip"],
       "homepage": "https://isocosa.neocities.org/bms_skins.html",
       "license": "No license stated",
-      "source": "official",
+      "source": "third_party",
       "folder": "isocosa_duplex_alpha1"
     },
     {
@@ -62,7 +62,7 @@
       "downloads": ["https://drive.google.com/file/d/1CR8PuLaBNFCHqBkGYrToPTxDQtQ6AQke/view"],
       "homepage": "https://fezikedifficulty.futene.net/skin.html",
       "license": "In development: the author asks not to redistribute it",
-      "source": "official",
+      "source": "third_party",
       "folder": "FLATZ"
     },
     {
@@ -110,7 +110,7 @@
       "downloads": ["https://drive.google.com/file/d/1Ms0saBfLTnhLL9MxgcQU7GuPOAvpvF1-/view"],
       "homepage": "https://youtu.be/IX5D6dLt3cQ",
       "license": "Do not redistribute; edits are fine but not for distribution (readme)",
-      "source": "official",
+      "source": "third_party",
       "folder": "hij_simple"
     },
     {
@@ -142,7 +142,7 @@
       "downloads": ["https://drive.google.com/file/d/1VnwuK_lYtKCgE82oTAbFxhsrQhpBXY6y/view"],
       "homepage": "https://www.kasacontent.com/musicgame/beatoraja/6411/",
       "license": "No redistribution without the author's permission; edited versions must credit KASAKO",
-      "source": "official",
+      "source": "third_party",
       "folder": "ModernChic"
     },
     {
@@ -238,7 +238,7 @@
       "downloads": ["https://wwwdobryrap.pl/assets/result/proste%20g%C3%B3wno.7z"],
       "homepage": "https://wwwdobryrap.pl/2021/05/07/prostegowno.html",
       "license": "No license stated",
-      "source": "official",
+      "source": "third_party",
       "folder": "proste gówno"
     },
     {
@@ -254,7 +254,7 @@
       "downloads": ["https://github.com/kkkkkst/lr2-simple-skin/archive/refs/heads/master.zip"],
       "homepage": "https://github.com/kkkkkst/lr2-simple-skin",
       "license": "No license stated",
-      "source": "official",
+      "source": "third_party",
       "folder": "Hex_Simple_FHD"
     }
   ]

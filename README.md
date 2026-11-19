@@ -573,15 +573,16 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   [`skins/catalog.json`](skins/catalog.json) (read from this repository, the copy compiled in until then) and
   downloads, unpacks and installs one into `skins/` from the link it lists (Google Drive, Dropbox, MEGA, GitHub,
   plain servers), replaces it with a newer version, or deletes it. Each entry names its author, scenes, resolution,
-  homepage and the terms its author states, and where its download comes from (`source`): `official` is the
-  author's own (their site, their GitHub releases or repository, their own upload or a link they published) or a
-  copy its license allows; `third_party` is anyone else's (a re-upload, an archive of a dead site, a pack of several
-  authors' skins, or one whose permission is not known). Third-party entries are listed and downloaded only with
+  homepage and the terms its author states, and where its download comes from (`source`): `official` is a skin whose
+  terms state that it may be freely used and redistributed (a license such as MIT, Apache-2.0 or GPL, or the
+  author's own words), downloaded from the author's own link; `third_party` is every other one: a skin whose terms
+  say nothing of it or forbid redistribution (even from the author's own link), a re-upload, an archive of a dead
+  site, a pack of several authors' skins. Third-party entries are listed and downloaded only with
   **Third-party sources** on (`SETTINGS › LIBRARY`, the same choice and notice as for songs: they are other people's
   copies, not the authors' distribution); while it is off GET SKINS says how many it leaves out, and a skin of
   theirs already installed stays (listed, to be deleted). An entry without `source` is the author's own in a catalog
   of version 1 (from before the field, all of whose entries were), else third-party; a value vibeBMS does not know
-  is third-party. Every entry of the current catalog is `official`. Builds from before `source` read the new
+  is third-party. In the current catalog, 9 skins are `official` and 7 are `third_party`. Builds from before `source` read the new
   catalog as before (they skip what they do not know) and list every entry. The web build keeps them in the browser's
   storage, but does not unpack skins over 400 MB.
 - A skin's custom options and offsets are on its screen's page in `SETTINGS › SKINS` (Enter on the screen's row).
