@@ -21,8 +21,7 @@ agent (Claude Code); a person set the direction and checked the results by playi
 - Settings, scores and caches live in a folder next to the executable (portable).
 - BMS folders inside the executable's folder are scanned automatically; other folders can be added.
 
-> Status: early development (0.1). Tested on the desktop (Linux) and in browsers; the Android and iOS builds have
-> not been tried on real devices yet.
+> Status: early development (0.1).
 
 ## Quick start
 
