@@ -757,6 +757,7 @@ _untranslated = [
 "1P: controller {n}" = "1P：控制器 {n}"
 "A profile needs a name" = "個人檔案需要一個名稱"
 "A profile's name is one line" = "個人檔案名稱只能有一行"
+"A profile's name has at most {n} characters" = "個人檔案名稱最多 {n} 個字元"
 "Added BMS folder: {s}" = "已新增 BMS 資料夾：{s}"
 "Added {name} ({n} files)" = "已新增 {name}（{n} 個檔案）"
 "Axis" = "軸"

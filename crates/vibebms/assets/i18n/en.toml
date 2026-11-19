@@ -144,6 +144,7 @@ Using them is your own responsibility: follow each site's terms and respect the 
 # profiles.rs
 "A profile needs a name" = "A profile needs a name"
 "A profile's name is one line" = "A profile's name is one line"
+"A profile's name has at most {n} characters" = "A profile's name has at most {n} characters"
 "There is a profile named {name} already" = "There is a profile named {name} already"
 "The default profile is not deleted (its data is the root's)" = "The default profile is not deleted (its data is the root's)"
 "The profile in use is not deleted: switch to another first" = "The profile in use is not deleted: switch to another first"

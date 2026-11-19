@@ -756,6 +756,7 @@ _untranslated = [
 "1P: controller {n}" = "1P: 컨트롤러 {n}"
 "A profile needs a name" = "프로필에는 이름이 필요함"
 "A profile's name is one line" = "프로필 이름은 한 줄이어야 함"
+"A profile's name has at most {n} characters" = "프로필 이름은 최대 {n}자임"
 "Added BMS folder: {s}" = "BMS 폴더 추가함: {s}"
 "Added {name} ({n} files)" = "{name} 추가함 (파일 {n}개)"
 "Axis" = "축"
