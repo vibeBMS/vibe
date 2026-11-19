@@ -205,6 +205,11 @@ case "$artifact" in
 esac
 # Cargo.lock as committed: a build that would change it stops here
 cargo metadata --locked --format-version 1 > /dev/null
+# Lua from vendor/lua-src (its sources in name order): the registry's lua-src
+# compiles them in the file system's order, which differs between machines
+if grep -A2 '^name = "lua-src"$' Cargo.lock | grep -q '^source = '; then
+  die "Cargo.lock takes lua-src from the registry, not vendor/lua-src ([patch.crates-io]): see vendor/lua-src/Cargo.toml"
+fi
 
 echo "building $artifact $version ($commit) with $(rustc -V)"
 echo "  toolchain: ${TOOLCHAIN:-unknown}"

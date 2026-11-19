@@ -10,6 +10,8 @@ members = [
     "crates/vibebms-lua-web",
 ]
 default-members = ["crates/vibebms"]
+# (a dependency's copy, not the workspace's: vendor/lua-src/Cargo.toml)
+exclude = ["vendor/lua-src"]
 
 [workspace.package]
 version = "0.1.0-dev"
@@ -51,3 +53,8 @@ opt-level = 2
 inherits = "release"
 strip = false
 lto = "thin"
+
+# Lua's sources compiled in name order, for reproducible builds
+# (vendor/lua-src/Cargo.toml says why)
+[patch.crates-io]
+lua-src = { path = "vendor/lua-src" }

@@ -356,6 +356,9 @@ Everything else is fixed by the commit:
   (`--remap-path-prefix`, `-ffile-prefix-map`: no build path in panic messages or C's `__FILE__`), Windows' linker
   `/Brepro` (no link time in the PE header), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
   deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
+  Lua's C sources compiled in name order (`vendor/lua-src`, patched in for the lua-src crate, which takes them in the
+  file system's order: on Linux's ext4 that is a hash seeded per file system, so two machines linked them
+  differently; `tools/build_release.sh` stops if `Cargo.lock` takes lua-src from the registry);
 - **dates**: `SOURCE_DATE_EPOCH` is the commit's time; zips (the web zip, the iOS `.ipa`, the macOS app's zip) are
   made with every file at that time, mode 644/755, in name order, no extra fields, TZ=UTC
   (`tools/build_release.sh zip`); the Flatpak's release date and OSTree commit take it, and the bundle's own

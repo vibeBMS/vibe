@@ -1,6 +1,7 @@
 //! Compile Lua 5.4 (`lua/`) and its C library (`shim/`) for
 //! wasm32-unknown-unknown with clang. Other targets build nothing: there
-//! mlua compiles Lua itself (feature "vendored").
+//! mlua compiles Lua itself (feature "vendored"), from the same `lua/`
+//! (`vendor/lua-src`).
 //!
 //! Lua raises errors with setjmp / longjmp; clang lowers them to Wasm
 //! exception handling (`-mllvm -wasm-enable-sjlj`), whose runtime is in
