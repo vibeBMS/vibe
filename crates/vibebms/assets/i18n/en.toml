@@ -50,10 +50,10 @@ Using them is your own responsibility: follow each site's terms and respect the 
 
 # import.rs
 "Could not unpack the download: {e}" = "Could not unpack the download: {e}"
-"{name} → its song" = "{name} → its song"
 "{name}: already installed" = "{name}: already installed"
 "{name}: download its song too" = "{name}: download its song too"
 "{name} is not a song (kept in downloads)" = "{name} is not a song (kept in downloads)"
+"{name} → its song" = "{name} → its song"
 
 # input/gamepad.rs
 "Controller connected: {name} ({side})" = "Controller connected: {name} ({side})"
