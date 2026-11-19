@@ -474,8 +474,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
   scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
   own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
-  sound set's music (the select music, the decide jingle, `.loop` files) is measured as the set loads and brought to
-  the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
+  sound set's music (the select music, the decide jingle, `.loop` files) is measured as it is first decoded and
+  brought to the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
   each time (its stages joined are not one chart). The output's soft limiter stays as it was.
 - **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
   under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
@@ -602,7 +602,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
   `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
   under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
-  sets their volume. A folder set may also use bmz-player's conventions (as its documentation describes them):
+  sets their volume. A screen's music (the select music, the result's) is decoded each time it starts and let go
+  when it stops; the other sounds stay decoded. A folder set may also use bmz-player's conventions (as its documentation describes them):
   - the result music by outcome: `fail` for a failed play; for a clear `aaa`, `aa` or `a` at that rank (the play's
     EX score from 8/9, 7/9, 6/9 of what can be had), else `clear` (a missing rank sound falls back on `clear`, not
     on a lower rank); a course's result keeps `course_clear` / `course_fail`;
