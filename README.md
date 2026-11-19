@@ -508,7 +508,9 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
 
 - **Built-in default skins**: landscape and portrait layouts for every mode, original art drawn from shapes and
   the Inter font by `tools/gen_default_skins.py`. Edit the script and run it to make
-  `crates/vibebms/assets/builtin/skins/default/` again.
+  `crates/vibebms/assets/builtin/skins/default/` again (CI checks with `--check` that the committed files are
+  what it makes). The song select's images are pages of at most 2048×2048: one for the screen, one for each panel,
+  loaded when the panel first opens.
 - **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › SKINS` like the others):
   each player's lanes are a fan seen in perspective, narrow at the far end and wider toward the judge line, notes
   growing as they come. The judge line is at three quarters of the screen's height and the lanes reach near its
@@ -623,7 +625,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks); button 1407 the key mode filter with 4 / 6 / 8 KEYS (indices 6-8); play skin types 104 / 106 / 108 are 4 / 6 / 8 keys (only the built-in skins are: such charts play on them). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
-  using timer 21, the app draws a hi-speed panel beside the lanes.
+  using timer 21, the app draws a hi-speed panel beside the lanes. A beatoraja `source` with `"lazy": true` is loaded
+  when something is first drawn from it (the built-in song select's panels).
 
 ## Web version
 
