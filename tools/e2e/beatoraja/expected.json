@@ -2,18 +2,19 @@
  "about": "Known differences between vibeBMS and beatoraja in the behaviour cases (compare.py). kind: intended (vibeBMS's rules say so: rules names the docs/RULES.md section), vibebms-bug (vibeBMS should change; listed so that the run tells new differences from it), harness (the comparison's, not the players'). A difference not listed fails the run.",
  "differences": [
   {
-   "cases": ["bss-cn", "bss-hcn"],
-   "fields": ["pg", "pr", "ex", "max_combo"],
+   "cases": [
+    "bss-cn",
+    "bss-hcn"
+   ],
+   "fields": [
+    "pg",
+    "pr",
+    "ex",
+    "max_combo"
+   ],
    "kind": "intended",
    "reason": "a back-spin scratch (scratch CN / HCN) let go at its end on the keyboard: vibeBMS ends it there (PGREAT), beatoraja 0.8.9 gives the end a POOR (only turning the other way ends it, as the case's other trials show); this answers open gap B3",
    "rules": "Long notes (keyboards: releasing also ends it); LR2 equivalence, The beatoraja profile (B3)"
-  },
-  {
-   "cases": ["ln-ln"],
-   "fields": ["fast", "slow"],
-   "kind": "vibebms-bug",
-   "reason": "an LN (LN mode) pressed 40 ms early and let go on time is a GREAT in both, FAST in beatoraja; vibeBMS counts it neither FAST nor SLOW: its early-release wait (Engine::release, the pending judgement) keeps the release's timing (0) instead of the head's",
-   "rules": "Long notes"
   }
  ]
 }
