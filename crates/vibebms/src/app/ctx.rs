@@ -12,8 +12,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-#[cfg(test)]
-use vibebms_audio::AudioConfig;
 use vibebms_audio::Mixer;
 use vibebms_core::judge::JudgePreset;
 
@@ -161,6 +159,29 @@ pub struct View {
     pub want_screenshot: bool,
 }
 
+impl View {
+    /// The window's `size` in device pixels, `scale` of them a point, on
+    /// `screen`, drawn by the GPU `gpu_name`.
+    pub fn new(
+        size: winit::dpi::PhysicalSize<u32>,
+        scale: f32,
+        screen: crate::platform::screen::Screen,
+        gpu_name: &str,
+    ) -> View {
+        View {
+            width: size.width as f32,
+            height: size.height as f32,
+            scale,
+            screen,
+            fps: 0.0,
+            gpu_name: gpu_name.to_string(),
+            want_fullscreen: None,
+            want_present_mode: false,
+            want_screenshot: false,
+        }
+    }
+}
+
 /// What the input devices have told.
 #[derive(Default)]
 pub struct Input {
@@ -240,9 +261,17 @@ pub fn internal_dirs(paths: &Paths) -> HashSet<PathBuf> {
 }
 
 impl Ctx {
-    /// A context with nothing loaded yet.
-    pub fn new(paths: Paths, mut config: Config, mixer: Mixer, view: View) -> Ctx {
-        let mut net = Net {
+    /// A context with nothing loaded yet: the settings of the profile in
+    /// use, with this launch's options in them (`overrides`).
+    pub fn new(
+        paths: Paths,
+        profiles: crate::profiles::Profiles,
+        config: Config,
+        overrides: super::cli::Overrides,
+        mixer: Mixer,
+        view: View,
+    ) -> Ctx {
+        let net = Net {
             hosts: crate::hosts::context(&config),
             archives: Default::default(),
             song_fetch: Default::default(),
@@ -251,12 +280,8 @@ impl Ctx {
             browse: None,
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
-        if net.ir.take_old_tokens(&mut config.ir) {
-            crate::profiles::save_config(&config, &paths);
-        }
         let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
-        let profiles = crate::profiles::Profiles::open(&paths);
-        Ctx {
+        let mut ctx = Ctx {
             paths,
             config,
             lib: Lib::default(),
@@ -272,9 +297,19 @@ impl Ctx {
             input: Input::default(),
             toasts: Vec::new(),
             skins: Skins::default(),
-            overrides: Default::default(),
+            overrides,
             profiles,
             streaming: Default::default(),
+        };
+        ctx.take_old_tokens();
+        ctx
+    }
+
+    /// The IR keys a configuration of before kept, moved out of it (and
+    /// the configuration saved without them).
+    fn take_old_tokens(&mut self) {
+        if self.net.ir.take_old_tokens(&mut self.config.ir) {
+            self.save_config();
         }
     }
 
@@ -282,32 +317,35 @@ impl Ctx {
     /// library, silent audio.
     #[cfg(test)]
     pub fn for_test(root: PathBuf) -> Ctx {
-        let mixer = Mixer::new(&AudioConfig {
+        let silent = crate::config::AudioSettings {
             buffer_frames: 0,
             sample_rate: 44100,
             master: 0.0,
-            key_volume: 0.0,
-            bgm_volume: 0.0,
-            system_volume: 0.0,
-            max_voices: 16,
-            #[cfg(windows)]
-            exclusive: false,
-        });
-        let view = View {
-            width: 1280.0,
-            height: 720.0,
-            scale: 1.0,
-            screen: crate::platform::screen::Screen {
+            key: 0.0,
+            bgm: 0.0,
+            system: 0.0,
+            ..Default::default()
+        };
+        let mixer = Mixer::new(&silent.mixer_config(16));
+        let view = View::new(
+            winit::dpi::PhysicalSize::new(1280, 720),
+            1.0,
+            crate::platform::screen::Screen {
                 size_px: (1280.0, 720.0),
                 points_per_inch: 96.0,
             },
-            fps: 0.0,
-            gpu_name: String::new(),
-            want_fullscreen: None,
-            want_present_mode: false,
-            want_screenshot: false,
-        };
-        Ctx::new(Paths::at(root), Config::default(), mixer, view)
+            "",
+        );
+        let paths = Paths::at(root);
+        let profiles = crate::profiles::Profiles::open(&paths);
+        Ctx::new(
+            paths,
+            profiles,
+            Config::default(),
+            Default::default(),
+            mixer,
+            view,
+        )
     }
 
     pub fn toast(&mut self, s: impl Into<String>) {
@@ -330,9 +368,9 @@ impl Ctx {
         (self.overrides.for_saving(&self.config)).unwrap_or_else(|| self.config.clone())
     }
 
-    /// The profile's records (the library database's score files), its
-    /// courses, and the others' as rivals; `lib.scores` follows with
-    /// `reload_library` (or `reload_scores`).
+    /// The profile's records (the library database's score files) and its
+    /// courses; `lib.scores` follows with `reload_library` (or
+    /// `reload_scores`).
     pub fn open_records(&mut self) {
         let player = self.paths.player.clone();
         self.lib.db = Some(Library::open(
@@ -341,7 +379,6 @@ impl Ctx {
             |sha, ln| crate::replay::rule_of_old(&player, sha, ln, crate::replay::Slot::Best),
         ));
         self.lib.courses = crate::courses::CourseStore::open(&self.paths.scores);
-        self.profiles = crate::profiles::Profiles::open(&self.paths);
     }
 
     /// `lib.scores` from the database, the charts as they are.
@@ -364,16 +401,11 @@ impl Ctx {
         }
         self.save_config();
         self.paths = self.paths.with_profile(id);
-        let mut registry = crate::profiles::Registry::load(&self.paths.root);
-        registry.active = id.to_string();
-        registry.save(&self.paths.root);
-        let mut config = crate::profiles::load_config(&self.paths);
-        self.net.ir = crate::ir::IrService::new(&self.paths, crate::platform::unix_ms());
-        if self.net.ir.take_old_tokens(&mut config.ir) {
-            crate::profiles::save_config(&config, &self.paths);
-        }
-        self.config = config;
+        self.profiles.set_active(&self.paths);
+        self.config = crate::profiles::load_config(&self.paths);
         self.overrides = Default::default();
+        self.net.ir = crate::ir::IrService::new(&self.paths, crate::platform::unix_ms());
+        self.take_old_tokens();
         self.net.hosts = crate::hosts::context(&self.config);
         self.open_records();
         self.reload_scores();
@@ -467,19 +499,13 @@ impl Ctx {
     /// Make sure `dir` (under the root) is scanned.
     pub fn ensure_scanned(&mut self, dir: &str) {
         let p = self.paths.root.join(dir);
-        if !self.scan_roots().iter().any(|r| p.starts_with(r)) {
+        if !scan_roots(&self.config, &self.paths)
+            .iter()
+            .any(|r| p.starts_with(r))
+        {
             self.config.bms_dirs.push(dir.to_string());
             self.save_config();
         }
-    }
-
-    pub fn scan_roots(&self) -> Vec<PathBuf> {
-        scan_roots(&self.config, &self.paths)
-    }
-
-    /// The app's own folders, which the scan skips.
-    fn internal_dirs(&self) -> HashSet<PathBuf> {
-        internal_dirs(&self.paths)
     }
 
     /// A scan that has ended: its songs into the list (always before another
@@ -563,8 +589,8 @@ impl Ctx {
         let progress = Arc::new(ScanProgress::default());
         self.lib.scan = Some(progress.clone());
         let db = self.paths.songs_cache();
-        let roots = self.scan_roots();
-        let skip = self.internal_dirs();
+        let roots = scan_roots(&self.config, &self.paths);
+        let skip = internal_dirs(&self.paths);
         crate::platform::spawn("scan", move || {
             crate::library::scan(db, roots, skip, progress)
         });
@@ -673,7 +699,8 @@ impl Ctx {
         }
         // web: newly picked files -> read the chart files, then scan
         if crate::platform::vfs::take_added() {
-            let charts = crate::library::find_charts(&self.scan_roots(), &self.internal_dirs());
+            let roots = scan_roots(&self.config, &self.paths);
+            let charts = crate::library::find_charts(&roots, &internal_dirs(&self.paths));
             self.toast(tr!("Reading {n} charts…", n = charts.len()));
             #[cfg(target_arch = "wasm32")]
             crate::platform::opfs::hold_library(true);

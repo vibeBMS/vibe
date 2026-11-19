@@ -738,6 +738,7 @@ _untranslated = [
 "1P: controller {n}" = "1P：控制器 {n}"
 "A profile needs a name" = "档案需要一个名称"
 "A profile's name is one line" = "档案名称只能有一行"
+"A profile's name has at most {n} characters" = "档案名称最多 {n} 个字符"
 "Added BMS folder: {s}" = "已添加 BMS 文件夹：{s}"
 "Added {name} ({n} files)" = "已添加 {name}（{n} 个文件）"
 "Axis" = "轴"

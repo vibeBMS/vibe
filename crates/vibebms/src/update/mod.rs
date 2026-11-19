@@ -513,26 +513,9 @@ fn homebrew_cask() -> bool {
         })
 }
 
-/// Whether a file can be made in `dir`.
-fn dir_writable(dir: &Path) -> bool {
-    let probe = dir.join(format!(".vibebms-write-test-{}", std::process::id()));
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&probe)
-    {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&probe);
-            true
-        }
-        Err(_) => false,
-    }
-}
-
 /// Whether this build updates itself: a nightly, on the desktop, whose
 /// executable is its own (not a package manager's) in a folder it can
-/// write to. Others neither check nor offer. (Looked at once: it writes a
-/// probe file.)
+/// write to. Others neither check nor offer. (Looked at once.)
 pub fn self_updating() -> bool {
     static IT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *IT.get_or_init(|| {
@@ -554,7 +537,7 @@ pub fn install_refusal(exe: &Path) -> Option<String> {
     }
     // the app is replaced whole, in the folder it is in
     match app.unwrap_or(exe).parent() {
-        Some(dir) if dir_writable(dir) => None,
+        Some(dir) if crate::platform::vfs::writable(dir) => None,
         _ => Some("vibeBMS's folder cannot be written to".into()),
     }
 }

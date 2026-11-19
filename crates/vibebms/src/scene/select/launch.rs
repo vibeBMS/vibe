@@ -396,7 +396,7 @@ impl SelectScene {
             url_diff: url_diff.clone(),
             ..Default::default()
         };
-        let entry = crate::songfetch::entry(&ctx.tables.links.known, &want, more);
+        let entry = crate::songfetch::entry(&ctx.tables.links, &want, more);
         // the song is in the library (another of its charts): what to say
         // when nothing can be tried
         let have_song = !md5.is_empty()

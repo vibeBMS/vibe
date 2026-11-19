@@ -67,25 +67,20 @@ pub const INTERNAL_DIRS: &[&str] = &[
 ];
 
 impl Paths {
-    pub fn detect() -> Paths {
+    /// The data root: `VIBEBMS_ROOT`, else next to the executable (a
+    /// folder of the user's where that cannot be written to).
+    pub fn detect_root() -> PathBuf {
         if crate::platform::IS_WEB {
-            return Paths::open(PathBuf::from("/vibebms"));
+            return PathBuf::from("/vibebms");
         }
         let root = std::env::var_os("VIBEBMS_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(default_root);
-        let root = if crate::platform::vfs::writable(&root) {
+        if crate::platform::vfs::writable(&root) {
             root
         } else {
             fallback_root()
-        };
-        Paths::open(root)
-    }
-
-    /// The folders at `root`, of the profile in use (`profiles`).
-    pub fn open(root: PathBuf) -> Paths {
-        let active = crate::profiles::Registry::load(&root).active;
-        Paths::at(root).with_profile(&active)
+        }
     }
 
     /// The folders at `root`, of the default profile.
