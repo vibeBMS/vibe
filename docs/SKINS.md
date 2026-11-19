@@ -122,8 +122,8 @@ Skin types 8, 9 and 10 are the key config, skin select and sound set screens.
 ## Player totals
 
 Numbers 17-19, 30-37 and 333: plays and clears are summed over the charts' records; judgements and time played are
-counted after every recorded play (not autoplay or replays). Judgements not counted that way count each chart's best
-play only.
+counted after every recorded play (not autoplay or replays). For plays older than the totals: RULES.md, "Older
+records".
 
 ## Skin catalog
 
