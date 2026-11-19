@@ -70,6 +70,18 @@ switch ($Stage) {
         if ($LASTEXITCODE) { exit 1 }
         Get-ChildItem $le -Filter *.zip | ForEach-Object { Write-Host "Locale Emulator $($_.Name)"; Expand-Archive $_.FullName -DestinationPath $le -Force }
         $leproc = Get-ChildItem $le -Recurse -Filter LEProc.exe | Select-Object -First 1
+        # LEProc needs LECommonLibrary.dll, which only LEInstaller (a window
+        # with an Install button) writes out, from its resources: written
+        # here from the same resource, without the window
+        $dll = Join-Path $leproc.DirectoryName 'LECommonLibrary.dll'
+        if (-not (Test-Path $dll)) {
+            $cmd = "`$a = [Reflection.Assembly]::LoadFile('$(Join-Path $leproc.DirectoryName 'LEInstaller.exe')'); " +
+                "`$n = `$a.GetManifestResourceNames() | Where-Object { `$_ -like '*.Resources.resources' } | Select-Object -First 1; " +
+                "`$rm = New-Object Resources.ResourceManager(`$n -replace '\.resources$', ''), `$a; " +
+                "[IO.File]::WriteAllBytes('$dll', [byte[]] `$rm.GetObject('LECommonLibrary'))"
+            & powershell.exe -NoProfile -Command $cmd
+            Write-Host "LECommonLibrary.dll from LEInstaller: $((Get-Item $dll -ErrorAction SilentlyContinue).Length) bytes"
+        }
         $res = Join-Path $Out 'le-acp.txt'
         $start = Get-Date
         $p = Start-Process -FilePath $leproc.FullName -ArgumentList @("`"$Probe`"", 'acp', "`"$res`"") -PassThru
