@@ -2,7 +2,7 @@
 //! worker thread natively and on the event loop on the web. Nothing here
 //! logs a request: its headers can carry credentials.
 //!
-//! Natively every request names vibeBMS ([`USER_AGENT`]) unless it names
+//! Natively every request names vibeBMS ([`user_agent`]) unless it names
 //! itself; in browsers the browser's own User-Agent goes, which a page
 //! cannot change (nothing here tries).
 
@@ -12,15 +12,28 @@ use bmseeker::net::{Answer, NetError};
 use bmseeker::progress::Progress;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-/// What vibeBMS's own requests are sent with natively (IR, difficulty
-/// tables, the updater, skins, the event mirror's lists): its name, version
-/// and where it is from, never a browser's. bmseeker's own downloads are
-/// sent with `hosts::user_agent`.
-pub const USER_AGENT: &str = concat!(
+/// vibeBMS's product in a User-Agent: its name, version and where it is
+/// from, `vibeBMS/0.1.0 (+https://github.com/vibeBMS/vibe)`. It comes after
+/// the HTTP library's on vibeBMS's own requests ([`user_agent`]) and after
+/// bmseeker's on bmseeker's downloads (`hosts::context`).
+pub const PRODUCT: &str = concat!(
     "vibeBMS/",
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/vibeBMS/vibe)"
 );
+
+/// What vibeBMS's own requests are sent with natively (IR, difficulty
+/// tables, the updater, skins, the event mirror's lists): the HTTP
+/// library's own name as it sends it (`bmseeker::config::HTTP_CLIENT`:
+/// ehttp's ureq is bmseeker's), kept, then [`PRODUCT`]:
+/// `ureq/3.5.2 vibeBMS/0.1.0 (+https://github.com/vibeBMS/vibe)`. Never a
+/// browser's.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn user_agent() -> &'static str {
+    static UA: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| bmseeker::config::native_user_agent(PRODUCT));
+    &UA
+}
 
 /// `req` with vibeBMS's User-Agent, natively, unless it has one.
 fn identified(req: ehttp::Request) -> ehttp::Request {
@@ -28,7 +41,7 @@ fn identified(req: ehttp::Request) -> ehttp::Request {
     let req = {
         let mut req = req;
         if req.headers.get("user-agent").is_none() {
-            req.headers.insert("User-Agent", USER_AGENT);
+            req.headers.insert("User-Agent", user_agent());
         }
         req
     };
@@ -320,10 +333,14 @@ pub(crate) mod tests {
         assert_eq!(r.headers.get("retry-after"), Some("120"));
         let got = seen.recv().unwrap();
         assert!(got.starts_with("GET /a HTTP/1.1"), "{got}");
-        // vibeBMS names itself, as itself
-        let ua = format!("user-agent: {}\r\n", USER_AGENT.to_lowercase());
+        // vibeBMS names itself, as itself, after the HTTP library
+        let ua = format!("user-agent: {}\r\n", user_agent().to_lowercase());
         assert!(got.to_lowercase().contains(&ua), "{got}");
-        assert!(USER_AGENT.starts_with("vibeBMS/") && !USER_AGENT.contains("Mozilla"));
+        assert_eq!(
+            user_agent(),
+            format!("{} {PRODUCT}", bmseeker::config::HTTP_CLIENT)
+        );
+        assert!(PRODUCT.starts_with("vibeBMS/") && !user_agent().contains("Mozilla"));
 
         // a request that names itself keeps its own
         let own = vec![("User-Agent".to_string(), "tester/1".to_string())];
@@ -412,5 +429,31 @@ pub(crate) mod tests {
         p.cancel();
         let r = rx.recv_timeout(std::time::Duration::from_secs(3));
         assert_eq!(r, Ok(Err(NetError::Cancelled)));
+    }
+
+    /// The HTTP library's name kept first is the one this build's ureq
+    /// sends by itself (vibeBMS's lockfile's version, which ehttp and
+    /// bmseeker share): bmseeker's `HTTP_CLIENT` must say it.
+    #[test]
+    fn the_http_library_named_is_the_one_built() {
+        let (url, seen) = serve(vec!["HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"]);
+        let (tx, rx) = mpsc::channel();
+        // (not through `identified`: ureq's own User-Agent)
+        ehttp::fetch(ehttp::Request::get(format!("{url}/a")), move |r| {
+            let _ = tx.send(r.map(|r| r.status));
+        });
+        let got = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(got, Ok(204));
+        let head = seen.recv().unwrap();
+        let ua = head.lines().find_map(|l| {
+            l.to_ascii_lowercase()
+                .starts_with("user-agent:")
+                .then(|| l[11..].trim().to_string())
+        });
+        assert_eq!(
+            ua.as_deref(),
+            Some(bmseeker::config::HTTP_CLIENT),
+            "{head}: bmseeker's config::HTTP_CLIENT is not this build's ureq"
+        );
     }
 }

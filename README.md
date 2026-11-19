@@ -367,9 +367,10 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   to site; using them is your own responsibility (each site's terms, the rights of the songs' copyright holders). OK
   turns them on and is remembered (`third_party_acknowledged`, app-wide); Cancel leaves them off. A build that has
   them on by default (the web build's `WEB_THIRD_PARTY`), or a setting turned on before this was asked, says the same
-  once at start, with OK and Turn off. vibeBMS names itself on its own requests (`vibeBMS/<version>
-  (+https://github.com/vibeBMS/vibe)`, before BMSeeker's own name on downloads; the web build sends the browser's,
-  which a page cannot change), never poses as a browser, and does not get around a site's access controls. See
+  once at start, with OK and Turn off. vibeBMS names itself on its own requests after the HTTP library's own name
+  (`ureq/<version> vibeBMS/<version> (+https://github.com/vibeBMS/vibe)`; on downloads after BMSeeker's,
+  `ureq/<version> BMSeeker/<version> (+https://github.com/vibeBMS/BMSeeker) vibeBMS/<version>
+  (+https://github.com/vibeBMS/vibe)`; the web build sends the browser's, which a page cannot change), never poses as a browser, and does not get around a site's access controls. See
   BMSeeker's [Third-party sources and
   disclaimer](https://github.com/vibeBMS/BMSeeker#third-party-sources-and-disclaimer).
 - **Name song folders after their charts** (`SETTINGS › LIBRARY`, off by default): a song downloaded into the library
