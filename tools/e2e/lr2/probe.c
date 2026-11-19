@@ -23,6 +23,9 @@
  *                             choice would (CBN_SELCHANGE to its dialog)
  *       mouse X Y             clicks at X, Y in the window
  *       key VK                presses a virtual key (hex) in the window
+ *       type TEXT             types TEXT into the window's focused control
+ *       msg [p/]ID MSG W L    sends a message without pointers (numbers in
+ *                             hex), prints the result
  *
  * Times in the CSV files are QueryPerformanceCounter in microseconds, which
  * all processes share. Built 32-bit, as LR2 is (build.cmd).
@@ -666,9 +669,10 @@ static BOOL CALLBACK dump_ctl(HWND h, LPARAM l)
     WideCharToMultiByte(CP_UTF8, 0, cls, -1, c8, sizeof c8, NULL, NULL);
     if (!wcscmp(cls, L"Button"))
         SendMessageTimeoutW(h, BM_GETCHECK, 0, 0, SMTO_ABORTIFHUNG, 1000, &check);
-    printf("%s%d [%s] \"%s\"%s%s%s\n", GetParent(h) == dlg ? "" : "  p/", GetDlgCtrlID(h), c8, t8,
+    printf("%s%d [%s] \"%s\"%s%s%s%s\n", GetParent(h) == dlg ? "" : "  p/", GetDlgCtrlID(h), c8, t8,
            check == BST_CHECKED ? " checked" : "", IsWindowVisible(h) ? "" : " hidden",
-           IsWindowEnabled(h) ? "" : " disabled");
+           IsWindowEnabled(h) ? "" : " disabled",
+           GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_ACCEPTFILES ? " acceptfiles" : "");
     return TRUE;
 }
 
@@ -769,6 +773,30 @@ static int ui(int argc, char **argv)
         Sleep(200);
         return 0;
     }
+    if (!strcmp(argv[1], "msg") && argc >= 6) {
+        DWORD_PTR r = 0;
+        if (!(h = ctl(dlg, argv[2])))
+            return 3;
+        SendMessageTimeoutW(h, (UINT)strtoul(argv[3], NULL, 16), (WPARAM)strtoul(argv[4], NULL, 16),
+                            (LPARAM)strtoul(argv[5], NULL, 16), SMTO_ABORTIFHUNG, 2000, &r);
+        printf("%ld\n", (long)r);
+        return 0;
+    }
+    if (!strcmp(argv[1], "type") && argc >= 3 && wargc >= 5) {
+        const wchar_t *c;
+        focus(dlg);
+        for (c = wargv[4]; *c; c++) {
+            INPUT in[2];
+            memset(in, 0, sizeof in);
+            in[0].type = in[1].type = INPUT_KEYBOARD;
+            in[0].ki.wScan = in[1].ki.wScan = *c;
+            in[0].ki.dwFlags = KEYEVENTF_UNICODE;
+            in[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            SendInput(2, in, sizeof(INPUT));
+            Sleep(30);
+        }
+        return 0;
+    }
     if (!strcmp(argv[1], "key") && argc >= 3) {
         focus(dlg);
         vk((WORD)strtol(argv[2], NULL, 16), 1);
@@ -812,10 +840,11 @@ static HRESULT STDMETHODCALLTYPE ds_continue(IDropSource *t, BOOL esc, DWORD key
         return DRAGDROP_S_CANCEL;
     return keys & MK_LBUTTON ? S_OK : DRAGDROP_S_DROP;
 }
+static DWORD drop_offered;
 static HRESULT STDMETHODCALLTYPE ds_feedback(IDropSource *t, DWORD e)
 {
     (void)t;
-    (void)e;
+    drop_offered |= e;
     return DRAGDROP_S_USEDEFAULTCURSORS;
 }
 static IDropSourceVtbl ds_vtbl = {ds_qi, ds_ref, ds_ref, ds_continue, ds_feedback};
@@ -885,7 +914,7 @@ static int probe_drop(HWND target, int x, int y, const wchar_t *path)
     th = CreateThread(NULL, 0, drag_mouse, &d, 0, NULL);
     hr = DoDragDrop(data, (IDropSource *)&src, DROPEFFECT_COPY | DROPEFFECT_LINK | DROPEFFECT_MOVE, &effect);
     WaitForSingleObject(th, 5000);
-    printf("DoDragDrop: hr=0x%08lx effect %lu%s\n", (unsigned long)hr, effect,
+    printf("DoDragDrop: hr=0x%08lx effect %lu, offered during the drag %lu%s\n", (unsigned long)hr, effect, drop_offered,
            hr == DRAGDROP_S_DROP ? " (dropped)" : "");
     data->lpVtbl->Release(data);
     item->lpVtbl->Release(item);

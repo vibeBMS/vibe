@@ -178,9 +178,30 @@ switch ($Stage) {
         Copy-Item (Join-Path $PSScriptRoot '..\..\lr2-measure\charts\*.bme') (Join-Path $songs 'lr2-measure')
         & $Probe ui 'LR2 SETUP' mouse $tabs['jukebox1'] 74 | Out-Null
         Dismiss (Popups 'tab-jukebox1')
+        Log 'player.txt' { '=== jukebox1 page'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
         Log 'player.txt' { '=== drop'; & $Probe drop 'LR2 SETUP' 300 270 $songs }
         Dismiss (Popups 'drop')
         Shot 'player-dropped.png'
+        # TVM_GETCOUNT: the folder tree's items
+        $count = & $Probe ui 'LR2 SETUP' msg p/1075 1105 0 0
+        Log 'player.txt' { "folder tree items after the drop: $count" }
+        if ([int]$count -eq 0) {
+            # the root folder button's Browse for Folder instead: a folder on
+            # the desktop is a top item of its tree, found by typing its name
+            $desk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'lr2songs'
+            New-Item -ItemType Directory -Force (Join-Path $desk 'lr2-measure') | Out-Null
+            Copy-Item (Join-Path $songs 'lr2-measure\*.bme') (Join-Path $desk 'lr2-measure')
+            & $Probe ui 'LR2 SETUP' click p/1035
+            Start-Sleep -Seconds 2
+            & $Probe ui 'Browse for Folder' type lr2songs
+            Start-Sleep -Milliseconds 500
+            Shot 'player-browse.png'
+            & $Probe ui 'Browse for Folder' click 1
+            Dismiss (Popups 'browse')
+            $count = & $Probe ui 'LR2 SETUP' msg p/1075 1105 0 0
+            Log 'player.txt' { "folder tree items after Browse for Folder: $count" }
+            Shot 'player-browsed.png'
+        }
         foreach ($t in 'jukebox2', 'option', 'select', 'system', 'main') {
             & $Probe ui 'LR2 SETUP' mouse $tabs[$t] 74 | Out-Null
             Dismiss (Popups "tab-$t")
