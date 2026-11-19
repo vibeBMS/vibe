@@ -28,7 +28,7 @@ Seed the cache from a run on main (workflow_dispatch), or have `cache-prune` kee
 ## What the runner gives LR2 (measured without LR2)
 
 `lr2probe.exe` (`probe.c`, 32-bit as LR2 is, built with the runner's MSVC) uses the same Windows APIs as a
-DirectX 9 game. `probe.ps1` runs it one stage at a time. Results from run 44593567775 (job 135805781900) and the
+DirectX 9 game. `probe.ps1` runs it one stage at a time. Results from runs 44589382253 to 44594213681 (the last: job 135808029911); the
 runs before it:
 
 | question | answer on `windows-latest` (Windows Server 2025, image windows-2025-vs2026) |
@@ -40,7 +40,7 @@ runs before it:
 | audio, with a virtual card | LABSN/sound-ci-helpers (VB-CABLE, pinned by commit) installs in about 4 s. Then there is one endpoint, DirectSound creates its primary and secondary buffers, and the play cursor advances in real time (481 ms in 500 ms). |
 | locale | en-US, ANSI code page 1252, OEM 437. Shift-JIS text reads as mojibake. The Japanese fonts are already there (`msgothic.ttc` "ＭＳ ゴシック", Yu Gothic). Adding them as a Feature on Demand hung for 8 minutes and is not needed. |
 | Locale Emulator | works: the probe under it sees code page 932 and LCID 0x0411, and Shift-JIS reads correctly. The 2.5.0.1 zip lacks `LECommonLibrary.dll`, which only its installer window writes; `probe.ps1` writes it out from the installer's resources, without the window. `LEProc.exe PATH ARGS` runs PATH with the default ja-JP profile. |
-| SendInput | 200 presses 100 ms apart (`send`, busy-wait timing with `timeBeginPeriod(1)`) into a window reading them by message and by DirectInput 8 (buffered, foreground, non-exclusive). All 200 arrived both ways. Delay after the due time, DirectInput: mean 0.5 to 0.6 ms, sd 0.10 to 0.47 ms, p99 0.8 to 1.4 ms, worst single press 1.1 to 6.9 ms across the runs. The same holds when the window draws with D3D9 and polls once a frame. `SetForegroundWindow` works from the runner's processes. |
+| SendInput | 200 presses 100 ms apart (`send`, busy-wait timing with `timeBeginPeriod(1)`) into a window reading them by message and by DirectInput 8 (buffered, foreground, non-exclusive). All 200 arrived both ways. Delay after the due time, DirectInput: mean 0.5 to 0.6 ms, sd 0.1 to 0.5 ms, p99 0.8 to 1.4 ms, worst single press 1.1 to 7.4 ms across the runs. The same holds when the window draws with D3D9 and polls once a frame. `SetForegroundWindow` works from the runner's processes. |
 
 ## What LR2's own documentation says (no runner evidence: no LR2)
 
