@@ -5126,7 +5126,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sevenz-rust2",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "sys-locale",
  "toml 1.2.1+spec-1.1.0",
  "ttf-parser",
@@ -5181,7 +5181,7 @@ dependencies = [
  "md-5 0.10.6",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "vibebms-core",
 ]
 
@@ -5191,7 +5191,7 @@ version = "0.1.0-dev"
 dependencies = [
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "vibebms-core",
 ]
 
