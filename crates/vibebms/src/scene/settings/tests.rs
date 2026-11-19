@@ -87,7 +87,7 @@ fn setup(name: &str) -> (std::path::PathBuf, Ctx) {
         id: "skin".into(),
         name: "A skin".into(),
         license: "free".into(),
-        source: Some(Source::Official),
+        source: Source::Official,
         ..Default::default()
     });
     (root, ctx)
@@ -852,9 +852,9 @@ fn third_party_skins_are_offered_with_their_sources_on() {
         ..Default::default()
     };
     ctx.skins.store.catalog.skins = vec![
-        skin("own", Some(Source::Official)),
-        skin("copy", Some(Source::ThirdParty)),
-        skin("kept", Some(Source::ThirdParty)),
+        skin("own", Source::Official),
+        skin("copy", Source::ThirdParty),
+        skin("kept", Source::ThirdParty),
     ];
     std::fs::create_dir_all(ctx.paths.skins.join("kept")).unwrap();
     let set = |ctx: &mut Ctx, on: bool| {

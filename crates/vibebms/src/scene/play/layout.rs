@@ -5,18 +5,40 @@ use super::PlayScene;
 use crate::app::Ctx;
 use crate::config::Side;
 use crate::gfx::Rect;
-use crate::perspective::Fan;
+use crate::perspective::{Depths, Fan};
 use crate::skin::render::Xf;
 use crate::touch::{self, TouchInput, Zone};
 
-/// The touch controls: what is pressed, and the zones (laid out again when
-/// the screen changes).
+/// The touch controls, what is pressed, and where the play goes on the
+/// screen: laid out again when what they follow changes (`Key`).
 #[derive(Default)]
 pub(super) struct Touch {
     pub input: TouchInput,
+    /// Screen areas of the touch controls: (rect, player, scratch on the
+    /// right).
+    pub areas: Vec<(Rect, usize, bool)>,
+    /// Where the play skin goes (above the touch controls).
+    pub view: Rect,
+    /// The touch controls (or the perspective lanes as controls), then
+    /// START / SELECT.
     pub zones: Vec<Zone>,
-    /// The screen the zones were laid out for: size, touch on, skin loaded.
-    key: (u32, u32, bool, bool),
+    /// A perspective skin's fans on the screen.
+    pub fans: Vec<Fan>,
+    /// The skin's note fields in `view` (one per player).
+    pub fields: Vec<Rect>,
+    key: Option<Key>,
+}
+
+/// What the layout follows: the screen (its size, millimetres, touch
+/// controls on), the skin (its size, perspective) and the judge line the
+/// perspective lanes' touch area follows (LIFT).
+#[derive(PartialEq)]
+struct Key {
+    size: (f32, f32),
+    px_per_mm: f32,
+    touch: bool,
+    skin: Option<(f32, f32, bool)>,
+    judge: f32,
 }
 
 impl PlayScene {
@@ -26,8 +48,54 @@ impl PlayScene {
         self.skin.as_ref().is_some_and(|s| s.skin.perspective)
     }
 
+    /// Lay out the touch controls and the play's view again if what they
+    /// follow changed.
+    pub(super) fn lay_out(&mut self, ctx: &Ctx) {
+        let key = Key {
+            size: (ctx.view.width, ctx.view.height),
+            px_per_mm: ctx.px_per_mm(),
+            touch: ctx.touch_enabled(),
+            skin: self
+                .skin
+                .as_ref()
+                .map(|s| (s.skin.width, s.skin.height, s.skin.perspective)),
+            judge: Depths::of(&ctx.config.play).judge,
+        };
+        if self.touch.key.as_ref() == Some(&key) {
+            return;
+        }
+        let screen = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
+        let fans = match self.perspective() {
+            true => self.persp_fans(ctx, screen),
+            false => Vec::new(),
+        };
+        let areas = self.touch_areas(ctx);
+        let input_mode = self.facts.input_mode;
+        let mut zones = Vec::new();
+        if self.perspective() && key.touch {
+            let top = self.persp_touch_top(ctx, &fans, screen);
+            zones = touch::fan_zones(input_mode, &fans, top, key.judge, screen.x, screen.right());
+        }
+        if !areas.is_empty() {
+            zones = touch::zones(
+                input_mode,
+                &self.touch_config(ctx),
+                touch::controls_area(ctx.view.width, ctx.view.height, &ctx.config.touch),
+                ctx.config.play.side == Side::P2,
+                ctx.portrait(),
+                ctx.px_per_mm(),
+            );
+        }
+        let (view, buttons) = self.play_view(ctx, &areas);
+        zones.extend(buttons);
+        let fields = self.fields(view);
+        let t = &mut self.touch;
+        (t.areas, t.view, t.zones, t.fans, t.fields) = (areas, view, zones, fans, fields);
+        t.key = Some(key);
+    }
+
     /// The perspective skin's fans on the screen when it is drawn in `view`.
-    pub(super) fn persp_fans(&self, ctx: &Ctx, view: Rect) -> Vec<Fan> {
+    fn persp_fans(&self, ctx: &Ctx, view: Rect) -> Vec<Fan> {
         let Some(sk) = self.skin.as_ref() else {
             return Vec::new();
         };
@@ -51,7 +119,7 @@ impl PlayScene {
     fn persp_touch_top(&self, ctx: &Ctx, fans: &[Fan], view: Rect) -> f32 {
         let (lo, hi) = crate::config::TOUCH_HEIGHT_RANGE;
         let share = ctx.config.perspective.touch_height.clamp(lo, hi);
-        let judge = crate::perspective::Depths::of(&ctx.config.play).judge;
+        let judge = Depths::of(&ctx.config.play).judge;
         let line = fans
             .iter()
             .map(|f| f.y(judge))
@@ -60,7 +128,7 @@ impl PlayScene {
     }
 
     /// Screen areas of the touch controls: (rect, player, scratch on the right).
-    pub(super) fn touch_areas(&self, ctx: &Ctx) -> Vec<(Rect, usize, bool)> {
+    fn touch_areas(&self, ctx: &Ctx) -> Vec<(Rect, usize, bool)> {
         if !ctx.touch_enabled() || self.perspective() {
             return Vec::new();
         }
@@ -79,11 +147,7 @@ impl PlayScene {
 
     /// Where the play skin goes (above the touch controls) and, with touch
     /// controls, the START / SELECT buttons beside it.
-    pub(super) fn play_view(
-        &self,
-        ctx: &Ctx,
-        areas: &[(Rect, usize, bool)],
-    ) -> (Rect, Option<Vec<Zone>>) {
+    fn play_view(&self, ctx: &Ctx, areas: &[(Rect, usize, bool)]) -> (Rect, Vec<Zone>) {
         let screen = Rect::new(
             0.0,
             0.0,
@@ -94,7 +158,7 @@ impl PlayScene {
         if self.perspective() {
             // START / SELECT in the top corner the skin leaves for them
             let Some(sk) = self.skin.as_ref().filter(|_| ctx.touch_enabled()) else {
-                return (screen, None);
+                return (screen, Vec::new());
             };
             let xf = Xf::fit(sk.skin.width, sk.skin.height, screen);
             let side2 = ctx.config.play.side == Side::P2;
@@ -109,11 +173,11 @@ impl PlayScene {
             };
             return (
                 screen,
-                Some(vec![zone(touch::START, b[0]), zone(touch::SELECT, b[1])]),
+                vec![zone(touch::START, b[0]), zone(touch::SELECT, b[1])],
             );
         }
         if areas.is_empty() {
-            return (screen, None);
+            return (screen, Vec::new());
         }
         let aspect = self
             .skin
@@ -127,53 +191,16 @@ impl PlayScene {
             let (view, mut two) = touch::system_buttons(view, aspect, mm, true);
             two[0].lane = touch::START2;
             two[1].lane = touch::SELECT2;
-            return (view, Some(one.into_iter().chain(two).collect()));
+            return (view, one.into_iter().chain(two).collect());
         }
         let side2 = ctx.config.play.side == Side::P2;
         let right = touch::system_right(&ctx.config.touch, input_mode, side2, ctx.portrait());
         let (view, buttons) = touch::system_buttons(screen, aspect, ctx.px_per_mm(), right);
-        (view, Some(buttons.to_vec()))
-    }
-
-    pub(super) fn rebuild_zones(&mut self, ctx: &Ctx, areas: &[(Rect, usize, bool)]) {
-        let key = (
-            ctx.view.width as u32,
-            ctx.view.height as u32,
-            ctx.touch_enabled(),
-            self.skin.is_some(),
-        );
-        // the perspective lanes follow the settings (LIFT, the touch area)
-        if key == self.touch.key && !self.touch.zones.is_empty() && !self.perspective() {
-            return;
-        }
-        self.touch.key = key;
-        let input_mode = self.facts.input_mode;
-        let mut zones = Vec::new();
-        if self.perspective() && ctx.touch_enabled() {
-            let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
-            let fans = self.persp_fans(ctx, view);
-            let top = self.persp_touch_top(ctx, &fans, view);
-            let judge = crate::perspective::Depths::of(&ctx.config.play).judge;
-            zones = touch::fan_zones(input_mode, &fans, top, judge, view.x, view.right());
-        }
-        if !areas.is_empty() {
-            zones = touch::zones(
-                input_mode,
-                &self.touch_config(ctx),
-                touch::controls_area(ctx.view.width, ctx.view.height, &ctx.config.touch),
-                ctx.config.play.side == Side::P2,
-                ctx.portrait(),
-                ctx.px_per_mm(),
-            );
-        }
-        if let (_, Some(buttons)) = self.play_view(ctx, areas) {
-            zones.extend(buttons);
-        }
-        self.touch.zones = zones;
+        (view, buttons.to_vec())
     }
 
     /// The skin's note fields on screen (one per player).
-    pub(super) fn fields(&self, view: Rect) -> Vec<Rect> {
+    fn fields(&self, view: Rect) -> Vec<Rect> {
         let Some(sk) = self.skin.as_ref() else {
             return Vec::new();
         };
