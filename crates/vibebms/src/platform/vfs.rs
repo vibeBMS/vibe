@@ -91,10 +91,25 @@ mod imp {
             })
             .unwrap_or((0, 0))
     }
+    /// Whether a file can be made in `dir`: a probe file made and
+    /// removed, once a folder (the data root is the executable's folder,
+    /// which the updater asks about too).
     pub fn writable(dir: &Path) -> bool {
-        let probe = dir.join(".vibebms-write-test");
-        let ok = std::fs::write(&probe, b"ok").is_ok();
-        let _ = std::fs::remove_file(&probe);
+        static PROBED: Mutex<Vec<(PathBuf, bool)>> = Mutex::new(Vec::new());
+        let mut probed = PROBED.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, ok)) = probed.iter().find(|(d, _)| d == dir) {
+            return *ok;
+        }
+        let probe = dir.join(format!(".vibebms-write-test-{}", std::process::id()));
+        let made = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe);
+        let ok = made.is_ok();
+        if ok {
+            let _ = std::fs::remove_file(&probe);
+        }
+        probed.push((dir.to_path_buf(), ok));
         ok
     }
     pub fn unloaded_under(_dir: &Path) -> Vec<PathBuf> {
@@ -886,7 +901,7 @@ impl DirIndex {
             .iter()
             .filter(|(s, _)| *s == stem)
             .filter_map(|(_, p)| {
-                let ext = p.extension().map(lower).unwrap_or_default();
+                let ext = ext_lower(p);
                 Some((exts.iter().position(|x| *x == ext)?, p))
             })
             .min_by_key(|(rank, _)| *rank)
@@ -908,6 +923,11 @@ fn by_stem(dir: &Path) -> ByStem {
 
 fn lower(s: &std::ffi::OsStr) -> String {
     s.to_string_lossy().to_lowercase()
+}
+
+/// `p`'s extension in lower case ("" when it has none).
+pub fn ext_lower(p: &Path) -> String {
+    p.extension().map(lower).unwrap_or_default()
 }
 
 pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac"];

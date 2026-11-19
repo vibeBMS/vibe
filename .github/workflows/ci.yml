@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     # Dependabot's branches run as pull requests (and publish no web preview);
-    # fdroid-repo is the F-Droid repository the nightly job publishes
-    branches-ignore: ['dependabot/**', 'fdroid-repo']
+    # fdroid-repo is the F-Droid repository the nightly job publishes; e2e/
+    # branches try the comparison tests (e2e.yml) and run only those
+    branches-ignore: ['dependabot/**', 'fdroid-repo', 'e2e/**']
   pull_request:
   workflow_dispatch:
 

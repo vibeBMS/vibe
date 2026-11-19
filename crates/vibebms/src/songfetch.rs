@@ -39,6 +39,14 @@ pub struct SongFetch {
     adding: Vec<(SongId, Arc<Progress>)>,
     /// The quiet downloads that ended, until taken.
     ended: Vec<(String, String, Outcome)>,
+    /// The library as bmseeker sees it, built from the player's songs (of
+    /// that list, below that folder) for the downloads running: each takes
+    /// a clone, which shares its records until something comes in.
+    lib: Option<(
+        std::sync::Weak<Vec<Song>>,
+        std::path::PathBuf,
+        bmseeker::library::Library,
+    )>,
 }
 
 /// What a song's download came to, in a word.
@@ -54,11 +62,7 @@ pub enum Outcome {
 
 impl Outcome {
     fn of(d: &[Done], cancelled: bool) -> Outcome {
-        let name = |p: &Path| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        };
+        use bmseeker::fs::file_name as name;
         if cancelled {
             return Outcome::Cancelled;
         }
@@ -96,7 +100,7 @@ impl Outcome {
 /// What to download for a table's chart `w`: its links, then the others
 /// known for the chart (`known`), then `more`.
 pub fn entry(
-    known: &bmseeker::links::Links,
+    known: &crate::links::LinkLists,
     w: &crate::bulk::Wanted,
     more: Vec<String>,
 ) -> bmseeker::install::Entry {
@@ -114,7 +118,7 @@ pub fn entry(
     }
     bmseeker::install::Entry {
         md5: w.md5.clone(),
-        want: crate::hosts::Want {
+        want: bmseeker::hosts::Want {
             title: w.title.clone(),
             artist: w.artist.clone(),
         },
@@ -219,7 +223,7 @@ impl SongFetch {
     pub fn start(
         &mut self,
         root: &Path,
-        songs: &[Song],
+        songs: &Arc<Vec<Song>>,
         cx: &crate::hosts::Context,
         mut e: bmseeker::install::Entry,
         addons: Vec<String>,
@@ -232,13 +236,13 @@ impl SongFetch {
         e.song.retain(|u| is_link(u));
         e.chart.retain(|u| is_link(u));
         let id = SongId::new(&e.want.title, &e.want.artist);
+        let lib = self.library(root, songs);
         let mut started = false;
         let job = Job::start(|tx, progress| {
             // the settings and hosts, reporting to (and cancelled by) this
             // song's progress
             let cx = cx.with_progress(progress.clone());
             let sources = bmseeker::sources::Sources::from_config(&cx.config, Vec::new());
-            let lib = crate::placement::library(root, songs);
             let store = Arc::new(crate::placement::Vfs);
             let job = bmseeker::install::EntryJob::new(
                 store,
@@ -273,6 +277,20 @@ impl SongFetch {
         started
     }
 
+    /// The library of `songs` below `root`, as bmseeker sees it: the one
+    /// built for them, else built now.
+    fn library(&mut self, root: &Path, songs: &Arc<Vec<Song>>) -> bmseeker::library::Library {
+        let built = Arc::downgrade(songs);
+        match &self.lib {
+            Some((s, r, lib)) if s.ptr_eq(&built) && r == root => lib.clone(),
+            _ => {
+                let lib = crate::placement::library(root, songs);
+                self.lib = Some((built, root.to_path_buf(), lib.clone()));
+                lib
+            }
+        }
+    }
+
     /// The quiet downloads that ended since the last call: song title,
     /// artist, outcome.
     pub fn take_ended(&mut self) -> Vec<(String, String, Outcome)> {
@@ -289,6 +307,9 @@ impl SongFetch {
             }
             None => true,
         });
+        if self.jobs.is_empty() {
+            self.lib = None;
+        }
         let mut out = Vec::new();
         for (id, p, d, quiet) in done {
             // in the library: until it is read again
@@ -313,11 +334,7 @@ impl SongFetch {
 
 /// What to tell of a link of the song `title`, and do.
 fn events(title: &str, d: Done) -> Vec<AppEvent> {
-    let name = |p: &Path| {
-        p.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    };
+    use bmseeker::fs::file_name as name;
     let toast = |s: String| vec![AppEvent::Toast(s)];
     match d {
         Done::Added(dir, n) => vec![
@@ -385,7 +402,7 @@ mod tests {
     fn query(md5: &str, diff: bool) -> bmseeker::sources::Query {
         bmseeker::sources::Query {
             md5: md5.into(),
-            want: crate::hosts::Want {
+            want: bmseeker::hosts::Want {
                 title: "Song".into(),
                 artist: "alpha".into(),
             },
@@ -584,5 +601,39 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// `SongFetch::start` over a library of 20,000 charts, 50 times: what
+    /// it costs on the screen's thread before a download's own (an entry
+    /// with nothing to try, so none starts). `cargo test -p vibebms
+    /// start_over_a_large_library -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement"]
+    fn start_over_a_large_library() {
+        let songs: Arc<Vec<Song>> = Arc::new(
+            (0..20_000)
+                .map(|i| Song {
+                    path: format!("/r/bms/Song {i}/{i}.bms"),
+                    md5: format!("{i:032x}"),
+                    title: format!("ソング {i} [ANOTHER]"),
+                    artist: format!("Artist {} / obj: x", i % 500),
+                    ..Default::default()
+                })
+                .collect(),
+        );
+        let cx = crate::hosts::context(&Default::default());
+        let mut f = SongFetch::default();
+        let started = std::time::Instant::now();
+        for i in 0..50 {
+            let e = bmseeker::install::Entry {
+                want: bmseeker::hosts::Want {
+                    title: format!("ソング {i}"),
+                    artist: format!("Artist {i}"),
+                },
+                ..Default::default()
+            };
+            assert!(!f.start(Path::new("/r"), &songs, &cx, e, Vec::new(), true));
+        }
+        println!("50 starts over 20,000 charts: {:?}", started.elapsed());
     }
 }

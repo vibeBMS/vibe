@@ -246,9 +246,9 @@ impl Bulk {
 struct Fetch<'a> {
     fetch: &'a mut SongFetch,
     root: &'a std::path::Path,
-    songs: &'a [crate::library::Song],
+    songs: &'a std::sync::Arc<Vec<crate::library::Song>>,
     hosts: &'a crate::hosts::Context,
-    known: &'a bmseeker::links::Links,
+    known: &'a crate::links::LinkLists,
 }
 
 impl Downloader for Fetch<'_> {
@@ -280,7 +280,7 @@ pub fn tick(ctx: &mut crate::app::Ctx, now: Instant) {
         root: &ctx.paths.root,
         songs: &songs,
         hosts: &net.hosts,
-        known: &ctx.tables.links.known,
+        known: &ctx.tables.links,
     };
     if net.bulk.tick(now, ended, have, &mut dl) {
         ctx.lib.version += 1;

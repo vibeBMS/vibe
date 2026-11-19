@@ -342,9 +342,7 @@ impl SkinStore {
         let job = {
             let (root, skins, cx) = (paths.root.clone(), paths.skins.clone(), cx.clone());
             Job::spawn("skin", move |progress| {
-                bmseeker::progress::scope(Some(progress), || {
-                    fetch_and_install(&root, &skins, &cx, &e, &old)
-                })
+                fetch_and_install(&root, &skins, &cx.with_progress(progress), &e, &old)
             })
         };
         #[cfg(target_arch = "wasm32")]
@@ -626,13 +624,12 @@ fn install_staged(
 ) -> Result<Vec<String>, String> {
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     for (i, a) in archives.iter().enumerate() {
-        let format = bmseeker::unpack::sniff_file(a).ok_or("the download is not an archive")?;
         let dir = staging.join(i.to_string());
-        let name = format!("skin.{}", format.ext());
+        // (named as an archive: one that is none is refused)
         crate::import::unpack_into(
             &bmseeker::fs::Disk,
             bmseeker::unpack::Blob::File(a.clone()),
-            &name,
+            "skin.zip",
             &dir,
         )?;
         let placed = place(entry, &files_below(&dir));
@@ -676,8 +673,8 @@ fn missed(m: bmseeker::install::job::Missed) -> Fail {
     }
 }
 
-/// Download entry `e`'s archives (bmseeker's `Files`; this thread's
-/// progress tells how far) and install them.
+/// Download entry `e`'s archives (bmseeker's `Files`; `cx`'s progress
+/// tells how far) and install them.
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_and_install(
     root: &Path,
@@ -697,7 +694,7 @@ fn fetch_and_install(
     let fetched = crate::hosts::fetch_files(sources(e), &slots, cx);
     let r = match fetched {
         Ok(_) => {
-            bmseeker::progress::stage(bmseeker::progress::Stage::Unpacking);
+            cx.stage(bmseeker::progress::Stage::Unpacking);
             install_files(&got, skins, &downloads.join(&stem), e, old).map_err(Fail::Msg)
         }
         Err(m) => Err(missed(m)),
@@ -1040,9 +1037,7 @@ mod tests {
         std::fs::create_dir_all(&skins).unwrap();
         let p = Progress::new();
         let cx = crate::hosts::context(&Default::default());
-        let r = bmseeker::progress::scope(Some(p.clone()), || {
-            fetch_and_install(&root, &skins, &cx, &e, &[e.folder()])
-        });
+        let r = fetch_and_install(&root, &skins, &cx.with_progress(p), &e, &[e.folder()]);
         match r {
             Ok(folders) => {
                 println!("INSTALLED {folders:?}");

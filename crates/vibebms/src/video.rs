@@ -13,12 +13,7 @@ pub const VIDEO_EXTS: &[&str] = &[
 ];
 
 pub fn is_video(p: &Path) -> bool {
-    p.extension()
-        .map(|e| {
-            let e = e.to_string_lossy().to_lowercase();
-            VIDEO_EXTS.contains(&e.as_str())
-        })
-        .unwrap_or(false)
+    VIDEO_EXTS.contains(&crate::platform::vfs::ext_lower(p).as_str())
 }
 
 /// Decoded frame rate.

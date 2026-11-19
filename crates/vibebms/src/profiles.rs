@@ -50,52 +50,39 @@ pub struct Registry {
     pub profiles: Vec<Profile>,
 }
 
-/// Top-level settings every profile shares (the root's), and those of
-/// `[audio]`: what belongs to the machine, its screen and sound device, and
-/// to the library.
-const APP_KEYS: &[&str] = &[
-    "display",
-    "bms_dirs",
-    "scan_root",
-    "tables",
-    "archives",
-    "third_party_mirrors",
-    "third_party_acknowledged",
-    "name_song_folders",
-    "check_updates",
-    "language",
-    // this machine's other apps (OBS's password among them)
-    "discord",
-    "obs",
-];
-const APP_AUDIO_KEYS: &[&str] = &["buffer_frames", "sample_rate", "mute_inactive", "exclusive"];
-/// Of `[keys]`: which physical controller is 1P and which 2P (the
-/// machine's devices; the bindings are the profile's).
-const APP_KEYS_KEYS: &[&str] = &["controllers"];
+/// The app-wide settings, each listed once: the TOML keys a profile's file
+/// leaves out ([`profile_toml`]) and the fields [`take_app_wide`] copies
+/// are made from the same names.
+macro_rules! app_wide {
+    (
+        $($top:ident),* ;
+        audio: $($(#[$m:meta])* $audio:ident),* ;
+        keys: $($keys:ident),* $(;)?
+    ) => {
+        const APP_KEYS: &[&str] = &[$(stringify!($top)),*];
+        const APP_AUDIO_KEYS: &[&str] = &[$(stringify!($audio)),*];
+        const APP_KEYS_KEYS: &[&str] = &[$(stringify!($keys)),*];
 
-/// The app-wide settings of `from` into `into` (the rest is the profile's).
-pub fn take_app_wide(into: &mut Config, from: &Config) {
-    into.display = from.display.clone();
-    into.bms_dirs = from.bms_dirs.clone();
-    into.scan_root = from.scan_root;
-    into.tables = from.tables.clone();
-    into.archives = from.archives.clone();
-    into.third_party_mirrors = from.third_party_mirrors;
-    into.third_party_acknowledged = from.third_party_acknowledged;
-    into.name_song_folders = from.name_song_folders;
-    into.check_updates = from.check_updates;
-    into.language = from.language;
-    into.discord = from.discord.clone();
-    into.obs = from.obs.clone();
-    into.keys.controllers = from.keys.controllers.clone();
-    let (a, b) = (&mut into.audio, &from.audio);
-    a.buffer_frames = b.buffer_frames;
-    a.sample_rate = b.sample_rate;
-    a.mute_inactive = b.mute_inactive;
-    #[cfg(windows)]
-    {
-        a.exclusive = b.exclusive;
-    }
+        /// The app-wide settings of `from` into `into` (the rest is the
+        /// profile's).
+        pub fn take_app_wide(into: &mut Config, from: &Config) {
+            $(into.$top.clone_from(&from.$top);)*
+            $($(#[$m])* into.audio.$audio.clone_from(&from.audio.$audio);)*
+            $(into.keys.$keys.clone_from(&from.keys.$keys);)*
+        }
+    };
+}
+
+// What belongs to the machine, its screen and sound device, and to the
+// library; this machine's other apps (OBS's password among them); of
+// `[keys]`, which physical controller is 1P and which 2P (the bindings are
+// the profile's).
+app_wide! {
+    display, bms_dirs, scan_root, tables, archives, third_party_mirrors,
+    third_party_acknowledged, name_song_folders, check_updates, language,
+    discord, obs;
+    audio: buffer_frames, sample_rate, mute_inactive, #[cfg(windows)] exclusive;
+    keys: controllers;
 }
 
 /// The settings of the profile in use: its file, the app-wide ones from
@@ -171,8 +158,9 @@ fn clean_name(name: &str) -> Result<String, String> {
         return Err(tr!("A profile's name is one line").into());
     }
     if name.chars().count() > NAME_MAX {
-        return Err(format!(
-            "A profile's name has at most {NAME_MAX} characters"
+        return Err(tr!(
+            "A profile's name has at most {n} characters",
+            n = NAME_MAX
         ));
     }
     Ok(name.to_string())
@@ -372,10 +360,21 @@ pub struct Profiles {
 }
 
 impl Profiles {
+    /// The profiles at `root`, and the folders of the one in use.
+    pub fn open_at(root: PathBuf) -> (Paths, Profiles) {
+        let registry = Registry::load(&root);
+        let paths = Paths::at(root).with_profile(&registry.active);
+        let profiles = Profiles::new(registry, &paths);
+        (paths, profiles)
+    }
+
     /// The profiles at `paths`' root; the others than the one in use are
     /// the local rivals.
     pub fn open(paths: &Paths) -> Profiles {
-        let registry = Registry::load(&paths.root);
+        Profiles::new(Registry::load(&paths.root), paths)
+    }
+
+    fn new(registry: Registry, paths: &Paths) -> Profiles {
         let rivals = (registry.profiles.iter())
             .filter(|p| p.id != paths.profile)
             .map(|p| (p.id.clone(), OnceCell::new()))
@@ -386,6 +385,15 @@ impl Profiles {
             root: paths.root.clone(),
             switch_to: None,
         }
+    }
+
+    /// The profile of `paths` in use from now on (saved); the one left is a
+    /// local rival.
+    pub fn set_active(&mut self, paths: &Paths) {
+        let mut registry = std::mem::take(&mut self.registry);
+        registry.active.clone_from(&paths.profile);
+        registry.save(&paths.root);
+        *self = Profiles::new(registry, paths);
     }
 
     /// Local rival `id`'s records (another profile's), as they were when
@@ -430,7 +438,7 @@ mod tests {
     #[test]
     fn default_profile_is_the_old_layout() {
         let root = temp("default");
-        let p = Paths::open(root.clone());
+        let p = Profiles::open_at(root.clone()).0;
         assert_eq!(p.profile, "");
         assert_eq!(p.player, root);
         assert_eq!(p.config_file(), root.join("config/config.toml"));
@@ -455,7 +463,7 @@ mod tests {
     #[test]
     fn create_rename_switch_delete() {
         let root = temp("crud");
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let mut r = Registry::load(&root);
         let mut mine = Config::default();
         mine.play.judge_offset_ms = 12;
@@ -479,7 +487,7 @@ mod tests {
         // switched to: the file says so, and the paths follow
         r.active.clone_from(&id);
         r.save(&root);
-        assert_eq!(Paths::open(root.clone()).player, a.player);
+        assert_eq!(Profiles::open_at(root.clone()).0.player, a.player);
         // renamed: the folder stays
         r.rename(&root, &id, "Carol").unwrap();
         assert!(r.rename(&root, &id, "  ").is_err());
@@ -503,7 +511,7 @@ mod tests {
     #[test]
     fn app_wide_settings_are_shared() {
         let root = temp("shared");
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let mut r = Registry::load(&root);
         let mut def = Config::default();
         def.play.judge_offset_ms = 5;
@@ -560,6 +568,86 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// Every app-wide setting set off its default goes to the root's file
+    /// and none to the profile's; the profile reads them all back, and its
+    /// own settings stay its own.
+    #[test]
+    fn every_app_wide_setting_round_trips() {
+        let root = temp("app-wide");
+        let paths = Profiles::open_at(root.clone()).0;
+        let b = paths.with_profile(
+            &Registry::load(&root)
+                .create(&paths, "B", &Config::default())
+                .unwrap(),
+        );
+        let mut c = load_config(&b);
+        c.display.width = 1600;
+        c.bms_dirs.push("D:/bms".into());
+        c.scan_root = !c.scan_root;
+        c.tables.clear();
+        c.archives.push("https://events.invalid/index.json".into());
+        c.third_party_mirrors = !c.third_party_mirrors;
+        c.third_party_acknowledged = true;
+        c.name_song_folders = !c.name_song_folders;
+        c.check_updates = !c.check_updates;
+        c.language = crate::i18n::Language::Ja;
+        c.discord.enabled = true;
+        c.obs.password = "secret".into();
+        c.audio.buffer_frames = 1024;
+        c.audio.sample_rate = 48_000;
+        c.audio.mute_inactive = false;
+        #[cfg(windows)]
+        {
+            c.audio.exclusive = true;
+        }
+        c.keys.controllers.p1 = Some(crate::config::PadId {
+            name: "pad".into(),
+            id: "1".into(),
+        });
+        c.play.judge_offset_ms = -20;
+        // (each listed setting is off its default here: one added to the
+        // list is to be set above too)
+        let value = |c: &Config| toml::Value::try_from(c).unwrap();
+        let (mine, def) = (value(&c), value(&Config::default()));
+        let keys = (APP_KEYS.iter().map(|k| vec![*k]))
+            .chain(APP_AUDIO_KEYS.iter().map(|k| vec!["audio", k]))
+            .chain(APP_KEYS_KEYS.iter().map(|k| vec!["keys", k]));
+        let at = |v: &toml::Value, path: &[&str]| {
+            path.iter().try_fold(v.clone(), |v, k| v.get(k).cloned())
+        };
+        for path in keys {
+            if !cfg!(windows) && path == ["audio", "exclusive"] {
+                continue;
+            }
+            assert_ne!(
+                at(&mine, &path),
+                at(&def, &path),
+                "{path:?} is at its default"
+            );
+        }
+        save_config(&c, &b);
+        let text = std::fs::read_to_string(b.config_file()).unwrap();
+        let file: toml::Value = toml::from_str(&text).unwrap();
+        for k in APP_KEYS {
+            assert!(file.get(k).is_none(), "{k} in the profile's file: {text}");
+        }
+        for k in APP_AUDIO_KEYS {
+            assert!(
+                file["audio"].get(k).is_none(),
+                "audio.{k} in the profile's file"
+            );
+        }
+        assert!(file["keys"].get("controllers").is_none());
+        assert_eq!(load_config(&b), c);
+        // the default profile has them, not the other's own
+        let d = load_config(&paths);
+        let mut want = c.clone();
+        want.play = Config::default().play;
+        want.player_name = d.player_name.clone();
+        assert_eq!(d, want);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// A profile folder copied in is listed; one another profile's
     /// records are read from, not written.
     #[test]
@@ -572,7 +660,7 @@ mod tests {
             "play_count":4,"clear_count":4,"last_played":0},
             {"sha256":5}]"#;
         std::fs::write(scores.join("scores.json"), rec).unwrap();
-        let paths = Paths::open(root.clone());
+        let paths = Profiles::open_at(root.clone()).0;
         let p = Profiles::open(&paths);
         assert_eq!(p.registry.name("friend"), "friend");
         let names: Vec<&str> = p.rivals().map(|r| r.id.as_str()).collect();
