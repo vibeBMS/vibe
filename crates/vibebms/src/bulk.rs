@@ -246,7 +246,7 @@ impl Bulk {
 struct Fetch<'a> {
     fetch: &'a mut SongFetch,
     root: &'a std::path::Path,
-    songs: &'a [crate::library::Song],
+    songs: &'a std::sync::Arc<Vec<crate::library::Song>>,
     hosts: &'a crate::hosts::Context,
     known: &'a crate::links::LinkLists,
 }

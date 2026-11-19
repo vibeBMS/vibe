@@ -1,7 +1,7 @@
 //! Downloads from where authors link songs: `bmseeker::hosts` (the CORS
 //! proxy the web build reaches those hosts through: `bmseeker::web`).
 
-pub use bmseeker::hosts::*;
+pub use bmseeker::hosts::{Context, Fetch};
 #[cfg(not(target_arch = "wasm32"))]
 pub use bmseeker::native::{fetch_files, Native};
 
