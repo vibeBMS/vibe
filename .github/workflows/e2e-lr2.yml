@@ -2,13 +2,17 @@ name: e2e LR2
 
 # Phase 2 of the e2e plan: Lunatic Rave 2 (100201) on a hosted Windows runner,
 # as a black box, against vibeBMS's rows of tools/lr2-measure
-# (tools/e2e/lr2/README.md). LR2 comes from its official site only, once, into
-# the Actions cache keyed by its SHA-256; no LR2 file is committed or uploaded:
-# the artifact holds only this workflow's own outputs (logs, screenshots,
-# timing tables).
+# (tools/e2e/lr2/README.md). LR2 is downloaded once into the Actions cache,
+# keyed by its SHA-256; no LR2 file is committed or uploaded: the artifact
+# holds only this workflow's own outputs (logs, screenshots, tables).
 
 on:
   workflow_dispatch:
+    inputs:
+      probe:
+        description: Also run the runner probes (D3D9, sound, locale, SendInput) without LR2
+        type: boolean
+        default: false
   push:
     branches: ['e2e/**']
     paths: ['tools/e2e/lr2/**', '.github/workflows/e2e-lr2.yml']
@@ -21,101 +25,103 @@ permissions:
   contents: read
 
 env:
-  # LR2's official download (LR2IR's host). LR2IR closed on 2026-05-31 and the
-  # host no longer resolves; the workflow tries it and tries no mirror.
-  LR2_URL: http://www.dream-pro.info/~lavalse/LR2_100201.zip
-  # pinned once the official zip has been fetched (the cache key)
+  # LR2's official download was http://www.dream-pro.info/~lavalse/LR2_100201.zip
+  # (LR2IR's host, gone since LR2IR closed on 2026-05-31); the owner approved
+  # the Internet Archive's capture of that URL.
+  LR2_URL: https://web.archive.org/web/20190802100906id_/http://www.dream-pro.info/~lavalse/LR2_100201.zip
+  # the cache key; CI's cache prune keeps e2e-* keys on every ref
   LR2_SHA256: ''
   OUT: ${{ github.workspace }}\e2e-lr2-out
+  PROBE: ${{ github.event.inputs.probe == 'true' }}
 
 jobs:
   lr2:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v7
 
-      # ---- LR2: the official zip, from the cache or the site
+      # ---- LR2: the zip, from the cache or the download
       - name: LR2 from the cache
         id: cache
         if: env.LR2_SHA256 != ''
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}\lr2-zip
-          key: lr2-${{ env.LR2_SHA256 }}
-      - name: LR2 from its official site
+          key: e2e-lr2-${{ env.LR2_SHA256 }}
+      - name: LR2 download
         id: fetch
         if: steps.cache.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: tools/e2e/lr2/fetch.ps1 -Url $env:LR2_URL -Out "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Sha256 $env:LR2_SHA256
-      # The one copy of the official file left is the Internet Archive's
-      # capture of the URL above, which the owner has not approved: it is
-      # only asked whether it answers (HEAD; nothing is downloaded).
-      - name: The official URL's Internet Archive capture (HEAD only)
-        if: steps.fetch.outcome == 'failure'
-        continue-on-error: true
-        run: |
-          $u = "https://web.archive.org/web/20190802100906id_/$env:LR2_URL"
-          $r = Invoke-WebRequest -Method Head -Uri $u -MaximumRedirection 5 -UseBasicParsing -TimeoutSec 60
-          Write-Host "HEAD $u -> $($r.StatusCode), $($r.Headers['Content-Type']), $($r.Headers['Content-Length']) bytes"
       - name: Keep LR2 in the cache
         if: steps.fetch.outcome == 'success' && env.LR2_SHA256 != ''
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}\lr2-zip
-          key: lr2-${{ env.LR2_SHA256 }}
-      - name: LR2 steps
-        if: steps.cache.outputs.cache-hit == 'true' || steps.fetch.outcome == 'success'
-        run: |
-          Write-Host "::error::LR2 is here, but its steps are not built yet: there was no official download to build them on (tools/e2e/lr2/README.md)"
-          exit 1
+          key: e2e-lr2-${{ env.LR2_SHA256 }}
 
-      # ---- the runner, without LR2: what LR2 needs from it
+      # ---- tools: the probe (also the key presser), ffmpeg, a sound card
       - name: Build the probe
         run: cmd /c tools\e2e\lr2\build.cmd "$env:RUNNER_TEMP\lr2probe.exe"
       - name: ffmpeg (gdigrab)
         run: |
           if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress | Select-Object -Last 3 }
+
+      # ---- the runner without LR2 (on request)
       - name: Runner
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage env -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: Direct3D 9, windowed
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage d3d9 -Tag windowed -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: Direct3D 9, fullscreen
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage d3d9 -Tag fullscreen -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: Sound, as the runner comes
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag none -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+
       - name: Virtual sound card (LABSN/sound-ci-helpers, VB-CABLE)
-        continue-on-error: true
         uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
+
       - name: Sound, with the virtual card
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag vbcable -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: Code page and fonts
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage acp -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: Locale Emulator
+        if: env.PROBE == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: tools/e2e/lr2/probe.ps1 -Stage le -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: SendInput timing
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage input -Tag poll -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
       - name: SendInput timing, into a D3D9 window polling once a frame
+        if: env.PROBE == 'true'
         continue-on-error: true
         run: tools/e2e/lr2/probe.ps1 -Stage input -Tag d3d9 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+
+      # ---- LR2 (tools/e2e/lr2/lr2.ps1); its files stay in $RUNNER_TEMP\lr2
+      - name: LR2, first start
+        run: tools/e2e/lr2/lr2.ps1 -Stage explore -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       - name: Summary
         if: always()
         run: |
-          $s = @("## LR2 on the runner", "", "LR2 download: **$('${{ steps.cache.outputs.cache-hit }}' -eq 'true' ? 'cache' : '${{ steps.fetch.outcome }}')** ($env:LR2_URL)", "")
+          $s = @("## LR2 on the runner", "")
           foreach ($f in Get-ChildItem $env:OUT -Filter *.txt -ErrorAction SilentlyContinue) {
             $s += "### $($f.BaseName)", '```', (Get-Content $f.FullName -Raw), '```'
           }
@@ -127,10 +133,3 @@ jobs:
           name: e2e-lr2
           path: ${{ env.OUT }}
           retention-days: 14
-      # the probes above only say what the runner gives LR2: without LR2 the
-      # comparison has not run, and the run says so by failing
-      - name: Verdict
-        if: steps.cache.outputs.cache-hit != 'true' && steps.fetch.outcome != 'success'
-        run: |
-          Write-Host "::error::no LR2: its official download ($env:LR2_URL) is unreachable, and no mirror is used (tools/e2e/lr2/README.md, Status)"
-          exit 1

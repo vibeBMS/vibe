@@ -10,6 +10,7 @@
  *                                        d3d9: drawing with D3D9, one poll a frame)
  *   lr2probe send N PERIOD_MS CSV        N presses of Z, PERIOD_MS apart, to it
  *   lr2probe focus TITLE                 brings a window to the front
+ *   lr2probe windows                     lists the visible top-level windows
  *
  * Times in the CSV files are QueryPerformanceCounter in microseconds, which
  * all processes share. Built 32-bit, as LR2 is (build.cmd).
@@ -601,6 +602,26 @@ static int probe_send(int n, int period_ms, const char *csv)
     return 0;
 }
 
+static BOOL CALLBACK list_window(HWND h, LPARAM l)
+{
+    wchar_t title[256], cls[128];
+    char t8[768], c8[384];
+    DWORD pid = 0;
+    RECT r;
+    (void)l;
+    if (!IsWindowVisible(h))
+        return TRUE;
+    GetWindowTextW(h, title, 256);
+    GetClassNameW(h, cls, 128);
+    GetWindowThreadProcessId(h, &pid);
+    GetWindowRect(h, &r);
+    WideCharToMultiByte(CP_UTF8, 0, title, -1, t8, sizeof t8, NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, cls, -1, c8, sizeof c8, NULL, NULL);
+    printf("%p pid %lu [%s] \"%s\" %ld,%ld %ldx%ld%s\n", (void *)h, pid, c8, t8, r.left, r.top,
+           r.right - r.left, r.bottom - r.top, h == GetForegroundWindow() ? " (foreground)" : "");
+    return TRUE;
+}
+
 int main(int argc, char **argv)
 {
     QueryPerformanceFrequency(&qpf);
@@ -619,10 +640,12 @@ int main(int argc, char **argv)
         return probe_recv(atoi(argv[2]), argv[3], argc >= 5 && !strcmp(argv[4], "d3d9"));
     if (argc >= 5 && !strcmp(argv[1], "send"))
         return probe_send(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    if (argc >= 2 && !strcmp(argv[1], "windows"))
+        return !EnumWindows(list_window, 0);
     if (argc >= 3 && !strcmp(argv[1], "focus")) {
         HWND h = FindWindowA(NULL, argv[2]);
         return h && focus(h) ? 0 : 1;
     }
-    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE\n");
+    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows\n");
     return 64;
 }
