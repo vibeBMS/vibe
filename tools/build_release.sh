@@ -75,16 +75,18 @@ repro_zip() {
 
 # entries <file>: "<sha256>  <file name>/<path>" for each file in an APK (but
 # the v1 signature's, whose bytes depend on the key), a zip or a .dmg (mounted
-# with hdiutil: macOS), in name order
+# with hdiutil: macOS; its hidden files, the file system's own, left out), in
+# name order
 entries() {
   local f="$1" mnt rc=0
   case "$f" in
     *.dmg)
       mnt="$(mktemp -d)"
       hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$f"
-      (cd "$mnt" && find . -type f | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r n; do
-        printf '%s  %s/%s\n' "$(sha256 "$n" | cut -c1-64)" "$(basename "$f")" "$n"
-      done) || rc=$?
+      (cd "$mnt" && find . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
+        while IFS= read -r file; do
+          printf '%s  %s/%s\n' "$(sha256 "$file" | cut -c1-64)" "$(basename "$f")" "$file"
+        done) || rc=$?
       hdiutil detach -quiet "$mnt"
       rmdir "$mnt"
       return "$rc"
