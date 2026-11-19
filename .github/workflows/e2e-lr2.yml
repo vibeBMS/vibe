@@ -44,6 +44,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: The scripts parse
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem tools/e2e/lr2 -Filter *.ps1) {
+            $e = $null
+            [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref] $null, [ref] $e)
+            foreach ($x in $e) { Write-Host "::error file=$($f.Name),line=$($x.Extent.StartLineNumber)::$($x.Message)"; $bad++ }
+          }
+          exit $bad
+
       # ---- LR2: the zip, from the cache or the download
       - name: LR2 from the cache
         id: cache

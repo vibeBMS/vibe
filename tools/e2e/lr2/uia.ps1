@@ -5,7 +5,7 @@
 #       every control of the window, each tab selected in turn (a
 #       screenshot of each into DIR)
 #   powershell -File uia.ps1 -Cmd do    -Title TITLE -Script FILE
-#       the actions of FILE, one a line (see Do below)
+#       the actions of FILE, one a line (see Act below)
 param(
     [Parameter(Mandatory)] [string] $Cmd,
     [Parameter(Mandatory)] [string] $Title,
@@ -72,7 +72,7 @@ function Shot([string] $file) {
     if ($Shots) { & ffmpeg -hide_banner -loglevel error -y -f gdigrab -framerate 5 -i desktop -frames:v 1 (Join-Path $Shots $file) 2>&1 | Out-Host }
 }
 
-# One action a line:
+# One action a line (Act):
 #   tab NAME              select the tab
 #   click NAME            press the button
 #   check NAME on|off     set the check box
@@ -82,7 +82,7 @@ function Shot([string] $file) {
 #   shot FILE             screenshot
 #   sleep MS
 #   dump FILE             the control tree, appended to FILE
-function Do($w, [string] $line) {
+function Act($w, [string] $line) {
     $verb, $rest = $line.Trim() -split '\s+', 2
     switch ($verb) {
         'tab' { (Control $w 'TabItem' $rest).GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select(); Start-Sleep -Milliseconds 300 }
@@ -145,7 +145,7 @@ switch ($Cmd) {
         $lines | Out-File -Encoding utf8 $Out
     }
     'do' {
-        foreach ($line in Get-Content -Encoding utf8 $Script) { if ($line.Trim()) { Do $w $line } }
+        foreach ($line in Get-Content -Encoding utf8 $Script) { if ($line.Trim()) { Act $w $line } }
     }
     default { throw "unknown command $Cmd" }
 }
