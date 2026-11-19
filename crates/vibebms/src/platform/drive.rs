@@ -81,7 +81,7 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
             None => fed,
         }
     };
-    let at = |u: &str| {
+    let asked = |u: &str| {
         if IS_WEB {
             proxied(PROXY, u)
         } else {
@@ -93,10 +93,10 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
             let url = r.url().to_string();
             let through = IS_WEB && !sends_cors(&url);
             let req = match r {
-                Request::Get(u) => ehttp::Request::get(at(&u)),
+                Request::Get(u) => ehttp::Request::get(asked(&u)),
                 Request::Post { url: u, body } => request(
                     "POST",
-                    &at(&u),
+                    &asked(&u),
                     &[("Content-Type".into(), "application/json".into())],
                     body,
                 ),
@@ -121,7 +121,7 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
             let sink = body.clone();
             let announced = progress.clone();
             super::stream(
-                &at(&target.url),
+                &asked(&target.url),
                 progress,
                 move |c| {
                     let mut b = sink.lock().unwrap_or_else(|e| e.into_inner());
