@@ -29,6 +29,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Only the default branch's newest cache of each job stays:
+  # other refs' entries and the default branch's older ones (left when
+  # Cargo.lock, the toolchain or go.sum changed) are deleted, so the
+  # repository's 10 GB hold one set. It runs first, beside the builds, so a
+  # newer push cancelling this run does not skip it, and the space is free
+  # before this run saves. A replaced key stays until the next push: it is
+  # what this run's jobs restore from.
+  cache-prune:
+    if: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MAIN: refs/heads/${{ github.event.repository.default_branch }}
+        run: |
+          # rust-cache: v0-rust-<key>-<job>-<os>-<arch>-<environment>-<lockfiles>;
+          # setup-go: setup-go-<os>-<arch>-<image>-go-<version>-<go.sum hash>;
+          # any other key: only other refs' entries
+          gh cache list --limit 1000 --sort created_at --order desc \
+            --json id,key,ref,sizeInBytes --jq '.[] | "\(.id)\t\(.key)\t\(.ref)\t\(.sizeInBytes)"' |
+            awk -F'\t' -v main="$MAIN" '{
+              job = $2
+              if (job ~ /^v0-rust-/) sub(/-[0-9a-f]+-[0-9a-f]+$/, "", job)
+              else if (job ~ /^setup-go-/) sub(/-[0-9a-f]+$/, "", job)
+              if ($3 != main || (job != $2 && seen[job]++)) print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"
+            }' |
+            while IFS=$'\t' read -r id key ref size; do
+              echo "delete $key ($ref, $size)"
+              gh cache delete "$id"
+            done
+
   # the container images of tools/repro.env (the builds made in containers
   # take them from here: a job's container cannot read a file)
   pins:
