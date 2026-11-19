@@ -71,9 +71,17 @@ switch ($Stage) {
         Get-ChildItem $le -Filter *.zip | ForEach-Object { Write-Host "Locale Emulator $($_.Name)"; Expand-Archive $_.FullName -DestinationPath $le -Force }
         $leproc = Get-ChildItem $le -Recurse -Filter LEProc.exe | Select-Object -First 1
         $res = Join-Path $Out 'le-acp.txt'
+        $start = Get-Date
         $p = Start-Process -FilePath $leproc.FullName -ArgumentList @("`"$Probe`"", 'acp', "`"$res`"") -PassThru
         $p.WaitForExit(30000) | Out-Null
         Write-Host "LEProc exit code $($p.ExitCode)"
+        if ($p.ExitCode) {
+            # a crash leaves its exception in the Application log
+            Get-WinEvent -ErrorAction SilentlyContinue -FilterHashtable @{
+                LogName = 'Application'; ProviderName = '.NET Runtime', 'Application Error'; StartTime = $start
+            } | Select-Object -First 3 | ForEach-Object { $_.Message } |
+                Tee-Object -FilePath (Join-Path $Out 'le-crash.txt') | Write-Host
+        }
         for ($i = 0; $i -lt 15 -and -not (Test-Path $res); $i++) { Start-Sleep -Seconds 1 }
         Start-Sleep -Seconds 1
         Shot 'le.png'
