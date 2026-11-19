@@ -9,10 +9,15 @@
 # or -arm64): the runtime has its
 # WebKitGTK 4.1. The identity comes from tools/ci_version.sh (VIBEBMS_APP_ID,
 # VIBEBMS_APP_NAME, VIBEBMS_VERSION, VIBEBMS_CHANNEL, which is the branch);
-# a local run is io.github.vibebms.dev. Needs flatpak and flatpak-builder; the
-# runtime and SDK are installed for the user from Flathub when no installation
-# has them. desktop-file-validate and appstreamcli check the desktop entry and
-# the AppStream data when they are there. DRY_RUN=1 stops before the build,
+# a local run is io.github.vibebms.dev. Nothing is compiled, so there is no
+# flatpak-builder and no SDK: the script lays out the app's files and its
+# metadata (runtime, command and permissions from platform/flatpak/vibebms.yml),
+# composes the AppStream catalog and icons (appstreamcli compose, as
+# flatpak-builder does), then flatpak build-finish, build-export and
+# build-bundle. Needs flatpak and appstreamcli with its compose plugin (Debian
+# and Ubuntu: appstream-compose); neither the runtime nor the SDK has to be
+# installed. desktop-file-validate (when it is there) and appstreamcli check
+# the desktop entry and the AppStream data. DRY_RUN=1 stops before the build,
 # with the sources filled in (<out>/flatpak-src).
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: $0 <vibebms> <out dir>" >&2; exit 2; }
@@ -60,20 +65,49 @@ if [ -n "$dry" ]; then
   exit 0
 fi
 
-step "runtime and SDK"
-field() { sed -n "s/^$1: *'\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$src/vibebms.yml"; }
-rt_version="$(field runtime-version)"
-for ref in "$(field runtime)//$rt_version" "$(field sdk)//$rt_version"; do
-  if ! flatpak info "$ref" >/dev/null 2>&1; then
-    flatpak remote-add --user --if-not-exists flathub "$flathub"
-    flatpak install --user --noninteractive flathub "$ref"
-  fi
-done
-
 step "build"
-# rofiles-fuse needs FUSE, which containers and CI runners may not allow
-flatpak-builder --force-clean --disable-rofiles-fuse --state-dir="$out/flatpak-state" \
-  --default-branch="$branch" --repo="$out/flatpak-repo" "$out/flatpak-build" "$src/vibebms.yml"
+field() { sed -n "s/^$1: *'\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$src/vibebms.yml"; }
+# the list under finish-args:, up to the next top-level key
+finish_args=()
+while read -r a; do finish_args+=("$a"); done \
+  < <(sed -n "/^finish-args:/,/^[^ #]/s/^ *- *\(--[^ ]*\) *$/\1/p" "$src/vibebms.yml")
+rt_version="$(field runtime-version)" command="$(field command)"
+farch="$(flatpak --default-arch)"
+if [ -z "$(field runtime)" ] || [ -z "$(field sdk)" ] || [ -z "$rt_version" ] || [ -z "$command" ] \
+  || [ ${#finish_args[@]} -eq 0 ]; then
+  echo "vibebms.yml: missing fields" >&2
+  exit 1
+fi
+# what `flatpak build-init` writes, without its check that the SDK and the
+# runtime are installed (the SDK only matters to `flatpak run --devel`);
+# export/ is build-finish's (it refuses a directory that has one)
+build="$out/flatpak-build"
+rm -rf "$build"
+mkdir -p "$build/files"
+printf '[Application]\nname=%s\nruntime=%s/%s/%s\nsdk=%s/%s/%s\ncommand=%s\n' "$id" \
+  "$(field runtime)" "$farch" "$rt_version" "$(field sdk)" "$farch" "$rt_version" "$command" \
+  > "$build/metadata"
+app="$build/files"
+install -Dm755 "$src/vibebms" "$app/bin/$command"
+install -Dm644 "$src/vibebms.desktop" "$app/share/applications/$id.desktop"
+install -Dm644 "$src/vibebms.metainfo.xml" "$app/share/metainfo/$id.metainfo.xml"
+install -Dm644 "$src/icon.svg" "$app/share/icons/hicolor/scalable/apps/$id.svg"
+for n in 128 256 512; do
+  install -Dm644 "$src/icon-$n.png" "$app/share/icons/hicolor/${n}x$n/apps/$id.png"
+done
+# the AppStream catalog (metainfo and desktop entry merged) and its cached
+# 64 and 128 px icons, which build-bundle puts in the bundle's header for
+# software centres to show before installing; the arguments flatpak-builder
+# passes
+appstreamcli compose --no-color --prefix=/ --origin="$id" --result-root="$app" \
+  --data-dir="$app/share/app-info/xmls" --icons-dir="$app/share/app-info/icons/flatpak" \
+  --components="$id" "$app"
+[ -f "$app/share/app-info/xmls/$id.xml.gz" ] || { echo "appstreamcli compose: no catalog" >&2; exit 1; }
+# the permissions into the metadata; the desktop entry, icons and metainfo
+# into export/
+flatpak build-finish "${finish_args[@]}" "$build"
+rm -rf "$out/flatpak-repo"
+flatpak build-export "$out/flatpak-repo" "$build" "$branch"
 
 step "bundle"
 flatpak build-bundle --runtime-repo="$flathub" "$out/flatpak-repo" "$bundle" "$id" "$branch"
