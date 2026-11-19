@@ -13,6 +13,15 @@ updates:
       cargo:
         update-types: [minor, patch]
 
+  # rust-toolchain.toml's release: it changes the release builds' bytes, so
+  # it moves in a commit of its own, merged like a minor update once CI passes
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Seoul
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
