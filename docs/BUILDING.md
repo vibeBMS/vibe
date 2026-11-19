@@ -119,6 +119,52 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
 - The logo and icons: `tools/gen_logo.py` (fonttools, cairosvg, Pillow) writes `assets/logo/` and the platforms'
   icons.
 
+## Comparison with beatoraja
+
+`tools/e2e/beatoraja` plays the same key logs in vibeBMS and in beatoraja and compares what they make of them; the
+E2E beatoraja workflow (`.github/workflows/e2e.yml`) runs it weekly, by hand, and on pushes to `e2e/**` branches,
+apart from CI and the releases. beatoraja is a black box: its released program is run, the formats it reads and
+writes (replays, its log, its result skins) are learnt from the files it writes, and its source is not read
+(nor LR2oraja's or bmz-player's). `versions.env` pins its release (the author's download, as its GitHub release
+carries no binaries) and a Java runtime with JavaFX, each by SHA-256.
+
+- **Behaviour** (a test). `gen.py` writes the test charts (`charts/`, committed: windows at each `#RANK` and
+  `#DEFEXRANK`, LN / CN / HCN, back-spin scratch, mines, each gauge, `#TOTAL`, BPM changes, stops and a 3/4
+  measure) and a key log for each case, also for `tools/lr2-measure`'s charts. vibeBMS plays them with the
+  `e2e_play` example of vibebms-core, under its beatoraja rule mode (judge and gauge presets beatoraja, Combo).
+  beatoraja plays each as a replay (`-r1`) at three times the speed, a case whose result differs again at normal
+  speed (beatoraja reads a replay's keys once a frame, and a busy machine can make it read one late). Compared:
+  the counts of each judgement, EX score, max combo, FAST / SLOW, the gauge at the end and the lamp, read from
+  beatoraja's log and from a result skin of the comparison's own that prints the result screen's numbers.
+  `expected.json` lists the differences that are intended, each with its `docs/RULES.md` section; any other
+  fails the run.
+- **Rendering** (a report). `render.py` shows `charts/render.bme` in both with beatoraja's default skin at
+  1280x720: song select, decide, the play at a few chart times, the result; side-by-side images and a similarity
+  score (SSIM of the screens shrunk and blurred) go to the run's artifacts and summary.
+
+To run it locally (Linux, x64): Xorg with the dummy driver, xrandr and xdotool (Ubuntu:
+`xserver-xorg-video-dummy x11-xserver-utils xdotool`), Mesa, and for the rendering ffmpeg, Mesa's Vulkan driver,
+Pillow and NumPy. The X server needs a mode LWJGL 2 can read: Xvfb's is not one; `xserver.sh` starts the one of
+`xorg.conf`.
+
+```sh
+d=tools/e2e/beatoraja; dist=/tmp/e2e-dist
+$d/fetch.sh $dist                                        # beatoraja and Java, once
+cargo build --release -p vibebms-core --example e2e_play
+python3 $d/gen.py --cases /tmp/e2e-cases
+target/release/examples/e2e_play /tmp/e2e-cases/*.json > /tmp/vibebms.jsonl
+export DISPLAY=$($d/xserver.sh 77)
+python3 $d/run.py --dist $dist/beatoraja --java $dist/jre/bin/java --work /tmp/e2e-work \
+  --cases /tmp/e2e-cases --out /tmp/beatoraja.json --recheck /tmp/vibebms.jsonl   # --only 'judge-*'
+python3 $d/compare.py --vibe /tmp/vibebms.jsonl --beatoraja /tmp/beatoraja.json
+cargo build -p vibebms
+python3 $d/render.py --dist $dist/beatoraja --java $dist/jre/bin/java --vibebms target/debug/vibebms \
+  --display $DISPLAY --work /tmp/e2e-render --out /tmp/e2e-rendering
+```
+
+Nothing else may use the display while beatoraja plays (it takes the keys of the focused window), and a loaded
+machine makes more cases go again at normal speed.
+
 # Release engineering
 
 ## Versions

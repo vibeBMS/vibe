@@ -1,0 +1,120 @@
+name: E2E beatoraja
+
+# vibeBMS against beatoraja, run as a black box (docs/BUILDING.md,
+# "Comparison with beatoraja"; tools/e2e/beatoraja). Behaviour is a test:
+# the same key logs played by both, their results compared. Rendering is a
+# report: the same scenes with the same skin, side by side. Kept out of CI
+# and the releases; ci.yml leaves e2e/ branches to this workflow.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+  push:
+    branches: ['e2e/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-beatoraja-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # where fetch.sh keeps beatoraja and the Java runtime (the cache's path)
+  E2E_DIST: ${{ github.workspace }}/../e2e-dist
+
+jobs:
+  behaviour:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/apt
+        with:
+          packages: xserver-xorg-video-dummy x11-xserver-utils xdotool libgl1-mesa-dri
+      # (e2e-*: ci.yml's cache prune keeps it on every branch)
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.E2E_DIST }}
+          key: e2e-beatoraja-${{ hashFiles('tools/e2e/beatoraja/versions.env') }}
+      - run: tools/e2e/beatoraja/fetch.sh "$E2E_DIST"
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: e2e
+          stamp: "false"
+      - run: cargo build --release -p vibebms-core --example e2e_play
+      - name: cases
+        run: python3 tools/e2e/beatoraja/gen.py --check --cases "$RUNNER_TEMP/cases"
+      - name: vibeBMS plays them
+        run: target/release/examples/e2e_play "$RUNNER_TEMP"/cases/*.json > "$RUNNER_TEMP/vibebms.jsonl"
+      - name: beatoraja plays them
+        run: |
+          export DISPLAY="$(tools/e2e/beatoraja/xserver.sh 77)"
+          python3 tools/e2e/beatoraja/run.py --dist "$E2E_DIST/beatoraja" --java "$E2E_DIST/jre/bin/java" \
+            --work "$RUNNER_TEMP/beatoraja" --cases "$RUNNER_TEMP/cases" \
+            --out "$RUNNER_TEMP/beatoraja.json" --recheck "$RUNNER_TEMP/vibebms.jsonl"
+      - name: compare
+        run: |
+          python3 tools/e2e/beatoraja/compare.py --vibe "$RUNNER_TEMP/vibebms.jsonl" \
+            --beatoraja "$RUNNER_TEMP/beatoraja.json" --md "$RUNNER_TEMP/summary.md" \
+            --json "$RUNNER_TEMP/compare.json" || status=$?
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "${status:-0}"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: behaviour
+          path: |
+            ${{ runner.temp }}/cases
+            ${{ runner.temp }}/vibebms.jsonl
+            ${{ runner.temp }}/beatoraja.json
+            ${{ runner.temp }}/compare.json
+            ${{ runner.temp }}/summary.md
+          if-no-files-found: ignore
+
+  rendering:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/apt
+        with:
+          packages: >-
+            xserver-xorg-video-dummy x11-xserver-utils xdotool libgl1-mesa-dri mesa-vulkan-drivers
+            ffmpeg libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.E2E_DIST }}
+          key: e2e-beatoraja-${{ hashFiles('tools/e2e/beatoraja/versions.env') }}
+      - run: tools/e2e/beatoraja/fetch.sh "$E2E_DIST"
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: e2e-render
+          stamp: "false"
+      # a debug build without debug info: quick to build, fast enough to show
+      # four scenes
+      - run: cargo build -p vibebms
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/py"
+          "$RUNNER_TEMP/py/bin/pip" install -q pillow==12.3.0 numpy==2.5.3
+      - name: render
+        # a report: a scene that could not be captured does not fail the run
+        continue-on-error: true
+        run: |
+          export DISPLAY="$(tools/e2e/beatoraja/xserver.sh 78)"
+          "$RUNNER_TEMP/py/bin/python" tools/e2e/beatoraja/render.py --dist "$E2E_DIST/beatoraja" \
+            --java "$E2E_DIST/jre/bin/java" --vibebms target/debug/vibebms --display "$DISPLAY" \
+            --work "$RUNNER_TEMP/render" --out "$RUNNER_TEMP/rendering"
+          cat "$RUNNER_TEMP/rendering/report.md" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rendering
+          path: |
+            ${{ runner.temp }}/rendering
+            ${{ runner.temp }}/render/shots-*/*.png
+            ${{ runner.temp }}/render/*/stdout.log
+          if-no-files-found: ignore
