@@ -84,6 +84,9 @@ pub(super) fn draw(
         );
         Some((f, clip))
     };
+    // one clip over the next lanes alike: their notes are then one draw
+    // call (a lane draws nothing outside its own clip)
+    let mut clip: Option<Rect> = None;
     for (lane, ls) in skin.skin.lanes.iter().enumerate() {
         let Some((f, own)) = field(lane) else {
             continue;
@@ -95,7 +98,18 @@ pub(super) fn draw(
         let side = s.mode.player_of_lane(lane).min(1);
         let (p, sc) = (per[side], &scroll[side]);
         let r = f.r;
-        d.b.set_clip(Some(axis.map(own)));
+        let alike = |c: &Rect, o: &Rect| c.y == o.y && c.h == o.h;
+        if !clip.is_some_and(|c| alike(&c, &own) && c.x <= own.x && own.right() <= c.right()) {
+            let mut c = own;
+            let next = (lane + 1..skin.skin.lanes.len()).map_while(|k| field(k).map(|f| f.1));
+            for o in next.take_while(|o| alike(&own, o)) {
+                let right = c.right().max(o.right());
+                c.x = c.x.min(o.x);
+                c.w = right - c.x;
+            }
+            clip = Some(c);
+        }
+        d.b.set_clip(clip.map(|c| axis.map(c)));
         let at = |t: i64| f.y(sc.ahead_at(t));
         if p.judge_area {
             let scratch = s.mode.is_scratch(lane);
