@@ -37,7 +37,7 @@ env:
 jobs:
   lr2:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: pwsh
@@ -154,12 +154,13 @@ jobs:
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f2
       - name: Calibrate (fine)
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage calibrate -Kind f
-      - name: lr2-measure a3-rank2-110
-        continue-on-error: true
-        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a3-rank2-110
-      - name: lr2-measure a11-1
-        continue-on-error: true
-        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a11-1
+      # the lr2-measure trials pressed as its README says (e2e.py plan)
+      - name: lr2-measure A11
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a11-1,a11-2,a11-3
+      - name: lr2-measure A3
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a3-rank0-70,a3-rank0-110,a3-rank2-70,a3-rank2-110,a3-rank3-70,a3-rank3-110,a3-rank4-70,a3-rank4-110,a3-rank5-70,a3-rank5-110,a3-rankm1-70,a3-rankm1-110
+      - name: lr2-measure A8 (run 1, GROOVE, key 1 held)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a8-mines
       - name: LR2 against vibeBMS
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage compare
 

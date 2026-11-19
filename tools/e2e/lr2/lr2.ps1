@@ -80,6 +80,37 @@ function Latency {
     if (Test-Path $LatFile) { [double](Get-Content $LatFile) } else { throw 'no latency yet (stage loop)' }
 }
 
+# CHART played by lr2probe's key schedule (e2e.py plan), its start taken
+# from the chart's BGM click; then its result screen and the score rows
+function Play([string] $name) {
+    $lat = Latency
+    $c = Join-Path $Charts "$name.bme"
+    $sched = Join-Path $env:RUNNER_TEMP "$name.csv"
+    & $Py -I $E2e plan $c $sched
+    $log = Join-Path $Out "play-$name.csv"
+    $p = Start-Process -FilePath $Probe -ArgumentList @('play', "`"$sched`"", '1600', "$lat", "`"$log`"") -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $Out "play-$name.txt")
+    Start-LR2 'LR2body.exe' @($c)
+    $shot = 0
+    while (-not $p.HasExited) {
+        Start-Sleep -Seconds 1
+        # the play screen, once the presses run
+        if ($shot -lt 2 -and (Test-Path $log) -and @(Get-Content $log).Count -gt 8) {
+            Shot "play-$name-$shot.png"; $shot++; Start-Sleep -Seconds 3
+        }
+    }
+    Get-Content (Join-Path $Out "play-$name.txt") | Write-Host
+    # the result screen
+    Start-Sleep -Seconds 4
+    Shot "result-$name.png"
+    for ($i = 0; $i -lt 10 -and (Get-Process -Name LR2body -ErrorAction SilentlyContinue); $i++) {
+        & $Probe ui $Title scan 1C | Out-Null
+        Start-Sleep -Seconds 2
+    }
+    Stop-LR2
+    & $Py -I $E2e scores $ScoreDb $Charts (Join-Path $Out 'scores.json') | Select-String "^$name " | Tee-Object -FilePath (Join-Path $Out "scores-$name.txt") | Write-Host
+}
+
 switch ($Stage) {
     'setup' {
         if (-not (Test-Path $Root)) { Expand-Archive $Zip -DestinationPath $Lr2 }
@@ -170,32 +201,10 @@ switch ($Stage) {
         "$guess" | Out-File -Encoding ascii $LatFile
     }
     'play' {
-        $lat = Latency
-        $c = Join-Path $Charts "$Chart.bme"
-        $sched = Join-Path $env:RUNNER_TEMP "$Chart.csv"
-        & $Py -I $E2e plan $c $sched
-        $log = Join-Path $Out "play-$Chart.csv"
-        $p = Start-Process -FilePath $Probe -ArgumentList @('play', "`"$sched`"", '1600', "$lat", "`"$log`"") -PassThru -NoNewWindow `
-            -RedirectStandardOutput (Join-Path $Out "play-$Chart.txt")
-        Start-LR2 'LR2body.exe' @($c)
-        $shot = 0
-        while (-not $p.HasExited) {
-            Start-Sleep -Seconds 1
-            # the play screen, once the presses run
-            if ($shot -lt 2 -and (Test-Path $log) -and @(Get-Content $log).Count -gt 8) {
-                Shot "play-$Chart-$shot.png"; $shot++; Start-Sleep -Seconds 3
-            }
+        # -Chart: one chart or several, comma-separated, one after another
+        foreach ($name in $Chart.Split(',')) {
+            try { Play $name } catch { Write-Host "::warning::$name`: $($_.Exception.Message)"; Stop-LR2 }
         }
-        Get-Content (Join-Path $Out "play-$Chart.txt") | Write-Host
-        # the result screen
-        Start-Sleep -Seconds 4
-        Shot "result-$Chart.png"
-        for ($i = 0; $i -lt 10 -and (Get-Process -Name LR2body -ErrorAction SilentlyContinue); $i++) {
-            & $Probe ui $Title scan 1C | Out-Null
-            Start-Sleep -Seconds 2
-        }
-        Stop-LR2
-        & $Py -I $E2e scores $ScoreDb $Charts (Join-Path $Out 'scores.json') | Tee-Object -FilePath (Join-Path $Out "scores-after-$Chart.txt") | Write-Host
     }
     'calibrate' {
         $lat = Latency

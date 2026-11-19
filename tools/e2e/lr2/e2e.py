@@ -221,7 +221,9 @@ EXPECT = {
     # 4, 5 and -1 as NORMAL (2)
     "a3-rank4-70": {"good": 16}, "a3-rank5-70": {"good": 16}, "a3-rankm1-70": {"good": 16},
     "a3-rank4-110": {"bad": 16}, "a3-rank5-110": {"bad": 16}, "a3-rankm1-110": {"bad": 16},
-    "a8-mines": {"poor": 4},
+    # run 1 (GROOVE, key 1 held): FULL COMBO, max combo the 8 notes, POOR
+    # 4 (S-OLR2: the screen may show 8)
+    "a8-mines": {"poor": (4, 8), "maxcombo": 8},
 }
 
 
@@ -240,13 +242,23 @@ def compare(scores_json, out):
         row = rows.get(chart)
         for col, n in want.items():
             if row is None:
-                lines.append(f"| {chart} | {col} | {n} | not played | |")
+                shown = " or ".join(map(str, n)) if isinstance(n, tuple) else n
+                lines.append(f"| {chart} | {col} | {shown} | not played | DIFFERS |")
+                bad += 1
                 continue
             got = row[col]
-            scale = n // 16 if n >= 16 else 1
-            ok = within(n, got, scale)
+            if isinstance(n, tuple):
+                ok = got in n
+                n = " or ".join(map(str, n))
+            elif chart.startswith("a8"):
+                ok = got == n
+            else:
+                ok = within(n, got, n // 16 if n >= 16 else 1)
             bad += not ok
             lines.append(f"| {chart} | {col} | {n} | {got} | {'ok' if ok else 'DIFFERS'} |")
+    lamp = rows.get("a8-mines")
+    if lamp:
+        lines.append(f"| a8-mines | clear (LR2's lamp code) | FULL COMBO | {lamp['clear']} | |")
     text = "\n".join(lines) + "\n"
     open(out, "w").write(text)
     print(text)
