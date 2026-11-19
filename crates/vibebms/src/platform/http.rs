@@ -82,7 +82,10 @@ pub struct Response {
 }
 
 /// Send `req`: its answer, or why none came.
-fn call(req: ehttp::Request, on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static) {
+pub(super) fn call(
+    req: ehttp::Request,
+    on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
+) {
     ehttp::fetch(identified(req), move |r| {
         on_done(match r {
             Ok(r) => Ok(Response {

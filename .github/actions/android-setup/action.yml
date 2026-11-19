@@ -1,0 +1,41 @@
+name: Android setup
+description: >-
+  The pinned Android build tools of tools/repro.env: the NDK (ANDROID_NDK_HOME),
+  cargo-ndk and, for the APK, the JDK and Gradle.
+
+inputs:
+  path:
+    description: The repository's folder (its tools/repro.env)
+    default: "."
+  java:
+    description: "true: the JDK and Gradle too (the APK)"
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - id: pins
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        . tools/repro.env
+        echo "java=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+        echo "gradle=$GRADLE_VERSION" >> "$GITHUB_OUTPUT"
+        # the runner image has a few NDKs, and its "latest" moves on: this one,
+        # installed if the image lacks it
+        ndk="$ANDROID_HOME/ndk/$NDK_VERSION"
+        if [ ! -d "$ndk" ]; then
+          echo "installing NDK $NDK_VERSION"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+        fi
+        echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+        cargo install cargo-ndk --locked --version "$CARGO_NDK_VERSION"
+    - if: inputs.java == 'true'
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: ${{ steps.pins.outputs.java }}
+    - if: inputs.java == 'true'
+      uses: gradle/actions/setup-gradle@v5
+      with:
+        gradle-version: ${{ steps.pins.outputs.gradle }}

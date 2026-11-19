@@ -87,9 +87,14 @@ fi
 step "zip (self-update)"
 zip="$out/vibebms-macos-universal.app.zip"
 rm -f "$zip"
+# every file with the commit's time and no extended attributes, so the zip is
+# the same for the same executables (reproducible builds; the .dmg is not)
+sde="${SOURCE_DATE_EPOCH:-$(git -C "$(dirname "$0")/.." log -1 --format=%ct 2>/dev/null || date +%s)}"
+stamp="$(date -u -r "$sde" +%Y%m%d%H%M.%S 2>/dev/null || date -u -d "@$sde" +%Y%m%d%H%M.%S)"
+find "$app" -exec env TZ=UTC touch -h -t "$stamp" {} +
 if [ -z "$dry" ]; then
   # ditto keeps the modes and the signature as they are
-  ditto -c -k --keepParent "$app" "$zip"
+  ditto -c -k --norsrc --noextattr --noacl --keepParent "$app" "$zip"
 else
   (cd "$out" && zip -qry "$(basename "$zip")" "$(basename "$app")")
 fi

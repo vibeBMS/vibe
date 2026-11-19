@@ -16,17 +16,42 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# The release builds run tools/build_release.sh, which makes them
+# reproducible (docs/BUILDING.md, "Reproducible builds"): the same commit and
+# run number give the same bytes, which tools/reproduce.sh and the
+# Reproducible builds workflow check. It also gives nightlies thin LTO over 16
+# codegen units instead of the release profile's fat LTO in one unit:
+# dependencies come from the cache, but fat LTO re-optimises the whole program
+# single-threaded on every build (most of each build job's minutes); thin LTO
+# is a few times faster to link and costs a few percent at run time. A stable
+# release keeps the profile's.
 env:
   CARGO_TERM_COLOR: always
-  # Nightly builds: thin LTO over 16 codegen units instead of the release
-  # profile's fat LTO in one unit. Dependencies come from the cache, but fat
-  # LTO re-optimises the whole program single-threaded on every build (most
-  # of each build job's minutes); thin LTO is a few times faster to link and
-  # costs a few percent at run time. A stable release keeps the profile's.
-  CARGO_PROFILE_RELEASE_LTO: thin
-  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
 jobs:
+  # the container images of tools/repro.env (the builds made in containers
+  # take them from here: a job's container cannot read a file)
+  pins:
+    name: pinned build environment
+    runs-on: ubuntu-latest
+    outputs:
+      portable-x64: ${{ steps.pins.outputs.portable-x64 }}
+      portable-arm64: ${{ steps.pins.outputs.portable-arm64 }}
+      web: ${{ steps.pins.outputs.web }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/repro.env
+          sparse-checkout-cone-mode: false
+      - id: pins
+        run: |
+          . tools/repro.env
+          {
+            echo "portable-x64=$PORTABLE_IMAGE_X64"
+            echo "portable-arm64=$PORTABLE_IMAGE_ARM64"
+            echo "web=$WEB_IMAGE"
+          } | tee -a "$GITHUB_OUTPUT"
+
   test:
     name: test (lint + unit tests)
     runs-on: ubuntu-latest
@@ -61,10 +86,11 @@ jobs:
       # the runner may have only versioned llvm-ar-NN
       - run: echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" >> "$GITHUB_ENV"
       - run: cargo clippy -p vibebms -p vibebms-web -p vibebms-lua-web --lib --target wasm32-unknown-unknown -- -D warnings
-      - run: cargo install cargo-ndk --locked
-      - run: >-
-          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
+      # the NDK and cargo-ndk the APK is built with
+      - uses: ./.github/actions/android-setup
+        with:
+          java: "false"
+      - run: cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
   # each Linux executable, then the same executable as a Flatpak: as it is,
   # on the GNOME runtime (it has WebKitGTK 4.1), a bundle per architecture
@@ -100,7 +126,9 @@ jobs:
           # the Flatpak's (appstream-compose for `appstreamcli compose`),
           # without their Recommends (desktop portals, speech data: not needed
           # to package)
-          packages-without-recommends: flatpak desktop-file-utils appstream appstream-compose
+          # faketime: the bundle carries the time it is made, which it makes
+          # the commit's (a reproducible bundle)
+          packages-without-recommends: flatpak desktop-file-utils appstream appstream-compose faketime
       # (it also runs tools/ci_version.sh: the version, and the app id, name
       # and branch the Flatpak takes, e.g. io.github.vibebms.nightly, "vibeBMS
       # Nightly")
@@ -188,7 +216,7 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
           cache-key: macos-universal
-      - run: cargo build --release -p vibebms --target aarch64-apple-darwin --target x86_64-apple-darwin
+      - run: tools/build_release.sh macos
       # each executable as the other builds give theirs (the nightly's
       # vibebms-macos-arm64 / -x64 and latest.json read these artifacts)
       - name: executables
@@ -224,30 +252,28 @@ jobs:
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
   # older and more distributions (RHEL 8, Debian 10, Ubuntu 20.04) and needs
   # only ALSA and libudev
+  # (the image by digest and its packages: tools/repro.env; tools/reproduce.sh
+  # builds the same in the same image)
   build-linux-portable:
     name: build ${{ matrix.name }}
-    needs: test
+    needs: [test, pins]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x64-portable, os: ubuntu-latest, image: "quay.io/pypa/manylinux_2_28_x86_64", target: x86_64-unknown-linux-gnu }
-          - { name: linux-arm64-portable, os: ubuntu-24.04-arm, image: "quay.io/pypa/manylinux_2_28_aarch64", target: aarch64-unknown-linux-gnu }
+          - { name: linux-x64-portable, os: ubuntu-latest, arch: x64, target: x86_64-unknown-linux-gnu }
+          - { name: linux-arm64-portable, os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.image }}
+    container: ${{ matrix.arch == 'x64' && needs.pins.outputs.portable-x64 || needs.pins.outputs.portable-arm64 }}
     steps:
       - uses: actions/checkout@v7
-      - run: dnf install -y alsa-lib-devel systemd-devel pkgconf-pkg-config
+      - run: tools/build_deps.sh ${{ matrix.name }}
       - uses: ./.github/actions/rust-setup
         with:
           targets: ${{ matrix.target }}
           cache-key: ${{ matrix.name }}
-      - run: cargo build --release -p vibebms --no-default-features --target ${{ matrix.target }}
-      - name: needs glibc 2.28 at most
-        run: |
-          v=$(objdump -T target/${{ matrix.target }}/release/vibebms | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
-          echo "newest glibc symbol: $v"
-          [ "$(printf '%s\nGLIBC_2.28\n' "$v" | sort -V | tail -1)" = "GLIBC_2.28" ]
+      # (it checks that the executable needs glibc 2.28 at most)
+      - run: tools/build_release.sh ${{ matrix.name }}
       # the version it was built with, for the nightly's latest.json
       - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
         shell: bash
@@ -258,10 +284,16 @@ jobs:
             target/${{ matrix.target }}/release/vibebms
             target/${{ matrix.target }}/release/version.txt
 
+  # in a pinned image with pinned packages (tools/repro.env): clang, which
+  # compiles Lua into the module, is part of what makes the build
   web:
     name: build web (wasm32)
-    needs: test
+    needs: [test, pins]
     runs-on: ubuntu-latest
+    container: ${{ needs.pins.outputs.web }}
+    defaults:
+      run:
+        shell: bash
     # pushes publish the build to the gh-pages branch (GitHub Pages)
     permissions:
       contents: write
@@ -272,37 +304,25 @@ jobs:
       group: ${{ github.event_name == 'push' && 'web-pages' || format('web-{0}', github.run_id) }}
       cancel-in-progress: false
     steps:
+      # (the image has no git yet: the checkout is the commit's files, which is
+      # all the build needs; tools/build_deps.sh installs git for gh-pages)
       - uses: actions/checkout@v7
+      - run: tools/build_deps.sh web
       - uses: ./.github/actions/rust-setup
         with:
           targets: wasm32-unknown-unknown
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
-      # Lua is compiled from C for the web: clang with the WebAssembly target
-      - run: clang --version
-      # the runner may have only versioned llvm-ar-NN
-      - run: echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" >> "$GITHUB_ENV"
-      # third parties' mirrors on by default: the repository variable
-      # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions > Variables)
-      - run: ./tools/build_web.sh
+      # web/pkg and the CJK fonts (Noto Sans CJK, SIL OFL 1.1, at a fixed
+      # commit). Third parties' mirrors on by default: the repository variable
+      # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions >
+      # Variables), which a rebuild of the web build takes too
+      - run: tools/build_release.sh web
         env:
           VIBEBMS_THIRD_PARTY: ${{ vars.WEB_THIRD_PARTY }}
       # a C function nothing defines becomes an import from "env", which
       # only fails when the page loads
       - name: no undefined imports
         run: node tools/check_wasm_imports.mjs web/pkg/vibebms_web_bg.wasm
-      # table servers send no CORS headers: the page reads copies next to it
-      # the web build has no system fonts: Japanese / Korean titles need these
-      - name: CJK fonts (Noto Sans CJK, SIL OFL 1.1)
-        run: |
-          base=https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans
-          curl -fsSL -o web/fonts/NotoSansJP-Regular.otf "$base/SubsetOTF/JP/NotoSansJP-Regular.otf"
-          curl -fsSL -o web/fonts/NotoSansKR-Regular.otf "$base/SubsetOTF/KR/NotoSansKR-Regular.otf"
-          # loaded only when the UI is in Chinese (a line's second word)
-          curl -fsSL -o web/fonts/NotoSansSC-Regular.otf "$base/SubsetOTF/SC/NotoSansSC-Regular.otf"
-          curl -fsSL -o web/fonts/NotoSansTC-Regular.otf "$base/SubsetOTF/TC/NotoSansTC-Regular.otf"
-          curl -fsSL -o web/fonts/NotoSansCJK-LICENSE.txt "$base/LICENSE"
-          printf "NotoSansJP-Regular.otf\nNotoSansKR-Regular.otf\n" >> web/fonts/fonts.txt
-          printf "NotoSansSC-Regular.otf zh-Hans\nNotoSansTC-Regular.otf zh-Hant\n" >> web/fonts/fonts.txt
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-web
@@ -344,33 +364,19 @@ jobs:
     name: build iOS (unsigned, experimental)
     needs: test
     runs-on: macos-latest
-    env:
-      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
         with:
           targets: aarch64-apple-ios
           cache-key: aarch64-apple-ios
-      - run: cargo build --release -p vibebms --target aarch64-apple-ios
-      - name: package
-        run: |
-          app=Payload/vibeBMS.app
-          mkdir -p "$app"
-          cp target/aarch64-apple-ios/release/vibebms "$app/"
-          cp platform/ios/Info.plist platform/ios/*.png "$app/"
-          # each channel is its own app (io.github.vibebms.nightly, "vibeBMS Nightly")
-          plutil -replace CFBundleIdentifier -string "$VIBEBMS_APP_ID" "$app/Info.plist"
-          plutil -replace CFBundleName -string "$VIBEBMS_APP_NAME" "$app/Info.plist"
-          plutil -replace CFBundleDisplayName -string "$VIBEBMS_APP_NAME" "$app/Info.plist"
-          # iOS takes numbers only: the version (0.1.0) and the run number
-          plutil -replace CFBundleShortVersionString -string "$VIBEBMS_BASE_VERSION" "$app/Info.plist"
-          plutil -replace CFBundleVersion -string "$VIBEBMS_BUILD" "$app/Info.plist"
-          zip -qr vibeBMS-unsigned.ipa Payload
+      # the app (iOS 14 and later; each channel its own: io.github.vibebms.nightly,
+      # "vibeBMS Nightly"), zipped as Payload/vibeBMS.app
+      - run: tools/build_release.sh ios out
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-ios-unsigned
-          path: vibeBMS-unsigned.ipa
+          path: out/vibeBMS-unsigned.ipa
 
   android:
     name: build android (experimental)
@@ -386,18 +392,8 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           targets: aarch64-linux-android,x86_64-linux-android
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-      - run: cargo install cargo-ndk --locked
-      # the Rust library into the Gradle project, then the APK
-      - run: >-
-          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs
-          build --release -p vibebms-android
-      # cargo-ndk copies every cdylib it built; only ours is loaded
-      - run: find platform/android/app/jniLibs -name '*.so' ! -name libvibebms_android.so -delete
+      # the NDK, cargo-ndk, the JDK and Gradle of tools/repro.env
+      - uses: ./.github/actions/android-setup
       # release APKs must be signed: with the repository's key when its
       # secrets hold one (base64 keystore + password), else a throwaway key
       # (the APK installs, but cannot update one signed by another key)
@@ -425,18 +421,13 @@ jobs:
           echo "VIBEBMS_KEYSTORE=$ks" >> "$GITHUB_ENV"
           echo "VIBEBMS_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
           echo "VIBEBMS_KEY_ALIAS=$alias" >> "$GITHUB_ENV"
-      - uses: gradle/actions/setup-gradle@v5
-        with:
-          gradle-version: "9.6.0"
-      - run: |
-          echo "VIBEBMS_VERSION_CODE=$VIBEBMS_BUILD" >> "$GITHUB_ENV"
-          echo "VIBEBMS_VERSION_NAME=$VIBEBMS_VERSION" >> "$GITHUB_ENV"
-      - run: gradle -p platform/android --no-daemon assembleRelease
-      - run: cp platform/android/app/build/outputs/apk/release/app-release.apk vibeBMS.apk
+      # the Rust library into the Gradle project, then the APK (versionCode:
+      # the run number; versionName: the version)
+      - run: tools/build_release.sh android out
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-android
-          path: vibeBMS.apk
+          path: out/vibeBMS.apk
 
   # Deletes the Rust caches a newer one replaced and any left by other
   # branches: each job keeps its newest entry. A Cargo.lock or toolchain
@@ -511,6 +502,17 @@ jobs:
         with:
           pattern: vibeBMS-*
           path: art
+      # the scripts (the web build's zip, the F-Droid repository), and the
+      # commit's time for the zip
+      - uses: actions/checkout@v7
+        if: env.RELEASE == 'true'
+        with:
+          path: src
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            platform/android/fdroid
+            assets/logo
       # the version the builds were given (tools/ci_version.sh)
       - name: version
         if: env.RELEASE == 'true'
@@ -540,7 +542,9 @@ jobs:
           done
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
-          [ -d art/vibeBMS-web ] && (cd art/vibeBMS-web && zip -qr ../../out/vibeBMS-web.zip .)
+          # the same zip as tools/reproduce.sh makes of its web build
+          [ -d art/vibeBMS-web ] && SOURCE_DATE_EPOCH="$(git -C src log -1 --format=%ct)" \
+            src/tools/build_release.sh zip out/vibeBMS-web.zip art/vibeBMS-web
           # an AltStore / SideStore source: add its URL once, and the app
           # store offers each new nightly .ipa as an update
           if [ -f out/vibeBMS-unsigned.ipa ]; then
@@ -681,15 +685,6 @@ jobs:
       # fdroid-repo branch once the release is published. Only an APK signed
       # with the repository's key goes in: one signed by a throwaway key could
       # not update the installed app. A failure here holds back nothing else.
-      - uses: actions/checkout@v7
-        if: env.RELEASE == 'true'
-        with:
-          path: src
-          persist-credentials: false
-          sparse-checkout: |
-            tools
-            platform/android/fdroid
-            assets/logo
       - name: F-Droid repository
         id: fdroid
         if: env.RELEASE == 'true'

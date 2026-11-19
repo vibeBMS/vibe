@@ -1,0 +1,7 @@
+# The Rust release every build uses: CI, tools/reproduce.sh and, through rustup,
+# local builds in this folder. A release build is reproducible with this exact
+# compiler (docs/BUILDING.md, "Reproducible builds"), so it moves on in a commit
+# of its own.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
