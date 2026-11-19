@@ -5,7 +5,7 @@ description: >-
 
 inputs:
   name:
-    description: Artifact suffix, e.g. linux-x64
+    description: Artifact suffix, e.g. linux-x64 (tools/build_release.sh's artifact)
     required: true
   target:
     description: Rust target triple
@@ -23,7 +23,8 @@ runs:
         # the runner image too: a build cached on another image (ubuntu-24.04
         # before 22.04) restored as fresh but without its crates' files
         cache-key: ${{ inputs.cache-key }}
-    - run: cargo build --release -p vibebms --target ${{ inputs.target }}
+    # as tools/reproduce.sh and the Reproducible builds workflow build it
+    - run: tools/build_release.sh ${{ inputs.name }}
       shell: bash
     # the version it was built with, for the nightly's latest.json
     - run: echo "$VIBEBMS_VERSION" > target/${{ inputs.target }}/release/version.txt
