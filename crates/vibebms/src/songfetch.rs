@@ -106,20 +106,27 @@ pub fn entry(
 ) -> bmseeker::install::Entry {
     let e = bmseeker::table::TableEntry {
         md5: w.md5.clone(),
-        title: w.title.clone(),
-        artist: w.artist.clone(),
-        org_md5: w.org_md5.clone(),
         url: w.url.clone(),
         url_diff: w.url_diff.clone(),
         ..Default::default()
     };
-    let mut entry = bmseeker::install::Entry::from_table(&e, known);
+    let mut song = known.song_links(&e);
     for u in more {
-        if !entry.song.contains(&u) {
-            entry.song.push(u);
+        if !song.contains(&u) {
+            song.push(u);
         }
     }
-    entry
+    bmseeker::install::Entry {
+        md5: w.md5.clone(),
+        want: bmseeker::hosts::Want {
+            title: w.title.clone(),
+            artist: w.artist.clone(),
+        },
+        org_md5: w.org_md5.clone(),
+        song,
+        chart: known.chart_links(&e),
+        ..Default::default()
+    }
 }
 
 /// What a link brought (`bytes`; a chart's own link: its file name
