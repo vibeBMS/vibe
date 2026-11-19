@@ -86,6 +86,9 @@ cat > "$app/Contents/Info.plist" <<EOF
 EOF
 if [ -z "$dry" ]; then plutil -lint "$app/Contents/Info.plist"; fi
 
+# the modes as a umask of 022 makes them (the zip and the .dmg keep them)
+chmod -R u+rwX,go=rX "$app"
+
 step "sign (ad hoc)"
 if [ -z "$dry" ]; then
   codesign --force --deep -s - "$app"

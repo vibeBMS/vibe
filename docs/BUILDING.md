@@ -354,8 +354,9 @@ Everything else is fixed by the commit:
 - **the build itself**: `tools/build_release.sh <artifact>`, which CI's jobs run: `Cargo.lock` as committed
   (`--locked`), the checkout, `CARGO_HOME` and the target folder remapped to `/vibe`, `/cargo`, `/target`
   (`--remap-path-prefix`, `-ffile-prefix-map`: no build path in panic messages or C's `__FILE__`), on Windows
-  Rust's own linker, rust-lld, with `/Brepro` (no link time in the PE header; MSVC's `link.exe` writes its and the
-  compiler's build numbers into the executable), on macOS and iOS the linker's `-S` (no debug map: its object paths
+  Rust's own linker, rust-lld, with `/Brepro` (no link time in the PE header) and no PDB (the release has none; its
+  object paths would go into the `/Brepro` hash; MSVC's `link.exe` writes its and the compiler's build numbers into
+  the executable), on macOS and iOS the linker's `-S` (no debug map: its object paths
   would go into the executable's `LC_UUID`), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
   deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
   Lua's C sources compiled in name order (`vendor/lua-src`, patched in for the lua-src crate, which takes them in the
