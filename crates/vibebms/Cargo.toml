@@ -96,7 +96,7 @@ ndk-context = "0.1"
 gtk = { version = "0.18", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pollster = "0.4"
+pollster = "1"
 # the system's language (the UI's when LANGUAGE is AUTO; web: navigator.language)
 sys-locale = "0.3"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
