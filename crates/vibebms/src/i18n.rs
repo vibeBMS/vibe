@@ -17,7 +17,6 @@
 //! read (their text ids) are never translated.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// The language setting.
@@ -206,36 +205,73 @@ pub fn apply(setting: Language) {
     set(setting.resolve());
 }
 
-type Table = HashMap<&'static str, &'static str>;
+/// (A fast hash: every `tr!` call hashes its English text.)
+type Table = rustc_hash::FxHashMap<&'static str, &'static str>;
 
 /// The key of a table that lists keys left in English on purpose.
 #[cfg(test)]
 const UNTRANSLATED: &str = "_untranslated";
 
-/// `lang`'s table: its file read once (the strings live as long as the
-/// app).
+/// `lang`'s table: its file read once.
 fn table(lang: Lang) -> Option<&'static Table> {
     static TABLES: [OnceLock<Table>; 5] = [const { OnceLock::new() }; 5];
     let src = lang.source()?;
-    Some(TABLES[lang.index() as usize].get_or_init(|| parse(src, lang.tag())))
+    Some(TABLES[lang.index() as usize].get_or_init(|| parse(src)))
 }
 
-fn parse(src: &str, name: &str) -> Table {
-    let v: toml::Table = match toml::from_str(src) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("i18n/{name}.toml: {e}");
-            return Table::new();
-        }
-    };
-    let mut t = Table::with_capacity(v.len());
-    for (k, v) in v {
-        if let toml::Value::String(s) = v {
-            let k: &'static str = Box::leak(k.into_boxed_str());
-            t.insert(k, Box::leak(s.into_boxed_str()));
+/// A table's `"key" = "value"` lines, the TOML the tables are written in
+/// (its comments, blank lines and `_untranslated` list are passed over; a
+/// test keeps the two readings the same). The text is the embedded
+/// file's own where it has no escapes.
+fn parse(src: &'static str) -> Table {
+    let mut t = Table::default();
+    for line in src.lines() {
+        let entry = || {
+            let (k, rest) = basic_string(line)?;
+            let (v, rest) = basic_string(rest.strip_prefix(" = ")?)?;
+            rest.is_empty().then_some((k, v))
+        };
+        if let Some((k, v)) = entry() {
+            t.insert(k, v);
         }
     }
     t
+}
+
+/// The TOML basic string `s` starts with, and what follows it.
+fn basic_string(s: &'static str) -> Option<(&'static str, &'static str)> {
+    let body = s.strip_prefix('"')?;
+    let (mut i, mut escaped) = (0, false);
+    let end = loop {
+        match body.as_bytes().get(i)? {
+            b'"' => break i,
+            b'\\' => (i, escaped) = (i + 2, true),
+            _ => i += 1,
+        }
+    };
+    let text = match escaped {
+        true => Box::leak(unescape(&body[..end])?.into_boxed_str()),
+        false => &body[..end],
+    };
+    Some((text, &body[end + 1..]))
+}
+
+/// `raw` with its escapes (those the tables use) made the characters.
+fn unescape(raw: &str) -> Option<String> {
+    let mut out = String::with_capacity(raw.len());
+    let mut it = raw.chars();
+    while let Some(c) = it.next() {
+        out.push(match c {
+            '\\' => match it.next()? {
+                'n' => '\n',
+                '"' => '"',
+                '\\' => '\\',
+                _ => return None,
+            },
+            c => c,
+        });
+    }
+    Some(out)
 }
 
 /// `key` (English) in the language in use.
