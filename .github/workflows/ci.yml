@@ -122,19 +122,24 @@ jobs:
           fi
       # the runtime alone (about 430 MB from Flathub; the packaging needs
       # neither it nor the SDK, the check runs in it), installed for the user
-      # by the first run with this runtime. (Until 2026-11 the key was
-      # flatpak-<arch>-<runtime> and held the SDK and the GL drivers too, over
-      # 1.5 GB: those entries are no longer restored and age out of the cache.)
+      # by the first run with this runtime
       - uses: actions/cache@v6
         with:
           path: ~/.local/share/flatpak
           key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
-      - run: tools/package_flatpak.sh target/${{ matrix.target }}/release/vibebms out
+      # the Flatpak steps do not fail the job: the executable is uploaded
+      # already, and a failed job would skip saving its caches
+      - id: flatpak
+        continue-on-error: true
+        run: tools/package_flatpak.sh target/${{ matrix.target }}/release/vibebms out
       # the bundle installs, and every library the executable links (WebKitGTK
       # 4.1 among them) is in the runtime. --no-related leaves out the runtime's
       # GL drivers, codecs and translations (another ~1 GB in the cache), which
       # the check does not need
       - name: check the Flatpak
+        id: flatpak-check
+        if: steps.flatpak.outcome == 'success'
+        continue-on-error: true
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user --noninteractive --no-related flathub "$RUNTIME"
@@ -142,10 +147,13 @@ jobs:
           flatpak run --command=${{ matrix.loader }} "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
           grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
           ! grep 'not found' out/libs.txt
-      - uses: actions/upload-artifact@v7
+      - if: steps.flatpak-check.outcome == 'success'
+        uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-linux-${{ matrix.arch }}-flatpak
           path: out/vibeBMS-linux-${{ matrix.arch }}.flatpak
+      - if: steps.flatpak.outcome == 'failure' || steps.flatpak-check.outcome == 'failure'
+        run: echo "::error::the Flatpak (linux-${{ matrix.arch }}) failed; the release keeps the previous one"
 
   build-windows:
     name: build ${{ matrix.name }}
