@@ -13,7 +13,10 @@ Standard library only.
         LR2's score rows for the charts in CHARTDIR (by their MD5)
     python e2e.py calibrate OUT.json COARSE_OR_FINE A.json? ...
         see calibrate()
-    python e2e.py compare SCORES.json OUT.md
+    python e2e.py gauge SHOTSDIR OUT.json
+        the gauge read off LR2's screenshots (lr2probe's t<ms>.bmp), chart
+        by chart
+    python e2e.py compare SCORES.json OUT.md [GAUGE.json]
         LR2's counts against vibeBMS's rows (lr2_measure.rs, the README's
         tolerances)
 
@@ -132,6 +135,16 @@ def notes_of(path):
     return sorted(notes, key=lambda x: (x[0], str(x[1]))), mines
 
 
+def snaps(times):
+    """screenshots of LR2's window (lr2probe: scan 0), five 40 ms apart
+    for each reading: LR2's gauge flickers its top segments"""
+    return [(t + 40 * k, 0, 1) for t in times for k in range(5)]
+
+
+# the A7 groups read (README: until the gauge is full)
+A7_GROUPS = {200: 9, 500: 16, 1000: 23}
+
+
 def taps(t, keys):
     out = []
     for k in keys:
@@ -162,11 +175,33 @@ def plan(chart):
                 ev += taps(t, ["S2", 7])
     elif name == "a8-mines":
         # run 1: the key-7 notes hit, then key 1 held from the rest after
-        # them to the end
+        # them to the end; the gauge after each mine
         for t, lane in notes:
             ev += taps(t, [lane])
         hold = LEAD_MS + TRIAL_MS
         ev += [(hold, SCAN[1], 1), (max(mines) + 2000, SCAN[1], 0)]
+        ev += snaps([1000] + [m + 1000 for m in mines])
+    elif name.startswith("a4-n"):
+        # HARD: the key-7 notes hit; three empty POORs on key 1 in the
+        # second before the last note; the gauge 0.3 s before it
+        last = max(t for t, _ in notes)
+        for t, lane in notes:
+            if t < last:
+                ev += taps(t, [lane])
+        for early in (900, 700, 500):
+            ev += taps(last - early, [1])
+        ev += snaps([1000, last - 300])
+    elif name == "a4-t200":
+        # HARD: the key-3 + key-5 chords hit, the key-7 notes let pass; the
+        # gauge a second after each
+        for t, lane in notes:
+            if lane != 7:
+                ev += taps(t, [lane])
+        ev += snaps([1000] + [t + 1000 for t, lane in notes if lane == 7])
+    elif name.startswith("a7-n"):
+        # autoplay (no keys): the gauge in the rest after each group
+        g = A7_GROUPS[int(name[4:])]
+        ev += snaps([1000] + [LEAD_MS + k * TRIAL_MS - 100 for k in range(1, g + 1)])
     else:
         raise SystemExit(f"no plan for {name}")
     return sorted(ev, key=lambda e: (e[0], -e[2]))
@@ -225,6 +260,97 @@ def jitter(scores_json):
     print(json.dumps({"good_window_ms": g, "offset_ms_per_play": out}))
 
 
+def read_bmp(path):
+    with open(path, "rb") as f:
+        d = f.read()
+    off, w, h, bpp = struct.unpack_from("<I", d, 10)[0], *struct.unpack_from("<iiHH", d, 18)[:2], struct.unpack_from("<H", d, 28)[0]
+    row = (w * 3 + 3) & ~3
+
+    def px(x, y):  # top-down y
+        i = off + (h - 1 - y) * row + 3 * x
+        return d[i] + d[i + 1] + d[i + 2]
+    return w, h, px
+
+
+SEGMENTS = 50  # 2 % each
+
+
+def lit(px, x0, y):
+    """the gauge's segments, 1 lit (bright) or 0, at (x0 + 4 i, y)"""
+    out = []
+    for i in range(SEGMENTS):
+        rows = sum(max(px(x0 + 4 * i + dx, y + dy) for dx in range(3)) > 300 for dy in range(-2, 3))
+        out.append(int(rows >= 3))
+    return out
+
+
+def top(segs):
+    """the gauge: its highest lit segment (the ones below it may be dimmed
+    by the flicker)"""
+    return max((i + 1 for i, v in enumerate(segs) if v), default=0)
+
+
+def geometry(path):
+    """where the gauge is: from a GROOVE screenshot before the first note
+    (20 %: the first segment lit, the 10th the highest)"""
+    w, h, px = read_bmp(path)
+    hits = []
+    for y in range(370, min(h - 3, 420)):
+        for x0 in range(20, 60):
+            segs = lit(px, x0, y)
+            if segs[0] and top(segs) == 10 and sum(segs) >= 6:
+                hits.append((y, x0))
+    if not hits:
+        return None
+    ys = sorted(y for y, _ in hits)
+    xs = sorted(x for _, x in hits)
+    return ys[len(ys) // 2], xs[len(xs) // 2]
+
+
+def gauge(shots, out):
+    """gauge readings (%) chart by chart: SHOTS/<chart>/t<ms>.bmp"""
+    charts = sorted(c for c in os.listdir(shots) if os.path.isdir(os.path.join(shots, c)))
+    geo = None
+    for c in charts:
+        if c.startswith(("a8", "a7")):
+            for k in range(5):
+                p = os.path.join(shots, c, f"t{1000 + 40 * k}.bmp")
+                if os.path.exists(p) and (geo := geometry(p)):
+                    break
+            if geo:
+                break
+    res = {"geometry": geo, "charts": {}}
+    if geo:
+        y, x0 = geo
+        for c in charts:
+            files = sorted((int(f[1:-4]), f) for f in os.listdir(os.path.join(shots, c)) if f.endswith(".bmp"))
+            reads = []
+            for t, f in files:
+                _, _, px = read_bmp(os.path.join(shots, c, f))
+                v = 2 * top(lit(px, x0, y))
+                # a reading's five screenshots, 40 ms apart: the highest
+                if reads and t - reads[-1][0] < 300:
+                    reads[-1][1] = max(reads[-1][1], v)
+                else:
+                    reads.append([t, v])
+            res["charts"][c] = reads
+    json.dump(res, open(out, "w"), indent=1)
+    print(json.dumps(res))
+
+
+# vibeBMS's gauge rows (lr2_measure.rs; README), after the reading at 1000 ms
+GAUGE = {
+    "a4-n20": [40], "a4-n29": [50], "a4-n30": [58], "a4-n31": [58], "a4-n45": [64],
+    "a4-n60": [70], "a4-n90": [72], "a4-n110": [74], "a4-n124": [74], "a4-n125": [76],
+    "a4-t200": [84, 70, 56, 42],
+    "a7-n200": [28, 38, 48, 58, 68, 76, 86, 96, 100],
+    "a7-n500": [24, 30, 34, 40, 44, 50, 54, 60, 66, 70, 76, 80, 86, 90, 96, 100],
+    "a7-n1000": [22, 26, 30, 34, 36, 40, 44, 48, 50, 54, 58, 62, 64, 68, 72, 76, 78, 82, 86, 90, 92, 96, 100],
+    "a8-mines": [96, 76, 26, 2],
+}
+GAUGE_START = {"a4": 100, "a7": 20, "a8": 20}
+
+
 # vibeBMS's rows: (judgement, count) for the counts lr2_measure.rs and the
 # README read; 12 of 16 decides ("about", README)
 EXPECT = {
@@ -271,6 +397,20 @@ def compare(scores_json, out):
                 ok = within(n, got, n // 16 if n >= 16 else 1)
             bad += not ok
             lines.append(f"| {chart} | {col} | {n} | {got} | {'ok' if ok else 'DIFFERS'} |")
+    if len(sys.argv) > 4 and os.path.exists(sys.argv[4]):
+        g = json.load(open(sys.argv[4]))["charts"]
+        lines += ["", "| chart | gauge at the start | vibeBMS | LR2 | |", "|---|---|---|---|---|"]
+        for chart, want in GAUGE.items():
+            reads = g.get(chart)
+            if not reads:
+                lines.append(f"| {chart} | | {' '.join(map(str, want))} | not read | DIFFERS |")
+                bad += 1
+                continue
+            start, got = reads[0][1], [v for _, v in reads[1:]]
+            ok = got == want
+            bad += not ok
+            lines.append(f"| {chart} | {start} (want {GAUGE_START[chart[:2]]}) | {' '.join(map(str, want))} | "
+                         f"{' '.join(map(str, got))} | {'ok' if ok else 'DIFFERS'} |")
     lamp = rows.get("a8-mines")
     if lamp:
         lines.append(f"| a8-mines | clear (LR2's lamp code) | FULL COMBO | {lamp['clear']} | |")
@@ -293,6 +433,8 @@ if __name__ == "__main__":
     elif cmd == "calibrate":
         x, g, ok = calibrate(sys.argv[2], sys.argv[3])
         sys.exit(0 if ok else 1)
+    elif cmd == "gauge":
+        gauge(sys.argv[2], sys.argv[3])
     elif cmd == "jitter":
         jitter(sys.argv[2])
     elif cmd == "compare":

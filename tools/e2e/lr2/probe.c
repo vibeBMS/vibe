@@ -14,12 +14,14 @@
  *   lr2probe loop OUT                    the latency of our own click from the
  *                                        default sound device to VB-CABLE's
  *                                        capture side
- *   lr2probe play SCHED CLICK_MS LAT_MS LOG
+ *   lr2probe play SCHED CLICK_MS LAT_MS LOG [SHOTS]
  *                                        presses keys on a chart's time: the
  *                                        chart's BGM click (at CLICK_MS of chart
  *                                        time) heard on VB-CABLE's capture side
  *                                        LAT_MS late fixes chart time 0; SCHED
- *                                        rows are "t_ms,scan,down"
+ *                                        rows are "t_ms,scan,down"; scan 0 is a
+ *                                        screenshot of LR2's window instead,
+ *                                        SHOTS/t<ms>.bmp
  *   lr2probe drop TITLE X Y PATH         drags PATH (a file or folder) with the
  *                                        mouse onto X, Y in the window
  *   lr2probe ui TITLE ACTION ...         drives a dialog through its controls:
@@ -1041,8 +1043,58 @@ static int by_time(const void *a, const void *b)
     return d < 0 ? -1 : d > 0;
 }
 
-static int probe_play(const char *sched, double click_ms, double lat_ms, const char *log)
+/* LR2's client area, as a 24-bit BMP */
+static void snap(HWND w, const char *path)
 {
+    RECT r;
+    POINT o = {0, 0};
+    HDC sdc, mdc;
+    HBITMAP bm;
+    BITMAPINFOHEADER bi;
+    BITMAPFILEHEADER fh;
+    int W, H, row;
+    unsigned char *buf;
+    FILE *f;
+    GetClientRect(w, &r);
+    ClientToScreen(w, &o);
+    W = r.right;
+    H = r.bottom;
+    if (W <= 0 || H <= 0)
+        return;
+    sdc = GetDC(NULL);
+    mdc = CreateCompatibleDC(sdc);
+    bm = CreateCompatibleBitmap(sdc, W, H);
+    SelectObject(mdc, bm);
+    BitBlt(mdc, 0, 0, W, H, sdc, o.x, o.y, SRCCOPY);
+    memset(&bi, 0, sizeof bi);
+    bi.biSize = sizeof bi;
+    bi.biWidth = W;
+    bi.biHeight = H;
+    bi.biPlanes = 1;
+    bi.biBitCount = 24;
+    bi.biCompression = BI_RGB;
+    row = (W * 3 + 3) & ~3;
+    buf = malloc((size_t)row * H);
+    GetDIBits(mdc, bm, 0, H, buf, (BITMAPINFO *)&bi, DIB_RGB_COLORS);
+    memset(&fh, 0, sizeof fh);
+    fh.bfType = 0x4d42;
+    fh.bfOffBits = sizeof fh + sizeof bi;
+    fh.bfSize = fh.bfOffBits + row * H;
+    if ((f = fopen(path, "wb")) != NULL) {
+        fwrite(&fh, sizeof fh, 1, f);
+        fwrite(&bi, sizeof bi, 1, f);
+        fwrite(buf, (size_t)row * H, 1, f);
+        fclose(f);
+    }
+    free(buf);
+    DeleteObject(bm);
+    DeleteDC(mdc);
+    ReleaseDC(NULL, sdc);
+}
+
+static int probe_play(const char *sched, double click_ms, double lat_ms, const char *log, const char *shots)
+{
+    HWND lr2 = NULL;
     Capture *c = calloc(1, sizeof *c);
     Press *p = calloc(20000, sizeof *p);
     int n = 0, i = 0;
@@ -1075,7 +1127,7 @@ static int probe_play(const char *sched, double click_ms, double lat_ms, const c
     /* up to 5 minutes for LR2 to load and reach the click */
     while (now_us() - start < 300000000LL) {
         if (capture_poll(c, c->rate * 2)) {
-            HWND lr2 = FindWindowA(NULL, "LR2 beta3 version 100201");
+            lr2 = FindWindowA(NULL, "LR2 beta3 version 100201");
             t0 = capture_onset_us(c) - (click_ms + lat_ms) * 1000.0;
             printf("click heard (peak %d) %.1f s after the start; LR2 window %s\n", c->peak,
                    (capture_onset_us(c) - start) / 1e6, lr2 ? "found" : "NOT found");
@@ -1089,7 +1141,13 @@ static int probe_play(const char *sched, double click_ms, double lat_ms, const c
                 double due = t0 + p[i].t_ms * 1000.0;
                 while (now_us() < due)
                     YieldProcessor();
-                key(p[i].scan, p[i].down);
+                if (p[i].scan) {
+                    key(p[i].scan, p[i].down);
+                } else if (shots && lr2) {
+                    char path[MAX_PATH];
+                    snprintf(path, sizeof path, "%s\\t%.0f.bmp", shots, p[i].t_ms);
+                    snap(lr2, path);
+                }
                 fprintf(lf, "%.3f,%x,%d,%.0f,%lld\n", p[i].t_ms, p[i].scan, p[i].down, due, now_us());
                 last_event = now_us();
                 i++;
@@ -1265,7 +1323,7 @@ int main(int argc, char **argv)
     if (argc >= 3 && !strcmp(argv[1], "loop"))
         return probe_loop(argv[2]);
     if (argc >= 6 && !strcmp(argv[1], "play"))
-        return probe_play(argv[2], atof(argv[3]), atof(argv[4]), argv[5]);
+        return probe_play(argv[2], atof(argv[3]), atof(argv[4]), argv[5], argc >= 7 ? argv[6] : NULL);
     if (argc >= 6 && !strcmp(argv[1], "drop")) {
         int wargc = 0;
         wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);

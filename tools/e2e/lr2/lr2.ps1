@@ -3,7 +3,7 @@
 # screen (gdigrab) and the files it writes. LR2 itself stays in
 # $env:RUNNER_TEMP\lr2; $Out gets only this script's logs, screenshots and
 # numbers.
-#   lr2.ps1 -Stage setup|autoplay|loop|play|calibrate|compare -Zip LR2.zip -Probe lr2probe.exe -Out DIR [-Chart NAME] [-Kind c|f]
+#   lr2.ps1 -Stage setup|autoplay|loop|play|calibrate|jitter|gauge|compare -Zip LR2.zip -Probe lr2probe.exe -Out DIR [-Chart NAME[,NAME...]] [-Kind c|f] [-Auto] [-Gauge N]
 #     setup      unzip, a player, windowed, vsync off, the charts' folder;
 #                LR2 started once (its song list), the select screen
 #     autoplay   LR2body.exe -A -NS on a chart, screenshots
@@ -11,6 +11,8 @@
 #     play       a chart played by lr2probe's key schedule, started by the
 #                chart's BGM click; the result screen; LR2's score rows
 #     calibrate  the latency from the two sweeps of -Kind
+#     jitter     how far the start signal moves from play to play
+#     gauge      the gauge read off the plays' screenshots
 #     compare    LR2's counts against vibeBMS's rows
 param(
     [Parameter(Mandatory)] [string] $Stage,
@@ -18,7 +20,11 @@ param(
     [Parameter(Mandatory)] [string] $Probe,
     [Parameter(Mandatory)] [string] $Out,
     [string] $Chart = '',
-    [string] $Kind = 'c'
+    [string] $Kind = 'c',
+    # play: LR2's own autoplay (-A -NS), and the gauge option (config.xml's
+    # play/gauge: 0 GROOVE, 1 HARD as this script reads LR2)
+    [switch] $Auto,
+    [int] $Gauge = 0
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8  # the probe writes UTF-8
@@ -33,6 +39,17 @@ $ScoreDb = Join-Path $Root 'LR2files\Database\Score\e2etest.db'
 $Py = (Get-Command python).Source
 $E2e = Join-Path $PSScriptRoot 'e2e.py'
 $Title = 'LR2 beta3 version 100201'
+# lr2probe's screenshots of LR2 for the gauge readings (not uploaded)
+$Shots = Join-Path $env:RUNNER_TEMP 'shots'
+$Config = Join-Path $Root 'LR2files\Config\config.xml'
+
+# one value of config.xml (ASCII digits in a Shift-JIS file)
+function Set-Config([string] $name, [int] $value) {
+    $b = [IO.File]::ReadAllBytes($Config)
+    $t = [Text.Encoding]::GetEncoding(932).GetString($b)
+    $t = [regex]::Replace($t, "<$name>-?[0-9]+</$name>", "<$name>$value</$name>")
+    [IO.File]::WriteAllBytes($Config, [Text.Encoding]::GetEncoding(932).GetBytes($t))
+}
 
 function Shot([string] $file) {
     & ffmpeg -hide_banner -loglevel error -y -f gdigrab -framerate 5 -i desktop -frames:v 1 (Join-Path $Out $file) 2>&1 | Write-Host
@@ -88,9 +105,11 @@ function Play([string] $name) {
     $sched = Join-Path $env:RUNNER_TEMP "$name.csv"
     & $Py -I $E2e plan $c $sched
     $log = Join-Path $Out "play-$name.csv"
-    $p = Start-Process -FilePath $Probe -ArgumentList @('play', "`"$sched`"", '1600', "$lat", "`"$log`"") -PassThru -NoNewWindow `
+    $shots = Join-Path $Shots $name
+    New-Item -ItemType Directory -Force $shots | Out-Null
+    $p = Start-Process -FilePath $Probe -ArgumentList @('play', "`"$sched`"", '1600', "$lat", "`"$log`"", "`"$shots`"") -PassThru -NoNewWindow `
         -RedirectStandardOutput (Join-Path $Out "play-$name.txt")
-    Start-LR2 'LR2body.exe' @($c)
+    Start-LR2 'LR2body.exe' (@(if ($Auto) { '-A'; '-NS' }) + @($c))
     $shot = 0
     while (-not $p.HasExited) {
         Start-Sleep -Seconds 1
@@ -205,9 +224,11 @@ switch ($Stage) {
     }
     'play' {
         # -Chart: one chart or several, comma-separated, one after another
+        Set-Config 'gauge' $Gauge
         foreach ($name in $Chart.Split(',')) {
             try { Play $name } catch { Write-Host "::warning::$name`: $($_.Exception.Message)"; Stop-LR2 }
         }
+        Set-Config 'gauge' 0
     }
     'calibrate' {
         $lat = Latency
@@ -222,8 +243,16 @@ switch ($Stage) {
     'jitter' {
         Log 'calibrate.txt' { & $Py -I $E2e jitter (Join-Path $Out 'scores.json') }
     }
+    'gauge' {
+        & $Py -I $E2e gauge $Shots (Join-Path $Out 'gauge.json') | Write-Host
+        # each chart's last reading, as a picture
+        foreach ($d in Get-ChildItem $Shots -Directory) {
+            $last = Get-ChildItem $d.FullName -Filter *.bmp | Sort-Object { [int]($_.BaseName.Substring(1)) } | Select-Object -Last 1
+            if ($last) { & ffmpeg -hide_banner -loglevel error -y -i $last.FullName (Join-Path $Out "gauge-$($d.Name).png") }
+        }
+    }
     'compare' {
-        & $Py -I $E2e compare (Join-Path $Out 'scores.json') (Join-Path $Out 'compare.md')
+        & $Py -I $E2e compare (Join-Path $Out 'scores.json') (Join-Path $Out 'compare.md') (Join-Path $Out 'gauge.json')
         $code = $LASTEXITCODE
         Get-Content (Join-Path $Out 'compare.md') | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
         exit $code

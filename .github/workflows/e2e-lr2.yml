@@ -37,7 +37,7 @@ env:
 jobs:
   lr2:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     defaults:
       run:
         shell: pwsh
@@ -78,7 +78,22 @@ jobs:
         run: cmd /c tools\e2e\lr2\build.cmd "$env:RUNNER_TEMP\lr2probe.exe"
       - name: ffmpeg (gdigrab)
         run: |
-          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress | Select-Object -Last 3 }
+          # Chocolatey's, or BtbN's build when Chocolatey fails (it does now and then)
+          for ($i = 0; $i -lt 2 -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue); $i++) {
+            choco install ffmpeg -y --no-progress | Select-Object -Last 3
+            $env:PATH = "$env:ProgramData\chocolatey\bin;$env:PATH"
+          }
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            $d = "$env:RUNNER_TEMP\ffmpeg"
+            gh release download latest --repo BtbN/FFmpeg-Builds --pattern 'ffmpeg-master-latest-win64-lgpl.zip' --dir $d
+            Expand-Archive "$d\ffmpeg-master-latest-win64-lgpl.zip" $d
+            $bin = (Get-ChildItem $d -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+            $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+            $env:PATH = "$bin;$env:PATH"
+          }
+          ffmpeg -hide_banner -version | Select-Object -First 1
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       # ---- the runner without LR2 (on request)
       - name: Runner
@@ -166,6 +181,12 @@ jobs:
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a3-rank0-70,a3-rank0-110,a3-rank2-70,a3-rank2-110,a3-rank3-70,a3-rank3-110,a3-rank4-70,a3-rank4-110,a3-rank5-70,a3-rank5-110,a3-rankm1-70,a3-rankm1-110
       - name: lr2-measure A8 (run 1, GROOVE, key 1 held)
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a8-mines
+      - name: lr2-measure A7 (LR2's autoplay, GROOVE)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Auto -Chart a7-n200,a7-n500,a7-n1000
+      - name: lr2-measure A4 (HARD)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Gauge 1 -Chart a4-n20,a4-n29,a4-n30,a4-n31,a4-n45,a4-n60,a4-n90,a4-n110,a4-n124,a4-n125,a4-t200
+      - name: Gauge readings
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage gauge
       - name: LR2 against vibeBMS
         run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage compare
 
