@@ -7,8 +7,8 @@
 # <run number>  the CI run that built it: the N of 0.1.0-nightly.N+abc1234, the
 #               version the build reports (also in latest.json and builds.json)
 # <channel>     nightly (the default)
-# <artifact>    linux-x64-portable (the default), linux-arm64-portable (on an
-#               arm64 machine) or web
+# <artifact>    linux-x64-portable (the default), linux-x64, web, or on an arm64
+#               machine linux-arm64-portable, linux-arm64
 #
 # It builds the commit's files (git archive, from this clone; fetched from
 # origin if missing) in the container image tools/repro.env pins, with that
@@ -129,12 +129,17 @@ git -C "$repo" archive "$sha" | tar -x -C "$src"
   die "$sha predates reproducible builds (it has no tools/build_release.sh)"
 # shellcheck source=tools/repro.env
 . "$src/tools/repro.env"
+# (a commit from before the WebKitGTK builds moved into containers has no
+# LINUX_IMAGE_*: it was built on GitHub's Ubuntu 22.04 runner image)
 case "$artifact" in
   linux-x64-portable) image="$PORTABLE_IMAGE_X64" platform=linux/amd64 triple=x86_64-unknown-linux-gnu ;;
   linux-arm64-portable) image="$PORTABLE_IMAGE_ARM64" platform=linux/arm64 triple=aarch64-unknown-linux-gnu ;;
+  linux-x64) image="${LINUX_IMAGE_X64:-}" platform=linux/amd64 triple=x86_64-unknown-linux-gnu ;;
+  linux-arm64) image="${LINUX_IMAGE_ARM64:-}" platform=linux/arm64 triple=aarch64-unknown-linux-gnu ;;
   web) image="$WEB_IMAGE" platform=linux/amd64 triple=wasm32-unknown-unknown ;;
-  *) die "$artifact cannot be rebuilt here: linux-x64-portable, linux-arm64-portable or web (the others: the Reproducible builds workflow)" ;;
+  *) die "$artifact cannot be rebuilt here: linux-x64-portable, linux-arm64-portable, linux-x64, linux-arm64 or web (the others: the Reproducible builds workflow)" ;;
 esac
+[ -n "$image" ] || die "$sha built $artifact on a runner image, not in a container: the Reproducible builds workflow rebuilds it"
 case "$platform:$(uname -m)" in
   linux/amd64:x86_64 | linux/arm64:aarch64 | linux/arm64:arm64) ;;
   *) echo "warning: $artifact on a $(uname -m) machine: the container runs emulated (slow)" >&2 ;;
@@ -185,6 +190,7 @@ jobs=()
   -e VIBEBMS_THIRD_PARTY="${VIBEBMS_THIRD_PARTY:-}" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
   ${jobs[@]+"${jobs[@]}"} "$image" bash -c "$script"
 
+echo "image=$image" >> "$out/build.txt"
 echo
 echo "SHA-256 ($out):"
 cat "$out/SHA256SUMS"

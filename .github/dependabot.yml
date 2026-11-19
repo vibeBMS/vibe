@@ -9,9 +9,22 @@ updates:
       day: monday
       timezone: Asia/Seoul
     open-pull-requests-limit: 5
+    ignore:
+      # vendor/lua-src is a copy of it (its sources compiled in name order,
+      # for reproducible builds): a new release is taken there by hand
+      - dependency-name: "lua-src"
     groups:
       cargo:
         update-types: [minor, patch]
+
+  # rust-toolchain.toml's release: it changes the release builds' bytes, so
+  # it moves in a commit of its own, merged like a minor update once CI passes
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Seoul
 
   - package-ecosystem: github-actions
     directory: /

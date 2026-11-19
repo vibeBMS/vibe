@@ -22,7 +22,7 @@ Runtime also loads `libxkbcommon-x11` (X11) or Wayland libraries.
 WebKitGTK is for the in-app browser that downloads songs; without it, build with
 `--no-default-features` (download pages then open in the system browser).
 
-The release builds: `vibebms-linux-x64` / `-arm64` are built on Ubuntu 22.04 (glibc 2.35, WebKitGTK 4.1);
+The release builds: `vibebms-linux-x64` / `-arm64` are built in an Ubuntu 22.04 container (glibc 2.35, WebKitGTK 4.1);
 `vibebms-linux-x64-portable` / `-arm64-portable` are built without the browser in a `manylinux_2_28` (AlmaLinux 8)
 container, so they need only glibc 2.28, ALSA and libudev. WebKitGTK cannot be loaded at run time instead (wry
 links it), hence the two builds.
@@ -160,8 +160,8 @@ The runtime is `org.gnome.Platform` (51) because it has WebKitGTK 4.1 (`libwebki
 browser links; the Freedesktop runtime has no WebKitGTK. Its permissions: network, Wayland or X11 (and IPC), the GPU,
 PulseAudio, all devices (game controllers) and the home folder (BMS folders added in `SETTINGS › LIBRARY`). CI builds
 the nightly's (`io.github.vibebms.nightly`, "vibeBMS Nightly", branch `nightly`) from `vibebms-linux-x64` and `-arm64`
-in the job that built each, after uploading the executable (Ubuntu 22.04, so the script keeps to flatpak 1.12 and
-AppStream 0.15.2), installs and caches the runtime alone (without its GL drivers, codecs and translations), checks that
+as built, in a job per architecture on the Ubuntu 22.04 runner (so the script keeps to flatpak 1.12 and AppStream
+0.15.2), installs and caches the runtime alone (without its GL drivers, codecs and translations), checks that
 the bundle installs and that every library the executable links resolves in the runtime, and adds the bundle to the
 nightly release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak` (or `-arm64`); a
 newer bundle installs over it the same way (it does not update itself: the self-update stays off under `/app`).
@@ -337,15 +337,28 @@ What a build depends on is the commit plus these inputs:
 
 Everything else is fixed by the commit:
 - **compilers and tools**: Rust by `rust-toolchain.toml`; wasm-bindgen by `Cargo.lock` (checked); in
-  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, Ubuntu 26.04 for the web
-  build), the web build's packages (clang among them) from the Ubuntu snapshot of a given time, the Android NDK,
-  cargo-ndk, the JDK and Gradle (the Android Gradle plugin in `platform/android`); the web build's CJK fonts by commit
-  and SHA-256 (`tools/build_release.sh`);
+  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, Ubuntu 22.04 for
+  `vibebms-linux-x64` / `-arm64`, Ubuntu 26.04 for the web build), the Ubuntu images' packages (gcc, clang, the
+  libraries' headers): x64's from the Ubuntu snapshot of a given time, arm64's as `tools/linux-arm64.lock` lists
+  them, each by version and SHA-256 (the ports archive has no snapshot and keeps only a package's newest version:
+  each comes from it or, once gone from it, from Launchpad, which keeps every package Ubuntu published); the runner
+  images (labels) of the macOS, iOS and Windows builds with their Xcode (a major.minor release: an image replaces a
+  patch release by the next) and their side-by-side MSVC toolset (an installer component, e.g. `14.44.17.14`, which
+  no image update replaces, where Visual Studio's own toolset is replaced by each of its updates) and Windows SDK;
+  the Android NDK, cargo-ndk, the JDK and Gradle (the Android Gradle plugin in `platform/android`); the web build's
+  CJK fonts by commit and SHA-256 (`tools/build_release.sh`). `tools/build_release.sh` selects the pinned Xcode
+  (`DEVELOPER_DIR`) and the pinned MSVC toolset and SDK (`vcvarsall.bat`, whose `cl.exe`, `link.exe` and libraries
+  rustc and the cc crate then take; CI adds the toolset's ARM64 tools with the Visual Studio installer, as the images
+  have its x64 tools only) through `tools/toolchain.sh`, and writes exactly what it used into `build.txt`; in CI a pin
+  the image lacks stops the build, listing what the image has;
 - **the build itself**: `tools/build_release.sh <artifact>`, which CI's jobs run: `Cargo.lock` as committed
   (`--locked`), the checkout, `CARGO_HOME` and the target folder remapped to `/vibe`, `/cargo`, `/target`
   (`--remap-path-prefix`, `-ffile-prefix-map`: no build path in panic messages or C's `__FILE__`), Windows' linker
   `/Brepro` (no link time in the PE header), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
   deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
+  Lua's C sources compiled in name order (`vendor/lua-src`, patched in for the lua-src crate, which takes them in the
+  file system's order: on Linux's ext4 that is a hash seeded per file system, so two machines linked them
+  differently; `tools/build_release.sh` stops if `Cargo.lock` takes lua-src from the registry);
 - **dates**: `SOURCE_DATE_EPOCH` is the commit's time; zips (the web zip, the iOS `.ipa`, the macOS app's zip) are
   made with every file at that time, mode 644/755, in name order, no extra fields, TZ=UTC
   (`tools/build_release.sh zip`); the Flatpak's release date and OSTree commit take it, and the bundle's own
@@ -353,36 +366,61 @@ Everything else is fixed by the commit:
 - **checkouts**: `.gitattributes` turns off line-ending conversion, so a Windows checkout has the same bytes as any
   other (the translations and the shader are built in).
 
-Rebuild the portable Linux executable or the web build (needs git, Docker, python3; the build runs in the pinned
-image, a few tens of minutes):
+Rebuild a Linux executable or the web build (needs git, Docker, python3; the build runs in the pinned image, a few
+tens of minutes; the arm64 ones on an arm64 machine):
 ```sh
-tools/reproduce.sh <commit> <run number> [nightly] [linux-x64-portable|linux-arm64-portable|web]
+tools/reproduce.sh <commit> <run number> [nightly] [linux-x64-portable|linux-x64|linux-arm64-portable|linux-arm64|web]
 # e.g. tools/reproduce.sh 9454dfe 300 nightly linux-x64-portable
 # VIBEBMS_THIRD_PARTY=1 tools/reproduce.sh <commit> <run> nightly web   (if WEB_THIRD_PARTY was set)
 ```
 It prints each file's SHA-256 (`repro-out/<artifact>/SHA256SUMS`) and compares it with `builds.json` (every
 nightly executable of the last 90 days) and, while the nightly release is that commit's, with the release's files;
-it exits 1 if one differs. The other builds are made on CI's runner images (`tools/build_release.sh`, after
-`tools/ci_version.sh`), which the workflow below does.
+it exits 1 if one differs. The other builds are made on the runner images `tools/repro.env` names
+(`tools/build_release.sh`, after `tools/ci_version.sh`; the Flatpaks and the macOS app are packaged from the
+executables by `tools/package_flatpak.sh` and `tools/package_macos.sh`), which the workflow below does.
 
 The **Reproducible builds** workflow (`.github/workflows/reproducible.yml`, Actions > Run workflow; inputs: the
 commit, default the nightly's, its run number, default from `builds.json`, the channel and what to build) builds each
-artifact twice in different folders, with different `CARGO_HOME`, parallel jobs and umask (the container builds also
-on two runner images, through `tools/reproduce.sh`), fails if the two differ (diffoscope's report in the summary and
-as an artifact) or if either differs from the release, and lists the results in the run's summary. Commits without
-`tools/build_release.sh` cannot be rebuilt this way.
+artifact twice in different folders, with different `CARGO_HOME`, parallel jobs and umask (the Linux and web builds
+through `tools/reproduce.sh`, the portable and web builds also on two runner images; the others on the runner image
+the commit's `tools/repro.env` names), fails if the two differ (diffoscope's report in the summary and as an
+artifact) or if either differs from the release, and lists the results and what each was built with in the run's
+summary. Packages are compared by their files too: the APK's (its signature is the key's), the `.dmg`'s (not
+reproducible itself), the macOS app zip's and the `.ipa`'s. Commits without `tools/build_release.sh` cannot be rebuilt
+this way.
 
 How far each build is reproducible:
 
 | build | reproducible | what can differ |
 |---|---|---|
 | `vibebms-linux-x64-portable`, `-arm64-portable` | yes: pinned image, packages, Rust | nothing known |
+| `vibebms-linux-x64`, `-arm64` | yes: pinned image and packages (x64: Ubuntu snapshot; arm64: `tools/linux-arm64.lock`), Rust | nothing known |
 | web (`vibeBMS-web.zip`) | yes: pinned image and packages (Ubuntu snapshot), Rust, wasm-bindgen, fonts | nothing known |
-| `vibebms-linux-x64`, `-arm64`, the Flatpaks | on the same runner image | built on GitHub's Ubuntu 22.04 image: its gcc, binutils and libraries are the image's, and its updates can change the bytes (rare); the Flatpak also needs Ubuntu 22.04's appstream and faketime |
-| `vibebms-windows-*.exe` | on the same runner image | the MSVC linker and libraries are the image's Visual Studio; a newer one changes the bytes |
-| Android: the library, the APK's files | on the same runner image (NDK, JDK, Gradle pinned) | the APK's signature: a rebuild is signed by another key, so its files are compared (`tools/build_release.sh apk-entries`), not the APK |
-| macOS (`vibebms-macos-*`, the app's zip) | on the same Xcode (the workflow does not rebuild it) | the Xcode of `macos-latest` (linker, SDK); the `.dmg` (hdiutil writes times and IDs) is not reproducible: compare the app inside it |
-| iOS `.ipa` | on the same Xcode (the workflow does not rebuild it) | as macOS; a signed copy (AltStore, the App Store) differs anyway |
+| the Flatpaks | from the same executable, on the same runner image | packaged on GitHub's Ubuntu 22.04 image: its flatpak, appstream and faketime are the image's, and their updates can change the bytes (rare) |
+| `vibebms-windows-*.exe` | yes: pinned runner image, MSVC toolset and Windows SDK, Rust | a servicing update of the SDK keeps its version (`10.0.26100.0`), so the pin does not see it |
+| macOS (`vibebms-macos-*`, the app's zip) | yes: pinned runner image and Xcode, Rust | Xcode's patch release (`build.txt` names it), and `codesign`, `ditto` and `zip`, which are the image's macOS's: the image's updates move them; the `.dmg` (hdiutil writes times and IDs) is not reproducible: its files are compared |
+| iOS `.ipa` | yes: pinned runner image and Xcode, Rust | as macOS; a signed copy (AltStore, the App Store) differs anyway |
+| Android: the library, the APK's files | on the same runner image (NDK, JDK, Gradle pinned) | the APK's signature: a rebuild is signed by another key, so its files are compared (`tools/build_release.sh entries`), not the APK |
 
 To keep it so: move the pins (`rust-toolchain.toml`, `tools/repro.env`) in commits of their own, and build release
-files only through `tools/build_release.sh`.
+files only through `tools/build_release.sh`. Both are moved for you:
+- Dependabot updates `rust-toolchain.toml` weekly, merged once CI passes like a minor update
+  (`.github/workflows/dependabot-merge.yml`);
+- the **Toolchain pins** workflow (`.github/workflows/toolchain-pins.yml`, weekly, or Actions > Run workflow) updates
+  `tools/repro.env`: the newest GA macOS and Windows runner labels (from actions/runner-images), the Xcode
+  releases, side-by-side MSVC toolsets and Windows SDKs on the pinned and newest images (looked up on the runners,
+  the newest checked as `tools/toolchain.sh` selects it), the Android tools from their registries and, in the first
+  week of a month (or with the `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` and
+  `tools/linux-arm64.lock` resolved again in its image. `tools/repro_pins.py` splits the changes
+  into two pull requests, each one commit that changes only pins, on which the workflow dispatches CI (a pull request
+  made with `GITHUB_TOKEN` starts none): `toolchain-pins/update` (newer tools on the same labels, Xcode and the
+  Android tools within their major versions, digests, the snapshot), which the merge workflow merges once that CI run
+  passes, after checking with the default branch's `tools/repro_pins.py` that only pins' values changed; and
+  `toolchain-pins/major` (a new runner label with its tools, a new major version), which waits for a person, as a
+  Dependabot major update does. Each run makes both again from the default branch, and closes one whose pins are
+  current. It needs Settings › Actions › General › "Allow GitHub Actions to create and approve pull requests".
+
+A runner image that no longer has the pinned Xcode, MSVC toolset or SDK stops those builds in CI, saying which pin
+and what the image has; the workflow's next run (or one started by hand) moves it. `tools/linux-arm64.lock` names the
+image and packages it is for, and the build stops when they are not `tools/repro.env`'s: after changing either, make
+it again (`tools/build_deps.sh lock linux-arm64`, as the top of `tools/build_deps.sh` says).
