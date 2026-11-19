@@ -16,6 +16,9 @@ pub struct LoadedSkin {
     /// `load_pending`.
     lazy: Vec<bool>,
     wanted: std::cell::RefCell<Vec<usize>>,
+    /// Something drawn was missing one of `lazy_images` (see
+    /// `draw_objects`).
+    missing: std::cell::Cell<bool>,
     /// Images being decoded, with the images that show each file; the
     /// first is the skin's own, which it is not drawn without.
     decoding: Vec<(ImageJobs, Vec<Vec<usize>>)>,
@@ -252,6 +255,7 @@ impl LoadedSkin {
             tex: Vec::new(),
             lazy: Vec::new(),
             wanted: Default::default(),
+            missing: Default::default(),
             decoding: Vec::new(),
             ready: false,
             videos: Vec::new(),
@@ -268,7 +272,10 @@ impl LoadedSkin {
     fn start(&mut self) {
         let skin = &self.skin;
         let mut lazy = vec![false; skin.images.len()];
-        let sheets = skin.fonts.iter().flat_map(|f| f.glyphs.values().map(|(img, _)| img));
+        let sheets = skin
+            .fonts
+            .iter()
+            .flat_map(|f| f.glyphs.values().map(|(img, _)| img));
         for i in sheets.chain(&skin.lazy_images) {
             if let Some(l) = lazy.get_mut(*i) {
                 *l = true;
@@ -383,10 +390,21 @@ impl LoadedSkin {
     /// Image `i`'s texture; one loaded when first drawn is asked for.
     fn texture(&self, i: usize) -> Option<TexId> {
         let t = self.tex.get(i).copied().flatten();
-        if t.is_none() && self.lazy.get(i) == Some(&true) {
-            let mut w = self.wanted.borrow_mut();
-            if !w.contains(&i) {
-                w.push(i);
+        if t.is_none() {
+            let unasked = self.lazy.get(i) == Some(&true);
+            if unasked {
+                let mut w = self.wanted.borrow_mut();
+                if !w.contains(&i) {
+                    w.push(i);
+                }
+            }
+            let decoding = || {
+                self.decoding
+                    .iter()
+                    .any(|(_, u)| u.iter().flatten().any(|&j| j == i))
+            };
+            if self.skin.lazy_images.contains(&i) && (unasked || decoding()) {
+                self.missing.set(true);
             }
         }
         t
@@ -818,6 +836,9 @@ impl LoadedSkin {
         st: &dyn SkinState,
         hooks: &mut dyn Hooks,
     ) {
+        // the objects of an option show together: none while an image one
+        // of them is drawn from is loading (a panel's page as it opens)
+        let mut held: Vec<i32> = Vec::new();
         for o in &self.skin.objects {
             match &o.kind {
                 Kind::Notes => {
@@ -854,6 +875,10 @@ impl LoadedSkin {
             if let Some((act, click)) = o.act {
                 hooks.clickable(area, act, click);
             }
+            if !held.is_empty() && o.dst.ops.iter().any(|op| held.contains(op)) {
+                continue;
+            }
+            self.missing.set(false);
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => {
                     let size = src.frames.first().map(|f| (f[2] * xf.sx, f[3] * xf.sy));
@@ -1049,6 +1074,9 @@ impl LoadedSkin {
                 }
                 Kind::Graph(g) => hooks.graph(d, g, r, fr.color),
                 Kind::Notes | Kind::Judge { .. } | Kind::SongList => {}
+            }
+            if self.missing.get() {
+                held.extend(o.dst.ops.iter().filter(|&&op| op > 0));
             }
         }
     }
