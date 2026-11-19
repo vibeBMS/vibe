@@ -134,7 +134,15 @@ if [ "$1" = lock ]; then
 fi
 # shellcheck disable=SC2086 # the lists are words
 case "$1" in
-  linux-x64-portable | linux-arm64-portable) dnf install -y $PORTABLE_PACKAGES ;;
+  linux-x64-portable | linux-arm64-portable)
+    # (a mirror now and then serves an empty repomd.xml: a fresh one is tried)
+    for try in 1 2 3; do
+      dnf install -y $PORTABLE_PACKAGES && break
+      [ "$try" = 3 ] && exit 1
+      dnf clean metadata
+      sleep $((try * 10))
+    done
+    ;;
   linux-x64) snapshot_install $LINUX_PACKAGES ;;
   linux-arm64) lock_install "$(dirname "$0")/linux-arm64.lock" ;;
   web) snapshot_install $WEB_PACKAGES ;;
