@@ -11,6 +11,13 @@
  *   lr2probe send N PERIOD_MS CSV        N presses of Z, PERIOD_MS apart, to it
  *   lr2probe focus TITLE                 brings a window to the front
  *   lr2probe windows                     lists the visible top-level windows
+ *   lr2probe ui TITLE ACTION ...         drives a dialog through its controls:
+ *       dump                  every control: id, class, text, check, shown
+ *       click [p/]ID          presses a button (p/: on the shown tab page)
+ *       check [p/]ID 0|1      sets a check box or radio button
+ *       text [p/]ID TEXT      sets a control's text
+ *       mouse X Y             clicks at X, Y in the window
+ *       key VK                presses a virtual key (hex) in the window
  *
  * Times in the CSV files are QueryPerformanceCounter in microseconds, which
  * all processes share. Built 32-bit, as LR2 is (build.cmd).
@@ -602,6 +609,134 @@ static int probe_send(int n, int period_ms, const char *csv)
     return 0;
 }
 
+/* ------------------------------------------------------------- dialogs */
+
+typedef struct {
+    HWND dlg;
+    int id, page;
+    HWND found;
+} FindCtl;
+
+static BOOL CALLBACK find_ctl(HWND h, LPARAM l)
+{
+    FindCtl *f = (FindCtl *)l;
+    HWND parent = GetParent(h);
+    if (GetDlgCtrlID(h) != f->id)
+        return TRUE;
+    /* p/ID: a control on a page (a child dialog) that is shown; ID: one
+     * of the dialog's own */
+    if (f->page ? (parent != f->dlg && IsWindowVisible(parent)) : parent == f->dlg) {
+        f->found = h;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static HWND ctl(HWND dlg, const char *spec)
+{
+    FindCtl f;
+    f.dlg = dlg;
+    f.page = !strncmp(spec, "p/", 2);
+    f.id = atoi(spec + (f.page ? 2 : 0));
+    f.found = NULL;
+    EnumChildWindows(dlg, find_ctl, (LPARAM)&f);
+    if (!f.found)
+        fprintf(stderr, "no control %s\n", spec);
+    return f.found;
+}
+
+static BOOL CALLBACK dump_ctl(HWND h, LPARAM l)
+{
+    HWND dlg = (HWND)l;
+    wchar_t text[512], cls[64];
+    char t8[1536], c8[192];
+    DWORD_PTR check = 0;
+    SendMessageTimeoutW(h, WM_GETTEXT, 512, (LPARAM)text, SMTO_ABORTIFHUNG, 1000, NULL);
+    text[511] = 0;
+    GetClassNameW(h, cls, 64);
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, t8, sizeof t8, NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, cls, -1, c8, sizeof c8, NULL, NULL);
+    if (!wcscmp(cls, L"Button"))
+        SendMessageTimeoutW(h, BM_GETCHECK, 0, 0, SMTO_ABORTIFHUNG, 1000, &check);
+    printf("%s%d [%s] \"%s\"%s%s%s\n", GetParent(h) == dlg ? "" : "  p/", GetDlgCtrlID(h), c8, t8,
+           check == BST_CHECKED ? " checked" : "", IsWindowVisible(h) ? "" : " hidden",
+           IsWindowEnabled(h) ? "" : " disabled");
+    return TRUE;
+}
+
+static void click_at(int x, int y)
+{
+    INPUT in[3];
+    int sw = GetSystemMetrics(SM_CXSCREEN), sh = GetSystemMetrics(SM_CYSCREEN);
+    memset(in, 0, sizeof in);
+    in[0].type = in[1].type = in[2].type = INPUT_MOUSE;
+    in[0].mi.dx = (x * 65535) / (sw - 1);
+    in[0].mi.dy = (y * 65535) / (sh - 1);
+    in[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    in[1].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    in[2].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    SendInput(3, in, sizeof(INPUT));
+}
+
+static int ui(int argc, char **argv)
+{
+    /* argv: TITLE ACTION ARGS */
+    wchar_t title[256];
+    HWND dlg, h;
+    int i;
+    MultiByteToWideChar(CP_UTF8, 0, argv[0], -1, title, 256);
+    for (i = 0; i < 100 && !(dlg = FindWindowW(NULL, title)); i++)
+        Sleep(100);
+    if (!dlg) {
+        fprintf(stderr, "no window %s\n", argv[0]);
+        return 2;
+    }
+    if (!strcmp(argv[1], "dump")) {
+        EnumChildWindows(dlg, dump_ctl, (LPARAM)dlg);
+        return 0;
+    }
+    if (!strcmp(argv[1], "click") && argc >= 3) {
+        if (!(h = ctl(dlg, argv[2])))
+            return 3;
+        PostMessageW(h, BM_CLICK, 0, 0);
+        return 0;
+    }
+    if (!strcmp(argv[1], "check") && argc >= 4) {
+        DWORD_PTR now = 0;
+        if (!(h = ctl(dlg, argv[2])))
+            return 3;
+        SendMessageTimeoutW(h, BM_GETCHECK, 0, 0, SMTO_ABORTIFHUNG, 1000, &now);
+        if ((now == BST_CHECKED) != (atoi(argv[3]) != 0))
+            SendMessageTimeoutW(h, BM_CLICK, 0, 0, SMTO_ABORTIFHUNG, 2000, NULL);
+        return 0;
+    }
+    if (!strcmp(argv[1], "text") && argc >= 4) {
+        wchar_t text[512];
+        if (!(h = ctl(dlg, argv[2])))
+            return 3;
+        MultiByteToWideChar(CP_UTF8, 0, argv[3], -1, text, 512);
+        SendMessageTimeoutW(h, WM_SETTEXT, 0, (LPARAM)text, SMTO_ABORTIFHUNG, 2000, NULL);
+        return 0;
+    }
+    if (!strcmp(argv[1], "mouse") && argc >= 4) {
+        RECT r;
+        focus(dlg);
+        GetWindowRect(dlg, &r);
+        click_at(r.left + atoi(argv[2]), r.top + atoi(argv[3]));
+        Sleep(200);
+        return 0;
+    }
+    if (!strcmp(argv[1], "key") && argc >= 3) {
+        focus(dlg);
+        vk((WORD)strtol(argv[2], NULL, 16), 1);
+        vk((WORD)strtol(argv[2], NULL, 16), 0);
+        Sleep(100);
+        return 0;
+    }
+    fprintf(stderr, "unknown ui action %s\n", argv[1]);
+    return 64;
+}
+
 static BOOL CALLBACK list_window(HWND h, LPARAM l)
 {
     wchar_t title[256], cls[128];
@@ -640,12 +775,14 @@ int main(int argc, char **argv)
         return probe_recv(atoi(argv[2]), argv[3], argc >= 5 && !strcmp(argv[4], "d3d9"));
     if (argc >= 5 && !strcmp(argv[1], "send"))
         return probe_send(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    if (argc >= 4 && !strcmp(argv[1], "ui"))
+        return ui(argc - 2, argv + 2);
     if (argc >= 2 && !strcmp(argv[1], "windows"))
         return !EnumWindows(list_window, 0);
     if (argc >= 3 && !strcmp(argv[1], "focus")) {
         HWND h = FindWindowA(NULL, argv[2]);
         return h && focus(h) ? 0 : 1;
     }
-    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows\n");
+    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows | ui TITLE ACTION ...\n");
     return 64;
 }

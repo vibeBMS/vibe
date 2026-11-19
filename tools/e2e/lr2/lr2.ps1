@@ -12,6 +12,7 @@ param(
     [Parameter(Mandatory)] [string] $Out
 )
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8  # the probe writes UTF-8
 New-Item -ItemType Directory -Force $Out | Out-Null
 $Lr2 = Join-Path $env:RUNNER_TEMP 'lr2'
 
@@ -111,23 +112,24 @@ switch ($Stage) {
     'setup' {
         $root = Unpack
         $le = & (Join-Path $PSScriptRoot 'le.ps1') | Select-Object -Last 1
-        $uia = Join-Path $PSScriptRoot 'uia.ps1'
         # LR2body.exe first: its error, now readable
         $p = Start-Process -FilePath $le -ArgumentList @("`"$(Join-Path $root 'LR2body.exe')`"") -WorkingDirectory $root -PassThru
         Start-Sleep -Seconds 4
         Shot 'le-body.png'
-        Log 'le-body.txt' { & $Probe windows }
-        Log 'le-body.txt' {
-            $t = (& $Probe windows | Select-String 'pid \d+ \[#32770\] "([^"]+)"' | Select-Object -First 1)
-            if ($t) { & powershell.exe -NoProfile -File $uia -Cmd dump -Title $t.Matches[0].Groups[1].Value -Out (Join-Path $Out 'le-body-dialog.txt') -Wait 2 }
-        }
+        Log 'le-body.txt' { & $Probe windows; '--- the error'; & $Probe ui 'エラー' dump }
         Get-Process -Name LR2body -ErrorAction SilentlyContinue | Stop-Process -Force
-        # then the setup dialog
+        # then the setup dialog, tab by tab (the tabs' places in the dialog,
+        # from its screenshot: the tab control has no other way in from
+        # outside)
         $p = Start-Process -FilePath $le -ArgumentList @("`"$(Join-Path $root 'LR2.exe')`"") -WorkingDirectory $root -PassThru
         Start-Sleep -Seconds 4
-        Shot 'le-setup.png'
-        & powershell.exe -NoProfile -File $uia -Cmd dump -Title 'LR2 SETUP' -Out (Join-Path $Out 'setup-controls.txt') -Shots $Out
-        Get-Content (Join-Path $Out 'setup-controls.txt') | Write-Host
+        $tabs = [ordered]@{ main = 36; jukebox1 = 91; jukebox2 = 163; option = 224; select = 277; system = 333 }
+        foreach ($t in $tabs.Keys) {
+            & $Probe ui 'LR2 SETUP' mouse $tabs[$t] 74 | Out-Null
+            Start-Sleep -Milliseconds 500
+            Shot "setup-$t.png"
+            Log 'setup-controls.txt' { "=== $t"; & $Probe ui 'LR2 SETUP' dump }
+        }
         Get-Process -Name LR2 -ErrorAction SilentlyContinue | Stop-Process -Force
     }
     default { throw "unknown stage $Stage" }
