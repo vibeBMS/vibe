@@ -179,7 +179,7 @@ fn download(
             g.n
         ));
     }
-    let got = format!("{:x}", std::mem::take(&mut g.hash).finalize());
+    let got = vibebms_core::hex(&std::mem::take(&mut g.hash).finalize());
     if !got.eq_ignore_ascii_case(sha256) {
         return Err("the download is damaged (its checksum is wrong): try again later".into());
     }
