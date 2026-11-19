@@ -359,6 +359,15 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
+      # the CJK fonts from an earlier run (tools/build_release.sh checks each
+      # one's hash and downloads it again if it is not the one it pins)
+      - uses: actions/cache@v6
+        with:
+          path: |
+            web/fonts/NotoSans*-Regular.otf
+            web/fonts/NotoSansCJK-LICENSE.txt
+          key: noto-cjk-${{ hashFiles('tools/build_release.sh') }}
+          restore-keys: noto-cjk-
       # web/pkg and the CJK fonts (Noto Sans CJK, SIL OFL 1.1, at a fixed
       # commit). Third parties' mirrors on by default: the repository variable
       # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions >
