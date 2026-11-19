@@ -42,7 +42,7 @@ const EXTS: &[&str] = &["zip", "7z", "rar", "lzh", "lha", "tar", "tgz", "tar.gz"
 /// A song this large or smaller is unpacked into memory; natively a larger
 /// one goes into a folder (`cache/unpacked/`). On the web, which has no
 /// folder for it, a song up to [`WEB_MAX`] is unpacked into memory.
-pub const MEMORY: u64 = if cfg!(any(target_os = "android", target_os = "ios")) {
+pub const MEMORY: u64 = if cfg!(mobile) {
     192 << 20
 } else {
     512 << 20
