@@ -16,7 +16,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use vibebms_audio::{AudioConfig, Mixer};
+use vibebms_audio::Mixer;
 
 pub const USAGE: &str = "\
 usage: vibebms export video <chart> [--replay <best|last|1-4>] [--out <file.mp4>]
@@ -55,18 +55,9 @@ impl VideoExport {
             fps: 60,
             duration: None,
         };
-        let mut it = args.iter();
-        while let Some(a) = it.next() {
-            let (name, inline) = match a.split_once('=') {
-                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
-                _ => (a.as_str(), None),
-            };
-            let mut value = || {
-                inline
-                    .clone()
-                    .or_else(|| it.next().cloned())
-                    .ok_or_else(|| format!("{name} needs a value"))
-            };
+        let mut args = super::cli::Args::new(args);
+        while let Some(name) = args.next() {
+            let mut value = || args.value(name);
             match name {
                 "--replay" => {
                     let v = value()?;
@@ -106,8 +97,8 @@ impl VideoExport {
                 n if n.starts_with('-') && n.len() > 1 => {
                     return Err(format!("export video: unknown option {n}"))
                 }
-                _ if chart.is_none() => chart = Some(PathBuf::from(a)),
-                _ => return Err(format!("export video: one chart only ({a:?})")),
+                a if chart.is_none() => chart = Some(PathBuf::from(a)),
+                a => return Err(format!("export video: one chart only ({a:?})")),
             }
         }
         e.chart = chart.ok_or("export video: which chart?")?;
@@ -268,8 +259,8 @@ fn chart_rate(path: &Path, chart: &vibebms_core::Chart) -> u32 {
         let Ok(bytes) = crate::platform::vfs::read(&p) else {
             continue;
         };
-        let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase());
-        if let Some(r) = vibebms_audio::decode::native_rate(bytes, &ext.unwrap_or_default()) {
+        let ext = crate::platform::vfs::ext_lower(&p);
+        if let Some(r) = vibebms_audio::decode::native_rate(bytes, &ext) {
             match rates.iter_mut().find(|(x, _)| *x == r) {
                 Some((_, n)) => *n += 1,
                 None => rates.push((r, 1)),
@@ -385,8 +376,7 @@ pub fn export_video(
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_else(|| "mp4".into());
     let path = std::path::absolute(&opts.chart).unwrap_or_else(|_| opts.chart.clone());
-    let chart = super::cli::read_chart(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let song = crate::library::song_from_chart(&path, String::new(), &chart);
+    let (song, chart) = super::cli::song_at(&path)?;
     let rate = chart_rate(&path, &chart);
 
     let mut config = crate::profiles::load_config(paths);
@@ -395,34 +385,22 @@ pub fn export_video(
     config.select.replay_speed = 100;
     let mut off = Offscreen::new(w, h)
         .map_err(|e| format!("drawing without a window is not available here: {e}"))?;
-    let a = &config.audio;
-    let mixer = Mixer::offline(
-        &AudioConfig {
-            buffer_frames: 0,
-            sample_rate: rate,
-            master: a.master,
-            key_volume: a.key,
-            bgm_volume: a.bgm,
-            system_volume: a.system,
-            max_voices: 512,
-            #[cfg(windows)]
-            exclusive: false,
-        },
-        rate,
-    );
+    let offline = crate::config::AudioSettings {
+        buffer_frames: 0,
+        sample_rate: rate,
+        #[cfg(windows)]
+        exclusive: false,
+        ..config.audio.clone()
+    };
+    let mixer = Mixer::offline(&offline.mixer_config(512), rate);
+    let screen = crate::platform::screen::Screen {
+        size_px: (w as f32, h as f32),
+        points_per_inch: 96.0,
+    };
+    let size = winit::dpi::PhysicalSize::new(w, h);
     let view = super::ctx::View {
-        width: w as f32,
-        height: h as f32,
-        scale: 1.0,
-        screen: crate::platform::screen::Screen {
-            size_px: (w as f32, h as f32),
-            points_per_inch: 96.0,
-        },
         fps: fps as f32,
-        gpu_name: off.gfx.adapter_name.clone(),
-        want_fullscreen: None,
-        want_present_mode: false,
-        want_screenshot: false,
+        ..super::ctx::View::new(size, 1.0, screen, &off.gfx.adapter_name)
     };
     let profiles = crate::profiles::Profiles::open(paths);
     let mut ctx = Ctx::new(
@@ -632,6 +610,12 @@ mod tests {
             Some(Slot::Last)
         );
         assert_eq!(parse("a.bms").unwrap().size, (1280, 720));
+        let e = parse("--size=640x360 a.bms --fps=30 -o out.webm").unwrap();
+        assert_eq!(
+            (e.size, e.fps, e.out_path()),
+            ((640, 360), 30, "out.webm".into())
+        );
+        assert_eq!(parse("a.bms --out").unwrap_err(), "--out needs a value");
         for bad in [
             "",
             "a.bms --replay 9",
@@ -769,8 +753,7 @@ mod tests {
         assert!(left.is_empty(), "{left:?}");
 
         // a replay of it: the bot's play, saved as the best one
-        let chart = crate::app::cli::read_chart(&chart_path).unwrap();
-        let song = crate::library::song_from_chart(&chart_path, String::new(), &chart);
+        let (song, _) = crate::app::cli::song_at(&chart_path).unwrap();
         let play = crate::config::PlayConfig::default();
         let built =
             vibebms_core::play::build_chart(&chart_path, text.as_bytes(), &play, 7, None).unwrap();

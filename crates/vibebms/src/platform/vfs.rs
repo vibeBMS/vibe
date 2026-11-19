@@ -889,7 +889,7 @@ impl DirIndex {
             .iter()
             .filter(|(s, _)| *s == stem)
             .filter_map(|(_, p)| {
-                let ext = p.extension().map(lower).unwrap_or_default();
+                let ext = ext_lower(p);
                 Some((exts.iter().position(|x| *x == ext)?, p))
             })
             .min_by_key(|(rank, _)| *rank)
@@ -911,6 +911,11 @@ fn by_stem(dir: &Path) -> ByStem {
 
 fn lower(s: &std::ffi::OsStr) -> String {
     s.to_string_lossy().to_lowercase()
+}
+
+/// `p`'s extension in lower case ("" when it has none).
+pub fn ext_lower(p: &Path) -> String {
+    p.extension().map(lower).unwrap_or_default()
 }
 
 pub const AUDIO_EXTS: &[&str] = &["wav", "ogg", "mp3", "flac"];

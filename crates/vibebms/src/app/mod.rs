@@ -22,7 +22,7 @@ use crate::paths::Paths;
 use crate::platform::{Duration, Instant, Job};
 use crate::theme;
 use std::sync::Arc;
-use vibebms_audio::{AudioConfig, Mixer};
+use vibebms_audio::Mixer;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
@@ -719,18 +719,7 @@ impl App {
             .unwrap_or_else(|| crate::profiles::load_config(&self.paths));
         crate::i18n::apply(config.language);
         let text = Text::new(&[self.paths.fonts.as_path()]);
-        let a = &config.audio;
-        let mixer = Mixer::new(&AudioConfig {
-            buffer_frames: a.buffer_frames,
-            sample_rate: a.sample_rate,
-            master: a.master,
-            key_volume: a.key,
-            bgm_volume: a.bgm,
-            system_volume: a.system,
-            max_voices: 512,
-            #[cfg(windows)]
-            exclusive: a.exclusive,
-        });
+        let mixer = Mixer::new(&config.audio.mixer_config(512));
         diag::startup("audio");
         let size = {
             let (width, height) = surface_size(&window);
@@ -747,17 +736,7 @@ impl App {
             screen.guessed_inches(scale),
             screen.points_per_inch
         );
-        let view = ctx::View {
-            width: size.width as f32,
-            height: size.height as f32,
-            scale,
-            screen,
-            fps: 0.0,
-            gpu_name: gfx.adapter_name.clone(),
-            want_fullscreen: None,
-            want_present_mode: false,
-            want_screenshot: false,
-        };
+        let view = ctx::View::new(size, scale, screen, &gfx.adapter_name);
         // this launch's options (not saved)
         let overrides = std::mem::take(&mut self.launch.overrides);
         for l in overrides.describe() {

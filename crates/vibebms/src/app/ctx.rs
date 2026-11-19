@@ -12,8 +12,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-#[cfg(test)]
-use vibebms_audio::AudioConfig;
 use vibebms_audio::Mixer;
 use vibebms_core::judge::JudgePreset;
 
@@ -161,6 +159,29 @@ pub struct View {
     pub want_screenshot: bool,
 }
 
+impl View {
+    /// The window's `size` in device pixels, `scale` of them a point, on
+    /// `screen`, drawn by the GPU `gpu_name`.
+    pub fn new(
+        size: winit::dpi::PhysicalSize<u32>,
+        scale: f32,
+        screen: crate::platform::screen::Screen,
+        gpu_name: &str,
+    ) -> View {
+        View {
+            width: size.width as f32,
+            height: size.height as f32,
+            scale,
+            screen,
+            fps: 0.0,
+            gpu_name: gpu_name.to_string(),
+            want_fullscreen: None,
+            want_present_mode: false,
+            want_screenshot: false,
+        }
+    }
+}
+
 /// What the input devices have told.
 #[derive(Default)]
 pub struct Input {
@@ -296,31 +317,25 @@ impl Ctx {
     /// library, silent audio.
     #[cfg(test)]
     pub fn for_test(root: PathBuf) -> Ctx {
-        let mixer = Mixer::new(&AudioConfig {
+        let silent = crate::config::AudioSettings {
             buffer_frames: 0,
             sample_rate: 44100,
             master: 0.0,
-            key_volume: 0.0,
-            bgm_volume: 0.0,
-            system_volume: 0.0,
-            max_voices: 16,
-            #[cfg(windows)]
-            exclusive: false,
-        });
-        let view = View {
-            width: 1280.0,
-            height: 720.0,
-            scale: 1.0,
-            screen: crate::platform::screen::Screen {
+            key: 0.0,
+            bgm: 0.0,
+            system: 0.0,
+            ..Default::default()
+        };
+        let mixer = Mixer::new(&silent.mixer_config(16));
+        let view = View::new(
+            winit::dpi::PhysicalSize::new(1280, 720),
+            1.0,
+            crate::platform::screen::Screen {
                 size_px: (1280.0, 720.0),
                 points_per_inch: 96.0,
             },
-            fps: 0.0,
-            gpu_name: String::new(),
-            want_fullscreen: None,
-            want_present_mode: false,
-            want_screenshot: false,
-        };
+            "",
+        );
         let paths = Paths::at(root);
         let profiles = crate::profiles::Profiles::open(&paths);
         Ctx::new(

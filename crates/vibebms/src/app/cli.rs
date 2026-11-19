@@ -76,39 +76,66 @@ pub enum Command {
 /// The overriding options.
 const OVERRIDES: [&str; 5] = ["gauge", "random", "hs", "judge", "ln"];
 
+/// Options and arguments in turn: an option's name (`--name` of
+/// `--name=value`), its value through [`Args::value`].
+pub(super) struct Args<'a> {
+    rest: std::slice::Iter<'a, String>,
+    /// The value after the last option's `=`.
+    inline: Option<&'a str>,
+}
+
+impl<'a> Args<'a> {
+    pub fn new(args: &'a [String]) -> Args<'a> {
+        Args {
+            rest: args.iter(),
+            inline: None,
+        }
+    }
+
+    /// The value of option `name`: after its `=`, else the next argument.
+    pub fn value(&mut self, name: &str) -> Result<String, String> {
+        (self.inline.take())
+            .or_else(|| self.rest.next().map(String::as_str))
+            .map(str::to_string)
+            .ok_or_else(|| format!("{name} needs a value"))
+    }
+}
+
+impl<'a> Iterator for Args<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        let a = self.rest.next()?;
+        let (name, inline) = match a.split_once('=') {
+            Some((n, v)) if n.starts_with("--") => (n, Some(v)),
+            _ => (a.as_str(), None),
+        };
+        self.inline = inline;
+        Some(name)
+    }
+}
+
 impl Cli {
     /// The arguments after the program's name.
     pub fn parse(args: &[String]) -> Result<Cli, String> {
         let mut cli = Cli::default();
-        let mut it = args.iter().peekable();
-        if it.peek().is_some_and(|a| *a == "songs") {
-            it.next();
-            cli.command = Some(match it.next().map(String::as_str) {
+        if let Some(("songs", rest)) = args.split_first().map(|(a, r)| (a.as_str(), r)) {
+            cli.command = Some(match rest.first().map(String::as_str) {
                 Some("scan") => Command::SongsScan,
                 Some("list") => Command::SongsList {
-                    json: it.any(|a| a == "--json"),
+                    json: rest[1..].iter().any(|a| a == "--json"),
                 },
                 Some(o) => return Err(format!("songs: unknown command {o:?} (scan, list)")),
                 None => return Err("songs: scan or list".into()),
             });
             return Ok(cli);
         }
-        while let Some(a) = it.next() {
-            // `--name=value`, or `--name value`
-            let (name, inline) = match a.split_once('=') {
-                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
-                _ => (a.as_str(), None),
-            };
-            let mut value = |what: &str| -> Result<String, String> {
-                inline
-                    .clone()
-                    .or_else(|| it.next().cloned())
-                    .ok_or_else(|| format!("{what} needs a value"))
-            };
+        let mut args = Args::new(args);
+        while let Some(name) = args.next() {
             // uBMplay's -N<measure>, -N <measure>
             if let Some(m) = name.strip_prefix("-N") {
                 let m = match m {
-                    "" => value("-N")?,
+                    "" => args.value("-N")?,
                     m => m.to_string(),
                 };
                 cli.measure = Some(m.trim().parse().map_err(|_| format!("-N{m}: a measure"))?);
@@ -121,24 +148,24 @@ impl Cli {
                 "-h" | "--help" => cli.command = Some(Command::Help),
                 "-a" | "--autoplay" => cli.autoplay = true,
                 "--vs" => cli.vs = true,
-                "--ghost" => cli.ghost = Some(value(name)?),
+                "--ghost" => cli.ghost = Some(args.value(name)?),
                 "--print-effective-options" => cli.print_options = true,
                 "--set" => {
-                    let v = value(name)?;
+                    let v = args.value(name)?;
                     let (k, v) = v
                         .split_once('=')
                         .ok_or_else(|| format!("--set {v}: <section.key>=<value>"))?;
                     cli.sets.push((k.trim().to_string(), v.trim().to_string()));
                 }
                 n if n.strip_prefix("--").is_some_and(|o| OVERRIDES.contains(&o)) => {
-                    let v = value(n)?;
+                    let v = args.value(n)?;
                     cli.overrides.push((n[2..].to_string(), v));
                 }
                 n if n.starts_with('-') && n.len() > 1 => {
                     return Err(format!("unknown option {n}"));
                 }
-                _ if cli.chart.is_none() => cli.chart = Some(PathBuf::from(a)),
-                _ => return Err(format!("one chart only ({a:?})")),
+                a if cli.chart.is_none() => cli.chart = Some(PathBuf::from(a)),
+                a => return Err(format!("one chart only ({a:?})")),
             }
         }
         Ok(cli)
@@ -155,15 +182,17 @@ pub struct Launch {
     pub overrides: Overrides,
 }
 
-/// A `choices!` value by its label or its name in the config, any case,
-/// spaces, `-` and `_` left out (`exhard`, `EX-HARD`, `ExHard`).
+/// An option's value as it is compared: its letters and digits, in lower
+/// case (`exhard`, `EX-HARD`, `ExHard` are one).
+fn norm(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// A `choices!` value by its label or its name in the config ([`norm`]).
 fn pick<T: Labeled + Serialize + Copy>(all: &[T], s: &str) -> Option<T> {
-    let norm = |s: &str| {
-        s.chars()
-            .filter(|c| c.is_alphanumeric())
-            .flat_map(char::to_lowercase)
-            .collect::<String>()
-    };
     let want = norm(s);
     all.iter().copied().find(|v| {
         let name = toml::Value::try_from(v)
@@ -198,7 +227,6 @@ fn apply_options(cli: &Cli, config: &mut Config) -> Result<(), String> {
                 p.hispeed = hs;
             }
             "ln" => {
-                let norm = |s: &str| s.replace([' ', '-', '_'], "").to_lowercase();
                 let ln = (LnPref::ALL.into_iter())
                     .find(|l| norm(&l.label()) == norm(v))
                     .ok_or_else(bad)?;
@@ -509,10 +537,18 @@ fn songs_list(paths: &crate::paths::Paths, json: bool) -> i32 {
 }
 
 /// A chart through the file system (`pack.zip!/Song/a.bme` is a chart in
-/// an archive).
-pub(super) fn read_chart(path: &std::path::Path) -> Result<vibebms_core::Chart, String> {
-    let b = crate::platform::vfs::read(path).map_err(|e| e.to_string())?;
-    vibebms_core::load_chart_bytes(path, &b, &Default::default()).map_err(|e| e.to_string())
+/// an archive), and the song it is; what went wrong, with the path.
+pub(super) fn song_at(
+    path: &std::path::Path,
+) -> Result<(crate::library::Song, vibebms_core::Chart), String> {
+    let chart = crate::platform::vfs::read(path)
+        .map_err(|e| e.to_string())
+        .and_then(|b| {
+            vibebms_core::load_chart_bytes(path, &b, &Default::default()).map_err(|e| e.to_string())
+        })
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let song = crate::library::song_from_chart(path, String::new(), &chart);
+    Ok((song, chart))
 }
 
 /// The viewer's play: `path` autoplayed from `measure` (as practice plays
@@ -523,14 +559,13 @@ pub(super) fn viewer_scene(
     path: &std::path::Path,
     measure: usize,
 ) -> Option<Box<dyn Scene>> {
-    let c = match read_chart(path) {
-        Ok(c) => c,
+    let song = match song_at(path) {
+        Ok((song, _)) => song,
         Err(e) => {
-            ctx.toast(format!("{}: {e}", path.display()));
+            ctx.toast(e);
             return None;
         }
     };
-    let song = crate::library::song_from_chart(path, String::new(), &c);
     let p = &ctx.config.play;
     let run = crate::scene::play::PracticeRun {
         practice: vibebms_core::practice::Practice {
@@ -566,14 +601,13 @@ pub(super) fn play_scene(ctx: &mut Ctx, cli: &Cli) -> Option<Box<dyn Scene>> {
         let path = std::path::absolute(&path).unwrap_or(path);
         return viewer_scene(ctx, &path, cli.measure.unwrap_or(0));
     }
-    let c = match read_chart(&path) {
-        Ok(c) => c,
+    let song = match song_at(&path) {
+        Ok((song, _)) => song,
         Err(e) => {
-            ctx.toast(format!("{}: {e}", path.display()));
+            ctx.toast(e);
             return None;
         }
     };
-    let song = crate::library::song_from_chart(&path, String::new(), &c);
     // --ghost best|last: G-BATTLE against that replay
     let ghost = cli.ghost.as_deref().map(|g| {
         let slot = if g == "last" {
@@ -647,7 +681,10 @@ mod tests {
             parse("songs scan").unwrap().command,
             Some(Command::SongsScan)
         );
-        assert!(parse("--gauge").is_err());
+        let c = parse("--ghost=last --vs --judge=lr2 a.bms").unwrap();
+        assert_eq!((c.ghost.as_deref(), c.vs), (Some("last"), true));
+        assert_eq!(c.overrides, [("judge".to_string(), "lr2".to_string())]);
+        assert_eq!(parse("--gauge").unwrap_err(), "--gauge needs a value");
         assert!(parse("--frobnicate").is_err());
         assert!(parse("a.bms b.bms").is_err());
         assert!(parse("songs dance").is_err());
