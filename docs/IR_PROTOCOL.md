@@ -109,6 +109,13 @@ The web build calls the server from the page, so the server must answer CORS:
 The web build never sends IR requests through a relay: a server without CORS is not available
 in the browser.
 
+## Plays the client does not send
+The client sends no autoplay, practice, replay, battle (BATTLE, G-BATTLE, VS), course, quit, FREQ, KEY CONVERT,
+4 / 6 / 8 key or assisted play, to any server; the full list of refusals is `Refusal` in
+`crates/vibebms-ir/src/eligibility.rs`.
+
 ## Other IRs
 A service with its own API can be supported by putting a small server speaking this protocol in
-front of it, or by an adapter of its own in `crates/vibebms-ir/src/providers/`.
+front of it, or by an adapter of its own in `crates/vibebms-ir/src/providers/`: `tachi.rs` for
+Bokutachi and `bmsir_read.rs` for BMS-IR. Which plays each takes: `docs/RULES.md`, "LR2
+equivalence".

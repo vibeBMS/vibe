@@ -7,13 +7,6 @@ _untranslated = [
     "TOUCH PERSPECTIVE",
     "RANDOM MIX",
     "EXPAND JUDGE",
-    "HS-FIX",
-    "SUDDEN+",
-    "HIDDEN+",
-    "LIFT",
-    "JUDGE AREA",
-    "MARK NOTE",
-    "BPM GUIDE",
     "FREQ",
     "BGA",
     "GUIDE SE",
@@ -325,8 +318,6 @@ _untranslated = [
 "The second player's own assist, in VS." = "VS 中 2P 自己的輔助。"
 "2P judge offset" = "2P 判定偏移"
 "The second player's own judge offset, in VS." = "VS 中 2P 自己的判定偏移。"
-"ALSO IN THE SONG SELECT" = "選曲畫面中也有"
-"Random, gauge, hi-speed, lane cover, target, assist, BGA: changed between songs" = "隨機、血槽、高速、軌道遮擋、目標、輔助、BGA：在歌曲之間變更"
 "PGREAT window" = "PGREAT 區間"
 "The PGREAT window with EXPAND JUDGE on, in % of the rule's." = "開啟 EXPAND JUDGE 時的 PGREAT 區間（規則區間的百分比）。"
 "GREAT window" = "GREAT 區間"
@@ -577,16 +568,6 @@ _untranslated = [
 "the DIFFICULTY tab" = "DIFFICULTY 分頁"
 "Random select" = "隨機選曲"
 "RANDOM SELECT, the bar at the top of each folder" = "RANDOM SELECT，每個資料夾頂部的欄"
-"On the song select: {p}." = "在選曲畫面：{p}。"
-"Random (1P)" = "隨機（1P）"
-"Random (2P)" = "隨機（2P）"
-"DP option" = "DP 選項"
-"Battle" = "對戰"
-"Hi-speed" = "高速"
-"Lane cover" = "軌道遮擋"
-"Auto scratch" = "自動皿"
-"Legacy note" = "舊式音符"
-"Remove mines" = "去除地雷"
 
 # scene/settings/play_extras.rs
 "PLAY EXTRAS" = "遊玩附加功能"

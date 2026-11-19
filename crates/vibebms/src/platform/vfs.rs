@@ -15,6 +15,29 @@ pub struct Entry {
     pub is_dir: bool,
 }
 
+/// Put `data` in `p`'s place through a `.tmp~` file beside it; with `sync`
+/// it is on disk before it takes the old file's place.
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn write_atomic(p: &Path, data: &[u8], sync: bool) -> io::Result<()> {
+    // (an unset path: nothing to write, and no `.tmp~` left behind)
+    if p.as_os_str().is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no path"));
+    }
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    // `a.json` and `a.toml` must not share one
+    let mut tmp = p.as_os_str().to_owned();
+    tmp.push(".tmp~");
+    use std::io::Write;
+    let mut f = std::fs::File::create(&tmp)?;
+    f.write_all(data)?;
+    if sync {
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, p)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::*;
@@ -23,18 +46,7 @@ mod imp {
         std::fs::read(p)
     }
     pub fn write(p: &Path, data: &[u8]) -> io::Result<()> {
-        // (an unset path: nothing to write, and no `.tmp~` left behind)
-        if p.as_os_str().is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "no path"));
-        }
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        // `a.json` and `a.toml` must not share one
-        let mut tmp = p.as_os_str().to_owned();
-        tmp.push(".tmp~");
-        std::fs::write(&tmp, data)?;
-        std::fs::rename(&tmp, p)
+        write_atomic(p, data, false)
     }
     pub fn remove_file(p: &Path) -> io::Result<()> {
         std::fs::remove_file(p)

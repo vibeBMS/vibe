@@ -12,6 +12,8 @@ pub mod discord;
 #[cfg(desktop)]
 pub mod obs;
 #[cfg(desktop)]
+mod worker;
+#[cfg(desktop)]
 mod ws;
 
 use crate::config::Config;
@@ -97,9 +99,6 @@ impl Status {
         }
     }
 }
-
-/// A worker's status as it and the settings share it.
-pub type SharedStatus = std::sync::Arc<std::sync::Mutex<Status>>;
 
 /// The integrations running (as the settings say) and the activity they
 /// were last told.

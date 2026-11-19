@@ -1,0 +1,2056 @@
+bar 0: kind 5 base 5 "RANDOM SELECT" level None difficulty 0 lamp None rival None count None labels [false, false, false, false, false] trophy None
+bar 1: kind 0 base 0 "Golden Song [ANOTHER]" level Some(11) difficulty 4 lamp Some(Hard) rival None count None labels [true, false, false, false, false] trophy None
+bar 2: kind 0 base 0 "Golden Song" level Some(5) difficulty 2 lamp Some(NoPlay) rival None count None labels [false, true, true, false, false] trophy None
+bar 3: kind 2 base 2 "Golden Table" level None difficulty 0 lamp None rival None count Some(1) labels [false, false, false, false, false] trophy None
+bar 4: kind 9 base 3 "GOLDEN DAN" level None difficulty 0 lamp Some(Normal) rival None count Some(2) labels [true, true, true, false, false] trophy Some(1)
+bar 5: kind 9 base 3 "MISSING DAN" level None difficulty 0 lamp None rival None count Some(2) labels [false, false, false, false, false] trophy None
+bar 6: kind 3 base 3 "MY COURSE (2 stages)" level None difficulty 0 lamp Some(Hard) rival None count Some(2) labels [true, true, true, false, false] trophy None
+bar 7: kind 3 base 3 "RANDOM MIX" level None difficulty 0 lamp None rival None count None labels [false, false, false, false, false] trophy None
+bar 8: kind 7 base 7 "Not Here" level Some(12) difficulty 0 lamp None rival None count None labels [false, false, false, false, false] trophy None
+select-0 2: t="PLAYER"
+select-0 10: n=250 b=0 t="RANDOM SELECT"
+select-0 11: b=0
+select-0 12: n=0 b=0 t="RANDOM SELECT"
+select-0 17: n=0 b=0
+select-0 18: n=0 b=0
+select-0 19: n=0 b=0
+select-0 20: n=0 b=0
+select-0 30: o n=12 b=12 t=""
+select-0 31: n=5 b=5
+select-0 32: o n=7 b=7
+select-0 33: n=0 b=0
+select-0 34: o n=0 b=0
+select-0 35: n=0 b=0
+select-0 36: n=0 b=0
+select-0 37: n=0 b=0
+select-0 39: o
+select-0 40: b=2
+select-0 41: o
+select-0 42: o b=0
+select-0 43: b=0
+select-0 54: b=0
+select-0 55: b=0
+select-0 72: b=0
+select-0 75: b=0
+select-0 77: b=11
+select-0 78: b=0
+select-0 190: o
+select-0 192: o
+select-0 300: n=9 b=9
+select-0 301: b=0
+select-0 302: b=0
+select-0 303: b=0
+select-0 304: b=0
+select-0 305: b=0
+select-0 306: b=0
+select-0 307: b=0
+select-0 308: b=0
+select-0 310: n=2 b=2
+select-0 311: n=50 b=50
+select-0 312: n=640 b=640
+select-0 313: n=384 b=384
+select-0 330: b=0
+select-0 331: b=0
+select-0 332: b=0
+select-0 333: n=0 b=0
+select-0 340: b=0
+select-0 351: b=0
+select-0 352: b=0
+select-0 353: b=0
+select-0 370: n=0 b=0
+select-0 1000: t="ROOT"
+select-0 1401: b=0
+select-0 1402: b=0
+select-0 1403: b=0
+select-0 1404: b=0
+select-0 1405: b=12
+select-0 1407: b=0
+select-0 1500: o
+select-0 1518: o
+select-0 1532: o
+select-0 1548: o
+select-0 1564: o
+select-0 1592: o
+select-0 1596: o
+select-0 1612: o
+select-0 1628: o
+select-0 1644: o
+select-0 1660: o
+select-0 1676: o
+select-0 1692: o
+select-0 1708: o
+select-0 1725: o
+select-0 1740: o
+select-0 1756: o
+select-0 1772: o
+select-0 1788: o
+select-0 1804: o
+select-0 9000: t="OFF"
+select-0 9001: t="NORMAL"
+select-0 9002: t="OFF"
+select-0 9003: t="LN"
+select-0 9004: t="2.50"
+select-0 9005: t="2.50"
+select-0 9006: t="P1"
+select-0 9007: t="beatoraja"
+select-0 9008: t="OFF"
+select-0 9009: t="OPEN"
+select-0 9010: t="OFF"
+select-0 9011: t="TITLE"
+select-0 9012: t="ALL"
+select-0 9013: t="ALL"
+select-0 9014: t="—"
+select-0 9015: t="—"
+select-0 9016: t="ANY"
+select-0 9017: t="SAVE"
+select-0 9018: t="OFF"
+select-0 9019: t="+0 ms"
+select-0 9020: t="384"
+select-0 9021: t="+0 ms"
+select-0 9022: t="ON"
+select-0 9023: t="WINDOW"
+select-0 9024: t="80%"
+select-0 9025: t="100%"
+select-0 9026: t="100%"
+select-0 9027: t="70%"
+select-0 9028: t="LOOP"
+select-0 9029: t="NORMAL"
+select-0 9030: t="OFF"
+select-0 9031: t="ON"
+select-0 9032: t="0%"
+select-0 9033: t="0%"
+select-0 9034: t="0%"
+select-0 9035: t="OFF"
+select-0 9036: t="ON"
+select-0 9037: t="OFF"
+select-0 9038: t="OFF"
+select-0 9039: t="1234567"
+select-0 9040: t="OFF"
+select-0 9041: t="OFF"
+select-0 9042: t="OFF"
+select-0 9043: t="BEST, ELSE LAST"
+select-0 9044: t="100%"
+select-0 9045: t="OPEN"
+select-0 9046: t="OPEN"
+select-0 9047: t="OPEN"
+select-0 9048: t="OFF"
+select-0 9100: t="RANDOM"
+select-0 9101: t="GAUGE"
+select-0 9102: t="AUTO SHIFT"
+select-0 9103: t="LN MODE"
+select-0 9104: t="HI-SPEED −"
+select-0 9105: t="HI-SPEED +"
+select-0 9106: t="SIDE"
+select-0 9107: t="JUDGE"
+select-0 9108: t="AUTOPLAY"
+select-0 9109: t="SETTINGS"
+select-0 9110: t="BATTLE"
+select-0 9111: t="SORT"
+select-0 9112: t="KEY MODE"
+select-0 9113: t="DIFFICULTY"
+select-0 9114: t="FAV CHART"
+select-0 9115: t="FAV SONG"
+select-0 9116: t="RANDOM SELECT"
+select-0 9117: t="SCREENSHOT"
+select-0 9118: t="LANE COVER"
+select-0 9119: t="JUDGE TIMING"
+select-0 9120: t="GREEN NUMBER"
+select-0 9121: t="VISUAL OFFSET"
+select-0 9122: t="FAST / SLOW"
+select-0 9123: t="SCREEN MODE"
+select-0 9124: t="MASTER"
+select-0 9125: t="KEY SOUND"
+select-0 9126: t="BGM"
+select-0 9127: t="SYSTEM"
+select-0 9128: t="PREVIEW"
+select-0 9129: t="BGA SIZE"
+select-0 9130: t="GHOST POSITION"
+select-0 9131: t="SCORE GRAPH"
+select-0 9132: t="SUDDEN+"
+select-0 9133: t="HIDDEN+"
+select-0 9134: t="LIFT"
+select-0 9135: t="AUTO SCRATCH"
+select-0 9136: t="BGA"
+select-0 9137: t="JUDGE AUTO ADJUST"
+select-0 9138: t="FREQ"
+select-0 9139: t="TRAINER ORDER"
+select-0 9140: t="SCROLL REMOVE"
+select-0 9141: t="MINE ADD"
+select-0 9142: t="LONGNOTE ADD"
+select-0 9143: t="REPLAY"
+select-0 9144: t="REPLAY SPEED"
+select-0 9145: t="SONG FOLDER"
+select-0 9146: t="WEB PAGE"
+select-0 9147: t="SAME FOLDER"
+select-0 9148: t="KEY CONVERT"
+select-0 9211: t=""
+select-0 9213: t="SAVE"
+select-0 9214: t="CLEAR"
+select-0 9215: t="OFF"
+select-0 9216: t="OFF"
+select-0 9217: t="OFF"
+select-0 9218: t="DEFAULT"
+select-0 9230: o
+select-0 9237: o
+select-0 9238: o
+select-0 9245: o
+select-0 9260: n=80 b=80 r=0.8
+select-0 9261: n=100 b=100 r=1
+select-0 9262: n=100 b=100 r=1
+select-0 9263: n=70 b=70 r=0.7
+select-0 9485: o
+select-0 9600: t="TRAINER"
+select-0 9601: t="OFF"
+select-0 9602: t="MIRROR"
+select-0 9603: t="EASY"
+select-0 9604: t="NORMAL"
+select-0 9605: t="HARD"
+select-0 9606: t="VS"
+select-0 9607: t="OFF"
+select-0 9608: t="FLIP"
+select-0 9609: t="MIN BPM"
+select-0 9610: t="OFF"
+select-0 9611: t="START BPM"
+select-0 9612: t="TRAINER"
+select-0 9613: t="OFF"
+select-0 9614: t="MIRROR"
+select-0 9615: t="NEXT RANK"
+select-0 9616: t="BEST"
+select-0 9617: t="RANK A-"
+select-1 2: o t="PLAYER"
+select-1 5: o
+select-1 10: n=250 b=0 t="Golden Song"
+select-1 11: b=0 t="[ANOTHER]"
+select-1 12: n=0 b=0 t="Golden Song [ANOTHER]"
+select-1 13: t="TEST"
+select-1 14: t="Composer"
+select-1 15: t="obj: Charter"
+select-1 16: t="Composer obj: Charter"
+select-1 17: n=0 b=0
+select-1 18: n=0 b=0
+select-1 19: n=0 b=0
+select-1 20: n=0 b=0
+select-1 30: o n=12 b=12 t=""
+select-1 31: n=5 b=5
+select-1 32: o n=7 b=7
+select-1 33: n=0 b=0
+select-1 34: o n=0 b=0
+select-1 35: n=0 b=0
+select-1 36: n=0 b=0
+select-1 37: n=0 b=0
+select-1 39: o
+select-1 40: b=2
+select-1 41: o
+select-1 42: o b=0
+select-1 43: b=0
+select-1 54: b=0
+select-1 55: b=0
+select-1 71: n=1500 b=1500
+select-1 72: n=2000 b=0
+select-1 74: n=1000 b=1000
+select-1 75: n=400 b=0
+select-1 76: n=50 b=50
+select-1 77: n=12 b=11
+select-1 78: n=5 b=0
+select-1 79: n=7 b=7
+select-1 80: n=600 b=600
+select-1 81: n=300 b=300
+select-1 82: n=50 b=50
+select-1 83: n=20 b=20
+select-1 84: n=10 b=10
+select-1 90: n=180 b=180
+select-1 91: n=120 b=120
+select-1 92: n=150 b=150
+select-1 96: n=11 b=11
+select-1 102: n=75 b=75
+select-1 103: n=0 b=0
+select-1 104: o
+select-1 110: r=0.75
+select-1 113: r=0.75
+select-1 154: o
+select-1 160: o
+select-1 171: o
+select-1 173: o
+select-1 177: o
+select-1 178: o
+select-1 182: o
+select-1 191: o
+select-1 192: o
+select-1 300: n=9 b=9
+select-1 301: b=0
+select-1 302: b=0
+select-1 303: b=0
+select-1 304: b=0
+select-1 305: b=0
+select-1 306: b=0
+select-1 307: b=0
+select-1 308: b=0
+select-1 310: n=2 b=2
+select-1 311: n=50 b=50
+select-1 312: n=640 b=640
+select-1 313: n=384 b=384
+select-1 322: o
+select-1 330: b=0
+select-1 331: b=0
+select-1 332: b=0
+select-1 333: n=0 b=0
+select-1 340: b=0
+select-1 350: n=800 b=800
+select-1 351: n=100 b=0
+select-1 352: n=80 b=0
+select-1 353: n=20 b=0
+select-1 354: n=0 b=0
+select-1 360: n=15 b=15
+select-1 361: n=50 b=50
+select-1 362: n=10 b=10
+select-1 363: n=25 b=25
+select-1 364: n=8 b=8
+select-1 365: n=0 b=0
+select-1 368: n=300 b=300
+select-1 370: n=6 b=6
+select-1 400: n=2 b=2
+select-1 1000: t="ROOT"
+select-1 1001: t="Golden Table"
+select-1 1002: t="★12"
+select-1 1003: t="★12Golden Table"
+select-1 1030: t="0123456789abcdef0123456789abcdef"
+select-1 1031: t="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+select-1 1163: n=2 b=2
+select-1 1164: n=5 b=5
+select-1 1177: o
+select-1 1401: b=0
+select-1 1402: b=0
+select-1 1403: b=0
+select-1 1404: b=0
+select-1 1405: b=12
+select-1 1407: b=0
+select-1 1500: o
+select-1 1518: o
+select-1 1532: o
+select-1 1548: o
+select-1 1564: o
+select-1 1592: o
+select-1 1596: o
+select-1 1612: o
+select-1 1628: o
+select-1 1644: o
+select-1 1660: o
+select-1 1676: o
+select-1 1692: o
+select-1 1708: o
+select-1 1725: o
+select-1 1740: o
+select-1 1756: o
+select-1 1772: o
+select-1 1788: o
+select-1 1804: o
+select-1 9000: t="OFF"
+select-1 9001: t="NORMAL"
+select-1 9002: t="OFF"
+select-1 9003: t="LN"
+select-1 9004: t="2.50"
+select-1 9005: t="GN 384"
+select-1 9006: t="P1"
+select-1 9007: t="beatoraja"
+select-1 9008: t="OFF"
+select-1 9009: t="OPEN"
+select-1 9010: t="OFF"
+select-1 9011: t="TITLE"
+select-1 9012: t="ALL"
+select-1 9013: t="ALL"
+select-1 9014: t="—"
+select-1 9015: t="—"
+select-1 9016: t="ANY"
+select-1 9017: t="SAVE"
+select-1 9018: t="OFF"
+select-1 9019: t="+0 ms"
+select-1 9020: t="384"
+select-1 9021: t="+0 ms"
+select-1 9022: t="ON"
+select-1 9023: t="WINDOW"
+select-1 9024: t="80%"
+select-1 9025: t="100%"
+select-1 9026: t="100%"
+select-1 9027: t="70%"
+select-1 9028: t="LOOP"
+select-1 9029: t="NORMAL"
+select-1 9030: t="OFF"
+select-1 9031: t="ON"
+select-1 9032: t="0%"
+select-1 9033: t="0%"
+select-1 9034: t="0%"
+select-1 9035: t="OFF"
+select-1 9036: t="ON"
+select-1 9037: t="OFF"
+select-1 9038: t="OFF"
+select-1 9039: t="1234567"
+select-1 9040: t="OFF"
+select-1 9041: t="OFF"
+select-1 9042: t="OFF"
+select-1 9043: t="BEST, ELSE LAST"
+select-1 9044: t="100%"
+select-1 9045: t="OPEN"
+select-1 9046: t="OPEN"
+select-1 9047: t="OPEN"
+select-1 9048: t="OFF"
+select-1 9100: t="RANDOM"
+select-1 9101: t="GAUGE"
+select-1 9102: t="AUTO SHIFT"
+select-1 9103: t="LN MODE"
+select-1 9104: t="HI-SPEED −"
+select-1 9105: t="HI-SPEED +"
+select-1 9106: t="SIDE"
+select-1 9107: t="JUDGE"
+select-1 9108: t="AUTOPLAY"
+select-1 9109: t="SETTINGS"
+select-1 9110: t="BATTLE"
+select-1 9111: t="SORT"
+select-1 9112: t="KEY MODE"
+select-1 9113: t="DIFFICULTY"
+select-1 9114: t="FAV CHART"
+select-1 9115: t="FAV SONG"
+select-1 9116: t="RANDOM SELECT"
+select-1 9117: t="SCREENSHOT"
+select-1 9118: t="LANE COVER"
+select-1 9119: t="JUDGE TIMING"
+select-1 9120: t="GREEN NUMBER"
+select-1 9121: t="VISUAL OFFSET"
+select-1 9122: t="FAST / SLOW"
+select-1 9123: t="SCREEN MODE"
+select-1 9124: t="MASTER"
+select-1 9125: t="KEY SOUND"
+select-1 9126: t="BGM"
+select-1 9127: t="SYSTEM"
+select-1 9128: t="PREVIEW"
+select-1 9129: t="BGA SIZE"
+select-1 9130: t="GHOST POSITION"
+select-1 9131: t="SCORE GRAPH"
+select-1 9132: t="SUDDEN+"
+select-1 9133: t="HIDDEN+"
+select-1 9134: t="LIFT"
+select-1 9135: t="AUTO SCRATCH"
+select-1 9136: t="BGA"
+select-1 9137: t="JUDGE AUTO ADJUST"
+select-1 9138: t="FREQ"
+select-1 9139: t="TRAINER ORDER"
+select-1 9140: t="SCROLL REMOVE"
+select-1 9141: t="MINE ADD"
+select-1 9142: t="LONGNOTE ADD"
+select-1 9143: t="REPLAY"
+select-1 9144: t="REPLAY SPEED"
+select-1 9145: t="SONG FOLDER"
+select-1 9146: t="WEB PAGE"
+select-1 9147: t="SAME FOLDER"
+select-1 9148: t="KEY CONVERT"
+select-1 9210: t="7KEYS"
+select-1 9211: t=""
+select-1 9213: t="SAVE"
+select-1 9214: t="CLEAR"
+select-1 9215: t="OFF"
+select-1 9216: t="OFF"
+select-1 9217: t="OFF"
+select-1 9218: t="DEFAULT"
+select-1 9230: o
+select-1 9237: o
+select-1 9245: o
+select-1 9260: n=80 b=80 r=0.8
+select-1 9261: n=100 b=100 r=1
+select-1 9262: n=100 b=100 r=1
+select-1 9263: n=70 b=70 r=0.7
+select-1 9425: n=30 b=30
+select-1 9451: o n=5 b=5 r=0.41666666
+select-1 9453: o n=11 b=11 r=0.9166667
+select-1 9463: o
+select-1 9471: n=0 b=0
+select-1 9473: n=6 b=6
+select-1 9480: o
+select-1 9600: t="TRAINER"
+select-1 9601: t="OFF"
+select-1 9602: t="MIRROR"
+select-1 9603: t="EASY"
+select-1 9604: t="NORMAL"
+select-1 9605: t="HARD"
+select-1 9606: t="VS"
+select-1 9607: t="OFF"
+select-1 9608: t="FLIP"
+select-1 9609: t="MIN BPM"
+select-1 9610: t="OFF"
+select-1 9611: t="START BPM"
+select-1 9612: t="TRAINER"
+select-1 9613: t="OFF"
+select-1 9614: t="MIRROR"
+select-1 9615: t="NEXT RANK"
+select-1 9616: t="BEST"
+select-1 9617: t="RANK A-"
+select-2 2: o t="PLAYER"
+select-2 5: o
+select-2 10: n=250 b=0 t="Golden Song"
+select-2 11: b=0 t=""
+select-2 12: n=0 b=0 t="Golden Song"
+select-2 13: t="TEST"
+select-2 14: t="Composer"
+select-2 15: t="obj: Charter"
+select-2 16: t="Composer obj: Charter"
+select-2 17: n=0 b=0
+select-2 18: n=0 b=0
+select-2 19: n=0 b=0
+select-2 20: n=0 b=0
+select-2 30: o n=12 b=12 t=""
+select-2 31: n=5 b=5
+select-2 32: o n=7 b=7
+select-2 33: n=0 b=0
+select-2 34: o n=0 b=0
+select-2 35: n=0 b=0
+select-2 36: n=0 b=0
+select-2 37: n=0 b=0
+select-2 39: o
+select-2 40: b=2
+select-2 41: o
+select-2 42: o b=0
+select-2 43: b=0
+select-2 54: b=0
+select-2 55: b=0
+select-2 71: n=0 b=0
+select-2 72: n=2000 b=0
+select-2 74: n=1000 b=1000
+select-2 75: n=0 b=0
+select-2 76: n=0 b=0
+select-2 77: n=0 b=11
+select-2 78: n=0 b=0
+select-2 79: n=0 b=0
+select-2 80: n=0 b=0
+select-2 81: n=0 b=0
+select-2 82: n=0 b=0
+select-2 83: n=0 b=0
+select-2 84: n=0 b=0
+select-2 90: n=180 b=180
+select-2 91: n=120 b=120
+select-2 92: n=150 b=150
+select-2 96: n=5 b=5
+select-2 100: o
+select-2 102: n=0 b=0
+select-2 103: n=0 b=0
+select-2 152: o
+select-2 160: o
+select-2 171: o
+select-2 172: o
+select-2 177: o
+select-2 179: o
+select-2 182: o
+select-2 191: o
+select-2 192: o
+select-2 300: n=9 b=9
+select-2 301: b=0
+select-2 302: b=0
+select-2 303: b=0
+select-2 304: b=0
+select-2 305: b=0
+select-2 306: b=0
+select-2 307: b=0
+select-2 308: b=0
+select-2 310: n=2 b=2
+select-2 311: n=50 b=50
+select-2 312: n=640 b=640
+select-2 313: n=384 b=384
+select-2 330: b=0
+select-2 331: b=0
+select-2 332: b=0
+select-2 333: n=0 b=0
+select-2 340: b=0
+select-2 350: n=800 b=800
+select-2 351: n=100 b=0
+select-2 352: n=80 b=0
+select-2 353: n=20 b=0
+select-2 354: n=0 b=0
+select-2 360: n=15 b=15
+select-2 361: n=50 b=50
+select-2 362: n=10 b=10
+select-2 363: n=25 b=25
+select-2 364: n=8 b=8
+select-2 365: n=0 b=0
+select-2 368: n=300 b=300
+select-2 370: n=0 b=0
+select-2 400: n=2 b=2
+select-2 1000: t="ROOT"
+select-2 1030: t="11111111111111111111111111111111"
+select-2 1031: t="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+select-2 1163: n=2 b=2
+select-2 1164: n=5 b=5
+select-2 1177: o
+select-2 1401: b=0
+select-2 1402: b=0
+select-2 1403: b=0
+select-2 1404: b=0
+select-2 1405: b=12
+select-2 1407: b=0
+select-2 1500: o
+select-2 1518: o
+select-2 1532: o
+select-2 1548: o
+select-2 1564: o
+select-2 1592: o
+select-2 1596: o
+select-2 1612: o
+select-2 1628: o
+select-2 1644: o
+select-2 1660: o
+select-2 1676: o
+select-2 1692: o
+select-2 1708: o
+select-2 1725: o
+select-2 1740: o
+select-2 1756: o
+select-2 1772: o
+select-2 1788: o
+select-2 1804: o
+select-2 9000: t="OFF"
+select-2 9001: t="NORMAL"
+select-2 9002: t="OFF"
+select-2 9003: t="LN"
+select-2 9004: t="2.50"
+select-2 9005: t="GN 384"
+select-2 9006: t="P1"
+select-2 9007: t="beatoraja"
+select-2 9008: t="OFF"
+select-2 9009: t="OPEN"
+select-2 9010: t="OFF"
+select-2 9011: t="TITLE"
+select-2 9012: t="ALL"
+select-2 9013: t="ALL"
+select-2 9014: t="—"
+select-2 9015: t="—"
+select-2 9016: t="ANY"
+select-2 9017: t="SAVE"
+select-2 9018: t="OFF"
+select-2 9019: t="+0 ms"
+select-2 9020: t="384"
+select-2 9021: t="+0 ms"
+select-2 9022: t="ON"
+select-2 9023: t="WINDOW"
+select-2 9024: t="80%"
+select-2 9025: t="100%"
+select-2 9026: t="100%"
+select-2 9027: t="70%"
+select-2 9028: t="LOOP"
+select-2 9029: t="NORMAL"
+select-2 9030: t="OFF"
+select-2 9031: t="ON"
+select-2 9032: t="0%"
+select-2 9033: t="0%"
+select-2 9034: t="0%"
+select-2 9035: t="OFF"
+select-2 9036: t="ON"
+select-2 9037: t="OFF"
+select-2 9038: t="OFF"
+select-2 9039: t="1234567"
+select-2 9040: t="OFF"
+select-2 9041: t="OFF"
+select-2 9042: t="OFF"
+select-2 9043: t="BEST, ELSE LAST"
+select-2 9044: t="100%"
+select-2 9045: t="OPEN"
+select-2 9046: t="OPEN"
+select-2 9047: t="OPEN"
+select-2 9048: t="OFF"
+select-2 9100: t="RANDOM"
+select-2 9101: t="GAUGE"
+select-2 9102: t="AUTO SHIFT"
+select-2 9103: t="LN MODE"
+select-2 9104: t="HI-SPEED −"
+select-2 9105: t="HI-SPEED +"
+select-2 9106: t="SIDE"
+select-2 9107: t="JUDGE"
+select-2 9108: t="AUTOPLAY"
+select-2 9109: t="SETTINGS"
+select-2 9110: t="BATTLE"
+select-2 9111: t="SORT"
+select-2 9112: t="KEY MODE"
+select-2 9113: t="DIFFICULTY"
+select-2 9114: t="FAV CHART"
+select-2 9115: t="FAV SONG"
+select-2 9116: t="RANDOM SELECT"
+select-2 9117: t="SCREENSHOT"
+select-2 9118: t="LANE COVER"
+select-2 9119: t="JUDGE TIMING"
+select-2 9120: t="GREEN NUMBER"
+select-2 9121: t="VISUAL OFFSET"
+select-2 9122: t="FAST / SLOW"
+select-2 9123: t="SCREEN MODE"
+select-2 9124: t="MASTER"
+select-2 9125: t="KEY SOUND"
+select-2 9126: t="BGM"
+select-2 9127: t="SYSTEM"
+select-2 9128: t="PREVIEW"
+select-2 9129: t="BGA SIZE"
+select-2 9130: t="GHOST POSITION"
+select-2 9131: t="SCORE GRAPH"
+select-2 9132: t="SUDDEN+"
+select-2 9133: t="HIDDEN+"
+select-2 9134: t="LIFT"
+select-2 9135: t="AUTO SCRATCH"
+select-2 9136: t="BGA"
+select-2 9137: t="JUDGE AUTO ADJUST"
+select-2 9138: t="FREQ"
+select-2 9139: t="TRAINER ORDER"
+select-2 9140: t="SCROLL REMOVE"
+select-2 9141: t="MINE ADD"
+select-2 9142: t="LONGNOTE ADD"
+select-2 9143: t="REPLAY"
+select-2 9144: t="REPLAY SPEED"
+select-2 9145: t="SONG FOLDER"
+select-2 9146: t="WEB PAGE"
+select-2 9147: t="SAME FOLDER"
+select-2 9148: t="KEY CONVERT"
+select-2 9210: t="7KEYS"
+select-2 9211: t=""
+select-2 9213: t="SAVE"
+select-2 9214: t="CLEAR"
+select-2 9215: t="OFF"
+select-2 9216: t="OFF"
+select-2 9217: t="OFF"
+select-2 9218: t="DEFAULT"
+select-2 9230: o
+select-2 9237: o
+select-2 9245: o
+select-2 9260: n=80 b=80 r=0.8
+select-2 9261: n=100 b=100 r=1
+select-2 9262: n=100 b=100 r=1
+select-2 9263: n=70 b=70 r=0.7
+select-2 9425: n=0 b=0
+select-2 9451: o n=5 b=5 r=0.41666666
+select-2 9453: o n=11 b=11 r=0.9166667
+select-2 9461: o
+select-2 9471: n=0 b=0
+select-2 9473: n=6 b=6
+select-2 9480: o
+select-2 9600: t="TRAINER"
+select-2 9601: t="OFF"
+select-2 9602: t="MIRROR"
+select-2 9603: t="EASY"
+select-2 9604: t="NORMAL"
+select-2 9605: t="HARD"
+select-2 9606: t="VS"
+select-2 9607: t="OFF"
+select-2 9608: t="FLIP"
+select-2 9609: t="MIN BPM"
+select-2 9610: t="OFF"
+select-2 9611: t="START BPM"
+select-2 9612: t="TRAINER"
+select-2 9613: t="OFF"
+select-2 9614: t="MIRROR"
+select-2 9615: t="NEXT RANK"
+select-2 9616: t="BEST"
+select-2 9617: t="RANK A-"
+select-3 1: o
+select-3 2: t="PLAYER"
+select-3 10: n=250 b=0 t="Golden Table"
+select-3 11: b=0 t="1 levels"
+select-3 12: n=0 b=0 t="Golden Table"
+select-3 17: n=0 b=0
+select-3 18: n=0 b=0
+select-3 19: n=0 b=0
+select-3 20: n=0 b=0
+select-3 30: o n=12 b=12 t=""
+select-3 31: n=5 b=5
+select-3 32: o n=7 b=7
+select-3 33: n=0 b=0
+select-3 34: o n=0 b=0
+select-3 35: n=0 b=0
+select-3 36: n=0 b=0
+select-3 37: n=0 b=0
+select-3 39: o
+select-3 40: b=2
+select-3 41: o
+select-3 42: o b=0
+select-3 43: b=0
+select-3 54: b=0
+select-3 55: b=0
+select-3 72: b=0
+select-3 75: b=0
+select-3 77: b=11
+select-3 78: b=0
+select-3 190: o
+select-3 192: o
+select-3 300: n=1 b=1
+select-3 301: b=0
+select-3 302: b=0
+select-3 303: b=0
+select-3 304: b=0
+select-3 305: b=0
+select-3 306: b=0
+select-3 307: b=0
+select-3 308: b=0
+select-3 310: n=2 b=2
+select-3 311: n=50 b=50
+select-3 312: n=640 b=640
+select-3 313: n=384 b=384
+select-3 330: b=0
+select-3 331: b=0
+select-3 332: b=0
+select-3 333: n=0 b=0
+select-3 340: b=0
+select-3 351: b=0
+select-3 352: b=0
+select-3 353: b=0
+select-3 370: n=0 b=0
+select-3 1000: t="ROOT"
+select-3 1401: b=0
+select-3 1402: b=0
+select-3 1403: b=0
+select-3 1404: b=0
+select-3 1405: b=12
+select-3 1407: b=0
+select-3 1500: o
+select-3 1518: o
+select-3 1532: o
+select-3 1548: o
+select-3 1564: o
+select-3 1592: o
+select-3 1596: o
+select-3 1612: o
+select-3 1628: o
+select-3 1644: o
+select-3 1660: o
+select-3 1676: o
+select-3 1692: o
+select-3 1708: o
+select-3 1725: o
+select-3 1740: o
+select-3 1756: o
+select-3 1772: o
+select-3 1788: o
+select-3 1804: o
+select-3 9000: t="OFF"
+select-3 9001: t="NORMAL"
+select-3 9002: t="OFF"
+select-3 9003: t="LN"
+select-3 9004: t="2.50"
+select-3 9005: t="2.50"
+select-3 9006: t="P1"
+select-3 9007: t="beatoraja"
+select-3 9008: t="OFF"
+select-3 9009: t="OPEN"
+select-3 9010: t="OFF"
+select-3 9011: t="TITLE"
+select-3 9012: t="ALL"
+select-3 9013: t="ALL"
+select-3 9014: t="—"
+select-3 9015: t="—"
+select-3 9016: t="ANY"
+select-3 9017: t="SAVE"
+select-3 9018: t="OFF"
+select-3 9019: t="+0 ms"
+select-3 9020: t="384"
+select-3 9021: t="+0 ms"
+select-3 9022: t="ON"
+select-3 9023: t="WINDOW"
+select-3 9024: t="80%"
+select-3 9025: t="100%"
+select-3 9026: t="100%"
+select-3 9027: t="70%"
+select-3 9028: t="LOOP"
+select-3 9029: t="NORMAL"
+select-3 9030: t="OFF"
+select-3 9031: t="ON"
+select-3 9032: t="0%"
+select-3 9033: t="0%"
+select-3 9034: t="0%"
+select-3 9035: t="OFF"
+select-3 9036: t="ON"
+select-3 9037: t="OFF"
+select-3 9038: t="OFF"
+select-3 9039: t="1234567"
+select-3 9040: t="OFF"
+select-3 9041: t="OFF"
+select-3 9042: t="OFF"
+select-3 9043: t="BEST, ELSE LAST"
+select-3 9044: t="100%"
+select-3 9045: t="OPEN"
+select-3 9046: t="OPEN"
+select-3 9047: t="OPEN"
+select-3 9048: t="OFF"
+select-3 9100: t="RANDOM"
+select-3 9101: t="GAUGE"
+select-3 9102: t="AUTO SHIFT"
+select-3 9103: t="LN MODE"
+select-3 9104: t="HI-SPEED −"
+select-3 9105: t="HI-SPEED +"
+select-3 9106: t="SIDE"
+select-3 9107: t="JUDGE"
+select-3 9108: t="AUTOPLAY"
+select-3 9109: t="SETTINGS"
+select-3 9110: t="BATTLE"
+select-3 9111: t="SORT"
+select-3 9112: t="KEY MODE"
+select-3 9113: t="DIFFICULTY"
+select-3 9114: t="FAV CHART"
+select-3 9115: t="FAV SONG"
+select-3 9116: t="RANDOM SELECT"
+select-3 9117: t="SCREENSHOT"
+select-3 9118: t="LANE COVER"
+select-3 9119: t="JUDGE TIMING"
+select-3 9120: t="GREEN NUMBER"
+select-3 9121: t="VISUAL OFFSET"
+select-3 9122: t="FAST / SLOW"
+select-3 9123: t="SCREEN MODE"
+select-3 9124: t="MASTER"
+select-3 9125: t="KEY SOUND"
+select-3 9126: t="BGM"
+select-3 9127: t="SYSTEM"
+select-3 9128: t="PREVIEW"
+select-3 9129: t="BGA SIZE"
+select-3 9130: t="GHOST POSITION"
+select-3 9131: t="SCORE GRAPH"
+select-3 9132: t="SUDDEN+"
+select-3 9133: t="HIDDEN+"
+select-3 9134: t="LIFT"
+select-3 9135: t="AUTO SCRATCH"
+select-3 9136: t="BGA"
+select-3 9137: t="JUDGE AUTO ADJUST"
+select-3 9138: t="FREQ"
+select-3 9139: t="TRAINER ORDER"
+select-3 9140: t="SCROLL REMOVE"
+select-3 9141: t="MINE ADD"
+select-3 9142: t="LONGNOTE ADD"
+select-3 9143: t="REPLAY"
+select-3 9144: t="REPLAY SPEED"
+select-3 9145: t="SONG FOLDER"
+select-3 9146: t="WEB PAGE"
+select-3 9147: t="SAME FOLDER"
+select-3 9148: t="KEY CONVERT"
+select-3 9211: t=""
+select-3 9213: t="SAVE"
+select-3 9214: t="CLEAR"
+select-3 9215: t="OFF"
+select-3 9216: t="OFF"
+select-3 9217: t="OFF"
+select-3 9218: t="DEFAULT"
+select-3 9230: o
+select-3 9237: o
+select-3 9238: o
+select-3 9245: o
+select-3 9260: n=80 b=80 r=0.8
+select-3 9261: n=100 b=100 r=1
+select-3 9262: n=100 b=100 r=1
+select-3 9263: n=70 b=70 r=0.7
+select-3 9300: n=1 b=1
+select-3 9301: n=1 b=1
+select-3 9302: n=1 b=1
+select-3 9303: n=1 b=1
+select-3 9310: n=0 b=0
+select-3 9311: n=0 b=0
+select-3 9312: n=0 b=0
+select-3 9313: n=0 b=0
+select-3 9314: n=0 b=0
+select-3 9315: n=0 b=0
+select-3 9316: n=1 b=1 r=1
+select-3 9317: n=0 b=0
+select-3 9318: n=0 b=0
+select-3 9319: n=0 b=0
+select-3 9320: n=0 b=0
+select-3 9321: n=0 b=0
+select-3 9330: n=0 b=0
+select-3 9331: n=0 b=0
+select-3 9332: n=1 b=1 r=1
+select-3 9333: n=0 b=0
+select-3 9334: n=0 b=0
+select-3 9335: n=0 b=0
+select-3 9336: n=0 b=0
+select-3 9337: n=0 b=0
+select-3 9338: n=0 b=0
+select-3 9482: o
+select-3 9600: t="TRAINER"
+select-3 9601: t="OFF"
+select-3 9602: t="MIRROR"
+select-3 9603: t="EASY"
+select-3 9604: t="NORMAL"
+select-3 9605: t="HARD"
+select-3 9606: t="VS"
+select-3 9607: t="OFF"
+select-3 9608: t="FLIP"
+select-3 9609: t="MIN BPM"
+select-3 9610: t="OFF"
+select-3 9611: t="START BPM"
+select-3 9612: t="TRAINER"
+select-3 9613: t="OFF"
+select-3 9614: t="MIRROR"
+select-3 9615: t="NEXT RANK"
+select-3 9616: t="BEST"
+select-3 9617: t="RANK A-"
+select-3 distribution false: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+select-3 distribution true: [0, 0, 1, 0, 0, 0, 0, 0, 0]
+select-4 2: t="PLAYER"
+select-4 3: o
+select-4 10: n=250 b=0 t="GOLDEN DAN"
+select-4 11: b=0
+select-4 12: n=0 b=0 t="GOLDEN DAN"
+select-4 17: n=0 b=0
+select-4 18: n=0 b=0
+select-4 19: n=0 b=0
+select-4 20: n=0 b=0
+select-4 30: o n=12 b=12 t=""
+select-4 31: n=5 b=5
+select-4 32: o n=7 b=7
+select-4 33: n=0 b=0
+select-4 34: o n=0 b=0
+select-4 35: n=0 b=0
+select-4 36: n=0 b=0
+select-4 37: n=0 b=0
+select-4 39: o
+select-4 40: b=2
+select-4 41: o
+select-4 42: o b=0
+select-4 43: b=0
+select-4 54: b=0
+select-4 55: b=0
+select-4 72: b=0
+select-4 75: b=0
+select-4 77: b=11
+select-4 78: b=0
+select-4 190: o
+select-4 192: o
+select-4 300: n=9 b=9
+select-4 301: b=0
+select-4 302: b=0
+select-4 303: b=0
+select-4 304: b=0
+select-4 305: b=0
+select-4 306: b=0
+select-4 307: b=0
+select-4 308: b=0
+select-4 310: n=2 b=2
+select-4 311: n=50 b=50
+select-4 312: n=640 b=640
+select-4 313: n=384 b=384
+select-4 330: b=0
+select-4 331: b=0
+select-4 332: b=0
+select-4 333: n=0 b=0
+select-4 340: b=0
+select-4 351: b=0
+select-4 352: b=0
+select-4 353: b=0
+select-4 370: n=0 b=0
+select-4 1000: t="ROOT"
+select-4 1401: b=0
+select-4 1402: b=0
+select-4 1403: b=0
+select-4 1404: b=0
+select-4 1405: b=12
+select-4 1407: b=0
+select-4 1500: o
+select-4 1518: o
+select-4 1532: o
+select-4 1548: o
+select-4 1564: o
+select-4 1592: o
+select-4 1596: o
+select-4 1612: o
+select-4 1628: o
+select-4 1644: o
+select-4 1660: o
+select-4 1676: o
+select-4 1692: o
+select-4 1708: o
+select-4 1725: o
+select-4 1740: o
+select-4 1756: o
+select-4 1772: o
+select-4 1788: o
+select-4 1804: o
+select-4 9000: t="OFF"
+select-4 9001: t="NORMAL"
+select-4 9002: t="OFF"
+select-4 9003: t="LN"
+select-4 9004: t="2.50"
+select-4 9005: t="2.50"
+select-4 9006: t="P1"
+select-4 9007: t="beatoraja"
+select-4 9008: t="OFF"
+select-4 9009: t="OPEN"
+select-4 9010: t="OFF"
+select-4 9011: t="TITLE"
+select-4 9012: t="ALL"
+select-4 9013: t="ALL"
+select-4 9014: t="—"
+select-4 9015: t="—"
+select-4 9016: t="ANY"
+select-4 9017: t="SAVE"
+select-4 9018: t="OFF"
+select-4 9019: t="+0 ms"
+select-4 9020: t="384"
+select-4 9021: t="+0 ms"
+select-4 9022: t="ON"
+select-4 9023: t="WINDOW"
+select-4 9024: t="80%"
+select-4 9025: t="100%"
+select-4 9026: t="100%"
+select-4 9027: t="70%"
+select-4 9028: t="LOOP"
+select-4 9029: t="NORMAL"
+select-4 9030: t="OFF"
+select-4 9031: t="ON"
+select-4 9032: t="0%"
+select-4 9033: t="0%"
+select-4 9034: t="0%"
+select-4 9035: t="OFF"
+select-4 9036: t="ON"
+select-4 9037: t="OFF"
+select-4 9038: t="OFF"
+select-4 9039: t="1234567"
+select-4 9040: t="OFF"
+select-4 9041: t="OFF"
+select-4 9042: t="OFF"
+select-4 9043: t="BEST, ELSE LAST"
+select-4 9044: t="100%"
+select-4 9045: t="OPEN"
+select-4 9046: t="OPEN"
+select-4 9047: t="OPEN"
+select-4 9048: t="OFF"
+select-4 9100: t="RANDOM"
+select-4 9101: t="GAUGE"
+select-4 9102: t="AUTO SHIFT"
+select-4 9103: t="LN MODE"
+select-4 9104: t="HI-SPEED −"
+select-4 9105: t="HI-SPEED +"
+select-4 9106: t="SIDE"
+select-4 9107: t="JUDGE"
+select-4 9108: t="AUTOPLAY"
+select-4 9109: t="SETTINGS"
+select-4 9110: t="BATTLE"
+select-4 9111: t="SORT"
+select-4 9112: t="KEY MODE"
+select-4 9113: t="DIFFICULTY"
+select-4 9114: t="FAV CHART"
+select-4 9115: t="FAV SONG"
+select-4 9116: t="RANDOM SELECT"
+select-4 9117: t="SCREENSHOT"
+select-4 9118: t="LANE COVER"
+select-4 9119: t="JUDGE TIMING"
+select-4 9120: t="GREEN NUMBER"
+select-4 9121: t="VISUAL OFFSET"
+select-4 9122: t="FAST / SLOW"
+select-4 9123: t="SCREEN MODE"
+select-4 9124: t="MASTER"
+select-4 9125: t="KEY SOUND"
+select-4 9126: t="BGM"
+select-4 9127: t="SYSTEM"
+select-4 9128: t="PREVIEW"
+select-4 9129: t="BGA SIZE"
+select-4 9130: t="GHOST POSITION"
+select-4 9131: t="SCORE GRAPH"
+select-4 9132: t="SUDDEN+"
+select-4 9133: t="HIDDEN+"
+select-4 9134: t="LIFT"
+select-4 9135: t="AUTO SCRATCH"
+select-4 9136: t="BGA"
+select-4 9137: t="JUDGE AUTO ADJUST"
+select-4 9138: t="FREQ"
+select-4 9139: t="TRAINER ORDER"
+select-4 9140: t="SCROLL REMOVE"
+select-4 9141: t="MINE ADD"
+select-4 9142: t="LONGNOTE ADD"
+select-4 9143: t="REPLAY"
+select-4 9144: t="REPLAY SPEED"
+select-4 9145: t="SONG FOLDER"
+select-4 9146: t="WEB PAGE"
+select-4 9147: t="SAME FOLDER"
+select-4 9148: t="KEY CONVERT"
+select-4 9211: t=""
+select-4 9213: t="SAVE"
+select-4 9214: t="CLEAR"
+select-4 9215: t="OFF"
+select-4 9216: t="OFF"
+select-4 9217: t="OFF"
+select-4 9218: t="DEFAULT"
+select-4 9230: o
+select-4 9237: o
+select-4 9238: o
+select-4 9245: o
+select-4 9260: n=80 b=80 r=0.8
+select-4 9261: n=100 b=100 r=1
+select-4 9262: n=100 b=100 r=1
+select-4 9263: n=70 b=70 r=0.7
+select-4 9489: o
+select-4 9600: t="TRAINER"
+select-4 9601: t="OFF"
+select-4 9602: t="MIRROR"
+select-4 9603: t="EASY"
+select-4 9604: t="NORMAL"
+select-4 9605: t="HARD"
+select-4 9606: t="VS"
+select-4 9607: t="OFF"
+select-4 9608: t="FLIP"
+select-4 9609: t="MIN BPM"
+select-4 9610: t="OFF"
+select-4 9611: t="START BPM"
+select-4 9612: t="TRAINER"
+select-4 9613: t="OFF"
+select-4 9614: t="MIRROR"
+select-4 9615: t="NEXT RANK"
+select-4 9616: t="BEST"
+select-4 9617: t="RANK A-"
+select-5 2: t="PLAYER"
+select-5 3: o
+select-5 10: n=250 b=0 t="MISSING DAN"
+select-5 11: b=0
+select-5 12: n=0 b=0 t="MISSING DAN"
+select-5 17: n=0 b=0
+select-5 18: n=0 b=0
+select-5 19: n=0 b=0
+select-5 20: n=0 b=0
+select-5 30: o n=12 b=12 t=""
+select-5 31: n=5 b=5
+select-5 32: o n=7 b=7
+select-5 33: n=0 b=0
+select-5 34: o n=0 b=0
+select-5 35: n=0 b=0
+select-5 36: n=0 b=0
+select-5 37: n=0 b=0
+select-5 39: o
+select-5 40: b=2
+select-5 41: o
+select-5 42: o b=0
+select-5 43: b=0
+select-5 54: b=0
+select-5 55: b=0
+select-5 72: b=0
+select-5 75: b=0
+select-5 77: b=11
+select-5 78: b=0
+select-5 190: o
+select-5 192: o
+select-5 300: n=9 b=9
+select-5 301: b=0
+select-5 302: b=0
+select-5 303: b=0
+select-5 304: b=0
+select-5 305: b=0
+select-5 306: b=0
+select-5 307: b=0
+select-5 308: b=0
+select-5 310: n=2 b=2
+select-5 311: n=50 b=50
+select-5 312: n=640 b=640
+select-5 313: n=384 b=384
+select-5 330: b=0
+select-5 331: b=0
+select-5 332: b=0
+select-5 333: n=0 b=0
+select-5 340: b=0
+select-5 351: b=0
+select-5 352: b=0
+select-5 353: b=0
+select-5 370: n=0 b=0
+select-5 1000: t="ROOT"
+select-5 1401: b=0
+select-5 1402: b=0
+select-5 1403: b=0
+select-5 1404: b=0
+select-5 1405: b=12
+select-5 1407: b=0
+select-5 1500: o
+select-5 1518: o
+select-5 1532: o
+select-5 1548: o
+select-5 1564: o
+select-5 1592: o
+select-5 1596: o
+select-5 1612: o
+select-5 1628: o
+select-5 1644: o
+select-5 1660: o
+select-5 1676: o
+select-5 1692: o
+select-5 1708: o
+select-5 1725: o
+select-5 1740: o
+select-5 1756: o
+select-5 1772: o
+select-5 1788: o
+select-5 1804: o
+select-5 9000: t="OFF"
+select-5 9001: t="NORMAL"
+select-5 9002: t="OFF"
+select-5 9003: t="LN"
+select-5 9004: t="2.50"
+select-5 9005: t="2.50"
+select-5 9006: t="P1"
+select-5 9007: t="beatoraja"
+select-5 9008: t="OFF"
+select-5 9009: t="OPEN"
+select-5 9010: t="OFF"
+select-5 9011: t="TITLE"
+select-5 9012: t="ALL"
+select-5 9013: t="ALL"
+select-5 9014: t="—"
+select-5 9015: t="—"
+select-5 9016: t="ANY"
+select-5 9017: t="SAVE"
+select-5 9018: t="OFF"
+select-5 9019: t="+0 ms"
+select-5 9020: t="384"
+select-5 9021: t="+0 ms"
+select-5 9022: t="ON"
+select-5 9023: t="WINDOW"
+select-5 9024: t="80%"
+select-5 9025: t="100%"
+select-5 9026: t="100%"
+select-5 9027: t="70%"
+select-5 9028: t="LOOP"
+select-5 9029: t="NORMAL"
+select-5 9030: t="OFF"
+select-5 9031: t="ON"
+select-5 9032: t="0%"
+select-5 9033: t="0%"
+select-5 9034: t="0%"
+select-5 9035: t="OFF"
+select-5 9036: t="ON"
+select-5 9037: t="OFF"
+select-5 9038: t="OFF"
+select-5 9039: t="1234567"
+select-5 9040: t="OFF"
+select-5 9041: t="OFF"
+select-5 9042: t="OFF"
+select-5 9043: t="BEST, ELSE LAST"
+select-5 9044: t="100%"
+select-5 9045: t="OPEN"
+select-5 9046: t="OPEN"
+select-5 9047: t="OPEN"
+select-5 9048: t="OFF"
+select-5 9100: t="RANDOM"
+select-5 9101: t="GAUGE"
+select-5 9102: t="AUTO SHIFT"
+select-5 9103: t="LN MODE"
+select-5 9104: t="HI-SPEED −"
+select-5 9105: t="HI-SPEED +"
+select-5 9106: t="SIDE"
+select-5 9107: t="JUDGE"
+select-5 9108: t="AUTOPLAY"
+select-5 9109: t="SETTINGS"
+select-5 9110: t="BATTLE"
+select-5 9111: t="SORT"
+select-5 9112: t="KEY MODE"
+select-5 9113: t="DIFFICULTY"
+select-5 9114: t="FAV CHART"
+select-5 9115: t="FAV SONG"
+select-5 9116: t="RANDOM SELECT"
+select-5 9117: t="SCREENSHOT"
+select-5 9118: t="LANE COVER"
+select-5 9119: t="JUDGE TIMING"
+select-5 9120: t="GREEN NUMBER"
+select-5 9121: t="VISUAL OFFSET"
+select-5 9122: t="FAST / SLOW"
+select-5 9123: t="SCREEN MODE"
+select-5 9124: t="MASTER"
+select-5 9125: t="KEY SOUND"
+select-5 9126: t="BGM"
+select-5 9127: t="SYSTEM"
+select-5 9128: t="PREVIEW"
+select-5 9129: t="BGA SIZE"
+select-5 9130: t="GHOST POSITION"
+select-5 9131: t="SCORE GRAPH"
+select-5 9132: t="SUDDEN+"
+select-5 9133: t="HIDDEN+"
+select-5 9134: t="LIFT"
+select-5 9135: t="AUTO SCRATCH"
+select-5 9136: t="BGA"
+select-5 9137: t="JUDGE AUTO ADJUST"
+select-5 9138: t="FREQ"
+select-5 9139: t="TRAINER ORDER"
+select-5 9140: t="SCROLL REMOVE"
+select-5 9141: t="MINE ADD"
+select-5 9142: t="LONGNOTE ADD"
+select-5 9143: t="REPLAY"
+select-5 9144: t="REPLAY SPEED"
+select-5 9145: t="SONG FOLDER"
+select-5 9146: t="WEB PAGE"
+select-5 9147: t="SAME FOLDER"
+select-5 9148: t="KEY CONVERT"
+select-5 9211: t=""
+select-5 9213: t="SAVE"
+select-5 9214: t="CLEAR"
+select-5 9215: t="OFF"
+select-5 9216: t="OFF"
+select-5 9217: t="OFF"
+select-5 9218: t="DEFAULT"
+select-5 9230: o
+select-5 9237: o
+select-5 9238: o
+select-5 9245: o
+select-5 9260: n=80 b=80 r=0.8
+select-5 9261: n=100 b=100 r=1
+select-5 9262: n=100 b=100 r=1
+select-5 9263: n=70 b=70 r=0.7
+select-5 9489: o
+select-5 9600: t="TRAINER"
+select-5 9601: t="OFF"
+select-5 9602: t="MIRROR"
+select-5 9603: t="EASY"
+select-5 9604: t="NORMAL"
+select-5 9605: t="HARD"
+select-5 9606: t="VS"
+select-5 9607: t="OFF"
+select-5 9608: t="FLIP"
+select-5 9609: t="MIN BPM"
+select-5 9610: t="OFF"
+select-5 9611: t="START BPM"
+select-5 9612: t="TRAINER"
+select-5 9613: t="OFF"
+select-5 9614: t="MIRROR"
+select-5 9615: t="NEXT RANK"
+select-5 9616: t="BEST"
+select-5 9617: t="RANK A-"
+select-6 2: t="PLAYER"
+select-6 3: o
+select-6 10: n=250 b=0 t="MY COURSE (2 stages)"
+select-6 11: b=0
+select-6 12: n=0 b=0 t="MY COURSE (2 stages)"
+select-6 17: n=0 b=0
+select-6 18: n=0 b=0
+select-6 19: n=0 b=0
+select-6 20: n=0 b=0
+select-6 30: o n=12 b=12 t=""
+select-6 31: n=5 b=5
+select-6 32: o n=7 b=7
+select-6 33: n=0 b=0
+select-6 34: o n=0 b=0
+select-6 35: n=0 b=0
+select-6 36: n=0 b=0
+select-6 37: n=0 b=0
+select-6 39: o
+select-6 40: b=2
+select-6 41: o
+select-6 42: o b=0
+select-6 43: b=0
+select-6 54: b=0
+select-6 55: b=0
+select-6 72: b=0
+select-6 75: b=0
+select-6 77: b=11
+select-6 78: b=0
+select-6 190: o
+select-6 192: o
+select-6 300: n=9 b=9
+select-6 301: b=0
+select-6 302: b=0
+select-6 303: b=0
+select-6 304: b=0
+select-6 305: b=0
+select-6 306: b=0
+select-6 307: b=0
+select-6 308: b=0
+select-6 310: n=2 b=2
+select-6 311: n=50 b=50
+select-6 312: n=640 b=640
+select-6 313: n=384 b=384
+select-6 330: b=0
+select-6 331: b=0
+select-6 332: b=0
+select-6 333: n=0 b=0
+select-6 340: b=0
+select-6 351: b=0
+select-6 352: b=0
+select-6 353: b=0
+select-6 370: n=0 b=0
+select-6 1000: t="ROOT"
+select-6 1401: b=0
+select-6 1402: b=0
+select-6 1403: b=0
+select-6 1404: b=0
+select-6 1405: b=12
+select-6 1407: b=0
+select-6 1500: o
+select-6 1518: o
+select-6 1532: o
+select-6 1548: o
+select-6 1564: o
+select-6 1592: o
+select-6 1596: o
+select-6 1612: o
+select-6 1628: o
+select-6 1644: o
+select-6 1660: o
+select-6 1676: o
+select-6 1692: o
+select-6 1708: o
+select-6 1725: o
+select-6 1740: o
+select-6 1756: o
+select-6 1772: o
+select-6 1788: o
+select-6 1804: o
+select-6 9000: t="OFF"
+select-6 9001: t="NORMAL"
+select-6 9002: t="OFF"
+select-6 9003: t="LN"
+select-6 9004: t="2.50"
+select-6 9005: t="2.50"
+select-6 9006: t="P1"
+select-6 9007: t="beatoraja"
+select-6 9008: t="OFF"
+select-6 9009: t="OPEN"
+select-6 9010: t="OFF"
+select-6 9011: t="TITLE"
+select-6 9012: t="ALL"
+select-6 9013: t="ALL"
+select-6 9014: t="—"
+select-6 9015: t="—"
+select-6 9016: t="ANY"
+select-6 9017: t="SAVE"
+select-6 9018: t="OFF"
+select-6 9019: t="+0 ms"
+select-6 9020: t="384"
+select-6 9021: t="+0 ms"
+select-6 9022: t="ON"
+select-6 9023: t="WINDOW"
+select-6 9024: t="80%"
+select-6 9025: t="100%"
+select-6 9026: t="100%"
+select-6 9027: t="70%"
+select-6 9028: t="LOOP"
+select-6 9029: t="NORMAL"
+select-6 9030: t="OFF"
+select-6 9031: t="ON"
+select-6 9032: t="0%"
+select-6 9033: t="0%"
+select-6 9034: t="0%"
+select-6 9035: t="OFF"
+select-6 9036: t="ON"
+select-6 9037: t="OFF"
+select-6 9038: t="OFF"
+select-6 9039: t="1234567"
+select-6 9040: t="OFF"
+select-6 9041: t="OFF"
+select-6 9042: t="OFF"
+select-6 9043: t="BEST, ELSE LAST"
+select-6 9044: t="100%"
+select-6 9045: t="OPEN"
+select-6 9046: t="OPEN"
+select-6 9047: t="OPEN"
+select-6 9048: t="OFF"
+select-6 9100: t="RANDOM"
+select-6 9101: t="GAUGE"
+select-6 9102: t="AUTO SHIFT"
+select-6 9103: t="LN MODE"
+select-6 9104: t="HI-SPEED −"
+select-6 9105: t="HI-SPEED +"
+select-6 9106: t="SIDE"
+select-6 9107: t="JUDGE"
+select-6 9108: t="AUTOPLAY"
+select-6 9109: t="SETTINGS"
+select-6 9110: t="BATTLE"
+select-6 9111: t="SORT"
+select-6 9112: t="KEY MODE"
+select-6 9113: t="DIFFICULTY"
+select-6 9114: t="FAV CHART"
+select-6 9115: t="FAV SONG"
+select-6 9116: t="RANDOM SELECT"
+select-6 9117: t="SCREENSHOT"
+select-6 9118: t="LANE COVER"
+select-6 9119: t="JUDGE TIMING"
+select-6 9120: t="GREEN NUMBER"
+select-6 9121: t="VISUAL OFFSET"
+select-6 9122: t="FAST / SLOW"
+select-6 9123: t="SCREEN MODE"
+select-6 9124: t="MASTER"
+select-6 9125: t="KEY SOUND"
+select-6 9126: t="BGM"
+select-6 9127: t="SYSTEM"
+select-6 9128: t="PREVIEW"
+select-6 9129: t="BGA SIZE"
+select-6 9130: t="GHOST POSITION"
+select-6 9131: t="SCORE GRAPH"
+select-6 9132: t="SUDDEN+"
+select-6 9133: t="HIDDEN+"
+select-6 9134: t="LIFT"
+select-6 9135: t="AUTO SCRATCH"
+select-6 9136: t="BGA"
+select-6 9137: t="JUDGE AUTO ADJUST"
+select-6 9138: t="FREQ"
+select-6 9139: t="TRAINER ORDER"
+select-6 9140: t="SCROLL REMOVE"
+select-6 9141: t="MINE ADD"
+select-6 9142: t="LONGNOTE ADD"
+select-6 9143: t="REPLAY"
+select-6 9144: t="REPLAY SPEED"
+select-6 9145: t="SONG FOLDER"
+select-6 9146: t="WEB PAGE"
+select-6 9147: t="SAME FOLDER"
+select-6 9148: t="KEY CONVERT"
+select-6 9211: t=""
+select-6 9213: t="SAVE"
+select-6 9214: t="CLEAR"
+select-6 9215: t="OFF"
+select-6 9216: t="OFF"
+select-6 9217: t="OFF"
+select-6 9218: t="DEFAULT"
+select-6 9230: o
+select-6 9237: o
+select-6 9238: o
+select-6 9245: o
+select-6 9260: n=80 b=80 r=0.8
+select-6 9261: n=100 b=100 r=1
+select-6 9262: n=100 b=100 r=1
+select-6 9263: n=70 b=70 r=0.7
+select-6 9483: o
+select-6 9600: t="TRAINER"
+select-6 9601: t="OFF"
+select-6 9602: t="MIRROR"
+select-6 9603: t="EASY"
+select-6 9604: t="NORMAL"
+select-6 9605: t="HARD"
+select-6 9606: t="VS"
+select-6 9607: t="OFF"
+select-6 9608: t="FLIP"
+select-6 9609: t="MIN BPM"
+select-6 9610: t="OFF"
+select-6 9611: t="START BPM"
+select-6 9612: t="TRAINER"
+select-6 9613: t="OFF"
+select-6 9614: t="MIRROR"
+select-6 9615: t="NEXT RANK"
+select-6 9616: t="BEST"
+select-6 9617: t="RANK A-"
+select-7 2: t="PLAYER"
+select-7 3: o
+select-7 10: n=250 b=0 t="RANDOM MIX"
+select-7 11: b=0
+select-7 12: n=0 b=0 t="RANDOM MIX"
+select-7 17: n=0 b=0
+select-7 18: n=0 b=0
+select-7 19: n=0 b=0
+select-7 20: n=0 b=0
+select-7 30: o n=12 b=12 t=""
+select-7 31: n=5 b=5
+select-7 32: o n=7 b=7
+select-7 33: n=0 b=0
+select-7 34: o n=0 b=0
+select-7 35: n=0 b=0
+select-7 36: n=0 b=0
+select-7 37: n=0 b=0
+select-7 39: o
+select-7 40: b=2
+select-7 41: o
+select-7 42: o b=0
+select-7 43: b=0
+select-7 54: b=0
+select-7 55: b=0
+select-7 72: b=0
+select-7 75: b=0
+select-7 77: b=11
+select-7 78: b=0
+select-7 190: o
+select-7 192: o
+select-7 300: n=9 b=9
+select-7 301: b=0
+select-7 302: b=0
+select-7 303: b=0
+select-7 304: b=0
+select-7 305: b=0
+select-7 306: b=0
+select-7 307: b=0
+select-7 308: b=0
+select-7 310: n=2 b=2
+select-7 311: n=50 b=50
+select-7 312: n=640 b=640
+select-7 313: n=384 b=384
+select-7 330: b=0
+select-7 331: b=0
+select-7 332: b=0
+select-7 333: n=0 b=0
+select-7 340: b=0
+select-7 351: b=0
+select-7 352: b=0
+select-7 353: b=0
+select-7 370: n=0 b=0
+select-7 1000: t="ROOT"
+select-7 1401: b=0
+select-7 1402: b=0
+select-7 1403: b=0
+select-7 1404: b=0
+select-7 1405: b=12
+select-7 1407: b=0
+select-7 1500: o
+select-7 1518: o
+select-7 1532: o
+select-7 1548: o
+select-7 1564: o
+select-7 1592: o
+select-7 1596: o
+select-7 1612: o
+select-7 1628: o
+select-7 1644: o
+select-7 1660: o
+select-7 1676: o
+select-7 1692: o
+select-7 1708: o
+select-7 1725: o
+select-7 1740: o
+select-7 1756: o
+select-7 1772: o
+select-7 1788: o
+select-7 1804: o
+select-7 9000: t="OFF"
+select-7 9001: t="NORMAL"
+select-7 9002: t="OFF"
+select-7 9003: t="LN"
+select-7 9004: t="2.50"
+select-7 9005: t="2.50"
+select-7 9006: t="P1"
+select-7 9007: t="beatoraja"
+select-7 9008: t="OFF"
+select-7 9009: t="OPEN"
+select-7 9010: t="OFF"
+select-7 9011: t="TITLE"
+select-7 9012: t="ALL"
+select-7 9013: t="ALL"
+select-7 9014: t="—"
+select-7 9015: t="—"
+select-7 9016: t="ANY"
+select-7 9017: t="SAVE"
+select-7 9018: t="OFF"
+select-7 9019: t="+0 ms"
+select-7 9020: t="384"
+select-7 9021: t="+0 ms"
+select-7 9022: t="ON"
+select-7 9023: t="WINDOW"
+select-7 9024: t="80%"
+select-7 9025: t="100%"
+select-7 9026: t="100%"
+select-7 9027: t="70%"
+select-7 9028: t="LOOP"
+select-7 9029: t="NORMAL"
+select-7 9030: t="OFF"
+select-7 9031: t="ON"
+select-7 9032: t="0%"
+select-7 9033: t="0%"
+select-7 9034: t="0%"
+select-7 9035: t="OFF"
+select-7 9036: t="ON"
+select-7 9037: t="OFF"
+select-7 9038: t="OFF"
+select-7 9039: t="1234567"
+select-7 9040: t="OFF"
+select-7 9041: t="OFF"
+select-7 9042: t="OFF"
+select-7 9043: t="BEST, ELSE LAST"
+select-7 9044: t="100%"
+select-7 9045: t="OPEN"
+select-7 9046: t="OPEN"
+select-7 9047: t="OPEN"
+select-7 9048: t="OFF"
+select-7 9100: t="RANDOM"
+select-7 9101: t="GAUGE"
+select-7 9102: t="AUTO SHIFT"
+select-7 9103: t="LN MODE"
+select-7 9104: t="HI-SPEED −"
+select-7 9105: t="HI-SPEED +"
+select-7 9106: t="SIDE"
+select-7 9107: t="JUDGE"
+select-7 9108: t="AUTOPLAY"
+select-7 9109: t="SETTINGS"
+select-7 9110: t="BATTLE"
+select-7 9111: t="SORT"
+select-7 9112: t="KEY MODE"
+select-7 9113: t="DIFFICULTY"
+select-7 9114: t="FAV CHART"
+select-7 9115: t="FAV SONG"
+select-7 9116: t="RANDOM SELECT"
+select-7 9117: t="SCREENSHOT"
+select-7 9118: t="LANE COVER"
+select-7 9119: t="JUDGE TIMING"
+select-7 9120: t="GREEN NUMBER"
+select-7 9121: t="VISUAL OFFSET"
+select-7 9122: t="FAST / SLOW"
+select-7 9123: t="SCREEN MODE"
+select-7 9124: t="MASTER"
+select-7 9125: t="KEY SOUND"
+select-7 9126: t="BGM"
+select-7 9127: t="SYSTEM"
+select-7 9128: t="PREVIEW"
+select-7 9129: t="BGA SIZE"
+select-7 9130: t="GHOST POSITION"
+select-7 9131: t="SCORE GRAPH"
+select-7 9132: t="SUDDEN+"
+select-7 9133: t="HIDDEN+"
+select-7 9134: t="LIFT"
+select-7 9135: t="AUTO SCRATCH"
+select-7 9136: t="BGA"
+select-7 9137: t="JUDGE AUTO ADJUST"
+select-7 9138: t="FREQ"
+select-7 9139: t="TRAINER ORDER"
+select-7 9140: t="SCROLL REMOVE"
+select-7 9141: t="MINE ADD"
+select-7 9142: t="LONGNOTE ADD"
+select-7 9143: t="REPLAY"
+select-7 9144: t="REPLAY SPEED"
+select-7 9145: t="SONG FOLDER"
+select-7 9146: t="WEB PAGE"
+select-7 9147: t="SAME FOLDER"
+select-7 9148: t="KEY CONVERT"
+select-7 9211: t=""
+select-7 9213: t="SAVE"
+select-7 9214: t="CLEAR"
+select-7 9215: t="OFF"
+select-7 9216: t="OFF"
+select-7 9217: t="OFF"
+select-7 9218: t="DEFAULT"
+select-7 9230: o
+select-7 9237: o
+select-7 9238: o
+select-7 9245: o
+select-7 9260: n=80 b=80 r=0.8
+select-7 9261: n=100 b=100 r=1
+select-7 9262: n=100 b=100 r=1
+select-7 9263: n=70 b=70 r=0.7
+select-7 9483: o
+select-7 9600: t="TRAINER"
+select-7 9601: t="OFF"
+select-7 9602: t="MIRROR"
+select-7 9603: t="EASY"
+select-7 9604: t="NORMAL"
+select-7 9605: t="HARD"
+select-7 9606: t="VS"
+select-7 9607: t="OFF"
+select-7 9608: t="FLIP"
+select-7 9609: t="MIN BPM"
+select-7 9610: t="OFF"
+select-7 9611: t="START BPM"
+select-7 9612: t="TRAINER"
+select-7 9613: t="OFF"
+select-7 9614: t="MIRROR"
+select-7 9615: t="NEXT RANK"
+select-7 9616: t="BEST"
+select-7 9617: t="RANK A-"
+select-8 2: o t="PLAYER"
+select-8 10: n=250 b=0 t="Not Here"
+select-8 11: b=0
+select-8 12: n=0 b=0 t="Not Here"
+select-8 14: t="Nobody"
+select-8 16: t="Nobody"
+select-8 17: n=0 b=0
+select-8 18: n=0 b=0
+select-8 19: n=0 b=0
+select-8 20: n=0 b=0
+select-8 30: o n=12 b=12 t=""
+select-8 31: n=5 b=5
+select-8 32: o n=7 b=7
+select-8 33: n=0 b=0
+select-8 34: o n=0 b=0
+select-8 35: n=0 b=0
+select-8 36: n=0 b=0
+select-8 37: n=0 b=0
+select-8 39: o
+select-8 40: b=2
+select-8 41: o
+select-8 42: o b=0
+select-8 43: b=0
+select-8 54: b=0
+select-8 55: b=0
+select-8 72: b=0
+select-8 75: b=0
+select-8 77: b=11
+select-8 78: b=0
+select-8 190: o
+select-8 192: o
+select-8 300: n=9 b=9
+select-8 301: b=0
+select-8 302: b=0
+select-8 303: b=0
+select-8 304: b=0
+select-8 305: b=0
+select-8 306: b=0
+select-8 307: b=0
+select-8 308: b=0
+select-8 310: n=2 b=2
+select-8 311: n=50 b=50
+select-8 312: n=640 b=640
+select-8 313: n=384 b=384
+select-8 330: b=0
+select-8 331: b=0
+select-8 332: b=0
+select-8 333: n=0 b=0
+select-8 340: b=0
+select-8 351: b=0
+select-8 352: b=0
+select-8 353: b=0
+select-8 370: n=0 b=0
+select-8 1000: t="ROOT"
+select-8 1401: b=0
+select-8 1402: b=0
+select-8 1403: b=0
+select-8 1404: b=0
+select-8 1405: b=12
+select-8 1407: b=0
+select-8 1500: o
+select-8 1518: o
+select-8 1532: o
+select-8 1548: o
+select-8 1564: o
+select-8 1592: o
+select-8 1596: o
+select-8 1612: o
+select-8 1628: o
+select-8 1644: o
+select-8 1660: o
+select-8 1676: o
+select-8 1692: o
+select-8 1708: o
+select-8 1725: o
+select-8 1740: o
+select-8 1756: o
+select-8 1772: o
+select-8 1788: o
+select-8 1804: o
+select-8 9000: t="OFF"
+select-8 9001: t="NORMAL"
+select-8 9002: t="OFF"
+select-8 9003: t="LN"
+select-8 9004: t="2.50"
+select-8 9005: t="2.50"
+select-8 9006: t="P1"
+select-8 9007: t="beatoraja"
+select-8 9008: t="OFF"
+select-8 9009: t="OPEN"
+select-8 9010: t="OFF"
+select-8 9011: t="TITLE"
+select-8 9012: t="ALL"
+select-8 9013: t="ALL"
+select-8 9014: t="—"
+select-8 9015: t="—"
+select-8 9016: t="ANY"
+select-8 9017: t="SAVE"
+select-8 9018: t="OFF"
+select-8 9019: t="+0 ms"
+select-8 9020: t="384"
+select-8 9021: t="+0 ms"
+select-8 9022: t="ON"
+select-8 9023: t="WINDOW"
+select-8 9024: t="80%"
+select-8 9025: t="100%"
+select-8 9026: t="100%"
+select-8 9027: t="70%"
+select-8 9028: t="LOOP"
+select-8 9029: t="NORMAL"
+select-8 9030: t="OFF"
+select-8 9031: t="ON"
+select-8 9032: t="0%"
+select-8 9033: t="0%"
+select-8 9034: t="0%"
+select-8 9035: t="OFF"
+select-8 9036: t="ON"
+select-8 9037: t="OFF"
+select-8 9038: t="OFF"
+select-8 9039: t="1234567"
+select-8 9040: t="OFF"
+select-8 9041: t="OFF"
+select-8 9042: t="OFF"
+select-8 9043: t="BEST, ELSE LAST"
+select-8 9044: t="100%"
+select-8 9045: t="OPEN"
+select-8 9046: t="OPEN"
+select-8 9047: t="OPEN"
+select-8 9048: t="OFF"
+select-8 9100: t="RANDOM"
+select-8 9101: t="GAUGE"
+select-8 9102: t="AUTO SHIFT"
+select-8 9103: t="LN MODE"
+select-8 9104: t="HI-SPEED −"
+select-8 9105: t="HI-SPEED +"
+select-8 9106: t="SIDE"
+select-8 9107: t="JUDGE"
+select-8 9108: t="AUTOPLAY"
+select-8 9109: t="SETTINGS"
+select-8 9110: t="BATTLE"
+select-8 9111: t="SORT"
+select-8 9112: t="KEY MODE"
+select-8 9113: t="DIFFICULTY"
+select-8 9114: t="FAV CHART"
+select-8 9115: t="FAV SONG"
+select-8 9116: t="RANDOM SELECT"
+select-8 9117: t="SCREENSHOT"
+select-8 9118: t="LANE COVER"
+select-8 9119: t="JUDGE TIMING"
+select-8 9120: t="GREEN NUMBER"
+select-8 9121: t="VISUAL OFFSET"
+select-8 9122: t="FAST / SLOW"
+select-8 9123: t="SCREEN MODE"
+select-8 9124: t="MASTER"
+select-8 9125: t="KEY SOUND"
+select-8 9126: t="BGM"
+select-8 9127: t="SYSTEM"
+select-8 9128: t="PREVIEW"
+select-8 9129: t="BGA SIZE"
+select-8 9130: t="GHOST POSITION"
+select-8 9131: t="SCORE GRAPH"
+select-8 9132: t="SUDDEN+"
+select-8 9133: t="HIDDEN+"
+select-8 9134: t="LIFT"
+select-8 9135: t="AUTO SCRATCH"
+select-8 9136: t="BGA"
+select-8 9137: t="JUDGE AUTO ADJUST"
+select-8 9138: t="FREQ"
+select-8 9139: t="TRAINER ORDER"
+select-8 9140: t="SCROLL REMOVE"
+select-8 9141: t="MINE ADD"
+select-8 9142: t="LONGNOTE ADD"
+select-8 9143: t="REPLAY"
+select-8 9144: t="REPLAY SPEED"
+select-8 9145: t="SONG FOLDER"
+select-8 9146: t="WEB PAGE"
+select-8 9147: t="SAME FOLDER"
+select-8 9148: t="KEY CONVERT"
+select-8 9211: t=""
+select-8 9213: t="SAVE"
+select-8 9214: t="CLEAR"
+select-8 9215: t="OFF"
+select-8 9216: t="OFF"
+select-8 9217: t="OFF"
+select-8 9218: t="DEFAULT"
+select-8 9230: o
+select-8 9237: o
+select-8 9238: o
+select-8 9245: o
+select-8 9260: n=80 b=80 r=0.8
+select-8 9261: n=100 b=100 r=1
+select-8 9262: n=100 b=100 r=1
+select-8 9263: n=70 b=70 r=0.7
+select-8 9487: o
+select-8 9600: t="TRAINER"
+select-8 9601: t="OFF"
+select-8 9602: t="MIRROR"
+select-8 9603: t="EASY"
+select-8 9604: t="NORMAL"
+select-8 9605: t="HARD"
+select-8 9606: t="VS"
+select-8 9607: t="OFF"
+select-8 9608: t="FLIP"
+select-8 9609: t="MIN BPM"
+select-8 9610: t="OFF"
+select-8 9611: t="START BPM"
+select-8 9612: t="TRAINER"
+select-8 9613: t="OFF"
+select-8 9614: t="MIRROR"
+select-8 9615: t="NEXT RANK"
+select-8 9616: t="BEST"
+select-8 9617: t="RANK A-"
+select-panel 9600: t="TRAINER"
+select-panel 9601: t="OFF"
+select-panel 9602: t="MIRROR"
+select-panel 9603: t="EASY"
+select-panel 9604: t="NORMAL"
+select-panel 9605: t="HARD"
+select-panel 9606: t="VS"
+select-panel 9607: t="OFF"
+select-panel 9608: t="FLIP"
+select-panel 9609: t="MIN BPM"
+select-panel 9610: t="OFF"
+select-panel 9611: t="START BPM"
+select-panel 9612: t="TRAINER"
+select-panel 9613: t="OFF"
+select-panel 9614: t="MIRROR"
+select-panel 9615: t="NEXT RANK"
+select-panel 9616: t="BEST"
+select-panel 9617: t="RANK A-"
+select-panel 9700: o

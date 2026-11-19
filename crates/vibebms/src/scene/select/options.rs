@@ -7,25 +7,22 @@ use super::skin::{panel_of_op, PANELS, PANEL_TILES};
 use super::status::SIBLINGS;
 use super::{SelectScene, REFERENCE_BPMS};
 use crate::app::{Ctx, Next};
-use crate::config::{AudioSettings, BgaMode, BgaSize, Ghost, PlayConfig};
+use crate::config::{AudioSettings, PlayConfig};
 use crate::config::{
-    Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, ReplayPick, Side, SortMode,
-    Versus, HISPEED_STEP,
+    Bpms, DifficultyFilter, HsFix, HsType, KeyFilter, RandomSelect, ReplayPick, SortMode, Versus,
+    HISPEED_STEP,
 };
 use crate::gfx::Rect;
 use crate::input::{Nav, Repeat};
 use crate::library::{Favorites, Song};
 use crate::platform::{Duration, Instant};
-use crate::scene::option_panel::{self, cycle, onoff};
+use crate::scene::option_panel;
+use crate::scene::play_opts::{self as po, PlayOpt};
 use crate::scene::skin_host::Tap;
 use crate::scene::target::{self, Rival};
+use crate::scene::{cycle, onoff};
 use crate::sysound::Sound;
 use vibebms_audio::Bus;
-use vibebms_core::convert::KeyConvert;
-use vibebms_core::gauge::GaugeAutoShift;
-use vibebms_core::judge::JudgePreset;
-use vibebms_core::lane_option::{LaneOption, LnAdd, MineAdd};
-use vibebms_core::LnPref;
 
 /// beatoraja: a held panel key repeats after 300 ms, every 50 ms.
 pub(super) const PANEL_REPEAT_DELAY: Duration = Duration::from_millis(300);
@@ -93,34 +90,31 @@ pub(crate) enum SelectOption {
 /// Full screen can be switched (desktop).
 pub(super) const WINDOWED: bool = !cfg!(any(target_arch = "wasm32", target_os = "android"));
 
-/// A lane cover / lift share in 1 % steps, up to `max`.
-fn cover(v: &mut f32, d: i32, max: f32) {
-    *v = (*v + d as f32 * 0.01).clamp(0.0, max);
-}
+/// PLAY OPTION's key options (texts 9600 on), TARGET after them.
+const KEY_OPTIONS: [&PlayOpt; 5] = [
+    &po::RANDOM,
+    &po::GAUGE,
+    &po::DP_OPTION,
+    &po::HS_FIX,
+    &po::RANDOM_2P,
+];
 
-/// PLAY OPTION's key option `t` (RANDOM, GAUGE, DP OPTION · BATTLE,
-/// HS-FIX, RANDOM 2P, TARGET) moved `d` places, as its key and its tile
+/// PLAY OPTION's key option `t` moved `d` places, as its key and its tile
 /// do.
 pub(crate) fn step_key_option(p: &mut PlayConfig, t: usize, d: i32, b: &Bpms, rivals: &[Rival]) {
-    match t {
-        5 => {
+    match KEY_OPTIONS.get(t) {
+        Some(o) => (o.step)(p, d, b),
+        None => {
             target::step(p, rivals, d);
-        }
-        t => {
-            option_panel::key(p, 1, [0, 2, 3, 4, 6][t], b, d);
         }
     }
 }
 
 /// Key option `t`'s value.
-pub(crate) fn key_option_label(p: &PlayConfig, t: usize, rivals: &[Rival]) -> String {
-    match t {
-        0 => p.random_1p.label().into(),
-        1 => p.gauge.label().into(),
-        2 => option_panel::BATTLE_LABELS[option_panel::battle_index(p) as usize].into(),
-        3 => p.hs_fix.label().into(),
-        4 => p.random_2p.label().into(),
-        _ => target::label(p, rivals),
+pub(crate) fn key_option_label(p: &PlayConfig, t: usize, b: &Bpms, rivals: &[Rival]) -> String {
+    match KEY_OPTIONS.get(t) {
+        Some(o) => (o.label)(p, b).into(),
+        None => target::label(p, rivals),
     }
 }
 
@@ -186,19 +180,49 @@ impl SelectOption {
         SelectOption::KeyConvert,
     ];
 
+    /// The play option it is, if it is one.
+    fn play(self) -> Option<&'static PlayOpt> {
+        Some(match self {
+            SelectOption::Random => &po::RANDOM,
+            SelectOption::Gauge => &po::GAUGE,
+            SelectOption::AutoShift => &po::AUTO_SHIFT,
+            SelectOption::LnMode => &po::LN_MODE,
+            SelectOption::Side => &po::SIDE,
+            SelectOption::Judge => &po::JUDGE,
+            SelectOption::Autoplay => &po::AUTOPLAY,
+            SelectOption::Battle => &po::BATTLE,
+            SelectOption::LaneCover => &po::LANE_COVER,
+            SelectOption::JudgeTiming => &po::JUDGE_TIMING,
+            SelectOption::GreenNumber => &po::GREEN_NUMBER,
+            SelectOption::VisualOffset => &po::VISUAL_OFFSET,
+            SelectOption::FastSlow => &po::FAST_SLOW,
+            SelectOption::BgaSize => &po::BGA_SIZE,
+            SelectOption::Ghost => &po::GHOST,
+            SelectOption::ScoreGraph => &po::SCORE_GRAPH,
+            SelectOption::Sudden => &po::SUDDEN,
+            SelectOption::Hidden => &po::HIDDEN,
+            SelectOption::Lift => &po::LIFT,
+            SelectOption::AutoScratch => &po::AUTO_SCRATCH,
+            SelectOption::Bga => &po::BGA,
+            SelectOption::TimingAutoAdjust => &po::TIMING_AUTO_ADJUST,
+            SelectOption::Freq => &po::FREQ,
+            SelectOption::TrainerOrder => &po::TRAINER_ORDER,
+            SelectOption::ScrollRemove => &po::SCROLL_REMOVE,
+            SelectOption::MineAdd => &po::MINE_ADD,
+            SelectOption::LnAdd => &po::LN_ADD,
+            SelectOption::KeyConvert => &po::KEY_CONVERT,
+            _ => return None,
+        })
+    }
+
     pub fn name(self) -> &'static str {
+        if let Some(o) = self.play() {
+            return o.name;
+        }
         match self {
-            SelectOption::Random => "RANDOM",
-            SelectOption::Gauge => "GAUGE",
-            SelectOption::AutoShift => "AUTO SHIFT",
-            SelectOption::LnMode => "LN MODE",
             SelectOption::HiSpeedDown => "HI-SPEED −",
             SelectOption::HiSpeedUp => "HI-SPEED +",
-            SelectOption::Side => "SIDE",
-            SelectOption::Judge => "JUDGE",
-            SelectOption::Autoplay => "AUTOPLAY",
             SelectOption::Settings => "SETTINGS",
-            SelectOption::Battle => "BATTLE",
             SelectOption::Sort => "SORT",
             SelectOption::KeyFilter => "KEY MODE",
             SelectOption::DifficultyFilter => "DIFFICULTY",
@@ -206,37 +230,18 @@ impl SelectOption {
             SelectOption::FavoriteSong => "FAV SONG",
             SelectOption::RandomSelect => "RANDOM SELECT",
             SelectOption::Screenshot => "SCREENSHOT",
-            SelectOption::LaneCover => "LANE COVER",
-            SelectOption::JudgeTiming => "JUDGE TIMING",
-            SelectOption::GreenNumber => "GREEN NUMBER",
-            SelectOption::VisualOffset => "VISUAL OFFSET",
-            SelectOption::FastSlow => "FAST / SLOW",
             SelectOption::ScreenMode => "SCREEN MODE",
             SelectOption::MasterVolume => "MASTER",
             SelectOption::KeyVolume => "KEY SOUND",
             SelectOption::BgmVolume => "BGM",
             SelectOption::SystemVolume => "SYSTEM",
             SelectOption::Preview => "PREVIEW",
-            SelectOption::BgaSize => "BGA SIZE",
-            SelectOption::Ghost => "GHOST POSITION",
-            SelectOption::ScoreGraph => "SCORE GRAPH",
-            SelectOption::Sudden => "SUDDEN+",
-            SelectOption::Hidden => "HIDDEN+",
-            SelectOption::Lift => "LIFT",
-            SelectOption::AutoScratch => "AUTO SCRATCH",
-            SelectOption::Bga => "BGA",
-            SelectOption::TimingAutoAdjust => "JUDGE AUTO ADJUST",
-            SelectOption::Freq => "FREQ",
-            SelectOption::TrainerOrder => "TRAINER ORDER",
-            SelectOption::ScrollRemove => "SCROLL REMOVE",
-            SelectOption::MineAdd => "MINE ADD",
-            SelectOption::LnAdd => "LONGNOTE ADD",
             SelectOption::Replay => "REPLAY",
             SelectOption::ReplaySpeed => "REPLAY SPEED",
             SelectOption::ChartFolder => "SONG FOLDER",
             SelectOption::ChartUrl => "WEB PAGE",
             SelectOption::SameFolder => "SAME FOLDER",
-            SelectOption::KeyConvert => "KEY CONVERT",
+            _ => unreachable!("a play option"),
         }
     }
 
@@ -244,8 +249,10 @@ impl SelectOption {
     /// `song` the selected chart (for the favourites).
     pub fn value(self, ctx: &Ctx, bpm: Option<Bpms>, song: Option<&Song>) -> String {
         let p = &ctx.config.play;
+        if let Some(o) = self.play() {
+            return (o.label)(p, &bpm.unwrap_or(REFERENCE_BPMS)).into();
+        }
         let sel = &ctx.config.select;
-        let ms = |v: i32| format!("{v:+} ms");
         let pct = |v: f32| format!("{:.0}%", v * 100.0);
         let fav = |f: fn(&Favorites, &Song) -> bool| match (song, ctx.lib.db.as_ref()) {
             (Some(s), Some(l)) => onoff(f(l.favorites(), s)),
@@ -261,11 +268,6 @@ impl SelectOption {
             SelectOption::Replay => sel.replay.label().into(),
             SelectOption::ReplaySpeed => format!("{}%", sel.replay_speed),
             SelectOption::Screenshot => "SAVE".into(),
-            SelectOption::LaneCover => if p.lane_cover { "SUDDEN+" } else { "OFF" }.into(),
-            SelectOption::JudgeTiming => ms(p.judge_offset_ms),
-            SelectOption::GreenNumber => p.green(&bpm.unwrap_or(REFERENCE_BPMS)).to_string(),
-            SelectOption::VisualOffset => ms(p.visual_offset_ms),
-            SelectOption::FastSlow => onoff(p.show_fast_slow).into(),
             SelectOption::ScreenMode if !WINDOWED => "—".into(),
             SelectOption::ScreenMode => match ctx.config.display.fullscreen {
                 true => "FULL SCREEN",
@@ -279,29 +281,10 @@ impl SelectOption {
             SelectOption::Preview => {
                 ["ONCE", "LOOP", "OFF"][preview_index(&ctx.config.audio) as usize].into()
             }
-            SelectOption::BgaSize => p.bga_size.label().into(),
-            SelectOption::Ghost => p.ghost.label().into(),
-            SelectOption::ScoreGraph => onoff(p.score_graph).into(),
-            SelectOption::Sudden => pct(p.sudden),
-            SelectOption::Hidden => pct(p.hidden),
-            SelectOption::Lift => pct(p.lift),
-            SelectOption::AutoScratch => onoff(p.auto_scratch).into(),
-            SelectOption::Bga => p.bga.label().into(),
-            SelectOption::TimingAutoAdjust => onoff(p.timing_auto_adjust).into(),
-            SelectOption::Freq => vibebms_core::play::freq_label(p.freq),
-            SelectOption::TrainerOrder => p.trainer_order.clone(),
-            SelectOption::ScrollRemove => onoff(p.scroll_remove).into(),
-            SelectOption::MineAdd => p.mine_add.label().into(),
-            SelectOption::LnAdd => p.ln_add.label().into(),
-            SelectOption::KeyConvert => p.key_convert.label().into(),
             SelectOption::ChartFolder if !crate::platform::open::CAN_OPEN_FILES => "—".into(),
             SelectOption::ChartFolder | SelectOption::ChartUrl | SelectOption::SameFolder => {
                 "OPEN".into()
             }
-            SelectOption::Random => p.random_1p.label().into(),
-            SelectOption::Gauge => p.gauge.label().into(),
-            SelectOption::AutoShift => p.gauge_auto_shift.label().into(),
-            SelectOption::LnMode => p.ln_pref().label(),
             SelectOption::HiSpeedDown => match p.hs_type {
                 HsType::Normal => format!("NHS {}", p.hs_level),
                 _ => format!("{:.2}", p.hispeed_shown(&bpm.unwrap_or(REFERENCE_BPMS))),
@@ -313,19 +296,8 @@ impl SelectOption {
                 Some(b) => format!("GN {}", p.green(&b)),
                 None => format!("{:.2}", p.hispeed),
             },
-            SelectOption::Side => format!("{:?}", p.side),
-            SelectOption::Judge => p.judge_preset.label().into(),
-            SelectOption::Autoplay => onoff(p.autoplay).into(),
             SelectOption::Settings => "OPEN".into(),
-            SelectOption::Battle => match option_panel::battle_index(p) {
-                2 => "BATTLE".into(),
-                3 => "BATTLE AS".into(),
-                4 => "G-BEST".into(),
-                5 => "G-LAST".into(),
-                6 => "VS".into(),
-                n @ 7..=10 => format!("G-SLOT{}", n - 6),
-                _ => "OFF".into(),
-            },
+            _ => unreachable!("a play option"),
         }
     }
 }
@@ -346,6 +318,13 @@ fn vs_hint(ctx: &mut Ctx) {
             .to_string(),
         );
     }
+}
+
+/// Does `skin` have panels (objects shown only with a panel option)?
+pub(super) fn has_panels(skin: Option<&crate::skin::render::LoadedSkin>) -> bool {
+    skin.is_some_and(|s| {
+        (s.skin.objects.iter()).any(|o| o.dst.ops.iter().any(|op| panel_of_op(*op).is_some()))
+    })
 }
 
 impl SelectScene {
@@ -383,32 +362,18 @@ impl SelectScene {
             _ => matches!(o, SelectOption::Judge | SelectOption::LnMode),
         };
         let p = &mut ctx.config.play;
+        if let Some(po) = o.play() {
+            (po.step)(p, d, &bpm);
+        }
         match o {
-            SelectOption::Random => p.random_1p = cycle(&LaneOption::ALL, p.random_1p, d),
-            SelectOption::Gauge => p.gauge = cycle(p.gauge_preset.selectable(), p.gauge, d),
-            SelectOption::AutoShift => {
-                p.gauge_auto_shift = cycle(&GaugeAutoShift::ALL, p.gauge_auto_shift, d)
-            }
-            SelectOption::LnMode => {
-                let ln = cycle(&LnPref::ALL, p.ln_pref(), d);
-                p.set_ln_pref(ln)
-            }
             SelectOption::HiSpeedDown => p.add_hispeed(-HISPEED_STEP * d as f32, &bpm),
             SelectOption::HiSpeedUp => p.add_hispeed(HISPEED_STEP * d as f32, &bpm),
-            SelectOption::Side => p.side = cycle(&[Side::P1, Side::P2], p.side, d),
-            SelectOption::Judge => p.judge_preset = cycle(&JudgePreset::ALL, p.judge_preset, d),
-            SelectOption::Autoplay => p.autoplay ^= true,
             SelectOption::Settings => {
                 return Next::Push(Box::new(crate::scene::settings::SettingsScene::new(ctx)))
             }
             SelectOption::Battle => {
-                // OFF, BATTLE, BATTLE AS, G-BATTLE (MY BEST, LAST, SLOT
-                // 1-4), VS
-                let all = option_panel::battle_choices(true);
-                let row: Vec<i64> = all.iter().copied().filter(|i| *i != 1).collect();
-                let label = option_panel::step_battle(p, &row, d);
                 // (skins other than the default show no such row)
-                ctx.toast(format!("BATTLE: {label}"));
+                ctx.toast(po::BATTLE.said(&ctx.config.play, &bpm));
                 if ctx.config.play.versus == Versus::Local {
                     vs_hint(ctx);
                 }
@@ -441,42 +406,13 @@ impl SelectScene {
             SelectOption::FavoriteChart | SelectOption::FavoriteSong => {
                 self.toggle_favorite(ctx, o == SelectOption::FavoriteSong)
             }
-            SelectOption::LaneCover => p.lane_cover ^= true,
-            SelectOption::BgaSize => p.bga_size = cycle(&BgaSize::ALL, p.bga_size, d),
-            SelectOption::Ghost => p.ghost = cycle(&Ghost::ALL, p.ghost, d),
-            SelectOption::ScoreGraph => p.score_graph ^= true,
-            SelectOption::Sudden => cover(&mut p.sudden, d, 0.9),
-            SelectOption::Hidden => cover(&mut p.hidden, d, 0.9),
-            SelectOption::Lift => cover(&mut p.lift, d, 0.6),
-            SelectOption::AutoScratch => p.auto_scratch ^= true,
-            SelectOption::Bga => p.bga = cycle(&BgaMode::ALL, p.bga, d),
-            SelectOption::TimingAutoAdjust => p.timing_auto_adjust ^= true,
-            SelectOption::Freq => {
-                option_panel::step_freq(p, d);
-            }
-            // a lane on (or back): the order turned
-            SelectOption::TrainerOrder => {
-                p.trainer_order = vibebms_core::lane_option::turn_order(&p.trainer_order, d)
-            }
-            SelectOption::ScrollRemove => p.scroll_remove ^= true,
-            SelectOption::MineAdd => p.mine_add = cycle(&MineAdd::ALL, p.mine_add, d),
-            SelectOption::LnAdd => p.ln_add = cycle(&LnAdd::ALL, p.ln_add, d),
             SelectOption::KeyConvert => {
-                p.key_convert = cycle(&KeyConvert::ALL, p.key_convert, d);
                 // (skins other than the default show no such option)
                 ctx.toast(tr!(
                     "KEY CONVERT: {mode} (such plays are not saved)",
                     mode = ctx.config.play.key_convert.label()
                 ));
             }
-            SelectOption::JudgeTiming => {
-                p.judge_offset_ms = (p.judge_offset_ms + d).clamp(-500, 500)
-            }
-            SelectOption::GreenNumber => p.add_duration(d as f64, &bpm),
-            SelectOption::VisualOffset => {
-                p.visual_offset_ms = (p.visual_offset_ms + d).clamp(-500, 500)
-            }
-            SelectOption::FastSlow => p.show_fast_slow ^= true,
             SelectOption::ScreenMode => {
                 let v = &mut ctx.view;
                 if WINDOWED {
@@ -508,6 +444,8 @@ impl SelectScene {
                 ctx.audio.mixer.stop(super::PREVIEW_KEY);
                 self.moved(ctx);
             }
+            // (the play options: stepped above)
+            _ => {}
         }
         if relist {
             self.rebuild(ctx);
@@ -579,14 +517,9 @@ impl SelectScene {
         Next::Stay
     }
 
-    /// Does the skin have panels (objects shown only with a panel option)?
+    /// Does the skin have panels (`has_panels`, found at its load)?
     pub(super) fn skin_has_panels(&self) -> bool {
-        self.host.skin.as_ref().is_some_and(|s| {
-            s.skin
-                .objects
-                .iter()
-                .any(|o| o.dst.ops.iter().any(|op| panel_of_op(*op).is_some()))
-        })
+        self.has_panels
     }
 
     /// A clicked skin object (LR2 / beatoraja button ids, or vibeBMS ids);
@@ -604,7 +537,7 @@ impl SelectScene {
                 true
             }
             43 => {
-                p.random_2p = cycle(&LaneOption::ALL, p.random_2p, d);
+                (po::RANDOM_2P.step)(p, d, &REFERENCE_BPMS);
                 true
             }
             // beatoraja option buttons: as the panel keys that change them
@@ -625,7 +558,7 @@ impl SelectScene {
                 true
             }
             72 => {
-                p.bga = cycle(&BgaMode::ALL, p.bga, d);
+                (po::BGA.step)(p, d, &REFERENCE_BPMS);
                 true
             }
             _ => false,

@@ -178,22 +178,9 @@ mod tests {
     use bmseeker::net::NetError;
     use std::time::Duration;
 
-    /// A one-shot HTTP server answering `status` and `body`.
-    fn serve(status: &'static str, body: &'static [u8]) -> String {
-        use std::io::{Read, Write};
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = l.local_addr().unwrap();
-        std::thread::spawn(move || {
-            let (mut s, _) = l.accept().unwrap();
-            let _ = s.read(&mut [0u8; 4096]);
-            let head = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = s.write_all(head.as_bytes());
-            let _ = s.write_all(body);
-        });
-        format!("http://{addr}/f")
+    /// A one-shot HTTP server giving `answer`, at `/f`.
+    fn serve(answer: &'static str) -> String {
+        format!("{}/f", super::super::http::tests::serve(vec![answer]).0)
     }
 
     /// A page, a refused page, a file, a wait: what each came to.
@@ -229,9 +216,9 @@ mod tests {
     #[test]
     fn drives_a_job() {
         let urls = vec![
-            serve("200 OK", b"page"),
-            serve("503 Busy", b""),
-            serve("200 OK", b"file"),
+            serve("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npage"),
+            serve("HTTP/1.1 503 Busy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+            serve("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nfile"),
         ];
         let (tx, rx) = std::sync::mpsc::channel();
         let progress = Progress::new();
@@ -260,7 +247,8 @@ mod tests {
     /// its files.
     #[test]
     fn keeps_to_refusals() {
-        let refusing = serve("403 Forbidden", b"");
+        let refusing =
+            serve("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         let other = refusing.replace("/f", "/g");
         let (tx, rx) = std::sync::mpsc::channel();
         let job = Steps {

@@ -108,7 +108,7 @@ impl SelectScene {
         let Some((i, s)) = self.selected_song(ctx) else {
             return;
         };
-        let dir = song_dir(s);
+        let dir = song_dir(s).to_string();
         if self.node == Node::SameFolder(dir.clone()) {
             return;
         }

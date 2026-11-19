@@ -421,13 +421,13 @@ fn random_index(o: LaneOption) -> i64 {
 /// beatoraja button values (image set indices) of the play settings,
 /// shown on every screen.
 pub fn config_button(ctx: &Ctx, id: i32) -> Option<i64> {
-    use super::option_panel::index_of;
+    use super::index_of;
     let p = &ctx.config.play;
     Some(match id {
         40 => gauge_index(p.gauge),
         42 => random_index(p.random_1p),
         43 => random_index(p.random_2p),
-        54 => super::option_panel::dp_index(p),
+        54 => super::play_opts::dp_index(p),
         // beatoraja HS-FIX: off, start, max, main, min BPM
         55 => p.hs_fix as i64,
         // beatoraja BGA: 0 on, 1 auto, 2 off

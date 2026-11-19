@@ -6,26 +6,26 @@
 //! `SetCurrentProgramScene` on each screen whose scene is set, and
 //! `StartRecord` / `StopRecord` around a play. No events are asked for.
 
+use super::worker::{Peer, Turn, Worker};
 use super::ws::{Message, Ws};
-use super::{Activity, SharedStatus, Status};
+use super::{Activity, Status};
 use crate::config::ObsConfig;
 use serde_json::{json, Value};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 /// The RPC version spoken.
 const RPC_VERSION: u64 = 1;
 /// obs-websocket's close code for a wrong password.
 const AUTHENTICATION_FAILED: u16 = 4009;
-const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 /// The `authentication` string for `password` and a Hello's `salt` and
 /// `challenge`: base64(SHA-256(base64(SHA-256(password + salt)) +
 /// challenge)).
 pub fn authentication(password: &str, salt: &str, challenge: &str) -> String {
-    use super::codec::{base64, sha256};
-    let secret = base64(&sha256(format!("{password}{salt}").as_bytes()));
-    base64(&sha256(format!("{secret}{challenge}").as_bytes()))
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use sha2::{Digest, Sha256};
+    let secret = STANDARD.encode(Sha256::digest(format!("{password}{salt}")));
+    STANDARD.encode(Sha256::digest(format!("{secret}{challenge}")))
 }
 
 /// The Identify answering `hello` (its `d`): with the authentication
@@ -93,34 +93,20 @@ enum Msg {
 
 /// The OBS thread, while this lives.
 pub struct Obs {
-    tx: Sender<Msg>,
-    status: SharedStatus,
+    worker: Worker<Msg>,
     cfg: ObsConfig,
-    done: mpsc::Receiver<()>,
 }
 
 impl Obs {
     pub fn start(cfg: ObsConfig) -> Obs {
-        let (tx, rx) = mpsc::channel();
-        let (done_tx, done) = mpsc::channel();
-        let status = SharedStatus::default();
-        *status.lock().unwrap() = Status::Connecting;
-        let st = status.clone();
-        let c = cfg.clone();
-        let spawned = std::thread::Builder::new()
-            .name("obs".into())
-            .spawn(move || {
-                run(c, rx, st);
-                let _ = done_tx.send(());
-            });
-        if let Err(e) = spawned {
-            log::error!("obs: {e}");
-        }
+        let link = Link {
+            cfg: cfg.clone(),
+            current: None,
+            recording: false,
+        };
         Obs {
-            tx,
-            status,
+            worker: Worker::start(link),
             cfg,
-            done,
         }
     }
 
@@ -128,22 +114,22 @@ impl Obs {
     pub fn configure(&mut self, cfg: &ObsConfig) {
         if *cfg != self.cfg {
             self.cfg = cfg.clone();
-            let _ = self.tx.send(Msg::Config(cfg.clone()));
+            self.worker.send(Msg::Config(cfg.clone()));
         }
     }
 
     pub fn set(&mut self, a: Activity) {
-        let _ = self.tx.send(Msg::Activity(a));
+        self.worker.send(Msg::Activity(a));
     }
 
     pub fn status(&self) -> Status {
-        self.status.lock().unwrap().clone()
+        self.worker.status()
     }
 
     /// Stop (a recording of ours too), waiting for that a moment.
     pub fn stop(&mut self) {
-        let _ = self.tx.send(Msg::Quit);
-        let _ = self.done.recv_timeout(Duration::from_millis(500));
+        self.worker.send(Msg::Quit);
+        self.worker.wait_end(Duration::from_millis(500));
     }
 }
 
@@ -233,105 +219,89 @@ fn wait_for(ws: &mut Ws, op: u64, timeout: Duration) -> Result<Value, String> {
     Err("no answer".into())
 }
 
-fn run(mut cfg: ObsConfig, rx: mpsc::Receiver<Msg>, status: SharedStatus) {
-    let set_status = |s: Status| *status.lock().unwrap() = s;
-    let mut conn: Option<Conn> = None;
-    let mut current: Option<Activity> = None;
-    let mut recording = false;
-    let mut backoff = Duration::from_secs(1);
-    let mut next_try = Instant::now();
-    loop {
-        // while connected the socket is read between messages (pings,
-        // answers); else the next try is waited for
-        let wait = match &conn {
-            Some(_) => Duration::from_millis(50),
-            None => next_try.saturating_duration_since(Instant::now()),
-        };
-        let msg = match rx.recv_timeout(wait) {
-            Ok(m) => Some(m),
-            Err(RecvTimeoutError::Timeout) => None,
-            Err(RecvTimeoutError::Disconnected) => Some(Msg::Quit),
-        };
-        match msg {
-            Some(Msg::Activity(a)) => {
+/// The OBS thread's side: the settings, the screen the player is on and
+/// whether a recording of ours runs.
+struct Link {
+    cfg: ObsConfig,
+    current: Option<Activity>,
+    recording: bool,
+}
+
+impl Peer for Link {
+    type Msg = Msg;
+    type Conn = Conn;
+    const NAME: &'static str = "obs";
+    const BACKOFF: (Duration, Duration) = (Duration::from_secs(1), Duration::from_secs(30));
+
+    fn open(&mut self) -> Result<Conn, String> {
+        let mut c = Conn::open(&self.cfg)?;
+        log::info!("obs: connected to {}:{}", self.cfg.host, self.cfg.port);
+        // the scene of the screen the player is on
+        if let Some(a) = &self.current {
+            let mut rec = self.recording;
+            for r in requests(&self.cfg, None, a, &mut rec) {
+                if r.0 == "SetCurrentProgramScene" {
+                    let _ = c.send(&r);
+                }
+            }
+        }
+        Ok(c)
+    }
+
+    fn take(&mut self, m: Msg, conn: &mut Option<Conn>) -> Turn {
+        match m {
+            Msg::Activity(a) => {
                 // (not connected: nothing was started or stopped)
-                let mut rec = recording;
-                let reqs = requests(&cfg, current.as_ref(), &a, &mut rec);
+                let mut rec = self.recording;
+                let reqs = requests(&self.cfg, self.current.as_ref(), &a, &mut rec);
                 if let Some(c) = conn.as_mut() {
-                    recording = rec;
-                    for r in &reqs {
-                        if let Err(e) = c.send(r) {
-                            log::info!("obs: {e}");
-                            conn = None;
-                            next_try = Instant::now();
-                            break;
-                        }
+                    self.recording = rec;
+                    if let Err(e) = reqs.iter().try_for_each(|r| c.send(r)) {
+                        log::info!("obs: {e}");
+                        *conn = None;
                     }
                 }
-                current = Some(a);
+                self.current = Some(a);
             }
-            Some(Msg::Config(c)) => {
+            Msg::Config(c) => {
+                let cfg = &self.cfg;
                 let reconnect =
                     (&c.host, c.port, &c.password) != (&cfg.host, cfg.port, &cfg.password);
-                cfg = c;
-                if !cfg.record_play && recording {
+                self.cfg = c;
+                if !self.cfg.record_play && self.recording {
                     if let Some(c) = conn.as_mut() {
                         let _ = c.send(&Req("StopRecord", None));
                     }
-                    recording = false;
+                    self.recording = false;
                 }
                 if reconnect {
                     if let Some(mut c) = conn.take() {
                         c.ws.close();
                     }
-                    backoff = Duration::from_secs(1);
-                    next_try = Instant::now();
+                    return Turn::Again;
                 }
             }
-            Some(Msg::Quit) => {
-                if let Some(mut c) = conn.take() {
-                    if recording {
-                        let _ = c.send(&Req("StopRecord", None));
-                    }
-                    c.ws.close();
-                }
-                return;
-            }
-            None => {}
+            Msg::Quit => return Turn::Quit,
         }
-        match conn.as_mut() {
-            Some(c) => {
-                if let Err(e) = c.poll(Duration::from_millis(1)) {
-                    log::info!("obs: {e}");
-                    set_status(Status::Failed(e));
-                    conn = None;
-                    next_try = Instant::now() + backoff;
-                }
+        Turn::Go
+    }
+
+    /// While connected the socket is read between messages (pings,
+    /// answers).
+    fn due(&self) -> Instant {
+        Instant::now() + Duration::from_millis(50)
+    }
+
+    fn tend(&mut self, c: &mut Conn) -> Result<(), String> {
+        c.poll(Duration::from_millis(1))
+    }
+
+    fn quit(&mut self, c: Option<Conn>) {
+        if let Some(mut c) = c {
+            if self.recording {
+                let _ = c.send(&Req("StopRecord", None));
             }
-            None if Instant::now() >= next_try => match Conn::open(&cfg) {
-                Ok(mut c) => {
-                    log::info!("obs: connected to {}:{}", cfg.host, cfg.port);
-                    set_status(Status::Connected);
-                    backoff = Duration::from_secs(1);
-                    // the scene of the screen the player is on
-                    if let Some(a) = &current {
-                        let mut rec = recording;
-                        for r in requests(&cfg, None, a, &mut rec) {
-                            if r.0 == "SetCurrentProgramScene" {
-                                let _ = c.send(&r);
-                            }
-                        }
-                    }
-                    conn = Some(c);
-                }
-                Err(e) => {
-                    log::debug!("obs: {e}");
-                    set_status(Status::Failed(e));
-                    next_try = Instant::now() + backoff;
-                    backoff = (backoff * 2).min(MAX_BACKOFF);
-                }
-            },
-            None => {}
+            c.ws.close();
         }
     }
 }

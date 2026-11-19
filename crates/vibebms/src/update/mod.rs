@@ -40,8 +40,6 @@ use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
 /// What the check reads.
 pub const LATEST_URL: &str =
@@ -301,21 +299,6 @@ pub struct Offer {
     pub size: u64,
 }
 
-/// Bytes downloaded of an update.
-#[derive(Debug, Default)]
-pub struct Progress {
-    pub done: AtomicU64,
-    pub total: AtomicU64,
-}
-
-impl Progress {
-    /// 0..=100.
-    pub fn percent(&self) -> u64 {
-        let total = self.total.load(Ordering::Relaxed).max(1);
-        (self.done.load(Ordering::Relaxed) * 100 / total).min(100)
-    }
-}
-
 /// Where the updater is.
 #[derive(Clone, Debug, Default)]
 pub enum Status {
@@ -327,7 +310,8 @@ pub enum Status {
     /// The check failed (said in the settings only).
     CheckFailed(String),
     Available(Offer),
-    Downloading(Offer, Arc<Progress>),
+    /// ([`Updater::percent`] of it in)
+    Downloading(Offer),
     /// In place: a restart starts it.
     Installed(Version),
     /// The update failed (the offer can be tried again).
@@ -395,7 +379,7 @@ impl Updater {
                 self.status = Status::CheckFailed(e);
             }
             Msg::Installed(r) => {
-                let Status::Downloading(o, _) = std::mem::take(&mut self.status) else {
+                let Status::Downloading(o) = std::mem::take(&mut self.status) else {
                     return out;
                 };
                 match r {
@@ -429,14 +413,19 @@ impl Updater {
         let Some(exe) = exe_path() else {
             return Some(tr!("The update failed: the executable's location is not known").into());
         };
-        let progress = Arc::new(Progress::default());
-        progress.total.store(o.size, Ordering::Relaxed);
         self.exe = Some(exe.clone());
-        self.status = Status::Downloading(o.clone(), progress.clone());
-        self.job = Some(Job::spawn("update", move |_| {
-            Msg::Installed(desktop::install(&o, &exe, &progress))
+        self.status = Status::Downloading(o.clone());
+        self.job = Some(Job::spawn("update", move |p| {
+            Msg::Installed(desktop::install(&o, &exe, &p))
         }));
         None
+    }
+
+    /// How much of the update downloading is in, 0..=100.
+    pub fn percent(&self) -> u64 {
+        let Some(job) = &self.job else { return 0 };
+        let (got, total) = job.progress().bytes();
+        (got * 100 / total.unwrap_or(1)).min(100)
     }
 
     /// Start the new executable when this one exits (after "Restart now").
@@ -832,10 +821,11 @@ mod tests {
 /// ever offered there).
 #[cfg(not(desktop))]
 mod desktop {
-    use super::{Offer, Progress};
-    use std::{path::Path, sync::Arc};
+    use super::Offer;
+    use bmseeker::progress::Progress;
+    use std::path::Path;
 
-    pub fn install(_: &Offer, _: &Path, _: &Arc<Progress>) -> Result<(), String> {
+    pub fn install(_: &Offer, _: &Path, _: &Progress) -> Result<(), String> {
         Err("this platform does not update itself".into())
     }
 }

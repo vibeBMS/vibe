@@ -1,6 +1,7 @@
 > **Origin:** clean-room behaviour specification written from a reading of OpenLR2 branch LR2Beta3-v100201, a
-> decompilation-based rewrite of LR2; facts only, no code. It extends `docs/LR2_BEHAVIOUR.md` (S-OLR2). Kept verbatim
-> below this header. `docs/RULES.md` cites it as source S-OLR2b.
+> decompilation-based rewrite of LR2; facts only, no code. It extends `docs/LR2_BEHAVIOUR.md` (S-OLR2), and its
+> table "Changes to LR2_BEHAVIOUR.md" is the one list of corrections to it (marked there where they apply). Kept as
+> received below this header. `docs/RULES.md` cites it as source S-OLR2b.
 
 # LR2 (beta3 100201) attack gauges and courses: supplementary behaviour specification
 
