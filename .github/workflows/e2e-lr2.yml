@@ -1,0 +1,123 @@
+name: e2e LR2
+
+# Phase 2 of the e2e plan: Lunatic Rave 2 (100201) on a hosted Windows runner,
+# as a black box, against vibeBMS's rows of tools/lr2-measure
+# (tools/e2e/lr2/README.md). LR2 comes from its official site only, once, into
+# the Actions cache keyed by its SHA-256; no LR2 file is committed or uploaded:
+# the artifact holds only this workflow's own outputs (logs, screenshots,
+# timing tables).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['e2e/**']
+    paths: ['tools/e2e/lr2/**', '.github/workflows/e2e-lr2.yml']
+
+concurrency:
+  group: e2e-lr2-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # LR2's official download (LR2IR's host). LR2IR closed on 2026-05-31 and the
+  # host no longer resolves; the workflow tries it and tries no mirror.
+  LR2_URL: http://www.dream-pro.info/~lavalse/LR2_100201.zip
+  # pinned once the official zip has been fetched (the cache key)
+  LR2_SHA256: ''
+  OUT: ${{ github.workspace }}\e2e-lr2-out
+
+jobs:
+  lr2:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      # ---- LR2: the official zip, from the cache or the site
+      - name: LR2 from the cache
+        id: cache
+        if: env.LR2_SHA256 != ''
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}\lr2-zip
+          key: lr2-${{ env.LR2_SHA256 }}
+      - name: LR2 from its official site
+        id: fetch
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: tools/e2e/lr2/fetch.ps1 -Url $env:LR2_URL -Out "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Sha256 $env:LR2_SHA256
+      - name: Keep LR2 in the cache
+        if: steps.fetch.outcome == 'success' && env.LR2_SHA256 != ''
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}\lr2-zip
+          key: lr2-${{ env.LR2_SHA256 }}
+      - name: LR2 steps
+        if: steps.cache.outputs.cache-hit == 'true' || steps.fetch.outcome == 'success'
+        run: |
+          Write-Host "::error::LR2 is here, but its steps are not built yet: there was no official download to build them on (tools/e2e/lr2/README.md)"
+          exit 1
+
+      # ---- the runner, without LR2: what LR2 needs from it
+      - name: Build the probe
+        run: cmd /c tools\e2e\lr2\build.cmd "$env:RUNNER_TEMP\lr2probe.exe"
+      - name: ffmpeg (gdigrab)
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress | Select-Object -Last 3 }
+      - name: Runner
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage env -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Direct3D 9, windowed
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage d3d9 -Tag windowed -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Direct3D 9, fullscreen
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage d3d9 -Tag fullscreen -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Sound, as the runner comes
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag none -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Virtual sound card (LABSN/sound-ci-helpers, VB-CABLE)
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
+      - name: Sound, with the virtual card
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag vbcable -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Code page and fonts
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage acp -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Locale Emulator
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/e2e/lr2/probe.ps1 -Stage le -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Japanese fonts (Feature on Demand)
+        continue-on-error: true
+        timeout-minutes: 10
+        run: tools/e2e/lr2/probe.ps1 -Stage fonts -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: Code page and fonts, after
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage acp -Tag after -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: SendInput timing
+        continue-on-error: true
+        run: tools/e2e/lr2/probe.ps1 -Stage input -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+
+      - name: Summary
+        if: always()
+        run: |
+          $s = @("## LR2 on the runner", "", "LR2 download: **$('${{ steps.cache.outputs.cache-hit }}' -eq 'true' ? 'cache' : '${{ steps.fetch.outcome }}')** ($env:LR2_URL)", "")
+          foreach ($f in Get-ChildItem $env:OUT -Filter *.txt -ErrorAction SilentlyContinue) {
+            $s += "### $($f.BaseName)", '```', (Get-Content $f.FullName -Raw), '```'
+          }
+          $s -join "`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      # this workflow's own outputs only: no LR2 file is ever in $OUT
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-lr2
+          path: ${{ env.OUT }}
+          retention-days: 14
