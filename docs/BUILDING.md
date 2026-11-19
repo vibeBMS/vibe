@@ -99,8 +99,8 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
 - Third-party sources: `VIBEBMS_THIRD_PARTY=1` at build time (the repository variable `WEB_THIRD_PARTY=1` in CI)
   turns them on by default in that build; the page then says once, at its first start, what they are (OK keeps them
   on, Turn off turns them off).
-- CI publishes a web build to the `gh-pages` branch on every push (the default branch at the site's root, other
-  branches under `preview/<branch>/`). Turn on GitHub Pages (Settings › Pages › `gh-pages` / root) to open it.
+- CI publishes the default branch's web build to the `gh-pages` branch, at the site's root; other branches' builds
+  are the run's artifact. Turn on GitHub Pages (Settings › Pages › `gh-pages` / root) to open it.
 
 # Development
 
