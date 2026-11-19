@@ -13,7 +13,7 @@ mod tree;
 
 pub use preview::{resolve_image, PREVIEW_KEY};
 pub(crate) use skin::SelectState;
-pub(crate) use tree::{Bar, Node};
+pub(crate) use tree::{Bar, CourseBar, Missing, Node};
 
 use crate::app::{Ctx, Draw, Next, Scene};
 use crate::config::Bpms;
