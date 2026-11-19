@@ -9,10 +9,10 @@
 //! 20 seconds: changes are sent at most every 4 s, the last one winning).
 //! PING is answered with PONG; CLOSE ends it (a wrong application id).
 
-use super::{Activity, PlayKind, SharedStatus, Status};
+use super::worker::{Peer, Turn, Worker};
+use super::{Activity, PlayKind, Status};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 pub const OP_HANDSHAKE: u32 = 0;
@@ -23,8 +23,6 @@ pub const OP_PONG: u32 = 4;
 
 /// The least time between two activities sent.
 const MIN_GAP: Duration = Duration::from_secs(4);
-/// The longest wait between two tries to reach Discord.
-const MAX_BACKOFF: Duration = Duration::from_secs(60);
 
 /// A frame: opcode, length, payload.
 pub fn encode(op: u32, json: &str) -> Vec<u8> {
@@ -215,33 +213,80 @@ impl Conn {
     }
 }
 
-enum Msg {
-    Activity(Activity),
+/// The Rich Presence thread's side.
+#[derive(Default)]
+struct Presence {
+    client_id: String,
+    /// The activity and since when (Unix seconds).
+    current: Option<(Activity, i64)>,
+    /// `current` is not shown yet.
+    dirty: bool,
+    last_sent: Option<Instant>,
+}
+
+impl Peer for Presence {
+    type Msg = Activity;
+    type Conn = Conn;
+    const NAME: &'static str = "discord";
+    const BACKOFF: (Duration, Duration) = (Duration::from_secs(2), Duration::from_secs(60));
+
+    fn open(&mut self) -> Result<Conn, String> {
+        let c = Conn::open(&self.client_id).map_err(|e| e.to_string())?;
+        log::info!("discord: connected");
+        self.dirty = self.current.is_some();
+        self.last_sent = None;
+        Ok(c)
+    }
+
+    fn take(&mut self, a: Activity, _: &mut Option<Conn>) -> Turn {
+        if self.current.as_ref().map(|c| &c.0) != Some(&a) {
+            self.current = Some((a, crate::platform::unix_ms() / 1000));
+            self.dirty = true;
+        }
+        Turn::Go
+    }
+
+    fn due(&self) -> Instant {
+        let now = Instant::now();
+        match self.dirty {
+            true => self.last_sent.map_or(now, |t| t + MIN_GAP),
+            false => now + Duration::from_secs(3600),
+        }
+    }
+
+    fn tend(&mut self, c: &mut Conn) -> Result<(), String> {
+        let now = Instant::now();
+        if !self.dirty || self.last_sent.is_some_and(|t| now < t + MIN_GAP) {
+            return Ok(());
+        }
+        let a = self.current.as_ref().map(|(a, start)| activity(a, *start));
+        self.last_sent = Some(now);
+        // (one that failed is sent again once connected)
+        self.dirty = false;
+        c.set(a).map_err(|e| e.to_string())
+    }
+
+    fn quit(&mut self, c: Option<Conn>) {
+        // turned off: the status goes with it
+        if let Some(mut c) = c {
+            let _ = c.set(None);
+        }
+    }
 }
 
 /// The Rich Presence thread, while this lives.
 pub struct Discord {
-    tx: Sender<Msg>,
-    status: SharedStatus,
+    worker: Worker<Activity>,
     application_id: String,
 }
 
 impl Discord {
     pub fn start(application_id: String) -> Discord {
-        let (tx, rx) = mpsc::channel();
-        let status = SharedStatus::default();
-        *status.lock().unwrap() = Status::Connecting;
-        let st = status.clone();
-        let id = application_id.clone();
-        let spawned = std::thread::Builder::new()
-            .name("discord".into())
-            .spawn(move || run(id, rx, st));
-        if let Err(e) = spawned {
-            log::error!("discord: {e}");
-        }
         Discord {
-            tx,
-            status,
+            worker: Worker::start(Presence {
+                client_id: application_id.clone(),
+                ..Default::default()
+            }),
             application_id,
         }
     }
@@ -251,82 +296,11 @@ impl Discord {
     }
 
     pub fn set(&mut self, a: Activity) {
-        let _ = self.tx.send(Msg::Activity(a));
+        self.worker.send(a);
     }
 
     pub fn status(&self) -> Status {
-        self.status.lock().unwrap().clone()
-    }
-}
-
-fn run(client_id: String, rx: mpsc::Receiver<Msg>, status: SharedStatus) {
-    let set_status = |s: Status| *status.lock().unwrap() = s;
-    let mut conn: Option<Conn> = None;
-    let mut current: Option<(Activity, i64)> = None;
-    let mut dirty = false;
-    let mut backoff = Duration::from_secs(2);
-    let mut next_try = Instant::now();
-    let mut last_sent: Option<Instant> = None;
-    loop {
-        let now = Instant::now();
-        let due = match (&conn, dirty) {
-            (None, _) => next_try,
-            (Some(_), true) => last_sent.map_or(now, |t| t + MIN_GAP),
-            (Some(_), false) => now + Duration::from_secs(3600),
-        };
-        match rx.recv_timeout(due.saturating_duration_since(now)) {
-            Ok(Msg::Activity(a)) => {
-                if current.as_ref().map(|c| &c.0) != Some(&a) {
-                    current = Some((a, crate::platform::unix_ms() / 1000));
-                    dirty = true;
-                }
-                continue;
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                // turned off: the status goes with it
-                if let Some(c) = conn.as_mut() {
-                    let _ = c.set(None);
-                }
-                return;
-            }
-        }
-        let now = Instant::now();
-        if conn.is_none() {
-            if now < next_try {
-                continue;
-            }
-            match Conn::open(&client_id) {
-                Ok(c) => {
-                    log::info!("discord: connected");
-                    set_status(Status::Connected);
-                    conn = Some(c);
-                    backoff = Duration::from_secs(2);
-                    dirty = current.is_some();
-                    last_sent = None;
-                }
-                Err(e) => {
-                    log::debug!("discord: {e}");
-                    set_status(Status::Failed(e.to_string()));
-                    next_try = now + backoff;
-                    backoff = (backoff * 2).min(MAX_BACKOFF);
-                }
-            }
-            continue;
-        }
-        if dirty && last_sent.is_none_or(|t| now >= t + MIN_GAP) {
-            let a = current.as_ref().map(|(a, start)| activity(a, *start));
-            let r = conn.as_mut().unwrap().set(a);
-            last_sent = Some(now);
-            dirty = false;
-            if let Err(e) = r {
-                log::info!("discord: {e}");
-                set_status(Status::Failed(e.to_string()));
-                conn = None;
-                dirty = true;
-                next_try = now + backoff;
-            }
-        }
+        self.worker.status()
     }
 }
 
