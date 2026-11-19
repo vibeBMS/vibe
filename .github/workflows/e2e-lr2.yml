@@ -99,6 +99,14 @@ jobs:
         run: tools/e2e/lr2/probe.ps1 -Stage sound -Tag none -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       - name: Virtual sound card (LABSN/sound-ci-helpers, VB-CABLE)
+        id: vbcable
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
+      - name: Virtual sound card, again (its download host fails now and then)
+        if: steps.vbcable.outcome == 'failure'
+        run: Start-Sleep -Seconds 20
+      - name: Virtual sound card, second try
+        if: steps.vbcable.outcome == 'failure'
         uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
 
       - name: Sound, with the virtual card
