@@ -81,6 +81,9 @@ pub struct Text {
     /// Fonts skins bring (by file), drawn with when `face` is set.
     faces: Vec<Font>,
     face_of: HashMap<PathBuf, Option<u16>>,
+    /// Whether skin font `face` has a character (asked each time one is
+    /// drawn with it).
+    face_has: HashMap<(u16, char), bool>,
     /// The skin font drawing uses now (0 = the UI fonts).
     face: u16,
     cache: HashMap<(u16, char, u16), Option<Glyph>>,
@@ -256,6 +259,7 @@ impl Text {
             files: HashMap::new(),
             faces: Vec::new(),
             face_of: HashMap::new(),
+            face_has: HashMap::new(),
             face: 0,
             cache: HashMap::new(),
             font_of: HashMap::new(),
@@ -377,10 +381,15 @@ impl Text {
         self.generation += 1;
     }
 
-    /// The skin font in use, if it has `c`.
-    fn face_font(&self, c: char) -> Option<&Font> {
-        let f = self.faces.get((self.face as usize).checked_sub(1)?)?;
-        f.has(c).then_some(f)
+    /// Whether the skin font in use has `c`.
+    fn face_has(&mut self, c: char) -> bool {
+        let Some(f) = (self.face as usize).checked_sub(1) else {
+            return false;
+        };
+        let faces = &self.faces;
+        *(self.face_has)
+            .entry((self.face, c))
+            .or_insert_with(|| faces.get(f).is_some_and(|f| f.has(c)))
     }
 
     /// `c` drawn at `px` with skin font `face` (0: the UI fonts).
@@ -395,11 +404,7 @@ impl Text {
     }
 
     fn glyph(&mut self, gfx: &Gfx, c: char, px: u16) -> Option<Glyph> {
-        let face = if self.face_font(c).is_some() {
-            self.face
-        } else {
-            0
-        };
+        let face = if self.face_has(c) { self.face } else { 0 };
         if let Some(g) = self.cache.get(&(face, c, px)) {
             return *g;
         }

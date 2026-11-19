@@ -70,6 +70,7 @@ pub struct Font {
     data: Arc<Bytes>,
     index: u32,
     units_per_em: f32,
+    ascender: f32,
 }
 
 impl Font {
@@ -77,10 +78,12 @@ impl Font {
     pub fn new(data: Arc<Bytes>, index: u32) -> Option<Font> {
         let face = Face::parse(&data, index).ok()?;
         let units_per_em = face.units_per_em() as f32;
+        let ascender = face.ascender() as f32;
         Some(Font {
             data,
             index,
             units_per_em,
+            ascender,
         })
     }
 
@@ -118,8 +121,7 @@ impl Font {
 
     /// The height above the baseline lines leave for glyphs at `px`.
     pub fn ascent(&self, px: f32) -> f32 {
-        let ascender = self.face().map_or(0, |f| f.ascender());
-        ascender as f32 * (px / self.units_per_em)
+        self.ascender * (px / self.units_per_em)
     }
 
     /// `c` drawn `px` pixels to the em: its metrics and coverage, rows from
