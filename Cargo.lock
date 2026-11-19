@@ -398,7 +398,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0-dev"
-source = "git+https://github.com/vibeBMS/BMSeeker#181b9164cef8cd641a055064bf4587797abd346b"
+source = "git+https://github.com/vibeBMS/BMSeeker#acacc407aa26d1cd00338a14deac2a78d7f55e50"
 dependencies = [
  "aes",
  "delharc",
@@ -1983,7 +1983,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4627,7 +4627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
