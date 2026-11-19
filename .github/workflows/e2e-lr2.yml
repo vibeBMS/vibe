@@ -37,7 +37,7 @@ env:
 jobs:
   lr2:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
@@ -133,10 +133,35 @@ jobs:
         run: tools/e2e/lr2/probe.ps1 -Stage input -Tag d3d9 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       # ---- LR2 (tools/e2e/lr2/lr2.ps1); its files stay in $RUNNER_TEMP\lr2
-      - name: LR2's setup dialog
+      - name: LR2 setup (player, windowed, vsync off, the charts' folder)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: tools/e2e/lr2/lr2.ps1 -Stage player -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage setup -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip"
+      - name: LR2 autoplay (-A -NS)
+        continue-on-error: true
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage autoplay -Chart a8-mines
+      - name: Latency of the start signal (our own click)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage loop
+      - name: Calibration sweep cal-c1
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-c1
+      - name: Calibration sweep cal-c2
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-c2
+      - name: Calibrate (coarse)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage calibrate -Kind c
+      - name: Calibration sweep cal-f1
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f1
+      - name: Calibration sweep cal-f2
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart cal-f2
+      - name: Calibrate (fine)
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage calibrate -Kind f
+      - name: lr2-measure a3-rank2-110
+        continue-on-error: true
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a3-rank2-110
+      - name: lr2-measure a11-1
+        continue-on-error: true
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage play -Chart a11-1
+      - name: LR2 against vibeBMS
+        run: tools/e2e/lr2/lr2.ps1 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT -Stage compare
 
       - name: Summary
         if: always()

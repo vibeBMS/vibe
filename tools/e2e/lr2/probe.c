@@ -11,6 +11,15 @@
  *   lr2probe send N PERIOD_MS CSV        N presses of Z, PERIOD_MS apart, to it
  *   lr2probe focus TITLE                 brings a window to the front
  *   lr2probe windows                     lists the visible top-level windows
+ *   lr2probe loop OUT                    the latency of our own click from the
+ *                                        default sound device to VB-CABLE's
+ *                                        capture side
+ *   lr2probe play SCHED CLICK_MS LAT_MS LOG
+ *                                        presses keys on a chart's time: the
+ *                                        chart's BGM click (at CLICK_MS of chart
+ *                                        time) heard on VB-CABLE's capture side
+ *                                        LAT_MS late fixes chart time 0; SCHED
+ *                                        rows are "t_ms,scan,down"
  *   lr2probe drop TITLE X Y PATH         drags PATH (a file or folder) with the
  *                                        mouse onto X, Y in the window
  *   lr2probe ui TITLE ACTION ...         drives a dialog through its controls:
@@ -808,6 +817,278 @@ static int ui(int argc, char **argv)
     return 64;
 }
 
+/* ------------------------------------------------- audio start signal */
+
+#define RATE 44100
+#define BUF_SAMPLES 220 /* 5 ms */
+#define NBUF 64
+#define CLICK_LEVEL 3000
+
+/* VB-CABLE's capture side ("CABLE Output"), read in 5 ms buffers. Sample
+ * n arrived at a + n / RATE, a being the lower envelope of the buffers'
+ * completion times less their length: the onset of the first click is
+ * placed on the performance counter to well under a millisecond. */
+typedef struct {
+    HWAVEIN in;
+    WAVEHDR hdr[NBUF];
+    short data[NBUF][BUF_SAMPLES];
+    int next;
+    long long n;     /* samples so far */
+    double a_us;     /* time of sample 0 */
+    long long onset; /* sample of the click, -1 before */
+    long long cand;  /* a loud sample that may be the click, -1 none */
+    long long last_loud;
+    int peak;
+} Capture;
+
+static int capture_open(Capture *c)
+{
+    WAVEFORMATEX wf;
+    UINT i, dev = WAVE_MAPPER, n = waveInGetNumDevs();
+    MMRESULT r;
+    for (i = 0; i < n; i++) {
+        WAVEINCAPSW caps;
+        if (waveInGetDevCapsW(i, &caps, sizeof caps) == MMSYSERR_NOERROR && wcsstr(caps.szPname, L"CABLE")) {
+            char name[128];
+            WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name, sizeof name, NULL, NULL);
+            printf("capture device %u: %s\n", i, name);
+            dev = i;
+        }
+    }
+    memset(c, 0, sizeof *c);
+    c->onset = c->cand = -1;
+    c->a_us = 1e300;
+    memset(&wf, 0, sizeof wf);
+    wf.wFormatTag = WAVE_FORMAT_PCM;
+    wf.nChannels = 1;
+    wf.nSamplesPerSec = RATE;
+    wf.wBitsPerSample = 16;
+    wf.nBlockAlign = 2;
+    wf.nAvgBytesPerSec = RATE * 2;
+    r = waveInOpen(&c->in, dev, &wf, 0, 0, CALLBACK_NULL);
+    if (r != MMSYSERR_NOERROR) {
+        printf("waveInOpen: %u\n", r);
+        return 0;
+    }
+    for (i = 0; i < NBUF; i++) {
+        c->hdr[i].lpData = (LPSTR)c->data[i];
+        c->hdr[i].dwBufferLength = sizeof c->data[i];
+        waveInPrepareHeader(c->in, &c->hdr[i], sizeof(WAVEHDR));
+        waveInAddBuffer(c->in, &c->hdr[i], sizeof(WAVEHDR));
+    }
+    waveInStart(c->in);
+    return 1;
+}
+
+/* takes the finished buffers; returns 1 when the click was found now. The
+ * click is a short burst with silence around it: a sound still going 40 ms
+ * after its start (LR2's own sounds) is not it, and it counts once 300 ms
+ * of quiet followed it. */
+static int capture_poll(Capture *c, long long ignore_before)
+{
+    int found = 0;
+    while (c->hdr[c->next].dwFlags & WHDR_DONE) {
+        WAVEHDR *h = &c->hdr[c->next];
+        long long t = now_us();
+        int k, len = h->dwBytesRecorded / 2;
+        for (k = 0; k < len; k++) {
+            long long s = c->n + k;
+            int v = abs(c->data[c->next][k]);
+            if (c->onset >= 0 || s < ignore_before)
+                continue;
+            if (v > CLICK_LEVEL) {
+                if (c->cand < 0 && s - c->last_loud > RATE / 5) {
+                    c->cand = s;
+                    c->peak = 0;
+                } else if (c->cand >= 0 && s - c->cand > RATE / 25) {
+                    c->cand = -1; /* too long for the click */
+                }
+                c->last_loud = s;
+                if (c->cand >= 0 && v > c->peak)
+                    c->peak = v;
+            } else if (c->cand >= 0 && s - c->cand > RATE * 3 / 10) {
+                c->onset = c->cand;
+                found = 1;
+            }
+        }
+        c->n += len;
+        if (t - c->n * 1e6 / RATE < c->a_us)
+            c->a_us = t - c->n * 1e6 / RATE;
+        h->dwFlags &= ~WHDR_DONE;
+        waveInAddBuffer(c->in, h, sizeof(WAVEHDR));
+        c->next = (c->next + 1) % NBUF;
+    }
+    return found;
+}
+
+static double capture_onset_us(Capture *c)
+{
+    return c->a_us + c->onset * 1e6 / RATE;
+}
+
+static void capture_close(Capture *c)
+{
+    int i;
+    waveInStop(c->in);
+    waveInReset(c->in);
+    for (i = 0; i < NBUF; i++)
+        waveInUnprepareHeader(c->in, &c->hdr[i], sizeof(WAVEHDR));
+    waveInClose(c->in);
+}
+
+/* our own click through DirectSound's default device (the cable's render
+ * side), 10 times: when it was started, and when the capture side heard it */
+static int probe_loop(const char *out)
+{
+    Capture *c = calloc(1, sizeof *c);
+    LPDIRECTSOUND8 ds = NULL;
+    LPDIRECTSOUNDBUFFER buf = NULL;
+    DSBUFFERDESC bd;
+    WAVEFORMATEX wf;
+    FILE *f = fopen(out, "w");
+    int i;
+    if (!f || !capture_open(c))
+        return 2;
+    if (FAILED(DirectSoundCreate8(NULL, &ds, NULL)))
+        return 3;
+    IDirectSound8_SetCooperativeLevel(ds, GetDesktopWindow(), DSSCL_PRIORITY);
+    memset(&wf, 0, sizeof wf);
+    wf.wFormatTag = WAVE_FORMAT_PCM;
+    wf.nChannels = 1;
+    wf.nSamplesPerSec = RATE;
+    wf.wBitsPerSample = 16;
+    wf.nBlockAlign = 2;
+    wf.nAvgBytesPerSec = RATE * 2;
+    memset(&bd, 0, sizeof bd);
+    bd.dwSize = sizeof bd;
+    bd.dwFlags = DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
+    bd.dwBufferBytes = RATE * 2 / 2;
+    bd.lpwfxFormat = &wf;
+    IDirectSound8_CreateSoundBuffer(ds, &bd, &buf, NULL);
+    {
+        void *p1, *p2;
+        DWORD n1, n2, k;
+        IDirectSoundBuffer_Lock(buf, 0, 0, &p1, &n1, &p2, &n2, DSBLOCK_ENTIREBUFFER);
+        memset(p1, 0, n1);
+        for (k = 0; k < RATE / 100; k++)
+            ((short *)p1)[k] = (short)(28000 * sin(6.2832 * 1000.0 * k / RATE));
+        IDirectSoundBuffer_Unlock(buf, p1, n1, p2, n2);
+    }
+    fprintf(f, "i,played_us,heard_us,latency_ms\n");
+    timeBeginPeriod(1);
+    for (i = 0; i < 10; i++) {
+        long long t0, until;
+        /* quiet first, so the onset is this click's */
+        until = now_us() + 300000;
+        while (now_us() < until)
+            capture_poll(c, 0), Sleep(1);
+        c->onset = c->cand = -1;
+        IDirectSoundBuffer_SetCurrentPosition(buf, 0);
+        t0 = now_us();
+        IDirectSoundBuffer_Play(buf, 0, 0, 0);
+        {
+            long long from = c->n;
+            until = now_us() + 1500000;
+            while (now_us() < until && c->onset < 0)
+                capture_poll(c, from), Sleep(1);
+        }
+        if (c->onset >= 0) {
+            double h = capture_onset_us(c);
+            fprintf(f, "%d,%lld,%.0f,%.3f\n", i, t0, h, (h - t0) / 1000.0);
+            printf("click %d: heard %.3f ms after Play\n", i, (h - t0) / 1000.0);
+        } else {
+            printf("click %d: not heard\n", i);
+        }
+        IDirectSoundBuffer_Stop(buf);
+    }
+    timeEndPeriod(1);
+    fclose(f);
+    capture_close(c);
+    IDirectSoundBuffer_Release(buf);
+    IDirectSound8_Release(ds);
+    return 0;
+}
+
+typedef struct {
+    double t_ms;
+    WORD scan;
+    int down;
+} Press;
+
+static int by_time(const void *a, const void *b)
+{
+    double d = ((const Press *)a)->t_ms - ((const Press *)b)->t_ms;
+    return d < 0 ? -1 : d > 0;
+}
+
+static int probe_play(const char *sched, double click_ms, double lat_ms, const char *log)
+{
+    Capture *c = calloc(1, sizeof *c);
+    Press *p = calloc(20000, sizeof *p);
+    int n = 0, i = 0;
+    char line[256];
+    FILE *f = fopen(sched, "r"), *lf;
+    long long start = now_us(), last_event = 0;
+    double t0 = 0; /* chart time 0 on the performance counter */
+    if (!f)
+        return 2;
+    while (fgets(line, sizeof line, f) && n < 20000) {
+        double t;
+        unsigned sc;
+        int d;
+        if (sscanf(line, "%lf,%x,%d", &t, &sc, &d) == 3) {
+            p[n].t_ms = t;
+            p[n].scan = (WORD)sc;
+            p[n].down = d;
+            n++;
+        }
+    }
+    fclose(f);
+    qsort(p, n, sizeof *p, by_time);
+    lf = fopen(log, "w");
+    if (!lf || !capture_open(c))
+        return 3;
+    printf("%d key events; waiting for the click\n", n);
+    timeBeginPeriod(1);
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    fprintf(lf, "t_ms,scan,down,due_us,sent_us\n");
+    /* up to 5 minutes for LR2 to load and reach the click */
+    while (now_us() - start < 300000000LL) {
+        if (capture_poll(c, RATE / 2)) {
+            HWND lr2 = FindWindowA(NULL, "LR2 beta3 version 100201");
+            t0 = capture_onset_us(c) - (click_ms + lat_ms) * 1000.0;
+            printf("click heard (peak %d) %.1f s after the start; LR2 window %s\n", c->peak,
+                   (capture_onset_us(c) - start) / 1e6, lr2 ? "found" : "NOT found");
+            if (lr2 && GetForegroundWindow() != lr2)
+                focus(lr2);
+        }
+        if (c->onset >= 0) {
+            /* the onset's time gets better as more buffers arrive */
+            t0 = capture_onset_us(c) - (click_ms + lat_ms) * 1000.0;
+            if (i < n && now_us() >= t0 + p[i].t_ms * 1000.0 - 1) {
+                double due = t0 + p[i].t_ms * 1000.0;
+                while (now_us() < due)
+                    YieldProcessor();
+                key(p[i].scan, p[i].down);
+                fprintf(lf, "%.3f,%x,%d,%.0f,%lld\n", p[i].t_ms, p[i].scan, p[i].down, due, now_us());
+                last_event = now_us();
+                i++;
+            }
+            if (i >= n && now_us() - last_event > 1000000)
+                break;
+            if (i < n && t0 + p[i].t_ms * 1000.0 - now_us() > 3000)
+                Sleep(1);
+        } else {
+            Sleep(1);
+        }
+    }
+    timeEndPeriod(1);
+    fclose(lf);
+    capture_close(c);
+    printf("sent %d of %d key events\n", i, n);
+    return c->onset >= 0 && i == n ? 0 : 4;
+}
+
 /* ----------------------------------------------------- drag and drop */
 
 /* A drag of PATH as Explorer makes it (the shell's own data object), the
@@ -961,6 +1242,10 @@ int main(int argc, char **argv)
         return probe_recv(atoi(argv[2]), argv[3], argc >= 5 && !strcmp(argv[4], "d3d9"));
     if (argc >= 5 && !strcmp(argv[1], "send"))
         return probe_send(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    if (argc >= 3 && !strcmp(argv[1], "loop"))
+        return probe_loop(argv[2]);
+    if (argc >= 6 && !strcmp(argv[1], "play"))
+        return probe_play(argv[2], atof(argv[3]), atof(argv[4]), argv[5]);
     if (argc >= 6 && !strcmp(argv[1], "drop")) {
         int wargc = 0;
         wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
@@ -980,6 +1265,6 @@ int main(int argc, char **argv)
         HWND h = FindWindowA(NULL, argv[2]);
         return h && focus(h) ? 0 : 1;
     }
-    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows | ui TITLE ACTION ... | drop TITLE X Y PATH\n");
+    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows | ui TITLE ACTION ... | drop TITLE X Y PATH | loop OUT | play SCHED CLICK_MS LAT_MS LOG\n");
     return 64;
 }
