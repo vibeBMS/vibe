@@ -35,7 +35,7 @@ serde_json.workspace = true
 log.workspace = true
 sha2.workspace = true
 winit = { version = "0.30", features = ["serde"] }
-wgpu = { version = "24", features = ["webgl"] }
+wgpu = { version = "30", features = ["webgl"] }
 bytemuck = { version = "1", features = ["derive"] }
 fontdb = "0.24"
 # glyphs read from font files as they are drawn (gfx/font.rs; the version fontdb reads with)
