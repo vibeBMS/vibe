@@ -66,6 +66,10 @@ rfd = "0.18"
 wry = { version = "0.57", optional = true }
 # the self-update replaces the running executable (Windows: renamed away)
 self-replace = "1.5"
+# the integrations' WebSocket keys, masks and OBS authentication (the
+# versions and features ureq and zip build)
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+getrandom = { version = "0.4", default-features = false }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 gilrs = "0.11"

@@ -47,27 +47,17 @@ pub struct PlayerKey {
     pub player: String,
 }
 
-/// When a play goes to the outbox.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SubmitPolicy {
-    /// As the result screen opens.
-    #[default]
-    Auto,
-    /// When the player asks for it on the result screen.
-    Ask,
-    Off,
-}
-
-impl SubmitPolicy {
-    pub const ALL: [SubmitPolicy; 3] = [SubmitPolicy::Auto, SubmitPolicy::Ask, SubmitPolicy::Off];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SubmitPolicy::Auto => "AUTO",
-            SubmitPolicy::Ask => "ASK",
-            SubmitPolicy::Off => "OFF",
-        }
+vibebms_core::choices! {
+    /// When a play goes to the outbox.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum SubmitPolicy {
+        /// As the result screen opens.
+        #[default]
+        Auto => "AUTO",
+        /// When the player asks for it on the result screen.
+        Ask => "ASK",
+        Off => "OFF",
     }
 }
 

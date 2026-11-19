@@ -6,9 +6,9 @@ player's code. Send back the numbers each section asks for; the tables say what 
 
 vibeBMS's rows are the predictions of S-OLR2 (`docs/LR2_BEHAVIOUR.md`, a behaviour specification written from a
 reading of a decompilation-based rewrite of LR2, not a measurement). Most of the gaps they settled are closed on
-its word; the readings here confirm it or reopen them. Two are still open: **A4** at 21 to 29 notes (the
-`a4-n29` and `a4-n30` charts), and the TOTAL factor at 192 .. 207, which S1 measured as 15 and S-OLR2 gives as
-14.29 (`a4-t200`).
+its word; the readings here confirm it or reopen them. One gap is open: **A4** at 21 to 29 notes (the `a4-n29`
+and `a4-n30` charts). One value is unconfirmed: the TOTAL factor at 192 .. 207, which S1 measured as 15 and S-OLR2
+gives as 14.29 (`a4-t200`).
 
 `charts/` is made by `gen.py` (`python3 gen.py` writes it again and prints the tables below). The test
 `crates/vibebms-core/tests/lr2_measure.rs` plays the same charts in vibeBMS the way these steps say and checks

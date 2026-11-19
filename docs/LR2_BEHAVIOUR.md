@@ -1,6 +1,8 @@
 > **Origin:** clean-room behaviour specification written from a reading of OpenLR2 branch LR2Beta3-v100201, a
-> decompilation-based rewrite of LR2; facts only, no code. Kept verbatim below this header. `docs/RULES.md` cites
-> it as source S-OLR2.
+> decompilation-based rewrite of LR2; facts only, no code. Kept as received below this header, except: the notes
+> marked *Corrected by LR2_COURSES.md* (its table "Changes to LR2_BEHAVIOUR.md" says what changes); its comparison
+> with RULES.md as that then was, removed (RULES.md "LR2 equivalence" is the live statement); and a note on how it
+> was written. `docs/RULES.md` cites it as source S-OLR2.
 
 # LR2 (beta3 100201) judging, gauge and score rules — behaviour specification
 
@@ -113,6 +115,8 @@ it were a normal note (no hold needed).
 
 ### 2.2 How `#RANK` is read
 
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 2.2.
+
 - A missing `#RANK` gives NORMAL. (**clear**)
 - The header must be `#RANK` followed by a space (tabs are treated as spaces). The value is read as a C-style integer:
   leading digits only, so `2.5` gives 2, `3abc` gives 3, `-1` gives −1, and **a value with no leading digits (or an
@@ -145,6 +149,8 @@ ASSIST EASY, EX-HARD, EX-CLASS or EXHARD-CLASS. (**clear**)
 
 ### 3.1 Common rules
 
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 3.1.
+
 | rule | confidence |
 |---|---|
 | The gauge is a real number from 0 to 100. It is **shown** (number and bar) as the integer part rounded down to an even number: shown = 2 × floor(floor(HP) / 2). | clear |
@@ -156,6 +162,8 @@ ASSIST EASY, EX-HARD, EX-CLASS or EXHARD-CLASS. (**clear**)
 | Clear threshold (end of song, all notes judged): GROOVE, EASY and HAZARD need HP ≥ 80 (the real value: 79.9 fails although it shows 78); HARD, P-ATTACK, G-ATTACK need HP ≥ 2. | clear |
 
 ### 3.2 Per-judgement change, single play (percentage points; T = TOTAL, n = note count, f = HARD factor 3.4)
+
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 3.2.
 
 | gauge | PGREAT | GREAT | GOOD | BAD | POOR | empty POOR |
 |---|---|---|---|---|---|---|
@@ -238,6 +246,8 @@ surviving HAZARD means no BAD/POOR, which is a full combo anyway (7).
 
 ### 3.6 Courses (class / dan and others)
 
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 3.6.
+
 Courses have three kinds: expert (free) courses, NONSTOP (connected) courses and class (grade, 段位) courses.
 In all of them every gauge starts at 100, the gauge carries over from stage to stage, the ×0.6 low-gauge rule applies
 to every gauge, there is **no** 2 % floor for judgements (GROOVE and EASY die below 2 too), and the course is failed as
@@ -264,6 +274,8 @@ looks like an oversight in the original.)
 ---
 
 ## 4. Mines
+
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 4.
 
 | rule | confidence |
 |---|---|
@@ -320,6 +332,8 @@ Release window by `#RANK`: VERY HARD 40, HARD 60, NORMAL 100, EASY 120 ms before
 
 ## 6. Combo and BP
 
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 6.
+
 | rule | confidence |
 |---|---|
 | PGREAT, GREAT, GOOD: combo +1 (an LN at its tail). | clear |
@@ -343,6 +357,8 @@ Release window by `#RANK`: VERY HARD 40, HARD 60, NORMAL 100, EASY 120 ms before
 | best score saved | a play replaces the stored best only when its EX score is strictly higher. | clear |
 
 ### 7.2 Clear lamp
+
+> *Corrected by LR2_COURSES.md*, "Changes to LR2_BEHAVIOUR.md", row 3.6 / 7.2.
 
 LR2 has five lamps: FAILED < EASY CLEAR < CLEAR (normal) < HARD CLEAR < FULL COMBO. There is no PERFECT, MAX,
 ASSIST or LIGHT ASSIST lamp. (**clear**)
@@ -378,59 +394,6 @@ Lamp caps applied afterwards (**inferred** for the option names, which are optio
 | The judge windows are integers and the comparison is on whole milliseconds; the note time's fraction is dropped for window tests, but kept for the 200 ms (normal) / GOOD (LN) miss test. | clear |
 | HARD gauge gain at full gauge is lost (clamped at 100). | clear |
 | In battle / ghost battle, the immediate-fail rule waits until both sides are below 2. | clear |
-
----
-
-## Differences from RULES.md
-
-Status: **confirmed** (OpenLR2 does the same), **contradicted**, **not covered** (RULES.md silent or different scope).
-
-| item | what RULES.md says | what OpenLR2 does | implication |
-|---|---|---|---|
-| LR2 window table | VH 8/24/40/200, H 15/30/60/200, N 18/40/100/200, E 21/60/120/200 | same, symmetric | confirmed |
-| missing `#RANK` | NORMAL | NORMAL | confirmed |
-| `#RANK 4` and other out-of-range values | NORMAL (gap A3 still open) | NORMAL for every value other than 0, 1, 3 | confirmed; A3 can close for 4, 5, −1, etc. |
-| non-numeric `#RANK` | plays NORMAL | read as 0 → VERY HARD; `2.5` → 2 | contradicted; change the LR2 profile's parse |
-| `#DEFEXRANK` | LR2 has none | not read | confirmed |
-| empty POOR window | 0 .. +1000 ms early, never late | more than 200 and less than 1000 ms early (within 200 it is a BAD); never late | confirmed (1000 itself is outside) |
-| empty POOR effects | keeps combo, never takes the note, any number per note | same; also counts in POOR/BP, −2 GROOVE etc. | confirmed |
-| BAD takes the note | "so a second press can BAD the next one" | yes, and the **same press** also judges the next note of the lane if it is within ±200 ms (BAD chain) | contradicted / not covered; must be implemented |
-| note choice (A11) | profile uses vibeBMS "Combo" | always the earliest unresolved object of the lane, plus the BAD chain | contradicted; closest is "Lowest" + BAD chain |
-| press discarded on miss tick | not covered | a press on the tick a note is POORed by the miss check is dropped | not covered (tick-level detail) |
-| LN release window | PG/GR/GD share the GOOD window; BAD ±200 | release ≥ GOOD before the tail keeps the head judgement; any earlier release is BAD, with no 200 ms bound and no late window | confirmed in substance; "BAD ±200" for releases does not exist |
-| LN head miss | not covered | LN head is POOR once more than GOOD late (not 200) | not covered; must be implemented |
-| LN judgement timing | not covered | combo, gauge and counts change at the tail, not at the head | not covered |
-| LN counts | not stated for LR2 | 1 note | consistent |
-| negative BPM | its absolute value; from its time `T` the judge's clock is `2T − t` and the lane runs back ("Negative BPM", after bmz-player's description) | the judging clock mirrored around the time of the change (inferred) | consistent (both inferred) |
-| `#LNTYPE` / CN / HCN | LR2 has only LN | `#LNTYPE` not read; only LN | confirmed |
-| scratch LN reverse spin | not covered | a new press during a held LN gives an empty POOR (or re-judges the head) | not covered (inferred) |
-| GROOVE values | 1, 1, 0.5 ×T/n; −4, −6, −2; start 20; border 80 | same | confirmed |
-| EASY values | 1.2, 1.2, 0.6 ×T/n; −3.2, −4.8, −1.6 | same | confirmed |
-| HARD values | 0.1, 0.1, 0.05; −6, −10, −2 × factor | same | confirmed |
-| HARD ×0.6 rule | below 32 % | shown ≤ 30 (HP < 32), BAD/POOR/empty POOR, also HAZARD, P-/G-ATTACK, and every gauge in courses | confirmed; extend to courses |
-| survival death | below 2 % | below 2 %, play ends at once | confirmed |
-| HARD TOTAL factor | multiples of 10, ones digit dropped; 1.5 at 200 | steps of 16 from 80: 10 / floor((TOTAL − 80)/16); 1.4286 at 200 | contradicted at TOTAL 112–119, 128–129, 144–149, 176–179, 192–209, 224–229 (ambiguous only at 192–207 where S1 measured 15) |
-| HARD note-count factor ≥ 125 | S1 slopes | same | confirmed |
-| HARD note-count factor < 125 (A4) | vibeBMS's guess | piecewise table 3.4 (10 below 20 notes; 10→8.2 over 20–29; 7 at 30 …) | the kit's predicted vibeBMS row equals OpenLR2's at all ten tested counts; 20–29 ambiguous |
-| HAZARD | gains 0.15, 0.06, 0; −100, −100, 0 | gains 0, 0, 0 | contradicted on gains (matters only after mine damage) |
-| CLASS | 0.1, 0.1, 0.05; −2, −3, −2; ×0.6 | class course: GOOD +0.04 (not 0.05); start 100; no 2 % floor | contradicted on GOOD |
-| expert / NONSTOP course gauge | not covered | −1.5/−2/−1.5 (GROOVE), 0.12/0.12/0.048 −1.2/−1.6/−1.2 (EASY) | not covered |
-| P-ATTACK, G-ATTACK | not covered | LR2 gauges, table 3.2 | not covered (needed only if offered) |
-| ASSIST EASY, EX-HARD, EX-CLASS, EXHARD-CLASS | not LR2's | absent | confirmed |
-| default TOTAL | 160 + (n + clamp(n − 400, 0, 200)) × 0.16 | same, then **rounded down to an integer**; also used when `#TOTAL` < 1 | confirmed formula; add the floor |
-| `#TOTAL` value | not covered | read as an integer (fraction dropped) | not covered |
-| gauge display | 2 % steps | 2 × floor(floor(HP)/2) | confirmed |
-| mine damage | value as percent of the gauge (S14) | base-36 value as percentage points, every gauge, no scaling | confirmed |
-| mine on survival gauges | S10 says ends the play | only if the gauge drops below 2 | confirmed (vibeBMS row) |
-| mine trigger | only when held as it passes | held (or pressed) on the first tick after its time, **or** a new press up to the GREAT window early | contradicted; add the press trigger (GREAT, not GOOD as S14 says) |
-| mine counts | not covered | +1 POOR, +1 BP, no combo/EX change | not covered; must be implemented |
-| combo rules | BAD and POOR break, empty POOR keeps | same; mines keep | confirmed |
-| FULL COMBO | no BAD/POOR | max combo = notes; decided before any gauge test, so it wins even with a GROOVE gauge below 80 | partly contradicted: FC must not require a clear |
-| lamps | ... ASSIST, L-ASSIST, EX-HARD, PERFECT, MAX | only FAILED, EASY, CLEAR, HARD, FULL COMBO | contradicted for the LR2 profile |
-| assisted plays | ASSIST lamp | capped at EASY CLEAR | contradicted for the LR2 profile |
-| DJ level | n/9 of max EX | floor(9·EX/2n), min 1 if EX > 0 | confirmed |
-| vertical sync | windows only with vsync off | judging at poll ticks (≥ 2 ms threaded, else per frame) | confirmed in substance |
-| PMS one-POOR rule | not for LR2 | none; same rules in all modes | confirmed |
 
 ---
 
@@ -497,5 +460,4 @@ This matches the kit's "value as percent" row; S10's GROOVE readings (−8, −8
 - Whether a mine shows as one or two POORs on screen.
 - Single- vs double-precision gauge gains (affects only exact even boundaries).
 - The menu names behind random option indices 4 and 5 and the hi-speed option that cap the lamp.
-- OpenLR2's GitHub issues and discussions were not read (API access was not available in this session); its
-  README was read.
+- OpenLR2's GitHub issues and discussions were not read; its README was read.

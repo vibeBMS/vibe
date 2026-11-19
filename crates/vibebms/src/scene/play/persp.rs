@@ -4,10 +4,9 @@
 //! Notes move in lane space as on a flat lane (the green number holds);
 //! only where a depth is on the screen differs.
 
-use super::session::held_at_line;
+use super::scroll::Scroll;
 use super::skin::PlayState;
 use crate::app::Draw;
-use crate::config::HiSpeedMode;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Blend, Color};
 use crate::perspective::{Depths, Fan, FanLane};
@@ -100,26 +99,9 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
     let mode = s.mode;
     let now = st.now;
     let t_vis = s.chart_us(now) + p.visual_offset_ms as i64 * 1000;
-    // (past a negative BPM's fold point the lane runs back, and the
-    // judge's clock with it: `t_judge`)
-    let cur_pos = s.chart.timing.drawn_pos_at_time(t_vis as f64);
-    let t_judge = s.chart.timing.judge_time(t_vis);
-    // `#SPEED` now (not under CONSTANT)
-    let speed = s.chart.timing.speed_at_time(t_vis as f64);
-    let main_bpm = if s.chart.meta.main_bpm > 0.0 {
-        s.chart.meta.main_bpm
-    } else {
-        130.0
-    };
+    let sc = Scroll::new(&s.chart, p, scene.hs_shown(0, now), t_vis);
+    let depth = |ahead: f64| dep.at(ahead, 1.0);
     let bpms = scene.bpms_at(now);
-    let dur_us = p.duration_with(scene.hs_shown(0, now), main_bpm, true) * 1000.0;
-    let beats = dur_us / 1_000_000.0 * main_bpm / 60.0;
-    let depth = |pos: f64, time: i64| -> f32 {
-        match p.hispeed_mode {
-            HiSpeedMode::Floating => dep.at((pos - cur_pos) * speed, beats),
-            HiSpeedMode::Constant => dep.at((time - t_judge) as f64 / dur_us, 1.0),
-        }
-    };
     // notes are hidden under HIDDEN+ and once past the line
     let floor = if p.hidden > 0.0 {
         dep.hidden
@@ -232,17 +214,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
             }
         }
         // bar lines
-        for bl in &s.chart.bar_lines {
-            let bd = dep.at(bl.pos - cur_pos, beats);
-            if bd > dep.cover {
-                if bl.pos > cur_pos {
-                    break;
-                }
-                continue;
-            }
-            if bd < floor {
-                continue;
-            }
+        for bd in sc.bar_lines().map(depth).filter(|&bd| bd >= floor) {
             let c = rgba(0x8a96b8a0);
             band(d, f, (0.0, 1.0), bd, bd + px(1.5, bd), c, c);
         }
@@ -253,7 +225,6 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                 continue;
             };
             let notes = engine.notes();
-            let (list, cursor) = (&ln.notes, ln.cursor.min(ln.notes.len()));
             let c = note_color(mode, l);
             let m = (l.u1 - l.u0) * 0.04;
             let u = (l.u0 + m, l.u1 - m);
@@ -264,19 +235,10 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                     band(d, f, u, d0, d1, color, mix(color, rgba(0x6070a0ff), 0.35));
                 }
             };
-            for &ni in &list[cursor..] {
+            for (ni, ahead) in sc.notes(ln, notes, p.hold_at_line) {
                 let n = &notes[ni];
-                let cn = &s.chart.notes[n.chart_index];
-                let nd = depth(cn.pos, n.time);
-                // LR2: an unjudged note waits at the line
-                let nd = match p.hold_at_line && held_at_line(n, t_judge) {
-                    true => nd.max(dep.judge),
-                    false => nd,
-                };
-                if n.time > t_vis + 2_000_000 && nd > 2.0 {
-                    break;
-                }
-                match &cn.kind {
+                let nd = depth(ahead);
+                match &s.chart.notes[n.chart_index].kind {
                     NoteKind::Long {
                         end_pos, end_time, ..
                     } => {
@@ -286,7 +248,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                         let holding = engine.holding(lane) == Some(ni)
                             || engine.hcn_passing(lane).is_some_and(|(p, _)| p == ni);
                         let start = if holding { dep.judge } else { nd };
-                        let end = depth(*end_pos, *end_time);
+                        let end = depth(sc.ahead(*end_pos, *end_time));
                         let (b0, b1) = (start.max(floor), end.min(dep.cover));
                         if b1 > b0 {
                             let a = if holding { 0.8 } else { 0.5 };
@@ -305,7 +267,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                         }
                     }
                     _ => {
-                        let mark = n.is_done() && p.mark_notes && n.time > t_judge;
+                        let mark = n.is_done() && p.mark_notes && n.time > sc.t_judge;
                         if n.is_done() && !mark {
                             continue;
                         }

@@ -23,10 +23,17 @@ case "$1" in
       amd64 | i386) archive=ubuntu ;;
       *) archive=ubuntu-ports ;;
     esac
-    # (the archive's keys in the image check the snapshot's signatures)
+    # the snapshot service answers over HTTPS only: its certificate is
+    # checked with the image archive's ca-certificates, which touch no
+    # build output (the packages are checked by the archive's keys in the
+    # image, which sign the snapshot too)
+    if [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
+      apt-get -o Acquire::Retries=3 update
+      DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates
+    fi
     rm -f /etc/apt/sources.list.d/ubuntu.sources
     for suite in "$VERSION_CODENAME" "$VERSION_CODENAME-updates" "$VERSION_CODENAME-security"; do
-      echo "deb http://snapshot.ubuntu.com/$archive/$UBUNTU_SNAPSHOT $suite main universe"
+      echo "deb https://snapshot.ubuntu.com/$archive/$UBUNTU_SNAPSHOT $suite main universe"
     done > /etc/apt/sources.list
     apt-get -o Acquire::Retries=3 update
     # shellcheck disable=SC2086

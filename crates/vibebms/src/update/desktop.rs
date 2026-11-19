@@ -1,9 +1,9 @@
 //! Putting an update in place (the desktop executables).
 
-use super::{own_app, Offer, Progress};
+use super::{own_app, Offer};
+use bmseeker::progress::Progress;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// Download `o` next to `exe` (next to the macOS app it runs in), check it
@@ -137,6 +137,7 @@ fn download(
         n: 0,
         error: None,
     }));
+    progress.start_file(Some(size));
     let (sink, progress) = (st.clone(), progress.clone());
     let (tx, rx) = std::sync::mpsc::channel();
     crate::platform::stream(
@@ -151,7 +152,7 @@ fn download(
                 g.hash.update(c);
                 match g.file.write_all(c) {
                     Ok(()) => {
-                        progress.done.store(g.n, Ordering::Relaxed);
+                        progress.add(c.len() as u64);
                         return Ok(());
                     }
                     Err(e) => format!("cannot write the update ({e})"),
@@ -247,10 +248,10 @@ mod tests {
         let to = dir.join("new");
         // sha256("test")
         let sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-        let p = Arc::new(Progress::default());
+        let p = Progress::new();
         download(&serve(b"test".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap();
         assert_eq!(std::fs::read(&to).unwrap(), b"test");
-        assert_eq!(p.done.load(Ordering::Relaxed), 4);
+        assert_eq!(p.bytes(), (4, Some(4)));
         // damaged, cut short, too long, refused
         let e = download(&serve(b"tesT".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
         assert!(e.contains("checksum"), "{e}");
