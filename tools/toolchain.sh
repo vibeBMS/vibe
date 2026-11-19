@@ -142,10 +142,10 @@ use_msvc() {
     return
   fi
   # what vcvarsall sets (PATH, INCLUDE, LIB, LIBPATH, VCINSTALLDIR,
-  # VCToolsVersion, VSCMD_ARG_TGT_ARCH, WindowsSdkDir, ...); rustc's linker
-  # lookup and the cc crate take cl.exe and link.exe from PATH when
-  # VCINSTALLDIR is set and VSCMD_ARG_TGT_ARCH is the target's, and
-  # VCToolsVersion's toolset for another target (the build scripts)
+  # VCToolsVersion, VSCMD_ARG_TGT_ARCH, WindowsSdkDir, ...): the release links
+  # with rust-lld, which takes the libraries from LIB; the cc crate takes
+  # cl.exe from PATH when VCINSTALLDIR is set and VSCMD_ARG_TGT_ARCH is the
+  # target's, and rustc links the build scripts with VCToolsVersion's link.exe
   while IFS= read -r line; do
     line="${line%$'\r'}"
     name="${line%%=*}" value="${line#*=}"
@@ -169,5 +169,8 @@ use_msvc() {
     "${VCToolsInstallDir:-?}"*) ;;
     *) pin_missing "link.exe on PATH is $(command -v link.exe), not the toolset's (${VCToolsInstallDir:-none})" ;;
   esac
-  TOOLCHAIN="MSVC ${VCToolsVersion:-?} ($MSVC_COMPONENT), Windows SDK $sdk (${VSCMD_ARG_HOST_ARCH:-?} -> ${VSCMD_ARG_TGT_ARCH:-?})"
+  # (cl's own build: an update of the toolset keeps its folder's version)
+  local cl
+  cl="$( (cl.exe 2>&1 || true) | sed -n 's/.*Version \([0-9.]*\).*/\1/p' | head -1)"
+  TOOLCHAIN="MSVC ${VCToolsVersion:-?} ($MSVC_COMPONENT; cl ${cl:-?}), Windows SDK $sdk (${VSCMD_ARG_HOST_ARCH:-?} -> ${VSCMD_ARG_TGT_ARCH:-?}), rust-lld"
 }

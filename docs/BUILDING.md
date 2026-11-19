@@ -399,8 +399,11 @@ Everything else is fixed by the commit:
   the image lacks stops the build, listing what the image has;
 - **the build itself**: `tools/build_release.sh <artifact>`, which CI's jobs run: `Cargo.lock` as committed
   (`--locked`), the checkout, `CARGO_HOME` and the target folder remapped to `/vibe`, `/cargo`, `/target`
-  (`--remap-path-prefix`, `-ffile-prefix-map`: no build path in panic messages or C's `__FILE__`), Windows' linker
-  `/Brepro` (no link time in the PE header), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
+  (`--remap-path-prefix`, `-ffile-prefix-map`: no build path in panic messages or C's `__FILE__`), on Windows
+  Rust's own linker, rust-lld, with `/Brepro` (no link time in the PE header) and no PDB (the release has none; its
+  object paths would go into the `/Brepro` hash; MSVC's `link.exe` writes its and the compiler's build numbers into
+  the executable), on macOS and iOS the linker's `-S` (no debug map: its object paths
+  would go into the executable's `LC_UUID`), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
   deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
   Lua's C sources compiled in name order (`vendor/lua-src`, patched in for the lua-src crate, which takes them in the
   file system's order: on Linux's ext4 that is a hash seeded per file system, so two machines linked them
@@ -443,7 +446,7 @@ How far each build is reproducible:
 | `vibebms-linux-x64`, `-arm64` | yes: pinned image and packages (x64: Ubuntu snapshot; arm64: `tools/linux-arm64.lock`), Rust | nothing known |
 | web (`vibeBMS-web.zip`) | yes: pinned image and packages (Ubuntu snapshot), Rust, wasm-bindgen, fonts | nothing known |
 | the Flatpaks | from the same executable, on the same runner image | packaged on GitHub's Ubuntu 22.04 image: its flatpak, appstream and faketime are the image's, and their updates can change the bytes (rare) |
-| `vibebms-windows-*.exe` | yes: pinned runner image, MSVC toolset and Windows SDK, Rust | a servicing update of the SDK keeps its version (`10.0.26100.0`), so the pin does not see it |
+| `vibebms-windows-*.exe` | yes: pinned runner image, MSVC toolset and Windows SDK, Rust and its linker (rust-lld) | an update of the image can change the toolset's `cl.exe` (which compiles Lua and ring's C) and the SDK's files while their folders keep their versions (`build.txt` names `cl`'s build) |
 | macOS (`vibebms-macos-*`, the app's zip) | yes: pinned runner image and Xcode, Rust | Xcode's patch release (`build.txt` names it), and `codesign`, `ditto` and `zip`, which are the image's macOS's: the image's updates move them; the `.dmg` (hdiutil writes times and IDs) is not reproducible: its files are compared |
 | iOS `.ipa` | yes: pinned runner image and Xcode, Rust | as macOS; a signed copy (AltStore, the App Store) differs anyway |
 | Android: the library, the APK's files | on the same runner image (NDK, JDK, Gradle pinned) | the APK's signature: a rebuild is signed by another key, so its files are compared (`tools/build_release.sh entries`), not the APK |
@@ -459,9 +462,11 @@ files only through `tools/build_release.sh`. Both are moved for you:
   week of a month (or with the `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` and
   `tools/linux-arm64.lock` resolved again in its image. `tools/repro_pins.py` splits the changes
   into two pull requests, each one commit that changes only pins, on which the workflow dispatches CI (a pull request
-  made with `GITHUB_TOKEN` starts none): `toolchain-pins/update` (newer tools on the same labels, Xcode and the
-  Android tools within their major versions, digests, the snapshot), which the merge workflow merges once that CI run
-  passes, after checking with the default branch's `tools/repro_pins.py` that only pins' values changed; and
+  made with `GITHUB_TOKEN` starts none, and its pull request's CI waits for a person's approval):
+  `toolchain-pins/update` (newer tools on the same labels, Xcode and the Android tools within their major versions,
+  digests, the snapshot), which the workflow's merge job merges once that CI run passes (it waits for it: such a run
+  starts no other workflow), after checking with the default branch's `tools/repro_pins.py` that only pins' values
+  changed; and
   `toolchain-pins/major` (a new runner label with its tools, a new major version), which waits for a person, as a
   Dependabot major update does. Each run makes both again from the default branch, and closes one whose pins are
   current. It needs Settings › Actions › General › "Allow GitHub Actions to create and approve pull requests".

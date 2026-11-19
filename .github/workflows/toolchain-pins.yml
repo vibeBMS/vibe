@@ -9,8 +9,7 @@
 # default branch that changes only pins (tools/repro_pins.py choose):
 # - toolchain-pins/update: newer tools on the same runner labels (Xcode within
 #   its major), the images' new digests, the snapshot, the Android tools
-#   within their majors. The merge workflow (dependabot-merge.yml) merges it
-#   once CI has passed on it.
+#   within their majors. The merge job merges it once CI has passed on it.
 # - toolchain-pins/major: a newer runner label with its newest tools, a new
 #   major version of Xcode or an Android tool. Held for a person, like a
 #   Dependabot major update: a new image or major brings a new SDK, linker and
@@ -19,8 +18,8 @@
 # Each run makes the branches again from the default branch (a pull request
 # whose pins are current is closed). Pull requests and pushes made with
 # GITHUB_TOKEN start no workflow, so CI is dispatched on the branch (ci.yml's
-# workflow_dispatch), and the merge workflow takes that run as the pull
-# request's.
+# workflow_dispatch), and the merge job waits for that run (it gives no
+# workflow_run event either) and takes it as the pull request's.
 #
 # Needs Settings > Actions > General > "Allow GitHub Actions to create and
 # approve pull requests".
@@ -283,6 +282,9 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+    outputs:
+      update-pr: ${{ steps.prs.outputs.update-pr }}
+      update-sha: ${{ steps.prs.outputs.update-sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -318,6 +320,7 @@ jobs:
             fi
           fi
       - name: pull requests
+        id: prs
         env:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.event.repository.default_branch }}
@@ -350,7 +353,7 @@ jobs:
               if [ "$kind" = major ]; then
                 echo "Held for review (a new runner image or major version): merge it by hand once CI has passed."
               else
-                echo "Merged once CI passes on it (.github/workflows/dependabot-merge.yml)."
+                echo "Merged by this workflow once the CI run it started on it passes."
               fi
               echo
               echo "Made by the Toolchain pins workflow (.github/workflows/toolchain-pins.yml); its next run makes it again from $BASE."
@@ -363,15 +366,89 @@ jobs:
               [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse 'HEAD^{tree}')" ] &&
               [ "$(git rev-parse 'FETCH_HEAD^')" = "$main" ]; then
               echo "$kind: #$open is up to date" | tee -a "$GITHUB_STEP_SUMMARY"
+              # (the merge job looks at the CI run made for it then)
+              [ "$kind" != update ] || printf 'update-pr=%s\nupdate-sha=%s\n' "$open" "$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
               continue
             fi
             git push -q -f origin "HEAD:refs/heads/$branch"
             if [ -n "$open" ]; then
               gh pr edit "$open" --title "$title" --body-file "$RUNNER_TEMP/body.md"
             else
-              gh pr create --base "$BASE" --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+              url="$(gh pr create --base "$BASE" --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md")"
+              open="${url##*/}"
             fi
             gh workflow run ci.yml --ref "$branch"
+            [ "$kind" != update ] || printf 'update-pr=%s\nupdate-sha=%s\n' "$open" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             { echo "$kind: $title"; echo; echo "$changes"; echo; } >> "$GITHUB_STEP_SUMMARY"
           done
           git switch -q --detach "$main"
+
+  # the update merged once its CI run has passed. A run started with
+  # GITHUB_TOKEN (the dispatch above) gives other workflows no workflow_run
+  # event, so this job waits for it; the pull request's own CI (its
+  # pull_request event) waits for a person's approval, as a bot's does
+  merge:
+    name: merge the update
+    needs: pr
+    if: ${{ !cancelled() && needs.pr.outputs.update-sha != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      # (the default branch's tools/repro_pins.py)
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/repro_pins.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.pr.outputs.update-pr }}
+          SHA: ${{ needs.pr.outputs.update-sha }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          # the CI run dispatched on the pull request's head
+          run=""
+          for _ in $(seq 30); do
+            run="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha=$SHA" \
+              --jq '.workflow_runs[0].id // empty')"
+            [ -z "$run" ] || break
+            sleep 20
+          done
+          [ -n "$run" ] || { echo "::error::no CI run on ${SHA:0:7} (#$PR)"; exit 1; }
+          echo "CI on ${SHA:0:7} (#$PR): https://github.com/$REPO/actions/runs/$run"
+          while [ "$(gh api "repos/$REPO/actions/runs/$run" --jq .status)" != completed ]; do sleep 60; done
+          conclusion="$(gh api "repos/$REPO/actions/runs/$run" --jq .conclusion)"
+          if [ "$conclusion" != success ]; then
+            echo "::warning::CI on #$PR: $conclusion; the pull request waits for a person"
+            exit 0
+          fi
+          # one commit on the default branch that changes only pins' values
+          # (and the lock of linux-arm64, made again for its image)
+          gh api "repos/$REPO/compare/$BASE...$SHA" > "$RUNNER_TEMP/compare.json"
+          q() { jq -r "$1" "$RUNNER_TEMP/compare.json"; }
+          ahead=$(q .ahead_by) files=$(q '[.files[].filename | select(. != "tools/linux-arm64.lock")] | join(",")')
+          lock=$(q '[.files[].filename | select(. == "tools/linux-arm64.lock")] | length') fork=$(q .merge_base_commit.sha)
+          if [ "$ahead" != 1 ] || [ "$files" != tools/repro.env ]; then
+            echo "::warning::#$PR is not one commit changing tools/repro.env ($ahead, $files): it waits for a person"
+            exit 0
+          fi
+          raw() { gh api "repos/$REPO/contents/$2?ref=$1" -H "Accept: application/vnd.github.raw"; }
+          raw "$fork" tools/repro.env > "$RUNNER_TEMP/base.env"
+          raw "$SHA" tools/repro.env > "$RUNNER_TEMP/head.env"
+          args=("$RUNNER_TEMP/base.env" "$RUNNER_TEMP/head.env")
+          if [ "$lock" != 0 ]; then
+            raw "$SHA" tools/linux-arm64.lock > "$RUNNER_TEMP/head.lock"
+            args+=("$RUNNER_TEMP/head.lock")
+          fi
+          rc=0
+          python3 -I tools/repro_pins.py check "${args[@]}" || rc=$?
+          case "$rc" in
+            0) gh pr merge -R "$REPO" "$PR" --squash --delete-branch --match-head-commit "$SHA" ;;
+            3) echo "::warning::#$PR waits for a person (above)" ;;
+            *) echo "::error::#$PR changes more than pins"; exit 1 ;;
+          esac

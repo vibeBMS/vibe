@@ -24,7 +24,7 @@ check: whether <head> changes only the values of pins (no other line), and
 which changes are held: exit 0 when none is, 3 when one is (each said on
 stdout), 1 when <head> changes anything else. With a lock (tools/build_deps.sh
 lock linux-arm64), also that it is one, for <head>'s image and packages. The
-merge workflow runs it on a pins pull request.
+Toolchain pins workflow's merge job runs it on its update.
 """
 import re
 import sys
@@ -170,7 +170,7 @@ def main(argv):
         for name, changes in (("update", upd), ("major", maj)):
             for k, v in changes.items():
                 print(f"{name}\t{k}\t{pins[k]}\t{v}")
-        # (the update must pass check, or the merge workflow would hold it)
+        # (the update must pass check, or the merge job would hold it)
         _, reasons, errors = check(text, up)
         assert not reasons and not errors, (reasons, errors)
         return 0

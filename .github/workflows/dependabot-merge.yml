@@ -8,13 +8,8 @@ name: Dependabot merge
 # a minor update. A new Rust release (rust-toolchain.toml, 1.x) is a minor
 # update: it changes the release builds' bytes, which a commit of its own
 # allows, and CI builds and tests with it.
-#
-# Merges a Toolchain pins pull request (toolchain-pins.yml) the same way: its
-# CI is the run that workflow dispatched on its branch (pushes made with
-# GITHUB_TOKEN start none). It must be one commit by the workflow that changes
-# only values of tools/repro.env's pins (and tools/linux-arm64.lock, made
-# again for its image), checked with the default branch's tools/repro_pins.py,
-# which holds a new runner label or major version.
+# (A Toolchain pins pull request is merged by its own workflow,
+# toolchain-pins.yml: the CI run it starts gives no workflow_run event.)
 
 on:
   workflow_run:
@@ -71,52 +66,3 @@ jobs:
           fi
           gh pr merge -R "$REPO" "$pr" --squash --delete-branch --match-head-commit "$SHA"
 
-  pins:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'workflow_dispatch' &&
-      github.event.workflow_run.triggering_actor.login == 'github-actions[bot]' &&
-      startsWith(github.event.workflow_run.head_branch, 'toolchain-pins/')
-    runs-on: ubuntu-latest
-    steps:
-      # (the default branch's, not the pull request's)
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: tools/repro_pins.py
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - name: merge
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,headRefOid,author \
-            --jq ".[] | select(.headRefOid == \"$SHA\" and .author.is_bot and (.author.login | test(\"github-actions\"))) | .number")
-          if [ -z "$pr" ]; then echo "no open pull request of the workflow at $SHA"; exit 0; fi
-          base=$(gh pr view -R "$REPO" "$pr" --json baseRefName --jq .baseRefName)
-          gh api "repos/$REPO/compare/$base...$SHA" > "$RUNNER_TEMP/compare.json"
-          q() { jq -r "$1" "$RUNNER_TEMP/compare.json"; }
-          ahead=$(q .ahead_by) files=$(q '[.files[].filename | select(. != "tools/linux-arm64.lock")] | join(",")')
-          lock=$(q '[.files[].filename | select(. == "tools/linux-arm64.lock")] | length')
-          author=$(q '.commits[-1].author.login // ""') fork=$(q .merge_base_commit.sha)
-          if [ "$ahead" != 1 ] || [ "$files" != tools/repro.env ] || [ "$author" != "github-actions[bot]" ]; then
-            echo "#$pr left for review: not one commit of the workflow changing tools/repro.env only ($ahead, $files, $author)"
-            exit 0
-          fi
-          raw() { gh api "repos/$REPO/contents/$2?ref=$1" -H "Accept: application/vnd.github.raw"; }
-          raw "$fork" tools/repro.env > "$RUNNER_TEMP/base.env"
-          raw "$SHA" tools/repro.env > "$RUNNER_TEMP/head.env"
-          args=("$RUNNER_TEMP/base.env" "$RUNNER_TEMP/head.env")
-          if [ "$lock" != 0 ]; then
-            raw "$SHA" tools/linux-arm64.lock > "$RUNNER_TEMP/head.lock"
-            args+=("$RUNNER_TEMP/head.lock")
-          fi
-          rc=0
-          python3 -I tools/repro_pins.py check "${args[@]}" || rc=$?
-          case "$rc" in
-            0) gh pr merge -R "$REPO" "$pr" --squash --delete-branch --match-head-commit "$SHA" ;;
-            3) echo "#$pr left for review (above)" ;;
-            *) echo "#$pr left for review: it changes more than pins"; exit 1 ;;
-          esac
