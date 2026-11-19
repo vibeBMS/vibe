@@ -9,8 +9,8 @@ use crate::config::{
     PERSPECTIVE_MAX, TOUCH_HEIGHT_RANGE,
 };
 use crate::input::gamepad::side_name;
+use crate::scene::cycle;
 use crate::scene::keybind::{key_label, keys_label, Slot};
-use crate::scene::option_panel::cycle;
 
 /// The bindings, a sub-page each.
 #[derive(Clone, Copy, Debug, PartialEq)]

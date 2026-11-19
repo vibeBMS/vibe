@@ -9,7 +9,7 @@ use crate::app::Ctx;
 use crate::config::{provider_name, Beside, IrAccount, PlayerKey, SubmitPolicy};
 use crate::ir::creds;
 use crate::platform::{store, unix_ms, IS_WEB};
-use crate::scene::option_panel::cycle;
+use crate::scene::cycle;
 use vibebms_ir::outbox::State;
 use vibebms_ir::providers::bmsir_read::{self, TABLES, VIEWS};
 use vibebms_ir::ProviderId;
