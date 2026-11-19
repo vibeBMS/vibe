@@ -478,8 +478,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
   scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
   own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
-  sound set's music (the select music, the decide jingle, `.loop` files) is measured as the set loads and brought to
-  the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
+  sound set's music (the select music, the decide jingle, `.loop` files) is measured as it is first decoded and
+  brought to the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
   each time (its stages joined are not one chart). The output's soft limiter stays as it was.
 - **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
   under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
@@ -512,7 +512,9 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
 
 - **Built-in default skins**: landscape and portrait layouts for every mode, original art drawn from shapes and
   the Inter font by `tools/gen_default_skins.py`. Edit the script and run it to make
-  `crates/vibebms/assets/builtin/skins/default/` again.
+  `crates/vibebms/assets/builtin/skins/default/` again (CI checks with `--check` that the committed files are
+  what it makes). The song select's images are pages of at most 2048×2048: one for the screen, one for each panel,
+  loaded when the panel first opens.
 - **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › SKINS` like the others):
   each player's lanes are a fan seen in perspective, narrow at the far end and wider toward the judge line, notes
   growing as they come. The judge line is at three quarters of the screen's height and the lanes reach near its
@@ -604,7 +606,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
   `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
   under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
-  sets their volume. A folder set may also use bmz-player's conventions (as its documentation describes them):
+  sets their volume. A screen's music (the select music, the result's) is decoded each time it starts and let go
+  when it stops; the other sounds stay decoded. A folder set may also use bmz-player's conventions (as its documentation describes them):
   - the result music by outcome: `fail` for a failed play; for a clear `aaa`, `aa` or `a` at that rank (the play's
     EX score from 8/9, 7/9, 6/9 of what can be had), else `clear` (a missing rank sound falls back on `clear`, not
     on a lower rank); a course's result keeps `course_clear` / `course_fail`;
@@ -627,7 +630,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks); button 1407 the key mode filter with 4 / 6 / 8 KEYS (indices 6-8); play skin types 104 / 106 / 108 are 4 / 6 / 8 keys (only the built-in skins are: such charts play on them). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
-  using timer 21, the app draws a hi-speed panel beside the lanes.
+  using timer 21, the app draws a hi-speed panel beside the lanes. A beatoraja `source` with `"lazy": true` is loaded
+  when something is first drawn from it (the built-in song select's panels).
 
 ## Web version
 

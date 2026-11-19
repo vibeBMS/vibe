@@ -384,6 +384,11 @@ pub fn load_with(
         fadeout_ms: i(&sk, "fadeout", 0),
         finish_margin_ms: i(&sk, "finishmargin", 0),
         perspective: sk.get("perspective").and_then(Value::as_bool) == Some(true),
+        // (the sources are the first images, in order)
+        lazy_images: (arr(sk.get("source")).iter().enumerate())
+            .filter(|(_, src)| src.get("lazy").and_then(Value::as_bool) == Some(true))
+            .map(|(i, _)| i)
+            .collect(),
         options_on: enabled.iter().map(|op| *op as i32).collect(),
         ..Skin::new(path, kind, i(&sk, "w", 1280) as f32, cx.h)
     };

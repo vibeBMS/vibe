@@ -10,14 +10,19 @@ use crate::gfx::{Gfx, ImageTex, Picture, TexId};
 pub struct LoadedSkin {
     pub skin: Skin,
     pub tex: Vec<Option<TexId>>,
-    /// Bitmap font sheets load on first use (a Japanese font has hundreds):
-    /// which images are such sheets (and not asked for yet), and the ones
-    /// asked for since the last `load_pending`.
+    /// Images loaded when first drawn: bitmap font sheets (a Japanese font
+    /// has hundreds) and the skin's `lazy_images`. Which images are such
+    /// (and not asked for yet), and the ones asked for since the last
+    /// `load_pending`.
     lazy: Vec<bool>,
     wanted: std::cell::RefCell<Vec<usize>>,
+    /// Something drawn was missing one of `lazy_images` (see
+    /// `draw_objects`).
+    missing: std::cell::Cell<bool>,
     /// Images being decoded, with the images that show each file; the
     /// first is the skin's own, which it is not drawn without.
     decoding: Vec<(ImageJobs, Vec<Vec<usize>>)>,
+    /// The skin's own images are in: it is drawn.
     ready: bool,
     /// Images that are videos (looping from when the skin loaded).
     videos: Vec<(usize, crate::video::Video)>,
@@ -245,16 +250,37 @@ pub trait Hooks {
 
 impl LoadedSkin {
     pub fn load(skin: Skin, gfx: &mut Gfx) -> LoadedSkin {
-        let key = skin.trans_color;
+        let mut sk = LoadedSkin {
+            skin,
+            tex: Vec::new(),
+            lazy: Vec::new(),
+            wanted: Default::default(),
+            missing: Default::default(),
+            decoding: Vec::new(),
+            ready: false,
+            videos: Vec::new(),
+            anims: Vec::new(),
+            loaded_at: crate::platform::Instant::now(),
+        };
+        sk.start();
+        sk.take_decoded(gfx, false);
+        sk
+    }
+
+    /// Start decoding the images drawn from (in the background) and open
+    /// the videos.
+    fn start(&mut self) {
+        let skin = &self.skin;
         let mut lazy = vec![false; skin.images.len()];
-        for f in &skin.fonts {
-            for (img, _) in f.glyphs.values() {
-                if let Some(l) = lazy.get_mut(*img) {
-                    *l = true;
-                }
+        let sheets = skin
+            .fonts
+            .iter()
+            .flat_map(|f| f.glyphs.values().map(|(img, _)| img));
+        for i in sheets.chain(&skin.lazy_images) {
+            if let Some(l) = lazy.get_mut(*i) {
+                *l = true;
             }
         }
-        let mut videos = Vec::new();
         // only what is drawn, and an image several sources name once
         let used = skin.used_images();
         let mut files: Vec<PathBuf> = Vec::new();
@@ -266,7 +292,7 @@ impl LoadedSkin {
             };
             if crate::video::is_video(p) {
                 if let Some(v) = crate::video::Video::open(p, true) {
-                    videos.push((i, v));
+                    self.videos.push((i, v));
                 }
                 continue;
             }
@@ -277,19 +303,10 @@ impl LoadedSkin {
             });
             users[f].push(i);
         }
-        let mut sk = LoadedSkin {
-            tex: vec![None; skin.images.len()],
-            decoding: vec![(ImageJobs::start(files, key), users)],
-            ready: false,
-            skin,
-            lazy,
-            wanted: Default::default(),
-            videos,
-            anims: Vec::new(),
-            loaded_at: crate::platform::Instant::now(),
-        };
-        sk.take_decoded(gfx, false);
-        sk
+        self.tex = vec![None; skin.images.len()];
+        self.lazy = lazy;
+        self.wanted.get_mut().clear();
+        self.decoding = vec![(ImageJobs::start(files, skin.trans_color), users)];
     }
 
     /// Wait for the skin's images (else they come in while it is not
@@ -322,6 +339,10 @@ impl LoadedSkin {
     /// [`Self::load_pending`] with the videos and animations at `now`
     /// (a frame drawn offline: its own time).
     pub fn load_pending_at(&mut self, gfx: &mut Gfx, now: crate::platform::Instant) {
+        // (neither drawn nor loading: freed)
+        if !self.ready && self.decoding.is_empty() {
+            self.start();
+        }
         let ms = now.saturating_duration_since(self.loaded_at).as_millis() as i64;
         for (i, v) in &mut self.videos {
             v.update(gfx, ms);
@@ -344,8 +365,11 @@ impl LoadedSkin {
         }
     }
 
+    /// Free the textures and videos (the skin is not drawn); the next
+    /// [`Self::load_pending`] loads them again.
     pub fn free(&mut self, gfx: &mut Gfx) {
         self.decoding.clear();
+        self.ready = false;
         // video textures belong to the videos
         for (i, mut v) in self.videos.drain(..) {
             self.tex[i] = None;
@@ -363,8 +387,31 @@ impl LoadedSkin {
         crate::formats::dxa::clear_cache();
     }
 
+    /// Image `i`'s texture; one loaded when first drawn is asked for.
+    fn texture(&self, i: usize) -> Option<TexId> {
+        let t = self.tex.get(i).copied().flatten();
+        if t.is_none() {
+            let unasked = self.lazy.get(i) == Some(&true);
+            if unasked {
+                let mut w = self.wanted.borrow_mut();
+                if !w.contains(&i) {
+                    w.push(i);
+                }
+            }
+            let decoding = || {
+                self.decoding
+                    .iter()
+                    .any(|(_, u)| u.iter().flatten().any(|&j| j == i))
+            };
+            if self.skin.lazy_images.contains(&i) && (unasked || decoding()) {
+                self.missing.set(true);
+            }
+        }
+        t
+    }
+
     fn uv(&self, d: &Draw, src: &Src, f: [f32; 4]) -> Option<(TexId, [f32; 4])> {
-        let t = (*self.tex.get(src.image)?)?;
+        let t = self.texture(src.image)?;
         let (w, h) = d.gfx.texture_size(t)?;
         let (w, h) = (w as f32, h as f32);
         Some((
@@ -592,13 +639,7 @@ impl LoadedSkin {
         let mut x = r.x + r.w * a - width * scale * a;
         for (img, g) in glyphs {
             let tw = g[2] * scale * k;
-            if self.lazy.get(*img) == Some(&true) && self.tex[*img].is_none() {
-                let mut w = self.wanted.borrow_mut();
-                if !w.contains(img) {
-                    w.push(*img);
-                }
-            }
-            if let Some(t) = self.tex.get(*img).copied().flatten() {
+            if let Some(t) = self.texture(*img) {
                 if let Some((w, h)) = d.gfx.texture_size(t) {
                     let (w, h) = (w as f32, h as f32);
                     let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
@@ -637,13 +678,7 @@ impl LoadedSkin {
             let (Some((img, g)), Some(m)) = (f.glyphs.get(c), f.metrics.get(c)) else {
                 continue;
             };
-            if self.lazy.get(*img) == Some(&true) && self.tex[*img].is_none() {
-                let mut w = self.wanted.borrow_mut();
-                if !w.contains(img) {
-                    w.push(*img);
-                }
-            }
-            if let Some(t) = self.tex.get(*img).copied().flatten() {
+            if let Some(t) = self.texture(*img) {
                 if let Some((w, h)) = d.gfx.texture_size(t) {
                     let (w, h) = (w as f32, h as f32);
                     let uv = [g[0] / w, g[1] / h, (g[0] + g[2]) / w, (g[1] + g[3]) / h];
@@ -801,6 +836,9 @@ impl LoadedSkin {
         st: &dyn SkinState,
         hooks: &mut dyn Hooks,
     ) {
+        // the objects of an option show together: none while an image one
+        // of them is drawn from is loading (a panel's page as it opens)
+        let mut held: Vec<i32> = Vec::new();
         for o in &self.skin.objects {
             match &o.kind {
                 Kind::Notes => {
@@ -837,6 +875,10 @@ impl LoadedSkin {
             if let Some((act, click)) = o.act {
                 hooks.clickable(area, act, click);
             }
+            if !held.is_empty() && o.dst.ops.iter().any(|op| held.contains(op)) {
+                continue;
+            }
+            self.missing.set(false);
             match &o.kind {
                 Kind::Image(src) | Kind::JudgeLine(src) => {
                     let size = src.frames.first().map(|f| (f[2] * xf.sx, f[3] * xf.sy));
@@ -1032,6 +1074,9 @@ impl LoadedSkin {
                 }
                 Kind::Graph(g) => hooks.graph(d, g, r, fr.color),
                 Kind::Notes | Kind::Judge { .. } | Kind::SongList => {}
+            }
+            if self.missing.get() {
+                held.extend(o.dst.ops.iter().filter(|&&op| op > 0));
             }
         }
     }

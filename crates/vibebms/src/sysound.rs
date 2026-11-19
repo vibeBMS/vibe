@@ -21,6 +21,10 @@
 //! over and over until the screen ends (`select.loop`, `clear.loop`, ...),
 //! `<name>.enter.<ext>` once as the screen comes (`select.enter`,
 //! `clear.enter`, ...).
+//!
+//! A screen's music is decoded each time it starts and let go when it
+//! stops (minutes of music are tens of MB decoded); the short sounds stay
+//! decoded.
 
 use crate::loudness::Loudness;
 use crate::platform::{vfs, Job};
@@ -180,6 +184,12 @@ impl Sound {
     /// what loops and the decide jingle.
     fn music(self, form: Form) -> bool {
         self.looping(form) || (self == Sound::Decide && form == Form::Plain)
+    }
+
+    /// A screen's music (minutes of it, tens of MB decoded): decoded when
+    /// it plays and not kept.
+    fn long(self, form: Form) -> bool {
+        self.scene_music() && form != Form::Enter
     }
 
     /// Mixer voice key (one voice per sound and form).
@@ -440,13 +450,32 @@ fn built_in(s: Sound, rate: u32) -> Option<Sample> {
     })
 }
 
-/// The sounds decoded (the music's loudness with them), whether drawing
-/// again could give other sounds, and the folders drawn (`folders`).
-type Loaded = (
-    Vec<((Sound, Form), Arc<Sample>, Option<Loudness>)>,
-    bool,
-    Vec<PathBuf>,
-);
+/// A sound and the form of its file.
+type Key = (Sound, Form);
+
+/// A sound decoded, with its loudness if it is music.
+type Decoded<S> = (S, Option<Loudness>);
+
+/// A set read: its short sounds decoded (the music's loudness with them),
+/// its long ones' files.
+#[derive(Default)]
+struct Loaded {
+    sounds: Vec<(Key, Decoded<Arc<Sample>>)>,
+    long: HashMap<Key, PathBuf>,
+    /// Drawing again could give other sounds.
+    random: bool,
+    folders: Vec<PathBuf>,
+}
+
+/// A sound file decoded at the mixer's `rate`.
+fn decode(p: &Path, rate: u32) -> Result<Sample, String> {
+    let ext = p
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let b = vfs::read(p).map_err(|e| e.to_string())?;
+    vibebms_audio::decode_bytes(b, &ext, rate)
+}
 
 /// The chosen set's sounds, decoded off the main thread.
 #[derive(Default)]
@@ -454,6 +483,11 @@ pub struct SystemSounds {
     /// The `config.skins` value loaded (`None`: nothing yet).
     value: Option<String>,
     samples: HashMap<(Sound, Form), Arc<Sample>>,
+    /// The long sounds' files (`Sound::long`), and those being decoded to
+    /// play.
+    long: HashMap<Key, PathBuf>,
+    decoding: Vec<(Key, Job<Option<Decoded<Sample>>>)>,
+    rate: u32,
     /// The music's loudness (what loops, the decide jingle).
     loudness: HashMap<(Sound, Form), Loudness>,
     job: Option<Job<Loaded>>,
@@ -499,6 +533,9 @@ impl SystemSounds {
     fn load(&mut self, root: &Path, rate: u32) {
         let value = self.value.clone().unwrap_or_default();
         self.samples.clear();
+        self.long.clear();
+        self.decoding.clear();
+        self.rate = rate;
         self.loudness.clear();
         self.random = false;
         self.folders.clear();
@@ -516,7 +553,7 @@ impl SystemSounds {
             let (path, many) = if value == RANDOM_SET {
                 let sets = find_sets(&root);
                 let Some(s) = draw(&sets) else {
-                    return (Vec::new(), false, Vec::new());
+                    return Loaded::default();
                 };
                 (s.path, sets.len() > 1)
             } else {
@@ -534,20 +571,18 @@ impl SystemSounds {
                     .as_ref()
                     .map_or(String::new(), |v| format!(" ({})", v.display()))
             );
-            let mut out = Vec::new();
+            let mut sounds = Vec::new();
+            let mut long = HashMap::new();
             for (k, p) in set_files(&path, variant.as_deref(), &root) {
-                let ext = p
-                    .extension()
-                    .map(|e| e.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                match vfs::read(&p)
-                    .map_err(|e| e.to_string())
-                    .and_then(|b| vibebms_audio::decode_bytes(b, &ext, rate))
-                {
+                if k.0.long(k.1) {
+                    long.insert(k, p);
+                    continue;
+                }
+                match decode(&p, rate) {
                     Ok(x) => {
                         let music = k.0.music(k.1);
                         let l = music.then(|| crate::loudness::measure_sound(&x, rate));
-                        out.push((k, Arc::new(x), l))
+                        sounds.push((k, (Arc::new(x), l)))
                     }
                     Err(e) => log::warn!("sound set: {}: {e}", p.display()),
                 }
@@ -556,20 +591,27 @@ impl SystemSounds {
                 true => variant.into_iter().chain([path]).collect(),
                 false => Vec::new(),
             };
-            (out, many || vars.len() > 1, folders)
+            Loaded {
+                sounds,
+                long,
+                random: many || vars.len() > 1,
+                folders,
+            }
         }));
     }
 
     /// Take the decoded sounds once they are ready (`norm`: the loudness
     /// the music is played at, if it is normalised).
     pub fn poll(&mut self, mixer: &Mixer, norm: Option<f32>) {
-        let Some((v, random, folders)) = self.job.as_mut().and_then(Job::poll) else {
+        self.poll_long(mixer, norm);
+        let Some(set) = self.job.as_mut().and_then(Job::poll) else {
             return;
         };
         self.job = None;
-        self.random = random;
-        self.folders = folders;
-        for (k, x, l) in v {
+        self.random = set.random;
+        self.folders = set.folders;
+        self.long = set.long;
+        for (k, (x, l)) in set.sounds {
             self.samples.insert(k, x);
             if let Some(l) = l {
                 self.loudness.insert(k, l);
@@ -606,13 +648,42 @@ impl SystemSounds {
     }
 
     pub fn has(&self, s: Sound) -> bool {
-        self.samples.contains_key(&(s, Form::Plain))
+        self.found((s, Form::Plain))
     }
 
-    fn start(&self, mixer: &Mixer, k: (Sound, Form), norm: Option<f32>) -> bool {
-        let Some(x) = self.samples.get(&k) else {
+    fn found(&self, k: Key) -> bool {
+        self.samples.contains_key(&k) || self.long.contains_key(&k)
+    }
+
+    /// Play `k`; a long sound once it is decoded. False: the set has no
+    /// such file.
+    fn start(&mut self, mixer: &Mixer, k: Key, norm: Option<f32>) -> bool {
+        if let Some(x) = self.samples.get(&k) {
+            self.play_sample(mixer, k, x, norm);
+            return true;
+        }
+        let Some(p) = self.long.get(&k).cloned() else {
             return false;
         };
+        self.decoding.retain(|(d, _)| *d != k);
+        // (music is measured once)
+        let measure = k.0.music(k.1) && !self.loudness.contains_key(&k);
+        let rate = self.rate;
+        let job = Job::spawn("sound set music", move |_| match decode(&p, rate) {
+            Ok(x) => {
+                let l = measure.then(|| crate::loudness::measure_sound(&x, rate));
+                Some((x, l))
+            }
+            Err(e) => {
+                log::warn!("sound set: {}: {e}", p.display());
+                None
+            }
+        });
+        self.decoding.push((k, job));
+        true
+    }
+
+    fn play_sample(&self, mixer: &Mixer, k: Key, x: &Arc<Sample>, norm: Option<f32>) {
         let o = PlayOptions {
             key: k.0.key(k.1),
             bus: Bus::System,
@@ -621,7 +692,31 @@ impl SystemSounds {
             ..Default::default()
         };
         mixer.play(x, o);
-        true
+    }
+
+    /// The long sounds decoded since the last call start; only the mixer
+    /// holds them (they are freed once they stop).
+    fn poll_long(&mut self, mixer: &Mixer, norm: Option<f32>) {
+        let mut done = Vec::new();
+        self.decoding.retain_mut(|(k, job)| match job.poll() {
+            Some(x) => {
+                done.extend(x.map(|x| (*k, x)));
+                false
+            }
+            None => true,
+        });
+        for (k, (x, l)) in done {
+            if let Some(l) = l {
+                self.loudness.insert(k, l);
+            }
+            self.play_sample(mixer, k, &Arc::new(x), norm);
+        }
+    }
+
+    /// Stop `k`, playing or still being decoded.
+    fn stop_key(&mut self, mixer: &Mixer, k: Key) {
+        self.decoding.retain(|(d, _)| *d != k);
+        mixer.stop(k.0.key(k.1));
     }
 
     /// Play `s`: the select music as `select.loop`, else `select` (both
@@ -648,7 +743,7 @@ impl SystemSounds {
         }
         // (a screen's entry sound plays out)
         for f in [Form::Plain, Form::Loop] {
-            mixer.stop(s.key(f));
+            self.stop_key(mixer, (s, f));
         }
     }
 
@@ -659,22 +754,14 @@ impl SystemSounds {
     /// over it).
     pub fn play_result(&mut self, mixer: &Mixer, sounds: &[Sound], norm: Option<f32>) {
         self.stop_result(mixer);
-        let found = |f: Form| {
-            sounds
-                .iter()
-                .map(|&s| (s, f))
-                .find(|k| self.samples.contains_key(k))
-        };
+        let found = |f: Form| sounds.iter().map(|&s| (s, f)).find(|&k| self.found(k));
         let enter = found(Form::Enter);
         let music = sounds.iter().find_map(|&s| {
             let forms: &[Form] = match enter {
                 Some(_) => &[Form::Loop],
                 None => &[Form::Loop, Form::Plain],
             };
-            forms
-                .iter()
-                .map(|&f| (s, f))
-                .find(|k| self.samples.contains_key(k))
+            forms.iter().map(|&f| (s, f)).find(|&k| self.found(k))
         });
         for k in enter.into_iter().chain(music) {
             self.start(mixer, k, norm);
@@ -684,8 +771,8 @@ impl SystemSounds {
 
     /// The result ends: its sounds stop.
     pub fn stop_result(&mut self, mixer: &Mixer) {
-        for (s, f) in self.result.drain(..) {
-            mixer.stop(s.key(f));
+        for k in std::mem::take(&mut self.result) {
+            self.stop_key(mixer, k);
         }
     }
 }
@@ -904,6 +991,47 @@ mod tests {
         assert!(s.job.is_some());
         let info = set_info(&root.join(RANDOM_SET)).unwrap();
         assert_eq!(info.name, "RANDOM");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A screen's music is decoded when it plays, not kept; the short
+    /// sounds are.
+    #[test]
+    fn music_is_decoded_to_play() {
+        let root = std::env::temp_dir().join(format!("vibebms-ssetm-{}", std::process::id()));
+        // a WAV of no frames, 16-bit mono at 44100 Hz
+        let wav = b"RIFF\x24\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\
+            \x44\xac\0\0\x88\x58\x01\0\x02\0\x10\0data\0\0\0\0";
+        let set = root.join("sounds/set");
+        std::fs::create_dir_all(&set).unwrap();
+        for f in ["select.wav", "decide.wav", "clear.loop.wav"] {
+            std::fs::write(set.join(f), wav).unwrap();
+        }
+        let mut s = SystemSounds::default();
+        let m = mixer();
+        let wait = |s: &mut SystemSounds| {
+            for _ in 0..500 {
+                s.poll(&m, None);
+                if s.job.is_none() && s.decoding.is_empty() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        };
+        s.sync("sounds/set", &root, 44100);
+        wait(&mut s);
+        assert!(s.has(Sound::Decide) && s.has(Sound::Select));
+        assert!(s.samples.contains_key(&(Sound::Decide, Form::Plain)));
+        assert_eq!(s.samples.len(), 1);
+        s.play(&m, Sound::Select, None);
+        assert_eq!(s.decoding.len(), 1);
+        wait(&mut s);
+        assert!(s.decoding.is_empty() && s.samples.len() == 1);
+        // stopped before it is decoded: not played
+        s.play_result(&m, &[Sound::ResultClear], None);
+        assert_eq!(s.decoding.len(), 1);
+        s.stop_result(&m);
+        assert!(s.decoding.is_empty());
         std::fs::remove_dir_all(&root).ok();
     }
 

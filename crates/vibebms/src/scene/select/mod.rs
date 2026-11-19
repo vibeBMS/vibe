@@ -403,13 +403,19 @@ impl Scene for SelectScene {
         self.moved(ctx);
     }
 
+    /// Under decide, play, the result or settings its textures are let go
+    /// (Android ends an app over its memory limit); they load again when
+    /// it is drawn.
+    fn covered(&mut self, gfx: &mut Gfx) {
+        self.host.free_textures(gfx);
+        self.free_banner(gfx);
+    }
+
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
         ctx.audio.mixer.stop(preview::PREVIEW_KEY);
         self.stop_bgm(ctx);
         self.host.free(gfx);
-        if let Some((_, Some(t))) = self.banner.take() {
-            t.free(gfx);
-        }
+        self.free_banner(gfx);
     }
 
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
