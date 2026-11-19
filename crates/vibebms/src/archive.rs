@@ -610,10 +610,9 @@ fn fetch_work(
         let mut n = 0;
         for (f, tmp) in files.iter().zip(&tmps) {
             let name = if f.original.is_empty() {
-                // an author's link: its own bytes tell the format
-                let ext =
-                    bmseeker::unpack::sniff_file(tmp).map_or("zip", bmseeker::unpack::Format::ext);
-                format!("{}.{ext}", name(f))
+                // an author's link: an archive (its own bytes tell which), named
+                // as one so that a file that is none is refused
+                format!("{}.zip", name(f))
             } else {
                 name(f)
             };

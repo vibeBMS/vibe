@@ -218,7 +218,6 @@ mod tests {
                 2 => Effect::Download {
                     target: Target::url(&self.urls[2]),
                     slot: Default::default(),
-                    any: true,
                 },
                 3 => Effect::Sleep(Duration::from_millis(10)),
                 _ => return Step::Done(std::mem::take(&mut self.got)),
