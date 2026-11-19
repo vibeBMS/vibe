@@ -74,11 +74,11 @@ impl Mount {
         self.archive == archive && rel.starts_with(&self.folder)
     }
 
-    fn read(&self, rel: &Path) -> Option<io::Result<Vec<u8>>> {
+    fn read(&self, rel: &Path) -> Option<io::Result<Arc<Vec<u8>>>> {
         match &self.files {
-            Files::Memory(m) => m.get(rel).map(|b| Ok(b.to_vec())),
+            Files::Memory(m) => m.get(rel).map(|b| Ok(b.clone())),
             #[cfg(not(target_arch = "wasm32"))]
-            Files::Folder(d) => Some(std::fs::read(d.join(rel))),
+            Files::Folder(d) => Some(std::fs::read(d.join(rel)).map(Arc::new)),
         }
     }
 }
@@ -133,8 +133,9 @@ fn not_found(archive: &Path, rel: &Path) -> io::Error {
     )
 }
 
-/// Read the file `rel` of `archive`.
-pub fn read(archive: &Path, rel: &Path) -> io::Result<Vec<u8>> {
+/// Read the file `rel` of `archive` (its bytes shared with its unpacked
+/// song, or with the files read lately).
+pub fn read(archive: &Path, rel: &Path) -> io::Result<Arc<Vec<u8>>> {
     if let Some(r) = mounted(archive, rel).and_then(|m| m.read(rel)) {
         return r;
     }
@@ -144,7 +145,7 @@ pub fn read(archive: &Path, rel: &Path) -> io::Result<Vec<u8>> {
         .find(|(q, s, _)| *q == p && *s == now)
         .map(|(_, _, b)| b.clone());
     if let Some(b) = recent {
-        return Ok(b.to_vec());
+        return Ok(b);
     }
     let ix = index(archive, true).ok_or_else(|| not_found(archive, rel))?;
     let Some(&size) = ix.files.get(rel) else {
@@ -165,11 +166,11 @@ pub fn read(archive: &Path, rel: &Path) -> io::Result<Vec<u8>> {
     let cap = size.max(1) << 1;
     let u = unpack(archive, &want, false, Some(1), &Dest::Memory, cap)?;
     let b = (u.files.into_iter().next())
-        .map(|(_, b)| b)
+        .map(|(_, b)| Arc::new(b))
         .ok_or_else(|| not_found(archive, rel))?;
     if b.len() <= RECENT_ONE {
         let mut st = state();
-        st.recent.push_front((p, now, Arc::new(b.clone())));
+        st.recent.push_front((p, now, b.clone()));
         while st.recent.iter().map(|(_, _, b)| b.len()).sum::<usize>() > RECENT_BYTES {
             st.recent.pop_back();
         }

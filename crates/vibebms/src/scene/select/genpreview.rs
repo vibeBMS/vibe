@@ -165,7 +165,7 @@ fn mix_plan(p: &Plan, rate: u32) -> Sample {
         rate,
         &AtomicUsize::new(0),
         &|n| (!n.is_empty()).then(|| PathBuf::from(n)),
-        &|p| vfs::read(p).ok(),
+        &|p| vfs::read_shared(p).ok(),
     );
     mix(&p.chart, &bank, p.start, LEN_US, rate)
 }

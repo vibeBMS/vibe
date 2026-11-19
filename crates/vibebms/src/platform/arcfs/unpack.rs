@@ -260,7 +260,11 @@ impl Drop for Member<'_> {
         out.listing.insert(self.rel.clone(), self.n);
         match std::mem::replace(&mut self.keep, Keep::Skip) {
             Keep::Skip => return,
-            Keep::Memory(v) => out.files.push((self.rel.clone(), v)),
+            Keep::Memory(mut v) => {
+                // (kept while its song is: not the room it grew into)
+                v.shrink_to_fit();
+                out.files.push((self.rel.clone(), v))
+            }
             #[cfg(not(target_arch = "wasm32"))]
             Keep::File(_) => {}
         }
