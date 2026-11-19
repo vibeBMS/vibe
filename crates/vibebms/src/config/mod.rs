@@ -161,6 +161,23 @@ pub struct AudioSettings {
     pub exclusive: bool,
 }
 
+impl AudioSettings {
+    /// The mixer's settings from these, with `max_voices` voices.
+    pub fn mixer_config(&self, max_voices: usize) -> vibebms_audio::AudioConfig {
+        vibebms_audio::AudioConfig {
+            buffer_frames: self.buffer_frames,
+            sample_rate: self.sample_rate,
+            master: self.master,
+            key_volume: self.key,
+            bgm_volume: self.bgm,
+            system_volume: self.system,
+            max_voices,
+            #[cfg(windows)]
+            exclusive: self.exclusive,
+        }
+    }
+}
+
 impl Default for AudioSettings {
     fn default() -> Self {
         AudioSettings {

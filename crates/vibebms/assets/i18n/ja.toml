@@ -737,6 +737,7 @@ _untranslated = [
 "1P: controller {n}" = "1P：コントローラー {n}"
 "A profile needs a name" = "プロフィールには名前が必要です"
 "A profile's name is one line" = "プロフィール名は 1 行で入力してください"
+"A profile's name has at most {n} characters" = "プロフィール名は {n} 文字までです"
 "Added BMS folder: {s}" = "BMS フォルダを追加しました：{s}"
 "Added {name} ({n} files)" = "{name} を追加しました（{n} ファイル）"
 "Axis" = "軸"
