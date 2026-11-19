@@ -100,9 +100,19 @@ pub fn client() -> ClientId {
 /// The SHA-256 of the file `p`, lower-case hexadecimal.
 pub fn file_sha256(p: &Path) -> io::Result<String> {
     use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(p)?;
     let mut hash = Sha256::new();
-    io::copy(&mut std::fs::File::open(p)?, &mut hash)?;
-    Ok(format!("{:x}", hash.finalize()))
+    let mut buf = vec![0; 64 * 1024];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hash.update(&buf[..n]),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(vibebms_core::hex(&hash.finalize()))
 }
 
 #[cfg(test)]

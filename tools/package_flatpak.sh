@@ -20,8 +20,8 @@
 # same bytes from the same executable and commit). desktop-file-validate (when it is there) and appstreamcli check
 # the desktop entry and the AppStream data. DRY_RUN=1 stops before the build,
 # with the sources filled in (<out>/flatpak-src). It runs with flatpak 1.12 and
-# AppStream 0.15.2 (Ubuntu 22.04, where CI packages each executable after
-# building it) as well as newer ones: only options and metainfo those know.
+# AppStream 0.15.2 (Ubuntu 22.04, where CI packages each executable it
+# built) as well as newer ones: only options and metainfo those know.
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: $0 <vibebms> <out dir>" >&2; exit 2; }
 exe="$1" out="$2"

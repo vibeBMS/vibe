@@ -5,18 +5,24 @@
 #
 # The two builds of each artifact (a and b) differ in what must not matter: the
 # folder (a: the workspace; b: another, deeper one), CARGO_HOME, the number of
-# parallel jobs, the umask and, for the container builds, the runner image, the
-# folder and home in the container. The container builds (the portable Linux
-# executables, the web build) run tools/reproduce.sh, as anyone would; the
-# others build on the runner image CI builds them on, with
-# tools/build_release.sh. A difference fails the run and diffoscope's report of
-# it is attached.
+# parallel jobs, the umask and, for the container builds, the folder and home
+# in the container (and for the portable and web builds the runner image). The
+# container builds (the Linux executables, the web build) run
+# tools/reproduce.sh, as anyone would; the Flatpaks are packaged from them on
+# Ubuntu 22.04, as CI packages them. The others build with
+# tools/build_release.sh on the runner image the commit's tools/repro.env
+# names, with its Xcode or MSVC toolset and Windows SDK; the macOS app is
+# packaged by tools/package_macos.sh. A difference fails the run and
+# diffoscope's report of it is attached.
 #
 # Against the release: builds.json has the executables' hashes of every
-# nightly of the last 90 days; the release's own files (the web zip, the
-# Flatpaks) are compared while the nightly release is still the commit's. The
-# APK is signed (here with a throwaway debug key), so its files are compared,
-# and the Android library is in builds.json.
+# nightly of the last 90 days (the macOS app's executable too); the release's
+# own files (the web zip, the Flatpaks, the macOS app's zip, the .ipa) are
+# compared while the nightly release is still the commit's. The APK is signed
+# (here with a throwaway debug key) and the .dmg is not reproducible (hdiutil
+# writes times and IDs), so the files in them are compared (the files of the
+# app's zip and of the .ipa are listed too, to show which one differs); the
+# Android library is in builds.json.
 name: Reproducible builds
 
 on:
@@ -44,6 +50,9 @@ on:
           - web
           - linux
           - windows
+          - macos
+          - ios
+          - apple
           - android
           - all
 
@@ -87,19 +96,31 @@ jobs:
             portable-and-web) list="linux-x64-portable web" ;;
             linux) list="linux-x64-portable linux-arm64-portable linux-x64 linux-arm64" ;;
             windows) list="windows-x64 windows-arm64" ;;
-            all) list="linux-x64-portable linux-arm64-portable web linux-x64 linux-arm64 windows-x64 windows-arm64 android" ;;
+            apple) list="macos ios" ;;
+            all) list="linux-x64-portable linux-arm64-portable web linux-x64 linux-arm64 windows-x64 windows-arm64 macos ios android" ;;
             *) list="$ARTIFACTS" ;;
           esac
-          # each artifact twice; the container builds on two runner images
-          matrix="$(jq -cn --arg list "$list" '
+          # the runner images the commit was built on (its tools/repro.env;
+          # older commits: the labels CI used then, and the WebKitGTK builds
+          # on the Ubuntu 22.04 image rather than in a container)
+          gh api "repos/$GH_REPO/contents/tools/repro.env?ref=$commit" -H "Accept: application/vnd.github.raw" > repro.env ||
+            { echo "::error::$commit has no tools/repro.env"; exit 1; }
+          pin() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" repro.env; }
+          mac="$(pin MACOS_RUNNER)" win="$(pin WINDOWS_RUNNER)" linux=container
+          [ -n "$(pin LINUX_IMAGE_X64)" ] || linux=runner
+          # each artifact twice; the portable and web builds on two runner images
+          matrix="$(jq -cn --arg list "$list" --arg mac "${mac:-macos-latest}" --arg win "${win:-windows-latest}" \
+            --arg linux "$linux" '
             {
               "linux-x64-portable": {kind: "container", a: "ubuntu-latest", b: "ubuntu-24.04", targets: "x86_64-unknown-linux-gnu"},
               "linux-arm64-portable": {kind: "container", a: "ubuntu-24.04-arm", b: "ubuntu-22.04-arm", targets: "aarch64-unknown-linux-gnu"},
               "web": {kind: "container", a: "ubuntu-latest", b: "ubuntu-24.04", targets: "wasm32-unknown-unknown"},
-              "linux-x64": {kind: "runner", a: "ubuntu-22.04", b: "ubuntu-22.04", targets: "x86_64-unknown-linux-gnu"},
-              "linux-arm64": {kind: "runner", a: "ubuntu-22.04-arm", b: "ubuntu-22.04-arm", targets: "aarch64-unknown-linux-gnu"},
-              "windows-x64": {kind: "runner", a: "windows-latest", b: "windows-latest", targets: "x86_64-pc-windows-msvc"},
-              "windows-arm64": {kind: "runner", a: "windows-latest", b: "windows-latest", targets: "aarch64-pc-windows-msvc"},
+              "linux-x64": {kind: $linux, a: "ubuntu-22.04", b: "ubuntu-22.04", targets: "x86_64-unknown-linux-gnu"},
+              "linux-arm64": {kind: $linux, a: "ubuntu-22.04-arm", b: "ubuntu-22.04-arm", targets: "aarch64-unknown-linux-gnu"},
+              "windows-x64": {kind: "runner", a: $win, b: $win, targets: "x86_64-pc-windows-msvc"},
+              "windows-arm64": {kind: "runner", a: $win, b: $win, targets: "aarch64-pc-windows-msvc"},
+              "macos": {kind: "runner", a: $mac, b: $mac, targets: "aarch64-apple-darwin x86_64-apple-darwin"},
+              "ios": {kind: "runner", a: $mac, b: $mac, targets: "aarch64-apple-ios"},
               "android": {kind: "runner", a: "ubuntu-latest", b: "ubuntu-latest", targets: "aarch64-linux-android x86_64-linux-android"}
             } as $all
             | [$list | split(" ")[] as $n | ["a", "b"][] as $v
@@ -172,11 +193,15 @@ jobs:
           REPRO_OUT="$OUT" "$DIR/tools/reproduce.sh" "$COMMIT" "$RUN" "$VIBEBMS_CHANNEL" "${{ matrix.artifact }}"
 
       # --- on the runner, as CI builds it ---
+      # (the Flatpak's tools; a commit that built the executable on the
+      # runner image: its libraries too)
       - name: packages (Linux)
-        if: matrix.kind == 'runner' && startsWith(matrix.artifact, 'linux-')
+        if: matrix.artifact == 'linux-x64' || matrix.artifact == 'linux-arm64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+          if [ "${{ matrix.kind }}" = runner ]; then
+            sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+          fi
           sudo apt-get install -y --no-install-recommends flatpak desktop-file-utils appstream appstream-compose faketime
       - name: Rust (rust-toolchain.toml)
         if: matrix.kind == 'runner'
@@ -197,15 +222,32 @@ jobs:
           umask "${UMASK:-0022}"
           eval "$(GITHUB_ENV="" tools/ci_version.sh "$RUN" "$COMMIT")"
           tools/build_release.sh "${{ matrix.artifact }}" "$OUT"
-          # the Flatpak of the executable, as CI packages it
-          case "${{ matrix.artifact }}" in
-            linux-x64 | linux-arm64)
-              a="${{ matrix.artifact }}"
-              tools/package_flatpak.sh "$OUT/vibebms-$a" "$RUNNER_TEMP/flatpak"
-              cp "$RUNNER_TEMP/flatpak/vibeBMS-$a.flatpak" "$OUT/"
-              (cd "$OUT" && sha256sum "vibeBMS-$a.flatpak" >> SHA256SUMS)
-              ;;
-          esac
+          sha() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          # the macOS app, as CI packages it: its zip, and the files in the
+          # zip and in the .dmg (the .dmg itself is not reproducible)
+          if [ "${{ matrix.artifact }}" = macos ]; then
+            pkg="$RUNNER_TEMP/macos"
+            tools/package_macos.sh "$OUT/vibebms-macos-arm64" "$OUT/vibebms-macos-x64" "$pkg"
+            cp "$pkg/vibebms-macos-universal.app.zip" "$OUT/"
+            (
+              cd "$OUT"
+              sha vibebms-macos-universal.app.zip
+              "$DIR/tools/build_release.sh" entries vibebms-macos-universal.app.zip
+              "$DIR/tools/build_release.sh" entries "$pkg/vibeBMS-macos-universal.dmg"
+            ) >> "$OUT/SHA256SUMS"
+          fi
+
+      # the Flatpak of the executable, as CI packages it (on Ubuntu 22.04)
+      - name: the Flatpak
+        if: matrix.artifact == 'linux-x64' || matrix.artifact == 'linux-arm64'
+        working-directory: ${{ env.DIR }}
+        run: |
+          umask "${UMASK:-0022}"
+          eval "$(GITHUB_ENV="" tools/ci_version.sh "$RUN" "$COMMIT")"
+          a="${{ matrix.artifact }}"
+          tools/package_flatpak.sh "$OUT/vibebms-$a" "$RUNNER_TEMP/flatpak"
+          cp "$RUNNER_TEMP/flatpak/vibeBMS-$a.flatpak" "$OUT/"
+          (cd "$OUT" && sha256sum "vibeBMS-$a.flatpak" >> SHA256SUMS)
 
       - uses: actions/upload-artifact@v7
         with:
@@ -246,25 +288,35 @@ jobs:
             echo
             echo "\`${{ needs.plan.outputs.commit }}\`, run ${{ needs.plan.outputs.run }} (${{ inputs.channel }})"
             echo
-            echo "| artifact | a = b | release |"
-            echo "|---|---|---|"
+            echo "| artifact | a = b | release | built with |"
+            echo "|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
           for x in $ARTIFACTS; do
             a="art/repro-$x-a" b="art/repro-$x-b"
             if [ ! -f "$a/SHA256SUMS" ] || [ ! -f "$b/SHA256SUMS" ]; then
-              echo "| $x | a build failed | |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| $x | a build failed | | |" >> "$GITHUB_STEP_SUMMARY"
               fail=1
               continue
             fi
-            # (an APK is signed by each build's own debug key: its files are compared)
-            if diff <(grep -v '\.apk$' "$a/SHA256SUMS") <(grep -v '\.apk$' "$b/SHA256SUMS"); then
-              same="same"
-            else
+            # the files whose hash differs or that only one build has ("<sha256>
+            # <name>", names may have spaces; an APK is signed by each build's
+            # own debug key: its files are compared)
+            awk -v x="$x" '
+              /\.apk$/ { next }
+              { h = substr($0, 1, 64); n = substr($0, 67) }
+              NR == FNR { a[n] = h; next }
+              { if (a[n] != h) print x "\t" n; delete a[n] }
+              END { for (n in a) print x "\t" n }
+            ' "$a/SHA256SUMS" "$b/SHA256SUMS" | sort > this.txt
+            if [ -s this.txt ]; then
               same="**differ**"
               fail=1
-              join -j 2 <(grep -v '\.apk$' "$a/SHA256SUMS" | sort -k2) <(grep -v '\.apk$' "$b/SHA256SUMS" | sort -k2) |
-                awk -v x="$x" '$2 != $3 { print x "\t" $1 }' >> differ.txt
+              cat this.txt >> differ.txt
+            else
+              same="same"
             fi
+            # what it was built with (build.txt: Rust, the C toolchain, the image)
+            with="$(sed -n 's/^\(rustc\|toolchain\|image\)=//p' "$a/build.txt" | sed 's/|/\\|/g' | paste -sd ';' - | sed 's/;/; /g')"
             echo "== $x against the release"
             if src/tools/reproduce.sh compare "$a" | tee compare.txt; then
               if grep -q 'same as the release' compare.txt; then rel="same"; else rel="not published"; fi
@@ -272,7 +324,7 @@ jobs:
               rel="**differs**"
               fail=1
             fi
-            echo "| $x | $same | $rel |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| $x | $same | $rel | $with |" >> "$GITHUB_STEP_SUMMARY"
           done
           echo "fail=$fail" >> "$GITHUB_OUTPUT"
           [ -s differ.txt ] && echo "differ=true" >> "$GITHUB_OUTPUT"
@@ -286,12 +338,16 @@ jobs:
           while IFS=$'\t' read -r x f; do
             a="art/repro-$x-a/$f" b="art/repro-$x-b/$f"
             case "$f" in
-              *.apk/*) # a file in the APKs (signed by different keys): that file
-                apk="${f%%.apk/*}.apk" inner="${f#*.apk/}"
+              *.dmg/*) # (not uploaded: the app's zip has the same files)
+                printf '\n#### %s: %s\nIn the .dmg: see the same file in the app zip.\n' "$x" "$f" >> "$GITHUB_STEP_SUMMARY"
+                continue
+                ;;
+              */*) # a file in an APK (signed by different keys) or a zip: that file
+                pkg="${f%%/*}" inner="${f#*/}"
                 mkdir -p "inner/a" "inner/b"
                 a="inner/a/$(basename "$inner")" b="inner/b/$(basename "$inner")"
-                unzip -p "art/repro-$x-a/$apk" "$inner" > "$a"
-                unzip -p "art/repro-$x-b/$apk" "$inner" > "$b"
+                unzip -p "art/repro-$x-a/$pkg" "$inner" > "$a" || true
+                unzip -p "art/repro-$x-b/$pkg" "$inner" > "$b" || true
                 ;;
             esac
             report="diffoscope/$x-$(basename "$f").txt"
