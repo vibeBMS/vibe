@@ -157,20 +157,46 @@ switch ($Stage) {
                 if ($w -match '^(0x[0-9A-Fa-f]+) .*\[#32770\]') { & $Probe ui $Matches[1] key 0D | Out-Null; Start-Sleep -Milliseconds 500 }
             }
         }
-        Log 'player.txt' { '=== main before'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
-        & $Probe ui 'LR2 SETUP' text p/1001 e2e
-        & $Probe ui 'LR2 SETUP' text p/1002 e2e
+        # a new player: e2etest / e2e
         & $Probe ui 'LR2 SETUP' click p/1003
+        Start-Sleep -Seconds 1
+        & $Probe ui 'NEW PLAYER' text 1002 e2etest
+        & $Probe ui 'NEW PLAYER' text 1008 e2e
+        & $Probe ui 'NEW PLAYER' click 1
         Dismiss (Popups 'new-player')
-        Dismiss (Popups 'after-new-player')
-        Log 'player.txt' { '=== main after'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
-        & $Probe ui 'LR2 SETUP' mouse 91 74 | Out-Null
-        Dismiss (Popups 'jukebox1')
-        & $Probe ui 'LR2 SETUP' click p/1035
-        $w = Popups 'add-root'
-        Shot 'player-add-root-2.png'
-        Get-Process -Name LR2 -ErrorAction SilentlyContinue | Stop-Process -Force
+        & $Probe ui 'LR2 SETUP' text p/1002 e2e
+        & $Probe ui 'LR2 SETUP' check p/1006 1
+        Log 'player.txt' { '=== main'; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' } }
+        $tabs = [ordered]@{ jukebox1 = 91; jukebox2 = 163; option = 224; select = 277; system = 333 }
+        foreach ($t in $tabs.Keys) {
+            & $Probe ui 'LR2 SETUP' mouse $tabs[$t] 74 | Out-Null
+            Dismiss (Popups "tab-$t")
+            Log 'player.txt' { "=== tab $t"; & $Probe ui 'LR2 SETUP' dump | Where-Object { $_ -notmatch 'hidden' -and $_ -match 'p/' } }
+        }
+        # the charts, dropped onto JUKEBOX1's folder tree
+        $songs = Join-Path $root 'songs'
+        New-Item -ItemType Directory -Force (Join-Path $songs 'lr2-measure') | Out-Null
+        Copy-Item (Join-Path $PSScriptRoot '..\..\lr2-measure\charts\*.bme') (Join-Path $songs 'lr2-measure')
+        & $Probe ui 'LR2 SETUP' mouse $tabs['jukebox1'] 74 | Out-Null
+        Start-Sleep -Milliseconds 500
+        Log 'player.txt' { '=== drop'; & $Probe drop 'LR2 SETUP' 300 270 $songs }
+        Dismiss (Popups 'drop')
+        Shot 'player-dropped.png'
+        # LR2 itself
+        & $Probe ui 'LR2 SETUP' click 1003
+        foreach ($t in 5, 15, 30) {
+            Start-Sleep -Seconds 5
+            Shot "player-lr2-$t.png"
+            Log 'player.txt' { "=== LR2 started, about $t s"; & $Probe windows | Where-Object { $_ -match 'LR2|Lunatic|#32770' } }
+        }
+        Get-Process -Name LR2body, LR2 -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }
+        Start-Sleep -Seconds 3
+        Get-Process -Name LR2body, LR2 -ErrorAction SilentlyContinue | Stop-Process -Force
         Log 'player.txt' { '--- files'; Get-ChildItem (Join-Path $root 'LR2files') -Recurse -File | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) } | ForEach-Object { "$($_.FullName.Substring($root.Length + 1)) $($_.Length)" } }
+        Get-ChildItem (Join-Path $root 'LR2files\Config') -Filter *.xml | ForEach-Object {
+            $f = $_
+            Log 'config-names.txt' { "--- $($f.Name)"; try { XmlNames $f.FullName } catch { "not read: $($_.Exception.Message)" } }
+        }
     }
     default { throw "unknown stage $Stage" }
 }

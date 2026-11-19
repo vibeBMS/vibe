@@ -11,6 +11,8 @@
  *   lr2probe send N PERIOD_MS CSV        N presses of Z, PERIOD_MS apart, to it
  *   lr2probe focus TITLE                 brings a window to the front
  *   lr2probe windows                     lists the visible top-level windows
+ *   lr2probe drop TITLE X Y PATH         drags PATH (a file or folder) with the
+ *                                        mouse onto X, Y in the window
  *   lr2probe ui TITLE ACTION ...         drives a dialog through its controls:
  *       dump                  every control: id, class, text, check, shown
  *       click [p/]ID          presses a button (p/: on the shown tab page)
@@ -32,6 +34,8 @@
 #include <dinput.h>
 #include <objbase.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -742,6 +746,120 @@ static int ui(int argc, char **argv)
     return 64;
 }
 
+/* ----------------------------------------------------- drag and drop */
+
+/* A drag of PATH as Explorer makes it (the shell's own data object), the
+ * mouse moved and let go by SendInput while DoDragDrop runs: what a person
+ * dragging a folder onto the window does. */
+DEFINE_GUID(probe_BHID_DataObject, 0xB8C0BD9F, 0xED24, 0x455C, 0x83, 0xE6, 0xD5, 0x39, 0x0C, 0x4F, 0xE8, 0xC4);
+
+typedef struct {
+    IDropSourceVtbl *lpVtbl;
+} DropSource;
+
+static HRESULT STDMETHODCALLTYPE ds_qi(IDropSource *t, REFIID r, void **o)
+{
+    if (IsEqualIID(r, &IID_IUnknown) || IsEqualIID(r, &IID_IDropSource)) {
+        *o = t;
+        return S_OK;
+    }
+    *o = NULL;
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE ds_ref(IDropSource *t)
+{
+    (void)t;
+    return 1;
+}
+static HRESULT STDMETHODCALLTYPE ds_continue(IDropSource *t, BOOL esc, DWORD keys)
+{
+    (void)t;
+    if (esc)
+        return DRAGDROP_S_CANCEL;
+    return keys & MK_LBUTTON ? S_OK : DRAGDROP_S_DROP;
+}
+static HRESULT STDMETHODCALLTYPE ds_feedback(IDropSource *t, DWORD e)
+{
+    (void)t;
+    (void)e;
+    return DRAGDROP_S_USEDEFAULTCURSORS;
+}
+static IDropSourceVtbl ds_vtbl = {ds_qi, ds_ref, ds_ref, ds_continue, ds_feedback};
+
+typedef struct {
+    int x0, y0, x1, y1;
+} DragPath;
+
+static void mouse_to(int x, int y, DWORD extra)
+{
+    INPUT in;
+    int sw = GetSystemMetrics(SM_CXSCREEN), sh = GetSystemMetrics(SM_CYSCREEN);
+    memset(&in, 0, sizeof in);
+    in.type = INPUT_MOUSE;
+    in.mi.dx = (x * 65535) / (sw - 1);
+    in.mi.dy = (y * 65535) / (sh - 1);
+    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | extra;
+    SendInput(1, &in, sizeof in);
+}
+
+static DWORD WINAPI drag_mouse(LPVOID arg)
+{
+    DragPath *d = (DragPath *)arg;
+    int i;
+    Sleep(300);
+    for (i = 1; i <= 30; i++) {
+        mouse_to(d->x0 + (d->x1 - d->x0) * i / 30, d->y0 + (d->y1 - d->y0) * i / 30, 0);
+        Sleep(30);
+    }
+    Sleep(500);
+    mouse_to(d->x1, d->y1, MOUSEEVENTF_LEFTUP);
+    return 0;
+}
+
+static int probe_drop(HWND target, int x, int y, const wchar_t *path)
+{
+    IShellItem *item = NULL;
+    IDataObject *data = NULL;
+    DropSource src = {&ds_vtbl};
+    DragPath d;
+    RECT r;
+    DWORD effect = 0;
+    HRESULT hr;
+    HWND own;
+    HANDLE th;
+
+    OleInitialize(NULL);
+    hr = SHCreateItemFromParsingName(path, NULL, &IID_IShellItem, (void **)&item);
+    if (SUCCEEDED(hr))
+        hr = item->lpVtbl->BindToHandler(item, NULL, &probe_BHID_DataObject, &IID_IDataObject, (void **)&data);
+    printf("data object for the path: hr=0x%08lx\n", (unsigned long)hr);
+    if (FAILED(hr))
+        return 2;
+    /* the drag starts on a window of ours, with the button down there */
+    own = make_window("lr2probe drag", 120, 80, WS_POPUP | WS_BORDER);
+    SetWindowPos(own, HWND_TOPMOST, GetSystemMetrics(SM_CXSCREEN) - 140, 20, 120, 80, SWP_SHOWWINDOW);
+    focus(own);
+    GetWindowRect(target, &r);
+    d.x0 = GetSystemMetrics(SM_CXSCREEN) - 80;
+    d.y0 = 60;
+    d.x1 = r.left + x;
+    d.y1 = r.top + y;
+    mouse_to(d.x0, d.y0, 0);
+    Sleep(100);
+    mouse_to(d.x0, d.y0, MOUSEEVENTF_LEFTDOWN);
+    Sleep(100);
+    th = CreateThread(NULL, 0, drag_mouse, &d, 0, NULL);
+    hr = DoDragDrop(data, (IDropSource *)&src, DROPEFFECT_COPY | DROPEFFECT_LINK | DROPEFFECT_MOVE, &effect);
+    WaitForSingleObject(th, 5000);
+    printf("DoDragDrop: hr=0x%08lx effect %lu%s\n", (unsigned long)hr, effect,
+           hr == DRAGDROP_S_DROP ? " (dropped)" : "");
+    data->lpVtbl->Release(data);
+    item->lpVtbl->Release(item);
+    DestroyWindow(own);
+    OleUninitialize();
+    return hr == DRAGDROP_S_DROP ? 0 : 3;
+}
+
 static BOOL CALLBACK list_window(HWND h, LPARAM l)
 {
     wchar_t title[256], cls[128];
@@ -780,6 +898,17 @@ int main(int argc, char **argv)
         return probe_recv(atoi(argv[2]), argv[3], argc >= 5 && !strcmp(argv[4], "d3d9"));
     if (argc >= 5 && !strcmp(argv[1], "send"))
         return probe_send(atoi(argv[2]), atoi(argv[3]), argv[4]);
+    if (argc >= 6 && !strcmp(argv[1], "drop")) {
+        int wargc = 0;
+        wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+        HWND t = !wcsncmp(wargv[2], L"0x", 2) ? (HWND)(INT_PTR)wcstoul(wargv[2] + 2, NULL, 16)
+                                                : FindWindowW(NULL, wargv[2]);
+        if (!t) {
+            fprintf(stderr, "no window\n");
+            return 2;
+        }
+        return probe_drop(t, atoi(argv[3]), atoi(argv[4]), wargv[5]);
+    }
     if (argc >= 4 && !strcmp(argv[1], "ui"))
         return ui(argc - 2, argv + 2);
     if (argc >= 2 && !strcmp(argv[1], "windows"))
@@ -788,6 +917,6 @@ int main(int argc, char **argv)
         HWND h = FindWindowA(NULL, argv[2]);
         return h && focus(h) ? 0 : 1;
     }
-    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows | ui TITLE ACTION ...\n");
+    fprintf(stderr, "usage: lr2probe d3d9 SECONDS [fullscreen] | sound | acp [OUT] | recv N CSV [d3d9] | send N PERIOD_MS CSV | focus TITLE | windows | ui TITLE ACTION ... | drop TITLE X Y PATH\n");
     return 64;
 }
