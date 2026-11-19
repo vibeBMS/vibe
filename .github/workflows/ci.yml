@@ -88,7 +88,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: tools/repro.env
+          sparse-checkout: |
+            tools/repro.env
+            tools/linux-arm64.lock
           sparse-checkout-cone-mode: false
       - id: pins
         run: |
@@ -102,11 +104,11 @@ jobs:
             echo "linux-arm64=$LINUX_IMAGE_ARM64"
             echo "macos=$MACOS_RUNNER"
             echo "windows=$WINDOWS_RUNNER"
-            echo "key-linux=$(key "$LINUX_IMAGE_X64" "$LINUX_IMAGE_ARM64" "$UBUNTU_SNAPSHOT" "$LINUX_PACKAGES")"
+            echo "key-linux=$(key "$LINUX_IMAGE_X64" "$LINUX_IMAGE_ARM64" "$UBUNTU_SNAPSHOT" "$LINUX_PACKAGES" "$(cat tools/linux-arm64.lock)")"
             echo "key-portable=$(key "$PORTABLE_IMAGE_X64" "$PORTABLE_IMAGE_ARM64" "$PORTABLE_PACKAGES")"
             echo "key-web=$(key "$WEB_IMAGE" "$UBUNTU_SNAPSHOT" "$WEB_PACKAGES")"
             echo "key-macos=$(key "$MACOS_RUNNER" "$XCODE_VERSION")"
-            echo "key-windows=$(key "$WINDOWS_RUNNER" "$MSVC_TOOLSET" "$WINDOWS_SDK")"
+            echo "key-windows=$(key "$WINDOWS_RUNNER" "$MSVC_COMPONENT" "$WINDOWS_SDK")"
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
@@ -165,8 +167,10 @@ jobs:
   # each Linux executable with the in-app browser, built in a pinned Ubuntu
   # 22.04 container (glibc 2.35 and WebKitGTK 4.1, the oldest base that has
   # it: Ubuntu 22.04, Debian 12 and newer; `build-linux-portable` has the
-  # rest), its packages from the Ubuntu snapshot (the image by digest and the
-  # packages: tools/repro.env; tools/reproduce.sh builds the same)
+  # rest), its packages from the Ubuntu snapshot (x64) or as
+  # tools/linux-arm64.lock lists them (arm64: the ports archive has no
+  # snapshot) (the image by digest and the packages: tools/repro.env;
+  # tools/reproduce.sh builds the same)
   build-linux:
     name: build ${{ matrix.name }}
     needs: [test, pins]
@@ -276,7 +280,8 @@ jobs:
 
   # on the pinned runner image, with its pinned MSVC toolset and Windows SDK
   # (tools/repro.env; tools/build_release.sh selects them through
-  # vcvarsall.bat and stops if the image lacks them)
+  # vcvarsall.bat, adds the toolset's ARM64 tools with the Visual Studio
+  # installer, which the image lacks, and stops if it cannot)
   build-windows:
     name: build ${{ matrix.name }}
     needs: [test, pins]

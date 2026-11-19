@@ -112,35 +112,32 @@ jobs:
       - name: Xcode
         if: matrix.kind == 'macos'
         run: |
-          # /Applications/Xcode_<version>.app, released versions only (the
-          # image's symlinks, e.g. Xcode_26.4.app to Xcode_26.4.1.app, left out)
+          # the major.minor releases of /Applications/Xcode_<version>.app
+          # (released versions only; XCODE_VERSION is a major.minor release, its
+          # newest patch there: tools/toolchain.sh)
           list=""
           for d in /Applications/Xcode_*.app; do
             if [ ! -d "$d" ] || [ -L "$d" ]; then continue; fi
             v="${d#/Applications/Xcode_}" v="${v%.app}"
             [[ "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]] || continue
             have="$(DEVELOPER_DIR="$d/Contents/Developer" xcodebuild -version 2>/dev/null | head -1)"
-            if [ "$have" = "Xcode $v" ]; then list="$list $v"; else echo "::warning::$d is ${have:-no Xcode}"; fi
+            if [ "$have" = "Xcode $v" ]; then list="$list $(cut -d. -f1-2 <<< "$v")"; else echo "::warning::$d is ${have:-no Xcode}"; fi
           done
-          echo "Xcode:$list"
-          echo "xcode@${{ matrix.label }}=${list# }" > facts.txt
+          list="$(tr ' ' '\n' <<< "$list" | sed '/^$/d' | sort -u | paste -sd ' ' -)"
+          echo "Xcode: $list"
+          echo "xcode@${{ matrix.label }}=$list" > facts.txt
       - name: MSVC and Windows SDK
         if: matrix.kind == 'windows'
         run: |
-          # toolsets with the x64 and arm64 linkers and libraries, in every
+          # the side-by-side toolsets installed with their x64 tools (the
+          # installer's components Microsoft.VisualStudio.Component.VC.<a.b.c.d>.x86.x64,
+          # which no image update replaces; CI adds the ARM64 ones), in every
           # Visual Studio; SDKs with both architectures' libraries
           vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-          msvc="" sdk=""
-          while IFS= read -r inst; do
-            inst="$(cygpath -u "${inst%$'\r'}")"
-            for d in "$inst"/VC/Tools/MSVC/*/; do
-              d="${d%/}"
-              for a in x64 arm64; do
-                if [ ! -f "$d/bin/Hostx64/$a/link.exe" ] || [ ! -d "$d/lib/$a" ]; then continue 2; fi
-              done
-              msvc="$msvc $(basename "$d")"
-            done
-          done < <("$vswhere" -all -products '*' -property installationPath)
+          msvc="$("$vswhere" -all -products '*' -include packages -format json |
+            grep -o '"Microsoft\.VisualStudio\.Component\.VC\.[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\.x86\.x64"' |
+            sed 's/^"Microsoft\.VisualStudio\.Component\.VC\.//; s/\.x86\.x64"$//' | sort -u | paste -sd ' ' -)"
+          sdk=""
           for d in "/c/Program Files (x86)/Windows Kits/10/Lib"/10.*/; do
             d="${d%/}"
             for a in x64 arm64; do
@@ -148,19 +145,21 @@ jobs:
             done
             sdk="$sdk $(basename "$d")"
           done
-          echo "MSVC:$msvc; SDK:$sdk"
-          # the newest pair works through vcvarsall.bat for both targets
-          MSVC_TOOLSET="$(tr ' ' '\n' <<< "$msvc" | sort -V | tail -1)"
+          echo "MSVC: $msvc; SDK:$sdk"
+          # the newest pair works through vcvarsall.bat (x64: the ARM64 tools
+          # are added by the build that needs them)
+          MSVC_COMPONENT="$(tr ' ' '\n' <<< "$msvc" | sort -V | tail -1)"
           WINDOWS_SDK="$(tr ' ' '\n' <<< "$sdk" | sort -V | tail -1)"
-          if [ -z "$MSVC_TOOLSET" ] || [ -z "$WINDOWS_SDK" ]; then
-            echo "::error::no MSVC toolset or Windows SDK for both x64 and arm64 on ${{ matrix.label }}"
+          if [ -z "$MSVC_COMPONENT" ] || [ -z "$WINDOWS_SDK" ]; then
+            echo "::error::no side-by-side MSVC toolset or Windows SDK for x64 and arm64 on ${{ matrix.label }}"
             exit 1
           fi
           export REPRO_STRICT=1
           . tools/toolchain.sh
-          for a in x64 arm64; do (use_msvc "$a" && echo "$TOOLCHAIN"); done
+          use_msvc x64
+          echo "$TOOLCHAIN"
           {
-            echo "msvc@${{ matrix.label }}=${msvc# }"
+            echo "msvc@${{ matrix.label }}=$msvc"
             echo "sdk@${{ matrix.label }}=${sdk# }"
           } > facts.txt
       - uses: actions/upload-artifact@v7
@@ -173,13 +172,17 @@ jobs:
   # (or when asked), the images' digests and the snapshot's time
   registries:
     runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.registries.outputs.images }}
+      linux-arm64: ${{ steps.registries.outputs.linux-arm64 }}
     steps:
       - uses: actions/checkout@v7
         with:
           sparse-checkout: tools/repro.env
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - env:
+      - id: registries
+        env:
           IMAGES: ${{ inputs.images }}
         run: |
           . tools/repro.env
@@ -231,6 +234,10 @@ jobs:
             done
             # now: after every image's packages, so none is newer than the snapshot's
             echo "UBUNTU_SNAPSHOT=$(date -u +%Y%m%dT%H%M%SZ)" >> facts.txt
+            {
+              echo images=true
+              echo "linux-arm64=$(sed -n 's/^LINUX_IMAGE_ARM64=//p' facts.txt | grep . || echo "$LINUX_IMAGE_ARM64")"
+            } >> "$GITHUB_OUTPUT"
           fi
           cat facts.txt
       - uses: actions/upload-artifact@v7
@@ -239,9 +246,35 @@ jobs:
           path: facts.txt
           retention-days: 7
 
+  # with the images: the lock of linux-arm64's packages again (the ports
+  # archive has no snapshot), resolved in its image as it moves
+  lock:
+    needs: registries
+    if: needs.registries.outputs.images == 'true'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: tools
+      - env:
+          IMAGE: ${{ needs.registries.outputs.linux-arm64 }}
+        run: |
+          # (the image the update pins: its header names it)
+          sed -i "s|^LINUX_IMAGE_ARM64=.*|LINUX_IMAGE_ARM64=$IMAGE|" tools/repro.env
+          docker run --rm --platform linux/arm64 -v "$PWD:/vibe" -w /vibe "$IMAGE" \
+            tools/build_deps.sh lock linux-arm64 > "$RUNNER_TEMP/linux-arm64.lock"
+          head -4 "$RUNNER_TEMP/linux-arm64.lock"
+          grep -vc '^#' "$RUNNER_TEMP/linux-arm64.lock"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lock-linux-arm64
+          path: ${{ runner.temp }}/linux-arm64.lock
+          retention-days: 7
+
   pr:
     name: pull requests
-    needs: [labels, probe, registries]
+    needs: [labels, probe, registries, lock]
     # (a probe or registry that failed leaves its pins as they are)
     if: ${{ !cancelled() && needs.labels.result == 'success' }}
     runs-on: ubuntu-latest
@@ -255,6 +288,11 @@ jobs:
         with:
           pattern: facts-*
           path: facts
+      - uses: actions/download-artifact@v8
+        if: needs.lock.result == 'success'
+        with:
+          name: lock-linux-arm64
+          path: lock
       - name: choose
         env:
           MAC: ${{ needs.labels.outputs.macos }}
@@ -264,6 +302,20 @@ jobs:
           cat "$RUNNER_TEMP/facts.txt"
           python3 -I tools/repro_pins.py choose tools/repro.env "$RUNNER_TEMP/facts.txt" \
             "$RUNNER_TEMP/update.env" "$RUNNER_TEMP/major.env" | tee "$RUNNER_TEMP/changes.tsv"
+          # the new lock of linux-arm64 goes with the update when that pins its image
+          cp tools/linux-arm64.lock "$RUNNER_TEMP/update.lock"
+          cp tools/linux-arm64.lock "$RUNNER_TEMP/major.lock"
+          new=lock/linux-arm64.lock
+          if [ -f "$new" ]; then
+            image="$(sed -n 's/^LINUX_IMAGE_ARM64=//p' "$RUNNER_TEMP/update.env")"
+            if [ "$(sed -n 's/^# image: //p' "$new")" != "$image" ]; then
+              echo "::warning::the new lock is for another image than the update's"
+            elif ! diff -q <(grep -v '^# resolved' "$new") <(grep -v '^# resolved' tools/linux-arm64.lock) > /dev/null; then
+              cp "$new" "$RUNNER_TEMP/update.lock"
+              printf 'update\ttools/linux-arm64.lock\t%s packages\t%s packages\n' "$(grep -vc '^#' tools/linux-arm64.lock)" \
+                "$(grep -vc '^#' "$new")" | tee -a "$RUNNER_TEMP/changes.tsv"
+            fi
+          fi
       - name: pull requests
         env:
           GH_TOKEN: ${{ github.token }}
@@ -280,7 +332,7 @@ jobs:
             git switch -q --detach "$main"
             branch="toolchain-pins/$kind"
             open="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
-            if cmp -s "$RUNNER_TEMP/$kind.env" tools/repro.env; then
+            if cmp -s "$RUNNER_TEMP/$kind.env" tools/repro.env && cmp -s "$RUNNER_TEMP/$kind.lock" tools/linux-arm64.lock; then
               echo "$kind: the pins are current" | tee -a "$GITHUB_STEP_SUMMARY"
               [ -z "$open" ] || gh pr close "$open" --delete-branch --comment "The pins are current."
               continue
@@ -290,7 +342,7 @@ jobs:
             title="Toolchain pins: $names"
             [ ${#title} -le 120 ] || title="Toolchain pins: $(awk -F'\t' -v k="$kind" '$1 == k { print $2 }' "$RUNNER_TEMP/changes.tsv" | paste -sd, - | sed 's/,/, /g')"
             {
-              echo "tools/repro.env, as the runner images and registries have them:"
+              echo "tools/repro.env (and tools/linux-arm64.lock), as the runner images and registries have them:"
               echo
               echo "$changes"
               echo
@@ -303,7 +355,8 @@ jobs:
               echo "Made by the Toolchain pins workflow (.github/workflows/toolchain-pins.yml); its next run makes it again from $BASE."
             } > "$RUNNER_TEMP/body.md"
             cp "$RUNNER_TEMP/$kind.env" tools/repro.env
-            git commit -q -m "$title" -m "$changes" tools/repro.env
+            cp "$RUNNER_TEMP/$kind.lock" tools/linux-arm64.lock
+            git commit -q -m "$title" -m "$changes" tools/repro.env tools/linux-arm64.lock
             # nothing to do when the branch is already this change on this commit
             if [ -n "$open" ] && git fetch -q origin "$branch" 2>/dev/null &&
               [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse 'HEAD^{tree}')" ] &&

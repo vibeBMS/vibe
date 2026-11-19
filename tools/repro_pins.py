@@ -3,12 +3,15 @@
 (.github/workflows/toolchain-pins.yml; docs/BUILDING.md, "Reproducible builds").
 
   repro_pins.py choose <repro.env> <facts> <update out> <major out>
-  repro_pins.py check <base repro.env> <head repro.env>
+  repro_pins.py check <base repro.env> <head repro.env> [<head linux-arm64.lock>]
 
 choose: <facts> has "<name>=<value>" lines, what the workflow found:
   macos_newest, windows_newest   the newest GA runner labels
-  xcode@<label>                  the Xcode versions on that label's image
-  msvc@<label>, sdk@<label>      the MSVC toolsets and Windows SDKs on it
+  xcode@<label>                  the Xcode releases (major.minor) on that
+                                 label's image
+  msvc@<label>, sdk@<label>      the side-by-side MSVC toolsets (installer
+                                 components, e.g. 14.44.17.14) and Windows
+                                 SDKs on it
   <PIN>=<value>                  a new value for any other pin (an image's
                                  digest, UBUNTU_SNAPSHOT, the Android tools)
 It writes two copies of <repro.env>: <update out> with the changes that are
@@ -19,8 +22,9 @@ Each says what it changes on stdout.
 
 check: whether <head> changes only the values of pins (no other line), and
 which changes are held: exit 0 when none is, 3 when one is (each said on
-stdout), 1 when <head> changes anything else. The merge workflow runs it on a
-pins pull request.
+stdout), 1 when <head> changes anything else. With a lock (tools/build_deps.sh
+lock linux-arm64), also that it is one, for <head>'s image and packages. The
+merge workflow runs it on a pins pull request.
 """
 import re
 import sys
@@ -29,7 +33,7 @@ LABELS = {"MACOS_RUNNER", "WINDOWS_RUNNER"}
 # a change of the first number waits for a person
 MAJOR = {"XCODE_VERSION", "NDK_VERSION", "CARGO_NDK_VERSION", "JAVA_VERSION", "GRADLE_VERSION"}
 # versions that only move forward
-VERSIONS = MAJOR | {"MSVC_TOOLSET", "WINDOWS_SDK", "UBUNTU_SNAPSHOT"}
+VERSIONS = MAJOR | {"MSVC_COMPONENT", "WINDOWS_SDK", "UBUNTU_SNAPSHOT"}
 # images: the digest moves, the repository and tag stay
 IMAGES = {"LINUX_IMAGE_X64", "LINUX_IMAGE_ARM64", "PORTABLE_IMAGE_X64", "PORTABLE_IMAGE_ARM64", "WEB_IMAGE"}
 MOVED = LABELS | VERSIONS | IMAGES
@@ -89,6 +93,29 @@ def check(base, head):
     return changes, reasons, errors
 
 
+LOCK_LINE = re.compile(
+    r"[a-z0-9][a-z0-9+.-]*:(arm64|all) [0-9A-Za-z.+~:-]+ [0-9a-f]{64} "
+    r"pool/(main|universe)/[a-z0-9+.-]+/[a-z0-9+.-]+/[A-Za-z0-9+.~_-]+\.deb "
+    r"(-|http://launchpadlibrarian\.net/\d+/[A-Za-z0-9+.~_%-]+\.deb)")
+
+
+def check_lock(head, lock):
+    """Errors of a lock for head's pins."""
+    pins, errors, lines = parse(head), [], 0
+    for line in lock.splitlines():
+        if line.startswith("# image: ") and line[9:] != pins.get("LINUX_IMAGE_ARM64"):
+            errors.append("the lock is for another image than LINUX_IMAGE_ARM64")
+        elif line.startswith("# packages: ") and line[12:] != pins.get("LINUX_PACKAGES"):
+            errors.append("the lock is for other packages than LINUX_PACKAGES")
+        elif not line.startswith("#"):
+            lines += 1
+            if not LOCK_LINE.fullmatch(line):
+                errors.append(f"not a lock's line: {line[:120]}")
+    if not lines or "# image: " not in lock or "# packages: " not in lock:
+        errors.append("not a lock (tools/build_deps.sh lock linux-arm64)")
+    return errors
+
+
 def newest(versions):
     return max(versions, key=nums) if versions else None
 
@@ -114,16 +141,16 @@ def choose(text, facts):
         major["XCODE_VERSION"] = newest(facts[f"xcode@{label}"].split())
     # MSVC and the SDK: the newest on the label; the newest label waits
     win = pins["WINDOWS_RUNNER"]
-    put("MSVC_TOOLSET", newest(facts.get(f"msvc@{win}", "").split()))
+    put("MSVC_COMPONENT", newest(facts.get(f"msvc@{win}", "").split()))
     put("WINDOWS_SDK", newest(facts.get(f"sdk@{win}", "").split()))
     label = facts.get("windows_newest", win)
     if label != win and facts.get(f"msvc@{label}") and facts.get(f"sdk@{label}"):
         major["WINDOWS_RUNNER"] = label
-        major["MSVC_TOOLSET"] = newest(facts[f"msvc@{label}"].split())
+        major["MSVC_COMPONENT"] = newest(facts[f"msvc@{label}"].split())
         major["WINDOWS_SDK"] = newest(facts[f"sdk@{label}"].split())
     # the rest as found
     for key in sorted((MOVED - LABELS) & facts.keys()):
-        if key in pins and key not in {"XCODE_VERSION", "MSVC_TOOLSET", "WINDOWS_SDK"}:
+        if key in pins and key not in {"XCODE_VERSION", "MSVC_COMPONENT", "WINDOWS_SDK"}:
             put(key, facts[key])
     return with_values(text, update), with_values(text, major), update, major
 
@@ -147,8 +174,11 @@ def main(argv):
         _, reasons, errors = check(text, up)
         assert not reasons and not errors, (reasons, errors)
         return 0
-    if len(argv) == 4 and argv[1] == "check":
-        changes, reasons, errors = check(open(argv[2]).read(), open(argv[3]).read())
+    if len(argv) in (4, 5) and argv[1] == "check":
+        head = open(argv[3]).read()
+        changes, reasons, errors = check(open(argv[2]).read(), head)
+        if len(argv) == 5:
+            errors += check_lock(head, open(argv[4]).read())
         for e in errors:
             print(f"error: {e}")
         if errors:
