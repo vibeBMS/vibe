@@ -89,7 +89,7 @@ dispatch2 = { version = "0.3", default-features = false, features = ["std", "obj
 
 # the download browser (Java, platform/android) through JNI
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
