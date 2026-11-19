@@ -83,7 +83,7 @@ pub const LOCK_RETRY_MS: f64 = 10_000.0;
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::*;
-    use std::fs::{self, File, OpenOptions};
+    use std::fs::{self, OpenOptions};
     use std::io::{Read, Seek, SeekFrom, Write};
 
     pub fn append(p: &Path, line: &str) -> io::Result<()> {
@@ -111,20 +111,7 @@ mod imp {
     }
 
     pub fn rewrite(p: &Path, text: &str) -> io::Result<()> {
-        // (an unset path: nothing to write, and no `.tmp~` left behind)
-        if p.as_os_str().is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "no path"));
-        }
-        if let Some(d) = p.parent() {
-            fs::create_dir_all(d)?;
-        }
-        let mut tmp = p.as_os_str().to_owned();
-        tmp.push(".tmp~");
-        let mut f = File::create(&tmp)?;
-        f.write_all(text.as_bytes())?;
-        // on disk before it takes the old file's place
-        f.sync_all()?;
-        fs::rename(&tmp, p)
+        super::super::vfs::write_atomic(p, text.as_bytes(), true)
     }
 
     pub fn load(p: &Path, on_done: impl FnOnce(io::Result<String>)) {
