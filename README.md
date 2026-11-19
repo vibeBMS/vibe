@@ -92,6 +92,8 @@ back to song select, and comes to the front. The play shows `VIEWER #<measure>` 
 
 Put a release build of the executable in a folder and put your BMS folders inside it. Folders elsewhere can be
 dropped on the window or added in `SETTINGS › LIBRARY`. Building for each platform: [docs/BUILDING.md](docs/BUILDING.md).
+Release builds are reproducible: `tools/reproduce.sh <commit> <run number>` rebuilds one and checks its SHA-256
+against the release's ([docs/BUILDING.md](docs/BUILDING.md#reproducible-builds)).
 
 ```text
 <root>/config/config.toml      settings (edited in the game; editing by hand works too)
@@ -186,7 +188,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   charts are read (a zip's charts alone; a 7z, RAR, LZH or tar, solid 7z/RAR and gzip-compressed tars included,
   is decoded from the start once, its other files not kept). An unchanged archive is not opened by the scan. Playing a chart from one unpacks its song,
   the folder that holds the chart in the archive with its sub-folders, once: into memory, or when it is larger than
-  512 MB (192 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
+  512 MB (32 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
   chosen (back from the result screen, playing it again unpacks nothing) and let go when another is chosen. The
   song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
   ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's, LZH's or
@@ -334,7 +336,9 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   (embedded; `en.toml` lists every text the code has, kept so by a test, `I18N_BLESS=1` rewrites it); a text a table
   lacks shows in English. `tools/i18n_hant.py` makes `zh-Hant.toml` from `zh-Hans.toml`. Fonts: the desktop puts the
   language's own CJK system font first (Noto Sans CJK KR / SC / TC, Malgun Gothic, Microsoft YaHei / JhengHei, PingFang
-  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese.
+  SC / TC); the web build loads Noto Sans SC / TC only when the UI is in that Chinese. A font's glyphs are read from
+  its file as they are drawn (system fonts are mapped, not loaded, and a CJK collection's faces share one copy), so
+  fonts take memory for the characters on screen, not for their tens of thousands of glyphs.
 - **Difficulty tables**: bmstable format. The insane and normal tables, Satellite and Stella are there from the
   start. Charts a table lists that are not installed show dimmed; choosing one downloads its song and its separate
   chart (差分) in the app (a manbow work page is read for its download links; Google Drive, Dropbox, MediaFire, MEGA
@@ -474,8 +478,8 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   down to the target, at most 30 dB down and 12 dB up, and never so far up that the chart's peak passes 0.8 of full
   scale, where the output's soft limiter starts: a quiet chart that peaks high stays as it is. Song previews (their
   own file or one made of the chart's sounds) are measured as they are decoded and normalised the same way. The
-  sound set's music (the select music, the decide jingle, `.loop` files) is measured as the set loads and brought to
-  the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
+  sound set's music (the select music, the decide jingle, `.loop` files) is measured as it is first decoded and
+  brought to the target too (on its own switch); its other sounds (clicks, fanfares) and the system volume are not changed. A NONSTOP course is measured
   each time (its stages joined are not one chart). The output's soft limiter stays as it was.
 - **Score import** (`SETTINGS › LIBRARY › Import scores`): LR2's (`LR2files/Database/Score/<player>.db`, filed
   under the LR2 judge preset), beatoraja's (`player/<name>/score.db`, beatoraja preset; LR2oraja's under LR2 when an
@@ -508,7 +512,9 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
 
 - **Built-in default skins**: landscape and portrait layouts for every mode, original art drawn from shapes and
   the Inter font by `tools/gen_default_skins.py`. Edit the script and run it to make
-  `crates/vibebms/assets/builtin/skins/default/` again.
+  `crates/vibebms/assets/builtin/skins/default/` again (CI checks with `--check` that the committed files are
+  what it makes). The song select's images are pages of at most 2048×2048: one for the screen, one for each panel,
+  loaded when the panel first opens.
 - **Touch perspective** (a built-in play skin for every key mode, chosen in `SETTINGS › SKINS` like the others):
   each player's lanes are a fan seen in perspective, narrow at the far end and wider toward the judge line, notes
   growing as they come. The judge line is at three quarters of the screen's height and the lanes reach near its
@@ -600,7 +606,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   jingle, folder / option clicks and result fanfares. A set is a folder of beatoraja's sound files (`select.wav`,
   `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio format) or an LR2 sound set (`.lr2ss`),
   under `sounds/` or `skins/`; without one, a few short built-in clicks (no music). `SETTINGS › DISPLAY & AUDIO › System volume`
-  sets their volume. A folder set may also use bmz-player's conventions (as its documentation describes them):
+  sets their volume. A screen's music (the select music, the result's) is decoded each time it starts and let go
+  when it stops; the other sounds stay decoded. A folder set may also use bmz-player's conventions (as its documentation describes them):
   - the result music by outcome: `fail` for a failed play; for a clear `aaa`, `aa` or `a` at that rank (the play's
     EX score from 8/9, 7/9, 6/9 of what can be had), else `clear` (a missing rank sound falls back on `clear`, not
     on a lower rank); a course's result keeps `course_clear` / `course_fail`;
@@ -623,7 +630,8 @@ Play, song select and results are all drawn by skins, chosen in `SETTINGS › SK
   (parent folder), 9901 (watch the chart's replay) and 9905 (practice the chart); number 9425 is the record's min CB (fewest combo breaks); button 1407 the key mode filter with 4 / 6 / 8 KEYS (indices 6-8); play skin types 104 / 106 / 108 are 4 / 6 / 8 keys (only the built-in skins are: such charts play on them). A graph with
   `"style": "vibebms"` is drawn as the built-in skins draw it. START / SELECT during play turn on timers 21 (panel
   open) and 31 (closed), and slider / graph value 9400 is the hi-speed position (0.5–10.0). For skins with no object
-  using timer 21, the app draws a hi-speed panel beside the lanes.
+  using timer 21, the app draws a hi-speed panel beside the lanes. A beatoraja `source` with `"lazy": true` is loaded
+  when something is first drawn from it (the built-in song select's panels).
 
 ## Web version
 

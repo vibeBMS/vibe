@@ -1,0 +1,315 @@
+# Rebuilds a commit's release builds twice, independently, and checks that
+# each gives the same bytes both times and the same as the nightly release
+# (docs/BUILDING.md, "Reproducible builds"). Run it from Actions > Reproducible
+# builds > Run workflow.
+#
+# The two builds of each artifact (a and b) differ in what must not matter: the
+# folder (a: the workspace; b: another, deeper one), CARGO_HOME, the number of
+# parallel jobs, the umask and, for the container builds, the runner image, the
+# folder and home in the container. The container builds (the portable Linux
+# executables, the web build) run tools/reproduce.sh, as anyone would; the
+# others build on the runner image CI builds them on, with
+# tools/build_release.sh. A difference fails the run and diffoscope's report of
+# it is attached.
+#
+# Against the release: builds.json has the executables' hashes of every
+# nightly of the last 90 days; the release's own files (the web zip, the
+# Flatpaks) are compared while the nightly release is still the commit's. The
+# APK is signed (here with a throwaway debug key), so its files are compared,
+# and the Android library is in builds.json.
+name: Reproducible builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit to rebuild (default: the nightly release's)"
+        required: false
+        default: ""
+      run:
+        description: "Its CI run number, the N of <version>-nightly.N+<commit> (default: from builds.json)"
+        required: false
+        default: ""
+      channel:
+        description: Channel it was built for
+        required: false
+        default: nightly
+      artifacts:
+        description: What to rebuild
+        type: choice
+        default: portable-and-web
+        options:
+          - portable-and-web
+          - linux-x64-portable
+          - web
+          - linux
+          - windows
+          - android
+          - all
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    name: which commit and builds
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.plan.outputs.commit }}
+      run: ${{ steps.plan.outputs.run }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      artifacts: ${{ steps.plan.outputs.artifacts }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ inputs.commit }}
+          RUN: ${{ inputs.run }}
+          ARTIFACTS: ${{ inputs.artifacts }}
+        run: |
+          if [ -z "$COMMIT" ]; then
+            COMMIT="$(gh api "repos/$GH_REPO/git/ref/tags/nightly" --jq .object.sha)"
+          fi
+          commit="$(gh api "repos/$GH_REPO/commits/$COMMIT" --jq .sha)"
+          if [ -z "$RUN" ]; then
+            # the run that published it (builds.json: <version>-<channel>.<run>+<commit>)
+            gh release download nightly -p builds.json -D prev
+            version="$(jq -r --arg c "$commit" '[.builds[] | select(.commit == $c)] | last | .version // empty' prev/builds.json)"
+            RUN="$(sed -n 's/^[^-]*-[a-z]*\.\([0-9]*\)+.*$/\1/p' <<< "$version")"
+            [ -n "$RUN" ] || { echo "::error::builds.json has no build of $commit: give its run number"; exit 1; }
+          fi
+          [[ "$RUN" =~ ^[0-9]+$ ]] || { echo "::error::the run number is not a number: $RUN"; exit 1; }
+          case "$ARTIFACTS" in
+            portable-and-web) list="linux-x64-portable web" ;;
+            linux) list="linux-x64-portable linux-arm64-portable linux-x64 linux-arm64" ;;
+            windows) list="windows-x64 windows-arm64" ;;
+            all) list="linux-x64-portable linux-arm64-portable web linux-x64 linux-arm64 windows-x64 windows-arm64 android" ;;
+            *) list="$ARTIFACTS" ;;
+          esac
+          # each artifact twice; the container builds on two runner images
+          matrix="$(jq -cn --arg list "$list" '
+            {
+              "linux-x64-portable": {kind: "container", a: "ubuntu-latest", b: "ubuntu-24.04", targets: "x86_64-unknown-linux-gnu"},
+              "linux-arm64-portable": {kind: "container", a: "ubuntu-24.04-arm", b: "ubuntu-22.04-arm", targets: "aarch64-unknown-linux-gnu"},
+              "web": {kind: "container", a: "ubuntu-latest", b: "ubuntu-24.04", targets: "wasm32-unknown-unknown"},
+              "linux-x64": {kind: "runner", a: "ubuntu-22.04", b: "ubuntu-22.04", targets: "x86_64-unknown-linux-gnu"},
+              "linux-arm64": {kind: "runner", a: "ubuntu-22.04-arm", b: "ubuntu-22.04-arm", targets: "aarch64-unknown-linux-gnu"},
+              "windows-x64": {kind: "runner", a: "windows-latest", b: "windows-latest", targets: "x86_64-pc-windows-msvc"},
+              "windows-arm64": {kind: "runner", a: "windows-latest", b: "windows-latest", targets: "aarch64-pc-windows-msvc"},
+              "android": {kind: "runner", a: "ubuntu-latest", b: "ubuntu-latest", targets: "aarch64-linux-android x86_64-linux-android"}
+            } as $all
+            | [$list | split(" ")[] as $n | ["a", "b"][] as $v
+               | {artifact: $n, variant: $v, kind: $all[$n].kind, os: $all[$n][$v], targets: $all[$n].targets}]')"
+          {
+            echo "commit=$commit"
+            echo "run=$RUN"
+            echo "matrix=$matrix"
+            echo "artifacts=$list"
+          } >> "$GITHUB_OUTPUT"
+          echo "rebuilding $list of $commit, run $RUN"
+
+  build:
+    name: ${{ matrix.artifact }} (${{ matrix.variant }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      COMMIT: ${{ needs.plan.outputs.commit }}
+      RUN: ${{ needs.plan.outputs.run }}
+      VIBEBMS_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          path: src
+          persist-credentials: false
+      - name: where it builds
+        run: |
+          [ -x src/tools/build_release.sh ] ||
+            { echo "::error::$COMMIT predates reproducible builds (no tools/build_release.sh)"; exit 1; }
+          # (on Windows as C:/x/y, which both bash and the runner take)
+          native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else printf %s "$1"; fi; }
+          if [ "${{ matrix.variant }}" = a ]; then
+            dir="$(native "$GITHUB_WORKSPACE/src")"
+          else
+            # another folder, CARGO_HOME, umask and fewer parallel jobs
+            dir="$(native "$RUNNER_TEMP/elsewhere/deeper/vibe-b")"
+            mkdir -p "$(dirname "$dir")"
+            cp -a src "$dir"
+            cargo_home="$(native "$RUNNER_TEMP/cargo-b")"
+            {
+              echo "CARGO_HOME=$cargo_home"
+              echo "CARGO_BUILD_JOBS=2"
+              echo "UMASK=0002"
+              # the container builds: the folder and home in the container
+              echo "REPRO_PATH=/build/elsewhere/src"
+              echo "REPRO_HOME=/opt/rebuild"
+              echo "REPRO_JOBS=2"
+            } >> "$GITHUB_ENV"
+            echo "$cargo_home/bin" >> "$GITHUB_PATH"
+          fi
+          echo "DIR=$dir" >> "$GITHUB_ENV"
+          echo "OUT=$(native "$GITHUB_WORKSPACE/out")" >> "$GITHUB_ENV"
+
+      # --- in a container: tools/reproduce.sh ---
+      - name: rebuild (tools/reproduce.sh)
+        if: matrix.kind == 'container'
+        env:
+          VIBEBMS_THIRD_PARTY: ${{ vars.WEB_THIRD_PARTY }}
+          REPRO_COMPARE: "0"
+        run: |
+          umask "${UMASK:-0022}"
+          REPRO_OUT="$OUT" "$DIR/tools/reproduce.sh" "$COMMIT" "$RUN" "$VIBEBMS_CHANNEL" "${{ matrix.artifact }}"
+
+      # --- on the runner, as CI builds it ---
+      - name: packages (Linux)
+        if: matrix.kind == 'runner' && startsWith(matrix.artifact, 'linux-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y --no-install-recommends flatpak desktop-file-utils appstream appstream-compose faketime
+      - name: Rust (rust-toolchain.toml)
+        if: matrix.kind == 'runner'
+        working-directory: ${{ env.DIR }}
+        run: |
+          channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+          targets=()
+          for t in ${{ matrix.targets }}; do targets+=(--target "$t"); done
+          rustup toolchain install "$channel" --profile minimal "${targets[@]}"
+      - if: matrix.artifact == 'android'
+        uses: ./src/.github/actions/android-setup
+        with:
+          path: ${{ env.DIR }}
+      - name: rebuild (tools/build_release.sh)
+        if: matrix.kind == 'runner'
+        working-directory: ${{ env.DIR }}
+        run: |
+          umask "${UMASK:-0022}"
+          eval "$(GITHUB_ENV="" tools/ci_version.sh "$RUN" "$COMMIT")"
+          tools/build_release.sh "${{ matrix.artifact }}" "$OUT"
+          # the Flatpak of the executable, as CI packages it
+          case "${{ matrix.artifact }}" in
+            linux-x64 | linux-arm64)
+              a="${{ matrix.artifact }}"
+              tools/package_flatpak.sh "$OUT/vibebms-$a" "$RUNNER_TEMP/flatpak"
+              cp "$RUNNER_TEMP/flatpak/vibeBMS-$a.flatpak" "$OUT/"
+              (cd "$OUT" && sha256sum "vibeBMS-$a.flatpak" >> SHA256SUMS)
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: repro-${{ matrix.artifact }}-${{ matrix.variant }}
+          path: out
+          retention-days: 7
+
+  compare:
+    name: compare
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          path: src
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            Cargo.toml
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: repro-*
+          path: art
+      - name: a against b, and against the release
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPRO_REPO: ${{ github.repository }}
+          ARTIFACTS: ${{ needs.plan.outputs.artifacts }}
+        run: |
+          export LC_ALL=C
+          fail=0
+          : > differ.txt
+          {
+            echo "### Reproducible builds"
+            echo
+            echo "\`${{ needs.plan.outputs.commit }}\`, run ${{ needs.plan.outputs.run }} (${{ inputs.channel }})"
+            echo
+            echo "| artifact | a = b | release |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for x in $ARTIFACTS; do
+            a="art/repro-$x-a" b="art/repro-$x-b"
+            if [ ! -f "$a/SHA256SUMS" ] || [ ! -f "$b/SHA256SUMS" ]; then
+              echo "| $x | a build failed | |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+              continue
+            fi
+            # (an APK is signed by each build's own debug key: its files are compared)
+            if diff <(grep -v '\.apk$' "$a/SHA256SUMS") <(grep -v '\.apk$' "$b/SHA256SUMS"); then
+              same="same"
+            else
+              same="**differ**"
+              fail=1
+              join -j 2 <(grep -v '\.apk$' "$a/SHA256SUMS" | sort -k2) <(grep -v '\.apk$' "$b/SHA256SUMS" | sort -k2) |
+                awk -v x="$x" '$2 != $3 { print x "\t" $1 }' >> differ.txt
+            fi
+            echo "== $x against the release"
+            if src/tools/reproduce.sh compare "$a" | tee compare.txt; then
+              if grep -q 'same as the release' compare.txt; then rel="same"; else rel="not published"; fi
+            else
+              rel="**differs**"
+              fail=1
+            fi
+            echo "| $x | $same | $rel |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "fail=$fail" >> "$GITHUB_OUTPUT"
+          [ -s differ.txt ] && echo "differ=true" >> "$GITHUB_OUTPUT"
+          cat differ.txt
+      - name: diffoscope (what differs)
+        if: steps.compare.outputs.differ == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends diffoscope-minimal
+          mkdir -p diffoscope
+          while IFS=$'\t' read -r x f; do
+            a="art/repro-$x-a/$f" b="art/repro-$x-b/$f"
+            case "$f" in
+              *.apk/*) # a file in the APKs (signed by different keys): that file
+                apk="${f%%.apk/*}.apk" inner="${f#*.apk/}"
+                mkdir -p "inner/a" "inner/b"
+                a="inner/a/$(basename "$inner")" b="inner/b/$(basename "$inner")"
+                unzip -p "art/repro-$x-a/$apk" "$inner" > "$a"
+                unzip -p "art/repro-$x-b/$apk" "$inner" > "$b"
+                ;;
+            esac
+            report="diffoscope/$x-$(basename "$f").txt"
+            timeout 1200 diffoscope --text "$report" --max-report-size 20000000 "$a" "$b" || true
+            {
+              echo
+              echo "#### $x: $f"
+              echo '```'
+              head -c 30000 "$report"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done < differ.txt
+      - if: steps.compare.outputs.differ == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: diffoscope
+          path: diffoscope
+      - if: steps.compare.outputs.fail != '0'
+        run: |
+          echo "::error::the builds are not reproducible (see the summary)"
+          exit 1

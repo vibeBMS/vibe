@@ -1,7 +1,8 @@
 name: Rust setup
 description: >-
-  The stable toolchain with the given targets and components, the build cache,
-  and (for a build) the CI version stamped into Cargo.toml.
+  The toolchain rust-toolchain.toml names with the given targets and
+  components, the build cache, and (for a build) the CI version stamped into
+  Cargo.toml.
 
 inputs:
   targets:
@@ -20,9 +21,17 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+    # an exact release, so a build can be made again with the same compiler
+    # (docs/BUILDING.md, "Reproducible builds")
+    - id: toolchain
+      shell: bash
+      run: |
+        channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+        [ -n "$channel" ] || { echo "no channel in rust-toolchain.toml" >&2; exit 1; }
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (the action's branch; the toolchain is its input)
       with:
-        toolchain: stable
+        toolchain: ${{ steps.toolchain.outputs.channel }}
         targets: ${{ inputs.targets }}
         components: ${{ inputs.components }}
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

@@ -214,11 +214,24 @@ fn every_language_has_every_key() {
     );
 }
 
+/// The tables as their lines are read: every text as the TOML of the
+/// file has it.
 #[test]
-fn tables_parse() {
+fn tables_read_as_toml() {
     for lang in Lang::ALL {
-        if let Some(src) = lang.source() {
-            assert!(!parse(src, lang.tag()).is_empty() || src.trim().is_empty());
+        let Some(src) = lang.source() else { continue };
+        let tag = lang.tag();
+        let v: toml::Table = toml::from_str(src).unwrap_or_else(|e| panic!("i18n/{tag}.toml: {e}"));
+        let want: BTreeMap<&str, &str> = v
+            .iter()
+            .filter_map(|(k, v)| Some((k.as_str(), v.as_str()?)))
+            .collect();
+        let t = parse(src);
+        assert!(!t.is_empty(), "{tag}");
+        let have: BTreeMap<&str, &str> = t.iter().map(|(k, v)| (*k, *v)).collect();
+        assert_eq!(have, want, "{tag}");
+        for (k, v) in &t {
+            assert_eq!(lookup(lang, k), *v);
         }
     }
 }

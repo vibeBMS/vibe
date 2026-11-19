@@ -161,7 +161,7 @@ pub struct Item {
 /// sees the key twice knows it is one play.
 pub fn item_id(provider: ProviderId, account: &str, play_id: &str) -> String {
     let h = Sha256::digest(format!("{provider}\n{account}\n{play_id}"));
-    h[..16].iter().map(|b| format!("{b:02x}")).collect()
+    vibebms_core::hex(&h[..16])
 }
 
 impl Item {

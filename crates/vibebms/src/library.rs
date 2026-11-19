@@ -2093,6 +2093,11 @@ mod tests {
         vfs::keep_song(Some(&a));
         assert_eq!(arcfs::times_opened(&zip), opened + 1);
         assert_eq!(vfs::read(&k).unwrap(), kick);
+        // (read for the sound bank: not copied out of the song in memory)
+        assert!(Arc::ptr_eq(
+            &vfs::read_shared(&k).unwrap(),
+            &vfs::read_shared(&k).unwrap()
+        ));
         assert_eq!(arcfs::times_opened(&zip), opened + 1);
         vfs::keep_song(Some(&c_path));
         assert!(!arcfs::is_ready(&zip, Path::new("Song/a.bme")));

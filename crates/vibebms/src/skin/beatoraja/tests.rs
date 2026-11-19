@@ -299,8 +299,24 @@ fn builtin_select_skins_load() {
         for tab in [10, 11, 12] {
             assert!(acts.contains(&(tab, 2)), "{tab}");
         }
+        // each panel's page loads when the panel is first drawn
+        assert_eq!(sk.lazy_images.len(), 8, "{:?}", sk.lazy_images);
         let path = crate::scene::skinned::default_skin(SkinType::Result, portrait).unwrap();
         assert!(load(&path, &HashMap::new(), &crate::skin::image_size).is_ok());
+    }
+}
+
+/// No built-in image is over 2048 on a side: a GPU that allows no more
+/// (WebGL2's least) would draw it scaled down and blurred.
+#[test]
+fn builtin_images_fit_small_gpus() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/builtin/skins/default");
+    for e in std::fs::read_dir(&dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_some_and(|x| x == "png") {
+            let (w, h) = image::image_dimensions(&p).unwrap();
+            assert!(w <= 2048 && h <= 2048, "{}: {w}x{h}", p.display());
+        }
     }
 }
 

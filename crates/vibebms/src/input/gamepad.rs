@@ -98,7 +98,7 @@ fn pad_id(g: &gilrs::Gamepad) -> PadId {
             if u.iter().all(|b| *b == 0) {
                 String::new()
             } else {
-                u.iter().map(|b| format!("{b:02x}")).collect()
+                vibebms_core::hex(&u)
             }
         }
     };

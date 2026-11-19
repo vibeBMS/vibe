@@ -37,10 +37,12 @@ sha2.workspace = true
 winit = { version = "0.30", features = ["serde"] }
 wgpu = { version = "24", features = ["webgl"] }
 bytemuck = { version = "1", features = ["derive"] }
-fontdue = "0.9"
 fontdb = "0.24"
-# the characters of a fallback font before fontdue parses it (the version fontdue reads with)
-ttf-parser = { version = "0.25", default-features = false }
+# glyphs read from font files as they are drawn (gfx/font.rs; the version fontdb reads with)
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
+ab_glyph_rasterizer = "0.1"
+# system fonts mapped, not read into memory
+memmap2 = "0.9"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga", "webp"] }
 web-time = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
@@ -49,6 +51,8 @@ ehttp = { version = "0.7", features = ["streaming"] }
 toml = { version = "1", features = ["preserve_order"] }
 json5 = "1"
 flate2 = "1"
+# the translation tables' hash (the version mlua builds with)
+rustc-hash = "2"
 # a zip's files read where they are (charts in archives: platform/arcfs.rs;
 # the version and features BMSeeker unpacks with)
 zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
@@ -107,6 +111,8 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator", "Location", "Event", "AddEventListenerOptions", "EventTarget", "Performance", "TouchEvent", "TouchList", "Touch", "Worker", "MessageEvent", "Blob", "BlobPropertyBag", "Url"] }
 
 [dev-dependencies]
+# glyphs drawn as fontdue drew them (gfx/text.rs tests)
+fontdue = "0.9"
 # archives for tests
 bmseeker = { workspace = true, features = ["testkit"] }
 # 7z archives made for tests (the version BMSeeker reads)
@@ -114,3 +120,5 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = ["compre
 # animated PNG and WebP fixtures for the image tests (the versions image uses)
 png = "0.18"
 image-webp = "0.2"
+# the test bot
+vibebms-core = { workspace = true, features = ["testing"] }

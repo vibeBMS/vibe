@@ -82,6 +82,9 @@ pub trait Scene {
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next;
     fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant);
     fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> Next;
+    /// Another scene was pushed over it (it is not drawn until
+    /// [`resumed`](Self::resumed)): textures may be let go.
+    fn covered(&mut self, _gfx: &mut Gfx) {}
     /// Became the top scene again.
     fn resumed(&mut self, _ctx: &mut Ctx) {}
     /// About to be removed: release textures/sounds.
@@ -375,7 +378,12 @@ impl Running {
         }
         match next {
             Next::Stay => {}
-            Next::Push(s) => self.scenes.push(s),
+            Next::Push(s) => {
+                if let Some(top) = self.scenes.last_mut() {
+                    top.covered(&mut self.gfx);
+                }
+                self.scenes.push(s);
+            }
             Next::Replace(s) => {
                 if let Some(mut old) = self.scenes.pop() {
                     old.exit(&mut self.ctx, &mut self.gfx);

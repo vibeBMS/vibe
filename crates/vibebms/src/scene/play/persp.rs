@@ -12,7 +12,6 @@ use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Blend, Color};
 use crate::perspective::{Depths, Fan, FanLane};
 use crate::platform::Instant;
-use crate::skin::render::Xf;
 use crate::touch::Shape;
 use vibebms_core::chart::NoteKind;
 use vibebms_core::PlayMode;
@@ -85,7 +84,7 @@ fn ms_since(now: Instant, t: Option<Instant>) -> Option<f32> {
 }
 
 /// Draw the note field (the skin's `notes` object).
-pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
+pub(super) fn draw(st: &PlayState, d: &mut Draw) {
     let scene = st.s;
     let s = &scene.session;
     let ctx = st.ctx;
@@ -95,13 +94,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     let Some(sk) = scene.skin.as_ref() else {
         return;
     };
-    let view = xf.rect(crate::gfx::Rect::new(
-        0.0,
-        0.0,
-        sk.skin.width,
-        sk.skin.height,
-    ));
-    let fans = scene.persp_fans(ctx, view);
+    let fans = &scene.touch.fans;
     let p = &ctx.config.play;
     let dep = Depths::of(p);
     let mode = s.mode;
@@ -133,7 +126,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw, xf: &Xf) {
     } else {
         dep.judge
     };
-    for f in &fans {
+    for f in fans {
         let d_bot = f.d_bottom();
         let note_dd = depth_of_px(f, f.width * NOTE_H, dep.judge);
         let px = |n: f32, at: f32| depth_of_px(f, n, at);

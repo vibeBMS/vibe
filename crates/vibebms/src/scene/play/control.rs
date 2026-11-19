@@ -74,10 +74,11 @@ impl Controls {
         for (side, c) in self.panel.iter_mut().enumerate() {
             if let Some((dir, last)) = c.scratch.filter(|_| c.open()) {
                 if now.duration_since(last) >= Duration::from_millis(50) {
-                    let mut p = play.for_side(side);
-                    c.turn(&mut p, dir, bpm);
+                    on_side(play, side, |p| {
+                        c.turn(p, dir, bpm);
+                        true
+                    });
                     c.scratch = Some((dir, now));
-                    play.set_side(side, &p);
                 }
             }
         }
@@ -111,22 +112,29 @@ impl PlayScene {
         if !self.session.vs && matches!(e.lane, touch::START2 | touch::SELECT2) {
             return true;
         }
-        let bpm = &self.bpms_at(e.time);
         let side = self.control_side(e.lane);
-        // the side's own options (VS: the second player's)
-        let mut p = ctx.config.play.for_side(side);
-        let taken = control(
-            &mut self.controls.panel[side],
-            self.session.mode,
-            &mut p,
-            bpm,
-            e,
-        );
-        if taken {
-            ctx.config.play.set_side(side, &p);
+        // the keys go to the judge while the panel is closed
+        if e.lane < touch::SYSTEM && !self.controls.panel[side].open() {
+            return false;
         }
-        taken
+        let bpm = &self.bpms_at(e.time);
+        let (c, mode) = (&mut self.controls.panel[side], self.session.mode);
+        on_side(&mut ctx.config.play, side, |p| control(c, mode, p, bpm, e))
     }
+}
+
+/// `f` on the options of `side` (VS: the second player's own), kept when
+/// it returns `true`.
+fn on_side(play: &mut PlayConfig, side: usize, f: impl FnOnce(&mut PlayConfig) -> bool) -> bool {
+    if side == 0 {
+        return f(play);
+    }
+    let mut p = play.for_side(side);
+    let keep = f(&mut p);
+    if keep {
+        play.set_side(side, &p);
+    }
+    keep
 }
 
 /// What START / SELECT and the keys do to `p` with them held (one player's

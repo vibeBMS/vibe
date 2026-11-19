@@ -1,13 +1,9 @@
-//! Downloads from where authors link songs: `bmseeker::hosts`, and the CORS
-//! proxy the web build reaches those hosts through.
+//! Downloads from where authors link songs: `bmseeker::hosts` (the CORS
+//! proxy the web build reaches those hosts through: `bmseeker::web`).
 
 pub use bmseeker::hosts::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use bmseeker::native::{fetch_files, Native};
-
-/// The CORS proxy the web build reaches download hosts and difficulty
-/// tables through (none sends CORS headers): vibeBMS/proxy `worker.js`.
-pub const WEB_PROXY: &str = "https://proxy.vibebms.workers.dev/";
 
 /// What the app resolves links and installs songs with: bmseeker's default
 /// settings and hosts, with the player's choices (third parties' copies
@@ -37,22 +33,6 @@ pub fn third_party_notice() -> &'static str {
          Using them is your own responsibility: follow each site's terms and respect the rights of \
          the songs' copyright holders."
     )
-}
-
-/// Whether `url`'s host sends CORS headers (a web page reads it itself):
-/// BMS SEARCH's API, GitHub's raw files (the event mirror's lists),
-/// Konmai's (a chart's package by its MD5).
-pub fn sends_cors(url: &str) -> bool {
-    let host = url.split('/').nth(2).unwrap_or("").to_ascii_lowercase();
-    matches!(
-        host.as_str(),
-        "api.bmssearch.net" | "raw.githubusercontent.com" | "bms.alvorna.com"
-    )
-}
-
-/// `url` as the web build fetches it.
-pub fn via_proxy(url: &str) -> String {
-    format!("{WEB_PROXY}?url={}", bmseeker::net::url_encode(url))
 }
 
 #[cfg(test)]

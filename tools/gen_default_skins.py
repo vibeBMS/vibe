@@ -8,7 +8,7 @@ below, BGA and score data beside it). The output is a set of beatoraja-format
 JSON skins plus PNG atlases in crates/vibebms/assets/builtin/skins/default,
 which are compiled into the executable.
 
-    python3 tools/gen_default_skins.py [--fonts DIR]
+    python3 tools/gen_default_skins.py [--fonts DIR] [--check]
 
 Requires Pillow. Bold/italic Inter faces are taken from --fonts (or the
 system font directory) and fall back to the bundled Inter Regular.
@@ -19,6 +19,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -318,10 +319,41 @@ def ring_img(size=128):
 
 
 # ---------------------------------------------------------------- atlas
+# The largest image a skin has: GPUs that allow no more than 4096 (and the
+# web's WebGL2 minimum of 2048) would otherwise scale a sheet down and blur it.
+MAX_PAGE = 2048
+
+
+def pack(items, width, pad=0):
+    """Shelf-pack `items` ((key, image) pairs, tallest first) into rows
+    `width` wide with 2 px between and `pad` around: their rects by key,
+    and the height."""
+    x = y = pad
+    row_h = 0
+    rects = {}
+    for key, img in sorted(items, key=lambda p: -p[1].size[1]):
+        w, h = img.size
+        if x + w + pad > width:
+            x, y, row_h = pad, y + row_h + 2, 0
+        rects[key] = (x, y, w, h)
+        x += w + 2
+        row_h = max(row_h, h)
+    return rects, y + row_h + pad
+
+
+def sheet(items, rects, w=None, pad=0):
+    """`items` at `rects` on one image (`w` wide, else as wide as they are)."""
+    w = w or max(x + iw for x, _y, iw, _h in rects.values()) + pad
+    h = max(y + ih for _x, y, _w, ih in rects.values()) + pad
+    assert w <= MAX_PAGE and h <= MAX_PAGE, f"a {w}x{h} sheet"
+    out = Image.new("RGBA", (w, h))
+    for key, img in items:
+        out.paste(img, rects[key][:2])
+    return out
+
+
 class Atlas:
-    def __init__(self, name, width=2048):
-        self.name = name
-        self.width = width
+    def __init__(self):
         self.items = {}
         self.pending = []
 
@@ -330,26 +362,51 @@ class Atlas:
         return key
 
     def build(self):
-        x = y = row_h = 0
-        placed = []
-        for key, img in sorted(self.pending, key=lambda p: -p[1].size[1]):
-            w, h = img.size
-            if x + w > self.width:
-                x, y, row_h = 0, y + row_h + 2, 0
-            placed.append((key, img, x, y))
-            self.items[key] = (x, y, w, h)
-            x += w + 2
-            row_h = max(row_h, h)
-        self.height = y + row_h
-        sheet = Image.new("RGBA", (self.width, self.height))
-        for key, img, px, py in placed:
-            sheet.paste(img, (px, py))
-        return sheet
+        self.items, _h = pack(self.pending, MAX_PAGE)
+        return sheet(self.pending, self.items, MAX_PAGE)
+
+
+class Pages:
+    """The music select's parts (and the play parts it draws) in pages: one
+    per orientation for the screen, one per orientation and panel, which
+    loads when the panel first opens. A part is copied to each page it is
+    drawn from, so a panel needs only its own page. The pages are known
+    once the layouts have been made: they are made twice, first to see
+    which parts each page has."""
+
+    def __init__(self, *atlases):
+        self.images = {k: img for a in atlases for k, img in a.pending}
+        self.used = {}
+        self.rects = None
+
+    def size(self, key):
+        return self.images[key].size
+
+    def locate(self, page, key):
+        if self.rects is None:
+            self.used.setdefault(page, {})[key] = None
+            return (0, 0) + self.size(key)
+        return self.rects[page][key]
+
+    def build(self):
+        """The pages' images by name; from here parts have their places."""
+        self.rects, out = {}, {}
+        for page, keys in self.used.items():
+            items = [(k, self.images[k]) for k in keys]
+            # the sheet of the least area (the narrowest of those), with a
+            # clear border: a part at the edge, drawn scaled, would blend
+            # with the edge, not with clear pixels
+            widest = max(img.size[0] for _k, img in items) + 4
+            fits = ((w * h, w) for w in range(widest, MAX_PAGE + 1, 16)
+                    for h in [pack(items, w, 2)[1]] if h <= MAX_PAGE)
+            self.rects[page] = pack(items, min(fits)[1], 2)[0]
+            out[page] = sheet(items, self.rects[page], pad=2)
+        return out
 
 
 # ---------------------------------------------------------------- assets
 def build_parts(fonts):
-    a = Atlas("parts.png")
+    a = Atlas()
     for k in NOTE_COLORS:
         a.add(f"note_{k}", note_img(k))
         a.add(f"lns_{k}", note_img(k, style="start"))
@@ -585,40 +642,54 @@ def background(w, h):
 
 # ---------------------------------------------------------------- skin json
 class Skin:
-    def __init__(self, kind, name, w, h, parts, extra=None):
+    def __init__(self, kind, name, w, h, parts, pages=None):
         self.w, self.h = w, h
         self.parts = parts
-        # a second atlas (the music select's own parts: source "sel")
-        self.extra = extra
+        # the music select's parts (`Pages`), drawn from `page`
+        self.pages = pages
+        self.page = None
         self.j = {
             "type": kind, "name": name, "author": "vibeBMS", "w": w, "h": h,
             "input": 500, "scene": 3600000, "close": 1500, "fadeout": 1000,
-            "source": [{"id": "parts", "path": "parts.png"}],
+            "source": [] if pages else [{"id": "parts", "path": "parts.png"}],
             "image": [], "value": [], "text": [], "slider": [], "graph": [],
             "judge": [], "destination": [],
         }
-        if extra:
-            self.source("sel", extra.name)
         # x remapping for layouts that move whole blocks (2P side)
         self.xmap = None
         # vibeBMS anchor of the objects put (perspective skins): see persp()
         self.anchor = None
         self._ids = set()
 
-    def source(self, sid, path):
-        self.j["source"].append({"id": sid, "path": path})
+    def source(self, sid, path, lazy=False):
+        """An image file; `lazy` (vibeBMS): loaded when first drawn."""
+        d = {"id": sid, "path": path}
+        if lazy:
+            d["lazy"] = True
+        self.j["source"].append(d)
+
+    def on_panel(self):
+        """A panel's parts are being put (its page loads as it opens)."""
+        return self.page is not None and len(self.page) > 1
+
+    def tag(self, iid):
+        """An id of the current page's (a panel's parts are its own)."""
+        return f"{iid}~{self.page}" if self.on_panel() else iid
 
     def locate(self, key):
         """The source and rect of part `key`."""
-        if key in self.parts.items:
+        if not self.pages:
             return "parts", self.parts.items[key]
-        return "sel", self.extra.items[key]
+        sid = f"sel{self.page}"
+        if not any(d["id"] == sid for d in self.j["source"]):
+            self.source(sid, f"select_{self.page}.png", self.on_panel())
+        return sid, self.pages.locate(self.page, key)
 
     def size(self, key):
-        return self.locate(key)[1][2:]
+        return self.pages.size(key) if self.pages else self.parts.items[key][2:]
 
     def img(self, key, divx=1, cycle=0, timer=0, sid=None):
-        iid = key if not timer else f"{key}@{timer}"
+        iid = self.tag(key if not timer else f"{key}@{timer}")
         if iid in self._ids:
             return iid
         self._ids.add(iid)
@@ -651,6 +722,7 @@ class Skin:
         iid = f"{key}#{ref}#{digit}#{int(zeropad)}{'b' if blank else ''}"
         if align:
             iid += f"a{align}"
+        iid = self.tag(iid)
         if iid not in self._ids:
             self._ids.add(iid)
             v = {"id": iid, "src": src, "x": x, "y": y, "w": w, "h": h, "divx": n,
@@ -2136,9 +2208,9 @@ def result_layout(fonts, parts, portrait=False):
 # --- music select ---------------------------------------------------------------
 # LR2's select screen laid out at 16:9 in vibe's own look: tabs, the chart, the
 # song's other charts, the score, buttons, six panel buttons and the status line
-# on the left, the wheel on the right. Its own parts are in select.png. The ids
-# are vibeBMS's (crates/vibebms/src/scene/select/skin.rs) apart from LR2's and
-# beatoraja's chart, score and panel ids.
+# on the left, the wheel on the right. Its parts are on pages of their own
+# (`Pages`). The ids are vibeBMS's (crates/vibebms/src/scene/select/skin.rs)
+# apart from LR2's and beatoraja's chart, score and panel ids.
 LAMP_COLORS = [(60, 64, 80), (200, 50, 70), (170, 110, 255), (200, 160, 255), (70, 210, 120),
                (60, 160, 255), (255, 80, 92), (255, 210, 60), (45, 226, 199), (255, 180, 230),
                (255, 255, 255)]
@@ -2285,8 +2357,8 @@ def option_label(fonts, s, size=21, color=TEXT, which="xbold"):
 
 
 def build_select(fonts):
-    """select.png: the music select's own parts."""
-    a = Atlas("select.png")
+    """The music select's own parts (put on pages by `Pages`)."""
+    a = Atlas()
     a.add("clear", Image.new("RGBA", (16, 16)))
     # digits (no outline), 0-9 and a dim padding zero
     a.add("n_sel", digit_strip(fonts, 10, 28, "bold", 25, (255, 255, 255), (214, 221, 238),
@@ -2431,12 +2503,12 @@ def build_select(fonts):
 def sel_put(sk, key, x, y, w=None, h=None, op=None, act=None, click=0, **kw):
     """A select part at (x, y) (its own size unless given), clickable with `act`."""
     pw, ph = sk.size(key)
-    iid = sk.img(key)
+    base = iid = sk.img(key)
     if act is not None:
-        iid = f"{key}@{act}"
+        iid = f"{base}@{act}"
         if iid not in sk._ids:
             sk._ids.add(iid)
-            d = dict(next(i for i in sk.j["image"] if i["id"] == key))
+            d = dict(next(i for i in sk.j["image"] if i["id"] == base))
             d.update(id=iid, act=act)
             if click:
                 d["click"] = click
@@ -2578,7 +2650,7 @@ def sel_charts(sk, img, f, g):
 
 def graph_part(sk, key, ref, angle=0):
     """A bar of select part `key` filled by rate `ref`."""
-    gid = f"graph{key}_{ref}"
+    gid = sk.tag(f"graph{key}_{ref}")
     if gid not in sk._ids:
         sk._ids.add(gid)
         src, (px, py, pw, ph) = sk.locate(key)
@@ -3332,16 +3404,25 @@ def select_panels(sk, g, portrait):
     else:
         rects = {n: LAND_POP.get(n, LAND_POP_OTHER) for n in PANELS}
         rw = None
-    play_option(sk, rects[1], portrait)
-    assist_panel(sk, rects[2], rw or 612)
-    system_option(sk, rects[3], rw or 716, portrait)
-    score_status(sk, rects[4])
-    player_status(sk, rects[5])
-    effects_panel(sk, rects[6], rw or 612)
-    tag_panel(sk, rects[7], rw or 612)
+    screen = sk.page
+    for n, draw in ((1, lambda: play_option(sk, rects[1], portrait)),
+                    (2, lambda: assist_panel(sk, rects[2], rw or 612)),
+                    (3, lambda: system_option(sk, rects[3], rw or 716, portrait)),
+                    (4, lambda: score_status(sk, rects[4])),
+                    (5, lambda: player_status(sk, rects[5])),
+                    (6, lambda: effects_panel(sk, rects[6], rw or 612)),
+                    (7, lambda: tag_panel(sk, rects[7], rw or 612)),
+                    (8, lambda: help_panel(sk, rects[8], portrait))):
+        # each panel's parts on a page of its own
+        sk.page = f"{screen}{n}"
+        draw()
+    sk.page = screen
+
+
+def help_panel(sk, r, portrait):
     op = PANEL_OPS[8]
-    pop_frame(sk, 8, rects[8], op)
-    x, y, _w, _h = rects[8]
+    pop_frame(sk, 8, r, op)
+    x, y, _w, _h = r
     sel_put(sk, "help_port" if portrait else "help_land", x + 24, y + 72, op=[op])
 
 
@@ -3349,6 +3430,7 @@ def select_layout(fonts, parts, sel, portrait=False):
     g = PORT if portrait else LAND
     W, H = g["W"], g["H"]
     sk = Skin(5, "vibeBMS Default Select", W, H, parts, sel)
+    sk.page = "P" if portrait else "L"
     sk.j.update({"input": 300, "scene": 3600000, "fadeout": 0})
     sk.source("bg", f"bg_select{'_portrait' if portrait else ''}.png")
     sk.put(sk.img("bg", sid="bg"), 0, 0, W, H)
@@ -3364,21 +3446,54 @@ def select_layout(fonts, parts, sel, portrait=False):
     return sk, img
 
 
+def same(a, b):
+    """Two generated files are the same: JSON as text, images as pixels
+    (PNG encoders may differ)."""
+    if a.suffix != ".png":
+        return a.read_bytes() == b.read_bytes()
+    ia, ib = Image.open(a), Image.open(b)
+    return ia.mode == ib.mode and ia.size == ib.size and ia.tobytes() == ib.tobytes()
+
+
+def check(out):
+    """The committed files are what `out` has."""
+    want = {p.name for p in out.iterdir()}
+    have = {p.name for p in OUT.iterdir()}
+    bad = sorted((want ^ have) | {n for n in want & have if not same(out / n, OUT / n)})
+    for n in bad:
+        print(f"{OUT / n}: not what the generator makes", file=sys.stderr)
+    if bad:
+        print("run python3 tools/gen_default_skins.py and commit what it writes", file=sys.stderr)
+    return 1 if bad else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fonts", help="directory with Inter Display/Inter OTF faces")
+    ap.add_argument("--check", action="store_true",
+                    help="only check that the committed skins are what it makes")
     args = ap.parse_args()
     fonts = Fonts(args.fonts)
-    OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.iterdir():
+    if args.check:
+        with tempfile.TemporaryDirectory() as d:
+            generate(fonts, Path(d))
+            return check(Path(d))
+    generate(fonts, OUT)
+    total = sum(p.stat().st_size for p in OUT.iterdir())
+    print(f"wrote {OUT} ({total // 1024} KiB)")
+
+
+def generate(fonts, out):
+    out.mkdir(parents=True, exist_ok=True)
+    for old in out.iterdir():
         old.unlink()
     parts = build_parts(fonts)
     sheet = parts.build()
-    sheet.save(OUT / "parts.png", optimize=True)
+    sheet.save(out / "parts.png", optimize=True)
     bgs = {}
 
     def emit(sk, img, json_name, bg_name):
-        sk.save(OUT / json_name)
+        sk.save(out / json_name)
         bgs[bg_name] = img
 
     for mode in ("7", "5"):
@@ -3406,22 +3521,23 @@ def main():
     for mode in ("7", "5", "9", "14", "10", "4", "6", "8"):
         for portrait in (False, True):
             sk, img, hud = persp(fonts, parts, mode, portrait)
-            sk.save(OUT / f"persp{mode}{'_portrait' if portrait else ''}.json")
+            sk.save(out / f"persp{mode}{'_portrait' if portrait else ''}.json")
             huds[hud] = img
     for name, img in huds.items():
-        img.save(OUT / name, optimize=True)
-    vgrad(16, 256, (10, 12, 24), (20, 16, 34)).convert("RGB").save(OUT / "bg_persp.png",
+        img.save(out / name, optimize=True)
+    vgrad(16, 256, (10, 12, 24), (20, 16, 34)).convert("RGB").save(out / "bg_persp.png",
                                                                      optimize=True)
     emit(*result_layout(fonts, parts), "result.json", "bg_result.png")
-    sel = build_select(fonts)
-    sel.build().save(OUT / sel.name, optimize=True)
-    emit(*select_layout(fonts, parts, sel), "select.json", "bg_select.png")
     emit(*result_layout(fonts, parts, True), "result_portrait.json", "bg_result_portrait.png")
+    sel = Pages(build_select(fonts), parts)
+    for portrait in (False, True):
+        select_layout(fonts, parts, sel, portrait)
+    for page, img in sel.build().items():
+        img.save(out / f"select_{page}.png", optimize=True)
+    emit(*select_layout(fonts, parts, sel), "select.json", "bg_select.png")
     emit(*select_layout(fonts, parts, sel, True), "select_portrait.json", "bg_select_portrait.png")
     for name, img in bgs.items():
-        img.convert("RGB").quantize(128).convert("RGB").save(OUT / name, optimize=True)
-    total = sum(p.stat().st_size for p in OUT.iterdir())
-    print(f"wrote {OUT} ({total // 1024} KiB)")
+        img.convert("RGB").quantize(128).convert("RGB").save(out / name, optimize=True)
 
 
 if __name__ == "__main__":

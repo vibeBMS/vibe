@@ -918,6 +918,9 @@ pub struct Skin {
     pub width: f32,
     pub height: f32,
     pub images: Vec<Option<PathBuf>>,
+    /// Images loaded when first drawn (vibeBMS's `lazy` sources: the
+    /// built-in select skin's panels).
+    pub lazy_images: Vec<usize>,
     pub objects: Vec<Obj>,
     /// Lane skins indexed by our lane numbering.
     pub lanes: Vec<LaneSkin>,
@@ -978,6 +981,7 @@ impl Skin {
             width,
             height,
             images: Vec::new(),
+            lazy_images: Vec::new(),
             objects: Vec::new(),
             lanes: Vec::new(),
             judges: Default::default(),

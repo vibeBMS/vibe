@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::arcfs;
 
@@ -626,7 +626,7 @@ pub fn decode_name(raw: &[u8]) -> String {
 /// `arcfs`); a folder may be packed as `folder.dxa`, as LR2 skins do).
 pub fn read(p: &Path) -> io::Result<Vec<u8>> {
     if let Some((a, rel)) = arcfs::split(p) {
-        return arcfs::read(&a, &rel);
+        return arcfs::read(&a, &rel).map(Arc::unwrap_or_clone);
     }
     match builtin(p) {
         Some(b) => Ok(b.to_vec()),
@@ -639,13 +639,21 @@ pub fn read(p: &Path) -> io::Result<Vec<u8>> {
     }
 }
 
+/// [`read`] for a reader that only borrows the bytes: a file of an
+/// archive's song unpacked into memory, or one read lately, is not copied.
+pub fn read_shared(p: &Path) -> io::Result<Arc<Vec<u8>>> {
+    match arcfs::split(p) {
+        Some((a, rel)) => arcfs::read(&a, &rel),
+        None => read(p).map(Arc::new),
+    }
+}
+
 /// The first `n` bytes of a file (all of it when shorter); natively the
 /// rest is not read.
 pub fn read_head(p: &Path, n: usize) -> io::Result<Vec<u8>> {
     if arcfs::split(p).is_some() {
-        let mut b = read(p)?;
-        b.truncate(n);
-        return Ok(b);
+        let b = read_shared(p)?;
+        return Ok(b[..n.min(b.len())].to_vec());
     }
     if let Some(b) = builtin(p) {
         return Ok(b[..n.min(b.len())].to_vec());
