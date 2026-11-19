@@ -19,7 +19,7 @@ param(
     [string] $Zip = '',
     [Parameter(Mandatory)] [string] $Probe,
     [Parameter(Mandatory)] [string] $Out,
-    [string] $Chart = '',
+    [string[]] $Chart = @(),
     [string] $Kind = 'c',
     # play: LR2's own autoplay (-A -NS), and the gauge option (config.xml's
     # play/gauge: 0 GROOVE, 1 HARD as this script reads LR2)
@@ -225,7 +225,7 @@ switch ($Stage) {
     'play' {
         # -Chart: one chart or several, comma-separated, one after another
         Set-Config 'gauge' $Gauge
-        foreach ($name in $Chart.Split(',')) {
+        foreach ($name in ($Chart -join ',').Split(',')) {
             try { Play $name } catch { Write-Host "::warning::$name`: $($_.Exception.Message)"; Stop-LR2 }
         }
         Set-Config 'gauge' 0
