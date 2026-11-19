@@ -64,24 +64,7 @@ switch ($Stage) {
         # Locale Emulator (open source, LGPL) runs the probe as if the
         # system locale were Japanese: `LEProc.exe PATH ARGS` is its default
         # ja-JP profile
-        $le = Join-Path $env:RUNNER_TEMP 'le'
-        New-Item -ItemType Directory -Force $le | Out-Null
-        & gh release download --repo xupefei/Locale-Emulator --pattern '*.zip' --dir $le --clobber
-        if ($LASTEXITCODE) { exit 1 }
-        Get-ChildItem $le -Filter *.zip | ForEach-Object { Write-Host "Locale Emulator $($_.Name)"; Expand-Archive $_.FullName -DestinationPath $le -Force }
-        $leproc = Get-ChildItem $le -Recurse -Filter LEProc.exe | Select-Object -First 1
-        # LEProc needs LECommonLibrary.dll, which only LEInstaller (a window
-        # with an Install button) writes out, from its resources: written
-        # here from the same resource, without the window
-        $dll = Join-Path $leproc.DirectoryName 'LECommonLibrary.dll'
-        if (-not (Test-Path $dll)) {
-            $cmd = "`$a = [Reflection.Assembly]::LoadFile('$(Join-Path $leproc.DirectoryName 'LEInstaller.exe')'); " +
-                "`$n = `$a.GetManifestResourceNames() | Where-Object { `$_ -like '*.Resources.resources' } | Select-Object -First 1; " +
-                "`$rm = New-Object Resources.ResourceManager(`$n -replace '\.resources$', ''), `$a; " +
-                "[IO.File]::WriteAllBytes('$dll', [byte[]] `$rm.GetObject('LECommonLibrary'))"
-            & powershell.exe -NoProfile -Command $cmd
-            Write-Host "LECommonLibrary.dll from LEInstaller: $((Get-Item $dll -ErrorAction SilentlyContinue).Length) bytes"
-        }
+        $leproc = Get-Item (& (Join-Path $PSScriptRoot 'le.ps1') | Select-Object -Last 1)
         $res = Join-Path $Out 'le-acp.txt'
         $start = Get-Date
         $p = Start-Process -FilePath $leproc.FullName -ArgumentList @("`"$Probe`"", 'acp', "`"$res`"") -PassThru

@@ -1,7 +1,10 @@
 # Runs LR2 as a black box on the runner: starts it, reads its screen
 # (gdigrab) and the files it writes. LR2's own files stay in
 # $env:RUNNER_TEMP\lr2; $Out gets only this script's logs and screenshots.
-#   lr2.ps1 -Stage explore -Zip LR2.zip -Probe lr2probe.exe -Out DIR
+#   lr2.ps1 -Stage explore|setup -Zip LR2.zip -Probe lr2probe.exe -Out DIR
+#     explore: LR2body.exe and LR2.exe started as they come
+#     setup: LR2.exe (its setup dialog) under Locale Emulator, its controls
+#            read through UI Automation
 param(
     [Parameter(Mandatory)] [string] $Stage,
     [Parameter(Mandatory)] [string] $Zip,
@@ -104,6 +107,28 @@ switch ($Stage) {
             $f = $_
             Log 'config-names.txt' { "--- $($f.FullName.Substring($root.Length + 1))"; try { XmlNames $f.FullName } catch { "not read: $($_.Exception.Message)" } }
         }
+    }
+    'setup' {
+        $root = Unpack
+        $le = & (Join-Path $PSScriptRoot 'le.ps1') | Select-Object -Last 1
+        $uia = Join-Path $PSScriptRoot 'uia.ps1'
+        # LR2body.exe first: its error, now readable
+        $p = Start-Process -FilePath $le -ArgumentList @("`"$(Join-Path $root 'LR2body.exe')`"") -WorkingDirectory $root -PassThru
+        Start-Sleep -Seconds 4
+        Shot 'le-body.png'
+        Log 'le-body.txt' { & $Probe windows }
+        Log 'le-body.txt' {
+            $t = (& $Probe windows | Select-String 'pid \d+ \[#32770\] "([^"]+)"' | Select-Object -First 1)
+            if ($t) { & powershell.exe -NoProfile -File $uia -Cmd dump -Title $t.Matches[0].Groups[1].Value -Out (Join-Path $Out 'le-body-dialog.txt') -Wait 2 }
+        }
+        Get-Process -Name LR2body -ErrorAction SilentlyContinue | Stop-Process -Force
+        # then the setup dialog
+        $p = Start-Process -FilePath $le -ArgumentList @("`"$(Join-Path $root 'LR2.exe')`"") -WorkingDirectory $root -PassThru
+        Start-Sleep -Seconds 4
+        Shot 'le-setup.png'
+        & powershell.exe -NoProfile -File $uia -Cmd dump -Title 'LR2 SETUP' -Out (Join-Path $Out 'setup-controls.txt') -Shots $Out
+        Get-Content (Join-Path $Out 'setup-controls.txt') | Write-Host
+        Get-Process -Name LR2 -ErrorAction SilentlyContinue | Stop-Process -Force
     }
     default { throw "unknown stage $Stage" }
 }

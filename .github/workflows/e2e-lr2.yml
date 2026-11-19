@@ -30,7 +30,7 @@ env:
   # the Internet Archive's capture of that URL.
   LR2_URL: https://web.archive.org/web/20190802100906id_/http://www.dream-pro.info/~lavalse/LR2_100201.zip
   # the cache key; CI's cache prune keeps e2e-* keys on every ref
-  LR2_SHA256: ''
+  LR2_SHA256: 34294ea6661b232071688a93de31631e4e8114a82314d3386541e6875a74ff41
   OUT: ${{ github.workspace }}\e2e-lr2-out
   PROBE: ${{ github.event.inputs.probe == 'true' }}
 
@@ -115,8 +115,10 @@ jobs:
         run: tools/e2e/lr2/probe.ps1 -Stage input -Tag d3d9 -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       # ---- LR2 (tools/e2e/lr2/lr2.ps1); its files stay in $RUNNER_TEMP\lr2
-      - name: LR2, first start
-        run: tools/e2e/lr2/lr2.ps1 -Stage explore -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
+      - name: LR2's setup dialog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/e2e/lr2/lr2.ps1 -Stage setup -Zip "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Probe "$env:RUNNER_TEMP\lr2probe.exe" -Out $env:OUT
 
       - name: Summary
         if: always()
