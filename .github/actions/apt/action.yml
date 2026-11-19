@@ -7,19 +7,25 @@ inputs:
   packages:
     description: Packages to install, separated by spaces
     required: true
+  recommends:
+    description: Whether the packages' Recommends are installed too ("false" leaves them out)
+    required: false
+    default: "true"
 
 runs:
   using: composite
   steps:
     # The hosted x64 images list several mirrors and apt may settle on a slow
-    # one; keep only Azure's, next to the runners. (arm64 images use
-    # ports.ubuntu.com, which Azure does not mirror: left as is.)
+    # one; Azure's, next to the runners, comes first, and the main archive
+    # after it for when Azure's does not answer (apt's mirror list tries the
+    # next one). (arm64 images use ports.ubuntu.com, which Azure does not
+    # mirror: left as is.)
     - name: pin the mirror
       shell: bash
       run: |
         f=/etc/apt/apt-mirrors.txt
         if [ "$(dpkg --print-architecture)" = amd64 ] && [ -f "$f" ]; then
-          echo "http://azure.archive.ubuntu.com/ubuntu/" | sudo tee "$f" >/dev/null
+          printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee "$f" >/dev/null
         fi
         echo "APT_ARCHIVES=$RUNNER_TEMP/apt-archives" >> "$GITHUB_ENV"
         mkdir -p "$RUNNER_TEMP/apt-archives/partial"
@@ -28,13 +34,15 @@ runs:
     - uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/apt-archives
-        key: apt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.packages }}
+        key: apt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.recommends == 'false' && 'norec-' || '' }}${{ inputs.packages }}
     - name: install
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
+        RECOMMENDS: ${{ inputs.recommends }}
       run: |
         opts=(-o Acquire::Retries=3 -o "Dir::Cache::Archives=$APT_ARCHIVES" -o APT::Keep-Downloaded-Packages=true)
+        [ "$RECOMMENDS" = false ] && opts+=(--no-install-recommends)
         sudo apt-get "${opts[@]}" update
         # shellcheck disable=SC2086
         sudo apt-get "${opts[@]}" install -y $PACKAGES
