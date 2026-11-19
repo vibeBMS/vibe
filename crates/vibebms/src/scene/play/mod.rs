@@ -594,7 +594,6 @@ impl PlayScene {
             if let Some(mut old) = std::mem::replace(&mut self.skin, new) {
                 old.free(gfx);
             }
-            self.touch.zones.clear();
         }
     }
 

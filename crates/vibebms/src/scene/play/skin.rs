@@ -757,7 +757,7 @@ impl Hooks for PlayHooks<'_> {
 
     fn notes(&mut self, d: &mut Draw, skin: &LoadedSkin, xf: &Xf, now: i64, st: &dyn SkinState) {
         if skin.skin.perspective {
-            super::persp::draw(self.st, d, xf);
+            super::persp::draw(self.st, d);
         } else {
             super::notes::draw(self.st, d, skin, xf, now, st);
         }

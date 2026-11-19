@@ -16,9 +16,8 @@ use crate::ui;
 impl PlayScene {
     pub(super) fn draw_play(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
         self.sync_sides(&ctx.config.play);
-        let areas = self.touch_areas(ctx);
-        self.rebuild_zones(ctx, &areas);
-        let (view, _) = self.play_view(ctx, &areas);
+        self.lay_out(ctx);
+        let view = self.touch.view;
         let mut notes_graph = std::mem::take(&mut self.notes_graph);
         if let Some(sk) = self.skin.as_ref() {
             let st = PlayState::new(self, ctx, now);
@@ -33,7 +32,7 @@ impl PlayScene {
         let ui = ctx.ui();
         if ctx.touch_enabled() {
             let zones = &self.touch.zones;
-            for (area, _, _) in &areas {
+            for (area, _, _) in &self.touch.areas {
                 d.b.rect(*area, rgba(0x05060aff));
             }
             // (the perspective lanes draw their own touch areas)
@@ -65,13 +64,12 @@ impl PlayScene {
             if self.controls.panel[who].open() && (!self.skin_panel || who == 1) {
                 self.draw_panel(ctx, d, view, now, who);
             } else if who == 0 || self.session.vs {
-                self.draw_hs_change(ctx, d, view, now, who);
+                self.draw_hs_change(ctx, d, now, who);
             }
         }
         // VS: a player who failed plays no more
         if self.session.vs {
-            let fields = self.fields(view);
-            for (side, f) in self.session.sides.iter().zip(&fields) {
+            for (side, f) in self.session.sides.iter().zip(&self.touch.fields) {
                 if side.failed.is_some() {
                     d.b.rect(*f, with_alpha(rgba(0x000000ff), 0.6));
                     d.text(
@@ -113,12 +111,12 @@ impl PlayScene {
 
     /// A hi-speed change the player made, shown over the top of their
     /// note field for a moment (`hsview::SHOWN`), fading out.
-    fn draw_hs_change(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant, who: usize) {
+    fn draw_hs_change(&self, ctx: &Ctx, d: &mut Draw, now: Instant, who: usize) {
         let p = self.side_config(who);
         let Some((text, fade)) = self.hs_view[who].shown(p, &self.bpms_at(now), now) else {
             return;
         };
-        let fields = self.fields(view);
+        let fields = &self.touch.fields;
         let f = match self.session.vs {
             true => fields.get(who),
             false => fields.first(),
@@ -150,7 +148,7 @@ impl PlayScene {
     /// field (between the fields in double play), never over the lanes.
     fn draw_panel(&self, ctx: &Ctx, d: &mut Draw, view: Rect, now: Instant, who: usize) {
         let ui = ctx.ui();
-        let fields = self.fields(view);
+        let fields = &self.touch.fields;
         let (Some(first), Some(last)) = (fields.first(), fields.last()) else {
             return;
         };
