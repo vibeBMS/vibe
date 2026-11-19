@@ -166,13 +166,23 @@ jobs:
           java: "false"
       - run: cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
-  # each Linux executable with the in-app browser, built in a pinned Ubuntu
-  # 22.04 container (glibc 2.35 and WebKitGTK 4.1, the oldest base that has
-  # it: Ubuntu 22.04, Debian 12 and newer; `build-linux-portable` has the
-  # rest), its packages from the Ubuntu snapshot (x64) or as
-  # tools/linux-arm64.lock lists them (arm64: the ports archive has no
-  # snapshot) (the image by digest and the packages: tools/repro.env;
-  # tools/reproduce.sh builds the same)
+  # each Linux executable with the in-app browser, then the same executable as
+  # a Flatpak. One job per architecture, on the Ubuntu 22.04 runner:
+  # - the executable is built in the pinned Ubuntu 22.04 image (glibc 2.35
+  #   and WebKitGTK 4.1, the oldest base that has it: Ubuntu 22.04, Debian 12
+  #   and newer; `build-linux-portable` has the rest), its packages from the
+  #   Ubuntu snapshot (x64) or as tools/linux-arm64.lock lists them (arm64:
+  #   the ports archive has no snapshot) (the image by digest and the
+  #   packages: tools/repro.env; tools/reproduce.sh builds the same). Only
+  #   that step runs in it (docker run), with the runner's Rust, CARGO_HOME
+  #   and target folder mounted where they are, so rust-cache restores and
+  #   saves them as for any build;
+  # - the Flatpak is packaged on the runner (as it is, on the GNOME runtime,
+  #   which has WebKitGTK 4.1; a bundle per architecture, as a bundle holds
+  #   one: tools/package_flatpak.sh, platform/flatpak): bubblewrap needs the
+  #   host's user namespaces. The executable's artifact is uploaded before
+  #   the Flatpak steps, which do not fail the job, so the nightly has the
+  #   executable either way and the caches are saved.
   build-linux:
     name: build ${{ matrix.name }}
     needs: [test, pins]
@@ -180,40 +190,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x64, os: ubuntu-latest, arch: x64, target: x86_64-unknown-linux-gnu }
-          - { name: linux-arm64, os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.arch == 'x64' && needs.pins.outputs.linux-x64 || needs.pins.outputs.linux-arm64 }}
-    steps:
-      - uses: actions/checkout@v7
-      - run: tools/build_deps.sh ${{ matrix.name }}
-      - uses: ./.github/actions/rust-build
-        with:
-          name: ${{ matrix.name }}
-          target: ${{ matrix.target }}
-          cache-key: ${{ matrix.name }}-${{ needs.pins.outputs.key-linux }}
-
-  # the same executable as a Flatpak: as it is, on the GNOME runtime (it has
-  # WebKitGTK 4.1), a bundle per architecture (a bundle holds one;
-  # tools/package_flatpak.sh, platform/flatpak), packaged on the Ubuntu 22.04
-  # runner (bubblewrap needs the host's user namespaces). The executable is
-  # in the nightly whether or not its Flatpak is
-  flatpak:
-    name: Flatpak ${{ matrix.name }}
-    needs: build-linux
-    # (each architecture's whether or not the other's build passed; none
-    # when the builds did not run, after the tests failed)
-    if: ${{ !cancelled() && needs.build-linux.result != 'skipped' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
           - name: linux-x64
             os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
             arch: x64
             loader: /lib64/ld-linux-x86-64.so.2
           - name: linux-arm64
             os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
             arch: arm64
             loader: /lib/ld-linux-aarch64.so.1
     runs-on: ${{ matrix.os }}
@@ -228,13 +212,48 @@ jobs:
           # without their Recommends (desktop portals, speech data: not needed
           # to package)
           packages-without-recommends: flatpak desktop-file-utils appstream appstream-compose
-      - uses: actions/download-artifact@v8
+      # Rust on the runner, the cache, and the version, app id, name and
+      # branch (tools/ci_version.sh; the Flatpak takes them too, e.g.
+      # io.github.vibebms.nightly, "vibeBMS Nightly")
+      - uses: ./.github/actions/rust-setup
+        with:
+          targets: ${{ matrix.target }}
+          cache-key: ${{ matrix.name }}-${{ needs.pins.outputs.key-linux }}
+      # in the pinned image: its packages as root (tools/build_deps.sh), then
+      # tools/build_release.sh as the runner's user, so what it writes into the
+      # mounted folders stays the runner's
+      - name: build (in the pinned image)
+        env:
+          IMAGE: ${{ matrix.arch == 'x64' && needs.pins.outputs.linux-x64 || needs.pins.outputs.linux-arm64 }}
+          ARTIFACT: ${{ matrix.name }}
+        run: |
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}" rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          USER_IDS="$(id -u):$(id -g)"
+          export SOURCE_DATE_EPOCH USER_IDS
+          # shellcheck disable=SC2016 # expanded in the container
+          docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -v "$cargo_home:$cargo_home" -v "$rustup_home:$rustup_home" \
+            -e CARGO_HOME="$cargo_home" -e RUSTUP_HOME="$rustup_home" -e HOME=/tmp/build-home \
+            -e PATH="$cargo_home/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+            -e ARTIFACT -e USER_IDS -e SOURCE_DATE_EPOCH -e CARGO_TERM_COLOR \
+            -e VIBEBMS_CHANNEL -e VIBEBMS_VERSION -e VIBEBMS_BASE_VERSION -e VIBEBMS_BUILD -e VIBEBMS_COMMIT \
+            -e VIBEBMS_APP_ID -e VIBEBMS_APP_NAME \
+            "$IMAGE" bash -c '
+              set -euo pipefail
+              tools/build_deps.sh "$ARTIFACT"
+              mkdir -p "$HOME" && chown "$USER_IDS" "$HOME"
+              exec setpriv --reuid="${USER_IDS%:*}" --regid="${USER_IDS#*:}" --clear-groups \
+                tools/build_release.sh "$ARTIFACT"'
+      # the version it was built with, for the nightly's latest.json
+      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
+      # the executable alone (the downloads job links it in the run summary)
+      - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-${{ matrix.name }}
-          path: exe
-      # the version, and the app id, name and branch the Flatpak takes, e.g.
-      # io.github.vibebms.nightly, "vibeBMS Nightly"
-      - run: tools/ci_version.sh
+          path: |
+            target/${{ matrix.target }}/release/vibebms
+            target/${{ matrix.target }}/release/version.txt
       - name: Flatpak runtime
         run: |
           # org.gnome.Platform//51, from the manifest
@@ -253,11 +272,11 @@ jobs:
         with:
           path: ~/.local/share/flatpak
           key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
-      # the Flatpak steps do not fail the job: a failed job would skip saving
-      # its cache
+      # the Flatpak steps do not fail the job: the executable is uploaded
+      # already, and a failed job would skip saving its caches
       - id: flatpak
         continue-on-error: true
-        run: tools/package_flatpak.sh exe/vibebms out
+        run: tools/package_flatpak.sh target/${{ matrix.target }}/release/vibebms out
       # the bundle installs, and every library the executable links (WebKitGTK
       # 4.1 among them) is in the runtime. --no-related leaves out the runtime's
       # GL drivers, codecs and translations (another ~1 GB in the cache), which
@@ -551,7 +570,7 @@ jobs:
   # run) and, for a push to the default branch, the rolling nightly release
   nightly:
     name: downloads & nightly
-    needs: [build-linux, flatpak, build-windows, build-linux-portable, macos, android, ios, web]
+    needs: [build-linux, build-windows, build-linux-portable, macos, android, ios, web]
     if: always()
     runs-on: ubuntu-latest
     env:
