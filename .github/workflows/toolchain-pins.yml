@@ -120,7 +120,8 @@ jobs:
             if [ ! -d "$d" ] || [ -L "$d" ]; then continue; fi
             v="${d#/Applications/Xcode_}" v="${v%.app}"
             [[ "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]] || continue
-            have="$(DEVELOPER_DIR="$d/Contents/Developer" xcodebuild -version 2>/dev/null | head -1)"
+            # (an Xcode whose xcodebuild aborts is listed as none, not fatal)
+            have="$(DEVELOPER_DIR="$d/Contents/Developer" xcodebuild -version 2>/dev/null | head -1)" || have=""
             if [ "$have" = "Xcode $v" ]; then list="$list $(cut -d. -f1-2 <<< "$v")"; else echo "::warning::$d is ${have:-no Xcode}"; fi
           done
           list="$(tr ' ' '\n' <<< "$list" | sed '/^$/d' | sort -u | paste -sd ' ' -)"
