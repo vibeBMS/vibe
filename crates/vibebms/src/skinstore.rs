@@ -68,9 +68,8 @@ pub struct SkinEntry {
     pub homepage: String,
     /// The author's terms, as stated.
     pub license: String,
-    /// Where its download comes from ([`Catalog::settle`] fills it in).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<Source>,
+    /// Where its download comes from (none given: someone else's).
+    pub source: Source,
     /// Its folder below `skins/` (an LR2 skin: the theme name its files use).
     pub folder: String,
 }
@@ -90,11 +89,6 @@ pub enum Source {
     #[serde(other)]
     ThirdParty,
 }
-
-/// The catalog version that brought `source`: an entry without it in an
-/// older catalog is the author's own (all of version 1's were), in this
-/// one or a newer one someone else's.
-pub const SOURCE_VERSION: u32 = 2;
 
 /// The scene names a catalog entry may list.
 pub const SCENES: &[&str] = &[
@@ -149,7 +143,7 @@ impl SkinEntry {
     /// Someone else's copy (see [`Source`]): offered only with third-party
     /// sources on.
     pub fn third_party(&self) -> bool {
-        self.source != Some(Source::Official)
+        self.source != Source::Official
     }
 
     /// Why it cannot be downloaded with third-party sources `on` or off,
@@ -185,27 +179,7 @@ impl Catalog {
                 && matches!(s.kind.as_str(), "lr2" | "beatoraja")
                 && seen.insert(s.id.clone())
         });
-        c.settle();
         Ok(c)
-    }
-
-    /// Each entry's source, where it has none: the author's own in a
-    /// catalog from before [`SOURCE_VERSION`], else someone else's.
-    pub fn settle(&mut self) {
-        let missing = if self.version < SOURCE_VERSION {
-            Source::Official
-        } else {
-            Source::ThirdParty
-        };
-        for s in &mut self.skins {
-            s.source.get_or_insert(missing);
-        }
-    }
-
-    /// A copy saved by a build that does not keep `source` (written
-    /// without it, though the catalog has it): read again, not trusted.
-    fn lost_sources(&self) -> bool {
-        self.version >= SOURCE_VERSION && self.skins.iter().any(|s| s.source.is_none())
     }
 
     pub fn builtin() -> Catalog {
@@ -257,19 +231,17 @@ struct Cached {
 }
 
 impl SkinStore {
-    /// The cached catalog (else the one compiled in) and the record of
-    /// installed skins.
+    /// The cached catalog (else the one compiled in, also for a cache of
+    /// an older catalog version) and the record of installed skins.
     pub fn load(paths: &crate::paths::Paths) -> SkinStore {
+        let builtin = Catalog::builtin();
         let cached = crate::platform::vfs::read(&cache_file(paths))
             .ok()
             .and_then(|b| serde_json::from_slice::<Cached>(&b).ok())
-            .filter(|c| !c.catalog.skins.is_empty() && !c.catalog.lost_sources());
+            .filter(|c| !c.catalog.skins.is_empty() && c.catalog.version >= builtin.version);
         let (catalog, fetched_at) = match cached {
-            Some(mut c) => {
-                c.catalog.settle();
-                (c.catalog, c.fetched_at)
-            }
-            None => (Catalog::builtin(), 0),
+            Some(c) => (c.catalog, c.fetched_at),
+            None => (builtin, 0),
         };
         let installed = crate::platform::vfs::read(&paths.skins.join(RECORD))
             .ok()
@@ -834,7 +806,6 @@ mod tests {
             assert_eq!(s.folder(), s.folder, "{}", s.id);
         }
         // each one says where its download comes from
-        assert!(c.version >= SOURCE_VERSION);
         for s in raw["skins"].as_array().unwrap() {
             assert!(
                 matches!(s["source"].as_str(), Some("official" | "third_party")),
@@ -883,49 +854,12 @@ mod tests {
         let tp: Vec<bool> = c.skins.iter().map(SkinEntry::third_party).collect();
         // none given, or one this build does not know: someone else's
         assert_eq!(tp, [false, true, true, true]);
-        assert!(c.skins.iter().all(|s| s.source.is_some()));
         assert!(c.skins[0].third_party_refusal(false).is_none());
         assert!(c.skins[1].third_party_refusal(false).is_some());
         assert!(c.skins[1].third_party_refusal(true).is_none());
-        // version 1 had no sources: all its skins were the authors' own
-        let old = br#"{"version": 1, "skins": [
-            {"id": "a", "kind": "lr2", "downloads": ["https://h/a.zip"]}
-        ]}"#;
-        assert!(!Catalog::parse(old).unwrap().skins[0].third_party());
-        // what this build writes keeps them; a build that dropped them
-        // left a copy not to trust
-        let mut cached: Catalog = serde_json::from_slice(&serde_json::to_vec(&c).unwrap()).unwrap();
-        assert!(!cached.lost_sources());
+        // what this build writes keeps them
+        let cached: Catalog = serde_json::from_slice(&serde_json::to_vec(&c).unwrap()).unwrap();
         assert_eq!(cached.skins, c.skins);
-        cached.skins[0].source = None;
-        assert!(cached.lost_sources());
-    }
-
-    /// A catalog copy saved by a build that does not keep `source` is not
-    /// read: the one compiled in instead, read again from the repository.
-    #[test]
-    fn a_copy_without_sources_is_read_again() {
-        let root = std::env::temp_dir().join(format!("vibebms-skincache-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let paths = crate::paths::Paths::at(root.clone());
-        std::fs::create_dir_all(&paths.cache).unwrap();
-        let write = |source: &str| {
-            let j = format!(
-                r#"{{"fetched_at": 5, "catalog": {{"version": 2, "skins": [
-                    {{"id": "x", "kind": "lr2", "downloads": ["https://h/x.zip"]{source}}}
-                ]}}}}"#
-            );
-            std::fs::write(cache_file(&paths), j).unwrap();
-        };
-        write(r#", "source": "official""#);
-        let s = SkinStore::load(&paths);
-        assert_eq!(s.catalog.skins.len(), 1);
-        assert!(!s.catalog.skins[0].third_party() && s.fetched_at == 5);
-        write("");
-        let s = SkinStore::load(&paths);
-        assert_eq!(s.catalog.skins, Catalog::builtin().skins);
-        assert_eq!(s.fetched_at, 0);
-        std::fs::remove_dir_all(&root).ok();
     }
 
     fn placed(e: &SkinEntry, files: &[&str]) -> Vec<(String, String)> {
