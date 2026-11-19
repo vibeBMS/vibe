@@ -81,6 +81,12 @@ switch ($Stage) {
                 LogName = 'Application'; ProviderName = '.NET Runtime', 'Application Error'; StartTime = $start
             } | Select-Object -First 3 | ForEach-Object { $_.Message } |
                 Tee-Object -FilePath (Join-Path $Out 'le-crash.txt') | Write-Host
+            # the same entry point under Windows PowerShell's .NET Framework,
+            # for the exception's message (the log has only its type)
+            $cmd = "try { `$a = [Reflection.Assembly]::LoadFile('$($leproc.FullName)'); " +
+                "`$a.EntryPoint.Invoke(`$null, @(,[string[]]@('$Probe', 'acp', '$res'))) } " +
+                "catch { `$e = `$_.Exception; while (`$e) { `$e.GetType().FullName + ': ' + `$e.Message; if (`$e.FileName) { 'file: ' + `$e.FileName }; `$e = `$e.InnerException } }"
+            & powershell.exe -NoProfile -Command $cmd | Tee-Object -Append -FilePath (Join-Path $Out 'le-crash.txt') | Write-Host
         }
         for ($i = 0; $i -lt 15 -and -not (Test-Path $res); $i++) { Start-Sleep -Seconds 1 }
         Start-Sleep -Seconds 1

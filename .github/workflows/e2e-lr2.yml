@@ -51,6 +51,16 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: tools/e2e/lr2/fetch.ps1 -Url $env:LR2_URL -Out "$env:RUNNER_TEMP\lr2-zip\LR2_100201.zip" -Sha256 $env:LR2_SHA256
+      # The one copy of the official file left is the Internet Archive's
+      # capture of the URL above, which the owner has not approved: it is
+      # only asked whether it answers (HEAD; nothing is downloaded).
+      - name: The official URL's Internet Archive capture (HEAD only)
+        if: steps.fetch.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          $u = "https://web.archive.org/web/20190802100906id_/$env:LR2_URL"
+          $r = Invoke-WebRequest -Method Head -Uri $u -MaximumRedirection 5 -UseBasicParsing -TimeoutSec 60
+          Write-Host "HEAD $u -> $($r.StatusCode), $($r.Headers['Content-Type']), $($r.Headers['Content-Length']) bytes"
       - name: Keep LR2 in the cache
         if: steps.fetch.outcome == 'success' && env.LR2_SHA256 != ''
         uses: actions/cache/save@v6
