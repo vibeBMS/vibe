@@ -5,6 +5,7 @@ mod anim;
 mod batch;
 mod capture;
 mod device;
+mod font;
 mod image;
 #[cfg(desktop)]
 mod offscreen;
