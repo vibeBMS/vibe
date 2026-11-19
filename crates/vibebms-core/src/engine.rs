@@ -521,15 +521,10 @@ impl Engine {
     /// Take the `Sound` and `Volume` events; the rest stay for
     /// `drain_events`.
     pub fn take_sounds(&mut self) -> Vec<EngineEvent> {
-        let mut sounds = Vec::new();
-        self.events.retain(|e| {
-            let sound = matches!(e, EngineEvent::Sound { .. } | EngineEvent::Volume { .. });
-            if sound {
-                sounds.push(e.clone());
-            }
-            !sound
-        });
-        sounds
+        let sound = |e: &mut EngineEvent| {
+            matches!(e, EngineEvent::Sound { .. } | EngineEvent::Volume { .. })
+        };
+        self.events.extract_if(.., sound).collect()
     }
 
     // ----- time ------------------------------------------------------------
