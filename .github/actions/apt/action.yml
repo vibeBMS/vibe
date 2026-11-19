@@ -7,10 +7,12 @@ inputs:
   packages:
     description: Packages to install, separated by spaces
     required: true
-  recommends:
-    description: Whether the packages' Recommends are installed too ("false" leaves them out)
+  packages-without-recommends:
+    description: >-
+      Packages to install without their Recommends, after `packages` (which
+      get theirs), separated by spaces
     required: false
-    default: "true"
+    default: ""
 
 runs:
   using: composite
@@ -42,21 +44,24 @@ runs:
     - uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/apt-archives
-        key: apt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.recommends == 'false' && 'norec-' || '' }}${{ inputs.packages }}
+        key: apt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.packages }}${{ inputs.packages-without-recommends && format('-norec-{0}', inputs.packages-without-recommends) || '' }}
     - name: install
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
-        RECOMMENDS: ${{ inputs.recommends }}
+        NOREC: ${{ inputs.packages-without-recommends }}
       run: |
         # (a short connect timeout: a mirror that does not answer is left for
         # the next one at once)
         opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o "Dir::Cache::Archives=$APT_ARCHIVES"
           -o APT::Keep-Downloaded-Packages=true)
-        [ "$RECOMMENDS" = false ] && opts+=(--no-install-recommends)
         sudo apt-get "${opts[@]}" update
         # shellcheck disable=SC2086
         sudo apt-get "${opts[@]}" install -y $PACKAGES
+        if [ -n "$NOREC" ]; then
+          # shellcheck disable=SC2086
+          sudo apt-get "${opts[@]}" install -y --no-install-recommends $NOREC
+        fi
         # apt leaves root-owned files: make them readable for the cache
         sudo chown -R "$(id -u):$(id -g)" "$APT_ARCHIVES"
         rm -f "$APT_ARCHIVES/lock"

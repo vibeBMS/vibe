@@ -18,7 +18,9 @@
   <launchable type="desktop-id">@APP_ID@.desktop</launchable>
   <url type="homepage">https://github.com/vibeBMS/vibe</url>
   <url type="bugtracker">https://github.com/vibeBMS/vibe/issues</url>
-  <url type="vcs-browser">https://github.com/vibeBMS/vibe</url>
+  <!-- no vcs-browser URL (the same as the homepage): AppStream 0.15.2, which
+       CI packages with (Ubuntu 22.04), does not know the type, and its
+       validator fails on it -->
   <content_rating type="oars-1.1"/>
   <supports>
     <control>keyboard</control>
