@@ -398,7 +398,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    # pushes publish the build to the gh-pages branch (GitHub Pages)
+    # a push to the default branch publishes the build to the gh-pages branch (GitHub Pages)
     permissions:
       contents: write
     # only pushes publish, so only they queue behind each other (a group
@@ -441,36 +441,15 @@ jobs:
         with:
           name: vibeBMS-web
           path: web
-      # default branch -> the site root, other branches -> preview/<branch>/
-      - name: where to publish
-        if: github.event_name == 'push'
-        id: dest
-        shell: bash
-        run: |
-          if [ "${GITHUB_REF_NAME}" = "${{ github.event.repository.default_branch }}" ]; then
-            dir=""
-          else
-            dir="preview/$(echo "${GITHUB_REF_NAME}" | tr -c 'A-Za-z0-9._\n-' '-')"
-          fi
-          echo "dir=$dir" >> "$GITHUB_OUTPUT"
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
-          repo="${GITHUB_REPOSITORY#*/}"
-          echo "url=https://${owner}.github.io/${repo}/${dir:+$dir/}" >> "$GITHUB_OUTPUT"
+      # the default branch's build is the site (other branches' stay artifacts)
       - name: publish to gh-pages
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./web
-          destination_dir: ${{ steps.dest.outputs.dir }}
           keep_files: true
-          commit_message: "web build ${{ github.sha }} (${{ github.ref_name }})"
-      - name: link
-        if: github.event_name == 'push'
-        run: |
-          echo "### Web build" >> "$GITHUB_STEP_SUMMARY"
-          echo "${{ steps.dest.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "(needs GitHub Pages: Settings > Pages > Deploy from a branch > gh-pages / root)" >> "$GITHUB_STEP_SUMMARY"
+          commit_message: "web build ${{ github.sha }}"
 
   # an unsigned .ipa: install it by signing it with your own Apple ID
   # (AltStore, Sideloadly) or a developer certificate
