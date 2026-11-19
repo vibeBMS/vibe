@@ -11,11 +11,7 @@
 use super::{Gfx, TexId};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-const SMALL: bool = cfg!(any(
-    target_arch = "wasm32",
-    target_os = "android",
-    target_os = "ios"
-));
+const SMALL: bool = cfg!(small_device);
 const MB: usize = 1 << 20;
 /// The frames one animation keeps (bytes of RGBA).
 const PER_ANIM: usize = if SMALL { 32 * MB } else { 128 * MB };

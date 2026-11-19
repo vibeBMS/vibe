@@ -73,7 +73,7 @@ fn load(file: PathBuf, deliver: impl FnOnce(Links) + Send + 'static) {
     let list = bmseeker::config::Config::default().stella_list;
     // web: stellabms.xyz sends no CORS headers
     #[cfg(target_arch = "wasm32")]
-    let url = crate::hosts::via_proxy(&list);
+    let url = bmseeker::web::proxied(bmseeker::web::PROXY, &list);
     #[cfg(not(target_arch = "wasm32"))]
     let url = list.clone();
     crate::platform::http_get(&url, move |r| match r {

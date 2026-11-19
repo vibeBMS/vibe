@@ -13,25 +13,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 
-/// The replay format. 2: the judge handles every input at its own time
-/// (a replay of 1 may judge a little otherwise when played again).
-/// 3: the LR2 preset keeps LR2's combo and note rules in every key mode
-/// and its HAZARD gauge ignores an empty POOR (a LR2-preset replay of 2
-/// in 5/10 keys or PMS, or on HAZARD, may judge otherwise).
-/// 4: the LR2 preset's HARD and EX-HARD damage by TOTAL steps at the
-/// multiples of 10 (a LR2-preset replay of 3 below TOTAL 240 may end
-/// otherwise on those gauges).
-/// 5: the LR2 preset as `docs/LR2_BEHAVIOUR.md` has it: the note choice
-/// and the BAD chain, whole milliseconds, its long notes and mines,
-/// `#RANK` and `#TOTAL` as LR2 reads them, its HARD damage by TOTAL, its
-/// HAZARD and dan gauges (a LR2-preset replay of 4 may judge otherwise).
-/// 6: the IIDX preset as DX MODE: its windows (BAD ±200 ms, 9 keys
-/// pop'n's), combo and note rules, gauges and 2 % rule (an IIDX-preset
-/// replay of 5 may judge otherwise).
-/// 7: the IIDX preset as the arcade: BAD ±250 ms, the empty POOR's 150 ms
-/// late, HARD and EX-HARD damage, the 30 % rule at 30 % and the survival
-/// gauges failing at 0 % (an IIDX-preset replay of 6 in 5, 7, 10 or 14
-/// keys may judge otherwise).
+/// The replay format: bumped when a replay of the one before may judge
+/// otherwise on the judge of now (each change: `docs/RULES.md`, "Replay
+/// formats").
 pub const VERSION: u32 = 7;
 
 /// The oldest format still read: its ghost still paces a play, but

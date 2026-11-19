@@ -22,6 +22,7 @@ impl Gfx {
         (f(w), f(h))
     }
 
+    /// A `w`×`h` texture holding `rgba` (transparent when `rgba` is shorter).
     pub fn create_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> TexId {
         let (sw, sh) = self.stored_size(w, h);
         if (sw, sh) != (w, h) && w > 0 && h > 0 {

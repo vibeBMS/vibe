@@ -516,6 +516,20 @@ BATTLE, so RANDOM shuffles the target's lanes.
   a slot), and watching it makes the converted chart again. G-BATTLE plays the opponent replay's conversion.
 * Courses play their charts as written (`RuleOptions::for_course`).
 
+## Replay formats
+A replay keeps its format (`replay::VERSION`), bumped whenever the judge changes so that a replay of the format before
+may judge otherwise. An older replay still paces a play with its ghost; watched or played again (G-BATTLE) it runs on
+the judge of now.
+
+| format | the change (a replay of the format before may judge otherwise) |
+|---|---|
+| 2 | the judge handles every input at its own time (a little otherwise) |
+| 3 | the LR2 preset keeps LR2's combo and note rules in every key mode and its HAZARD gauge ignores an empty POOR (LR2-preset replays in 5/10 keys or PMS, or on HAZARD) |
+| 4 | the LR2 preset's HARD and EX-HARD damage by TOTAL steps at the multiples of 10 (LR2-preset replays below TOTAL 240 may end otherwise on those gauges) |
+| 5 | the LR2 preset as [LR2_BEHAVIOUR.md](LR2_BEHAVIOUR.md) has it: the note choice and the BAD chain, whole milliseconds, its long notes and mines, `#RANK` and `#TOTAL` as LR2 reads them, its HARD damage by TOTAL, its HAZARD and dan gauges (LR2-preset replays) |
+| 6 | the IIDX preset as DX MODE: its windows (BAD ±200 ms, 9 keys pop'n's), combo and note rules, gauges and 2 % rule (IIDX-preset replays) |
+| 7 | the IIDX preset as the arcade: BAD ±250 ms, the empty POOR's 150 ms late, HARD and EX-HARD damage, the 30 % rule at 30 % and the survival gauges failing at 0 % (IIDX-preset replays in 5, 7, 10 or 14 keys) |
+
 ## Best scores
 The record of a chart keeps, apart from each other: the best EX score (with that play's judgements), the best lamp,
 the max combo, the min BP (BAD + POOR + empty POOR + notes not reached, skin number 76) and the min CB (combo

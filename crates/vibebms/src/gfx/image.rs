@@ -12,7 +12,7 @@ pub struct Picture {
 /// An image file, animated GIF / WebP / APNG with its frames, each frame
 /// passed through `key` (transparency keys such as `key_black`).
 pub fn load_picture(path: &std::path::Path, key: &dyn Fn(&mut [u8])) -> Option<Picture> {
-    let bytes = match crate::platform::vfs::read(path) {
+    let bytes = match crate::platform::vfs::read_shared(path) {
         Ok(b) => b,
         Err(e) => {
             log::debug!("image {}: {e}", path.display());

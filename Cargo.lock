@@ -398,7 +398,7 @@ dependencies = [
 [[package]]
 name = "bmseeker"
 version = "0.1.0-dev"
-source = "git+https://github.com/vibeBMS/BMSeeker#181b9164cef8cd641a055064bf4587797abd346b"
+source = "git+https://github.com/vibeBMS/BMSeeker#acacc407aa26d1cd00338a14deac2a78d7f55e50"
 dependencies = [
  "aes",
  "delharc",
@@ -1983,7 +1983,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4627,7 +4627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
@@ -5088,6 +5088,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vibebms"
 version = "0.1.0-dev"
 dependencies = [
+ "ab_glyph_rasterizer",
  "block2 0.6.2",
  "bmseeker",
  "bytemuck",
@@ -5108,6 +5109,7 @@ dependencies = [
  "js-sys",
  "json5",
  "log",
+ "memmap2",
  "mlua",
  "mlua-sys",
  "ndk-context",
@@ -5118,6 +5120,7 @@ dependencies = [
  "png",
  "pollster 0.4.0",
  "rfd",
+ "rustc-hash 2.1.3",
  "security-framework",
  "self-replace",
  "serde",
@@ -5179,6 +5182,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "vibebms-core",
 ]
 
 [[package]]
