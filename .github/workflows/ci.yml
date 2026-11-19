@@ -63,8 +63,11 @@ jobs:
               gh cache delete "$id"
             done
 
-  # the container images of tools/repro.env (the builds made in containers
-  # take them from here: a job's container cannot read a file)
+  # the container images and runner labels of tools/repro.env (the jobs take
+  # them from here: a job's container and runner cannot read a file), and for
+  # each build a short hash of its pins, in its cache key: Cargo does not see
+  # a new C compiler, so the C its build scripts compiled with the old one
+  # would be kept from the cache
   pins:
     name: pinned build environment
     runs-on: ubuntu-latest
@@ -72,6 +75,15 @@ jobs:
       portable-x64: ${{ steps.pins.outputs.portable-x64 }}
       portable-arm64: ${{ steps.pins.outputs.portable-arm64 }}
       web: ${{ steps.pins.outputs.web }}
+      linux-x64: ${{ steps.pins.outputs.linux-x64 }}
+      linux-arm64: ${{ steps.pins.outputs.linux-arm64 }}
+      macos: ${{ steps.pins.outputs.macos }}
+      windows: ${{ steps.pins.outputs.windows }}
+      key-linux: ${{ steps.pins.outputs.key-linux }}
+      key-portable: ${{ steps.pins.outputs.key-portable }}
+      key-web: ${{ steps.pins.outputs.key-web }}
+      key-macos: ${{ steps.pins.outputs.key-macos }}
+      key-windows: ${{ steps.pins.outputs.key-windows }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,10 +92,20 @@ jobs:
       - id: pins
         run: |
           . tools/repro.env
+          key() { printf '%s\n' "$@" | sha256sum | cut -c1-8; }
           {
             echo "portable-x64=$PORTABLE_IMAGE_X64"
             echo "portable-arm64=$PORTABLE_IMAGE_ARM64"
             echo "web=$WEB_IMAGE"
+            echo "linux-x64=$LINUX_IMAGE_X64"
+            echo "linux-arm64=$LINUX_IMAGE_ARM64"
+            echo "macos=$MACOS_RUNNER"
+            echo "windows=$WINDOWS_RUNNER"
+            echo "key-linux=$(key "$LINUX_IMAGE_X64" "$LINUX_IMAGE_ARM64" "$UBUNTU_SNAPSHOT" "$LINUX_PACKAGES")"
+            echo "key-portable=$(key "$PORTABLE_IMAGE_X64" "$PORTABLE_IMAGE_ARM64" "$PORTABLE_PACKAGES")"
+            echo "key-web=$(key "$WEB_IMAGE" "$UBUNTU_SNAPSHOT" "$WEB_PACKAGES")"
+            echo "key-macos=$(key "$MACOS_RUNNER" "$XCODE_VERSION")"
+            echo "key-windows=$(key "$WINDOWS_RUNNER" "$MSVC_TOOLSET" "$WINDOWS_SDK")"
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
@@ -139,29 +161,51 @@ jobs:
           java: "false"
       - run: cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
-  # each Linux executable, then the same executable as a Flatpak: as it is,
-  # on the GNOME runtime (it has WebKitGTK 4.1), a bundle per architecture
-  # (a bundle holds one; tools/package_flatpak.sh, platform/flatpak). One job
-  # per architecture: one runner and checkout, no artifact round trip. The
-  # executable's artifact is uploaded before the Flatpak steps, so a Flatpak
-  # that fails fails the job but the nightly still has the executable
+  # each Linux executable with the in-app browser, built in a pinned Ubuntu
+  # 22.04 container (glibc 2.35 and WebKitGTK 4.1, the oldest base that has
+  # it: Ubuntu 22.04, Debian 12 and newer; `build-linux-portable` has the
+  # rest), its packages from the Ubuntu snapshot (the image by digest and the
+  # packages: tools/repro.env; tools/reproduce.sh builds the same)
   build-linux:
     name: build ${{ matrix.name }}
-    needs: test
+    needs: [test, pins]
     strategy:
       fail-fast: false
       matrix:
         include:
-          # the oldest runner with WebKitGTK 4.1 (glibc 2.35: Ubuntu 22.04,
-          # Debian 12 and newer); `build-linux-portable` has the rest
+          - { name: linux-x64, os: ubuntu-latest, arch: x64, target: x86_64-unknown-linux-gnu }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.arch == 'x64' && needs.pins.outputs.linux-x64 || needs.pins.outputs.linux-arm64 }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: tools/build_deps.sh ${{ matrix.name }}
+      - uses: ./.github/actions/rust-build
+        with:
+          name: ${{ matrix.name }}
+          target: ${{ matrix.target }}
+          cache-key: ${{ matrix.name }}-${{ needs.pins.outputs.key-linux }}
+
+  # the same executable as a Flatpak: as it is, on the GNOME runtime (it has
+  # WebKitGTK 4.1), a bundle per architecture (a bundle holds one;
+  # tools/package_flatpak.sh, platform/flatpak), packaged on the Ubuntu 22.04
+  # runner (bubblewrap needs the host's user namespaces). The executable is
+  # in the nightly whether or not its Flatpak is
+  flatpak:
+    name: Flatpak ${{ matrix.name }}
+    needs: build-linux
+    # (each architecture's whether or not the other's build passed)
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - name: linux-x64
             os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
             arch: x64
             loader: /lib64/ld-linux-x86-64.so.2
           - name: linux-arm64
             os: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
             arch: arm64
             loader: /lib/ld-linux-aarch64.so.1
     runs-on: ${{ matrix.os }}
@@ -169,21 +213,20 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/apt
         with:
-          packages: libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
+          # faketime: the bundle carries the time it is made, which it makes
+          # the commit's (a reproducible bundle)
+          packages: faketime
           # the Flatpak's (appstream-compose for `appstreamcli compose`),
           # without their Recommends (desktop portals, speech data: not needed
           # to package)
-          # faketime: the bundle carries the time it is made, which it makes
-          # the commit's (a reproducible bundle)
-          packages-without-recommends: flatpak desktop-file-utils appstream appstream-compose faketime
-      # (it also runs tools/ci_version.sh: the version, and the app id, name
-      # and branch the Flatpak takes, e.g. io.github.vibebms.nightly, "vibeBMS
-      # Nightly")
-      - uses: ./.github/actions/rust-build
+          packages-without-recommends: flatpak desktop-file-utils appstream appstream-compose
+      - uses: actions/download-artifact@v8
         with:
-          name: ${{ matrix.name }}
-          target: ${{ matrix.target }}
-          cache-key: ${{ matrix.target }}-${{ matrix.os }}
+          name: vibeBMS-${{ matrix.name }}
+          path: exe
+      # the version, and the app id, name and branch the Flatpak takes, e.g.
+      # io.github.vibebms.nightly, "vibeBMS Nightly"
+      - run: tools/ci_version.sh
       - name: Flatpak runtime
         run: |
           # org.gnome.Platform//51, from the manifest
@@ -202,11 +245,11 @@ jobs:
         with:
           path: ~/.local/share/flatpak
           key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
-      # the Flatpak steps do not fail the job: the executable is uploaded
-      # already, and a failed job would skip saving its caches
+      # the Flatpak steps do not fail the job: a failed job would skip saving
+      # its cache
       - id: flatpak
         continue-on-error: true
-        run: tools/package_flatpak.sh target/${{ matrix.target }}/release/vibebms out
+        run: tools/package_flatpak.sh exe/vibebms out
       # the bundle installs, and every library the executable links (WebKitGTK
       # 4.1 among them) is in the runtime. --no-related leaves out the runtime's
       # GL drivers, codecs and translations (another ~1 GB in the cache), which
@@ -230,39 +273,44 @@ jobs:
       - if: steps.flatpak.outcome == 'failure' || steps.flatpak-check.outcome == 'failure'
         run: echo "::error::the Flatpak (linux-${{ matrix.arch }}) failed; the release keeps the previous one"
 
+  # on the pinned runner image, with its pinned MSVC toolset and Windows SDK
+  # (tools/repro.env; tools/build_release.sh selects them through
+  # vcvarsall.bat and stops if the image lacks them)
   build-windows:
     name: build ${{ matrix.name }}
-    needs: test
+    needs: [test, pins]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
-          - { name: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc }
-    runs-on: ${{ matrix.os }}
+          - { name: windows-x64, target: x86_64-pc-windows-msvc }
+          - { name: windows-arm64, target: aarch64-pc-windows-msvc }
+    runs-on: ${{ needs.pins.outputs.windows }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-build
         with:
           name: ${{ matrix.name }}
           target: ${{ matrix.target }}
-          cache-key: ${{ matrix.target }}-${{ matrix.os }}
+          cache-key: ${{ matrix.target }}-${{ needs.pins.outputs.key-windows }}
 
   # macOS: both architectures on one runner (x86_64 cross-built on the arm64
   # one), then the app: one universal executable in an ad-hoc signed bundle
   # (tools/package_macos.sh), as a .dmg for people and a .zip for the
   # self-update. One job, not three: macOS runners are few, and jobs that
-  # waited too long for one were cancelled.
+  # waited too long for one were cancelled. On the pinned runner image with
+  # its pinned Xcode (tools/repro.env; tools/build_release.sh and
+  # tools/package_macos.sh select it and stop if the image lacks it).
   macos:
     name: build macOS (arm64, x64, universal app)
-    needs: test
-    runs-on: macos-latest
+    needs: [test, pins]
+    runs-on: ${{ needs.pins.outputs.macos }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-          cache-key: macos-universal
+          cache-key: macos-universal-${{ needs.pins.outputs.key-macos }}
       - run: tools/build_release.sh macos
       # each executable as the other builds give theirs (the nightly's
       # vibebms-macos-arm64 / -x64 and latest.json read these artifacts)
@@ -318,7 +366,7 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           targets: ${{ matrix.target }}
-          cache-key: ${{ matrix.name }}
+          cache-key: ${{ matrix.name }}-${{ needs.pins.outputs.key-portable }}
       # (it checks that the executable needs glibc 2.28 at most)
       - run: tools/build_release.sh ${{ matrix.name }}
       # the version it was built with, for the nightly's latest.json
@@ -358,6 +406,7 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           targets: wasm32-unknown-unknown
+          cache-key: web-${{ needs.pins.outputs.key-web }}
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
       # the CJK fonts from an earlier run (tools/build_release.sh checks each
       # one's hash and downloads it again if it is not the one it pins)
@@ -418,14 +467,15 @@ jobs:
   # (AltStore, Sideloadly) or a developer certificate
   ios:
     name: build iOS (unsigned, experimental)
-    needs: test
-    runs-on: macos-latest
+    needs: [test, pins]
+    # (the pinned image and Xcode, as the macOS build's)
+    runs-on: ${{ needs.pins.outputs.macos }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
         with:
           targets: aarch64-apple-ios
-          cache-key: aarch64-apple-ios
+          cache-key: aarch64-apple-ios-${{ needs.pins.outputs.key-macos }}
       # the app (iOS 14 and later; each channel its own: io.github.vibebms.nightly,
       # "vibeBMS Nightly"), zipped as Payload/vibeBMS.app
       - run: tools/build_release.sh ios out
@@ -492,7 +542,7 @@ jobs:
   # run) and, for a push to the default branch, the rolling nightly release
   nightly:
     name: downloads & nightly
-    needs: [build-linux, build-windows, build-linux-portable, macos, android, ios, web]
+    needs: [build-linux, flatpak, build-windows, build-linux-portable, macos, android, ios, web]
     if: always()
     runs-on: ubuntu-latest
     env:
