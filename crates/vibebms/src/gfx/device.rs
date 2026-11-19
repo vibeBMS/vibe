@@ -358,16 +358,11 @@ impl Gfx {
             fallback: None,
             window,
         };
-        // atlas: transparent with a white block in the corner
-        let mut px = vec![0u8; (ATLAS_SIZE * ATLAS_SIZE * 4) as usize];
-        for y in 0..4 {
-            for x in 0..4 {
-                let i = ((y * ATLAS_SIZE + x) * 4) as usize;
-                px[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
-            }
-        }
-        let id = g.create_texture(ATLAS_SIZE, ATLAS_SIZE, &px);
+        // atlas: transparent (wgpu makes textures zeroed: nothing to
+        // upload) with a white block in the corner
+        let id = g.create_texture(ATLAS_SIZE, ATLAS_SIZE, &[]);
         debug_assert_eq!(id, ATLAS);
+        g.update_texture(ATLAS, 0, 0, 4, 4, &[255; 4 * 4 * 4]);
         g
     }
 
