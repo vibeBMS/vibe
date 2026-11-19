@@ -182,6 +182,14 @@ impl SkinHost {
             s.free(gfx);
         }
     }
+
+    /// Free the skin's textures but keep the skin: they load again on the
+    /// next [`tick`](Self::tick).
+    pub fn free_textures(&mut self, gfx: &mut Gfx) {
+        if let Some(s) = self.skin.as_mut() {
+            s.free(gfx);
+        }
+    }
 }
 
 /// +1 / -1 for a click at (x, y) on `r` (beatoraja click modes: 0 adds, 1

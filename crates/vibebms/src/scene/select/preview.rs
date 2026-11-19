@@ -236,6 +236,14 @@ impl SelectScene {
         self.ranking.insert(sha, rank);
     }
 
+    /// The banner's texture freed (and its decode not waited for).
+    pub(super) fn free_banner(&mut self, gfx: &mut Gfx) {
+        self.banner_job = None;
+        if let Some((_, Some(t))) = self.banner.take() {
+            t.free(gfx);
+        }
+    }
+
     pub(super) fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {
         let want = self.selected_song(ctx).and_then(|(_, s)| {
             let img = if !s.stagefile.is_empty() {
@@ -264,9 +272,7 @@ impl SelectScene {
         if want.is_some() && self.last_move.elapsed() < BANNER_AFTER {
             return; // don't decode while scrolling fast
         }
-        if let Some((_, Some(t))) = self.banner.take() {
-            t.free(gfx);
-        }
+        self.free_banner(gfx);
         self.banner_job = want
             .as_ref()
             .and_then(|p| resolve_image(Path::new(p)))

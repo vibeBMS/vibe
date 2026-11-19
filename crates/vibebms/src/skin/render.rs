@@ -19,6 +19,7 @@ pub struct LoadedSkin {
     /// Images being decoded, with the images that show each file; the
     /// first is the skin's own, which it is not drawn without.
     decoding: Vec<(ImageJobs, Vec<Vec<usize>>)>,
+    /// The skin's own images are in: it is drawn.
     ready: bool,
     /// Images that are videos (looping from when the skin loaded).
     videos: Vec<(usize, crate::video::Video)>,
@@ -246,7 +247,26 @@ pub trait Hooks {
 
 impl LoadedSkin {
     pub fn load(skin: Skin, gfx: &mut Gfx) -> LoadedSkin {
-        let key = skin.trans_color;
+        let mut sk = LoadedSkin {
+            skin,
+            tex: Vec::new(),
+            lazy: Vec::new(),
+            wanted: Default::default(),
+            decoding: Vec::new(),
+            ready: false,
+            videos: Vec::new(),
+            anims: Vec::new(),
+            loaded_at: crate::platform::Instant::now(),
+        };
+        sk.start();
+        sk.take_decoded(gfx, false);
+        sk
+    }
+
+    /// Start decoding the images drawn from (in the background) and open
+    /// the videos.
+    fn start(&mut self) {
+        let skin = &self.skin;
         let mut lazy = vec![false; skin.images.len()];
         let sheets = skin.fonts.iter().flat_map(|f| f.glyphs.values().map(|(img, _)| img));
         for i in sheets.chain(&skin.lazy_images) {
@@ -254,7 +274,6 @@ impl LoadedSkin {
                 *l = true;
             }
         }
-        let mut videos = Vec::new();
         // only what is drawn, and an image several sources name once
         let used = skin.used_images();
         let mut files: Vec<PathBuf> = Vec::new();
@@ -266,7 +285,7 @@ impl LoadedSkin {
             };
             if crate::video::is_video(p) {
                 if let Some(v) = crate::video::Video::open(p, true) {
-                    videos.push((i, v));
+                    self.videos.push((i, v));
                 }
                 continue;
             }
@@ -277,19 +296,10 @@ impl LoadedSkin {
             });
             users[f].push(i);
         }
-        let mut sk = LoadedSkin {
-            tex: vec![None; skin.images.len()],
-            decoding: vec![(ImageJobs::start(files, key), users)],
-            ready: false,
-            skin,
-            lazy,
-            wanted: Default::default(),
-            videos,
-            anims: Vec::new(),
-            loaded_at: crate::platform::Instant::now(),
-        };
-        sk.take_decoded(gfx, false);
-        sk
+        self.tex = vec![None; skin.images.len()];
+        self.lazy = lazy;
+        self.wanted.get_mut().clear();
+        self.decoding = vec![(ImageJobs::start(files, skin.trans_color), users)];
     }
 
     /// Wait for the skin's images (else they come in while it is not
@@ -322,6 +332,10 @@ impl LoadedSkin {
     /// [`Self::load_pending`] with the videos and animations at `now`
     /// (a frame drawn offline: its own time).
     pub fn load_pending_at(&mut self, gfx: &mut Gfx, now: crate::platform::Instant) {
+        // (neither drawn nor loading: freed)
+        if !self.ready && self.decoding.is_empty() {
+            self.start();
+        }
         let ms = now.saturating_duration_since(self.loaded_at).as_millis() as i64;
         for (i, v) in &mut self.videos {
             v.update(gfx, ms);
@@ -344,8 +358,11 @@ impl LoadedSkin {
         }
     }
 
+    /// Free the textures and videos (the skin is not drawn); the next
+    /// [`Self::load_pending`] loads them again.
     pub fn free(&mut self, gfx: &mut Gfx) {
         self.decoding.clear();
+        self.ready = false;
         // video textures belong to the videos
         for (i, mut v) in self.videos.drain(..) {
             self.tex[i] = None;
