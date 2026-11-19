@@ -57,7 +57,8 @@ import json, sys
 sums, version, commit, builds, release = sys.argv[1:]
 ours = {}
 for line in open(sums):
-    h, name = line.rstrip("\n").split("  ", 1)
+    # ("<sha256>  <name>"; "<sha256> *<name>" from Git for Windows' sha256sum)
+    h, name = line.rstrip("\r\n")[:64], line.rstrip("\r\n")[66:]
     ours[name] = h
 known = {}
 try:

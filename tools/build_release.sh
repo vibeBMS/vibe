@@ -33,7 +33,12 @@
 #   (__FILE__), so the folder the build runs in does not show;
 # - time: SOURCE_DATE_EPOCH is the commit's time (dates in the zips, the
 #   Flatpak's release date) and TZ is UTC (a zip keeps local times);
-# - Windows: the linker's /Brepro (a hash instead of the link time);
+# - Windows: the linker is Rust's own rust-lld (lld-link), pinned with Rust,
+#   with /Brepro (a hash instead of the link time): MSVC's link.exe is the
+#   image's (an update of the toolset's binaries keeps its folder's version)
+#   and writes their build numbers into the executable (its "Rich" header);
+# - Apple: the linker's -S, no debug map (the object files' paths, which the
+#   linker's LC_UUID hashes, though the executable is stripped after);
 # - the environment: Cargo.lock as committed (--locked), the variables the code
 #   reads unset (VIBEBMS_THIRD_PARTY is the web build's, from the caller),
 #   RUSTFLAGS, CFLAGS and the deployment targets set here;
@@ -47,7 +52,11 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 die() { echo "$*" >&2; exit 1; }
-sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+# ("<sha256>  <name>": Git for Windows' sha256sum marks binary files "*<name>")
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi |
+    sed 's/^\([0-9a-f]\{64\}\) \*/\1  /'
+}
 
 # zip <zip> <dir>: the files under <dir> (hidden ones left out, as
 # upload-artifact leaves them out) in name order, each with the time
@@ -167,7 +176,10 @@ remap() { # <folder> <as>
 remap "$root" /vibe
 remap "$cargo_home" /cargo
 remap "$target_dir" /target
-case "${triples[0]}" in *-windows-msvc) rustflags+=(-Clink-arg=/Brepro) ;; esac
+case "${triples[0]}" in
+  *-windows-msvc) rustflags+=(-Clinker=rust-lld -Clinker-flavor=lld-link -Clink-arg=/Brepro) ;;
+  *-apple-*) rustflags+=("-Clink-arg=-Wl,-S") ;;
+esac
 [ -z "${RUSTFLAGS:-}${CARGO_ENCODED_RUSTFLAGS:-}" ] ||
   echo "note: RUSTFLAGS / CARGO_ENCODED_RUSTFLAGS from the environment are replaced" >&2
 unset RUSTFLAGS
