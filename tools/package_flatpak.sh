@@ -16,7 +16,8 @@
 # flatpak-builder does), then flatpak build-finish, build-export and
 # build-bundle. Needs flatpak and appstreamcli with its compose plugin (Debian
 # and Ubuntu: appstream-compose); neither the runtime nor the SDK has to be
-# installed. desktop-file-validate (when it is there) and appstreamcli check
+# installed. faketime, when it is there, makes the bundle reproducible (the
+# same bytes from the same executable and commit). desktop-file-validate (when it is there) and appstreamcli check
 # the desktop entry and the AppStream data. DRY_RUN=1 stops before the build,
 # with the sources filled in (<out>/flatpak-src). It runs with flatpak 1.12 and
 # AppStream 0.15.2 (Ubuntu 22.04, where CI packages each executable after
@@ -35,6 +36,10 @@ id="${VIBEBMS_APP_ID:-io.github.vibebms.dev}"
 name="${VIBEBMS_APP_NAME:-vibeBMS Dev}"
 version="${VIBEBMS_VERSION:-$cargo_version}"
 branch="${VIBEBMS_CHANNEL:-dev}"
+# the commit's time, for the release date and the OSTree commit's timestamp: the
+# same bundle from the same executable on any day (reproducible builds)
+sde="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct 2>/dev/null || date +%s)}"
+date_of() { date -u -d "@$sde" "$1"; }
 # they go into YAML, XML and the desktop entry as they are
 [[ "$id" =~ ^[A-Za-z0-9._]+$ && "$name" =~ ^[A-Za-z0-9\ ]+$ && "$version" =~ ^[A-Za-z0-9.+-]+$ \
   && "$branch" =~ ^[a-z]+$ ]] || { echo "bad identity: $id / $name / $version / $branch" >&2; exit 1; }
@@ -54,7 +59,7 @@ install -m755 "$exe" "$src/vibebms"
 cp "$root"/assets/logo/icon.svg "$root"/assets/logo/icon-{128,256,512}.png "$src/"
 for f in vibebms.yml vibebms.desktop vibebms.metainfo.xml; do
   sed -e "s/@APP_ID@/$id/g" -e "s/@APP_NAME@/$name/g" -e "s/@VERSION@/$version/g" \
-    -e "s/@DATE@/$(date -u +%Y-%m-%d)/g" "$root/platform/flatpak/$f" > "$src/$f"
+    -e "s/@DATE@/$(date_of +%Y-%m-%d)/g" "$root/platform/flatpak/$f" > "$src/$f"
 done
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$src/vibebms.desktop"
@@ -109,9 +114,17 @@ appstreamcli compose --no-color --prefix=/ --origin="$id" --result-root="$app" \
 # into export/
 flatpak build-finish "${finish_args[@]}" "$build"
 rm -rf "$out/flatpak-repo"
-flatpak build-export "$out/flatpak-repo" "$build" "$branch"
+flatpak build-export --timestamp="$(date_of +%Y-%m-%dT%H:%M:%SZ)" "$out/flatpak-repo" "$build" "$branch"
 
 step "bundle"
-flatpak build-bundle --runtime-repo="$flathub" "$out/flatpak-repo" "$bundle" "$id" "$branch"
+# the bundle (an OSTree static delta) also carries the time it was made, which
+# nothing overrides: faketime gives it the commit's time
+bundle_cmd=(flatpak build-bundle --runtime-repo="$flathub" "$out/flatpak-repo" "$bundle" "$id" "$branch")
+if command -v faketime >/dev/null; then
+  TZ=UTC faketime -f "$(date_of '+%Y-%m-%d %H:%M:%S')" "${bundle_cmd[@]}"
+else
+  echo "note: no faketime, so the bundle carries the time it was made (not reproducible)" >&2
+  "${bundle_cmd[@]}"
+fi
 ls -l "$bundle"
 echo "done"
