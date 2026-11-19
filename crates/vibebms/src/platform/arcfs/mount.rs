@@ -12,10 +12,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// A song this large or smaller is unpacked into memory; natively a larger
-/// one goes into a folder (`cache/unpacked/`). On the web, which has no
-/// folder for it, a song up to [`WEB_MAX`] is unpacked into memory.
+/// one goes into a folder (`cache/unpacked/`). A phone's is small: the
+/// system ends an app over its share of memory, and a song's sounds are
+/// in memory once more, decoded. On the web, which has no folder for it,
+/// a song up to [`WEB_MAX`] is unpacked into memory.
 #[cfg(not(target_arch = "wasm32"))]
-const MEMORY: u64 = if cfg!(mobile) { 192 << 20 } else { 512 << 20 };
+const MEMORY: u64 = if cfg!(mobile) { 32 << 20 } else { 512 << 20 };
 
 /// [`MEMORY`], or a test's.
 #[cfg(not(target_arch = "wasm32"))]

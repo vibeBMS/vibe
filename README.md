@@ -186,7 +186,7 @@ Entering a folder puts the cursor on the folder's own row; deciding on it closes
   charts are read (a zip's charts alone; a 7z, RAR, LZH or tar, solid 7z/RAR and gzip-compressed tars included,
   is decoded from the start once, its other files not kept). An unchanged archive is not opened by the scan. Playing a chart from one unpacks its song,
   the folder that holds the chart in the archive with its sub-folders, once: into memory, or when it is larger than
-  512 MB (192 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
+  512 MB (32 MB on Android and iOS) into `cache/unpacked/` (emptied at start). It is kept while the song stays
   chosen (back from the result screen, playing it again unpacks nothing) and let go when another is chosen. The
   song preview, the stage file and banner, the chart's text files and its videos (written out of the archive for
   ffmpeg) work as for a folder; outside a play a zip's files are read where they are, a 7z's, RAR's, LZH's or
