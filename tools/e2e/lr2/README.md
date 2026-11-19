@@ -28,8 +28,8 @@ Seed the cache from a run on main (workflow_dispatch), or have `cache-prune` kee
 ## What the runner gives LR2 (measured without LR2)
 
 `lr2probe.exe` (`probe.c`, 32-bit as LR2 is, built with the runner's MSVC) uses the same Windows APIs as a
-DirectX 9 game. `probe.ps1` runs it one stage at a time. Results from runs 44589382253 to 44594213681 (the last: job 135808029911); the
-runs before it:
+DirectX 9 game. `probe.ps1` runs it one stage at a time. Results from runs 44589382253 to 44594213681 (the last: job
+135808029911):
 
 | question | answer on `windows-latest` (Windows Server 2025, image windows-2025-vs2026) |
 |---|---|
