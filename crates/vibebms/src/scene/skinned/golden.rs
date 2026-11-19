@@ -99,9 +99,13 @@ fn ctx() -> Ctx {
 /// nothing to say left out). The clock (21-26), the version (1010) and the
 /// date in the time zone of the machine (9212) are not fixed.
 fn dump(out: &mut String, scene: &str, st: &dyn SkinState) {
+    dump_ids(out, scene, st, (0..2500).chain(9000..9600));
+}
+
+fn dump_ids(out: &mut String, scene: &str, st: &dyn SkinState, ids: impl Iterator<Item = i32>) {
     let clock = |id: i32| (21..=26).contains(&id);
     let unfixed_text = |id: i32| id == 1010 || id == 9212;
-    for id in (0..2500).chain(9000..9600) {
+    for id in ids {
         let mut line = String::new();
         if st.option(id) {
             line += " o";
@@ -283,10 +287,17 @@ fn skin_values_stay_the_same() {
         dump(&mut out, res_name, &ResultState::new(&res, &ctx, now));
     }
 
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/skin_values.txt");
+    check(&out, "skin_values.txt");
+}
+
+/// `out` against the golden file `name` (`GOLDEN_BLESS=1`: written anew).
+fn check(out: &str, name: &str) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
     if std::env::var_os("GOLDEN_BLESS").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &out).unwrap();
+        std::fs::write(&path, out).unwrap();
         return;
     }
     let want = std::fs::read_to_string(&path).unwrap();
@@ -294,4 +305,132 @@ fn skin_values_stay_the_same() {
         assert_eq!(w, g);
     }
     assert_eq!(want.lines().count(), out.lines().count());
+}
+
+/// The song select over a fuller library: a song's other chart, a table
+/// with class courses (one played, one not installed), a course of the
+/// player's, RANDOM MIX, a chart not installed; every bar as the list
+/// draws it, the selected bar's values (vibeBMS ids to 9799) and PLAY
+/// OPTION's key options with the panel open.
+#[test]
+fn select_values_stay_the_same() {
+    use crate::scene::select::{CourseBar, Missing};
+    use vibebms_core::course::{CourseDef, CourseKind};
+    let mut ctx = ctx();
+    let gold = song();
+    let normal = Song {
+        path: "golden/song/normal.bme".into(),
+        md5: "1".repeat(32),
+        sha256: "e".repeat(64),
+        subtitle: String::new(),
+        difficulty: 2,
+        level: "5".into(),
+        has_ln: false,
+        has_random: true,
+        has_mine: true,
+        ..song()
+    };
+    let rule = ctx.config.play.judge_preset;
+    let stages = vec![gold.md5.clone(), normal.md5.clone()];
+    let trophies = serde_json::from_value(serde_json::json!([
+        {"name": "bronzemedal", "missrate": 7.5, "scorerate": 55.0},
+        {"name": "silvermedal", "missrate": 5.0, "scorerate": 70.0},
+        {"name": "goldmedal", "missrate": 2.5, "scorerate": 85.0}
+    ]))
+    .unwrap();
+    let t = &mut ctx.tables.list[0];
+    t.header.courses = vec![
+        bmseeker::table::Course {
+            name: "GOLDEN DAN".into(),
+            md5: stages.clone(),
+            trophy: trophies,
+            ..Default::default()
+        },
+        bmseeker::table::Course {
+            name: "MISSING DAN".into(),
+            md5: vec![gold.md5.clone(), "2".repeat(32)],
+            ..Default::default()
+        },
+    ];
+    let dan = CourseDef {
+        kind: CourseKind::Class,
+        stages: stages.clone(),
+        ..Default::default()
+    };
+    let record = |clear, ex_score, min_bp| BestScore {
+        clear,
+        ex_score,
+        notes: 2000,
+        min_bp,
+        ..Default::default()
+    };
+    let key = |id: &str| crate::library::RecordKey::new(id, 0, rule);
+    (ctx.lib.scores).insert(key(&dan.id()), record(ClearType::Normal, 3000, 60));
+    let mine = crate::courses::Course {
+        id: 7,
+        title: "MY COURSE".into(),
+        kind: CourseKind::Expert,
+        stages: [&normal, &gold].map(crate::courses::Stage::of).into(),
+        ..Default::default()
+    };
+    (ctx.lib.scores).insert(key(&mine.def().id()), record(ClearType::Hard, 2000, 10));
+    ctx.lib.courses.list.push(mine);
+    ctx.lib.songs = Arc::new(vec![gold, normal]);
+    ctx.lib.version += 1;
+
+    let mut select = SelectScene::new(&mut ctx);
+    let url = "https://example.invalid/table".to_string();
+    select.bars = vec![
+        Bar::Random,
+        Bar::Song(0),
+        Bar::Song(1),
+        Bar::Folder {
+            label: "Golden Table".into(),
+            sub: "1 levels".into(),
+            node: Node::Table(url.clone()),
+            count: 1,
+        },
+        Bar::Course(CourseBar::Table(url.clone(), 0)),
+        Bar::Course(CourseBar::Table(url, 1)),
+        Bar::Course(CourseBar::Mine(7)),
+        Bar::Course(CourseBar::RandomMix(CourseKind::Expert)),
+        Bar::Missing(Missing {
+            title: "Not Here".into(),
+            artist: "Nobody".into(),
+            level: "★12".into(),
+            ..Default::default()
+        }),
+    ];
+    let mut out = String::new();
+    let st = SelectState::new(&select, &ctx);
+    for i in 0..select.bars.len() {
+        let b = st.bar(i).unwrap();
+        writeln!(
+            out,
+            "bar {i}: kind {} base {} {:?} level {:?} difficulty {} lamp {:?} rival {:?} \
+             count {:?} labels {:?} trophy {:?}",
+            b.kind,
+            b.base,
+            b.title,
+            b.level,
+            b.difficulty,
+            b.lamp,
+            b.rival,
+            b.count,
+            b.labels,
+            b.trophy
+        )
+        .unwrap();
+    }
+    let ids = || (0..2500).chain(9000..9800);
+    for cursor in 0..select.bars.len() {
+        select.cursor = cursor;
+        let name = format!("select-{cursor}");
+        dump_ids(&mut out, &name, &SelectState::new(&select, &ctx), ids());
+    }
+    select.cursor = 1;
+    select.toggle_panel(1);
+    let st = SelectState::new(&select, &ctx);
+    dump_ids(&mut out, "select-panel", &st, 9600..9800);
+    check(&out, "select_values.txt");
 }

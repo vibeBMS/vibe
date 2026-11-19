@@ -9,9 +9,8 @@ pub use bmseeker::native::{fetch_files, Native};
 /// settings and hosts, with the player's choices (third parties' copies
 /// used, a song's folder named after its charts); on the web a download
 /// that fails is a page (the proxy passes archives only). Natively its
-/// requests name the HTTP library, bmseeker, then vibeBMS
-/// ([`PRODUCT`](crate::platform::http::PRODUCT)): `ureq/3.5.2
-/// BMSeeker/0.1.0 (+…BMSeeker) vibeBMS/0.1.0 (+…vibe)`.
+/// requests name the HTTP library (its own name and version), bmseeker,
+/// then vibeBMS ([`PRODUCT`](crate::platform::http::PRODUCT)).
 pub fn context(config: &crate::config::Config) -> Context {
     Context {
         failures_are_pages: crate::platform::IS_WEB,

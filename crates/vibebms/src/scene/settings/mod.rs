@@ -198,7 +198,7 @@ impl Page {
     }
 
     fn step(self, d: i32) -> Page {
-        crate::scene::option_panel::cycle(&Page::ALL, self, d)
+        crate::scene::cycle(&Page::ALL, self, d)
     }
 }
 

@@ -6,13 +6,6 @@ _untranslated = [
     "TOUCH PERSPECTIVE",
     "RANDOM MIX",
     "EXPAND JUDGE",
-    "HS-FIX",
-    "SUDDEN+",
-    "HIDDEN+",
-    "LIFT",
-    "JUDGE AREA",
-    "MARK NOTE",
-    "BPM GUIDE",
     "FREQ",
     "BGA",
     "GUIDE SE",
@@ -324,8 +317,6 @@ _untranslated = [
 "The second player's own assist, in VS." = "VS에서 2P 자신의 어시스트."
 "2P judge offset" = "2P 판정 오프셋"
 "The second player's own judge offset, in VS." = "VS에서 2P 자신의 판정 오프셋."
-"ALSO IN THE SONG SELECT" = "선곡 화면에도 있음"
-"Random, gauge, hi-speed, lane cover, target, assist, BGA: changed between songs" = "랜덤, 게이지, 하이스피드, 레인 커버, 타깃, 어시스트, BGA: 곡 사이에 바꿈"
 "PGREAT window" = "PGREAT 범위"
 "The PGREAT window with EXPAND JUDGE on, in % of the rule's." = "EXPAND JUDGE를 켰을 때의 PGREAT 범위 (규칙 대비 %)."
 "GREAT window" = "GREAT 범위"
@@ -576,16 +567,6 @@ _untranslated = [
 "the DIFFICULTY tab" = "DIFFICULTY 탭"
 "Random select" = "랜덤 선곡"
 "RANDOM SELECT, the bar at the top of each folder" = "RANDOM SELECT, 각 폴더 맨 위의 바"
-"On the song select: {p}." = "선곡 화면: {p}."
-"Random (1P)" = "랜덤 (1P)"
-"Random (2P)" = "랜덤 (2P)"
-"DP option" = "DP 옵션"
-"Battle" = "배틀"
-"Hi-speed" = "하이스피드"
-"Lane cover" = "레인 커버"
-"Auto scratch" = "오토 스크래치"
-"Legacy note" = "레거시 노트"
-"Remove mines" = "지뢰 제거"
 
 # scene/settings/play_extras.rs
 "PLAY EXTRAS" = "플레이 부가 기능"

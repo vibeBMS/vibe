@@ -24,13 +24,11 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, f: F) {
     vibebms_audio::parallel_for(n, 8, f)
 }
 
-/// Run `f` once `d` has passed (on a thread natively, the page's timer on the web).
+/// Run `f` once `d` has passed: natively on a thread of its own then (one
+/// thread waits for every timer), on the web on the page's timer.
 pub fn after(d: Duration, f: impl FnOnce() + Send + 'static) {
     #[cfg(not(target_arch = "wasm32"))]
-    spawn("timer", move || {
-        std::thread::sleep(d);
-        f()
-    });
+    timer::add(super::Instant::now() + d, Box::new(f));
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::JsCast;
@@ -46,36 +44,72 @@ pub fn after(d: Duration, f: impl FnOnce() + Send + 'static) {
 
 /// Call `f` every `period` until it returns false.
 pub fn every(period: Duration, mut f: impl FnMut() -> bool + Send + 'static) {
-    #[cfg(not(target_arch = "wasm32"))]
-    spawn("timer", move || loop {
-        std::thread::sleep(period);
-        if !f() {
-            break;
+    after(period, move || {
+        if f() {
+            every(period, f)
         }
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+mod timer {
+    use super::super::Instant;
+    use std::cmp::Ordering;
+    use std::collections::binary_heap::{BinaryHeap, PeekMut};
+    use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
+
+    type Task = Box<dyn FnOnce() + Send>;
+
+    /// A timer: when it is due, what then. The heap's top is the soonest.
+    struct Due(Instant, Task);
+
+    impl PartialEq for Due {
+        fn eq(&self, o: &Self) -> bool {
+            self.0 == o.0
+        }
+    }
+    impl Eq for Due {}
+    impl PartialOrd for Due {
+        fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+            Some(self.cmp(o))
+        }
+    }
+    impl Ord for Due {
+        fn cmp(&self, o: &Self) -> Ordering {
+            o.0.cmp(&self.0)
+        }
+    }
+
+    static TIMERS: LazyLock<(Mutex<BinaryHeap<Due>>, Condvar)> = LazyLock::new(|| {
+        super::spawn("timer", wait);
+        Default::default()
     });
-    #[cfg(target_arch = "wasm32")]
-    {
-        use std::{cell::Cell, rc::Rc};
-        use wasm_bindgen::JsCast;
-        let Some(w) = web_sys::window() else { return };
-        let id = Rc::new(Cell::new(None));
-        let own = id.clone();
-        let tick = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-            if !f() {
-                if let (Some(id), Some(w)) = (own.get(), web_sys::window()) {
-                    w.clear_interval_with_handle(id);
-                }
+
+    pub fn add(at: Instant, f: Task) {
+        let (due, woken) = &*TIMERS;
+        due.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Due(at, f));
+        woken.notify_one();
+    }
+
+    /// The timer thread: each timer, once due, on a thread of its own (it
+    /// may block, as a request's `on_done` does).
+    fn wait() {
+        let (due, woken) = &*TIMERS;
+        let mut q = due.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            let now = Instant::now();
+            while let Some(d) = q.peek_mut().filter(|d| d.0 <= now) {
+                super::spawn("timer", PeekMut::pop(d).1);
             }
-        });
-        id.set(
-            w.set_interval_with_callback_and_timeout_and_arguments_0(
-                tick.as_ref().unchecked_ref(),
-                period.as_millis() as i32,
-            )
-            .ok(),
-        );
-        // (cleared when `f` says so; the closure stays for the page's life)
-        tick.forget();
+            q = match q.peek().map(|d| d.0 - now) {
+                Some(wait) => woken
+                    .wait_timeout(q, wait)
+                    .map_or_else(|e| e.into_inner().0, |r| r.0),
+                None => woken.wait(q).unwrap_or_else(PoisonError::into_inner),
+            };
+        }
     }
 }
 

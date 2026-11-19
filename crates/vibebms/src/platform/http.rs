@@ -24,10 +24,9 @@ pub const PRODUCT: &str = concat!(
 
 /// What vibeBMS's own requests are sent with natively (IR, difficulty
 /// tables, the updater, skins, the event mirror's lists): the HTTP
-/// library's own name as it sends it (`bmseeker::config::HTTP_CLIENT`:
-/// ehttp's ureq is bmseeker's), kept, then [`PRODUCT`]:
-/// `ureq/3.5.2 vibeBMS/0.1.0 (+https://github.com/vibeBMS/vibe)`. Never a
-/// browser's.
+/// library's own name and version as it sends it
+/// (`bmseeker::config::HTTP_CLIENT`: ehttp's ureq is bmseeker's), kept,
+/// then [`PRODUCT`]. Never a browser's.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn user_agent() -> &'static str {
     static UA: std::sync::LazyLock<String> =

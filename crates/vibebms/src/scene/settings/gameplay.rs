@@ -1,24 +1,19 @@
-//! GAMEPLAY: how every play is judged (offsets, rules), the second
-//! player's own in VS, and the per-play options still shown here.
+//! GAMEPLAY: how every play is judged (offsets, rules) and the second
+//! player's own in VS.
 
-use super::per_play::{self, SHOW_PER_PLAY};
 use super::row::onoff;
 use super::row::{ms, Act, Kind, Row, Rows};
 use super::{Sub, TextField};
 use crate::app::Ctx;
 use crate::config::{HiSpeedMode, HsType};
-use crate::scene::option_panel::cycle;
+use crate::scene::cycle;
+use crate::scene::play_opts::add_offset;
 use crate::scene::select::REFERENCE_BPMS;
 use vibebms_core::engine::JudgeAlgorithm;
 use vibebms_core::gauge::{GaugePreset, GaugeType};
 use vibebms_core::judge::JudgePreset;
 use vibebms_core::lane_option::SRandomInterval;
 use vibebms_core::LnPref;
-
-/// A judge offset: 1 ms steps within ±500.
-fn offset(o: &mut i32, d: i32) {
-    *o = (*o + d).clamp(-500, 500)
-}
 
 /// EXPAND JUDGE's window `k` (PGREAT, GREAT, GOOD) in 5 % steps.
 fn window(c: &mut Ctx, k: usize, d: i32) {
@@ -42,7 +37,7 @@ pub(super) fn rows(b: &mut Rows) {
             "play.judge_offset_ms",
             tr!("Judge offset"),
             ms(p.judge_offset_ms),
-            |c, d| offset(&mut c.config.play.judge_offset_ms, d),
+            |c, d| add_offset(&mut c.config.play.judge_offset_ms, d),
         )
         .desc(tr!(
             "Shifts the judge windows. + when you hit late. Also SYSTEM OPTION keys 5 / 7."
@@ -52,7 +47,7 @@ pub(super) fn rows(b: &mut Rows) {
             "play.visual_offset_ms",
             tr!("Visual offset"),
             ms(p.visual_offset_ms),
-            |c, d| offset(&mut c.config.play.visual_offset_ms, d),
+            |c, d| add_offset(&mut c.config.play.visual_offset_ms, d),
         )
         .desc(tr!("Moves the notes on screen; judging stays where it is."))
         .keys("display latency calibration"),
@@ -221,18 +216,10 @@ pub(super) fn rows(b: &mut Rows) {
             "play.p2.judge_offset_ms",
             tr!("2P judge offset"),
             ms(p.p2.judge_offset_ms),
-            |c, d| offset(&mut c.config.play.p2.judge_offset_ms, d),
+            |c, d| add_offset(&mut c.config.play.p2.judge_offset_ms, d),
         )
         .desc(tr!("The second player's own judge offset, in VS.")),
     ]);
-    if SHOW_PER_PLAY {
-        b.group(
-            "gameplay.per_play",
-            tr!("ALSO IN THE SONG SELECT"),
-            tr!("Random, gauge, hi-speed, lane cover, target, assist, BGA: changed between songs"),
-        );
-        per_play::rows(b);
-    }
 }
 
 /// GAMEPLAY › EXPANDED JUDGE WINDOWS.
