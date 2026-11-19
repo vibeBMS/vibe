@@ -174,7 +174,8 @@ The web build compiles Lua (for Lua skins) from C, so it also needs **clang with
 llvm)/bin/llvm-ar`). Lua raises errors as WebAssembly exceptions, so `wasm-opt`, if installed, runs with
 `--enable-exception-handling`, and the page needs a browser with them (Chrome 95, Firefox 100, Safari 15.2 or
 later). `build_web.sh` ends by checking (with Node, if installed) that the module imports no C function nothing
-defined (`node tools/check_wasm_imports.mjs`).
+defined (`node tools/check_wasm_imports.mjs`). The release's web build is `tools/build_release.sh web`: the same
+without wasm-opt, plus the CJK fonts (see Reproducible builds).
 
 ## Versions
 `Cargo.toml` names the version being worked towards as a prerelease: `0.1.0-dev` is what local builds report.
