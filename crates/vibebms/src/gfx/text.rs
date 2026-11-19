@@ -173,8 +173,28 @@ impl Slot {
     }
 }
 
+/// The system's fonts (not read yet: what fontdb knows of them).
+fn system_fonts() -> fontdb::Database {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    // fontdb loads no system fonts on Android
+    #[cfg(target_os = "android")]
+    db.load_fonts_dir("/system/fonts");
+    // the simulator's own iOS file system (fontdb loads the host's)
+    #[cfg(target_os = "ios")]
+    if let Some(sim) = std::env::var_os("IPHONE_SIMULATOR_ROOT") {
+        db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
+    }
+    db
+}
+
 impl Text {
     pub fn new(extra_dirs: &[&Path]) -> Text {
+        Text::with_fonts(extra_dirs, system_fonts())
+    }
+
+    /// The user's fonts in `extra_dirs`, then those of `db`.
+    fn with_fonts(extra_dirs: &[&Path], db: fontdb::Database) -> Text {
         let mut fonts = Vec::new();
         // user supplied fonts first
         for dir in extra_dirs {
@@ -205,16 +225,6 @@ impl Text {
                     }
                 }
             }
-        }
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        // fontdb loads no system fonts on Android
-        #[cfg(target_os = "android")]
-        db.load_fonts_dir("/system/fonts");
-        // the simulator's own iOS file system (fontdb loads the host's)
-        #[cfg(target_os = "ios")]
-        if let Some(sim) = std::env::var_os("IPHONE_SIMULATOR_ROOT") {
-            db.load_fonts_dir(Path::new(&sim).join("System/Library/Fonts"));
         }
         let mut used = std::collections::HashSet::new();
         // the UI language's own CJK fonts first: Chinese and Korean text
@@ -397,6 +407,17 @@ impl Text {
         (f.lookup_glyph_index(c) != 0).then_some(f)
     }
 
+    /// `c` drawn at `px` with skin font `face` (0: the UI fonts).
+    fn rasterize(&mut self, face: u16, c: char, px: u16) -> Option<(fontdue::Metrics, Vec<u8>)> {
+        let font = if face != 0 {
+            &self.faces[face as usize - 1]
+        } else {
+            let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
+            self.ready(fi as usize)?
+        };
+        Some(font.rasterize(c, px as f32))
+    }
+
     fn glyph(&mut self, gfx: &Gfx, c: char, px: u16) -> Option<Glyph> {
         let face = if self.face_font(c).is_some() {
             self.face
@@ -406,13 +427,7 @@ impl Text {
         if let Some(g) = self.cache.get(&(face, c, px)) {
             return *g;
         }
-        let font = if face != 0 {
-            &self.faces[face as usize - 1]
-        } else {
-            let fi = self.font_for(c).or_else(|| self.font_for('?'))?;
-            self.ready(fi as usize)?
-        };
-        let (m, bitmap) = font.rasterize(c, px as f32);
+        let (m, bitmap) = self.rasterize(face, c, px)?;
         let (w, h) = (m.width as u32, m.height as u32);
         let mut g = Glyph {
             uv: [0.0; 4],
@@ -560,6 +575,77 @@ impl Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Korean, kana, kanji and Latin: a select screen's worth.
+    fn sample_chars() -> Vec<char> {
+        let hangul = (0xAC00..0xD7A4).step_by(37);
+        let kana = 0x3041..0x30FF;
+        let kanji = (0x4E00..0x9FA0).step_by(67);
+        let ascii = 0x20..0x7F;
+        hangul
+            .chain(kana)
+            .chain(kanji)
+            .chain(ascii)
+            .filter_map(char::from_u32)
+            .collect()
+    }
+
+    /// This process's resident memory in kB: all, anonymous (what
+    /// Android's memory limiter counts) and file-backed (mapped files).
+    fn rss() -> [u64; 3] {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        let kb = |key: &str| {
+            status
+                .lines()
+                .find_map(|l| l.strip_prefix(key))
+                .and_then(|v| v.split_whitespace().next()?.parse().ok())
+                .unwrap_or(0)
+        };
+        [kb("VmRSS:"), kb("RssAnon:"), kb("RssFile:")]
+    }
+
+    /// The memory the UI fonts take: start-up and a screen of Korean,
+    /// Japanese and Latin text drawn at three sizes. The fonts are
+    /// `VIBE_FONT_DIR`'s (else the system's), the UI in `VIBE_LANG`
+    /// (`ko`, `ja`, `en`, ...). One test to a process:
+    /// `VIBE_FONT_DIR=dir VIBE_LANG=ko cargo test -p vibebms --lib font_memory -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement: run it alone, see its comment"]
+    fn font_memory() {
+        let lang = std::env::var("VIBE_LANG").unwrap_or_default();
+        crate::i18n::set(crate::i18n::Lang::from_locale(&lang));
+        let before = rss();
+        let t0 = std::time::Instant::now();
+        let mut db = fontdb::Database::new();
+        match std::env::var_os("VIBE_FONT_DIR") {
+            Some(dir) => db.load_fonts_dir(dir),
+            None => db = system_fonts(),
+        }
+        let scanned = t0.elapsed();
+        let mut text = Text::with_fonts(&[], db);
+        let started = t0.elapsed();
+        let after_start = rss();
+        let chars = sample_chars();
+        let mut drawn = 0;
+        for px in [16, 24, 40] {
+            for &c in &chars {
+                drawn += text.rasterize(0, c, px).is_some() as usize;
+            }
+        }
+        let after_draw = rss();
+        let loaded = (text.fonts.iter())
+            .filter(|f| matches!(f, Slot::Ready(_)))
+            .count();
+        println!("  {loaded} of {} UI fonts read", text.fonts.len());
+        let d = |a: [u64; 3]| [0, 1, 2].map(|i| a[i] as i64 - before[i] as i64);
+        println!(
+            "lang {lang:?}: scan {scanned:?}, start {started:?}, drew {drawn} glyphs in {:?}",
+            t0.elapsed() - started
+        );
+        println!("  [VmRSS, RssAnon, RssFile] kB over the baseline {before:?}");
+        println!("  after start: {:?}", d(after_start));
+        println!("  after drawing: {:?}", d(after_draw));
+    }
 
     #[test]
     fn pending_fonts_know_the_characters_fontdue_maps() {
