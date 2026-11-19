@@ -25,7 +25,15 @@ runs:
       run: |
         f=/etc/apt/apt-mirrors.txt
         if [ "$(dpkg --print-architecture)" = amd64 ] && [ -f "$f" ]; then
-          printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee "$f" >/dev/null
+          # Azure's only while it answers (a mirror that does not would make
+          # apt wait out its timeouts on every file before the next)
+          azure=http://azure.archive.ubuntu.com/ubuntu/
+          if curl -fsS -m 5 -o /dev/null "${azure}dists/"; then
+            printf '%s\n' "$azure" http://archive.ubuntu.com/ubuntu/ | sudo tee "$f" >/dev/null
+          else
+            echo "::warning::$azure does not answer: the main archive instead"
+            echo http://archive.ubuntu.com/ubuntu/ | sudo tee "$f" >/dev/null
+          fi
         fi
         echo "APT_ARCHIVES=$RUNNER_TEMP/apt-archives" >> "$GITHUB_ENV"
         mkdir -p "$RUNNER_TEMP/apt-archives/partial"
@@ -41,7 +49,10 @@ runs:
         PACKAGES: ${{ inputs.packages }}
         RECOMMENDS: ${{ inputs.recommends }}
       run: |
-        opts=(-o Acquire::Retries=3 -o "Dir::Cache::Archives=$APT_ARCHIVES" -o APT::Keep-Downloaded-Packages=true)
+        # (a short connect timeout: a mirror that does not answer is left for
+        # the next one at once)
+        opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o "Dir::Cache::Archives=$APT_ARCHIVES"
+          -o APT::Keep-Downloaded-Packages=true)
         [ "$RECOMMENDS" = false ] && opts+=(--no-install-recommends)
         sudo apt-get "${opts[@]}" update
         # shellcheck disable=SC2086
