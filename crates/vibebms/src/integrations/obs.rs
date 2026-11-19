@@ -23,9 +23,10 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// `challenge`: base64(SHA-256(base64(SHA-256(password + salt)) +
 /// challenge)).
 pub fn authentication(password: &str, salt: &str, challenge: &str) -> String {
-    use super::codec::{base64, sha256};
-    let secret = base64(&sha256(format!("{password}{salt}").as_bytes()));
-    base64(&sha256(format!("{secret}{challenge}").as_bytes()))
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use sha2::{Digest, Sha256};
+    let secret = STANDARD.encode(Sha256::digest(format!("{password}{salt}")));
+    STANDARD.encode(Sha256::digest(format!("{secret}{challenge}")))
 }
 
 /// The Identify answering `hello` (its `d`): with the authentication

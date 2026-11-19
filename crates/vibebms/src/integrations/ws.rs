@@ -2,7 +2,8 @@
 //! handshake, masked text frames out, text / ping / close frames in. No
 //! TLS and no extensions (obs-websocket offers neither).
 
-use super::codec::{base64, random_bytes, sha1};
+use super::codec::sha1;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
@@ -12,7 +13,15 @@ const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /// The `Sec-WebSocket-Accept` a server answers `key` with.
 pub fn accept_key(key: &str) -> String {
-    base64(&sha1(format!("{key}{GUID}").as_bytes()))
+    STANDARD.encode(sha1(format!("{key}{GUID}").as_bytes()))
+}
+
+/// Bytes not to be guessed in advance (a key, a mask: RFC 6455 asks no
+/// more of them).
+fn random<const N: usize>() -> io::Result<[u8; N]> {
+    let mut b = [0; N];
+    getrandom::fill(&mut b).map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(b)
 }
 
 /// What came from the server.
@@ -150,7 +159,7 @@ impl Ws {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(timeout))?;
-        let key = base64(&random_bytes::<16>());
+        let key = STANDARD.encode(random::<16>()?);
         stream.write_all(handshake_request(host, port, &key, protocol).as_bytes())?;
         let mut buf = Vec::new();
         let deadline = Instant::now() + timeout;
@@ -180,7 +189,7 @@ impl Ws {
     }
 
     fn send(&mut self, op: u8, payload: &[u8]) -> io::Result<()> {
-        let f = encode_frame(op, payload, random_bytes::<4>());
+        let f = encode_frame(op, payload, random()?);
         self.stream.write_all(&f)
     }
 
