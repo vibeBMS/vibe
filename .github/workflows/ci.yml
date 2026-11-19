@@ -186,33 +186,42 @@ jobs:
             exit 0
           fi
           echo "ok=true" >> "$GITHUB_OUTPUT"
-          echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd-)" >> "$GITHUB_ENV"
+          # org.gnome.Platform//51, from the manifest
+          echo "RUNTIME=$(grep -E '^(runtime|runtime-version):' platform/flatpak/vibebms.yml | tr -d "'" | cut -d' ' -f2 | paste -sd/ | sed 's|/|//|')" >> "$GITHUB_ENV"
       - if: steps.builds.outputs.ok
         uses: ./.github/actions/apt
         with:
-          packages: flatpak flatpak-builder desktop-file-utils appstream
+          # (appstream-compose for `appstreamcli compose`)
+          packages: flatpak desktop-file-utils appstream appstream-compose
       # Ubuntu 24.04 denies unprivileged user namespaces to programs without
-      # an AppArmor profile; flatpak-builder's bubblewrap needs them
+      # an AppArmor profile; `flatpak run`'s bubblewrap (the check) needs them
       - if: steps.builds.outputs.ok
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # the runtime and SDK (over 1 GB from Flathub), installed for the user by
-      # the first run with this runtime
+      # the runtime alone (about 430 MB from Flathub; the packaging needs
+      # neither it nor the SDK, the check runs in it), installed for the user
+      # by the first run with this runtime. (Until 2026-11 the key was
+      # flatpak-<arch>-<runtime> and held the SDK and the GL drivers too, over
+      # 1.5 GB: those entries are no longer restored and age out of the cache.)
       - if: steps.builds.outputs.ok
         uses: actions/cache@v6
         with:
           path: ~/.local/share/flatpak
-          key: flatpak-${{ runner.arch }}-${{ env.RUNTIME }}
+          key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
       # the app id, name and branch (io.github.vibebms.nightly, "vibeBMS Nightly")
       - if: steps.builds.outputs.ok
         run: ./tools/ci_version.sh
       - if: steps.builds.outputs.ok
         run: tools/package_flatpak.sh art/vibebms out
       # the bundle installs, and every library the executable links (WebKitGTK
-      # 4.1 among them) is in the runtime
+      # 4.1 among them) is in the runtime. --no-related leaves out the runtime's
+      # GL drivers, codecs and translations (another ~1 GB in the cache), which
+      # the check does not need
       - if: steps.builds.outputs.ok
         name: check
         run: |
-          flatpak install --user --noninteractive out/vibeBMS-linux-${{ matrix.arch }}.flatpak
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive --no-related flathub "$RUNTIME"
+          flatpak install --user --noninteractive --no-related out/vibeBMS-linux-${{ matrix.arch }}.flatpak
           flatpak run --command=${{ matrix.loader }} "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
           grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
           ! grep 'not found' out/libs.txt

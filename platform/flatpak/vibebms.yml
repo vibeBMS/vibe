@@ -1,8 +1,12 @@
 # The Flatpak: a CI-built Linux executable (`vibebms-linux-x64` or `-arm64`,
 # the `browser` build) as it is, with a desktop entry, the icon and AppStream
 # data. tools/package_flatpak.sh copies this folder, fills in the @…@ (the
-# channel's app id, name and version, from tools/ci_version.sh) and builds
-# the bundle; it is no build from source.
+# channel's app id, name and version, from tools/ci_version.sh) and lays the
+# app out itself. It reads runtime, runtime-version, sdk, command and the
+# finish-args (one `- --…` per line) from this file, which keeps
+# flatpak-builder's manifest format; nothing is built, so there are no
+# modules and the SDK is not needed (it is only named in the app's metadata,
+# for `flatpak run --devel`).
 id: '@APP_ID@'
 # the GNOME runtime has WebKitGTK 4.1 (libwebkit2gtk-4.1), which the
 # in-app browser (wry) links; CI checks that it resolves in this runtime
@@ -27,30 +31,3 @@ finish-args:
   # dropped on the window); the data root is the sandbox's own
   # (~/.var/app/<id>/data/vibeBMS)
   - --filesystem=home
-modules:
-  - name: vibebms
-    buildsystem: simple
-    build-options:
-      # the executable is the release's as it is (stripped already)
-      no-debuginfo: true
-    build-commands:
-      - install -Dm755 vibebms /app/bin/vibebms
-      - install -Dm644 vibebms.desktop /app/share/applications/${FLATPAK_ID}.desktop
-      - install -Dm644 vibebms.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
-      - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
-      - for n in 128 256 512; do install -Dm644 icon-$n.png /app/share/icons/hicolor/${n}x${n}/apps/${FLATPAK_ID}.png; done
-    sources:
-      - type: file
-        path: vibebms
-      - type: file
-        path: vibebms.desktop
-      - type: file
-        path: vibebms.metainfo.xml
-      - type: file
-        path: icon.svg
-      - type: file
-        path: icon-128.png
-      - type: file
-        path: icon-256.png
-      - type: file
-        path: icon-512.png

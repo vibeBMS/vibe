@@ -31,18 +31,24 @@ Optional JACK output: `cargo build --release --features jack` (needs `libjack-de
 into `<out dir>/vibeBMS-linux-x64.flatpak` (or `-arm64`; a bundle holds one architecture, so CI makes one per architecture), with the manifest, desktop entry and AppStream data in `platform/flatpak`
 and the icons from `assets/logo`. It fills in the channel's app id, name and version (`tools/ci_version.sh`; a local
 run is `io.github.vibebms.dev`, "vibeBMS Dev", on the branch `dev`), checks the desktop entry and AppStream data
-(`desktop-file-validate`, `appstreamcli`, when installed), builds with `flatpak-builder` and bundles with
+(`desktop-file-validate` when installed, `appstreamcli`). Nothing is compiled, so it uses neither `flatpak-builder` nor
+the SDK: it lays out the app directory itself (the executable in `/app/bin`, the desktop entry, metainfo and icons
+under `/app/share`, and the `metadata` with the runtime and command from `platform/flatpak/vibebms.yml`, which keeps
+flatpak-builder's manifest format), composes the AppStream catalog and its cached icons with `appstreamcli compose` as
+flatpak-builder does (the bundle carries them for software centres), adds the manifest's `finish-args` with
+`flatpak build-finish`, exports to a local repository with `flatpak build-export` and bundles with
 `flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo`, so `flatpak install` of the bundle
-fetches the runtime from Flathub. Needs `flatpak` and `flatpak-builder`; the runtime and SDK (over 1 GB) are installed
-for the user when no installation has them. `DRY_RUN=1` stops before the build, with the filled-in sources in
-`<out dir>/flatpak-src`.
+fetches the runtime from Flathub. Needs `flatpak` and `appstreamcli` with its compose plugin (`appstream-compose` on
+Debian and Ubuntu); neither the runtime nor the SDK has to be installed. `DRY_RUN=1` stops before the build, with the
+filled-in sources in `<out dir>/flatpak-src`.
 
 The runtime is `org.gnome.Platform` (51) because it has WebKitGTK 4.1 (`libwebkit2gtk-4.1`), which the in-app
 browser links; the Freedesktop runtime has no WebKitGTK. Its permissions: network, Wayland or X11 (and IPC), the GPU,
 PulseAudio, all devices (game controllers) and the home folder (BMS folders added in `SETTINGS › LIBRARY`). CI builds
-the nightly's (`io.github.vibebms.nightly`, "vibeBMS Nightly", branch `nightly`) from `vibebms-linux-x64`, caches the
-runtime and SDK, checks that the bundle installs and that every library the executable links resolves in the runtime,
-and adds the bundle to the nightly release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak` (or `-arm64`); a
+the nightly's (`io.github.vibebms.nightly`, "vibeBMS Nightly", branch `nightly`) from `vibebms-linux-x64` and `-arm64`,
+installs and caches the runtime alone (without its GL drivers, codecs and translations), checks that the bundle
+installs and that every library the executable links resolves in the runtime, and adds the bundle to the nightly
+release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak` (or `-arm64`); a
 newer bundle installs over it the same way (it does not update itself: the self-update stays off under `/app`).
 Inside the Flatpak the executable's folder (`/app/bin`) is read-only, so the data root is `$XDG_DATA_HOME/vibeBMS`,
 which Flatpak makes `~/.var/app/<app id>/data/vibeBMS`. Video BGA needs an `ffmpeg` executable, which the runtime does
