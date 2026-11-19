@@ -5,7 +5,7 @@ use crate::import;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-pub type ImportResult = Result<import::Imported, String>;
+pub type ImportResult = import::Outcome;
 
 /// Downloads being brought into the library, on threads.
 pub struct Imports {

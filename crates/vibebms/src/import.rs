@@ -3,17 +3,17 @@
 
 use crate::placement::Vfs;
 use bmseeker::fs::file_name;
-pub use bmseeker::import::*;
+pub use bmseeker::import::{unpack_into, Imported};
 use bmseeker::library::Library;
 use std::path::{Path, PathBuf};
 
-pub fn import(file: &Path, library: &Path) -> Result<Imported, String> {
+/// What came of a download: what it is, and the charts that waited for it
+/// placed.
+pub type Outcome = Result<(Imported, Vec<PathBuf>), String>;
+
+pub fn import(file: &Path, library: &Path) -> Outcome {
     let req = bmseeker::install::Request::default();
     bmseeker::import::import(&Vfs, file, &mut Library::new(library), &req)
-}
-
-pub fn place_waiting(downloads: &Path, library: &Path) -> Vec<PathBuf> {
-    bmseeker::install::place_waiting(&Vfs, downloads, &mut Library::new(library))
 }
 
 /// What a finished import means for the browser.
@@ -26,13 +26,16 @@ pub struct Report {
     pub ask: Option<(PathBuf, Vec<(PathBuf, String)>)>,
 }
 
-/// Tell the user how an import went; charts waiting for this song go into
-/// its folder.
-pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report {
+/// Tell the user how an import went, and of the charts that waited for it.
+pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
     let mut out = Report {
         rescan: true,
         song_arrived: false,
         ask: None,
+    };
+    let (r, placed) = match r {
+        Ok((i, placed)) => (Ok(i), placed),
+        Err(e) => (Err(e), Vec::new()),
     };
     match r {
         Err(e) => {
@@ -45,10 +48,6 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report 
                 name = file_name(&dir),
                 n = n
             ));
-            let root = &ctx.paths.root;
-            for p in place_waiting(&root.join("downloads"), &root.join("bms")) {
-                ctx.toast(tr!("{name} → its song", name = file_name(&p)));
-            }
             out.song_arrived = true;
         }
         Ok(Imported::Owned(dir)) => {
@@ -78,5 +77,9 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Result<Imported, String>) -> Report 
             out.rescan = false;
         }
     }
+    for p in &placed {
+        ctx.toast(tr!("{name} → its song", name = file_name(p)));
+    }
+    out.rescan |= !placed.is_empty();
     out
 }

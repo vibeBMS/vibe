@@ -2,7 +2,8 @@
 //! on the player's files (`platform::vfs`), which are also where archives
 //! are unpacked (`bmseeker::fs::Store`).
 
-pub use bmseeker::placement::*;
+pub use bmseeker::placement::{is_chart, same_artist, same_name, same_title, Located};
+use bmseeker::placement::{ChartInfo, Rules};
 use std::io::Write;
 use std::path::Path;
 
