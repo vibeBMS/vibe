@@ -214,9 +214,13 @@ impl Src {
         } else {
             now
         };
-        let n = self.frames.len() as i64;
-        let i = (t.max(0) * n / self.cycle) % n;
-        Some(self.frames[i as usize])
+        Some(self.frames[Src::step(t, self.frames.len(), self.cycle)])
+    }
+
+    /// Which of the `n` steps of an animation of `cycle` ms shows `t` ms
+    /// into it (a script's timer may put `t` anywhere an `i64` reaches).
+    pub fn step(t: i64, n: usize, cycle: i64) -> usize {
+        (t.max(0) as i128 * n as i128 / cycle as i128 % n as i128) as usize
     }
 }
 
@@ -1312,6 +1316,40 @@ mod tests {
         let mut chosen = std::collections::BTreeMap::new();
         chosen.insert("Back".to_string(), "c".to_string());
         assert_eq!(user_files(&opts, Some(&chosen))["Back"], "c");
+    }
+
+    /// A script's timer may be any number: one far in the past still
+    /// gives a frame of the animation.
+    #[test]
+    fn a_frame_for_any_timer() {
+        struct Far;
+        impl SkinState for Far {
+            fn timer(&self, _: i32) -> Option<i64> {
+                Some(i64::MIN / 1000 + 1000)
+            }
+            fn option(&self, _: i32) -> bool {
+                false
+            }
+            fn number(&self, _: i32) -> Option<i64> {
+                None
+            }
+            fn text(&self, _: i32) -> Option<String> {
+                None
+            }
+            fn rate(&self, _: i32) -> f32 {
+                0.0
+            }
+        }
+        let src = Src {
+            image: 0,
+            frames: Src::grid([0.0, 0.0, 1024.0, 1.0], 1024, 1),
+            cycle: 1000,
+            timer: 41,
+        };
+        assert!(src.frame(0, &Far).is_some());
+        assert_eq!(Src::step(1500, 4, 1000), 2);
+        assert_eq!(Src::step(-5, 4, 1000), 0);
+        assert!(Src::step(i64::MAX, 1024, 1) < 1024);
     }
 
     #[test]

@@ -18,7 +18,7 @@ use super::script::{self, ScriptKind};
 use super::*;
 use crate::platform::vfs;
 use files::{filepath_chosen, filepath_files, filepaths, FilePath};
-use json::{add_missing_commas, merge_double_braces};
+use json::{add_missing_commas, merge_double_braces, parse};
 use objects::Ctx;
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -90,10 +90,7 @@ fn preprocess(v: Value, en: &HashSet<i64>, dir: &Path, depth: usize) -> Value {
     match v {
         Value::Object(m) if m.contains_key("include") && depth < 8 => {
             let p = dir.join(m["include"].as_str().unwrap_or(""));
-            match vfs::read_to_string(&p)
-                .ok()
-                .and_then(|t| json5::from_str::<Value>(&t).ok())
-            {
+            match vfs::read_to_string(&p).ok().and_then(|t| parse(&t).ok()) {
                 Some(inc) => preprocess(inc, en, p.parent().unwrap_or(dir), depth + 1),
                 None => Value::Null,
             }
@@ -292,8 +289,8 @@ fn read_skin(
         .map(|b| vibebms_core::encoding::decode_text(&b))
         .map_err(|e| e.to_string())?;
     let text = add_missing_commas(&text);
-    json5::from_str::<Value>(&text)
-        .or_else(|e| json5::from_str::<Value>(&merge_double_braces(&text)).map_err(|_| e))
+    parse(&text)
+        .or_else(|e| parse(&merge_double_braces(&text)).map_err(|_| e))
         .map(|v| (v, None))
         .map_err(|e| format!("{}: {e}", path.display()))
 }

@@ -81,6 +81,39 @@ fn lr2_fonts() {
     assert_eq!(s.objects[0].dst.keys[0].rect.x, 60.0);
 }
 
+/// A number a line gives where a slot is meant does not become an index
+/// or a size as it is.
+#[test]
+fn numbers_out_of_range_are_no_slots() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lr2range-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = "#INFORMATION,5,Sel,me\n#IMAGE,a.png\n\
+#SRC_NOWJUDGE_1P,-1,0,0,0,10,10,1,1,0,0\n#DST_NOWJUDGE_1P,-1,0,0,0,10,10,0,255,255,255,255\n\
+#SRC_NOWCOMBO_1P,-1,0,0,0,100,10,10,1,0,0\n#DST_NOWCOMBO_1P,-1,0,0,0,10,10,0,255,255,255,255\n\
+#DST_NOWJUDGE_2P,6,0,0,0,10,10,0,255,255,255,255\n#DST_NOWCOMBO_3P,!9,0,0,0,10,10,0,255,255,255,255\n\
+#DST_BAR_BODY_OFF,9000000000000000000,0,10,10,100,20,0,255,255,255,255\n\
+#DST_BAR_BODY_ON,!3,0,10,10,100,20,0,255,255,255,255\n\
+#BAR_AVAILABLE,0,9000000000000000000\n#BAR_CENTER,9000000000000000000\n";
+    std::fs::write(dir.join("select.lr2skin"), csv).unwrap();
+    let size = |_: &Path| Some((128, 64));
+    let s = load(
+        &dir.join("select.lr2skin"),
+        &dir,
+        &HashMap::new(),
+        &|_| None,
+        &size,
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    for side in &s.judges {
+        assert!(side.judge.iter().all(Option::is_none));
+        assert!(side.combo.iter().all(Option::is_none));
+    }
+    let sl = s.songlist.unwrap();
+    assert_eq!((sl.off.len(), sl.on.len()), (64, 1));
+    assert_eq!((sl.center, sl.clickable.len()), (63, 64));
+}
+
 #[test]
 fn parses_select_bars() {
     let dir = std::env::temp_dir().join(format!("vibebms-sel-{}", std::process::id()));

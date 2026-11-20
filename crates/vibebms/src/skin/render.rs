@@ -475,7 +475,7 @@ impl LoadedSkin {
                 } else {
                     now
                 };
-                ((t.max(0) * sets as i64 / s.cycle) % sets as i64) as usize
+                Src::step(t, sets, s.cycle)
             })
             .unwrap_or(0);
         const RANK_COLORS: [u32; 9] = [
@@ -751,7 +751,7 @@ impl LoadedSkin {
             } else {
                 now
             };
-            ((t.max(0) * sets as i64 / src.cycle) % sets as i64) as usize
+            Src::step(t, sets, src.cycle)
         } else {
             0
         };

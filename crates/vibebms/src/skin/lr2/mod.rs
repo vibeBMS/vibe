@@ -74,6 +74,20 @@ fn judge_side(cmd: &str) -> usize {
     }
 }
 
+/// The judge a `_NOWJUDGE` / `_NOWCOMBO` line numbers (5 down to 0) as
+/// its place in `JudgeSkin`; `None` for a number that is no judge.
+fn judge_slot(n: i64) -> Option<usize> {
+    (0..=5).contains(&n).then(|| (5 - n) as usize)
+}
+
+/// Bar slots a skin may number: more than any select skin draws.
+const BAR_SLOTS: i64 = 64;
+
+/// The bar slot a `#BAR_*` line numbers, among those there may be.
+fn bar_slot(n: i64) -> usize {
+    n.clamp(0, BAR_SLOTS - 1) as usize
+}
+
 /// beatoraja offset ids after an LR2 destination's 21 fields.
 fn line_offsets(f: &[&str]) -> Vec<i32> {
     f.iter()

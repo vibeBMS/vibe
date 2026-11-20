@@ -922,3 +922,37 @@ fn loads_lua_skin() {
     assert_eq!(s.objects[0].dst.keys[0].rect.w, 10.0);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Text nested deeper than any skin is refused, not read (json5 would
+/// run out of stack); brackets in strings and comments open nothing.
+#[test]
+fn json_nested_too_deep_is_refused() {
+    let nested = |n: usize| format!("{}1{}", "[".repeat(n), "]".repeat(n));
+    assert!(json::parse(&nested(128)).is_ok());
+    assert!(json::parse(&nested(129)).is_err());
+    assert!(json::parse(&"[".repeat(200_000)).is_err());
+    assert!(json::parse(&"{a:".repeat(200_000)).is_err());
+    let quiet = format!(
+        "// {0}\n/* {0} */ ['{0}', \"{0}\\\"{0}\", /* ]* */ {1}]",
+        "[{".repeat(200),
+        nested(127)
+    );
+    assert!(json::parse(&quiet).is_ok());
+    // a comment or a string that only looks like one hides nothing
+    for cover in ["'//'", "'/*'", "'\\'//'", "1 // '\r", "1 /* ' */", "'\\\\'"] {
+        let hidden = format!("[{cover}, {}]", nested(128));
+        assert!(json::parse(&hidden).is_err(), "{cover}");
+    }
+    // a skin file of such text has no header and does not load
+    let dir = std::env::temp_dir().join(format!("vibebms-jdeep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("deep.json");
+    std::fs::write(
+        &path,
+        format!("{{\"type\": 0, \"x\": {}}}", "[".repeat(200_000)),
+    )
+    .unwrap();
+    let h = header(&path);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(h, None);
+}
