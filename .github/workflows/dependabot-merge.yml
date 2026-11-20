@@ -28,6 +28,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
       startsWith(github.event.workflow_run.head_branch, 'dependabot/')
     runs-on: ubuntu-latest
     steps:
@@ -38,10 +39,21 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,headRefOid \
-            --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
-          if [ -z "$pr" ]; then echo "no open pull request at $SHA"; exit 0; fi
-          gh api "repos/$REPO/commits/$SHA" --jq .commit.message > "$RUNNER_TEMP/msg"
+          # Dependabot's own pull request from a branch of this repository,
+          # at a commit Dependabot made and GitHub signed: the run's actor
+          # alone does not say whose branch and commits these are
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open \
+            --json number,headRefOid,isCrossRepository,author |
+            jq -r --arg sha "$SHA" '.[] | select(.headRefOid == $sha and (.isCrossRepository | not)
+              and (.author.login | test("^(app/)?dependabot(\\[bot\\])?$"))) | .number')
+          if [ -z "$pr" ]; then echo "no open pull request of Dependabot's at $SHA"; exit 0; fi
+          gh api "repos/$REPO/commits/$SHA" > "$RUNNER_TEMP/commit.json"
+          if ! jq -e '.commit.verification.verified and .author.login == "dependabot[bot]"' \
+            "$RUNNER_TEMP/commit.json" > /dev/null; then
+            echo "#$pr: $SHA is not a signed commit of Dependabot's; left for review"
+            exit 0
+          fi
+          jq -r .commit.message "$RUNNER_TEMP/commit.json" > "$RUNNER_TEMP/msg"
           cat > "$RUNNER_TEMP/held.py" <<'EOF'
           import re, sys
           # Each update Dependabot lists, "Updates `x` from A to B" or
