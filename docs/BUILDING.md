@@ -265,12 +265,19 @@ the release by hand updates the same way, as it is signed with the same key.
 
 The nightly job publishes the repository with the nightly APK (`tools/fdroid_repo.sh`). On each push to the default
 branch it:
-- runs `fdroid update` (fdroidserver 2.4.5, from pip) on the APK the release has, byte for byte, as its only version
+- installs fdroidserver 2.4.5 from pip, in a step that has no key: it and every package it brings (68 files) are
+  pinned by version and SHA-256 in `tools/fdroidserver.txt` and `tools/fdroidserver-build.txt` (`--require-hashes`;
+  the four that have no wheel are built with the pinned setuptools, without pip's build isolation, which would fetch
+  one unpinned). The files were resolved for the runner's Python (3.12 on x86_64 Linux): when the runner's Python
+  changes, or to move to a newer fdroidserver, make them again as the top of `tools/fdroidserver.txt` says;
+- runs `fdroid update` on the APK the release has, byte for byte, as its only version
   (named `io.github.vibebms.nightly_<versionCode>.apk`, so each build has its own URL), with the metadata in
   `platform/android/fdroid/metadata/` (name, summary, description, licence, links; the icon is
   `io.github.vibebms.nightly/en-US/icon.png`, a copy of `assets/logo/icon-512.png`);
 - signs the index (`entry.jar` for current clients, `index-v1.jar` and `index.jar` for older ones) with
-  `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`);
+  `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`, which that
+  step gets only then); the password reaches keytool and fdroidserver through the environment, not a command line
+  or `config.yml`;
 - after the release is published, replaces the branch `fdroid-repo` with one new commit (no parent), so the older
   APKs are not kept in its history. The release's concurrency group and the check that the commit is still the
   branch's head (or that the newer commits skip CI, `[skip ci]`: they start no run, `tools/ci_moved_on.sh`) make
@@ -280,7 +287,8 @@ branch it:
 
 It skips the repository, saying why in the summary, when the run built no APK, when the APK was signed with a key
 made for the run (it could not update the installed app), or when there is no key for the index (a key made per run
-would change the fingerprint the clients pinned). A failure there holds back no other file.
+would change the fingerprint the clients pinned). A failure there holds back no other file: the job publishes the
+rest, then ends as failed, so that it is seen.
 
 The index's key is what clients pin: changing it later means every user adds the repository again. So whether the
 index keeps the APK's key or gets its own (F-Droid advises one; `FDROID_KEYSTORE`) is decided once, before users add
@@ -292,12 +300,16 @@ keytool -genkeypair -keystore vibebms-fdroid.p12 -storetype PKCS12 -alias vibebm
   -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=vibeBMS F-Droid repository"
 base64 -w0 vibebms-fdroid.p12    # the value of FDROID_KEYSTORE; FDROID_KEYSTORE_PASSWORD is the password asked for
 ```
-The secrets go in the repository's Settings › Secrets and variables › Actions. A keystore with one key is expected
-(its alias is read from it), with one password for the keystore and the key.
+The secrets go in the environment `release` (Android signing, above; or, until it is set up, in the repository's
+Settings › Secrets and variables › Actions). A keystore with one key is expected (its alias is read from it), with
+one password for the keystore and the key.
 
-To build the repository locally (Python 3, a JDK, the Android SDK's build-tools):
+To build the repository locally (Python 3, a JDK, the Android SDK's build-tools; with another Python than 3.12 or
+off x86_64 Linux the pinned files do not fit: `pip install fdroidserver==2.4.5` then):
 ```sh
-python3 -m venv /tmp/fdroid && /tmp/fdroid/bin/pip install fdroidserver==2.4.5
+python3 -m venv /tmp/fdroid
+/tmp/fdroid/bin/pip install --require-hashes --only-binary :all: -r tools/fdroidserver-build.txt
+/tmp/fdroid/bin/pip install --require-hashes --no-build-isolation -r tools/fdroidserver.txt
 PATH=/tmp/fdroid/bin:$PATH ANDROID_HOME=... FDROID_KEYSTORE_FILE=vibebms-fdroid.p12 FDROID_KEYSTORE_PASS=... \
   FDROID_REPO_URL=http://192.168.1.2:8000/repo tools/fdroid_repo.sh build vibeBMS.apk /tmp/fdroid-work
 python3 -m http.server -d /tmp/fdroid-work/site 8000    # serves that address (this machine's, on the LAN)

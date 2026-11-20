@@ -923,18 +923,19 @@ jobs:
       # (address, fingerprint, link) goes up with the release; pushed to the
       # fdroid-repo branch once the release is published. Only an APK signed
       # with the repository's key goes in: one signed by a throwaway key could
-      # not update the installed app. A failure here holds back nothing else.
-      - name: F-Droid repository
-        id: fdroid
+      # not update the installed app. A failure here holds back nothing else:
+      # the job's last step reports it, once the rest is published.
+      # First fdroidserver, in a step that has no key: installing runs the
+      # packages' code (four are built from their sources). Each file is
+      # pinned by SHA-256 (tools/fdroidserver.txt), so the next step, which
+      # has the key, runs what was there when the pins were made.
+      - name: F-Droid tools
+        id: fdroid-tools
         if: env.RELEASE == 'true'
         continue-on-error: true
         env:
           APK_SIGNING: ${{ needs.android-sign.outputs.signing }}
-          FDROID_KS_B64: ${{ secrets.FDROID_KEYSTORE }}
-          FDROID_KS_PASS: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KS_B64: ${{ secrets.ANDROID_KEYSTORE }}
-          ANDROID_KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          FDROID_REPO_URL: https://raw.githubusercontent.com/${{ github.repository }}/fdroid-repo/repo
+          HAVE_KEY: ${{ secrets.FDROID_KEYSTORE != '' || secrets.ANDROID_KEYSTORE != '' }}
         run: |
           skip() {
             echo "F-Droid repository not updated: $1"
@@ -947,25 +948,35 @@ jobs:
             skip "the APK was signed with a throwaway key, so it could not update an installed one. Add the secrets \`ANDROID_KEYSTORE\` (the keystore, base64) and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
           # a key that stays: one made per run would change the fingerprint
           # the clients pinned
-          if [ -n "$FDROID_KS_B64" ]; then
-            b64="$FDROID_KS_B64" pass="$FDROID_KS_PASS"
-          elif [ -n "$ANDROID_KS_B64" ]; then
-            b64="$ANDROID_KS_B64" pass="$ANDROID_KS_PASS"
-          else
+          [ "$HAVE_KEY" = true ] ||
             skip "no key to sign its index: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\`, or \`ANDROID_KEYSTORE\` and \`ANDROID_KEYSTORE_PASSWORD\` $secrets."
-          fi
-          echo "::add-mask::$pass"
-          export FDROID_KEYSTORE_FILE="$RUNNER_TEMP/fdroid.keystore" FDROID_KEYSTORE_PASS="$pass"
-          echo "$b64" | base64 -d > "$FDROID_KEYSTORE_FILE"
+          python3 -m venv "$RUNNER_TEMP/fdroidserver"
+          pip="$RUNNER_TEMP/fdroidserver/bin/pip"
+          "$pip" install -q --require-hashes --only-binary :all: -r src/tools/fdroidserver-build.txt
+          "$pip" install -q --require-hashes --no-build-isolation -r src/tools/fdroidserver.txt
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: F-Droid repository
+        id: fdroid
+        if: env.RELEASE == 'true' && steps.fdroid-tools.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          # (the APK's key only when the repository has none of its own)
+          KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE || secrets.ANDROID_KEYSTORE }}
+          FDROID_KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE && secrets.FDROID_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FDROID_REPO_URL: https://raw.githubusercontent.com/${{ github.repository }}/fdroid-repo/repo
+        run: |
+          export FDROID_KEYSTORE_FILE="$RUNNER_TEMP/fdroid.keystore"
+          echo "$KEYSTORE_B64" | base64 -d > "$FDROID_KEYSTORE_FILE"
           # the index for older clients is signed with SHA1withRSA: an EC key (as the APK's may be)
           # would leave it unsigned
-          if ! keytool -list -v -keystore "$FDROID_KEYSTORE_FILE" -storepass "$pass" |
+          if ! keytool -list -v -keystore "$FDROID_KEYSTORE_FILE" -storepass:env FDROID_KEYSTORE_PASS |
             grep -q '^Subject Public Key Algorithm: .*RSA'; then
             rm "$FDROID_KEYSTORE_FILE"
-            skip "its key is not an RSA key, which F-Droid's index needs: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\` with an RSA key $secrets."
+            why="its key is not an RSA key, which F-Droid's index needs: add the secrets \`FDROID_KEYSTORE\` and \`FDROID_KEYSTORE_PASSWORD\` with an RSA key (docs/BUILDING.md, \"F-Droid repository\")."
+            echo "F-Droid repository not updated: $why"
+            printf '### F-Droid repository\n\nNot updated: %s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
-          python3 -m venv "$RUNNER_TEMP/fdroidserver"
-          "$RUNNER_TEMP/fdroidserver/bin/pip" install -q fdroidserver==2.4.5
           PATH="$RUNNER_TEMP/fdroidserver/bin:$PATH" src/tools/fdroid_repo.sh build out/vibeBMS.apk "$RUNNER_TEMP/fdroid"
           rm "$FDROID_KEYSTORE_FILE"
           cp "$RUNNER_TEMP/fdroid/fdroid.txt" "$RUNNER_TEMP/fdroid/fdroid-qr.png" out/
@@ -1051,9 +1062,13 @@ jobs:
             echo
             echo "The release has these in \`fdroid.txt\` and the link as a QR code in \`fdroid-qr.png\`."
           } >> "$GITHUB_STEP_SUMMARY"
+      # (a red run: the release would else lack fdroid.txt, and the
+      # repository stay at an older APK, with nobody told)
       - name: F-Droid repository failed
-        if: env.RELEASE == 'true' && steps.fdroid.outcome == 'failure'
+        if: env.RELEASE == 'true' && (steps.fdroid-tools.outcome == 'failure' || steps.fdroid.outcome == 'failure')
         run: |
-          printf '### F-Droid repository\n\nNot updated: building it failed (see the step "F-Droid repository").\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '### F-Droid repository\n\nNot updated: building it failed (see the steps "F-Droid tools" and "F-Droid repository").\n' >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::the F-Droid repository was not updated (the steps \"F-Droid tools\" and \"F-Droid repository\"); the rest of the release is published"
+          exit 1
 
   # links to the executables in the run summary, once the builds are done
