@@ -26,8 +26,10 @@
 #    run), and the volume's 64-bit ID in the header's Finder info (mkfs.hfsplus
 #    hashes the time, the load average and the CPU time used into it), made
 #    from a hash of the image instead;
-# 4. libdmg-hfsplus's `dmg build` compresses it to UDIF (zlib, level 9, runs in
-#    order whatever thread compressed them). Its own fields are fixed: the
+# 4. libdmg-hfsplus's `dmg build` puts it in an Apple partition map (an
+#    Apple_HFSX partition; hdiutil's had a GUID partition table) and
+#    compresses it to UDIF (zlib, level 9, runs in order whatever thread
+#    compressed them). Its own fields are fixed: the
 #    CRC-32 checksums are the data's, the resources' plist has no dates, and
 #    the koly block's segment ID is glibc's rand() unseeded (the same numbers
 #    every run).

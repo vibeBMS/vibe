@@ -454,9 +454,10 @@ header's dates (created, modified, checked) and each folder's and file's dates t
 average and the CPU time into it) to a hash of the volume, `fsck.hfsplus` checks it, and `dmg build` compresses it
 to UDIF (zlib, level 9: UDZO, as hdiutil made it). `dmg build`'s own fields are fixed by the data (the CRC-32s, the
 resources' plist) but for the koly block's segment ID, glibc's `rand()` unseeded: the same every run. The volume has
-what hdiutil's had (the app, a link to `/Applications`, no `.DS_Store`: the Finder's default window), but no
-partition map (a bare HFS+ volume, as Firefox's `.dmg`), and its files are owned by root (macOS mounts a disk
-image's volume ignoring owners). CI's `macos-dmg-check` job checks it on macOS: `hdiutil verify`, mounted, the app's
+what hdiutil's had (the app, a link to `/Applications`, no `.DS_Store`: the Finder's default window); the image
+around it is `dmg build`'s, an Apple partition map with the volume in an `Apple_HFSX` partition (as Firefox's `.dmg`;
+hdiutil's had a GUID partition table), and its files are owned by root (macOS mounts a disk image's volume ignoring
+owners: they show as the user's). CI's `macos-dmg-check` job checks it on macOS: `hdiutil verify`, mounted, the app's
 files are the zip's and its signature holds, and copied out it starts.
 
 The **Reproducible builds** workflow (`.github/workflows/reproducible.yml`, Actions > Run workflow; inputs: the
