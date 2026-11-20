@@ -9,6 +9,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# what a job's token may do, whatever the repository's default is: read the
+# repository. The jobs that need more say so (cache-prune, pages, nightly).
+permissions:
+  contents: read
+
 # A newer commit on the same branch or pull request cancels the older run:
 # hosted runners are limited (20 jobs, 5 of them macOS, across the
 # organization), and only the newest commit's builds matter. A publish cut
