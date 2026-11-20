@@ -155,8 +155,10 @@ jobs:
           "$RUNNER_TEMP/skins/bin/pip" install -q pillow==12.3.0
           "$RUNNER_TEMP/skins/bin/python" tools/gen_default_skins.py --check \
             --fonts "$RUNNER_TEMP/inter/usr/share/fonts/opentype/inter"
-      # the checks the Toolchain pins workflow makes of what it found
+      # the checks the Toolchain pins workflow makes of what it found, and
+      # which updates the Dependabot merge workflow holds
       - run: python3 tools/repro_pins_test.py
+      - run: python3 .github/dependabot_merge_test.py
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
