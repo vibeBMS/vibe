@@ -66,8 +66,11 @@ Answers:
 - 401 / 403: the token is refused. The client stops sending to this server until the user
   checks the account again.
 - 408, 429, 5xx: tried again later, with a growing delay; a `Retry-After` (seconds or an HTTP
-  date) is the shortest wait.
+  date) is the shortest wait, a day at most.
 - Any other status: refused for good. A JSON body `{"error": "why"}` is shown to the user.
+
+Any answer is read up to 64 MB (as decoded, when it is compressed); a larger one counts as no
+answer. Of a text the server sends for the user, the first 200 characters are stored with the play.
 
 ## `GET {base}/players/{id}/lamps` (version 2, optional)
 One player's lamps, for rival lamps in song select:

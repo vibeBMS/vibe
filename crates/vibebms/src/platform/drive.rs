@@ -15,6 +15,10 @@ use std::sync::{Arc, Mutex};
 
 type Done<O> = Box<dyn FnOnce(O) + Send>;
 
+/// The largest file a job downloads here, where it comes into memory (the
+/// web: natively a job's files go to disk on bmseeker's own transport).
+const DOWNLOAD_MAX: u64 = 1 << 30;
+
 /// What a job's effects are done with: the progress its files report to,
 /// the refusals they keep to (none for a table's load: vibeBMS's own).
 #[derive(Clone, Default)]
@@ -122,6 +126,7 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
             let announced = progress.clone();
             super::stream(
                 &asked(&target.url),
+                DOWNLOAD_MAX,
                 progress,
                 move |c| {
                     let mut b = sink.lock().unwrap_or_else(|e| e.into_inner());

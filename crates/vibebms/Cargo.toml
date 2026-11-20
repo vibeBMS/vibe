@@ -62,6 +62,7 @@ webbrowser = { version = "1", features = ["hardened"] }
 # Desktop: trust the OS certificate store (corporate proxies, custom CAs).
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
 ehttp = { version = "0.7", features = ["platform-verifier"] }
+ureq = { version = "~3.5", default-features = false, features = ["rustls", "gzip", "platform-verifier"] }
 rfd = "0.18"
 wry = { version = "0.57", optional = true }
 # the self-update replaces the running executable (Windows: renamed away)
@@ -100,6 +101,9 @@ ndk-context = "0.1"
 gtk = { version = "0.18", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# requests natively, with the times a server is given (platform/http.rs;
+# the version and features BMSeeker and ehttp build)
+ureq = { version = "~3.5", default-features = false, features = ["rustls", "gzip"] }
 pollster = "1"
 # the system's language (the UI's when LANGUAGE is AUTO; web: navigator.language)
 sys-locale = "0.3"

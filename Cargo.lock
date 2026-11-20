@@ -5115,6 +5115,7 @@ dependencies = [
  "sys-locale",
  "toml 1.2.1+spec-1.1.0",
  "ttf-parser",
+ "ureq",
  "vibebms-audio",
  "vibebms-core",
  "vibebms-ir",

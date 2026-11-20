@@ -111,8 +111,9 @@ fn run(cmd: &mut std::process::Command) -> Result<(), String> {
     }
 }
 
-/// Download `url` into `to`; it must be `size` bytes whose SHA-256 is
-/// `sha256`.
+/// Download `url` into `to`; it must be `size` bytes whose
+/// SHA-256 is `sha256`. However long it takes: it ends when it is larger
+/// than `size` or no data comes for a while (`platform::stream`).
 fn download(
     url: &str,
     to: &Path,
@@ -123,43 +124,33 @@ fn download(
     use sha2::{Digest, Sha256};
     use std::io::Write;
     use std::sync::Mutex;
-    // (why the sink stopped the download, if it did)
     struct St {
         file: std::fs::File,
         hash: Sha256,
         n: u64,
-        error: Option<String>,
     }
     let file = std::fs::File::create(to).map_err(|e| format!("cannot write the update: {e}"))?;
     let st = Arc::new(Mutex::new(St {
         file,
         hash: Sha256::new(),
         n: 0,
-        error: None,
     }));
     progress.start_file(Some(size));
     let (sink, progress) = (st.clone(), progress.clone());
     let (tx, rx) = std::sync::mpsc::channel();
     crate::platform::stream(
         url,
+        size,
         None,
         move |c| {
             let mut g = sink.lock().unwrap_or_else(|e| e.into_inner());
             g.n += c.len() as u64;
-            let e = if g.n > size {
-                "the download is larger than it should be".to_string()
-            } else {
-                g.hash.update(c);
-                match g.file.write_all(c) {
-                    Ok(()) => {
-                        progress.add(c.len() as u64);
-                        return Ok(());
-                    }
-                    Err(e) => format!("cannot write the update ({e})"),
-                }
-            };
-            g.error = Some(e.clone());
-            Err(e)
+            g.hash.update(c);
+            g.file
+                .write_all(c)
+                .map_err(|e| format!("cannot write the update ({e})"))?;
+            progress.add(c.len() as u64);
+            Ok(())
         },
         move |r, _| {
             let _ = tx.send(r);
@@ -169,9 +160,6 @@ fn download(
         .recv()
         .map_err(|_| "the download ended early".to_string())?;
     let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(e) = g.error.take() {
-        return Err(e);
-    }
     r.map_err(|e| format!("download failed ({e})"))?;
     if g.n != size {
         return Err(format!(

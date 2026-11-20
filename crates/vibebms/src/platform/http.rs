@@ -1,6 +1,15 @@
-//! HTTP (ehttp: ureq natively, `fetch` in browsers). Callbacks run on a
-//! worker thread natively and on the event loop on the web. Nothing here
-//! logs a request: its headers can carry credentials.
+//! HTTP: natively ureq, on a thread a request; in browsers `fetch`
+//! (ehttp), on the event loop. Callbacks run on that thread natively and
+//! on the event loop on the web. Nothing here logs a request: its headers
+//! can carry credentials.
+//!
+//! Every answer has a limit ([`BODY_MAX`], or the size its request names):
+//! a body is counted as it comes (as decoded: a little gzip can be any
+//! size), and the request ends once it is past it. Natively a server has so
+//! long to be found, to accept a connection, to begin its answer and
+//! between any two reads ([`native`]), after which the request's thread
+//! ends; a browser keeps its own times, and a request there ends for its
+//! caller when no data has come for the stall time.
 //!
 //! Natively every request names vibeBMS ([`user_agent`]) unless it names
 //! itself; in browsers the browser's own User-Agent goes, which a page
@@ -10,6 +19,8 @@ use super::{Duration, Instant};
 use bmseeker::hosts::STALL_MS;
 use bmseeker::net::{Answer, NetError};
 use bmseeker::progress::Progress;
+use ehttp::streaming::Part;
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// vibeBMS's product in a User-Agent: its name, version and where it is
@@ -69,8 +80,256 @@ pub fn request(
     req
 }
 
+/// The largest answer kept (bytes, as decoded) unless its request is for
+/// a file and names its size ([`stream`]): pages, lists, tables and IR
+/// answers are JSON or HTML of a few megabytes at most (a player's every
+/// score on an IR: tens).
+pub const BODY_MAX: u64 = 64 << 20;
+
+fn too_large(limit: u64) -> NetError {
+    NetError::Other(match limit >> 20 {
+        0 => format!("the answer is larger than {limit} bytes"),
+        mb => format!("the answer is larger than {mb} MB"),
+    })
+}
+
+/// What an answer is given to as it comes.
+trait Taker: Send + 'static {
+    /// Its head, then its body's chunks (none empty). An error ends the
+    /// request.
+    fn take(&mut self, part: Part) -> Result<(), NetError>;
+    /// How it ended (once).
+    fn done(self, end: Result<(), NetError>);
+}
+
+/// Send `req` and give its answer to `taker` as it comes. The request
+/// ends, for the taker, when the body is whole, when it is larger than
+/// `limit` bytes, when the taker fails, when `progress` is cancelled, or
+/// when no data has come for `bmseeker::hosts`' stall time (60 s).
+fn receive(req: ehttp::Request, limit: u64, progress: Option<Arc<Progress>>, taker: impl Taker) {
+    // (the taker until it is done, when data last came, the body so far)
+    struct St<T: Taker> {
+        taker: Option<T>,
+        last: Instant,
+        got: u64,
+    }
+    // a request let go of with nothing said (no thread to send it on)
+    impl<T: Taker> Drop for St<T> {
+        fn drop(&mut self) {
+            if let Some(t) = self.taker.take() {
+                t.done(Err(NetError::Other("the request was not sent".into())));
+            }
+        }
+    }
+    fn lock<T: Taker>(st: &Mutex<St<T>>) -> MutexGuard<'_, St<T>> {
+        st.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn finish<T: Taker>(st: &Mutex<St<T>>, end: Result<(), NetError>) {
+        let taker = lock(st).taker.take();
+        if let Some(t) = taker {
+            t.done(end);
+        }
+    }
+    let state = Arc::new(Mutex::new(St {
+        taker: Some(taker),
+        last: Instant::now(),
+        got: 0,
+    }));
+    // a watch: cancelled, or nothing for a while (natively the connection
+    // itself ends a request that stalls: `native`)
+    if progress.is_some() || super::IS_WEB {
+        let st = state.clone();
+        super::thread::every(Duration::from_millis(500), move || {
+            let stalled = {
+                let g = lock(&st);
+                if g.taker.is_none() {
+                    return false;
+                }
+                g.last.elapsed() > Duration::from_millis(STALL_MS)
+            };
+            let end = if progress.as_ref().is_some_and(|p| p.cancelled()) {
+                NetError::Cancelled
+            } else if stalled {
+                NetError::Stalled(STALL_MS / 1000)
+            } else {
+                return true;
+            };
+            finish(&st, Err(end));
+            false
+        });
+    }
+    start(identified(req), move |part| {
+        let mut g = lock(&state);
+        let st = &mut *g;
+        let Some(taker) = st.taker.as_mut() else {
+            return ControlFlow::Break(());
+        };
+        let end = match part {
+            Err(e) => Err(NetError::Other(e)),
+            Ok(Part::Chunk(c)) if c.is_empty() => Ok(()),
+            Ok(part) => {
+                // (a body that says it is too large is not begun)
+                let size = match &part {
+                    Part::Response(r) => (r.headers.get("content-length"))
+                        .and_then(|l| l.trim().parse().ok())
+                        .unwrap_or(0),
+                    Part::Chunk(c) => st.got + c.len() as u64,
+                };
+                let is_body = matches!(part, Part::Chunk(_));
+                match size > limit {
+                    true => Err(too_large(limit)),
+                    false => match taker.take(part) {
+                        Ok(()) => {
+                            if is_body {
+                                st.got = size;
+                            }
+                            st.last = Instant::now();
+                            return ControlFlow::Continue(());
+                        }
+                        Err(e) => Err(e),
+                    },
+                }
+            }
+        };
+        drop(g);
+        finish(&state, end);
+        ControlFlow::Break(())
+    });
+}
+
+/// Send `req` in the background and give `on_part` its answer as it
+/// comes, until it says to stop: the head, the body in chunks, then an
+/// empty chunk at its end; or why there is no more.
+fn start(
+    req: ehttp::Request,
+    on_part: impl Fn(Result<Part, String>) -> ControlFlow<()> + Send + 'static,
+) {
+    #[cfg(not(target_arch = "wasm32"))]
+    super::thread::spawn("http", move || native::run(&native::AGENT, &req, &on_part));
+    #[cfg(target_arch = "wasm32")]
+    ehttp::streaming::fetch(req, on_part);
+}
+
+/// Requests natively: ureq, with the times a server is given.
+#[cfg(not(target_arch = "wasm32"))]
+mod native {
+    use super::{ControlFlow, Duration, Part, STALL_MS};
+    use std::io::Read;
+    use std::sync::LazyLock;
+    use ureq::Agent;
+
+    /// How long a host's address may take to be found, and a server to
+    /// accept a connection: one that is gone fails in this time, not the
+    /// system's (minutes).
+    const CONNECT: Duration = Duration::from_secs(15);
+
+    /// How long a server may take to read a request, and to begin its
+    /// answer once asked.
+    const ANSWER_STARTS: Duration = Duration::from_secs(30);
+
+    /// An agent whose servers have `answer_starts` to take a request and
+    /// to begin their answer, and `stall` between two reads (the
+    /// handshake's and the body's). Statuses are answers, the system's
+    /// certificates are trusted on desktops (corporate proxies, custom
+    /// CAs), and each request has a connection of its own.
+    pub(super) fn agent(answer_starts: Duration, stall: Duration) -> Agent {
+        let tls = ureq::tls::TlsConfig::builder();
+        #[cfg(desktop)]
+        let tls = tls.root_certs(ureq::tls::RootCerts::PlatformVerifier);
+        Agent::config_builder()
+            .http_status_as_error(false)
+            .tls_config(tls.build())
+            .max_idle_connections(0)
+            .timeout_resolve(Some(CONNECT))
+            .timeout_connect(Some(CONNECT))
+            .timeout_send_request(Some(answer_starts))
+            .timeout_send_body(Some(answer_starts))
+            .timeout_recv_response(Some(answer_starts))
+            .timeout_per_read(Some(stall))
+            .build()
+            .into()
+    }
+
+    pub(super) static AGENT: LazyLock<Agent> =
+        LazyLock::new(|| agent(ANSWER_STARTS, Duration::from_millis(STALL_MS)));
+
+    /// `req` sent through `agent`, with its headers and its own time for
+    /// the whole body (`timeout`; none: the stall time alone ends it).
+    fn send(
+        agent: &Agent,
+        req: &ehttp::Request,
+    ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+        fn set<B>(mut b: ureq::RequestBuilder<B>, req: &ehttp::Request) -> ureq::RequestBuilder<B> {
+            for (k, v) in &req.headers {
+                b = b.header(k, v);
+            }
+            b.config().timeout_recv_body(req.timeout).build()
+        }
+        let with_body = |b| match req.body.is_empty() {
+            true => set(b, req).send_empty(),
+            false => set(b, req).send(&req.body[..]),
+        };
+        let without = |b| match req.body.is_empty() {
+            true => set(b, req).call(),
+            false => set(b, req).force_send_body().send(&req.body[..]),
+        };
+        match req.method {
+            ehttp::Method::POST => with_body(agent.post(&req.url)),
+            ehttp::Method::PUT => with_body(agent.put(&req.url)),
+            ehttp::Method::DELETE => without(agent.delete(&req.url)),
+            _ => without(agent.get(&req.url)),
+        }
+    }
+
+    /// Send `req` (a method [`super::request`] makes) through `agent` on
+    /// this thread, its answer given to `on_part` as [`super::start`] says.
+    pub(super) fn run(
+        agent: &Agent,
+        req: &ehttp::Request,
+        on_part: &dyn Fn(Result<Part, String>) -> ControlFlow<()>,
+    ) {
+        let mut res = match send(agent, req) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = on_part(Err(e.to_string()));
+                return;
+            }
+        };
+        let mut headers = ehttp::Headers::default();
+        for (k, v) in res.headers() {
+            // (a value that is no text: not one read here)
+            if let Ok(v) = v.to_str() {
+                headers.insert(k, v);
+            }
+        }
+        headers.sort();
+        let head = ehttp::PartialResponse {
+            url: ureq::ResponseExt::get_uri(&res).to_string(),
+            ok: res.status().is_success(),
+            status: res.status().as_u16(),
+            status_text: res.status().canonical_reason().unwrap_or("").into(),
+            headers,
+        };
+        if on_part(Ok(Part::Response(head))).is_break() {
+            return;
+        }
+        let mut body = res.body_mut().as_reader();
+        let mut buf = vec![0; 16 << 10];
+        loop {
+            let part = match body.read(&mut buf) {
+                Ok(n) => Ok(Part::Chunk(buf[..n].to_vec())),
+                Err(e) => Err(format!("the answer did not come whole: {e}")),
+            };
+            let over = !matches!(&part, Ok(Part::Chunk(c)) if !c.is_empty());
+            if on_part(part).is_break() || over {
+                return;
+            }
+        }
+    }
+}
+
 /// An answer, whatever its status.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Response {
     pub status: u16,
     /// Natively all of them; on the web only those CORS lets a page read
@@ -80,21 +339,31 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
-/// Send `req`: its answer, or why none came.
+/// An answer kept whole, and who it is for.
+struct Whole<D>(Response, D);
+
+impl<D: FnOnce(Result<Response, NetError>) + Send + 'static> Taker for Whole<D> {
+    fn take(&mut self, part: Part) -> Result<(), NetError> {
+        match part {
+            Part::Response(r) => {
+                self.0.status = r.status;
+                self.0.headers = r.headers;
+            }
+            Part::Chunk(c) => self.0.body.extend_from_slice(&c),
+        }
+        Ok(())
+    }
+    fn done(self, end: Result<(), NetError>) {
+        (self.1)(end.map(|()| self.0))
+    }
+}
+
+/// Send `req`: its answer, of [`BODY_MAX`] at most, or why none came.
 pub(super) fn call(
     req: ehttp::Request,
     on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
 ) {
-    ehttp::fetch(identified(req), move |r| {
-        on_done(match r {
-            Ok(r) => Ok(Response {
-                status: r.status,
-                headers: r.headers,
-                body: r.bytes,
-            }),
-            Err(e) => Err(NetError::Other(e)),
-        })
-    });
+    receive(req, BODY_MAX, None, Whole(Response::default(), on_done))
 }
 
 /// Send `req`: the body of its answer, or why there is none (a status as
@@ -108,15 +377,15 @@ pub fn fetch(req: ehttp::Request, on_done: impl FnOnce(Answer) + Send + 'static)
     });
 }
 
-/// How long [`exchange`] waits for a whole answer. Natively ehttp bounds
-/// only the reading of a GET's body, and a request left hanging would hold
-/// the IR outbox's item in "sending".
+/// How long [`exchange`] waits for a whole answer: a request left hanging
+/// would hold the IR outbox's item in "sending".
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
 
 /// Send `req` (IR requests) and give its answer whatever its status, with
 /// the headers and the body: `Retry-After` and `ETag`, a refusal's JSON.
 /// `Err` means no answer came: the connection failed, the browser refused
-/// it, or nothing came within 30 s (`NetError::Stalled`).
+/// it, the answer is larger than [`BODY_MAX`], or nothing came within 30 s
+/// (`NetError::Stalled`).
 ///
 /// On the web this is the browser's `fetch`, in CORS mode and without
 /// cookies:
@@ -172,106 +441,72 @@ fn send(req: ehttp::Request, on_done: impl FnOnce(Result<Vec<u8>, String>) + Sen
     });
 }
 
+/// GET `url`: its answer's body ([`BODY_MAX`] at most), or why there is
+/// none.
 pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
     send(ehttp::Request::get(url), on_done)
 }
 
-/// GET `url`, its body given to `sink` as it comes; then `on_done` with how
-/// it ended and where its redirects ended when the answer says so (the
-/// vibeBMS proxy's `X-Final-Url`, a refusal's too). It reports to
-/// `progress`, and ends when that is cancelled, when `sink` fails or when
-/// no data has come for `bmseeker::hosts`' stall time (60 s).
+/// GET `url` (a file: of `limit` bytes at most, taking as long as data
+/// keeps coming), its body given to `sink` as it comes; then `on_done`
+/// with how it ended and where its redirects ended when the answer says
+/// so (the vibeBMS proxy's `X-Final-Url`, a refusal's too). It reports to
+/// `progress`, and ends when that is cancelled, when `sink` fails, when
+/// the body is larger than `limit` or when no data has come for
+/// `bmseeker::hosts`' stall time (60 s).
 pub fn stream(
     url: &str,
+    limit: u64,
     progress: Option<Arc<Progress>>,
     sink: impl FnMut(&[u8]) -> Result<(), String> + Send + 'static,
     on_done: impl FnOnce(Result<(), NetError>, Option<String>) + Send + 'static,
 ) {
-    use ehttp::streaming::Part;
-    use std::ops::ControlFlow;
-    type Done = Box<dyn FnOnce(Result<(), NetError>, Option<String>) + Send>;
-    // (`on_done` until it is called, when data last came, where the
-    // redirects ended)
-    struct St<S> {
+    // (where the redirects ended)
+    struct File<S, D> {
         sink: S,
-        done: Option<Done>,
-        last: Instant,
+        done: D,
+        progress: Option<Arc<Progress>>,
         moved: Option<String>,
     }
-    fn lock<S>(st: &Mutex<St<S>>) -> MutexGuard<'_, St<S>> {
-        st.lock().unwrap_or_else(|e| e.into_inner())
-    }
-    let state = Arc::new(Mutex::new(St {
-        sink,
-        done: Some(Box::new(on_done)),
-        last: Instant::now(),
-        moved: None,
-    }));
-    let finish = |st: &Mutex<St<_>>, r: Result<(), NetError>| {
-        let mut g = lock(st);
-        let moved = g.moved.take();
-        if let Some(f) = g.done.take() {
-            drop(g);
-            f(r, moved);
-        }
-    };
-    // a watch: cancelled, or nothing for a while
+    impl<S, D> Taker for File<S, D>
+    where
+        S: FnMut(&[u8]) -> Result<(), String> + Send + 'static,
+        D: FnOnce(Result<(), NetError>, Option<String>) + Send + 'static,
     {
-        let (st, p) = (state.clone(), progress.clone());
-        super::thread::every(Duration::from_millis(500), move || {
-            let stalled = {
-                let g = lock(&st);
-                if g.done.is_none() {
-                    return false;
-                }
-                g.last.elapsed() > Duration::from_millis(STALL_MS)
-            };
-            let end = if p.as_ref().is_some_and(|p| p.cancelled()) {
-                NetError::Cancelled
-            } else if stalled {
-                NetError::Stalled(STALL_MS / 1000)
-            } else {
-                return true;
-            };
-            finish(&st, Err(end));
-            false
-        });
-    }
-    ehttp::streaming::fetch(identified(ehttp::Request::get(url)), move |part| {
-        let mut g = lock(&state);
-        if g.done.is_none() {
-            return ControlFlow::Break(());
-        }
-        let end = match part {
-            Err(e) => Err(NetError::Other(e)),
-            Ok(Part::Response(r)) => {
-                g.moved = r.headers.get("x-final-url").map(str::to_string);
-                if !r.ok {
-                    Err(NetError::Status(r.status))
-                } else {
-                    if let Some(p) = &progress {
+        fn take(&mut self, part: Part) -> Result<(), NetError> {
+            match part {
+                Part::Response(r) => {
+                    self.moved = r.headers.get("x-final-url").map(str::to_string);
+                    if !r.ok {
+                        return Err(NetError::Status(r.status));
+                    }
+                    if let Some(p) = &self.progress {
                         p.start_file(r.headers.get("content-length").and_then(|l| l.parse().ok()));
                     }
-                    g.last = Instant::now();
-                    return ControlFlow::Continue(());
                 }
-            }
-            Ok(Part::Chunk(c)) if c.is_empty() => Ok(()),
-            Ok(Part::Chunk(c)) => match (g.sink)(&c) {
-                Ok(()) => {
-                    if let Some(p) = &progress {
+                Part::Chunk(c) => {
+                    (self.sink)(&c).map_err(NetError::Other)?;
+                    if let Some(p) = &self.progress {
                         p.add(c.len() as u64);
                     }
-                    g.last = Instant::now();
-                    return ControlFlow::Continue(());
                 }
-                Err(e) => Err(NetError::Other(e)),
-            },
-        };
-        drop(g);
-        finish(&state, end);
-        ControlFlow::Break(())
-    });
+            }
+            Ok(())
+        }
+        fn done(self, end: Result<(), NetError>) {
+            (self.done)(end, self.moved)
+        }
+    }
+    let mut req = ehttp::Request::get(url);
+    // (no time for the whole of it: a slow link's file comes too)
+    req.timeout = None;
+    let file = File {
+        sink,
+        done: on_done,
+        progress: progress.clone(),
+        moved: None,
+    };
+    receive(req, limit, progress, file)
 }
 
 #[cfg(test)]
@@ -417,6 +652,7 @@ pub(crate) mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         stream(
             &url,
+            BODY_MAX,
             Some(p.clone()),
             |_| Ok(()),
             move |r, _| {
@@ -431,6 +667,213 @@ pub(crate) mod tests {
         p.cancel();
         let r = rx.recv_timeout(std::time::Duration::from_secs(3));
         assert_eq!(r, Ok(Err(NetError::Cancelled)));
+    }
+
+    /// A server writing `head` and then `body` over and over until the
+    /// client is gone: how many bytes it wrote is sent back.
+    fn pour(head: &'static str, body: Vec<u8>) -> (String, mpsc::Receiver<usize>) {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/f", l.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let _ = s.read(&mut [0u8; 4096]);
+            let _ = s.write_all(head.as_bytes());
+            let mut n = 0;
+            while n < 1 << 30 && s.write_all(&body).is_ok() {
+                n += body.len();
+            }
+            let _ = tx.send(n);
+        });
+        (url, rx)
+    }
+
+    /// [`call`], but for the limit.
+    fn call_within(url: &str, limit: u64) -> Result<Response, NetError> {
+        let (tx, rx) = mpsc::channel();
+        let whole = Whole(Response::default(), move |r| {
+            let _ = tx.send(r);
+        });
+        receive(ehttp::Request::get(url), limit, None, whole);
+        rx.recv_timeout(std::time::Duration::from_secs(20)).unwrap()
+    }
+
+    fn larger(r: Result<Response, NetError>) -> bool {
+        matches!(&r, Err(NetError::Other(e)) if e.contains("larger than"))
+    }
+
+    /// An answer is read as far as its request allows, whatever the server
+    /// says of its size or sends: one that would not end is let go of.
+    #[test]
+    fn an_answer_is_read_within_its_limit() {
+        let ok = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789";
+        let (url, _) = serve(vec![ok, ok, ok]);
+        let r = call_within(&url, 10).unwrap();
+        assert_eq!((r.status, r.body.as_slice()), (200, &b"0123456789"[..]));
+        // a size said that is too large: nothing of the body is read
+        assert!(larger(call_within(&url, 9)));
+        assert!(larger(call_within(&url, 0)));
+        // no size said, and no end
+        let (url, wrote) = pour(
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n",
+            vec![b'x'; 64 << 10],
+        );
+        assert!(larger(call_within(&url, 1 << 20)));
+        let wrote = wrote
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .unwrap();
+        assert!(wrote < 64 << 20, "{wrote}");
+        // a refusal's words are bounded as an answer's are
+        let (url, _) = pour(
+            "HTTP/1.1 500 No\r\nConnection: close\r\n\r\n",
+            vec![b'x'; 64 << 10],
+        );
+        assert!(larger(call_within(&url, 1 << 20)));
+    }
+
+    /// A body is counted as decoded: a little gzip is not a little answer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_compressed_answer_is_counted_as_it_decodes() {
+        let gzip = |n: usize| {
+            let mut z = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+            z.write_all(&vec![0u8; n]).unwrap();
+            z.finish().unwrap()
+        };
+        let serve_gzip = |body: Vec<u8>| {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/f", l.local_addr().unwrap());
+            std::thread::spawn(move || {
+                let (mut s, _) = l.accept().unwrap();
+                let _ = s.read(&mut [0u8; 4096]);
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = s.write_all(head.as_bytes());
+                let _ = s.write_all(&body);
+            });
+            url
+        };
+        let small = gzip(1 << 20);
+        assert!(small.len() < 4096);
+        let r = call_within(&serve_gzip(small), 1 << 20).unwrap();
+        assert_eq!(r.body.len(), 1 << 20);
+        let bomb = gzip(256 << 20);
+        assert!(bomb.len() < 1 << 20);
+        assert!(larger(call_within(&serve_gzip(bomb), 1 << 20)));
+    }
+
+    /// A file's download is held to its size too.
+    #[test]
+    fn a_stream_is_read_within_its_limit() {
+        let (url, wrote) = pour(
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n",
+            vec![b'x'; 64 << 10],
+        );
+        let (tx, rx) = mpsc::channel();
+        let got = Arc::new(Mutex::new(0u64));
+        let sink = got.clone();
+        stream(
+            &url,
+            1 << 20,
+            None,
+            move |c| {
+                *sink.lock().unwrap() += c.len() as u64;
+                Ok(())
+            },
+            move |r, _| {
+                let _ = tx.send(r);
+            },
+        );
+        let r = rx.recv_timeout(std::time::Duration::from_secs(20)).unwrap();
+        assert!(
+            matches!(&r, Err(NetError::Other(e)) if e.contains("larger than 1 MB")),
+            "{r:?}"
+        );
+        assert!(*got.lock().unwrap() <= 1 << 20);
+        let wrote = wrote
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .unwrap();
+        assert!(wrote < 64 << 20, "{wrote}");
+    }
+
+    /// What `native::run` gives of `req` through an agent with these
+    /// times: the body, or why it ended; and how long it took.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn run_with(
+        req: ehttp::Request,
+        answer_starts: Duration,
+        stall: Duration,
+    ) -> (Result<Vec<u8>, String>, Duration) {
+        let agent = native::agent(answer_starts, stall);
+        let got = Mutex::new((Vec::new(), None));
+        let start = Instant::now();
+        native::run(&agent, &req, &|part| {
+            let mut g = got.lock().unwrap();
+            match part {
+                Ok(Part::Chunk(c)) => g.0.extend_from_slice(&c),
+                Ok(Part::Response(_)) => {}
+                Err(e) => g.1 = Some(e),
+            }
+            ControlFlow::Continue(())
+        });
+        let (body, failed) = got.into_inner().unwrap();
+        (failed.map_or(Ok(body), Err), start.elapsed())
+    }
+
+    /// A server that sends `parts` of an answer, waiting `pause` before
+    /// each, then keeps the connection open for a while.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn drip(parts: Vec<&'static str>, pause: Duration) -> String {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/f", l.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let _ = s.read(&mut [0u8; 4096]);
+            for p in parts {
+                std::thread::sleep(pause);
+                let _ = s.write_all(p.as_bytes());
+            }
+            std::thread::sleep(Duration::from_secs(20));
+        });
+        url
+    }
+
+    /// Natively a request's thread ends by itself: when the server does
+    /// not begin its answer, and when the answer stops coming. A body may
+    /// take any time while it keeps coming, unless its request has a time
+    /// for the whole of it.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_server_has_so_long() {
+        let ms = Duration::from_millis;
+        let soon = Duration::from_secs(10);
+        // never answers
+        let (r, took) = run_with(ehttp::Request::get(drip(vec![], ms(0))), ms(300), ms(5000));
+        assert!(r.unwrap_err().contains("timeout"));
+        assert!(took < soon, "{took:?}");
+        // begins, then nothing
+        let head = "HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\n";
+        let (r, took) = run_with(
+            ehttp::Request::get(drip(vec![head, "ab"], ms(0))),
+            ms(5000),
+            ms(300),
+        );
+        assert!(r.unwrap_err().contains("timeout"));
+        assert!(took < soon, "{took:?}");
+        // slowly, but it comes: longer in all than a stall, and than the
+        // time a whole body has where a request sets one
+        let parts = vec![head, "ab", "cd", "ef"];
+        let mut slow = ehttp::Request::get(drip(parts.clone(), ms(200)));
+        slow.timeout = None;
+        let (r, took) = run_with(slow, ms(5000), ms(500));
+        assert_eq!(r.unwrap(), b"abcdef");
+        assert!(took >= ms(600), "{took:?}");
+        let mut timed = ehttp::Request::get(drip(parts, ms(200)));
+        timed.timeout = Some(ms(300));
+        let (r, _) = run_with(timed, ms(5000), ms(500));
+        assert!(r.unwrap_err().contains("timeout"));
     }
 
     /// The HTTP library's name kept first is the one this build's ureq
