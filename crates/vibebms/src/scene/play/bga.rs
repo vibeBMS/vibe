@@ -7,12 +7,54 @@ use crate::platform::Instant;
 use crate::video::Video;
 use std::path::PathBuf;
 
+/// How long before a video is first shown its decoder is started (µs of
+/// chart time), so that its first frames are there in time.
+const VIDEO_LEAD_US: i64 = 2_000_000;
+
+/// A chart's BGA files of one kind (its pictures, its videos): each file
+/// once, whatever number of the chart's images are it.
+pub(super) struct Files<T> {
+    pub files: Vec<T>,
+    /// By chart image: which of `files` it is.
+    pub of: Vec<Option<usize>>,
+}
+
+impl<T> Default for Files<T> {
+    fn default() -> Self {
+        Files {
+            files: Vec::new(),
+            of: Vec::new(),
+        }
+    }
+}
+
+impl<T> Files<T> {
+    /// The file chart image `image` is.
+    fn get(&self, image: u32) -> Option<&T> {
+        self.files.get((*self.of.get(image as usize)?)?)
+    }
+
+    /// When each file was last first shown: the latest of the times its
+    /// chart images first were (`starts`, by chart image).
+    fn started(&self, starts: &[Option<i64>]) -> Vec<Option<i64>> {
+        let mut out = vec![None; self.files.len()];
+        for (k, start) in self.of.iter().zip(starts) {
+            if let Some(o) = k.and_then(|k| out.get_mut(k)) {
+                *o = (*o).max(*start);
+            }
+        }
+        out
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Bga {
-    /// By chart image: its texture (animated from when it was first
-    /// shown), or its video.
-    tex: Vec<Option<ImageTex>>,
-    video: Vec<Option<Video>>,
+    /// The chart's pictures on the GPU (an animated one plays from when it
+    /// was last first shown) and its videos (`None`: not one that plays).
+    tex: Files<ImageTex>,
+    video: Files<Option<Video>>,
+    /// The chart's BGA events whose videos were told to start: up to here.
+    ahead: usize,
     pub stage: Option<TexId>,
     /// `#BACKBMP`, else the stage file.
     pub back: Option<TexId>,
@@ -23,23 +65,26 @@ pub(super) struct Bga {
 impl Bga {
     pub fn new(
         gfx: &mut Gfx,
-        images: Vec<Option<Picture>>,
-        videos: &[Option<PathBuf>],
+        images: Files<Picture>,
+        videos: &Files<PathBuf>,
         stagefile: Option<Picture>,
         backbmp: Option<Picture>,
     ) -> Bga {
         let stage = stagefile.map(|p| ImageTex::new(gfx, p));
         let back = backbmp.map(|p| ImageTex::new(gfx, p));
         let (stage_tex, back_tex) = (stage.as_ref().map(|t| t.tex), back.as_ref().map(|t| t.tex));
+        let pictures = images.files.into_iter();
         Bga {
-            tex: images
-                .into_iter()
-                .map(|i| i.map(|p| ImageTex::new(gfx, p)))
-                .collect(),
-            video: videos
-                .iter()
-                .map(|v| v.as_deref().and_then(|p| Video::open(p, false)))
-                .collect(),
+            tex: Files {
+                files: pictures.map(|p| ImageTex::new(gfx, p)).collect(),
+                of: images.of,
+            },
+            // (a video is read and decoded from when it is about to be shown)
+            video: Files {
+                files: videos.files.iter().map(|p| Video::open(p, false)).collect(),
+                of: videos.of.clone(),
+            },
+            ahead: 0,
             stage: stage_tex,
             back: back_tex.or(stage_tex),
             still: stage.into_iter().chain(back).collect(),
@@ -53,13 +98,25 @@ impl Bga {
             t.tick(gfx);
         }
         let t = s.chart_us(now);
-        for (v, start) in self.video.iter_mut().zip(&s.bga_start) {
+        while let Some(b) = s.chart.bga.get(self.ahead) {
+            if b.time > t + VIDEO_LEAD_US {
+                break;
+            }
+            let k = b.image.and_then(|i| *self.video.of.get(i as usize)?);
+            if let Some(Some(v)) = k.and_then(|k| self.video.files.get_mut(k)) {
+                v.prepare();
+            }
+            self.ahead += 1;
+        }
+        let starts = self.video.started(&s.bga_start);
+        for (v, start) in self.video.files.iter_mut().zip(starts) {
             if let (Some(v), Some(start)) = (v, start) {
                 v.update(gfx, (t - start) / 1000);
             }
         }
-        for (img, start) in self.tex.iter_mut().zip(&s.bga_start) {
-            if let (Some(img), Some(start)) = (img, start) {
+        let starts = self.tex.started(&s.bga_start);
+        for (img, start) in self.tex.files.iter_mut().zip(starts) {
+            if let Some(start) = start {
                 img.show(gfx, (t - start) / 1000);
             }
         }
@@ -70,13 +127,9 @@ impl Bga {
     pub fn textures(&self, s: &Session, now: Instant) -> Vec<(TexId, f32)> {
         let poor = s.poor_until.is_some_and(|u| now < u) && s.bga[3].is_some();
         let layers: &[usize] = if poor { &[3] } else { &[0, 1, 2] };
-        let tex = |i: u32| match self.video.get(i as usize) {
+        let tex = |i: u32| match self.video.get(i) {
             Some(Some(v)) => v.texture(),
-            _ => self
-                .tex
-                .get(i as usize)
-                .and_then(|t| t.as_ref())
-                .map(|t| t.tex),
+            _ => self.tex.get(i).map(|t| t.tex),
         };
         let shown = |bga: &[Option<u32>; 4], alpha: f32| {
             layers
@@ -102,11 +155,31 @@ impl Bga {
     pub fn free(&mut self, gfx: &mut Gfx) {
         self.stage = None;
         self.back = None;
-        for t in self.tex.drain(..).flatten().chain(self.still.drain(..)) {
+        let tex = std::mem::take(&mut self.tex).files;
+        for t in tex.into_iter().chain(self.still.drain(..)) {
             t.free(gfx);
         }
-        for mut v in self.video.drain(..).flatten() {
+        for mut v in std::mem::take(&mut self.video).files.into_iter().flatten() {
             v.free(gfx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_plays_from_when_one_of_its_images_was_last_first_shown() {
+        let f = Files {
+            files: vec!['a', 'b', 'c'],
+            of: vec![Some(0), None, Some(1), Some(0), Some(2), Some(0)],
+        };
+        assert_eq!(
+            (f.get(3), f.get(1), f.get(4), f.get(9)),
+            (Some(&'a'), None, Some(&'c'), None)
+        );
+        let starts = [Some(500), Some(9), None, Some(700), None, None];
+        assert_eq!(f.started(&starts), [Some(700), None, None]);
     }
 }
