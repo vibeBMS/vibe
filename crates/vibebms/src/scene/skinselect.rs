@@ -235,7 +235,7 @@ impl SkinSelectScene {
         let cur = self.value(ctx);
         let i = opts.iter().position(|o| *o == cur).unwrap_or(0) as i32;
         let next = opts[(i + d).rem_euclid(opts.len() as i32) as usize].clone();
-        ctx.config.skins.insert(self.key().to_string(), next);
+        skinned::choose(ctx, kind, next);
         self.list = ListView::new();
         self.changed(ctx);
     }
@@ -370,7 +370,7 @@ impl SkinSelectScene {
 }
 
 /// What a previewed skin sees: its start, nothing playing.
-struct PreviewState;
+pub(super) struct PreviewState;
 
 impl SkinState for PreviewState {
     fn timer(&self, id: i32) -> Option<i64> {

@@ -924,6 +924,8 @@ _untranslated = [
 "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back" = "↑↓ 項目   ←→ 変更   Enter / START プレー   グラフをタップ：区間の近い端   Esc 戻る"
 "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back" = "↑↓ 項目  Enter 割り当て  ←→ モード  Del 消去  Esc 戻る"
 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back" = "↑↓ 項目  ←→ 変更  PgUp/PgDn スキンの種類  Esc 戻る"
+"This skin cannot be loaded: the built-in one is shown instead" = "このスキンは読み込めません：内蔵スキンを表示します"
+"The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}" = "スキンの読み込み中にゲームが止まりました。外したスキン（設定 › スキンで選び直せます）：{skins}"
 
 # IR: what became of a play, why it is not sent
 "a #RANDOM chart" = "#RANDOM の譜面"

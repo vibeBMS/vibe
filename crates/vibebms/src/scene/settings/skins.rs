@@ -89,7 +89,7 @@ pub(super) fn cycle_skin(c: &mut Ctx, t: SkinType, d: i32) {
             dir = dir.display()
         ));
     }
-    c.config.skins.insert(key.to_string(), next);
+    skinned::choose(c, t, next);
 }
 
 /// Display name of a configured skin (its header name, else the file stem).

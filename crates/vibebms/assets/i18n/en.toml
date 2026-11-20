@@ -1000,6 +1000,10 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Deleted {folders} ({size})" = "Deleted {folders} ({size})"
 "Deleted {name} ({size})" = "Deleted {name} ({size})"
 
+# scene/skinned.rs
+"This skin cannot be loaded: the built-in one is shown instead" = "This skin cannot be loaded: the built-in one is shown instead"
+"The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}" = "The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}"
+
 # scene/skinselect.rs
 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back" = "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back"
 

@@ -97,6 +97,62 @@ pub fn load(
     None
 }
 
+/// Choose `value` (one of [`skin_choices`]) as the skin of `kind`. A skin
+/// file is loaded once before the choice is in the config (the callers
+/// save it after): a skin that takes the game down as it loads is then
+/// not what the next start comes up with. One that fails to load is
+/// chosen all the same, and said (its screen shows the built-in skin).
+pub fn choose(ctx: &mut Ctx, kind: SkinType, value: String) {
+    let Some(key) = kind.key() else {
+        return;
+    };
+    let path = super::play_skin::configured_path(ctx, &value);
+    if let Some(path) = path.filter(|_| kind != SkinType::SoundSet) {
+        let loaded = crate::skin::load_file(
+            &path,
+            &ctx.paths.skins,
+            &ctx.skin_user_settings(&value, &path),
+            &|_| None,
+            Some(&super::skinselect::PreviewState),
+            &crate::skin::image_size,
+        );
+        if let Err(e) = loaded {
+            log::warn!("skin: {e}");
+            ctx.toast(tr!(
+                "This skin cannot be loaded: the built-in one is shown instead"
+            ));
+        }
+    }
+    ctx.config.skins.insert(key.to_string(), value);
+}
+
+/// The start: skin loads are noted from here on (`skin::guard`), and the
+/// skins the last run was loading when it stopped are set aside.
+pub fn recover(ctx: &mut Ctx) {
+    let left = crate::skin::guard::arm(ctx.paths.cache.join("skins-loading"));
+    set_aside(ctx, &left);
+}
+
+/// The skin files `skins` are no screen's skin any more (the built-in
+/// one is), which the player is told.
+fn set_aside(ctx: &mut Ctx, skins: &[PathBuf]) {
+    let chosen = |value: &String| {
+        super::play_skin::configured_path(ctx, value).is_some_and(|p| skins.contains(&p))
+    };
+    let aside: std::collections::BTreeSet<String> =
+        (ctx.config.skins.values().filter(|v| chosen(v)).cloned()).collect();
+    if aside.is_empty() {
+        return;
+    }
+    ctx.config.skins.retain(|_, v| !aside.contains(v));
+    ctx.save_config();
+    let names: Vec<&str> = aside.iter().map(String::as_str).collect();
+    ctx.toast(tr!(
+        "The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}",
+        skins = names.join(", ")
+    ));
+}
+
 /// What can be chosen for a skin type, as `config.skins` values: the
 /// built-in default (empty), then the installed skins (sound sets for
 /// SOUND_SET). A course result can be a result skin.
@@ -216,3 +272,78 @@ pub fn step_offset(ctx: &mut Ctx, value: &str, name: &str, field: usize, d: i32)
 
 #[cfg(test)]
 mod golden;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(p: &std::path::Path, s: &str) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, s).unwrap();
+    }
+
+    const SKIN: &str = "#INFORMATION,5,S,me\n#IMAGE,a.png\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n\
+                        #DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n";
+
+    /// A skin is loaded as it is chosen (before the choice is saved): one
+    /// that does not load is said, a sound set is none to load.
+    #[test]
+    fn a_skin_is_loaded_before_it_is_the_choice() {
+        let root = std::env::temp_dir().join(format!("vibebms-choose-{}", std::process::id()));
+        write(&root.join("skins/good/select.lr2skin"), SKIN);
+        image::RgbImage::new(16, 16)
+            .save(root.join("skins/good/a.png"))
+            .unwrap();
+        write(
+            &root.join("skins/bad/select.lr2skin"),
+            "#INFORMATION,5,S,me\n",
+        );
+        let mut ctx = Ctx::for_test(root.clone());
+        choose(
+            &mut ctx,
+            SkinType::Select,
+            "skins/good/select.lr2skin".into(),
+        );
+        choose(&mut ctx, SkinType::SoundSet, "sounds/none".into());
+        assert!(ctx.toasts.is_empty());
+        assert_eq!(ctx.config.skins["SELECT"], "skins/good/select.lr2skin");
+        choose(
+            &mut ctx,
+            SkinType::Select,
+            "skins/bad/select.lr2skin".into(),
+        );
+        assert_eq!(ctx.toasts.len(), 1);
+        assert_eq!(ctx.config.skins["SELECT"], "skins/bad/select.lr2skin");
+        choose(&mut ctx, SkinType::Select, String::new());
+        assert_eq!(
+            (ctx.toasts.len(), &ctx.config.skins["SELECT"]),
+            (1, &String::new())
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The skins a run stopped in the middle of loading are no screen's
+    /// skin at the next start, in the saved config too; the others stay.
+    #[test]
+    fn skins_the_last_run_stopped_in_are_set_aside() {
+        let root = std::env::temp_dir().join(format!("vibebms-aside-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        for (key, value) in [
+            ("SELECT", "skins/a/select.lr2skin"),
+            ("7KEYS", "skins/a/play.lr2skin"),
+            ("RESULT", "skins/a/select.lr2skin"),
+        ] {
+            ctx.config.skins.insert(key.into(), value.into());
+        }
+        ctx.save_config();
+        set_aside(&mut ctx, &[root.join("skins/other/x.json")]);
+        assert_eq!((ctx.config.skins.len(), ctx.toasts.len()), (3, 0));
+        set_aside(&mut ctx, &[root.join("skins/a/select.lr2skin")]);
+        let saved = crate::config::Config::load(&ctx.paths.config_file());
+        std::fs::remove_dir_all(&root).ok();
+        let left: Vec<&String> = ctx.config.skins.keys().collect();
+        assert_eq!(left, ["7KEYS"]);
+        assert_eq!(saved.skins, ctx.config.skins);
+        assert!(ctx.toasts[0].0.ends_with(": skins/a/select.lr2skin"));
+    }
+}

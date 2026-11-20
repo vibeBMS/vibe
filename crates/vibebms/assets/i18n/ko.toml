@@ -924,6 +924,8 @@ _untranslated = [
 "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back" = "↑↓ 항목   ←→ 변경   Enter / START 플레이   그래프 탭: 가까운 구간 끝   Esc 뒤로"
 "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back" = "↑↓ 항목  Enter 지정  ←→ 모드  Del 지우기  Esc 뒤로"
 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back" = "↑↓ 항목  ←→ 변경  PgUp/PgDn 스킨 종류  Esc 뒤로"
+"This skin cannot be loaded: the built-in one is shown instead" = "이 스킨을 불러올 수 없습니다: 내장 스킨으로 표시합니다"
+"The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}" = "스킨을 불러오는 중 게임이 멈췄습니다. 제외한 스킨 (설정 › 스킨에서 다시 선택): {skins}"
 
 # IR: what became of a play, why it is not sent
 "a #RANDOM chart" = "#RANDOM 채보"

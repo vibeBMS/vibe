@@ -575,6 +575,7 @@ impl Running {
         if self.vsync_paced() {
             self.next_frame = self.pacer.next_start(waited);
         }
+        crate::skin::guard::frame_drawn();
         self.poll_screenshot();
         if self.first_frame {
             self.first_frame = false;
@@ -770,6 +771,7 @@ impl App {
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
             ctx.net.browse(vec![url]);
         }
+        crate::scene::skinned::recover(&mut ctx);
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
         let mut scenes: Vec<Box<dyn Scene>> = vec![Box::new(select)];

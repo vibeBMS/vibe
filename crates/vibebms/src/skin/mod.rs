@@ -8,6 +8,7 @@
 //! open-source LR2 skin loader.
 
 pub mod beatoraja;
+pub mod guard;
 pub mod lr2;
 mod luapat;
 pub mod render;
@@ -93,7 +94,8 @@ impl Home {
 
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
 /// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
-/// while it is built.
+/// while it is built. The file is noted as loading until a frame has been
+/// drawn with it ([`guard`]).
 pub fn load_file(
     path: &std::path::Path,
     skins_root: &std::path::Path,
@@ -102,6 +104,7 @@ pub fn load_file(
     state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
+    guard::loading(path);
     no_panic(path, || {
         if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
             lr2::load_with(path, skins_root, user, static_option, image_size)
