@@ -504,10 +504,11 @@ there from the start; others can be added in `SETTINGS › LIBRARY`.
   [DESIGN.md](https://github.com/vibeBMS/BMSeeker/blob/main/DESIGN.md#into-the-library).
 - Links that cannot be downloaded directly (OneDrive, uploaders, deleted files) open their download page: on the
   desktop, Android and iOS in the in-app browser, whose downloaded archive is unpacked into `bms/` before the chart's
-  page opens. A download is saved only after you say yes to it (its name and the host it comes from are shown), one
-  at a time, and none over 16 GB is kept; if the page does not start it again by itself after your yes, press its
-  download button once more. A downloaded chart goes into its song's folder; when unsure, the app asks. The web
-  build opens the system browser.
+  page opens. A download comes into the library only after you say yes to it, one at a time. On the desktop and iOS
+  the file is saved aside first and the game asks when it has arrived, showing its name, the host it came from and
+  its size (the browser's window is out of the way meanwhile): OK brings it in, anything else deletes it. On Android
+  the question comes before the download. None over 16 GB is kept. A downloaded chart goes into its song's folder;
+  when unsure, the app asks. The web build opens the system browser.
 - Downloads are kept in `downloads/`.
 - **Name song folders after their charts** (`SETTINGS › LIBRARY`, off by default): a downloaded song gets a folder
   named `[artist] title` from what its charts share, as BeMusicSeeker names one, instead of the song's title.

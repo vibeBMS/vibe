@@ -1,53 +1,62 @@
-//! What a page in the in-app browser may save: one file at a time, and each
-//! only after the player said yes to it, by its name and the host it comes
-//! from. Any page shown there can start a download by itself (a link from a
-//! table, an uploader's advertisement, a redirect), and what is saved is
-//! unpacked into the library.
+//! What a page in the in-app browser may save. Any page shown there can
+//! start a download by itself (a link from a table, an uploader's
+//! advertisement, a redirect), and what the browser saved used to be
+//! unpacked into the library at once.
 //!
-//! The web view wants its answer the moment a download starts, so the first
-//! try is refused and the player asked; a yes lets the next download of
-//! that name from that host through (the page is told to start it again,
-//! or the player presses its button once more), once and for a short while.
-//! Nothing is remembered beyond that.
+//! A download goes into a slot: a file in the downloads folder under a
+//! name of the app's own, one at a time. When it has arrived whole and
+//! within the size limit the player is asked about it, by its name, the
+//! host it came from and its size: a yes gives it its name (it is then
+//! brought into the library), a no deletes it. Nothing is remembered: the
+//! next download is asked about again. A slot is deleted when its download
+//! fails, when the browser closes, and at the next start if it was left.
 
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// How long a yes waits for its download to start again.
-const ALLOWED_FOR: Duration = Duration::from_secs(120);
 /// How long after a refusal its end may be told (a web view tells it at
 /// once, where it tells it at all).
 const REFUSAL_TOLD: Duration = Duration::from_secs(10);
 
-/// A download a page started.
+/// What a slot's file name starts and ends with.
+const SLOT: (&str, &str) = (".browser-", ".part");
+
+/// A download in its slot.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Request {
-    pub url: String,
+pub struct Saved {
     /// Where it comes from ([`host`]).
     pub host: String,
-    /// Its file name (a safe one).
+    /// Its file name (a safe one), which it gets on a yes.
     pub name: String,
+    /// The slot.
+    pub path: PathBuf,
+    /// Its size once it has arrived (bytes).
+    pub size: u64,
 }
 
-/// What becomes of a download a page starts.
+/// What became of the download that ended.
 #[derive(Debug, PartialEq)]
-pub enum Verdict {
-    /// Saved: the player said yes to it.
-    Take,
-    /// Refused, and the player is asked about it.
+pub enum Arrival {
+    /// It is in its slot: the player is asked ([`Gate::asked`]).
     Ask,
-    /// Refused: another is asked about or being saved.
-    Busy,
+    /// Larger than a download may be: deleted (its name).
+    TooLarge(String),
+    /// It failed: its slot is deleted.
+    Failed,
+    /// A download that was refused, or none of ours.
+    Other,
 }
 
 #[derive(Default)]
 pub struct Gate {
-    asked: Option<Request>,
-    /// What the player said yes to, and until when it may start.
-    allowed: Option<(Request, Instant)>,
-    /// The address of the download being saved.
-    saving: Option<String>,
+    /// The download being saved, and its address.
+    saving: Option<(String, Saved)>,
+    /// The one that arrived, until the player answers.
+    asked: Option<Saved>,
     /// Downloads refused whose end the web view has not told yet.
     refused: Vec<(String, Instant)>,
+    /// Slots made (their names' number).
+    slots: u32,
 }
 
 /// The host a download at `url` comes from (a `blob:` address: its
@@ -68,53 +77,114 @@ pub fn host(url: &str) -> String {
     host.to_lowercase()
 }
 
+/// `dir/name`, or `dir/name (2)` etc. when that exists.
+fn free_path(dir: &Path, name: &str) -> PathBuf {
+    let p = dir.join(name);
+    if !p.exists() {
+        return p;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    (2..)
+        .map(|k| dir.join(format!("{stem} ({k}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap_or(p)
+}
+
+/// Delete the slots left in `dir` (by a run that ended while a download
+/// was under way or waited for its answer).
+pub fn clear_slots(dir: &Path) {
+    let Ok(files) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for f in files.flatten() {
+        let name = f.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(SLOT.0) && name.ends_with(SLOT.1) {
+            let _ = std::fs::remove_file(f.path());
+        }
+    }
+}
+
 impl Gate {
-    /// A page starts a download of `name` from `url`.
-    pub fn started(&mut self, url: &str, name: &str, now: Instant) -> Verdict {
-        let host = host(url);
+    /// A page starts a download of `name` (a safe name) from `url`: the
+    /// slot in `dir` to save it in, or None when it is refused (another is
+    /// being saved or waits for its answer).
+    pub fn started(&mut self, url: &str, name: &str, dir: &Path, now: Instant) -> Option<PathBuf> {
         if self.saving.is_some() || self.asked.is_some() {
             self.refused.push((url.to_string(), now));
-            return Verdict::Busy;
+            return None;
         }
-        let allowed = self
-            .allowed
-            .take()
-            .is_some_and(|(r, until)| now <= until && r.host == host && r.name == name);
-        if allowed {
-            self.refused.retain(|(u, _)| u != url);
-            self.saving = Some(url.to_string());
-            return Verdict::Take;
-        }
-        self.refused.push((url.to_string(), now));
-        self.asked = Some(Request {
-            url: url.to_string(),
-            host,
+        self.slots += 1;
+        let slot = format!("{}{}-{}{}", SLOT.0, std::process::id(), self.slots, SLOT.1);
+        let saved = Saved {
+            host: host(url),
             name: name.to_string(),
-        });
-        Verdict::Ask
+            path: dir.join(slot),
+            size: 0,
+        };
+        self.refused.retain(|(u, _)| u != url);
+        self.saving = Some((url.to_string(), saved.clone()));
+        Some(saved.path)
     }
 
-    /// The download the player is asked about.
-    pub fn asked(&self) -> Option<&Request> {
-        self.asked.as_ref()
-    }
-
-    /// The player's answer; on a yes, the download to start again.
-    pub fn answer(&mut self, yes: bool, now: Instant) -> Option<Request> {
-        let r = self.asked.take().filter(|_| yes)?;
-        self.allowed = Some((r.clone(), now + ALLOWED_FOR));
-        Some(r)
-    }
-
-    /// The web view says the download from `url` ended. True when that is
-    /// the one being saved (it is free for the next), not a refused one.
-    pub fn ended(&mut self, url: &str, now: Instant) -> bool {
+    /// The web view says the download from `url` ended (`ok`: whole). The
+    /// one being saved is kept for the player's answer when it is whole
+    /// and no larger than `limit` bytes, else deleted.
+    pub fn ended(&mut self, url: &str, ok: bool, limit: u64, now: Instant) -> Arrival {
         self.refused.retain(|(_, at)| now < *at + REFUSAL_TOLD);
         if let Some(i) = self.refused.iter().position(|(u, _)| u == url) {
             self.refused.swap_remove(i);
-            return false;
+            return Arrival::Other;
         }
-        self.saving.take_if(|u| u == url).is_some()
+        let Some((_, mut saved)) = self.saving.take_if(|(u, _)| u == url) else {
+            return Arrival::Other;
+        };
+        let size = std::fs::metadata(&saved.path).map(|m| m.len());
+        match size {
+            Ok(size) if ok && size <= limit => {
+                saved.size = size;
+                self.asked = Some(saved);
+                Arrival::Ask
+            }
+            size => {
+                let _ = std::fs::remove_file(&saved.path);
+                match size {
+                    Ok(_) if ok => Arrival::TooLarge(saved.name),
+                    _ => Arrival::Failed,
+                }
+            }
+        }
+    }
+
+    /// The download the player is asked about.
+    pub fn asked(&self) -> Option<&Saved> {
+        self.asked.as_ref()
+    }
+
+    /// The player's answer. A yes: the file under its name in `dir`, for
+    /// the library; a no: it is deleted.
+    pub fn answer(&mut self, yes: bool, dir: &Path) -> Option<PathBuf> {
+        let saved = self.asked.take()?;
+        let to = free_path(dir, &saved.name);
+        if yes && std::fs::rename(&saved.path, &to).is_ok() {
+            return Some(to);
+        }
+        let _ = std::fs::remove_file(&saved.path);
+        None
+    }
+}
+
+/// The browser is gone (closed, or the game ends): so are the download
+/// under way and the one not answered.
+impl Drop for Gate {
+    fn drop(&mut self) {
+        let saving = self.saving.take().map(|(_, s)| s);
+        for s in saving.into_iter().chain(self.asked.take()) {
+            let _ = std::fs::remove_file(s.path);
+        }
     }
 }
 
@@ -123,84 +193,142 @@ mod tests {
     use super::*;
 
     const URL: &str = "https://files.example/get/Song.zip?t=1";
+    const LIMIT: u64 = 100;
 
-    /// Nothing is saved before the player's yes, and the yes is for that
-    /// one file: its next start, from its host, under its name.
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vibebms-gate-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The names of the files in `dir`.
+    fn files(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = (std::fs::read_dir(dir).unwrap().flatten())
+            .map(|f| f.file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// A download a page starts, as the web view saves it: `bytes` in the
+    /// slot it was given.
+    fn save(g: &mut Gate, dir: &Path, url: &str, name: &str, bytes: usize) -> PathBuf {
+        let slot = g.started(url, name, dir, Instant::now()).unwrap();
+        std::fs::write(&slot, vec![0u8; bytes]).unwrap();
+        slot
+    }
+
+    /// A download is saved under a name of the app's own and gets the
+    /// page's only on a yes: nothing is there for the library before.
     #[test]
-    fn a_download_waits_for_a_yes() {
+    fn nothing_is_kept_without_a_yes() {
+        let dir = temp("yes");
         let t = Instant::now();
         let mut g = Gate::default();
-        assert_eq!(g.started(URL, "Song.zip", t), Verdict::Ask);
+        let slot = save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(slot.parent(), Some(dir.as_path()));
+        let slot_name = slot.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(slot_name.starts_with(".browser-") && !slot_name.contains("Song"));
+        assert_eq!(g.asked(), None);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
         let asked = g.asked().unwrap().clone();
         assert_eq!(
-            (asked.host.as_str(), asked.name.as_str()),
-            ("files.example", "Song.zip")
+            (asked.host.as_str(), asked.name.as_str(), asked.size),
+            ("files.example", "Song.zip", 7)
         );
-        // (the web view tells the refused one's end)
-        assert!(!g.ended(URL, t));
-        // no: nothing is allowed, and the same again is asked again
-        assert_eq!(g.answer(false, t), None);
-        assert_eq!(g.started(URL, "Song.zip", t), Verdict::Ask);
-        assert!(!g.ended(URL, t));
-        // yes: the one to start again; another address of the host will do
-        // (a link good for one use)
-        assert_eq!(g.answer(true, t).unwrap().url, URL);
-        let again = "https://files.example/get/Song.zip?t=2";
-        assert_eq!(g.started(again, "Song.zip", t), Verdict::Take);
-        assert!(g.ended(again, t));
-        // once: the next is asked about
-        assert_eq!(g.started(again, "Song.zip", t), Verdict::Ask);
+        assert_eq!(files(&dir), [slot_name]);
+        // no: deleted
+        assert_eq!(g.answer(false, &dir), None);
+        assert!(files(&dir).is_empty());
+        // the same again is asked about again; yes: its name
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+        assert_eq!(g.answer(true, &dir), Some(dir.join("Song.zip")));
+        assert_eq!(files(&dir), ["Song.zip"]);
+        // a file of that name is not written over
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        g.ended(URL, true, LIMIT, t);
+        assert_eq!(g.answer(true, &dir), Some(dir.join("Song (2).zip")));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// A yes does not pass another file, another host, or a start long
-    /// after it.
-    #[test]
-    fn a_yes_is_for_one_file() {
-        let t = Instant::now();
-        for (url, name, at) in [
-            ("https://files.example/x", "Other.zip", t),
-            ("https://evil.example/get/Song.zip", "Song.zip", t),
-            (URL, "Song.zip", t + ALLOWED_FOR + Duration::from_secs(1)),
-        ] {
-            let mut g = Gate::default();
-            g.started(URL, "Song.zip", t);
-            g.answer(true, t);
-            assert_eq!(g.started(url, name, at), Verdict::Ask, "{url}");
-            assert_eq!(g.asked().unwrap().name, name);
-        }
-    }
-
-    /// One at a time: while one is asked about or being saved, a page's
-    /// other downloads are refused, and their ends do not end the one
-    /// being saved.
+    /// One at a time: while one is being saved or waits for its answer, a
+    /// page's other downloads are refused, and their ends do not end it.
     #[test]
     fn one_download_at_a_time() {
+        let dir = temp("one");
         let t = Instant::now();
+        let ad = "https://ad.example/a.exe";
         let mut g = Gate::default();
-        g.started(URL, "Song.zip", t);
-        assert_eq!(
-            g.started("https://ad.example/a.exe", "a.exe", t),
-            Verdict::Busy
-        );
-        assert_eq!(g.asked().unwrap().name, "Song.zip");
-        assert!(!g.ended("https://ad.example/a.exe", t));
-        assert!(!g.ended(URL, t));
-        g.answer(true, t);
-        assert_eq!(g.started(URL, "Song.zip", t), Verdict::Take);
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.started(ad, "a.exe", &dir, t), None);
         // pressed twice: the second is refused, the first goes on
-        assert_eq!(g.started(URL, "Song.zip", t), Verdict::Busy);
-        assert!(!g.ended(URL, t));
-        assert_eq!(g.started("https://ad.example/b", "b.zip", t), Verdict::Busy);
-        assert!(g.ended(URL, t));
-        assert_eq!(g.started("https://ad.example/b", "b.zip", t), Verdict::Ask);
+        assert_eq!(g.started(URL, "Song.zip", &dir, t), None);
+        assert_eq!(g.ended(ad, false, LIMIT, t), Arrival::Other);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Other);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+        // waiting for the answer
+        assert_eq!(g.started(ad, "a.exe", &dir, t), None);
+        assert_eq!(g.ended(ad, false, LIMIT, t), Arrival::Other);
+        assert_eq!(g.asked().unwrap().name, "Song.zip");
+        g.answer(false, &dir);
+        assert!(g.started(ad, "a.exe", &dir, t).is_some());
         // a web view that never told the refusals' ends: the one saved
         // still ends
         let mut g = Gate::default();
-        g.started(URL, "Song.zip", t);
-        g.answer(true, t);
-        g.started(URL, "Song.zip", t);
-        g.started(URL, "Song.zip", t);
-        assert!(g.ended(URL, t + REFUSAL_TOLD));
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        g.started(URL, "Song.zip", &dir, t);
+        assert_eq!(g.ended(URL, true, LIMIT, t + REFUSAL_TOLD), Arrival::Ask);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A download over the limit, or one that failed, is deleted and not
+    /// asked about.
+    #[test]
+    fn too_large_or_failed_is_deleted() {
+        let dir = temp("large");
+        let t = Instant::now();
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Pack.zip", LIMIT as usize + 1);
+        assert_eq!(
+            g.ended(URL, true, LIMIT, t),
+            Arrival::TooLarge("Pack.zip".into())
+        );
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Failed);
+        // (a web view that made no file)
+        g.started(URL, "Song.zip", &dir, t).unwrap();
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Failed);
+        assert_eq!(g.asked(), None);
+        assert_eq!(g.answer(true, &dir), None);
+        assert!(files(&dir).is_empty());
+        // at the limit: asked about
+        save(&mut g, &dir, URL, "Song.zip", LIMIT as usize);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The download under way and the one not answered go with the
+    /// browser; slots a run left are deleted, other files are not.
+    #[test]
+    fn slots_do_not_outlive_the_browser() {
+        let dir = temp("slots");
+        let t = Instant::now();
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        drop(g);
+        assert!(files(&dir).is_empty());
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        g.ended(URL, true, LIMIT, t);
+        drop(g);
+        assert!(files(&dir).is_empty());
+        std::fs::write(dir.join(".browser-1-1.part"), "x").unwrap();
+        std::fs::write(dir.join("Song.zip"), "x").unwrap();
+        clear_slots(&dir);
+        assert_eq!(files(&dir), ["Song.zip"]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

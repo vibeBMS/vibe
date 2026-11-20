@@ -43,7 +43,9 @@
 # browser/webview.rs
 "download" = "download"
 "from {host}" = "from {host}"
-"OK saves it and brings it into your library. If the page does not start it again by itself, press its download button once more." = "OK saves it and brings it into your library. If the page does not start it again by itself, press its download button once more."
+"OK brings it into your library. Otherwise it is deleted." = "OK brings it into your library. Otherwise it is deleted."
+"Keep this download?" = "Keep this download?"
+"Delete" = "Delete"
 
 # hosts.rs
 """

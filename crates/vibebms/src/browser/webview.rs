@@ -4,20 +4,22 @@
 //! song's folder. After a song arrives the browser moves on to the next page
 //! given (the separate chart's).
 //!
-//! A page's download is saved once the player has said yes to it (`gate`):
-//! the question is the game's, over the game's window, with the browser
-//! out of the way meanwhile. The web view says neither how large a
-//! download is nor lets one be stopped, so the size limit holds when the
-//! file has arrived: one over it is deleted, not kept.
+//! A page's download comes into the library once the player has said yes
+//! to it (`gate`): it is saved aside first, and asked about when it has
+//! arrived. The question is the game's, in the game's window, which the
+//! browser's window is in front of (on iOS the web view covers it): the
+//! browser is out of the way while it is asked. The web view says neither
+//! how large a download is nor lets one be stopped, so the size limit
+//! holds when the file has arrived: one over it is deleted.
 
-use super::gate::{Gate, Verdict};
+use super::gate::{Arrival, Gate};
 use super::imports::Imports;
 use super::MAX_DOWNLOAD;
 use crate::app::{Ctx, Draw};
 use crate::input::InputEv;
 use crate::ui::Notice;
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -28,14 +30,12 @@ use winit::window::WindowId;
 use wry::{WebView, WebViewBuilder};
 
 enum Event {
-    /// A download is saved (its name).
+    /// A download is being saved (its name).
     Started(String),
-    /// The player is to be asked about one (`Gate::asked`).
-    Ask,
     /// One was refused, another being under way (its name).
     Busy(String),
-    /// The download from this address ended: where it is, or it failed.
-    Ended(String, Option<PathBuf>),
+    /// The download from this address ended, whole or not.
+    Ended(String, bool),
     /// The page's Close button (iOS).
     #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
     Closed,
@@ -62,33 +62,20 @@ pub struct Downloads {
     gate: Rc<RefCell<Gate>>,
     /// The question about the download asked about, while it is up.
     notice: Option<Notice>,
-    /// "One at a time" was said since a download was last asked about.
+    /// "One at a time" was said since a download was last begun.
     told_busy: bool,
+    /// The slots an earlier run left were looked for.
+    cleared: bool,
 }
 
 /// The longest file name a download gets (bytes: file systems take 255,
 /// and ` (2)` may follow).
 const NAME_MAX: usize = 200;
 
-/// `dir/name`, or `dir/name (2)` etc. when that exists.
-fn free_path(dir: &Path, name: &str) -> PathBuf {
-    let p = dir.join(name);
-    if !p.exists() {
-        return p;
-    }
-    let (stem, ext) = match name.rfind('.') {
-        Some(i) if i > 0 => (&name[..i], &name[i..]),
-        _ => (name, ""),
-    };
-    (2..)
-        .map(|k| dir.join(format!("{stem} ({k}){ext}")))
-        .find(|p| !p.exists())
-        .unwrap_or(p)
-}
-
-/// The file name a download gets: the one the page suggests, else the last
-/// part of the URL; as one name a file system takes (`safe_name`), of at
-/// most `NAME_MAX` bytes with its extension kept. The server chooses it.
+/// The file name a download gets once the player has said yes to it: the
+/// one the page suggests, else the last part of the URL; as one name a
+/// file system takes (`safe_name`), of at most `NAME_MAX` bytes with its
+/// extension kept. The server chooses it.
 fn download_name(url: &str, suggested: &Path) -> String {
     let name = suggested
         .file_name()
@@ -151,9 +138,6 @@ fn builder<'a>(
     tx: Sender<Event>,
     gate: Rc<RefCell<Gate>>,
 ) -> WebViewBuilder<'a> {
-    // where each download went (macOS does not report it when done)
-    let paths: Rc<RefCell<HashMap<String, PathBuf>>> = Rc::default();
-    let (p1, p2) = (paths.clone(), paths);
     let tx2 = tx.clone();
     #[cfg(target_os = "ios")]
     let tx3 = tx.clone();
@@ -161,25 +145,20 @@ fn builder<'a>(
         .with_url(url)
         .with_download_started_handler(move |url, path| {
             let name = download_name(&url, path);
-            let verdict = gate.borrow_mut().started(&url, &name, Instant::now());
-            let _ = tx.send(match verdict {
-                Verdict::Take => {
+            let slot = (gate.borrow_mut()).started(&url, &name, &downloads, Instant::now());
+            let taken = slot.is_some();
+            let _ = tx.send(match slot {
+                Some(slot) => {
                     let _ = std::fs::create_dir_all(&downloads);
-                    *path = free_path(&downloads, &name);
-                    p1.borrow_mut().insert(url, path.clone());
+                    *path = slot;
                     Event::Started(name)
                 }
-                Verdict::Ask => Event::Ask,
-                Verdict::Busy => Event::Busy(name),
+                None => Event::Busy(name),
             });
-            verdict == Verdict::Take
+            taken
         })
-        .with_download_completed_handler(move |url, path, ok| {
-            let path = path
-                .filter(|p| !p.as_os_str().is_empty())
-                .or_else(|| p2.borrow().get(&url).cloned())
-                .filter(|_| ok);
-            let _ = tx2.send(Event::Ended(url, path));
+        .with_download_completed_handler(move |url, _, ok| {
+            let _ = tx2.send(Event::Ended(url, ok));
         });
     #[cfg(target_os = "ios")]
     let b = b
@@ -290,8 +269,8 @@ impl Window {
         }
     }
 
-    /// Out of the way while the game asks about a download, then back (on
-    /// iOS the web view covers the game).
+    /// Out of the way while the game asks about a download (its window is
+    /// behind this one; on iOS the web view covers it), then back.
     fn show(&self, on: bool) {
         #[cfg(not(any(target_os = "linux", target_os = "ios")))]
         self.window.set_visible(on);
@@ -404,8 +383,8 @@ impl Downloads {
     }
 
     /// While the player is asked about a download, `ev` answers the
-    /// question or is kept from the scene (true). On a yes the page's
-    /// download, refused at first, is started again.
+    /// question or is kept from the scene (true). A yes brings the file
+    /// into the library, a no deletes it.
     pub fn input(&mut self, ctx: &mut Ctx, ev: &InputEv) -> bool {
         let Some(n) = self.notice.as_mut() else {
             return false;
@@ -416,62 +395,47 @@ impl Downloads {
         }
         if let Some(yes) = n.input(ev, &ctx.config.keys) {
             self.notice = None;
-            let again = self.gate.borrow_mut().answer(yes, Instant::now());
+            let downloads = ctx.paths.root.join("downloads");
+            if let Some(file) = self.gate.borrow_mut().answer(yes, &downloads) {
+                self.imports.start(file, ctx.paths.root.join("bms"));
+            }
             if let Some(w) = &self.window {
                 w.show(true);
-                if let Some(r) = again.filter(|r| crate::platform::is_web_url(&r.url)) {
-                    let _ = w.webview.load_url(&r.url);
-                }
             }
         }
         true
     }
 
-    /// The question about a download, over the game.
+    /// The question about the download that arrived, over the game.
     pub fn draw(&mut self, ctx: &Ctx, d: &mut Draw) {
         let gate = self.gate.borrow();
-        let (Some(n), Some(r)) = (self.notice.as_mut(), gate.asked()) else {
+        let (Some(n), Some(f)) = (self.notice.as_mut(), gate.asked()) else {
             return;
         };
         let text = format!(
-            "{}\n{}\n\n{}",
-            r.name,
-            tr!("from {host}", host = r.host),
-            tr!(
-                "OK saves it and brings it into your library. If the page does not start it \
-                 again by itself, press its download button once more."
-            )
+            "{}\n{}\n{:.1} MB\n\n{}",
+            f.name,
+            tr!("from {host}", host = f.host),
+            f.size as f64 / 1_048_576.0,
+            tr!("OK brings it into your library. Otherwise it is deleted.")
         );
-        n.draw(ctx, d, tr!("Save this download?"), &text, tr!("Don't save"));
-    }
-
-    /// A download has arrived at `path`: into the library, unless it is
-    /// larger than a download may be.
-    fn arrived(&self, ctx: &mut Ctx, path: PathBuf) {
-        if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_DOWNLOAD) {
-            let _ = std::fs::remove_file(&path);
-            return ctx.toast(tr!(
-                "{name} is larger than {gb} GB: not kept",
-                name = bmseeker::fs::file_name(&path),
-                gb = MAX_DOWNLOAD >> 30
-            ));
-        }
-        self.imports.start(path, ctx.paths.root.join("bms"));
+        n.draw(ctx, d, tr!("Keep this download?"), &text, tr!("Delete"));
     }
 
     /// Once per frame: the browser's events, downloads that finished,
     /// imports that are done.
     pub fn poll(&mut self, ctx: &mut Ctx) {
+        if !std::mem::replace(&mut self.cleared, true) {
+            super::gate::clear_slots(&ctx.paths.root.join("downloads"));
+        }
         let mut closed = false;
         if let Some(w) = &self.window {
             closed = !w.pump();
             for ev in w.rx.try_iter() {
                 match ev {
-                    Event::Started(name) => ctx.toast(tr!("Downloading {name}…", name = name)),
-                    Event::Ask => {
-                        w.show(false);
-                        self.notice = Some(Notice::default());
+                    Event::Started(name) => {
                         self.told_busy = false;
+                        ctx.toast(tr!("Downloading {name}…", name = name));
                     }
                     Event::Busy(name) if !self.told_busy => {
                         self.told_busy = true;
@@ -481,13 +445,21 @@ impl Downloads {
                         ));
                     }
                     Event::Busy(_) => {}
-                    Event::Ended(url, path) => {
-                        if !self.gate.borrow_mut().ended(&url, Instant::now()) {
-                            continue;
-                        }
-                        match path {
-                            Some(p) => self.arrived(ctx, p),
-                            None => ctx.toast(tr!("Download failed: {url}", url = url)),
+                    Event::Ended(url, ok) => {
+                        let now = Instant::now();
+                        let arrival = (self.gate.borrow_mut()).ended(&url, ok, MAX_DOWNLOAD, now);
+                        match arrival {
+                            Arrival::Ask => {
+                                w.show(false);
+                                self.notice = Some(Notice::default());
+                            }
+                            Arrival::TooLarge(name) => ctx.toast(tr!(
+                                "{name} is larger than {gb} GB: not kept",
+                                name = name,
+                                gb = MAX_DOWNLOAD >> 30
+                            )),
+                            Arrival::Failed => ctx.toast(tr!("Download failed: {url}", url = url)),
+                            Arrival::Other => {}
                         }
                     }
                     Event::Closed => closed = true,
@@ -542,7 +514,7 @@ mod tests {
             let bad = |c: char| c.is_control() || "/\\:*?\"<>|".contains(c);
             assert!(!name.is_empty() && !name.contains(bad), "{name:?}");
             assert!(!name.starts_with('.') && !name.ends_with('.'), "{name:?}");
-            assert_eq!(free_path(dir, &name).parent(), Some(dir), "{name:?}");
+            assert_eq!(dir.join(&name).parent(), Some(dir), "{name:?}");
         }
         let long = format!("{}.tar.gz", "あ".repeat(100_000));
         let name = download_name("https://x.org/", Path::new(&long));
