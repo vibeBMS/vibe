@@ -235,14 +235,23 @@ pub fn add_long_notes(chart: &mut Chart, how: LnAdd) -> bool {
     let timing = &chart.timing;
     let notes = &mut chart.notes;
     let mut any = false;
-    for k in 0..notes.len() {
+    // from the last note back: each lane's later objects' beats that no
+    // nearer one hides (the nearest last), so the next one is not searched
+    let mut later: Vec<Vec<f64>> = vec![Vec::new(); u8::MAX as usize + 1];
+    for k in (0..notes.len()).rev() {
+        if matches!(notes[k].kind, NoteKind::Invisible) {
+            continue;
+        }
+        let beat = notes[k].beat;
+        let later = &mut later[notes[k].lane as usize];
+        while later.last().is_some_and(|b| *b <= beat) {
+            later.pop();
+        }
+        let next = later.last().copied();
+        later.push(beat);
         if notes[k].kind != NoteKind::Normal {
             continue;
         }
-        let (lane, beat) = (notes[k].lane, notes[k].beat);
-        let next = (notes[k + 1..].iter())
-            .find(|n| n.lane == lane && !matches!(n.kind, NoteKind::Invisible) && n.beat > beat)
-            .map(|n| n.beat);
         let len = next.map_or(1.0, |b| ((b - beat) / 2.0).min(1.0));
         if len < 0.125 {
             continue;
@@ -873,6 +882,39 @@ mod tests {
             ]
         );
         assert!(c.meta.has_long);
+    }
+
+    /// Notes with no later one of their lane to end before (many at one
+    /// beat, as a bmson may have) are each a beat long, without a search
+    /// to the chart's end for each.
+    #[test]
+    fn added_long_notes_of_many_notes_at_one_beat() {
+        let at = |lane: u8, beat: f64, kind: NoteKind| Note {
+            lane,
+            time: (beat * 500_000.0) as i64,
+            beat,
+            pos: beat,
+            sound: NO_SOUND,
+            kind,
+        };
+        let mut notes: Vec<Note> = (0..200_000).map(|_| at(0, 4.0, NoteKind::Normal)).collect();
+        // an invisible object is no next object; a mine is
+        notes.push(at(1, 4.0, NoteKind::Normal));
+        notes.push(at(1, 4.5, NoteKind::Invisible));
+        notes.push(at(1, 5.0, NoteKind::Mine { damage: 1.0 }));
+        let mut c = Chart {
+            notes,
+            ..Default::default()
+        };
+        let t = std::time::Instant::now();
+        assert!(add_long_notes(&mut c, LnAdd::Cn));
+        assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+        let end = |n: &Note| match n.kind {
+            NoteKind::Long { end_beat, .. } => Some(end_beat),
+            _ => None,
+        };
+        assert!(c.notes[..200_000].iter().all(|n| end(n) == Some(5.0)));
+        assert_eq!(end(&c.notes[200_000]), Some(4.5));
     }
 
     #[test]

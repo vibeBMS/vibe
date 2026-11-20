@@ -446,6 +446,9 @@ impl TimingMap {
         let mut min = f64::MAX;
         let mut max = f64::MIN;
         let mut durations: Vec<(f64, f64)> = Vec::new();
+        // the BPMs met (all above 0, so their bits order as they do), each
+        // with its place in `durations`
+        let mut met: std::collections::BTreeMap<u64, usize> = Default::default();
         for (i, s) in self.segs.iter().enumerate() {
             let next_t = self.segs.get(i + 1).map(|n| {
                 // time when the next segment's beat is reached (excludes stop time)
@@ -458,10 +461,19 @@ impl TimingMap {
             min = min.min(s.bpm);
             max = max.max(s.bpm);
             let d = (until - s.time).max(0.0);
-            if let Some(e) = durations.iter_mut().find(|e| (e.0 - s.bpm).abs() < 1e-9) {
-                e.1 += d;
-            } else {
-                durations.push((s.bpm, d));
+            // a BPM within 1e-9 of one met counts as it (the first met)
+            let near = (s.bpm - 1e-9).max(0.0).to_bits()..=(s.bpm + 1e-9).to_bits();
+            let same = met
+                .range(near)
+                .filter(|(_, at)| (durations[**at].0 - s.bpm).abs() < 1e-9)
+                .map(|(_, at)| *at)
+                .min();
+            match same {
+                Some(at) => durations[at].1 += d,
+                None => {
+                    met.insert(s.bpm.to_bits(), durations.len());
+                    durations.push((s.bpm, d));
+                }
             }
         }
         let main = durations
@@ -513,6 +525,43 @@ mod tests {
         assert_eq!(m.stops.len(), 1);
         let (min, max, _) = m.bpm_stats(3_000_000);
         assert_eq!((min, max), (120.0, 240.0));
+    }
+
+    /// The main BPM: a BPM within 1e-9 of one met before counts as it;
+    /// thousands of BPMs are told apart without each being compared with
+    /// every other.
+    #[test]
+    fn main_bpm_of_near_and_of_many_bpms() {
+        // 120 for a beat (0.5 s), 150 for 1.5 (0.6 s), 120 and a bit for
+        // one more: 120 is played longest
+        let near = TimingMap::build(
+            120.0,
+            vec![
+                (1.0, TimingEvent::Bpm(150.0)),
+                (2.5, TimingEvent::Bpm(120.0 + 4e-10)),
+            ],
+        );
+        assert_eq!(near.bpm_stats(1_600_000), (120.0, 150.0, 120.0));
+        let apart = TimingMap::build(
+            120.0,
+            vec![
+                (1.0, TimingEvent::Bpm(150.0)),
+                (2.5, TimingEvent::Bpm(120.0 + 4e-9)),
+            ],
+        );
+        assert_eq!(apart.bpm_stats(1_600_000).2, 150.0);
+        // 200,000 BPMs a beat each, the first one for two
+        let n = 200_000;
+        let mut events: Vec<(f64, TimingEvent)> = (1..n)
+            .map(|i| (i as f64, TimingEvent::Bpm(100.0 + i as f64 * 0.001)))
+            .collect();
+        events.push((n as f64, TimingEvent::Bpm(100.0)));
+        let many = TimingMap::build(100.0, events);
+        let end = many.time_at_beat(n as f64 + 1.0);
+        let t = std::time::Instant::now();
+        let fastest = 100.0 + (n - 1) as f64 * 0.001;
+        assert_eq!(many.bpm_stats(end), (100.0, fastest, 100.0));
+        assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
     }
 
     #[test]

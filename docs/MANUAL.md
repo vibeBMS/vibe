@@ -294,6 +294,8 @@ The touch perspective play skin uses its lanes as the controls ([SKINS.md](SKINS
   `#SPEED` (RULES "Scroll"), long notes (`#LNTYPE`, `#LNOBJ`, `#LNMODE`: RULES "Long notes") and mines.
 - Text encodings: Shift_JIS, EUC-KR and UTF-8, detected.
 - The scan reads new and changed charts several at a time.
+- Not read (no real chart is so): a chart file over 32 MiB, a chart whose last note or sound is past 24 hours, one
+  with more than 4,000,000 objects. A header's text is read to 1024 bytes, a number to a thousand million.
 
 ## Songs in archives
 

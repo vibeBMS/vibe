@@ -3,7 +3,7 @@
 use crate::chart::*;
 use crate::mode::PlayMode;
 use crate::timing::{TimingEvent, TimingMap};
-use crate::ChartError;
+use crate::{limits, ChartError};
 use serde::Deserialize;
 
 #[derive(Deserialize, Default)]
@@ -212,8 +212,28 @@ fn check_extent(b: &Bmson, res: f64) -> Result<(), ChartError> {
     }
 }
 
+/// How many objects a bmson has (`limits::MAX_OBJECTS`).
+fn object_count(b: &Bmson) -> usize {
+    let notes = |n: usize| n + 1;
+    let bga = &b.bga;
+    b.lines.as_ref().map_or(0, Vec::len)
+        + b.bpm_events.len()
+        + b.stop_events.len()
+        + b.scroll_events.len()
+        + (b.sound_channels.iter().map(|c| notes(c.notes.len()))).sum::<usize>()
+        + (b.mine_channels.iter().chain(&b.key_channels))
+            .map(|c| notes(c.notes.len()))
+            .sum::<usize>()
+        + bga.bga_header.len()
+        + bga.bga_events.len()
+        + bga.layer_events.len()
+        + bga.poor_events.len()
+}
+
 pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
+    limits::file(bytes.len())?;
     let b: Bmson = serde_json::from_slice(bytes).map_err(|e| ChartError::Parse(e.to_string()))?;
+    limits::objects(object_count(&b))?;
     let info = &b.info;
     let res = if info.resolution > 0.0 && info.resolution.is_finite() {
         info.resolution
@@ -229,18 +249,27 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
         3 => Some(LnType::Hcn),
         _ => None,
     };
+    // (a number out of `limits::number`'s range is as one not given)
+    let init_bpm = limits::number(info.init_bpm)
+        .filter(|b| *b > 0.0)
+        .unwrap_or(130.0);
+    let total_rate = limits::number(info.total).unwrap_or(100.0);
 
     let mut ev = Vec::new();
     for e in &b.bpm_events {
-        ev.push((beat(e.y), TimingEvent::Bpm(e.bpm)));
+        if let Some(bpm) = limits::number(e.bpm) {
+            ev.push((beat(e.y), TimingEvent::Bpm(bpm)));
+        }
     }
     for e in &b.stop_events {
         ev.push((beat(e.y), TimingEvent::StopBeats(e.duration / res)));
     }
     for e in &b.scroll_events {
-        ev.push((beat(e.y), TimingEvent::Scroll(e.rate)));
+        if let Some(rate) = limits::number(e.rate) {
+            ev.push((beat(e.y), TimingEvent::Scroll(rate)));
+        }
     }
-    let timing = TimingMap::build(info.init_bpm, ev);
+    let timing = TimingMap::build(init_bpm, ev);
     let t = |y: f64| timing.time_at_beat(beat(y));
     let p = |y: f64| timing.pos_at_beat(beat(y));
 
@@ -257,8 +286,8 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
         genre: info.genre.clone(),
         level: info.level.to_string(),
         mode: Some(mode),
-        initial_bpm: info.init_bpm,
-        judge_rank: JudgeRank::Bmson(info.judge_rank),
+        initial_bpm: init_bpm,
+        judge_rank: JudgeRank::Bmson(limits::number(info.judge_rank).unwrap_or(100.0)),
         // bmson total is a percentage of the default TOTAL; resolved in `Chart::total`
         total: None,
         ln_type: default_ln,
@@ -277,15 +306,27 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
         chart.sound_files.push(ch.name.clone());
         let mut notes: Vec<&BNote> = ch.notes.iter().collect();
         notes.sort_by(|a, b| a.y.total_cmp(&b.y));
+        let times: Vec<i64> = notes.iter().map(|n| t(n.y)).collect();
+        // the first later time after each note's own (`later`: the times
+        // after it that no nearer one hides, the nearest last)
+        let mut next_times: Vec<Option<i64>> = vec![None; notes.len()];
+        let mut later: Vec<i64> = Vec::new();
+        for (i, time) in times.iter().enumerate().rev() {
+            while later.last().is_some_and(|l| l <= time) {
+                later.pop();
+            }
+            next_times[i] = later.last().copied();
+            later.push(*time);
+        }
         // Each note plays the channel's file from the point the previous
         // restart (c == false) happened, until the next note in the channel.
         let mut restart_time = 0i64;
         for (i, n) in notes.iter().enumerate() {
-            let time = t(n.y);
+            let time = times[i];
             if !n.c {
                 restart_time = time;
             }
-            let next_time = notes[i + 1..].iter().map(|m| t(m.y)).find(|nt| *nt > time);
+            let next_time = next_times[i];
             let start = time - restart_time;
             let end = next_time.map(|nt| nt - restart_time);
             let sound = chart.sounds.len() as SoundId;
@@ -340,7 +381,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
                     let kind = if mine {
                         meta.has_mine = true;
                         NoteKind::Mine {
-                            damage: n.damage as f32,
+                            damage: limits::number(n.damage).unwrap_or(0.0) as f32,
                         }
                     } else {
                         meta.has_invisible = true;
@@ -409,14 +450,14 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     chart.meta = meta;
     // resolve bmson TOTAL (percent of the default)
     let default_total = chart.total(LnType::Ln);
-    chart.meta.total = Some(if info.total > 0.0 {
-        info.total / 100.0 * default_total
+    chart.meta.total = Some(if total_rate > 0.0 {
+        total_rate / 100.0 * default_total
     } else {
         default_total
     });
-    chart.meta.total_rate = Some(info.total);
+    chart.meta.total_rate = Some(total_rate);
     chart.compute_bpm_stats();
-    Ok(chart)
+    limits::check(chart)
 }
 
 #[cfg(test)]
@@ -452,6 +493,64 @@ mod tests {
         let tiny = r#"{"version": "1.0.0", "info": {"title": "t", "init_bpm": 120, "resolution": 1e-12},
             "sound_channels": [{"name": "a.wav", "notes": [{"x": 1, "y": 10, "l": 0, "c": false}]}]}"#;
         assert!(parse_bmson(tiny.as_bytes()).is_err());
+    }
+
+    /// Numbers no arithmetic stays finite with are as ones not given: what
+    /// the chart says of itself can be written down and read again.
+    #[test]
+    fn hostile_bmson_numbers_stay_finite() {
+        let src = r#"{"version": "1.0.0",
+            "info": {"title": "t", "init_bpm": 1e308, "resolution": 240, "total": 1e308, "judge_rank": -1e300},
+            "bpm_events": [{"y": 240, "bpm": 1e308}, {"y": 480, "bpm": 180}],
+            "scroll_events": [{"y": 0, "rate": 1e308}],
+            "mine_channels": [{"name": "m.wav", "notes": [{"x": 2, "y": 0, "damage": 1e308}]}],
+            "sound_channels": [{"name": "a.wav", "notes": [{"x": 1, "y": 0}, {"x": 1, "y": 960}]}]}"#;
+        let c = parse_bmson(src.as_bytes()).unwrap();
+        let m = &c.meta;
+        assert_eq!((m.initial_bpm, m.min_bpm, m.max_bpm), (130.0, 130.0, 180.0));
+        assert_eq!(m.total, Some(c.total(LnType::Ln)));
+        assert_eq!(m.judge_rank, JudgeRank::Bmson(100.0));
+        assert!(c.notes.iter().all(|n| n.pos.is_finite()));
+        assert!(matches!(c.notes[1].kind, NoteKind::Mine { damage } if damage == 0.0));
+        let json = serde_json::to_string(m).unwrap();
+        assert_eq!(serde_json::from_str::<ChartMeta>(&json).unwrap(), *m);
+        // a slow tempo that puts a note past 24 hours: refused
+        let slow = src.replace("\"bpm\": 180", "\"bpm\": 1e-9");
+        assert!(parse_bmson(slow.as_bytes()).is_err());
+    }
+
+    /// Many notes at one time are read as fast as any (each note's sound
+    /// ends at the next later one).
+    #[test]
+    fn notes_at_one_time_cost_nothing_each() {
+        let notes = r#"{"x": 1, "y": 240},"#.repeat(100_000);
+        let src = format!(
+            r#"{{"info": {{"init_bpm": 120}}, "sound_channels": [{{"name": "a.wav",
+                "notes": [{notes} {{"x": 2, "y": 480}}, {{"x": 3, "y": 0}}]}}]}}"#
+        );
+        let t = std::time::Instant::now();
+        let c = parse_bmson(src.as_bytes()).unwrap();
+        assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+        assert_eq!(c.notes.len(), 100_002);
+        // the note at 0 plays to 0.5 s, each at 0.5 s to 1 s, the last on
+        let ends: Vec<Option<i64>> = [0, 1, 100_000, 100_001]
+            .map(|i| c.sounds[c.notes[i].sound as usize].end)
+            .to_vec();
+        assert_eq!(ends, [Some(500_000), Some(500_000), Some(500_000), None]);
+    }
+
+    /// More objects than any chart has: refused.
+    #[test]
+    fn too_many_objects_are_refused() {
+        let lines = |n: usize| {
+            format!(
+                r#"{{"lines": [{}{{"y": 0}}]}}"#,
+                r#"{"y":0},"#.repeat(n - 1)
+            )
+        };
+        assert!(parse_bmson(lines(1000).as_bytes()).is_ok());
+        let e = parse_bmson(lines(limits::MAX_OBJECTS + 1).as_bytes());
+        assert!(matches!(e, Err(ChartError::Parse(m)) if m.contains("objects")));
     }
 
     #[test]
