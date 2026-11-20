@@ -59,7 +59,7 @@ jobs:
             awk -F'\t' -v main="$MAIN" '{
               job = $2
               if (job ~ /^e2e-/) next
-              # (setup-gradle's own entries, from before Gradle had one cache entry)
+              # (the entries setup-gradle made, before Gradle had one cache entry)
               if (job ~ /^gradle-[a-z-]+-v1[-|]/) { print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"; next }
               if (job ~ /^v0-rust-/) sub(/-[0-9a-f]+-[0-9a-f]+$/, "", job)
               else if (job ~ /^setup-go-/) sub(/-[0-9a-f]+$/, "", job)
