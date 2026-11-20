@@ -5,6 +5,11 @@
 # in the first week of a month or when asked, the container images' digests
 # and UBUNTU_SNAPSHOT (which moves the packages of the *_PACKAGES lists).
 # Rust is Dependabot's (rust-toolchain.toml).
+# A release of cargo-ndk, Gradle or the JDK is taken once it is 7 days old, and
+# libdmg-hfsplus's head once it has been the head for 7 days, as Dependabot
+# waits (.github/dependabot.yml): the update is merged with no person looking.
+# What comes with no date has no waiting time: the NDK and build-tools
+# (sdkmanager's list), the images' digests, what a runner image has.
 #
 # What it finds goes into at most two pull requests, each one commit on the
 # default branch that changes only pins (tools/repro_pins.py choose):
@@ -183,21 +188,53 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - id: registries
+        # (bash with pipefail: a registry that fails is seen as one)
+        shell: bash
         env:
           IMAGES: ${{ inputs.images }}
+          GH_TOKEN: ${{ github.token }}
+          # a release is taken once it is this old (as Dependabot's cooldown,
+          # .github/dependabot.yml): one withdrawn or reported in its first
+          # days never gets here
+          MIN_AGE_DAYS: 7
         run: |
           . tools/repro.env
           get() { curl -fsSL --retry 3 -A "toolchain-pins (GitHub Actions)" "$@"; }
-          {
-            echo "CARGO_NDK_VERSION=$(get https://crates.io/api/v1/crates/cargo-ndk | jq -r .crate.max_stable_version)"
-            echo "GRADLE_VERSION=$(get https://services.gradle.org/versions/current | jq -r .version)"
-            # Temurin, the newest of JAVA_VERSION's major
-            j="${JAVA_VERSION%%.*}"
-            echo "JAVA_VERSION=$(get "https://api.adoptium.net/v3/info/release_versions?release_type=ga&vendor=eclipse&sort_order=DESC&page_size=1&version=%5B$j%2C$((j + 1))%29" |
-              jq -r '.versions[0] | "\(.major).\(.minor).\(.security)"')"
-            # the newest NDK and build-tools on sdkmanager's stable channel
-            get -o repo.xml https://dl.google.com/android/repository/repository2-3.xml
-            python3 -I - repo.xml <<'EOF'
+          before="$(date -u -d "$MIN_AGE_DAYS days ago" +%Y-%m-%dT%H:%M:%S)"
+          failed=""
+          : > facts.txt
+          # release <pin> <version>: the newest release that is old enough, a
+          # fact when it is newer than the pin (the pin may be the newer one:
+          # taken by hand, or before there was a waiting time). An answer
+          # that is no version (the registry failed, or gave something else)
+          # is none, and fails this job once the other facts are written
+          release() {
+            if ! [[ "$2" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+              echo "::warning::$1: its registry gave no release (${2@Q})"
+              failed=1
+            elif [ "$2" != "${!1}" ] && [ "$(printf '%s\n' "${!1}" "$2" | sort -V | tail -1)" = "$2" ]; then
+              echo "$1=$2" >> facts.txt
+            fi
+          }
+          # (jq) the newest of the plain versions in a list
+          newest='map(select(test("\\A[0-9]+(\\.[0-9]+)*\\z"))) | max_by(split(".") | map(tonumber)) // empty'
+          # cargo-ndk: crates.io has each version's time of publication
+          v="$(get https://crates.io/api/v1/crates/cargo-ndk |
+            jq -r --arg before "$before" "[.versions[] | select((.yanked | not) and .created_at[:19] <= \$before) | .num] | $newest")" || v=""
+          release CARGO_NDK_VERSION "$v"
+          # Gradle: the final releases, each with the time it was built
+          v="$(get https://services.gradle.org/versions/all |
+            jq -r --arg before "${before//[-T:]/}" "[.[] | select((.broken | not) and .buildTime[:14] <= \$before) | .version] | $newest")" || v=""
+          release GRADLE_VERSION "$v"
+          # Temurin, the newest of JAVA_VERSION's major: Adoptium's releases,
+          # the newest first, each with its time
+          v="$(get "https://api.adoptium.net/v3/assets/feature_releases/${JAVA_VERSION%%.*}/ga?vendor=eclipse&image_type=jdk&os=linux&architecture=x64&sort_method=DATE&sort_order=DESC&page_size=20" |
+            jq -r --arg before "$before" 'first(.[] | select(.timestamp[:19] <= $before) | .version_data | "\(.major).\(.minor).\(.security)") // empty')" || v=""
+          release JAVA_VERSION "$v"
+          # the newest NDK and build-tools on sdkmanager's stable channel (its
+          # list has no dates: no waiting time for these)
+          get -o repo.xml https://dl.google.com/android/repository/repository2-3.xml &&
+            python3 -I - repo.xml >> facts.txt <<'EOF' || { echo "::warning::NDK_VERSION, BUILD_TOOLS_VERSION: no list of sdkmanager's packages"; failed=1; }
           import re, sys, xml.etree.ElementTree as ET
           root = ET.parse(sys.argv[1]).getroot()
           stable = {c.get("id") for c in root.iter("channel") if c.text == "stable"}
@@ -207,9 +244,21 @@ jobs:
               v = [x for x in v if re.fullmatch(r"[\d.]+", x)]
               print(f"{pin}=" + (max(v, key=lambda x: [int(n) for n in x.split(".")]) if v else ""))
           EOF
-            # libdmg-hfsplus (the .dmg): its default branch's newest commit
-            echo "LIBDMG_HFSPLUS_COMMIT=$(git ls-remote https://github.com/mozilla/libdmg-hfsplus HEAD | cut -f1)"
-          } > facts.txt
+          # libdmg-hfsplus (the .dmg): the head its default branch had
+          # MIN_AGE_DAYS ago, by GitHub's record of the pushes to it (the
+          # dates in a commit are its author's to write); none while the pin
+          # is a head newer than that
+          if branch="$(gh api repos/mozilla/libdmg-hfsplus --jq .default_branch)" &&
+            v="$(gh api "repos/mozilla/libdmg-hfsplus/activity?ref=refs/heads/$branch&per_page=100" |
+              jq -r --arg before "$before" --arg pin "$LIBDMG_HFSPLUS_COMMIT" '
+                if length == 0 or (all(.[]; (.timestamp | type) == "string" and (.after | type) == "string" and (.after | test("\\A[0-9a-f]{40}\\z"))) | not)
+                then error("not a list of pushes") else . end
+                | first(.[] | select(.after == $pin or .timestamp[:19] <= $before)) | select(.after != $pin) | .after')"; then
+            [ -z "$v" ] || echo "LIBDMG_HFSPLUS_COMMIT=$v" >> facts.txt
+          else
+            echo "::warning::LIBDMG_HFSPLUS_COMMIT: GitHub gave no list of the pushes to mozilla/libdmg-hfsplus"
+            failed=1
+          fi
           # an image's newest digest: <repository>[:<tag>] <amd64|arm64|index>
           # (Docker Hub's API for Docker Hub, Quay's for quay.io)
           digest() {
@@ -225,6 +274,9 @@ jobs:
                   jq -r '.tags[0].manifest_digest' ;;
             esac
           }
+          # (a tag names one digest, with no time and no earlier one to take
+          # instead: no waiting time for the images, nor for the snapshot,
+          # which is the archive as it is now)
           if [ "$IMAGES" = true ] || { [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$(date -u +%-d)" -le 7 ]; }; then
             for key in LINUX_IMAGE_X64 LINUX_IMAGE_ARM64 PORTABLE_IMAGE_X64 PORTABLE_IMAGE_ARM64 WEB_IMAGE; do
               ref="${!key}" ref="${ref%@*}"
@@ -244,7 +296,13 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
           cat facts.txt
+          if [ -n "$failed" ]; then
+            echo "::error::a registry gave no answer (the warnings above): its pin stays as it is"
+            exit 1
+          fi
+      # (what the other registries gave is used all the same)
       - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
         with:
           name: facts-registries
           path: facts.txt
@@ -254,7 +312,7 @@ jobs:
   # archive has no snapshot), resolved in its image as it moves
   lock:
     needs: registries
-    if: needs.registries.outputs.images == 'true'
+    if: ${{ !cancelled() && needs.registries.outputs.images == 'true' }}
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7

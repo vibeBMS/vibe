@@ -15,6 +15,9 @@ choose: <facts> has "<name>=<value>" lines, what the workflow found:
   <PIN>=<value>                  a new value for any other pin (an image's
                                  digest, UBUNTU_SNAPSHOT, the Android tools,
                                  LIBDMG_HFSPLUS_COMMIT)
+A value that does not look like one for its pin (a version is numbers and
+dots, an image <repository>[:<tag>]@sha256:<digest>, a commit 40 hex digits)
+is left out, with a warning on stderr.
 It writes two copies of <repro.env>: <update out> with the changes that are
 merged once CI passes (newer tools on the same runner labels, the same Xcode
 major), <major out> with those held for a person (a new runner label and its
@@ -24,7 +27,8 @@ Each says what it changes on stdout.
 
 check: whether <head> changes only the values of pins (no other line), and
 which changes are held: exit 0 when none is, 3 when one is (each said on
-stdout), 1 when <head> changes anything else. With a lock (tools/build_deps.sh
+stdout), 1 when <head> changes anything else or gives a pin a value that does
+not look like one for it. With a lock (tools/build_deps.sh
 lock linux-arm64), also that it is one, for <head>'s image and packages. The
 Toolchain pins workflow's merge job runs it on its update.
 """
@@ -42,6 +46,16 @@ IMAGES = {"LINUX_IMAGE_X64", "LINUX_IMAGE_ARM64", "PORTABLE_IMAGE_X64", "PORTABL
 # commits of a repository built from source: any other full commit
 COMMITS = {"LIBDMG_HFSPLUS_COMMIT"}
 MOVED = LABELS | VERSIONS | IMAGES | COMMITS
+# what a value of each looks like. The registries' answers are text from the
+# network and tools/repro.env is sourced by bash: nothing else is written
+# there or merged
+SHAPE = {
+    **{k: r"[0-9]+(\.[0-9]+)*" for k in VERSIONS},
+    "UBUNTU_SNAPSHOT": r"[0-9]{8}T[0-9]{6}Z",
+    **{k: r"(macos|windows)-[0-9]+(-[a-z0-9]+)*" for k in LABELS},
+    **{k: r"[a-z0-9]+([._/-][a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]*)?@sha256:[0-9a-f]{64}" for k in IMAGES},
+    **{k: r"[0-9a-f]{40}" for k in COMMITS},
+}
 
 LINE = re.compile(r'^([A-Z][A-Z0-9_]*)=(.*)$')
 
@@ -69,6 +83,10 @@ def with_values(text, changes):
     return "".join(out)
 
 
+def well_formed(key, value):
+    return re.fullmatch(SHAPE[key], value) is not None
+
+
 def nums(v):
     return [int(x) for x in re.findall(r"\d+", v)]
 
@@ -83,8 +101,6 @@ def held(key, old, new):
         return f"{key}: a new major version ({old} -> {new})"
     if key in IMAGES and old.split("@")[0] != new.split("@")[0]:
         return f"{key}: another image, not another digest ({old} -> {new})"
-    if key in COMMITS and not re.fullmatch(r"[0-9a-f]{40}", new):
-        return f"{key}: not a commit ({old} -> {new})"
     return None
 
 
@@ -94,6 +110,8 @@ def check(base, head):
     changes = {k: h[k] for k in h if b.get(k) != h[k]}
     errors = [f"{k}: removed" for k in b if k not in h]
     errors += [f"{k}: not a pin the workflow moves" for k in changes if k not in MOVED or k not in b]
+    errors += [f"{k}: not a value for it: {changes[k]!r}" for k in changes
+               if k in MOVED and not well_formed(k, changes[k])]
     if not errors and with_values(base, changes) != head:
         errors.append("lines other than the pins' values differ")
     reasons = [r for k in changes if k in b for r in [held(k, b[k], changes[k])] if r]
@@ -131,30 +149,43 @@ def choose(text, facts):
     pins = parse(text)
     update, major = {}, {}
 
+    def ok(key, value):
+        if not well_formed(key, value):
+            print(f"::warning::{key}: not a value for it, left out: {value!r}", file=sys.stderr)
+            return False
+        return True
+
+    def found(name, key):
+        return [v for v in facts.get(name, "").split() if ok(key, v)]
+
     def put(key, value, into=None):
-        if value and value != pins.get(key):
+        if value and value != pins.get(key) and ok(key, value):
             (into if into is not None else (major if held(key, pins[key], value) else update))[key] = value
 
     # Xcode: the newest of its major on the label; a newer major, or the
     # newest label (with its newest Xcode), waits
     mac, xcode = pins["MACOS_RUNNER"], pins["XCODE_VERSION"]
-    have = facts.get(f"xcode@{mac}", "").split()
+    have = found(f"xcode@{mac}", "XCODE_VERSION")
     put("XCODE_VERSION", newest([v for v in have if nums(v)[:1] == nums(xcode)[:1]]))
     if have and nums(newest(have))[:1] != nums(xcode)[:1]:
         put("XCODE_VERSION", newest(have), major)
     label = facts.get("macos_newest", mac)
-    if label != mac and facts.get(f"xcode@{label}"):
-        major["MACOS_RUNNER"] = label
-        major["XCODE_VERSION"] = newest(facts[f"xcode@{label}"].split())
+    if label != mac and ok("MACOS_RUNNER", label):
+        have = found(f"xcode@{label}", "XCODE_VERSION")
+        if have:
+            major["MACOS_RUNNER"] = label
+            major["XCODE_VERSION"] = newest(have)
     # MSVC and the SDK: the newest on the label; the newest label waits
     win = pins["WINDOWS_RUNNER"]
-    put("MSVC_COMPONENT", newest(facts.get(f"msvc@{win}", "").split()))
-    put("WINDOWS_SDK", newest(facts.get(f"sdk@{win}", "").split()))
+    put("MSVC_COMPONENT", newest(found(f"msvc@{win}", "MSVC_COMPONENT")))
+    put("WINDOWS_SDK", newest(found(f"sdk@{win}", "WINDOWS_SDK")))
     label = facts.get("windows_newest", win)
-    if label != win and facts.get(f"msvc@{label}") and facts.get(f"sdk@{label}"):
-        major["WINDOWS_RUNNER"] = label
-        major["MSVC_COMPONENT"] = newest(facts[f"msvc@{label}"].split())
-        major["WINDOWS_SDK"] = newest(facts[f"sdk@{label}"].split())
+    if label != win and ok("WINDOWS_RUNNER", label):
+        msvc, sdk = found(f"msvc@{label}", "MSVC_COMPONENT"), found(f"sdk@{label}", "WINDOWS_SDK")
+        if msvc and sdk:
+            major["WINDOWS_RUNNER"] = label
+            major["MSVC_COMPONENT"] = newest(msvc)
+            major["WINDOWS_SDK"] = newest(sdk)
     # the rest as found
     for key in sorted((MOVED - LABELS) & facts.keys()):
         if key in pins and key not in {"XCODE_VERSION", "MSVC_COMPONENT", "WINDOWS_SDK"}:

@@ -60,8 +60,9 @@ cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs b
 gradle -p platform/android assembleRelease    # Gradle 9.6+; or open platform/android in Android Studio
 ```
 The release APK is built unsigned (`platform/android/app/build/outputs/apk/release/app-release-unsigned.apk`):
-`tools/build_release.sh android <out dir>` signs it with apksigner when `VIBEBMS_KEYSTORE` /
-`VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS` are set (see Android signing). To install one built by hand, sign it
+`tools/build_release.sh sign <unsigned apk> <out dir>` signs it with apksigner and the key of `VIBEBMS_KEYSTORE` /
+`VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS` (see Android signing), and `tools/build_release.sh android <out dir>`
+does so after building when they are set. To install one built by hand, sign it
 with any key, e.g. the debug key: `apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out
 vibeBMS.apk app-release-unsigned.apk`, or build `assembleDebug`.
 Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over USB); the nightly APK is its own app,
@@ -222,11 +223,26 @@ not have.
 ## Android signing
 CI signs the release APK with the repository's key when the secrets `ANDROID_KEYSTORE` (the keystore, base64) and
 `ANDROID_KEYSTORE_PASSWORD` (its password, also the key's) are set, else with a key made for the run, which installs
-but cannot update an APK signed by another. Gradle builds the APK unsigned and `tools/build_release.sh` signs it with
+but cannot update an APK signed by another. Only a run of the default branch that is not a pull request's signs with
+the repository's key; every other run (pull requests, other branches, the runs the Toolchain pins workflow starts on
+its branches) signs with a key made for the run.
+
+The key is kept away from the build. CI's `android` job builds the unsigned APK and has no secret: what runs there
+(cargo and every crate's build script, cargo-ndk, Gradle and its plugins) could read anything in the job. The
+`android-sign` job takes that APK as an artifact and signs it (`tools/build_release.sh sign`), with the JDK, the
+pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job and
+the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
+the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
+the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
+`FDROID_KEYSTORE_PASSWORD`) as the environment's secrets and delete the repository's. A run of any other branch,
+whatever its workflow file says, then cannot read them. (Until then the environment is an empty one GitHub makes on
+first use, and the repository's secrets are used.) No reviewers or wait timer: each would hold every nightly.
+
+Gradle builds the APK unsigned and `tools/build_release.sh sign` signs it with
 the pinned build-tools' apksigner (`BUILD_TOOLS_VERSION`), with APK Signature Scheme v2 alone, as the Android Gradle
 plugin signed it before (v1 is needed only before Android 7; the APK's `minSdk` is 26, Android 8.0), keeping the entries as they
 are (`--alignment-preserved`): the signed APK is the unsigned one with the APK Signing Block put before its central
-directory, so a rebuild with the release's signature copied onto it is the release (Reproducible builds; the build
+directory, so a rebuild with the release's signature copied onto it is the release (Reproducible builds; the signing
 checks it with apksigcopier). The APK carries no dependency list in that block (`dependenciesInfo`: it is encrypted
 for Google Play). Make the keystore once and keep it: an APK signed by a new key cannot
 update the installed app (it has to be uninstalled, with its data).
@@ -249,12 +265,19 @@ the release by hand updates the same way, as it is signed with the same key.
 
 The nightly job publishes the repository with the nightly APK (`tools/fdroid_repo.sh`). On each push to the default
 branch it:
-- runs `fdroid update` (fdroidserver 2.4.5, from pip) on the APK the release has, byte for byte, as its only version
+- installs fdroidserver 2.4.5 from pip, in a step that has no key: it and every package it brings (68 files) are
+  pinned by version and SHA-256 in `tools/fdroidserver.txt` and `tools/fdroidserver-build.txt` (`--require-hashes`;
+  the four that have no wheel are built with the pinned setuptools, without pip's build isolation, which would fetch
+  one unpinned). The files were resolved for the runner's Python (3.12 on x86_64 Linux): when the runner's Python
+  changes, or to move to a newer fdroidserver, make them again as the top of `tools/fdroidserver.txt` says;
+- runs `fdroid update` on the APK the release has, byte for byte, as its only version
   (named `io.github.vibebms.nightly_<versionCode>.apk`, so each build has its own URL), with the metadata in
   `platform/android/fdroid/metadata/` (name, summary, description, licence, links; the icon is
   `io.github.vibebms.nightly/en-US/icon.png`, a copy of `assets/logo/icon-512.png`);
 - signs the index (`entry.jar` for current clients, `index-v1.jar` and `index.jar` for older ones) with
-  `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`);
+  `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`, which that
+  step gets only then); the password reaches keytool and fdroidserver through the environment, not a command line
+  or `config.yml`;
 - after the release is published, replaces the branch `fdroid-repo` with one new commit (no parent), so the older
   APKs are not kept in its history. The release's concurrency group and the check that the commit is still the
   branch's head (or that the newer commits skip CI, `[skip ci]`: they start no run, `tools/ci_moved_on.sh`) make
@@ -264,7 +287,8 @@ branch it:
 
 It skips the repository, saying why in the summary, when the run built no APK, when the APK was signed with a key
 made for the run (it could not update the installed app), or when there is no key for the index (a key made per run
-would change the fingerprint the clients pinned). A failure there holds back no other file.
+would change the fingerprint the clients pinned). A failure there holds back no other file: the job publishes the
+rest, then ends as failed, so that it is seen.
 
 The index's key is what clients pin: changing it later means every user adds the repository again. So whether the
 index keeps the APK's key or gets its own (F-Droid advises one; `FDROID_KEYSTORE`) is decided once, before users add
@@ -276,12 +300,16 @@ keytool -genkeypair -keystore vibebms-fdroid.p12 -storetype PKCS12 -alias vibebm
   -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=vibeBMS F-Droid repository"
 base64 -w0 vibebms-fdroid.p12    # the value of FDROID_KEYSTORE; FDROID_KEYSTORE_PASSWORD is the password asked for
 ```
-The secrets go in the repository's Settings › Secrets and variables › Actions. A keystore with one key is expected
-(its alias is read from it), with one password for the keystore and the key.
+The secrets go in the environment `release` (Android signing, above; or, until it is set up, in the repository's
+Settings › Secrets and variables › Actions). A keystore with one key is expected (its alias is read from it), with
+one password for the keystore and the key.
 
-To build the repository locally (Python 3, a JDK, the Android SDK's build-tools):
+To build the repository locally (Python 3, a JDK, the Android SDK's build-tools; with another Python than 3.12 or
+off x86_64 Linux the pinned files do not fit: `pip install fdroidserver==2.4.5` then):
 ```sh
-python3 -m venv /tmp/fdroid && /tmp/fdroid/bin/pip install fdroidserver==2.4.5
+python3 -m venv /tmp/fdroid
+/tmp/fdroid/bin/pip install --require-hashes --only-binary :all: -r tools/fdroidserver-build.txt
+/tmp/fdroid/bin/pip install --require-hashes --no-build-isolation -r tools/fdroidserver.txt
 PATH=/tmp/fdroid/bin:$PATH ANDROID_HOME=... FDROID_KEYSTORE_FILE=vibebms-fdroid.p12 FDROID_KEYSTORE_PASS=... \
   FDROID_REPO_URL=http://192.168.1.2:8000/repo tools/fdroid_repo.sh build vibeBMS.apk /tmp/fdroid-work
 python3 -m http.server -d /tmp/fdroid-work/site 8000    # serves that address (this machine's, on the LAN)
@@ -396,7 +424,9 @@ What a build depends on is the commit plus these inputs:
 
 Everything else is fixed by the commit:
 - **compilers and tools**: Rust by `rust-toolchain.toml`; wasm-bindgen by `Cargo.lock` (checked); in
-  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, Ubuntu 22.04 for
+  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, whose compiler is the
+  image's; the packages added there, the ALSA and libudev headers, are installed by `dnf` from AlmaLinux 8's
+  repositories as they are that day: by name, with no version or hash; Ubuntu 22.04 for
   `vibebms-linux-x64` / `-arm64`, Ubuntu 26.04 for the web build), the Ubuntu images' packages (gcc, clang, the
   libraries' headers): x64's from the Ubuntu snapshot of a given time, arm64's as `tools/linux-arm64.lock` lists
   them, each by version and SHA-256 (the ports archive has no snapshot and keeps only a package's newest version:
@@ -480,7 +510,7 @@ How far each build is reproducible:
 
 | build | reproducible | what can differ |
 |---|---|---|
-| `vibebms-linux-x64-portable`, `-arm64-portable` | yes: pinned image, packages, Rust | nothing known |
+| `vibebms-linux-x64-portable`, `-arm64-portable` | yes: pinned image and Rust; its three packages (`PORTABLE_PACKAGES`: the ALSA and libudev headers, pkgconf) are named, not pinned: `dnf` installs what AlmaLinux 8's repositories have that day | an update of those packages in AlmaLinux 8 (rare; the compiler and glibc are the image's) |
 | `vibebms-linux-x64`, `-arm64` | yes: pinned image and packages (x64: Ubuntu snapshot; arm64: `tools/linux-arm64.lock`), Rust | nothing known |
 | web (`vibeBMS-web.zip`) | yes: pinned image and packages (Ubuntu snapshot), Rust, wasm-bindgen, fonts | nothing known |
 | the Flatpaks | from the same executable, on the same runner image | packaged on GitHub's Ubuntu 22.04 image: its flatpak, appstream and faketime are the image's, and their updates can change the bytes (rare) |
@@ -493,20 +523,29 @@ How far each build is reproducible:
 To keep it so: move the pins (`rust-toolchain.toml`, `tools/repro.env`) in commits of their own, and build release
 files only through `tools/build_release.sh`. Both are moved for you:
 - Dependabot updates `rust-toolchain.toml` weekly, merged once CI passes like a minor update
-  (`.github/workflows/dependabot-merge.yml`);
+  (`.github/workflows/dependabot-merge.yml`). It takes a release, of Rust as of any dependency, once it is 7 days old
+  (`cooldown` in `.github/dependabot.yml`): what is merged with no person looking has had a week to be withdrawn or
+  reported;
 - the **Toolchain pins** workflow (`.github/workflows/toolchain-pins.yml`, weekly, or Actions > Run workflow) updates
   `tools/repro.env`: the newest GA macOS and Windows runner labels (from actions/runner-images), the Xcode
   releases, side-by-side MSVC toolsets and Windows SDKs on the pinned and newest images (looked up on the runners,
   the newest checked as `tools/toolchain.sh` selects it), the Android tools (NDK, cargo-ndk, JDK, Gradle,
-  build-tools) from their registries, libdmg-hfsplus's newest commit and, in the first week of a month (or with the
+  build-tools) from their registries, libdmg-hfsplus's commit and, in the first week of a month (or with the
   `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` (the packages of the `*_PACKAGES` lists) and
-  `tools/linux-arm64.lock` resolved again in its image. `tools/repro_pins.py` splits the changes
+  `tools/linux-arm64.lock` resolved again in its image. Where the registry gives a time it waits 7 days, as
+  Dependabot does: the newest release of cargo-ndk (crates.io), Gradle and the JDK (Adoptium) that is that old, and
+  the head libdmg-hfsplus's default branch had 7 days ago (GitHub's record of the pushes, not the dates written in
+  the commits); a pin that is already newer stays. The NDK and build-tools (sdkmanager's list), the digests and what
+  the runner images have come with no time and are taken as found. A registry that does not answer, or answers
+  something else, leaves its pin and fails the `registries` job (the other pins move all the same).
+  `tools/repro_pins.py` takes for a pin only a value that looks like one (a version is numbers and dots, an image
+  `<repository>[:<tag>]@sha256:<digest>`, a commit 40 hex digits) and splits the changes
   into two pull requests, each one commit that changes only pins, on which the workflow dispatches CI (a pull request
   made with `GITHUB_TOKEN` starts none, and its pull request's CI waits for a person's approval):
   `toolchain-pins/update` (newer tools on the same labels, Xcode and the Android tools within their major versions,
   digests, the snapshot), which the workflow's merge job merges once that CI run passes (it waits for it: such a run
   starts no other workflow), after checking with the default branch's `tools/repro_pins.py` that only pins' values
-  changed; and
+  changed, each to a value that looks like one; and
   `toolchain-pins/major` (a new runner label with its tools, a new major version), which waits for a person, as a
   Dependabot major update does. Each run makes both again from the default branch, and closes one whose pins are
   current. It needs Settings › Actions › General › "Allow GitHub Actions to create and approve pull requests".

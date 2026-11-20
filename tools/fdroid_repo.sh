@@ -3,7 +3,7 @@
 # an index that F-Droid, Droid-ify or Neo Store read, so that an app added
 # once from it is offered each new build as an update. CI runs it in the
 # nightly job; it runs the same anywhere with fdroidserver on PATH
-# (`pip install fdroidserver==2.4.5`), a JDK and the Android SDK's build-tools.
+# (tools/fdroidserver.txt), a JDK and the Android SDK's build-tools.
 #
 #   tools/fdroid_repo.sh build <apk> <work dir>
 #     Makes <work dir>/site/repo/ (the repository: the index, signed, and the
@@ -13,7 +13,9 @@
 #     platform/android/fdroid/metadata/.
 #     Environment: FDROID_KEYSTORE_FILE (a keystore with one key, as made by
 #     the keytool command in docs/BUILDING.md), FDROID_KEYSTORE_PASS (the
-#     keystore's and the key's password), FDROID_REPO_URL (where site/repo/
+#     keystore's and the key's password; keytool and fdroidserver read it
+#     from the environment, so it is in no command line, which other
+#     processes can read, nor in a file), FDROID_REPO_URL (where site/repo/
 #     is served, https://.../repo: fdroidserver wants the /repo, and clients
 #     keep this address, not the one typed in, as the repository's),
 #     ANDROID_HOME (the SDK, for apksigner).
@@ -35,21 +37,22 @@ build() {
   [ -f "$apk" ] || die "no APK at $1"
   ks="$(realpath "${FDROID_KEYSTORE_FILE:?the keystore of the repository}")"
   : "${FDROID_KEYSTORE_PASS:?the password of the keystore}"
+  export FDROID_KEYSTORE_PASS
   addr="${FDROID_REPO_URL:?the address of the repository}"
   addr="${addr%/}"
   case "$addr" in https://*/repo | http://*/repo) ;; *) die "FDROID_REPO_URL must be https://.../repo: $addr" ;; esac
   command -v fdroid >/dev/null || die "fdroid not found (pip install fdroidserver)"
 
   # the key: a keystore made for this has one (as the APK's does)
-  alias="$(keytool -list -keystore "$ks" -storepass "$FDROID_KEYSTORE_PASS" | grep -m1 PrivateKeyEntry | cut -d, -f1)"
+  alias="$(keytool -list -keystore "$ks" -storepass:env FDROID_KEYSTORE_PASS | grep -m1 PrivateKeyEntry | cut -d, -f1)"
   [ -n "$alias" ] || die "no private key in the keystore"
   # fdroidserver signs index-v1.jar (for older clients) with SHA1withRSA and does not notice when
   # that fails, so a key of another type leaves it unsigned: the repository key must be RSA
-  keytool -list -v -keystore "$ks" -storepass "$FDROID_KEYSTORE_PASS" -alias "$alias" |
+  keytool -list -v -keystore "$ks" -storepass:env FDROID_KEYSTORE_PASS -alias "$alias" |
     grep -q '^Subject Public Key Algorithm: .*RSA' ||
     die "the key $alias is not an RSA key; F-Droid's index needs one (docs/BUILDING.md)"
   # what clients pin: the SHA-256 of the key's certificate
-  fp_hex="$(keytool -exportcert -keystore "$ks" -storepass "$FDROID_KEYSTORE_PASS" -alias "$alias" |
+  fp_hex="$(keytool -exportcert -keystore "$ks" -storepass:env FDROID_KEYSTORE_PASS -alias "$alias" |
     sha256sum | cut -d' ' -f1 | tr a-f A-F)"
   [ ${#fp_hex} -eq 64 ] || die "could not read the key's certificate"
 
@@ -61,16 +64,17 @@ build() {
   cp "$src/assets/logo/icon-256.png" "$work/fdroid/icon.png"
   cp "$apk" "$work/fdroid/repo/"
 
-  # config.yml as JSON (YAML reads it), so no password needs quoting; it
+  # config.yml as JSON (YAML reads it), so nothing needs quoting. It names
+  # the variable that has the password ({env: ...}), not the password, and
   # stays in the work dir, out of site/
-  (umask 077 && jq -n --arg url "$addr" --arg ks "$ks" --arg pass "$FDROID_KEYSTORE_PASS" \
-    --arg alias "$alias" --arg sdk "${ANDROID_HOME:-}" '{
+  (umask 077 && jq -n --arg url "$addr" --arg ks "$ks" --arg alias "$alias" --arg sdk "${ANDROID_HOME:-}" '{
       repo_url: $url,
       repo_name: "vibeBMS Nightly",
       repo_description: "Nightly builds of vibeBMS, a BMS player: the latest build of the default branch of https://github.com/vibeBMS/vibe.",
       repo_icon: "icon.png",
       archive_older: 0,
-      keystore: $ks, keystorepass: $pass, keypass: $pass, repo_keyalias: $alias
+      keystore: $ks, keystorepass: {env: "FDROID_KEYSTORE_PASS"}, keypass: {env: "FDROID_KEYSTORE_PASS"},
+      repo_keyalias: $alias
     } + (if $sdk == "" then {} else {sdk_path: $sdk} end)' > "$work/fdroid/config.yml")
 
   # --rename-apks names it <app id>_<versionCode>.apk: each build has its own

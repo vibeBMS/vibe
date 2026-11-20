@@ -8,9 +8,12 @@ inputs:
   path:
     description: The repository's folder (its tools/repro.env)
     default: "."
-  java:
-    description: "true: the JDK, Gradle, the build-tools and apksigcopier too (the APK)"
-    default: "true"
+  tools:
+    description: >-
+      apk: all of them (the APK's build); ndk: the NDK and cargo-ndk alone
+      (compiling the Rust library); sign: the JDK, the build-tools and
+      apksigcopier alone (signing an APK: nothing that compiles or builds)
+    default: apk
 
 runs:
   using: composite
@@ -22,6 +25,11 @@ runs:
         . tools/repro.env
         echo "java=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
         echo "gradle=$GRADLE_VERSION" >> "$GITHUB_OUTPUT"
+    - if: inputs.tools != 'sign'
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        . tools/repro.env
         # the runner image has a few NDKs, and its "latest" moves on: this one,
         # installed if the image lacks it
         ndk="$ANDROID_HOME/ndk/$NDK_VERSION"
@@ -34,7 +42,7 @@ runs:
     # apksigner (which signs the APK) and zipalign of the pinned build-tools,
     # and apksigcopier (pinned by SHA-256), which checks that the release's
     # signature copied onto the unsigned APK gives the signed one
-    - if: inputs.java == 'true'
+    - if: inputs.tools != 'ndk'
       shell: bash
       working-directory: ${{ inputs.path }}
       run: |
@@ -49,14 +57,14 @@ runs:
         mkdir -p "$RUNNER_TEMP/apksigcopier/path"
         ln -sf ../bin/apksigcopier "$RUNNER_TEMP/apksigcopier/path/apksigcopier"
         echo "$RUNNER_TEMP/apksigcopier/path" >> "$GITHUB_PATH"
-    - if: inputs.java == 'true'
+    - if: inputs.tools != 'ndk'
       uses: actions/setup-java@v6
       with:
         distribution: temurin
         java-version: ${{ steps.pins.outputs.java }}
     # Gradle's caches as one entry: the dependencies and the distribution
     # (the large parts), not setup-gradle's many small entries
-    - if: inputs.java == 'true'
+    - if: inputs.tools == 'apk'
       uses: actions/cache@v6
       with:
         path: |
@@ -65,8 +73,8 @@ runs:
           ~/gradle-installations
         key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.gradle }}-${{ hashFiles(format('{0}/platform/android/**/*.gradle.kts', inputs.path), format('{0}/platform/android/gradle.properties', inputs.path)) }}
         restore-keys: gradle-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.gradle }}-
-    - if: inputs.java == 'true'
-      uses: gradle/actions/setup-gradle@v5
+    - if: inputs.tools == 'apk'
+      uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
       with:
         gradle-version: ${{ steps.pins.outputs.gradle }}
         cache-disabled: true

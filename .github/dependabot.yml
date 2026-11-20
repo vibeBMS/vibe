@@ -1,5 +1,8 @@
 # Weekly dependency updates. Minor and patch releases of each ecosystem come
-# as one grouped pull request; a major release gets its own.
+# as one grouped pull request; a major release gets its own. A release is
+# taken once it is 7 days old (cooldown): the merge workflow merges what
+# passes CI with no person looking, and one that is withdrawn or reported in
+# its first week then never arrives. (Security updates do not wait.)
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -8,6 +11,10 @@ updates:
       interval: weekly
       day: monday
       timezone: Asia/Seoul
+    cooldown:
+      default-days: 7
+      # (the project's own repository: its commits do not wait)
+      exclude: ["bmseeker"]
     open-pull-requests-limit: 5
     ignore:
       # vendor/lua-src is a copy of it (its sources compiled in name order,
@@ -25,6 +32,8 @@ updates:
       interval: weekly
       day: monday
       timezone: Asia/Seoul
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
@@ -32,6 +41,8 @@ updates:
       interval: weekly
       day: monday
       timezone: Asia/Seoul
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -47,6 +58,8 @@ updates:
     schedule:
       interval: monthly
       timezone: Asia/Seoul
+    cooldown:
+      default-days: 7
     groups:
       gradle:
         patterns: ["*"]

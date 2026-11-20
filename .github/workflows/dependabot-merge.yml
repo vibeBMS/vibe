@@ -59,18 +59,29 @@ jobs:
           # Each update Dependabot lists, "Updates `x` from A to B" or
           # "Bumps [x](...) from A to B.", is held when it changes A's major:
           # its first part other than 0, as Cargo reads 0.x versions.
+          # A git dependency or an action pinned by commit moves from one commit
+          # to another ("from `09fbb4f` to `9a5b111`"): a commit has no major to
+          # read, so it is held too, but for the project's own repository.
+          OWN = {"bmseeker"}
           msg = sys.stdin.read()
-          ups = re.findall(r"(?:Updates `([^`]+)`|Bumps \[([^\]]+)\]\([^)]*\)) from v?(\S+?) to v?(\S+?)\.?$", msg, re.M)
+          ups = re.findall(r"(?:Updates `([^`]+)`|Bumps \[([^\]]+)\]\([^)]*\)) from `?v?(\S+?)`? to `?v?(\S+?)`?\.?$", msg, re.M)
           if not ups:
               print("no updates found in the commit message")
+          def commit(v):
+              return re.fullmatch(r"[0-9a-f]{7,40}", v) is not None
           def parts(v):
               n = [int(x) for x in re.findall(r"\d+", v.split("+")[0].split("-")[0])[:3]]
               return n + [0] * (3 - len(n))
           for a, b, old, new in ups:
+              name = a or b
+              if commit(old) or commit(new):
+                  if not (name in OWN and commit(old) and commit(new)):
+                      print(f"{name} {old} -> {new} (a commit, not a version)")
+                  continue
               o, n = parts(old), parts(new)
               i = next((k for k, v in enumerate(o) if v), 2)
               if o[: i + 1] != n[: i + 1] or n < o:
-                  print(f"{a or b} {old} -> {new}")
+                  print(f"{name} {old} -> {new}")
           EOF
           held=$(python3 -I "$RUNNER_TEMP/held.py" < "$RUNNER_TEMP/msg")
           if [ -n "$held" ] || grep -q "update-type: version-update:semver-major" "$RUNNER_TEMP/msg"; then

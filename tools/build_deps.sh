@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Install the pinned system packages of a release build made in a container
+# Install the system packages of a release build made in a container
 # (tools/repro.env), as root in that container: CI's jobs and
 # tools/reproduce.sh run it there.
 #
 #   tools/build_deps.sh <artifact>
 #   tools/build_deps.sh lock linux-arm64 > tools/linux-arm64.lock
 #
-# linux-x64-portable, linux-arm64-portable: in the manylinux_2_28 image (dnf).
+# linux-x64-portable, linux-arm64-portable: in the manylinux_2_28 image, with
+# dnf from AlmaLinux 8's repositories as they are (PORTABLE_PACKAGES by name:
+# these alone are not pinned to a version).
 # linux-x64 and dmg (Ubuntu 22.04) and web (Ubuntu 26.04): in the Ubuntu image, every
 # package from the Ubuntu snapshot service as it was at UBUNTU_SNAPSHOT, so the
 # same versions every time (gcc, clang, the libraries' headers); dmg also
