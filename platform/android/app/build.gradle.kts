@@ -4,10 +4,6 @@ plugins {
     id("com.android.application")
 }
 
-// release signing: VIBEBMS_KEYSTORE (path), VIBEBMS_KEYSTORE_PASSWORD and
-// VIBEBMS_KEY_ALIAS; without them the release APK gets the debug key
-val keystore: String? = System.getenv("VIBEBMS_KEYSTORE")
-
 android {
     namespace = "io.github.vibebms"
     compileSdk = 34
@@ -24,22 +20,23 @@ android {
         versionName = System.getenv("VIBEBMS_VERSION_NAME") ?: "0.1.0"
     }
 
-    signingConfigs {
-        if (keystore != null) {
-            create("release") {
-                storeFile = file(keystore)
-                storePassword = System.getenv("VIBEBMS_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("VIBEBMS_KEY_ALIAS") ?: "vibebms"
-                keyPassword = System.getenv("VIBEBMS_KEYSTORE_PASSWORD")
-            }
-        }
-    }
-
+    // the release APK is built unsigned (app-release-unsigned.apk), and
+    // tools/build_release.sh signs it with apksigner: so a rebuild, which has
+    // no key, makes the very APK the release's signature was made over, and
+    // the release's signature copied onto it gives the release byte for byte
+    // (reproducible builds, docs/BUILDING.md)
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            signingConfig = null
         }
+    }
+
+    // no dependency list in the APK signing block (encrypted for Google
+    // Play, which this APK does not go to; F-Droid flags it)
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     sourceSets["main"].jniLibs.srcDirs("jniLibs")

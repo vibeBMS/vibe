@@ -1,0 +1,9 @@
+# apksigcopier (and click, which it needs), pinned by version and SHA-256:
+# copies an APK's signature onto the unsigned APK it was made over
+# (tools/build_release.sh android, tools/reproduce.sh; docs/BUILDING.md,
+# "Reproducible builds").
+#   pip install --require-hashes --only-binary :all: -r tools/apksigcopier.txt
+apksigcopier==1.1.1 \
+    --hash=sha256:0834bb7d6f3607bb0994cf8cd2e26b8f0c9d481e13b75872e0fa9cec052e519b
+click==8.3.1 \
+    --hash=sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6

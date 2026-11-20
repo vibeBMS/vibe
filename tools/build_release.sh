@@ -5,7 +5,8 @@
 #
 #   tools/build_release.sh <artifact> [<out dir>]
 #   tools/build_release.sh zip <zip> <dir>     zip a folder, the same bytes anywhere
-#   tools/build_release.sh entries <file>      the SHA-256 of each file in an APK,
+#   tools/build_release.sh entries <file> [<name>]
+#                                              the SHA-256 of each file in an APK,
 #                                              a zip (.ipa, the macOS app's) or a .dmg
 #
 #   <artifact>            what                          in the release
@@ -17,14 +18,16 @@
 #   windows-arm64                                       vibebms-windows-arm64.exe
 #   macos                 arm64 and x86_64              vibebms-macos-arm64, -x64
 #   ios                   the unsigned app              vibeBMS-unsigned.ipa
-#   android               the APK                       vibeBMS.apk
+#   android               the APK (unsigned, and signed vibeBMS.apk
+#                         with VIBEBMS_KEYSTORE)
 #   web                   web/ (pkg/, the CJK fonts)    vibeBMS-web.zip
 #
 # Executables stay where cargo puts them (target/<triple>/release/) and the web
 # build in web/. With <out dir> (needed for ios and android) each file is also
-# copied there under its name in the release, with SHA256SUMS (an APK's and the
-# .ipa's files too, as vibeBMS.apk/<path>: an APK's signature differs by key)
-# and build.txt.
+# copied there under its name in the release (the unsigned APK as
+# vibeBMS-unsigned.apk), with SHA256SUMS (the unsigned APK's and the .ipa's
+# files too, as vibeBMS-unsigned.apk/<path>, to show which one differs) and
+# build.txt.
 #
 # The version is Cargo.toml's: tools/ci_version.sh stamps a CI build's first.
 # What would make two builds of a commit differ is fixed here:
@@ -84,39 +87,43 @@ repro_zip() {
   rm -f "$list"
 }
 
-# entries <file>: "<sha256>  <file name>/<path>" for each file in an APK (but
-# the v1 signature's, whose bytes depend on the key), a zip or a .dmg (mounted
-# with hdiutil: macOS; its hidden files, the file system's own, left out), in
-# name order
+# entries <file> [<name>]: "<sha256>  <name>/<path>" (<name>: the file's) for
+# each file in an APK (but a v1 signature's, whose bytes depend on the key), a
+# zip or a .dmg (mounted with hdiutil: macOS; its hidden files, the file
+# system's own, left out), in name order
 entries() {
-  local f="$1" mnt rc=0
+  local f="$1" name="${2:-$(basename "$1")}" mnt rc=0
   case "$f" in
     *.dmg)
       mnt="$(mktemp -d)"
       hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$f"
       (cd "$mnt" && find . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
         while IFS= read -r file; do
-          printf '%s  %s/%s\n' "$(sha256 "$file" | cut -c1-64)" "$(basename "$f")" "$file"
+          printf '%s  %s/%s\n' "$(sha256 "$file" | cut -c1-64)" "$name" "$file"
         done) || rc=$?
       hdiutil detach -quiet "$mnt"
       rmdir "$mnt"
       return "$rc"
       ;;
   esac
-  python3 - "$f" <<'PY'
-import hashlib, os, re, sys, zipfile
-f = sys.argv[1]
+  python3 - "$f" "$name" <<'PY'
+import hashlib, re, sys, zipfile
+f, name = sys.argv[1:]
 with zipfile.ZipFile(f) as z:
     for n in sorted(z.namelist()):
         if n.endswith("/") or (f.endswith(".apk") and re.fullmatch(r"META-INF/[^/]+\.(SF|RSA|DSA|EC)", n)):
             continue
-        print(f"{hashlib.sha256(z.read(n)).hexdigest()}  {os.path.basename(f)}/{n}")
+        print(f"{hashlib.sha256(z.read(n)).hexdigest()}  {name}/{n}")
 PY
 }
 
 case "${1:-}" in
   zip) [ $# -eq 3 ] || die "usage: $0 zip <zip> <dir>"; repro_zip "$2" "$3"; exit 0 ;;
-  entries | apk-entries) [ $# -eq 2 ] || die "usage: $0 entries <file>"; entries "$2"; exit 0 ;;
+  entries | apk-entries)
+    { [ $# -eq 2 ] || [ $# -eq 3 ]; } || die "usage: $0 entries <file> [<name>]"
+    entries "${@:2}"
+    exit 0
+    ;;
 esac
 { [ $# -ge 1 ] && [ $# -le 2 ]; } || die "usage: $0 <artifact> [<out dir>] (see the top of $0)"
 artifact="$1" out="${2:-}"
@@ -297,7 +304,34 @@ case "$artifact" in
     export VIBEBMS_VERSION_CODE="${VIBEBMS_VERSION_CODE:-${VIBEBMS_BUILD:-1}}"
     export VIBEBMS_VERSION_NAME="${VIBEBMS_VERSION_NAME:-$version}"
     gradle -p platform/android --no-daemon assembleRelease
-    files+=("platform/android/app/build/outputs/apk/release/app-release.apk:vibeBMS.apk")
+    # Gradle builds it unsigned, the same with or without a key: what a
+    # rebuild makes, onto which the release's signature is copied
+    unsigned=platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
+    bt="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/$BUILD_TOOLS_VERSION"
+    [ -x "$bt/apksigner" ] || die "no build-tools $BUILD_TOOLS_VERSION in the Android SDK (tools/repro.env): $bt"
+    # aligned for 4 KiB, its native libraries for 16 KiB pages
+    "$bt/zipalign" -c -P 16 4 "$unsigned"
+    files+=("$unsigned:vibeBMS-unsigned.apk")
+    # with a key (VIBEBMS_KEYSTORE, VIBEBMS_KEYSTORE_PASSWORD, VIBEBMS_KEY_ALIAS):
+    # signed as before (APK Signature Scheme v2 alone, as the Android Gradle
+    # plugin signed it for minSdk 26), the entries as they are
+    # (--alignment-preserved), so that the signed APK is the unsigned one with
+    # the APK Signing Block before its central directory
+    if [ -n "${VIBEBMS_KEYSTORE:-}" ]; then
+      signed="$(mktemp -d)/vibeBMS.apk"
+      "$bt/apksigner" sign --ks "$VIBEBMS_KEYSTORE" --ks-key-alias "${VIBEBMS_KEY_ALIAS:-vibebms}" \
+        --ks-pass env:VIBEBMS_KEYSTORE_PASSWORD --key-pass env:VIBEBMS_KEYSTORE_PASSWORD \
+        --alignment-preserved --v1-signing-enabled false --v2-signing-enabled true \
+        --v3-signing-enabled false --v4-signing-enabled false --out "$signed" "$unsigned"
+      "$bt/apksigner" verify -v "$signed" | grep -E '^(Verifies|Verified using v[0-9.]+ scheme .*: true|Number of signers)'
+      # what a rebuild does: the signature copied onto the unsigned APK
+      # (apksigcopier, .github/actions/android-setup) gives the signed one
+      command -v apksigcopier > /dev/null || die "no apksigcopier (tools/apksigcopier.txt)"
+      apksigcopier copy "$signed" "$unsigned" "${signed%.apk}-copied.apk"
+      cmp "$signed" "${signed%.apk}-copied.apk" ||
+        die "the signature copied onto the unsigned APK does not give the signed APK"
+      files+=("$signed:vibeBMS.apk")
+    fi
     ;;
   web)
     want="$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
@@ -353,7 +387,11 @@ for f in "${files[@]}"; do cp "${f%%:*}" "$out/${f#*:}"; done
   for f in "${files[@]}"; do names+=("${f#*:}"); done
   sha256 "${names[@]}"
   for n in "${names[@]}"; do
-    case "$n" in *.apk | *.ipa) entries "$n" ;; esac
+    # (the unsigned APK's as the APK's: the same files, which builds.json lists)
+    case "$n" in
+      *-unsigned.apk) entries "$n" "${n%-unsigned.apk}.apk" ;;
+      *.ipa) entries "$n" ;;
+    esac
   done
 ) > "$out/SHA256SUMS"
 {
