@@ -20,6 +20,7 @@
 //! id is the idempotency key. An item with an import id is polled, never
 //! posted again.
 
+use crate::http::brief;
 use crate::provider::{Frozen, IrError, Op, Outcome, Provider, ProviderId};
 use crate::rule::Profile;
 use serde::{Deserialize, Serialize};
@@ -43,8 +44,6 @@ const HOUR: i64 = 60 * MIN;
 const KEEP_DONE: i64 = 7 * 24 * HOUR;
 const BACKOFF_FIRST: i64 = 30 * SEC;
 const BACKOFF_MAX: i64 = HOUR;
-/// The longest `Retry-After` obeyed.
-const RETRY_AFTER_MAX: i64 = 24 * HOUR;
 /// A 429 whose `Retry-After` is missing or unreadable (the web without
 /// `Access-Control-Expose-Headers`).
 const RETRY_429: i64 = MIN;
@@ -388,7 +387,7 @@ impl Outbox {
                 i.last = Some(Last {
                     at_ms: now_ms,
                     status: None,
-                    text: why,
+                    text: brief(&why),
                 });
                 i.state = i.waiting();
                 i.next_ms = now_ms + OFFLINE_PROBE;
@@ -397,15 +396,17 @@ impl Outbox {
             }
             Reply::Answer { status, outcome } => (status, outcome),
         };
+        // (a server's words, kept in the stored file: a line of them)
         let last = |text: String| {
             Some(Last {
                 at_ms: now_ms,
                 status: Some(status),
-                text,
+                text: brief(&text),
             })
         };
         match outcome {
             Outcome::Sent { note, .. } => {
+                let note = note.map(|n| brief(&n));
                 i.last = last(note.clone().unwrap_or_default());
                 i.note = note;
                 i.state = State::Done;
@@ -436,7 +437,7 @@ impl Outbox {
                         None => 0,
                     };
                     i.state = i.waiting();
-                    i.next_ms = now_ms + i.backoff().max(asked.min(RETRY_AFTER_MAX));
+                    i.next_ms = now_ms + i.backoff().max(asked);
                 }
             }
             Outcome::Auth(why) => {
@@ -627,7 +628,7 @@ mod tests {
             answer(429, &[("Retry-After", "Sun, 01 Feb 2026 00:00:00 GMT")], ""),
             now,
         );
-        assert_eq!(o.items[0].next_ms, now + RETRY_AFTER_MAX);
+        assert_eq!(o.items[0].next_ms, now + 24 * HOUR);
         assert_eq!(o.items[0].attempts, 3);
     }
 
@@ -696,6 +697,49 @@ mod tests {
         // an answer for an item no longer out changes nothing
         o.settle(&id, answer(200, &[], ""), T0);
         assert_eq!(o.items[0].state, State::Rejected);
+    }
+
+    /// What a server says is stored as a line, however much it says.
+    #[test]
+    fn a_servers_words_are_stored_cut() {
+        let long = "x".repeat(1 << 20);
+        let kept = crate::http::TEXT_MAX + 1;
+        let stored = |o: &Outbox| {
+            let i = &o.items[0];
+            let text = i.last.as_ref().unwrap().text.chars().count();
+            (text, i.note.as_ref().map(|n| n.chars().count()))
+        };
+        let mut o = Outbox::default();
+        let id = one(&mut o, 1);
+        due(&mut o, T0);
+        o.settle(&id, Reply::NoAnswer(long.clone()), T0);
+        assert_eq!(stored(&o), (kept, None));
+        for (status, made) in [
+            (422, Outcome::Rejected(long.clone())),
+            (401, Outcome::Auth(long.clone())),
+            (
+                500,
+                Outcome::Retry {
+                    after: None,
+                    why: long.clone(),
+                },
+            ),
+            (
+                200,
+                Outcome::Sent {
+                    remote: None,
+                    note: Some(long.clone()),
+                },
+            ),
+        ] {
+            let mut o = Outbox::default();
+            let id = one(&mut o, 1);
+            due(&mut o, T0);
+            let sent = matches!(made, Outcome::Sent { .. });
+            o.settle(&id, outcome(status, made), T0);
+            assert_eq!(stored(&o), (kept, sent.then_some(kept)), "{status}");
+            assert!(o.to_json().len() < long.len() / 4, "{status}");
+        }
     }
 
     #[test]

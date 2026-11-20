@@ -144,12 +144,21 @@ impl HttpResponse {
 
     /// The body as text, cut to a line a user can read.
     pub(crate) fn text(&self) -> String {
-        let s = String::from_utf8_lossy(&self.body);
-        let s = s.trim();
-        match s.char_indices().nth(200) {
-            Some((i, _)) => format!("{}…", &s[..i]),
-            None => s.to_string(),
-        }
+        brief(&String::from_utf8_lossy(&self.body))
+    }
+}
+
+/// The characters kept of a text a server sent ([`brief`]).
+pub const TEXT_MAX: usize = 200;
+
+/// `text` from a server (an error's words, a note) as a line a user can
+/// read, and the most that is stored of it: its first [`TEXT_MAX`]
+/// characters.
+pub fn brief(text: &str) -> String {
+    let s = text.trim();
+    match s.char_indices().nth(TEXT_MAX) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
     }
 }
 
@@ -161,6 +170,10 @@ pub enum RetryAfter {
     At(i64),
 }
 
+/// The longest wait a `Retry-After` gets (ms): a server holds its own
+/// requests back for a day at most, whatever it asks for.
+pub const RETRY_AFTER_MAX_MS: u64 = 24 * 3_600_000;
+
 impl RetryAfter {
     pub fn parse(v: &str) -> Option<RetryAfter> {
         let v = v.trim();
@@ -170,12 +183,13 @@ impl RetryAfter {
         }
     }
 
-    /// How long to wait from `now_ms`.
+    /// How long to wait from `now_ms`: [`RETRY_AFTER_MAX_MS`] at most.
     pub fn delay_ms(self, now_ms: i64) -> u64 {
-        match self {
+        let asked = match self {
             RetryAfter::Secs(s) => s.saturating_mul(1000),
             RetryAfter::At(at) => at.saturating_sub(now_ms).max(0) as u64,
-        }
+        };
+        asked.min(RETRY_AFTER_MAX_MS)
     }
 }
 
@@ -257,6 +271,49 @@ mod tests {
             body: Vec::new(),
         };
         assert_eq!(r.retry_after(), Some(RetryAfter::Secs(60)));
+    }
+
+    /// A wait a server asks for is a day at most, and a time to add to
+    /// the clock's.
+    #[test]
+    fn a_retry_after_is_a_day_at_most() {
+        let now = unix_ms(2026, 11, 17, 12, 0, 0);
+        for asked in [
+            RetryAfter::Secs(9_000_000_000_000),
+            RetryAfter::Secs(u64::MAX),
+            RetryAfter::At(i64::MAX),
+            RetryAfter::parse("Fri, 31 Dec 9999 23:59:59 GMT").unwrap(),
+        ] {
+            assert_eq!(asked.delay_ms(now), RETRY_AFTER_MAX_MS, "{asked:?}");
+            assert_eq!(asked.delay_ms(i64::MIN), RETRY_AFTER_MAX_MS, "{asked:?}");
+        }
+        assert_eq!(RetryAfter::Secs(86_400).delay_ms(now), RETRY_AFTER_MAX_MS);
+        assert_eq!(RetryAfter::Secs(86_399).delay_ms(now), 86_399_000);
+        // a limiter held by it starts again
+        let rate = crate::provider::Rate {
+            per_min: 60,
+            burst: 1,
+            concurrent: 1,
+        };
+        let mut l = crate::limiter::Limiter::new(rate, now);
+        l.hold(now + RetryAfter::Secs(u64::MAX).delay_ms(now) as i64);
+        assert_eq!(l.start(now), Err(RETRY_AFTER_MAX_MS));
+        assert_eq!(l.start(now + RETRY_AFTER_MAX_MS as i64), Ok(()));
+    }
+
+    #[test]
+    fn a_servers_text_is_cut() {
+        assert_eq!(brief("  no such chart \n"), "no such chart");
+        let long = "é".repeat(5_000_000);
+        let cut = brief(&long);
+        assert_eq!(cut.chars().count(), TEXT_MAX + 1);
+        assert!(cut.ends_with('…'));
+        let r = HttpResponse {
+            status: 500,
+            headers: Vec::new(),
+            body: long.into_bytes(),
+        };
+        assert_eq!(r.text(), cut);
     }
 
     #[test]
