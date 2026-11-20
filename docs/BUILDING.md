@@ -206,8 +206,8 @@ The runtime is `org.gnome.Platform` (51) because it has WebKitGTK 4.1 (`libwebki
 browser links; the Freedesktop runtime has no WebKitGTK. Its permissions: network, Wayland or X11 (and IPC), the GPU,
 PulseAudio, all devices (game controllers) and the home folder (BMS folders added in `SETTINGS › LIBRARY`). CI builds
 the nightly's (`io.github.vibebms.nightly`, "vibeBMS Nightly", branch `nightly`) from `vibebms-linux-x64` and `-arm64`
-as built, in a job per architecture on the Ubuntu 22.04 runner (so the script keeps to flatpak 1.12 and AppStream
-0.15.2), installs and caches the runtime alone (without its GL drivers, codecs and translations), checks that
+in the job that built each, on the Ubuntu 22.04 runner (the executable is built in the pinned container there;
+the script keeps to flatpak 1.12 and AppStream 0.15.2), after uploading the executable, installs and caches the runtime alone (without its GL drivers, codecs and translations), checks that
 the bundle installs and that every library the executable links resolves in the runtime, and adds the bundle to the
 nightly release. Install it with `flatpak install --user vibeBMS-linux-x64.flatpak` (or `-arm64`); a
 newer bundle installs over it the same way (it does not update itself: the self-update stays off under `/app`).
