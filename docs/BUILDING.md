@@ -424,7 +424,9 @@ What a build depends on is the commit plus these inputs:
 
 Everything else is fixed by the commit:
 - **compilers and tools**: Rust by `rust-toolchain.toml`; wasm-bindgen by `Cargo.lock` (checked); in
-  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, Ubuntu 22.04 for
+  `tools/repro.env` the container images by digest (manylinux_2_28 for the portable builds, whose compiler is the
+  image's; the packages added there, the ALSA and libudev headers, are installed by `dnf` from AlmaLinux 8's
+  repositories as they are that day: by name, with no version or hash; Ubuntu 22.04 for
   `vibebms-linux-x64` / `-arm64`, Ubuntu 26.04 for the web build), the Ubuntu images' packages (gcc, clang, the
   libraries' headers): x64's from the Ubuntu snapshot of a given time, arm64's as `tools/linux-arm64.lock` lists
   them, each by version and SHA-256 (the ports archive has no snapshot and keeps only a package's newest version:
@@ -508,7 +510,7 @@ How far each build is reproducible:
 
 | build | reproducible | what can differ |
 |---|---|---|
-| `vibebms-linux-x64-portable`, `-arm64-portable` | yes: pinned image, packages, Rust | nothing known |
+| `vibebms-linux-x64-portable`, `-arm64-portable` | yes: pinned image and Rust; its three packages (`PORTABLE_PACKAGES`: the ALSA and libudev headers, pkgconf) are named, not pinned: `dnf` installs what AlmaLinux 8's repositories have that day | an update of those packages in AlmaLinux 8 (rare; the compiler and glibc are the image's) |
 | `vibebms-linux-x64`, `-arm64` | yes: pinned image and packages (x64: Ubuntu snapshot; arm64: `tools/linux-arm64.lock`), Rust | nothing known |
 | web (`vibeBMS-web.zip`) | yes: pinned image and packages (Ubuntu snapshot), Rust, wasm-bindgen, fonts | nothing known |
 | the Flatpaks | from the same executable, on the same runner image | packaged on GitHub's Ubuntu 22.04 image: its flatpak, appstream and faketime are the image's, and their updates can change the bytes (rare) |
