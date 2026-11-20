@@ -417,18 +417,11 @@ jobs:
     defaults:
       run:
         shell: bash
-    # a push to the default branch publishes the build to the gh-pages branch (GitHub Pages)
     permissions:
-      contents: write
-    # only pushes publish, so only they queue behind each other (a group
-    # keeps one run waiting and cancels the rest, which would cancel pull
-    # requests' builds)
-    concurrency:
-      group: ${{ github.event_name == 'push' && 'web-pages' || format('web-{0}', github.run_id) }}
-      cancel-in-progress: false
+      contents: read
     steps:
       # (the image has no git yet: the checkout is the commit's files, which is
-      # all the build needs; tools/build_deps.sh installs git for gh-pages)
+      # all the build needs)
       - uses: actions/checkout@v7
       - run: tools/build_deps.sh web
       - uses: ./.github/actions/rust-setup
@@ -461,14 +454,30 @@ jobs:
           name: vibeBMS-web
           path: web
       # the default branch's build is the site (other branches' stay artifacts)
-      - name: publish to gh-pages
-        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
-        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
+      - if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+        uses: actions/upload-pages-artifact@v5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./web
-          keep_files: true
-          commit_message: "web build ${{ github.sha }}"
+          path: web
+
+  # GitHub Pages (Settings > Pages > Source: GitHub Actions): each deploy
+  # replaces the whole site with the default branch's web build
+  pages:
+    needs: web
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    # one deploy after another, none stopped half way
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5
 
   # an unsigned .ipa: install it by signing it with your own Apple ID
   # (AltStore, Sideloadly) or a developer certificate
