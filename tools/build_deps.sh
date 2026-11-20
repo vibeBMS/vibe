@@ -47,11 +47,21 @@ snapshot_install() {
   for suite in "$VERSION_CODENAME" "$VERSION_CODENAME-updates" "$VERSION_CODENAME-security"; do
     echo "deb https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT $suite main universe"
   done > /etc/apt/sources.list
-  "${apt[@]}" update
-  # every phased update: apt would otherwise take one or not by the
-  # machine's id, so two machines could get different versions
-  DEBIAN_FRONTEND=noninteractive "${apt[@]}" -o APT::Get::Always-Include-Phased-Updates=true \
-    install -y --no-install-recommends "$@"
+  # three tries: a download cut off can come back as a hash mismatch, which
+  # apt's own retries resume rather than fetch again (the packages already
+  # fetched stay in apt's cache; the cut-off one is fetched anew)
+  local try
+  for try in 1 2 3; do
+    # every phased update: apt would otherwise take one or not by the
+    # machine's id, so two machines could get different versions
+    "${apt[@]}" update &&
+      DEBIAN_FRONTEND=noninteractive "${apt[@]}" -o APT::Get::Always-Include-Phased-Updates=true \
+        install -y --no-install-recommends "$@" && return
+    [ "$try" = 3 ] && die "apt failed three times"
+    rm -rf /var/cache/apt/archives/partial/* /var/lib/apt/lists/partial/*
+    echo "apt failed, trying again in $((try * 15)) s" >&2
+    sleep $((try * 15))
+  done
 }
 
 ports=http://ports.ubuntu.com/ubuntu-ports
