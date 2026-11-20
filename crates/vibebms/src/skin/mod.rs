@@ -55,39 +55,34 @@ impl SkinFormat {
 
 /// Where a skin's files are, and how far it may read: the files it names
 /// (images, fonts, includes, what its scripts open) are taken from `dir`
-/// and never from outside `theme`.
+/// and never from outside `root`.
 #[derive(Clone, Debug, Default)]
 pub struct Home {
-    /// The folder at the top of the skins folder that holds the skin (the
-    /// skins folder for a skin file directly in it); for a skin kept
-    /// elsewhere (the built-in ones), its own folder.
-    theme: PathBuf,
+    /// The skins folder, for a skin anywhere below it (as the LR2 loader
+    /// keeps to it: themes may share files); for a skin kept elsewhere
+    /// (the built-in ones), its own folder.
+    root: PathBuf,
     /// The folder of the skin file.
     dir: PathBuf,
 }
 
 impl Home {
     pub fn of(skin: &std::path::Path, skins_root: &std::path::Path) -> Home {
-        use std::path::Component;
         let dir = skin.parent().unwrap_or(std::path::Path::new(""));
-        let mut below =
-            (skin.strip_prefix(skins_root).into_iter()).flat_map(|rel| rel.components());
-        let theme = match (below.next(), below.next()) {
-            (Some(Component::Normal(theme)), Some(_)) => skins_root.join(theme),
-            (Some(Component::Normal(_)), None) => skins_root.to_path_buf(),
-            _ => dir.to_path_buf(),
+        let root = match skin.starts_with(skins_root) {
+            true => skins_root,
+            false => dir,
         };
         Home {
-            theme,
+            root: root.to_path_buf(),
             dir: dir.to_path_buf(),
         }
     }
 
-    /// The file the skin calls `name`, from the folder `dir` of the
-    /// theme; `None` for one outside the theme, which is then not looked
-    /// at (`vfs::within`).
+    /// The file the skin calls `name`, from the folder `dir`; `None` for
+    /// one outside `root`, which is then not looked at (`vfs::within`).
     fn file_from(&self, dir: &std::path::Path, name: &str) -> Option<PathBuf> {
-        crate::platform::vfs::within(&self.theme, dir, name)
+        crate::platform::vfs::within(&self.root, dir, name)
     }
 
     /// [`Home::file_from`] the skin's own folder.
@@ -198,7 +193,7 @@ fn image_size_of(b: &[u8], p: &std::path::Path) -> Option<(u32, u32)> {
 }
 
 /// (type, name) of any supported skin file (cached: reading a Lua skin's
-/// header runs it, with the files below its theme in `skins_root`).
+/// header runs it, with the files below `skins_root`).
 pub fn header(path: &std::path::Path, skins_root: &std::path::Path) -> Option<(SkinType, String)> {
     type Cache = HashMap<(PathBuf, (i64, i64)), Option<(SkinType, String)>>;
     static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
@@ -903,7 +898,7 @@ impl CustomOption {
 /// The custom options of a skin file, without building the skin.
 pub fn custom_options(path: &std::path::Path, skins_root: &std::path::Path) -> Vec<CustomOption> {
     match SkinFormat::of(path) {
-        Some(SkinFormat::Lr2) => lr2::custom_options(path),
+        Some(SkinFormat::Lr2) => lr2::custom_options(path, skins_root),
         Some(SkinFormat::Beatoraja) => beatoraja::custom_options(path, skins_root),
         _ => Vec::new(),
     }
@@ -1342,7 +1337,8 @@ mod tests {
     #[test]
     fn custom_files_are_options() {
         let dir = std::env::temp_dir().join(format!("vibebms-cfile-{}", std::process::id()));
-        let theme = dir.join("MyTheme");
+        let skins = dir.join("skins");
+        let theme = skins.join("MyTheme");
         std::fs::create_dir_all(theme.join("play/bg")).unwrap();
         for f in ["a.png", "b.png", "c.png"] {
             std::fs::write(theme.join("play/bg").join(f), b"").unwrap();
@@ -1354,20 +1350,29 @@ mod tests {
             "#INFORMATION,0,S,me\n#CUSTOMFILE,Back,LR2files\\Theme\\Other\\play\\bg\\*.png,b\n",
         )
         .unwrap();
-        let opts = custom_options(&p, &dir);
-        // files outside the theme are not listed as choices
-        std::fs::create_dir_all(dir.join("Private")).unwrap();
-        for f in ["x.png", "y.png"] {
-            std::fs::write(dir.join("Private").join(f), b"").unwrap();
+        let opts = custom_options(&p, &skins);
+        // another theme's files are choices; files outside the skins
+        // folder are not listed
+        for f in [
+            "skins/Shared/s.png",
+            "skins/Shared/t.png",
+            "Private/x.png",
+            "Private/y.png",
+        ] {
+            std::fs::create_dir_all(dir.join(f).parent().unwrap()).unwrap();
+            std::fs::write(dir.join(f), b"").unwrap();
         }
         std::fs::write(
             &p,
-            "#INFORMATION,0,S,me\n#CUSTOMFILE,Up,LR2files\\Theme\\Other\\play\\..\\..\\Private\\*.png,x\n",
+            "#INFORMATION,0,S,me\n#CUSTOMFILE,Shared,LR2files\\Theme\\Other\\play\\..\\..\\Shared\\*.png,s\n\
+             #CUSTOMFILE,Up,LR2files\\Theme\\Other\\play\\..\\..\\..\\Private\\*.png,x\n",
         )
         .unwrap();
-        let outside = custom_options(&p, &dir);
+        let other = custom_options(&p, &skins);
         std::fs::remove_dir_all(&dir).ok();
-        assert!(outside.is_empty());
+        let names: Vec<&str> = other.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["Shared"]);
+        assert_eq!(other[0].labels, vec!["s", "t"]);
         assert_eq!(opts.len(), 1);
         assert_eq!(opts[0].labels, vec!["a", "b", "c"]);
         assert_eq!(opts[0].default, 1);

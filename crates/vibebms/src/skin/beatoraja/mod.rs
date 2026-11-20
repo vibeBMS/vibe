@@ -85,8 +85,8 @@ fn test(ops: Option<&Value>, en: &HashSet<i64>) -> bool {
     }
 }
 
-/// Resolve `include` objects (files named from `dir`, in the theme of
-/// `home`) and `{"if": .., "value"/"values": ..}` branches.
+/// Resolve `include` objects (files named from `dir`, within what `home`
+/// lets the skin read) and `{"if": .., "value"/"values": ..}` branches.
 fn preprocess(v: Value, en: &HashSet<i64>, home: &Home, dir: &Path, depth: usize) -> Value {
     match v {
         Value::Object(m) if m.contains_key("include") && depth < 8 => {

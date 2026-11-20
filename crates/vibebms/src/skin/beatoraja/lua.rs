@@ -48,7 +48,7 @@ pub fn eval(
         let (home, chosen) = (home.clone(), user_files.clone());
         cfg.set(
             "get_path",
-            // (a path out of the theme: none)
+            // (a path the skin may not read: none)
             lua.create_function(move |_, p: String| {
                 let found = skin_path(&home, &fps, &chosen, &p);
                 Ok(found.map_or_else(String::new, |p| p.to_string_lossy().into_owned()))

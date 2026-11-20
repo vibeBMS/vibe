@@ -3,7 +3,8 @@
 What vibeBMS reads of LR2 and beatoraja skins, the built-in skins, the skin catalog, sound sets, and the ids vibeBMS
 adds for skin authors. Choosing and setting skins is in [MANUAL.md](MANUAL.md), "Skins and sound sets".
 
-Contents: [Built-in skins](#built-in-skins) · [Touch perspective](#touch-perspective) · [LR2 skins](#lr2-skins) ·
+Contents: [Built-in skins](#built-in-skins) · [Touch perspective](#touch-perspective) ·
+[Files a skin reads](#files-a-skin-reads) · [LR2 skins](#lr2-skins) ·
 [beatoraja skins](#beatoraja-skins) · [Battle skins](#battle-skins) ·
 [Key config and skin select screens](#key-config-and-skin-select-screens) · [Player totals](#player-totals) ·
 [Skin catalog](#skin-catalog) · [Sound sets](#sound-sets) · [vibeBMS extensions](#vibebms-extensions)
@@ -47,6 +48,14 @@ seen in perspective, narrow at the far end and wider toward the judge line, note
   A skin's options with ops 960-964 set the touch zones' opacity (0, 25, 50, 75, 100 %); a skin without them draws
   them at the touch controls' opacity.
 
+## Files a skin reads
+
+A skin of any format reads files below `skins/` only, its own theme's or another's: images, fonts and their textures
+or pages, `#INCLUDE` / `include`, `#CUSTOMFILE` / `filepath` choices, and what a Lua script opens, loads or asks
+`skin_config.get_path` for. `..` and a full path work while they stay below `skins/`; a path that leads out of it
+(also a drive or network path) is as a missing file. A sound set's `.lr2ss` likewise finds its sounds below `sounds/`
+and `skins/` only.
+
 ## LR2 skins
 
 `.lr2skin` files under `skins/`; `LR2files\Theme\…` paths are taken from `skins/`.
@@ -80,10 +89,6 @@ JSON (`.json`) and Lua (`.luaskin`: embedded Lua 5.4 in a sandbox, in the web bu
 
 - `main_state`, `timer_util`, `event_util` and `skin_config` are provided. Conditions, timers, values and events
   given in Lua are evaluated every frame.
-- A skin reads the files of its own theme only: the folder under `skins/` that holds it (all of `skins/` for a skin
-  file put directly there). This goes for images, fonts and their pages, `include`, `filepath` choices, and what a
-  script opens, loads or asks `skin_config.get_path` for. `..` inside the theme and a full path into it work; a path
-  that leads out of it is as a missing file.
 - Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`, `timingdistributiongraph`, the timing visualizer) and blend modes
   are supported.
 - Text outline and shadow are drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the
@@ -158,7 +163,7 @@ of beatoraja's sound files (`select.wav`, `decide.wav`, `f-open.wav`, `o-change.
 format) or an LR2 sound set (`.lr2ss`), under `sounds/` or `skins/`.
 
 - An `.lr2ss` names its sounds by LR2's paths (`LR2files\Bgm\…`): they are looked for beside the folder holding the
-  set, in `sounds/` and beside the set, and only below `sounds/` and `skins/`.
+  set, in `sounds/` and beside the set ([Files a skin reads](#files-a-skin-reads)).
 - A screen's music (the select music, the result's) is decoded each time it starts and let go when it stops; the
   other sounds stay decoded.
 - The select music, the decide jingle and `.loop` music are normalised to the loudness target when

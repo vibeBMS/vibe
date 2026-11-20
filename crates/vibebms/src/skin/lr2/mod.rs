@@ -629,7 +629,7 @@ pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
         .collect()
 }
 
-pub fn custom_options(path: &Path) -> Vec<CustomOption> {
+pub fn custom_options(path: &Path, skins_root: &Path) -> Vec<CustomOption> {
     let Ok(b) = vfs::read(path) else {
         return Vec::new();
     };
@@ -658,8 +658,10 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
             }
             // a choice of files: their names without extension
             "#CUSTOMFILE" => {
-                let (Some(name), Some(p)) = (f.get(1), f.get(2).and_then(|p| theme_file(path, p)))
-                else {
+                let (Some(name), Some(p)) = (
+                    f.get(1),
+                    f.get(2).and_then(|p| theme_file(path, skins_root, p)),
+                ) else {
                     continue;
                 };
                 let labels: Vec<String> = glob_paths(&p)
@@ -687,10 +689,11 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     out
 }
 
-/// A skin's `LR2files\Theme\<theme>\...` path without knowing the skins
-/// folder: under the skin's ancestor named `<theme>`, else under the one
-/// holding the path; `None` for a path that leaves that folder.
-fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
+/// A skin's `LR2files\Theme\<theme>\...` path whatever its theme folder
+/// is called here: under the skin's ancestor named `<theme>`, else under
+/// the one holding the path; `None` for a path that leaves the skins
+/// folder, which is not looked at.
+fn theme_file(skin: &Path, skins_root: &Path, raw: &str) -> Option<PathBuf> {
     let s = raw.replace('\\', "/");
     let i = s.to_ascii_lowercase().find("lr2files/theme/")?;
     let rest = &s[i + "lr2files/theme/".len()..];
@@ -700,14 +703,12 @@ fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
         a.file_name()
             .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(theme))
     });
+    let below = |a: &Path| vfs::within(skins_root, a, tail);
     let base = named.or_else(|| {
-        dirs.iter().find(|a| {
-            Path::new(tail)
-                .parent()
-                .is_some_and(|t| vfs::is_dir(&a.join(t)))
-        })
+        dirs.iter()
+            .find(|a| below(a).is_some_and(|p| p.parent().is_some_and(vfs::is_dir)))
     })?;
-    vfs::within(base, base, tail).map(|p| vfs::resolve_case(&p))
+    below(base).map(|p| vfs::resolve_case(&p))
 }
 
 /// Read only the header: (type, name).

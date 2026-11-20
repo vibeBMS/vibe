@@ -4,8 +4,8 @@
 use super::*;
 
 /// Read a BMFont text font (`.fnt`): the font and its page image files
-/// (glyph image indices are page ids; a page outside the skin's theme is
-/// an empty path).
+/// (glyph image indices are page ids; a page outside what the skin may
+/// read is an empty path).
 pub(super) fn load_bmfont(path: &Path, home: &Home) -> Option<(BitmapFont, Vec<PathBuf>)> {
     let bytes = vfs::read(path).ok()?;
     let text = vibebms_core::encoding::decode_text(&bytes);
@@ -126,8 +126,8 @@ pub(super) fn filepath_chosen(
 /// The file a skin names: a `filepath` whose path starts it puts the
 /// chosen file in place of its `*`; another `*` picks one of the matching
 /// files at random; other paths are matched to the files' letter case.
-/// `None` for a path out of the skin's theme: no folder is listed for it
-/// and no file looked for.
+/// `None` for a path out of what the skin may read (`Home`): no folder is
+/// listed for it and no file looked for.
 ///
 /// Written from a behaviour specification, not from another program's
 /// code.

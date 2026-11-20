@@ -1,8 +1,8 @@
 use super::files::skin_path;
 use super::*;
 
-/// The folder of the skin `path`, as the skins folder: its theme is that
-/// folder.
+/// The folder of the skin `path`, as the skins folder: all the skin may
+/// read.
 fn own(path: &Path) -> &Path {
     path.parent().unwrap()
 }
@@ -946,9 +946,9 @@ fn loads_lua_skin() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// A data root with a theme in its skins folder and files a skin has no
-/// business with: (root, skins folder).
-fn theme_and_private_files(name: &str) -> (PathBuf, PathBuf) {
+/// A data root with two themes in its skins folder and, outside it,
+/// files a skin has no business with: (root, skins folder).
+fn skins_and_private_files(name: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!("vibebms-{name}-{}", std::process::id()));
     let skins = root.join("skins");
     for f in [
@@ -968,11 +968,12 @@ fn theme_and_private_files(name: &str) -> (PathBuf, PathBuf) {
     (root, skins)
 }
 
-/// The files a JSON skin names are its theme's: an image, an include or
-/// a choice of files elsewhere is as if it were missing.
+/// The files a JSON skin names are files of the skins folder (another
+/// theme's too): an image, an include or a choice of files outside it is
+/// as if it were missing.
 #[test]
-fn a_json_skin_reads_its_theme_only() {
-    let (root, skins) = theme_and_private_files("jtheme");
+fn a_json_skin_reads_the_skins_folder_only() {
+    let (root, skins) = skins_and_private_files("jtheme");
     let abs = root.join("config/x.png");
     let json = serde_json::json!({
         "type": 0, "name": "T", "w": 100, "h": 100,
@@ -1001,19 +1002,20 @@ fn a_json_skin_reads_its_theme_only() {
     let options = custom_options(&path, &skins);
     std::fs::remove_dir_all(&root).ok();
     assert_eq!(s.images[0], Some(skins.join("Theme/parts/a.png")));
+    assert_eq!(s.images[1], Some(skins.join("Other/o.png")));
     assert_eq!(s.images.len(), 7);
-    assert!(s.images[1..].iter().all(Option::is_none));
-    // the theme's own include, and no other
+    assert!(s.images[2..].iter().all(Option::is_none));
+    // the include from the skins folder, and no other
     assert_eq!(s.objects.len(), 1);
     assert!(options.is_empty());
 }
 
-/// A Lua skin's files, and what its scripts open or list, are its
-/// theme's; the theme of a skin file put straight into the skins folder
-/// is that folder, not the data root above it.
+/// A Lua skin's files, and what its scripts open or list, are files of
+/// the skins folder (another theme's too), wherever in it the skin file
+/// is: never of the data root above it.
 #[test]
-fn a_lua_skin_reads_its_theme_only() {
-    let (root, skins) = theme_and_private_files("ltheme");
+fn a_lua_skin_reads_the_skins_folder_only() {
+    let (root, skins) = skins_and_private_files("ltheme");
     let lua = r#"
         local t = { type = 0, name = "L", w = 100, h = 100 }
         if not skin_config then return t end
@@ -1021,8 +1023,9 @@ fn a_lua_skin_reads_its_theme_only() {
             .. skin_config.get_path("ROOT/config/*.txt")
             .. skin_config.get_path("\\\\host\\share\\*.txt")
         local opened = io.open("../../../config/secret.txt") or io.open("ROOT/config/secret.txt")
-            or io.open("../../Other/o.png")
-        t.name = listed .. "|" .. tostring(opened) .. "|" .. skin_config.get_path("../parts/*.png")
+        local shared = io.open("../../Other/o.png") ~= nil and io.open("skin/Theme/parts/a.png") ~= nil
+        t.name = listed .. "|" .. tostring(opened) .. "|" .. tostring(shared) .. "|"
+            .. skin_config.get_path("../../Other/*.png")
         t.source = { { id = 0, path = "b.png" } }
         t.image = { { id = "a", src = 0, x = 0, y = 0, w = 1, h = 1 } }
         t.destination = { { id = "a", dst = { { x = 0, y = 0, w = 1, h = 1 } } } }
@@ -1032,8 +1035,8 @@ fn a_lua_skin_reads_its_theme_only() {
     std::fs::write(&path, lua).unwrap();
     let user = UserSettings::default();
     let s = load_with(&path, &skins, &user, None, &|_| Some((1, 1))).unwrap();
-    let part = skins.join("Theme/parts/a.png");
-    assert_eq!(s.name, format!("|nil|{}", part.display()));
+    let other = skins.join("Other/o.png");
+    assert_eq!(s.name, format!("|nil|true|{}", other.display()));
 
     let loose = skins.join("loose.luaskin");
     let lua = r#"return { type = 0, name = tostring(io.open("../config/secret.txt")) .. "|"
@@ -1044,10 +1047,10 @@ fn a_lua_skin_reads_its_theme_only() {
     assert_eq!(h, Some((SkinType::Play7, "nil|true".into())));
 }
 
-/// A bitmap font's pages are files of the theme.
+/// A bitmap font's pages are files of the skins folder.
 #[test]
-fn bmfont_pages_stay_in_the_theme() {
-    let (root, skins) = theme_and_private_files("bmtheme");
+fn bmfont_pages_stay_in_the_skins_folder() {
+    let (root, skins) = skins_and_private_files("bmtheme");
     let fnt = "info size=32\ncommon lineHeight=36\npage id=0 file=\"../parts/a.png\"\n\
 page id=1 file=\"../../../config/x.png\"\npage id=2 file=\"\\\\host\\share\\a.png\"\n\
 char id=65 x=0 y=0 width=1 height=1 page=0\n";

@@ -449,7 +449,8 @@ package.loaded.io = io
     const IO_MAX_BYTES: i64 = 16 << 20;
 
     /// The file a skin script names (`require`, `dofile`, `io`), inside
-    /// the theme folder `root`. Paths are relative to the skin's folder or
+    /// `root` (the skins folder). Paths are relative to the skin's folder,
+    /// to one above it up to `root`, or
     /// to beatoraja's folder (`skin/<theme>/...`, whatever the theme
     /// folder is called here); `lua_only` admits Lua files only.
     fn resolve(dir: &Path, root: &Path, name: &str, lua_only: bool) -> Option<std::path::PathBuf> {
@@ -475,7 +476,7 @@ package.loaded.io = io
         }
         cands
             .into_iter()
-            // a name that leads out of the theme is dropped before anything
+            // a name that leads out of `root` is dropped before anything
             // is looked for on the disk
             .filter_map(|(from, name)| vfs::within(root, from, name))
             .map(|c| vfs::resolve_case(&c))
@@ -750,9 +751,9 @@ end
             let vb = lua.create_table()?;
             let frame = Rc::new(Frame::default());
             install(&lua, &vb, &frame)?;
-            // `require`, `dofile`, `loadfile` and `io` read files of the skin's theme
-            // folder only
-            let root = crate::platform::vfs::normalize(&home.theme);
+            // `require`, `dofile`, `loadfile` and `io` read files below the
+            // skins folder only (`Home`)
+            let root = crate::platform::vfs::normalize(&home.root);
             let base = home.dir.clone();
             let find = {
                 let (root, base) = (root.clone(), base.clone());
@@ -1327,12 +1328,9 @@ end
     mod tests {
         use super::*;
 
-        /// The home of a skin in `dir`, a folder of its theme.
+        /// The home of a skin in `dir`, a folder of the skins folder.
         fn home(dir: &Path) -> Home {
-            Home::of(
-                &dir.join("s.luaskin"),
-                dir.parent().unwrap().parent().unwrap(),
-            )
+            Home::of(&dir.join("s.luaskin"), dir.parent().unwrap())
         }
 
         fn eval<T: mlua::FromLuaMulti>(code: &str) -> mlua::Result<T> {
@@ -1390,6 +1388,52 @@ end
             assert_eq!(read("own.txt").as_deref(), Some("own"));
             assert_eq!(read("link.txt"), None);
             std::fs::remove_dir_all(&dir).ok();
+        }
+
+        /// What a script names is looked for from the skin's folder up to
+        /// the skins folder, and beatoraja's `skin/<theme>/...` in the
+        /// folders on that way, for a skin in a theme's folder or in a
+        /// folder of it; nothing above the skins folder is found.
+        #[test]
+        fn script_files_are_found_up_to_the_skins_folder() {
+            let root =
+                std::env::temp_dir().join(format!("vibebms-lua-find-{}", std::process::id()));
+            let skins = root.join("skins");
+            let files = [
+                "skins/T/lib.lua",
+                "skins/T/sub/own.lua",
+                "skins/Shared/s.lua",
+            ];
+            for f in files.into_iter().chain(["config/c.lua"]) {
+                std::fs::create_dir_all(root.join(f).parent().unwrap()).unwrap();
+                std::fs::write(root.join(f), "return 1").unwrap();
+            }
+            let [lib, own, shared] = files.map(|f| root.join(f));
+            let outside = root.join("config/c.lua");
+            let find = |dir: &str, name: &str| resolve(&skins.join(dir), &skins, name, true);
+            for dir in ["T", "T/sub"] {
+                assert_eq!(find(dir, "lib.lua").as_ref(), Some(&lib), "{dir}");
+                assert_eq!(find(dir, "skin/Any/lib.lua").as_ref(), Some(&lib), "{dir}");
+                assert_eq!(
+                    find(dir, "skin/Any/sub/own.lua").as_ref(),
+                    Some(&own),
+                    "{dir}"
+                );
+                assert_eq!(find(dir, "sub\\own.lua").as_ref(), Some(&own), "{dir}");
+                assert_eq!(find(dir, "Shared/s.lua").as_ref(), Some(&shared), "{dir}");
+                assert_eq!(find(dir, shared.to_str().unwrap()).as_ref(), Some(&shared));
+                assert_eq!(find(dir, outside.to_str().unwrap()), None, "{dir}");
+                assert_eq!(find(dir, "config/c.lua"), None, "{dir}");
+                assert_eq!(find(dir, "\\\\host\\share\\c.lua"), None, "{dir}");
+            }
+            assert_eq!(find("T", "../Shared/s.lua").as_ref(), Some(&shared));
+            assert_eq!(find("T", "../../config/c.lua"), None);
+            assert_eq!(find("T/sub", "own.lua").as_ref(), Some(&own));
+            assert_eq!(find("T/sub", "../../../config/c.lua"), None);
+            // a skin file in the skins folder itself
+            assert_eq!(find("", "T/lib.lua").as_ref(), Some(&lib));
+            assert_eq!(find("", "../config/c.lua"), None);
+            std::fs::remove_dir_all(&root).ok();
         }
 
         struct St;
