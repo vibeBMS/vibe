@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Package the macOS app from the arm64 and x86_64 executables:
 #   <out>/<name>.app                         one universal executable, ad-hoc signed
-#   <out>/vibeBMS-macos-universal.dmg        the app and a link to /Applications (for people)
 #   <out>/vibebms-macos-universal.app.zip    the app alone (what the self-update downloads)
+# The .dmg people download (the app and a link to /Applications) is made from
+# that zip, on Linux, by tools/package_dmg.sh.
 #
 #   tools/package_macos.sh <arm64 vibebms> <x86_64 vibebms> <out dir>
 #
 # The identity comes from tools/ci_version.sh (VIBEBMS_APP_ID, VIBEBMS_APP_NAME,
 # VIBEBMS_BASE_VERSION, VIBEBMS_BUILD); a local run is io.github.vibebms.dev.
-# Needs lipo, codesign, ditto and hdiutil (macOS): lipo and codesign of the
-# Xcode tools/repro.env pins (tools/toolchain.sh). DRY_RUN=1 runs it anywhere:
-# the first executable stands in for the universal one, nothing is signed,
-# `zip` makes the zip and there is no .dmg.
+# Needs lipo, codesign and ditto (macOS): lipo and codesign of the Xcode
+# tools/repro.env pins (tools/toolchain.sh). DRY_RUN=1 runs it anywhere: the
+# first executable stands in for the universal one, nothing is signed and
+# `zip` makes the zip.
 set -euo pipefail
 [ $# -eq 3 ] || { echo "usage: $0 <arm64 vibebms> <x86_64 vibebms> <out dir>" >&2; exit 2; }
 arm="$1" x64="$2" out="$3"
@@ -99,7 +100,7 @@ step "zip (self-update)"
 zip="$out/vibebms-macos-universal.app.zip"
 rm -f "$zip"
 # every file with the commit's time and no extended attributes, so the zip is
-# the same for the same executables (reproducible builds; the .dmg is not)
+# the same for the same executables (reproducible builds)
 sde="${SOURCE_DATE_EPOCH:-$(git -C "$(dirname "$0")/.." log -1 --format=%ct 2>/dev/null || date +%s)}"
 stamp="$(date -u -r "$sde" +%Y%m%d%H%M.%S 2>/dev/null || date -u -d "@$sde" +%Y%m%d%H%M.%S)"
 find "$app" -exec env TZ=UTC touch -h -t "$stamp" {} +
@@ -111,15 +112,4 @@ else
 fi
 ls -l "$zip"
 
-step "dmg"
-if [ -z "$dry" ]; then
-  stage="$(mktemp -d)"
-  cp -R "$app" "$stage/"
-  ln -s /Applications "$stage/Applications"
-  dmg="$out/vibeBMS-macos-universal.dmg"
-  rm -f "$dmg"
-  hdiutil create -volname "$name" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg"
-  rm -rf "$stage"
-  ls -l "$dmg"
-fi
 echo "done"

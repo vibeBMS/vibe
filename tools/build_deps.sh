@@ -7,9 +7,11 @@
 #   tools/build_deps.sh lock linux-arm64 > tools/linux-arm64.lock
 #
 # linux-x64-portable, linux-arm64-portable: in the manylinux_2_28 image (dnf).
-# linux-x64 (Ubuntu 22.04) and web (Ubuntu 26.04): in the Ubuntu image, every
+# linux-x64 and dmg (Ubuntu 22.04) and web (Ubuntu 26.04): in the Ubuntu image, every
 # package from the Ubuntu snapshot service as it was at UBUNTU_SNAPSHOT, so the
-# same versions every time (gcc, clang, the libraries' headers).
+# same versions every time (gcc, clang, the libraries' headers); dmg also
+# builds libdmg-hfsplus at LIBDMG_HFSPLUS_COMMIT (its hfsplus and dmg, in
+# /usr/local/bin).
 # linux-arm64 (Ubuntu 22.04): its packages come from the ports archive, which
 # the snapshot service has no copy of and which keeps only the newest version
 # of a package; tools/linux-arm64.lock lists each by version and SHA-256, and
@@ -146,5 +148,17 @@ case "$1" in
   linux-x64) snapshot_install $LINUX_PACKAGES ;;
   linux-arm64) lock_install "$(dirname "$0")/linux-arm64.lock" ;;
   web) snapshot_install $WEB_PACKAGES ;;
+  dmg)
+    # (in LINUX_IMAGE_X64) hfsprogs, then libdmg-hfsplus at its commit
+    snapshot_install $DMG_PACKAGES
+    src="$(mktemp -d)"
+    git -C "$src" init -q
+    git -C "$src" fetch -q --depth 1 https://github.com/mozilla/libdmg-hfsplus "$LIBDMG_HFSPLUS_COMMIT"
+    git -C "$src" checkout -q --detach "$LIBDMG_HFSPLUS_COMMIT"
+    cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release > /dev/null
+    make -C "$src/build" -s -j"$(nproc)" dmg-bin hfsplus
+    install -m 755 "$src/build/dmg/dmg" "$src/build/hfs/hfsplus" /usr/local/bin/
+    rm -rf "$src"
+    ;;
   *) echo "$1 is not built in a container" >&2; exit 2 ;;
 esac
