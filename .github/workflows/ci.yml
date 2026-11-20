@@ -201,6 +201,9 @@ jobs:
             arch: arm64
             loader: /lib/ld-linux-aarch64.so.1
     runs-on: ${{ matrix.os }}
+    env:
+      # (rust-cache's: its cache is saved when only the Flatpak failed)
+      CACHE_ON_FAILURE: "true"
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/apt
@@ -272,8 +275,9 @@ jobs:
         with:
           path: ~/.local/share/flatpak
           key: flatpak-platform-${{ runner.arch }}-${{ env.RUNTIME }}
-      # the Flatpak steps do not fail the job: the executable is uploaded
-      # already, and a failed job would skip saving its caches
+      # a failed Flatpak fails the job (after the executable's upload; the Rust
+      # cache is saved all the same, CACHE_ON_FAILURE), so nothing is released
+      # or published
       - id: flatpak
         continue-on-error: true
         run: tools/package_flatpak.sh target/${{ matrix.target }}/release/vibebms out
@@ -298,7 +302,9 @@ jobs:
           name: vibeBMS-linux-${{ matrix.arch }}-flatpak
           path: out/vibeBMS-linux-${{ matrix.arch }}.flatpak
       - if: steps.flatpak.outcome == 'failure' || steps.flatpak-check.outcome == 'failure'
-        run: echo "::error::the Flatpak (linux-${{ matrix.arch }}) failed; the release keeps the previous one"
+        run: |
+          echo "::error::the Flatpak (linux-${{ matrix.arch }}) failed: nothing is released or published"
+          exit 1
 
   # on the pinned runner image, with its pinned MSVC toolset and Windows SDK
   # (tools/repro.env; tools/build_release.sh selects them through
@@ -563,7 +569,9 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     env:
-      RELEASE: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      # released only when every build passed (the Flatpaks included); the
+      # downloads summary is written either way
+      RELEASE: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
     # a newer push's release wins over an older one still uploading (only
     # releases share the group: other runs must not cancel them)
     concurrency:
