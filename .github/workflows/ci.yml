@@ -38,7 +38,7 @@ jobs:
   # before this run saves. A replaced key stays until the next push: it is
   # what this run's jobs restore from.
   cache-prune:
-    if: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -549,7 +549,7 @@ jobs:
           name: vibeBMS-web
           path: web
       # the default branch's build is the site (other branches' stay artifacts)
-      - if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+      - if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
         uses: actions/upload-pages-artifact@v5
         with:
           path: web
@@ -559,7 +559,7 @@ jobs:
   # build of the commit has passed (the site and the nightly then agree)
   pages:
     needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, ios, web]
-    if: ${{ !failure() && !cancelled() && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+    if: ${{ !failure() && !cancelled() && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -653,6 +653,8 @@ jobs:
   # previous file; the notes say which files this commit brought.
   # The run's downloads (a summary with each build's artifact link, on every
   # run) and, for a push to the default branch, the rolling nightly release
+  # (or a run started by hand on it: Actions > CI > Run workflow, e.g. after
+  # commits that skip CI)
   nightly:
     name: downloads & nightly
     needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, ios, web]
@@ -661,11 +663,11 @@ jobs:
     env:
       # released only when every build passed (the Flatpaks included); the
       # downloads summary is written either way
-      RELEASE: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+      RELEASE: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
     # a newer push's release wins over an older one still uploading (only
     # releases share the group: other runs must not cancel them)
     concurrency:
-      group: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'nightly-release' || format('downloads-{0}', github.run_id) }}
+      group: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'nightly-release' || format('downloads-{0}', github.run_id) }}
       cancel-in-progress: true
     permissions:
       actions: read
