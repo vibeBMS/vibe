@@ -578,7 +578,7 @@ jobs:
   # an unsigned .ipa: install it by signing it with your own Apple ID
   # (AltStore, Sideloadly) or a developer certificate
   ios:
-    name: build iOS (unsigned, experimental)
+    name: build iOS (unsigned)
     needs: [test, pins]
     # (the pinned image and Xcode, as the macOS build's)
     runs-on: ${{ needs.pins.outputs.macos }}
