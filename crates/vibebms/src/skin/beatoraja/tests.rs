@@ -1,7 +1,14 @@
 use super::files::skin_path;
 use super::*;
 
-/// [`load_with`] with only options chosen.
+/// The folder of the skin `path`, as the skins folder: all the skin may
+/// read.
+fn own(path: &Path) -> &Path {
+    path.parent().unwrap()
+}
+
+/// [`load_with`] with only options chosen, for a skin in a folder of its
+/// own.
 fn load(
     path: &Path,
     user_options: &HashMap<i32, bool>,
@@ -11,7 +18,16 @@ fn load(
         options: user_options.clone(),
         ..Default::default()
     };
-    load_with(path, &user, None, image_size)
+    load_with(path, own(path), &user, None, image_size)
+}
+
+/// [`read_skin`] for a skin in a folder of its own.
+fn read(
+    path: &Path,
+    skin_config: Option<SkinConfig<'_>>,
+    state: Option<&dyn SkinState>,
+) -> Result<(Value, Option<script::Script>), String> {
+    read_skin(path, &Home::of(path, own(path)), skin_config, state)
 }
 
 #[test]
@@ -59,7 +75,8 @@ fn lua_runs_like_beatoraja() {
             0.0
         }
     }
-    let (v, _) = read_skin(&skin.join("t.luaskin"), None, Some(&St)).unwrap();
+    let path = skin.join("t.luaskin");
+    let (v, _) = read_skin(&path, &Home::of(&path, &dir), None, Some(&St)).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     let want = serde_json::json!({
         "lines": 2, "first": "a", "written": true, "part": 7, "band": 15, "shift": 16,
@@ -104,7 +121,9 @@ fn skin_path_rules() {
     assert_eq!(fps.len(), 4);
     let none = HashMap::new();
     let with = |k: &str, val: &str| HashMap::from([(k.to_string(), val.to_string())]);
-    let p = |files: &HashMap<String, String>, path: &str| skin_path(&dir, &fps, files, path);
+    let home = Home::of(&dir.join("s.json"), &dir);
+    let p =
+        |files: &HashMap<String, String>, path: &str| skin_path(&home, &fps, files, path).unwrap();
     assert_eq!(p(&none, "bomb/*|1|/x.png"), dir.join("bomb/b/x.png"));
     assert_eq!(p(&none, "bomb\\*|1|\\x.png"), dir.join("bomb/b/x.png"));
     assert_eq!(
@@ -162,22 +181,23 @@ fn filepath_choices() {
             {"name": "Back", "path": "bg/*.png", "def": "two"}
         ]}"#;
     std::fs::write(dir.join("s.json"), json).unwrap();
-    let v = read_skin(&dir.join("s.json"), None, None).unwrap().0;
+    let v = read(&dir.join("s.json"), None, None).unwrap().0;
     let fps = filepaths(&v);
+    let home = Home::of(&dir.join("s.json"), &dir);
     let mut user = HashMap::new();
     // defaults, with or without the extension
-    let p = skin_path(&dir, &fps, &user, "bomb/*|1|/x.png");
-    assert_eq!(p, dir.join("bomb/b/x.png"));
+    let p = skin_path(&home, &fps, &user, "bomb/*|1|/x.png");
+    assert_eq!(p, Some(dir.join("bomb/b/x.png")));
     assert_eq!(
-        skin_path(&dir, &fps, &user, "bg/*.png"),
-        dir.join("bg/two.png")
+        skin_path(&home, &fps, &user, "bg/*.png"),
+        Some(dir.join("bg/two.png"))
     );
     user.insert("Bomb".to_string(), "a".to_string());
     assert_eq!(
-        skin_path(&dir, &fps, &user, "bomb/*|1|/x.png"),
-        dir.join("bomb/a/x.png")
+        skin_path(&home, &fps, &user, "bomb/*|1|/x.png"),
+        Some(dir.join("bomb/a/x.png"))
     );
-    let opts = custom_options(&dir.join("s.json"));
+    let opts = custom_options(&dir.join("s.json"), &dir);
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(opts.len(), 2);
     assert_eq!(
@@ -201,7 +221,7 @@ fn nested_branches() {
         ]}
     ]);
     let en: HashSet<i64> = [1, 2].into();
-    let out = preprocess(v, &en, Path::new(""), 0);
+    let out = preprocess(v, &en, &Home::default(), Path::new(""), 0);
     let ids: Vec<&str> = out.as_array().unwrap().iter().map(|x| s(x, "id")).collect();
     assert_eq!(ids, ["a", "b", "c"]);
 }
@@ -711,7 +731,7 @@ fn lua_skin_scripts() {
     std::fs::write(dir.join("play.luaskin"), lua).unwrap();
     let sz = |_: &Path| Some((100, 20));
     let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
-    let raw = read_skin(
+    let raw = read(
         &dir.join("play.luaskin"),
         Some((
             &HashMap::new(),
@@ -736,11 +756,11 @@ fn lua_skin_scripts() {
             and loadfile("/etc/passwd") == nil and loadfile("../../x.lua") == nil
             and loadfile("play.luaskin") ~= nil"#;
     std::fs::write(dir.join("esc.luaskin"), escape).unwrap();
-    let (v, _) = read_skin(&dir.join("esc.luaskin"), None, None).unwrap();
+    let (v, _) = read(&dir.join("esc.luaskin"), None, None).unwrap();
     assert_eq!(v, Value::Bool(true));
     // endless loops are stopped
     std::fs::write(dir.join("loop.luaskin"), "while true do end").unwrap();
-    assert!(read_skin(&dir.join("loop.luaskin"), None, None).is_err());
+    assert!(read(&dir.join("loop.luaskin"), None, None).is_err());
     std::fs::remove_dir_all(&dir).ok();
     let rt = s.script.clone().expect("scripts");
     let (img, num, txt) = (&s.objects[0], &s.objects[1], &s.objects[2]);
@@ -814,10 +834,10 @@ fn lua_skin_config_files() {
         offsets: offs,
         ..Default::default()
     };
-    let s2 = load_with(&dir.join("play.luaskin"), &user, None, &sz).unwrap();
+    let s2 = load_with(&dir.join("play.luaskin"), &dir, &user, None, &sz).unwrap();
     assert_eq!(s2.objects[0].dst.keys[0].rect.x, 7.0);
     assert_eq!(s2.offsets[&40], [0.0, 7.0, 0.0, 0.0, 0.0, 0.0]);
-    assert_eq!(custom_offsets(&dir.join("play.luaskin")).len(), 1);
+    assert_eq!(custom_offsets(&dir.join("play.luaskin"), &dir).len(), 1);
     std::fs::remove_dir_all(&root).ok();
     // the wildcard source follows the filepath default too
     assert!(s.images[0].as_ref().unwrap().ends_with("judge/b.png"));
@@ -839,12 +859,12 @@ fn a_lua_skin_runs_once_without_settings() {
     "#;
     let p = dir.join("play.luaskin");
     std::fs::write(&p, lua).unwrap();
-    let name = custom_options(&p)[0].name.clone();
+    let name = custom_options(&p, &dir)[0].name.clone();
     let sz = |_: &Path| Some((1, 1));
     let s = load(&p, &HashMap::new(), &sz).unwrap();
     assert_eq!(s.custom_options[0].name, name);
-    assert_eq!(header(&p), Some((SkinType::Play7, "O".into())));
-    assert_eq!(custom_options(&p)[0].name, name);
+    assert_eq!(header(&p, &dir), Some((SkinType::Play7, "O".into())));
+    assert_eq!(custom_options(&p, &dir)[0].name, name);
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -912,7 +932,10 @@ fn loads_lua_skin() {
     "#;
     std::fs::write(dir.join("play.luaskin"), lua).unwrap();
     let sz = |_: &Path| Some((64, 32));
-    assert_eq!(header(&dir.join("play.luaskin")).unwrap().1, "LuaSkin");
+    assert_eq!(
+        header(&dir.join("play.luaskin"), &dir).unwrap().1,
+        "LuaSkin"
+    );
     let s = load(&dir.join("play.luaskin"), &HashMap::new(), &sz).unwrap();
     assert_eq!(s.objects.len(), 1);
     assert_eq!(s.objects[0].dst.keys[0].rect.w, 1280.0);
@@ -921,4 +944,160 @@ fn loads_lua_skin() {
     let s = load(&dir.join("play.luaskin"), &opt, &sz).unwrap();
     assert_eq!(s.objects[0].dst.keys[0].rect.w, 10.0);
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A data root with two themes in its skins folder and, outside it,
+/// files a skin has no business with: (root, skins folder).
+fn skins_and_private_files(name: &str) -> (PathBuf, PathBuf) {
+    let root = std::env::temp_dir().join(format!("vibebms-{name}-{}", std::process::id()));
+    let skins = root.join("skins");
+    for f in [
+        "skins/Theme/parts/a.png",
+        "skins/Theme/play/b.png",
+        "skins/Other/o.png",
+        "config/x.png",
+        "config/y.png",
+        "config/secret.txt",
+    ] {
+        std::fs::create_dir_all(root.join(f).parent().unwrap()).unwrap();
+        std::fs::write(root.join(f), b"x").unwrap();
+    }
+    let object = r#"{"id": "a", "dst": [{"x": 0, "y": 0, "w": 1, "h": 1}]}"#;
+    std::fs::write(root.join("config/more.json"), object).unwrap();
+    std::fs::write(root.join("skins/Theme/more.json"), object).unwrap();
+    (root, skins)
+}
+
+/// The files a JSON skin names are files of the skins folder (another
+/// theme's too): an image, an include or a choice of files outside it is
+/// as if it were missing.
+#[test]
+fn a_json_skin_reads_the_skins_folder_only() {
+    let (root, skins) = skins_and_private_files("jtheme");
+    let abs = root.join("config/x.png");
+    let json = serde_json::json!({
+        "type": 0, "name": "T", "w": 100, "h": 100,
+        "filepath": [{"name": "Up", "path": "../../../config/*.png", "def": ""}],
+        "source": [
+            {"id": 0, "path": "../parts/a.png"},
+            {"id": 1, "path": "../../Other/o.png"},
+            {"id": 2, "path": "../../../config/x.png"},
+            {"id": 3, "path": abs.to_str().unwrap()},
+            {"id": 4, "path": "../../../config/*.png"},
+            {"id": 5, "path": "\\\\host\\share\\a.png"},
+            {"id": 6, "path": "//host/share/a.png"},
+        ],
+        "image": [{"id": "a", "src": 0, "x": 0, "y": 0, "w": 1, "h": 1}],
+        "destination": [
+            {"include": "../more.json"},
+            {"include": "../../../config/more.json"},
+            {"include": root.join("config/more.json").to_str().unwrap()},
+            {"include": "\\\\host\\share\\a.json"},
+        ],
+    });
+    let path = skins.join("Theme/play/play.json");
+    std::fs::write(&path, json.to_string()).unwrap();
+    let user = UserSettings::default();
+    let s = load_with(&path, &skins, &user, None, &|_| Some((1, 1))).unwrap();
+    let options = custom_options(&path, &skins);
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(s.images[0], Some(skins.join("Theme/parts/a.png")));
+    assert_eq!(s.images[1], Some(skins.join("Other/o.png")));
+    assert_eq!(s.images.len(), 7);
+    assert!(s.images[2..].iter().all(Option::is_none));
+    // the include from the skins folder, and no other
+    assert_eq!(s.objects.len(), 1);
+    assert!(options.is_empty());
+}
+
+/// A Lua skin's files, and what its scripts open or list, are files of
+/// the skins folder (another theme's too), wherever in it the skin file
+/// is: never of the data root above it.
+#[test]
+fn a_lua_skin_reads_the_skins_folder_only() {
+    let (root, skins) = skins_and_private_files("ltheme");
+    let lua = r#"
+        local t = { type = 0, name = "L", w = 100, h = 100 }
+        if not skin_config then return t end
+        local listed = skin_config.get_path("../../../config/*.txt")
+            .. skin_config.get_path("ROOT/config/*.txt")
+            .. skin_config.get_path("\\\\host\\share\\*.txt")
+        local opened = io.open("../../../config/secret.txt") or io.open("ROOT/config/secret.txt")
+        local shared = io.open("../../Other/o.png") ~= nil and io.open("skin/Theme/parts/a.png") ~= nil
+        t.name = listed .. "|" .. tostring(opened) .. "|" .. tostring(shared) .. "|"
+            .. skin_config.get_path("../../Other/*.png")
+        t.source = { { id = 0, path = "b.png" } }
+        t.image = { { id = "a", src = 0, x = 0, y = 0, w = 1, h = 1 } }
+        t.destination = { { id = "a", dst = { { x = 0, y = 0, w = 1, h = 1 } } } }
+        return t"#
+        .replace("ROOT", root.to_str().unwrap());
+    let path = skins.join("Theme/play/play.luaskin");
+    std::fs::write(&path, lua).unwrap();
+    let user = UserSettings::default();
+    let s = load_with(&path, &skins, &user, None, &|_| Some((1, 1))).unwrap();
+    let other = skins.join("Other/o.png");
+    assert_eq!(s.name, format!("|nil|true|{}", other.display()));
+
+    let loose = skins.join("loose.luaskin");
+    let lua = r#"return { type = 0, name = tostring(io.open("../config/secret.txt")) .. "|"
+        .. tostring(io.open("Theme/parts/a.png") ~= nil) }"#;
+    std::fs::write(&loose, lua).unwrap();
+    let h = header(&loose, &skins);
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(h, Some((SkinType::Play7, "nil|true".into())));
+}
+
+/// A bitmap font's pages are files of the skins folder.
+#[test]
+fn bmfont_pages_stay_in_the_skins_folder() {
+    let (root, skins) = skins_and_private_files("bmtheme");
+    let fnt = "info size=32\ncommon lineHeight=36\npage id=0 file=\"../parts/a.png\"\n\
+page id=1 file=\"../../../config/x.png\"\npage id=2 file=\"\\\\host\\share\\a.png\"\n\
+char id=65 x=0 y=0 width=1 height=1 page=0\n";
+    let path = skins.join("Theme/play/f.fnt");
+    std::fs::write(&path, fnt).unwrap();
+    let (_, pages) = files::load_bmfont(&path, &Home::of(&path, &skins)).unwrap();
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(
+        pages,
+        [
+            skins.join("Theme/parts/a.png"),
+            PathBuf::new(),
+            PathBuf::new()
+        ]
+    );
+}
+
+/// Text nested deeper than any skin is refused, not read (json5 would
+/// run out of stack); brackets in strings and comments open nothing.
+#[test]
+fn json_nested_too_deep_is_refused() {
+    let nested = |n: usize| format!("{}1{}", "[".repeat(n), "]".repeat(n));
+    assert!(json::parse(&nested(128)).is_ok());
+    assert!(json::parse(&nested(129)).is_err());
+    assert!(json::parse(&"[".repeat(200_000)).is_err());
+    assert!(json::parse(&"{a:".repeat(200_000)).is_err());
+    let quiet = format!(
+        "// {0}\n/* {0} */ ['{0}', \"{0}\\\"{0}\", /* ]* */ {1}]",
+        "[{".repeat(200),
+        nested(127)
+    );
+    assert!(json::parse(&quiet).is_ok());
+    // a comment or a string that only looks like one hides nothing
+    for cover in ["'//'", "'/*'", "'\\'//'", "1 // '\r", "1 /* ' */", "'\\\\'"] {
+        let hidden = format!("[{cover}, {}]", nested(128));
+        assert!(json::parse(&hidden).is_err(), "{cover}");
+    }
+    // a skin file of such text has no header and does not load
+    let dir = std::env::temp_dir().join(format!("vibebms-jdeep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("deep.json");
+    std::fs::write(
+        &path,
+        format!("{{\"type\": 0, \"x\": {}}}", "[".repeat(200_000)),
+    )
+    .unwrap();
+    let h = header(&path, &dir);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(h, None);
 }

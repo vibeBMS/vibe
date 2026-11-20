@@ -430,7 +430,8 @@ impl SelectScene {
             .collect();
         if crate::app::IN_APP_BROWSER && !pages.is_empty() {
             ctx.toast(tr!("Download {title} in the browser window", title = title));
-            ctx.net.browse = Some(pages.iter().map(|u| u.to_string()).collect());
+            ctx.net
+                .browse(pages.iter().map(|u| u.to_string()).collect());
             return;
         }
         let opened = pages

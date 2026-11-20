@@ -125,13 +125,18 @@ pub fn is_catalog(url: &str) -> bool {
     url.trim_end_matches('/').ends_with("events.json")
 }
 
+/// The folder under `bms/` of the event a list or an index URL calls
+/// `tag`: in upper case. `None` unless that is one plain folder name (the
+/// tag is another party's text, and a path in it would be followed).
+fn folder_name(tag: &str) -> Option<String> {
+    let name = tag.to_uppercase();
+    (safe_name(&name) == name).then_some(name)
+}
+
 /// The event name of an index URL (`.../download/bof22/index.json`).
-pub fn event_name(url: &str) -> String {
-    url.trim_end_matches('/')
-        .rsplit('/')
-        .nth(1)
-        .unwrap_or("archive")
-        .to_uppercase()
+pub fn event_name(url: &str) -> Option<String> {
+    let tag = url.trim_end_matches('/').rsplit('/').nth(1);
+    folder_name(tag.unwrap_or("archive"))
 }
 
 /// Why a work did not arrive.
@@ -232,22 +237,28 @@ impl Archives {
                     continue;
                 };
                 for e in c.events.iter().filter(|e| !e.index.is_empty()) {
+                    let Some(name) = folder_name(&e.tag) else {
+                        log::warn!("archive events {u}: {:?} is no folder name", e.tag);
+                        continue;
+                    };
                     wanted.push(Event {
                         url: e.index.clone(),
-                        name: e.tag.to_uppercase(),
+                        name,
                         label: e.name.clone(),
                         title: e.title.clone(),
                         mirrored: e.mirror,
                         ..Default::default()
                     });
                 }
-            } else {
+            } else if let Some(name) = event_name(u) {
                 wanted.push(Event {
                     url: u.clone(),
-                    name: event_name(u),
+                    name,
                     mirrored: true,
                     ..Default::default()
                 });
+            } else {
+                log::warn!("archive index {u}: its URL names no event");
             }
         }
         for w in wanted {
@@ -365,7 +376,10 @@ impl Archives {
             #[cfg(target_arch = "wasm32")]
             {
                 let stem = work_stem(&files);
-                let rel = PathBuf::from("bms").join(&name).join(&stem);
+                let Some(rel) = work_dir(&name, &stem) else {
+                    let _ = tx.send(Msg::Done(name, num, Err(NO_FOLDER.into())));
+                    return;
+                };
                 let dir = root.join("bms").join(&name);
                 web_fetch_files(files, dir, stem, &cx, move |r| {
                     let _ = tx.send(Msg::Done(name, num, r.map(|n| (rel, n))));
@@ -476,6 +490,19 @@ fn work_stem(files: &[File]) -> String {
         .unwrap_or_else(|| "work".into())
 }
 
+/// Where a work unpacks, from the data root: `bms/<event>/<stem>`. `None`
+/// unless both are single names and the folder is below `bms` (no `..`,
+/// no root or drive): archives are written there.
+fn work_dir(event: &str, stem: &str) -> Option<PathBuf> {
+    let name = format!("{event}/{stem}");
+    (name.matches(['/', '\\']).count() == 1)
+        .then(|| crate::platform::vfs::inside(Path::new("bms"), &name))
+        .flatten()
+}
+
+/// A work is not downloaded when [`work_dir`] has no folder for it.
+const NO_FOLDER: &str = "its event's name is no folder of the library";
+
 /// A work's files as bmseeker's `Files` takes them: a mirror's file as it
 /// is, an author's link through the hosts.
 fn sources(files: &[File]) -> Vec<bmseeker::install::job::FileLink> {
@@ -563,14 +590,14 @@ fn fetch_work(
     tx: &Sender<Msg>,
 ) -> Result<(PathBuf, usize), Fail> {
     use bmseeker::install::job::{run_job, Driver, Effect, Fed, Files};
-    let downloads = root.join("downloads");
-    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
     if files.is_empty() {
         return Err("no files".into());
     }
     let stem = work_stem(files);
-    let rel = PathBuf::from("bms").join(event).join(&stem);
+    let rel = work_dir(event, &stem).ok_or(NO_FOLDER)?;
     let dest = root.join(&rel);
+    let downloads = root.join("downloads");
+    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
     let name = |f: &File| {
         safe_name(if f.original.is_empty() {
             &f.name
@@ -639,7 +666,7 @@ mod tests {
     fn names() {
         assert_eq!(
             event_name("https://github.com/vibeBMS/BMS/releases/download/bof22/index.json"),
-            "BOF22"
+            Some("BOF22".into())
         );
         assert_eq!(safe_name("a/b:c.zip"), "a_b_c.zip");
         assert_eq!(safe_name(".."), "download");
@@ -738,6 +765,79 @@ mod tests {
         )
         .unwrap();
         assert!(!a.can_download(0, 3));
+    }
+
+    /// An event's name becomes a folder: a list or a URL that gives a
+    /// path for it has no event, and a work is not written outside `bms`.
+    #[test]
+    fn an_event_is_one_folder_below_bms() {
+        let entry = |(i, tag): (usize, &str)| CatalogEntry {
+            tag: tag.into(),
+            index: format!("https://x/{i}/index.json"),
+            ..Default::default()
+        };
+        let tags = [
+            "../../..",
+            "..",
+            ".",
+            "",
+            "/tmp",
+            "a/b",
+            "..\\..\\Start Menu",
+            "C:x",
+            "bof\n",
+            "ok1",
+        ];
+        let mut a = Archives {
+            sources: vec![
+                CATALOG.into(),
+                "https://y/download/../index.json".into(),
+                "https://y//index.json".into(),
+                "https://y/download/ok2/index.json".into(),
+            ],
+            catalogs: vec![Catalog {
+                url: CATALOG.into(),
+                events: tags.into_iter().enumerate().map(entry).collect(),
+                fetched_at: 1,
+            }],
+            ..Default::default()
+        };
+        let paths = crate::paths::Paths::at(std::env::temp_dir().join("vibebms-archive-test-3"));
+        a.rebuild(&paths);
+        let names: Vec<&str> = a.events.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["OK1", "OK2"]);
+
+        assert_eq!(work_dir("BOF22", "Song"), Some("bms/BOF22/Song".into()));
+        for (event, stem) in [
+            ("..", "Song"),
+            ("../..", "Song"),
+            ("A/..", "Song"),
+            ("A\\B", "Song"),
+            ("/tmp", "Song"),
+            ("", "Song"),
+            ("BOF22", ".."),
+            ("BOF22", "a/b"),
+        ] {
+            assert_eq!(work_dir(event, stem), None, "{event} {stem}");
+        }
+    }
+
+    /// The download itself refuses such a name, before anything is fetched
+    /// or made on disk.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_work_is_not_fetched_outside_bms() {
+        let root = std::env::temp_dir().join(format!("vibebms-archive-out-{}", std::process::id()));
+        let cx = crate::hosts::context(&crate::config::Config::default());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let files = [File {
+            name: "001.zip".into(),
+            original: "Song.zip".into(),
+            ..Default::default()
+        }];
+        let r = fetch_work(&root.join("data"), &cx, "../..", &files, &tx);
+        assert!(matches!(r, Err(Fail::Msg(e)) if e == NO_FOLDER));
+        assert!(!root.exists());
     }
 
     #[test]

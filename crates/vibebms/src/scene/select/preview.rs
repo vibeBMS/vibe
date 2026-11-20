@@ -64,11 +64,12 @@ fn preview_file(song: &Song) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
-/// Resolve an image path, trying common extension substitutions.
-pub fn resolve_image(p: &Path) -> Option<PathBuf> {
-    let dir = p.parent()?;
-    let name = p.file_name()?.to_string_lossy();
-    vfs::find_by_stem(dir, &name, vfs::IMAGE_EXTS)
+/// The image a chart names (`#STAGEFILE`, `#BANNER`, `#BACKBMP`) in its
+/// song's folder `dir`, trying common extension substitutions. The name
+/// is the chart author's text: one that leaves the folder finds nothing
+/// ([`vfs::inside`], which the lookup starts with).
+pub fn resolve_image(dir: &Path, name: &str) -> Option<PathBuf> {
+    vfs::find_by_stem(dir, name, vfs::IMAGE_EXTS)
 }
 
 impl SelectScene {
@@ -245,14 +246,15 @@ impl SelectScene {
     }
 
     pub(super) fn update_banner(&mut self, ctx: &Ctx, gfx: &mut Gfx) {
-        let want = self.selected_song(ctx).and_then(|(_, s)| {
+        // (the song's folder, the image's name in it)
+        let want = self.selected_song(ctx).map(|(_, s)| {
             let img = if !s.stagefile.is_empty() {
                 &s.stagefile
             } else {
                 &s.banner
             };
             let dir = Path::new(&s.path).parent().unwrap_or(Path::new(""));
-            vfs::inside(dir, img).map(|p| p.to_string_lossy().into_owned())
+            (dir, img.as_str())
         });
         if let Some(job) = self.banner_job.as_mut() {
             let done = job.poll(false, |pic| crate::gfx::ImageTex::new(gfx, pic));
@@ -266,17 +268,68 @@ impl SelectScene {
         if let Some((_, Some(t))) = self.banner.as_mut() {
             t.tick(gfx);
         }
-        if want.as_deref() == self.banner.as_ref().map(|b| b.0.as_str()) {
+        let key = want.map(|(dir, img)| dir.join(img).to_string_lossy().into_owned());
+        if key.as_deref() == self.banner.as_ref().map(|b| b.0.as_str()) {
             return;
         }
-        if want.is_some() && self.last_move.elapsed() < BANNER_AFTER {
+        if key.is_some() && self.last_move.elapsed() < BANNER_AFTER {
             return; // don't decode while scrolling fast
         }
         self.free_banner(gfx);
         self.banner_job = want
-            .as_ref()
-            .and_then(|p| resolve_image(Path::new(p)))
+            .and_then(|(dir, img)| resolve_image(dir, img))
             .map(|rp| ImageJobs::start(vec![rp], None));
-        self.banner = want.map(|p| (p, None));
+        self.banner = key.map(|p| (p, None));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `#STAGEFILE` / `#BANNER` are looked for in the song's folder only,
+    /// whatever screen asks.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_chart_image_is_in_its_songs_folder() {
+        let root = std::env::temp_dir().join(format!("vibebms-chartimg-{}", std::process::id()));
+        let dir = root.join("bms/Song");
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+        for f in ["secret.png", "bms/other.png", "bms/Song/bg.png"] {
+            std::fs::write(root.join(f), b"x").unwrap();
+        }
+        std::fs::write(dir.join("img/Title.JPG"), b"x").unwrap();
+        let found = |name: &str| resolve_image(&dir, name);
+        assert_eq!(found("bg.png"), Some(dir.join("bg.png")));
+        assert_eq!(found("BG.bmp"), Some(dir.join("bg.png")));
+        assert_eq!(found("img\\title.bmp"), Some(dir.join("img/Title.JPG")));
+        let outside = root.join("secret.png");
+        for bad in [
+            "../other.png",
+            "../../secret.png",
+            "img/../../other.png",
+            outside.to_str().unwrap(),
+            "\\\\host\\share\\a.png",
+            "//host/share/a.png",
+            "",
+        ] {
+            assert_eq!(found(bad), None, "{bad}");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A song in an archive: its images are the archive's files.
+    #[test]
+    fn a_chart_image_in_an_archive() {
+        use crate::platform::arcfs;
+        let pack = Path::new("/vibebms-chartimg/pack.zip");
+        let files = ["Song/a.bms", "Song/bg.png", "top.png"]
+            .iter()
+            .map(|p| (PathBuf::from(p), 1))
+            .collect();
+        arcfs::set_index(pack, arcfs::Index::new((0, 0), "zip", files));
+        let dir = arcfs::join(pack, Path::new("Song"));
+        assert_eq!(resolve_image(&dir, "bg.bmp"), Some(dir.join("bg.png")));
+        assert_eq!(resolve_image(&dir, "../top.png"), None);
     }
 }

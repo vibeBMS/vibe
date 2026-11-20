@@ -74,6 +74,20 @@ fn judge_side(cmd: &str) -> usize {
     }
 }
 
+/// The judge a `_NOWJUDGE` / `_NOWCOMBO` line numbers (5 down to 0) as
+/// its place in `JudgeSkin`; `None` for a number that is no judge.
+fn judge_slot(n: i64) -> Option<usize> {
+    (0..=5).contains(&n).then(|| (5 - n) as usize)
+}
+
+/// Bar slots a skin may number: more than any select skin draws.
+const BAR_SLOTS: i64 = 64;
+
+/// The bar slot a `#BAR_*` line numbers, among those there may be.
+fn bar_slot(n: i64) -> usize {
+    n.clamp(0, BAR_SLOTS - 1) as usize
+}
+
 /// beatoraja offset ids after an LR2 destination's 21 fields.
 fn line_offsets(f: &[&str]) -> Vec<i32> {
     f.iter()
@@ -533,6 +547,7 @@ fn font_chars(code: i64) -> Vec<char> {
 #[allow(clippy::type_complexity)]
 pub fn load_font(
     path: &Path,
+    skins_root: &Path,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Option<(BitmapFont, Vec<(PathBuf, Option<(u32, u32)>)>)> {
     let bytes = vfs::read(path).ok()?;
@@ -553,9 +568,11 @@ pub fn load_font(
             "#S" => font.size = num(1) as f32,
             "#M" => font.margin = num(1) as f32,
             "#T" => {
-                let p = vfs::resolve_case(
-                    &dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/")),
-                );
+                // (as `Loader::path`: nothing outside the skins folder)
+                let Some(p) = vfs::within(skins_root, dir, f.get(2).copied().unwrap_or("")) else {
+                    continue;
+                };
+                let p = vfs::resolve_case(&p);
                 let size = image_size(&p);
                 if size.is_some() {
                     tex.insert(num(1), images.len());
@@ -612,7 +629,7 @@ pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
         .collect()
 }
 
-pub fn custom_options(path: &Path) -> Vec<CustomOption> {
+pub fn custom_options(path: &Path, skins_root: &Path) -> Vec<CustomOption> {
     let Ok(b) = vfs::read(path) else {
         return Vec::new();
     };
@@ -641,8 +658,10 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
             }
             // a choice of files: their names without extension
             "#CUSTOMFILE" => {
-                let (Some(name), Some(p)) = (f.get(1), f.get(2).and_then(|p| theme_file(path, p)))
-                else {
+                let (Some(name), Some(p)) = (
+                    f.get(1),
+                    f.get(2).and_then(|p| theme_file(path, skins_root, p)),
+                ) else {
                     continue;
                 };
                 let labels: Vec<String> = glob_paths(&p)
@@ -670,10 +689,11 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
     out
 }
 
-/// A skin's `LR2files\Theme\<theme>\...` path without knowing the skins
-/// folder: under the skin's ancestor named `<theme>`, else under the one
-/// holding the path.
-fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
+/// A skin's `LR2files\Theme\<theme>\...` path whatever its theme folder
+/// is called here: under the skin's ancestor named `<theme>`, else under
+/// the one holding the path; `None` for a path that leaves the skins
+/// folder, which is not looked at.
+fn theme_file(skin: &Path, skins_root: &Path, raw: &str) -> Option<PathBuf> {
     let s = raw.replace('\\', "/");
     let i = s.to_ascii_lowercase().find("lr2files/theme/")?;
     let rest = &s[i + "lr2files/theme/".len()..];
@@ -683,14 +703,12 @@ fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
         a.file_name()
             .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(theme))
     });
+    let below = |a: &Path| vfs::within(skins_root, a, tail);
     let base = named.or_else(|| {
-        dirs.iter().find(|a| {
-            Path::new(tail)
-                .parent()
-                .is_some_and(|t| vfs::is_dir(&a.join(t)))
-        })
+        dirs.iter()
+            .find(|a| below(a).is_some_and(|p| p.parent().is_some_and(vfs::is_dir)))
     })?;
-    Some(vfs::resolve_case(&base.join(tail)))
+    below(base).map(|p| vfs::resolve_case(&p))
 }
 
 /// Read only the header: (type, name).
@@ -743,7 +761,8 @@ pub fn glob_paths(p: &Path) -> Vec<PathBuf> {
     c
 }
 
-/// Play skins below `dir`: LR2 (`.lr2skin`) and beatoraja (`.json`, `.luaskin`).
+/// Play skins below `dir`, the skins folder: LR2 (`.lr2skin`) and
+/// beatoraja (`.json`, `.luaskin`).
 pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if depth > 4 {
@@ -767,7 +786,7 @@ pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     files.sort();
     files
         .into_iter()
-        .filter_map(|p| super::header(&p).map(|(t, n)| (p, t, n)))
+        .filter_map(|p| super::header(&p, dir).map(|(t, n)| (p, t, n)))
         .collect()
 }
 

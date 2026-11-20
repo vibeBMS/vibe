@@ -152,7 +152,7 @@ impl Loader<'_> {
             "#LR2FONT" => {
                 // a missing font keeps its index (`CONTINUE` placeholders)
                 let p = self.path(s1);
-                let font = load_font(&p, self.images.measure).map(|(f, imgs)| {
+                let font = load_font(&p, &self.root, self.images.measure).map(|(f, imgs)| {
                     let base = self.images.len();
                     for (path, size) in imgs {
                         self.images.push_measured(path, size);
@@ -292,9 +292,7 @@ impl Loader<'_> {
                     });
                 } else {
                     let side = judge_side(cmd);
-                    let j = if v[1] <= 5 {
-                        (5 - v[1]) as usize
-                    } else {
+                    let Some(j) = judge_slot(v[1]) else {
                         return true;
                     };
                     let keta = v[13].clamp(1, 32) as usize;
@@ -303,12 +301,10 @@ impl Loader<'_> {
             }
             "#DST_NOWCOMBO_1P" | "#DST_NOWCOMBO_2P" | "#DST_NOWCOMBO_3P" => {
                 let side = judge_side(cmd);
-                if v[1] <= 5 {
-                    if let Some((_, d, _)) =
-                        self.skin.judges[side].combo[(5 - v[1]) as usize].as_mut()
-                    {
-                        add_dst(d, &v);
-                    }
+                if let Some((_, d, _)) =
+                    judge_slot(v[1]).and_then(|j| self.skin.judges[side].combo[j].as_mut())
+                {
+                    add_dst(d, &v);
                 }
             }
             "#SRC_TEXT" => {
@@ -425,9 +421,9 @@ impl Loader<'_> {
         let Line { cmd, v, .. } = l;
         match cmd {
             // music select bar list
-            "#BAR_CENTER" => self.songlist().center = v[1].max(0) as usize,
+            "#BAR_CENTER" => self.songlist().center = bar_slot(v[1]),
             "#BAR_AVAILABLE" => {
-                let (a, b) = (v[1].max(0) as usize, v[2].max(0) as usize);
+                let (a, b) = (bar_slot(v[1]), bar_slot(v[2]));
                 self.songlist().clickable = (a.min(b)..=a.max(b)).collect();
             }
             "#SRC_BAR_BODY" => {
@@ -456,7 +452,7 @@ impl Loader<'_> {
                 sl.body[t] = sz;
             }
             "#DST_BAR_BODY_OFF" | "#DST_BAR_BODY_ON" => {
-                let slot = v[1].max(0) as usize;
+                let slot = bar_slot(v[1]);
                 let on = cmd.ends_with("ON");
                 let sl = self.songlist();
                 let list = if on { &mut sl.on } else { &mut sl.off };
@@ -751,12 +747,12 @@ impl Loader<'_> {
             "#SRC_NOWJUDGE_1P" | "#SRC_NOWJUDGE_2P" | "#SRC_NOWJUDGE_3P" => {
                 self.cur = None;
                 let side = judge_side(cmd);
-                if v[1] > 5 {
+                let Some(j) = judge_slot(v[1]) else {
                     return true;
-                }
+                };
                 if let Some(s) = src(&v, &self.images) {
                     let js = &mut self.skin.judges[side];
-                    js.judge[(5 - v[1]) as usize] = Some((s, Dst::default()));
+                    js.judge[j] = Some((s, Dst::default()));
                     js.shift = v[11] != 1;
                     if !self
                         .skin
@@ -774,11 +770,10 @@ impl Loader<'_> {
             }
             "#DST_NOWJUDGE_1P" | "#DST_NOWJUDGE_2P" | "#DST_NOWJUDGE_3P" => {
                 let side = judge_side(cmd);
-                if v[1] <= 5 {
-                    if let Some((_, d)) = self.skin.judges[side].judge[(5 - v[1]) as usize].as_mut()
-                    {
-                        add_dst(d, &v);
-                    }
+                if let Some((_, d)) =
+                    judge_slot(v[1]).and_then(|j| self.skin.judges[side].judge[j].as_mut())
+                {
+                    add_dst(d, &v);
                 }
             }
             _ => return false,

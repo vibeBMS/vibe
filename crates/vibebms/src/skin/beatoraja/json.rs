@@ -1,6 +1,45 @@
 //! beatoraja reads skins with libGDX's lenient JSON reader: what json5
 //! needs added to read the same files.
 
+/// Arrays and objects in one another, at most (serde_json's own limit;
+/// skins stay far below it).
+const MAX_DEPTH: usize = 128;
+
+/// JSON5 text as a value. json5 calls itself once per nested array or
+/// object and has no limit of its own, so text nested deeper than
+/// [`MAX_DEPTH`] is refused before it is given to it (any `.json` below
+/// the skins folder is read to list the skins). Strings and comments,
+/// where a bracket opens nothing, are told as json5 tells them.
+pub(super) fn parse(text: &str) -> Result<serde_json::Value, String> {
+    let (mut depth, mut quote, mut chars) = (0usize, None, text.chars().peekable());
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '/') if chars.next_if_eq(&'/').is_some() => {
+                chars.find(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'));
+            }
+            (None, '/') if chars.next_if_eq(&'*').is_some() => {
+                let mut star = false;
+                chars.find(|c| std::mem::replace(&mut star, *c == '*') && *c == '/');
+            }
+            (None, '[' | '{') => {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return Err(format!("nested deeper than {MAX_DEPTH}"));
+                }
+            }
+            (None, ']' | '}') => depth = depth.saturating_sub(1),
+            (None, _) => {}
+        }
+    }
+    json5::from_str(text).map_err(|e| e.to_string())
+}
+
 /// beatoraja's own play5.json has `"value": {{...}},`, one brace too many
 /// that libGDX's lenient reader gets past: read `{{` as `{`.
 pub(super) fn merge_double_braces(text: &str) -> String {

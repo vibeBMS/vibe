@@ -193,9 +193,7 @@ impl Scene for DecideScene {
                 .unwrap_or(std::path::Path::new(""))
                 .to_path_buf();
             let mut load = |name: &str| {
-                (!name.is_empty())
-                    .then(|| super::select::resolve_image(&dir.join(name)))
-                    .flatten()
+                super::select::resolve_image(&dir, name)
                     .and_then(|p| ImageTex::load(gfx, &p, &|_| {}))
             };
             self.stage_tex = load(&song.stagefile);

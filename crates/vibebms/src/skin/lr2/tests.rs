@@ -81,6 +81,67 @@ fn lr2_fonts() {
     assert_eq!(s.objects[0].dst.keys[0].rect.x, 60.0);
 }
 
+/// A font's textures are files of the skins folder, as the skin's own.
+#[test]
+fn font_textures_stay_in_the_skins_folder() {
+    let root = std::env::temp_dir().join(format!("vibebms-lr2fontout-{}", std::process::id()));
+    let skins = root.join("skins");
+    std::fs::create_dir_all(skins.join("t/f")).unwrap();
+    let outside = root.join("secret.png");
+    std::fs::write(
+        skins.join("t/f/a.lr2font"),
+        format!(
+            "#S,20,\n#T,0,t.png\n#T,1,..\\..\\..\\secret.png\n#T,2,{}\n\
+             #T,3,\\\\host\\share\\t.png\n#T,4,..\\other.png\n\
+             #R,65,0,0,0,10,20\n#R,66,1,0,0,10,20\n#R,67,2,0,0,10,20\n#R,68,3,0,0,10,20\n\
+             #R,69,4,0,0,10,20\n",
+            outside.display()
+        ),
+    )
+    .unwrap();
+    let (font, images) =
+        load_font(&skins.join("t/f/a.lr2font"), &skins, &|_| Some((64, 64))).unwrap();
+    std::fs::remove_dir_all(&root).ok();
+    let files: Vec<&Path> = images.iter().map(|(p, _)| p.as_path()).collect();
+    assert_eq!(files, [skins.join("t/f/t.png"), skins.join("t/other.png")]);
+    let mut chars: Vec<char> = font.glyphs.keys().copied().collect();
+    chars.sort();
+    assert_eq!(chars, ['A', 'E']);
+}
+
+/// A number a line gives where a slot is meant does not become an index
+/// or a size as it is.
+#[test]
+fn numbers_out_of_range_are_no_slots() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lr2range-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = "#INFORMATION,5,Sel,me\n#IMAGE,a.png\n\
+#SRC_NOWJUDGE_1P,-1,0,0,0,10,10,1,1,0,0\n#DST_NOWJUDGE_1P,-1,0,0,0,10,10,0,255,255,255,255\n\
+#SRC_NOWCOMBO_1P,-1,0,0,0,100,10,10,1,0,0\n#DST_NOWCOMBO_1P,-1,0,0,0,10,10,0,255,255,255,255\n\
+#DST_NOWJUDGE_2P,6,0,0,0,10,10,0,255,255,255,255\n#DST_NOWCOMBO_3P,!9,0,0,0,10,10,0,255,255,255,255\n\
+#DST_BAR_BODY_OFF,9000000000000000000,0,10,10,100,20,0,255,255,255,255\n\
+#DST_BAR_BODY_ON,!3,0,10,10,100,20,0,255,255,255,255\n\
+#BAR_AVAILABLE,0,9000000000000000000\n#BAR_CENTER,9000000000000000000\n";
+    std::fs::write(dir.join("select.lr2skin"), csv).unwrap();
+    let size = |_: &Path| Some((128, 64));
+    let s = load(
+        &dir.join("select.lr2skin"),
+        &dir,
+        &HashMap::new(),
+        &|_| None,
+        &size,
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    for side in &s.judges {
+        assert!(side.judge.iter().all(Option::is_none));
+        assert!(side.combo.iter().all(Option::is_none));
+    }
+    let sl = s.songlist.unwrap();
+    assert_eq!((sl.off.len(), sl.on.len()), (64, 1));
+    assert_eq!((sl.center, sl.clickable.len()), (63, 64));
+}
+
 #[test]
 fn parses_select_bars() {
     let dir = std::env::temp_dir().join(format!("vibebms-sel-{}", std::process::id()));

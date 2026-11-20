@@ -80,13 +80,13 @@ pub fn items(ctx: &Ctx, kind: SkinType, value: &str) -> Vec<Item> {
     };
     let mut v: Vec<Item> = ctx
         .skins
-        .custom_options(&p)
+        .custom_options(&p, &ctx.paths.skins)
         .iter()
         .filter(|o| !o.labels.is_empty())
         .cloned()
         .map(Item::Option)
         .collect();
-    for o in ctx.skins.custom_offsets(&p).iter() {
+    for o in ctx.skins.custom_offsets(&p, &ctx.paths.skins).iter() {
         for f in 0..6 {
             if o.fields[f] {
                 v.push(Item::Offset(o.clone(), f));
@@ -694,7 +694,7 @@ mod tests {
             "#INFORMATION,9,LSS,me\n#SRC_IMAGE,0,105,0,0,1280,720,1,1,0,0\n\
              #DST_IMAGE,0,0,0,0,640,360,0,255,255,255,255\n",
         );
-        let h = |p: &str| crate::skin::header(&dir.join(p)).map(|h| h.0);
+        let h = |p: &str| crate::skin::header(&dir.join(p), &dir).map(|h| h.0);
         assert_eq!(h("ss/skinselect.json"), Some(SkinType::SkinSelect));
         assert_eq!(h("kc/keyconfig.json"), Some(SkinType::KeyConfig));
         assert_eq!(h("lr2/ss.lr2skin"), Some(SkinType::SkinSelect));

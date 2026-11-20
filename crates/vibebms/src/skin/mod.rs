@@ -53,6 +53,44 @@ impl SkinFormat {
     }
 }
 
+/// Where a skin's files are, and how far it may read: the files it names
+/// (images, fonts, includes, what its scripts open) are taken from `dir`
+/// and never from outside `root`.
+#[derive(Clone, Debug, Default)]
+pub struct Home {
+    /// The skins folder, for a skin anywhere below it (as the LR2 loader
+    /// keeps to it: themes may share files); for a skin kept elsewhere
+    /// (the built-in ones), its own folder.
+    root: PathBuf,
+    /// The folder of the skin file.
+    dir: PathBuf,
+}
+
+impl Home {
+    pub fn of(skin: &std::path::Path, skins_root: &std::path::Path) -> Home {
+        let dir = skin.parent().unwrap_or(std::path::Path::new(""));
+        let root = match skin.starts_with(skins_root) {
+            true => skins_root,
+            false => dir,
+        };
+        Home {
+            root: root.to_path_buf(),
+            dir: dir.to_path_buf(),
+        }
+    }
+
+    /// The file the skin calls `name`, from the folder `dir`; `None` for
+    /// one outside `root`, which is then not looked at (`vfs::within`).
+    fn file_from(&self, dir: &std::path::Path, name: &str) -> Option<PathBuf> {
+        crate::platform::vfs::within(&self.root, dir, name)
+    }
+
+    /// [`Home::file_from`] the skin's own folder.
+    fn file(&self, name: &str) -> Option<PathBuf> {
+        self.file_from(&self.dir, name)
+    }
+}
+
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
 /// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
 /// while it is built.
@@ -67,7 +105,7 @@ pub fn load_file(
     if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
         lr2::load_with(path, skins_root, user, static_option, image_size)
     } else {
-        beatoraja::load_with(path, user, state, image_size)
+        beatoraja::load_with(path, skins_root, user, state, image_size)
     }
 }
 
@@ -155,8 +193,8 @@ fn image_size_of(b: &[u8], p: &std::path::Path) -> Option<(u32, u32)> {
 }
 
 /// (type, name) of any supported skin file (cached: reading a Lua skin's
-/// header runs it).
-pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
+/// header runs it, with the files below `skins_root`).
+pub fn header(path: &std::path::Path, skins_root: &std::path::Path) -> Option<(SkinType, String)> {
     type Cache = HashMap<(PathBuf, (i64, i64)), Option<(SkinType, String)>>;
     static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
     let key = (path.to_path_buf(), crate::platform::vfs::stamp(path));
@@ -165,7 +203,7 @@ pub fn header(path: &std::path::Path) -> Option<(SkinType, String)> {
     }
     let h = match SkinFormat::of(path)? {
         SkinFormat::Lr2 => lr2::header(path),
-        SkinFormat::Beatoraja => beatoraja::header(path),
+        SkinFormat::Beatoraja => beatoraja::header(path, skins_root),
         SkinFormat::SoundSet => {
             crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0))
         }
@@ -214,9 +252,13 @@ impl Src {
         } else {
             now
         };
-        let n = self.frames.len() as i64;
-        let i = (t.max(0) * n / self.cycle) % n;
-        Some(self.frames[i as usize])
+        Some(self.frames[Src::step(t, self.frames.len(), self.cycle)])
+    }
+
+    /// Which of the `n` steps of an animation of `cycle` ms shows `t` ms
+    /// into it (a script's timer may put `t` anywhere an `i64` reaches).
+    pub fn step(t: i64, n: usize, cycle: i64) -> usize {
+        (t.max(0) as i128 * n as i128 / cycle as i128 % n as i128) as usize
     }
 }
 
@@ -823,10 +865,10 @@ pub struct CustomOffset {
 pub const OFFSET_FIELDS: [&str; 6] = ["X", "Y", "W", "H", "ANGLE", "ALPHA"];
 
 /// The adjustable offsets of a skin file.
-pub fn custom_offsets(path: &std::path::Path) -> Vec<CustomOffset> {
+pub fn custom_offsets(path: &std::path::Path, skins_root: &std::path::Path) -> Vec<CustomOffset> {
     match SkinFormat::of(path) {
         Some(SkinFormat::Lr2) => lr2::custom_offsets(path),
-        Some(SkinFormat::Beatoraja) => beatoraja::custom_offsets(path),
+        Some(SkinFormat::Beatoraja) => beatoraja::custom_offsets(path, skins_root),
         _ => Vec::new(),
     }
 }
@@ -854,10 +896,10 @@ impl CustomOption {
 }
 
 /// The custom options of a skin file, without building the skin.
-pub fn custom_options(path: &std::path::Path) -> Vec<CustomOption> {
+pub fn custom_options(path: &std::path::Path, skins_root: &std::path::Path) -> Vec<CustomOption> {
     match SkinFormat::of(path) {
-        Some(SkinFormat::Lr2) => lr2::custom_options(path),
-        Some(SkinFormat::Beatoraja) => beatoraja::custom_options(path),
+        Some(SkinFormat::Lr2) => lr2::custom_options(path, skins_root),
+        Some(SkinFormat::Beatoraja) => beatoraja::custom_options(path, skins_root),
         _ => Vec::new(),
     }
 }
@@ -1237,9 +1279,12 @@ mod tests {
              #CUSTOMOFFSET,Judge,10,1,1,0,0,0,1\n",
         )
         .unwrap();
-        assert_eq!(header(&p), Some((SkinType::Result, "CSV skin".into())));
-        assert_eq!(custom_options(&p).len(), 1);
-        assert_eq!(custom_offsets(&p).len(), 1);
+        assert_eq!(
+            header(&p, &dir),
+            Some((SkinType::Result, "CSV skin".into()))
+        );
+        assert_eq!(custom_options(&p, &dir).len(), 1);
+        assert_eq!(custom_offsets(&p, &dir).len(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1278,7 +1323,7 @@ mod tests {
             "#INFORMATION,0,S,me\n#CUSTOMOPTION,Lane,900,Dark,Light,Glow\n#CUSTOMOPTION,Judge,910,A,B\n",
         )
         .unwrap();
-        let opts = custom_options(&p);
+        let opts = custom_options(&p, &dir);
         assert_eq!(opts.len(), 2);
         assert_eq!(opts[0].ops, vec![900, 901, 902]);
         let mut chosen = std::collections::BTreeMap::new();
@@ -1292,7 +1337,8 @@ mod tests {
     #[test]
     fn custom_files_are_options() {
         let dir = std::env::temp_dir().join(format!("vibebms-cfile-{}", std::process::id()));
-        let theme = dir.join("MyTheme");
+        let skins = dir.join("skins");
+        let theme = skins.join("MyTheme");
         std::fs::create_dir_all(theme.join("play/bg")).unwrap();
         for f in ["a.png", "b.png", "c.png"] {
             std::fs::write(theme.join("play/bg").join(f), b"").unwrap();
@@ -1304,14 +1350,69 @@ mod tests {
             "#INFORMATION,0,S,me\n#CUSTOMFILE,Back,LR2files\\Theme\\Other\\play\\bg\\*.png,b\n",
         )
         .unwrap();
-        let opts = custom_options(&p);
+        let opts = custom_options(&p, &skins);
+        // another theme's files are choices; files outside the skins
+        // folder are not listed
+        for f in [
+            "skins/Shared/s.png",
+            "skins/Shared/t.png",
+            "Private/x.png",
+            "Private/y.png",
+        ] {
+            std::fs::create_dir_all(dir.join(f).parent().unwrap()).unwrap();
+            std::fs::write(dir.join(f), b"").unwrap();
+        }
+        std::fs::write(
+            &p,
+            "#INFORMATION,0,S,me\n#CUSTOMFILE,Shared,LR2files\\Theme\\Other\\play\\..\\..\\Shared\\*.png,s\n\
+             #CUSTOMFILE,Up,LR2files\\Theme\\Other\\play\\..\\..\\..\\Private\\*.png,x\n",
+        )
+        .unwrap();
+        let other = custom_options(&p, &skins);
         std::fs::remove_dir_all(&dir).ok();
+        let names: Vec<&str> = other.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["Shared"]);
+        assert_eq!(other[0].labels, vec!["s", "t"]);
         assert_eq!(opts.len(), 1);
         assert_eq!(opts[0].labels, vec!["a", "b", "c"]);
         assert_eq!(opts[0].default, 1);
         let mut chosen = std::collections::BTreeMap::new();
         chosen.insert("Back".to_string(), "c".to_string());
         assert_eq!(user_files(&opts, Some(&chosen))["Back"], "c");
+    }
+
+    /// A script's timer may be any number: one far in the past still
+    /// gives a frame of the animation.
+    #[test]
+    fn a_frame_for_any_timer() {
+        struct Far;
+        impl SkinState for Far {
+            fn timer(&self, _: i32) -> Option<i64> {
+                Some(i64::MIN / 1000 + 1000)
+            }
+            fn option(&self, _: i32) -> bool {
+                false
+            }
+            fn number(&self, _: i32) -> Option<i64> {
+                None
+            }
+            fn text(&self, _: i32) -> Option<String> {
+                None
+            }
+            fn rate(&self, _: i32) -> f32 {
+                0.0
+            }
+        }
+        let src = Src {
+            image: 0,
+            frames: Src::grid([0.0, 0.0, 1024.0, 1.0], 1024, 1),
+            cycle: 1000,
+            timer: 41,
+        };
+        assert!(src.frame(0, &Far).is_some());
+        assert_eq!(Src::step(1500, 4, 1000), 2);
+        assert_eq!(Src::step(-5, 4, 1000), 0);
+        assert!(Src::step(i64::MAX, 1024, 1) < 1024);
     }
 
     #[test]

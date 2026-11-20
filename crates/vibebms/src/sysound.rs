@@ -252,6 +252,9 @@ pub fn variants(set: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// The folders of the data root that sound sets are kept in.
+const SET_FOLDERS: [&str; 2] = ["sounds", "skins"];
+
 /// The sound sets in `<root>/sounds` and `<root>/skins`, by path.
 pub fn find_sets(root: &Path) -> Vec<SetInfo> {
     fn walk(d: &Path, depth: usize, out: &mut Vec<SetInfo>) {
@@ -293,7 +296,7 @@ pub fn find_sets(root: &Path) -> Vec<SetInfo> {
         }
     }
     let mut out = Vec::new();
-    for d in ["sounds", "skins"] {
+    for d in SET_FOLDERS {
         walk(&root.join(d), 0, &mut out);
     }
     out
@@ -323,7 +326,9 @@ pub fn set_info(path: &Path) -> Option<SetInfo> {
 
 /// Where an LR2 sound set's `LR2files\...` path is: next to the folder
 /// holding the set (LR2's own layout, `Sound\x.lr2ss` beside `Bgm\`), in
-/// `<root>/sounds`, or beside the set file.
+/// `<root>/sounds`, or beside the set file. A set's sounds are in the
+/// folders sets are kept in (`<root>/sounds`, `<root>/skins`): a path
+/// that leads out of them finds nothing.
 fn lr2_path(set: &Path, root: &Path, raw: &str) -> Option<PathBuf> {
     let s = raw.trim().replace('\\', "/");
     let rest = match s.to_ascii_lowercase().find("lr2files/") {
@@ -332,10 +337,14 @@ fn lr2_path(set: &Path, root: &Path, raw: &str) -> Option<PathBuf> {
     };
     let dir = set.parent()?;
     let tail = rest.split_once('/').map(|(_, t)| t.to_string());
-    let bases = [dir.parent(), Some(&root.join("sounds")), Some(dir)];
+    let homes = SET_FOLDERS.map(|d| root.join(d));
+    let bases = [dir.parent(), Some(&homes[0]), Some(dir)];
     for base in bases.into_iter().flatten() {
         for name in std::iter::once(&rest).chain(tail.as_ref()) {
-            let p = vfs::resolve_case(&base.join(name));
+            let Some(p) = homes.iter().find_map(|h| vfs::within(h, base, name)) else {
+                continue;
+            };
+            let p = vfs::resolve_case(&p);
             let (Some(d), Some(f)) = (p.parent(), p.file_name()) else {
                 continue;
             };
@@ -792,10 +801,18 @@ mod tests {
         std::fs::create_dir_all(snd.join("LR2/Sound")).unwrap();
         std::fs::create_dir_all(snd.join("LR2/Bgm/e2e")).unwrap();
         std::fs::write(snd.join("LR2/Bgm/e2e/select.wav"), b"x").unwrap();
+        // (files outside the folders sets are kept in are not a set's)
+        std::fs::write(root.join("secret.wav"), b"x").unwrap();
+        let secret = root.join("secret.wav");
         std::fs::write(
             snd.join("LR2/Sound/e2e.lr2ss"),
-            "#INFORMATION,10,E2E,me,\n#SELECT,LR2files\\Bgm\\e2e\\select.wav,\n\
-             #SELECT,LR2files\\Bgm\\other.wav,\n#DECIDE,LR2files\\Bgm\\e2e\\missing.wav,\n",
+            format!(
+                "#INFORMATION,10,E2E,me,\n#SELECT,LR2files\\Bgm\\e2e\\select.wav,\n\
+                 #SELECT,LR2files\\Bgm\\other.wav,\n#DECIDE,LR2files\\Bgm\\e2e\\missing.wav,\n\
+                 #DECIDE,..\\..\\secret.wav,\n#CLEAR,LR2files\\..\\..\\..\\secret.wav,\n\
+                 #FAIL,{},\n#STOP,\\\\host\\share\\a.wav,\n",
+                secret.display()
+            ),
         )
         .unwrap();
         let sets = find_sets(&root);
@@ -809,7 +826,7 @@ mod tests {
         assert!(raja[&(Sound::FolderOpen, Form::Plain)].ends_with("F-OPEN.wav"));
         let lr2 = set_files(&snd.join("LR2/Sound/e2e.lr2ss"), None, &root);
         // chosen like a skin of type 10
-        let h = crate::skin::header(&snd.join("LR2/Sound/e2e.lr2ss"));
+        let h = crate::skin::header(&snd.join("LR2/Sound/e2e.lr2ss"), &root.join("skins"));
         std::fs::remove_dir_all(&root).ok();
         assert_eq!(lr2.len(), 1);
         assert!(lr2[&(Sound::Select, Form::Plain)].ends_with("Bgm/e2e/select.wav"));

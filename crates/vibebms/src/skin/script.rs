@@ -9,7 +9,7 @@
 //! Scripts reach the game through beatoraja's `main_state`, `timer_util`
 //! and `event_util` modules (as globals in JSON skins).
 
-use super::SkinState;
+use super::{Home, SkinState};
 use std::collections::HashMap;
 
 /// First synthetic id of a script value.
@@ -449,41 +449,44 @@ package.loaded.io = io
     const IO_MAX_BYTES: i64 = 16 << 20;
 
     /// The file a skin script names (`require`, `dofile`, `io`), inside
-    /// the theme folder `root`. Paths are relative to the skin's folder or
+    /// `root` (the skins folder). Paths are relative to the skin's folder,
+    /// to one above it up to `root`, or
     /// to beatoraja's folder (`skin/<theme>/...`, whatever the theme
     /// folder is called here); `lua_only` admits Lua files only.
     fn resolve(dir: &Path, root: &Path, name: &str, lua_only: bool) -> Option<std::path::PathBuf> {
+        use crate::platform::vfs;
         let name = name.replace('\\', "/");
-        let p = Path::new(&name);
-        let mut cands = Vec::new();
-        cands.push(p.to_path_buf());
-        if !p.is_absolute() {
+        // (the folder a name is taken from, the name)
+        let mut cands = vec![(Path::new(""), name.as_str())];
+        if !Path::new(&name).is_absolute() {
             let tail = name
                 .get(..5)
                 .filter(|h| h.eq_ignore_ascii_case("skin/"))
                 .and_then(|_| name[5..].split_once('/'))
                 .map(|(_, t)| t);
             for a in dir.ancestors() {
-                cands.push(a.join(p));
+                cands.push((a, &name));
                 if let Some(t) = tail {
-                    cands.push(a.join(t));
+                    cands.push((a, t));
                 }
-                if crate::platform::vfs::normalize(a) == *root {
+                if vfs::normalize(a) == *root {
                     break;
                 }
             }
         }
         cands
             .into_iter()
-            .map(|c| crate::platform::vfs::resolve_case(&crate::platform::vfs::normalize(&c)))
-            .filter(|c| c.starts_with(root))
+            // a name that leads out of `root` is dropped before anything
+            // is looked for on the disk
+            .filter_map(|(from, name)| vfs::within(root, from, name))
+            .map(|c| vfs::resolve_case(&c))
             .filter(|c| {
                 !lua_only
                     || c.extension().is_some_and(|e| {
                         e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("luaskin")
                     })
             })
-            .find(|c| crate::platform::vfs::is_file(c) && really_inside(c, root))
+            .find(|c| vfs::is_file(c) && really_inside(c, root))
     }
 
     /// `path` is inside `root` once links are followed (a link in the skin
@@ -704,8 +707,8 @@ end
 
     impl Script {
         /// A Lua state with the skin modules; `global` also exposes them as
-        /// globals (JSON skins), `dir` is the skin's `require` path.
-        pub fn new(dir: &Path, global: bool) -> mlua::Result<Script> {
+        /// globals (JSON skins), `home` is where the skin's files are.
+        pub fn new(home: &Home, global: bool) -> mlua::Result<Script> {
             // no debug, and os / io as beatoraja restricts them (below):
             // scripts only reach what the skin modules give
             let libs = mlua::StdLib::COROUTINE
@@ -748,10 +751,10 @@ end
             let vb = lua.create_table()?;
             let frame = Rc::new(Frame::default());
             install(&lua, &vb, &frame)?;
-            // `require`, `dofile`, `loadfile` and `io` read files of the skin's theme
-            // folder (the parent of the skin file's folder) only
-            let root = crate::platform::vfs::normalize(dir.parent().unwrap_or(dir));
-            let base = dir.to_path_buf();
+            // `require`, `dofile`, `loadfile` and `io` read files below the
+            // skins folder only (`Home`)
+            let root = crate::platform::vfs::normalize(&home.root);
+            let base = home.dir.clone();
             let find = {
                 let (root, base) = (root.clone(), base.clone());
                 move |p: &str, lua_only: bool| resolve(&base, &root, p, lua_only)
@@ -1055,7 +1058,7 @@ end
     #[derive(Default)]
     pub struct Builder {
         script: Option<Script>,
-        dir: std::path::PathBuf,
+        home: Home,
         entries: Vec<Entry>,
         timers: Vec<(i32, Function)>,
         events: Vec<CustomEvent>,
@@ -1064,17 +1067,17 @@ end
     impl Builder {
         /// `script` = the Lua state a Lua skin ran in (JSON skins get one
         /// when they first use a script string).
-        pub fn new(script: Option<Script>, dir: &Path) -> Builder {
+        pub fn new(script: Option<Script>, home: &Home) -> Builder {
             Builder {
                 script,
-                dir: dir.to_path_buf(),
+                home: home.clone(),
                 ..Default::default()
             }
         }
 
         fn lua(&mut self) -> Option<&Script> {
             if self.script.is_none() {
-                match Script::new(&self.dir, true) {
+                match Script::new(&self.home, true) {
                     Ok(s) => self.script = Some(s),
                     Err(e) => {
                         log::warn!("skin script: {e}");
@@ -1325,8 +1328,13 @@ end
     mod tests {
         use super::*;
 
+        /// The home of a skin in `dir`, a folder of the skins folder.
+        fn home(dir: &Path) -> Home {
+            Home::of(&dir.join("s.luaskin"), dir.parent().unwrap())
+        }
+
         fn eval<T: mlua::FromLuaMulti>(code: &str) -> mlua::Result<T> {
-            let s = Script::new(Path::new("/nonexistent/theme/skin"), true).unwrap();
+            let s = Script::new(&home(Path::new("/nonexistent/theme/skin")), true).unwrap();
             s.lua().load(code).eval::<T>()
         }
 
@@ -1372,7 +1380,7 @@ end
             std::fs::write(dir.join("secret.txt"), "secret").unwrap();
             std::fs::write(skin.join("own.txt"), "own").unwrap();
             std::os::unix::fs::symlink(dir.join("secret.txt"), skin.join("link.txt")).unwrap();
-            let s = Script::new(&skin, true).unwrap();
+            let s = Script::new(&home(&skin), true).unwrap();
             let read = |name: &str| -> Option<String> {
                 let code = format!(r#"local f = io.open("{name}") return f and f:read("a")"#);
                 s.lua().load(code).eval().unwrap()
@@ -1380,6 +1388,52 @@ end
             assert_eq!(read("own.txt").as_deref(), Some("own"));
             assert_eq!(read("link.txt"), None);
             std::fs::remove_dir_all(&dir).ok();
+        }
+
+        /// What a script names is looked for from the skin's folder up to
+        /// the skins folder, and beatoraja's `skin/<theme>/...` in the
+        /// folders on that way, for a skin in a theme's folder or in a
+        /// folder of it; nothing above the skins folder is found.
+        #[test]
+        fn script_files_are_found_up_to_the_skins_folder() {
+            let root =
+                std::env::temp_dir().join(format!("vibebms-lua-find-{}", std::process::id()));
+            let skins = root.join("skins");
+            let files = [
+                "skins/T/lib.lua",
+                "skins/T/sub/own.lua",
+                "skins/Shared/s.lua",
+            ];
+            for f in files.into_iter().chain(["config/c.lua"]) {
+                std::fs::create_dir_all(root.join(f).parent().unwrap()).unwrap();
+                std::fs::write(root.join(f), "return 1").unwrap();
+            }
+            let [lib, own, shared] = files.map(|f| root.join(f));
+            let outside = root.join("config/c.lua");
+            let find = |dir: &str, name: &str| resolve(&skins.join(dir), &skins, name, true);
+            for dir in ["T", "T/sub"] {
+                assert_eq!(find(dir, "lib.lua").as_ref(), Some(&lib), "{dir}");
+                assert_eq!(find(dir, "skin/Any/lib.lua").as_ref(), Some(&lib), "{dir}");
+                assert_eq!(
+                    find(dir, "skin/Any/sub/own.lua").as_ref(),
+                    Some(&own),
+                    "{dir}"
+                );
+                assert_eq!(find(dir, "sub\\own.lua").as_ref(), Some(&own), "{dir}");
+                assert_eq!(find(dir, "Shared/s.lua").as_ref(), Some(&shared), "{dir}");
+                assert_eq!(find(dir, shared.to_str().unwrap()).as_ref(), Some(&shared));
+                assert_eq!(find(dir, outside.to_str().unwrap()), None, "{dir}");
+                assert_eq!(find(dir, "config/c.lua"), None, "{dir}");
+                assert_eq!(find(dir, "\\\\host\\share\\c.lua"), None, "{dir}");
+            }
+            assert_eq!(find("T", "../Shared/s.lua").as_ref(), Some(&shared));
+            assert_eq!(find("T", "../../config/c.lua"), None);
+            assert_eq!(find("T/sub", "own.lua").as_ref(), Some(&own));
+            assert_eq!(find("T/sub", "../../../config/c.lua"), None);
+            // a skin file in the skins folder itself
+            assert_eq!(find("", "T/lib.lua").as_ref(), Some(&lib));
+            assert_eq!(find("", "../config/c.lua"), None);
+            std::fs::remove_dir_all(&root).ok();
         }
 
         struct St;
@@ -1403,7 +1457,7 @@ end
 
         #[test]
         fn state_functions_answer_from_the_state_only_while_it_is_given() {
-            let s = Script::new(Path::new("/nonexistent/theme/skin"), true).unwrap();
+            let s = Script::new(&home(Path::new("/nonexistent/theme/skin")), true).unwrap();
             type Seen = (i64, bool, String, i64, Option<i64>, LV);
             let read = || -> mlua::Result<Seen> {
                 let code =
@@ -1426,12 +1480,12 @@ end
         #[test]
         fn values_run_when_read_and_timers_every_frame() {
             let dir = Path::new("/nonexistent/theme/skin");
-            let s = Script::new(dir, true).unwrap();
+            let s = Script::new(&home(dir), true).unwrap();
             s.lua()
                 .load("calls, ticks = 0, 0 function count() calls = calls + 1 return calls end")
                 .exec()
                 .unwrap();
-            let mut b = Builder::new(Some(s), dir);
+            let mut b = Builder::new(Some(s), &home(dir));
             let s = |code: &str| Value::String(code.into());
             let counted = b.register(&s("count()"), ScriptKind::Int).unwrap();
             let timer = b.register(&s("timer(900)"), ScriptKind::Int).unwrap();

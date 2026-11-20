@@ -164,7 +164,7 @@ pub fn choice_name(ctx: &Ctx, kind: SkinType, value: &str) -> (String, String) {
             return (s.name, s.author);
         }
     }
-    let name = crate::skin::header(&p)
+    let name = crate::skin::header(&p, &ctx.paths.skins)
         .map(|h| h.1)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| {

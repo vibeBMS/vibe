@@ -768,7 +768,7 @@ impl App {
         // tests: open the download browser on this page at start
         #[cfg(not(target_arch = "wasm32"))]
         if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
-            ctx.net.browse = Some(vec![url]);
+            ctx.net.browse(vec![url]);
         }
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);
@@ -954,7 +954,7 @@ impl ApplicationHandler<UserEvent> for App {
         r.web_touches(el);
         #[cfg(desktop)]
         r.check_minimized(Instant::now());
-        if let Some(pages) = r.ctx.net.browse.take() {
+        if let Some(pages) = r.ctx.net.take_pages() {
             r.downloads.browse(el, &r.window, &mut r.ctx, pages);
         }
         r.downloads.poll(&mut r.ctx);

@@ -3,7 +3,8 @@
 What vibeBMS reads of LR2 and beatoraja skins, the built-in skins, the skin catalog, sound sets, and the ids vibeBMS
 adds for skin authors. Choosing and setting skins is in [MANUAL.md](MANUAL.md), "Skins and sound sets".
 
-Contents: [Built-in skins](#built-in-skins) · [Touch perspective](#touch-perspective) · [LR2 skins](#lr2-skins) ·
+Contents: [Built-in skins](#built-in-skins) · [Touch perspective](#touch-perspective) ·
+[Files a skin reads](#files-a-skin-reads) · [LR2 skins](#lr2-skins) ·
 [beatoraja skins](#beatoraja-skins) · [Battle skins](#battle-skins) ·
 [Key config and skin select screens](#key-config-and-skin-select-screens) · [Player totals](#player-totals) ·
 [Skin catalog](#skin-catalog) · [Sound sets](#sound-sets) · [vibeBMS extensions](#vibebms-extensions)
@@ -46,6 +47,14 @@ seen in perspective, narrow at the far end and wider toward the judge line, note
   the added width or height they move and grow by. `"perspective": true` makes the game draw the note field as fans.
   A skin's options with ops 960-964 set the touch zones' opacity (0, 25, 50, 75, 100 %); a skin without them draws
   them at the touch controls' opacity.
+
+## Files a skin reads
+
+A skin of any format reads files below `skins/` only, its own theme's or another's: images, fonts and their textures
+or pages, `#INCLUDE` / `include`, `#CUSTOMFILE` / `filepath` choices, and what a Lua script opens, loads or asks
+`skin_config.get_path` for. `..` and a full path work while they stay below `skins/`; a path that leads out of it
+(also a drive or network path) is as a missing file. A sound set's `.lr2ss` likewise finds its sounds below `sounds/`
+and `skins/` only.
 
 ## LR2 skins
 
@@ -153,6 +162,8 @@ A sound set is the song select music, the decide jingle, folder and option click
 of beatoraja's sound files (`select.wav`, `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio
 format) or an LR2 sound set (`.lr2ss`), under `sounds/` or `skins/`.
 
+- An `.lr2ss` names its sounds by LR2's paths (`LR2files\Bgm\…`): they are looked for beside the folder holding the
+  set, in `sounds/` and beside the set ([Files a skin reads](#files-a-skin-reads)).
 - A screen's music (the select music, the result's) is decoded each time it starts and let go when it stops; the
   other sounds stay decoded.
 - The select music, the decide jingle and `.loop` music are normalised to the loudness target when

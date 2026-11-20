@@ -9,7 +9,7 @@ pub(super) struct Ctx<'a> {
     pub sk: &'a Value,
     /// `.fnt` fonts read so far (index in the skin's fonts).
     bitmap_fonts: HashMap<PathBuf, Option<usize>>,
-    dir: &'a Path,
+    home: &'a Home,
     fps: &'a [FilePath],
     files: &'a HashMap<String, String>,
     pub h: f32,
@@ -21,11 +21,11 @@ pub(super) struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    /// The skin `sk` read from `dir`, its sources listed (a `filepath`
-    /// customisation: the file chosen for its wildcard).
+    /// The skin `sk` whose files are at `home`, its sources listed (a
+    /// `filepath` customisation: the file chosen for its wildcard).
     pub fn new(
         sk: &'a Value,
-        dir: &'a Path,
+        home: &'a Home,
         fps: &'a [FilePath],
         files: &'a HashMap<String, String>,
         image_size: &'a dyn Fn(&Path) -> Option<(u32, u32)>,
@@ -34,7 +34,7 @@ impl<'a> Ctx<'a> {
         let mut cx = Ctx {
             sk,
             bitmap_fonts: HashMap::new(),
-            dir,
+            home,
             fps,
             files,
             h: i(sk, "h", 720) as f32,
@@ -44,9 +44,9 @@ impl<'a> Ctx<'a> {
             scripts: RefCell::new(scripts),
         };
         for src in arr(sk.get("source")) {
-            let p = skin_path(dir, fps, files, s(src, "path"));
+            let p = skin_path(home, fps, files, s(src, "path"));
             cx.source_index.insert(id_of(src), cx.images.len());
-            cx.images.push(Some(p));
+            cx.images.push(p);
         }
         cx
     }
@@ -184,7 +184,7 @@ impl<'a> Ctx<'a> {
     /// in `fonts`, its page images added to the skin's images.
     pub(super) fn bitmap_font(&mut self, t: &Value, fonts: &mut Vec<BitmapFont>) -> Option<usize> {
         let f = self.find("font", &key(t.get("font")?)?)?;
-        let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
+        let p = skin_path(self.home, self.fps, self.files, s(f, "path"))?;
         if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fnt")) {
             return None;
         }
@@ -193,7 +193,7 @@ impl<'a> Ctx<'a> {
         }
         // types 1 and 2 are distance fields
         let sdf = matches!(i(f, "type", 0), 1 | 2);
-        let font = load_bmfont(&p).map(|(mut font, pages)| {
+        let font = load_bmfont(&p, self.home).map(|(mut font, pages)| {
             font.sdf = sdf;
             let base = self.images.len();
             for page in pages {
@@ -214,7 +214,7 @@ impl<'a> Ctx<'a> {
     /// skin's `font` list); bitmap fonts are not drawn with.
     pub(super) fn face(&self, t: &Value) -> Option<PathBuf> {
         let f = self.find("font", &key(t.get("font")?)?)?;
-        let p = skin_path(self.dir, self.fps, self.files, s(f, "path"));
+        let p = skin_path(self.home, self.fps, self.files, s(f, "path"))?;
         let ext = p
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())

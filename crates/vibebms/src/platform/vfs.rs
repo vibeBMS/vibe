@@ -862,6 +862,34 @@ pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
     ok.then(|| dir.join(rel))
 }
 
+/// `name` (a file a skin or a sound set names, from `base`) when it is
+/// below `root`: `..` is resolved without looking at the file system, and
+/// a path that ends outside `root` (an absolute one, a drive or network
+/// path, `..` past it) gives `None`, so that it is never opened or listed.
+/// Unlike [`inside`], `..` that stays below `root` and a full path into it
+/// are taken: skins name `../parts/x.png`, and scripts get full paths.
+pub fn within(root: &Path, base: &Path, name: &str) -> Option<PathBuf> {
+    // (strict where `normalize` is not: `..` past the start is no path)
+    fn plain(p: &Path) -> Option<PathBuf> {
+        use std::path::Component;
+        let mut out = PathBuf::new();
+        for c in p.components() {
+            match c {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !out.pop() {
+                        return None;
+                    }
+                }
+                c => out.push(c),
+            }
+        }
+        Some(out)
+    }
+    let p = plain(&base.join(name.replace('\\', "/")))?;
+    p.starts_with(plain(root)?).then_some(p)
+}
+
 /// Find a file in `dir` whose stem matches `name`'s stem (case-insensitive),
 /// preferring extensions in `exts` order. Used for BMS-style references like
 /// `a.wav` that ship as `a.ogg`. For many lookups in one folder, use [`DirIndex`].
@@ -1019,6 +1047,32 @@ mod tests {
             assert_eq!(inside(dir, bad), None, "{bad}");
         }
         assert_eq!(normalize(Path::new("/a/b/../c/./d")), Path::new("/a/c/d"));
+    }
+
+    #[test]
+    fn skin_files_stay_below_their_root() {
+        let (root, base) = (Path::new("/skins/t"), Path::new("/skins/t/play"));
+        let at = |name| within(root, base, name);
+        assert_eq!(at("img\\x.png"), Some(root.join("play/img/x.png")));
+        assert_eq!(at("../parts/./x.png"), Some(root.join("parts/x.png")));
+        assert_eq!(at("/skins/t/a.png"), Some(root.join("a.png")));
+        assert_eq!(at("../../t/a.png"), Some(root.join("a.png")));
+        for bad in [
+            "../../other/x.png",
+            "../../../config/config.toml",
+            "/etc/passwd",
+            "\\\\host\\share\\a.json",
+            "//host/share/a.json",
+            "../../../../../../../../skins/t/a.png",
+            "/skins/t2/a.png",
+        ] {
+            assert_eq!(at(bad), None, "{bad}");
+        }
+        // a root that is no full path: `..` cannot climb past its start
+        let rel = Path::new("skins/t");
+        assert_eq!(within(rel, rel, "x/../a.png"), Some(rel.join("a.png")));
+        assert_eq!(within(rel, rel, "../../../skins/t/a.png"), None);
+        assert_eq!(within(rel, rel, "/skins/t/a.png"), None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
