@@ -496,8 +496,9 @@ files only through `tools/build_release.sh`. Both are moved for you:
 - the **Toolchain pins** workflow (`.github/workflows/toolchain-pins.yml`, weekly, or Actions > Run workflow) updates
   `tools/repro.env`: the newest GA macOS and Windows runner labels (from actions/runner-images), the Xcode
   releases, side-by-side MSVC toolsets and Windows SDKs on the pinned and newest images (looked up on the runners,
-  the newest checked as `tools/toolchain.sh` selects it), the Android tools from their registries and, in the first
-  week of a month (or with the `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` and
+  the newest checked as `tools/toolchain.sh` selects it), the Android tools (NDK, cargo-ndk, JDK, Gradle,
+  build-tools) from their registries, libdmg-hfsplus's newest commit and, in the first week of a month (or with the
+  `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` (the packages of the `*_PACKAGES` lists) and
   `tools/linux-arm64.lock` resolved again in its image. `tools/repro_pins.py` splits the changes
   into two pull requests, each one commit that changes only pins, on which the workflow dispatches CI (a pull request
   made with `GITHUB_TOKEN` starts none, and its pull request's CI waits for a person's approval):

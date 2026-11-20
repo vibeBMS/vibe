@@ -1,8 +1,9 @@
 # Keeps the pins of tools/repro.env current that Dependabot cannot read
 # (docs/BUILDING.md, "Reproducible builds"): the macOS and Windows runner
 # labels, Xcode, the MSVC toolset and the Windows SDK (looked up on the
-# runners), the Android tools (their registries) and, in the first week of a
-# month or when asked, the container images' digests and UBUNTU_SNAPSHOT.
+# runners), the Android tools (their registries), libdmg-hfsplus's commit and,
+# in the first week of a month or when asked, the container images' digests
+# and UBUNTU_SNAPSHOT (which moves the packages of the *_PACKAGES lists).
 # Rust is Dependabot's (rust-toolchain.toml).
 #
 # What it finds goes into at most two pull requests, each one commit on the
@@ -194,17 +195,20 @@ jobs:
             j="${JAVA_VERSION%%.*}"
             echo "JAVA_VERSION=$(get "https://api.adoptium.net/v3/info/release_versions?release_type=ga&vendor=eclipse&sort_order=DESC&page_size=1&version=%5B$j%2C$((j + 1))%29" |
               jq -r '.versions[0] | "\(.major).\(.minor).\(.security)"')"
-            # the newest NDK on sdkmanager's stable channel
+            # the newest NDK and build-tools on sdkmanager's stable channel
             get -o repo.xml https://dl.google.com/android/repository/repository2-3.xml
             python3 -I - repo.xml <<'EOF'
           import re, sys, xml.etree.ElementTree as ET
           root = ET.parse(sys.argv[1]).getroot()
           stable = {c.get("id") for c in root.iter("channel") if c.text == "stable"}
-          v = [p.get("path")[4:] for p in root.iter("remotePackage") if p.get("path", "").startswith("ndk;")
-               and p.find("channelRef") is not None and p.find("channelRef").get("ref") in stable]
-          v = [x for x in v if re.fullmatch(r"[\d.]+", x)]
-          print("NDK_VERSION=" + (max(v, key=lambda x: [int(n) for n in x.split(".")]) if v else ""))
+          for pin, pkg in (("NDK_VERSION", "ndk;"), ("BUILD_TOOLS_VERSION", "build-tools;")):
+              v = [p.get("path")[len(pkg):] for p in root.iter("remotePackage") if p.get("path", "").startswith(pkg)
+                   and p.find("channelRef") is not None and p.find("channelRef").get("ref") in stable]
+              v = [x for x in v if re.fullmatch(r"[\d.]+", x)]
+              print(f"{pin}=" + (max(v, key=lambda x: [int(n) for n in x.split(".")]) if v else ""))
           EOF
+            # libdmg-hfsplus (the .dmg): its default branch's newest commit
+            echo "LIBDMG_HFSPLUS_COMMIT=$(git ls-remote https://github.com/mozilla/libdmg-hfsplus HEAD | cut -f1)"
           } > facts.txt
           # an image's newest digest: <repository>[:<tag>] <amd64|arm64|index>
           # (Docker Hub's API for Docker Hub, Quay's for quay.io)

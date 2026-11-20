@@ -13,11 +13,13 @@ choose: <facts> has "<name>=<value>" lines, what the workflow found:
                                  components, e.g. 14.44.17.14) and Windows
                                  SDKs on it
   <PIN>=<value>                  a new value for any other pin (an image's
-                                 digest, UBUNTU_SNAPSHOT, the Android tools)
+                                 digest, UBUNTU_SNAPSHOT, the Android tools,
+                                 LIBDMG_HFSPLUS_COMMIT)
 It writes two copies of <repro.env>: <update out> with the changes that are
 merged once CI passes (newer tools on the same runner labels, the same Xcode
 major), <major out> with those held for a person (a new runner label and its
-tools, a new major version of Xcode, the NDK, cargo-ndk, the JDK or Gradle).
+tools, a new major version of Xcode, the NDK, cargo-ndk, the JDK, Gradle or
+the build-tools).
 Each says what it changes on stdout.
 
 check: whether <head> changes only the values of pins (no other line), and
@@ -31,12 +33,15 @@ import sys
 
 LABELS = {"MACOS_RUNNER", "WINDOWS_RUNNER"}
 # a change of the first number waits for a person
-MAJOR = {"XCODE_VERSION", "NDK_VERSION", "CARGO_NDK_VERSION", "JAVA_VERSION", "GRADLE_VERSION"}
+MAJOR = {"XCODE_VERSION", "NDK_VERSION", "CARGO_NDK_VERSION", "JAVA_VERSION", "GRADLE_VERSION",
+         "BUILD_TOOLS_VERSION"}
 # versions that only move forward
 VERSIONS = MAJOR | {"MSVC_COMPONENT", "WINDOWS_SDK", "UBUNTU_SNAPSHOT"}
 # images: the digest moves, the repository and tag stay
 IMAGES = {"LINUX_IMAGE_X64", "LINUX_IMAGE_ARM64", "PORTABLE_IMAGE_X64", "PORTABLE_IMAGE_ARM64", "WEB_IMAGE"}
-MOVED = LABELS | VERSIONS | IMAGES
+# commits of a repository built from source: any other full commit
+COMMITS = {"LIBDMG_HFSPLUS_COMMIT"}
+MOVED = LABELS | VERSIONS | IMAGES | COMMITS
 
 LINE = re.compile(r'^([A-Z][A-Z0-9_]*)=(.*)$')
 
@@ -78,6 +83,8 @@ def held(key, old, new):
         return f"{key}: a new major version ({old} -> {new})"
     if key in IMAGES and old.split("@")[0] != new.split("@")[0]:
         return f"{key}: another image, not another digest ({old} -> {new})"
+    if key in COMMITS and not re.fullmatch(r"[0-9a-f]{40}", new):
+        return f"{key}: not a commit ({old} -> {new})"
     return None
 
 
