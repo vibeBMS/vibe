@@ -80,6 +80,12 @@ impl bmseeker::fs::Store for Vfs {
     fn create_dir_all(&self, p: &Path) {
         let _ = crate::platform::vfs::create_dir_all(p);
     }
+    /// Made exclusively, for its owner only (a web page's storage has no
+    /// other user: there, the check before it is made does).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn create_new_dir(&self, p: &Path) -> std::io::Result<()> {
+        bmseeker::fs::Store::create_new_dir(&bmseeker::fs::Disk, p)
+    }
     #[cfg(not(target_arch = "wasm32"))]
     fn copy(&self, from: &Path, to: &Path) -> std::io::Result<()> {
         bmseeker::fs::Store::copy(&bmseeker::fs::Disk, from, to)
@@ -169,5 +175,26 @@ mod tests {
         assert!(Vfs.keeps_times());
         bmseeker::fs::Store::remove_dir(&Vfs, &d);
         assert!(!d.exists());
+    }
+
+    /// A folder a download is staged in is made new, never one that was
+    /// there first (nor a link to one).
+    #[cfg(unix)]
+    #[test]
+    fn a_new_folder_is_made_new() {
+        use bmseeker::fs::Store;
+        let d = std::env::temp_dir().join(format!("vibebms-vfs-new-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let stage = d.join("downloads/.take-x");
+        Vfs.create_new_dir(&stage).unwrap();
+        assert!(stage.is_dir());
+        let e = Vfs.create_new_dir(&stage).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+        let link = d.join("downloads/.take-y");
+        std::os::unix::fs::symlink(d.join("elsewhere"), &link).unwrap();
+        let e = Vfs.create_new_dir(&link).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(!d.join("elsewhere").exists());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
