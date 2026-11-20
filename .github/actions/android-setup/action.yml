@@ -74,7 +74,7 @@ runs:
         key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.gradle }}-${{ hashFiles(format('{0}/platform/android/**/*.gradle.kts', inputs.path), format('{0}/platform/android/gradle.properties', inputs.path)) }}
         restore-keys: gradle-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.gradle }}-
     - if: inputs.tools == 'apk'
-      uses: gradle/actions/setup-gradle@v5
+      uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
       with:
         gradle-version: ${{ steps.pins.outputs.gradle }}
         cache-disabled: true
