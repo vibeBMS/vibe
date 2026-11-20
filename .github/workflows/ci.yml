@@ -183,7 +183,7 @@ jobs:
       # the NDK and cargo-ndk the APK is built with
       - uses: ./.github/actions/android-setup
         with:
-          java: "false"
+          tools: ndk
       - run: cargo ndk -t arm64-v8a --platform 26 clippy -p vibebms -p vibebms-android -- -D warnings
 
   # each Linux executable with the in-app browser, then the same executable as
@@ -561,7 +561,7 @@ jobs:
   # replaces the whole site with the default branch's web build, once every
   # build of the commit has passed (the site and the nightly then agree)
   pages:
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web]
     if: ${{ !failure() && !cancelled() && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     permissions:
@@ -599,15 +599,11 @@ jobs:
           name: vibeBMS-ios-unsigned
           path: out/vibeBMS-unsigned.ipa
 
+  # the APK, unsigned: this job has no key (android-sign signs it)
   android:
     name: build android (experimental)
     needs: [test, pins]
     runs-on: ubuntu-latest
-    outputs:
-      # "repository" (ANDROID_KEYSTORE) or "throwaway": the nightly job
-      # publishes the F-Droid repository only for the first, as an APK signed
-      # by another key cannot update the installed one
-      signing: ${{ steps.key.outputs.signing }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
@@ -616,36 +612,78 @@ jobs:
           cache-key: android-${{ needs.pins.outputs.key-android }}
       # the NDK, cargo-ndk, the JDK and Gradle of tools/repro.env
       - uses: ./.github/actions/android-setup
-      # release APKs must be signed: with the repository's key when its
-      # secrets hold one (base64 keystore + password), else a throwaway key
-      # (the APK installs, but cannot update one signed by another key)
-      - name: signing key
-        id: key
+      # the Rust library into the Gradle project, then the APK (versionCode:
+      # the run number; versionName: the version)
+      - run: tools/build_release.sh android out
+      # (not named vibeBMS-*: it is no download, and the nightly job takes
+      # the signed one)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-unsigned
+          path: out/vibeBMS-unsigned.apk
+          retention-days: 7
+
+  # the APK signed, in a job of its own: the key is never where the build's
+  # tools run (cargo and the crates' build scripts, Gradle and its plugins),
+  # only beside the pinned build-tools' apksigner and apksigcopier
+  # (tools/build_release.sh sign). Release APKs must be signed: with the
+  # repository's key (the secrets ANDROID_KEYSTORE, the keystore in base64,
+  # and ANDROID_KEYSTORE_PASSWORD) in a run of the default branch that is not
+  # a pull request's, which alone has the `release` environment (docs/BUILDING.md,
+  # "Android signing": the secrets can be the environment's, which other
+  # branches cannot use); else with a throwaway key (the APK installs, but
+  # cannot update one signed by another key)
+  android-sign:
+    name: sign android
+    needs: android
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'release' || '' }}
+    env:
+      OWN_KEY: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    outputs:
+      # "repository" (ANDROID_KEYSTORE) or "throwaway": the nightly job
+      # publishes the F-Droid repository only for the first, as an APK signed
+      # by another key cannot update the installed one
+      signing: ${{ steps.sign.outputs.signing }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            .github/actions
+      - uses: ./.github/actions/android-setup
+        with:
+          tools: sign
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-unsigned
+          path: unsigned
+      # the keystore is there for this step alone, and its password in no
+      # other step's environment
+      - name: sign
+        id: sign
         shell: bash
         env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_B64: ${{ env.OWN_KEY == 'true' && secrets.ANDROID_KEYSTORE || '' }}
+          KEYSTORE_PASSWORD: ${{ env.OWN_KEY == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
         run: |
           ks="$RUNNER_TEMP/release.keystore"
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > "$ks"
-            pass="$KEYSTORE_PASSWORD"
             echo "signing=repository" >> "$GITHUB_OUTPUT"
           else
-            pass="$(openssl rand -hex 16)"
-            keytool -genkeypair -keystore "$ks" -storepass "$pass" -keypass "$pass" -alias vibebms \
-              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=vibeBMS"
+            KEYSTORE_PASSWORD="$(openssl rand -hex 16)"
+            echo "::add-mask::$KEYSTORE_PASSWORD"
+            keytool -genkeypair -keystore "$ks" -storepass:env KEYSTORE_PASSWORD -keypass:env KEYSTORE_PASSWORD \
+              -alias vibebms -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=vibeBMS"
             echo "signing=throwaway" >> "$GITHUB_OUTPUT"
           fi
-          echo "::add-mask::$pass"
           # the key's alias (a keystore made for cargo-apk has one key)
-          alias="$(keytool -list -keystore "$ks" -storepass "$pass" | grep -m1 PrivateKeyEntry | cut -d, -f1)"
-          echo "VIBEBMS_KEYSTORE=$ks" >> "$GITHUB_ENV"
-          echo "VIBEBMS_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
-          echo "VIBEBMS_KEY_ALIAS=$alias" >> "$GITHUB_ENV"
-      # the Rust library into the Gradle project, then the APK (versionCode:
-      # the run number; versionName: the version)
-      - run: tools/build_release.sh android out
+          alias="$(keytool -list -keystore "$ks" -storepass:env KEYSTORE_PASSWORD | grep -m1 PrivateKeyEntry | cut -d, -f1)"
+          VIBEBMS_KEYSTORE="$ks" VIBEBMS_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" VIBEBMS_KEY_ALIAS="$alias" \
+            tools/build_release.sh sign unsigned/vibeBMS-unsigned.apk out
+          rm "$ks"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-android
@@ -660,9 +698,11 @@ jobs:
   # commits that skip CI)
   nightly:
     name: downloads & nightly
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web]
     if: always()
     runs-on: ubuntu-latest
+    # (the F-Droid repository's key, as android-sign's)
+    environment: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'release' || '' }}
     env:
       # released only when every build passed (the Flatpaks included); the
       # downloads summary is written either way
@@ -889,7 +929,7 @@ jobs:
         if: env.RELEASE == 'true'
         continue-on-error: true
         env:
-          APK_SIGNING: ${{ needs.android.outputs.signing }}
+          APK_SIGNING: ${{ needs.android-sign.outputs.signing }}
           FDROID_KS_B64: ${{ secrets.FDROID_KEYSTORE }}
           FDROID_KS_PASS: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
           ANDROID_KS_B64: ${{ secrets.ANDROID_KEYSTORE }}

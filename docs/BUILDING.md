@@ -60,8 +60,9 @@ cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs b
 gradle -p platform/android assembleRelease    # Gradle 9.6+; or open platform/android in Android Studio
 ```
 The release APK is built unsigned (`platform/android/app/build/outputs/apk/release/app-release-unsigned.apk`):
-`tools/build_release.sh android <out dir>` signs it with apksigner when `VIBEBMS_KEYSTORE` /
-`VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS` are set (see Android signing). To install one built by hand, sign it
+`tools/build_release.sh sign <unsigned apk> <out dir>` signs it with apksigner and the key of `VIBEBMS_KEYSTORE` /
+`VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS` (see Android signing), and `tools/build_release.sh android <out dir>`
+does so after building when they are set. To install one built by hand, sign it
 with any key, e.g. the debug key: `apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out
 vibeBMS.apk app-release-unsigned.apk`, or build `assembleDebug`.
 Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over USB); the nightly APK is its own app,
@@ -222,11 +223,26 @@ not have.
 ## Android signing
 CI signs the release APK with the repository's key when the secrets `ANDROID_KEYSTORE` (the keystore, base64) and
 `ANDROID_KEYSTORE_PASSWORD` (its password, also the key's) are set, else with a key made for the run, which installs
-but cannot update an APK signed by another. Gradle builds the APK unsigned and `tools/build_release.sh` signs it with
+but cannot update an APK signed by another. Only a run of the default branch that is not a pull request's signs with
+the repository's key; every other run (pull requests, other branches, the runs the Toolchain pins workflow starts on
+its branches) signs with a key made for the run.
+
+The key is kept away from the build. CI's `android` job builds the unsigned APK and has no secret: what runs there
+(cargo and every crate's build script, cargo-ndk, Gradle and its plugins) could read anything in the job. The
+`android-sign` job takes that APK as an artifact and signs it (`tools/build_release.sh sign`), with the JDK, the
+pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job and
+the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
+the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
+the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
+`FDROID_KEYSTORE_PASSWORD`) as the environment's secrets and delete the repository's. A run of any other branch,
+whatever its workflow file says, then cannot read them. (Until then the environment is an empty one GitHub makes on
+first use, and the repository's secrets are used.) No reviewers or wait timer: each would hold every nightly.
+
+Gradle builds the APK unsigned and `tools/build_release.sh sign` signs it with
 the pinned build-tools' apksigner (`BUILD_TOOLS_VERSION`), with APK Signature Scheme v2 alone, as the Android Gradle
 plugin signed it before (v1 is needed only before Android 7; the APK's `minSdk` is 26, Android 8.0), keeping the entries as they
 are (`--alignment-preserved`): the signed APK is the unsigned one with the APK Signing Block put before its central
-directory, so a rebuild with the release's signature copied onto it is the release (Reproducible builds; the build
+directory, so a rebuild with the release's signature copied onto it is the release (Reproducible builds; the signing
 checks it with apksigcopier). The APK carries no dependency list in that block (`dependenciesInfo`: it is encrypted
 for Google Play). Make the keystore once and keep it: an APK signed by a new key cannot
 update the installed app (it has to be uninstalled, with its data).

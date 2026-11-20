@@ -4,6 +4,9 @@
 # "Reproducible builds"). CI's build jobs and tools/reproduce.sh run it.
 #
 #   tools/build_release.sh <artifact> [<out dir>]
+#   tools/build_release.sh sign <unsigned apk> <out dir>
+#                                              sign the APK the android build made,
+#                                              as <out dir>/vibeBMS.apk
 #   tools/build_release.sh zip <zip> <dir>     zip a folder, the same bytes anywhere
 #   tools/build_release.sh entries <file> [<name>]
 #                                              the SHA-256 of each file in an APK,
@@ -18,8 +21,9 @@
 #   windows-arm64                                       vibebms-windows-arm64.exe
 #   macos                 arm64 and x86_64              vibebms-macos-arm64, -x64
 #   ios                   the unsigned app              vibeBMS-unsigned.ipa
-#   android               the APK (unsigned, and signed vibeBMS.apk
-#                         with VIBEBMS_KEYSTORE)
+#   android               the APK, unsigned (signed     vibeBMS.apk
+#                         by `sign`, or here when
+#                         VIBEBMS_KEYSTORE is set)
 #   web                   web/ (pkg/, the CJK fonts)    vibeBMS-web.zip
 #
 # Executables stay where cargo puts them (target/<triple>/release/) and the web
@@ -117,8 +121,54 @@ with zipfile.ZipFile(f) as z:
 PY
 }
 
+# the pinned build-tools (zipalign, apksigner) of the Android SDK
+build_tools() {
+  local bt="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/$BUILD_TOOLS_VERSION"
+  [ -x "$bt/apksigner" ] || die "no build-tools $BUILD_TOOLS_VERSION in the Android SDK (tools/repro.env): $bt"
+  printf '%s\n' "$bt"
+}
+
+# sign <unsigned apk> <out dir>: <out dir>/vibeBMS.apk, signed with the key of
+# the keystore VIBEBMS_KEYSTORE (VIBEBMS_KEYSTORE_PASSWORD: its password and
+# the key's; VIBEBMS_KEY_ALIAS: the key, default vibebms) by the pinned
+# build-tools' apksigner. APK Signature Scheme v2 alone, as the Android Gradle
+# plugin signed it for minSdk 26, the entries as they are
+# (--alignment-preserved), so that the signed APK is the unsigned one with the
+# APK Signing Block before its central directory. Nothing is built: CI signs
+# in a job of its own, so that the build never has the key.
+sign_apk() {
+  local unsigned="$1" out="$2" bt tmp
+  : "${VIBEBMS_KEYSTORE:?the keystore to sign with}" "${VIBEBMS_KEYSTORE_PASSWORD:?the password of VIBEBMS_KEYSTORE}"
+  [ -f "$unsigned" ] || die "no APK at $unsigned"
+  bt="$(build_tools)"
+  command -v apksigcopier > /dev/null || die "no apksigcopier (tools/apksigcopier.txt)"
+  tmp="$(mktemp -d)"
+  "$bt/apksigner" sign --ks "$VIBEBMS_KEYSTORE" --ks-key-alias "${VIBEBMS_KEY_ALIAS:-vibebms}" \
+    --ks-pass env:VIBEBMS_KEYSTORE_PASSWORD --key-pass env:VIBEBMS_KEYSTORE_PASSWORD \
+    --alignment-preserved --v1-signing-enabled false --v2-signing-enabled true \
+    --v3-signing-enabled false --v4-signing-enabled false --out "$tmp/vibeBMS.apk" "$unsigned"
+  "$bt/apksigner" verify -v "$tmp/vibeBMS.apk" |
+    grep -E '^(Verifies|Verified using v[0-9.]+ scheme .*: true|Number of signers)'
+  # what a rebuild does: the signature copied onto the unsigned APK
+  # (apksigcopier, .github/actions/android-setup) gives the signed one
+  apksigcopier copy "$tmp/vibeBMS.apk" "$unsigned" "$tmp/copied.apk"
+  cmp "$tmp/vibeBMS.apk" "$tmp/copied.apk" ||
+    die "the signature copied onto the unsigned APK does not give the signed APK"
+  mkdir -p "$out"
+  cp "$tmp/vibeBMS.apk" "$out/vibeBMS.apk"
+  rm -rf "$tmp"
+}
+
 case "${1:-}" in
   zip) [ $# -eq 3 ] || die "usage: $0 zip <zip> <dir>"; repro_zip "$2" "$3"; exit 0 ;;
+  sign)
+    [ $# -eq 3 ] || die "usage: $0 sign <unsigned apk> <out dir>"
+    # shellcheck source=tools/repro.env
+    . "$root/tools/repro.env"
+    sign_apk "$2" "$3"
+    sha256 "$3/vibeBMS.apk"
+    exit 0
+    ;;
   entries | apk-entries)
     { [ $# -eq 2 ] || [ $# -eq 3 ]; } || die "usage: $0 entries <file> [<name>]"
     entries "${@:2}"
@@ -307,30 +357,16 @@ case "$artifact" in
     # Gradle builds it unsigned, the same with or without a key: what a
     # rebuild makes, onto which the release's signature is copied
     unsigned=platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
-    bt="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/$BUILD_TOOLS_VERSION"
-    [ -x "$bt/apksigner" ] || die "no build-tools $BUILD_TOOLS_VERSION in the Android SDK (tools/repro.env): $bt"
     # aligned for 4 KiB, its native libraries for 16 KiB pages
+    bt="$(build_tools)"
     "$bt/zipalign" -c -P 16 4 "$unsigned"
     files+=("$unsigned:vibeBMS-unsigned.apk")
-    # with a key (VIBEBMS_KEYSTORE, VIBEBMS_KEYSTORE_PASSWORD, VIBEBMS_KEY_ALIAS):
-    # signed as before (APK Signature Scheme v2 alone, as the Android Gradle
-    # plugin signed it for minSdk 26), the entries as they are
-    # (--alignment-preserved), so that the signed APK is the unsigned one with
-    # the APK Signing Block before its central directory
+    # a build by hand with a key (VIBEBMS_KEYSTORE) signs it too; CI's has
+    # none and signs in another job (`sign`, above)
     if [ -n "${VIBEBMS_KEYSTORE:-}" ]; then
-      signed="$(mktemp -d)/vibeBMS.apk"
-      "$bt/apksigner" sign --ks "$VIBEBMS_KEYSTORE" --ks-key-alias "${VIBEBMS_KEY_ALIAS:-vibebms}" \
-        --ks-pass env:VIBEBMS_KEYSTORE_PASSWORD --key-pass env:VIBEBMS_KEYSTORE_PASSWORD \
-        --alignment-preserved --v1-signing-enabled false --v2-signing-enabled true \
-        --v3-signing-enabled false --v4-signing-enabled false --out "$signed" "$unsigned"
-      "$bt/apksigner" verify -v "$signed" | grep -E '^(Verifies|Verified using v[0-9.]+ scheme .*: true|Number of signers)'
-      # what a rebuild does: the signature copied onto the unsigned APK
-      # (apksigcopier, .github/actions/android-setup) gives the signed one
-      command -v apksigcopier > /dev/null || die "no apksigcopier (tools/apksigcopier.txt)"
-      apksigcopier copy "$signed" "$unsigned" "${signed%.apk}-copied.apk"
-      cmp "$signed" "${signed%.apk}-copied.apk" ||
-        die "the signature copied onto the unsigned APK does not give the signed APK"
-      files+=("$signed:vibeBMS.apk")
+      signed="$(mktemp -d)"
+      sign_apk "$unsigned" "$signed"
+      files+=("$signed/vibeBMS.apk:vibeBMS.apk")
     fi
     ;;
   web)
