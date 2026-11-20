@@ -15,6 +15,7 @@ pub const BUDGET: u64 = 20_000_000;
 const MAXCAPTURES: usize = 32;
 const MAXCCALLS: usize = 200;
 const SPECIALS: &[u8] = b"^$*+?.([%-";
+const TOO_LONG: &str = "pattern matching takes too long";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum CapLen {
@@ -80,9 +81,14 @@ impl<'a> State<'a> {
     }
 
     fn step(&mut self) -> Result<()> {
-        self.steps += 1;
+        self.spend(1)
+    }
+
+    /// Count `n` steps (bytes compared or copied count as steps too).
+    fn spend(&mut self, n: usize) -> Result<()> {
+        self.steps = self.steps.saturating_add(n as u64);
         if self.steps > BUDGET {
-            return Err("pattern matching takes too long".into());
+            return Err(TOO_LONG.into());
         }
         Ok(())
     }
@@ -241,7 +247,7 @@ impl<'a> State<'a> {
         Ok(r)
     }
 
-    fn match_capture(&self, s: usize, l: u8) -> Result<Option<usize>> {
+    fn match_capture(&mut self, s: usize, l: u8) -> Result<Option<usize>> {
         let l = (l as usize).wrapping_sub(b'1' as usize);
         let len = match self.capture.get(l).filter(|_| l < self.level) {
             Some((_, CapLen::Len(n))) => *n,
@@ -250,6 +256,7 @@ impl<'a> State<'a> {
             _ => return Err(format!("invalid capture index %{}", l.wrapping_add(1))),
         };
         let start = self.capture[l].0;
+        self.spend(len)?;
         if self.src.len() - s >= len && self.src[start..start + len] == self.src[s..s + len] {
             Ok(Some(s + len))
         } else {
@@ -405,15 +412,22 @@ pub fn find<'a>(
         return Ok(None);
     }
     if find && (plain || !pat.iter().any(|c| SPECIALS.contains(c))) {
-        let hit = if pat.is_empty() {
-            Some(init)
-        } else {
-            s[init..]
-                .windows(pat.len())
-                .position(|w| w == pat)
-                .map(|i| i + init)
-        };
-        return Ok(hit.map(|i| (i + 1, i + pat.len(), Vec::new())));
+        if pat.is_empty() {
+            return Ok(Some((init + 1, init, Vec::new())));
+        }
+        // (the bytes two long strings share at each place are steps)
+        let mut steps = 0u64;
+        for (i, w) in s[init..].windows(pat.len()).enumerate() {
+            let same = w.iter().zip(pat).take_while(|(a, b)| a == b).count();
+            if same == pat.len() {
+                return Ok(Some((init + i + 1, init + i + pat.len(), Vec::new())));
+            }
+            steps += same as u64;
+            if steps > BUDGET {
+                return Err(TOO_LONG.into());
+            }
+        }
+        return Ok(None);
     }
     let anchor = pat.first() == Some(&b'^');
     let p0 = anchor as usize;
@@ -494,6 +508,7 @@ pub fn gsub(s: &[u8], pat: &[u8], mut repl: Repl, max_n: Option<i64>) -> Result<
         match st.do_match(src, p0)? {
             Some(e) if Some(e) != last => {
                 n += 1;
+                let before = out.len();
                 match &mut repl {
                     Repl::Str(r) => {
                         let mut i = 0;
@@ -529,6 +544,8 @@ pub fn gsub(s: &[u8], pat: &[u8], mut repl: Repl, max_n: Option<i64>) -> Result<
                 }
                 src = e;
                 last = Some(e);
+                // (the result is built outside Lua's memory limit)
+                st.spend(out.len() - before)?;
             }
             _ if src < s.len() => {
                 out.push(s[src]);
@@ -636,5 +653,25 @@ mod tests {
         // deep nesting is refused as in Lua
         let deep = "(".repeat(300) + &")".repeat(300);
         assert!(find(b"x", deep.as_bytes(), 1, false, false).is_err());
+    }
+
+    /// Long strings cost steps where they are compared or copied, not
+    /// only where the pattern advances.
+    #[test]
+    fn long_strings_are_within_the_budget_too() {
+        let t = std::time::Instant::now();
+        // a plain search that nearly matches at every place
+        let hay = vec![b'a'; 400_000];
+        let mut needle = vec![b'a'; 200_000];
+        needle.push(b'b');
+        assert!(find(&hay, &needle, 1, true, true).is_err());
+        assert_eq!(find(&hay, b"ab", 1, true, true), Ok(None));
+        // a capture of every length compared with what follows it
+        assert!(find(&hay, b"(a*)%1x", 1, false, false).is_err());
+        // a replacement far longer than what it replaces
+        let big = vec![b'b'; 1_000_000];
+        let r = gsub(&hay, b"a", Repl::Str(&big), None);
+        assert_eq!(r.unwrap_err(), TOO_LONG);
+        assert!(t.elapsed() < std::time::Duration::from_secs(20));
     }
 }

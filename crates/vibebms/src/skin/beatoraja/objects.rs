@@ -83,7 +83,7 @@ impl<'a> Ctx<'a> {
         };
         Some(Src {
             image: img,
-            frames: Src::grid([x, y, w, h], i(def, "divx", 1), i(def, "divy", 1)),
+            frames: (self.images).grid([x, y, w, h], i(def, "divx", 1), i(def, "divy", 1))?,
             cycle: i(def, "cycle", 0),
             timer: self
                 .dyn_id(def.get("timer"), ScriptKind::Timer)
@@ -219,7 +219,7 @@ impl<'a> Ctx<'a> {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        matches!(ext.as_str(), "ttf" | "otf" | "ttc").then_some(p)
+        (matches!(ext.as_str(), "ttf" | "otf" | "ttc") && readable(&p, MEDIA_MAX)).then_some(p)
     }
 
     pub(super) fn number_kind(&self, def: &Value) -> Option<Kind> {
@@ -402,7 +402,7 @@ fn graph(cx: &Ctx, id: &str) -> Option<Graph> {
         }
         return Some(Graph::Visualizer(VisualizerGraph {
             hit_error: hit,
-            range_ms: i(g, "judgeWidthMillis", 150).max(1) as f32,
+            range_ms: visualizer_range(i(g, "judgeWidthMillis", 150)),
             colors: named(g, &keys),
             line_width: i(g, "lineWidth", 1).clamp(1, 4) as f32,
             transparent_poor: i(g, "transparent", 0) == 1,
@@ -413,7 +413,11 @@ fn graph(cx: &Ctx, id: &str) -> Option<Graph> {
     }
     let g = cx.find("timingdistributiongraph", id)?;
     Some(Graph::Timing(TimingGraph {
-        bins: if built_in(g) { 81 } else { i(g, "width", 301) },
+        bins: if built_in(g) {
+            81
+        } else {
+            timing_bins(i(g, "width", 301))
+        },
         colors: (!built_in(g)).then(|| {
             named(
                 g,
@@ -629,7 +633,7 @@ fn gauge(cx: &mut Ctx, _: &mut Skin, d: &Value, id: &str, _: &mut Dst) -> Option
             frames.push(src.frames[0]);
         }
     }
-    let parts = i(g, "parts", 50).max(1) as usize;
+    let parts = gauge_parts(i(g, "parts", 50));
     Some((!frames.is_empty()).then(|| {
         let (pw, ph) = (frames[0][2], frames[0][3]);
         Kind::Gauge {

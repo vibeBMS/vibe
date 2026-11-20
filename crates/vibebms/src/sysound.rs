@@ -208,7 +208,7 @@ pub struct SetInfo {
 
 /// (name, author) of an LR2 sound set file (`#INFORMATION,10,...`).
 pub fn lr2ss_header(path: &Path) -> Option<(String, String)> {
-    let b = vfs::read(path).ok()?;
+    let b = crate::skin::read_text(path).ok()?;
     let text = vibebms_core::encoding::decode_text(&b);
     text.lines().find_map(|l| {
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
@@ -390,7 +390,7 @@ pub fn set_files(
         return out;
     }
     let mut out = HashMap::new();
-    let Ok(b) = vfs::read(path) else {
+    let Ok(b) = crate::skin::read_text(path) else {
         return out;
     };
     let text = vibebms_core::encoding::decode_text(&b);
@@ -482,7 +482,7 @@ fn decode(p: &Path, rate: u32) -> Result<Sample, String> {
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    let b = vfs::read(p).map_err(|e| e.to_string())?;
+    let b = crate::skin::read_media(p).map_err(|e| e.to_string())?;
     vibebms_audio::decode_bytes(b, &ext, rate)
 }
 

@@ -85,24 +85,32 @@ fn test(ops: Option<&Value>, en: &HashSet<i64>) -> bool {
     }
 }
 
-/// Resolve `include` objects (files named from `dir`, within what `home`
-/// lets the skin read) and `{"if": .., "value"/"values": ..}` branches.
-fn preprocess(v: Value, en: &HashSet<i64>, home: &Home, dir: &Path, depth: usize) -> Value {
+/// What `preprocess` reads includes with: the skin's `Home`, and what
+/// its load may still read through them.
+struct Files<'a> {
+    home: &'a Home,
+    includes: Includes,
+}
+
+/// Resolve `include` objects (files named from `dir`, within what
+/// `files` lets the skin read) and `{"if": .., "value"/"values": ..}`
+/// branches.
+fn preprocess(v: Value, en: &HashSet<i64>, files: &mut Files, dir: &Path, depth: usize) -> Value {
     match v {
         Value::Object(m) if m.contains_key("include") && depth < 8 => {
-            let p = home.file_from(dir, m["include"].as_str().unwrap_or(""));
+            let p = (files.home).file_from(dir, m["include"].as_str().unwrap_or(""));
             let inc = p.as_ref().and_then(|p| {
-                let text = vfs::read_to_string(p).ok()?;
+                let text = String::from_utf8(files.includes.read(p)?).ok()?;
                 parse(&text).ok()
             });
             match (inc, p.as_deref().and_then(Path::parent)) {
-                (Some(inc), Some(dir)) => preprocess(inc, en, home, dir, depth + 1),
+                (Some(inc), Some(dir)) => preprocess(inc, en, files, dir, depth + 1),
                 _ => Value::Null,
             }
         }
         Value::Object(m) => Value::Object(
             m.into_iter()
-                .map(|(k, v)| (k, preprocess(v, en, home, dir, depth)))
+                .map(|(k, v)| (k, preprocess(v, en, files, dir, depth)))
                 .collect::<Map<_, _>>(),
         ),
         Value::Array(a) => {
@@ -120,19 +128,19 @@ fn preprocess(v: Value, en: &HashSet<i64>, home: &Home, dir: &Path, depth: usize
                             // the values are items of this array: branches
                             // among them are resolved the same way
                             if let Value::Array(vs) =
-                                preprocess(Value::Array(vs.clone()), en, home, dir, depth)
+                                preprocess(Value::Array(vs.clone()), en, files, dir, depth)
                             {
                                 out.extend(vs);
                             }
                         } else if let Some(v) = item.get("value") {
-                            out.push(preprocess(v.clone(), en, home, dir, depth));
+                            out.push(preprocess(v.clone(), en, files, dir, depth));
                         }
                         if branches {
                             break; // object-valued conditional: first matching clause wins
                         }
                     }
                 } else {
-                    out.push(preprocess(item, en, home, dir, depth));
+                    out.push(preprocess(item, en, files, dir, depth));
                 }
             }
             Value::Array(out)
@@ -291,7 +299,7 @@ fn read_skin(
     if is_lua(path) {
         return lua::eval(path, home, skin_config, state).map(|(v, s)| (v, Some(s)));
     }
-    let text = vfs::read(path)
+    let text = read_text(path)
         .map(|b| vibebms_core::encoding::decode_text(&b))
         .map_err(|e| e.to_string())?;
     let text = add_missing_commas(&text);
@@ -302,8 +310,8 @@ fn read_skin(
 }
 /// A skin's size (w, h), without building it.
 pub fn size(path: &Path, skins_root: &Path) -> Option<(f32, f32)> {
-    let h = header_of(path, &Home::of(path, skins_root)).ok()?;
-    Some(h.size)
+    let read = || header_of(path, &Home::of(path, skins_root)).map(|h| h.size);
+    no_panic(path, read).ok()
 }
 
 /// (type, name) without building the skin.
@@ -375,7 +383,11 @@ pub fn load_with(
             read_skin(path, &home, Some(config), state)?
         }
     };
-    let sk = preprocess(raw, &enabled, &home, &home.dir, 0);
+    let mut files = Files {
+        home: &home,
+        includes: Includes::new(),
+    };
+    let sk = preprocess(raw, &enabled, &mut files, &home.dir, 0);
     let fps = filepaths(&sk);
     let scripts = script::Builder::new(lua_state, &home);
     let mut cx = Ctx::new(&sk, &home, &fps, &user.files, image_size, scripts);
@@ -410,6 +422,7 @@ pub fn load_with(
     for d in arr(sk.get("destination")) {
         objects::add_object(&mut cx, &mut skin, d);
     }
+    within_limits(path, &files.includes, &cx.images)?;
     custom_scripts(&sk, cx.scripts.get_mut());
     // conditions on the skin's own properties
     let known: HashMap<i32, bool> = props

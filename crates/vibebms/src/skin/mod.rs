@@ -8,6 +8,7 @@
 //! open-source LR2 skin loader.
 
 pub mod beatoraja;
+pub mod guard;
 pub mod lr2;
 mod luapat;
 pub mod render;
@@ -93,7 +94,8 @@ impl Home {
 
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
 /// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
-/// while it is built.
+/// while it is built. The file is noted as loading until a frame has been
+/// drawn with it ([`guard`]).
 pub fn load_file(
     path: &std::path::Path,
     skins_root: &std::path::Path,
@@ -102,16 +104,129 @@ pub fn load_file(
     state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
-        lr2::load_with(path, skins_root, user, static_option, image_size)
-    } else {
-        beatoraja::load_with(path, skins_root, user, state, image_size)
+    guard::loading(path);
+    no_panic(path, || {
+        if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
+            lr2::load_with(path, skins_root, user, static_option, image_size)
+        } else {
+            beatoraja::load_with(path, skins_root, user, state, image_size)
+        }
+    })
+}
+
+/// `read` (what reads the skin file `path`), a panic in it as an error:
+/// what a skin file holds must not take the game down. What the readers
+/// change while they run is their own (the model being built, a Lua
+/// state) and is dropped as the panic unwinds; the caches they share are
+/// written once a read is done, and never held across one.
+fn no_panic<T>(
+    path: &std::path::Path,
+    read: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(read)).unwrap_or_else(|e| {
+        let said = (e.downcast_ref::<&str>().copied())
+            .or_else(|| e.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("a panic");
+        Err(format!(
+            "{}: the skin reader failed ({said})",
+            path.display()
+        ))
+    })
+}
+
+/// Bytes of a file a skin is written in (its lines, a script, a font's
+/// glyph list) and of what a script reads.
+const TEXT_MAX: u64 = 16 << 20;
+/// Bytes of an image, a font or a sound a skin or a sound set names.
+const MEDIA_MAX: u64 = 256 << 20;
+
+/// A file a skin names can be read whole: it has at most `max` bytes and
+/// is no device or pipe (which have no end, whatever size they state).
+fn readable(p: &std::path::Path, max: u64) -> bool {
+    // (a file inside an archive or compiled in has no entry on the disk)
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::fs::metadata(p).is_ok_and(|m| !m.is_file()) {
+        return false;
     }
+    crate::platform::vfs::stamp(p).1 as u64 <= max
+}
+
+fn read_capped(p: &std::path::Path, max: u64) -> std::io::Result<Vec<u8>> {
+    if !readable(p, max) {
+        let why = format!("{}: too large, or no file", p.display());
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, why));
+    }
+    crate::platform::vfs::read(p)
+}
+
+/// Read a file a skin is written in ([`TEXT_MAX`]).
+pub(crate) fn read_text(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    read_capped(p, TEXT_MAX)
+}
+
+/// Read an image or a sound a skin names ([`MEDIA_MAX`]).
+pub(crate) fn read_media(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    read_capped(p, MEDIA_MAX)
+}
+
+/// Bytes a skin load reads through `#INCLUDE` / `include` in all: the
+/// nesting is limited, but a file may include another any number of
+/// times at each level.
+const INCLUDE_BYTES: usize = 16 << 20;
+/// What an included file counts at least.
+const INCLUDE_MIN: usize = 4 << 10;
+
+/// What a skin load may still read through includes.
+struct Includes {
+    left: usize,
+    over: bool,
+}
+
+impl Includes {
+    fn new() -> Includes {
+        Includes {
+            left: INCLUDE_BYTES,
+            over: false,
+        }
+    }
+
+    /// The bytes of included file `p`; none once the load has read more
+    /// than it may.
+    fn read(&mut self, p: &std::path::Path) -> Option<Vec<u8>> {
+        if self.over {
+            return None;
+        }
+        let b = read_text(p).ok()?;
+        match self.left.checked_sub(b.len().max(INCLUDE_MIN)) {
+            Some(left) => self.left = left,
+            None => self.over = true,
+        }
+        (!self.over).then_some(b)
+    }
+}
+
+/// A skin that asked for more than a load may take (includes, animation
+/// frames) is not loaded.
+fn within_limits(
+    path: &std::path::Path,
+    includes: &Includes,
+    images: &ImageFiles,
+) -> Result<(), String> {
+    let what = match (includes.over, images.frames_left.get()) {
+        (true, _) => "includes",
+        (_, None) => "animation frames",
+        _ => return Ok(()),
+    };
+    Err(format!("{}: too many {what}", path.display()))
 }
 
 /// Pixel size of an image file (through the VFS).
 pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
-    if crate::video::is_video(p) {
+    let video = crate::video::is_video(p);
+    if !readable(p, if video { u64::MAX } else { MEDIA_MAX }) {
+        return None;
+    }
+    if video {
         return crate::video::size(p);
     }
     // the start of the file says, but for the odd JPEG with a large
@@ -124,6 +239,10 @@ pub fn image_size(p: &std::path::Path) -> Option<(u32, u32)> {
     })
 }
 
+/// Animation frames the objects of a skin may have in all (one object:
+/// [`Src::grid`]'s 65,536).
+const FRAMES: usize = 1 << 20;
+
 /// A skin's image files while it loads, each measured when something first
 /// draws from it (a skin may list images for options not chosen, or
 /// videos, which take a process to measure).
@@ -131,6 +250,9 @@ struct ImageFiles<'a> {
     paths: Vec<Option<PathBuf>>,
     sizes: Vec<std::cell::OnceCell<Option<(u32, u32)>>>,
     measure: &'a dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
+    /// Frames the skin may still cut its images into (`None`: it asked
+    /// for more than [`FRAMES`]).
+    frames_left: std::cell::Cell<Option<usize>>,
 }
 
 impl<'a> ImageFiles<'a> {
@@ -139,7 +261,16 @@ impl<'a> ImageFiles<'a> {
             paths: Vec::new(),
             sizes: Vec::new(),
             measure,
+            frames_left: Some(FRAMES).into(),
         }
+    }
+
+    /// [`Src::grid`], within the frames the skin may have in all.
+    fn grid(&self, rect: [f32; 4], div_x: i64, div_y: i64) -> Option<Vec<[f32; 4]>> {
+        let frames = Src::grid(rect, div_x, div_y);
+        let left = self.frames_left.get()?.checked_sub(frames.len());
+        self.frames_left.set(left);
+        left.map(|_| frames)
     }
 
     fn len(&self) -> usize {
@@ -192,23 +323,38 @@ fn image_size_of(b: &[u8], p: &std::path::Path) -> Option<(u32, u32)> {
     .flatten()
 }
 
+/// The headers read, by file and its (time, size): `None` for a file
+/// that has none (or failed to say).
+type Headers = HashMap<(PathBuf, (i64, i64)), Option<(SkinType, String)>>;
+static HEADERS: std::sync::Mutex<Option<Headers>> = std::sync::Mutex::new(None);
+
+fn header_read(path: &std::path::Path) -> Option<Option<(SkinType, String)>> {
+    let key = (path.to_path_buf(), crate::platform::vfs::stamp(path));
+    (HEADERS.lock().ok()?.get_or_insert_default().get(&key)).cloned()
+}
+
 /// (type, name) of any supported skin file (cached: reading a Lua skin's
 /// header runs it, with the files below `skins_root`).
 pub fn header(path: &std::path::Path, skins_root: &std::path::Path) -> Option<(SkinType, String)> {
-    type Cache = HashMap<(PathBuf, (i64, i64)), Option<(SkinType, String)>>;
-    static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
-    let key = (path.to_path_buf(), crate::platform::vfs::stamp(path));
-    if let Some(h) = CACHE.lock().ok()?.get_or_insert_default().get(&key) {
-        return h.clone();
+    if let Some(h) = header_read(path) {
+        return h;
     }
-    let h = match SkinFormat::of(path)? {
-        SkinFormat::Lr2 => lr2::header(path),
-        SkinFormat::Beatoraja => beatoraja::header(path, skins_root),
-        SkinFormat::SoundSet => {
-            crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0))
-        }
+    let key = (path.to_path_buf(), crate::platform::vfs::stamp(path));
+    let format = SkinFormat::of(path)?;
+    let read = || {
+        Ok(match format {
+            SkinFormat::Lr2 => lr2::header(path),
+            SkinFormat::Beatoraja => beatoraja::header(path, skins_root),
+            SkinFormat::SoundSet => {
+                crate::sysound::lr2ss_header(path).map(|h| (SkinType::SoundSet, h.0))
+            }
+        })
     };
-    CACHE
+    let h = no_panic(path, read).unwrap_or_else(|e| {
+        log::warn!("skin: {e}");
+        None
+    });
+    HEADERS
         .lock()
         .ok()?
         .get_or_insert_default()
@@ -608,6 +754,23 @@ impl Graph {
     }
 }
 
+/// The cells of a gauge a skin asks for: each is drawn every frame.
+fn gauge_parts(n: i64) -> usize {
+    n.clamp(1, 1000) as usize
+}
+
+/// The ms a timing visualizer shows to either side, of what a skin asks
+/// for: a tick is drawn every 10.
+fn visualizer_range(ms: i64) -> f32 {
+    ms.clamp(1, 2000) as f32
+}
+
+/// The 1 ms bins of a timing distribution graph a skin asks for: each is
+/// counted and drawn every frame.
+fn timing_bins(n: i64) -> i64 {
+    n.clamp(3, 2001)
+}
+
 /// The gauge over the play (result).
 #[derive(Clone, Debug, Default)]
 pub struct GaugeGraph {
@@ -866,11 +1029,14 @@ pub const OFFSET_FIELDS: [&str; 6] = ["X", "Y", "W", "H", "ANGLE", "ALPHA"];
 
 /// The adjustable offsets of a skin file.
 pub fn custom_offsets(path: &std::path::Path, skins_root: &std::path::Path) -> Vec<CustomOffset> {
-    match SkinFormat::of(path) {
-        Some(SkinFormat::Lr2) => lr2::custom_offsets(path),
-        Some(SkinFormat::Beatoraja) => beatoraja::custom_offsets(path, skins_root),
-        _ => Vec::new(),
-    }
+    let read = || {
+        Ok(match SkinFormat::of(path) {
+            Some(SkinFormat::Lr2) => lr2::custom_offsets(path),
+            Some(SkinFormat::Beatoraja) => beatoraja::custom_offsets(path, skins_root),
+            _ => Vec::new(),
+        })
+    };
+    no_panic(path, read).unwrap_or_default()
 }
 
 /// A skin's user option (LR2 `#CUSTOMOPTION`, beatoraja `property`), or
@@ -897,11 +1063,14 @@ impl CustomOption {
 
 /// The custom options of a skin file, without building the skin.
 pub fn custom_options(path: &std::path::Path, skins_root: &std::path::Path) -> Vec<CustomOption> {
-    match SkinFormat::of(path) {
-        Some(SkinFormat::Lr2) => lr2::custom_options(path, skins_root),
-        Some(SkinFormat::Beatoraja) => beatoraja::custom_options(path, skins_root),
-        _ => Vec::new(),
-    }
+    let read = || {
+        Ok(match SkinFormat::of(path) {
+            Some(SkinFormat::Lr2) => lr2::custom_options(path, skins_root),
+            Some(SkinFormat::Beatoraja) => beatoraja::custom_options(path, skins_root),
+            _ => Vec::new(),
+        })
+    };
+    no_panic(path, read).unwrap_or_default()
 }
 
 /// Decide draw conditions on the skin's own (custom) options when it
@@ -1413,6 +1582,46 @@ mod tests {
         assert_eq!(Src::step(1500, 4, 1000), 2);
         assert_eq!(Src::step(-5, 4, 1000), 0);
         assert!(Src::step(i64::MAX, 1024, 1) < 1024);
+    }
+
+    /// What reads a skin file may fail on it, but not take the game down.
+    #[test]
+    fn a_panic_while_a_skin_loads_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("vibebms-panic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("s.lr2skin");
+        let csv = "#INFORMATION,0,P,me\n#IMAGE,a.png\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n\
+                   #DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n";
+        std::fs::write(&p, csv).unwrap();
+        let user = UserSettings::default();
+        let load = |size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>| {
+            load_file(&p, &dir, &user, &|_| None, None, size).map(|s| s.objects.len())
+        };
+        assert_eq!(load(&|_| Some((16, 16))), Ok(1));
+        let e = load(&|_| panic!("no such image reader")).unwrap_err();
+        assert!(e.contains("failed (no such image reader)"), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A file a skin names is read when it is a file of a size a skin's
+    /// files have: no device (which has no end), nothing far larger.
+    #[cfg(unix)]
+    #[test]
+    fn devices_and_oversized_files_are_not_read() {
+        let dir = std::env::temp_dir().join(format!("vibebms-readable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let zero = std::path::Path::new("/dev/zero");
+        assert!(read_text(zero).is_err() && read_media(zero).is_err());
+        assert_eq!(image_size(zero), None);
+        std::os::unix::fs::symlink(zero, dir.join("zero.png")).unwrap();
+        assert_eq!(image_size(&dir.join("zero.png")), None);
+        let big = dir.join("big.json");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(TEXT_MAX + 1).unwrap();
+        assert!(read_text(&big).is_err());
+        f.set_len(TEXT_MAX).unwrap();
+        assert_eq!(read_text(&big).map(|b| b.len() as u64).ok(), Some(TEXT_MAX));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -3,16 +3,21 @@ use super::*;
 
 /// Run a `.luaskin` and return its table as JSON (functions become
 /// script markers) with the Lua state. `skin_config` (option name ->
-/// selected op) is exported like beatoraja does.
+/// selected op) is exported like beatoraja does; without it the skin runs
+/// for its header only, in the time one has.
 pub fn eval(
     path: &Path,
     home: &Home,
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
 ) -> Result<(Value, script::Script), String> {
-    let src = vfs::read(path).map_err(|e| e.to_string())?;
+    let src = read_text(path).map_err(|e| e.to_string())?;
     let e = |e: mlua::Error| format!("{}: {e}", path.display());
-    let mut sc = script::Script::new(home, false).map_err(e)?;
+    let budget = match skin_config {
+        Some(_) => script::LOAD_TIME,
+        None => script::HEADER_TIME,
+    };
+    let mut sc = script::Script::new(home, false, budget).map_err(e)?;
     let lua = sc.lua().clone();
     let g = lua.globals();
     if let Some((opts, header, user_offsets, user_files)) = skin_config {

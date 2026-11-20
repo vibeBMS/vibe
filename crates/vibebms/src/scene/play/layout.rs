@@ -7,6 +7,7 @@ use crate::config::Side;
 use crate::gfx::Rect;
 use crate::perspective::{Depths, Fan};
 use crate::skin::render::Xf;
+use crate::skin::LaneSkin;
 use crate::touch::{self, TouchInput, Zone};
 
 /// The touch controls, what is pressed, and where the play goes on the
@@ -207,22 +208,53 @@ impl PlayScene {
         let xf = Xf::fit(sk.skin.width, sk.skin.height, view);
         let skin_mode = self.facts.skin_mode;
         let lpp = skin_mode.lanes_per_player();
-        (0..skin_mode.players())
-            .filter_map(|p| {
-                sk.skin.lanes[p * lpp..((p + 1) * lpp).min(sk.skin.lanes.len())]
-                    .iter()
-                    .filter_map(|l| l.rect)
-                    .map(|r| xf.rect(r))
-                    .reduce(|a, b| {
-                        let (x, y) = (a.x.min(b.x), a.y.min(b.y));
-                        Rect::new(
-                            x,
-                            y,
-                            a.right().max(b.right()) - x,
-                            a.bottom().max(b.bottom()) - y,
-                        )
-                    })
-            })
-            .collect()
+        lane_fields(&sk.skin.lanes, skin_mode.players(), lpp, &xf)
+    }
+}
+
+/// The note field of each of `players` (`lpp` lanes each) as `xf` puts a
+/// skin's `lanes` on the screen; a skin may have fewer lanes than the mode
+/// (none of a side: no field for it).
+fn lane_fields(lanes: &[LaneSkin], players: usize, lpp: usize, xf: &Xf) -> Vec<Rect> {
+    (0..players)
+        .filter_map(|p| {
+            (lanes.iter().skip(p * lpp).take(lpp))
+                .filter_map(|l| l.rect)
+                .map(|r| xf.rect(r))
+                .reduce(|a, b| {
+                    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+                    Rect::new(
+                        x,
+                        y,
+                        a.right().max(b.right()) - x,
+                        a.bottom().max(b.bottom()) - y,
+                    )
+                })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A double play skin with the lanes of one side only (or none) has
+    /// that side's field.
+    #[test]
+    fn a_skin_with_fewer_lanes_than_the_mode_has_fewer_fields() {
+        let xf = Xf::fit(100.0, 100.0, Rect::new(0.0, 0.0, 100.0, 100.0));
+        let lane = |x: f32| LaneSkin {
+            rect: Some(Rect::new(x, 0.0, 10.0, 50.0)),
+            ..Default::default()
+        };
+        let lanes: Vec<LaneSkin> = (0..16).map(|i| lane(i as f32 * 5.0)).collect();
+        let w = |n: usize| -> Vec<f32> {
+            let fields = lane_fields(&lanes[..n], 2, 8, &xf);
+            fields.iter().map(|r| r.w).collect()
+        };
+        assert_eq!(w(16), [45.0, 45.0]);
+        assert_eq!(w(9), [45.0, 10.0]);
+        assert_eq!(w(7), [40.0]);
+        assert_eq!(w(0), Vec::<f32>::new());
     }
 }

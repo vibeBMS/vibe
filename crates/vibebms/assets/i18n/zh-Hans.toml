@@ -925,6 +925,8 @@ _untranslated = [
 "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back" = "↑↓ 行   ←→ 更改   Enter / START 游玩   点击图表：较近的区段边界   Esc 返回"
 "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back" = "↑↓ 行  Enter 设置  ←→ 模式  Del 清除  Esc 返回"
 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back" = "↑↓ 行  ←→ 更改  PgUp/PgDn 皮肤类型  Esc 返回"
+"This skin cannot be loaded: the built-in one is shown instead" = "无法加载此皮肤：改为显示内置皮肤"
+"The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}" = "游戏在加载皮肤时停止。已停用的皮肤（可在设置 › 皮肤中重新选择）：{skins}"
 
 # IR: what became of a play, why it is not sent
 "a #RANDOM chart" = "#RANDOM 谱面"

@@ -527,3 +527,40 @@ fn horizontal_lanes_run_to_the_right_edge() {
     assert_eq!(v.lanes[0].note_h, Some(30.0));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A skin's own numbers for what is drawn every frame, and the files it
+/// includes in all, are within what a skin uses.
+#[test]
+fn what_a_skin_asks_for_is_within_limits() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lr2limits-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = "#INFORMATION,0,Play,me\n#IMAGE,a.png\n\
+#SRC_GROOVEGAUGE,0,0,0,0,10,10,1,1,0,0,5,0,4000000000\n\
+#DST_GROOVEGAUGE,0,0,0,10,10,0,255,255,255,255\n\
+#SRC_TIMING_1P,0,0,0,100,50,300000000,1\n#DST_TIMING_1P,0,0,100,0,0,0,255,255,255,255\n\
+#SRC_TIMINGCHART_1P,0,0,0,4000000000,50,1\n#DST_TIMINGCHART_1P,0,0,100,0,0,0,255,255,255,255\n\
+#INCLUDE,more.csv\n";
+    std::fs::write(dir.join("play.lr2skin"), csv).unwrap();
+    let load = || {
+        let size = |_: &Path| Some((128, 64));
+        let none = HashMap::new();
+        load(&dir.join("play.lr2skin"), &dir, &none, &|_| None, &size)
+    };
+    // a file that includes itself: twice at each of the 8 levels, not four
+    // times
+    std::fs::write(dir.join("more.csv"), "#INCLUDE,more.csv\n".repeat(2)).unwrap();
+    let s = load().unwrap();
+    let seen: Vec<String> = (s.objects.iter())
+        .filter_map(|o| match &o.kind {
+            Kind::Gauge { parts, .. } => Some(format!("gauge {parts}")),
+            Kind::Graph(Graph::Visualizer(g)) => Some(format!("visualizer {}", g.range_ms)),
+            Kind::Graph(Graph::Timing(g)) => Some(format!("timing {}", g.bins)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seen, ["gauge 1000", "visualizer 2000", "timing 2001"]);
+    std::fs::write(dir.join("more.csv"), "#INCLUDE,more.csv\n".repeat(4)).unwrap();
+    let e = load().unwrap_err();
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(e.contains("too many includes"), "{e}");
+}

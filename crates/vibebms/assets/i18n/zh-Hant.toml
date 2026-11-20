@@ -925,6 +925,8 @@ _untranslated = [
 "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back" = "↑↓ 行   ←→ 變更   Enter / START 遊玩   點擊圖表：較近的區段邊界   Esc 返回"
 "↑↓ row  Enter assign  ←→ mode  Del clear  Esc back" = "↑↓ 行  Enter 設定  ←→ 模式  Del 清除  Esc 返回"
 "↑↓ row  ←→ change  PgUp/PgDn skin type  Esc back" = "↑↓ 行  ←→ 變更  PgUp/PgDn 皮膚類型  Esc 返回"
+"This skin cannot be loaded: the built-in one is shown instead" = "無法載入此皮膚：改為顯示內置皮膚"
+"The game stopped while a skin was loading. Set aside (SETTINGS › SKINS chooses it again): {skins}" = "遊戲在載入皮膚時停止。已停用的皮膚（可在設定 › 皮膚中重新選擇）：{skins}"
 
 # IR: what became of a play, why it is not sent
 "a #RANDOM chart" = "#RANDOM 譜面"
