@@ -80,6 +80,10 @@ JSON (`.json`) and Lua (`.luaskin`: embedded Lua 5.4 in a sandbox, in the web bu
 
 - `main_state`, `timer_util`, `event_util` and `skin_config` are provided. Conditions, timers, values and events
   given in Lua are evaluated every frame.
+- A skin reads the files of its own theme only: the folder under `skins/` that holds it (all of `skins/` for a skin
+  file put directly there). This goes for images, fonts and their pages, `include`, `filepath` choices, and what a
+  script opens, loads or asks `skin_config.get_path` for. `..` inside the theme and a full path into it work; a path
+  that leads out of it is as a missing file.
 - Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`, `timingdistributiongraph`, the timing visualizer) and blend modes
   are supported.
 - Text outline and shadow are drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the
@@ -153,6 +157,8 @@ A sound set is the song select music, the decide jingle, folder and option click
 of beatoraja's sound files (`select.wav`, `decide.wav`, `f-open.wav`, `o-change.wav`, `clear.wav`, ...; any audio
 format) or an LR2 sound set (`.lr2ss`), under `sounds/` or `skins/`.
 
+- An `.lr2ss` names its sounds by LR2's paths (`LR2files\Bgm\…`): they are looked for beside the folder holding the
+  set, in `sounds/` and beside the set, and only below `sounds/` and `skins/`.
 - A screen's music (the select music, the result's) is decoded each time it starts and let go when it stops; the
   other sounds stay decoded.
 - The select music, the decide jingle and `.loop` music are normalised to the loudness target when

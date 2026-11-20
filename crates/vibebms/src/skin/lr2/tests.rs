@@ -81,6 +81,34 @@ fn lr2_fonts() {
     assert_eq!(s.objects[0].dst.keys[0].rect.x, 60.0);
 }
 
+/// A font's textures are files of the skins folder, as the skin's own.
+#[test]
+fn font_textures_stay_in_the_skins_folder() {
+    let root = std::env::temp_dir().join(format!("vibebms-lr2fontout-{}", std::process::id()));
+    let skins = root.join("skins");
+    std::fs::create_dir_all(skins.join("t/f")).unwrap();
+    let outside = root.join("secret.png");
+    std::fs::write(
+        skins.join("t/f/a.lr2font"),
+        format!(
+            "#S,20,\n#T,0,t.png\n#T,1,..\\..\\..\\secret.png\n#T,2,{}\n\
+             #T,3,\\\\host\\share\\t.png\n#T,4,..\\other.png\n\
+             #R,65,0,0,0,10,20\n#R,66,1,0,0,10,20\n#R,67,2,0,0,10,20\n#R,68,3,0,0,10,20\n\
+             #R,69,4,0,0,10,20\n",
+            outside.display()
+        ),
+    )
+    .unwrap();
+    let (font, images) =
+        load_font(&skins.join("t/f/a.lr2font"), &skins, &|_| Some((64, 64))).unwrap();
+    std::fs::remove_dir_all(&root).ok();
+    let files: Vec<&Path> = images.iter().map(|(p, _)| p.as_path()).collect();
+    assert_eq!(files, [skins.join("t/f/t.png"), skins.join("t/other.png")]);
+    let mut chars: Vec<char> = font.glyphs.keys().copied().collect();
+    chars.sort();
+    assert_eq!(chars, ['A', 'E']);
+}
+
 /// A number a line gives where a slot is meant does not become an index
 /// or a size as it is.
 #[test]

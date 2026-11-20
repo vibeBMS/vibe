@@ -226,20 +226,20 @@ pub struct Skins {
 }
 
 impl Skins {
-    /// Custom options of a skin file.
-    pub fn custom_options(&self, path: &Path) -> Rc<[CustomOption]> {
+    /// Custom options of a skin file (`skins_root`: the skins folder).
+    pub fn custom_options(&self, path: &Path, skins_root: &Path) -> Rc<[CustomOption]> {
         self.options
             .borrow_mut()
             .entry(path.to_path_buf())
-            .or_insert_with(|| crate::skin::custom_options(path).into())
+            .or_insert_with(|| crate::skin::custom_options(path, skins_root).into())
             .clone()
     }
 
-    pub fn custom_offsets(&self, path: &Path) -> Rc<[CustomOffset]> {
+    pub fn custom_offsets(&self, path: &Path, skins_root: &Path) -> Rc<[CustomOffset]> {
         self.offsets
             .borrow_mut()
             .entry(path.to_path_buf())
-            .or_insert_with(|| crate::skin::custom_offsets(path).into())
+            .or_insert_with(|| crate::skin::custom_offsets(path, skins_root).into())
             .clone()
     }
 
@@ -790,7 +790,7 @@ impl Ctx {
     /// What the user chose for the skin configured as `value` (a
     /// `config.skins` value) at `path`.
     pub fn skin_user_settings(&self, value: &str, path: &Path) -> crate::skin::UserSettings {
-        let opts = self.skins.custom_options(path);
+        let opts = self.skins.custom_options(path, &self.paths.skins);
         let chosen = self.config.skin_options.get(value);
         crate::skin::UserSettings {
             options: crate::skin::user_options(&opts, chosen),

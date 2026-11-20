@@ -547,6 +547,7 @@ fn font_chars(code: i64) -> Vec<char> {
 #[allow(clippy::type_complexity)]
 pub fn load_font(
     path: &Path,
+    skins_root: &Path,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Option<(BitmapFont, Vec<(PathBuf, Option<(u32, u32)>)>)> {
     let bytes = vfs::read(path).ok()?;
@@ -567,9 +568,11 @@ pub fn load_font(
             "#S" => font.size = num(1) as f32,
             "#M" => font.margin = num(1) as f32,
             "#T" => {
-                let p = vfs::resolve_case(
-                    &dir.join(f.get(2).copied().unwrap_or("").replace('\\', "/")),
-                );
+                // (as `Loader::path`: nothing outside the skins folder)
+                let Some(p) = vfs::within(skins_root, dir, f.get(2).copied().unwrap_or("")) else {
+                    continue;
+                };
+                let p = vfs::resolve_case(&p);
                 let size = image_size(&p);
                 if size.is_some() {
                     tex.insert(num(1), images.len());
@@ -686,7 +689,7 @@ pub fn custom_options(path: &Path) -> Vec<CustomOption> {
 
 /// A skin's `LR2files\Theme\<theme>\...` path without knowing the skins
 /// folder: under the skin's ancestor named `<theme>`, else under the one
-/// holding the path.
+/// holding the path; `None` for a path that leaves that folder.
 fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
     let s = raw.replace('\\', "/");
     let i = s.to_ascii_lowercase().find("lr2files/theme/")?;
@@ -704,7 +707,7 @@ fn theme_file(skin: &Path, raw: &str) -> Option<PathBuf> {
                 .is_some_and(|t| vfs::is_dir(&a.join(t)))
         })
     })?;
-    Some(vfs::resolve_case(&base.join(tail)))
+    vfs::within(base, base, tail).map(|p| vfs::resolve_case(&p))
 }
 
 /// Read only the header: (type, name).
@@ -757,7 +760,8 @@ pub fn glob_paths(p: &Path) -> Vec<PathBuf> {
     c
 }
 
-/// Play skins below `dir`: LR2 (`.lr2skin`) and beatoraja (`.json`, `.luaskin`).
+/// Play skins below `dir`, the skins folder: LR2 (`.lr2skin`) and
+/// beatoraja (`.json`, `.luaskin`).
 pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if depth > 4 {
@@ -781,7 +785,7 @@ pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     files.sort();
     files
         .into_iter()
-        .filter_map(|p| super::header(&p).map(|(t, n)| (p, t, n)))
+        .filter_map(|p| super::header(&p, dir).map(|(t, n)| (p, t, n)))
         .collect()
 }
 

@@ -128,7 +128,7 @@ pub fn aspect(ctx: &Ctx, mode: PlayMode) -> f32 {
     let json = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("json"));
-    json.then(|| crate::skin::beatoraja::size(&path))
+    json.then(|| crate::skin::beatoraja::size(&path, &ctx.paths.skins))
         .flatten()
         .map_or(16.0 / 9.0, |(w, h)| w / h.max(1.0))
 }

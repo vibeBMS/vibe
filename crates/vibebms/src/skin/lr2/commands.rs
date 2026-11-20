@@ -152,7 +152,7 @@ impl Loader<'_> {
             "#LR2FONT" => {
                 // a missing font keeps its index (`CONTINUE` placeholders)
                 let p = self.path(s1);
-                let font = load_font(&p, self.images.measure).map(|(f, imgs)| {
+                let font = load_font(&p, &self.root, self.images.measure).map(|(f, imgs)| {
                     let base = self.images.len();
                     for (path, size) in imgs {
                         self.images.push_measured(path, size);

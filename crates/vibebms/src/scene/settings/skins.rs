@@ -51,7 +51,7 @@ pub(super) fn step_skin_option(ctx: &mut Ctx, t: SkinType, i: usize, d: i32) {
         return;
     };
     let value = value.to_string();
-    if let Some(o) = ctx.skins.custom_options(&path).get(i) {
+    if let Some(o) = ctx.skins.custom_options(&path, &ctx.paths.skins).get(i) {
         skinned::step_option(ctx, &value, o, d);
     }
 }
@@ -62,7 +62,7 @@ pub(super) fn step_skin_offset(ctx: &mut Ctx, t: SkinType, i: usize, field: usiz
         return;
     };
     let value = value.to_string();
-    if let Some(o) = ctx.skins.custom_offsets(&path).get(i) {
+    if let Some(o) = ctx.skins.custom_offsets(&path, &ctx.paths.skins).get(i) {
         skinned::step_offset(ctx, &value, &o.name, field, d);
     }
 }
@@ -103,7 +103,7 @@ fn skin_label(ctx: &Ctx, value: &str) -> String {
     let Some(p) = configured_path(ctx, value) else {
         return tr!("DEFAULT").into();
     };
-    crate::skin::header(&p)
+    crate::skin::header(&p, &ctx.paths.skins)
         .map(|h| h.1)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| {
@@ -232,8 +232,8 @@ pub(super) fn skin(b: &mut Rows, t: SkinType) {
     let Some((value, path)) = chosen(ctx, t) else {
         return;
     };
-    let options = ctx.skins.custom_options(&path);
-    let offsets = ctx.skins.custom_offsets(&path);
+    let options = ctx.skins.custom_options(&path, &ctx.paths.skins);
+    let offsets = ctx.skins.custom_offsets(&path, &ctx.paths.skins);
     if options.is_empty() && offsets.is_empty() {
         b.push(Row::note("skin.none", tr!("This skin has no options"), ""));
         return;

@@ -6,13 +6,13 @@ use super::*;
 /// selected op) is exported like beatoraja does.
 pub fn eval(
     path: &Path,
+    home: &Home,
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
 ) -> Result<(Value, script::Script), String> {
     let src = vfs::read(path).map_err(|e| e.to_string())?;
-    let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
     let e = |e: mlua::Error| format!("{}: {e}", path.display());
-    let mut sc = script::Script::new(&dir, false).map_err(e)?;
+    let mut sc = script::Script::new(home, false).map_err(e)?;
     let lua = sc.lua().clone();
     let g = lua.globals();
     if let Some((opts, header, user_offsets, user_files)) = skin_config {
@@ -40,18 +40,18 @@ pub fn eval(
         let fps = header.filepaths.clone();
         let files = lua.create_table().map_err(e)?;
         for f in &fps {
-            if let Some(name) = filepath_chosen(&dir, f, user_files) {
+            if let Some(name) = filepath_chosen(home, f, user_files) {
                 files.set(f.name.as_str(), name).map_err(e)?;
             }
         }
         cfg.set("file_path", files).map_err(e)?;
-        let (d2, chosen) = (dir.clone(), user_files.clone());
+        let (home, chosen) = (home.clone(), user_files.clone());
         cfg.set(
             "get_path",
+            // (a path out of the theme: none)
             lua.create_function(move |_, p: String| {
-                Ok(skin_path(&d2, &fps, &chosen, &p)
-                    .to_string_lossy()
-                    .into_owned())
+                let found = skin_path(&home, &fps, &chosen, &p);
+                Ok(found.map_or_else(String::new, |p| p.to_string_lossy().into_owned()))
             })
             .map_err(e)?,
         )

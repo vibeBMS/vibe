@@ -85,19 +85,24 @@ fn test(ops: Option<&Value>, en: &HashSet<i64>) -> bool {
     }
 }
 
-/// Resolve `include` objects and `{"if": .., "value"/"values": ..}` branches.
-fn preprocess(v: Value, en: &HashSet<i64>, dir: &Path, depth: usize) -> Value {
+/// Resolve `include` objects (files named from `dir`, in the theme of
+/// `home`) and `{"if": .., "value"/"values": ..}` branches.
+fn preprocess(v: Value, en: &HashSet<i64>, home: &Home, dir: &Path, depth: usize) -> Value {
     match v {
         Value::Object(m) if m.contains_key("include") && depth < 8 => {
-            let p = dir.join(m["include"].as_str().unwrap_or(""));
-            match vfs::read_to_string(&p).ok().and_then(|t| parse(&t).ok()) {
-                Some(inc) => preprocess(inc, en, p.parent().unwrap_or(dir), depth + 1),
-                None => Value::Null,
+            let p = home.file_from(dir, m["include"].as_str().unwrap_or(""));
+            let inc = p.as_ref().and_then(|p| {
+                let text = vfs::read_to_string(p).ok()?;
+                parse(&text).ok()
+            });
+            match (inc, p.as_deref().and_then(Path::parent)) {
+                (Some(inc), Some(dir)) => preprocess(inc, en, home, dir, depth + 1),
+                _ => Value::Null,
             }
         }
         Value::Object(m) => Value::Object(
             m.into_iter()
-                .map(|(k, v)| (k, preprocess(v, en, dir, depth)))
+                .map(|(k, v)| (k, preprocess(v, en, home, dir, depth)))
                 .collect::<Map<_, _>>(),
         ),
         Value::Array(a) => {
@@ -115,19 +120,19 @@ fn preprocess(v: Value, en: &HashSet<i64>, dir: &Path, depth: usize) -> Value {
                             // the values are items of this array: branches
                             // among them are resolved the same way
                             if let Value::Array(vs) =
-                                preprocess(Value::Array(vs.clone()), en, dir, depth)
+                                preprocess(Value::Array(vs.clone()), en, home, dir, depth)
                             {
                                 out.extend(vs);
                             }
                         } else if let Some(v) = item.get("value") {
-                            out.push(preprocess(v.clone(), en, dir, depth));
+                            out.push(preprocess(v.clone(), en, home, dir, depth));
                         }
                         if branches {
                             break; // object-valued conditional: first matching clause wins
                         }
                     }
                 } else {
-                    out.push(preprocess(item, en, dir, depth));
+                    out.push(preprocess(item, en, home, dir, depth));
                 }
             }
             Value::Array(out)
@@ -212,7 +217,7 @@ impl Header {
 
 /// A skin file's header, read once per version of the file: a Lua skin
 /// runs for it.
-fn header_of(path: &Path) -> Result<std::sync::Arc<Header>, String> {
+fn header_of(path: &Path, home: &Home) -> Result<std::sync::Arc<Header>, String> {
     type Cache = HashMap<(PathBuf, (i64, i64)), std::sync::Arc<Header>>;
     static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
     let key = (path.to_path_buf(), vfs::stamp(path));
@@ -220,7 +225,7 @@ fn header_of(path: &Path) -> Result<std::sync::Arc<Header>, String> {
     if let Some(h) = CACHE.lock().ok().as_deref_mut().and_then(cached) {
         return Ok(h);
     }
-    let h = std::sync::Arc::new(Header::of(&read_skin(path, None, None)?.0));
+    let h = std::sync::Arc::new(Header::of(&read_skin(path, home, None, None)?.0));
     if let Ok(mut c) = CACHE.lock() {
         c.get_or_insert_default().insert(key, h.clone());
     }
@@ -228,23 +233,23 @@ fn header_of(path: &Path) -> Result<std::sync::Arc<Header>, String> {
 }
 
 /// The `offset` list of a skin: positions the user may adjust.
-pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
-    header_of(path)
+pub fn custom_offsets(path: &Path, skins_root: &Path) -> Vec<CustomOffset> {
+    header_of(path, &Home::of(path, skins_root))
         .map(|h| h.offsets.clone())
         .unwrap_or_default()
 }
 
 /// The `property` list of a skin as custom options, then its `filepath`
 /// choices.
-pub fn custom_options(path: &Path) -> Vec<CustomOption> {
-    let Ok(h) = header_of(path) else {
+pub fn custom_options(path: &Path, skins_root: &Path) -> Vec<CustomOption> {
+    let home = Home::of(path, skins_root);
+    let Ok(h) = header_of(path, &home) else {
         return Vec::new();
     };
-    let dir = path.parent().unwrap_or(Path::new(""));
     let mut out: Vec<CustomOption> = h.props.iter().filter_map(to_custom).collect();
     for f in &h.filepaths {
-        let labels = filepath_files(dir, &f.path);
-        let chosen = filepath_chosen(dir, f, &HashMap::new());
+        let labels = filepath_files(&home, &f.path);
+        let chosen = filepath_chosen(&home, f, &HashMap::new());
         if labels.len() > 1 {
             out.push(CustomOption {
                 default: labels
@@ -279,11 +284,12 @@ fn is_lua(path: &Path) -> bool {
 /// A skin's table, with the Lua state it ran in (Lua skins).
 fn read_skin(
     path: &Path,
+    home: &Home,
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
 ) -> Result<(Value, Option<script::Script>), String> {
     if is_lua(path) {
-        return lua::eval(path, skin_config, state).map(|(v, s)| (v, Some(s)));
+        return lua::eval(path, home, skin_config, state).map(|(v, s)| (v, Some(s)));
     }
     let text = vfs::read(path)
         .map(|b| vibebms_core::encoding::decode_text(&b))
@@ -295,13 +301,14 @@ fn read_skin(
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 /// A skin's size (w, h), without building it.
-pub fn size(path: &Path) -> Option<(f32, f32)> {
-    header_of(path).ok().map(|h| h.size)
+pub fn size(path: &Path, skins_root: &Path) -> Option<(f32, f32)> {
+    let h = header_of(path, &Home::of(path, skins_root)).ok()?;
+    Some(h.size)
 }
 
 /// (type, name) without building the skin.
-pub fn header(path: &Path) -> Option<(SkinType, String)> {
-    let h = header_of(path).ok()?;
+pub fn header(path: &Path, skins_root: &Path) -> Option<(SkinType, String)> {
+    let h = header_of(path, &Home::of(path, skins_root)).ok()?;
     Some((SkinType::from_id(h.kind? as i32), h.name.clone()))
 }
 
@@ -345,16 +352,17 @@ fn custom_scripts(sk: &Value, b: &mut script::Builder) {
 /// `state` holds the scene's values a Lua skin reads while it is built.
 pub fn load_with(
     path: &Path,
+    skins_root: &Path,
     user: &UserSettings,
     state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    let dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
+    let home = Home::of(path, skins_root);
     // pass 1: header + defaults (a Lua skin's run without settings is kept)
     let (header, json) = if is_lua(path) {
-        (header_of(path)?, None)
+        (header_of(path, &home)?, None)
     } else {
-        let v = read_skin(path, None, None)?.0;
+        let v = read_skin(path, &home, None, None)?.0;
         (std::sync::Arc::new(Header::of(&v)), Some(v))
     };
     let props = &header.props;
@@ -364,13 +372,13 @@ pub fn load_with(
         Some(v) => (v, None),
         None => {
             let config = (&by_name, &*header, &user.offsets, &user.files);
-            read_skin(path, Some(config), state)?
+            read_skin(path, &home, Some(config), state)?
         }
     };
-    let sk = preprocess(raw, &enabled, &dir, 0);
+    let sk = preprocess(raw, &enabled, &home, &home.dir, 0);
     let fps = filepaths(&sk);
-    let scripts = script::Builder::new(lua_state, &dir);
-    let mut cx = Ctx::new(&sk, &dir, &fps, &user.files, image_size, scripts);
+    let scripts = script::Builder::new(lua_state, &home);
+    let mut cx = Ctx::new(&sk, &home, &fps, &user.files, image_size, scripts);
     let kind = SkinType::from_id(i(&sk, "type", -1) as i32);
     let mut skin = Skin {
         name: s(&sk, "name").to_string(),
