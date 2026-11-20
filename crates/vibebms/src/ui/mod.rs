@@ -104,18 +104,28 @@ pub fn back_button(d: &mut Draw, w: f32, ui: f32) -> Rect {
 
 /// `s` cut to `w` wide with an ellipsis.
 pub fn ellipsize(d: &mut Draw, s: &str, size: f32, w: f32) -> String {
-    if d.measure(s, size) <= w {
-        return s.to_string();
-    }
-    let mut chars: Vec<char> = s.chars().collect();
-    while !chars.is_empty() {
-        chars.pop();
-        let t: String = chars.iter().collect::<String>() + "…";
-        if d.measure(&t, size) <= w {
-            return t;
+    let dots = d.measure("…", size);
+    cut(s, w, dots, |c| d.measure(c.encode_utf8(&mut [0; 4]), size))
+}
+
+/// `s` cut to `w` wide with an ellipsis `dots` wide, each character as
+/// wide as `width` says (a text is as wide as its characters together).
+/// One pass that ends where the text no longer fits: a row is cut every
+/// frame, and a text may be of any length (a name a server gave).
+fn cut(s: &str, w: f32, dots: f32, mut width: impl FnMut(char) -> f32) -> String {
+    let mut used = 0.0;
+    // the longest start that fits with the ellipsis after it
+    let mut fits = None;
+    for (i, c) in s.char_indices() {
+        if used + dots <= w {
+            fits = Some(i);
+        }
+        used += width(c);
+        if used > w {
+            return fits.map_or(String::new(), |i| format!("{}…", &s[..i]));
         }
     }
-    String::new()
+    s.to_string()
 }
 
 /// `s` broken into at most `max` lines `w` wide (the last cut short), at
@@ -245,7 +255,34 @@ fn is_cjk(c: char) -> bool {
 
 #[cfg(test)]
 mod break_tests {
-    use super::break_words;
+    use super::{break_words, cut};
+
+    /// A text is cut where it stops fitting, in one pass over what fits:
+    /// a text of any length costs no more than the row is wide.
+    #[test]
+    fn a_long_text_is_cut_in_one_pass() {
+        let mut asked = 0;
+        let mut one = |_: char| {
+            asked += 1;
+            1.0
+        };
+        assert_eq!(cut("abcdef", 6.0, 1.0, &mut one), "abcdef");
+        assert_eq!(cut("abcdefg", 6.0, 1.0, &mut one), "abcde…");
+        assert_eq!(cut("abcdefg", 1.0, 1.0, &mut one), "…");
+        assert_eq!(cut("abcdefg", 0.5, 1.0, &mut one), "");
+        assert_eq!(cut("", 6.0, 1.0, &mut one), "");
+        asked = 0;
+        let long = "名".repeat(1_000_000);
+        let mut one = |_: char| {
+            asked += 1;
+            1.0
+        };
+        assert_eq!(
+            cut(&long, 40.0, 1.0, &mut one),
+            format!("{}…", "名".repeat(39))
+        );
+        assert_eq!(asked, 41);
+    }
 
     #[test]
     fn breaks_at_spaces_and_between_cjk() {
