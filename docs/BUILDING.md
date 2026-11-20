@@ -521,20 +521,29 @@ How far each build is reproducible:
 To keep it so: move the pins (`rust-toolchain.toml`, `tools/repro.env`) in commits of their own, and build release
 files only through `tools/build_release.sh`. Both are moved for you:
 - Dependabot updates `rust-toolchain.toml` weekly, merged once CI passes like a minor update
-  (`.github/workflows/dependabot-merge.yml`);
+  (`.github/workflows/dependabot-merge.yml`). It takes a release, of Rust as of any dependency, once it is 7 days old
+  (`cooldown` in `.github/dependabot.yml`): what is merged with no person looking has had a week to be withdrawn or
+  reported;
 - the **Toolchain pins** workflow (`.github/workflows/toolchain-pins.yml`, weekly, or Actions > Run workflow) updates
   `tools/repro.env`: the newest GA macOS and Windows runner labels (from actions/runner-images), the Xcode
   releases, side-by-side MSVC toolsets and Windows SDKs on the pinned and newest images (looked up on the runners,
   the newest checked as `tools/toolchain.sh` selects it), the Android tools (NDK, cargo-ndk, JDK, Gradle,
-  build-tools) from their registries, libdmg-hfsplus's newest commit and, in the first week of a month (or with the
+  build-tools) from their registries, libdmg-hfsplus's commit and, in the first week of a month (or with the
   `images` input), the images' digests, a new `UBUNTU_SNAPSHOT` (the packages of the `*_PACKAGES` lists) and
-  `tools/linux-arm64.lock` resolved again in its image. `tools/repro_pins.py` splits the changes
+  `tools/linux-arm64.lock` resolved again in its image. Where the registry gives a time it waits 7 days, as
+  Dependabot does: the newest release of cargo-ndk (crates.io), Gradle and the JDK (Adoptium) that is that old, and
+  the head libdmg-hfsplus's default branch had 7 days ago (GitHub's record of the pushes, not the dates written in
+  the commits); a pin that is already newer stays. The NDK and build-tools (sdkmanager's list), the digests and what
+  the runner images have come with no time and are taken as found. A registry that does not answer, or answers
+  something else, leaves its pin and fails the `registries` job (the other pins move all the same).
+  `tools/repro_pins.py` takes for a pin only a value that looks like one (a version is numbers and dots, an image
+  `<repository>[:<tag>]@sha256:<digest>`, a commit 40 hex digits) and splits the changes
   into two pull requests, each one commit that changes only pins, on which the workflow dispatches CI (a pull request
   made with `GITHUB_TOKEN` starts none, and its pull request's CI waits for a person's approval):
   `toolchain-pins/update` (newer tools on the same labels, Xcode and the Android tools within their major versions,
   digests, the snapshot), which the workflow's merge job merges once that CI run passes (it waits for it: such a run
   starts no other workflow), after checking with the default branch's `tools/repro_pins.py` that only pins' values
-  changed; and
+  changed, each to a value that looks like one; and
   `toolchain-pins/major` (a new runner label with its tools, a new major version), which waits for a person, as a
   Dependabot major update does. Each run makes both again from the default branch, and closes one whose pins are
   current. It needs Settings › Actions › General › "Allow GitHub Actions to create and approve pull requests".
