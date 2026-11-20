@@ -59,6 +59,51 @@ pub(super) fn write_atomic(p: &Path, data: &[u8], sync: bool) -> io::Result<()> 
     std::fs::rename(&tmp, p)
 }
 
+/// The bytes this user can still write on the disk `dir` is on (`None`:
+/// not known).
+#[cfg(unix)]
+pub fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut s = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: `path` ends with a NUL, and `s` is room for the one `statvfs`
+    // the call fills in when it returns 0.
+    let s =
+        unsafe { (libc::statvfs(path.as_ptr(), s.as_mut_ptr()) == 0).then(|| s.assume_init()) }?;
+    // (the fields' types differ by system)
+    #[allow(clippy::unnecessary_cast)]
+    Some((s.f_bavail as u64).saturating_mul(s.f_frsize as u64))
+}
+
+/// The bytes this user can still write on the disk `dir` is on (`None`:
+/// not known).
+#[cfg(windows)]
+pub fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            dir: *const u16,
+            free_to_caller: *mut u64,
+            total: *mut u64,
+            free: *mut u64,
+        ) -> i32;
+    }
+    let dir: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+    let mut free = 0u64;
+    // SAFETY: `dir` ends with a NUL, `free` is the one `u64` written to,
+    // and the two other results are not asked for (null).
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            dir.as_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(free)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::*;
@@ -870,8 +915,31 @@ pub fn normalize(p: &Path) -> PathBuf {
     out
 }
 
+/// Whether Windows keeps the file name `name` for a device, whatever
+/// comes after its first dot (`CON`, `nul.wav`, `COM1`, `LPT²`): opened
+/// there, in any folder, it is the device that is read or written, not a
+/// file. (The rule of BMSeeker's unpacking, `fs::device_name`.)
+pub fn device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end_matches(' ');
+    let stem = stem.to_ascii_uppercase();
+    let numbered = |port: &str| {
+        let mut rest = stem.strip_prefix(port).unwrap_or("").chars();
+        let digit = rest.next().is_some_and(|c| "0123456789¹²³".contains(c));
+        digit && rest.next().is_none()
+    };
+    let devices = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"];
+    devices.contains(&stem.as_str()) || numbered("COM") || numbered("LPT")
+}
+
+/// Whether a part of `rel` is a device's name ([`device_name`]).
+fn names_a_device(rel: &Path) -> bool {
+    rel.components()
+        .any(|c| device_name(&c.as_os_str().to_string_lossy()))
+}
+
 /// `name` (a file a chart or skin refers to) under `dir`; `None` for an
-/// absolute path, a drive or network path, or one that climbs out with `..`.
+/// absolute path, a drive or network path, one that climbs out with `..`,
+/// or one with a device's name in it ([`device_name`]).
 pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
     use std::path::Component;
     let name = name.replace('\\', "/");
@@ -879,14 +947,16 @@ pub fn inside(dir: &Path, name: &str) -> Option<PathBuf> {
     let ok = !name.starts_with('/')
         && rel
             .components()
-            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+        && !names_a_device(rel);
     ok.then(|| dir.join(rel))
 }
 
 /// `name` (a file a skin or a sound set names, from `base`) when it is
 /// below `root`: `..` is resolved without looking at the file system, and
 /// a path that ends outside `root` (an absolute one, a drive or network
-/// path, `..` past it) gives `None`, so that it is never opened or listed.
+/// path, `..` past it) gives `None`, so that it is never opened or listed;
+/// so does one with a device's name below `root` ([`device_name`]).
 /// Unlike [`inside`], `..` that stays below `root` and a full path into it
 /// are taken: skins name `../parts/x.png`, and scripts get full paths.
 pub fn within(root: &Path, base: &Path, name: &str) -> Option<PathBuf> {
@@ -908,7 +978,8 @@ pub fn within(root: &Path, base: &Path, name: &str) -> Option<PathBuf> {
         Some(out)
     }
     let p = plain(&base.join(name.replace('\\', "/")))?;
-    p.starts_with(plain(root)?).then_some(p)
+    let below = p.strip_prefix(plain(root)?).ok()?;
+    (!names_a_device(below)).then_some(p)
 }
 
 /// Find a file in `dir` whose stem matches `name`'s stem (case-insensitive),
@@ -1068,6 +1139,72 @@ mod tests {
             assert_eq!(inside(dir, bad), None, "{bad}");
         }
         assert_eq!(normalize(Path::new("/a/b/../c/./d")), Path::new("/a/c/d"));
+    }
+
+    /// A name Windows keeps for a device is no file's, in a song's folder
+    /// or a skin's.
+    #[test]
+    fn device_names_are_no_files() {
+        for device in [
+            "CON",
+            "con",
+            "nul.wav",
+            "NUL.tar.gz",
+            "aux ",
+            "Aux .bmp",
+            "PRN.png",
+            "COM1",
+            "com9.ogg",
+            "LPT0.txt",
+            "lpt².x",
+            "CONIN$",
+            "conout$.wav",
+            "CLOCK$",
+        ] {
+            assert!(device_name(device), "{device}");
+        }
+        for file in [
+            "",
+            "a.wav",
+            "console.wav",
+            "con_.wav",
+            "_con.wav",
+            "nul1.wav",
+            "com.wav",
+            "COM10.wav",
+            "COM1x.wav",
+            "lpt.png",
+            "a.con",
+            "a.nul.wav",
+            "conin.wav",
+        ] {
+            assert!(!device_name(file), "{file}");
+        }
+        let dir = Path::new("/songs/a");
+        assert_eq!(inside(dir, "console.wav"), Some(dir.join("console.wav")));
+        for bad in ["CON", "nul.wav", "bga\\com1.mpg", "aux/x.wav", "./CONIN$"] {
+            assert_eq!(inside(dir, bad), None, "{bad}");
+        }
+        // (a skins folder may be below any name: only the skin's own
+        // paths are looked at)
+        let (root, base) = (Path::new("/con/skins/t"), Path::new("/con/skins/t/play"));
+        assert_eq!(within(root, base, "../a.png"), Some(root.join("a.png")));
+        for bad in [
+            "nul.png",
+            "../LPT1",
+            "parts/aux.lua/x.png",
+            "/con/skins/t/prn.png",
+        ] {
+            assert_eq!(within(root, base, bad), None, "{bad}");
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn free_space_is_known() {
+        let free = free_space(&std::env::temp_dir()).unwrap();
+        assert!(free > 0 && free < 1 << 60, "{free}");
+        assert_eq!(free_space(Path::new("/no/such/folder/here")), None);
     }
 
     /// The settings are their owner's alone, whatever was there before.

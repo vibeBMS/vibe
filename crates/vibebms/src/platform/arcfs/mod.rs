@@ -43,6 +43,7 @@ pub use mount::{is_ready, prepare, read, retain};
 pub use unpack::times_opened;
 pub use unpack::{read_charts, Unpacked};
 
+use crate::platform::vfs;
 use mount::{Mount, Recent};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
@@ -125,13 +126,35 @@ pub fn shown_name(name: &str) -> &str {
     }
 }
 
-/// `name` from an archive as BMSeeker makes it a path (no way out of its
-/// folder).
-fn bmseeker_safe_rel(name: &str) -> Option<PathBuf> {
+/// One part of a path from an archive as every file system holds it,
+/// Windows' too (a song unpacked is written under its names): `< > " | ? *`
+/// and control characters as `_`, no dot or space at its end (Windows
+/// drops them: `a.bms.` would be `a.bms` there), `_` before a device's
+/// name ([`vfs::device_name`]). `None`: nothing is left of it.
+fn safe_part(part: &str) -> Option<String> {
+    let part: String = part
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | '"' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    match part.trim_end_matches(['.', ' ']) {
+        "" => None,
+        p if vfs::device_name(p) => Some(format!("_{p}")),
+        p => Some(p.to_string()),
+    }
+}
+
+/// `name` from an archive as a path that cannot leave its folder, each
+/// part a name a file can have ([`safe_part`]): as BMSeeker unpacks.
+fn safe_rel(name: &str) -> Option<PathBuf> {
     let rel: PathBuf = name
         .split(['/', '\\'])
         .filter(|c| !c.is_empty() && *c != "." && *c != "..")
         .filter(|c| !c.contains(':'))
+        .filter_map(safe_part)
         .collect();
     (!rel.as_os_str().is_empty()).then_some(rel)
 }
@@ -199,5 +222,34 @@ mod tests {
         assert_eq!(shown_name("x.tar!"), "x.tar");
         assert_eq!(archive_stem("Song.tar.gz"), Some("Song"));
         assert_eq!(archive_stem(".tar.gz"), None);
+    }
+
+    /// A name in an archive is a file's below its folder, on every system.
+    #[test]
+    fn names_in_archives_are_made_safe() {
+        for (name, safe) in [
+            ("Song/a.bms", Some("Song/a.bms")),
+            ("Song\\bga\\ソ.bmp", Some("Song/bga/ソ.bmp")),
+            ("../../etc/passwd", Some("etc/passwd")),
+            ("/abs/./x", Some("abs/x")),
+            ("C:\\Windows\\x.dll", Some("Windows/x.dll")),
+            ("Song/a.bms:stream", Some("Song")),
+            // a device's name, in any case, whatever follows its dot
+            ("Song/CON", Some("Song/_CON")),
+            ("Song/nul.wav", Some("Song/_nul.wav")),
+            ("com1/Aux.tar.gz", Some("_com1/_Aux.tar.gz")),
+            ("LPT9 .bmp", Some("_LPT9 .bmp")),
+            ("console.wav", Some("console.wav")),
+            // what Windows drops from a name's end, or refuses in one
+            ("Song ./a.bms. . ", Some("Song/a.bms")),
+            ("Song/nul. ", Some("Song/_nul")),
+            ("a<b>c\"d|e?f*.wav", Some("a_b_c_d_e_f_.wav")),
+            ("a\tb\u{7f}.wav", Some("a_b_.wav")),
+            ("... /. ", None),
+            (" ", None),
+            ("x:y", None),
+        ] {
+            assert_eq!(safe_rel(name), safe.map(PathBuf::from), "{name:?}");
+        }
     }
 }

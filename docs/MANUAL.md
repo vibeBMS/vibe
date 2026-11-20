@@ -323,6 +323,14 @@ played without unpacking it yourself.
   once, as the file.
 - Not read: archives in an archive, encrypted archives, tars compressed other than with gzip (`.tar.xz`, `.tar.bz2`,
   `.tar.zst`).
+- Limits, as an archive can say or hold anything. An archive is left out (the log says why; it is read again when it
+  changes) when its charts are more than 256 MB in all (64 MB on phones and the web), when it lists more than
+  1,000,000 files (250,000), or when a 7z, RAR, LZH or tar decodes to more than 64 GB. A chart larger than a chart
+  file may be (32 MB) is passed by. A song larger than 4 GB, or than the disk has room for with 256 MB to spare, is
+  not unpacked.
+- A file's name in an archive is the one it would have unpacked on any system: `_` stands for `< > " | ? *` and
+  control characters, a dot or space at the end of a name is dropped, and a name Windows keeps for a device (`CON`,
+  `NUL.wav`, `COM1`) gets a `_` before it. A chart finds such a file under that name only.
 
 ## Display
 
