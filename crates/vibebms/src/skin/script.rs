@@ -554,6 +554,8 @@ return fns
     const HOOK_EVERY: u32 = 1000;
     /// Timers a skin's scripts may set (kept outside Lua's memory limit).
     const SET_TIMERS: usize = 4096;
+    /// Game events a click's script may ask for.
+    const CLICK_EVENTS: usize = 8;
     /// Bytes of a text a script gives that are shown.
     const TEXT_BYTES: usize = 4096;
 
@@ -1045,7 +1047,6 @@ end
             let r = self.frame.with(st, f);
             // what scripts set while the skin is built is not kept
             self.frame.set_timers.borrow_mut().clear();
-            self.frame.exec.borrow_mut().clear();
             r
         }
 
@@ -1155,7 +1156,9 @@ end
         now_us: Cell<i64>,
         /// Timers set by scripts (`set_timer`, `customTimers`), µs.
         set_timers: RefCell<HashMap<i32, i64>>,
-        /// Game events scripts asked for (`main_state.event_exec`).
+        /// The script of an object the player clicked is running.
+        clicked: Cell<bool>,
+        /// Game events that script asked for (`main_state.event_exec`).
         exec: RefCell<Vec<i32>>,
     }
 
@@ -1271,9 +1274,16 @@ end
                 Ok(room)
             },
         )?;
+        // a game event (a play started, an option changed and saved, a
+        // page opened ...) is the player's to ask for: a script's counts
+        // while it runs for their click, a few a click
         put(lua, vb, frame, "event_exec", zero, |_, _, fr, id: i32| {
-            fr.exec.borrow_mut().push(id);
-            Ok(true)
+            let mut exec = fr.exec.borrow_mut();
+            let taken = fr.clicked.get() && exec.len() < CLICK_EVENTS;
+            if taken {
+                exec.push(id);
+            }
+            Ok(taken)
         })?;
         put(lua, vb, frame, "exscore", zero, move |_, st, _, ()| {
             Ok(num(st, 71))
@@ -1320,8 +1330,7 @@ end
     }
 
     struct CustomEvent {
-        action: Option<Function>,
-        exec: i32,
+        action: Function,
         condition: Option<Function>,
         min_interval_ms: i64,
         last_us: i64,
@@ -1408,18 +1417,16 @@ end
             }
         }
 
-        /// `customEvents`: `action` (script or event id) runs whenever
-        /// `condition` holds, at most every `min_interval_ms`.
+        /// `customEvents`: the script `action` runs whenever `condition`
+        /// holds, at most every `min_interval_ms` (a game event's id for
+        /// an action is not run: those are the player's to ask for).
         pub fn custom_event(&mut self, action: &Value, condition: Option<&Value>, min_ms: i64) {
-            let exec = action.as_i64().unwrap_or(0) as i32;
-            let action = self.function(action, ScriptKind::Event);
-            if action.is_none() && exec == 0 {
+            let Some(action) = self.function(action, ScriptKind::Event) else {
                 return;
-            }
+            };
             let condition = condition.and_then(|c| self.function(c, ScriptKind::Bool));
             self.events.push(CustomEvent {
                 action,
-                exec,
                 condition,
                 min_interval_ms: min_ms,
                 last_us: i64::MIN,
@@ -1560,7 +1567,8 @@ end
             }
         }
 
-        /// Game events requested by scripts since the last call.
+        /// Game events the scripts of clicked objects asked for since the
+        /// last call.
         pub fn take_events(&self) -> Vec<i32> {
             std::mem::take(&mut *self.frame.exec.borrow_mut())
         }
@@ -1593,11 +1601,13 @@ end
             self.generation.set(self.generation.get() + 1);
             self.frame.with(st, || {
                 let queued = std::mem::take(&mut *self.queued.borrow_mut());
+                self.frame.clicked.set(true);
                 for k in queued {
                     if let Err(e) = self.call::<()>(&self.entries[k].f) {
                         self.warn(k, &e);
                     }
                 }
+                self.frame.clicked.set(false);
                 for ev in self.events.borrow_mut().iter_mut() {
                     let on = match &ev.condition {
                         Some(c) => self.call::<LV>(c).is_ok_and(|v| val(v).truthy()),
@@ -1607,13 +1617,8 @@ end
                         || (now_us - ev.last_us) / 1000 >= ev.min_interval_ms;
                     if on && due {
                         ev.last_us = now_us;
-                        match &ev.action {
-                            Some(a) => {
-                                if let Err(e) = self.call::<()>(a) {
-                                    log::debug!("skin custom event: {e}");
-                                }
-                            }
-                            None => self.frame.exec.borrow_mut().push(ev.exec),
+                        if let Err(e) = self.call::<()>(&ev.action) {
+                            log::debug!("skin custom event: {e}");
                         }
                     }
                 }
@@ -1848,6 +1853,38 @@ end
 
         fn code(code: &str) -> Value {
             Value::String(code.into())
+        }
+
+        /// A script's game events count while it runs for a click, a few
+        /// a click; a value, a timer or a custom event asks for none.
+        #[test]
+        fn game_events_come_of_clicks_only() {
+            let (mut click, mut value) = (0, 0);
+            let rt = runtime("", |b| {
+                let many = code("for i = 1, 100 do event_exec(15) end");
+                click = b.register(&many, ScriptKind::Event).unwrap();
+                value = b
+                    .register(&code("event_exec(16)"), ScriptKind::Bool)
+                    .unwrap();
+                b.custom_event(&code("event_exec(17)"), None, 0);
+                b.custom_event(&Value::from(18), None, 0);
+                b.custom_timer(900, &code("event_exec(19) and 0 or 0"));
+            });
+            let offsets = HashMap::new();
+            let ov = Overlay {
+                st: &St,
+                rt: Some(&rt),
+                offsets: &offsets,
+            };
+            for frame in 0..3 {
+                rt.update(&St, frame * 16);
+                assert!(!ov.option(value));
+            }
+            assert_eq!(rt.take_events(), Vec::<i32>::new());
+            assert!(rt.click(click));
+            rt.update(&St, 48);
+            assert!(!ov.option(value));
+            assert_eq!(rt.take_events(), vec![15; CLICK_EVENTS]);
         }
 
         /// Scripts that run out of a frame's time frame after frame run
