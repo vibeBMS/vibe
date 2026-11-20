@@ -29,13 +29,75 @@ pub use time::{unix_ms, unix_now, Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const IS_WEB: bool = cfg!(target_arch = "wasm32");
 
-/// Open `url` in the system browser (a new tab on the web).
+/// Whether `url` is a link for a browser: `http://` or `https://` and no
+/// white space or control character. Links come from charts, tables,
+/// indexes and catalogs, and a browser or a web view given another scheme
+/// (`file:`, `javascript:`, an application's) would act on it.
+pub fn is_web_url(url: &str) -> bool {
+    let rest = ["http://", "https://"].iter().find_map(|scheme| {
+        let head = url.get(..scheme.len())?;
+        head.eq_ignore_ascii_case(scheme)
+            .then(|| &url[scheme.len()..])
+    });
+    rest.is_some_and(|r| !r.is_empty()) && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// Open `url` (a web link: [`is_web_url`]) in the system browser (a new
+/// tab on the web).
 pub fn open_url(url: &str) -> bool {
+    if !is_web_url(url) {
+        log::warn!("open {url:?}: not a web link");
+        return false;
+    }
     match webbrowser::open(url) {
         Ok(()) => true,
         Err(e) => {
             log::warn!("open {url}: {e}");
             false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_web_links_are_opened() {
+        for ok in [
+            "http://a",
+            "https://example.com/a?b=c#d",
+            "HTTPS://Example.com/",
+            "http://127.0.0.1:8080/x",
+        ] {
+            assert!(is_web_url(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "https://",
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "file:///etc/passwd",
+            "file://host/share/x.html",
+            "content://media/x",
+            "intent://x#Intent;end",
+            "data:text/html,x",
+            "about:blank",
+            "ftp://host/x",
+            "httpx://a",
+            "http:/a",
+            "C:\\x.html",
+            "\\\\host\\share\\x.html",
+            "/etc/passwd",
+            "x.html",
+            " https://a",
+            "https://a b",
+            "https://a\nb",
+            "https://a\u{7f}",
+        ] {
+            assert!(!is_web_url(bad), "{bad}");
+            // (refused before a browser is looked for)
+            assert!(!open_url(bad), "{bad}");
         }
     }
 }

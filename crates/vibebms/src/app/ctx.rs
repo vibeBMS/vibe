@@ -104,8 +104,27 @@ pub struct Net {
     /// The desktop executable's self-update.
     pub updater: crate::update::Updater,
     /// Download pages to show in the in-app browser (song, then chart).
-    pub browse: Option<Vec<String>>,
+    pages: Option<Vec<String>>,
     pub ir: crate::ir::IrService,
+}
+
+impl Net {
+    /// Show `pages` in the in-app browser, one after another (song, then
+    /// chart). They are links from tables and indexes: only web links are
+    /// kept (`platform::is_web_url`), a web view loads any scheme.
+    pub fn browse(&mut self, pages: Vec<String>) {
+        let pages: Vec<String> = (pages.into_iter())
+            .filter(|u| crate::platform::is_web_url(u))
+            .collect();
+        if !pages.is_empty() {
+            self.pages = Some(pages);
+        }
+    }
+
+    /// The pages asked for since the last call.
+    pub fn take_pages(&mut self) -> Option<Vec<String>> {
+        self.pages.take()
+    }
 }
 
 /// The mixer, and the sound set's sounds played on it.
@@ -277,7 +296,7 @@ impl Ctx {
             song_fetch: Default::default(),
             bulk: Default::default(),
             updater: Default::default(),
-            browse: None,
+            pages: None,
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
         let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
@@ -646,7 +665,7 @@ impl Ctx {
         }
         if !pages.is_empty() {
             if super::IN_APP_BROWSER {
-                self.net.browse = Some(pages);
+                self.net.browse(pages);
             } else {
                 for p in &pages {
                     crate::platform::open_url(p);
@@ -841,3 +860,34 @@ impl PartialEq for dyn ScoreKey + '_ {
 }
 
 impl Eq for dyn ScoreKey + '_ {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A download page comes from an index or a table: the in-app browser
+    /// is given web links only.
+    #[test]
+    fn only_web_links_reach_the_in_app_browser() {
+        let root = std::env::temp_dir().join(format!("vibebms-browse-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let bad = ["javascript:alert(1)", "file:///etc/passwd", "content://x/y"];
+        ctx.handle(bad.map(|u| AppEvent::Browse(u.into())).into());
+        assert_eq!(ctx.net.take_pages(), None);
+        ctx.net.browse(bad.map(String::from).into());
+        assert_eq!(ctx.net.take_pages(), None);
+        let pages = [
+            bad[0],
+            "https://example.com/song",
+            bad[1],
+            "http://example.com/chart",
+        ];
+        ctx.net.browse(pages.map(String::from).into());
+        assert_eq!(
+            ctx.net.take_pages(),
+            Some(vec![pages[1].to_string(), pages[3].to_string()])
+        );
+        assert_eq!(ctx.net.take_pages(), None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
