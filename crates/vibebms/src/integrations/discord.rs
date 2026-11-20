@@ -1,6 +1,11 @@
 //! Discord Rich Presence over the Discord app's local IPC (no network: a
-//! Unix socket `discord-ipc-N` in the runtime or temporary folder, or the
-//! named pipe `\\.\pipe\discord-ipc-N` on Windows, N from 0 to 9).
+//! Unix socket `discord-ipc-N` in the user's runtime folder, or the named
+//! pipe `\\.\pipe\discord-ipc-N` on Windows, N from 0 to 9).
+//!
+//! What is sent says what the player plays, so the socket has to be the
+//! player's own Discord's: it is looked for only in the folder the system
+//! keeps for the user alone (not in `/tmp`, where anyone may put one), and
+//! the pipe is opened so that its server cannot act as the player.
 //!
 //! Each message is a frame: its opcode and its length (two little-endian
 //! u32), then that much JSON. The client opens with a HANDSHAKE (`{"v": 1,
@@ -9,7 +14,7 @@
 //! 20 seconds: changes are sent at most every 4 s, the last one winning).
 //! PING is answered with PONG; CLOSE ends it (a wrong application id).
 
-use super::worker::{Peer, Turn, Worker};
+use super::worker::{Peer, Refusal, Turn, Worker};
 use super::{Activity, PlayKind, Status};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
@@ -107,36 +112,51 @@ pub fn set_activity(pid: u32, activity: Option<Value>, nonce: &str) -> String {
 trait Pipe: Read + Write + Send {}
 impl<T: Read + Write + Send> Pipe for T {}
 
-/// The places Discord's socket can be (the first that answers is used).
+/// The folder Discord keeps its socket in: the user's runtime folder
+/// (macOS has none: the user's own temporary folder).
 #[cfg(unix)]
-fn candidates() -> Vec<std::path::PathBuf> {
-    let mut dirs: Vec<std::path::PathBuf> = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
-        .iter()
-        .filter_map(std::env::var_os)
+fn runtime_dir() -> Option<std::path::PathBuf> {
+    let var = if cfg!(target_os = "macos") {
+        "TMPDIR"
+    } else {
+        "XDG_RUNTIME_DIR"
+    };
+    std::env::var_os(var)
+        .filter(|d| !d.is_empty())
         .map(Into::into)
-        .collect();
-    dirs.push("/tmp".into());
-    let mut out = Vec::new();
-    for d in dirs {
-        // the Flatpak and Snap packages of Discord keep it in a folder of
-        // their own
-        for sub in ["", "app/com.discordapp.Discord", "snap.discord"] {
-            for n in 0..10 {
-                out.push(d.join(sub).join(format!("discord-ipc-{n}")));
+}
+
+/// Discord's socket in `dir`, when `dir` is the user's alone: no one else
+/// may enter it (so whoever can is its owner), and the socket is its
+/// owner's.
+#[cfg(unix)]
+fn open_in(dir: &std::path::Path) -> Option<std::os::unix::net::UnixStream> {
+    use std::os::unix::fs::MetadataExt;
+    let owner = std::fs::metadata(dir)
+        .ok()
+        .filter(|m| m.mode() & 0o077 == 0)?;
+    // the Flatpak and Snap packages of Discord keep it in a folder of
+    // their own
+    for sub in ["", "app/com.discordapp.Discord", "snap.discord"] {
+        for n in 0..10 {
+            let p = dir.join(sub).join(format!("discord-ipc-{n}"));
+            if !std::fs::metadata(&p).is_ok_and(|m| m.uid() == owner.uid()) {
+                continue;
+            }
+            if let Ok(s) = std::os::unix::net::UnixStream::connect(&p) {
+                return Some(s);
             }
         }
     }
-    out
+    None
 }
 
 #[cfg(unix)]
 fn open() -> io::Result<Box<dyn Pipe>> {
-    for p in candidates() {
-        if let Ok(s) = std::os::unix::net::UnixStream::connect(&p) {
-            s.set_read_timeout(Some(Duration::from_secs(5)))?;
-            s.set_write_timeout(Some(Duration::from_secs(5)))?;
-            return Ok(Box::new(s));
-        }
+    if let Some(s) = runtime_dir().and_then(|d| open_in(&d)) {
+        s.set_read_timeout(Some(Duration::from_secs(5)))?;
+        s.set_write_timeout(Some(Duration::from_secs(5)))?;
+        return Ok(Box::new(s));
     }
     Err(io::Error::new(
         io::ErrorKind::NotFound,
@@ -146,9 +166,17 @@ fn open() -> io::Result<Box<dyn Pipe>> {
 
 #[cfg(windows)]
 fn open() -> io::Result<Box<dyn Pipe>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    /// The pipe's server may learn who the client is, not act as them.
+    const SECURITY_IDENTIFICATION: u32 = 0x0001_0000;
     for n in 0..10 {
         let p = format!(r"\\.\pipe\discord-ipc-{n}");
-        if let Ok(f) = std::fs::OpenOptions::new().read(true).write(true).open(p) {
+        let opened = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .security_qos_flags(SECURITY_IDENTIFICATION)
+            .open(p);
+        if let Ok(f) = opened {
             return Ok(Box::new(f));
         }
     }
@@ -230,8 +258,8 @@ impl Peer for Presence {
     const NAME: &'static str = "discord";
     const BACKOFF: (Duration, Duration) = (Duration::from_secs(2), Duration::from_secs(60));
 
-    fn open(&mut self) -> Result<Conn, String> {
-        let c = Conn::open(&self.client_id).map_err(|e| e.to_string())?;
+    fn open(&mut self) -> Result<Conn, Refusal> {
+        let c = Conn::open(&self.client_id).map_err(|e| Refusal::Later(e.to_string()))?;
         log::info!("discord: connected");
         self.dirty = self.current.is_some();
         self.last_sent = None;
@@ -360,6 +388,28 @@ mod tests {
             cmd,
             json!({"cmd": "SET_ACTIVITY", "args": {"pid": 42, "activity": null}, "nonce": "n1"})
         );
+    }
+
+    /// Discord's socket is taken from a folder that is the user's alone,
+    /// and from no other: one anyone may enter could hold another user's.
+    #[cfg(unix)]
+    #[test]
+    fn the_socket_is_the_users_own() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vibebms-discord-{}", std::process::id()));
+        let sub = dir.join("app/com.discordapp.Discord");
+        std::fs::create_dir_all(&sub).unwrap();
+        let mode = |m| std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(m)).unwrap();
+        let _l = std::os::unix::net::UnixListener::bind(sub.join("discord-ipc-3")).unwrap();
+        mode(0o700);
+        assert!(open_in(&dir).is_some());
+        for open_to_others in [0o755, 0o750, 0o1777] {
+            mode(open_to_others);
+            assert!(open_in(&dir).is_none(), "{open_to_others:o}");
+        }
+        mode(0o700);
+        assert!(open_in(&dir.join("none")).is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// The handshake and an activity against a fake Discord on a socket

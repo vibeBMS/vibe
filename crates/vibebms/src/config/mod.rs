@@ -336,26 +336,43 @@ impl Config {
         let Ok(s) = crate::platform::vfs::read_to_string(path) else {
             return Config::default();
         };
-        let parsed = toml::from_str::<toml::Value>(&s).map(|mut v| {
-            migrate(&mut v);
-            v
-        });
-        let e = match parsed {
-            Ok(v) => match v.clone().try_into::<Config>() {
-                Ok(c) => return c,
-                // a value of the wrong type (a setting that changed type):
-                // keep everything else
-                Err(e) => {
-                    log::error!("config: {e}; the settings that cannot be read are reset");
-                    backup(path);
-                    return Config::lenient(&v);
-                }
-            },
-            Err(e) => e,
+        match Config::parse(&s) {
+            Ok((c, None)) => c,
+            // a value of the wrong type (a setting that changed type):
+            // everything else is kept
+            Ok((c, Some(e))) => {
+                log::error!("config: {e}; the settings that cannot be read are reset");
+                backup(path, &s);
+                c
+            }
+            Err(e) => {
+                log::error!("config parse error ({e}); backing up and using defaults");
+                backup(path, &s);
+                Config::default()
+            }
+        }
+    }
+
+    /// The settings in `text`, an older configuration's read the way they
+    /// are now (`migrate`). With an error: the settings that could not be
+    /// read are the defaults. `Err`: it is no TOML at all.
+    fn parse(text: &str) -> Result<(Config, Option<toml::de::Error>), toml::de::Error> {
+        let mut v = toml::from_str::<toml::Value>(text)?;
+        let old = migrate(&mut v);
+        let (mut c, e) = match v.clone().try_into::<Config>() {
+            Ok(c) => (c, None),
+            Err(e) => (Config::lenient(&v), Some(e)),
         };
-        log::error!("config parse error ({e}); backing up and using defaults");
-        backup(path);
-        Config::default()
+        // (`[ir_server]` became the first account)
+        if let Some(a) =
+            c.ir.accounts
+                .first_mut()
+                .filter(|_| !old.ir_token.is_empty())
+        {
+            a.old_token = OldToken(old.ir_token);
+        }
+        c.obs.old_password = OldToken(old.obs_password);
+        Ok((c, e))
     }
 
     /// The settings of `v` that can be read, the defaults for the others:
@@ -429,11 +446,23 @@ impl Config {
     }
 }
 
-/// Keep a copy of a configuration that could not be read whole.
-fn backup(path: &std::path::Path) {
-    if let Ok(b) = crate::platform::vfs::read(path) {
-        let _ = crate::platform::vfs::write(&path.with_extension("toml.bak"), &b);
-    }
+/// Keep a copy of a configuration that could not be read whole, without
+/// the lines of the secrets an older one kept (`migrate::Old`).
+fn backup(path: &std::path::Path, text: &str) {
+    let kept: Vec<&str> = text.lines().filter(|l| !names_a_secret(l)).collect();
+    let _ =
+        crate::platform::vfs::write(&path.with_extension("toml.bak"), kept.join("\n").as_bytes());
+}
+
+/// `line` gives a key or a password (`token = …`, `password = …`, also
+/// quoted, dotted or in an inline table).
+fn names_a_secret(line: &str) -> bool {
+    ["token", "password"].iter().any(|k| {
+        line.match_indices(k).any(|(i, _)| {
+            let after = line[i + k.len()..].trim_start_matches(['"', '\'', ' ', '\t']);
+            after.starts_with('=')
+        })
+    })
 }
 
 #[cfg(test)]
@@ -857,6 +886,35 @@ mod tests {
         assert!(s.contains("normalize = false") && s.contains("normalize_target = -16.0"));
         let d: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, d);
+    }
+
+    /// The copy kept of a configuration that does not read has none of
+    /// the secrets an older one held.
+    #[test]
+    fn the_backup_has_no_secrets() {
+        let dir = std::env::temp_dir().join(format!("vibebms-config-bak-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("config.toml");
+        let text = "player_name = \"ME\"\n[obs]\nenabled = true\npassword = \"s3cr3t\"\n\
+                    [ir_server]\nurl = \"https://ir.example\"\ntoken = \"s3cr3t\"\n\
+                    [play]\nhispeed = \"fast\"\n";
+        std::fs::write(&file, text).unwrap();
+        let c = Config::load(&file);
+        assert_eq!(c.player_name, "ME");
+        let bak = std::fs::read_to_string(dir.join("config.toml.bak")).unwrap();
+        assert!(bak.contains("player_name") && bak.contains("https://ir.example"));
+        assert!(!bak.contains("s3cr3t"), "{bak}");
+        for line in [
+            "token = \"x\"",
+            "old_token='x'",
+            "\"password\" = \"x\"",
+            "obs.password = \"x\"",
+            "obs = { host = \"h\", password = \"x\" }",
+        ] {
+            assert!(names_a_secret(line), "{line}");
+        }
+        assert!(!names_a_secret("name = \"my password\""));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

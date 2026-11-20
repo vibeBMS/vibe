@@ -61,8 +61,11 @@ pub struct ObsConfig {
     pub enabled: bool,
     pub host: String,
     pub port: u16,
-    /// The server's password (empty: none). Kept here as it is typed.
-    pub password: String,
+    /// The password a configuration of before kept here (`migrate`), on
+    /// its way to the credentials store as the app starts (`ir::creds`):
+    /// neither read from `[obs]` nor written.
+    #[serde(skip)]
+    pub old_password: super::OldToken,
     pub scenes: ObsScenes,
     /// Start recording when a play starts and stop when its result is left.
     pub record_play: bool,
@@ -74,7 +77,7 @@ impl Default for ObsConfig {
             enabled: false,
             host: "127.0.0.1".into(),
             port: 4455,
-            password: String::new(),
+            old_password: Default::default(),
             scenes: ObsScenes::default(),
             record_play: false,
         }

@@ -1,7 +1,7 @@
-//! The keys of IR accounts (API keys, tokens), kept apart from
-//! `config.toml` so that a configuration shared or attached to a bug report
-//! carries none. All of them are one small JSON document, kept where the
-//! platform keeps such things:
+//! The keys of IR accounts (API keys, tokens) and OBS's password, kept
+//! apart from `config.toml` so that a configuration shared or attached to a
+//! bug report carries none. All of them are one small JSON document, kept
+//! where the platform keeps such things:
 //! - desktop: `config/credentials.json`, readable by the user alone on
 //!   Unix (the install is portable, and a keychain may be missing or ask
 //!   again after every unsigned update);
@@ -10,6 +10,11 @@
 //! - iOS: the Keychain, this device only (the data folder is `Documents`,
 //!   seen in Files and in backups);
 //! - web: the page's `localStorage`, which any script of the site can read.
+//!
+//! Each secret is kept with the server it was entered for and given out
+//! for that server only: the address of a server is a setting, which a
+//! configuration taken from someone else (or another program that can
+//! write `config.toml`) may point elsewhere.
 //!
 //! Nothing here logs or formats a key.
 
@@ -21,8 +26,79 @@ use vibebms_ir::provider::Creds;
 use vibebms_ir::{ProviderId, Secret};
 
 #[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct Doc {
-    keys: BTreeMap<ProviderId, String>,
+    keys: BTreeMap<ProviderId, Stored>,
+    /// In the root's document (the OBS settings are app-wide).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obs: Option<ObsSecret>,
+}
+
+/// An account's key as the document has it.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum Stored {
+    /// With the origin ([`origin`]) of the server it was entered for.
+    Bound { key: String, origin: String },
+    /// As versions before kept it: given a server once ([`Keys::bind`]).
+    Unbound(String),
+}
+
+/// OBS's WebSocket password and the address it was entered for.
+#[derive(Serialize, Deserialize)]
+struct ObsSecret {
+    password: String,
+    host: String,
+    port: u16,
+}
+
+/// `host` is this computer.
+pub fn loopback(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// The origin of an IR server's address, as `scheme://host:port`: `https`,
+/// or `http` on this computer (a key sent over plain `http` can be read on
+/// the way). None for any other address, and for one whose host is not
+/// plain to read (a user name in it, characters a URL parser may take
+/// another way): no request goes there.
+pub fn origin(url: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    let default_port: u16 = match scheme.as_str() {
+        "https" => 443,
+        "http" => 80,
+        _ => return None,
+    };
+    if rest.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let (host, port) = match authority.rfind(':') {
+        Some(i) if !authority[i..].contains(']') => (&authority[..i], Some(&authority[i + 1..])),
+        _ => (authority, None),
+    };
+    let port = match port {
+        Some(p) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => p.parse().ok()?,
+        Some(_) => return None,
+        None => default_port,
+    };
+    let named = !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    let v6 = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .is_some_and(|h| h.parse::<std::net::Ipv6Addr>().is_ok());
+    if !(named || v6) || (scheme == "http" && !loopback(host)) {
+        return None;
+    }
+    Some(format!("{scheme}://{}:{port}", host.to_ascii_lowercase()))
 }
 
 /// The accounts' keys.
@@ -36,39 +112,117 @@ pub fn kept() -> &'static str {
     imp::kept()
 }
 
+fn read(at: &imp::Place) -> Doc {
+    match imp::read(at) {
+        Ok(Some(t)) => serde_json::from_str(&t).unwrap_or_else(|e| {
+            log::warn!("credentials: {e}");
+            Doc::default()
+        }),
+        Ok(None) => Doc::default(),
+        Err(e) => {
+            log::warn!("credentials: {e}");
+            Doc::default()
+        }
+    }
+}
+
 impl Keys {
+    /// The keys of the profile in use.
     pub fn open(paths: &Paths) -> Keys {
-        let at = imp::place(paths);
-        let doc = match imp::read(&at) {
-            Ok(Some(t)) => serde_json::from_str(&t).unwrap_or_else(|e| {
-                log::warn!("credentials: {e}");
-                Doc::default()
-            }),
-            Ok(None) => Doc::default(),
-            Err(e) => {
-                log::warn!("credentials: {e}");
-                Doc::default()
-            }
-        };
+        let at = imp::place(&paths.private);
+        let doc = read(&at);
         Keys { at, doc }
     }
 
-    /// The credentials of `p`'s account, for its requests.
-    pub fn get(&self, p: ProviderId) -> Option<Creds> {
-        let k = self.doc.keys.get(&p)?;
-        Some(Creds::token(Secret::new(k.as_str())))
+    /// The root's document, whichever profile is in use: OBS's password.
+    #[cfg(desktop)]
+    pub fn open_root(paths: &Paths) -> Keys {
+        let at = imp::place(&paths.private_of(""));
+        let doc = read(&at);
+        Keys { at, doc }
     }
 
+    /// The credentials of `p`'s account for its requests to the server at
+    /// `origin`: the key entered for that server, no other.
+    pub fn get(&self, p: ProviderId, origin: &str) -> Option<Creds> {
+        match self.doc.keys.get(&p)? {
+            Stored::Bound { key, origin: o } if o == origin => {
+                Some(Creds::token(Secret::new(key.as_str())))
+            }
+            _ => None,
+        }
+    }
+
+    /// A key is kept for `p`'s account (for whichever server).
     pub fn has(&self, p: ProviderId) -> bool {
         self.doc.keys.contains_key(&p)
     }
 
-    /// Keep `key` for `p`'s account (`None`: forget it).
-    pub fn set(&mut self, p: ProviderId, key: Option<String>) -> io::Result<()> {
-        match key {
-            Some(k) => self.doc.keys.insert(p, k),
-            None => self.doc.keys.remove(&p),
-        };
+    /// Keep `key` for `p`'s account at the server at `origin` (`None`:
+    /// forget the account's key).
+    pub fn set(&mut self, p: ProviderId, key: Option<(String, String)>) -> io::Result<()> {
+        self.change(|doc| {
+            match key {
+                Some((key, origin)) => doc.keys.insert(p, Stored::Bound { key, origin }),
+                None => doc.keys.remove(&p),
+            };
+        })
+    }
+
+    /// The keys versions before kept without their server get the one
+    /// their account has now (`origin_of`); one whose account has none
+    /// goes. Once: every key is kept with its server from then on.
+    pub fn bind(&mut self, origin_of: impl Fn(ProviderId) -> Option<String>) -> io::Result<()> {
+        let unbound = |s: &Stored| matches!(s, Stored::Unbound(_));
+        if !self.doc.keys.values().any(unbound) {
+            return Ok(());
+        }
+        self.change(|doc| {
+            let old = std::mem::take(&mut doc.keys);
+            doc.keys = (old.into_iter())
+                .filter_map(|(p, s)| match s {
+                    Stored::Unbound(key) => Some((
+                        p,
+                        Stored::Bound {
+                            key,
+                            origin: origin_of(p)?,
+                        },
+                    )),
+                    bound => Some((p, bound)),
+                })
+                .collect();
+        })
+    }
+
+    /// OBS's password for the server at `host`:`port`: the one entered for
+    /// that address.
+    pub fn obs(&self, host: &str, port: u16) -> Option<&str> {
+        let s = self.doc.obs.as_ref()?;
+        (s.host.eq_ignore_ascii_case(host.trim()) && s.port == port).then_some(s.password.as_str())
+    }
+
+    /// A password is kept for OBS (at whichever address).
+    pub fn has_obs(&self) -> bool {
+        self.doc.obs.is_some()
+    }
+
+    /// Keep `password` for the OBS at `host`:`port` (empty: forget it).
+    pub fn set_obs(&mut self, password: String, host: &str, port: u16) -> io::Result<()> {
+        let host = host.trim().to_string();
+        self.change(|doc| {
+            doc.obs = (!password.is_empty()).then_some(ObsSecret {
+                password,
+                host,
+                port,
+            });
+        })
+    }
+
+    /// Change the document and write it. It is read again first: the
+    /// default profile's keys and OBS's password are one file, held twice.
+    fn change(&mut self, f: impl FnOnce(&mut Doc)) -> io::Result<()> {
+        self.doc = read(&self.at);
+        f(&mut self.doc);
         let text = serde_json::to_string(&self.doc).map_err(io::Error::other)?;
         imp::write(&self.at, &text)
     }
@@ -89,8 +243,8 @@ mod imp {
 
     pub type Place = PathBuf;
 
-    pub fn place(paths: &Paths) -> PathBuf {
-        paths.private.join("credentials.json")
+    pub fn place(private: &std::path::Path) -> PathBuf {
+        private.join("credentials.json")
     }
 
     pub fn read(p: &PathBuf) -> io::Result<Option<String>> {
@@ -147,7 +301,7 @@ mod imp {
     /// One for the whole app.
     pub struct Place;
 
-    pub fn place(_: &Paths) -> Place {
+    pub fn place(_: &std::path::Path) -> Place {
         Place
     }
 
@@ -187,7 +341,7 @@ mod imp {
     /// One for the whole app.
     pub struct Place;
 
-    pub fn place(_: &Paths) -> Place {
+    pub fn place(_: &std::path::Path) -> Place {
         Place
     }
 
@@ -212,18 +366,26 @@ mod imp {
 mod tests {
     use super::*;
 
+    fn temp(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("vibebms-creds-{name}-{}", std::process::id()))
+    }
+
     #[test]
     fn keys_are_kept_apart_and_private() {
-        let root = std::env::temp_dir().join(format!("vibebms-creds-{}", std::process::id()));
+        let root = temp("private");
         let paths = Paths::at(root.clone());
         let mut c = Keys::open(&paths);
         let (tachi, mine) = (ProviderId::Bokutachi, ProviderId::VibeJson(2));
-        assert!(c.get(tachi).is_none());
-        c.set(tachi, Some("k1".into())).unwrap();
-        c.set(mine, Some("k2".into())).unwrap();
+        let at = |o: &str| o.to_string();
+        assert!(c.get(tachi, "https://a:443").is_none());
+        c.set(tachi, Some(("k1".into(), at("https://a:443"))))
+            .unwrap();
+        c.set(mine, Some(("k2".into(), at("https://b:443"))))
+            .unwrap();
         c.set(mine, None).unwrap();
         let again = Keys::open(&paths);
-        assert_eq!(again.get(tachi).unwrap().token.expose(), "k1");
+        let k = again.get(tachi, "https://a:443").unwrap();
+        assert_eq!(k.token.expose(), "k1");
         assert!(!again.has(mine));
         let file = root.join("config/credentials.json");
         #[cfg(unix)]
@@ -235,6 +397,133 @@ mod tests {
         // a broken file: no keys
         std::fs::write(&file, "{").unwrap();
         assert!(!Keys::open(&paths).has(tachi));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A key is given out for the server it was entered for and no other,
+    /// whatever the account's address says now.
+    #[test]
+    fn a_key_goes_to_its_own_server_only() {
+        let root = temp("bound");
+        let paths = Paths::at(root.clone());
+        let p = ProviderId::VibeJson(0);
+        let mut c = Keys::open(&paths);
+        c.set(p, Some(("k".into(), "https://ir.example:443".into())))
+            .unwrap();
+        let c = Keys::open(&paths);
+        assert!(c.has(p));
+        assert!(c.get(p, "https://ir.example:443").is_some());
+        for other in [
+            "https://evil.example:443",
+            "https://ir.example:8443",
+            "http://ir.example:443",
+            "",
+        ] {
+            assert!(c.get(p, other).is_none(), "{other}");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The keys of a version before, kept without their server, get their
+    /// account's once; one without an account goes, and none is ever given
+    /// out unbound.
+    #[test]
+    fn older_keys_get_their_server_once() {
+        let root = temp("older");
+        let paths = Paths::at(root.clone());
+        let file = root.join("config/credentials.json");
+        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0","vibe-json:1":"k1"}}"#).unwrap();
+        let (a, b) = (ProviderId::VibeJson(0), ProviderId::VibeJson(1));
+        let mut c = Keys::open(&paths);
+        assert!(c.has(a) && c.get(a, "https://ir.example:443").is_none());
+        c.bind(|p| (p == a).then(|| "https://ir.example:443".to_string()))
+            .unwrap();
+        assert_eq!(
+            c.get(a, "https://ir.example:443").unwrap().token.expose(),
+            "k0"
+        );
+        assert!(!c.has(b));
+        // bound for good: another address later does not get it
+        let mut c = Keys::open(&paths);
+        c.bind(|_| Some("https://evil.example:443".into())).unwrap();
+        assert!(c.get(a, "https://evil.example:443").is_none());
+        assert!(c.get(a, "https://ir.example:443").is_some());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn origins() {
+        let o = |u: &str| origin(u);
+        assert_eq!(
+            o("https://IR.example/api/").as_deref(),
+            Some("https://ir.example:443")
+        );
+        assert_eq!(
+            o(" HTTPS://ir.example:8443?x#y").as_deref(),
+            Some("https://ir.example:8443")
+        );
+        // plain http: this computer only
+        assert_eq!(
+            o("http://127.0.0.1:8080/api").as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            o("http://localhost").as_deref(),
+            Some("http://localhost:80")
+        );
+        assert_eq!(o("http://[::1]:9/").as_deref(), Some("http://[::1]:9"));
+        assert_eq!(
+            o("https://[2001:db8::1]").as_deref(),
+            Some("https://[2001:db8::1]:443")
+        );
+        for bad in [
+            "http://ir.example/api",
+            "http://127.0.0.1.evil.example/",
+            "ftp://ir.example",
+            "ir.example",
+            "",
+            // not plainly one host
+            "https://user:key@ir.example/",
+            "https://ir.example@evil.example/",
+            "https://ir.example\\@evil.example/",
+            "https://ir.example:443@evil.example",
+            "https://ir.example:x/",
+            "https://ir.example:/",
+            "https://ir.example:99999/",
+            "https://ir%2eexample/",
+            "https://ir.exa mple/",
+            "https://[::1/",
+            "https:///api",
+        ] {
+            assert_eq!(o(bad), None, "{bad}");
+        }
+    }
+
+    /// OBS's password is in the root's document beside the default
+    /// profile's keys (neither store loses the other's), and is given out
+    /// for the address it was entered for.
+    #[cfg(desktop)]
+    #[test]
+    fn the_obs_password_is_kept_for_its_address() {
+        let root = temp("obs");
+        let paths = Paths::at(root.clone());
+        let p = ProviderId::Bokutachi;
+        let mut keys = Keys::open(&paths);
+        let mut app = Keys::open_root(&paths.with_profile("b"));
+        keys.set(p, Some(("k".into(), "https://a:443".into())))
+            .unwrap();
+        app.set_obs("pw".into(), " 127.0.0.1 ", 4455).unwrap();
+        keys.set(ProviderId::VibeJson(0), None).unwrap();
+        let (keys, app) = (Keys::open(&paths), Keys::open_root(&paths));
+        assert!(keys.get(p, "https://a:443").is_some());
+        assert_eq!(app.obs("127.0.0.1", 4455), Some("pw"));
+        assert!(app.has_obs());
+        assert_eq!(app.obs("192.168.0.9", 4455), None);
+        assert_eq!(app.obs("127.0.0.1", 4456), None);
+        let mut app = app;
+        app.set_obs(String::new(), "127.0.0.1", 4455).unwrap();
+        assert!(!Keys::open_root(&paths).has_obs());
+        assert!(Keys::open(&paths).has(p));
         std::fs::remove_dir_all(&root).ok();
     }
 }

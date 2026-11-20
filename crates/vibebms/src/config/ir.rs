@@ -89,9 +89,10 @@ pub struct IrAccount {
     /// (`{sha256}`, `{md5}` in it).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub chart_page: String,
-    /// A key a configuration of before kept (`[ir_server]`'s token): moved
-    /// to the credentials store as the app starts, never written here.
-    #[serde(skip_serializing)]
+    /// The key an `[ir_server]` of before kept (`migrate`), on its way to
+    /// the credentials store as the app starts: neither read from an
+    /// account's own settings nor written.
+    #[serde(skip)]
     pub old_token: OldToken,
 }
 
@@ -135,9 +136,8 @@ impl IrAccount {
     }
 }
 
-/// A key read from an old configuration; `Debug` does not show it.
-#[derive(Clone, Default, PartialEq, Deserialize)]
-#[serde(transparent)]
+/// A secret read from an old configuration; `Debug` does not show it.
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct OldToken(pub String);
 
 impl std::fmt::Debug for OldToken {

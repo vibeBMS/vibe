@@ -504,8 +504,10 @@ there from the start; others can be added in `SETTINGS › LIBRARY`.
   [DESIGN.md](https://github.com/vibeBMS/BMSeeker/blob/main/DESIGN.md#into-the-library).
 - Links that cannot be downloaded directly (OneDrive, uploaders, deleted files) open their download page: on the
   desktop, Android and iOS in the in-app browser, whose downloaded archive is unpacked into `bms/` before the chart's
-  page opens. A downloaded chart goes into its song's folder; when unsure, the app asks. The web build opens the
-  system browser.
+  page opens. A download is saved only after you say yes to it (its name and the host it comes from are shown), one
+  at a time, and none over 16 GB is kept; if the page does not start it again by itself after your yes, press its
+  download button once more. A downloaded chart goes into its song's folder; when unsure, the app asks. The web
+  build opens the system browser.
 - Downloads are kept in `downloads/`.
 - **Name song folders after their charts** (`SETTINGS › LIBRARY`, off by default): a downloaded song gets a folder
   named `[artist] title` from what its charts share, as BeMusicSeeker names one, instead of the song's title.
@@ -631,6 +633,10 @@ An IR (internet ranking) shows rankings and takes scores. Accounts are set in `S
 vibeBMS's JSON protocol ([IR_PROTOCOL.md](IR_PROTOCOL.md)), Bokutachi or BMS-IR. Which plays each takes is in RULES
 ("LR2 equivalence", "Clear lamps").
 
+- An account's API key is kept apart from `config.toml` (on the desktop in `config/credentials.json`), for the server
+  it was entered for: after the server's address changes, or in a configuration taken from someone else, the key is
+  not sent and `SETTINGS › ONLINE` asks for it again. A server's address is `https://` (`http://` only on this
+  computer).
 - I in song select (or SCORE STATUS's IR PAGE button) opens the chosen chart's page on the IR the rankings come from,
   in the system's browser (the web build: a new tab). BMS-IR's page is found by the chart's MD5 (a bmson has none);
   Bokutachi's by its own chart id, learnt from your PB lists, so a chart you have no score on there has no page yet;
@@ -661,8 +667,11 @@ beatoraja's (`player/<name>/score.db`; LR2oraja's too).
   Discord's developer portal, whose name is the game you are shown playing. None is built in. `Discord` below shows
   the state.
 - **OBS** (off by default): connects to obs-websocket 5 (OBS 28 or later, `Tools › WebSocket Server Settings`) at
-  `obs.host` / `obs.port` (127.0.0.1:4455 by default), with the server's password if it has one (kept in
-  `config.toml`). A scene can be named for each screen (song select, decide, play, result); OBS switches to it on
+  `obs.host` / `obs.port` (127.0.0.1:4455 by default), with the server's password if it has one. The password is
+  kept in `config/credentials.json`, not `config.toml`, for the host and port it was entered for: with another
+  address it is asked for again. The connection is not encrypted, so an OBS on another computer is for a network
+  you trust. A server that refuses the password is not asked again until the settings change. A scene can be named
+  for each screen (song select, decide, play, result); OBS switches to it on
   entering that screen. With `Record plays`, OBS records each play, from its start until its result is left. A slow
   or absent OBS never holds up the game; `OBS` shows the state, and failed requests are logged.
 

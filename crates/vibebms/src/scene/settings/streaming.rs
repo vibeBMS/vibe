@@ -5,6 +5,8 @@ use super::row::{Act, Row, Rows};
 use super::TextField;
 use crate::app::Ctx;
 use crate::config::ObsScenes;
+use crate::integrations::ObsPassword;
+use crate::ir::creds;
 
 /// A field's value as shown: `—` when empty.
 fn shown(s: &str) -> String {
@@ -73,7 +75,15 @@ pub(super) fn rows(b: &mut Rows) {
             shown(&o.host),
             Act::Text(TextField::ObsHost),
         )
-        .desc(tr!("The computer OBS runs on (127.0.0.1: this one)."))
+        .desc(if creds::loopback(&o.host) {
+            tr!("The computer OBS runs on (127.0.0.1: this one).")
+        } else {
+            tr!(
+                "OBS on another computer: the connection is not encrypted, and whoever \
+                 answers at this address can try passwords against what is sent. Use \
+                 127.0.0.1 unless you trust the network."
+            )
+        })
         .keys("obs address server"),
         Row::new(
             "obs.port",
@@ -86,15 +96,17 @@ pub(super) fn rows(b: &mut Rows) {
         Row::new(
             "obs.password",
             tr!("Password"),
-            if o.password.is_empty() {
-                "—"
-            } else {
-                "••••••"
+            match ctx.streaming.obs_password(o) {
+                ObsPassword::None => "—",
+                ObsPassword::Kept => "••••••",
+                ObsPassword::Elsewhere => tr!("kept for another address: paste it again"),
             },
             Act::Text(TextField::ObsPassword),
         )
         .desc(tr!(
-            "The WebSocket server's password (empty: none). Kept in config.toml as typed."
+            "The WebSocket server's password (empty: none). Kept {where}, for this host \
+             and port only.",
+            where = creds::kept()
         ))
         .keys("obs authentication"),
     ]);
@@ -164,7 +176,11 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) -> bool {
                 return false;
             }
         },
-        TextField::ObsPassword => c.obs.password = s,
+        TextField::ObsPassword => {
+            if let Err(e) = ctx.streaming.set_obs_password(&ctx.config.obs, s) {
+                ctx.toast(tr!("Credentials: {e}", e = e));
+            }
+        }
         TextField::ObsScene(i) => *c.obs.scenes.get_mut(i) = s,
         _ => {}
     }
