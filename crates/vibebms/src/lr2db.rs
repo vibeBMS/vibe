@@ -5,10 +5,13 @@
 //! The score import (`scoredb`) reads other players' score databases with
 //! it.
 
+use std::collections::HashSet;
+use std::sync::Arc;
 use vibebms_core::course::CourseDef;
 
-/// One row of a table: its columns' values, by name.
-pub type Row = Vec<(String, Value)>;
+/// One row of a table: its columns' values, by name (the names are the
+/// table's, shared by its rows).
+pub type Row = Vec<(Arc<str>, Value)>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -52,6 +55,23 @@ pub struct Db<'a> {
     usable: usize,
 }
 
+/// A walk over one table: what a file can make it cost. A page belongs to
+/// one table and is reached once, and the rows lie in the file, so
+/// together they are no larger than it; a file that says otherwise (pages
+/// that lead back or are shared, cells that share their bytes) is not
+/// read.
+struct Walk {
+    /// The pages come through, overflow pages too.
+    seen: HashSet<u64>,
+    /// Bytes the rows to come may still take.
+    left: usize,
+    /// (rowid, record) of the rows so far.
+    rows: Vec<(i64, Vec<u8>)>,
+}
+
+/// What a cell takes of its page at least: its pointer, its two varints.
+const CELL: usize = 4;
+
 fn be(b: &[u8]) -> u64 {
     b.iter().fold(0, |v, x| (v << 8) | *x as u64)
 }
@@ -89,13 +109,28 @@ impl<'a> Db<'a> {
     }
 
     fn page_bytes(&self, n: u64) -> Option<&'a [u8]> {
-        let start = (n as usize).checked_sub(1)? * self.page;
-        self.b.get(start..start + self.page)
+        let start = usize::try_from(n)
+            .ok()?
+            .checked_sub(1)?
+            .checked_mul(self.page)?;
+        self.b.get(start..start.checked_add(self.page)?)
+    }
+
+    /// The rows of the table whose b-tree is at page `root`.
+    fn walk(&self, root: u64) -> Option<Vec<(i64, Vec<u8>)>> {
+        let mut w = Walk {
+            seen: HashSet::new(),
+            left: self.b.len(),
+            rows: Vec::new(),
+        };
+        self.rows(root, &mut w, 0)?;
+        Some(w.rows)
     }
 
     /// The payload of a cell of `size` bytes whose local part starts at
     /// `p[at..]` (with its overflow pages).
-    fn payload(&self, p: &'a [u8], at: usize, size: usize) -> Option<Vec<u8>> {
+    fn payload(&self, p: &'a [u8], at: usize, size: usize, w: &mut Walk) -> Option<Vec<u8>> {
+        w.left = w.left.checked_sub(size.checked_add(CELL)?)?;
         let u = self.usable;
         let x = u - 35;
         let local = if size <= x {
@@ -115,23 +150,21 @@ impl<'a> Db<'a> {
         } else {
             0
         };
-        let mut guard = 0;
         while out.len() < size && next != 0 {
+            if !w.seen.insert(next) {
+                return None;
+            }
             let o = self.page_bytes(next)?;
             let take = (size - out.len()).min(u - 4);
             out.extend_from_slice(o.get(4..4 + take)?);
             next = be(&o[..4]);
-            guard += 1;
-            if guard > self.b.len() / self.page {
-                return None;
-            }
         }
         (out.len() == size).then_some(out)
     }
 
-    /// Every (rowid, record) of the table b-tree at page `root`.
-    fn rows(&self, root: u64, out: &mut Vec<(i64, Vec<u8>)>, depth: usize) -> Option<()> {
-        if depth > 64 {
+    /// Every (rowid, record) of the table b-tree at page `root`, to `w`.
+    fn rows(&self, root: u64, w: &mut Walk, depth: usize) -> Option<()> {
+        if depth > 64 || !w.seen.insert(root) {
             return None;
         }
         let p = self.page_bytes(root)?;
@@ -146,16 +179,16 @@ impl<'a> Db<'a> {
         for i in 0..cells {
             let c = be(p.get(ptrs + 2 * i..ptrs + 2 * i + 2)?) as usize;
             if interior {
-                self.rows(be(p.get(c..c + 4)?), out, depth + 1)?;
+                self.rows(be(p.get(c..c + 4)?), w, depth + 1)?;
             } else {
                 let (size, n1) = varint(p.get(c..)?)?;
                 let (rowid, n2) = varint(p.get(c + n1..)?)?;
-                let rec = self.payload(p, c + n1 + n2, size as usize)?;
-                out.push((rowid as i64, rec));
+                let rec = self.payload(p, c + n1 + n2, usize::try_from(size).ok()?, w)?;
+                w.rows.push((rowid as i64, rec));
             }
         }
         if interior {
-            self.rows(be(p.get(h + 8..h + 12)?), out, depth + 1)?;
+            self.rows(be(p.get(h + 8..h + 12)?), w, depth + 1)?;
         }
         Some(())
     }
@@ -169,7 +202,7 @@ impl<'a> Db<'a> {
             let (t, n) = varint(rec.get(i..)?)?;
             i += n;
             let int = |len: usize| -> Option<i64> {
-                let b = rec.get(body..body + len)?;
+                let b = rec.get(body..body.checked_add(len)?)?;
                 // sign-extended big-endian
                 let v = be(b) as i64;
                 let shift = 64 - 8 * len as u32;
@@ -180,12 +213,12 @@ impl<'a> Db<'a> {
                 1..=4 => (Value::Int(int(t as usize)?), t as usize),
                 5 => (Value::Int(int(6)?), 6),
                 6 => (Value::Int(int(8)?), 8),
-                7 => (Value::Real(f64::from_bits(be(rec.get(body..body + 8)?))), 8),
+                7 => (Value::Real(f64::from_bits(int(8)? as u64)), 8),
                 8 => (Value::Int(0), 0),
                 9 => (Value::Int(1), 0),
                 t if t >= 12 => {
-                    let len = ((t - 12) / 2) as usize;
-                    let b = rec.get(body..body + len)?.to_vec();
+                    let len = usize::try_from((t - 12) / 2).ok()?;
+                    let b = rec.get(body..body.checked_add(len)?)?.to_vec();
                     let v = if t % 2 == 1 {
                         Value::Text(b)
                     } else {
@@ -202,10 +235,11 @@ impl<'a> Db<'a> {
     }
 
     /// The rows of table `name` (`None`: no such table), each value by its
-    /// column's name; an `INTEGER PRIMARY KEY` column holds the rowid.
+    /// column's name; an `INTEGER PRIMARY KEY` column holds the rowid. A
+    /// row has the columns its record has values for (the ones a table was
+    /// given later are not in its older rows: as NULL).
     pub fn table(&self, name: &str) -> Option<Vec<Row>> {
-        let mut master = Vec::new();
-        self.rows(1, &mut master, 0)?;
+        let master = self.walk(1)?;
         let (root, sql) = master.iter().find_map(|(_, rec)| {
             let v = Self::record(rec)?;
             let s = |i: usize| v.get(i).and_then(Value::text);
@@ -213,25 +247,16 @@ impl<'a> Db<'a> {
                 .then(|| Some((v.get(3)?.int()?, s(4)?)))?
         })?;
         let (cols, key) = columns(&sql);
-        let mut rows = Vec::new();
-        self.rows(root as u64, &mut rows, 0)?;
+        let rows = self.walk(u64::try_from(root).ok()?)?;
         Some(
             rows.into_iter()
                 .filter_map(|(rowid, rec)| {
-                    let vals = Self::record(&rec)?;
-                    Some(
-                        cols.iter()
-                            .enumerate()
-                            .map(|(i, c)| {
-                                let v = match vals.get(i) {
-                                    _ if Some(i) == key => Value::Int(rowid),
-                                    Some(v) => v.clone(),
-                                    None => Value::Null,
-                                };
-                                (c.clone(), v)
-                            })
-                            .collect(),
-                    )
+                    let vals = Self::record(&rec)?.into_iter().enumerate();
+                    let named = cols.iter().zip(vals).map(|(c, (i, v))| match key {
+                        Some(k) if k == i => (c.clone(), Value::Int(rowid)),
+                        _ => (c.clone(), v),
+                    });
+                    Some(named.collect())
                 })
                 .collect(),
         )
@@ -239,25 +264,29 @@ impl<'a> Db<'a> {
 }
 
 /// The column names of a `CREATE TABLE` statement, and which is an
-/// `INTEGER PRIMARY KEY` (the rowid).
-fn columns(sql: &str) -> (Vec<String>, Option<usize>) {
-    let (Some(a), Some(b)) = (sql.find('('), sql.rfind(')')) else {
+/// `INTEGER PRIMARY KEY` (the rowid); none of a text that is not one.
+fn columns(sql: &str) -> (Vec<Arc<str>>, Option<usize>) {
+    // what is between the first `(` and the last `)` after it
+    let body = sql
+        .split_once('(')
+        .and_then(|(_, rest)| rest.rsplit_once(')'));
+    let Some((body, _)) = body else {
         return (Vec::new(), None);
     };
     let mut parts = Vec::new();
-    let (mut depth, mut start) = (0, a + 1);
-    for (i, c) in sql[..b].char_indices().skip(a + 1) {
+    let (mut depth, mut start) = (0, 0);
+    for (i, c) in body.char_indices() {
         match c {
             '(' => depth += 1,
             ')' => depth -= 1,
             ',' if depth == 0 => {
-                parts.push(&sql[start..i]);
+                parts.push(&body[start..i]);
                 start = i + 1;
             }
             _ => {}
         }
     }
-    parts.push(&sql[start..b]);
+    parts.push(&body[start..]);
     let mut cols = Vec::new();
     let mut key = None;
     for p in parts {
@@ -273,7 +302,7 @@ fn columns(sql: &str) -> (Vec<String>, Option<usize>) {
         if words.get(1) == Some(&"INTEGER") && upper.contains("PRIMARY KEY") {
             key = Some(cols.len());
         }
-        cols.push(first.trim_matches(['"', '`', '[', ']']).to_string());
+        cols.push(first.trim_matches(['"', '`', '[', ']']).into());
     }
     (cols, key)
 }
@@ -546,7 +575,7 @@ pub(crate) mod tests {
         let bytes = song_db();
         let rows = Db::open(&bytes).unwrap().table("expert").unwrap();
         assert_eq!(rows.len(), 3);
-        assert_eq!(rows[1][0], ("id".to_string(), Value::Int(3)));
+        assert_eq!(rows[1][0], ("id".into(), Value::Int(3)));
         assert_eq!(rows[1][2].1, Value::Int(7));
         let c = courses(&bytes).unwrap();
         let titles: Vec<&str> = c.iter().map(|c| c.title.as_str()).collect();
@@ -560,6 +589,83 @@ pub(crate) mod tests {
         assert!(courses(b"not a database").is_err());
         let none = db(&[("song", "CREATE TABLE song (hash TEXT)", Vec::new())]);
         assert!(courses(&none).is_err());
+    }
+
+    /// A database of one table `t` of one row (page 2), and a page 3 to
+    /// fill.
+    fn one_row() -> Vec<u8> {
+        let row = (1, vec![V::Text(b"0123456789")]);
+        let mut bytes = db(&[("t", "CREATE TABLE t (a TEXT)", vec![row])]);
+        bytes.extend(vec![0u8; 4096]);
+        bytes
+    }
+
+    #[test]
+    fn pages_reached_twice_are_no_table() {
+        let mut bytes = one_row();
+        assert_eq!(Db::open(&bytes).unwrap().table("t").unwrap().len(), 1);
+        // the row's page as page 3, and page 2 an interior page whose 250
+        // cells and last pointer all lead to it
+        bytes.copy_within(4096..8192, 8192);
+        let p = &mut bytes[4096..8192];
+        p.fill(0);
+        p[0] = 0x05;
+        p[3..5].copy_from_slice(&250u16.to_be_bytes());
+        p[8..12].copy_from_slice(&3u32.to_be_bytes());
+        for i in 0..250 {
+            p[12 + 2 * i..14 + 2 * i].copy_from_slice(&4000u16.to_be_bytes());
+        }
+        p[4000..4005].copy_from_slice(&[0, 0, 0, 3, 1]);
+        assert!(Db::open(&bytes).unwrap().table("t").is_none());
+        // a page that leads to itself
+        bytes[4096 + 4000..4096 + 4004].copy_from_slice(&2u32.to_be_bytes());
+        assert!(Db::open(&bytes).unwrap().table("t").is_none());
+    }
+
+    #[test]
+    fn rows_that_share_their_bytes_are_no_table() {
+        // 2000 cell pointers to the one row: more rows than the file holds
+        let mut bytes = one_row();
+        let p = &mut bytes[4096..8192];
+        let cell = u16::from_be_bytes([p[8], p[9]]);
+        assert!(cell > 4008);
+        p[3..5].copy_from_slice(&2000u16.to_be_bytes());
+        for i in 0..2000 {
+            p[8 + 2 * i..10 + 2 * i].copy_from_slice(&cell.to_be_bytes());
+        }
+        assert!(Db::open(&bytes).unwrap().table("t").is_none());
+    }
+
+    #[test]
+    fn any_text_is_read_for_columns() {
+        let names = |sql| {
+            columns(sql)
+                .0
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+        };
+        for sql in [")(", "(", ")", "", "CREATE TABLE t", "x ) y ( z"] {
+            assert!(names(sql).is_empty(), "{sql}");
+        }
+        let sql = "CREATE TABLE \"譜面\" (a TEXT, [b] DECIMAL(3, 2), id INTEGER PRIMARY KEY, \
+                   PRIMARY KEY (a, b))";
+        assert_eq!(names(sql), ["a", "b", "id"]);
+        assert_eq!(columns(sql).1, Some(2));
+        // as a table's statement: its rows are read, without columns
+        let bytes = db(&[("t", ")(", vec![(1, vec![V::Int(5)])])]);
+        assert_eq!(Db::open(&bytes).unwrap().table("t"), Some(vec![Vec::new()]));
+    }
+
+    #[test]
+    fn a_row_has_the_columns_its_record_has() {
+        // a column given to the table after the row was written
+        let sql = "CREATE TABLE t (id INTEGER PRIMARY KEY, a TEXT, later INTEGER)";
+        let bytes = db(&[("t", sql, vec![(7, vec![V::Null, V::Text(b"x")])])]);
+        let rows = Db::open(&bytes).unwrap().table("t").unwrap();
+        assert_eq!(get(&rows[0], "id"), Some(&Value::Int(7)));
+        assert_eq!(get(&rows[0], "a"), Some(&Value::Text(b"x".to_vec())));
+        assert_eq!(get(&rows[0], "later"), None);
     }
 
     #[test]
