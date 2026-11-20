@@ -224,7 +224,13 @@ pub(super) fn mix(chart: &Chart, bank: &SoundBank, start: i64, len: i64, rate: u
     let n = frames(len).max(0) as usize;
     let mut out = vec![0f32; n * 2];
     let ev = events(chart, start, len);
-    for (k, &(time, sound)) in ev.iter().enumerate() {
+    // when each sound is played next (from the last event back)
+    let mut next_of: std::collections::HashMap<u32, i64> = Default::default();
+    let mut nexts: Vec<Option<i64>> = (ev.iter().rev())
+        .map(|&(time, sound)| next_of.insert(sound, time))
+        .collect();
+    nexts.reverse();
+    for (&(time, sound), next) in ev.iter().zip(nexts) {
         let Some(slice) = chart.sounds.get(sound as usize) else {
             continue;
         };
@@ -236,7 +242,7 @@ pub(super) fn mix(chart: &Chart, bank: &SoundBank, start: i64, len: i64, rate: u
             .end
             .map_or(s.frames as i64, frames)
             .min(s.frames as i64);
-        if let Some(&(next, _)) = ev[k + 1..].iter().find(|(_, x)| *x == sound) {
+        if let Some(next) = next {
             to = to.min(from + frames(next - time));
         }
         let at = frames(time - start);
@@ -374,6 +380,39 @@ mod tests {
         assert_eq!(start_of(&short, 10 * sec), 1_800_000);
         // no notes: 0
         assert_eq!(start_of(&Chart::default(), 10 * sec), 0);
+    }
+
+    /// Many sounds in the stretch, none played twice: mixed without a
+    /// search through the rest for each one's next time.
+    #[test]
+    fn mixes_many_sounds() {
+        let n = 200_000;
+        let bank = SoundBank {
+            samples: vec![Some(Arc::new(Sample {
+                channels: 1,
+                frames: 1,
+                data: vec![1000],
+            }))],
+        };
+        let c = Chart {
+            sounds: (0..n)
+                .map(|_| SoundSlice {
+                    file: 0,
+                    start: 0,
+                    end: None,
+                })
+                .collect(),
+            notes: (0..n)
+                .map(|i| note(1_000_000 + (i / 2) as i64, i))
+                .collect(),
+            ..Default::default()
+        };
+        let t = std::time::Instant::now();
+        let s = mix(&c, &bank, 0, 2_000_000, 1000);
+        assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+        // a thousand in each frame from 1 s: 0.9 of full scale, half way
+        // through the fade out
+        assert_eq!(s.data[1000 * 2], (0.9f32 * 0.5 * 32767.0).round() as i16);
     }
 
     /// Sounds from before the stretch are heard from where they are; a
