@@ -257,7 +257,8 @@ branch it:
   `FDROID_KEYSTORE` / `FDROID_KEYSTORE_PASSWORD` when set, else with the APK's key (`ANDROID_KEYSTORE`);
 - after the release is published, replaces the branch `fdroid-repo` with one new commit (no parent), so the older
   APKs are not kept in its history. The release's concurrency group and the check that the commit is still the
-  branch's head make the newest run win;
+  branch's head (or that the newer commits skip CI, `[skip ci]`: they start no run, `tools/ci_moved_on.sh`) make
+  the newest run win;
 - puts the address, the key's fingerprint and the links that add the repository (`fdroidrepos://...?fingerprint=`)
   in the run's summary and in the release's `fdroid.txt`, the link as a QR code in `fdroid-qr.png`.
 
