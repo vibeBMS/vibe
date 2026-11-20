@@ -2,7 +2,7 @@
 //! what a folder in it is listed from.
 
 use super::unpack::{unpack, Dest};
-use super::{bmseeker_safe_rel, join, state};
+use super::{join, safe_rel, state};
 use crate::platform::vfs::{self, Entry};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -146,7 +146,7 @@ pub fn load_index(file: &Path) {
             Index::failed(stamp, s.error)
         } else {
             let files = (s.files.into_iter())
-                .filter_map(|(p, n)| Some((bmseeker_safe_rel(&p)?, n)))
+                .filter_map(|(p, n)| Some((safe_rel(&p)?, n)))
                 .collect();
             Index::new(stamp, &s.format, files)
         };

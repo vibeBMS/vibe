@@ -68,6 +68,10 @@ pub fn encode_frame(op: u8, payload: &[u8], mask: [u8; 4]) -> Vec<u8> {
     f
 }
 
+/// The largest frame, and the largest message of several frames, taken
+/// (bytes; obs-websocket's are a few kilobytes).
+const MESSAGE_MAX: usize = 16 << 20;
+
 /// The first whole frame in `buf` and how many bytes it took; `None` while
 /// it has not all come. (A masked frame is unmasked, though servers send
 /// none.) Too large a frame is an error.
@@ -84,7 +88,7 @@ pub fn parse_frame(buf: &[u8]) -> io::Result<Option<(Frame, usize)>> {
         126 | 127 => return Ok(None),
         n => (n as u64, 2),
     };
-    if len > 16 << 20 {
+    if len > MESSAGE_MAX as u64 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "frame too large",
@@ -204,7 +208,8 @@ impl Ws {
     }
 
     /// The messages that came within `wait` (none if nothing did); pings
-    /// are answered. An error: the connection is gone.
+    /// are answered. An error: the connection is gone, or what came is
+    /// not taken (a message larger than [`MESSAGE_MAX`]).
     pub fn poll(&mut self, wait: Duration) -> io::Result<Vec<Message>> {
         self.stream
             .set_read_timeout(Some(wait.max(Duration::from_millis(1))))?;
@@ -240,6 +245,12 @@ impl Ws {
                         OP_CONT => self.partial.take().unwrap_or_default(),
                         _ => Vec::new(),
                     };
+                    if data.len() + f.payload.len() > MESSAGE_MAX {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "message too large",
+                        ));
+                    }
                     data.extend_from_slice(&f.payload);
                     if !f.fin {
                         self.partial = Some(data);
@@ -306,6 +317,30 @@ mod tests {
         assert_eq!(parse_frame(&f).unwrap().unwrap().0.payload, huge);
     }
 
+    /// The server's side of the handshake on `l`'s next connection: the
+    /// connection, and the answer to write (before the first frames).
+    fn accept(l: &std::net::TcpListener) -> (TcpStream, Vec<u8>) {
+        let (mut s, _) = l.accept().unwrap();
+        let mut req = Vec::new();
+        let mut b = [0u8; 1];
+        while !req.ends_with(b"\r\n\r\n") {
+            s.read_exact(&mut b).unwrap();
+            req.push(b[0]);
+        }
+        let req = String::from_utf8(req).unwrap();
+        assert!(req.contains("Sec-WebSocket-Protocol: obswebsocket.json\r\n"));
+        let key = req
+            .lines()
+            .find_map(|l| l.strip_prefix("Sec-WebSocket-Key: "))
+            .unwrap();
+        let answer = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\
+             Connection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+            accept_key(key)
+        );
+        (s, answer.into_bytes())
+    }
+
     /// Against a server on a local port: the handshake, a message each way,
     /// a ping answered, the server's close.
     #[test]
@@ -314,26 +349,8 @@ mod tests {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
-            let (mut s, _) = l.accept().unwrap();
-            let mut req = Vec::new();
-            let mut b = [0u8; 1];
-            while !req.ends_with(b"\r\n\r\n") {
-                s.read_exact(&mut b).unwrap();
-                req.push(b[0]);
-            }
-            let req = String::from_utf8(req).unwrap();
-            assert!(req.contains("Sec-WebSocket-Protocol: obswebsocket.json\r\n"));
-            let key = req
-                .lines()
-                .find_map(|l| l.strip_prefix("Sec-WebSocket-Key: "))
-                .unwrap();
             // the answer and the first message in one write
-            let mut out = format!(
-                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\
-                 Connection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
-                accept_key(key)
-            )
-            .into_bytes();
+            let (mut s, mut out) = accept(&l);
             out.extend_from_slice(&[0x81, 0x02, b'h', b'i', 0x89, 0x01, b'p']);
             s.write_all(&out).unwrap();
             // the pong, then the client's text
@@ -376,6 +393,50 @@ mod tests {
             msgs = ws.poll(Duration::from_millis(100)).unwrap();
         }
         assert_eq!(msgs, [Message::Close(4009, "auth".into())]);
+        server.join().unwrap();
+    }
+
+    /// A message in parts is taken up to the size of one frame, however
+    /// many parts a server sends.
+    #[test]
+    fn a_message_in_parts_is_bounded() {
+        use std::net::TcpListener;
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let part = MESSAGE_MAX / 2 + 1;
+        let server = std::thread::spawn(move || {
+            let (mut s, mut out) = accept(&l);
+            // "ab" in two parts, then a text that never ends
+            out.extend_from_slice(&[0x01, 0x01, b'a', 0x80, 0x01, b'b']);
+            s.write_all(&out).unwrap();
+            let mut frame = vec![0x01, 127];
+            frame.extend_from_slice(&(part as u64).to_be_bytes());
+            frame.resize(10 + part, b'x');
+            for op in [OP_TEXT, OP_CONT, OP_CONT] {
+                frame[0] = op;
+                // (the client leaves once it has too much)
+                if s.write_all(&frame).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut ws = Ws::connect(
+            "127.0.0.1",
+            port,
+            "obswebsocket.json",
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        let mut msgs = Vec::new();
+        let end = loop {
+            match ws.poll(Duration::from_millis(100)) {
+                Ok(m) => msgs.extend(m),
+                Err(e) => break e,
+            }
+        };
+        assert_eq!(msgs, [Message::Text("ab".into())]);
+        assert_eq!(end.kind(), io::ErrorKind::InvalidData, "{end}");
+        drop(ws);
         server.join().unwrap();
     }
 }

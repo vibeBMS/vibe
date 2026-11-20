@@ -22,7 +22,7 @@ pub fn install(o: &Offer, exe: &Path, progress: &Arc<Progress>) -> Result<(), St
             let _ = fs::remove_file(&p).or_else(|_| fs::remove_dir_all(&p));
         }
     }
-    let tmp = temp(dir, "");
+    let tmp = temp(dir, "")?;
     let r = download(&o.url, &tmp, o.size, &o.sha256, progress).and_then(|()| {
         match app {
             Some(app) => replace_app(&tmp, app, exe)?,
@@ -35,18 +35,37 @@ pub fn install(o: &Offer, exe: &Path, progress: &Arc<Progress>) -> Result<(), St
     r
 }
 
-/// A name for this update's own temporary file or folder in `dir` (what an
-/// update cut short leaves is deleted by the next).
-fn temp(dir: &Path, what: &str) -> PathBuf {
-    dir.join(format!(".vibebms-update-{}{what}.tmp", std::process::id()))
+/// A name for this update's own temporary file or folder in `dir`, which
+/// no other program knows before it is made (what an update cut short
+/// leaves is deleted by the next).
+fn temp(dir: &Path, what: &str) -> Result<PathBuf, String> {
+    let mut random = [0u8; 8];
+    getrandom::fill(&mut random).map_err(|e| format!("cannot name the update's file ({e})"))?;
+    let random = vibebms_core::hex(&random);
+    Ok(dir.join(format!(".vibebms-update-{random}{what}.tmp")))
+}
+
+/// Make the file `p` for writing, new (not one, or a link, another program
+/// put there) and on Unix its owner's alone.
+fn create_own(p: &Path) -> std::io::Result<fs::File> {
+    let mut o = fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(p)
 }
 
 /// Put the app in `zip` (`tools/package_macos.sh`) in the place of `app`,
 /// whose executable `exe` is running, and sign it ad hoc again.
 fn replace_app(zip: &Path, app: &Path, exe: &Path) -> Result<(), String> {
     let dir = app.parent().ok_or("the app has no folder")?;
-    let unpacked = temp(dir, "-new");
-    let _ = fs::remove_dir_all(&unpacked);
+    let unpacked = temp(dir, "-new")?;
+    #[cfg(unix)]
+    let made =
+        std::os::unix::fs::DirBuilderExt::mode(&mut fs::DirBuilder::new(), 0o700).create(&unpacked);
+    #[cfg(not(unix))]
+    let made = fs::create_dir(&unpacked);
+    made.map_err(|e| format!("cannot unpack the update ({e})"))?;
     let r = (|| {
         // ditto keeps the app's modes and signature as they are
         run(std::process::Command::new("ditto")
@@ -78,8 +97,7 @@ fn replace_app(zip: &Path, app: &Path, exe: &Path) -> Result<(), String> {
 /// if `new` cannot take its place, deleted once it has (the running
 /// executable keeps running from the deleted file).
 fn swap_app(new: &Path, app: &Path) -> Result<(), String> {
-    let old = temp(app.parent().ok_or("the app has no folder")?, "-old");
-    let _ = fs::remove_dir_all(&old);
+    let old = temp(app.parent().ok_or("the app has no folder")?, "-old")?;
     fs::rename(app, &old).map_err(|e| format!("cannot move vibeBMS aside ({e})"))?;
     if let Err(e) = fs::rename(new, app) {
         let _ = fs::rename(&old, app);
@@ -111,8 +129,9 @@ fn run(cmd: &mut std::process::Command) -> Result<(), String> {
     }
 }
 
-/// Download `url` into `to`; it must be `size` bytes whose SHA-256 is
-/// `sha256`.
+/// Download `url` into the new file `to`; it must be `size` bytes whose
+/// SHA-256 is `sha256`. However long it takes: it ends when it is larger
+/// than `size` or no data comes for a while (`platform::stream`).
 fn download(
     url: &str,
     to: &Path,
@@ -123,43 +142,33 @@ fn download(
     use sha2::{Digest, Sha256};
     use std::io::Write;
     use std::sync::Mutex;
-    // (why the sink stopped the download, if it did)
     struct St {
         file: std::fs::File,
         hash: Sha256,
         n: u64,
-        error: Option<String>,
     }
-    let file = std::fs::File::create(to).map_err(|e| format!("cannot write the update: {e}"))?;
+    let file = create_own(to).map_err(|e| format!("cannot write the update: {e}"))?;
     let st = Arc::new(Mutex::new(St {
         file,
         hash: Sha256::new(),
         n: 0,
-        error: None,
     }));
     progress.start_file(Some(size));
     let (sink, progress) = (st.clone(), progress.clone());
     let (tx, rx) = std::sync::mpsc::channel();
     crate::platform::stream(
         url,
+        size,
         None,
         move |c| {
             let mut g = sink.lock().unwrap_or_else(|e| e.into_inner());
             g.n += c.len() as u64;
-            let e = if g.n > size {
-                "the download is larger than it should be".to_string()
-            } else {
-                g.hash.update(c);
-                match g.file.write_all(c) {
-                    Ok(()) => {
-                        progress.add(c.len() as u64);
-                        return Ok(());
-                    }
-                    Err(e) => format!("cannot write the update ({e})"),
-                }
-            };
-            g.error = Some(e.clone());
-            Err(e)
+            g.hash.update(c);
+            g.file
+                .write_all(c)
+                .map_err(|e| format!("cannot write the update ({e})"))?;
+            progress.add(c.len() as u64);
+            Ok(())
         },
         move |r, _| {
             let _ = tx.send(r);
@@ -169,9 +178,6 @@ fn download(
         .recv()
         .map_err(|_| "the download ended early".to_string())?;
     let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(e) = g.error.take() {
-        return Err(e);
-    }
     r.map_err(|e| format!("download failed ({e})"))?;
     if g.n != size {
         return Err(format!(
@@ -245,22 +251,68 @@ mod tests {
     fn downloads_are_checked() {
         let dir = std::env::temp_dir().join(format!("vibebms-update-d-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let to = dir.join("new");
         // sha256("test")
         let sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
         let p = Progress::new();
-        download(&serve(b"test".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap();
+        // each into a file of its own, as `install` names them
+        let get = |body: &[u8], status: &str| {
+            let to = temp(&dir, "").unwrap();
+            let r = download(&serve(body.to_vec(), status), &to, 4, sha, &p);
+            (to, r)
+        };
+        let (to, r) = get(b"test", "200 OK");
+        r.unwrap();
         assert_eq!(std::fs::read(&to).unwrap(), b"test");
         assert_eq!(p.bytes(), (4, Some(4)));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&to).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         // damaged, cut short, too long, refused
-        let e = download(&serve(b"tesT".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
+        let e = get(b"tesT", "200 OK").1.unwrap_err();
         assert!(e.contains("checksum"), "{e}");
-        let e = download(&serve(b"tes".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
+        let e = get(b"tes", "200 OK").1.unwrap_err();
         assert!(e.contains("not 4"), "{e}");
-        let e = download(&serve(b"tests".to_vec(), "200 OK"), &to, 4, sha, &p).unwrap_err();
+        let e = get(b"tests", "200 OK").1.unwrap_err();
         assert!(e.contains("larger"), "{e}");
-        let e = download(&serve(Vec::new(), "404 Not Found"), &to, 4, sha, &p).unwrap_err();
+        let e = get(b"", "404 Not Found").1.unwrap_err();
         assert!(e.contains("404"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The update's file is one this update made: a name not known before,
+    /// and nothing that is there already (a file, a link to one) is
+    /// written to.
+    #[test]
+    fn the_download_goes_to_a_file_of_its_own() {
+        let dir = std::env::temp_dir().join(format!("vibebms-update-t-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (temp(&dir, "").unwrap(), temp(&dir, "").unwrap());
+        assert_ne!(a, b);
+        for t in [&a, &b] {
+            let name = t.file_name().unwrap().to_string_lossy().into_owned();
+            // (what `install` clears away of an update cut short)
+            assert!(name.starts_with(".vibebms-update-") && name.ends_with(".tmp"));
+            assert_eq!(name.len(), 36, "{name}");
+        }
+        let sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+        let p = Progress::new();
+        // another's file at the name: left as it is, nothing is asked for
+        std::fs::write(&a, "theirs").unwrap();
+        let e = download("http://127.0.0.1:9/none", &a, 4, sha, &p).unwrap_err();
+        assert!(e.contains("cannot write"), "{e}");
+        assert_eq!(std::fs::read(&a).unwrap(), b"theirs");
+        #[cfg(unix)]
+        {
+            let target = dir.join("target");
+            std::fs::write(&target, "theirs").unwrap();
+            std::os::unix::fs::symlink(&target, &b).unwrap();
+            let e = download("http://127.0.0.1:9/none", &b, 4, sha, &p).unwrap_err();
+            assert!(e.contains("cannot write"), "{e}");
+            assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

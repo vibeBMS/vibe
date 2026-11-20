@@ -19,6 +19,48 @@ use std::sync::{Arc, Mutex};
 #[cfg(not(target_arch = "wasm32"))]
 const MEMORY: u64 = if cfg!(mobile) { 32 << 20 } else { 512 << 20 };
 
+/// The largest song unpacked into a folder (bytes): no song is near it,
+/// and what an archive says of its files' sizes is no limit.
+#[cfg(not(target_arch = "wasm32"))]
+const FOLDER_MAX: u64 = 4 << 30;
+
+/// The room left on the disk after a song is unpacked onto it, at least.
+#[cfg(not(target_arch = "wasm32"))]
+const FREE_MARGIN: u64 = 256 << 20;
+
+/// How many bytes unpacking a song whose files are `total` bytes by its
+/// archive's list may write to a disk with `free` bytes left (`None`: not
+/// known), or why it is not unpacked: larger than [`FOLDER_MAX`], or than
+/// the disk has room for with [`FREE_MARGIN`] left.
+#[cfg(not(target_arch = "wasm32"))]
+fn folder_room(total: u64, free: Option<u64>) -> io::Result<u64> {
+    if total > FOLDER_MAX {
+        return Err(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            format!(
+                "its song is {} MB, more than is unpacked ({} MB)",
+                total >> 20,
+                FOLDER_MAX >> 20
+            ),
+        ));
+    }
+    let room = free.map_or(FOLDER_MAX, |f| {
+        f.saturating_sub(FREE_MARGIN).min(FOLDER_MAX)
+    });
+    if total > room {
+        return Err(io::Error::new(
+            io::ErrorKind::StorageFull,
+            format!(
+                "its song is {} MB, and the disk has {} MB left",
+                total >> 20,
+                free.unwrap_or(0) >> 20
+            ),
+        ));
+    }
+    // (some room for sizes that are not exact, as far as there is any)
+    Ok((total + (64 << 20)).min(room))
+}
+
 /// [`MEMORY`], or a test's.
 #[cfg(not(target_arch = "wasm32"))]
 fn memory_limit() -> u64 {
@@ -261,14 +303,12 @@ fn mount(archive: &Path, folder: &Path, stamp: (i64, i64)) -> io::Result<Mount> 
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
         let dest = Dest::Folder(dir.clone());
-        if let Err(e) = unpack(
-            archive,
-            &want,
-            false,
-            Some(count),
-            &dest,
-            total + (64 << 20),
-        ) {
+        // what is written counts against the room, not what the archive
+        // says its files are
+        let unpacked = folder_room(total, vfs::free_space(&dir))
+            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", archive.display())))
+            .and_then(|room| unpack(archive, &want, false, Some(count), &dest, room));
+        if let Err(e) = unpacked {
             let _ = std::fs::remove_dir_all(&dir);
             return Err(e);
         }
@@ -356,5 +396,61 @@ pub fn native_path(p: &Path) -> Option<PathBuf> {
             }
             Some(to)
         }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use io::ErrorKind::{FileTooLarge, StorageFull};
+
+    const MB: u64 = 1 << 20;
+
+    #[test]
+    fn a_song_is_unpacked_within_the_room_there_is() {
+        // its size and a little more, where the disk has it
+        assert_eq!(folder_room(600 * MB, None).unwrap(), 664 * MB);
+        assert_eq!(folder_room(600 * MB, Some(1 << 40)).unwrap(), 664 * MB);
+        assert_eq!(folder_room(600 * MB, Some(900 * MB)).unwrap(), 644 * MB);
+        assert_eq!(folder_room(FOLDER_MAX, Some(u64::MAX)).unwrap(), FOLDER_MAX);
+        // not one larger than any song, whatever the disk; not one the
+        // disk has no room for
+        let refused = |total, free| folder_room(total, free).unwrap_err().kind();
+        assert_eq!(refused(FOLDER_MAX + 1, None), FileTooLarge);
+        assert_eq!(refused(u64::MAX, Some(u64::MAX)), FileTooLarge);
+        assert_eq!(refused(600 * MB, Some(800 * MB)), StorageFull);
+        assert_eq!(refused(600 * MB, Some(0)), StorageFull);
+    }
+
+    /// An archive whose list says a song is larger than any is not
+    /// unpacked, and nothing of it is left on the disk.
+    #[test]
+    fn a_song_said_to_be_huge_is_not_unpacked() {
+        let dir = std::env::temp_dir().join(format!("vibebms-mount-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        super::super::load_index(&dir.join("cache/archives.json"));
+        let zip = dir.join("huge.zip");
+        let files = [("HugeSong/a.bms", "#TITLE A"), ("HugeSong/a.wav", "RIFF")];
+        std::fs::write(&zip, bmseeker::testkit::zip(&files)).unwrap();
+        let listed = [("HugeSong/a.bms", 8), ("HugeSong/a.wav", 5 << 30)]
+            .into_iter()
+            .map(|(p, n)| (PathBuf::from(p), n))
+            .collect();
+        let ix = super::super::Index::new(vfs::stamp(&zip), "zip", listed);
+        super::super::set_index(&zip, ix);
+        let chart = join(&zip, Path::new("HugeSong/a.bms"));
+        let e = prepare(std::slice::from_ref(&chart)).unwrap_err();
+        assert_eq!(e.kind(), FileTooLarge, "{e}");
+        assert!(e.to_string().contains("huge.zip"), "{e}");
+        assert!(!is_ready(&zip, Path::new("HugeSong/a.bms")));
+        // (the folder songs are unpacked in is the run's: other tests' too)
+        let work = state().work.clone().unwrap();
+        let left = std::fs::read_dir(&work)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| e.path().join("HugeSong").exists());
+        assert!(!left);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
