@@ -35,7 +35,19 @@ runs:
       with:
         distribution: temurin
         java-version: ${{ steps.pins.outputs.java }}
+    # Gradle's caches as one entry: the dependencies and the distribution
+    # (the large parts), not setup-gradle's many small entries
+    - if: inputs.java == 'true'
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.gradle/caches/modules-2
+          ~/.gradle/wrapper/dists
+          ~/gradle-installations
+        key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.gradle }}-${{ hashFiles(format('{0}/platform/android/**/*.gradle.kts', inputs.path), format('{0}/platform/android/gradle.properties', inputs.path)) }}
+        restore-keys: gradle-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.gradle }}-
     - if: inputs.java == 'true'
       uses: gradle/actions/setup-gradle@v5
       with:
         gradle-version: ${{ steps.pins.outputs.gradle }}
+        cache-disabled: true

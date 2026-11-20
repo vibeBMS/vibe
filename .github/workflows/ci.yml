@@ -50,6 +50,8 @@ jobs:
         run: |
           # rust-cache: v0-rust-<key>-<job>-<os>-<arch>-<environment>-<lockfiles>;
           # setup-go: setup-go-<os>-<arch>-<image>-go-<version>-<go.sum hash>;
+          # gradle-<os>-<arch>-<version>-<build files hash>; noto-cjk-<commit>;
+          # flatpak-platform-<arch>-<runtime>: the newest of each kind stays;
           # e2e-*: the comparison tests' downloads (LR2, beatoraja), kept on
           # every ref; any other key: only other refs' entries
           gh cache list --limit 1000 --sort created_at --order desc \
@@ -57,8 +59,13 @@ jobs:
             awk -F'\t' -v main="$MAIN" '{
               job = $2
               if (job ~ /^e2e-/) next
+              # (setup-gradle's own entries, from before Gradle had one cache entry)
+              if (job ~ /^gradle-[a-z-]+-v1[-|]/) { print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"; next }
               if (job ~ /^v0-rust-/) sub(/-[0-9a-f]+-[0-9a-f]+$/, "", job)
               else if (job ~ /^setup-go-/) sub(/-[0-9a-f]+$/, "", job)
+              else if (job ~ /^gradle-/) sub(/-[^-]+-[0-9a-f]*$/, "", job)
+              else if (job ~ /^noto-cjk-/) job = "noto-cjk"
+              else if (match(job, /^flatpak-platform-[A-Za-z0-9]+-/)) job = substr(job, 1, RLENGTH)
               if ($3 != main || (job != $2 && seen[job]++)) print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"
             }' |
             while IFS=$'\t' read -r id key ref size; do
@@ -435,15 +442,17 @@ jobs:
           targets: wasm32-unknown-unknown
           cache-key: web-${{ needs.pins.outputs.key-web }}
       - run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | cut -d'"' -f2)"
-      # the CJK fonts from an earlier run (tools/build_release.sh checks each
-      # one's hash and downloads it again if it is not the one it pins)
+      # the CJK fonts (about 25 MB from GitHub) from an earlier run, keyed by
+      # the noto-cjk commit tools/build_release.sh pins (it checks each file's
+      # hash and downloads it again if it is not the one it pins)
+      - id: noto
+        run: echo "commit=$(grep -o 'noto-cjk/[0-9a-f]\{40\}' tools/build_release.sh | head -1 | cut -c10-21)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v6
         with:
           path: |
             web/fonts/NotoSans*-Regular.otf
             web/fonts/NotoSansCJK-LICENSE.txt
-          key: noto-cjk-${{ hashFiles('tools/build_release.sh') }}
-          restore-keys: noto-cjk-
+          key: noto-cjk-${{ steps.noto.outputs.commit }}
       # web/pkg and the CJK fonts (Noto Sans CJK, SIL OFL 1.1, at a fixed
       # commit). Third parties' mirrors on by default: the repository variable
       # WEB_THIRD_PARTY=1 (Settings > Secrets and variables > Actions >
