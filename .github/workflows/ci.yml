@@ -50,7 +50,9 @@ jobs:
         run: |
           # rust-cache: v0-rust-<key>-<job>-<os>-<arch>-<environment>-<lockfiles>;
           # setup-go: setup-go-<os>-<arch>-<image>-go-<version>-<go.sum hash>;
-          # gradle-<os>-<arch>-<version>-<build files hash>; noto-cjk-<commit>;
+          # gradle-<os>-<arch>-<version>-<build files hash>; gradle-<version>
+          # (setup-gradle's distribution, saved even with its caching off);
+          # noto-cjk-<commit>;
           # flatpak-platform-<arch>-<runtime>: the newest of each kind stays;
           # e2e-*: the comparison tests' downloads (LR2, beatoraja), kept on
           # every ref; any other key: only other refs' entries
@@ -59,10 +61,11 @@ jobs:
             awk -F'\t' -v main="$MAIN" '{
               job = $2
               if (job ~ /^e2e-/) next
-              # (the entries setup-gradle made, its distributions too, before Gradle had one cache entry)
-              if (job ~ /^gradle-[a-z-]+-v1[-|]/ || job ~ /^gradle-[0-9][0-9.]*$/) { print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"; next }
+              # (the entries setup-gradle made before Gradle had one cache entry)
+              if (job ~ /^gradle-[a-z-]+-v1[-|]/) { print $1 "\t" $2 "\t" $3 "\t" int($4 / 1048576) " MB"; next }
               if (job ~ /^v0-rust-/) sub(/-[0-9a-f]+-[0-9a-f]+$/, "", job)
               else if (job ~ /^setup-go-/) sub(/-[0-9a-f]+$/, "", job)
+              else if (job ~ /^gradle-[0-9][0-9.]*$/) job = "gradle-distribution"
               else if (job ~ /^gradle-/) sub(/-[^-]+-[0-9a-f]*$/, "", job)
               else if (job ~ /^noto-cjk-/) job = "noto-cjk"
               else if (match(job, /^flatpak-platform-[A-Za-z0-9]+-/)) job = substr(job, 1, RLENGTH)
