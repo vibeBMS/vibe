@@ -85,7 +85,12 @@ pub fn save(r: &Replay, root: &Path, slot: Slot) -> Result<(), String> {
 }
 
 fn read(path: &Path) -> Option<Replay> {
-    Replay::decode(&crate::platform::vfs::read(path).ok()?)
+    use crate::platform::vfs;
+    // (a file larger than a replay unpacks to is none: not read at all)
+    if vfs::stamp(path).1 > vibebms_core::replay::MAX_JSON as i64 {
+        return None;
+    }
+    Replay::decode(&vfs::read(path).ok()?)
 }
 
 /// The chart's replay `slot` under rule mode `rule`, if there is one: a
@@ -232,6 +237,39 @@ mod tests {
         };
         save(&future, &root, Slot::Last).unwrap();
         assert!(load(Slot::Last).is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A file larger than any replay is not read (here: a replay with
+    /// nothing after it to past the limit, which reads when it is read).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_file_too_large_is_not_read() {
+        let root = std::env::temp_dir().join(format!("vibebms-replay-big-{}", std::process::id()));
+        let r = Replay {
+            version: VERSION,
+            sha256: "ab".into(),
+            md5: String::new(),
+            title: String::new(),
+            ln: 0,
+            date: 1,
+            seed: 1,
+            play: PlayConfig::default(),
+            ex_score: 0,
+            clear: ClearType::Failed,
+            ghost: Vec::new(),
+            ops: vec![Op::Update(5)],
+            course: None,
+        };
+        save(&r, &root, Slot::Last).unwrap();
+        let rule = JudgePreset::Beatoraja;
+        assert!(load(&root, "ab", 0, rule, Slot::Last).is_some());
+        let path = file(&root, "ab", 0, Some(rule), Slot::Last);
+        let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_len(vibebms_core::replay::MAX_JSON as u64 + 1)
+            .unwrap();
+        drop(f);
+        assert!(load(&root, "ab", 0, rule, Slot::Last).is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 

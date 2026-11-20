@@ -22,6 +22,10 @@ pub const VERSION: u32 = 7;
 /// watching it or playing it again (G-BATTLE) runs it on this judge.
 const OLDEST: u32 = 1;
 
+/// The largest replay kept or read (its JSON, bytes): hours of play at
+/// a thousand updates a second. A file that unpacks to more is not one.
+pub const MAX_JSON: usize = 128 << 20;
+
 /// A play's replay. `P`: its play options, the rules and whatever else the
 /// player kept with them (the app's view options).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -98,6 +102,9 @@ impl<P: Serialize> Replay<P> {
     /// The replay file's bytes.
     pub fn encode(&self) -> Result<Vec<u8>, String> {
         let json = serde_json::to_vec(self).map_err(|e| e.to_string())?;
+        if json.len() > MAX_JSON {
+            return Err("the replay is too long to keep".into());
+        }
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         gz.write_all(&json).map_err(|e| e.to_string())?;
         gz.finish().map_err(|e| e.to_string())
@@ -109,8 +116,12 @@ impl<P: DeserializeOwned> Replay<P> {
     pub fn decode(bytes: &[u8]) -> Option<Replay<P>> {
         let mut json = Vec::new();
         flate2::read::GzDecoder::new(bytes)
+            .take(MAX_JSON as u64 + 1)
             .read_to_end(&mut json)
             .ok()?;
+        if json.len() > MAX_JSON {
+            return None;
+        }
         let r: Replay<P> = serde_json::from_slice(&json).ok()?;
         (OLDEST..=VERSION).contains(&r.version).then_some(r)
     }
@@ -136,6 +147,22 @@ mod tests {
             ops: Vec::new(),
             course: None,
         }
+    }
+
+    /// A file that unpacks to more than a replay's JSON may be is none
+    /// (and is not unpacked further).
+    #[test]
+    fn a_replay_that_unpacks_too_large_is_not_read() {
+        let json = serde_json::to_vec(&replay(RuleOptions::default())).unwrap();
+        let packed = |pad: usize| {
+            let level = flate2::Compression::fast();
+            let mut gz = flate2::write::GzEncoder::new(Vec::new(), level);
+            gz.write_all(&json).unwrap();
+            gz.write_all(&vec![b' '; pad]).unwrap();
+            gz.finish().unwrap()
+        };
+        assert!(Replay::<RuleOptions>::decode(&packed(MAX_JSON - json.len())).is_some());
+        assert!(Replay::<RuleOptions>::decode(&packed(MAX_JSON + 1 - json.len())).is_none());
     }
 
     #[test]
