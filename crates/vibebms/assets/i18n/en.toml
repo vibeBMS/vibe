@@ -28,8 +28,12 @@
 "Download failed: {url}" = "Download failed: {url}"
 
 # browser/android.rs
+"Save this download?" = "Save this download?"
+"Don't save" = "Don't save"
 "Could not open a browser" = "Could not open a browser"
 "Downloading {name}…" = "Downloading {name}…"
+"One download at a time: {name} was not started" = "One download at a time: {name} was not started"
+"{name} is larger than {gb} GB: not kept" = "{name} is larger than {gb} GB: not kept"
 "Now the chart: download it from this page" = "Now the chart: download it from this page"
 
 # browser/imports.rs
@@ -38,6 +42,10 @@
 
 # browser/webview.rs
 "download" = "download"
+"from {host}" = "from {host}"
+"OK brings it into your library. Otherwise it is deleted." = "OK brings it into your library. Otherwise it is deleted."
+"Keep this download?" = "Keep this download?"
+"Delete" = "Delete"
 
 # hosts.rs
 """
@@ -714,8 +722,10 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "yours on the IR" = "yours on the IR"
 "{name} (profile)" = "{name} (profile)"
 "a profile deleted" = "a profile deleted"
+"kept for another address: paste it again" = "kept for another address: paste it again"
 "none: paste one" = "none: paste one"
 "connected as {user}" = "connected as {user}"
+"BAD ADDRESS" = "BAD ADDRESS"
 "READ ONLY" = "READ ONLY"
 "NO KEY" = "NO KEY"
 "CONNECTED" = "CONNECTED"
@@ -762,7 +772,7 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Rankings, and the plays you send." = "Rankings, and the plays you send."
 "Name" = "Name"
 "What this server is called here." = "What this server is called here."
-"The server's address." = "The server's address."
+"The server's address (https://). Its API key is kept for this address only." = "The server's address (https://). Its API key is kept for this address only."
 "From boku.tachi.ac, Profile, API Keys (any key reads). Kept {where}." = "From boku.tachi.ac, Profile, API Keys (any key reads). Kept {where}."
 "Paste it. Kept {where}, not config.toml." = "Paste it. Kept {where}, not config.toml."
 "API key" = "API key"
@@ -795,6 +805,7 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Send this play again now." = "Send this play again now."
 "Discard" = "Discard"
 "Never send this play." = "Never send this play."
+"An IR server's address starts with https:// (http:// only on this computer)" = "An IR server's address starts with https:// (http:// only on this computer)"
 "Not a BMS-IR player id: {s}" = "Not a BMS-IR player id: {s}"
 "Not BMS-IR player ids: {ids}" = "Not BMS-IR player ids: {ids}"
 
@@ -927,10 +938,11 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "Switch OBS scenes on each screen and record plays (OBS 28 or later: Tools › WebSocket Server Settings)." = "Switch OBS scenes on each screen and record plays (OBS 28 or later: Tools › WebSocket Server Settings)."
 "Host" = "Host"
 "The computer OBS runs on (127.0.0.1: this one)." = "The computer OBS runs on (127.0.0.1: this one)."
+"OBS on another computer: the connection is not encrypted, and whoever answers at this address can try passwords against what is sent. Use 127.0.0.1 unless you trust the network." = "OBS on another computer: the connection is not encrypted, and whoever answers at this address can try passwords against what is sent. Use 127.0.0.1 unless you trust the network."
 "Port" = "Port"
 "The WebSocket server's port (OBS: 4455)." = "The WebSocket server's port (OBS: 4455)."
 "Password" = "Password"
-"The WebSocket server's password (empty: none). Kept in config.toml as typed." = "The WebSocket server's password (empty: none). Kept in config.toml as typed."
+"The WebSocket server's password (empty: none). Kept {where}, for this host and port only." = "The WebSocket server's password (empty: none). Kept {where}, for this host and port only."
 "Scene: {label}" = "Scene: {label}"
 "The OBS scene to switch to on this screen (empty: no switch)." = "The OBS scene to switch to on this screen (empty: no switch)."
 "Record plays" = "Record plays"

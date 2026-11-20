@@ -10,9 +10,37 @@ const LEGACY_BPM: f64 = 150.0;
 /// became its list of events. Tables that moved are read from their new
 /// address. The one IR server (`[ir_server]`) became an account of
 /// `[ir]`. The perspective lanes' touch area of an older layout, left at
-/// its default, becomes the current default.
-pub fn migrate(v: &mut toml::Value) {
-    ir_server(v);
+/// its default, becomes the current default. The secrets it kept are taken
+/// out of it ([`Old`]).
+pub fn migrate(v: &mut toml::Value) -> Old {
+    let old = Old {
+        ir_token: ir_server(v),
+        obs_password: obs_password(v),
+    };
+    settings(v);
+    old
+}
+
+/// The secrets an older configuration kept, which are no settings any
+/// more: they go to the credentials store (`ir::creds`).
+#[derive(Default)]
+pub struct Old {
+    /// `[ir_server]`'s token, of the account it became.
+    pub ir_token: String,
+    /// `[obs]`'s password.
+    pub obs_password: String,
+}
+
+/// `[obs]`'s password, taken out.
+fn obs_password(v: &mut toml::Value) -> String {
+    let obs = v.get_mut("obs").and_then(|o| o.as_table_mut());
+    match obs.and_then(|o| o.remove("password")) {
+        Some(toml::Value::String(p)) => p,
+        _ => String::new(),
+    }
+}
+
+fn settings(v: &mut toml::Value) {
     perspective(v);
     if let Some(tables) = v.get_mut("tables").and_then(|t| t.as_array_mut()) {
         for t in tables.iter_mut() {
@@ -95,19 +123,18 @@ fn perspective(v: &mut toml::Value) {
     );
 }
 
-/// `[ir_server]` as a vibeBMS IR account of `[ir]`. Its token is read
-/// into the account (`IrAccount::old_token`), which is never written back:
-/// the app moves it to the credentials store.
-fn ir_server(v: &mut toml::Value) {
+/// `[ir_server]` as a vibeBMS IR account of `[ir]`: the first, and its
+/// token (empty when no account was made).
+fn ir_server(v: &mut toml::Value) -> String {
     let Some(root) = v.as_table_mut() else {
-        return;
+        return String::new();
     };
     let Some(toml::Value::Table(old)) = root.remove("ir_server") else {
-        return;
+        return String::new();
     };
     let text = |k: &str| old.get(k).and_then(|x| x.as_str()).unwrap_or("");
     if root.contains_key("ir") || text("url").trim().is_empty() {
-        return;
+        return String::new();
     }
     let flag = |k: &str| old.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
     let account: toml::Table = [
@@ -116,14 +143,15 @@ fn ir_server(v: &mut toml::Value) {
         ("url", text("url").into()),
         ("enabled", flag("enabled").into()),
         ("submit", flag("auto_submit").into()),
-        ("old_token", text("token").into()),
     ]
     .into_iter()
     .map(|(k, v): (&str, toml::Value)| (k.to_string(), v))
     .collect();
+    let token = text("token").to_string();
     let mut ir = toml::Table::new();
     ir.insert("accounts".into(), vec![account].into());
     root.insert("ir".into(), ir.into());
+    token
 }
 
 #[cfg(test)]
@@ -186,9 +214,7 @@ mod tests {
         let old =
             "[ir_server]\nenabled = true\nname = \"Mine\"\nurl = \"https://ir.example/api/\"\n\
                    token = \"s3cr3t\"\nauto_submit = false\n";
-        let mut v: toml::Value = toml::from_str(old).unwrap();
-        migrate(&mut v);
-        let c: Config = v.try_into().unwrap();
+        let c = Config::parse(old).unwrap().0;
         let a = &c.ir.accounts[0];
         assert_eq!(
             (a.provider, a.name.as_str(), a.enabled, a.submit),
@@ -200,13 +226,45 @@ mod tests {
         // never written
         let again = c.to_toml().unwrap();
         assert!(!again.contains("s3cr3t") && !again.contains("ir_server"));
-        let back: Config = toml::from_str(&again).unwrap();
+        let back = Config::parse(&again).unwrap().0;
         assert_eq!(back.ir.accounts[0].old_token.0, "");
         // an empty one is no account
         let mut v: toml::Value =
             toml::from_str("[ir_server]\nenabled = false\nurl = \"\"\n").unwrap();
         migrate(&mut v);
         assert!(v.get("ir").is_none() && v.get("ir_server").is_none());
+    }
+
+    /// A key is read from an `[ir_server]` of before and from nowhere
+    /// else: an account's own settings cannot name one (a configuration
+    /// from someone else would put its key in the place of the player's).
+    #[test]
+    fn an_account_cannot_name_a_key() {
+        let text = "[[ir.accounts]]\nprovider = \"bokutachi\"\nold_token = \"theirs\"\n\
+                    token = \"theirs\"\n";
+        let c = Config::parse(text).unwrap().0;
+        assert_eq!(c.ir.accounts[0].old_token.0, "");
+        // an `[ir_server]` beside an `[ir]` is no account
+        let both = format!("[ir_server]\nurl = \"https://x\"\ntoken = \"theirs\"\n{text}");
+        let c = Config::parse(&both).unwrap().0;
+        assert_eq!(c.ir.accounts.len(), 1);
+        assert_eq!(c.ir.accounts[0].old_token.0, "");
+    }
+
+    /// `[obs]`'s password of before leaves the settings: read once for the
+    /// credentials store, never shown by `Debug`, never written.
+    #[test]
+    fn the_obs_password_leaves_the_settings() {
+        let old = "[obs]\nenabled = true\nhost = \"127.0.0.1\"\npassword = \"s3cr3t\"\n";
+        let c = Config::parse(old).unwrap().0;
+        assert!(c.obs.enabled);
+        assert_eq!(c.obs.old_password.0, "s3cr3t");
+        assert!(!format!("{:?}", c.obs).contains("s3cr3t"));
+        let again = c.to_toml().unwrap();
+        assert!(
+            !again.contains("s3cr3t") && !again.contains("password"),
+            "{again}"
+        );
     }
 
     #[test]

@@ -373,6 +373,9 @@ impl Running {
                 return;
             }
         }
+        if self.downloads.input(&mut self.ctx, &ev) {
+            return;
+        }
         let Some(top) = self.scenes.last_mut() else {
             return;
         };
@@ -551,6 +554,7 @@ impl Running {
                 tr!("Turn off"),
             );
         }
+        self.downloads.draw(&self.ctx, &mut d);
         draw_overlay(&mut self.ctx, &mut d, now);
         if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
             if self.gfx.request_capture() {
@@ -766,11 +770,6 @@ impl App {
         ctx.reload_library();
         diag::startup("library");
         let startup = startup::Startup::begin(&mut ctx);
-        // tests: open the download browser on this page at start
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Ok(url) = std::env::var("VIBEBMS_TEST_BROWSE") {
-            ctx.net.browse(vec![url]);
-        }
         crate::scene::skinned::recover(&mut ctx);
         ctx.save_config(); // writes defaults on first launch
         let select = crate::scene::select::SelectScene::new(&mut ctx);

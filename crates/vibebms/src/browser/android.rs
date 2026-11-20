@@ -1,10 +1,14 @@
 //! The in-app browser on Android: `io.github.vibebms.Browser` (Java, in
 //! platform/android) shows a web view over the game and saves what pages
-//! download to `<root>/downloads/`; this side opens it through JNI, polls
-//! its events and brings finished downloads into the library (`import`).
+//! download to `<root>/downloads/`, asking the player about each first (a
+//! dialog of its own, over the web view); this side opens it through JNI,
+//! polls its events and brings finished downloads into the library
+//! (`import`).
 
 use super::imports::Imports;
-use crate::app::Ctx;
+use super::MAX_DOWNLOAD;
+use crate::app::{Ctx, Draw};
+use crate::input::InputEv;
 use crate::platform::android::{app_class, string, with_java};
 use jni::objects::JValue;
 use jni::{jni_sig, jni_str};
@@ -29,17 +33,23 @@ fn open(url: &str, dir: &std::path::Path) -> Result<(), String> {
         let dir = env.new_string(dir.to_string_lossy())?;
         // run on each page (a OneDrive share downloads without a press)
         let script = env.new_string(bmseeker::hosts::PRESS_DOWNLOAD_JS)?;
+        // the question about a download, and its button beside OK
+        let ask = env.new_string(tr!("Save this download?"))?;
+        let no = env.new_string(tr!("Don't save"))?;
         env.call_static_method(
             class,
             jni_str!("open"),
             jni_sig!(
-                "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
+                "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)V"
             ),
             &[
                 JValue::Object(activity),
                 JValue::Object(&url),
                 JValue::Object(&dir),
                 JValue::Object(&script),
+                JValue::Long(MAX_DOWNLOAD as i64),
+                JValue::Object(&ask),
+                JValue::Object(&no),
             ],
         )?;
         Ok(())
@@ -106,6 +116,13 @@ impl Downloads {
         self.open
     }
 
+    /// The question about a download is the Java side's.
+    pub fn input(&mut self, _ctx: &mut Ctx, _ev: &InputEv) -> bool {
+        false
+    }
+
+    pub fn draw(&mut self, _ctx: &Ctx, _d: &mut Draw) {}
+
     /// Once per frame (while the browser is up or imports run).
     pub fn poll(&mut self, ctx: &mut Ctx) {
         if self.open {
@@ -114,6 +131,15 @@ impl Downloads {
                 match kind {
                     "S" => ctx.toast(tr!("Downloading {name}…", name = rest)),
                     "E" => ctx.toast(tr!("Download failed: {url}", url = rest)),
+                    "B" => ctx.toast(tr!(
+                        "One download at a time: {name} was not started",
+                        name = rest
+                    )),
+                    "L" => ctx.toast(tr!(
+                        "{name} is larger than {gb} GB: not kept",
+                        name = rest,
+                        gb = MAX_DOWNLOAD >> 30
+                    )),
                     "C" => self.open = false,
                     "F" => self
                         .imports

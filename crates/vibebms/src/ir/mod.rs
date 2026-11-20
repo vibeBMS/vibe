@@ -33,11 +33,11 @@ use vibebms_ir::eligibility::{eligible, Refusal};
 use vibebms_ir::lamps::{RankView, RemoteLamp};
 use vibebms_ir::limiter::Limiter;
 use vibebms_ir::outbox::{Item, Outbox, Reply, State};
-use vibebms_ir::provider::{AuthKind, ChartId, IrError};
+use vibebms_ir::provider::{AuthKind, ChartId, Creds, IrError};
 use vibebms_ir::providers::bmsir_read::BmsIrRead;
 use vibebms_ir::providers::tachi::{self, Tachi};
 use vibebms_ir::providers::vibe_json::VibeJson;
-use vibebms_ir::{HttpRequest, HttpResponse, Op, Outcome, Provider, ProviderId};
+use vibebms_ir::{HttpRequest, HttpResponse, Op, Outcome, Provider, ProviderId, Secret};
 
 /// What a request was for.
 enum Ticket {
@@ -77,7 +77,7 @@ struct Answer {
 /// and the requests out.
 pub struct IrService {
     history: store::History,
-    pub keys: creds::Keys,
+    keys: creds::Keys,
     outbox_file: PathBuf,
     /// The profile's outbox lock (`store::outbox_lock`).
     lock: String,
@@ -106,16 +106,40 @@ pub struct IrService {
     downloads: Vec<ProviderId>,
 }
 
-/// The adapter of an account, where this build has one.
+/// The longest name, id and chart page address kept of what a server says
+/// (in characters): they are shown, and saved with the settings.
+const NAME_MAX: usize = 64;
+const PAGE_MAX: usize = 512;
+
+/// A text a server gave, as it is kept: its first `max` characters, none
+/// of them a control character.
+fn kept(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect()
+}
+
+/// The adapter of an account, where this build has one and the account's
+/// address is one requests go to (`creds::origin`: `https`, or `http` on
+/// this computer).
 fn provider(a: &IrAccount) -> Option<Box<dyn Provider>> {
+    let addressed = || creds::origin(&a.url).is_some();
     match a.provider {
-        ProviderId::VibeJson(n) => Some(Box::new(
+        ProviderId::VibeJson(n) if addressed() => Some(Box::new(
             VibeJson::new(n, &a.url)?.with_chart_page(&a.chart_page),
         )),
         ProviderId::Bokutachi => Some(Box::new(Tachi)),
-        ProviderId::BmsIr => Some(Box::new(BmsIrRead::at(&a.url))),
-        ProviderId::RianIr => None,
+        ProviderId::BmsIr if a.url.trim().is_empty() || addressed() => {
+            Some(Box::new(BmsIrRead::at(&a.url)))
+        }
+        ProviderId::VibeJson(_) | ProviderId::BmsIr | ProviderId::RianIr => None,
     }
+}
+
+/// The server `a`'s key is for: the origin its check goes to (None: the
+/// account takes no key, or has no address requests go to).
+fn key_origin(a: &IrAccount) -> Option<String> {
+    let probe = Creds::token(Secret::new(""));
+    let req = provider(a)?.request(&Op::Verify, Some(&probe)).ok()?;
+    creds::origin(&req.url)
 }
 
 /// The lamp sets the enabled accounts follow, each with its view: the
@@ -198,20 +222,62 @@ impl IrService {
         }
     }
 
-    /// Keys an older configuration kept go to the credentials store; true
-    /// when one did (the configuration is then saved without it).
+    /// The keys of before get their servers. Those a version before kept
+    /// without one: their account's as it is now, once (`Keys::bind`). The
+    /// key of an `[ir_server]` of before (`IrAccount::old_token`): the
+    /// address beside it, unless a key is kept for the account already (a
+    /// configuration never puts a key in the place of one the player
+    /// entered). True when the configuration held one (it is then saved
+    /// without it).
     pub fn take_old_tokens(&mut self, ir: &mut IrSettings) -> bool {
+        let bound = (self.keys).bind(|p| ir.account(p).and_then(key_origin));
+        if let Err(e) = bound {
+            log::warn!("credentials: {e}");
+        }
         let mut moved = false;
         for a in ir.accounts.iter_mut().filter(|a| !a.old_token.0.is_empty()) {
-            match self.keys.set(a.provider, Some(a.old_token.0.clone())) {
-                Ok(()) => {
-                    a.old_token.0.clear();
-                    moved = true;
-                }
-                Err(e) => log::warn!("credentials: {e}"),
+            let token = std::mem::take(&mut a.old_token.0);
+            moved = true;
+            if self.keys.has(a.provider) {
+                continue;
+            }
+            if let Err(e) = self.set_key(a, Some(token)) {
+                log::warn!("credentials: {e}");
             }
         }
         moved
+    }
+
+    /// The key of `a`'s account for its requests: the one entered for the
+    /// server the account's address is now.
+    fn creds(&self, a: &IrAccount) -> Option<Creds> {
+        self.keys.get(a.provider, &key_origin(a)?)
+    }
+
+    /// A key is kept for `a`'s account and its server.
+    pub fn has_key(&self, a: &IrAccount) -> bool {
+        self.creds(a).is_some()
+    }
+
+    /// A key is kept for `a`'s account, entered for another server than
+    /// the account's address is now: it is not sent, and asked for again.
+    pub fn key_elsewhere(&self, a: &IrAccount) -> bool {
+        self.keys.has(a.provider) && !self.has_key(a)
+    }
+
+    /// Keep `key` for `a`'s account at the server its address is now
+    /// (`None`: forget the account's key).
+    pub fn set_key(&mut self, a: &IrAccount, key: Option<String>) -> io::Result<()> {
+        let bound = match key {
+            Some(key) => {
+                let origin = key_origin(a).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "no server to keep it for")
+                })?;
+                Some((key, origin))
+            }
+            None => None,
+        };
+        self.keys.set(a.provider, bound)
     }
 
     /// The leaderboard of `chart` at the account the music select's
@@ -235,7 +301,7 @@ impl IrService {
         // Tachi knows charts by its own id, learned from the PB lists
         chart.remote = (self.lamp(a.provider, &a.user_id, &chart.md5, &chart.sha256))
             .and_then(|l| l.remote.clone());
-        let creds = self.keys.get(a.provider);
+        let creds = self.creds(&a);
         let req =
             (prov.request(&op(&chart, &a.view), creds.as_ref())).map_err(|_| NotAsked::Never)?;
         // (its answer is not waited for here: it takes a token only)
@@ -283,7 +349,7 @@ impl IrService {
             ProviderId::VibeJson(_) => {
                 let now = crate::platform::unix_ms();
                 let op = Op::PlayerScores { player: &a.user_id };
-                let req = (prov.request(&op, self.keys.get(p).as_ref()))
+                let req = (prov.request(&op, self.creds(a).as_ref()))
                     .map_err(|e| format!("{title}: {e}"))?;
                 if self.limiter(p, &*prov, now).start(now).is_err() {
                     return Err(format!("{title}: busy, try again in a moment"));
@@ -476,7 +542,10 @@ impl IrService {
     /// Check the account of `p` (its key, or its player id, was entered or
     /// changed).
     pub fn verify(&mut self, ir: &IrSettings, p: ProviderId) {
-        let Some(prov) = ir.account(p).and_then(provider) else {
+        let Some(a) = ir.account(p) else {
+            return;
+        };
+        let Some(prov) = provider(a) else {
             return;
         };
         if prov.caps(Platform::current()).auth == AuthKind::None {
@@ -488,7 +557,7 @@ impl IrService {
             self.lamps_ms = 0;
             return;
         }
-        let Some(creds) = self.keys.get(p) else {
+        let Some(creds) = self.creds(a) else {
             return;
         };
         match prov.request(&Op::Verify, Some(&creds)) {
@@ -669,7 +738,10 @@ impl IrService {
     fn read_lamps(&mut self, ir: &IrSettings, now_ms: i64) {
         for k in self.lamps.due(now_ms) {
             let p = k.provider;
-            let Some(prov) = ir.account(p).and_then(provider) else {
+            let Some(a) = ir.account(p) else {
+                continue;
+            };
+            let Some(prov) = provider(a) else {
                 continue;
             };
             if self.lamps.asking(p) || self.limiter(p, &*prov, now_ms).start(now_ms).is_err() {
@@ -684,7 +756,7 @@ impl IrService {
                 view: c.want_view(),
                 etag: c.etag().filter(|_| !IS_WEB),
             };
-            match prov.request(&op, self.keys.get(p).as_ref()) {
+            match prov.request(&op, self.creds(a).as_ref()) {
                 Ok(req) => {
                     self.lamps.asked(&k);
                     self.send(p, Ticket::Lamps(k), req);
@@ -709,7 +781,7 @@ impl IrService {
         r: Result<HttpResponse, String>,
         now_ms: i64,
     ) -> Option<AppEvent> {
-        let parsed = match (r, a.as_deref().and_then(provider)) {
+        let mut parsed = match (r, a.as_deref().and_then(provider)) {
             (Ok(resp), Some(prov)) => {
                 let op = Op::PlayerLamps {
                     player: &k.player,
@@ -730,6 +802,9 @@ impl IrService {
         ) = (&parsed, self.limiters.get_mut(&k.provider))
         {
             l.hold(now_ms + at.delay_ms(now_ms) as i64);
+        }
+        if let Ok(Outcome::Lamps(set)) = &mut parsed {
+            set.player_name = kept(&set.player_name, NAME_MAX);
         }
         let said = match &parsed {
             Ok(Outcome::Lamps(set)) => Ok(set.player_name.clone()),
@@ -811,9 +886,9 @@ impl IrService {
         let p = provider(a)?;
         let said = match r.map(|resp| p.parse(&Op::Verify, &resp)) {
             Ok(Outcome::Account(info)) => {
-                a.user = info.name;
-                a.user_id = info.id;
-                a.chart_page = info.chart_page;
+                a.user = kept(&info.name, NAME_MAX);
+                a.user_id = kept(&info.id, NAME_MAX);
+                a.chart_page = kept(&info.chart_page, PAGE_MAX);
                 self.resume(a.provider);
                 if info.can_submit {
                     return None;
@@ -850,12 +925,14 @@ impl IrService {
             return false;
         };
         let (limiters, keys) = (&mut self.limiters, &self.keys);
+        // (an account without its key waits: its plays are not refused)
         let ready = |p| {
-            let prov = ir.account(p).filter(|a| a.enabled).and_then(provider)?;
-            keys.has(p).then_some(prov)
+            let a = ir.account(p).filter(|a| a.enabled)?;
+            let creds = keys.get(p, &key_origin(a)?)?;
+            Some((provider(a)?, creds))
         };
         let ids = o.next(now_ms, |p| {
-            ready(p).is_some_and(|prov| {
+            ready(p).is_some_and(|(prov, _)| {
                 let rate = prov.caps(Platform::current()).rate;
                 let l = limiters
                     .entry(p)
@@ -869,7 +946,7 @@ impl IrService {
             let p = i.provider;
             let req = ready(p)
                 .ok_or(IrError::NoCredentials)
-                .and_then(|prov| prov.request(&i.op(), keys.get(p).as_ref()));
+                .and_then(|(prov, creds)| prov.request(&i.op(), Some(&creds)));
             match req {
                 Ok(req) => out.push((p, id.clone(), req)),
                 Err(e) => {
@@ -943,7 +1020,7 @@ impl IrService {
                 .items()
                 .find(|i| i.play_id == rec.play_id && i.provider == a.provider);
             let words = match (item, eligible(rec, a.provider.kind())) {
-                (Some(i), _) => self.item_words(i),
+                (Some(i), _) => self.item_words(i, ir),
                 (None, Err(Refusal::OperatorPending)) => {
                     tr!(
                         "not sent: waiting for {ir} to accept vibeBMS",
@@ -962,14 +1039,13 @@ impl IrService {
     }
 
     /// An item's state for people.
-    pub fn item_words(&self, i: &Item) -> String {
+    pub fn item_words(&self, i: &Item, ir: &IrSettings) -> String {
         let last = i.last.as_ref();
         let why = last.map_or("", |l| l.text.as_str());
         let offline = last.is_some_and(|l| l.status.is_none());
+        let has_key = || ir.account(i.provider).is_some_and(|a| self.has_key(a));
         match i.state {
-            State::Queued | State::Retry if !self.keys.has(i.provider) => {
-                tr!("waiting for an API key").into()
-            }
+            State::Queued | State::Retry if !has_key() => tr!("waiting for an API key").into(),
             State::Queued | State::Retry | State::Polling if offline => {
                 tr!("waiting (offline)").into()
             }
@@ -1059,9 +1135,144 @@ mod tests {
         assert!(ir.take_old_tokens(&mut config.ir));
         config.save(&file);
         assert!(!std::fs::read_to_string(&file).unwrap().contains("s3cr3t"));
-        let a = &Config::load(&file).ir.accounts[0];
-        let again = IrService::new(&paths, 0);
-        assert_eq!(again.keys.get(a.provider).unwrap().token.expose(), "s3cr3t");
+        let mut config = Config::load(&file);
+        let mut again = IrService::new(&paths, 0);
+        let a = &mut config.ir.accounts[0];
+        assert_eq!(again.creds(a).unwrap().token.expose(), "s3cr3t");
+        // an `[ir_server]` from someone else: its key does not take the
+        // place of the player's, and theirs is not sent to its address
+        std::fs::write(
+            &file,
+            "[ir_server]\nenabled = true\nurl = \"https://evil.example\"\ntoken = \"theirs\"\n",
+        )
+        .unwrap();
+        let mut config = Config::load(&file);
+        assert!(again.take_old_tokens(&mut config.ir));
+        let a = &config.ir.accounts[0];
+        assert!(again.creds(a).is_none() && again.key_elsewhere(a));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// An account's key belongs to the server it was entered for: once the
+    /// account's address is another server's (changed in the settings, or
+    /// in a configuration taken from someone else), no request carries it
+    /// and its plays wait; back at its server, they go.
+    #[test]
+    fn a_key_is_not_sent_to_another_server() {
+        let ok = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        let (mine, seen_mine) = crate::platform::http::tests::serve(vec![ok]);
+        let (other, seen_other) = crate::platform::http::tests::serve(vec![ok, ok]);
+        let root = std::env::temp_dir().join(format!("vibebms-ir-bound-{}", std::process::id()));
+        let paths = Paths::at(root.clone());
+        let mut s = IrSettings {
+            accounts: vec![IrAccount {
+                name: "Mine".into(),
+                url: mine.clone(),
+                user_id: "7".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let t0 = 1_794_916_800_000;
+        let mut ir = IrService::new(&paths, t0);
+        ir.set_key(&s.accounts[0], Some("s3cr3t".into())).unwrap();
+        assert!(ir.has_key(&s.accounts[0]));
+        // the address is now another server's
+        s.accounts[0].url = other;
+        let a = &s.accounts[0];
+        assert!(!ir.has_key(a) && ir.key_elsewhere(a));
+        let mut rec = play(t0);
+        ir.record(&mut rec);
+        ir.submit(&rec, &s, false, t0);
+        // (the player's lamps are read without the key; the play waits)
+        settle(&mut ir, &mut s, t0);
+        assert_eq!(ir.status(&rec, &s), ["Mine: waiting for an API key"]);
+        let chart = ChartId {
+            sha256: rec.chart.sha256.clone(),
+            ..Default::default()
+        };
+        let mut job = ir.ranking(&s, chart, t0).unwrap();
+        while job.poll().is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        ir.verify(&s, ProviderId::VibeJson(0));
+        settle(&mut ir, &mut s, t0);
+        let mut asked = 0;
+        while let Ok(req) = seen_other.recv_timeout(std::time::Duration::from_millis(300)) {
+            assert!(!req.to_lowercase().contains("authorization"), "{req}");
+            assert!(!req.contains("s3cr3t"), "{req}");
+            asked += 1;
+        }
+        assert_eq!(asked, 2);
+        // back at its own server: the play goes, with the key
+        s.accounts[0].url = mine;
+        settle(&mut ir, &mut s, t0 + 1);
+        let sent = seen_mine.recv().unwrap();
+        assert!(sent.contains("Bearer s3cr3t"), "{sent}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// No request goes to an address that is not `https` (or `http` on
+    /// this computer): a key would cross the network in clear.
+    #[test]
+    fn plain_http_is_this_computer_only() {
+        let account = |provider, url: &str| IrAccount {
+            provider,
+            url: url.into(),
+            ..Default::default()
+        };
+        let vibe = ProviderId::VibeJson(0);
+        assert!(provider(&account(vibe, "http://ir.example/api")).is_none());
+        assert!(provider(&account(vibe, "https://user:pw@ir.example")).is_none());
+        assert!(provider(&account(ProviderId::BmsIr, "http://ir.example/api")).is_none());
+        assert!(provider(&account(vibe, "https://ir.example/api")).is_some());
+        assert!(provider(&account(vibe, "http://127.0.0.1:8080")).is_some());
+        assert!(provider(&account(ProviderId::BmsIr, "")).is_some());
+        assert_eq!(
+            key_origin(&account(vibe, "https://IR.example/api/")).as_deref(),
+            Some("https://ir.example:443")
+        );
+        assert_eq!(
+            key_origin(&account(ProviderId::Bokutachi, "")).as_deref(),
+            Some("https://boku.tachi.ac:443")
+        );
+        assert_eq!(key_origin(&account(ProviderId::BmsIr, "")), None);
+        // a key cannot be kept for it either
+        let root = std::env::temp_dir().join(format!("vibebms-ir-http-{}", std::process::id()));
+        let mut ir = IrService::new(&Paths::at(root.clone()), 0);
+        let plain = account(vibe, "http://ir.example/api");
+        assert!(ir.set_key(&plain, Some("k".into())).is_err());
+        assert!(!ir.keys.has(vibe));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// What a server says an account is called is kept short, without
+    /// control characters: it is shown and saved with the settings.
+    #[test]
+    fn names_from_servers_are_kept_short() {
+        let long = format!("A\u{7}{}", "あ".repeat(10_000));
+        let body = serde_json::json!({"id": long, "name": long, "can_submit": true,
+            "chart_page": format!("https://x/{long}")})
+        .to_string();
+        let (url, _seen) = crate::platform::http::tests::serve(vec![answer("200 OK", "", &body)]);
+        let root = std::env::temp_dir().join(format!("vibebms-ir-name-{}", std::process::id()));
+        let paths = Paths::at(root.clone());
+        let mut s = IrSettings {
+            accounts: vec![IrAccount {
+                url,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut ir = IrService::new(&paths, 0);
+        ir.set_key(&s.accounts[0], Some("k".into())).unwrap();
+        ir.verify(&s, ProviderId::VibeJson(0));
+        events(&mut ir, &mut s, 0);
+        let a = &s.accounts[0];
+        assert_eq!(a.user.chars().count(), NAME_MAX);
+        assert!(a.user.starts_with("Aあ"), "{:.8}", a.user);
+        assert_eq!(a.user_id.chars().count(), NAME_MAX);
+        assert_eq!(a.chart_page.chars().count(), PAGE_MAX);
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1119,10 +1330,9 @@ mod tests {
             }],
             ..Default::default()
         };
-        let p = ProviderId::VibeJson(0);
         let t0 = 1_794_916_800_000;
         let mut ir = IrService::new(&paths, t0);
-        ir.keys.set(p, Some("s3cr3t".into())).unwrap();
+        ir.set_key(&s.accounts[0], Some("s3cr3t".into())).unwrap();
         let mut rec = play(t0);
         ir.record(&mut rec);
         ir.submit(&rec, &s, false, t0);

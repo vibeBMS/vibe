@@ -62,7 +62,7 @@ fn remove(c: &mut Ctx, i: usize) {
     let p = a.provider;
     a.user.clear();
     a.user_id.clear();
-    if let Err(e) = c.net.ir.keys.set(p, None) {
+    if let Err(e) = c.net.ir.set_key(a, None) {
         c.toast(tr!("Credentials: {e}", e = e));
     }
     if matches!(p, ProviderId::VibeJson(_) | ProviderId::BmsIr) {
@@ -229,7 +229,8 @@ fn remove_item(c: &mut Ctx, n: usize) {
 /// What the account's key is, as far as is known here.
 fn key_state(ctx: &Ctx, a: &IrAccount) -> String {
     match () {
-        _ if !ctx.net.ir.keys.has(a.provider) => tr!("none: paste one").into(),
+        _ if ctx.net.ir.key_elsewhere(a) => tr!("kept for another address: paste it again").into(),
+        _ if !ctx.net.ir.has_key(a) => tr!("none: paste one").into(),
         _ if !a.user.is_empty() => tr!("connected as {user}", user = a.user),
         _ => tr!("kept").into(),
     }
@@ -248,9 +249,13 @@ fn badge(p: ProviderId) -> &'static str {
 /// An account as a card: its state and one line about it.
 fn card(ctx: &Ctx, a: &IrAccount) -> Row {
     let p = a.provider;
-    let has_key = ctx.net.ir.keys.has(p);
+    let has_key = ctx.net.ir.has_key(a);
     let (state, tone) = match () {
         _ if !a.enabled => (tr!("OFF"), Tone::Dim),
+        // (an address from a configuration: one entered here is checked)
+        _ if matches!(p, ProviderId::VibeJson(_)) && creds::origin(&a.url).is_none() => {
+            (tr!("BAD ADDRESS"), Tone::Red)
+        }
         _ if p == ProviderId::BmsIr => (tr!("READ ONLY"), Tone::Amber),
         _ if !has_key => (tr!("NO KEY"), Tone::Red),
         _ if !a.user.is_empty() => (tr!("CONNECTED"), Tone::Accent),
@@ -344,7 +349,7 @@ pub(super) fn attention(ctx: &Ctx, v: &mut Vec<String>) {
         (_, f) => v.push(tr!("{n} plays failed to send", n = f)),
     }
     for a in ctx.config.ir.accounts.iter().filter(|a| a.enabled) {
-        if a.provider != ProviderId::BmsIr && !ctx.net.ir.keys.has(a.provider) {
+        if a.provider != ProviderId::BmsIr && !ctx.net.ir.has_key(a) {
             v.push(tr!("{account}: no API key", account = a.title()));
         }
     }
@@ -512,7 +517,9 @@ pub(super) fn account(b: &mut Rows, p: ProviderId) {
                 a.url.clone(),
                 Act::Text(TextField::IrUrl(i)),
             )
-            .desc(tr!("The server's address.")),
+            .desc(tr!(
+                "The server's address (https://). Its API key is kept for this address only."
+            )),
         ]);
     }
     let key_desc = match p {
@@ -679,8 +686,12 @@ pub(super) fn outbox(b: &mut Rows) {
         let to =
             (ctx.config.ir.account(i.provider)).map_or(provider_name(i.provider), IrAccount::title);
         b.push(
-            Row::note("ir.outbox.item", i.summary.title.clone(), ir.item_words(i))
-                .desc(tr!("→ {to}", to = to)),
+            Row::note(
+                "ir.outbox.item",
+                i.summary.title.clone(),
+                ir.item_words(i, &ctx.config.ir),
+            )
+            .desc(tr!("→ {to}", to = to)),
         );
         if i.state.failed() {
             b.push(
@@ -707,6 +718,13 @@ pub(super) fn outbox(b: &mut Rows) {
     }
 }
 
+/// An address no request goes to was entered for a server.
+fn not_an_address(ctx: &mut Ctx) {
+    ctx.toast(tr!(
+        "An IR server's address starts with https:// (http:// only on this computer)"
+    ));
+}
+
 /// A text the player entered for the IR page.
 pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
     let ir = &mut ctx.config.ir;
@@ -717,9 +735,20 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             }
         }
         TextField::IrUrl(i) => {
-            if let Some(a) = ir.accounts.get_mut(i) {
-                a.url = s;
+            let Some(origin) = creds::origin(&s) else {
+                return not_an_address(ctx);
+            };
+            let Some(a) = ir.accounts.get_mut(i) else {
+                return;
+            };
+            // another server: who the account is there is not known, and
+            // the key (kept for the old one) is asked for again
+            if creds::origin(&a.url).as_deref() != Some(origin.as_str()) {
+                a.user.clear();
+                a.user_id.clear();
+                a.chart_page.clear();
             }
+            a.url = s;
         }
         TextField::IrKey(i) => {
             let Some(a) = ir.accounts.get_mut(i) else {
@@ -728,7 +757,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             a.user.clear();
             a.user_id.clear();
             let p = a.provider;
-            if let Err(e) = ctx.net.ir.keys.set(p, Some(s).filter(|s| !s.is_empty())) {
+            if let Err(e) = ctx.net.ir.set_key(a, Some(s).filter(|s| !s.is_empty())) {
                 ctx.toast(tr!("Credentials: {e}", e = e));
             }
             ctx.net.ir.verify(&ctx.config.ir, p);
@@ -768,6 +797,9 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             }
         }
         TextField::AddIrServer if !s.is_empty() => {
+            if creds::origin(&s).is_none() {
+                return not_an_address(ctx);
+            }
             let Some(n) = ir.free_slot() else { return };
             ir.accounts.push(IrAccount {
                 provider: ProviderId::VibeJson(n),

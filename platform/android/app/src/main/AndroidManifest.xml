@@ -7,7 +7,9 @@
         android:name="android.hardware.touchscreen.multitouch.distinct"
         android:required="false" />
 
+    <!-- allowBackup off: the IR keys in the app's private storage stay out of cloud backups -->
     <application
+        android:allowBackup="false"
         android:label="${appName}"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"

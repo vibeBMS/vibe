@@ -5,8 +5,15 @@
 //! (op 6) and their RequestResponses (op 7). Used here:
 //! `SetCurrentProgramScene` on each screen whose scene is set, and
 //! `StartRecord` / `StopRecord` around a play. No events are asked for.
+//!
+//! The connection is plain `ws://`, and the authentication string answers
+//! a salt and a challenge of the server's choosing: whoever answers at the
+//! address gets it, and can try passwords against it. So the password is
+//! kept for the address it was entered for (`ir::creds`), a server that
+//! refuses it is not asked again until the settings change, and the
+//! settings say what an address on another computer means.
 
-use super::worker::{Peer, Turn, Worker};
+use super::worker::{Peer, Refusal, Turn, Worker};
 use super::ws::{Message, Ws};
 use super::{Activity, Status};
 use crate::config::ObsConfig;
@@ -87,7 +94,7 @@ pub fn requests(
 
 enum Msg {
     Activity(Activity),
-    Config(ObsConfig),
+    Config(ObsConfig, String),
     Quit,
 }
 
@@ -95,26 +102,33 @@ enum Msg {
 pub struct Obs {
     worker: Worker<Msg>,
     cfg: ObsConfig,
+    password: String,
 }
 
 impl Obs {
-    pub fn start(cfg: ObsConfig) -> Obs {
+    /// With the settings and the password kept for their address (empty:
+    /// none).
+    pub fn start(cfg: ObsConfig, password: String) -> Obs {
         let link = Link {
             cfg: cfg.clone(),
+            password: password.clone(),
             current: None,
             recording: false,
         };
         Obs {
             worker: Worker::start(link),
             cfg,
+            password,
         }
     }
 
     /// New settings (a new address or password: it connects again).
-    pub fn configure(&mut self, cfg: &ObsConfig) {
-        if *cfg != self.cfg {
+    pub fn configure(&mut self, cfg: &ObsConfig, password: &str) {
+        if *cfg != self.cfg || password != self.password {
             self.cfg = cfg.clone();
-            self.worker.send(Msg::Config(cfg.clone()));
+            self.password = password.to_string();
+            self.worker
+                .send(Msg::Config(cfg.clone(), password.to_string()));
         }
     }
 
@@ -140,20 +154,25 @@ struct Conn {
 }
 
 impl Conn {
-    fn open(cfg: &ObsConfig) -> Result<Conn, String> {
+    fn open(cfg: &ObsConfig, password: &str) -> Result<Conn, Refusal> {
         let timeout = Duration::from_secs(3);
+        let later = |e: std::io::Error| Refusal::Later(e.to_string());
         let mut ws =
             Ws::connect(cfg.host.trim(), cfg.port, "obswebsocket.json", timeout).map_err(|e| {
                 match e.kind() {
-                    std::io::ErrorKind::ConnectionRefused => {
-                        "OBS is not running, or its WebSocket server is off".to_string()
-                    }
-                    _ => e.to_string(),
+                    std::io::ErrorKind::ConnectionRefused => Refusal::Later(
+                        "OBS is not running, or its WebSocket server is off".to_string(),
+                    ),
+                    _ => later(e),
                 }
             })?;
         let hello = wait_for(&mut ws, 0, timeout)?;
-        ws.send_text(&identify(&hello, &cfg.password))
-            .map_err(|e| e.to_string())?;
+        // (nothing made from an empty password is sent either)
+        if password.is_empty() && hello["authentication"].is_object() {
+            ws.close();
+            return Err(Refusal::Never("OBS asks for a password".into()));
+        }
+        ws.send_text(&identify(&hello, password)).map_err(later)?;
         wait_for(&mut ws, 2, timeout)?;
         Ok(Conn { ws, next_id: 0 })
     }
@@ -189,6 +208,16 @@ impl Conn {
     }
 }
 
+/// The server closed while a connection was being made: a wrong password
+/// is not tried again.
+fn closed(code: u16, reason: &str) -> Refusal {
+    let why = close_reason(code, reason);
+    match code {
+        AUTHENTICATION_FAILED => Refusal::Never(why),
+        _ => Refusal::Later(why),
+    }
+}
+
 fn close_reason(code: u16, reason: &str) -> String {
     match code {
         AUTHENTICATION_FAILED => "wrong password".into(),
@@ -198,12 +227,12 @@ fn close_reason(code: u16, reason: &str) -> String {
 }
 
 /// The first message of opcode `op` (its `d`) within `timeout`.
-fn wait_for(ws: &mut Ws, op: u64, timeout: Duration) -> Result<Value, String> {
+fn wait_for(ws: &mut Ws, op: u64, timeout: Duration) -> Result<Value, Refusal> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         for m in ws
             .poll(Duration::from_millis(100))
-            .map_err(|e| e.to_string())?
+            .map_err(|e| Refusal::Later(e.to_string()))?
         {
             match m {
                 Message::Text(t) => {
@@ -212,17 +241,18 @@ fn wait_for(ws: &mut Ws, op: u64, timeout: Duration) -> Result<Value, String> {
                         return Ok(v["d"].clone());
                     }
                 }
-                Message::Close(code, reason) => return Err(close_reason(code, &reason)),
+                Message::Close(code, reason) => return Err(closed(code, &reason)),
             }
         }
     }
-    Err("no answer".into())
+    Err(Refusal::Later("no answer".into()))
 }
 
 /// The OBS thread's side: the settings, the screen the player is on and
 /// whether a recording of ours runs.
 struct Link {
     cfg: ObsConfig,
+    password: String,
     current: Option<Activity>,
     recording: bool,
 }
@@ -233,8 +263,8 @@ impl Peer for Link {
     const NAME: &'static str = "obs";
     const BACKOFF: (Duration, Duration) = (Duration::from_secs(1), Duration::from_secs(30));
 
-    fn open(&mut self) -> Result<Conn, String> {
-        let mut c = Conn::open(&self.cfg)?;
+    fn open(&mut self) -> Result<Conn, Refusal> {
+        let mut c = Conn::open(&self.cfg, &self.password)?;
         log::info!("obs: connected to {}:{}", self.cfg.host, self.cfg.port);
         // the scene of the screen the player is on
         if let Some(a) = &self.current {
@@ -263,11 +293,12 @@ impl Peer for Link {
                 }
                 self.current = Some(a);
             }
-            Msg::Config(c) => {
+            Msg::Config(c, password) => {
                 let cfg = &self.cfg;
                 let reconnect =
-                    (&c.host, c.port, &c.password) != (&cfg.host, cfg.port, &cfg.password);
+                    (&c.host, c.port, &password) != (&cfg.host, cfg.port, &self.password);
                 self.cfg = c;
+                self.password = password;
                 if !self.cfg.record_play && self.recording {
                     if let Some(c) = conn.as_mut() {
                         let _ = c.send(&Req("StopRecord", None));
@@ -369,47 +400,58 @@ mod tests {
         );
     }
 
+    /// A fake obs-websocket's side of a connection on `l`: the WebSocket
+    /// handshake answered, then its Hello asking for a password.
+    fn hello(l: &std::net::TcpListener) -> std::net::TcpStream {
+        use crate::integrations::ws::accept_key;
+        use std::io::{Read, Write};
+        let (mut s, _) = l.accept().unwrap();
+        let mut req = Vec::new();
+        let mut b = [0u8; 1];
+        while !req.ends_with(b"\r\n\r\n") {
+            s.read_exact(&mut b).unwrap();
+            req.push(b[0]);
+        }
+        let req = String::from_utf8(req).unwrap();
+        let key = req
+            .lines()
+            .find_map(|l| l.strip_prefix("Sec-WebSocket-Key: "))
+            .unwrap();
+        let hello = json!({"op": 0, "d": {"obsWebSocketVersion": "5.1.0", "rpcVersion": 1,
+            "authentication": {
+                "challenge": "+IxH4CnCiqpX1rM9scsNynZzbOe4KhDeYcTNS3PDaeY=",
+                "salt": "lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI="}}});
+        let mut out = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\
+             Connection: Upgrade\r\nSec-WebSocket-Protocol: obswebsocket.json\r\n\
+             Sec-WebSocket-Accept: {}\r\n\r\n",
+            accept_key(key)
+        )
+        .into_bytes();
+        out.extend(text(hello));
+        s.write_all(&out).unwrap();
+        s
+    }
+
+    /// A text frame from the server.
+    fn text(v: Value) -> Vec<u8> {
+        let p = v.to_string().into_bytes();
+        let mut f = vec![0x81, 126];
+        f.extend_from_slice(&(p.len() as u16).to_be_bytes());
+        f.extend(p);
+        f
+    }
+
     /// The thread against a fake obs-websocket on a local port: the
     /// password challenge, then the play's scene and its recording.
     #[test]
     fn talks_to_obs() {
-        use crate::integrations::ws::{accept_key, parse_frame, OP_TEXT};
+        use crate::integrations::ws::{parse_frame, OP_TEXT};
         use std::io::{Read, Write};
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
-            let (mut s, _) = l.accept().unwrap();
-            let mut req = Vec::new();
-            let mut b = [0u8; 1];
-            while !req.ends_with(b"\r\n\r\n") {
-                s.read_exact(&mut b).unwrap();
-                req.push(b[0]);
-            }
-            let req = String::from_utf8(req).unwrap();
-            let key = req
-                .lines()
-                .find_map(|l| l.strip_prefix("Sec-WebSocket-Key: "))
-                .unwrap();
-            let hello = json!({"op": 0, "d": {"obsWebSocketVersion": "5.1.0", "rpcVersion": 1,
-                "authentication": {
-                    "challenge": "+IxH4CnCiqpX1rM9scsNynZzbOe4KhDeYcTNS3PDaeY=",
-                    "salt": "lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI="}}});
-            let text = |v: Value| {
-                let p = v.to_string().into_bytes();
-                let mut f = vec![0x81, 126];
-                f.extend_from_slice(&(p.len() as u16).to_be_bytes());
-                f.extend(p);
-                f
-            };
-            let mut out = format!(
-                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\
-                 Connection: Upgrade\r\nSec-WebSocket-Protocol: obswebsocket.json\r\n\
-                 Sec-WebSocket-Accept: {}\r\n\r\n",
-                accept_key(key)
-            )
-            .into_bytes();
-            out.extend(text(hello));
-            s.write_all(&out).unwrap();
+            let mut s = hello(&l);
             let mut got = Vec::new();
             let mut msgs: Vec<Value> = Vec::new();
             let mut next = |s: &mut std::net::TcpStream, msgs: &mut Vec<Value>| loop {
@@ -447,7 +489,6 @@ mod tests {
         let cfg = ObsConfig {
             enabled: true,
             port,
-            password: "supersecretpassword".into(),
             scenes: ObsScenes {
                 play: "Game".into(),
                 ..Default::default()
@@ -455,7 +496,7 @@ mod tests {
             record_play: true,
             ..Default::default()
         };
-        let mut obs = Obs::start(cfg);
+        let mut obs = Obs::start(cfg, "supersecretpassword".into());
         let deadline = Instant::now() + Duration::from_secs(10);
         while obs.status() != Status::Connected {
             assert!(Instant::now() < deadline, "{:?}", obs.status());
@@ -468,6 +509,47 @@ mod tests {
         obs.set(Activity::Play(chart, PlayKind::Play));
         server.join().unwrap();
         obs.stop();
+    }
+
+    /// A server that asks for a password gets nothing made from one when
+    /// none is kept for its address, and one that refuses the password is
+    /// not asked again: both end the tries until the settings change.
+    #[test]
+    fn a_refused_password_is_not_tried_again() {
+        use crate::integrations::ws::parse_frame;
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let cfg = ObsConfig {
+            port: l.local_addr().unwrap().port(),
+            ..Default::default()
+        };
+        let server = std::thread::spawn(move || {
+            // (the client's close frame at most: an Identify is longer)
+            let mut s = hello(&l);
+            let mut sent = Vec::new();
+            s.read_to_end(&mut sent).unwrap();
+            assert!(sent.len() < 16, "{}", sent.len());
+            // a wrong password: closed with 4009
+            let mut s = hello(&l);
+            let mut identify = Vec::new();
+            while parse_frame(&identify).unwrap().is_none() {
+                let mut c = [0u8; 1024];
+                let n = s.read(&mut c).unwrap();
+                identify.extend_from_slice(&c[..n]);
+            }
+            s.write_all(&[0x88, 2, 0x0f, 0xa9]).unwrap();
+        });
+        assert_eq!(
+            Conn::open(&cfg, "").err(),
+            Some(Refusal::Never("OBS asks for a password".into()))
+        );
+        assert_eq!(
+            Conn::open(&cfg, "not it").err(),
+            Some(Refusal::Never("wrong password".into()))
+        );
+        server.join().unwrap();
+        // another close is tried again
+        assert_eq!(closed(1001, ""), Refusal::Later("closed (1001)".into()));
     }
 
     #[test]

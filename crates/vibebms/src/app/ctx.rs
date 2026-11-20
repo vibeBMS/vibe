@@ -300,6 +300,7 @@ impl Ctx {
             ir: crate::ir::IrService::new(&paths, crate::platform::unix_ms()),
         };
         let loudness = crate::loudness::LoudnessCache::new(&paths.cache);
+        let streaming = crate::integrations::Integrations::new(&paths);
         let mut ctx = Ctx {
             paths,
             config,
@@ -318,16 +319,19 @@ impl Ctx {
             skins: Skins::default(),
             overrides,
             profiles,
-            streaming: Default::default(),
+            streaming,
         };
         ctx.take_old_tokens();
         ctx
     }
 
-    /// The IR keys a configuration of before kept, moved out of it (and
-    /// the configuration saved without them).
+    /// The IR keys and OBS's password a configuration of before kept,
+    /// moved out of it (and the configuration saved without them).
     fn take_old_tokens(&mut self) {
-        if self.net.ir.take_old_tokens(&mut self.config.ir) {
+        let moved = self.net.ir.take_old_tokens(&mut self.config.ir);
+        #[cfg(desktop)]
+        let moved = self.streaming.take_old_password(&mut self.config.obs) | moved;
+        if moved {
             self.save_config();
         }
     }

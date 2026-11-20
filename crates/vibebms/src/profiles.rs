@@ -74,7 +74,7 @@ macro_rules! app_wide {
 }
 
 // What belongs to the machine, its screen and sound device, and to the
-// library; this machine's other apps (OBS's password among them); of
+// library; this machine's other apps (Discord, OBS); of
 // `[keys]`, which physical controller is 1P and which 2P (the bindings are
 // the profile's).
 app_wide! {
@@ -523,7 +523,7 @@ mod tests {
         c.display.fullscreen = true;
         c.audio.buffer_frames = 1024;
         c.bms_dirs.push("D:/bms".into());
-        c.obs.password = "secret".into();
+        c.obs.host = "obs.lan".into();
         c.discord.enabled = true;
         c.third_party_acknowledged = true;
         c.keys.controllers.p1 = Some(crate::config::PadId {
@@ -546,7 +546,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            !text.contains("secret") && !text.contains("controllers"),
+            !text.contains("obs.lan") && !text.contains("controllers"),
             "{text}"
         );
         assert!(!text.contains("third_party"), "{text}");
@@ -557,10 +557,7 @@ mod tests {
         assert!(d.display.fullscreen);
         assert_eq!(d.audio.buffer_frames, 1024);
         assert_eq!(d.bms_dirs, ["D:/bms"]);
-        assert_eq!(
-            (d.obs.password.as_str(), d.discord.enabled),
-            ("secret", true)
-        );
+        assert_eq!((d.obs.host.as_str(), d.discord.enabled), ("obs.lan", true));
         assert_eq!(d.keys.controllers, c.keys.controllers);
         assert!(d.third_party_acknowledged);
         assert_eq!(d.keys.k4, Config::default().keys.k4);
@@ -592,7 +589,7 @@ mod tests {
         c.check_updates = !c.check_updates;
         c.language = crate::i18n::Language::Ja;
         c.discord.enabled = true;
-        c.obs.password = "secret".into();
+        c.obs.host = "obs.lan".into();
         c.audio.buffer_frames = 1024;
         c.audio.sample_rate = 48_000;
         c.audio.mute_inactive = false;

@@ -1,7 +1,7 @@
 //! The thread an integration runs on: it keeps a connection to its program
-//! up, tries again after a wait that doubles with each failed try, and
-//! tells the settings how that goes; the integration ([`Peer`]) speaks its
-//! protocol.
+//! up, tries again after a wait that doubles with each try that failed or
+//! did not hold, and tells the settings how that goes; the integration
+//! ([`Peer`]) speaks its protocol.
 
 use super::Status;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -19,7 +19,7 @@ pub trait Peer: Send + 'static {
     const BACKOFF: (Duration, Duration);
 
     /// A connection, and what a new one is told.
-    fn open(&mut self) -> Result<Self::Conn, String>;
+    fn open(&mut self) -> Result<Self::Conn, Refusal>;
     /// A message from the game, with the connection if there is one (it
     /// drops a connection that failed: opened again at once).
     fn take(&mut self, m: Self::Msg, c: &mut Option<Self::Conn>) -> Turn;
@@ -30,6 +30,16 @@ pub trait Peer: Send + 'static {
     fn tend(&mut self, c: &mut Self::Conn) -> Result<(), String>;
     /// The game is done with it.
     fn quit(&mut self, c: Option<Self::Conn>);
+}
+
+/// Why no connection was made.
+#[derive(Debug, PartialEq)]
+pub enum Refusal {
+    /// Tried again after the wait (the program is not running).
+    Later(String),
+    /// Not tried again until the settings change ([`Turn::Again`]): trying
+    /// again would only repeat it (a wrong password).
+    Never(String),
 }
 
 /// What a message asks of the thread.
@@ -83,52 +93,143 @@ fn run<P: Peer>(mut p: P, rx: Receiver<P::Msg>, status: &Mutex<Status>) {
     let set_status = |s: Status| *status.lock().unwrap() = s;
     let (first, max) = P::BACKOFF;
     let mut backoff = first;
-    let mut next_try = Instant::now();
+    // when to connect (`None`: not until the settings change)
+    let mut next_try = Some(Instant::now());
     let mut conn = None;
+    // since when the connection is up
+    let mut since = Instant::now();
     loop {
         let due = match conn {
-            Some(_) => p.due(),
+            Some(_) => Some(p.due()),
             None => next_try,
         };
-        match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
-            Ok(m) => {
-                match p.take(m, &mut conn) {
-                    Turn::Go => {}
-                    Turn::Again => {
-                        backoff = first;
-                        next_try = Instant::now();
-                    }
-                    Turn::Quit => return p.quit(conn),
-                }
-                continue;
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return p.quit(conn),
-        }
+        let got = match due {
+            Some(t) => rx.recv_timeout(t.saturating_duration_since(Instant::now())),
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
         let now = Instant::now();
-        match &mut conn {
-            Some(c) => {
-                if let Err(e) = p.tend(c) {
-                    log::info!("{}: {e}", P::NAME);
-                    set_status(Status::Failed(e));
-                    conn = None;
-                    next_try = now + backoff;
-                }
-            }
-            None if now >= next_try => match p.open() {
-                Ok(c) => {
-                    set_status(Status::Connected);
+        let was_up = conn.is_some();
+        match got {
+            Ok(m) => match p.take(m, &mut conn) {
+                Turn::Go => {}
+                Turn::Again => {
                     backoff = first;
-                    conn = Some(c);
+                    next_try = Some(now);
+                    continue;
                 }
-                Err(e) => {
-                    log::debug!("{}: {e}", P::NAME);
-                    set_status(Status::Failed(e));
-                    next_try = now + backoff;
-                    backoff = (backoff * 2).min(max);
-                }
+                Turn::Quit => return p.quit(conn),
             },
-            None => {}
+            Err(RecvTimeoutError::Disconnected) => return p.quit(conn),
+            Err(RecvTimeoutError::Timeout) => match &mut conn {
+                Some(c) => {
+                    if let Err(e) = p.tend(c) {
+                        log::info!("{}: {e}", P::NAME);
+                        set_status(Status::Failed(e));
+                        conn = None;
+                    }
+                }
+                None if next_try.is_some_and(|t| now >= t) => match p.open() {
+                    Ok(c) => {
+                        set_status(Status::Connected);
+                        conn = Some(c);
+                        since = now;
+                    }
+                    Err(Refusal::Later(e)) => {
+                        log::debug!("{}: {e}", P::NAME);
+                        set_status(Status::Failed(e));
+                        next_try = Some(now + backoff);
+                        backoff = (backoff * 2).min(max);
+                    }
+                    Err(Refusal::Never(e)) => {
+                        log::info!("{}: {e}", P::NAME);
+                        set_status(Status::Failed(e));
+                        next_try = None;
+                    }
+                },
+                None => {}
+            },
+        }
+        // a connection that held is made again after the first wait; one
+        // that is dropped as soon as it is made waits longer each time
+        if was_up && conn.is_none() {
+            if now.duration_since(since) >= max {
+                backoff = first;
+            }
+            next_try = Some(now + backoff);
+            backoff = (backoff * 2).min(max);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A program that takes the connection and drops it at once, or
+    /// refuses it for good.
+    struct Flaky {
+        opens: Arc<AtomicUsize>,
+        refuse: bool,
+    }
+
+    impl Peer for Flaky {
+        type Msg = ();
+        type Conn = ();
+        const NAME: &'static str = "flaky";
+        const BACKOFF: (Duration, Duration) = (Duration::from_millis(5), Duration::from_millis(80));
+
+        fn open(&mut self) -> Result<(), Refusal> {
+            self.opens.fetch_add(1, Ordering::SeqCst);
+            match self.refuse {
+                true => Err(Refusal::Never("wrong password".into())),
+                false => Ok(()),
+            }
+        }
+        fn take(&mut self, _: (), _: &mut Option<()>) -> Turn {
+            Turn::Again
+        }
+        fn due(&self) -> Instant {
+            Instant::now()
+        }
+        fn tend(&mut self, _: &mut ()) -> Result<(), String> {
+            Err("closed".into())
+        }
+        fn quit(&mut self, _: Option<()>) {}
+    }
+
+    /// A connection dropped as soon as it is made is not made again every
+    /// first wait: the waits double up to the longest.
+    #[test]
+    fn a_connection_that_does_not_hold_backs_off() {
+        let opens = Arc::new(AtomicUsize::new(0));
+        let w = Worker::start(Flaky {
+            opens: opens.clone(),
+            refuse: false,
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        // at 0, 5, 15, 35, 75, 155 and 235 ms (every 5 ms would be 60)
+        let n = opens.load(Ordering::SeqCst);
+        assert!((2..=20).contains(&n), "{n}");
+        assert_eq!(w.status(), Status::Failed("closed".into()));
+    }
+
+    /// A refusal for good is not tried again until the settings change.
+    #[test]
+    fn a_refusal_for_good_waits_for_new_settings() {
+        let opens = Arc::new(AtomicUsize::new(0));
+        let w = Worker::start(Flaky {
+            opens: opens.clone(),
+            refuse: true,
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(opens.load(Ordering::SeqCst), 1);
+        assert_eq!(w.status(), Status::Failed("wrong password".into()));
+        w.send(());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while opens.load(Ordering::SeqCst) < 2 {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 }
