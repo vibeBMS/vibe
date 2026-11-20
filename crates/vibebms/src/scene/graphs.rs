@@ -184,6 +184,9 @@ pub fn columns(notes: &[PlayNote], mode: PlayMode, length_us: i64) -> [Vec<Colum
         let el = if st <= 1 || early { st } else { st + 4 };
         (st, el)
     };
+    // the LN bodies (scratch, key) by second: where their count goes up
+    // and where it comes down again, summed at the end
+    let mut bodies = vec![[0i32; 2]; secs + 1];
     for n in notes {
         let i = sec(n.time);
         let scr = mode.is_scratch(n.lane as usize);
@@ -197,11 +200,9 @@ pub fn columns(notes: &[PlayNote], mode: PlayMode, length_us: i64) -> [Vec<Colum
             // HCN) the end is no note of its own and shows as "LN end"
             let ln_end_only = n.ln_type() == Some(LnType::Ln);
             let e = sec(n.end_time);
-            for col in &mut out[0][i..=e] {
-                col[k(1, 4)] += 1;
-            }
+            bodies[i][k(0, 1)] += 1;
+            bodies[if ln_end_only { e } else { e + 1 }][k(0, 1)] -= 1;
             if ln_end_only {
-                out[0][e][k(1, 4)] -= 1;
                 out[0][e][k(0, 3)] += 1;
             } else {
                 let (st, el) = judged(n.end_state, n.end_play_time.unwrap_or(0) > 0);
@@ -214,6 +215,13 @@ pub fn columns(notes: &[PlayNote], mode: PlayMode, length_us: i64) -> [Vec<Colum
         let (st, el) = judged(n.state, n.play_time.unwrap_or(0) > 0);
         out[1][i][st] += 1;
         out[2][i][el] += 1;
+    }
+    let mut held = [0i32; 2];
+    for (col, body) in out[0].iter_mut().zip(&bodies) {
+        for ((h, d), c) in held.iter_mut().zip(body).zip([1, 4]) {
+            *h += d;
+            col[c] += *h as u32;
+        }
     }
     out
 }
@@ -551,5 +559,70 @@ pub fn visualizer(
             .unwrap_or(0.0)
             .clamp(-range, range);
         d.b.rect(Rect::new(x_of(avg) - 1.0, r.y, 2.0, r.h), col(7));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vibebms_core::bms::{parse_bms, ParseOptions};
+    use vibebms_core::play::{build_engine, RuleOptions};
+
+    /// The notes graph's columns of long notes: the body in every second
+    /// it covers; an LN's last second shows its end, a CN's is body too.
+    #[test]
+    fn columns_of_long_notes() {
+        // 120 BPM: a key long note from 2 s to 5 s, a scratch one from 4 s
+        // to 4.5 s, a note at 6 s
+        let text = "#BPM 120\n#WAV01 a.wav\n#00151:01000000\n#00251:00000100\n\
+                    #00256:0100\n#00256:00010000\n#00311:01\n";
+        let chart = parse_bms(text.as_bytes(), "bme", &ParseOptions::default()).unwrap();
+        let cols = |ln_mode: LnType| {
+            let rules = RuleOptions {
+                ln_mode,
+                ..Default::default()
+            };
+            let (e, _) = build_engine(&chart, &rules, None, false);
+            columns(e.notes(), chart.mode(), chart.length())
+        };
+        let row =
+            |c: &[Vec<Column>; 3], k: usize| c[0].iter().map(|col| col[k]).collect::<Vec<_>>();
+        let ln = cols(LnType::Ln);
+        assert_eq!(ln[0].len(), 7);
+        assert_eq!(row(&ln, 4), [0, 0, 1, 1, 1, 0, 0]);
+        assert_eq!(row(&ln, 3), [0, 0, 0, 0, 0, 1, 0]);
+        assert_eq!(
+            (row(&ln, 1), row(&ln, 0)),
+            (vec![0; 7], vec![0, 0, 0, 0, 1, 0, 0])
+        );
+        assert_eq!(row(&ln, 5), [0, 0, 0, 0, 0, 0, 1]);
+        let cn = cols(LnType::Cn);
+        assert_eq!(row(&cn, 4), [0, 0, 1, 1, 1, 1, 0]);
+        assert_eq!(
+            (row(&cn, 1), row(&cn, 3)),
+            (vec![0, 0, 0, 0, 1, 0, 0], vec![0; 7])
+        );
+    }
+
+    /// Long notes through hours of a chart are counted without a step for
+    /// each second of each.
+    #[test]
+    fn columns_of_many_long_long_notes() {
+        // 1 BPM: 200,000 long notes from 0 to beat 1200, 20 hours on
+        let notes = r#"{"x": 1, "y": 0, "l": 288000},"#.repeat(200_000);
+        let bmson = format!(
+            r#"{{"info": {{"init_bpm": 1, "ln_type": 2}}, "sound_channels": [{{"name": "a.wav",
+                "notes": [{notes} {{"x": 2, "y": 0}}]}}]}}"#
+        );
+        let chart = vibebms_core::bmson::parse_bmson(bmson.as_bytes()).unwrap();
+        let (e, _) = build_engine(&chart, &RuleOptions::default(), None, false);
+        let t = std::time::Instant::now();
+        let c = columns(e.notes(), chart.mode(), chart.length());
+        assert!(t.elapsed().as_secs() < 10, "{:?}", t.elapsed());
+        assert_eq!(c[0].len(), 72_001);
+        assert_eq!(
+            (c[0][0][4], c[0][36_000][4], c[0][72_000][4]),
+            (200_000, 200_000, 200_000)
+        );
     }
 }

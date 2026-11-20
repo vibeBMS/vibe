@@ -4,6 +4,7 @@ use super::source::{Line, Source};
 use super::{gcd, parse_id};
 use crate::chart::BgaLayer;
 use crate::timing::TimingEvent;
+use crate::{limits, ChartError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ObjKind {
@@ -94,7 +95,8 @@ pub(super) struct Placed {
     pub measure_start: Vec<f64>,
 }
 
-pub(super) fn place(src: &Source, pms: bool) -> Placed {
+/// (A text with more objects than `limits::MAX_OBJECTS` is refused.)
+pub(super) fn place(src: &Source, pms: bool) -> Result<Placed, ChartError> {
     let mlen = |m: u32| src.measure_len.get(&m).copied().unwrap_or(1.0);
     let max_measure = src.lines.iter().map(|l| l.measure).max().unwrap_or(0);
     let mut measure_start = Vec::with_capacity(max_measure as usize + 2);
@@ -111,6 +113,7 @@ pub(super) fn place(src: &Source, pms: bool) -> Placed {
         measure_start,
     };
     let pms_layout = pms.then(|| pms_layout(&src.lines));
+    let mut objects = src.lines.len();
     for Line { measure, ch, data } in &src.lines {
         let db = data.as_bytes();
         let n = db.len() / 2;
@@ -119,6 +122,8 @@ pub(super) fn place(src: &Source, pms: bool) -> Placed {
             if pair == b"00" {
                 continue;
             }
+            objects += 1;
+            limits::objects(objects)?;
             let beat =
                 p.measure_start[*measure as usize] + (i as f64 / n as f64) * 4.0 * mlen(*measure);
             let id = || parse_id(pair, src.b62);
@@ -214,5 +219,5 @@ pub(super) fn place(src: &Source, pms: bool) -> Placed {
             }
         }
     }
-    p
+    Ok(p)
 }

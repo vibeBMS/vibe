@@ -693,8 +693,12 @@ impl Engine {
         }
     }
 
-    /// HCN bodies at the line: gauge ticks, the body's volume.
+    /// HCN bodies at the line: gauge ticks, the body's volume. (A body is
+    /// not at the line for longer than the longest chart: a step of the
+    /// clock from further back, as a replay's first times can ask for,
+    /// ticks as that long.)
     fn body_pass(&mut self, dt: i64) {
+        let dt = dt.min(crate::limits::MAX_LENGTH_US);
         for lane in 0..self.lanes.len() {
             let Some(b) = self.lanes[lane].body else {
                 continue;

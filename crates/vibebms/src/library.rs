@@ -377,11 +377,24 @@ pub fn cached_songs(file: &Path) -> Vec<Song> {
         .collect()
 }
 
+/// The song cache's records. When the file does not read as a whole they
+/// are read one by one, and a record that does not read is left out: its
+/// chart is read again by the next scan.
 fn load_songs(file: &Path) -> Vec<SongRecord> {
-    vfs::read(file)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    let Ok(b) = vfs::read(file) else {
+        return Vec::new();
+    };
+    if let Ok(records) = serde_json::from_slice(&b) {
+        return records;
+    }
+    let list: Vec<serde_json::Value> = serde_json::from_slice(&b).unwrap_or_default();
+    let n = list.len();
+    let records: Vec<SongRecord> = list
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect();
+    log::warn!("{}: {} of {n} records read", file.display(), records.len());
+    records
 }
 
 /// The score records, one by one: a record that does not read is dropped,
@@ -738,6 +751,197 @@ pub struct ScanProgress {
     pub unread: Mutex<Vec<PathBuf>>,
 }
 
+/// A file the scan reads: its path and its stamp then.
+#[derive(Clone, Serialize, Deserialize)]
+struct Mark(String, (i64, i64));
+
+impl Mark {
+    fn of(path: &Path, stamp: (i64, i64)) -> Mark {
+        Mark(path.to_string_lossy().into_owned(), stamp)
+    }
+}
+
+/// A file a scan was reading when the game stopped.
+#[derive(Serialize, Deserialize)]
+struct Suspect {
+    stamp: (i64, i64),
+    /// It was being read on its own, the second time: it is not read again.
+    skip: bool,
+}
+
+/// One thread's note of the file it is reading.
+struct Slot {
+    path: PathBuf,
+    /// Kept open: each file's note is written over the last one's.
+    #[cfg(not(target_arch = "wasm32"))]
+    file: Option<std::fs::File>,
+}
+
+impl Slot {
+    /// `line` (ending in a line break) in place of what it holds: the
+    /// rest of a longer line before it stays behind, and is not read.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn put(&mut self, line: &[u8]) {
+        use std::io::{Seek, Write};
+        if self.file.is_none() {
+            if let Some(d) = self.path.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            let mut o = std::fs::OpenOptions::new();
+            self.file = o
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&self.path)
+                .ok();
+        }
+        if let Some(f) = &mut self.file {
+            let _ = f.rewind().and_then(|_| f.write_all(line));
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn put(&mut self, line: &[u8]) {
+        let _ = vfs::write(&self.path, line);
+    }
+
+    /// Nothing is being read.
+    fn clear(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.file.is_some() {
+            self.put(b"\n");
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = vfs::remove_file(&self.path);
+    }
+
+    /// The file it noted, if it was reading one.
+    fn left(path: &Path) -> Option<Mark> {
+        let b = vfs::read(path).ok()?;
+        serde_json::from_slice(b.split(|c| *c == b'\n').next()?).ok()
+    }
+}
+
+/// The files a scan is reading, noted in the cache folder as each is begun
+/// (`scan-reading-<n>`, one a thread), so that a file that ends the game
+/// when it is read, or is never read to its end, does not do so at every
+/// start. A file found noted (the scan did not end: the game was closed, or
+/// stopped) is a suspect, kept in `scan-suspects.json`: the next scan reads
+/// it on its own before the others, and when it is found noted again, the
+/// scan after that files it as not readable by this version.
+struct Marks {
+    file: PathBuf,
+    suspects: HashMap<String, Suspect>,
+    slots: Vec<Mutex<Slot>>,
+}
+
+impl Marks {
+    /// As many as `parallel_for` has threads.
+    const SLOTS: usize = 8;
+
+    /// The notes beside `songs_file`, what a scan before left noted taken
+    /// into the suspects.
+    fn open(songs_file: &Path) -> Marks {
+        let file = songs_file.with_file_name("scan-suspects.json");
+        let mut suspects: HashMap<String, Suspect> = vfs::read(&file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let slots: Vec<PathBuf> = (0..Self::SLOTS)
+            .map(|k| songs_file.with_file_name(format!("scan-reading-{k}")))
+            .collect();
+        let left: Vec<Mark> = slots.iter().filter_map(|p| Slot::left(p)).collect();
+        if !left.is_empty() {
+            for Mark(path, stamp) in left {
+                match suspects.get_mut(&path) {
+                    Some(s) if s.stamp == stamp => s.skip = true,
+                    _ => {
+                        suspects.insert(path, Suspect { stamp, skip: false });
+                    }
+                }
+            }
+            // (before anything is read: the notes are written over)
+            save_json(&file, &suspects, "scan suspects");
+            for p in &slots {
+                let _ = vfs::remove_file(p);
+            }
+        }
+        let slot = |path| Slot {
+            path,
+            #[cfg(not(target_arch = "wasm32"))]
+            file: None,
+        };
+        Marks {
+            file,
+            suspects,
+            slots: slots.into_iter().map(|p| Mutex::new(slot(p))).collect(),
+        }
+    }
+
+    fn suspect(&self, m: &Mark) -> Option<&Suspect> {
+        self.suspects.get(&m.0).filter(|s| s.stamp == m.1)
+    }
+
+    /// `m` is not to be read: it was found noted twice.
+    fn skips(&self, m: &Mark) -> bool {
+        self.suspect(m).is_some_and(|s| s.skip)
+    }
+
+    /// `m` noted as being read, until the slot is given back.
+    fn note(&self, m: &Mark) -> std::sync::MutexGuard<'_, Slot> {
+        let free = self.slots.iter().find_map(|s| s.try_lock().ok());
+        // (more threads than slots: the first one's turn is waited for)
+        let mut slot =
+            free.unwrap_or_else(|| self.slots[0].lock().unwrap_or_else(|e| e.into_inner()));
+        let mut line = serde_json::to_vec(m).unwrap_or_default();
+        line.push(b'\n');
+        slot.put(&line);
+        slot
+    }
+
+    fn clear(&self) {
+        for s in &self.slots {
+            s.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        }
+    }
+
+    /// `work(i)` for `i` in `0..n`, the file `mark(i)` noted meanwhile: the
+    /// suspects one at a time first (one found noted after that was read
+    /// alone), then the others, several at once.
+    fn each(&self, n: usize, mark: impl Fn(usize) -> Mark + Sync, work: impl Fn(usize) + Sync) {
+        let alone = |i: &usize| self.suspect(&mark(*i)).is_some_and(|s| !s.skip);
+        let (first, rest): (Vec<usize>, Vec<usize>) = (0..n).partition(alone);
+        for i in first {
+            let _noted = self.note(&mark(i));
+            work(i);
+        }
+        self.clear();
+        crate::platform::parallel_for(rest.len(), |k| {
+            let _noted = self.note(&mark(rest[k]));
+            work(rest[k]);
+        });
+        self.clear();
+    }
+
+    /// The scan ended: nothing is noted, and the suspects are settled
+    /// (read, or filed as not readable).
+    fn finish(self) {
+        for s in self.slots {
+            let s = s.into_inner().unwrap_or_else(|e| e.into_inner());
+            #[cfg(not(target_arch = "wasm32"))]
+            if s.file.is_none() {
+                continue;
+            }
+            let path = s.path.clone();
+            drop(s);
+            let _ = vfs::remove_file(&path);
+        }
+        if !self.suspects.is_empty() {
+            let _ = vfs::remove_file(&self.file);
+        }
+    }
+}
+
 pub(crate) fn is_chart(p: &Path) -> bool {
     p.extension()
         .and_then(|e| e.to_str())
@@ -816,12 +1020,23 @@ fn folder_of(root: &Path, f: &Path) -> String {
 /// The archives found that changed since the scan before: listed, and
 /// their charts read (several at once natively). Their indexes are updated;
 /// the charts' bytes by path. Archives that cannot be read now go into
-/// `unreadable` (web: not in memory yet, also into `unread`).
+/// `unreadable` (web: not in memory yet, also into `unread`); one `marks`
+/// has as not to be read is indexed as one that failed.
 fn read_archives(
     archives: &[(PathBuf, (i64, i64))],
     progress: &ScanProgress,
+    marks: &Marks,
     unreadable: &mut Vec<PathBuf>,
 ) -> (HashMap<PathBuf, Vec<u8>>, bool) {
+    let mark = |i: usize| Mark::of(&archives[i].0, archives[i].1);
+    let mut indexed = false;
+    for (i, (a, stamp)) in archives.iter().enumerate() {
+        if marks.skips(&mark(i)) {
+            log::warn!("scan: {}: {STOPPED}", a.display());
+            arcfs::set_index(a, arcfs::Index::failed(*stamp, STOPPED.into()));
+            indexed = true;
+        }
+    }
     let changed: Vec<usize> = (0..archives.len())
         .filter(|&i| {
             let (a, stamp) = &archives[i];
@@ -829,17 +1044,17 @@ fn read_archives(
         })
         .collect();
     let read: Mutex<Vec<(usize, std::io::Result<arcfs::Unpacked>)>> = Mutex::default();
-    crate::platform::parallel_for(changed.len(), |k| {
+    let read_one = |k: usize| {
         let i = changed[k];
         let a = &archives[i].0;
         *progress.current.lock().unwrap() = a.display().to_string();
         let r = arcfs::read_charts(a, None);
         read.lock().unwrap().push((i, r));
-    });
+    };
+    marks.each(changed.len(), |k| mark(changed[k]), read_one);
     let mut read = read.into_inner().unwrap();
     read.sort_by_key(|(i, _)| *i);
     let mut bytes = HashMap::new();
-    let mut indexed = false;
     for (i, r) in read {
         let (a, stamp) = &archives[i];
         match r {
@@ -857,7 +1072,14 @@ fn read_archives(
                 }
                 indexed = true;
             }
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            // not an archive, or its charts larger than is read: until it
+            // changes
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::InvalidData | std::io::ErrorKind::OutOfMemory
+                ) =>
+            {
                 log::warn!("scan: {}: {e}", a.display());
                 arcfs::set_index(a, arcfs::Index::failed(*stamp, e.to_string()));
                 indexed = true;
@@ -881,8 +1103,7 @@ fn read_archives(
 /// seconds that are not much quieter than the chart's mean, the busiest
 /// second, and the busiest stretch of up to 5 s from the point where the
 /// notes left could still fill the gauge from empty. A second's count
-/// includes the long notes held through it. Charts over an hour get no
-/// densities.
+/// includes the long notes held through it.
 ///
 /// Written from a behaviour specification, not from another program's
 /// code.
@@ -917,19 +1138,27 @@ pub fn chart_info(c: &vibebms_core::Chart) -> ([i64; 5], [f64; 3]) {
         .max()
         .unwrap_or(0)
         .max(0);
-    if n_notes == 0 || last > 3_600 * SEC {
+    if n_notes == 0 {
         return (kinds, [0.0; 3]);
     }
 
+    // (a second each, to the chart's end: `vibebms_core::limits`)
     let second = |t: i64| t.max(0) / SEC;
     let buckets_len = second(last) + 2;
-    let mut buckets = vec![0i64; buckets_len as usize];
+    // each note from its second to the one it ends in: where the count
+    // goes up and where it comes down again, then summed
+    let mut buckets = vec![0i64; buckets_len as usize + 1];
     for n in &playable {
         let from = second(n.time);
         let to = second(n.end_time()).min(buckets_len - 1).max(from);
-        for b in &mut buckets[from as usize..=to as usize] {
-            *b += 1;
-        }
+        buckets[from as usize] += 1;
+        buckets[to as usize + 1] -= 1;
+    }
+    buckets.truncate(buckets_len as usize);
+    let mut held = 0;
+    for b in &mut buckets {
+        held += *b;
+        *b = held;
     }
 
     let threshold = n_notes / buckets_len / 4;
@@ -1014,6 +1243,9 @@ pub fn song_from_chart(path: &Path, folder: String, c: &vibebms_core::Chart) -> 
 /// The game's version, which a chart it could not read is filed under.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Why a file `Marks` has as not to be read is left out.
+const STOPPED: &str = "the game stopped twice while it was read: left out";
+
 /// Scan `roots` and update the song cache. Runs on a background thread.
 pub fn scan(
     songs_file: PathBuf,
@@ -1032,6 +1264,7 @@ pub fn scan(
         })
         .map(|r| (r.song.path.clone(), (r.mtime, r.size)))
         .collect();
+    let marks = Marks::open(&songs_file);
     let index_file = songs_file.with_file_name("archives.json");
     arcfs::load_index(&index_file);
     let mut files: Vec<(PathBuf, String)> = Vec::new();
@@ -1056,7 +1289,7 @@ pub fn scan(
         .iter()
         .map(|(a, _)| (a.clone(), vfs::stamp(a)))
         .collect();
-    let (mut pre, indexed) = read_archives(&stamped, &progress, &mut unreadable);
+    let (mut pre, indexed) = read_archives(&stamped, &progress, &marks, &mut unreadable);
     let mut archive_stamp: HashMap<PathBuf, (i64, i64)> = HashMap::new();
     for ((a, root), (_, stamp)) in archives.iter().zip(&stamped) {
         let Some(ix) = arcfs::index_of(a).filter(|ix| ix.stamp == *stamp) else {
@@ -1112,17 +1345,22 @@ pub fn scan(
     progress.to_parse.store(todo.len(), Ordering::Relaxed);
     // charts in archives that did not change but are read again (records
     // of an older version): each archive read once for them
-    let mut again: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
-    for (f, _, _) in &todo {
+    // (each with its stamp, which its charts have)
+    let mut again: HashMap<PathBuf, ((i64, i64), HashSet<PathBuf>)> = HashMap::new();
+    for (f, _, stamp) in &todo {
         if let Some((a, rel)) = arcfs::split(f).filter(|_| !pre.contains_key(f)) {
-            again.entry(a).or_default().insert(rel);
+            again
+                .entry(a)
+                .or_insert((*stamp, HashSet::new()))
+                .1
+                .insert(rel);
         }
     }
-    let mut again: Vec<(PathBuf, HashSet<PathBuf>)> = again.into_iter().collect();
+    let mut again: Vec<_> = again.into_iter().collect();
     again.sort_by(|a, b| a.0.cmp(&b.0));
     let reread: Mutex<Vec<(PathBuf, Vec<u8>)>> = Mutex::default();
-    crate::platform::parallel_for(again.len(), |i| {
-        let (a, want) = &again[i];
+    let read_again = |i: usize| {
+        let (a, (_, want)) = &again[i];
         match arcfs::read_charts(a, Some(want)) {
             Ok(u) => reread.lock().unwrap().extend(
                 u.files
@@ -1131,7 +1369,12 @@ pub fn scan(
             ),
             Err(e) => log::debug!("scan: {} not read: {e}", a.display()),
         }
-    });
+    };
+    marks.each(
+        again.len(),
+        |i| Mark::of(&again[i].0, again[i].1 .0),
+        read_again,
+    );
     pre.extend(reread.into_inner().unwrap());
     // (taken as each is parsed)
     let pre: Vec<Mutex<Option<Vec<u8>>>> = todo
@@ -1140,25 +1383,35 @@ pub fn scan(
         .collect();
 
     let results: Mutex<Vec<SongRecord>> = Mutex::new(Vec::new());
-    crate::platform::parallel_for(todo.len(), |i| {
+    let mark = |i: usize| Mark::of(&todo[i].0, todo[i].2);
+    let parse_one = |i: usize| {
         let (f, folder, stamp) = &todo[i];
         let opts = vibebms_core::bms::ParseOptions::default();
+        let packed = arcfs::split(f).is_some();
         // (a file that cannot be read now is tried again next time)
-        let bytes = match pre[i].lock().unwrap().take() {
+        let bytes = || match pre[i].lock().unwrap().take() {
             Some(b) => Ok(b),
-            None if arcfs::split(f).is_some() => Err(std::io::Error::new(
+            None if packed => Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "not read from its archive",
             )),
             None => vfs::read(f),
         };
-        let parsed = bytes.map(|b| {
-            // a parser bug on one file skips that file
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                vibebms_core::load_chart_bytes(f, &b, &opts).map_err(|e| e.to_string())
-            }))
-            .unwrap_or_else(|_| Err("the parser panicked".into()))
-        });
+        let parsed = if marks.skips(&mark(i)) {
+            log::warn!("scan: {}: {STOPPED}", f.display());
+            Ok(Err(STOPPED.into()))
+        } else if !packed && stamp.1 > vibebms_core::limits::MAX_FILE as i64 {
+            // (not read into memory to be refused)
+            Ok(Err("larger than a chart may be".into()))
+        } else {
+            bytes().map(|b| {
+                // a parser bug on one file skips that file
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    vibebms_core::load_chart_bytes(f, &b, &opts).map_err(|e| e.to_string())
+                }))
+                .unwrap_or_else(|_| Err("the parser panicked".into()))
+            })
+        };
         let entry = |song, skipped_by| SongRecord {
             song,
             mtime: stamp.0,
@@ -1190,7 +1443,8 @@ pub fn scan(
             results.lock().unwrap().push(r);
         }
         progress.parsed.fetch_add(1, Ordering::Relaxed);
-    });
+    };
+    marks.each(todo.len(), mark, parse_one);
     let new = results.into_inner().unwrap();
     // the archives' indexes: those found (and those in folders that cannot
     // be read now, or not below these roots) kept
@@ -1236,6 +1490,7 @@ pub fn scan(
     } else {
         log::info!("scan finished: {} charts, no changes", seen.len());
     }
+    marks.finish();
     progress.changed.store(changed, Ordering::Release);
     progress.done.store(true, Ordering::Release);
 }
@@ -1358,10 +1613,9 @@ mod tests {
         assert!((chart_info(&def).1[2] - 23.0 / 3.0).abs() < 1e-9);
     }
 
-    /// The one-hour guard limits only the densities: all five kinds are
-    /// counted.
+    /// A chart past an hour has its kinds and its densities as any other.
     #[test]
-    fn chart_info_counts_kinds_past_an_hour() {
+    fn chart_info_past_an_hour() {
         let c = info_chart(
             PlayMode::Beat14K,
             None,
@@ -1373,11 +1627,15 @@ mod tests {
                 info_note(0, 3_600_000_001, NoteKind::Normal),
             ],
         );
-        assert_eq!(chart_info(&c), ([1, 1, 1, 1, 1], [0.0; 3]));
+        let (kinds, density) = chart_info(&c);
+        assert_eq!(kinds, [1, 1, 1, 1, 1]);
+        // buckets [0, 1, 1, 2, 1, 0, .., 1, 0] over 3602 s
+        assert_eq!(density[0], 6.0 / 3602.0);
+        assert_eq!(density[1], 2.0);
     }
 
     /// Kinds by scratch lane (any player's), mines; negative times in
-    /// second 0; over an hour no densities; no notes nothing.
+    /// second 0; no notes nothing.
     #[test]
     fn chart_info_edges() {
         let c = info_chart(
@@ -1397,16 +1655,6 @@ mod tests {
         // buckets [4, 1, 1, 0]: threshold ⌊⌊4/4⌋/4⌋ = 0
         assert_eq!(d[0], 6.0 / 4.0);
         assert_eq!(d[1], 4.0);
-        let mut long = c.clone();
-        long.notes
-            .push(info_note(0, 3_600_000_001, NoteKind::Normal));
-        // over an hour: no densities (the arrays per second would be too
-        // long), but the kinds are counted
-        assert_eq!(chart_info(&long).1, [0.0; 3]);
-        let mut hour = c.clone();
-        hour.notes
-            .push(info_note(0, 3_600_000_000, NoteKind::Normal));
-        assert!(chart_info(&hour).1[1] > 0.0);
         let empty = info_chart(
             PlayMode::Beat7K,
             None,
@@ -1830,6 +2078,151 @@ mod tests {
         let s = Library::open(&cache, &cache, |_, _| None).songs();
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].title, "A");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A record of the song cache that does not read (a number written as
+    /// `null`) loses its own song, not every song.
+    #[test]
+    fn an_unreadable_song_record_loses_one_song() {
+        let dir = std::env::temp_dir().join(format!("vibebms-songs-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("songs.json");
+        let records = r#"[{"path": "a.bms", "title": "A", "total": 300.0, "mtime": 1, "size": 1},
+            {"path": "b.bms", "title": "B", "total": null, "mtime": 1, "size": 1},
+            {"path": "c.bms", "title": "C", "mtime": 1, "size": 1}]"#;
+        std::fs::write(&file, records).unwrap();
+        let titles: Vec<String> = cached_songs(&file).into_iter().map(|s| s.title).collect();
+        assert_eq!(titles, ["A", "C"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A chart a scan was reading when the game stopped is read on its own
+    /// by the next scan; one still being read when the game stops then is
+    /// filed as not readable, and read again only when it changes.
+    #[test]
+    fn a_chart_that_stops_the_scan_twice_is_left_out() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-marks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let songs = dir.join("pack");
+        std::fs::create_dir_all(&songs).unwrap();
+        let cache = dir.join("cache");
+        let file = cache.join("songs.json");
+        let chart = |title: &str| format!("#TITLE {title}\n#BPM 150\n#00111:01\n");
+        std::fs::write(songs.join("a.bme"), chart("A")).unwrap();
+        let b = songs.join("b.bme");
+        std::fs::write(&b, chart("B")).unwrap();
+        let run = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(
+                file.clone(),
+                vec![songs.clone()],
+                [cache.clone()].into_iter().collect(),
+                p.clone(),
+            );
+            p.to_parse.load(Ordering::Relaxed)
+        };
+        let titles = || {
+            let mut t: Vec<String> = cached_songs(&file).into_iter().map(|s| s.title).collect();
+            t.sort();
+            t
+        };
+        // the game stops while a scan reads b: its note stays behind
+        let stops_on_b = || {
+            let marks = Marks::open(&file);
+            drop(marks.note(&Mark::of(&b, vfs::stamp(&b))));
+        };
+        let left = || {
+            let names = std::fs::read_dir(&cache).unwrap().flatten();
+            let scan_files = names.filter(|e| e.file_name().to_string_lossy().starts_with("scan-"));
+            scan_files.count()
+        };
+        stops_on_b();
+        assert_eq!(left(), 1);
+        // once: it is read again (the game was only closed), nothing is kept
+        assert_eq!(run(), 2);
+        assert_eq!(titles(), ["A", "B"]);
+        assert_eq!(left(), 0);
+        // twice, the second time read on its own: left out, not read again
+        std::fs::write(&b, chart("B again")).unwrap();
+        stops_on_b();
+        stops_on_b();
+        assert_eq!(run(), 1);
+        assert_eq!(titles(), ["A"]);
+        assert_eq!((run(), left()), (0, 0));
+        // until it changes
+        std::fs::write(&b, chart("B once more")).unwrap();
+        assert_eq!(run(), 1);
+        assert_eq!(titles(), ["A", "B once more"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The same for an archive: indexed as one that failed.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn an_archive_that_stops_the_scan_twice_is_left_out() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-marks-a-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cache = dir.join("cache");
+        let file = cache.join("songs.json");
+        let tar = dir.join("pack.tar");
+        let chart: &[u8] = b"#TITLE T\n#BPM 150\n#00111:01\n";
+        std::fs::write(&tar, bmseeker::testkit::tar(&[("t.bms", chart)])).unwrap();
+        std::fs::write(dir.join("a.bme"), "#TITLE A\n#00111:01\n").unwrap();
+        let run = || {
+            let p = Arc::new(ScanProgress::default());
+            let skip = [cache.clone()].into_iter().collect();
+            scan(file.clone(), vec![dir.clone()], skip, p);
+            let mut t: Vec<String> = cached_songs(&file).into_iter().map(|s| s.title).collect();
+            t.sort();
+            t
+        };
+        let stops = || {
+            let marks = Marks::open(&file);
+            drop(marks.note(&Mark::of(&tar, vfs::stamp(&tar))));
+        };
+        stops();
+        assert_eq!(run(), ["A", "T"]);
+        // (as a changed archive: one not changed is not read at all)
+        let two = [("t.bms", chart), ("u.bms", chart)];
+        std::fs::write(&tar, bmseeker::testkit::tar(&two)).unwrap();
+        stops();
+        stops();
+        assert_eq!(run(), ["A"]);
+        assert_eq!(
+            crate::platform::arcfs::index_of(&tar).unwrap().error,
+            STOPPED
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A chart file larger than a chart may be is not read into memory.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_chart_file_too_large_is_not_read() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-large-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cache = dir.join("cache");
+        std::fs::write(dir.join("a.bme"), "#TITLE A\n#00111:01\n").unwrap();
+        // (its notes, then nothing, to past the limit)
+        let large = dir.join("large.bme");
+        std::fs::write(&large, "#TITLE L\n#00111:01\n").unwrap();
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&large)
+            .unwrap();
+        f.set_len(vibebms_core::limits::MAX_FILE as u64 + 1)
+            .unwrap();
+        drop(f);
+        let p = Arc::new(ScanProgress::default());
+        let skip = [cache.clone()].into_iter().collect();
+        scan(cache.join("songs.json"), vec![dir.clone()], skip, p);
+        let titles: Vec<String> = (cached_songs(&cache.join("songs.json")).into_iter())
+            .map(|s| s.title)
+            .collect();
+        assert_eq!(titles, ["A"]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

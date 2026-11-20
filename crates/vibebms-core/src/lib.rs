@@ -5,6 +5,7 @@
 //! headlessly.
 //!
 //! * [`bms`] / [`bmson`]: chart decoders producing a [`chart::Chart`]
+//! * [`limits`]: what a chart file may ask for (its length, its objects)
 //! * [`timing`]: beat <-> time <-> scroll-position conversion (BPM, STOP, SCROLL)
 //! * [`judge`]: judge windows (beatoraja / LR2 / IIDX-style presets)
 //! * [`gauge`]: groove gauges incl. EX-HARD, HAZARD, dan (class) gauges and GAS
@@ -106,6 +107,7 @@ pub mod engine;
 pub mod gauge;
 pub mod judge;
 pub mod lane_option;
+pub mod limits;
 pub mod mode;
 pub mod nonstop;
 pub mod play;

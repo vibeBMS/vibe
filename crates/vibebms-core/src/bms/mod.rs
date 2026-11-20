@@ -26,7 +26,7 @@ mod source;
 use crate::chart::Chart;
 use crate::encoding::decode_text;
 use crate::rng::JavaRandom;
-use crate::ChartError;
+use crate::{limits, ChartError};
 use md5::{Digest, Md5};
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -84,11 +84,7 @@ fn parse_f64(s: &str) -> Option<f64> {
         })
         .map(|(i, _)| i)
         .unwrap_or(s.len());
-    // finite and in a range the timing arithmetic survives
-    s[..end]
-        .parse()
-        .ok()
-        .filter(|v: &f64| v.is_finite() && v.abs() <= 1e9)
+    s[..end].parse().ok().and_then(limits::number)
 }
 
 fn parse_i32(s: &str) -> Option<i32> {
@@ -104,13 +100,14 @@ fn gcd(a: u64, b: u64) -> u64 {
 }
 
 pub fn parse_bms(bytes: &[u8], ext: &str, opts: &ParseOptions) -> Result<Chart, ChartError> {
+    limits::file(bytes.len())?;
     let pms = ext.eq_ignore_ascii_case("pms");
     let text = decode_text(bytes);
-    let mut src = source::read(&text, opts, None);
+    let mut src = source::read(&text, opts, None)?;
     src.meta.md5 = md5_hex(bytes);
     src.meta.sha256 = sha256_hex(bytes);
-    let placed = place::place(&src, pms);
-    Ok(build::build(src, placed, pms))
+    let placed = place::place(&src, pms)?;
+    limits::check(build::build(src, placed, pms))
 }
 
 /// What the stages of a NONSTOP course share as each is read (S-OLR2b
@@ -150,9 +147,10 @@ pub fn parse_stage(
     ext: &str,
     shared: &mut Shared,
 ) -> Result<(Chart, StageFacts), ChartError> {
+    limits::file(bytes.len())?;
     let pms = ext.eq_ignore_ascii_case("pms");
     let text = decode_text(bytes);
-    let mut src = source::read(&text, &ParseOptions::default(), Some(&mut shared.rng));
+    let mut src = source::read(&text, &ParseOptions::default(), Some(&mut shared.rng))?;
     src.meta.md5 = md5_hex(bytes);
     src.meta.sha256 = sha256_hex(bytes);
     for (defs, own) in [(&shared.bpm, &mut src.bpm), (&shared.stop, &mut src.stop)] {
@@ -162,13 +160,13 @@ pub fn parse_stage(
     }
     shared.bpm.clone_from(&src.bpm);
     shared.stop.clone_from(&src.stop);
-    let placed = place::place(&src, pms);
+    let placed = place::place(&src, pms)?;
     let facts = StageFacts {
         measure_beats: placed.measure_start.clone(),
         rank_given: src.rank_given,
         bpm_given: src.bpm_given,
     };
-    let chart = build::build(src, placed, pms);
+    let chart = limits::check(build::build(src, placed, pms))?;
     if chart.notes.is_empty() {
         return Err(ChartError::Empty);
     }
@@ -254,7 +252,11 @@ mod tests {
             "#TOTAL 1e300",
         ] {
             let src = format!("#BPM 120\n{head}\n#00111:0101\n#00211:01");
-            let c = parse_bms(src.as_bytes(), "bms", &ParseOptions::default()).unwrap();
+            // (a tempo that puts the notes days away: refused)
+            let Ok(c) = parse_bms(src.as_bytes(), "bms", &ParseOptions::default()) else {
+                assert!(head.contains("-1e-300"), "{head}");
+                continue;
+            };
             let _ = (
                 c.length(),
                 c.timing.pos_at_time(1e6),
@@ -472,6 +474,88 @@ mod tests {
             .iter()
             .any(|n| matches!(n.kind, NoteKind::Invisible)));
         assert_eq!(c.note_count(), 1);
+    }
+
+    fn read(s: &str) -> Result<Chart, ChartError> {
+        parse_bms(s.as_bytes(), "bms", &ParseOptions::default())
+    }
+
+    /// A chart whose last note or sound is past 24 hours is refused,
+    /// however the file gets there; just inside is read.
+    #[test]
+    fn a_chart_past_the_longest_is_refused() {
+        for far in [
+            "#BPM 0.000000001\n#WAV01 a.wav\n#00111:01\n#00211:01",
+            "#BPM 1e-300\n#WAV01 a.wav\n#00111:01\n#00211:01",
+            "#BPM 120\n#STOP01 1000000000\n#WAV01 a.wav\n#00109:01\n#00211:01",
+            "#BPM 120\n#WAV01 a.wav\n#00102:1000000000\n#00211:01",
+            // (a background sound counts as a note does)
+            "#BPM 1\n#WAV01 a.wav\n#00111:01\n#40001:01",
+        ] {
+            assert!(matches!(read(far), Err(ChartError::Parse(_))), "{far}");
+        }
+        // 1 BPM: a measure is 4 minutes; measure 300 is at 20 hours
+        let c = read("#BPM 1\n#WAV01 a.wav\n#00111:01\n#30011:01").unwrap();
+        assert_eq!(c.length(), 20 * 3_600_000_000);
+    }
+
+    /// A tempo near 0 after the last note (the bar line after it would be
+    /// days away) does not refuse the chart: the bar lines and BGA events
+    /// past the limit are left out.
+    #[test]
+    fn a_slow_end_after_the_last_note_is_read() {
+        let c = read(
+            "#BPM 120\n#BPM01 0.000000001\n#WAV01 a.wav\n#BMP01 a.png\n\
+             #00111:01\n#00208:01\n#00304:01\n",
+        )
+        .unwrap();
+        assert_eq!(c.length(), 2_000_000);
+        let bars: Vec<i64> = c.bar_lines.iter().map(|b| b.time).collect();
+        assert_eq!(bars, [0, 2_000_000, 4_000_000]);
+        assert!(c.bga.is_empty());
+    }
+
+    /// Header texts and file names are cut to `limits::MAX_TEXT` bytes, on
+    /// a character.
+    #[test]
+    fn long_texts_are_cut() {
+        let long = "\u{3042}".repeat(5000);
+        let c = read(&format!(
+            "#TITLE {long}\n#ARTIST a\n#SUBARTIST {long}\n#SUBARTIST {long}\n\
+             #WAV01 {long}.wav\n#BMP01 {long}.png\n#00111:01\n#00104:01\n"
+        ))
+        .unwrap();
+        // (3 bytes a character: 341 of them)
+        assert_eq!(c.meta.title, "\u{3042}".repeat(341));
+        assert_eq!(c.meta.artist, "a");
+        for text in [&c.meta.subartist, &c.sound_files[0], &c.images[0]] {
+            assert_eq!(text.len(), 1023);
+        }
+    }
+
+    /// More objects, or more blocks left open, than any chart has: refused.
+    #[test]
+    fn too_many_objects_or_open_blocks_are_refused() {
+        let objects = |n: usize| format!("#WAV01 a.wav\n#00111:01\n#00101:{}\n", "01".repeat(n));
+        assert!(read(&objects(1000)).is_ok());
+        assert!(read(&objects(limits::MAX_OBJECTS)).is_err());
+        let open = |n: usize| format!("{}#00111:01\n", "#RANDOM 1\n".repeat(n));
+        assert!(read(&open(limits::MAX_NESTING)).is_ok());
+        assert!(read(&open(limits::MAX_NESTING + 1)).is_err());
+        assert!(read(&"x".repeat(limits::MAX_FILE + 1)).is_err());
+    }
+
+    /// Blocks left open do not make every later line cost their number.
+    #[test]
+    fn open_blocks_cost_nothing_a_line() {
+        let mut text = "#RANDOM 1\n".repeat(60_000);
+        text += "#WAV01 a.wav\n";
+        text += &"#00111:01\n#00112:01\n".repeat(100_000);
+        text += &"#IF 1\n#ENDIF\n".repeat(20_000);
+        let t = std::time::Instant::now();
+        let c = read(&text).unwrap();
+        assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+        assert_eq!(c.note_count(), 2);
     }
 
     #[test]

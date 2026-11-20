@@ -27,6 +27,10 @@ const OVERLAP: i64 = 100_000;
 const GAP2: i64 = 5_000_000;
 /// The BGA of two stages cross-fades over this (3.1).
 const BGA_FADE: i64 = 3_000_000;
+/// The tempo ratios a stage is matched at (two octaves either way): its
+/// sounds are resampled to 1 / ratio of their length, and the ratio is
+/// what its file's `#BPM` says. A stage past them plays at its own tempo.
+const RATIOS: std::ops::RangeInclusive<f64> = 0.25..=4.0;
 
 /// Where a stage is in the joined chart.
 #[derive(Clone, Debug, PartialEq)]
@@ -178,7 +182,12 @@ pub fn join(
                 let at = (po + t_join as f64 / pr).round() as i64;
                 // 3.3: tempo matched to stage N's BPM at the join, as played
                 let ratio = if join.tempo_match() && f.bpm_given && c.meta.initial_bpm > 0.0 {
-                    pc.timing.bpm_at_time(t_join as f64) * pr / c.meta.initial_bpm
+                    let r = pc.timing.bpm_at_time(t_join as f64) * pr / c.meta.initial_bpm;
+                    if RATIOS.contains(&r) {
+                        r
+                    } else {
+                        1.0
+                    }
                 } else {
                     1.0
                 };
@@ -201,7 +210,7 @@ pub fn join(
         // stage N left free in its last 100 ms
         let (limit, busy): (i64, Vec<u8>) = match &prev {
             Some((pc, _, po, pr, last)) => {
-                let busy = pc
+                let mut busy: Vec<u8> = pc
                     .notes
                     .iter()
                     .filter(|n| n.is_playable() || matches!(n.kind, NoteKind::Mine { .. }))
@@ -211,6 +220,9 @@ pub fn join(
                     })
                     .map(|n| lane_in(pc.mode(), mode, n.lane))
                     .collect();
+                // (each lane once: it is looked up for every note at the join)
+                busy.sort_unstable();
+                busy.dedup();
                 (last.saturating_add(OVERLAP), busy)
             }
             None => (i64::MIN, Vec::new()),
@@ -581,6 +593,14 @@ mod tests {
         let no_bpm = "#WAV02 b.wav\n#00211:0002\n";
         let (_, ns) = joined(&[A, no_bpm], &[Join::CutMatch]);
         assert_eq!(ns.stages[1].ratio, 1.0);
+        // a `#BPM` the stage is not played at (150 from its first beat),
+        // which would have it a millionth as fast, or a million times: not
+        // matched; a quarter as fast is
+        for (bpm, ratio) in [("1000000000", 1.0), ("0.0001", 1.0), ("480", 0.25)] {
+            let odd = format!("#BPM {bpm}\n#BPM01 150\n#WAV02 b.wav\n#00008:01\n#00211:0002\n");
+            let (_, ns) = joined(&[A, &odd], &[Join::CutMatch]);
+            assert_eq!(ns.stages[1].ratio, ratio, "{bpm}");
+        }
         // the scroll goes by time, as 150 BPM
         assert_eq!(c.meta.main_bpm, SCROLL_BPM);
         let n = &c.notes[2];

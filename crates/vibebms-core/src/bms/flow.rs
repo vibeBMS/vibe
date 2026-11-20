@@ -7,9 +7,9 @@ use crate::rng::JavaRandom;
 
 #[derive(Debug)]
 enum Frame {
-    Random {
-        value: u32,
-    },
+    /// (`active`: whether the lines around it are read, so that it need
+    /// not be looked up in the blocks below)
+    Random { active: bool },
     If {
         active: bool,
         matched: bool,
@@ -28,6 +28,8 @@ enum Frame {
 /// The `#RANDOM` / `#SWITCH` blocks open at a line of the text.
 pub(super) struct Flow<'a> {
     stack: Vec<Frame>,
+    /// The value of each `#RANDOM` open (a `Frame::Random` each).
+    randoms: Vec<u32>,
     pub rng: JavaRandom,
     forced: Option<&'a [u32]>,
     forced_idx: usize,
@@ -41,6 +43,7 @@ impl Flow<'_> {
     pub fn new(opts: &ParseOptions) -> Flow<'_> {
         Flow {
             stack: Vec::new(),
+            randoms: Vec::new(),
             rng: JavaRandom::new(opts.random_seed),
             forced: opts.random_selections.as_deref(),
             forced_idx: 0,
@@ -51,31 +54,29 @@ impl Flow<'_> {
 
     /// Whether the lines here are read (not in a branch not taken).
     pub fn active(&self) -> bool {
-        for f in self.stack.iter().rev() {
-            match f {
-                Frame::If { active, .. } | Frame::Switch { active, .. } => return *active,
-                Frame::Random { .. } => continue,
-            }
+        match self.stack.last() {
+            Some(
+                Frame::Random { active } | Frame::If { active, .. } | Frame::Switch { active, .. },
+            ) => *active,
+            None => true,
         }
-        true
     }
 
-    fn random_depth(&self) -> usize {
-        self.stack
-            .iter()
-            .filter(|f| matches!(f, Frame::Random { .. }))
-            .count()
+    /// How many blocks are open.
+    pub fn depth(&self) -> usize {
+        self.stack.len()
     }
 
     fn current_random(&self) -> u32 {
-        self.stack
-            .iter()
-            .rev()
-            .find_map(|f| match f {
-                Frame::Random { value } => Some(*value),
-                _ => None,
-            })
-            .unwrap_or(0)
+        self.randoms.last().copied().unwrap_or(0)
+    }
+
+    fn pop(&mut self) -> Option<Frame> {
+        let f = self.stack.pop();
+        if let Some(Frame::Random { .. }) = f {
+            self.randoms.pop();
+        }
+        f
     }
 
     fn roll(&mut self, max: u32) -> u32 {
@@ -95,7 +96,8 @@ impl Flow<'_> {
         let n = || parse_i32(arg).unwrap_or(0).max(0) as u32;
         match key {
             "RANDOM" | "SETRANDOM" => {
-                let value = if !self.active() {
+                let active = self.active();
+                let value = if !active {
                     0
                 } else if key == "RANDOM" {
                     self.roll(n())
@@ -103,17 +105,18 @@ impl Flow<'_> {
                     self.used = true;
                     n()
                 };
-                self.stack.push(Frame::Random { value });
+                self.randoms.push(value);
+                self.stack.push(Frame::Random { active });
             }
             "ENDRANDOM" => {
-                while let Some(f) = self.stack.pop() {
+                while let Some(f) = self.pop() {
                     if matches!(f, Frame::Random { .. }) {
                         break;
                     }
                 }
             }
             "IF" => {
-                let depth = self.random_depth();
+                let depth = self.randoms.len();
                 if let Some(Frame::If { depth: d, .. }) = self.stack.last() {
                     if *d == depth {
                         self.stack.pop(); // implicit #ENDIF
@@ -220,7 +223,7 @@ impl Flow<'_> {
                 }
             }
             "ENDSW" => {
-                while let Some(f) = self.stack.pop() {
+                while let Some(f) = self.pop() {
                     if matches!(f, Frame::Switch { .. }) {
                         break;
                     }

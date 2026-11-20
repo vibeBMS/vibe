@@ -4,6 +4,7 @@
 use super::flow::Flow;
 use super::{parse_f64, parse_i32, parse_id, ParseOptions};
 use crate::chart::{ChartMeta, JudgeRank, LnType};
+use crate::{limits, ChartError};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
@@ -45,12 +46,13 @@ pub(super) struct Source<'a> {
 const KEY_MAX: usize = 12;
 
 /// `rng`: the `#RANDOM` sequence to go on with (a NONSTOP course's), in
-/// place of one seeded by `opts`.
+/// place of one seeded by `opts`. A text with more channel lines or open
+/// blocks than `limits` has is refused (`rng` is then not gone on with).
 pub(super) fn read<'a>(
     text: &'a str,
     opts: &ParseOptions,
     mut rng: Option<&mut crate::rng::JavaRandom>,
-) -> Source<'a> {
+) -> Result<Source<'a>, ChartError> {
     let mut flow = Flow::new(opts);
     if let Some(r) = rng.as_deref_mut() {
         std::mem::swap(&mut flow.rng, r);
@@ -102,6 +104,7 @@ pub(super) fn read<'a>(
                 }
             } else {
                 src.lines.push(Line { measure, ch, data });
+                limits::objects(src.lines.len())?;
             }
             continue;
         }
@@ -117,7 +120,11 @@ pub(super) fn read<'a>(
         upper[..key.len()].copy_from_slice(key.as_bytes());
         upper.make_ascii_uppercase();
         let ukey = std::str::from_utf8(&upper[..key.len()]).unwrap_or_default();
-        if flow.handle(ukey, arg) || !flow.active() {
+        if flow.handle(ukey, arg) {
+            limits::nesting(flow.depth())?;
+            continue;
+        }
+        if !flow.active() {
             continue;
         }
         let idx = |prefix: &str| -> Option<u32> {
@@ -205,5 +212,5 @@ pub(super) fn read<'a>(
         .iter()
         .filter_map(|s| parse_id(s.trim().as_bytes(), src.b62))
         .collect();
-    src
+    Ok(src)
 }

@@ -265,7 +265,9 @@ the other gauge sets every course plays the set's dan gauges.
   bar lines and BPM changes end there; stage N+1's notes at or before stage N's last note + 100 ms are background
   sounds, but one within 100 ms of it on a lane stage N left free in its last 100 ms. Tempo-matched joins play stage
   N+1 at stage N's BPM at the join over its own `#BPM` (its sounds at that speed and pitch, resampled); a stage with no
-  `#BPM` line is not matched. Each stage's sound fades in before its join and out after the next (the six join
+  `#BPM` line is not matched, nor one that would play below a quarter or above four times its own speed (vibeBMS's
+  limit: a `#BPM` line the chart is not played at would otherwise set any speed). Each stage's sound fades in
+  before its join and out after the next (the six join
   types' times; linear, squared: each stage a mixer volume group) and the BGA of two stages cross-fades over 3 s each
   side. `#BPMxx` and `#STOPxx` are shared (a later stage's replaces one of the same number), the `#RANDOM` sequence is
   seeded once (a retry keeps it). The scroll goes by time, as a 150 BPM chart at the hi-speed set (HS-FIX off; a STOP
