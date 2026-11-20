@@ -5,6 +5,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
+/// The largest file read out of an archive (bytes, unpacked): the images,
+/// fonts and sounds of a skin are far below it.
+const MAX_FILE: usize = 256 << 20;
+
+/// The paths of an archive's entries, together, are no longer than this
+/// many times the archive (an entry is 44 bytes and its name twice).
+const PATHS_PER_BYTE: usize = 4;
+
 /// DxLib's key when an archive has no password.
 const KEY: [u8; 12] = [
     0x55, 0xaa, 0x20, 0x55, 0x55, 0x06, 0x55, 0xaa, 0x55, 0xd5, 0x7c, 0x66,
@@ -18,10 +26,12 @@ struct Archive {
 }
 
 fn u16_at(b: &[u8], o: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
+    Some(u16::from_le_bytes(
+        b.get(o..o.checked_add(2)?)?.try_into().ok()?,
+    ))
 }
 fn u32_at(b: &[u8], o: usize) -> Option<usize> {
-    Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?) as usize)
+    Some(u32::from_le_bytes(b.get(o..o.checked_add(4)?)?.try_into().ok()?) as usize)
 }
 
 impl Archive {
@@ -55,6 +65,11 @@ impl Archive {
         // walk directories from the root (directory table offset 0)
         let mut stack = vec![(0usize, String::new())];
         let mut seen = std::collections::HashSet::new();
+        // An archive has no more entries than its bytes hold, each in one
+        // directory, nor paths longer than that allows: one that lists
+        // more (its directories sharing their entries) is not an archive.
+        let mut entries = data.len() / head;
+        let mut paths = data.len().saturating_mul(PATHS_PER_BYTE);
         while let Some((dir, prefix)) = stack.pop() {
             // each directory once (a crafted archive can loop)
             if !seen.insert(dir) {
@@ -63,6 +78,7 @@ impl Archive {
             let d = dir_tab.checked_add(dir)?;
             let count = u32_at(&data, d + 8)?;
             let first = u32_at(&data, d + 12)?;
+            entries = entries.checked_sub(count)?;
             for k in 0..count {
                 let fh = file_tab
                     .checked_add(first)?
@@ -77,6 +93,7 @@ impl Archive {
                     None
                 };
                 let path = format!("{prefix}{nm}");
+                paths = paths.checked_sub(path.len())?;
                 if attr & 0x10 != 0 {
                     stack.push((addr, format!("{path}/")));
                 } else {
@@ -94,14 +111,18 @@ impl Archive {
                 .data
                 .get(off..off.checked_add(size)?)
                 .map(<[u8]>::to_vec),
-            Some(p) => decode(self.data.get(off..off.checked_add(p)?)?).filter(|d| d.len() == size),
+            Some(p) => decode(self.data.get(off..off.checked_add(p)?)?, size),
         }
     }
 }
 
-/// DxLib's LZ decompression (`DXA_Decode`).
-fn decode(src: &[u8]) -> Option<Vec<u8>> {
+/// DxLib's LZ decompression (`DXA_Decode`) of a file of `size` bytes, as
+/// its entry says (and no more than [`MAX_FILE`]).
+fn decode(src: &[u8], size: usize) -> Option<Vec<u8>> {
     let dest = u32_at(src, 0)?;
+    if dest != size || size > MAX_FILE {
+        return None;
+    }
     let mut left = u32_at(src, 4)?.checked_sub(9)?;
     let key = *src.get(8)?;
     // the stated size is only a hint until the data bears it out
@@ -152,7 +173,7 @@ fn decode(src: &[u8]) -> Option<Vec<u8>> {
             return None;
         }
     }
-    Some(out)
+    (out.len() == dest).then_some(out)
 }
 
 type Cache = Mutex<HashMap<PathBuf, Option<Arc<Archive>>>>;
@@ -274,6 +295,84 @@ mod tests {
             *b ^= KEY[i % 12];
         }
         out
+    }
+
+    /// An archive of `n` directories that all list one table: themselves
+    /// and `n` files, so `n` × `n` paths out of 2 `n` entries.
+    fn sharing(n: usize) -> Vec<u8> {
+        fn name(names: &mut Vec<u8>, s: &str) -> usize {
+            let off = names.len();
+            let mut up = s.to_uppercase().into_bytes();
+            up.resize(4, 0);
+            names.extend_from_slice(&[1, 0, 0, 0]);
+            names.extend_from_slice(&up);
+            names.extend_from_slice(&up);
+            off
+        }
+        let fh = |nm: usize, attr: u32, addr: usize| {
+            let mut v = Vec::new();
+            v.extend_from_slice(&(nm as u32).to_le_bytes());
+            v.extend_from_slice(&attr.to_le_bytes());
+            v.extend_from_slice(&[0u8; 24]);
+            v.extend_from_slice(&(addr as u32).to_le_bytes());
+            v.extend_from_slice(&0u32.to_le_bytes());
+            v.extend_from_slice(&u32::MAX.to_le_bytes());
+            v
+        };
+        let mut names = Vec::new();
+        let d = name(&mut names, "d");
+        let mut files = Vec::new();
+        for k in 0..n {
+            files.extend(fh(d, 0x10, k * 16));
+        }
+        for k in 0..n {
+            files.extend(fh(name(&mut names, &format!("f{k}")), 0x20, 0));
+        }
+        let dir = [0u32, u32::MAX, 2 * n as u32, 0].map(u32::to_le_bytes);
+        let dirs = dir.concat().repeat(n);
+        let mut out = b"DX".to_vec();
+        out.extend_from_slice(&3u16.to_le_bytes());
+        let head_size = names.len() + files.len() + dirs.len();
+        for v in [head_size, 24, 24, names.len(), names.len() + files.len()] {
+            out.extend_from_slice(&(v as u32).to_le_bytes());
+        }
+        out.extend(names);
+        out.extend(files);
+        out.extend(dirs);
+        for (i, b) in out.iter_mut().enumerate() {
+            *b ^= KEY[i % 12];
+        }
+        out
+    }
+
+    #[test]
+    fn directories_that_share_their_entries_are_no_archive() {
+        let bytes = sharing(40);
+        assert!(bytes.len() < 5000);
+        assert!(Archive::parse(bytes).is_none());
+        // (as few as its bytes hold: read)
+        assert_eq!(Archive::parse(sharing(1)).unwrap().files.len(), 1);
+    }
+
+    #[test]
+    fn a_packed_file_is_as_large_as_its_entry_says_and_no_larger() {
+        // "a", then `copies` times 8195 of the byte before, 4 bytes each
+        let packed = |copies: usize| {
+            let key = 0xffu8;
+            let size = 1 + copies * 8195;
+            let mut src = (size as u32).to_le_bytes().to_vec();
+            src.extend_from_slice(&((10 + copies * 4) as u32).to_le_bytes());
+            src.extend_from_slice(&[key, b'a']);
+            src.extend([key, 0xfc, 0xff, 0].repeat(copies));
+            (src, size)
+        };
+        let (src, size) = packed(2);
+        assert_eq!(decode(&src, size), Some(vec![b'a'; size]));
+        assert_eq!(decode(&src, size + 1), None);
+        // 130 KB that unpack to more than a file may be
+        let (src, size) = packed(MAX_FILE / 8195 + 1);
+        assert!(src.len() < 140_000 && size > MAX_FILE);
+        assert_eq!(decode(&src, size), None);
     }
 
     #[test]
