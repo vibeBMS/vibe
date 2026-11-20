@@ -15,8 +15,18 @@ pub struct Entry {
     pub is_dir: bool,
 }
 
+/// Whether `p` is a file of a `config` folder (the root's, a profile's):
+/// the settings, which hold what the player typed in (a password too).
+#[cfg(unix)]
+fn in_config(p: &Path) -> bool {
+    p.parent()
+        .and_then(Path::file_name)
+        .is_some_and(|d| d == "config")
+}
+
 /// Put `data` in `p`'s place through a `.tmp~` file beside it; with `sync`
-/// it is on disk before it takes the old file's place.
+/// it is on disk before it takes the old file's place. On Unix a file of a
+/// `config` folder is its owner's alone (0600), as the IR keys' is.
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn write_atomic(p: &Path, data: &[u8], sync: bool) -> io::Result<()> {
     // (an unset path: nothing to write, and no `.tmp~` left behind)
@@ -30,7 +40,18 @@ pub(super) fn write_atomic(p: &Path, data: &[u8], sync: bool) -> io::Result<()> 
     let mut tmp = p.as_os_str().to_owned();
     tmp.push(".tmp~");
     use std::io::Write;
-    let mut f = std::fs::File::create(&tmp)?;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    if in_config(p) {
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    }
+    let mut f = o.open(&tmp)?;
+    // (a `.tmp~` left by a write cut short keeps the mode it was made with)
+    #[cfg(unix)]
+    if in_config(p) {
+        f.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    }
     f.write_all(data)?;
     if sync {
         f.sync_all()?;
@@ -1047,6 +1068,36 @@ mod tests {
             assert_eq!(inside(dir, bad), None, "{bad}");
         }
         assert_eq!(normalize(Path::new("/a/b/../c/./d")), Path::new("/a/c/d"));
+    }
+
+    /// The settings are their owner's alone, whatever was there before.
+    #[cfg(unix)]
+    #[test]
+    fn config_files_are_the_owners_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vibebms-mode-{}", std::process::id()));
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        for folder in ["config", "profiles/p1/config"] {
+            let file = dir.join(folder).join("config.toml");
+            // one written before, and what a write cut short left, open
+            // to all
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            for old in [file.clone(), file.with_extension("toml.tmp~")] {
+                std::fs::write(&old, "old").unwrap();
+                std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+            }
+            write(&file, b"[obs]\npassword = \"x\"\n").unwrap();
+            assert_eq!(mode(&file), 0o600, "{folder}");
+            write(&file.with_extension("toml.bak"), b"x").unwrap();
+            assert_eq!(mode(&file.with_extension("toml.bak")), 0o600, "{folder}");
+        }
+        // other files keep the mode the system gives
+        let other = dir.join("cache/songs.json");
+        write(&other, b"{}").unwrap();
+        let plain = dir.join("cache/plain");
+        std::fs::write(&plain, b"").unwrap();
+        assert_eq!(mode(&other), mode(&plain));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
