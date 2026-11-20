@@ -268,8 +268,9 @@ branch it:
 - installs fdroidserver 2.4.5 from pip, in a step that has no key: it and every package it brings (68 files) are
   pinned by version and SHA-256 in `tools/fdroidserver.txt` and `tools/fdroidserver-build.txt` (`--require-hashes`;
   the four that have no wheel are built with the pinned setuptools, without pip's build isolation, which would fetch
-  one unpinned). The files were resolved for the runner's Python (3.12 on x86_64 Linux): when the runner's Python
-  changes, or to move to a newer fdroidserver, make them again as the top of `tools/fdroidserver.txt` says;
+  one unpinned). The files were resolved for Python 3.12 on x86_64 Linux, which the job installs
+  (`actions/setup-python`) whatever the runner image's own is: to move to another Python or a newer fdroidserver,
+  make them again as the top of `tools/fdroidserver.txt` says;
 - runs `fdroid update` on the APK the release has, byte for byte, as its only version
   (named `io.github.vibebms.nightly_<versionCode>.apk`, so each build has its own URL), with the metadata in
   `platform/android/fdroid/metadata/` (name, summary, description, licence, links; the icon is

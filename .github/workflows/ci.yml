@@ -937,6 +937,13 @@ jobs:
       # packages' code (four are built from their sources). Each file is
       # pinned by SHA-256 (tools/fdroidserver.txt), so the next step, which
       # has the key, runs what was there when the pins were made.
+      # (the Python tools/fdroidserver.txt's files were chosen for: another
+      # version takes other wheels, which no hash there covers)
+      - if: env.RELEASE == 'true'
+        continue-on-error: true
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: F-Droid tools
         id: fdroid-tools
         if: env.RELEASE == 'true'
