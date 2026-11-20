@@ -106,7 +106,9 @@ without `-N` from the start), and `vibebms -S` stops it.
 The first `-P` starts vibeBMS as the viewer, and it stays running. A later `-P` or `-S` is a short process that hands
 the request to the viewer over a loopback port (127.0.0.1:39177) and exits. The viewer reads the chart again and
 plays it from the measure (as practice starts a section, with what was sounding there), or stops and goes back to
-song select, and comes to the front. The play shows `VIEWER #<measure>` and is never recorded.
+song select, and comes to the front. The play shows `VIEWER #<measure>` and is never recorded. Any program on the
+computer can reach that port, so the viewer only takes what `-P` sends: the full path of a chart file that is there,
+on a disk of this computer (not a network share's `\\host\...`).
 
 ## Controls
 
