@@ -93,8 +93,8 @@ impl Gfx {
             (w, h, rgba)
         } else if (x, y, w, h) == (0, 0, t.w, t.h) {
             // a whole image larger than the GPU allows
-            let Some(img) = image::RgbaImage::from_raw(w, h, rgba[..(w * h * 4) as usize].to_vec())
-            else {
+            let px = &rgba[..(w * h * 4) as usize];
+            let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(w, h, px) else {
                 return;
             };
             let (sw, sh) = (stored.width, stored.height);

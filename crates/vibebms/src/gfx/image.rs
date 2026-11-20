@@ -1,5 +1,21 @@
 //! Image files decoded to RGBA (an animated one with all its frames).
 
+use image::DynamicImage;
+
+/// The largest image that is decoded: no side longer than [`MAX_SIDE`] (as
+/// `.dds` and `.cim` files were kept to; what a GPU cannot hold is scaled
+/// down for it, `Gfx::create_texture`) and no more than [`MAX_PIXELS`] in
+/// all, 256 MiB as RGBA: an 8192×8192 sheet, four times the largest that
+/// skins are known to bring. A file whose header says more is not decoded,
+/// whatever its format and however small it is.
+pub const MAX_SIDE: u32 = 16_384;
+pub const MAX_PIXELS: u64 = 1 << 26;
+
+/// Whether a `w`×`h` image is one that is decoded.
+pub fn fits(w: u32, h: u32) -> bool {
+    w <= MAX_SIDE && h <= MAX_SIDE && w as u64 * h as u64 <= MAX_PIXELS
+}
+
 /// An image file's pixels (`w`×`h` RGBA; an animation's first frame) and,
 /// if it is animated, its frames.
 pub struct Picture {
@@ -50,6 +66,25 @@ pub fn key_black(px: &mut [u8]) {
     }
 }
 
+/// `bytes` decoded as `format` (`None`: the one its signature says), if
+/// the size in its header [`fits`].
+fn decode(bytes: &[u8], format: Option<image::ImageFormat>) -> image::ImageResult<DynamicImage> {
+    use image::error::{ImageError, LimitError, LimitErrorKind};
+    use image::ImageDecoder;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes));
+    match format {
+        Some(f) => reader.set_format(f),
+        None => reader = reader.with_guessed_format()?,
+    }
+    let decoder = reader.into_decoder()?;
+    let (w, h) = decoder.dimensions();
+    if !fits(w, h) {
+        let kind = LimitErrorKind::DimensionError;
+        return Err(ImageError::Limits(LimitError::from_kind(kind)));
+    }
+    DynamicImage::from_decoder(decoder)
+}
+
 /// An image (an animation's first frame), DDS and CIM too.
 fn load_rgba_bytes(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     if bytes.starts_with(b"DDS ") {
@@ -59,16 +94,43 @@ fn load_rgba_bytes(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
         return Some(img);
     }
     // TGA has no signature to recognise it by
-    let img = match image::load_from_memory(bytes).or_else(|e| {
-        image::load_from_memory_with_format(bytes, image::ImageFormat::Tga).map_err(|_| e)
-    }) {
+    let tga = Some(image::ImageFormat::Tga);
+    let img = match decode(bytes, None).or_else(|e| decode(bytes, tga).map_err(|_| e)) {
         Ok(i) => i,
         Err(e) => {
             log::debug!("image decode: {e}");
             return None;
         }
     };
-    let rgba = img.to_rgba8();
+    let rgba = img.into_rgba8();
     let (w, h) = rgba.dimensions();
     Some((w, h, rgba.into_raw()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grey_png(w: u32, h: u32) -> Vec<u8> {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::GrayImage::new(w, h)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn an_image_past_the_limits_is_not_decoded() {
+        assert!(fits(MAX_SIDE, 4096) && fits(8192, 8192));
+        assert!(!fits(MAX_SIDE + 1, 1) && !fits(1, MAX_SIDE + 1));
+        // few bytes of file, and more pixels than any image has
+        assert!(!fits(8192, 8193) && !fits(23_170, 23_170));
+        let ok = load_picture_bytes(&grey_png(MAX_SIDE, 1), &|_| {}).unwrap();
+        assert_eq!(
+            (ok.w, ok.h, ok.px.len()),
+            (MAX_SIDE, 1, MAX_SIDE as usize * 4)
+        );
+        assert!(load_picture_bytes(&grey_png(MAX_SIDE + 1, 1), &|_| {}).is_none());
+        assert!(load_picture_bytes(&grey_png(1, MAX_SIDE + 1), &|_| {}).is_none());
+    }
 }

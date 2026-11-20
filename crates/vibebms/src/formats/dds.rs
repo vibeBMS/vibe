@@ -10,10 +10,11 @@ pub fn size(b: &[u8]) -> Option<(u32, u32)> {
     (b.get(0..4)? == b"DDS ").then(|| Some((u32_at(b, 16)?, u32_at(b, 12)?)))?
 }
 
-/// Decode to RGBA8.
+/// Decode to RGBA8 (`None` too for an image larger than is decoded:
+/// `gfx::fits`).
 pub fn decode(b: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let (w, h) = size(b)?;
-    if w == 0 || h == 0 || w > 16384 || h > 16384 {
+    if w == 0 || h == 0 || !crate::gfx::fits(w, h) {
         return None;
     }
     let flags = u32_at(b, 80)?;
@@ -200,6 +201,15 @@ mod tests {
         let (w, h, px) = decode(&b).unwrap();
         assert_eq!((w, h), (2, 1));
         assert_eq!(px, vec![3, 2, 1, 4, 7, 6, 5, 8]);
+    }
+
+    #[test]
+    fn an_image_past_the_limits_is_not_decoded() {
+        // blocks enough for 67 million pixels
+        let mut b = header(8192, 8196, 0x4, b"DXT1", 0, [0; 4]);
+        b.resize(b.len() + 2048 * 2049 * 8, 0);
+        assert_eq!(size(&b), Some((8192, 8196)));
+        assert!(decode(&b).is_none());
     }
 
     #[test]

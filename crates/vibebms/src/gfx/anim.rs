@@ -18,6 +18,11 @@ const PER_ANIM: usize = if SMALL { 32 * MB } else { 128 * MB };
 /// The frames all animations keep together.
 const ALL_ANIMS: usize = if SMALL { 96 * MB } else { 512 * MB };
 
+/// An animation is read as far as this many times the frames it may keep
+/// (each frame read is composed on the whole canvas, kept or not): what
+/// comes after is left out.
+const READ: usize = 64;
+
 /// Bytes of frames the animations alive hold.
 static HELD: AtomicUsize = AtomicUsize::new(0);
 
@@ -146,6 +151,9 @@ fn decode_within(bytes: &[u8], key: &dyn Fn(&mut [u8]), budget: usize) -> Option
     } else {
         return None;
     };
+    if !super::fits(w, h) {
+        return None;
+    }
     let frame_bytes = (w as usize * h as usize * 4).max(1);
     if frame_bytes * 2 > budget {
         return None;
@@ -155,7 +163,7 @@ fn decode_within(bytes: &[u8], key: &dyn Fn(&mut [u8]), budget: usize) -> Option
     // until the next kept one
     let mut kept: Vec<(Vec<u8>, u32)> = Vec::new();
     let mut stride = 1usize;
-    for (i, f) in frames.enumerate() {
+    for (i, f) in frames.take(max_frames.saturating_mul(READ)).enumerate() {
         let Ok(f) = f else { break };
         let ms = frame_ms(f.delay(), gif_like);
         if i % stride != 0 {
@@ -454,5 +462,14 @@ pub(crate) mod tests {
         // no room for two: a still image
         assert!(decode_within(&b, &|_| {}, one * 2 - 1).is_none());
         assert_eq!(decode_within(&b, &|_| {}, one * 100).unwrap().len(), 7);
+    }
+
+    #[test]
+    fn an_animation_is_read_as_far_as_it_may_keep_frames() {
+        let frames = vec![(RED, 100); READ * 2 + 40];
+        let b = gif(1, 1, &frames);
+        // room for 2 frames: the first 128 are read, every 64th kept
+        let a = decode_within(&b, &|_| {}, 4 * 2).unwrap();
+        assert_eq!((a.len(), a.loop_ms()), (2, 100 * 128));
     }
 }
