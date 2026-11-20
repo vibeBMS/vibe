@@ -41,12 +41,20 @@ pub fn size(bytes: &[u8]) -> Option<(u32, u32)> {
     header(bytes).map(|(_, w, h, _)| (w, h))
 }
 
-/// RGBA8 pixels.
+/// RGBA8 pixels (`None` too for an image larger than is decoded:
+/// `gfx::fits`).
 pub fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    let (mut z, w, h, f) = header(bytes)?;
-    let n = w as usize * h as usize;
-    let mut raw = vec![0u8; n * bpp(f)?];
-    z.read_exact(&mut raw).ok()?;
+    let (z, w, h, f) = header(bytes)?;
+    if !crate::gfx::fits(w, h) {
+        return None;
+    }
+    let n = w as usize * h as usize * bpp(f)?;
+    // (held as the stream gives it, not as the header says)
+    let mut raw = Vec::new();
+    z.take(n as u64).read_to_end(&mut raw).ok()?;
+    if raw.len() != n {
+        return None;
+    }
     let rgba = match f {
         4 => raw,
         3 => raw
@@ -106,5 +114,34 @@ mod tests {
         assert_eq!((w, h), (2, 1));
         assert_eq!(px, vec![10, 20, 30, 255, 40, 50, 60, 255]);
         assert!(size(b"\x89PNG....").is_none());
+    }
+
+    /// A CIM of `w`×`h` in alpha only, blank.
+    fn blank(w: i32, h: i32) -> Vec<u8> {
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        for v in [w, h, 1] {
+            z.write_all(&v.to_be_bytes()).unwrap();
+        }
+        let row = vec![0u8; w as usize];
+        for _ in 0..h {
+            z.write_all(&row).unwrap();
+        }
+        z.finish().unwrap()
+    }
+
+    #[test]
+    fn an_image_past_the_limits_is_not_decoded() {
+        // under a megabyte of file that says 67 million pixels
+        let bytes = blank(8192, 8193);
+        assert!(bytes.len() < 1 << 20);
+        assert_eq!(size(&bytes), Some((8192, 8193)));
+        assert!(decode(&bytes).is_none());
+        // and a header whose pixels do not follow
+        let cut = &blank(64, 64)[..40];
+        assert!(decode(cut).is_none());
+        assert_eq!(
+            decode(&blank(64, 2)).map(|(w, h, px)| (w, h, px.len())),
+            Some((64, 2, 512))
+        );
     }
 }

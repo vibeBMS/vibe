@@ -114,6 +114,10 @@ enum Source {
 /// Inter (SIL OFL 1.1, see assets/fonts/OFL.txt).
 const EMBEDDED_FONT: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.otf");
 
+/// The largest font file a skin brings that is read as one (a CJK font of
+/// every weight is some 30 MB).
+const MAX_FONT_FILE: usize = 64 << 20;
+
 const PREFERRED_FAMILIES: &[&str] = &[
     // Japanese + Korean coverage
     "Noto Sans CJK JP",
@@ -299,7 +303,9 @@ impl Text {
             return *f;
         }
         let font = crate::platform::vfs::read(path).ok().and_then(|data| {
-            let f = Font::new(Arc::new(Bytes::Owned(data)), 0);
+            let f = (data.len() <= MAX_FONT_FILE)
+                .then(|| Font::new(Arc::new(Bytes::Owned(data)), 0))
+                .flatten();
             if f.is_none() {
                 log::warn!("font {}: not a font", path.display());
             }
@@ -722,6 +728,19 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, EMBEDDED_FONT).unwrap();
         path
+    }
+
+    #[test]
+    fn a_skin_font_file_too_large_is_not_looked_into() {
+        let mut text = Text::with_slots(Vec::new(), fontdb::Database::new());
+        assert_eq!(text.face(&font_file("skin.otf")), Some(1));
+        // the same font, and zeros after it past the limit
+        let path = font_file("large.otf");
+        let mut data = EMBEDDED_FONT.to_vec();
+        data.resize(MAX_FONT_FILE + 1, 0);
+        std::fs::write(&path, data).unwrap();
+        assert_eq!(text.face(&path), None);
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

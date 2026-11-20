@@ -1,15 +1,17 @@
 //! Loading a play's chart, sounds and images off the main thread, and the
 //! screen shown meanwhile.
 
+use super::bga::Files;
 use super::{PlayRequest, Versus};
 use crate::app::{Ctx, Draw};
 use crate::config::{BgaMode, PlayConfig};
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{with_alpha, Picture, Rect};
 use crate::loudness::Loudness;
-use crate::platform::vfs::Prefetch;
+use crate::platform::vfs::{DirIndex, Prefetch};
 use crate::platform::{Instant, Job};
 use crate::theme;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -26,9 +28,9 @@ use vibebms_core::score::AssistFacts;
 pub(super) struct Loaded {
     pub chart: Chart,
     pub bank: SoundBank,
-    pub images: Vec<Option<Picture>>,
-    /// Chart images that are videos (same indices).
-    pub videos: Vec<Option<PathBuf>>,
+    /// The chart's images that are pictures, and those that are videos.
+    pub images: Files<Picture>,
+    pub videos: Files<PathBuf>,
     pub stagefile: Option<Picture>,
     /// `#BACKBMP` (the play skin's background image 101).
     pub backbmp: Option<Picture>,
@@ -140,7 +142,7 @@ impl Loading {
                 crate::platform::vfs::prepare_songs(&paths).map_err(|e| e.to_string())?;
                 let mut l = load_nonstop(&paths, &joins, &play, seed, rate, &p2, &t2)?;
                 if watch_rate != 1.0 {
-                    resample(&mut l.bank, watch_rate);
+                    l.bank.resample(0..l.bank.samples.len(), watch_rate);
                 }
                 // (measured each time: the stages joined are not one chart)
                 if normalize {
@@ -181,7 +183,7 @@ impl Loading {
             };
             let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
             t2.store(chart.sound_files.len(), Ordering::Relaxed);
-            let index = crate::platform::vfs::DirIndex::new(&dir);
+            let index = DirIndex::new(&dir);
             let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
             let read = |p: &Path| crate::platform::vfs::read_shared(p).ok();
             let mut bank = SoundBank::load_with(&chart.sound_files, rate, &p2, &resolve, &read);
@@ -201,20 +203,19 @@ impl Loading {
                 None => None,
             };
             if speed * watch_rate != 1.0 {
-                resample(&mut bank, speed * watch_rate);
+                bank.resample(0..bank.samples.len(), speed * watch_rate);
             }
-            let (images, videos) = if play.bga == BgaMode::On {
-                load_images(&index, &chart.images)
-            } else {
-                (Vec::new(), Vec::new())
-            };
+            let mut bga = BgaFiles::new();
+            if play.bga == BgaMode::On {
+                bga.add(&index, &chart.images);
+            }
             let stagefile = chart_image(&dir, &chart.meta.stagefile);
             let backbmp = chart_image(&dir, &chart.meta.backbmp);
             Ok(Box::new(Loaded {
                 chart,
                 bank,
-                images,
-                videos,
+                images: bga.images,
+                videos: bga.videos,
                 stagefile,
                 backbmp,
                 loudness,
@@ -300,39 +301,116 @@ impl Loading {
     }
 }
 
-type Media = (Vec<Option<Picture>>, Vec<Option<PathBuf>>);
-
 /// A chart's `#STAGEFILE`, `#BACKBMP` (`name`, in `dir`).
 fn chart_image(dir: &Path, name: &str) -> Option<Picture> {
     crate::scene::select::resolve_image(dir, name)
         .and_then(|p| crate::gfx::load_picture(&p, &|_| {}))
 }
 
-/// A chart's images (`files`), each an image (animated GIF, WebP and APNG
-/// with their frames) or a video (shown when ffmpeg is installed).
-fn load_images(index: &crate::platform::vfs::DirIndex, files: &[String]) -> Media {
-    use crate::platform::vfs::IMAGE_EXTS;
-    use crate::video::{is_video, VIDEO_EXTS};
-    files
-        .iter()
-        .map(|f| match index.find(f, IMAGE_EXTS) {
-            // (ffmpeg reads a file: one in an archive written out of its song)
-            #[cfg(not(target_arch = "wasm32"))]
-            Some(p) if is_video(&p) => (None, crate::platform::vfs::native_path(&p)),
-            #[cfg(target_arch = "wasm32")]
-            Some(p) if is_video(&p) => (None, Some(p)),
-            Some(p) => (crate::gfx::load_picture(&p, &crate::gfx::key_black), None),
-            #[cfg(not(target_arch = "wasm32"))]
-            None => (
-                None,
-                index
-                    .find(f, VIDEO_EXTS)
-                    .and_then(|p| crate::platform::vfs::native_path(&p)),
-            ),
-            #[cfg(target_arch = "wasm32")]
-            None => (None, index.find(f, VIDEO_EXTS)),
-        })
-        .unzip()
+/// The decoded pixels (bytes) the pictures of one play take together at
+/// most: the pictures past it are left out. A BGA of pictures is hundreds
+/// of them at 256×256 or 640×480, tens to hundreds of megabytes; this is
+/// 4096 of the first or 870 of the second (a quarter of it where memory is
+/// short).
+const MAX_PICTURE_BYTES: usize = if cfg!(small_device) {
+    256 << 20
+} else {
+    1 << 30
+};
+
+/// Where one of a play's BGA files is kept.
+#[derive(Clone, Copy)]
+enum Kept {
+    Picture(usize),
+    Video(usize),
+}
+
+/// A play's BGA files as they are read: each file once, whatever number of
+/// the chart's images name it.
+struct BgaFiles {
+    images: Files<Picture>,
+    videos: Files<PathBuf>,
+    /// By path: where the file is kept (`None`: it is not).
+    kept: HashMap<PathBuf, Option<Kept>>,
+    /// What the pictures to come may take of [`MAX_PICTURE_BYTES`].
+    room: usize,
+}
+
+impl BgaFiles {
+    fn new() -> BgaFiles {
+        BgaFiles {
+            images: Files::default(),
+            videos: Files::default(),
+            kept: HashMap::new(),
+            room: MAX_PICTURE_BYTES,
+        }
+    }
+
+    /// A chart's images (`files`, in the folder of `index`), each an image
+    /// (animated GIF, WebP and APNG with their frames) or a video (shown
+    /// when ffmpeg is installed).
+    fn add(&mut self, index: &DirIndex, files: &[String]) {
+        for f in files {
+            let kept = self.file(index, f);
+            let (picture, video) = match kept {
+                Some(Kept::Picture(k)) => (Some(k), None),
+                Some(Kept::Video(k)) => (None, Some(k)),
+                None => (None, None),
+            };
+            self.images.of.push(picture);
+            self.videos.of.push(video);
+        }
+    }
+
+    /// Where the file a chart names `name` is kept, read if it was not yet.
+    fn file(&mut self, index: &DirIndex, name: &str) -> Option<Kept> {
+        use crate::platform::vfs::IMAGE_EXTS;
+        use crate::video::{is_video, VIDEO_EXTS};
+        let (path, video) = match index.find(name, IMAGE_EXTS) {
+            Some(p) => {
+                let video = is_video(&p);
+                (p, video)
+            }
+            None => (index.find(name, VIDEO_EXTS)?, true),
+        };
+        if let Some(kept) = self.kept.get(&path) {
+            return *kept;
+        }
+        let kept = match video {
+            true => self.video(&path),
+            false => self.picture(&path),
+        };
+        self.kept.insert(path, kept);
+        kept
+    }
+
+    fn video(&mut self, path: &Path) -> Option<Kept> {
+        // (ffmpeg reads a file: one in an archive written out of its song)
+        #[cfg(not(target_arch = "wasm32"))]
+        let file = crate::platform::vfs::native_path(path)?;
+        #[cfg(target_arch = "wasm32")]
+        let file = path.to_path_buf();
+        self.videos.files.push(file);
+        Some(Kept::Video(self.videos.files.len() - 1))
+    }
+
+    fn picture(&mut self, path: &Path) -> Option<Kept> {
+        if self.room == 0 {
+            return None;
+        }
+        let pic = crate::gfx::load_picture(path, &crate::gfx::key_black)?;
+        let Some(room) = self.room.checked_sub(pic.px.len()) else {
+            log::warn!(
+                "BGA: more than {} MiB of images, the rest is left out",
+                MAX_PICTURE_BYTES >> 20
+            );
+            self.room = 0;
+            return None;
+        };
+        self.room = room;
+        self.images.files.push(pic);
+        Some(Kept::Picture(self.images.files.len() - 1))
+    }
 }
 
 /// A NONSTOP course: its stages (`paths`) joined into one chart, each
@@ -359,24 +437,32 @@ fn load_nonstop(
     let (pc, ns) = build_nonstop_chart(&stages, joins, &play.rules, seed)?;
     let chart = pc.chart;
     total.store(chart.sound_files.len(), Ordering::Relaxed);
-    let mut bank = SoundBank::default();
-    let (mut images, mut videos) = (Vec::new(), Vec::new());
+    // the stages' sounds decoded together (a file once, one budget), then
+    // each stage's at its speed
+    let mut sounds: Vec<Option<PathBuf>> = Vec::new();
+    let mut speeds = Vec::new();
+    let mut bga = BgaFiles::new();
     for (span, path) in ns.stages.iter().zip(paths) {
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        let index = crate::platform::vfs::DirIndex::new(&dir);
-        let resolve = |name: &str| index.find(name, crate::platform::vfs::AUDIO_EXTS);
-        let read = |p: &Path| crate::platform::vfs::read_shared(p).ok();
+        let index = DirIndex::new(&dir);
         let files = &chart.sound_files[span.files.start as usize..span.files.end as usize];
-        let mut own = SoundBank::load_with(files, rate, progress, &resolve, &read);
-        if span.ratio != 1.0 {
-            resample(&mut own, span.ratio);
-        }
-        bank.samples.extend(own.samples);
+        let from = sounds.len();
+        sounds.extend(
+            files
+                .iter()
+                .map(|f| index.find(f, crate::platform::vfs::AUDIO_EXTS)),
+        );
+        speeds.push((from..sounds.len(), span.ratio));
         if play.bga == BgaMode::On {
             let files = &chart.images[span.images.start as usize..span.images.end as usize];
-            let (i, v) = load_images(&index, files);
-            images.extend(i);
-            videos.extend(v);
+            bga.add(&index, files);
+        }
+    }
+    let read = |p: &Path| crate::platform::vfs::read_shared(p).ok();
+    let mut bank = SoundBank::load_paths(&sounds, rate, progress, &read);
+    for (stage, ratio) in speeds {
+        if ratio != 1.0 {
+            bank.resample(stage, ratio);
         }
     }
     let first = paths
@@ -388,8 +474,8 @@ fn load_nonstop(
     Ok(Box::new(Loaded {
         chart,
         bank,
-        images,
-        videos,
+        images: bga.images,
+        videos: bga.videos,
         stagefile,
         backbmp,
         loudness: None,
@@ -401,9 +487,46 @@ fn load_nonstop(
     }))
 }
 
-/// Every sound of `bank` played `speed` times as fast (and as high).
-fn resample(bank: &mut SoundBank, speed: f64) {
-    for s in bank.samples.iter_mut().flatten() {
-        *s = Arc::new(s.resampled(speed));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bga_file_is_read_once_and_pictures_within_their_budget() {
+        let dir = std::env::temp_dir().join(format!("vibebms-bga-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::new(4, 4)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            std::fs::write(dir.join(name), png.get_ref()).unwrap();
+        }
+        std::fs::write(dir.join("v.mp4"), b"a video").unwrap();
+        let index = DirIndex::new(&dir);
+        let names = [
+            "a.bmp", "v.mpg", "a.png", "b.png", "none.png", "v.mp4", "a.bmp",
+        ];
+        let mut bga = BgaFiles::new();
+        bga.add(&index, &names.map(String::from));
+        assert_eq!((bga.images.files.len(), bga.videos.files.len()), (2, 1));
+        let a = [Some(0), None, Some(0), Some(1), None, None, Some(0)];
+        assert_eq!(bga.images.of, a);
+        let v = [None, Some(0), None, None, None, Some(0), None];
+        assert_eq!(bga.videos.of, v);
+        assert_eq!(bga.room, MAX_PICTURE_BYTES - 2 * 4 * 4 * 4);
+        // room for one picture more: the third is left out, and what
+        // follows it
+        bga.room = 4 * 4 * 4 + 10;
+        bga.add(&index, &["c.png", "c.png", "a.png"].map(String::from));
+        assert_eq!(bga.images.of[7..], [Some(2), Some(2), Some(0)]);
+        let mut bga = BgaFiles::new();
+        bga.room = 4 * 4 * 4 + 10;
+        bga.add(
+            &index,
+            &["a.png", "b.png", "c.png", "a.png"].map(String::from),
+        );
+        assert_eq!(bga.images.of, [Some(0), None, None, Some(0)]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

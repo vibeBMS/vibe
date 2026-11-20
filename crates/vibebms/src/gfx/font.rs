@@ -11,6 +11,14 @@
 use std::sync::Arc;
 use ttf_parser::{Face, GlyphId, OutlineBuilder};
 
+/// The largest glyph that is drawn (a side of its bitmap, in pixels): what
+/// the glyph atlas has room for. A font's outline can say any size.
+pub const MAX_GLYPH: usize = super::ATLAS_SIZE as usize - 16;
+
+/// The lines a glyph's outline is drawn with at most (a glyph of the most
+/// intricate fonts has a few thousand).
+const MAX_LINES: usize = 1 << 16;
+
 /// A font file's bytes, shared by the faces read from it.
 pub enum Bytes {
     Static(&'static [u8]),
@@ -126,7 +134,9 @@ impl Font {
 
     /// `c` drawn `px` pixels to the em: its metrics and coverage, rows from
     /// the top. A character the font lacks is drawn as its glyph 0 (the
-    /// "missing" box), as fontdue draws it.
+    /// "missing" box), as fontdue draws it. A glyph larger than
+    /// [`MAX_GLYPH`], or of more lines than [`MAX_LINES`], is drawn as
+    /// nothing (it keeps its advance).
     pub fn rasterize(&self, c: char, px: f32) -> (Metrics, Vec<u8>) {
         let Some(face) = self.face().filter(|_| px > 0.0) else {
             return (Metrics::default(), Vec::new());
@@ -158,7 +168,15 @@ impl Font {
             advance_width: scale * advance,
         };
         if m.width == 0 || m.height == 0 {
-            return (m, vec![0; m.width * m.height]);
+            return (m, Vec::new());
+        }
+        if m.width > MAX_GLYPH || m.height > MAX_GLYPH || outline.lines.len() > MAX_LINES {
+            let m = Metrics {
+                width: 0,
+                height: 0,
+                ..m
+            };
+            return (m, Vec::new());
         }
         let mut raster = ab_glyph_rasterizer::Rasterizer::new(m.width, m.height);
         let at = |x: f32, y: f32| {
@@ -234,7 +252,8 @@ impl Outline {
     }
 
     fn push(&mut self, a: (f32, f32), b: (f32, f32)) {
-        if a.1.to_bits() == b.1.to_bits() {
+        // (past `MAX_LINES` the glyph is not drawn: no more are kept)
+        if a.1.to_bits() == b.1.to_bits() || self.lines.len() > MAX_LINES {
             return;
         }
         self.lines.push([a.0, a.1, b.0, b.1]);
@@ -252,6 +271,9 @@ impl Outline {
     fn curve(&mut self, end: (f32, f32), point: impl Fn(f32) -> (f32, f32)) {
         let mut stack = vec![(self.last, 0.0f32, end, 1.0f32)];
         while let Some((a, at, c, ct)) = stack.pop() {
+            if self.lines.len() > MAX_LINES {
+                break;
+            }
             let bt = (at + ct) * 0.5;
             let b = point(bt);
             let area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
@@ -308,5 +330,50 @@ impl OutlineBuilder for Outline {
             self.push(self.last, self.start);
         }
         self.last = self.start;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const INTER: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.otf");
+
+    /// Inter, its header saying `units` font units to the em (`None`: as it
+    /// is): its outlines so many times larger.
+    fn inter(units: Option<u16>) -> Font {
+        let mut b = INTER.to_vec();
+        if let Some(units) = units {
+            let tables = u16::from_be_bytes([b[4], b[5]]) as usize;
+            let record = (0..tables)
+                .map(|i| 12 + 16 * i)
+                .find(|&r| &b[r..r + 4] == b"head")
+                .unwrap();
+            let head = u32::from_be_bytes(b[record + 8..record + 12].try_into().unwrap()) as usize;
+            b[head + 18..head + 20].copy_from_slice(&units.to_be_bytes());
+        }
+        Font::new(Arc::new(Bytes::Owned(b)), 0).unwrap()
+    }
+
+    #[test]
+    fn a_glyph_larger_than_the_atlas_is_drawn_as_nothing() {
+        let (m, px) = inter(None).rasterize('O', 400.0);
+        assert!(m.width > 100 && m.width <= MAX_GLYPH && px.len() == m.width * m.height);
+        // 16 units to the em: a letter some 50 000 pixels a side
+        for c in ['A', 'O'] {
+            let (m, px) = inter(Some(16)).rasterize(c, 400.0);
+            assert_eq!((m.width, m.height, px.len()), (0, 0, 0));
+            assert!(m.advance_width > 400.0);
+        }
+    }
+
+    #[test]
+    fn an_outline_keeps_no_more_lines_than_are_drawn() {
+        let mut o = Outline::new(1000.0);
+        for i in 0..MAX_LINES * 2 {
+            o.line_to(i as f32, i as f32);
+        }
+        o.quad_to(1e9, 0.0, 0.0, -1e9);
+        assert_eq!(o.lines.len(), MAX_LINES + 1);
     }
 }
