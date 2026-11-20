@@ -56,6 +56,32 @@ or pages, `#INCLUDE` / `include`, `#CUSTOMFILE` / `filepath` choices, and what a
 (also a drive or network path) is as a missing file. A sound set's `.lr2ss` likewise finds its sounds below `sounds/`
 and `skins/` only.
 
+## Limits
+
+A skin is someone else's file: what it can ask of the game is bounded, far above what skins use.
+
+| | limit |
+|---|---|
+| a skin file, an included file, a script, a font's glyph list, a file a script reads | 16 MiB; no device or pipe |
+| an image, a font, a sound | 256 MiB; no device or pipe |
+| files read through `#INCLUDE` / `include` by one load | 16 MiB in all (a file counts 4 KiB at least), 8 levels deep |
+| animation frames | 65,536 an object, 1,048,576 a skin |
+| gauge cells (`#SRC_GROOVEGAUGE`'s count, `gauge.parts`) | 1000 |
+| timing visualizer width (`judgeWidthMillis`) | 2000 ms |
+| timing distribution graph bins (`width`) | 2001 |
+| a Lua skin: memory | 256 MiB |
+| a Lua skin: time | 10 s to load, 2 s to say what it is (type, name, options) when skins are listed, 1 s a frame |
+| a Lua skin's table | 64 MiB as JSON, 128 tables deep |
+| text a script gives | its first 4096 bytes are shown |
+
+- A skin past a limit of its load (includes, frames, script time or memory) is not loaded: the built-in skin is
+  shown and the log says why. So is one whose file makes the reader fail.
+- Scripts that run out of a frame's time three frames in a row are stopped for that skin.
+- A listing of the skins gives Lua skins 4 s in all to say what they are; those left come with the next listing.
+- Choosing a skin loads it once before the choice is saved. A skin the game stopped in the middle of loading (a
+  crash, a hang that was ended) is set aside at the next start: its screen has the built-in skin again, and a
+  message names it. `cache/skins-loading` is the note of the skins being loaded.
+
 ## LR2 skins
 
 `.lr2skin` files under `skins/`; `LR2files\Theme\…` paths are taken from `skins/`.
@@ -89,6 +115,11 @@ JSON (`.json`) and Lua (`.luaskin`: embedded Lua 5.4 in a sandbox, in the web bu
 
 - `main_state`, `timer_util`, `event_util` and `skin_config` are provided. Conditions, timers, values and events
   given in Lua are evaluated every frame.
+- `main_state.event_exec` (a game event: an option changed, a play started, a page opened) is taken while the script
+  of a clicked object runs, 8 a click, and is `false` anywhere else. A `customEvents` action is a script; one that
+  is an event's id is not run.
+- Lua is 5.4 with the libraries a skin needs: no `debug`, no files but the skins folder's (read only), no network.
+  Tables have no finalizers (`__gc`), `collectgarbage` only counts, `load` takes text.
 - Graphs (`gaugegraph`, `judgegraph`, `bpmgraph`, `timingdistributiongraph`, the timing visualizer) and blend modes
   are supported.
 - Text outline and shadow are drawn as beatoraja draws them: TrueType and plain `.fnt` fonts get the shadow only (the
@@ -152,6 +183,14 @@ from (`source`):
 - Third-party entries are listed and downloaded only with third-party sources on (`SETTINGS › LIBRARY`, the same
   choice and notice as for songs). While it is off, GET SKINS says how many it leaves out, and a skin of theirs
   already installed stays listed, to be deleted.
+- `official` is this build's word: in a catalog read from the repository later, an entry is `official` only if the
+  catalog compiled in lists it so with the same `downloads` (and `sha256`). Any other is offered as `third_party`.
+- `downloads` are `https://` links; an entry with another kind of link is left out.
+- `sha256` (optional) lists the SHA-256 of each archive in `downloads`, in the same order (hexadecimal; `""` for one
+  not listed). A download that is not the listed file is not installed.
+- An install puts its files in the entry's `folder` (an `LR2files/Theme/<name>/` archive: in its themes' folders).
+  It replaces the folders the entry has (its `folder`, those its last install left) and makes new ones; an archive
+  that would take the place of any other folder of `skins/` is refused.
 - An entry without `source` is `official` in a catalog of version 1, else `third_party`. A value vibeBMS does not know
   is `third_party`.
 - The web build keeps skins in the browser's storage, but does not unpack skins over 400 MB.

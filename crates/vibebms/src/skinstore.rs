@@ -63,8 +63,12 @@ pub struct SkinEntry {
     pub version: String,
     /// Bytes to download (0: not known).
     pub size: u64,
-    /// Its archives, unpacked one after another into its folder.
+    /// Its archives (https links), unpacked one after another into its
+    /// folder.
     pub downloads: Vec<String>,
+    /// The SHA-256 of each archive in `downloads`, in hexadecimal (none,
+    /// or an empty one: the archive is taken as it comes).
+    pub sha256: Vec<String>,
     pub homepage: String,
     /// The author's terms, as stated.
     pub license: String,
@@ -153,6 +157,22 @@ impl SkinEntry {
             .then(|| tr!("a third-party source: turn on third-party sources in SETTINGS › LIBRARY"))
     }
 
+    /// Whether download `i`, whose SHA-256 is `got`, is the archive the
+    /// catalog lists (any is, where it lists no hash).
+    fn hash_matches(
+        &self,
+        i: usize,
+        got: impl FnOnce() -> Result<String, String>,
+    ) -> Result<(), String> {
+        let Some(want) = self.sha256.get(i).filter(|h| !h.is_empty()) else {
+            return Ok(());
+        };
+        match got()?.eq_ignore_ascii_case(want) {
+            true => Ok(()),
+            false => Err("the download is not the file the catalog lists".into()),
+        }
+    }
+
     /// Why the web build cannot install it, if it cannot.
     pub fn web_refusal(&self) -> Option<&'static str> {
         (self.size > WEB_MAX_BYTES)
@@ -168,22 +188,45 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// A catalog's JSON, with what is wrong in it left out (an entry with
-    /// no id or no download).
+    /// A catalog's JSON, with what is wrong in it left out.
     pub fn parse(bytes: &[u8]) -> Result<Catalog, String> {
-        let mut c: Catalog = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let c: Catalog = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        Ok(c.checked())
+    }
+
+    /// Without the entries that cannot be installed: one with no id (or
+    /// another's), no download, or a download that is not an https link.
+    fn checked(mut self) -> Catalog {
         let mut seen = std::collections::HashSet::new();
-        c.skins.retain(|s| {
+        self.skins.retain(|s| {
             !s.id.is_empty()
                 && !s.downloads.is_empty()
+                && s.downloads.iter().all(|u| u.starts_with("https://"))
                 && matches!(s.kind.as_str(), "lr2" | "beatoraja")
                 && seen.insert(s.id.clone())
         });
-        Ok(c)
+        self
     }
 
     pub fn builtin() -> Catalog {
         Catalog::parse(BUILTIN.as_bytes()).unwrap_or_default()
+    }
+
+    /// A catalog that did not come with this build (read from
+    /// [`CATALOG_URL`], or kept from such a read): an entry is an
+    /// author's own download only where this build's catalog says so of
+    /// the same downloads. Whatever else it calls official is offered as
+    /// third-party sources are.
+    fn fetched(mut self) -> Catalog {
+        let own = Catalog::builtin();
+        for s in &mut self.skins {
+            let same =
+                |o: &SkinEntry| o.id == s.id && o.downloads == s.downloads && o.sha256 == s.sha256;
+            if !own.skins.iter().any(|o| same(o) && !o.third_party()) {
+                s.source = Source::ThirdParty;
+            }
+        }
+        self
     }
 }
 
@@ -240,7 +283,7 @@ impl SkinStore {
             .and_then(|b| serde_json::from_slice::<Cached>(&b).ok())
             .filter(|c| !c.catalog.skins.is_empty() && c.catalog.version >= builtin.version);
         let (catalog, fetched_at) = match cached {
-            Some(c) => (c.catalog, c.fetched_at),
+            Some(c) => (c.catalog.checked().fetched(), c.fetched_at),
             None => (builtin, 0),
         };
         let installed = crate::platform::vfs::read(&paths.skins.join(RECORD))
@@ -263,7 +306,7 @@ impl SkinStore {
         }
         // (GitHub's raw files send CORS headers: no proxy on the web)
         self.fetching = Some(Job::get(CATALOG_URL, |r| {
-            r.and_then(|b| Catalog::parse(&b))
+            r.and_then(|b| Catalog::parse(&b)).map(Catalog::fetched)
         }));
     }
 
@@ -560,6 +603,30 @@ pub fn place(entry: &SkinEntry, files: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
         .collect()
 }
 
+/// The folder among `folders` (where an archive's files would go) that
+/// is in `skins` and is not `entry`'s own (its folder, and what its last
+/// install `left`): another skin's, or the player's. An install replaces
+/// its entry's folders and makes new ones, no others (an archive names
+/// its themes' folders itself).
+fn not_its_own<'a>(
+    skins: &Path,
+    entry: &SkinEntry,
+    left: &[String],
+    folders: &'a [String],
+) -> Option<&'a String> {
+    let folder = entry.folder();
+    let own = |f: &String| {
+        left.iter()
+            .chain([&folder])
+            .any(|o| o.eq_ignore_ascii_case(f))
+    };
+    (folders.iter()).find(|f| !own(f) && crate::platform::vfs::is_dir(&skins.join(f)))
+}
+
+fn refused(folder: &str) -> String {
+    format!("the archive would replace skins/{folder}, which is not this skin's")
+}
+
 /// The top folders of placed files, in order.
 fn top_folders(placed: &[(PathBuf, PathBuf)]) -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
@@ -624,6 +691,9 @@ fn install_staged(
 ) -> Result<Vec<String>, String> {
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     for (i, a) in archives.iter().enumerate() {
+        entry.hash_matches(i, || {
+            crate::ir::build_id::file_sha256(a).map_err(|e| e.to_string())
+        })?;
         let dir = staging.join(i.to_string());
         // (named as an archive: one that is none is refused)
         crate::import::unpack_into(
@@ -639,6 +709,9 @@ fn install_staged(
         return Err("the archive holds no skin".into());
     }
     let folders = top_folders(&moves);
+    if let Some(f) = not_its_own(skins, entry, old, &folders) {
+        return Err(refused(f));
+    }
     for f in old.iter().chain(&folders) {
         remove_folder(skins, f);
     }
@@ -728,10 +801,13 @@ fn web_install(
         };
         progress.set_stage(bmseeker::progress::Stage::Unpacking);
         let mut placed: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        for g in got {
+        for (i, g) in got.into_iter().enumerate() {
             let bmseeker::unpack::Blob::Bytes(bytes) = g.blob else {
                 continue;
             };
+            if let Err(m) = e.hash_matches(i, || Ok(vibebms_core::bms::sha256_hex(&bytes))) {
+                return done(Err(Fail::Msg(m)));
+            }
             let mut files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
             if let Err(m) =
                 bmseeker::unpack::unpack_bytes(bytes, |rel, data| files.push((rel, data)))
@@ -754,6 +830,9 @@ fn web_install(
             .map(|(to, _)| (PathBuf::new(), to.clone()))
             .collect();
         let folders = top_folders(&pairs);
+        if let Some(f) = not_its_own(&skins, &e, &old, &folders) {
+            return done(Err(Fail::Msg(refused(f))));
+        }
         for f in old.iter().chain(&folders) {
             remove_folder(&skins, f);
         }
@@ -857,6 +936,55 @@ mod tests {
         // what this build writes keeps them
         let cached: Catalog = serde_json::from_slice(&serde_json::to_vec(&c).unwrap()).unwrap();
         assert_eq!(cached.skins, c.skins);
+    }
+
+    /// A catalog read from the network is taken for less than the one
+    /// this build came with: its downloads are https links, and what it
+    /// calls an author's own download is so only where this build's
+    /// catalog says the same of the same links.
+    #[test]
+    fn a_fetched_catalog_is_checked() {
+        let own = Catalog::builtin();
+        let official = own.skins.iter().find(|s| !s.third_party()).unwrap();
+        let moved = SkinEntry {
+            downloads: vec!["https://elsewhere.example/a.zip".into()],
+            ..official.clone()
+        };
+        let hashed = SkinEntry {
+            id: "hashed".into(),
+            sha256: vec!["00".into()],
+            ..official.clone()
+        };
+        let new = |id: &str, links: &[&str]| SkinEntry {
+            id: id.into(),
+            kind: "lr2".into(),
+            source: Source::Official,
+            downloads: links.iter().map(|u| u.to_string()).collect(),
+            ..Default::default()
+        };
+        let fetched = Catalog {
+            version: own.version,
+            skins: vec![
+                official.clone(),
+                new("plain", &["http://h/a.zip"]),
+                new("mixed", &["https://h/a.zip", "ftp://h/b.zip"]),
+                new("new", &["https://h/a.zip"]),
+                hashed,
+            ],
+        };
+        let c = Catalog::parse(&serde_json::to_vec(&fetched).unwrap()).unwrap();
+        let ids: Vec<&str> = c.skins.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, [official.id.as_str(), "new", "hashed"]);
+        let third_party =
+            |c: &Catalog| -> Vec<bool> { c.skins.iter().map(SkinEntry::third_party).collect() };
+        assert_eq!(third_party(&c), [false; 3]);
+        assert_eq!(third_party(&c.fetched()), [false, true, true]);
+        let c = Catalog {
+            skins: vec![moved],
+            ..Default::default()
+        };
+        assert_eq!(third_party(&c.fetched()), [true]);
+        assert_eq!(third_party(&own.clone().fetched()), third_party(&own));
     }
 
     fn placed(e: &SkinEntry, files: &[&str]) -> Vec<(String, String)> {
@@ -1016,6 +1144,68 @@ mod tests {
         // not an archive
         std::fs::write(&a, b"<html>").unwrap();
         assert!(install_files(&[a], &skins, &staging, &e, &got).is_err());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// An archive names its themes' folders itself: it replaces those its
+    /// entry has, and makes new ones, but takes no other folder's place.
+    #[test]
+    fn an_install_replaces_its_own_folders_only() {
+        let base = std::env::temp_dir().join(format!("vibebms-skinown-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (skins, staging) = (base.join("skins"), base.join("downloads/.skin-t"));
+        for (file, text) in [("Mine/play.json", "{}"), ("EC/old.lr2skin", "old")] {
+            std::fs::create_dir_all(skins.join(file).parent().unwrap()).unwrap();
+            std::fs::write(skins.join(file), text).unwrap();
+        }
+        let a = base.join("a.zip");
+        let e = entry("lr2", "EC");
+        let install = |themes: &[&str], old: &[String]| {
+            let files: Vec<(String, &[u8])> = (themes.iter())
+                .map(|t| (format!("LR2files/Theme/{t}/play.lr2skin"), &b"new"[..]))
+                .collect();
+            let files: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (n.as_str(), *d)).collect();
+            std::fs::write(&a, zip(&files)).unwrap();
+            install_files(std::slice::from_ref(&a), &skins, &staging, &e, old)
+        };
+        let r = install(&["EC", "Mine"], &[]);
+        assert!(r.unwrap_err().contains("skins/Mine"));
+        assert_eq!(std::fs::read(skins.join("Mine/play.json")).unwrap(), b"{}");
+        assert!(skins.join("EC/old.lr2skin").is_file());
+        // its own folder, and one that is not there yet
+        let got = install(&["EC", "Extra"], &[]).unwrap();
+        assert_eq!(got, ["EC", "Extra"]);
+        assert!(!skins.join("EC/old.lr2skin").exists());
+        // what it left is its own the next time
+        assert!(install(&["EC", "Extra"], &[]).is_err());
+        assert!(install(&["EC", "Extra"], &got).is_ok());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A download with a hash in the catalog is installed only when it is
+    /// that file.
+    #[test]
+    fn a_download_is_checked_against_its_hash() {
+        let base = std::env::temp_dir().join(format!("vibebms-skinhash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (skins, staging) = (base.join("skins"), base.join("downloads/.skin-t"));
+        std::fs::create_dir_all(&skins).unwrap();
+        let a = base.join("a.zip");
+        let bytes = zip(&[("repo/play7.json", b"{\"type\":0}")]);
+        std::fs::write(&a, &bytes).unwrap();
+        let install = |sha256: &str| {
+            let e = SkinEntry {
+                sha256: vec![sha256.into()],
+                ..entry("beatoraja", "Repo")
+            };
+            install_files(std::slice::from_ref(&a), &skins, &staging, &e, &[])
+        };
+        let other = vibebms_core::bms::sha256_hex(b"another file");
+        assert!(install(&other).unwrap_err().contains("not the file"));
+        assert!(!skins.join("Repo").exists());
+        let hash = vibebms_core::bms::sha256_hex(&bytes);
+        assert_eq!(install(&hash.to_uppercase()).unwrap(), ["Repo"]);
+        assert_eq!(install("").unwrap(), ["Repo"]);
         std::fs::remove_dir_all(&base).ok();
     }
 
