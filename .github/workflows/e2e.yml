@@ -1,4 +1,4 @@
-name: E2E beatoraja
+name: e2e beatoraja
 
 # vibeBMS against beatoraja, run as a black box (docs/BUILDING.md,
 # "Comparison with beatoraja"; tools/e2e/beatoraja). Behaviour is a test:

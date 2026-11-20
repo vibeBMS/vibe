@@ -122,7 +122,7 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
 ## Comparison with beatoraja
 
 `tools/e2e/beatoraja` plays the same key logs in vibeBMS and in beatoraja and compares what they make of them; the
-E2E beatoraja workflow (`.github/workflows/e2e.yml`) runs it weekly, by hand, and on pushes to `e2e/**` branches,
+e2e beatoraja workflow (`.github/workflows/e2e.yml`) runs it weekly, by hand, and on pushes to `e2e/**` branches,
 apart from CI and the releases. beatoraja is a black box: its released program is run, the formats it reads and
 writes (replays, its log, its result skins) are learnt from the files it writes, and its source is not read
 (nor LR2oraja's or bmz-player's). `versions.env` pins its release (the author's download, as its GitHub release
