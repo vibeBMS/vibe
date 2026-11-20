@@ -38,9 +38,10 @@ Steinberg's licence agreement, so release builds leave it out.
 ## macOS (Apple Silicon / Intel)
 `cargo build --release` (native) or `--target x86_64-apple-darwin` / `aarch64-apple-darwin`.
 The app: build both, then `tools/package_macos.sh <arm64 vibebms> <x86_64 vibebms> <out dir>` makes
-`vibeBMS Dev.app` (one universal executable from `lipo`, the icon `platform/macos/vibeBMS.icns`, signed ad hoc),
-`vibeBMS-macos-universal.dmg` (the app and a link to Applications) and `vibebms-macos-universal.app.zip` (what the
-self-update downloads). CI does the same for the nightly (`vibeBMS Nightly.app`, `io.github.vibebms.nightly`; the
+`vibeBMS Dev.app` (one universal executable from `lipo`, the icon `platform/macos/vibeBMS.icns`, signed ad hoc) and
+`vibebms-macos-universal.app.zip` (what the self-update downloads); `tools/package_dmg.sh <app zip> <out dir>`
+(Linux, the tools of `tools/build_deps.sh dmg`, see Reproducible builds) makes `vibeBMS-macos-universal.dmg` of
+it (the app and a link to Applications). CI does the same for the nightly (`vibeBMS Nightly.app`, `io.github.vibebms.nightly`; the
 identity comes from `tools/ci_version.sh`). The app is not notarized: its first launch needs right-click → Open, or
 System Settings → Privacy & Security → Open Anyway.
 
@@ -58,8 +59,11 @@ export ANDROID_HOME=... ANDROID_NDK_HOME=...
 cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o platform/android/app/jniLibs build --release -p vibebms-android
 gradle -p platform/android assembleRelease    # Gradle 9.6+; or open platform/android in Android Studio
 ```
-The release APK is signed with `VIBEBMS_KEYSTORE` / `VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS`
-when set, else with the debug key. Output: `platform/android/app/build/outputs/apk/release/`.
+The release APK is built unsigned (`platform/android/app/build/outputs/apk/release/app-release-unsigned.apk`):
+`tools/build_release.sh android <out dir>` signs it with apksigner when `VIBEBMS_KEYSTORE` /
+`VIBEBMS_KEYSTORE_PASSWORD` / `VIBEBMS_KEY_ALIAS` are set (see Android signing). To install one built by hand, sign it
+with any key, e.g. the debug key: `apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out
+vibeBMS.apk app-release-unsigned.apk`, or build `assembleDebug`.
 Data root: `Android/data/io.github.vibebms/files` (copy BMS folders there over USB); the nightly APK is its own app,
 `io.github.vibebms.nightly`, with its data in `Android/data/io.github.vibebms.nightly/files`.
 Touch controls turn on automatically. Songs a difficulty table lists can be downloaded in the
@@ -218,7 +222,13 @@ not have.
 ## Android signing
 CI signs the release APK with the repository's key when the secrets `ANDROID_KEYSTORE` (the keystore, base64) and
 `ANDROID_KEYSTORE_PASSWORD` (its password, also the key's) are set, else with a key made for the run, which installs
-but cannot update an APK signed by another. Make the keystore once and keep it: an APK signed by a new key cannot
+but cannot update an APK signed by another. Gradle builds the APK unsigned and `tools/build_release.sh` signs it with
+the pinned build-tools' apksigner (`BUILD_TOOLS_VERSION`), with APK Signature Scheme v2 alone, as the Android Gradle
+plugin signed it before (v1 is needed only before Android 7; the APK's `minSdk` is 26, Android 8.0), keeping the entries as they
+are (`--alignment-preserved`): the signed APK is the unsigned one with the APK Signing Block put before its central
+directory, so a rebuild with the release's signature copied onto it is the release (Reproducible builds; the build
+checks it with apksigcopier). The APK carries no dependency list in that block (`dependenciesInfo`: it is encrypted
+for Google Play). Make the keystore once and keep it: an APK signed by a new key cannot
 update the installed app (it has to be uninstalled, with its data).
 ```sh
 keytool -genkeypair -keystore vibebms-android.p12 -storetype PKCS12 -alias vibebms \
@@ -393,7 +403,8 @@ Everything else is fixed by the commit:
   images (labels) of the macOS, iOS and Windows builds with their Xcode (a major.minor release: an image replaces a
   patch release by the next) and their side-by-side MSVC toolset (an installer component, e.g. `14.44.17.14`, which
   no image update replaces, where Visual Studio's own toolset is replaced by each of its updates) and Windows SDK;
-  the Android NDK, cargo-ndk, the JDK and Gradle (the Android Gradle plugin in `platform/android`); the web build's
+  the Android NDK, cargo-ndk, the JDK, Gradle (the Android Gradle plugin in `platform/android`) and the build-tools
+  (apksigner); the `.dmg`'s hfsprogs (with the snapshot) and libdmg-hfsplus by commit; the web build's
   CJK fonts by commit and SHA-256 (`tools/build_release.sh`). `tools/build_release.sh` selects the pinned Xcode
   (`DEVELOPER_DIR`) and the pinned MSVC toolset and SDK (`vcvarsall.bat`, whose `cl.exe`, `link.exe` and libraries
   rustc and the cc crate then take; CI adds the toolset's ARM64 tools with the Visual Studio installer, as the images
@@ -417,18 +428,36 @@ Everything else is fixed by the commit:
 - **checkouts**: `.gitattributes` turns off line-ending conversion, so a Windows checkout has the same bytes as any
   other (the translations and the shader are built in).
 
-Rebuild a Linux executable or the web build (needs git, Docker, python3; the build runs in the pinned image, a few
-tens of minutes; the arm64 ones on an arm64 machine):
+Rebuild a Linux executable or the web build, or make the macOS `.dmg` again (needs git, Docker, python3; the build
+runs in the pinned image, a few tens of minutes; the arm64 ones on an arm64 machine):
 ```sh
-tools/reproduce.sh <commit> <run number> [nightly] [linux-x64-portable|linux-x64|linux-arm64-portable|linux-arm64|web]
+tools/reproduce.sh <commit> <run number> [nightly] [linux-x64-portable|linux-x64|linux-arm64-portable|linux-arm64|web|macos-dmg]
 # e.g. tools/reproduce.sh 9454dfe 300 nightly linux-x64-portable
 # VIBEBMS_THIRD_PARTY=1 tools/reproduce.sh <commit> <run> nightly web   (if WEB_THIRD_PARTY was set)
+# REPRO_APP_ZIP=vibebms-macos-universal.app.zip tools/reproduce.sh <commit> <run> nightly macos-dmg
 ```
 It prints each file's SHA-256 (`repro-out/<artifact>/SHA256SUMS`) and compares it with `builds.json` (every
 nightly executable of the last 90 days) and, while the nightly release is that commit's, with the release's files;
-it exits 1 if one differs. The other builds are made on the runner images `tools/repro.env` names
+it exits 1 if one differs. `macos-dmg` packages the app's zip (`REPRO_APP_ZIP`; by default the release's, while the
+release is that commit's) as CI does. The other builds are made on the runner images `tools/repro.env` names
 (`tools/build_release.sh`, after `tools/ci_version.sh`; the Flatpaks and the macOS app are packaged from the
 executables by `tools/package_flatpak.sh` and `tools/package_macos.sh`), which the workflow below does.
+
+The **`.dmg`** (`tools/package_dmg.sh`) is made on Linux from the app's zip, in `LINUX_IMAGE_X64` with
+`DMG_PACKAGES` from the Ubuntu snapshot (hfsprogs) and libdmg-hfsplus (Mozilla's fork, which makes Firefox's) built at
+`LIBDMG_HFSPLUS_COMMIT` (`tools/build_deps.sh dmg`): `mkfs.hfsplus` makes an HFS+ volume named after the app,
+libdmg-hfsplus's `hfsplus` adds each folder and file in name order (`mkdir`, `add`, `chmod`; not `addall`, which adds
+them in the order the file system lists them, on ext4 a hash seeded per file system, and that order is the catalog
+node IDs' and the blocks') and the link to `/Applications` (`symlink`), `tools/hfsplus_pin.py` sets the volume
+header's dates (created, modified, checked) and each folder's and file's dates to `SOURCE_DATE_EPOCH` (backup dates:
+0), in both copies of the header, and the volume's 64-bit ID (Finder info; `mkfs.hfsplus` hashes the time, the load
+average and the CPU time into it) to a hash of the volume, `fsck.hfsplus` checks it, and `dmg build` compresses it
+to UDIF (zlib, level 9: UDZO, as hdiutil made it). `dmg build`'s own fields are fixed by the data (the CRC-32s, the
+resources' plist) but for the koly block's segment ID, glibc's `rand()` unseeded: the same every run. The volume has
+what hdiutil's had (the app, a link to `/Applications`, no `.DS_Store`: the Finder's default window), but no
+partition map (a bare HFS+ volume, as Firefox's `.dmg`), and its files are owned by root (macOS mounts a disk
+image's volume ignoring owners). CI's `macos-dmg-check` job checks it on macOS: `hdiutil verify`, mounted, the app's
+files are the zip's and its signature holds, and copied out it starts.
 
 The **Reproducible builds** workflow (`.github/workflows/reproducible.yml`, Actions > Run workflow; inputs: the
 channel, the commit, default the channel's newest build, its run number, default from `builds.json`, and a box for
@@ -437,9 +466,13 @@ artifact twice in different folders, with different `CARGO_HOME`, parallel jobs 
 through `tools/reproduce.sh`, the portable and web builds also on two runner images; the others on the runner image
 the commit's `tools/repro.env` names), fails if the two differ (diffoscope's report in the summary and as an
 artifact) or if either differs from the release, and lists the results and what each was built with in the run's
-summary. Packages are compared by their files too: the APK's (its signature is the key's), the `.dmg`'s (not
-reproducible itself), the macOS app zip's and the `.ipa`'s. Commits without `tools/build_release.sh` cannot be rebuilt
-this way.
+summary. Each file is compared whole, the `.dmg` too (made from each build's app zip by `tools/reproduce.sh
+macos-dmg`); the APK is rebuilt unsigned (a rebuild has no key), its a and b compared whole, and against the release
+the release's signature is copied onto it with apksigcopier (`tools/apksigcopier.txt`, pinned by version and
+SHA-256), as F-Droid checks a reproducible APK: the result must be the release's `vibeBMS.apk` byte for byte, and
+apksigner verifies it. The files in the APK, the app's zip and the `.ipa` are listed too, to show which one differs.
+Commits without `tools/build_release.sh` cannot be rebuilt this way; older ones compare the files in their `.dmg`
+(made with hdiutil) and in their APK (signed in Gradle).
 
 How far each build is reproducible:
 
@@ -450,9 +483,10 @@ How far each build is reproducible:
 | web (`vibeBMS-web.zip`) | yes: pinned image and packages (Ubuntu snapshot), Rust, wasm-bindgen, fonts | nothing known |
 | the Flatpaks | from the same executable, on the same runner image | packaged on GitHub's Ubuntu 22.04 image: its flatpak, appstream and faketime are the image's, and their updates can change the bytes (rare) |
 | `vibebms-windows-*.exe` | yes: pinned runner image, MSVC toolset and Windows SDK, Rust and its linker (rust-lld) | an update of the image can change the toolset's `cl.exe` (which compiles Lua and ring's C) and the SDK's files while their folders keep their versions (`build.txt` names `cl`'s build) |
-| macOS (`vibebms-macos-*`, the app's zip) | yes: pinned runner image and Xcode, Rust | Xcode's patch release (`build.txt` names it), and `codesign`, `ditto` and `zip`, which are the image's macOS's: the image's updates move them; the `.dmg` (hdiutil writes times and IDs) is not reproducible: its files are compared |
+| macOS (`vibebms-macos-*`, the app's zip) | yes: pinned runner image and Xcode, Rust | Xcode's patch release (`build.txt` names it), and `codesign`, `ditto` and `zip`, which are the image's macOS's: the image's updates move them |
+| macOS `.dmg` | yes, from the app's zip: pinned image and packages (Ubuntu snapshot: hfsprogs), libdmg-hfsplus by commit, times and IDs pinned (`tools/package_dmg.sh`) | what the app's zip can |
 | iOS `.ipa` | yes: pinned runner image and Xcode, Rust | as macOS; a signed copy (AltStore, the App Store) differs anyway |
-| Android: the library, the APK's files | on the same runner image (NDK, JDK, Gradle pinned) | the APK's signature: a rebuild is signed by another key, so its files are compared (`tools/build_release.sh entries`), not the APK |
+| Android `vibeBMS.apk` | yes, with the release's signature copied onto the rebuilt unsigned APK (apksigcopier), on the same runner image: NDK, JDK, Gradle, build-tools pinned | nothing known |
 
 To keep it so: move the pins (`rust-toolchain.toml`, `tools/repro.env`) in commits of their own, and build release
 files only through `tools/build_release.sh`. Both are moved for you:
