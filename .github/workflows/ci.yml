@@ -460,10 +460,11 @@ jobs:
           path: web
 
   # GitHub Pages (Settings > Pages > Source: GitHub Actions): each deploy
-  # replaces the whole site with the default branch's web build
+  # replaces the whole site with the default branch's web build, once every
+  # build of the commit has passed (the site and the nightly then agree)
   pages:
-    needs: web
-    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    needs: [test, cross-check, build-linux, flatpak, build-windows, build-linux-portable, macos, android, ios, web]
+    if: ${{ !failure() && !cancelled() && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
