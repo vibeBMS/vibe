@@ -28,33 +28,48 @@ name: Reproducible builds
 on:
   workflow_dispatch:
     inputs:
+      channel:
+        description: Channel
+        type: choice
+        default: nightly
+        options:
+          - nightly
       commit:
-        description: "Commit to rebuild (default: the nightly release's)"
+        description: "Commit (default: the channel's newest build)"
         required: false
         default: ""
       run:
-        description: "Its CI run number, the N of <version>-nightly.N+<commit> (default: from builds.json)"
+        description: "CI run number, only for a build builds.json no longer has (default: from builds.json)"
         required: false
         default: ""
-      channel:
-        description: Channel it was built for
-        required: false
-        default: nightly
-      artifacts:
-        description: What to rebuild
-        type: choice
-        default: portable-and-web
-        options:
-          - portable-and-web
-          - linux-x64-portable
-          - web
-          - linux
-          - windows
-          - macos
-          - ios
-          - apple
-          - android
-          - all
+      linux-portable:
+        description: Linux portable executables (x64, arm64)
+        type: boolean
+        default: true
+      web:
+        description: Web build
+        type: boolean
+        default: true
+      linux:
+        description: Linux executables and Flatpaks (x64, arm64)
+        type: boolean
+        default: false
+      windows:
+        description: Windows (x64, arm64)
+        type: boolean
+        default: false
+      macos:
+        description: macOS app
+        type: boolean
+        default: false
+      ios:
+        description: iOS app
+        type: boolean
+        default: false
+      android:
+        description: Android APK
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -76,30 +91,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          CHANNEL: ${{ inputs.channel }}
           COMMIT: ${{ inputs.commit }}
           RUN: ${{ inputs.run }}
-          ARTIFACTS: ${{ inputs.artifacts }}
+          INPUTS: ${{ toJSON(inputs) }}
         run: |
+          # builds.json (in the nightly release) lists the builds of every
+          # channel: their commit and run (older entries: only the version,
+          # <version>-<channel>.<run>+<commit>; a stable one is the plain version)
+          gh release download nightly -p builds.json -D prev
+          builds="$(jq -c --arg ch "$CHANNEL" '[.builds[]
+            | . + {channel: (.channel // ((.version | capture("^[^-]*-(?<c>[a-z]+)\\.").c) // "stable")),
+                   run: (.run // ((.version | capture("^[^-]*-[a-z]+\\.(?<r>[0-9]+)\\+").r | tonumber) // null))}
+            | select(.channel == $ch)]' prev/builds.json)"
           if [ -z "$COMMIT" ]; then
-            COMMIT="$(gh api "repos/$GH_REPO/git/ref/tags/nightly" --jq .object.sha)"
+            COMMIT="$(jq -r 'last | .commit // empty' <<< "$builds")"
+            [ -n "$COMMIT" ] || { echo "::error::builds.json has no $CHANNEL build: give a commit"; exit 1; }
           fi
           commit="$(gh api "repos/$GH_REPO/commits/$COMMIT" --jq .sha)"
           if [ -z "$RUN" ]; then
-            # the run that published it (builds.json: <version>-<channel>.<run>+<commit>)
-            gh release download nightly -p builds.json -D prev
-            version="$(jq -r --arg c "$commit" '[.builds[] | select(.commit == $c)] | last | .version // empty' prev/builds.json)"
-            RUN="$(sed -n 's/^[^-]*-[a-z]*\.\([0-9]*\)+.*$/\1/p' <<< "$version")"
-            [ -n "$RUN" ] || { echo "::error::builds.json has no build of $commit: give its run number"; exit 1; }
+            RUN="$(jq -r --arg c "$commit" '[.[] | select(.commit == $c)] | last | .run // empty' <<< "$builds")"
+            [ -n "$RUN" ] || { echo "::error::builds.json has no $CHANNEL build of $commit: give its run number"; exit 1; }
           fi
           [[ "$RUN" =~ ^[0-9]+$ ]] || { echo "::error::the run number is not a number: $RUN"; exit 1; }
-          case "$ARTIFACTS" in
-            portable-and-web) list="linux-x64-portable web" ;;
-            linux) list="linux-x64-portable linux-arm64-portable linux-x64 linux-arm64" ;;
-            windows) list="windows-x64 windows-arm64" ;;
-            apple) list="macos ios" ;;
-            all) list="linux-x64-portable linux-arm64-portable web linux-x64 linux-arm64 windows-x64 windows-arm64 macos ios android" ;;
-            *) list="$ARTIFACTS" ;;
-          esac
+          # the boxes ticked
+          list="$(jq -r '{
+              "linux-portable": "linux-x64-portable linux-arm64-portable",
+              "web": "web",
+              "linux": "linux-x64 linux-arm64",
+              "windows": "windows-x64 windows-arm64",
+              "macos": "macos", "ios": "ios", "android": "android"
+            } as $box | [to_entries[] | select(.value == true and $box[.key]) | $box[.key]] | join(" ")' <<< "$INPUTS")"
+          [ -n "$list" ] || { echo "::error::nothing to rebuild: tick at least one box"; exit 1; }
           # the runner images the commit was built on (its tools/repro.env;
           # older commits: the labels CI used then, and the WebKitGTK builds
           # on the Ubuntu 22.04 image rather than in a container)

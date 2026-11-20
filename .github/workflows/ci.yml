@@ -783,12 +783,13 @@ jobs:
             done < <(unzip -Z1 "out/$pkg" | grep -E '\.app/Contents/MacOS/vibebms$|^lib/[^/]+/libvibebms_android\.so$')
           done
           jq --arg version "$VERSION" --arg commit "$GITHUB_SHA" --argjson files "$files" \
+            --arg channel "${VIBEBMS_CHANNEL:-nightly}" --argjson run "$GITHUB_RUN_NUMBER" \
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg since "$(date -u -d '90 days ago' +%Y-%m-%dT%H:%M:%SZ)" '
             def nightly: (.version // "-") | test("-");
             # a run done again replaces its entry; a run that built nothing adds none
             .builds
             | if $files == {} then . else
-                [.[] | select(.version != $version)] + [{version: $version, commit: $commit, date: $date, files: $files}]
+                [.[] | select(.version != $version)] + [{version: $version, channel: $channel, run: $run, commit: $commit, date: $date, files: $files}]
               end
             | ([.[] | select(nightly)] | length - 500) as $over
             | {v: 1, builds: (reduce .[] as $b ({n: 0, out: []};

@@ -342,6 +342,8 @@ this list (`crates/vibebms/src/ir/build_id.rs` hashes the running desktop execut
   "builds": [
     {
       "version": "0.1.0-nightly.200+abc1234",
+      "channel": "nightly",
+      "run": 200,
       "commit": "<40 hex digits>",
       "date": "2026-11-17T12:34:56Z",
       "files": {
@@ -429,7 +431,8 @@ it exits 1 if one differs. The other builds are made on the runner images `tools
 executables by `tools/package_flatpak.sh` and `tools/package_macos.sh`), which the workflow below does.
 
 The **Reproducible builds** workflow (`.github/workflows/reproducible.yml`, Actions > Run workflow; inputs: the
-commit, default the nightly's, its run number, default from `builds.json`, the channel and what to build) builds each
+channel, the commit, default the channel's newest build, its run number, default from `builds.json`, and a box for
+each build) builds each
 artifact twice in different folders, with different `CARGO_HOME`, parallel jobs and umask (the Linux and web builds
 through `tools/reproduce.sh`, the portable and web builds also on two runner images; the others on the runner image
 the commit's `tools/repro.env` names), fails if the two differ (diffoscope's report in the summary and as an
