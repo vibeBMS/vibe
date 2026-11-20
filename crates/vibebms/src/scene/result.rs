@@ -406,14 +406,11 @@ impl Scene for ResultScene {
 
     fn update(&mut self, ctx: &mut Ctx, gfx: &mut Gfx, now: Instant) -> Next {
         if self.host.first_update() {
-            if !self.d.meta.stagefile.is_empty() {
-                let p = std::path::Path::new(&self.d.request.song.path)
-                    .parent()
-                    .unwrap_or(std::path::Path::new(""))
-                    .join(&self.d.meta.stagefile);
-                self.stage_tex = crate::scene::select::resolve_image(&p)
-                    .and_then(|rp| crate::gfx::ImageTex::load(gfx, &rp, &|_| {}));
-            }
+            let dir = std::path::Path::new(&self.d.request.song.path)
+                .parent()
+                .unwrap_or(std::path::Path::new(""));
+            self.stage_tex = crate::scene::select::resolve_image(dir, &self.d.meta.stagefile)
+                .and_then(|rp| crate::gfx::ImageTex::load(gfx, &rp, &|_| {}));
             let kind = if self.d.course_total {
                 SkinType::CourseResult
             } else {

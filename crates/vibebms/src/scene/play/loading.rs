@@ -304,9 +304,7 @@ type Media = (Vec<Option<Picture>>, Vec<Option<PathBuf>>);
 
 /// A chart's `#STAGEFILE`, `#BACKBMP` (`name`, in `dir`).
 fn chart_image(dir: &Path, name: &str) -> Option<Picture> {
-    crate::platform::vfs::inside(dir, name)
-        .filter(|_| !name.is_empty())
-        .and_then(|p| crate::scene::select::resolve_image(&p))
+    crate::scene::select::resolve_image(dir, name)
         .and_then(|p| crate::gfx::load_picture(&p, &|_| {}))
 }
 
