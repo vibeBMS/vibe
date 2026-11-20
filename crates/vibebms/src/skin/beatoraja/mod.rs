@@ -310,8 +310,8 @@ fn read_skin(
 }
 /// A skin's size (w, h), without building it.
 pub fn size(path: &Path, skins_root: &Path) -> Option<(f32, f32)> {
-    let h = header_of(path, &Home::of(path, skins_root)).ok()?;
-    Some(h.size)
+    let read = || header_of(path, &Home::of(path, skins_root)).map(|h| h.size);
+    no_panic(path, read).ok()
 }
 
 /// (type, name) without building the skin.
