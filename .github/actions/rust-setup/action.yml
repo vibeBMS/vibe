@@ -34,6 +34,18 @@ runs:
         toolchain: ${{ steps.toolchain.outputs.channel }}
         targets: ${{ inputs.targets }}
         components: ${{ inputs.components }}
+    # only that toolchain: rust-cache's key hashes every installed one, and
+    # runner images of one label come with other Rust releases (1.99.1 on some
+    # Windows images of a rollout, none on others), so the same job's key
+    # differed from run to run and each made a new entry
+    - shell: bash
+      env:
+        CHANNEL: ${{ steps.toolchain.outputs.channel }}
+      run: |
+        rustup default "$CHANNEL"
+        rustup toolchain list | cut -d' ' -f1 | { grep -v "^$CHANNEL-" || true; } |
+          while read -r t; do rustup toolchain uninstall "$t"; done
+        rustup toolchain list
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: ${{ inputs.cache-key }}

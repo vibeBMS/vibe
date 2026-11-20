@@ -53,10 +53,11 @@ jobs:
           # gradle-<os>-<arch>-<version>-<build files hash>; gradle-<version>
           # (setup-gradle's distribution, saved even with its caching off);
           # noto-cjk-<commit>;
-          # flatpak-platform-<arch>-<runtime>: the newest of each kind stays;
+          # flatpak-platform-<arch>-<runtime>: the one of each kind used last
+          # stays;
           # e2e-*: the comparison tests' downloads (LR2, beatoraja), kept on
           # every ref; any other key: only other refs' entries
-          gh cache list --limit 1000 --sort created_at --order desc \
+          gh cache list --limit 1000 --sort last_accessed_at --order desc \
             --json id,key,ref,sizeInBytes --jq '.[] | "\(.id)\t\(.key)\t\(.ref)\t\(.sizeInBytes)"' |
             awk -F'\t' -v main="$MAIN" '{
               job = $2
