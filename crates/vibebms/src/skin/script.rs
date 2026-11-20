@@ -150,6 +150,7 @@ mod lua {
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
     use std::rc::Rc;
+    use std::time::Duration;
 
     /// Marker a Lua function is replaced with in the skin table.
     const FN_MARK: &str = "\u{1}fn:";
@@ -445,9 +446,6 @@ io = {
 package.loaded.io = io
 "#;
 
-    /// Largest file a script may read.
-    const IO_MAX_BYTES: i64 = 16 << 20;
-
     /// The file a skin script names (`require`, `dofile`, `io`), inside
     /// `root` (the skins folder). Paths are relative to the skin's folder,
     /// to one above it up to `root`, or
@@ -535,12 +533,29 @@ return fns
 
     /// Lua memory per skin.
     const MEMORY_LIMIT: usize = 256 << 20;
-    /// Time a skin may take to load, and its scripts per frame.
+    /// Time a skin may take to load.
     #[cfg(not(test))]
-    const LOAD_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+    pub const LOAD_TIME: Duration = Duration::from_secs(10);
     #[cfg(test)]
-    const LOAD_TIME: std::time::Duration = std::time::Duration::from_millis(300);
-    const FRAME_TIME: std::time::Duration = std::time::Duration::from_secs(1);
+    pub const LOAD_TIME: Duration = Duration::from_secs(3);
+    /// Time a Lua skin may take to say what it is (its type, name and
+    /// options: it runs for them when skins are listed, before it is
+    /// chosen).
+    #[cfg(not(test))]
+    pub const HEADER_TIME: Duration = Duration::from_secs(2);
+    #[cfg(test)]
+    pub const HEADER_TIME: Duration = Duration::from_millis(100);
+    /// Time a skin's scripts may take per frame.
+    const FRAME_TIME: Duration = Duration::from_secs(1);
+    /// Frames in a row a skin's scripts may run out of time before they
+    /// are stopped for good.
+    const LATE_FRAMES: u32 = 3;
+    /// Lua instructions between two looks at the clock.
+    const HOOK_EVERY: u32 = 1000;
+    /// Timers a skin's scripts may set (kept outside Lua's memory limit).
+    const SET_TIMERS: usize = 4096;
+    /// Bytes of a text a script gives that are shown.
+    const TEXT_BYTES: usize = 4096;
 
     /// When running scripts are stopped.
     struct Deadline(web_time::Instant);
@@ -552,19 +567,52 @@ return fns
             .is_some_and(|d| web_time::Instant::now() > d.0)
     }
 
-    /// `pcall`, `xpcall` and `coroutine.resume` / `wrap` would catch the
-    /// error that stops a script past its time and let it go on: past it,
-    /// they pass the error on.
-    const GUARD: &str = r#"
+    /// The error that stops a script past its time, for what the library
+    /// does in Rust (a call of it is one instruction to the hook).
+    fn in_time(lua: &Lua) -> mlua::Result<()> {
+        match expired(lua) {
+            true => Err(mlua::Error::runtime(TOO_LONG)),
+            false => Ok(()),
+        }
+    }
+
+    /// What lets a script outlive its time, closed (the hook that stops
+    /// it counts Lua instructions, and only while hooks are allowed):
+    /// - what catches errors (`pcall`, `xpcall`, `coroutine.resume` /
+    ///   `wrap` / `close`, `load` of a reader function) passes that error
+    ///   on, and a message handler is not called for it (it would run
+    ///   with the hook off);
+    /// - no finalizers (`__gc` runs with the hook off; beatoraja's Lua
+    ///   has none either) and no garbage collection on demand;
+    /// - a library function is one instruction however long it works: the
+    ///   time is looked at after each one whose work grows with its
+    ///   arguments, and the loops of the table library run in C only over
+    ///   a plain table of at most `MAX` entries (in Lua otherwise: a
+    ///   length or an element a metamethod makes up, a range of
+    ///   millions), `string.rep` not at all for an empty result.
+    ///
+    /// `load` takes text chunks only (Lua does not verify compiled
+    /// bytecode), and `string.dump` is gone.
+    const GUARD: &str = r##"
 local expired, too_long = ...
-local pcall0, xpcall0, create, resume0 = pcall, xpcall, coroutine.create, coroutine.resume
+local pcall0, xpcall0, load0, error, type, select = pcall, xpcall, load, error, type, select
+local getmetatable0, setmetatable0, rawget, rawset = getmetatable, setmetatable, rawget, rawset
+local create, resume0, close0 = coroutine.create, coroutine.resume, coroutine.close
+local tointeger, tonumber, maxinteger = math.tointeger, tonumber, math.maxinteger
 local function check(...)
   if expired() then error(too_long, 0) end
   return ...
 end
 pcall = function(...) return check(pcall0(...)) end
-xpcall = function(...) return check(xpcall0(...)) end
+xpcall = function(f, h, ...)
+  if type(h) ~= "function" then return xpcall0(f, h, ...) end
+  return check(xpcall0(f, function(e)
+    if expired() then return e end
+    return h(e)
+  end, ...))
+end
 coroutine.resume = function(...) return check(resume0(...)) end
+coroutine.close = function(...) return check(close0(...)) end
 coroutine.wrap = function(f)
   local co = create(f)
   return function(...)
@@ -573,20 +621,161 @@ coroutine.wrap = function(f)
     error(r[2], 0)
   end
 end
-"#;
+load = function(chunk, name, _, ...)
+  if select("#", ...) > 0 then return check(load0(chunk, name, "t", ...)) end
+  return check(load0(chunk, name, "t"))
+end
+string.dump = nil
+
+setmetatable = function(t, mt)
+  local gc = nil
+  if type(mt) == "table" then gc = rawget(mt, "__gc") end
+  if gc == nil then return setmetatable0(t, mt) end
+  -- the table is given its metatable while that has no `__gc`: Lua
+  -- only finalizes what had one then
+  rawset(mt, "__gc", nil)
+  local ok, r = pcall0(setmetatable0, t, mt)
+  rawset(mt, "__gc", gc)
+  if not ok then error(r, 2) end
+  return r
+end
+local count = collectgarbage
+collectgarbage = function(opt)
+  if opt == "count" then return count("count") end
+  return 0
+end
+
+for lib, names in pairs({
+  [string] = { "byte", "char", "find", "format", "gmatch", "gsub", "lower", "match", "pack",
+    "packsize", "rep", "reverse", "sub", "unpack", "upper" },
+  [table] = { "concat", "insert", "move", "remove", "sort", "unpack" },
+  [utf8] = { "char", "codepoint", "len", "offset" },
+  [os] = { "date" },
+  [_G] = { "print", "warn" },
+}) do
+  for _, k in ipairs(names) do
+    local f = lib[k]
+    lib[k] = function(...) return check(f(...)) end
+  end
+end
+
+local rep = string.rep
+string.rep = function(s, n, sep)
+  local k = tonumber(n)
+  if k and k > 1 and s == "" and (sep == nil or sep == "") then n = 1 end
+  return rep(s, n, sep)
+end
+
+local MAX = 1 << 20
+local insert, remove, move, concat, sort = table.insert, table.remove, table.move, table.concat, table.sort
+-- the C function is quick whatever it does with `t`: a plain table of at
+-- most MAX entries, or no table and nothing with metamethods (an error)
+local function quick(t)
+  if getmetatable0(t) ~= nil then return false end
+  return type(t) ~= "table" or #t <= MAX
+end
+local function len(t)
+  local n = tointeger(#t)
+  if not n then error("object length is not an integer", 3) end
+  return n
+end
+table.insert = function(t, ...)
+  if quick(t) then return insert(t, ...) end
+  local n, e = select("#", ...), len(t) + 1
+  if n == 1 then
+    t[e] = (...)
+  elseif n == 2 then
+    local pos, v = ...
+    pos = tointeger(pos)
+    if not pos or pos < 1 or pos > e then
+      error("bad argument #2 to 'insert' (position out of bounds)", 2)
+    end
+    for i = e, pos + 1, -1 do t[i] = t[i - 1] end
+    t[pos] = v
+  else
+    error("wrong number of arguments to 'insert'", 2)
+  end
+end
+table.remove = function(t, pos)
+  if quick(t) then return remove(t, pos) end
+  local size = len(t)
+  if pos == nil then
+    pos = size
+  else
+    pos = tointeger(pos)
+    if not pos or pos ~= size and (pos < 1 or pos - 1 > size) then
+      error("bad argument #2 to 'remove' (position out of bounds)", 2)
+    end
+  end
+  local v = t[pos]
+  if pos < size then
+    for i = pos, size - 1 do t[i] = t[i + 1] end
+    pos = size
+  end
+  t[pos] = nil
+  return v
+end
+table.move = function(a1, f, e, t, a2)
+  local fi, ei, ti = tointeger(f), tointeger(e), tointeger(t)
+  -- (a wrong argument: the C function says so)
+  if not (fi and ei and ti) then return move(a1, f, e, t, a2) end
+  if ei < fi or quick(a1) and (a2 == nil or quick(a2)) and ei - fi < MAX then
+    return move(a1, fi, ei, ti, a2)
+  end
+  if fi <= 0 and ei >= maxinteger + fi then
+    error("bad argument #3 to 'move' (too many elements to move)", 2)
+  end
+  local n = ei - fi + 1
+  if ti > maxinteger - n + 1 then
+    error("bad argument #4 to 'move' (destination wrap around)", 2)
+  end
+  local to = a2 == nil and a1 or a2
+  if ti > ei or ti <= fi or to ~= a1 then
+    for i = 0, n - 1 do to[ti + i] = a1[fi + i] end
+  else
+    for i = n - 1, 0, -1 do to[ti + i] = a1[fi + i] end
+  end
+  return to
+end
+table.concat = function(t, sep, i, j)
+  if quick(t) then return concat(t, sep, i, j) end
+  local size = len(t)
+  local first, last = i == nil and 1 or tointeger(i), j == nil and size or tointeger(j)
+  if not (first and last) then return concat(t, sep, i, j) end
+  local copy = {}
+  for k = first, last do
+    local v = t[k]
+    -- (what is no string: the C function's error)
+    if v == nil then break end
+    copy[k] = v
+  end
+  return concat(copy, sep, first, last)
+end
+table.sort = function(t, cmp)
+  if quick(t) then return sort(t, cmp) end
+  local n = len(t)
+  -- (more than a skin sorts)
+  if n > MAX then error("bad argument #1 to 'sort' (array too big)", 2) end
+  local copy = {}
+  for k = 1, n do copy[k] = t[k] end
+  sort(copy, cmp)
+  for k = 1, n do t[k] = copy[k] end
+end
+"##;
 
     /// `string.find`, `match`, `gmatch` and `gsub` by `luapat` (a step
     /// budget per call; Lua's own run in C where the hook cannot stop them).
+    /// The strings stay Lua's (within its memory limit) while they are
+    /// matched.
     fn install_patterns(lua: &Lua) -> mlua::Result<()> {
         use super::super::luapat::{self, Cap};
-        fn text(lua: &Lua, v: LV, n: usize, f: &str) -> mlua::Result<Vec<u8>> {
+        fn text(lua: &Lua, v: LV, n: usize, f: &str) -> mlua::Result<mlua::LuaString> {
             let tn = v.type_name();
-            match lua.coerce_string(v)? {
-                Some(s) => Ok(s.as_bytes().to_vec()),
-                None => Err(mlua::Error::runtime(format!(
+            lua.coerce_string(v)?.ok_or_else(|| {
+                mlua::Error::runtime(format!(
                     "bad argument #{n} to '{f}' (string expected, got {tn})"
-                ))),
-            }
+                ))
+            })
         }
         fn caps(lua: &Lua, c: &[Cap]) -> mlua::Result<Vec<LV>> {
             c.iter()
@@ -607,6 +796,7 @@ end
             let f =
                 lua.create_function(move |lua, (s, p, init, plain): (LV, LV, Option<i64>, LV)| {
                     let (s, p) = (text(lua, s, 1, name)?, text(lua, p, 2, name)?);
+                    let (s, p) = (s.as_bytes(), p.as_bytes());
                     let hit = luapat::find(&s, &p, init.unwrap_or(1), truthy(&plain), is_find)
                         .map_err(err)?;
                     let mut out = Vec::new();
@@ -626,11 +816,14 @@ end
         }
         let gmatch = lua.create_function(|lua, (s, p, init): (LV, LV, Option<i64>)| {
             let (s, p) = (text(lua, s, 1, "gmatch")?, text(lua, p, 2, "gmatch")?);
-            let pos = luapat::gmatch_start(init.unwrap_or(1), s.len());
+            let pos = luapat::gmatch_start(init.unwrap_or(1), s.as_bytes().len());
             let state = RefCell::new((pos, None));
             lua.create_function(move |lua, ()| {
+                // (a loop over it is a few instructions a match)
+                in_time(lua)?;
                 let mut st = state.borrow_mut();
                 let (pos, last) = &mut *st;
+                let (s, p) = (s.as_bytes(), p.as_bytes());
                 match luapat::gmatch_next(&s, &p, pos, last).map_err(err)? {
                     Some(c) => Ok(mlua::MultiValue::from_iter(caps(lua, &c)?)),
                     None => Ok(mlua::MultiValue::from_iter([LV::Nil])),
@@ -640,6 +833,7 @@ end
         string.set("gmatch", gmatch)?;
         let gsub = lua.create_function(|lua, (s, p, repl, n): (LV, LV, LV, Option<i64>)| {
             let (s, p) = (text(lua, s, 1, "gsub")?, text(lua, p, 2, "gsub")?);
+            let (s, p) = (s.as_bytes(), p.as_bytes());
             // what a function or a table gives for a match: nil / false keep it
             let value = |v: LV| -> Result<Option<Vec<u8>>, String> {
                 match v {
@@ -654,6 +848,7 @@ end
             let (out, count) = match repl {
                 LV::String(_) | LV::Integer(_) | LV::Number(_) => {
                     let r = text(lua, repl, 3, "gsub")?;
+                    let r = r.as_bytes();
                     luapat::gsub(&s, &p, luapat::Repl::Str(&r), n)
                 }
                 LV::Table(t) => {
@@ -687,15 +882,28 @@ end
         Ok(())
     }
 
-    fn arm(lua: &Lua, budget: std::time::Duration) {
+    fn arm(lua: &Lua, budget: Duration) {
         lua.set_app_data(Deadline(web_time::Instant::now() + budget));
     }
 
     /// A Lua source file as a chunk (never compiled bytecode).
-    pub fn text_chunk<'a>(lua: &'a Lua, src: &'a [u8], path: &Path) -> mlua::chunk::Chunk<'a> {
+    pub fn text_chunk<'a>(
+        lua: &'a Lua,
+        src: impl mlua::chunk::AsChunk + 'a,
+        path: &Path,
+    ) -> mlua::chunk::Chunk<'a> {
         lua.load(src)
             .set_name(path.display().to_string())
             .set_mode(mlua::chunk::ChunkMode::Text)
+    }
+
+    /// The chunk of a Lua file a script names (`require`, `dofile`,
+    /// `loadfile`: reading and compiling it is one instruction to the
+    /// hook).
+    fn source<'a>(lua: &'a Lua, path: &Path) -> mlua::Result<mlua::chunk::Chunk<'a>> {
+        in_time(lua)?;
+        let src = crate::skin::read_text(path).map_err(|e| mlua::Error::runtime(e.to_string()))?;
+        Ok(text_chunk(lua, src, path))
     }
 
     /// The Lua state of a skin while it loads.
@@ -707,8 +915,9 @@ end
 
     impl Script {
         /// A Lua state with the skin modules; `global` also exposes them as
-        /// globals (JSON skins), `home` is where the skin's files are.
-        pub fn new(home: &Home, global: bool) -> mlua::Result<Script> {
+        /// globals (JSON skins), `home` is where the skin's files are. What
+        /// runs in it until its first frame has `budget` in all.
+        pub fn new(home: &Home, global: bool, budget: Duration) -> mlua::Result<Script> {
             // no debug, and os / io as beatoraja restricts them (below):
             // scripts only reach what the skin modules give
             let libs = mlua::StdLib::COROUTINE
@@ -725,29 +934,16 @@ end
             // global: coroutines the scripts create run under it too (a
             // thread hook is dropped in them)
             lua.set_global_hook(
-                mlua::HookTriggers::new().every_nth_instruction(10_000),
-                |lua, _| match expired(lua) {
-                    true => Err(mlua::Error::runtime(TOO_LONG)),
-                    false => Ok(mlua::VmState::Continue),
-                },
+                mlua::HookTriggers::new().every_nth_instruction(HOOK_EVERY),
+                |lua, _| in_time(lua).map(|()| mlua::VmState::Continue),
             )?;
-            arm(&lua, LOAD_TIME);
-            // text chunks only: Lua does not verify compiled bytecode
-            lua.load(
-                r##"local load = load
-                load = function(chunk, name, _, ...)
-                    if select("#", ...) > 0 then return load(chunk, name, "t", ...) end
-                    return load(chunk, name, "t")
-                end
-                string.dump = nil"##,
-            )
-            .call::<()>(())?;
-            lua.load(COMPAT).set_name("vibebms compat").call::<()>(())?;
+            arm(&lua, budget);
             install_patterns(&lua)?;
             let expired_fn = lua.create_function(|lua, ()| Ok(expired(lua)))?;
             lua.load(GUARD)
                 .set_name("vibebms guard")
                 .call::<()>((expired_fn, TOO_LONG))?;
+            lua.load(COMPAT).set_name("vibebms compat").call::<()>(())?;
             let vb = lua.create_table()?;
             let frame = Rc::new(Frame::default());
             install(&lua, &vb, &frame)?;
@@ -782,9 +978,7 @@ end
                         lua.create_string(format!("no skin file {name}"))?,
                     ));
                 };
-                let src = crate::platform::vfs::read(&path)
-                    .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                Ok(LV::Function(text_chunk(lua, &src, &path).into_function()?))
+                Ok(LV::Function(source(lua, &path)?.into_function()?))
             })?;
             let preload: LV = pkg.get::<Table>("searchers")?.raw_get(1)?;
             let searchers = lua.create_table()?;
@@ -800,9 +994,7 @@ end
                     let Some(path) = f(&p, true) else {
                         return Ok((LV::Nil, Some(format!("loadfile: no skin file {p}"))));
                     };
-                    let src = crate::platform::vfs::read(&path)
-                        .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                    match text_chunk(lua, &src, &path).into_function() {
+                    match source(lua, &path)?.into_function() {
                         Ok(f) => Ok((LV::Function(f), None)),
                         Err(e) => Ok((LV::Nil, Some(e.to_string()))),
                     }
@@ -815,16 +1007,13 @@ end
                     let Some(path) = f(&p, true) else {
                         return Err(mlua::Error::runtime(format!("dofile: no skin file {p}")));
                     };
-                    let src = crate::platform::vfs::read(&path)
-                        .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                    text_chunk(lua, &src, &path).call::<mlua::MultiValue>(())
+                    source(lua, &path)?.call::<mlua::MultiValue>(())
                 })?,
             )?;
             // io reads the skin's files; what scripts write goes nowhere
             let read = lua.create_function(move |lua, p: String| {
-                let data = find(&p, false)
-                    .filter(|p| crate::platform::vfs::stamp(p).1 <= IO_MAX_BYTES)
-                    .and_then(|p| crate::platform::vfs::read(&p).ok());
+                in_time(lua)?;
+                let data = find(&p, false).and_then(|p| crate::skin::read_text(&p).ok());
                 match data {
                     Some(d) => Ok(LV::String(lua.create_string(d)?)),
                     None => Ok(LV::Nil),
@@ -862,18 +1051,98 @@ end
 
         /// Turn the evaluated skin table into JSON, keeping its functions.
         pub fn to_json(&mut self, v: LV) -> mlua::Result<Value> {
-            use mlua::LuaSerdeExt;
             let fns: Table = self
                 .lua
                 .load(WALK)
                 .set_name("vibebms walk")
                 .call((v.clone(), FN_MARK))?;
             self.fns = Some(fns);
-            let opts = mlua::serde::DeserializeOptions::new()
-                .deny_unsupported_types(false)
-                .deny_recursive_tables(false);
-            self.lua.from_value_with::<Value>(v, opts)
+            let mut left = JSON_BYTES;
+            Ok(json(&v, &mut Vec::new(), &mut left)?.unwrap_or(Value::Null))
         }
+    }
+
+    /// What a skin table may take as JSON (a table it holds in several
+    /// places is one table in Lua and one copy per place here, outside
+    /// Lua's memory limit).
+    const JSON_BYTES: usize = 64 << 20;
+    /// Tables inside tables a skin table may have.
+    const JSON_DEPTH: usize = 128;
+
+    fn spend(left: &mut usize, n: usize) -> mlua::Result<()> {
+        *left = left
+            .checked_sub(n)
+            .ok_or_else(|| mlua::Error::runtime("the skin table is too large"))?;
+        Ok(())
+    }
+
+    fn json_text(s: &mlua::LuaString, left: &mut usize) -> mlua::Result<String> {
+        spend(left, s.as_bytes().len())?;
+        match s.to_str() {
+            Ok(s) => Ok(s.to_string()),
+            Err(_) => Err(mlua::Error::runtime(
+                "the skin table has text that is not UTF-8",
+            )),
+        }
+    }
+
+    /// A Lua value as JSON: a table with a first entry is an array,
+    /// another one an object (its keys strings); `None` for what JSON has
+    /// not (a function, a table inside itself), which a table goes
+    /// without. `path`: the tables `v` is in; `left`: what the whole may
+    /// still take.
+    fn json(
+        v: &LV,
+        path: &mut Vec<*const std::ffi::c_void>,
+        left: &mut usize,
+    ) -> mlua::Result<Option<Value>> {
+        spend(left, std::mem::size_of::<Value>())?;
+        Ok(Some(match v {
+            LV::Nil => Value::Null,
+            LV::Boolean(b) => Value::Bool(*b),
+            LV::Integer(i) => Value::from(*i),
+            LV::Number(n) => Value::from(*n),
+            LV::String(s) => Value::String(json_text(s, left)?),
+            LV::Table(t) => {
+                let ptr = t.to_pointer();
+                if path.contains(&ptr) {
+                    return Ok(None);
+                }
+                if path.len() >= JSON_DEPTH {
+                    return Err(mlua::Error::runtime("the skin table is nested too deep"));
+                }
+                path.push(ptr);
+                let len = t.raw_len();
+                let out = if len > 0 {
+                    let mut a = Vec::new();
+                    for i in 1..=len {
+                        a.extend(json(&t.raw_get(i)?, path, left)?);
+                    }
+                    Value::Array(a)
+                } else {
+                    let mut m = serde_json::Map::new();
+                    for pair in t.pairs::<LV, LV>() {
+                        let (k, v) = pair?;
+                        let Some(v) = json(&v, path, left)? else {
+                            continue;
+                        };
+                        match k {
+                            LV::String(k) => m.insert(json_text(&k, left)?, v),
+                            LV::Function(_) | LV::Thread(_) | LV::UserData(_) => continue,
+                            k => {
+                                let msg =
+                                    format!("the skin table has a {} for a name", k.type_name());
+                                return Err(mlua::Error::runtime(msg));
+                            }
+                        };
+                    }
+                    Value::Object(m)
+                };
+                path.pop();
+                out
+            }
+            _ => return Ok(None),
+        }))
     }
 
     type StatePtr = *const (dyn SkinState + 'static);
@@ -994,8 +1263,12 @@ end
             "set_timer",
             zero,
             |_, _, fr, (id, v): (i32, i64)| {
-                fr.set_timers.borrow_mut().insert(id, v);
-                Ok(true)
+                let mut timers = fr.set_timers.borrow_mut();
+                let room = timers.len() < SET_TIMERS || timers.contains_key(&id);
+                if room {
+                    timers.insert(id, v);
+                }
+                Ok(room)
             },
         )?;
         put(lua, vb, frame, "event_exec", zero, |_, _, fr, id: i32| {
@@ -1077,7 +1350,7 @@ end
 
         fn lua(&mut self) -> Option<&Script> {
             if self.script.is_none() {
-                match Script::new(&self.home, true) {
+                match Script::new(&self.home, true, LOAD_TIME) {
                     Ok(s) => self.script = Some(s),
                     Err(e) => {
                         log::warn!("skin script: {e}");
@@ -1169,6 +1442,8 @@ end
                 generation: Cell::new(0),
                 queued: RefCell::new(Vec::new()),
                 failed: RefCell::new(HashSet::new()),
+                late: Cell::new(false),
+                late_frames: Cell::new(0),
             }))
         }
     }
@@ -1188,6 +1463,11 @@ end
         /// Clicked script events, run on the next frame.
         queued: RefCell<Vec<usize>>,
         failed: RefCell<HashSet<usize>>,
+        /// A script ran out of the frame's time.
+        late: Cell<bool>,
+        /// Frames in a row one did; at `LATE_FRAMES` the scripts are
+        /// stopped (a skin would hold the game at a frame a second).
+        late_frames: Cell<u32>,
     }
 
     impl std::fmt::Debug for Runtime {
@@ -1201,7 +1481,11 @@ end
             LV::Boolean(b) => Val::Bool(b),
             LV::Integer(i) => Val::Int(i),
             LV::Number(n) => Val::Num(n),
-            LV::String(s) => Val::Str(s.to_string_lossy()),
+            // (a text is drawn every frame: its start, of one of any length)
+            LV::String(s) => {
+                let b = s.as_bytes();
+                Val::Str(String::from_utf8_lossy(&b[..b.len().min(TEXT_BYTES)]).into_owned())
+            }
             LV::Nil => Val::Nil,
             _ => Val::Bool(true),
         }
@@ -1215,7 +1499,8 @@ end
             st: &dyn SkinState,
             f: impl FnOnce(&Val) -> R,
         ) -> R {
-            let Some(e) = self.entries.get(k).filter(|e| e.kind != ScriptKind::Event) else {
+            let entry = self.entries.get(k).filter(|e| e.kind != ScriptKind::Event);
+            let Some(e) = entry.filter(|_| !self.stopped()) else {
                 return f(&Val::Nil);
             };
             let now = self.generation.get();
@@ -1226,8 +1511,22 @@ end
             f(&self.cache.borrow()[k].1)
         }
 
+        fn stopped(&self) -> bool {
+            self.late_frames.get() >= LATE_FRAMES
+        }
+
+        /// Call a script; an error that came of the frame's time running
+        /// out is counted against the skin (`update`).
+        fn call<R: mlua::FromLuaMulti>(&self, f: &Function) -> mlua::Result<R> {
+            let r = f.call::<R>(());
+            if r.is_err() && expired(&self.lua) {
+                self.late.set(true);
+            }
+            r
+        }
+
         fn eval(&self, k: usize, e: &Entry) -> Val {
-            match e.f.call::<LV>(()) {
+            match self.call::<LV>(&e.f) {
                 Ok(v) => val(v),
                 Err(err) => {
                     self.warn(k, &err);
@@ -1276,6 +1575,18 @@ end
         /// custom timers and timer scripts (they watch for changes, so they
         /// run every frame); other values are worked out when read.
         pub fn update(&self, st: &dyn SkinState, now: i64) {
+            if self.stopped() {
+                return;
+            }
+            self.late_frames.set(if self.late.take() {
+                self.late_frames.get() + 1
+            } else {
+                0
+            });
+            if self.stopped() {
+                log::warn!("skin scripts stopped: out of time {LATE_FRAMES} frames in a row");
+                return;
+            }
             arm(&self.lua, FRAME_TIME);
             let now_us = now.saturating_mul(1000);
             self.frame.now_us.set(now_us);
@@ -1283,13 +1594,13 @@ end
             self.frame.with(st, || {
                 let queued = std::mem::take(&mut *self.queued.borrow_mut());
                 for k in queued {
-                    if let Err(e) = self.entries[k].f.call::<()>(()) {
+                    if let Err(e) = self.call::<()>(&self.entries[k].f) {
                         self.warn(k, &e);
                     }
                 }
                 for ev in self.events.borrow_mut().iter_mut() {
                     let on = match &ev.condition {
-                        Some(c) => c.call::<LV>(()).map(|v| val(v).truthy()).unwrap_or(false),
+                        Some(c) => self.call::<LV>(c).is_ok_and(|v| val(v).truthy()),
                         None => true,
                     };
                     let due = ev.last_us == i64::MIN
@@ -1298,7 +1609,7 @@ end
                         ev.last_us = now_us;
                         match &ev.action {
                             Some(a) => {
-                                if let Err(e) = a.call::<()>(()) {
+                                if let Err(e) = self.call::<()>(a) {
                                     log::debug!("skin custom event: {e}");
                                 }
                             }
@@ -1307,7 +1618,7 @@ end
                     }
                 }
                 for (id, f) in &self.timers {
-                    let v = f.call::<LV>(()).map(|v| val(v).int()).ok().flatten();
+                    let v = self.call::<LV>(f).map(|v| val(v).int()).ok().flatten();
                     self.frame
                         .set_timers
                         .borrow_mut()
@@ -1333,9 +1644,16 @@ end
             Home::of(&dir.join("s.luaskin"), dir.parent().unwrap())
         }
 
+        /// A state whose scripts have a short time.
+        fn script(dir: &Path) -> Script {
+            Script::new(&home(dir), true, Duration::from_millis(300)).unwrap()
+        }
+
         fn eval<T: mlua::FromLuaMulti>(code: &str) -> mlua::Result<T> {
-            let s = Script::new(&home(Path::new("/nonexistent/theme/skin")), true).unwrap();
-            s.lua().load(code).eval::<T>()
+            script(Path::new("/nonexistent/theme/skin"))
+                .lua()
+                .load(code)
+                .eval::<T>()
         }
 
         #[test]
@@ -1380,7 +1698,7 @@ end
             std::fs::write(dir.join("secret.txt"), "secret").unwrap();
             std::fs::write(skin.join("own.txt"), "own").unwrap();
             std::os::unix::fs::symlink(dir.join("secret.txt"), skin.join("link.txt")).unwrap();
-            let s = Script::new(&home(&skin), true).unwrap();
+            let s = script(&skin);
             let read = |name: &str| -> Option<String> {
                 let code = format!(r#"local f = io.open("{name}") return f and f:read("a")"#);
                 s.lua().load(code).eval().unwrap()
@@ -1457,7 +1775,7 @@ end
 
         #[test]
         fn state_functions_answer_from_the_state_only_while_it_is_given() {
-            let s = Script::new(&home(Path::new("/nonexistent/theme/skin")), true).unwrap();
+            let s = script(Path::new("/nonexistent/theme/skin"));
             type Seen = (i64, bool, String, i64, Option<i64>, LV);
             let read = || -> mlua::Result<Seen> {
                 let code =
@@ -1480,7 +1798,7 @@ end
         #[test]
         fn values_run_when_read_and_timers_every_frame() {
             let dir = Path::new("/nonexistent/theme/skin");
-            let s = Script::new(&home(dir), true).unwrap();
+            let s = script(dir);
             s.lua()
                 .load("calls, ticks = 0, 0 function count() calls = calls + 1 return calls end")
                 .exec()
@@ -1518,10 +1836,241 @@ end
             assert_eq!(global("ticks"), ticks + 3);
         }
 
+        /// The scripts `build` registers, as a loaded skin's.
+        fn runtime(setup: &str, build: impl FnOnce(&mut Builder)) -> Rc<Runtime> {
+            let dir = Path::new("/nonexistent/theme/skin");
+            let s = script(dir);
+            s.lua().load(setup).exec().unwrap();
+            let mut b = Builder::new(Some(s), &home(dir));
+            build(&mut b);
+            b.finish().unwrap()
+        }
+
+        fn code(code: &str) -> Value {
+            Value::String(code.into())
+        }
+
+        /// Scripts that run out of a frame's time frame after frame run
+        /// no more (the skin would hold the game at a frame a second).
+        #[test]
+        fn scripts_out_of_time_frame_after_frame_are_stopped() {
+            let mut spin = 0;
+            let rt = runtime("runs = 0", |b| {
+                let endless = code("(function() runs = runs + 1 while true do end end)()");
+                spin = b.register(&endless, ScriptKind::Int).unwrap();
+            });
+            let offsets = HashMap::new();
+            let ov = Overlay {
+                st: &St,
+                rt: Some(&rt),
+                offsets: &offsets,
+            };
+            for frame in 0..LATE_FRAMES as i64 + 2 {
+                rt.update(&St, frame * 16);
+                // (the frame's time is over while the value is worked out)
+                arm(&rt.lua, Duration::ZERO);
+                assert_eq!(ov.number(spin), None);
+            }
+            assert_eq!(rt.lua.globals().get::<u32>("runs").unwrap(), LATE_FRAMES);
+        }
+
+        /// What scripts leave on the Rust side (outside Lua's memory
+        /// limit) is bounded: the timers they set, the text they give.
+        #[test]
+        fn what_scripts_leave_outside_lua_is_bounded() {
+            let mut text = 0;
+            let rt = runtime("", |b| {
+                let long = code(
+                    "(function()
+                       for i = 1, 100000 do set_timer(i, 0) end
+                       return ('x'):rep(1000000)
+                     end)()",
+                );
+                text = b.register(&long, ScriptKind::Str).unwrap();
+            });
+            let offsets = HashMap::new();
+            let ov = Overlay {
+                st: &St,
+                rt: Some(&rt),
+                offsets: &offsets,
+            };
+            rt.update(&St, 0);
+            assert_eq!(ov.text(text).map(|t| t.len()), Some(TEXT_BYTES));
+            assert_eq!(rt.frame.set_timers.borrow().len(), SET_TIMERS);
+        }
+
         #[test]
         fn a_runaway_pattern_is_stopped() {
             let r: mlua::Result<LV> = eval(r#"return ("a"):rep(5000):find(".-.-.-.-.-x")"#);
             assert!(r.unwrap_err().to_string().contains("too long"));
+        }
+
+        /// What ran on with the hook off, or in one library call the hook
+        /// counts as an instruction, ends with the script's time (or at
+        /// once).
+        #[test]
+        fn the_time_limit_holds_where_the_hook_does_not_reach() {
+            let t = std::time::Instant::now();
+            let endless = "function() while true do end end";
+            let made_up = "setmetatable({}, { __len = function() return math.maxinteger - 1 end,
+                __index = rawlen, __newindex = rawequal })";
+            // (its length is made up without a metatable)
+            let keys: String = (0..63).map(|i| format!("[1 << {i}] = 1, ")).collect();
+            let sparse = format!("{{ {keys}[math.maxinteger] = 1 }}");
+            let len = eval::<i64>(&format!("return #{sparse}"));
+            assert_eq!(len.unwrap(), i64::MAX);
+            for (code, error) in [
+                // a message handler, a reader function, closing coroutines
+                (format!("xpcall({endless}, {endless})"), TOO_LONG),
+                (format!("while true do load({endless}) end"), TOO_LONG),
+                (
+                    format!(
+                        "local function co()
+                           local c = coroutine.create(function()
+                             local x <close> = setmetatable({{}}, {{ __close = {endless} }})
+                             coroutine.yield()
+                           end)
+                           coroutine.resume(c)
+                           return c
+                         end
+                         local cs = {{}}
+                         for i = 1, 200 do cs[i] = co() end
+                         while true do for i = 1, 200 do coroutine.close(cs[i]) end end"
+                    ),
+                    TOO_LONG,
+                ),
+                // loops of the table library over what is not there
+                (
+                    "table.move({}, 1, math.maxinteger - 1, 2)".to_string(),
+                    TOO_LONG,
+                ),
+                (format!("table.remove({made_up}, 1)"), TOO_LONG),
+                (format!("table.insert({made_up}, 1, 0)"), TOO_LONG),
+                (format!("table.concat({made_up})"), TOO_LONG),
+                (format!("table.sort({made_up})"), "array too big"),
+                (format!("table.remove({sparse}, 1)"), TOO_LONG),
+                (
+                    "getmetatable('').__newindex = rawequal
+                     table.move('a', 1, math.maxinteger - 1, 2, 'b')"
+                        .to_string(),
+                    TOO_LONG,
+                ),
+            ] {
+                let r: mlua::Result<()> = eval(&code);
+                let e = r.unwrap_err().to_string();
+                assert!(e.contains(error), "{code}: {e}");
+            }
+            assert_eq!(
+                eval::<String>("return ('').rep('', 1 << 62, '')").unwrap(),
+                ""
+            );
+            assert_eq!(
+                eval::<String>("return ('ab'):rep(2, '-')").unwrap(),
+                "ab-ab"
+            );
+            assert!(t.elapsed() < std::time::Duration::from_secs(60));
+            // library calls that take long, a few instructions apart
+            let t = std::time::Instant::now();
+            let r: mlua::Result<()> =
+                eval("local s = ('x'):rep(8000000) while true do s:upper() end");
+            assert!(r.unwrap_err().to_string().contains("too long"));
+            assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        }
+
+        /// A finalizer would run with the hook off: tables get none, as
+        /// in beatoraja's Lua, and their metatables are as they were set.
+        #[test]
+        fn tables_have_no_finalizers() {
+            let s = script(Path::new("/nonexistent/theme/skin"));
+            let kept: bool = s
+                .lua()
+                .load(
+                    "ran = false
+                     local mt = { __gc = function() ran = true end, __index = { a = 1 } }
+                     local t = setmetatable({}, mt)
+                     local kept = t.a == 1 and getmetatable(t) == mt and mt.__gc ~= nil
+                     t = setmetatable({}, { __gc = false })
+                     getmetatable(t).__gc = function() ran = true end
+                     t = nil
+                     collectgarbage()
+                     return kept and collectgarbage('count') > 0
+                       and not pcall(setmetatable, setmetatable({}, { __metatable = 1 }), mt)",
+                )
+                .eval()
+                .unwrap();
+            assert!(kept);
+            s.lua().gc_collect().unwrap();
+            s.lua().gc_collect().unwrap();
+            assert!(!s.lua().globals().get::<bool>("ran").unwrap());
+        }
+
+        /// The table functions done in Lua (a table with a metatable, a
+        /// long one) give what Lua's own give.
+        #[test]
+        fn table_functions_as_lua_whatever_the_table() {
+            let v: String = eval(
+                r#"local out = {}
+                for _, make in ipairs({
+                  function(t) return t end,
+                  function(t) return setmetatable(t, {}) end,
+                }) do
+                  local t = make({ 3, 1, 2 })
+                  table.insert(t, 5)
+                  table.insert(t, 1, 4)
+                  local last, second = table.remove(t), table.remove(t, 2)
+                  table.sort(t, function(a, b) return a > b end)
+                  local s = table.concat(t, ",") .. "|" .. table.concat(t, "-", 2, 3)
+                  local m = table.move(t, 1, 3, 2)
+                  local n = table.move(t, 2, 4, 1, make({}))
+                  local e = { pcall(table.insert, t, 9, 0) }
+                  local f = { pcall(table.concat, make({ 1, {}, 3 })) }
+                  out[#out + 1] = table.concat({ last, second, s, table.concat(m, ","),
+                    table.concat(n, ","), tostring(e[1]), tostring(f[1]),
+                    tostring(table.remove(make({}))), table.unpack(t) }, " ")
+                end
+                assert(out[1] == out[2], out[1] .. " / " .. out[2])
+                local long = {}
+                for i = 1, (1 << 20) + 2 do long[i] = i end
+                table.insert(long, 1, 0)
+                assert(table.remove(long, 1) == 0 and table.remove(long) == (1 << 20) + 2)
+                assert(#table.move(long, 1, #long, 1, {}) == (1 << 20) + 1)
+                assert(#table.concat(long, "", 1 << 20) == 14 and not pcall(table.sort, long))
+                return out[1]"#,
+            )
+            .unwrap();
+            assert_eq!(v, "5 3 4,2,1|2-1 4,4,2,1 4,2,1 false false nil 4 4 2 1");
+        }
+
+        /// A skin table is one copy per place a table is held in as JSON:
+        /// it is refused past a size, a table inside itself left out.
+        #[test]
+        fn the_skin_table_as_json_is_bounded() {
+            let json = |code: &str| {
+                let mut s = script(Path::new("/nonexistent/theme/skin"));
+                let v: LV = s.lua().load(code).eval().unwrap();
+                s.to_json(v).map_err(|e| e.to_string())
+            };
+            let shared = json("local t = { 1 } for i = 1, 60 do t = { t, t } end return t");
+            assert!(shared.unwrap_err().contains("too large"));
+            let deep = json("local t = {} for i = 1, 200 do t = { t } end return t");
+            assert!(deep.unwrap_err().contains("too deep"));
+            let v = json(
+                "local t = { name = 'n', list = { 1, 2.5, 'x', false }, f = print, [print] = 1,
+                   co = coroutine.create(print) }
+                 t.self = t
+                 t.list[5] = t.list
+                 return t",
+            )
+            .unwrap();
+            assert_eq!(v["list"], serde_json::json!([1, 2.5, "x", false]));
+            assert!(v["f"].as_str().is_some_and(|f| f.starts_with(FN_MARK)));
+            assert_eq!(
+                (&v["name"], v.as_object().unwrap().len()),
+                (&Value::from("n"), 3)
+            );
+            assert!(json("return { [2] = 'a' }").is_err());
+            assert!(json("return { '\\xff' }").is_err());
+            assert_eq!(json("return 1 / 0").unwrap(), Value::Null);
         }
 
         #[test]

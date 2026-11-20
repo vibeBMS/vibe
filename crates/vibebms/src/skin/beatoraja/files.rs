@@ -7,7 +7,7 @@ use super::*;
 /// (glyph image indices are page ids; a page outside what the skin may
 /// read is an empty path).
 pub(super) fn load_bmfont(path: &Path, home: &Home) -> Option<(BitmapFont, Vec<PathBuf>)> {
-    let bytes = vfs::read(path).ok()?;
+    let bytes = read_text(path).ok()?;
     let text = vibebms_core::encoding::decode_text(&bytes);
     let dir = path.parent().unwrap_or(Path::new(""));
     let mut font = BitmapFont::default();

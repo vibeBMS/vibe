@@ -221,7 +221,11 @@ fn nested_branches() {
         ]}
     ]);
     let en: HashSet<i64> = [1, 2].into();
-    let out = preprocess(v, &en, &Home::default(), Path::new(""), 0);
+    let mut files = Files {
+        home: &Home::default(),
+        includes: Includes::new(),
+    };
+    let out = preprocess(v, &en, &mut files, Path::new(""), 0);
     let ids: Vec<&str> = out.as_array().unwrap().iter().map(|x| s(x, "id")).collect();
     assert_eq!(ids, ["a", "b", "c"]);
 }
@@ -1100,4 +1104,91 @@ fn json_nested_too_deep_is_refused() {
     let h = header(&path, &dir);
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(h, None);
+}
+
+/// A Lua skin that never ends is given up on in the time a header has
+/// (far less than a load's), and a listing of the skins does not wait for
+/// every such skin.
+#[test]
+fn a_lua_skin_that_does_not_end_does_not_hold_the_listing() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lslow-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skins: Vec<PathBuf> = (0..3).map(|i| dir.join(format!("{i}.luaskin"))).collect();
+    for p in &skins {
+        std::fs::write(p, "while true do end").unwrap();
+    }
+    let t = std::time::Instant::now();
+    assert!(read(&skins[0], None, None).is_err());
+    assert!(t.elapsed() < script::LOAD_TIME);
+    let read: fn(&PathBuf) -> bool = |p| crate::skin::header_read(p).is_some();
+    assert!(crate::skin::lr2::find_skins(&dir).is_empty());
+    assert_eq!(
+        skins.iter().map(read).collect::<Vec<_>>(),
+        [true, false, false]
+    );
+    for _ in 0..2 {
+        crate::skin::lr2::find_skins(&dir);
+    }
+    assert!(skins.iter().all(read));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A skin's own numbers for what is drawn every frame, and what it asks
+/// for in all (included files, animation frames), are within what a skin
+/// uses.
+#[test]
+fn what_a_skin_asks_for_is_within_limits() {
+    let dir = std::env::temp_dir().join(format!("vibebms-blimits-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skin = |more: &str, destinations: &str| {
+        format!(
+            r#"{{"type": 0, "name": "N", "w": 1280, "h": 720,
+              "source": [{{"id": 0, "path": "a.png"}}],
+              "image": [{{"id": "cell", "src": 0, "x": 0, "y": 0, "w": 8, "h": 8}},
+                        {{"id": "film", "src": 0, "x": 0, "y": 0, "w": 8, "h": 8,
+                          "divx": 1024, "divy": 64}}],
+              {more}
+              "destination": [{destinations}]}}"#
+        )
+    };
+    let at =
+        |id: &str| format!(r#"{{"id": "{id}", "dst": [{{"x": 0, "y": 0, "w": 100, "h": 10}}]}}"#);
+    let load = |text: String| {
+        std::fs::write(dir.join("play.json"), text).unwrap();
+        load(&dir.join("play.json"), &HashMap::new(), &|_| Some((64, 64)))
+    };
+    let numbers = r#""gauge": {"id": "gauge", "nodes": ["cell", "cell", "cell", "cell"],
+                              "parts": 4000000000},
+                    "timingvisualizer": [{"id": "vis", "judgeWidthMillis": 300000000}],
+                    "timingdistributiongraph": [{"id": "dist", "width": 4000000000}],"#;
+    let s = load(skin(
+        numbers,
+        &[at("gauge"), at("vis"), at("dist")].join(","),
+    ))
+    .unwrap();
+    let seen: Vec<String> = (s.objects.iter())
+        .filter_map(|o| match &o.kind {
+            Kind::Gauge { parts, .. } => Some(format!("gauge {parts}")),
+            Kind::Graph(Graph::Visualizer(g)) => Some(format!("visualizer {}", g.range_ms)),
+            Kind::Graph(Graph::Timing(g)) => Some(format!("timing {}", g.bins)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seen, ["gauge 1000", "visualizer 2000", "timing 2001"]);
+    // 65,536 frames an object: 16 objects of them, not 17
+    let films = |n: usize| vec![at("film"); n].join(",");
+    assert!(load(skin("", &films(16))).is_ok());
+    let e = load(skin("", &films(17))).unwrap_err();
+    assert!(e.contains("too many animation frames"), "{e}");
+    // a file that includes itself: twice at each of the 8 levels, not four
+    // times
+    let include = r#"{"include": "more.json"}"#;
+    let more = |n: usize| format!("[{}]", vec![include; n].join(","));
+    let with_more = skin(&format!(r#""more": {include},"#), &at("cell"));
+    std::fs::write(dir.join("more.json"), more(2)).unwrap();
+    assert!(load(with_more.clone()).is_ok());
+    std::fs::write(dir.join("more.json"), more(4)).unwrap();
+    let e = load(with_more).unwrap_err();
+    assert!(e.contains("too many includes"), "{e}");
+    std::fs::remove_dir_all(&dir).ok();
 }

@@ -500,14 +500,14 @@ pub fn visualizer(
             right = rr;
         }
     }
-    // 10 ms ticks, centre line
-    let mut ms = -((range / 10.0).floor() * 10.0);
-    while ms <= range {
+    // 10 ms ticks (counted: a step of 10 is lost on a large `f32`), centre
+    // line
+    let ticks = (range / 10.0) as i32;
+    for k in -ticks..=ticks {
         d.b.rect(
-            Rect::new(x_of(ms), r.y, 1.0, r.h),
+            Rect::new(x_of(k as f32 * 10.0), r.y, 1.0, r.h),
             a.fade([0.0, 0.0, 0.0, 1.0], 0.25),
         );
-        ms += 10.0;
     }
     d.b.rect(Rect::new(x_of(0.0), r.y, 1.0, r.h), col(1));
     let judge_of = |diff: i64| {

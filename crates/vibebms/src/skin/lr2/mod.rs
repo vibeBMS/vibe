@@ -58,7 +58,7 @@ fn src(v: &[i64; 22], images: &ImageFiles) -> Option<Src> {
     let h = if v[6] < 0 { ih as f32 } else { v[6] as f32 };
     Some(Src {
         image: img,
-        frames: Src::grid([x, y, w, h], v[7], v[8]),
+        frames: images.grid([x, y, w, h], v[7], v[8])?,
         cycle: v[9],
         timer: v[10] as i32,
     })
@@ -185,6 +185,7 @@ struct Loader<'a> {
     /// `#RESOLUTION` was given (else it is guessed from the layout).
     resolution_set: bool,
     depth: usize,
+    includes: Includes,
     conds: Vec<Cond>,
 }
 
@@ -399,7 +400,7 @@ pub fn load_with(
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
     let (user_options, user_offsets) = (&user.options, &user.offsets);
-    let bytes = vfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = read_text(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let text = vibebms_core::encoding::decode_text(&bytes);
     let mut l = Loader {
         root: skins_root.to_path_buf(),
@@ -420,11 +421,13 @@ pub fn load_with(
         resolution_set: false,
         chart_field: None,
         depth: 0,
+        includes: Includes::new(),
         conds: Vec::new(),
     };
     for line in text.lines() {
         l.line(line);
     }
+    within_limits(path, &l.includes, &l.images)?;
     // a button inside a panel is shown (and clickable) only while it is open
     for (i, op) in std::mem::take(&mut l.panel_ops) {
         l.skin.objects[i].dst.ops.push(op);
@@ -550,7 +553,7 @@ pub fn load_font(
     skins_root: &Path,
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Option<(BitmapFont, Vec<(PathBuf, Option<(u32, u32)>)>)> {
-    let bytes = vfs::read(path).ok()?;
+    let bytes = read_text(path).ok()?;
     let text = vibebms_core::encoding::decode_text(&bytes);
     let dir = path.parent().unwrap_or(Path::new(""));
     let mut font = BitmapFont::default();
@@ -597,7 +600,7 @@ pub fn load_font(
 /// beatoraja `#CUSTOMOFFSET,name,id,x,y,w,h,angle,alpha` (1 = adjustable)
 /// of an LR2 skin header.
 pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
-    let Ok(b) = vfs::read(path) else {
+    let Ok(b) = read_text(path) else {
         return Vec::new();
     };
     vibebms_core::encoding::decode_text(&b)
@@ -630,7 +633,7 @@ pub fn custom_offsets(path: &Path) -> Vec<CustomOffset> {
 }
 
 pub fn custom_options(path: &Path, skins_root: &Path) -> Vec<CustomOption> {
-    let Ok(b) = vfs::read(path) else {
+    let Ok(b) = read_text(path) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -713,7 +716,7 @@ fn theme_file(skin: &Path, skins_root: &Path, raw: &str) -> Option<PathBuf> {
 
 /// Read only the header: (type, name).
 pub fn header(path: &Path) -> Option<(SkinType, String)> {
-    let b = vfs::read(path).ok()?;
+    let b = read_text(path).ok()?;
     let text = vibebms_core::encoding::decode_text(&b);
     text.lines()
         .find(|l| l.to_ascii_uppercase().starts_with("#INFORMATION"))
@@ -784,11 +787,34 @@ pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
     let mut files = Vec::new();
     walk(dir, 0, &mut files);
     files.sort();
-    files
-        .into_iter()
-        .filter_map(|p| super::header(&p, dir).map(|(t, n)| (p, t, n)))
-        .collect()
+    // a Lua skin runs to say what it is: once those of a listing have
+    // taken `LIST_TIME`, the ones not read before wait for the next
+    let mut spent = std::time::Duration::ZERO;
+    let mut found = Vec::new();
+    for p in files {
+        let lua = p
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("luaskin"));
+        let runs = lua && super::header_read(&p).is_none();
+        if runs && spent >= LIST_TIME {
+            continue;
+        }
+        let start = crate::platform::Instant::now();
+        let header = super::header(&p, dir);
+        if runs {
+            spent += start.elapsed();
+        }
+        found.extend(header.map(|(t, n)| (p, t, n)));
+    }
+    found
 }
+
+/// Time a listing of the skins gives Lua skins to say what they are (a
+/// folder of skins that take long to); the rest come with a later one.
+#[cfg(not(test))]
+const LIST_TIME: std::time::Duration = std::time::Duration::from_secs(4);
+#[cfg(test)]
+const LIST_TIME: std::time::Duration = super::script::HEADER_TIME;
 
 #[cfg(test)]
 mod tests;

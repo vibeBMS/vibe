@@ -115,7 +115,7 @@ impl Loader<'_> {
             "#INCLUDE" => {
                 if self.depth < 8 {
                     let p = self.path(s1);
-                    if let Ok(b) = vfs::read(&p) {
+                    if let Some(b) = self.includes.read(&p) {
                         self.depth += 1;
                         for l in vibebms_core::encoding::decode_text(&b).lines() {
                             self.line(l);
@@ -373,7 +373,7 @@ impl Loader<'_> {
                 self.cur = None;
                 if let Some(s) = src(&v, &self.images) {
                     let parts = if v[13] > 0 {
-                        v[13] as usize
+                        gauge_parts(v[13])
                     } else if self.mode() == vibebms_core::PlayMode::Popn9K {
                         24
                     } else {
@@ -619,7 +619,7 @@ impl Loader<'_> {
             "#SRC_TIMING_1P" => {
                 self.push(Kind::Graph(Graph::Visualizer(VisualizerGraph {
                     hit_error: false,
-                    range_ms: v[6].max(1) as f32,
+                    range_ms: visualizer_range(v[6]),
                     colors: colors(
                         f,
                         8,
@@ -638,7 +638,7 @@ impl Loader<'_> {
             }
             "#SRC_TIMINGCHART_1P" => {
                 self.push(Kind::Graph(Graph::Timing(TimingGraph {
-                    bins: v[4].max(3),
+                    bins: timing_bins(v[4]),
                     colors: Some(colors(
                         f,
                         7,
