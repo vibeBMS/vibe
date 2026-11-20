@@ -28,8 +28,12 @@
 "Download failed: {url}" = "Download failed: {url}"
 
 # browser/android.rs
+"Save this download?" = "Save this download?"
+"Don't save" = "Don't save"
 "Could not open a browser" = "Could not open a browser"
 "Downloading {name}…" = "Downloading {name}…"
+"One download at a time: {name} was not started" = "One download at a time: {name} was not started"
+"{name} is larger than {gb} GB: not kept" = "{name} is larger than {gb} GB: not kept"
 "Now the chart: download it from this page" = "Now the chart: download it from this page"
 
 # browser/imports.rs
@@ -38,6 +42,8 @@
 
 # browser/webview.rs
 "download" = "download"
+"from {host}" = "from {host}"
+"OK saves it and brings it into your library. If the page does not start it again by itself, press its download button once more." = "OK saves it and brings it into your library. If the page does not start it again by itself, press its download button once more."
 
 # hosts.rs
 """
