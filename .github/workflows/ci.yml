@@ -97,6 +97,7 @@ jobs:
       key-web: ${{ steps.pins.outputs.key-web }}
       key-macos: ${{ steps.pins.outputs.key-macos }}
       key-windows: ${{ steps.pins.outputs.key-windows }}
+      key-android: ${{ steps.pins.outputs.key-android }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -121,6 +122,7 @@ jobs:
             echo "key-web=$(key "$WEB_IMAGE" "$UBUNTU_SNAPSHOT" "$WEB_PACKAGES")"
             echo "key-macos=$(key "$MACOS_RUNNER" "$XCODE_VERSION")"
             echo "key-windows=$(key "$WINDOWS_RUNNER" "$MSVC_COMPONENT" "$WINDOWS_SDK")"
+            echo "key-android=$(key "$NDK_VERSION" "$CARGO_NDK_VERSION")"
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
@@ -156,6 +158,7 @@ jobs:
   # before the release builds; iOS needs a Mac: its build job covers it
   cross-check:
     name: cross-check (wasm32, android)
+    needs: pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -163,7 +166,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown,aarch64-linux-android
           components: clippy
-          cache-key: cross-check
+          cache-key: cross-check-${{ needs.pins.outputs.key-android }}
           stamp: "false"
       # Lua is compiled from C for the web: clang with the WebAssembly target
       - run: clang --version
@@ -521,7 +524,7 @@ jobs:
 
   android:
     name: build android (experimental)
-    needs: test
+    needs: [test, pins]
     runs-on: ubuntu-latest
     outputs:
       # "repository" (ANDROID_KEYSTORE) or "throwaway": the nightly job
@@ -533,6 +536,7 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           targets: aarch64-linux-android,x86_64-linux-android
+          cache-key: android-${{ needs.pins.outputs.key-android }}
       # the NDK, cargo-ndk, the JDK and Gradle of tools/repro.env
       - uses: ./.github/actions/android-setup
       # release APKs must be signed: with the repository's key when its
@@ -577,7 +581,7 @@ jobs:
   # run) and, for a push to the default branch, the rolling nightly release
   nightly:
     name: downloads & nightly
-    needs: [build-linux, build-windows, build-linux-portable, macos, android, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, android, ios, web]
     if: always()
     runs-on: ubuntu-latest
     env:
