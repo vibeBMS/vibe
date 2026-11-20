@@ -8,7 +8,11 @@
 #               version the build reports (also in latest.json and builds.json)
 # <channel>     nightly (the default)
 # <artifact>    linux-x64-portable (the default), linux-x64, web, or on an arm64
-#               machine linux-arm64-portable, linux-arm64
+#               machine linux-arm64-portable, linux-arm64; or macos-dmg: the
+#               .dmg of the macOS app's zip (tools/package_dmg.sh), which is
+#               REPRO_APP_ZIP or, while the nightly release is this commit's,
+#               the release's vibebms-macos-universal.app.zip (the app itself
+#               is built on macOS: the Reproducible builds workflow)
 #
 # It builds the commit's files (git archive, from this clone; fetched from
 # origin if missing) in the container image tools/repro.env pins, with that
@@ -18,7 +22,11 @@
 # It prints the SHA-256 of each file, then looks them up in the nightly
 # release: builds.json (the executables of every nightly of the last 90 days)
 # and, when the release is still this commit's, its files. It exits 1 when a
-# hash differs.
+# hash differs. An unsigned APK (vibeBMS-unsigned.apk, from the Reproducible
+# builds workflow) is compared whole: the release's signature is copied onto it
+# (apksigcopier, tools/apksigcopier.txt: from PATH, else installed in a venv)
+# and the result must be the release's vibeBMS.apk byte for byte, which
+# apksigner then verifies (when the Android SDK's build-tools are there).
 #
 # Needs git, Docker (DOCKER=podman for Podman), python3 and the network.
 # REPRO_OUT: where the files go (default ./repro-out/<artifact>). These only
@@ -52,11 +60,20 @@ compare() {
   curl -fsSL --retry 3 ${auth[@]+"${auth[@]}"} -o "$tmp/release.json" \
     "https://api.github.com/repos/$repo/releases/tags/nightly" || echo '{}' > "$tmp/release.json"
   local rc=0
-  if python3 - "$out/SHA256SUMS" "$version" "$commit" "$tmp/builds.json" "$tmp/release.json" <<'PY'
+  # the unsigned APK with the release's signature (when the release is this
+  # commit's): its hash goes in with the others, as vibeBMS.apk
+  : > "$tmp/extra.sums"
+  if [ -f "$out/vibeBMS-unsigned.apk" ] && [ -n "$commit" ] &&
+    [ "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("target_commitish", ""))' "$tmp/release.json" 2>/dev/null)" = "$commit" ] &&
+    curl -fsSL --retry 3 -o "$tmp/release.apk" "https://github.com/$repo/releases/download/nightly/vibeBMS.apk"; then
+    signed_apk "$out/vibeBMS-unsigned.apk" "$tmp/release.apk" "$tmp/vibeBMS.apk" "$tmp" || rc=1
+    [ ! -f "$tmp/vibeBMS.apk" ] || (cd "$tmp" && sha256sum vibeBMS.apk) >> "$tmp/extra.sums"
+  fi
+  if python3 - "$out/SHA256SUMS" "$version" "$commit" "$tmp/builds.json" "$tmp/release.json" "$tmp/extra.sums" <<'PY'
 import json, sys
-sums, version, commit, builds, release = sys.argv[1:]
+sums, version, commit, builds, release, extra = sys.argv[1:]
 ours = {}
-for line in open(sums):
+for line in [*open(sums), *open(extra)]:
     # ("<sha256>  <name>"; "<sha256> *<name>" from Git for Windows' sha256sum)
     h, name = line.rstrip("\r\n")[:64], line.rstrip("\r\n")[66:]
     ours[name] = h
@@ -81,9 +98,11 @@ print("nightly release: " + ("is this commit" if assets else "is another commit"
 bad = compared = 0
 for name, h in ours.items():
     theirs = known.get(name) or assets.get(name)
-    if name.endswith(".apk"):
-        # signed: the key's signature differs; its files are compared
-        theirs, note = None, "signed (its files are compared)"
+    if name == "vibeBMS.apk":
+        note = "the release's signature copied onto vibeBMS-unsigned.apk"
+    elif name.endswith("-unsigned.apk"):
+        # (the release has it signed: vibeBMS.apk above, when it is this commit's)
+        theirs, note = None, "unsigned: compared as vibeBMS.apk with the release's signature"
     else:
         note = "not published"
     if theirs is None:
@@ -91,7 +110,7 @@ for name, h in ours.items():
         continue
     compared += 1
     if theirs == h:
-        print(f"  {name}: {h}  same as the release")
+        print(f"  {name}: {h}  same as the release" + (f" ({note})" if name == "vibeBMS.apk" else ""))
     else:
         bad += 1
         print(f"  {name}: {h}  DIFFERS: the release has {theirs}")
@@ -99,9 +118,44 @@ if not compared:
     print("nothing to compare: the release has neither this build nor its files")
 sys.exit(1 if bad else 0)
 PY
-  then :; else rc=$?; fi
+  then :; else rc=1; fi
   rm -rf "$tmp"
   return "$rc"
+}
+
+# signed_apk <unsigned apk> <signed apk> <out apk> <tmp dir>: the signature of
+# <signed apk> copied onto <unsigned apk>, as F-Droid checks a reproducible
+# APK (apksigcopier), then verified by apksigner when there is one
+signed_apk() {
+  local unsigned="$1" signed="$2" result="$3" tmp="$4" copier apksigner
+  copier="$(command -v apksigcopier || true)"
+  if [ -z "$copier" ]; then
+    if ! { python3 -m venv "$tmp/apksigcopier" &&
+      "$tmp/apksigcopier/bin/pip" --disable-pip-version-check install -q --require-hashes --only-binary :all: \
+        -r "$here/apksigcopier.txt"; }; then
+      echo "apksigcopier could not be installed (tools/apksigcopier.txt)" >&2
+      return 1
+    fi
+    copier="$tmp/apksigcopier/bin/apksigcopier"
+  fi
+  "$copier" copy "$signed" "$unsigned" "$result" ||
+    { echo "the release's signature could not be copied onto $unsigned" >&2; return 1; }
+  # the pinned build-tools' apksigner, else the newest the SDK has, else PATH's
+  local sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" bt=""
+  if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
+    bt="$(. "$here/repro.env"; [ -x "$sdk/build-tools/$BUILD_TOOLS_VERSION/apksigner" ] && echo "$sdk/build-tools/$BUILD_TOOLS_VERSION")" ||
+      bt="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 | sort -V | tail -1)"
+  fi
+  apksigner="${bt:+$bt/apksigner}"
+  [ -n "$apksigner" ] && [ -x "$apksigner" ] || apksigner="$(command -v apksigner || true)"
+  if [ -n "$apksigner" ]; then
+    echo "apksigner verify ($apksigner) of vibeBMS.apk, the release's signature on the rebuilt APK:"
+    "$apksigner" verify -v --print-certs "$result" 2> /dev/null |
+      grep -E '^(Verifies|Verified using v[0-9.]+ scheme .*: true|Number of signers|(Signer #1|V[0-9.]+ Signer): certificate (DN|SHA-256 digest))' ||
+      { echo "apksigner: vibeBMS.apk does not verify" >&2; return 1; }
+  else
+    echo "(no apksigner: the copied signature is not verified; the hash comparison below still holds)"
+  fi
 }
 
 if [ "${1:-}" = compare ]; then
@@ -138,7 +192,11 @@ case "$artifact" in
   linux-x64) image="${LINUX_IMAGE_X64:-}" platform=linux/amd64 triple=x86_64-unknown-linux-gnu ;;
   linux-arm64) image="${LINUX_IMAGE_ARM64:-}" platform=linux/arm64 triple=aarch64-unknown-linux-gnu ;;
   web) image="$WEB_IMAGE" platform=linux/amd64 triple=wasm32-unknown-unknown ;;
-  *) die "$artifact cannot be rebuilt here: linux-x64-portable, linux-arm64-portable, linux-x64, linux-arm64 or web (the others: the Reproducible builds workflow)" ;;
+  macos-dmg)
+    [ -x "$src/tools/package_dmg.sh" ] || die "$sha made its .dmg with hdiutil (no tools/package_dmg.sh): it cannot be made again"
+    image="$LINUX_IMAGE_X64" platform=linux/amd64 triple=
+    ;;
+  *) die "$artifact cannot be rebuilt here: linux-x64-portable, linux-arm64-portable, linux-x64, linux-arm64, web or macos-dmg (the others: the Reproducible builds workflow)" ;;
 esac
 [ -n "$image" ] || die "$sha built $artifact on a runner image, not in a container: the Reproducible builds workflow rebuilds it"
 case "$platform:$(uname -m)" in
@@ -149,6 +207,19 @@ out="${REPRO_OUT:-$PWD/repro-out/$artifact}"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 rm -f "$out/SHA256SUMS" "$out/build.txt"
+# the .dmg's input: the app's zip of that build
+if [ "$artifact" = macos-dmg ]; then
+  if [ -n "${REPRO_APP_ZIP:-}" ]; then
+    cp "$REPRO_APP_ZIP" "$out/.app.zip"
+  else
+    rrepo="${REPRO_REPO:-$(sed -n 's|^repository = "https://github.com/\(.*\)"$|\1|p' "$src/Cargo.toml" | head -1)}"
+    target="$(curl -fsSL --retry 3 "https://api.github.com/repos/$rrepo/releases/tags/nightly" |
+      python3 -c 'import json, sys; print(json.load(sys.stdin).get("target_commitish", ""))')"
+    [ "$target" = "$sha" ] ||
+      die "the nightly release is not $sha's: give its app's zip as REPRO_APP_ZIP (the Reproducible builds workflow rebuilds it on macOS)"
+    curl -fsSL --retry 3 -o "$out/.app.zip" "https://github.com/$rrepo/releases/download/nightly/vibebms-macos-universal.app.zip"
+  fi
+fi
 
 # the version CI gave it, and the commit's time
 (cd "$src" && VIBEBMS_CHANNEL="$channel" GITHUB_ENV="" tools/ci_version.sh "$run" "$sha" > "$work/version.env")
@@ -166,7 +237,21 @@ trap '"'"'chown -R "$HOST_UID:$HOST_GID" "$REPRO_PATH" /out'"'"' EXIT
 mkdir -p "$HOME"
 cd "$REPRO_PATH"
 . /out/.version.env
-tools/build_deps.sh "$ARTIFACT"
+tools/build_deps.sh "$( [ "$ARTIFACT" = macos-dmg ] && echo dmg || echo "$ARTIFACT")"
+# the .dmg: packaged from the app zip, nothing compiled
+if [ "$ARTIFACT" = macos-dmg ]; then
+  tools/package_dmg.sh /out/.app.zip /out
+  rm -f /out/.app.zip /out/.version.env
+  (cd /out && sha256sum vibeBMS-macos-universal.dmg > SHA256SUMS)
+  . tools/repro.env
+  {
+    echo "artifact=$ARTIFACT"
+    echo "version=$VIBEBMS_VERSION"
+    echo "commit=$VIBEBMS_COMMIT"
+    echo "toolchain=hfsprogs $(dpkg-query -W -f "\${Version}" hfsprogs), libdmg-hfsplus $LIBDMG_HFSPLUS_COMMIT"
+  } > /out/build.txt
+  exit 0
+fi
 # Rust: rustup, then the toolchain rust-toolchain.toml names
 curl --proto "=https" --tlsv1.2 -fsSL --retry 3 https://sh.rustup.rs |
   sh -s -- -y -q --profile minimal --default-toolchain none --no-modify-path

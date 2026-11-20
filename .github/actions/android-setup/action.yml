@@ -1,14 +1,15 @@
 name: Android setup
 description: >-
   The pinned Android build tools of tools/repro.env: the NDK (ANDROID_NDK_HOME),
-  cargo-ndk and, for the APK, the JDK and Gradle.
+  cargo-ndk and, for the APK, the JDK, Gradle, the build-tools (apksigner,
+  zipalign) and apksigcopier (tools/apksigcopier.txt).
 
 inputs:
   path:
     description: The repository's folder (its tools/repro.env)
     default: "."
   java:
-    description: "true: the JDK and Gradle too (the APK)"
+    description: "true: the JDK, Gradle, the build-tools and apksigcopier too (the APK)"
     default: "true"
 
 runs:
@@ -30,6 +31,24 @@ runs:
         fi
         echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
         cargo install cargo-ndk --locked --version "$CARGO_NDK_VERSION"
+    # apksigner (which signs the APK) and zipalign of the pinned build-tools,
+    # and apksigcopier (pinned by SHA-256), which checks that the release's
+    # signature copied onto the unsigned APK gives the signed one
+    - if: inputs.java == 'true'
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        . tools/repro.env
+        if [ ! -x "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner" ]; then
+          echo "installing build-tools $BUILD_TOOLS_VERSION"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;$BUILD_TOOLS_VERSION" > /dev/null
+        fi
+        # (only its command on PATH, not the venv's python)
+        python3 -m venv "$RUNNER_TEMP/apksigcopier"
+        "$RUNNER_TEMP/apksigcopier/bin/pip" install -q --require-hashes --only-binary :all: -r tools/apksigcopier.txt
+        mkdir -p "$RUNNER_TEMP/apksigcopier/path"
+        ln -sf ../bin/apksigcopier "$RUNNER_TEMP/apksigcopier/path/apksigcopier"
+        echo "$RUNNER_TEMP/apksigcopier/path" >> "$GITHUB_PATH"
     - if: inputs.java == 'true'
       uses: actions/setup-java@v6
       with:

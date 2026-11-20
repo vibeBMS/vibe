@@ -12,17 +12,21 @@
 # Ubuntu 22.04, as CI packages them. The others build with
 # tools/build_release.sh on the runner image the commit's tools/repro.env
 # names, with its Xcode or MSVC toolset and Windows SDK; the macOS app is
-# packaged by tools/package_macos.sh. A difference fails the run and
-# diffoscope's report of it is attached.
+# packaged by tools/package_macos.sh, and its .dmg made from the app's zip on
+# Linux (tools/reproduce.sh macos-dmg, the dmg job). A difference fails the
+# run and diffoscope's report of it is attached.
 #
 # Against the release: builds.json has the executables' hashes of every
 # nightly of the last 90 days (the macOS app's executable too); the release's
-# own files (the web zip, the Flatpaks, the macOS app's zip, the .ipa) are
-# compared while the nightly release is still the commit's. The APK is signed
-# (here with a throwaway debug key) and the .dmg is not reproducible (hdiutil
-# writes times and IDs), so the files in them are compared (the files of the
-# app's zip and of the .ipa are listed too, to show which one differs); the
-# Android library is in builds.json.
+# own files (the web zip, the Flatpaks, the macOS app's zip and .dmg, the
+# .ipa, the APK) are compared while the nightly release is still the commit's.
+# The APK is rebuilt unsigned (a rebuild has no key): a and b are compared
+# whole, and against the release it is compared with the release's signature
+# copied onto it (apksigcopier), which apksigner then verifies. The files in
+# the APK, the app's zip and the .ipa are listed too, to show which one
+# differs; the Android library is in builds.json. (A commit from before the
+# .dmg was made on Linux has its .dmg's files compared, one from before the
+# APK was built unsigned its APK's files.)
 name: Reproducible builds
 
 on:
@@ -246,8 +250,9 @@ jobs:
           eval "$(GITHUB_ENV="" tools/ci_version.sh "$RUN" "$COMMIT")"
           tools/build_release.sh "${{ matrix.artifact }}" "$OUT"
           sha() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
-          # the macOS app, as CI packages it: its zip, and the files in the
-          # zip and in the .dmg (the .dmg itself is not reproducible)
+          # the macOS app, as CI packages it: its zip and the files in it (the
+          # .dmg: the dmg job; a commit whose tools/package_macos.sh still made
+          # it with hdiutil, which is not reproducible: the files in it)
           if [ "${{ matrix.artifact }}" = macos ]; then
             pkg="$RUNNER_TEMP/macos"
             tools/package_macos.sh "$OUT/vibebms-macos-arm64" "$OUT/vibebms-macos-x64" "$pkg"
@@ -256,7 +261,9 @@ jobs:
               cd "$OUT"
               sha vibebms-macos-universal.app.zip
               "$DIR/tools/build_release.sh" entries vibebms-macos-universal.app.zip
-              "$DIR/tools/build_release.sh" entries "$pkg/vibeBMS-macos-universal.dmg"
+              if [ -f "$pkg/vibeBMS-macos-universal.dmg" ]; then
+                "$DIR/tools/build_release.sh" entries "$pkg/vibeBMS-macos-universal.dmg"
+              fi
             ) >> "$OUT/SHA256SUMS"
           fi
 
@@ -278,9 +285,67 @@ jobs:
           path: out
           retention-days: 7
 
+  # the macOS .dmg of each build's app zip (a, b), as CI's macos-dmg job makes
+  # it: on Linux, in the pinned image (tools/reproduce.sh macos-dmg); added to
+  # that build's files
+  dmg:
+    name: macos-dmg (${{ matrix.variant }})
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(format(' {0} ', needs.plan.outputs.artifacts), ' macos ') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { variant: a, os: ubuntu-latest }
+          - { variant: b, os: ubuntu-24.04 }
+    runs-on: ${{ matrix.os }}
+    env:
+      COMMIT: ${{ needs.plan.outputs.commit }}
+      RUN: ${{ needs.plan.outputs.run }}
+      VIBEBMS_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          path: src
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: repro-macos-${{ matrix.variant }}
+          path: out
+      - id: dmg
+        name: the .dmg (tools/reproduce.sh macos-dmg)
+        run: |
+          if [ ! -x src/tools/package_dmg.sh ]; then
+            echo "$COMMIT made its .dmg with hdiutil: the files in it are compared (the build job)"
+            exit 0
+          fi
+          dir="$PWD/src"
+          if [ "${{ matrix.variant }}" = b ]; then
+            # another folder, umask, and folder and home in the container
+            dir="$RUNNER_TEMP/elsewhere/deeper/vibe-b"
+            mkdir -p "$(dirname "$dir")"
+            cp -a src "$dir"
+            umask 0002
+            export REPRO_PATH=/build/elsewhere/src REPRO_HOME=/opt/rebuild
+          fi
+          REPRO_COMPARE=0 REPRO_APP_ZIP="$PWD/out/vibebms-macos-universal.app.zip" REPRO_OUT="$RUNNER_TEMP/dmg" \
+            "$dir/tools/reproduce.sh" "$COMMIT" "$RUN" "$VIBEBMS_CHANNEL" macos-dmg
+          cp "$RUNNER_TEMP/dmg/vibeBMS-macos-universal.dmg" out/
+          cat "$RUNNER_TEMP/dmg/SHA256SUMS" >> out/SHA256SUMS
+          sed -n 's/^toolchain=/dmg=/p; s/^image=/dmg image=/p' "$RUNNER_TEMP/dmg/build.txt" >> out/build.txt
+          echo "made=true" >> "$GITHUB_OUTPUT"
+      - if: steps.dmg.outputs.made == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-macos-${{ matrix.variant }}
+          path: out
+          retention-days: 7
+          overwrite: true
+
   compare:
     name: compare
-    needs: [plan, build]
+    needs: [plan, build, dmg]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -302,6 +367,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPRO_REPO: ${{ github.repository }}
           ARTIFACTS: ${{ needs.plan.outputs.artifacts }}
+          DMG_RESULT: ${{ needs.dmg.result }}
         run: |
           export LC_ALL=C
           fail=0
@@ -322,10 +388,11 @@ jobs:
               continue
             fi
             # the files whose hash differs or that only one build has ("<sha256>
-            # <name>", names may have spaces; an APK is signed by each build's
-            # own debug key: its files are compared)
+            # <name>", names may have spaces; the unsigned APK is compared
+            # whole, but an older commit signed its APK with each build's own
+            # debug key: its files are compared)
             awk -v x="$x" '
-              /\.apk$/ { next }
+              /\.apk$/ && !/-unsigned\.apk$/ { next }
               { h = substr($0, 1, 64); n = substr($0, 67) }
               NR == FNR { a[n] = h; next }
               { if (a[n] != h) print x "\t" n; delete a[n] }
@@ -339,7 +406,7 @@ jobs:
               same="same"
             fi
             # what it was built with (build.txt: Rust, the C toolchain, the image)
-            with="$(sed -n 's/^\(rustc\|toolchain\|image\)=//p' "$a/build.txt" | sed 's/|/\\|/g' | paste -sd ';' - | sed 's/;/; /g')"
+            with="$(sed -n 's/^\(rustc\|toolchain\|image\)=//p; s/^dmg=/.dmg: /p' "$a/build.txt" | sed 's/|/\\|/g' | paste -sd ';' - | sed 's/;/; /g')"
             echo "== $x against the release"
             if src/tools/reproduce.sh compare "$a" | tee compare.txt; then
               if grep -q 'same as the release' compare.txt; then rel="same"; else rel="not published"; fi
@@ -349,6 +416,11 @@ jobs:
             fi
             echo "| $x | $same | $rel | $with |" >> "$GITHUB_STEP_SUMMARY"
           done
+          # (the .dmg is added to the macos rows' files by the dmg job)
+          if [ "$DMG_RESULT" = failure ]; then
+            echo "| macos .dmg | a build failed | | |" >> "$GITHUB_STEP_SUMMARY"
+            fail=1
+          fi
           echo "fail=$fail" >> "$GITHUB_OUTPUT"
           [ -s differ.txt ] && echo "differ=true" >> "$GITHUB_OUTPUT"
           cat differ.txt
@@ -365,8 +437,10 @@ jobs:
                 printf '\n#### %s: %s\nIn the .dmg: see the same file in the app zip.\n' "$x" "$f" >> "$GITHUB_STEP_SUMMARY"
                 continue
                 ;;
-              */*) # a file in an APK (signed by different keys) or a zip: that file
+              */*) # a file in an APK or a zip: that file
                 pkg="${f%%/*}" inner="${f#*/}"
+                # (the files of an unsigned APK are listed as the signed one's)
+                [ -f "art/repro-$x-a/$pkg" ] || pkg="${pkg%.apk}-unsigned.apk"
                 mkdir -p "inner/a" "inner/b"
                 a="inner/a/$(basename "$inner")" b="inner/b/$(basename "$inner")"
                 unzip -p "art/repro-$x-a/$pkg" "$inner" > "$a" || true

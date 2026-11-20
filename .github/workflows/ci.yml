@@ -99,6 +99,7 @@ jobs:
       key-macos: ${{ steps.pins.outputs.key-macos }}
       key-windows: ${{ steps.pins.outputs.key-windows }}
       key-android: ${{ steps.pins.outputs.key-android }}
+      source-date-epoch: ${{ steps.pins.outputs.source-date-epoch }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -124,6 +125,8 @@ jobs:
             echo "key-macos=$(key "$MACOS_RUNNER" "$XCODE_VERSION")"
             echo "key-windows=$(key "$WINDOWS_RUNNER" "$MSVC_COMPONENT" "$WINDOWS_SDK")"
             echo "key-android=$(key "$NDK_VERSION" "$CARGO_NDK_VERSION")"
+            # the commit's time, for the jobs whose checkout has no git (macos-dmg)
+            echo "source-date-epoch=$(git log -1 --format=%ct)"
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
@@ -344,11 +347,11 @@ jobs:
 
   # macOS: both architectures on one runner (x86_64 cross-built on the arm64
   # one), then the app: one universal executable in an ad-hoc signed bundle
-  # (tools/package_macos.sh), as a .dmg for people and a .zip for the
-  # self-update. One job, not three: macOS runners are few, and jobs that
-  # waited too long for one were cancelled. On the pinned runner image with
-  # its pinned Xcode (tools/repro.env; tools/build_release.sh and
-  # tools/package_macos.sh select it and stop if the image lacks it).
+  # (tools/package_macos.sh), as a .zip for the self-update; macos-dmg makes
+  # the .dmg for people from that zip. One job, not three: macOS runners are
+  # few, and jobs that waited too long for one were cancelled. On the pinned
+  # runner image with its pinned Xcode (tools/repro.env; tools/build_release.sh
+  # and tools/package_macos.sh select it and stop if the image lacks it).
   macos:
     name: build macOS (arm64, x64, universal app)
     needs: [test, pins]
@@ -387,9 +390,79 @@ jobs:
         with:
           name: vibeBMS-macos-universal
           path: |
-            out/vibeBMS-macos-universal.dmg
             out/vibebms-macos-universal.app.zip
             out/version.txt
+
+  # the .dmg of the app's zip (tools/package_dmg.sh: an HFS+ volume with the
+  # app and a link to /Applications, made with hfsprogs and libdmg-hfsplus,
+  # its times and IDs pinned), on Linux in the pinned image with the pinned
+  # packages and libdmg-hfsplus commit (tools/repro.env, tools/build_deps.sh
+  # dmg): the same bytes from the same zip anywhere (tools/reproduce.sh makes
+  # it again); macos-dmg-check then mounts it on macOS
+  macos-dmg:
+    name: build macOS .dmg
+    needs: [pins, macos]
+    runs-on: ubuntu-latest
+    container: ${{ needs.pins.outputs.linux-x64 }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # (the image has no git yet: the checkout is the commit's files)
+      - uses: actions/checkout@v7
+      - run: tools/build_deps.sh dmg
+      - uses: actions/download-artifact@v8
+        with:
+          name: vibeBMS-macos-universal
+          path: app
+      - run: tools/package_dmg.sh app/vibebms-macos-universal.app.zip out
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.pins.outputs.source-date-epoch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vibeBMS-macos-dmg
+          path: out/vibeBMS-macos-universal.dmg
+
+  # the .dmg as people use it, on macOS: hdiutil verifies its checksums and
+  # mounts it; the app in it is the zip's, its signature holds, and copied
+  # out of it (to an Applications folder) it starts
+  macos-dmg-check:
+    name: check macOS .dmg
+    needs: [pins, macos-dmg]
+    runs-on: ${{ needs.pins.outputs.macos }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: vibeBMS-macos-dmg
+          path: dmg
+      - uses: actions/download-artifact@v8
+        with:
+          name: vibeBMS-macos-universal
+          path: app
+      - run: |
+          set -x
+          dmg=dmg/vibeBMS-macos-universal.dmg
+          hdiutil imageinfo "$dmg" | grep -E '^(Format|Checksum Type|Partitions):|partition-name|Apple_HFS' || true
+          hdiutil verify "$dmg"
+          mnt="$RUNNER_TEMP/mnt"
+          mkdir "$mnt"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg"
+          ls -la "$mnt"
+          diskutil info "$mnt" | grep -E 'Volume Name|File System Personality|Volume UUID' || true
+          [ "$(readlink "$mnt/Applications")" = /Applications ]
+          app="$(find "$mnt" -maxdepth 1 -name '*.app')"
+          # the same app as the zip (codesign checks every file against its seal)
+          mkdir zip && ditto -x -k app/vibebms-macos-universal.app.zip zip
+          diff -r "zip/$(basename "$app")" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          # installed as people do: copied out of the volume
+          mkdir "$RUNNER_TEMP/Applications"
+          ditto "$app" "$RUNNER_TEMP/Applications/$(basename "$app")"
+          hdiutil detach "$mnt"
+          installed="$RUNNER_TEMP/Applications/$(basename "$app")"
+          codesign --verify --deep --strict --verbose=2 "$installed"
+          "$installed/Contents/MacOS/vibebms" --help > help.txt
+          head -5 help.txt
 
   # Linux without the download browser (no WebKitGTK / GTK), built against
   # glibc 2.28 in a manylinux_2_28 (AlmaLinux 8) container: it starts on
@@ -485,7 +558,7 @@ jobs:
   # replaces the whole site with the default branch's web build, once every
   # build of the commit has passed (the site and the nightly then agree)
   pages:
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, android, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, ios, web]
     if: ${{ !failure() && !cancelled() && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     permissions:
@@ -582,7 +655,7 @@ jobs:
   # run) and, for a push to the default branch, the rolling nightly release
   nightly:
     name: downloads & nightly
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, android, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, ios, web]
     if: always()
     runs-on: ubuntu-latest
     env:
@@ -652,9 +725,10 @@ jobs:
           for t in windows-x64 windows-arm64; do
             [ -f "art/vibeBMS-$t/vibebms.exe" ] && cp "art/vibeBMS-$t/vibebms.exe" "out/vibebms-$t.exe"
           done
-          for f in vibeBMS-macos-universal.dmg vibebms-macos-universal.app.zip; do
-            [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
-          done
+          f=vibebms-macos-universal.app.zip
+          [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
+          f=vibeBMS-macos-universal.dmg
+          [ -f "art/vibeBMS-macos-dmg/$f" ] && cp "art/vibeBMS-macos-dmg/$f" "out/$f"
           for a in x64 arm64; do
             f="vibeBMS-linux-$a.flatpak"
             [ -f "art/vibeBMS-linux-$a-flatpak/$f" ] && cp "art/vibeBMS-linux-$a-flatpak/$f" "out/$f"
