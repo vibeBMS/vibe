@@ -397,7 +397,8 @@ impl Downloads {
             self.notice = None;
             let downloads = ctx.paths.root.join("downloads");
             if let Some(file) = self.gate.borrow_mut().answer(yes, &downloads) {
-                self.imports.start(file, ctx.paths.root.join("bms"));
+                let songs = ctx.lib.songs.clone();
+                self.imports.start(file, ctx.paths.root.clone(), songs);
             }
             if let Some(w) = &self.window {
                 w.show(true);

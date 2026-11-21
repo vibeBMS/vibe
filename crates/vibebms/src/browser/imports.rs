@@ -2,8 +2,10 @@
 
 use crate::app::Ctx;
 use crate::import;
+use crate::library::Song;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
 pub type ImportResult = import::Outcome;
 
@@ -21,10 +23,13 @@ impl Default for Imports {
 }
 
 impl Imports {
-    pub fn start(&self, file: PathBuf, library: PathBuf) {
+    /// Bring `file` into the library below `<root>/bms`, whose charts are
+    /// `songs` (the bmseeker library of them is made on the import's
+    /// thread: it copies every chart's record).
+    pub fn start(&self, file: PathBuf, root: PathBuf, songs: Arc<Vec<Song>>) {
         let tx = self.tx.clone();
         crate::platform::spawn("import", move || {
-            let _ = tx.send(import::import(&file, &library));
+            let _ = tx.send(import::import(&file, &root, &songs));
         });
     }
 
