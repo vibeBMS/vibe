@@ -229,8 +229,11 @@ its branches) signs with a key made for the run.
 
 The key is kept away from the build. CI's `android` job builds the unsigned APK and has no secret: what runs there
 (cargo and every crate's build script, cargo-ndk, Gradle and its plugins) could read anything in the job. The
-`android-sign` job takes that APK as an artifact and signs it (`tools/build_release.sh sign`), with the JDK, the
-pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job
+`android-sign` job takes that APK as an artifact, checks it against the SHA-256 the `android` job gave as a job
+output (any job of the run can upload an artifact, but only that job sets its outputs), and signs it
+(`tools/build_release.sh sign`), with the JDK, the pinned build-tools and apksigcopier alone; the keystore exists for
+that one step. It gives the signed APK's SHA-256 as an output in turn: the `nightly` job checks the APK against it
+before it builds the F-Droid index or publishes anything. On the default branch that job
 and the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
 the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
 the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
@@ -344,15 +347,19 @@ The nightly release has a `latest.json` that the desktop executables read on sta
 }
 ```
 
-It has a part per channel: the `nightly` job writes `nightly` and keeps any other (a `stable` part is kept for the
-releases to come; nothing reads it). In a channel, `version` is the release's (the run that published it); `files`
-has an entry for each desktop executable in the release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`,
-`-arm64-portable`, `vibebms-macos-arm64`, `-x64`, `vibebms-macos-universal.app.zip`, `vibebms-windows-x64.exe`,
-`-arm64.exe`): the version it was built with, its SHA-256 and its size in bytes. Each desktop build job writes its
-`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `update-manifest` job reads it. A build that failed keeps
-its previous file in the release, so the job starts from the previous `latest.json` (`gh release download`) and
-replaces only the entries of the files it uploads: a file's version can be older than the release's. The `nightly`
-job publishes the `latest.json` that `update-manifest` made (and `sign-update` signed, below).
+It has a part per channel: the `update-manifest` job writes `nightly`. It keeps the other parts (a `stable` part, for
+the releases to come; nothing reads it yet) from the release's previous `latest.json`, but only when the repository
+has `tools/update_key.pub`, that file's signature (`latest.json.sig`) verifies with it (`ssh-keygen -Y verify`, as
+`verify-update` checks), and the part has the shape the builds read (a `version` string and `files`, each with a
+`version` string, a `sha256` of 64 hex digits and a `size` that is a positive whole number). Otherwise it keeps
+none. In a channel, `version` is the release's (the run that published it); `files` has an entry for each desktop
+executable in the release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`, `-arm64-portable`, `vibebms-macos-arm64`,
+`-x64`, `vibebms-macos-universal.app.zip`, `vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with,
+its SHA-256 and its size in bytes. Each desktop build job writes its
+`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `update-manifest` job reads it. The nightly is released
+only when every build passed, so every entry of `nightly` is this run's: nothing of the previous `nightly` part is
+kept, and the job fails if a build's file is missing. The `nightly` job publishes the `latest.json` that
+`update-manifest` made (and `sign-update` signed, below).
 
 An executable picks its own file by its OS and architecture, on Linux by whether it was built with the
 `browser` feature (the `-portable` builds are `--no-default-features`), and on macOS by whether it runs in the app
@@ -382,21 +389,30 @@ build that has the key takes the list only with a signature that matches.
   nightly's, in `release`) are never given it. Limit it to the default branch as `release` is (Android signing,
   above). Its public half is `tools/update_key.pub`, in the repository. There is one key and no second copy: CI
   alone has it.
-- The job `update-manifest` writes `latest.json`. It has no secret and only reads. The job `sign-update` runs in the
-  environment `update-signing`: it downloads `latest.json` as an artifact and runs
-  `ssh-keygen -Y sign -n vibebms-update` with the key, which exists for that step only. It runs nothing from the
-  repository (no checkout) and no action but the artifact ones. The job `verify-update`, which has no secret, then
-  checks the signature with `ssh-keygen -Y verify` against `tools/update_key.pub`. The `nightly` job (and `pages`)
-  waits for both: if signing or the check fails, nothing is published. If `tools/update_key.pub` is in the
+- The job `update-manifest` writes `latest.json`. It has no secret and only reads. It gives the file's SHA-256 as a
+  job output. The job `sign-update` runs in the environment `update-signing`: it downloads `latest.json` as an
+  artifact, checks it against that SHA-256 (with `sha256sum`, before the key is written), and runs
+  `ssh-keygen -Y sign -n vibebms-update` with the key, which exists for that step only. It gives the signature's
+  SHA-256 as a job output. It runs nothing from the repository (no checkout) and no action but the artifact ones.
+  The job `verify-update`, which has no secret, then checks both files against those SHA-256s, and the signature
+  with `ssh-keygen -Y verify` against `tools/update_key.pub`. The `nightly` job (and `pages`) waits for both: if
+  signing or the check fails, nothing is published. The `nightly` job checks the two files against the same
+  SHA-256s again, so it publishes the very files that were signed and checked. If `tools/update_key.pub` is in the
   repository but the secret is missing, the run fails and says so. The release then has `latest.json.sig` next to
   `latest.json` (the armoured SSH signature format, OpenSSH's `PROTOCOL.sshsig`).
 - build.rs reads `tools/update_key.pub` into the build (the build fails if the file is not one `ssh-ed25519` line).
   A build with the key downloads `latest.json` and `latest.json.sig` (each with a small size limit). It checks that
   the signature is one Ed25519 signature over SHA-512, made for the namespace `vibebms-update`, by the key it has,
   of the very bytes it then reads (`crates/vibebms/src/update/sig.rs`). If the signature is missing, unreadable or
-  does not match, the check offers no update and says so in `SETTINGS › SYSTEM` and the log. While a release is
-  being uploaded, the two files can be from different runs for a moment: that check offers nothing, and the next
-  check (the next start) finds them matching.
+  does not match, the check offers no update and says so in `SETTINGS › SYSTEM` and the log.
+- The `nightly` job uploads the other files first, then `latest.json.sig`, then `latest.json`. While it uploads, or
+  if the upload is cut off, a build sees one of these:
+  - the previous list and signature, while the files change under them: a build that already has the previous
+    nightly is offered nothing. An older build is offered the previous nightly; the file it downloads may already
+    be the new one, and then its SHA-256 does not match, so nothing is installed ("try later").
+  - the new signature beside the previous list: the signature does not match, so nothing is offered.
+  - the new list and signature: all of its files are already there.
+  A cut-off upload heals with the next good run. No case installs a file whose SHA-256 differs from the signed list.
 - Without `tools/update_key.pub` (until the key is made), `sign-update` and `verify-update` do nothing, the release
   has no `latest.json.sig`, and builds check only the SHA-256, as before.
 - The stable channel to come is a part of the same `latest.json`: the same file, the same key and signature.
@@ -405,6 +421,11 @@ What it does not protect against:
 - Someone who can change the default branch: CI builds what is there and signs it.
 - An old signed `latest.json` put back, with its signature: a build older than that list is offered the older
   nightly it names. A build newer than it is offered nothing (the run number only grows).
+- A job of the same run that runs foreign code (a crate's build script, a Gradle plugin, a package) replacing a
+  build's artifact before `update-manifest` reads it: the list then names that file. After that, a replaced file is
+  refused: the jobs that sign and publish take `latest.json`, its signature and the APK by their exact artifact
+  names and check each against the SHA-256 that the job that made it gave, and the `nightly` job checks each
+  executable against the list. The build jobs give no such SHA-256 of their own files yet.
 
 To make the key (once; on any machine with OpenSSH):
 ```sh
@@ -601,7 +622,9 @@ files only through `tools/build_release.sh`. Both are moved for you:
   changed, each to a value that looks like one; and
   `toolchain-pins/major` (a new runner label with its tools, a new major version), which waits for a person, as a
   Dependabot major update does. Each run makes both again from the default branch, and closes one whose pins are
-  current. It needs Settings › Actions › General › "Allow GitHub Actions to create and approve pull requests".
+  current. It takes as its own only an open pull request from this repository's branch that the workflow opened
+  (`github-actions`): a fork's pull request with a head branch of the same name is left alone. It needs Settings ›
+  Actions › General › "Allow GitHub Actions to create and approve pull requests".
 
 A runner image that no longer has the pinned Xcode, MSVC toolset or SDK stops those builds in CI, saying which pin
 and what the image has; the workflow's next run (or one started by hand) moves it. `tools/linux-arm64.lock` names the

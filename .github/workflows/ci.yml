@@ -614,6 +614,10 @@ jobs:
     name: build android (experimental)
     needs: [test, pins]
     runs-on: ubuntu-latest
+    outputs:
+      # the unsigned APK's SHA-256: android-sign signs only this file (any
+      # job of the run can upload an artifact, but only this job sets this)
+      sha256: ${{ steps.apk.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
@@ -625,6 +629,8 @@ jobs:
       # the Rust library into the Gradle project, then the APK (versionCode:
       # the run number; versionName: the version)
       - run: tools/build_release.sh android out
+      - id: apk
+        run: echo "sha256=$(sha256sum < out/vibeBMS-unsigned.apk | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       # (not named vibeBMS-*: it is no download, and the nightly job takes
       # the signed one)
       - uses: actions/upload-artifact@v7
@@ -655,6 +661,8 @@ jobs:
       # publishes the F-Droid repository only for the first, as an APK signed
       # by another key cannot update the installed one
       signing: ${{ steps.sign.outputs.signing }}
+      # the signed APK's SHA-256: the nightly job publishes only this file
+      sha256: ${{ steps.sign.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -677,7 +685,14 @@ jobs:
         env:
           KEYSTORE_B64: ${{ env.OWN_KEY == 'true' && secrets.ANDROID_KEYSTORE || '' }}
           KEYSTORE_PASSWORD: ${{ env.OWN_KEY == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          UNSIGNED_SHA256: ${{ needs.android.outputs.sha256 }}
         run: |
+          # the APK the android job built, not one another job uploaded
+          if [ ! -f unsigned/vibeBMS-unsigned.apk ] ||
+            [ "$(sha256sum < unsigned/vibeBMS-unsigned.apk | cut -d' ' -f1)" != "$UNSIGNED_SHA256" ]; then
+            echo "::error::the artifact android-unsigned is not the APK the android job built (its SHA-256 differs): nothing is signed"
+            exit 1
+          fi
           ks="$RUNNER_TEMP/release.keystore"
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > "$ks"
@@ -694,6 +709,7 @@ jobs:
           VIBEBMS_KEYSTORE="$ks" VIBEBMS_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" VIBEBMS_KEY_ALIAS="$alias" \
             tools/build_release.sh sign unsigned/vibeBMS-unsigned.apk out
           rm "$ks"
+          echo "sha256=$(sha256sum < out/vibeBMS.apk | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-android
@@ -701,10 +717,10 @@ jobs:
 
   # what the desktop executables' self-update reads (crates/vibebms/src/
   # update/, docs/BUILDING.md, "Self-update"): the release's version and, for
-  # each executable, the version it was built with, its SHA-256 and size. A
-  # build that failed keeps its previous file, so its entry is kept from the
-  # previous latest.json. Made before the nightly job so that sign-update
-  # signs what the nightly publishes; it has no secret and reads only.
+  # each executable, the version it was built with, its SHA-256 and size.
+  # The nightly is released only when every build passed, so every entry is
+  # this run's. Made before the nightly job so that sign-update signs what
+  # the nightly publishes; it has no secret and reads only.
   update-manifest:
     name: latest.json
     needs: [build-linux, build-windows, build-linux-portable, macos]
@@ -716,6 +732,10 @@ jobs:
       # "true" when the repository has tools/update_key.pub: the builds
       # check latest.json's signature with it, so it is signed
       signed: ${{ steps.manifest.outputs.signed }}
+      # latest.json's SHA-256: sign-update, verify-update and the nightly job
+      # take only this file (any job of the run can upload an artifact, but
+      # only this job sets this)
+      sha256: ${{ steps.manifest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -724,11 +744,14 @@ jobs:
             Cargo.toml
             tools/update_key.pub
           sparse-checkout-cone-mode: false
+      # (each artifact in a folder of its own: the step below takes only the
+      # files it names)
       - uses: actions/download-artifact@v8
         with:
           pattern: vibeBMS-*
           path: art
-      - id: manifest
+      - name: write latest.json
+        id: manifest
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -736,29 +759,32 @@ jobs:
           # the version the builds were given (tools/ci_version.sh)
           base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | sed 's/[-+].*//')"
           VERSION="$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}"
+          signed=false
+          [ -f tools/update_key.pub ] && signed=true
           {
             echo "base-version=$base"
             echo "version=$VERSION"
-            echo "signed=$([ -f tools/update_key.pub ] && echo true || echo false)"
+            echo "signed=$signed"
           } | tee -a "$GITHUB_OUTPUT"
-          # the executables, named as the nightly job's "files" step names them
+          # the executables, named as the nightly job's "files" step names them;
+          # this job runs only when every build passed, so each is there
           mkdir out
+          take() { # <artifact> <file> <name>
+            if [ ! -f "art/vibeBMS-$1/$2" ]; then
+              echo "::error::the artifact vibeBMS-$1 has no $2"
+              exit 1
+            fi
+            cp "art/vibeBMS-$1/$2" "out/$3"
+          }
           for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable macos-arm64 macos-x64; do
-            [ -f "art/vibeBMS-$t/vibebms" ] && cp "art/vibeBMS-$t/vibebms" "out/vibebms-$t"
+            take "$t" vibebms "vibebms-$t"
           done
           for t in windows-x64 windows-arm64; do
-            [ -f "art/vibeBMS-$t/vibebms.exe" ] && cp "art/vibeBMS-$t/vibebms.exe" "out/vibebms-$t.exe"
+            take "$t" vibebms.exe "vibebms-$t.exe"
           done
-          f=vibebms-macos-universal.app.zip
-          [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
-          mkdir -p prev
-          if ! gh release download nightly -p latest.json -D prev --clobber 2>/dev/null \
-            || ! jq -e 'type == "object"' prev/latest.json >/dev/null 2>&1; then
-            echo '{}' > prev/latest.json
-          fi
+          take macos-universal vibebms-macos-universal.app.zip vibebms-macos-universal.app.zip
           new='{}'
           for f in out/vibebms-*; do
-            [ -f "$f" ] || continue
             name="${f#out/}"
             t="${name#vibebms-}"
             t="${t%.exe}"
@@ -769,14 +795,37 @@ jobs:
               --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$f")" \
               '. + {($n): {version: $v, sha256: $sha, size: $size}}' <<< "$new")"
           done
-          # a part per channel: this job writes "nightly" and keeps the
-          # others ("stable", for the releases to come)
+          # a part per channel: this job writes "nightly". The others
+          # ("stable", for the releases to come) are kept from the release's
+          # latest.json only when its signature verifies with
+          # tools/update_key.pub (as verify-update checks it) and each has the
+          # shape the builds read; else there are none. What is kept is signed
+          # again, so nothing that this key did not sign before is kept.
+          mkdir -p prev
+          keep=false
+          if [ "$signed" = true ] && gh release download nightly -p latest.json -D prev --clobber 2>/dev/null &&
+            gh release download nightly -p latest.json.sig -D prev --clobber 2>/dev/null; then
+            allowed="$RUNNER_TEMP/allowed_signers"
+            printf 'vibebms-update namespaces="vibebms-update" %s\n' "$(cat tools/update_key.pub)" > "$allowed"
+            if ssh-keygen -Y verify -f "$allowed" -I vibebms-update -n vibebms-update \
+              -s prev/latest.json.sig < prev/latest.json && jq -e 'type == "object"' prev/latest.json > /dev/null; then
+              keep=true
+            fi
+          fi
+          [ "$keep" = true ] || echo "the release has no latest.json signed with tools/update_key.pub: no other channel is kept"
+          [ "$keep" = true ] || echo '{}' > prev/latest.json
           jq --arg version "$VERSION" --argjson new "$new" '
-            (if (.channels | type) == "object" then .channels else {} end) as $ch
-            | (($ch.nightly.files // .files) | if type == "object" then . else {} end) as $old
-            | {channels: ($ch + {nightly: {version: $version, files: ($old + $new)}})}
+            def entry: type == "object" and (.version | type) == "string"
+              and (.sha256 | type) == "string" and (.sha256 | test("^[0-9a-fA-F]{64}$"))
+              and (.size | type) == "number" and .size >= 1 and .size == (.size | floor) and .size < 9007199254740992;
+            def channel: type == "object" and (.version | type) == "string"
+              and (.files | type) == "object" and all(.files[]; entry);
+            (if (.channels | type) == "object" then .channels else {} end)
+            | with_entries(select(.key != "nightly" and (.value | channel))) as $kept
+            | {channels: ($kept + {nightly: {version: $version, files: $new}})}
           ' prev/latest.json > out/latest.json
           cat out/latest.json
+          echo "sha256=$(sha256sum < out/latest.json | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: update-manifest
@@ -789,7 +838,8 @@ jobs:
   # of the repository's: no checkout, no action but the artifacts' own, and
   # the runner's ssh-keygen. The key exists for the one step, and the
   # environment is this job's alone: no job that runs a script or a
-  # downloaded tool (the nightly's, in `release`) is given the key. Without
+  # downloaded tool (the nightly's, in `release`) is given the key. It signs
+  # only the latest.json whose SHA-256 update-manifest gave. Without
   # tools/update_key.pub in the repository it does nothing, and latest.json
   # is published unsigned, as the builds without a key expect.
   sign-update:
@@ -798,6 +848,10 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     environment: update-signing
+    outputs:
+      # latest.json.sig's SHA-256: verify-update checks this file, and the
+      # nightly job publishes only it
+      sha256: ${{ steps.sign.outputs.sha256 }}
     steps:
       - if: needs.update-manifest.outputs.signed == 'true'
         uses: actions/download-artifact@v8
@@ -805,13 +859,20 @@ jobs:
           name: update-manifest
           path: manifest
       - name: sign latest.json
+        id: sign
         env:
           SIGNED: ${{ needs.update-manifest.outputs.signed }}
+          MANIFEST_SHA256: ${{ needs.update-manifest.outputs.sha256 }}
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           if [ "$SIGNED" != true ]; then
             echo "the repository has no tools/update_key.pub: latest.json is published unsigned"
             exit 0
+          fi
+          if [ ! -f manifest/latest.json ] ||
+            [ "$(sha256sum < manifest/latest.json | cut -d' ' -f1)" != "$MANIFEST_SHA256" ]; then
+            echo "::error::the artifact update-manifest is not the latest.json the job update-manifest made (its SHA-256 differs): nothing is signed or published"
+            exit 1
           fi
           if [ -z "$UPDATE_SIGNING_KEY" ]; then
             echo "::error::tools/update_key.pub is in the repository, but the environment update-signing has no secret UPDATE_SIGNING_KEY (docs/BUILDING.md, \"Self-update\"): nothing is published"
@@ -823,6 +884,7 @@ jobs:
           (umask 077 && printf '%s\n' "$UPDATE_SIGNING_KEY" | tr -d '\r' > "$key")
           rm -f manifest/latest.json.sig
           ssh-keygen -q -Y sign -n vibebms-update -f "$key" manifest/latest.json < /dev/null
+          echo "sha256=$(sha256sum < manifest/latest.json.sig | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - if: needs.update-manifest.outputs.signed == 'true'
         uses: actions/upload-artifact@v7
         with:
@@ -833,7 +895,8 @@ jobs:
   # the signature checked, before anything is published, against the key
   # the builds have (tools/update_key.pub), in a job without the secret: a
   # key that is not the committed one's pair would publish a latest.json
-  # that no build takes
+  # that no build takes. The files checked are the ones update-manifest and
+  # sign-update made (their SHA-256 outputs), which the nightly job publishes.
   verify-update:
     name: check latest.json's signature
     needs: [update-manifest, sign-update]
@@ -848,15 +911,29 @@ jobs:
       - if: hashFiles('tools/update_key.pub') != ''
         uses: actions/download-artifact@v8
         with:
-          pattern: update-*
-          merge-multiple: true
+          name: update-manifest
+          path: manifest
+      - if: hashFiles('tools/update_key.pub') != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: update-signature
           path: manifest
       - name: check the signature
+        env:
+          MANIFEST_SHA256: ${{ needs.update-manifest.outputs.sha256 }}
+          SIGNATURE_SHA256: ${{ needs.sign-update.outputs.sha256 }}
         run: |
           if [ ! -f tools/update_key.pub ]; then
             echo "the repository has no tools/update_key.pub: latest.json is not signed"
             exit 0
           fi
+          for f in latest.json:"$MANIFEST_SHA256":update-manifest latest.json.sig:"$SIGNATURE_SHA256":sign-update; do
+            IFS=: read -r name sha job <<< "$f"
+            if [ ! -f "manifest/$name" ] || [ "$(sha256sum < "manifest/$name" | cut -d' ' -f1)" != "$sha" ]; then
+              echo "::error::$name is not the one the job $job made (its SHA-256 differs): nothing is published"
+              exit 1
+            fi
+          done
           allowed="$RUNNER_TEMP/allowed_signers"
           printf 'vibebms-update namespaces="vibebms-update" %s\n' "$(cat tools/update_key.pub)" > "$allowed"
           if ! ssh-keygen -Y verify -f "$allowed" -I vibebms-update -n vibebms-update \
@@ -866,8 +943,11 @@ jobs:
           fi
 
   # the "nightly" prerelease: the default branch's latest builds, each file
-  # as it is (no zip but the web build's). A build that failed keeps its
-  # previous file; the notes say which files this commit brought.
+  # as it is (no zip but the web build's), published only when every build
+  # passed. Of the artifacts it takes only the files it names, and only the
+  # ones the jobs that made them gave as their SHA-256 (latest.json, its
+  # signature, the signed APK) or that the checked latest.json names (the
+  # executables).
   # The run's downloads (a summary with each build's artifact link, on every
   # run) and, for a push to the default branch, the rolling nightly release
   # (or a run started by hand on it: Actions > CI > Run workflow, e.g. after
@@ -1015,9 +1095,38 @@ jobs:
       - uses: actions/download-artifact@v8
         if: env.RELEASE == 'true'
         with:
-          pattern: update-*
-          merge-multiple: true
-          path: out
+          name: update-manifest
+          path: update
+      - uses: actions/download-artifact@v8
+        if: env.RELEASE == 'true' && needs.update-manifest.outputs.signed == 'true'
+        with:
+          name: update-signature
+          path: update
+      # what is published is what the jobs that made it gave as their SHA-256,
+      # before anything is signed (the F-Droid index) or published
+      - name: check the files
+        if: env.RELEASE == 'true'
+        env:
+          SIGNED: ${{ needs.update-manifest.outputs.signed }}
+          MANIFEST_SHA256: ${{ needs.update-manifest.outputs.sha256 }}
+          SIGNATURE_SHA256: ${{ needs.sign-update.outputs.sha256 }}
+          APK_SHA256: ${{ needs.android-sign.outputs.sha256 }}
+        run: |
+          check() { # <file> <SHA-256> <what it is>
+            if [ ! -f "$1" ] || [ "$(sha256sum < "$1" | cut -d' ' -f1)" != "$2" ]; then
+              echo "::error::${1##*/} is not $3 (its SHA-256 differs): nothing is published"
+              exit 1
+            fi
+          }
+          check update/latest.json "$MANIFEST_SHA256" "the one the job update-manifest made"
+          [ "$SIGNED" != true ] || check update/latest.json.sig "$SIGNATURE_SHA256" "the one the job sign-update made"
+          check out/vibeBMS.apk "$APK_SHA256" "the APK the job android-sign signed"
+          # each executable is the one latest.json names
+          while IFS=$'\t' read -r name sha; do
+            check "out/$name" "$sha" "the file latest.json names"
+          done < <(jq -r '.channels.nightly.files | to_entries[] | "\(.key)\t\(.value.sha256)"' update/latest.json)
+          cp update/latest.json out/
+          [ "$SIGNED" != true ] || cp update/latest.json.sig out/
       # every published build's executables, for IR operators who accept a
       # client by its executable's SHA-256 (docs/BUILDING.md,
       # crates/vibebms/src/ir/build_id.rs): appended to the previous
@@ -1185,7 +1294,17 @@ jobs:
           else
             gh release create nightly --prerelease --title "Nightly" --notes "$notes" --target "$SHA"
           fi
-          gh release upload nightly out/* --clobber
+          # the list last: a client reads latest.json and its signature
+          # together, and an upload cut off leaves the previous list and
+          # signature (which name the files before this run's), or this run's
+          # signature beside the previous list (which then does not verify)
+          others=()
+          for f in out/*; do
+            case "${f#out/}" in latest.json | latest.json.sig) ;; *) others+=("$f") ;; esac
+          done
+          gh release upload nightly "${others[@]}" --clobber
+          [ ! -f out/latest.json.sig ] || gh release upload nightly out/latest.json.sig --clobber
+          gh release upload nightly out/latest.json --clobber
           echo "published=true" >> "$GITHUB_OUTPUT"
       # the F-Droid repository's branch: one commit, replaced each time (the
       # older APKs are not kept). The release's concurrency group lets one run
