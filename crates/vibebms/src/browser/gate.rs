@@ -57,6 +57,8 @@ pub struct Gate {
     refused: Vec<(String, Instant)>,
     /// Slots made (their names' number).
     slots: u32,
+    /// The folder the slots are made in.
+    dir: Option<PathBuf>,
 }
 
 /// The host a download at `url` comes from (a `blob:` address: its
@@ -96,13 +98,18 @@ fn free_path(dir: &Path, name: &str) -> PathBuf {
 /// Delete the slots left in `dir` (by a run that ended while a download
 /// was under way or waited for its answer).
 pub fn clear_slots(dir: &Path) {
+    remove_slots(dir, SLOT.0);
+}
+
+/// Delete the slots in `dir` whose names start with `prefix`.
+fn remove_slots(dir: &Path, prefix: &str) {
     let Ok(files) = std::fs::read_dir(dir) else {
         return;
     };
     for f in files.flatten() {
         let name = f.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with(SLOT.0) && name.ends_with(SLOT.1) {
+        if name.starts_with(prefix) && name.ends_with(SLOT.1) {
             let _ = std::fs::remove_file(f.path());
         }
     }
@@ -118,7 +125,8 @@ impl Gate {
             return None;
         }
         self.slots += 1;
-        let slot = format!("{}{}-{}{}", SLOT.0, std::process::id(), self.slots, SLOT.1);
+        let slot = format!("{}{}{}", self.prefix(), self.slots, SLOT.1);
+        self.dir = Some(dir.to_path_buf());
         let saved = Saved {
             host: host(url),
             name: name.to_string(),
@@ -135,7 +143,12 @@ impl Gate {
     /// and no larger than `limit` bytes, else deleted.
     pub fn ended(&mut self, url: &str, ok: bool, limit: u64, now: Instant) -> Arrival {
         self.refused.retain(|(_, at)| now < *at + REFUSAL_TOLD);
-        if let Some(i) = self.refused.iter().position(|(u, _)| u == url) {
+        // A refused download never ends whole: a whole end for the address
+        // being saved is the saved one's, even when that address was also
+        // refused (pressed twice) and that refusal's end is not told.
+        let saving = self.saving.as_ref().is_some_and(|(u, _)| u == url);
+        let refused = self.refused.iter().position(|(u, _)| u == url);
+        if let Some(i) = refused.filter(|_| !(ok && saving)) {
             self.refused.swap_remove(i);
             return Arrival::Other;
         }
@@ -159,6 +172,11 @@ impl Gate {
         }
     }
 
+    /// What the names of this run's slots start with.
+    fn prefix(&self) -> String {
+        format!("{}{}-", SLOT.0, std::process::id())
+    }
+
     /// The download the player is asked about.
     pub fn asked(&self) -> Option<&Saved> {
         self.asked.as_ref()
@@ -178,12 +196,12 @@ impl Gate {
 }
 
 /// The browser is gone (closed, or the game ends): so are the download
-/// under way and the one not answered.
+/// under way, the one not answered, and any slot a web view wrote after
+/// its download was told ended.
 impl Drop for Gate {
     fn drop(&mut self) {
-        let saving = self.saving.take().map(|(_, s)| s);
-        for s in saving.into_iter().chain(self.asked.take()) {
-            let _ = std::fs::remove_file(s.path);
+        if let Some(dir) = &self.dir {
+            remove_slots(dir, &self.prefix());
         }
     }
 }
@@ -328,6 +346,123 @@ mod tests {
         std::fs::write(dir.join("Song.zip"), "x").unwrap();
         clear_slots(&dir);
         assert_eq!(files(&dir), ["Song.zip"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// After an order of events: the question (if any) is answered no,
+    /// the next download is taken and arrives, and closing the browser
+    /// leaves no slot.
+    fn takes_the_next(mut g: Gate, dir: &Path, t: Instant) {
+        g.answer(false, dir);
+        let next = "https://next.example/n.zip";
+        let slot = g.started(next, "n.zip", dir, t).expect("the next is taken");
+        std::fs::write(&slot, "x").unwrap();
+        assert_eq!(g.ended(next, true, LIMIT, t), Arrival::Ask);
+        drop(g);
+        assert!(files(dir).is_empty());
+    }
+
+    /// The orders of events a web view can deliver. WebKitGTK tells a
+    /// refused download's end (not whole) at once; WKWebView does not tell
+    /// it by wry's code as read; WebView2 may or may not. A refused
+    /// download never ends whole on any of them.
+    #[test]
+    fn every_order_leaves_the_gate_free() {
+        let dir = temp("orders");
+        let t = Instant::now();
+        let b = "https://other.example/b.zip";
+
+        // pressed twice, the refusal's end not told: the saved one's end
+        // is its own
+        let mut g = Gate::default();
+        let slot = save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.started(URL, "Song.zip", &dir, t), None);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+        assert_eq!(g.asked().unwrap().path, slot);
+        takes_the_next(g, &dir, t);
+
+        // pressed twice, the refusal's end told before or after it
+        for refusal_first in [true, false] {
+            let mut g = Gate::default();
+            save(&mut g, &dir, URL, "Song.zip", 7);
+            g.started(URL, "Song.zip", &dir, t);
+            if refusal_first {
+                assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Other);
+            }
+            assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+            if !refusal_first {
+                assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Other);
+            }
+            assert_eq!(g.asked().unwrap().name, "Song.zip");
+            takes_the_next(g, &dir, t);
+        }
+
+        // another address refused while one is saved: its end told before,
+        // after, or not at all
+        for told in [Some(true), Some(false), None] {
+            let mut g = Gate::default();
+            save(&mut g, &dir, URL, "Song.zip", 7);
+            assert_eq!(g.started(b, "b.zip", &dir, t), None);
+            if told == Some(true) {
+                assert_eq!(g.ended(b, false, LIMIT, t), Arrival::Other);
+            }
+            assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+            if told == Some(false) {
+                assert_eq!(g.ended(b, false, LIMIT, t), Arrival::Other);
+            }
+            takes_the_next(g, &dir, t);
+        }
+
+        // an end without a start
+        let mut g = Gate::default();
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Other);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Other);
+        takes_the_next(g, &dir, t);
+
+        // two ends: the second is nobody's
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Ask);
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Other);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Other);
+        assert_eq!(g.asked().unwrap().size, 7);
+        takes_the_next(g, &dir, t);
+
+        // stopped or failed (wry lets nobody but the page or the network
+        // stop one): deleted
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Failed);
+        assert!(files(&dir).is_empty());
+        takes_the_next(g, &dir, t);
+
+        // a web view that writes the slot again after its end was told
+        let mut g = Gate::default();
+        let slot = save(&mut g, &dir, URL, "Song.zip", 7);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Failed);
+        std::fs::write(&slot, "x").unwrap();
+        takes_the_next(g, &dir, t);
+
+        // an end after the browser was closed (a new gate): nobody's
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        g.started(URL, "Song.zip", &dir, t);
+        drop(g);
+        assert!(files(&dir).is_empty());
+        let mut g = Gate::default();
+        assert_eq!(g.ended(URL, true, LIMIT, t), Arrival::Other);
+        takes_the_next(g, &dir, t);
+
+        // pressed twice and the saved one fails at once, the refusal's end
+        // not told: its failure is taken for the refusal's and the gate
+        // waits until the browser is closed, which deletes the slot
+        let mut g = Gate::default();
+        save(&mut g, &dir, URL, "Song.zip", 7);
+        g.started(URL, "Song.zip", &dir, t);
+        assert_eq!(g.ended(URL, false, LIMIT, t), Arrival::Other);
+        drop(g);
+        assert!(files(&dir).is_empty());
+        takes_the_next(Gate::default(), &dir, t);
         std::fs::remove_dir_all(&dir).ok();
     }
 
