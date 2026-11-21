@@ -20,6 +20,9 @@ pub struct Index {
     pub format: String,
     /// Why it could not be read.
     pub error: String,
+    /// The version of the game that left it out (it stopped the game while
+    /// it was read: `library`'s scan marks); empty otherwise.
+    pub left_out_by: String,
     /// Its files and their sizes.
     pub files: BTreeMap<PathBuf, u64>,
     /// The folders holding a chart.
@@ -37,6 +40,7 @@ impl Index {
             stamp,
             format: format.into(),
             error: String::new(),
+            left_out_by: String::new(),
             files,
             chart_dirs,
         }
@@ -49,6 +53,14 @@ impl Index {
             stamp,
             error,
             ..Index::default()
+        }
+    }
+
+    /// An archive left out by version `by` of the game.
+    pub fn left_out(stamp: (i64, i64), error: String, by: &str) -> Index {
+        Index {
+            left_out_by: by.into(),
+            ..Index::failed(stamp, error)
         }
     }
 
@@ -109,6 +121,8 @@ struct Stored {
     format: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     error: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    left_out_by: String,
     /// (path with `/`, size)
     #[serde(default)]
     files: Vec<(String, u64)>,
@@ -143,7 +157,7 @@ pub fn load_index(file: &Path) {
     for (a, s) in stored {
         let stamp = (s.mtime, s.size);
         let ix = if s.format.is_empty() {
-            Index::failed(stamp, s.error)
+            Index::left_out(stamp, s.error, &s.left_out_by)
         } else {
             let files = (s.files.into_iter())
                 .filter_map(|(p, n)| Some((safe_rel(&p)?, n)))
@@ -170,6 +184,7 @@ pub fn save_index(file: &Path, keep: &dyn Fn(&Path) -> bool) {
                     size: ix.stamp.1,
                     format: ix.format.clone(),
                     error: ix.error.clone(),
+                    left_out_by: ix.left_out_by.clone(),
                     files: ix.files.iter().map(|(p, n)| (rel_text(p), *n)).collect(),
                 };
                 (a.to_string_lossy().into_owned(), s)

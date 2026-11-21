@@ -224,7 +224,7 @@ impl SelectScene {
             KeyCode::Insert => self.add_to_course(ctx),
             KeyCode::KeyC if !is_play_key(keys, code) => self.add_to_course(ctx),
             KeyCode::F12 => {
-                ctx.start_scan();
+                ctx.rescan();
                 ctx.tables.refresh(&ctx.config.tables, true);
             }
             KeyCode::F10 => self.open_search(),

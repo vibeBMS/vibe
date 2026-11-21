@@ -177,7 +177,7 @@ pub(super) fn rows(b: &mut Rows) {
             "library.rescan",
             tr!("Rescan"),
             tr!("{n} charts", n = ctx.lib.songs.len()),
-            Act::Run(|c, _| c.start_scan(), 0),
+            Act::Run(|c, _| c.rescan(), 0),
         )
         .desc(tr!("Read the folders again for new or changed charts."))
         .keys("scan library refresh"),

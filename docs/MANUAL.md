@@ -298,9 +298,11 @@ The touch perspective play skin uses its lanes as the controls ([SKINS.md](SKINS
 - The scan reads new and changed charts several at a time.
 - Not read (no real chart is so): a chart file over 32 MiB, a chart whose last note or sound is past 24 hours, one
   with more than 4,000,000 objects. A header's text is read to 1024 bytes, a number to a thousand million.
-- A chart or an archive the scan was reading when the game stopped is read on its own by the next scan, before the
-  others. If the game stops again while it is read, it is left out from then on (the log names it) until the file
-  changes or another version of the game scans.
+- A chart or an archive the scan was reading when the game stopped (a crash, or a hang you ended) is read on its own by
+  the next scan, before the others. If the game stops again while it is read, it is left out from then on (the log
+  names it) until the file changes, another version of the game scans, or you ask for a rescan (SETTINGS › LIBRARY ›
+  Rescan, or F12 on the song select). Closing the game, or a phone or browser closing it in the background, does not
+  count, unless the file had been read for much longer than one of its size takes (a minute, and 2 MiB a second).
 
 ## Songs in archives
 

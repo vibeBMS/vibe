@@ -862,6 +862,7 @@ impl ApplicationHandler<UserEvent> for App {
         // (iOS: active again; Android: a surface again)
         if let Some(r) = self.run.as_mut() {
             r.set_activity(|a| a.suspended = false);
+            crate::library::going_on(&r.ctx.paths.songs_cache());
         }
         if self.run.is_some() || self.creating {
             return;
@@ -943,9 +944,13 @@ impl ApplicationHandler<UserEvent> for App {
         r.window_event(el, event);
     }
 
+    /// (Android: the app put in the background; iOS: inactive; the web:
+    /// the page left)
     fn suspended(&mut self, _el: &ActiveEventLoop) {
         if let Some(r) = self.run.as_mut() {
             r.set_activity(|a| a.suspended = true);
+            // (the system may end the app from here without a word)
+            crate::library::stopping(&r.ctx.paths.songs_cache());
         }
     }
 
@@ -1004,6 +1009,7 @@ impl ApplicationHandler<UserEvent> for App {
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         if let Some(r) = self.run.as_mut() {
             r.ctx.save_config();
+            crate::library::stopping(&r.ctx.paths.songs_cache());
         }
         // "Restart now" after an update (scores are saved as they are made)
         crate::update::relaunch_if_asked();
