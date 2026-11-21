@@ -10,14 +10,10 @@ use bmseeker::install::job::{Effect, Fed, Job, Step, TaskJob, Unserved};
 use bmseeker::net::{NetError, Request};
 use bmseeker::progress::Progress;
 use bmseeker::refusal::Refusals;
-use bmseeker::web::{proxied, sends_cors, served, unserved, PROXY};
+use bmseeker::web::{proxied, sends_cors, served, unserved, DOWNLOAD_MAX, PROXY};
 use std::sync::{Arc, Mutex};
 
 type Done<O> = Box<dyn FnOnce(O) + Send>;
-
-/// The largest file a job downloads here, where it comes into memory (the
-/// web: natively a job's files go to disk on bmseeker's own transport).
-const DOWNLOAD_MAX: u64 = 1 << 30;
 
 /// What a job's effects are done with: the progress its files report to,
 /// the refusals they keep to (none for a table's load: vibeBMS's own).
@@ -30,9 +26,11 @@ struct Net {
 /// Run a bmseeker job kept to `cx`'s refusals (a service that refused is
 /// not asked again): on the web its requests and files through the vibeBMS
 /// proxy (but to hosts that send CORS headers; where the redirects ended
-/// from the proxy's `X-Final-Url`); its files reporting to `cx`'s
-/// progress, ended by its cancel or a stall, a MEGA file decrypted here;
-/// its waits on a timer. Then `on_done` with its result.
+/// from the proxy's `X-Final-Url`); each answer read to its request's
+/// limit (a file to `bmseeker::web::DOWNLOAD_MAX`: it comes into memory);
+/// its files reporting to `cx`'s progress, ended by its cancel or a stall,
+/// a MEGA file decrypted and checked here; its waits on a timer. Then
+/// `on_done` with its result.
 pub fn run_job<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
 where
     J: Job + 'static,
@@ -79,9 +77,9 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
         return then(fed);
     }
     let kept = {
-        let progress = progress.clone();
-        move |url: &str, fed: Fed| match &refused {
-            Some(r) => r.after(url, fed, progress.as_deref()),
+        let (effect, progress) = (effect.clone(), progress.clone());
+        move |fed: Fed| match &refused {
+            Some(r) => r.after(&effect, fed, progress.as_deref()),
             None => fed,
         }
     };
@@ -96,16 +94,17 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
         Effect::Http(r) => {
             let url = r.url().to_string();
             let through = IS_WEB && !sends_cors(&url);
+            let limit = r.limit() as u64;
             let req = match r {
-                Request::Get(u) => ehttp::Request::get(asked(&u)),
-                Request::Post { url: u, body } => request(
+                Request::Get(u, _) => ehttp::Request::get(asked(&u)),
+                Request::Post { url: u, body, .. } => request(
                     "POST",
                     &asked(&u),
                     &[("Content-Type".into(), "application/json".into())],
                     body,
                 ),
             };
-            call(req, move |a| {
+            call(req, limit, move |a| {
                 let a = a.and_then(|r| match r.status {
                     200..=299 => Ok(r.body),
                     n => Err(unserved(
@@ -116,7 +115,7 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
                         &r.body,
                     )),
                 });
-                then(kept(&url, Fed::Http(a)))
+                then(kept(Fed::Http(a)))
             })
         }
         Effect::Download { target, .. } => {
@@ -147,7 +146,8 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
                             let b = std::mem::take(
                                 &mut *body.lock().unwrap_or_else(|e| e.into_inner()),
                             );
-                            Ok(served(&target, b, None, at))
+                            served(&target, b, None, at.clone())
+                                .map_err(|error| Unserved { error, at })
                         }
                         Err(NetError::Status(n)) => Err(Unserved {
                             error: unserved(&target.url, n, through, at.as_deref(), &[]),
@@ -155,7 +155,7 @@ fn perform(effect: Effect, net: Net, then: impl FnOnce(Fed) + Send + 'static) {
                         }),
                         Err(error) => Err(Unserved { error, at }),
                     };
-                    then(kept(&target.url, Fed::Downloaded(fed)))
+                    then(kept(Fed::Downloaded(fed)))
                 },
             )
         }
@@ -180,7 +180,7 @@ pub fn load_table(
 mod tests {
     use super::*;
     use bmseeker::hosts::Target;
-    use bmseeker::net::NetError;
+    use bmseeker::net::{Kind, NetError};
     use std::time::Duration;
 
     /// A one-shot HTTP server giving `answer`, at `/f`.
@@ -197,7 +197,7 @@ mod tests {
     impl Job for Steps {
         type Output = Vec<String>;
         fn start(&mut self) -> Step<Vec<String>> {
-            Step::Do(Effect::Http(Request::Get(self.urls[0].clone())))
+            Step::Do(Effect::Http(Request::Get(self.urls[0].clone(), Kind::Page)))
         }
         fn feed(&mut self, fed: Fed) -> Step<Vec<String>> {
             self.got.push(match fed {
@@ -206,7 +206,7 @@ mod tests {
                 Fed::Woke => "woke".into(),
             });
             Step::Do(match self.got.len() {
-                1 => Effect::Http(Request::Get(self.urls[1].clone())),
+                1 => Effect::Http(Request::Get(self.urls[1].clone(), Kind::Page)),
                 2 => Effect::Download {
                     target: Target::url(&self.urls[2]),
                     slot: Default::default(),
@@ -245,6 +245,62 @@ mod tests {
             ]
         );
         assert_eq!(progress.bytes(), (4, Some(4)));
+    }
+
+    /// A job of one effect: what it came to.
+    struct One(Option<Effect>);
+
+    impl Job for One {
+        type Output = Fed;
+        fn start(&mut self) -> Step<Fed> {
+            Step::Do(self.0.take().unwrap())
+        }
+        fn feed(&mut self, fed: Fed) -> Step<Fed> {
+            Step::Done(fed)
+        }
+    }
+
+    fn one(effect: Effect) -> Fed {
+        let (tx, rx) = std::sync::mpsc::channel();
+        run_job(One(Some(effect)), &Context::default(), move |fed| {
+            let _ = tx.send(fed);
+        });
+        rx.recv_timeout(Duration::from_secs(10)).unwrap()
+    }
+
+    /// An answer is read no further than its request's kind allows: a
+    /// table's header of more than 1 MiB is no header.
+    #[test]
+    fn an_answer_is_kept_to_its_requests_limit() {
+        let url = serve("HTTP/1.1 200 OK\r\nContent-Length: 1048577\r\nConnection: close\r\n\r\n");
+        let got = one(Effect::Http(Request::Get(url, Kind::Header)));
+        let limit = Kind::Header.limit();
+        assert!(
+            matches!(&got, Fed::Http(Err(e)) if *e == bmseeker::net::too_large(limit)),
+            "{got:?}"
+        );
+        let url = serve("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nhead");
+        let got = one(Effect::Http(Request::Get(url, Kind::Header)));
+        assert!(matches!(&got, Fed::Http(Ok(b)) if b == b"head"), "{got:?}");
+    }
+
+    /// A MEGA file that is not the one its link's key was made for does
+    /// not come.
+    #[test]
+    fn a_mega_file_is_checked() {
+        let url = serve("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nfile");
+        let target = Target {
+            mega_key: Some(vec![7; 32]),
+            ..Target::url(&url)
+        };
+        let got = one(Effect::Download {
+            target,
+            slot: Default::default(),
+        });
+        assert!(
+            matches!(&got, Fed::Downloaded(Err(u)) if u.error.to_string().contains("check failed")),
+            "{got:?}"
+        );
     }
 
     /// A service that refused is not asked again: not its other pages, not

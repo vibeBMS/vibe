@@ -87,10 +87,10 @@ pub fn request(
 pub const BODY_MAX: u64 = 64 << 20;
 
 fn too_large(limit: u64) -> NetError {
-    NetError::Other(match limit >> 20 {
-        0 => format!("the answer is larger than {limit} bytes"),
-        mb => format!("the answer is larger than {mb} MB"),
-    })
+    match limit >> 20 {
+        0 => NetError::Other(format!("the answer is larger than {limit} bytes")),
+        _ => bmseeker::net::too_large(limit as usize),
+    }
 }
 
 /// What an answer is given to as it comes.
@@ -358,18 +358,19 @@ impl<D: FnOnce(Result<Response, NetError>) + Send + 'static> Taker for Whole<D> 
     }
 }
 
-/// Send `req`: its answer, of [`BODY_MAX`] at most, or why none came.
+/// Send `req`: its answer, of `limit` bytes at most, or why none came.
 pub(super) fn call(
     req: ehttp::Request,
+    limit: u64,
     on_done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
 ) {
-    receive(req, BODY_MAX, None, Whole(Response::default(), on_done))
+    receive(req, limit, None, Whole(Response::default(), on_done))
 }
 
 /// Send `req`: the body of its answer, or why there is none (a status as
 /// `NetError::Status`, which bmseeker's retries and checks look at).
 pub fn fetch(req: ehttp::Request, on_done: impl FnOnce(Answer) + Send + 'static) {
-    call(req, move |r| {
+    call(req, BODY_MAX, move |r| {
         on_done(r.and_then(|r| match r.status {
             200..=299 => Ok(r.body),
             n => Err(NetError::Status(n)),
@@ -423,7 +424,7 @@ fn exchange_within(
             f(Err(NetError::Stalled(limit.as_secs())));
         }
     });
-    call(req, move |r| {
+    call(req, BODY_MAX, move |r| {
         if let Some(f) = take(&done) {
             f(r);
         }
@@ -788,7 +789,7 @@ pub(crate) mod tests {
         );
         let r = rx.recv_timeout(std::time::Duration::from_secs(20)).unwrap();
         assert!(
-            matches!(&r, Err(NetError::Other(e)) if e.contains("larger than 1 MB")),
+            matches!(&r, Err(NetError::Other(e)) if e.contains("larger than 1 MiB")),
             "{r:?}"
         );
         assert!(*got.lock().unwrap() <= 1 << 20);

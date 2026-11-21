@@ -10,7 +10,9 @@ pub use bmseeker::native::{fetch_files, Native};
 /// used, a song's folder named after its charts); on the web a download
 /// that fails is a page (the proxy passes archives only). Natively its
 /// requests name the HTTP library (its own name and version), bmseeker,
-/// then vibeBMS ([`PRODUCT`](crate::platform::http::PRODUCT)).
+/// then vibeBMS ([`PRODUCT`](crate::platform::http::PRODUCT)), and ask no
+/// host of this machine or its networks (bmseeker's `local_hosts` off: a
+/// song's link cannot lead to the player's router or local services).
 pub fn context(config: &crate::config::Config) -> Context {
     Context {
         failures_are_pages: crate::platform::IS_WEB,
