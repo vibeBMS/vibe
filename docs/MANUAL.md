@@ -685,7 +685,8 @@ beatoraja's (`player/<name>/score.db`; LR2oraja's too).
   "Practising") and on the result ("Result: HARD CLEAR"), with the time on that screen. It talks only to the Discord
   app on the same computer. It needs a Discord application id (`discord.application_id`): make an application at
   Discord's developer portal, whose name is the game you are shown playing. None is built in. `Discord` below shows
-  the state.
+  the state. On Linux it needs `XDG_RUNTIME_DIR` (a desktop session sets it): without it the presence does nothing,
+  as Discord's socket would then be in the shared `/tmp`, where another user could pose as Discord.
 - **OBS** (off by default): connects to obs-websocket 5 (OBS 28 or later, `Tools › WebSocket Server Settings`) at
   `obs.host` / `obs.port` (127.0.0.1:4455 by default), with the server's password if it has one. The password is
   kept in `config/credentials.json`, not `config.toml`, for the host and port it was entered for: with another
