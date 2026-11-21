@@ -160,10 +160,12 @@ jobs:
           "$RUNNER_TEMP/skins/bin/pip" install -q pillow==12.3.0
           "$RUNNER_TEMP/skins/bin/python" tools/gen_default_skins.py --check \
             --fonts "$RUNNER_TEMP/inter/usr/share/fonts/opentype/inter"
-      # the checks the Toolchain pins workflow makes of what it found, and
-      # which updates the Dependabot merge workflow holds
+      # the checks the Toolchain pins workflow makes of what it found, which
+      # updates the Dependabot merge workflow holds, and how latest.json is
+      # signed and checked (sign-update, verify-update)
       - run: python3 tools/repro_pins_test.py
       - run: python3 .github/dependabot_merge_test.py
+      - run: python3 .github/update_signing_test.py
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -569,7 +571,7 @@ jobs:
   # replaces the whole site with the default branch's web build, once every
   # build of the commit has passed (the site and the nightly then agree)
   pages:
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
     if: ${{ !failure() && !cancelled() && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     permissions:
@@ -697,6 +699,172 @@ jobs:
           name: vibeBMS-android
           path: out/vibeBMS.apk
 
+  # what the desktop executables' self-update reads (crates/vibebms/src/
+  # update/, docs/BUILDING.md, "Self-update"): the release's version and, for
+  # each executable, the version it was built with, its SHA-256 and size. A
+  # build that failed keeps its previous file, so its entry is kept from the
+  # previous latest.json. Made before the nightly job so that sign-update
+  # signs what the nightly publishes; it has no secret and reads only.
+  update-manifest:
+    name: latest.json
+    needs: [build-linux, build-windows, build-linux-portable, macos]
+    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    outputs:
+      base-version: ${{ steps.manifest.outputs.base-version }}
+      version: ${{ steps.manifest.outputs.version }}
+      # "true" when the repository has tools/update_key.pub: the builds
+      # check latest.json's signature with it, so it is signed
+      signed: ${{ steps.manifest.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            Cargo.toml
+            tools/update_key.pub
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vibeBMS-*
+          path: art
+      - id: manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # the version the builds were given (tools/ci_version.sh)
+          base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | sed 's/[-+].*//')"
+          VERSION="$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}"
+          {
+            echo "base-version=$base"
+            echo "version=$VERSION"
+            echo "signed=$([ -f tools/update_key.pub ] && echo true || echo false)"
+          } | tee -a "$GITHUB_OUTPUT"
+          # the executables, named as the nightly job's "files" step names them
+          mkdir out
+          for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable macos-arm64 macos-x64; do
+            [ -f "art/vibeBMS-$t/vibebms" ] && cp "art/vibeBMS-$t/vibebms" "out/vibebms-$t"
+          done
+          for t in windows-x64 windows-arm64; do
+            [ -f "art/vibeBMS-$t/vibebms.exe" ] && cp "art/vibeBMS-$t/vibebms.exe" "out/vibebms-$t.exe"
+          done
+          f=vibebms-macos-universal.app.zip
+          [ -f "art/vibeBMS-macos-universal/$f" ] && cp "art/vibeBMS-macos-universal/$f" "out/$f"
+          mkdir -p prev
+          if ! gh release download nightly -p latest.json -D prev --clobber 2>/dev/null \
+            || ! jq -e 'type == "object"' prev/latest.json >/dev/null 2>&1; then
+            echo '{}' > prev/latest.json
+          fi
+          new='{}'
+          for f in out/vibebms-*; do
+            [ -f "$f" ] || continue
+            name="${f#out/}"
+            t="${name#vibebms-}"
+            t="${t%.exe}"
+            t="${t%.app.zip}"
+            v="$VERSION"
+            [ -s "art/vibeBMS-$t/version.txt" ] && v="$(tr -d '[:space:]' < "art/vibeBMS-$t/version.txt")"
+            new="$(jq -c --arg n "$name" --arg v "$v" \
+              --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$f")" \
+              '. + {($n): {version: $v, sha256: $sha, size: $size}}' <<< "$new")"
+          done
+          # a part per channel: this job writes "nightly" and keeps the
+          # others ("stable", for the releases to come)
+          jq --arg version "$VERSION" --argjson new "$new" '
+            (if (.channels | type) == "object" then .channels else {} end) as $ch
+            | (($ch.nightly.files // .files) | if type == "object" then . else {} end) as $old
+            | {channels: ($ch + {nightly: {version: $version, files: ($old + $new)}})}
+          ' prev/latest.json > out/latest.json
+          cat out/latest.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-manifest
+          path: out/latest.json
+          if-no-files-found: error
+
+  # latest.json signed with the update key (an OpenSSH Ed25519 key, the
+  # secret UPDATE_SIGNING_KEY of the environment `update-signing`;
+  # docs/BUILDING.md, "Self-update"), in a job of its own that runs nothing
+  # of the repository's: no checkout, no action but the artifacts' own, and
+  # the runner's ssh-keygen. The key exists for the one step, and the
+  # environment is this job's alone: no job that runs a script or a
+  # downloaded tool (the nightly's, in `release`) is given the key. Without
+  # tools/update_key.pub in the repository it does nothing, and latest.json
+  # is published unsigned, as the builds without a key expect.
+  sign-update:
+    name: sign latest.json
+    needs: update-manifest
+    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    environment: update-signing
+    steps:
+      - if: needs.update-manifest.outputs.signed == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: update-manifest
+          path: manifest
+      - name: sign latest.json
+        env:
+          SIGNED: ${{ needs.update-manifest.outputs.signed }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if [ "$SIGNED" != true ]; then
+            echo "the repository has no tools/update_key.pub: latest.json is published unsigned"
+            exit 0
+          fi
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::error::tools/update_key.pub is in the repository, but the environment update-signing has no secret UPDATE_SIGNING_KEY (docs/BUILDING.md, \"Self-update\"): nothing is published"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/update-key"
+          trap 'rm -f "$key"' EXIT
+          # (a key pasted from Windows has CR LF line ends, which ssh-keygen refuses)
+          (umask 077 && printf '%s\n' "$UPDATE_SIGNING_KEY" | tr -d '\r' > "$key")
+          rm -f manifest/latest.json.sig
+          ssh-keygen -q -Y sign -n vibebms-update -f "$key" manifest/latest.json < /dev/null
+      - if: needs.update-manifest.outputs.signed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: update-signature
+          path: manifest/latest.json.sig
+          if-no-files-found: error
+
+  # the signature checked, before anything is published, against the key
+  # the builds have (tools/update_key.pub), in a job without the secret: a
+  # key that is not the committed one's pair would publish a latest.json
+  # that no build takes
+  verify-update:
+    name: check latest.json's signature
+    needs: [update-manifest, sign-update]
+    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/update_key.pub
+          sparse-checkout-cone-mode: false
+      - if: hashFiles('tools/update_key.pub') != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: update-*
+          merge-multiple: true
+          path: manifest
+      - name: check the signature
+        run: |
+          if [ ! -f tools/update_key.pub ]; then
+            echo "the repository has no tools/update_key.pub: latest.json is not signed"
+            exit 0
+          fi
+          allowed="$RUNNER_TEMP/allowed_signers"
+          printf 'vibebms-update namespaces="vibebms-update" %s\n' "$(cat tools/update_key.pub)" > "$allowed"
+          if ! ssh-keygen -Y verify -f "$allowed" -I vibebms-update -n vibebms-update \
+            -s manifest/latest.json.sig < manifest/latest.json; then
+            echo "::error::latest.json's signature does not verify with tools/update_key.pub (is UPDATE_SIGNING_KEY its private key?): nothing is published"
+            exit 1
+          fi
+
   # the "nightly" prerelease: the default branch's latest builds, each file
   # as it is (no zip but the web build's). A build that failed keeps its
   # previous file; the notes say which files this commit brought.
@@ -706,7 +874,7 @@ jobs:
   # commits that skip CI)
   nightly:
     name: downloads & nightly
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web]
+    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
     if: always()
     runs-on: ubuntu-latest
     # (the F-Droid repository's key, as android-sign's)
@@ -761,10 +929,12 @@ jobs:
       # the version the builds were given (tools/ci_version.sh)
       - name: version
         if: env.RELEASE == 'true'
+        env:
+          BASE: ${{ needs.update-manifest.outputs.base-version }}
+          FULL: ${{ needs.update-manifest.outputs.version }}
         run: |
-          base="$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/Cargo.toml" | grep -m1 '^version' | cut -d'"' -f2 | sed 's/[-+].*//')"
-          echo "BASE_VERSION=$base" >> "$GITHUB_ENV"
-          echo "VERSION=$base-nightly.$GITHUB_RUN_NUMBER+${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+          echo "BASE_VERSION=$BASE" >> "$GITHUB_ENV"
+          echo "VERSION=$FULL" >> "$GITHUB_ENV"
       - name: files
         if: env.RELEASE == 'true'
         env:
@@ -839,43 +1009,15 @@ jobs:
             rm out/altstore.new.json
           fi
           ls -l out
-      # what the desktop executables' self-update reads (crates/vibebms/src/
-      # update/, docs/BUILDING.md): the release's version and, for each
-      # executable, the version it was built with, its SHA-256 and size. A
-      # build that failed keeps its previous file, so its entry is kept from
-      # the previous latest.json.
-      - name: latest.json
+      # latest.json (update-manifest) and, when the repository has
+      # tools/update_key.pub, its signature (sign-update), which verify-update
+      # checked
+      - uses: actions/download-artifact@v8
         if: env.RELEASE == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          mkdir -p prev
-          if ! gh release download nightly -p latest.json -D prev --clobber 2>/dev/null \
-            || ! jq -e 'type == "object"' prev/latest.json >/dev/null 2>&1; then
-            echo '{}' > prev/latest.json
-          fi
-          new='{}'
-          for f in out/vibebms-*; do
-            [ -f "$f" ] || continue
-            name="${f#out/}"
-            t="${name#vibebms-}"
-            t="${t%.exe}"
-            t="${t%.app.zip}"
-            v="$VERSION"
-            [ -s "art/vibeBMS-$t/version.txt" ] && v="$(tr -d '[:space:]' < "art/vibeBMS-$t/version.txt")"
-            new="$(jq -c --arg n "$name" --arg v "$v" \
-              --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$f")" \
-              '. + {($n): {version: $v, sha256: $sha, size: $size}}' <<< "$new")"
-          done
-          # a part per channel: this job writes "nightly" and keeps the
-          # others ("stable", for the releases to come)
-          jq --arg version "$VERSION" --argjson new "$new" '
-            (if (.channels | type) == "object" then .channels else {} end) as $ch
-            | (($ch.nightly.files // .files) | if type == "object" then . else {} end) as $old
-            | {channels: ($ch + {nightly: {version: $version, files: ($old + $new)}})}
-          ' prev/latest.json > out/latest.json
-          cat out/latest.json
+        with:
+          pattern: update-*
+          merge-multiple: true
+          path: out
       # every published build's executables, for IR operators who accept a
       # client by its executable's SHA-256 (docs/BUILDING.md,
       # crates/vibebms/src/ir/build_id.rs): appended to the previous

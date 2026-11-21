@@ -431,21 +431,27 @@ fn exchange_within(
     });
 }
 
-/// [`fetch`], its failure as text (a status with the URL asked).
-fn send(req: ehttp::Request, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
-    let url = req.url.clone();
-    fetch(req, move |a| {
-        on_done(a.map_err(|e| match e {
-            NetError::Status(n) => format!("HTTP {n} {url}"),
-            e => e.to_string(),
-        }))
-    });
-}
-
 /// GET `url`: its answer's body ([`BODY_MAX`] at most), or why there is
 /// none.
 pub fn http_get(url: &str, on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
-    send(ehttp::Request::get(url), on_done)
+    http_get_within(url, BODY_MAX, on_done)
+}
+
+/// GET `url`: its answer's body, of `limit` bytes at most, or why there is
+/// none (a status with the URL asked).
+pub fn http_get_within(
+    url: &str,
+    limit: u64,
+    on_done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+) {
+    let url = url.to_string();
+    call(ehttp::Request::get(&url), limit, move |r| {
+        on_done(match r {
+            Ok(r) if (200..=299).contains(&r.status) => Ok(r.body),
+            Ok(r) => Err(format!("HTTP {} {url}", r.status)),
+            Err(e) => Err(e.to_string()),
+        })
+    });
 }
 
 /// GET `url` (a file: of `limit` bytes at most, taking as long as data

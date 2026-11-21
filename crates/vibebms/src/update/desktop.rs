@@ -1,10 +1,44 @@
 //! Putting an update in place (the desktop executables).
 
-use super::{own_app, Offer};
+use super::{own_app, sig, Latest, Offer, Version, NIGHTLY};
 use bmseeker::progress::Progress;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// The largest `latest.json` read (it has a few lines per executable).
+const LATEST_MAX: u64 = 256 << 10;
+
+/// What the `latest.json` at `url` offers a build of `current` whose file
+/// is `asset`. With a `key`, only a list that `<url>.sig` shows the key
+/// signed: one without it (or one being published, its signature not yet
+/// the new list's) offers nothing, and the next check reads it again.
+pub fn check(
+    url: &str,
+    key: Option<&[u8; 32]>,
+    asset: &str,
+    current: &Version,
+) -> Result<Option<Offer>, String> {
+    let latest = get(url, LATEST_MAX)?;
+    if let Some(key) = key {
+        get(&format!("{url}.sig"), sig::MAX as u64)
+            .and_then(|s| sig::verify(&s, &latest, key))
+            .map_err(|e| {
+                format!("the list of updates is not signed as it should be ({e}); it is read again next time")
+            })?;
+    }
+    Ok(Latest::parse(&latest, NIGHTLY)?.offer(asset, current))
+}
+
+/// GET `url`, `limit` bytes at most.
+fn get(url: &str, limit: u64) -> Result<Vec<u8>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    crate::platform::http::http_get_within(url, limit, move |r| {
+        let _ = tx.send(r);
+    });
+    rx.recv()
+        .map_err(|_| "the request was not sent".to_string())?
+}
 
 /// Download `o` next to `exe` (next to the macOS app it runs in), check it
 /// and put it in the running executable's (the app's) place.
@@ -245,6 +279,72 @@ mod tests {
             let _ = s.write_all(&body);
         });
         format!("http://{addr}/vibebms")
+    }
+
+    /// An answer of `status` with `body`, for `http::tests::serve`.
+    fn answer(status: &str, body: &[u8]) -> &'static str {
+        let body = std::str::from_utf8(body).unwrap();
+        let a = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        Box::leak(a.into_boxed_str())
+    }
+
+    /// With a key, the list is offered only with its signature by it;
+    /// without one, as it is.
+    #[test]
+    fn the_list_is_signed() {
+        let latest = include_bytes!("../../tests/data/update/latest.json");
+        let good = include_bytes!("../../tests/data/update/good.sig");
+        let other = include_bytes!("../../tests/data/update/other-key.sig");
+        let key = super::super::sig::tests::test_key();
+        let cur = Version::parse("0.1.0-nightly.192+e129ac9").unwrap();
+        let ok = |b: &[u8]| answer("200 OK", b);
+        let run = |answers: Vec<&'static str>, key: Option<&[u8; 32]>| {
+            let (url, seen) = crate::platform::http::tests::serve(answers);
+            let r = check(
+                &format!("{url}/latest.json"),
+                key,
+                "vibebms-linux-x64",
+                &cur,
+            );
+            let asked: Vec<String> = seen.try_iter().collect();
+            (r, asked)
+        };
+        let (r, asked) = run(vec![ok(latest), ok(good)], Some(&key));
+        let o = r.unwrap().unwrap();
+        assert_eq!(o.version.to_string(), "0.1.0-nightly.200+abc1234");
+        assert!(asked[0].starts_with("GET /latest.json HTTP"), "{asked:?}");
+        assert!(
+            asked[1].starts_with("GET /latest.json.sig HTTP"),
+            "{asked:?}"
+        );
+        // no signature, another key's, an older one of another list (as
+        // while a release is being published): nothing is offered
+        let changed = String::from_utf8(latest.to_vec())
+            .unwrap()
+            .replace("\"sha256\":\"9", "\"sha256\":\"8")
+            .into_bytes();
+        assert_ne!(changed, latest);
+        for answers in [
+            vec![ok(latest), answer("404 Not Found", b"")],
+            vec![ok(latest), ok(other)],
+            vec![ok(&changed), ok(good)],
+            vec![ok(latest), ok(b"")],
+        ] {
+            let e = run(answers, Some(&key)).0.unwrap_err();
+            assert!(e.contains("not signed"), "{e}");
+        }
+        // a signature larger than any is not read whole
+        let big = vec![b'A'; sig::MAX + 1];
+        assert!(run(vec![ok(latest), ok(&big)], Some(&key)).0.is_err());
+        // no key: the list as it is, its signature not asked for
+        let (r, asked) = run(vec![ok(latest)], None);
+        assert_eq!(r.unwrap().unwrap(), o);
+        assert_eq!(asked.len(), 1);
+        let (r, _) = run(vec![ok(&changed)], None);
+        assert!(r.unwrap().is_some());
     }
 
     #[test]

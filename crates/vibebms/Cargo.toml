@@ -71,6 +71,8 @@ self-replace = "1.5"
 # versions and features ureq and zip build)
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 getrandom = { version = "0.4", default-features = false }
+# the update list's signature (update/sig.rs; the version rustls builds)
+ring = { version = "0.17", default-features = false }
 
 # the room left on a disk before a song is unpacked onto it (platform/vfs.rs)
 [target.'cfg(unix)'.dependencies]
@@ -121,6 +123,10 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "Blob", "Storage", "DomRect", "Screen", "Navigator", "Location", "Event", "AddEventListenerOptions", "EventTarget", "Performance", "TouchEvent", "TouchList", "Touch", "Worker", "MessageEvent", "Blob", "BlobPropertyBag", "Url"] }
+
+# tools/update_key.pub read into the build (build.rs; the version above)
+[build-dependencies]
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 # glyphs drawn as fontdue drew them (gfx/text.rs tests)

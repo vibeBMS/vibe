@@ -32,9 +32,18 @@
 //! An executable a package manager installed, or one in a folder that
 //! cannot be written to, does nothing: it neither checks nor offers (its
 //! package manager updates it).
+//!
+//! A build made with `tools/update_key.pub` in the repository ([`KEY`])
+//! takes `latest.json` only with `latest.json.sig`, the key's signature of
+//! it (`sig`): CI alone has the private key. Without the file, nothing is
+//! checked.
 
 #[cfg(desktop)]
 mod desktop;
+#[cfg(all(desktop, test))]
+mod key;
+#[cfg(desktop)]
+mod sig;
 
 use crate::platform::Job;
 use serde::{Deserialize, Serialize};
@@ -46,6 +55,10 @@ pub const LATEST_URL: &str =
     "https://github.com/vibeBMS/vibe/releases/download/nightly/latest.json";
 /// Where the nightly's files are downloaded from (`<base>/<asset>`).
 pub const DOWNLOAD_BASE: &str = "https://github.com/vibeBMS/vibe/releases/download/nightly";
+
+/// The key `latest.json` must be signed by: `tools/update_key.pub`'s, read
+/// by build.rs, when the repository has the file.
+pub const KEY: Option<[u8; 32]> = include!(concat!(env!("OUT_DIR"), "/update_key.rs"));
 
 /// This build's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -346,11 +359,8 @@ impl Updater {
             return;
         };
         self.status = Status::Checking;
-        self.job = Some(Job::get(LATEST_URL, move |r| {
-            Msg::Checked(
-                r.and_then(|b| Latest::parse(&b, NIGHTLY))
-                    .map(|l| l.offer(&asset, &current)),
-            )
+        self.job = Some(Job::spawn("update check", move |_| {
+            Msg::Checked(desktop::check(LATEST_URL, KEY.as_ref(), &asset, &current))
         }));
     }
 
@@ -821,9 +831,18 @@ mod tests {
 /// ever offered there).
 #[cfg(not(desktop))]
 mod desktop {
-    use super::Offer;
+    use super::{Offer, Version};
     use bmseeker::progress::Progress;
     use std::path::Path;
+
+    pub fn check(
+        _: &str,
+        _: Option<&[u8; 32]>,
+        _: &str,
+        _: &Version,
+    ) -> Result<Option<Offer>, String> {
+        Ok(None)
+    }
 
     pub fn install(_: &Offer, _: &Path, _: &Progress) -> Result<(), String> {
         Err("this platform does not update itself".into())
