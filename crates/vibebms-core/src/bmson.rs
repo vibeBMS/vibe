@@ -4,18 +4,113 @@ use crate::chart::*;
 use crate::mode::PlayMode;
 use crate::timing::{TimingEvent, TimingMap};
 use crate::{limits, ChartError};
+use serde::de::{self, Deserializer, IgnoredAny, SeqAccess, Visitor};
 use serde::Deserialize;
+use std::cell::Cell;
+use std::marker::PhantomData;
+
+thread_local! {
+    /// The list elements the bmson being read may still have
+    /// ([`limits::MAX_OBJECTS`]): counted as they are read, so a file of
+    /// millions of `{}` is refused before they are all built.
+    static LEFT: Cell<usize> = const { Cell::new(0) };
+}
+
+/// A list of a bmson, each element counted against [`LEFT`].
+fn counted<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Vec<T>, D::Error> {
+    struct List<T>(PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for List<T> {
+        type Value = Vec<T>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a list")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<T>, A::Error> {
+            let mut out = Vec::new();
+            while let Some(x) = seq.next_element()? {
+                let left = LEFT.get();
+                if left == 0 {
+                    let more = format!("more than {} objects", limits::MAX_OBJECTS);
+                    return Err(de::Error::custom(more));
+                }
+                LEFT.set(left - 1);
+                out.push(x);
+            }
+            Ok(out)
+        }
+    }
+    d.deserialize_seq(List(PhantomData))
+}
+
+/// [`counted`], of a list that may be left out or null.
+fn counted_or_none<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<Vec<T>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(bound = "T: Deserialize<'de>")]
+    struct List<T>(#[serde(deserialize_with = "counted")] Vec<T>);
+    Ok(Option::<List<T>>::deserialize(d)?.map(|l| l.0))
+}
+
+/// A note's lane: a number; anything else is none (0), passed over unread.
+#[derive(Default, Clone, Copy)]
+struct Lane(i64);
+
+impl<'de> Deserialize<'de> for Lane {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Lane, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Lane;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a lane")
+            }
+            fn visit_i64<E>(self, v: i64) -> Result<Lane, E> {
+                Ok(Lane(v))
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<Lane, E> {
+                Ok(Lane(i64::try_from(v).unwrap_or(i64::MAX)))
+            }
+            fn visit_f64<E>(self, v: f64) -> Result<Lane, E> {
+                Ok(Lane(v as i64))
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<Lane, E> {
+                Ok(Lane(0))
+            }
+            fn visit_str<E>(self, _: &str) -> Result<Lane, E> {
+                Ok(Lane(0))
+            }
+            fn visit_unit<E>(self) -> Result<Lane, E> {
+                Ok(Lane(0))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Lane, A::Error> {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(Lane(0))
+            }
+            fn visit_map<A: de::MapAccess<'de>>(self, mut m: A) -> Result<Lane, A::Error> {
+                while m.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                Ok(Lane(0))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Bmson {
     info: Info,
+    #[serde(deserialize_with = "counted_or_none")]
     lines: Option<Vec<BarLineDef>>,
+    #[serde(deserialize_with = "counted")]
     bpm_events: Vec<BpmEv>,
+    #[serde(deserialize_with = "counted")]
     stop_events: Vec<StopEv>,
+    #[serde(deserialize_with = "counted")]
     scroll_events: Vec<ScrollEv>,
+    #[serde(deserialize_with = "counted")]
     sound_channels: Vec<SoundChannel>,
+    #[serde(deserialize_with = "counted")]
     mine_channels: Vec<MineChannel>,
+    #[serde(deserialize_with = "counted")]
     key_channels: Vec<MineChannel>,
     bga: Bga,
 }
@@ -26,6 +121,7 @@ struct Info {
     title: String,
     subtitle: String,
     artist: String,
+    #[serde(deserialize_with = "counted")]
     subartists: Vec<String>,
     genre: String,
     mode_hint: String,
@@ -90,13 +186,14 @@ struct ScrollEv {
 #[serde(default)]
 struct SoundChannel {
     name: String,
+    #[serde(deserialize_with = "counted")]
     notes: Vec<BNote>,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct BNote {
-    x: serde_json::Value,
+    x: Lane,
     y: f64,
     l: f64,
     c: bool,
@@ -108,13 +205,14 @@ struct BNote {
 #[serde(default)]
 struct MineChannel {
     name: String,
+    #[serde(deserialize_with = "counted")]
     notes: Vec<MineNote>,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct MineNote {
-    x: serde_json::Value,
+    x: Lane,
     y: f64,
     damage: f64,
 }
@@ -122,9 +220,13 @@ struct MineNote {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Bga {
+    #[serde(deserialize_with = "counted")]
     bga_header: Vec<BgaHeader>,
+    #[serde(deserialize_with = "counted")]
     bga_events: Vec<BgaEv>,
+    #[serde(deserialize_with = "counted")]
     layer_events: Vec<BgaEv>,
+    #[serde(deserialize_with = "counted")]
     poor_events: Vec<BgaEv>,
 }
 #[derive(Deserialize)]
@@ -173,12 +275,6 @@ fn map_lane(mode: PlayMode, x: i64) -> Option<u8> {
         PlayMode::Key4 | PlayMode::Key6 | PlayMode::Key8 => (x < mode.lane_count()).then_some(x),
     };
     lane.map(|l| l as u8)
-}
-
-fn x_of(v: &serde_json::Value) -> i64 {
-    v.as_i64()
-        .or_else(|| v.as_f64().map(|f| f as i64))
-        .unwrap_or(0)
 }
 
 /// The longest chart read: 10,000 measures of 4/4 (in beats).
@@ -232,6 +328,7 @@ fn object_count(b: &Bmson) -> usize {
 
 pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
     limits::file(bytes.len())?;
+    LEFT.set(limits::MAX_OBJECTS);
     let b: Bmson = serde_json::from_slice(bytes).map_err(|e| ChartError::Parse(e.to_string()))?;
     limits::objects(object_count(&b))?;
     let info = &b.info;
@@ -331,7 +428,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
             let end = next_time.map(|nt| nt - restart_time);
             let sound = chart.sounds.len() as SoundId;
             chart.sounds.push(SoundSlice { file, start, end });
-            let x = x_of(&n.x);
+            let x = n.x.0;
             match map_lane(mode, x) {
                 Some(lane) if !n.up => {
                     let kind = if n.l > 0.0 {
@@ -377,7 +474,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
                 end: None,
             });
             for n in &ch.notes {
-                if let Some(lane) = map_lane(mode, x_of(&n.x)) {
+                if let Some(lane) = map_lane(mode, n.x.0) {
                     let kind = if mine {
                         meta.has_mine = true;
                         NoteKind::Mine {
@@ -551,6 +648,25 @@ mod tests {
         assert!(parse_bmson(lines(1000).as_bytes()).is_ok());
         let e = parse_bmson(lines(limits::MAX_OBJECTS + 1).as_bytes());
         assert!(matches!(e, Err(ChartError::Parse(m)) if m.contains("objects")));
+    }
+
+    /// The lists are counted as they are read: a file of more empty
+    /// objects than a chart may have is refused before it is all read.
+    /// A lane that is no number is none, and passed over.
+    #[test]
+    fn objects_are_counted_as_they_are_read() {
+        let mut src = r#"{"sound_channels": [{"name": "a", "notes": ["#.to_string();
+        src.push_str(&"{},".repeat(limits::MAX_OBJECTS + 1));
+        // (a file that ends wrong: never reached)
+        src.push('!');
+        let e = parse_bmson(src.as_bytes());
+        assert!(matches!(e, Err(ChartError::Parse(m)) if m.contains("objects")));
+        let src = r#"{"sound_channels": [{"name": "a", "notes": [
+            {"x": 2.0, "y": 0}, {"x": [1, [2], {"x": 3}], "y": 1}, {"x": "3", "y": 2},
+            {"x": null, "y": 3}, {"x": {"a": [1]}, "y": 4}, {"x": 18446744073709551615, "y": 5}]}]}"#;
+        let c = parse_bmson(src.as_bytes()).unwrap();
+        assert_eq!((c.notes.len(), c.bgm.len()), (1, 5));
+        assert_eq!(c.notes[0].lane, 1);
     }
 
     #[test]
