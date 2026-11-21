@@ -69,7 +69,7 @@ A skin is someone else's file: what it can ask of the game is bounded, far above
 | gauge cells (`#SRC_GROOVEGAUGE`'s count, `gauge.parts`) | 1000 |
 | timing visualizer width (`judgeWidthMillis`) | 2000 ms |
 | timing distribution graph bins (`width`) | 2001 |
-| a Lua skin: memory | 256 MiB |
+| a Lua skin: memory | 256 MiB (64 MiB to say what it is when skins are listed) |
 | a Lua skin: time | 10 s to load, 2 s to say what it is (type, name, options) when skins are listed, 1 s a frame |
 | a Lua skin's table | 64 MiB as JSON, 128 tables deep |
 | text a script gives | its first 4096 bytes are shown |

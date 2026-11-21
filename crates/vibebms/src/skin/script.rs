@@ -533,6 +533,9 @@ return fns
 
     /// Lua memory per skin.
     const MEMORY_LIMIT: usize = 256 << 20;
+    /// Lua memory of a Lua skin's run when skins are listed: it builds the
+    /// skin's table as a load does, a few megabytes for real skins.
+    const HEADER_MEMORY: usize = 64 << 20;
     /// Time a skin may take to load.
     #[cfg(not(test))]
     pub const LOAD_TIME: Duration = Duration::from_secs(10);
@@ -545,13 +548,33 @@ return fns
     pub const HEADER_TIME: Duration = Duration::from_secs(2);
     #[cfg(test)]
     pub const HEADER_TIME: Duration = Duration::from_millis(100);
+    /// What a skin's code may take until its first frame.
+    #[derive(Clone, Copy, Debug)]
+    pub struct Limits {
+        pub time: Duration,
+        pub memory: usize,
+    }
+
+    /// A skin's load.
+    pub const LOAD: Limits = Limits {
+        time: LOAD_TIME,
+        memory: MEMORY_LIMIT,
+    };
+
+    /// A Lua skin's run to say what it is when skins are listed.
+    pub const HEADER: Limits = Limits {
+        time: HEADER_TIME,
+        memory: HEADER_MEMORY,
+    };
+
     /// Time a skin's scripts may take per frame.
     const FRAME_TIME: Duration = Duration::from_secs(1);
     /// Frames in a row a skin's scripts may run out of time before they
     /// are stopped for good.
     const LATE_FRAMES: u32 = 3;
-    /// Lua instructions between two looks at the clock.
-    const HOOK_EVERY: u32 = 1000;
+    /// Lua instructions between two looks at the clock (one instruction
+    /// on a long string can take tens of milliseconds).
+    const HOOK_EVERY: u32 = 100;
     /// Timers a skin's scripts may set (kept outside Lua's memory limit).
     const SET_TIMERS: usize = 4096;
     /// Game events a click's script may ask for.
@@ -571,7 +594,7 @@ return fns
 
     /// The error that stops a script past its time, for what the library
     /// does in Rust (a call of it is one instruction to the hook).
-    fn in_time(lua: &Lua) -> mlua::Result<()> {
+    pub fn in_time(lua: &Lua) -> mlua::Result<()> {
         match expired(lua) {
             true => Err(mlua::Error::runtime(TOO_LONG)),
             false => Ok(()),
@@ -924,8 +947,8 @@ end
     impl Script {
         /// A Lua state with the skin modules; `global` also exposes them as
         /// globals (JSON skins), `home` is where the skin's files are. What
-        /// runs in it until its first frame has `budget` in all.
-        pub fn new(home: &Home, global: bool, budget: Duration) -> mlua::Result<Script> {
+        /// runs in it until its first frame has `limits` in all.
+        pub fn new(home: &Home, global: bool, limits: Limits) -> mlua::Result<Script> {
             // no debug, and os / io as beatoraja restricts them (below):
             // scripts only reach what the skin modules give
             let libs = mlua::StdLib::COROUTINE
@@ -938,14 +961,14 @@ end
             #[cfg(target_arch = "wasm32")]
             vibebms_lua_web::linked();
             let lua = Lua::new_with(libs, mlua::LuaOptions::default())?;
-            lua.set_memory_limit(MEMORY_LIMIT)?;
+            lua.set_memory_limit(limits.memory)?;
             // global: coroutines the scripts create run under it too (a
             // thread hook is dropped in them)
             lua.set_global_hook(
                 mlua::HookTriggers::new().every_nth_instruction(HOOK_EVERY),
                 |lua, _| in_time(lua).map(|()| mlua::VmState::Continue),
             )?;
-            arm(&lua, budget);
+            arm(&lua, limits.time);
             install_patterns(&lua)?;
             let expired_fn = lua.create_function(|lua, ()| Ok(expired(lua)))?;
             lua.load(GUARD)
@@ -1365,7 +1388,7 @@ end
 
         fn lua(&mut self) -> Option<&Script> {
             if self.script.is_none() {
-                match Script::new(&self.home, true, LOAD_TIME) {
+                match Script::new(&self.home, true, LOAD) {
                     Ok(s) => self.script = Some(s),
                     Err(e) => {
                         log::warn!("skin script: {e}");
@@ -1657,7 +1680,11 @@ end
 
         /// A state whose scripts have a short time.
         fn script(dir: &Path) -> Script {
-            Script::new(&home(dir), true, Duration::from_millis(300)).unwrap()
+            let limits = Limits {
+                time: Duration::from_millis(300),
+                ..LOAD
+            };
+            Script::new(&home(dir), true, limits).unwrap()
         }
 
         fn eval<T: mlua::FromLuaMulti>(code: &str) -> mlua::Result<T> {
@@ -2027,6 +2054,16 @@ end
             );
             assert!(r.unwrap_err().to_string().contains("too long"));
             assert!(t.elapsed() < std::time::Duration::from_secs(3));
+            // instructions that each copy a long string
+            let t = std::time::Instant::now();
+            let r: mlua::Result<()> =
+                eval("local s = ('x'):rep(64 << 20) while true do local t = s .. 'y' end");
+            assert!(r.unwrap_err().to_string().contains("too long"));
+            assert!(
+                t.elapsed() < std::time::Duration::from_secs(3),
+                "{:?}",
+                t.elapsed()
+            );
             assert_eq!(
                 eval::<String>("local t = { 'b', 'c', 'a' } table.sort(t) return table.concat(t)")
                     .unwrap(),
@@ -2128,6 +2165,17 @@ end
             assert!(json("return { [2] = 'a' }").is_err());
             assert!(json("return { '\\xff' }").is_err());
             assert_eq!(json("return 1 / 0").unwrap(), Value::Null);
+        }
+
+        /// A run for a skin's header has less memory than its load.
+        #[test]
+        fn a_header_run_has_less_memory() {
+            let len = |limits: Limits| {
+                let s = Script::new(&home(Path::new("/nonexistent/theme/skin")), true, limits);
+                (s.unwrap().lua().load("return #('x'):rep(80 << 20)")).eval::<i64>()
+            };
+            assert_eq!(len(LOAD).unwrap(), 80 << 20);
+            assert!(len(HEADER).unwrap_err().to_string().contains("memory"));
         }
 
         #[test]

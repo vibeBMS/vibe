@@ -13,11 +13,11 @@ pub fn eval(
 ) -> Result<(Value, script::Script), String> {
     let src = read_text(path).map_err(|e| e.to_string())?;
     let e = |e: mlua::Error| format!("{}: {e}", path.display());
-    let budget = match skin_config {
-        Some(_) => script::LOAD_TIME,
-        None => script::HEADER_TIME,
+    let limits = match skin_config {
+        Some(_) => script::LOAD,
+        None => script::HEADER,
     };
-    let mut sc = script::Script::new(home, false, budget).map_err(e)?;
+    let mut sc = script::Script::new(home, false, limits).map_err(e)?;
     let lua = sc.lua().clone();
     let g = lua.globals();
     if let Some((opts, header, user_offsets, user_files)) = skin_config {
@@ -54,7 +54,9 @@ pub fn eval(
         cfg.set(
             "get_path",
             // (a path the skin may not read: none)
-            lua.create_function(move |_, p: String| {
+            // (a folder of many files is looked through: in the time)
+            lua.create_function(move |lua, p: String| {
+                script::in_time(lua)?;
                 let found = skin_path(&home, &fps, &chosen, &p);
                 Ok(found.map_or_else(String::new, |p| p.to_string_lossy().into_owned()))
             })
