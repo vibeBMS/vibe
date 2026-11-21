@@ -591,7 +591,9 @@ return fns
     ///   arguments, and the loops of the table library run in C only over
     ///   a plain table of at most `MAX` entries (in Lua otherwise: a
     ///   length or an element a metamethod makes up, a range of
-    ///   millions), `string.rep` not at all for an empty result.
+    ///   millions), `string.rep` not at all for an empty result, and
+    ///   `table.sort` always with a comparator in Lua (one call compares
+    ///   long strings n·log n times).
     ///
     /// `load` takes text chunks only (Lua does not verify compiled
     /// bytecode), and `string.dump` is gone.
@@ -753,7 +755,11 @@ table.concat = function(t, sep, i, j)
   end
   return concat(copy, sep, first, last)
 end
+-- Lua's own order compares two strings in C, at a cost that grows with
+-- their length: in Lua, each comparison is instructions the hook counts
+local function less(a, b) return a < b end
 table.sort = function(t, cmp)
+  if cmp == nil then cmp = less end
   if quick(t) then return sort(t, cmp) end
   local n = len(t)
   -- (more than a skin sorts)
@@ -2012,6 +2018,20 @@ end
                 eval("local s = ('x'):rep(8000000) while true do s:upper() end");
             assert!(r.unwrap_err().to_string().contains("too long"));
             assert!(t.elapsed() < std::time::Duration::from_secs(5));
+            // a sort of long strings (each comparison reads them whole)
+            let t = std::time::Instant::now();
+            let r: mlua::Result<()> = eval(
+                "local s, t = ('a'):rep(32 << 20), {}
+                 for i = 1, 400 do t[i] = s end
+                 table.sort(t)",
+            );
+            assert!(r.unwrap_err().to_string().contains("too long"));
+            assert!(t.elapsed() < std::time::Duration::from_secs(3));
+            assert_eq!(
+                eval::<String>("local t = { 'b', 'c', 'a' } table.sort(t) return table.concat(t)")
+                    .unwrap(),
+                "abc"
+            );
         }
 
         /// A finalizer would run with the hook off: tables get none, as
