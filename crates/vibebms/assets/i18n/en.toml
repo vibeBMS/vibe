@@ -723,6 +723,7 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "yours on the IR" = "yours on the IR"
 "{name} (profile)" = "{name} (profile)"
 "a profile deleted" = "a profile deleted"
+"kept, not sent until the address is https://" = "kept, not sent until the address is https://"
 "kept for another address: paste it again" = "kept for another address: paste it again"
 "none: paste one" = "none: paste one"
 "connected as {user}" = "connected as {user}"

@@ -451,6 +451,7 @@ _untranslated = [
 "a profile deleted" = "삭제된 프로필"
 "none: paste one" = "없음: 붙여넣기"
 "kept for another address: paste it again" = "다른 주소용으로 보관됨: 다시 붙여넣기"
+"kept, not sent until the address is https://" = "보관됨: 주소가 https://가 될 때까지 보내지 않음"
 "BAD ADDRESS" = "주소 오류"
 "An IR server's address starts with https:// (http:// only on this computer)" = "IR 서버 주소는 https://로 시작해야 함 (http://는 이 컴퓨터만)"
 "connected as {user}" = "{user}(으)로 연결됨"

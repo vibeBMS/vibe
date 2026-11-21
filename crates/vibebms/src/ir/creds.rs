@@ -40,7 +40,8 @@ struct Doc {
 enum Stored {
     /// With the origin ([`origin`]) of the server it was entered for.
     Bound { key: String, origin: String },
-    /// As versions before kept it: given a server once ([`Keys::bind`]).
+    /// As versions before kept it: given a server once ([`Keys::bind`]),
+    /// never given out before.
     Unbound(String),
 }
 
@@ -158,6 +159,11 @@ impl Keys {
         self.doc.keys.contains_key(&p)
     }
 
+    /// `p`'s key is kept without a server yet ([`Keys::bind`]).
+    pub fn held(&self, p: ProviderId) -> bool {
+        matches!(self.doc.keys.get(&p), Some(Stored::Unbound(_)))
+    }
+
     /// Keep `key` for `p`'s account at the server at `origin` (`None`:
     /// forget the account's key).
     pub fn set(&mut self, p: ProviderId, key: Option<(String, String)>) -> io::Result<()> {
@@ -169,12 +175,30 @@ impl Keys {
         })
     }
 
+    /// Keep `key` for `p`'s account until the account has an address a key
+    /// may go to ([`Keys::bind`]).
+    pub fn hold(&mut self, p: ProviderId, key: String) -> io::Result<()> {
+        self.change(|doc| {
+            doc.keys.insert(p, Stored::Unbound(key));
+        })
+    }
+
     /// The keys versions before kept without their server get the one
-    /// their account has now (`origin_of`); one whose account has none
-    /// goes. Once: every key is kept with its server from then on.
-    pub fn bind(&mut self, origin_of: impl Fn(ProviderId) -> Option<String>) -> io::Result<()> {
-        let unbound = |s: &Stored| matches!(s, Stored::Unbound(_));
-        if !self.doc.keys.values().any(unbound) {
+    /// their account has now (`account`: None when there is no such
+    /// account, `Some(None)` when its address is not one a key may go to).
+    /// Once: a key is kept with its server from then on. One whose account
+    /// is gone goes; one whose account's address takes no key is held,
+    /// never given out, until the account has such an address or is
+    /// removed.
+    pub fn bind(
+        &mut self,
+        account: impl Fn(ProviderId) -> Option<Option<String>>,
+    ) -> io::Result<()> {
+        let held = |p: &ProviderId, s: &Stored| match s {
+            Stored::Unbound(_) => account(*p) == Some(None),
+            Stored::Bound { .. } => true,
+        };
+        if self.doc.keys.iter().all(|(p, s)| held(p, s)) {
             return Ok(());
         }
         self.change(|doc| {
@@ -183,9 +207,9 @@ impl Keys {
                 .filter_map(|(p, s)| match s {
                     Stored::Unbound(key) => Some((
                         p,
-                        Stored::Bound {
-                            key,
-                            origin: origin_of(p)?,
+                        match account(p)? {
+                            Some(origin) => Stored::Bound { key, origin },
+                            None => Stored::Unbound(key),
                         },
                     )),
                     bound => Some((p, bound)),
@@ -425,29 +449,73 @@ mod tests {
     }
 
     /// The keys of a version before, kept without their server, get their
-    /// account's once; one without an account goes, and none is ever given
-    /// out unbound.
+    /// account's once; one without an account goes, one whose account's
+    /// address takes no key waits for one, and none is ever given out
+    /// unbound.
     #[test]
     fn older_keys_get_their_server_once() {
         let root = temp("older");
         let paths = Paths::at(root.clone());
         let file = root.join("config/credentials.json");
-        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0","vibe-json:1":"k1"}}"#).unwrap();
-        let (a, b) = (ProviderId::VibeJson(0), ProviderId::VibeJson(1));
+        std::fs::write(
+            &file,
+            r#"{"keys":{"vibe-json:0":"k0","vibe-json:1":"k1","vibe-json:2":"k2"}}"#,
+        )
+        .unwrap();
+        let (a, b, lan) = (
+            ProviderId::VibeJson(0),
+            ProviderId::VibeJson(1),
+            ProviderId::VibeJson(2),
+        );
         let mut c = Keys::open(&paths);
         assert!(c.has(a) && c.get(a, "https://ir.example:443").is_none());
-        c.bind(|p| (p == a).then(|| "https://ir.example:443".to_string()))
-            .unwrap();
+        let accounts = |p| match p {
+            p if p == a => Some(Some("https://ir.example:443".to_string())),
+            p if p == lan => Some(origin("http://192.168.1.10:8080/")),
+            _ => None,
+        };
+        c.bind(accounts).unwrap();
         assert_eq!(
             c.get(a, "https://ir.example:443").unwrap().token.expose(),
             "k0"
         );
         assert!(!c.has(b));
-        // bound for good: another address later does not get it
+        // held, not sent anywhere, and kept from one start to the next
+        for c in [&c, &Keys::open(&paths)] {
+            assert!(c.has(lan) && c.held(lan) && !c.held(a));
+            assert!(c.get(lan, "http://192.168.1.10:8080").is_none());
+        }
         let mut c = Keys::open(&paths);
-        c.bind(|_| Some("https://evil.example:443".into())).unwrap();
-        assert!(c.get(a, "https://evil.example:443").is_none());
+        c.bind(accounts).unwrap();
+        assert!(c.held(lan));
+        // bound for good: another address later does not get it; the held
+        // one gets the address its account has now
+        let other = "https://lan.example:443";
+        c.bind(|_| Some(Some(other.into()))).unwrap();
         assert!(c.get(a, "https://ir.example:443").is_some());
+        assert!(c.get(a, other).is_none());
+        assert_eq!(c.get(lan, other).unwrap().token.expose(), "k2");
+        assert!(!Keys::open(&paths).held(lan));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A held key goes with its account.
+    #[test]
+    fn a_held_key_goes_with_its_account() {
+        let root = temp("held");
+        let paths = Paths::at(root.clone());
+        let file = root.join("config/credentials.json");
+        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0"}}"#).unwrap();
+        let p = ProviderId::VibeJson(0);
+        let mut c = Keys::open(&paths);
+        c.bind(|_| Some(None)).unwrap();
+        assert!(c.held(p));
+        c.set(p, None).unwrap();
+        assert!(!Keys::open(&paths).has(p));
+        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0"}}"#).unwrap();
+        let mut c = Keys::open(&paths);
+        c.bind(|_| None).unwrap();
+        assert!(!Keys::open(&paths).has(p));
         std::fs::remove_dir_all(&root).ok();
     }
 
