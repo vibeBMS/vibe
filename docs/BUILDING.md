@@ -230,13 +230,12 @@ its branches) signs with a key made for the run.
 The key is kept away from the build. CI's `android` job builds the unsigned APK and has no secret: what runs there
 (cargo and every crate's build script, cargo-ndk, Gradle and its plugins) could read anything in the job. The
 `android-sign` job takes that APK as an artifact and signs it (`tools/build_release.sh sign`), with the JDK, the
-pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job,
-`sign-update` (the self-update's key) and the `nightly` job (for the F-Droid repository's key) run in the environment
-`release`. Keep the keys there, not in
+pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job
+and the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
 the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
 the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
 `FDROID_KEYSTORE_PASSWORD`) as the environment's secrets and delete the repository's. The self-update's key,
-`UPDATE_SIGNING_KEY`, is an environment secret only (Self-update, below). A run of any other branch,
+`UPDATE_SIGNING_KEY`, has an environment of its own, `update-signing` (Self-update, below). A run of any other branch,
 whatever its workflow file says, then cannot read them. (Until then the environment is an empty one GitHub makes on
 first use, and the repository's secrets are used.) No reviewers or wait timer: each would hold every nightly.
 
@@ -379,10 +378,12 @@ token, a compromised action in a job that may write the release) could change bo
 build that has the key takes the list only with a signature that matches.
 
 - The key is an OpenSSH Ed25519 key. Its private half is the secret `UPDATE_SIGNING_KEY` of the environment
-  `release` (Android signing, above: the default branch alone can use it). Its public half is
-  `tools/update_key.pub`, in the repository. There is one key and no second copy: CI alone has it.
+  `update-signing`, which only the job `sign-update` names: the jobs that run scripts and downloaded tools (the
+  nightly's, in `release`) are never given it. Limit it to the default branch as `release` is (Android signing,
+  above). Its public half is `tools/update_key.pub`, in the repository. There is one key and no second copy: CI
+  alone has it.
 - The job `update-manifest` writes `latest.json`. It has no secret and only reads. The job `sign-update` runs in the
-  environment `release`: it downloads `latest.json` as an artifact and runs
+  environment `update-signing`: it downloads `latest.json` as an artifact and runs
   `ssh-keygen -Y sign -n vibebms-update` with the key, which exists for that step only. It runs nothing from the
   repository (no checkout) and no action but the artifact ones. The job `verify-update`, which has no secret, then
   checks the signature with `ssh-keygen -Y verify` against `tools/update_key.pub`. The `nightly` job (and `pages`)
@@ -410,7 +411,8 @@ To make the key (once; on any machine with OpenSSH):
 ssh-keygen -t ed25519 -N "" -C vibebms-update -f vibebms-update
 ```
 Paste the whole of the file `vibebms-update` (the private key, `-----BEGIN OPENSSH PRIVATE KEY-----` to the `END`
-line) as the secret `UPDATE_SIGNING_KEY` in Settings › Environments › `release`. Commit `vibebms-update.pub` as
+line) as the secret `UPDATE_SIGNING_KEY` in Settings › Environments › `update-signing` (new; "Deployment branches
+and tags": selected branches, the default branch only). Commit `vibebms-update.pub` as
 `tools/update_key.pub`. Then delete the private key file. Only builds made from that commit on check the signature:
 the builds people already have do not have the key and go on taking `latest.json` as before, until they update to
 one that has it.

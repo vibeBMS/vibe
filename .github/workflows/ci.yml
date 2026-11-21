@@ -784,10 +784,12 @@ jobs:
           if-no-files-found: error
 
   # latest.json signed with the update key (an OpenSSH Ed25519 key, the
-  # secret UPDATE_SIGNING_KEY of the environment `release`; docs/BUILDING.md,
-  # "Self-update"), in a job of its own that runs nothing of the
-  # repository's: no checkout, no action but the artifacts' own, and the
-  # runner's ssh-keygen. The key exists for the one step. Without
+  # secret UPDATE_SIGNING_KEY of the environment `update-signing`;
+  # docs/BUILDING.md, "Self-update"), in a job of its own that runs nothing
+  # of the repository's: no checkout, no action but the artifacts' own, and
+  # the runner's ssh-keygen. The key exists for the one step, and the
+  # environment is this job's alone: no job that runs a script or a
+  # downloaded tool (the nightly's, in `release`) is given the key. Without
   # tools/update_key.pub in the repository it does nothing, and latest.json
   # is published unsigned, as the builds without a key expect.
   sign-update:
@@ -795,7 +797,7 @@ jobs:
     needs: update-manifest
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    environment: release
+    environment: update-signing
     steps:
       - if: needs.update-manifest.outputs.signed == 'true'
         uses: actions/download-artifact@v8
@@ -812,7 +814,7 @@ jobs:
             exit 0
           fi
           if [ -z "$UPDATE_SIGNING_KEY" ]; then
-            echo "::error::tools/update_key.pub is in the repository, but the environment release has no secret UPDATE_SIGNING_KEY (docs/BUILDING.md, \"Self-update\"): nothing is published"
+            echo "::error::tools/update_key.pub is in the repository, but the environment update-signing has no secret UPDATE_SIGNING_KEY (docs/BUILDING.md, \"Self-update\"): nothing is published"
             exit 1
           fi
           key="$RUNNER_TEMP/update-key"
