@@ -120,7 +120,10 @@ pub fn load_file(
 /// what a skin file holds must not take the game down. What the readers
 /// change while they run is their own (the model being built, a Lua
 /// state) and is dropped as the panic unwinds; the caches they share are
-/// written once a read is done, and never held across one.
+/// written once a read is done, and never held across one. Where a panic
+/// aborts, the web's build (wasm32-unknown-unknown has no unwinding), this
+/// catches nothing and the page stops: there the skin guard is the cover,
+/// its note kept to set the skin aside at the next start ([`guard`]).
 fn no_panic<T>(
     path: &std::path::Path,
     read: impl FnOnce() -> Result<T, String>,
