@@ -223,6 +223,8 @@ pub struct Input {
 #[derive(Default)]
 pub struct Skins {
     pub store: crate::skinstore::SkinStore,
+    /// A skin chosen and not loaded yet, and when (`skinned::choose`).
+    pub(crate) trial: Option<(crate::skin::SkinType, String, crate::platform::Instant)>,
     options: RefCell<HashMap<PathBuf, Rc<[CustomOption]>>>,
     offsets: RefCell<HashMap<PathBuf, Rc<[CustomOffset]>>>,
 }
@@ -658,6 +660,7 @@ impl Ctx {
         let now = crate::platform::unix_ms();
         events.extend(self.net.ir.poll(now, &mut self.config.ir));
         self.handle(events);
+        crate::scene::skinned::settle(self, crate::platform::Instant::now());
         self.poll_scan();
         let events = self.tables.poll(&self.paths, &self.config.tables);
         self.handle(events);

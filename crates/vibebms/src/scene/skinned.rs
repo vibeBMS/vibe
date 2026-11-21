@@ -97,17 +97,37 @@ pub fn load(
     None
 }
 
+/// How long a choice of skin rests before it is loaded ([`settle`]):
+/// stepping through the skins stays quick.
+const TRIAL_AFTER: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// Choose `value` (one of [`skin_choices`]) as the skin of `kind`. A skin
-/// file is loaded once before the choice is in the config (the callers
-/// save it after): a skin that takes the game down as it loads is then
-/// not what the next start comes up with. One that fails to load is
-/// chosen all the same, and said (its screen shows the built-in skin).
+/// file is loaded once the choice has rested ([`settle`]); one that fails
+/// to load is chosen all the same, and said (its screen shows the
+/// built-in skin). A skin that takes the game down as it loads then is
+/// set aside at the next start (`skin::guard`).
 pub fn choose(ctx: &mut Ctx, kind: SkinType, value: String) {
     let Some(key) = kind.key() else {
         return;
     };
-    let path = super::play_skin::configured_path(ctx, &value);
-    if let Some(path) = path.filter(|_| kind != SkinType::SoundSet) {
+    ctx.skins.trial = Some((kind, value.clone(), crate::platform::Instant::now()));
+    ctx.config.skins.insert(key.to_string(), value);
+}
+
+/// Load the skin last chosen once the choice has rested (at `now`; a
+/// sound set is none to load), and save the config.
+pub fn settle(ctx: &mut Ctx, now: crate::platform::Instant) {
+    match &ctx.skins.trial {
+        Some((_, _, at)) if now.saturating_duration_since(*at) >= TRIAL_AFTER => {}
+        _ => return,
+    }
+    let Some((kind, value, _)) = ctx.skins.trial.take() else {
+        return;
+    };
+    let chosen = kind.key().and_then(|k| ctx.config.skins.get(k)) == Some(&value);
+    let path = (super::play_skin::configured_path(ctx, &value))
+        .filter(|_| chosen && kind != SkinType::SoundSet);
+    if let Some(path) = path {
         let loaded = crate::skin::load_file(
             &path,
             &ctx.paths.skins,
@@ -123,7 +143,7 @@ pub fn choose(ctx: &mut Ctx, kind: SkinType, value: String) {
             ));
         }
     }
-    ctx.config.skins.insert(key.to_string(), value);
+    ctx.save_config();
 }
 
 /// The start: skin loads are noted from here on (`skin::guard`), and the
@@ -285,10 +305,10 @@ mod tests {
     const SKIN: &str = "#INFORMATION,5,S,me\n#IMAGE,a.png\n#SRC_IMAGE,0,0,0,0,10,10,1,1,0,0\n\
                         #DST_IMAGE,0,0,0,0,10,10,0,255,255,255,255\n";
 
-    /// A skin is loaded as it is chosen (before the choice is saved): one
-    /// that does not load is said, a sound set is none to load.
+    /// A skin is loaded once its choice rests: one that does not load is
+    /// said, a sound set is none to load.
     #[test]
-    fn a_skin_is_loaded_before_it_is_the_choice() {
+    fn a_skin_is_loaded_once_its_choice_rests() {
         let root = std::env::temp_dir().join(format!("vibebms-choose-{}", std::process::id()));
         write(&root.join("skins/good/select.lr2skin"), SKIN);
         image::RgbImage::new(16, 16)
@@ -299,22 +319,33 @@ mod tests {
             "#INFORMATION,5,S,me\n",
         );
         let mut ctx = Ctx::for_test(root.clone());
+        let later = || crate::platform::Instant::now() + TRIAL_AFTER;
         choose(
             &mut ctx,
             SkinType::Select,
             "skins/good/select.lr2skin".into(),
         );
+        settle(&mut ctx, later());
         choose(&mut ctx, SkinType::SoundSet, "sounds/none".into());
+        settle(&mut ctx, later());
         assert!(ctx.toasts.is_empty());
         assert_eq!(ctx.config.skins["SELECT"], "skins/good/select.lr2skin");
+        // the bad one stepped past: not loaded
         choose(
             &mut ctx,
             SkinType::Select,
             "skins/bad/select.lr2skin".into(),
         );
+        assert!(ctx.toasts.is_empty());
+        settle(&mut ctx, crate::platform::Instant::now());
+        assert!(ctx.toasts.is_empty());
+        settle(&mut ctx, later());
         assert_eq!(ctx.toasts.len(), 1);
         assert_eq!(ctx.config.skins["SELECT"], "skins/bad/select.lr2skin");
+        let saved = crate::config::Config::load(&ctx.paths.config_file());
+        assert_eq!(saved.skins["SELECT"], "skins/bad/select.lr2skin");
         choose(&mut ctx, SkinType::Select, String::new());
+        settle(&mut ctx, later());
         assert_eq!(
             (ctx.toasts.len(), &ctx.config.skins["SELECT"]),
             (1, &String::new())
