@@ -230,11 +230,13 @@ its branches) signs with a key made for the run.
 The key is kept away from the build. CI's `android` job builds the unsigned APK and has no secret: what runs there
 (cargo and every crate's build script, cargo-ndk, Gradle and its plugins) could read anything in the job. The
 `android-sign` job takes that APK as an artifact and signs it (`tools/build_release.sh sign`), with the JDK, the
-pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job and
-the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
+pinned build-tools and apksigcopier alone; the keystore exists for that one step. On the default branch that job,
+`sign-update` (the self-update's key) and the `nightly` job (for the F-Droid repository's key) run in the environment
+`release`. Keep the keys there, not in
 the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
 the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
-`FDROID_KEYSTORE_PASSWORD`) as the environment's secrets and delete the repository's. A run of any other branch,
+`FDROID_KEYSTORE_PASSWORD`) as the environment's secrets and delete the repository's. The self-update's key,
+`UPDATE_SIGNING_KEY`, is an environment secret only (Self-update, below). A run of any other branch,
 whatever its workflow file says, then cannot read them. (Until then the environment is an empty one GitHub makes on
 first use, and the repository's secrets are used.) No reviewers or wait timer: each would hold every nightly.
 
@@ -348,9 +350,10 @@ releases to come; nothing reads it). In a channel, `version` is the release's (t
 has an entry for each desktop executable in the release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`,
 `-arm64-portable`, `vibebms-macos-arm64`, `-x64`, `vibebms-macos-universal.app.zip`, `vibebms-windows-x64.exe`,
 `-arm64.exe`): the version it was built with, its SHA-256 and its size in bytes. Each desktop build job writes its
-`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `nightly` job reads it. A build that failed keeps its
-previous file in the release, so the job starts from the previous `latest.json` (`gh release download`) and replaces
-only the entries of the files it uploads: a file's version can be older than the release's.
+`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `update-manifest` job reads it. A build that failed keeps
+its previous file in the release, so the job starts from the previous `latest.json` (`gh release download`) and
+replaces only the entries of the files it uploads: a file's version can be older than the release's. The `nightly`
+job publishes the `latest.json` that `update-manifest` made (and `sign-update` signed, below).
 
 An executable picks its own file by its OS and architecture, on Linux by whether it was built with the
 `browser` feature (the `-portable` builds are `--no-default-features`), and on macOS by whether it runs in the app
@@ -369,6 +372,53 @@ bundle that is not vibeBMS's own, an app Homebrew Cask installed, or in a folder
 neither checks nor offers updates (its package manager updates it). Only nightlies check (a `-nightly.<run>`
 prerelease whose build metadata is a 7-digit commit): local builds (`-dev`, no metadata), releases (there is no
 release channel) and the web, Android and iOS builds never do.
+
+### The signature (`latest.json.sig`)
+`latest.json` names the file each build installs and its SHA-256. Anyone who can change the release's files (a leaked
+token, a compromised action in a job that may write the release) could change both. So CI signs `latest.json`, and a
+build that has the key takes the list only with a signature that matches.
+
+- The key is an OpenSSH Ed25519 key. Its private half is the secret `UPDATE_SIGNING_KEY` of the environment
+  `release` (Android signing, above: the default branch alone can use it). Its public half is
+  `tools/update_key.pub`, in the repository. There is one key and no second copy: CI alone has it.
+- The job `update-manifest` writes `latest.json`. It has no secret and only reads. The job `sign-update` runs in the
+  environment `release`: it downloads `latest.json` as an artifact and runs
+  `ssh-keygen -Y sign -n vibebms-update` with the key, which exists for that step only. It runs nothing from the
+  repository (no checkout) and no action but the artifact ones. The job `verify-update`, which has no secret, then
+  checks the signature with `ssh-keygen -Y verify` against `tools/update_key.pub`. The `nightly` job (and `pages`)
+  waits for both: if signing or the check fails, nothing is published. If `tools/update_key.pub` is in the
+  repository but the secret is missing, the run fails and says so. The release then has `latest.json.sig` next to
+  `latest.json` (the armoured SSH signature format, OpenSSH's `PROTOCOL.sshsig`).
+- build.rs reads `tools/update_key.pub` into the build (the build fails if the file is not one `ssh-ed25519` line).
+  A build with the key downloads `latest.json` and `latest.json.sig` (each with a small size limit). It checks that
+  the signature is one Ed25519 signature over SHA-512, made for the namespace `vibebms-update`, by the key it has,
+  of the very bytes it then reads (`crates/vibebms/src/update/sig.rs`). If the signature is missing, unreadable or
+  does not match, the check offers no update and says so in `SETTINGS › SYSTEM` and the log. While a release is
+  being uploaded, the two files can be from different runs for a moment: that check offers nothing, and the next
+  check (the next start) finds them matching.
+- Without `tools/update_key.pub` (until the key is made), `sign-update` and `verify-update` do nothing, the release
+  has no `latest.json.sig`, and builds check only the SHA-256, as before.
+- The stable channel to come is a part of the same `latest.json`: the same file, the same key and signature.
+
+What it does not protect against:
+- Someone who can change the default branch: CI builds what is there and signs it.
+- An old signed `latest.json` put back, with its signature: a build older than that list is offered the older
+  nightly it names. A build newer than it is offered nothing (the run number only grows).
+
+To make the key (once; on any machine with OpenSSH):
+```sh
+ssh-keygen -t ed25519 -N "" -C vibebms-update -f vibebms-update
+```
+Paste the whole of the file `vibebms-update` (the private key, `-----BEGIN OPENSSH PRIVATE KEY-----` to the `END`
+line) as the secret `UPDATE_SIGNING_KEY` in Settings › Environments › `release`. Commit `vibebms-update.pub` as
+`tools/update_key.pub`. Then delete the private key file. Only builds made from that commit on check the signature:
+the builds people already have do not have the key and go on taking `latest.json` as before, until they update to
+one that has it.
+
+To replace the key: make a new one the same way, replace the secret, and commit the new public key as
+`tools/update_key.pub` in the same push. Builds made from then on check with the new key. Builds made before it
+still have the old key: every `latest.json` from then on fails their check, so they stop updating themselves.
+Their users must download a new build by hand once. Say so in the release notes.
 
 ## Build manifest (`builds.json`)
 The nightly release also has a `builds.json`: every build the `nightly` job published, the oldest first, with the
