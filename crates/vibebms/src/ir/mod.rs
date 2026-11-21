@@ -225,12 +225,12 @@ impl IrService {
     /// The keys of before get their servers. Those a version before kept
     /// without one: their account's as it is now, once (`Keys::bind`). The
     /// key of an `[ir_server]` of before (`IrAccount::old_token`): the
-    /// address beside it, unless a key is kept for the account already (a
-    /// configuration never puts a key in the place of one the player
-    /// entered). True when the configuration held one (it is then saved
-    /// without it).
+    /// address beside it (held when that takes no key), unless a key is
+    /// kept for the account already (a configuration never puts a key in
+    /// the place of one the player entered). True when the configuration
+    /// held one (it is then saved without it).
     pub fn take_old_tokens(&mut self, ir: &mut IrSettings) -> bool {
-        let bound = (self.keys).bind(|p| ir.account(p).and_then(key_origin));
+        let bound = (self.keys).bind(|p| ir.account(p).map(key_origin));
         if let Err(e) = bound {
             log::warn!("credentials: {e}");
         }
@@ -241,11 +241,30 @@ impl IrService {
             if self.keys.has(a.provider) {
                 continue;
             }
-            if let Err(e) = self.set_key(a, Some(token)) {
+            let kept = match key_origin(a) {
+                Some(origin) => self.keys.set(a.provider, Some((token, origin))),
+                None => self.keys.hold(a.provider, token),
+            };
+            if let Err(e) = kept {
                 log::warn!("credentials: {e}");
             }
         }
         moved
+    }
+
+    /// The player entered `a`'s address: a key held for the account is
+    /// for that server, when it takes one (`Keys::bind_held`).
+    pub fn entered_address(&mut self, a: &IrAccount) -> io::Result<()> {
+        match key_origin(a) {
+            Some(origin) => self.keys.bind_held(a.provider, &origin),
+            None => Ok(()),
+        }
+    }
+
+    /// A key is held for `a`'s account: sent nowhere until the player
+    /// enters an address (or the key) in the settings.
+    pub fn key_held(&self, a: &IrAccount) -> bool {
+        self.keys.held(a.provider)
     }
 
     /// The key of `a`'s account for its requests: the one entered for the
@@ -1150,6 +1169,36 @@ mod tests {
         assert!(again.take_old_tokens(&mut config.ir));
         let a = &config.ir.accounts[0];
         assert!(again.creds(a).is_none() && again.key_elsewhere(a));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A player's own server on another machine at home (plain `http`):
+    /// its key is not sent, and is kept, from one start to the next, until
+    /// the account has an address a key may go to.
+    #[test]
+    fn a_key_for_a_lan_server_is_held_not_lost() {
+        let root = std::env::temp_dir().join(format!("vibebms-ir-lan-{}", std::process::id()));
+        let paths = Paths::at(root.clone());
+        let file = paths.config_file();
+        let lan = "http://192.168.1.10:8080";
+        std::fs::write(
+            &file,
+            format!("[ir_server]\nenabled = true\nurl = \"{lan}\"\ntoken = \"s3cr3t\"\n"),
+        )
+        .unwrap();
+        let mut config = Config::load(&file);
+        let mut ir = IrService::new(&paths, 0);
+        assert!(ir.take_old_tokens(&mut config.ir));
+        config.save(&file);
+        assert!(!std::fs::read_to_string(&file).unwrap().contains("s3cr3t"));
+        for _ in 0..2 {
+            let mut config = Config::load(&file);
+            let mut ir = IrService::new(&paths, 0);
+            ir.take_old_tokens(&mut config.ir);
+            let a = &config.ir.accounts[0];
+            assert_eq!(a.url, lan);
+            assert!(ir.key_held(a) && ir.creds(a).is_none());
+        }
         std::fs::remove_dir_all(&root).ok();
     }
 

@@ -483,10 +483,8 @@ fn work_stem(files: &[File]) -> String {
             &f.original
         }
     });
-    let name = safe_name(main.map(String::as_str).unwrap_or(""));
     // (`Song.tar.gz`: `Song`)
-    (crate::platform::arcfs::archive_stem(&name).map(str::to_owned))
-        .or_else(|| Some(Path::new(&name).file_stem()?.to_string_lossy().into_owned()))
+    crate::platform::arcfs::archive_folder(main.map(String::as_str).unwrap_or(""))
         .unwrap_or_else(|| "work".into())
 }
 
@@ -679,6 +677,10 @@ mod tests {
         assert_eq!(work_stem(&[file("Song.tar.gz")]), "Song");
         assert_eq!(work_stem(&[file("Song_ogg.zip")]), "Song_ogg");
         assert_eq!(work_stem(&[file("notes.txt")]), "notes");
+        // nothing left of the name but what Windows drops: a neutral one
+        assert_eq!(work_stem(&[file(". .zip")]), "work");
+        assert_eq!(work_stem(&[file(" . . .7z")]), "work");
+        assert_eq!(work_stem(&[file("...zip")]), "zip");
     }
 
     #[test]

@@ -40,6 +40,9 @@ struct Doc {
 enum Stored {
     /// With the origin ([`origin`]) of the server it was entered for.
     Bound { key: String, origin: String },
+    /// For an account whose address takes no key: never given out, until
+    /// the player enters an address for it ([`Keys::bind_held`]).
+    Held { held: String },
     /// As versions before kept it: given a server once ([`Keys::bind`]).
     Unbound(String),
 }
@@ -158,6 +161,11 @@ impl Keys {
         self.doc.keys.contains_key(&p)
     }
 
+    /// `p`'s key is held: kept for no server yet ([`Keys::hold`]).
+    pub fn held(&self, p: ProviderId) -> bool {
+        matches!(self.doc.keys.get(&p), Some(Stored::Held { .. }))
+    }
+
     /// Keep `key` for `p`'s account at the server at `origin` (`None`:
     /// forget the account's key).
     pub fn set(&mut self, p: ProviderId, key: Option<(String, String)>) -> io::Result<()> {
@@ -169,10 +177,39 @@ impl Keys {
         })
     }
 
+    /// Hold `key` for `p`'s account, whose address takes no key: it is
+    /// sent nowhere until the player enters an address ([`Keys::bind_held`]).
+    pub fn hold(&mut self, p: ProviderId, key: String) -> io::Result<()> {
+        self.change(|doc| {
+            doc.keys.insert(p, Stored::Held { held: key });
+        })
+    }
+
+    /// The player entered the address of the server at `origin` for `p`'s
+    /// account: a key held for it is for that server. (Only the player's
+    /// own entry: an address a configuration brings moves no key.)
+    pub fn bind_held(&mut self, p: ProviderId, origin: &str) -> io::Result<()> {
+        if !self.held(p) {
+            return Ok(());
+        }
+        self.change(|doc| {
+            if let Some(Stored::Held { held }) = doc.keys.remove(&p) {
+                let (key, origin) = (held, origin.to_string());
+                doc.keys.insert(p, Stored::Bound { key, origin });
+            }
+        })
+    }
+
     /// The keys versions before kept without their server get the one
-    /// their account has now (`origin_of`); one whose account has none
-    /// goes. Once: every key is kept with its server from then on.
-    pub fn bind(&mut self, origin_of: impl Fn(ProviderId) -> Option<String>) -> io::Result<()> {
+    /// their account has now (`account`: None when there is no such
+    /// account, `Some(None)` when its address is not one a key may go to).
+    /// Once: a key is kept with its server from then on. One whose account
+    /// is gone goes; one whose account's address takes no key is held
+    /// ([`Keys::hold`]).
+    pub fn bind(
+        &mut self,
+        account: impl Fn(ProviderId) -> Option<Option<String>>,
+    ) -> io::Result<()> {
         let unbound = |s: &Stored| matches!(s, Stored::Unbound(_));
         if !self.doc.keys.values().any(unbound) {
             return Ok(());
@@ -183,12 +220,12 @@ impl Keys {
                 .filter_map(|(p, s)| match s {
                     Stored::Unbound(key) => Some((
                         p,
-                        Stored::Bound {
-                            key,
-                            origin: origin_of(p)?,
+                        match account(p)? {
+                            Some(origin) => Stored::Bound { key, origin },
+                            None => Stored::Held { held: key },
                         },
                     )),
-                    bound => Some((p, bound)),
+                    kept => Some((p, kept)),
                 })
                 .collect();
         })
@@ -425,29 +462,76 @@ mod tests {
     }
 
     /// The keys of a version before, kept without their server, get their
-    /// account's once; one without an account goes, and none is ever given
-    /// out unbound.
+    /// account's once; one without an account goes, one whose account's
+    /// address takes no key waits for one, and none is ever given out
+    /// unbound.
     #[test]
     fn older_keys_get_their_server_once() {
         let root = temp("older");
         let paths = Paths::at(root.clone());
         let file = root.join("config/credentials.json");
-        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0","vibe-json:1":"k1"}}"#).unwrap();
-        let (a, b) = (ProviderId::VibeJson(0), ProviderId::VibeJson(1));
+        std::fs::write(
+            &file,
+            r#"{"keys":{"vibe-json:0":"k0","vibe-json:1":"k1","vibe-json:2":"k2"}}"#,
+        )
+        .unwrap();
+        let (a, b, lan) = (
+            ProviderId::VibeJson(0),
+            ProviderId::VibeJson(1),
+            ProviderId::VibeJson(2),
+        );
         let mut c = Keys::open(&paths);
         assert!(c.has(a) && c.get(a, "https://ir.example:443").is_none());
-        c.bind(|p| (p == a).then(|| "https://ir.example:443".to_string()))
-            .unwrap();
+        let accounts = |p| match p {
+            p if p == a => Some(Some("https://ir.example:443".to_string())),
+            p if p == lan => Some(origin("http://192.168.1.10:8080/")),
+            _ => None,
+        };
+        c.bind(accounts).unwrap();
         assert_eq!(
             c.get(a, "https://ir.example:443").unwrap().token.expose(),
             "k0"
         );
         assert!(!c.has(b));
-        // bound for good: another address later does not get it
+        // held, not sent anywhere, and kept from one start to the next
+        for c in [&c, &Keys::open(&paths)] {
+            assert!(c.has(lan) && c.held(lan) && !c.held(a));
+            assert!(c.get(lan, "http://192.168.1.10:8080").is_none());
+        }
+        // bound for good: another address later does not get it, nor the
+        // held one (an address a configuration brings moves no key)
         let mut c = Keys::open(&paths);
-        c.bind(|_| Some("https://evil.example:443".into())).unwrap();
-        assert!(c.get(a, "https://evil.example:443").is_none());
+        let other = "https://lan.example:443";
+        c.bind(|_| Some(Some(other.into()))).unwrap();
         assert!(c.get(a, "https://ir.example:443").is_some());
+        assert!(c.get(a, other).is_none());
+        assert!(c.held(lan) && c.get(lan, other).is_none());
+        // the address the player enters for it: the held one's server
+        c.bind_held(a, other).unwrap();
+        assert!(c.get(a, other).is_none());
+        c.bind_held(lan, other).unwrap();
+        assert_eq!(c.get(lan, other).unwrap().token.expose(), "k2");
+        assert!(!Keys::open(&paths).held(lan));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A held key goes with its account.
+    #[test]
+    fn a_held_key_goes_with_its_account() {
+        let root = temp("held");
+        let paths = Paths::at(root.clone());
+        let file = root.join("config/credentials.json");
+        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0"}}"#).unwrap();
+        let p = ProviderId::VibeJson(0);
+        let mut c = Keys::open(&paths);
+        c.bind(|_| Some(None)).unwrap();
+        assert!(c.held(p));
+        c.set(p, None).unwrap();
+        assert!(!Keys::open(&paths).has(p));
+        std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0"}}"#).unwrap();
+        let mut c = Keys::open(&paths);
+        c.bind(|_| None).unwrap();
+        assert!(!Keys::open(&paths).has(p));
         std::fs::remove_dir_all(&root).ok();
     }
 

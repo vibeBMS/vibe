@@ -452,6 +452,7 @@ _untranslated = [
 "a profile deleted" = "已刪除的個人檔案"
 "none: paste one" = "無：請貼上"
 "kept for another address: paste it again" = "已為另一地址儲存：請重新貼上"
+"kept, not sent: enter an https:// address or the key here" = "已儲存，未傳送：請在此輸入 https:// 地址或金鑰"
 "BAD ADDRESS" = "地址無效"
 "An IR server's address starts with https:// (http:// only on this computer)" = "IR 伺服器地址須以 https:// 開頭（http:// 僅限本機）"
 "connected as {user}" = "已作為 {user} 連接"

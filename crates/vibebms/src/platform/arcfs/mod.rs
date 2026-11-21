@@ -72,6 +72,17 @@ pub fn archive_stem(name: &str) -> Option<&str> {
     })
 }
 
+/// The folder an archive called `name` (another party's name) unpacks
+/// into: its name without its extension, as one name every file system
+/// takes (`Song.tar.gz`: `Song`; `...zip`: `zip`). `None`: nothing is
+/// left of it (`. .zip`: a space, which Windows takes for no name at all).
+pub fn archive_folder(name: &str) -> Option<String> {
+    let name = bmseeker::install::safe_name(name);
+    let stem = archive_stem(&name).or_else(|| Path::new(&name).file_stem()?.to_str())?;
+    let stem = stem.trim_matches([' ', '.']);
+    (!stem.is_empty()).then(|| bmseeker::install::safe_name(stem))
+}
+
 /// `p` as the archive it is in and its path there, if it is in one
 /// (`a/pack.zip!/Song/x.bme`: `a/pack.zip`, `Song/x.bme`; `a/pack.zip!`:
 /// the archive's top).
@@ -222,6 +233,29 @@ mod tests {
         assert_eq!(shown_name("x.tar!"), "x.tar");
         assert_eq!(archive_stem("Song.tar.gz"), Some("Song"));
         assert_eq!(archive_stem(".tar.gz"), None);
+    }
+
+    /// The folder an archive unpacks into is one plain name below its
+    /// folder, whatever the archive is called.
+    #[test]
+    fn archive_folders() {
+        for (name, folder) in [
+            ("Song.tar.gz", Some("Song")),
+            ("Song_ogg.ZIP", Some("Song_ogg")),
+            ("notes.txt", Some("notes")),
+            ("...zip", Some("zip")),
+            ("..", Some("download")),
+            (". .zip", None),
+            (" . .zip", None),
+            ("a. .zip", Some("a")),
+            (". .x.zip", Some("x")),
+            ("..hidden.7z", Some("hidden")),
+            ("x/../..zip", Some("x_.._")),
+            ("CON.zip", Some("_CON")),
+            ("con .zip", Some("_con")),
+        ] {
+            assert_eq!(archive_folder(name).as_deref(), folder, "{name:?}");
+        }
     }
 
     /// A name in an archive is a file's below its folder, on every system.

@@ -4,16 +4,19 @@
 use crate::placement::Vfs;
 use bmseeker::fs::file_name;
 pub use bmseeker::import::{unpack_into, Imported};
-use bmseeker::library::Library;
 use std::path::{Path, PathBuf};
 
 /// What came of a download: what it is, and the charts that waited for it
 /// placed.
 pub type Outcome = Result<(Imported, Vec<PathBuf>), String>;
 
-pub fn import(file: &Path, library: &Path) -> Outcome {
+/// Bring `file` into the library below `<root>/bms`, whose charts are
+/// `songs` (the player's records: a song held is known by its charts'
+/// hashes, whatever its folder is called).
+pub fn import(file: &Path, root: &Path, songs: &[crate::library::Song]) -> Outcome {
     let req = bmseeker::install::Request::default();
-    bmseeker::import::import(&Vfs, file, &mut Library::new(library), &req)
+    let lib = &mut crate::placement::library(root, songs);
+    bmseeker::import::import(&Vfs, file, lib, &req)
 }
 
 /// What a finished import means for the browser.
@@ -82,4 +85,53 @@ pub fn report(ctx: &mut crate::app::Ctx, r: Outcome) -> Report {
     }
     out.rescan |= !placed.is_empty();
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::library::Song;
+    use sha2::{Digest, Sha256};
+
+    /// A song the library holds comes again in an archive named and
+    /// folded otherwise: it is the library's song, known by its chart's
+    /// hash, and gets no second folder.
+    #[test]
+    fn a_song_held_is_known_by_its_charts() {
+        let root = std::env::temp_dir().join(format!("vibebms-import-held-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let chart = "#TITLE Held\n#ARTIST alpha\n#WAV01 01.wav\n";
+        let held = root.join("bms/My Folder");
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(held.join("held.bms"), chart).unwrap();
+        std::fs::write(held.join("01.ogg"), "x").unwrap();
+        let songs = [Song {
+            path: held.join("held.bms").to_string_lossy().into_owned(),
+            sha256: Sha256::digest(chart)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            title: "Held".into(),
+            artist: "alpha".into(),
+            ..Default::default()
+        }];
+        let file = root.join("downloads/Held v2.zip");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let pack = bmseeker::testkit::zip(&[
+            ("Held v2/held.bms", chart),
+            ("Held v2/01.ogg", "x"),
+            ("Held v2/02.ogg", "y"),
+        ]);
+        std::fs::write(&file, pack).unwrap();
+        let (got, _) = import(&file, &root, &songs).unwrap();
+        assert!(matches!(&got, Imported::Owned(d) if *d == held), "{got:?}");
+        // what its folder lacked is brought in; no other folder
+        assert!(held.join("02.ogg").is_file());
+        let folders: Vec<_> = std::fs::read_dir(root.join("bms"))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(folders.len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

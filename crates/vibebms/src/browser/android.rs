@@ -141,9 +141,11 @@ impl Downloads {
                         gb = MAX_DOWNLOAD >> 30
                     )),
                     "C" => self.open = false,
-                    "F" => self
-                        .imports
-                        .start(PathBuf::from(rest), ctx.paths.root.join("bms")),
+                    "F" => self.imports.start(
+                        PathBuf::from(rest),
+                        ctx.paths.root.clone(),
+                        ctx.lib.songs.clone(),
+                    ),
                     _ => {}
                 }
             }

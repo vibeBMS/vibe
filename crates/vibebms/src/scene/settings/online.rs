@@ -229,6 +229,9 @@ fn remove_item(c: &mut Ctx, n: usize) {
 /// What the account's key is, as far as is known here.
 fn key_state(ctx: &Ctx, a: &IrAccount) -> String {
     match () {
+        _ if ctx.net.ir.key_held(a) => {
+            tr!("kept, not sent: enter an https:// address or the key here").into()
+        }
         _ if ctx.net.ir.key_elsewhere(a) => tr!("kept for another address: paste it again").into(),
         _ if !ctx.net.ir.has_key(a) => tr!("none: paste one").into(),
         _ if !a.user.is_empty() => tr!("connected as {user}", user = a.user),
@@ -749,6 +752,11 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
                 a.chart_page.clear();
             }
             a.url = s;
+            // a key held for want of such an address is for the one the
+            // player entered
+            if let Err(e) = ctx.net.ir.entered_address(a) {
+                ctx.toast(tr!("Credentials: {e}", e = e));
+            }
         }
         TextField::IrKey(i) => {
             let Some(a) = ir.accounts.get_mut(i) else {

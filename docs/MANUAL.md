@@ -652,7 +652,13 @@ vibeBMS's JSON protocol ([IR_PROTOCOL.md](IR_PROTOCOL.md)), Bokutachi or BMS-IR.
 - An account's API key is kept apart from `config.toml` (on the desktop in `config/credentials.json`), for the server
   it was entered for: after the server's address changes, or in a configuration taken from someone else, the key is
   not sent and `SETTINGS › ONLINE` asks for it again. A server's address is `https://` (`http://` only on this
-  computer).
+  computer): a key sent over plain `http` can be read on the way. Your own server on another machine (e.g.
+  `http://192.168.1.10:8080`) is shown as BAD ADDRESS and gets no request; a key kept for it is held, never sent,
+  until you enter an address that takes one (or the key) for the account in `SETTINGS › ONLINE`, or remove the
+  account. An `https://` address in `config.toml` alone does not release it: a configuration from someone else
+  moves no key. To use such a server, give it an `https://` address with a certificate this device trusts (e.g.
+  behind a reverse proxy), or forward a port of this computer to it (`ssh -L 8080:192.168.1.10:8080 …`) and use
+  `http://127.0.0.1:8080`.
 - I in song select (or SCORE STATUS's IR PAGE button) opens the chosen chart's page on the IR the rankings come from,
   in the system's browser (the web build: a new tab). BMS-IR's page is found by the chart's MD5 (a bmson has none);
   Bokutachi's by its own chart id, learnt from your PB lists, so a chart you have no score on there has no page yet;
@@ -681,7 +687,8 @@ beatoraja's (`player/<name>/score.db`; LR2oraja's too).
   "Practising") and on the result ("Result: HARD CLEAR"), with the time on that screen. It talks only to the Discord
   app on the same computer. It needs a Discord application id (`discord.application_id`): make an application at
   Discord's developer portal, whose name is the game you are shown playing. None is built in. `Discord` below shows
-  the state.
+  the state. On Linux it needs `XDG_RUNTIME_DIR` (a desktop session sets it): without it the presence does nothing,
+  as Discord's socket would then be in the shared `/tmp`, where another user could pose as Discord.
 - **OBS** (off by default): connects to obs-websocket 5 (OBS 28 or later, `Tools › WebSocket Server Settings`) at
   `obs.host` / `obs.port` (127.0.0.1:4455 by default), with the server's password if it has one. The password is
   kept in `config/credentials.json`, not `config.toml`, for the host and port it was entered for: with another
