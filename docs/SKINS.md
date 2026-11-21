@@ -63,13 +63,14 @@ A skin is someone else's file: what it can ask of the game is bounded, far above
 | | limit |
 |---|---|
 | a skin file, an included file, a script, a font's glyph list, a file a script reads | 16 MiB; no device or pipe |
-| an image, a font, a sound | 256 MiB; no device or pipe |
+| an image, a sound | 256 MiB; no device or pipe |
+| a TrueType / OpenType font | 64 MiB; no device or pipe |
 | files read through `#INCLUDE` / `include` by one load | 16 MiB in all (a file counts 4 KiB at least), 8 levels deep |
 | animation frames | 65,536 an object, 1,048,576 a skin |
 | gauge cells (`#SRC_GROOVEGAUGE`'s count, `gauge.parts`) | 1000 |
 | timing visualizer width (`judgeWidthMillis`) | 2000 ms |
 | timing distribution graph bins (`width`) | 2001 |
-| a Lua skin: memory | 256 MiB |
+| a Lua skin: memory | 256 MiB (64 MiB to say what it is when skins are listed) |
 | a Lua skin: time | 10 s to load, 2 s to say what it is (type, name, options) when skins are listed, 1 s a frame |
 | a Lua skin's table | 64 MiB as JSON, 128 tables deep |
 | text a script gives | its first 4096 bytes are shown |

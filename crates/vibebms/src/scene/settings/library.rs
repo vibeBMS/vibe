@@ -37,7 +37,7 @@ pub(super) fn import_scores(c: &mut Ctx, path: &str) {
         return;
     }
     let read = scoredb::find(std::path::Path::new(path)).and_then(|f| {
-        let bytes = crate::platform::vfs::read(&f).map_err(|e| e.to_string())?;
+        let bytes = crate::lr2db::read_file(&f)?;
         scoredb::read(&bytes, scoredb::is_lr2oraja(&f))
     });
     let rows = match read {
@@ -177,7 +177,7 @@ pub(super) fn rows(b: &mut Rows) {
             "library.rescan",
             tr!("Rescan"),
             tr!("{n} charts", n = ctx.lib.songs.len()),
-            Act::Run(|c, _| c.start_scan(), 0),
+            Act::Run(|c, _| c.rescan(), 0),
         )
         .desc(tr!("Read the folders again for new or changed charts."))
         .keys("scan library refresh"),

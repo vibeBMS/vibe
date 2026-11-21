@@ -82,6 +82,8 @@ pub struct Lib {
     pub scan: Option<Arc<ScanProgress>>,
     /// Scan again once the running scan ends (files came in during it).
     scan_again: bool,
+    /// The next scan forgets the files left out ([`Ctx::rescan`]).
+    forget: bool,
     /// The charts a scan could not read are being read in for one more
     /// scan (once: if that one cannot read them either, they wait for the
     /// next scan).
@@ -221,6 +223,8 @@ pub struct Input {
 #[derive(Default)]
 pub struct Skins {
     pub store: crate::skinstore::SkinStore,
+    /// A skin chosen and not loaded yet, and when (`skinned::choose`).
+    pub(crate) trial: Option<(crate::skin::SkinType, String, crate::platform::Instant)>,
     options: RefCell<HashMap<PathBuf, Rc<[CustomOption]>>>,
     offsets: RefCell<HashMap<PathBuf, Rc<[CustomOffset]>>>,
 }
@@ -596,6 +600,13 @@ impl Ctx {
         self.lib.prefetch = Some(crate::platform::vfs::Prefetch::files(unread));
     }
 
+    /// A rescan the player asked for: the files left out for stopping the
+    /// game are read again too.
+    pub fn rescan(&mut self) {
+        self.lib.forget = true;
+        self.start_scan();
+    }
+
     pub fn start_scan(&mut self) {
         self.finish_scan(false);
         self.lib.scan_again = false;
@@ -609,7 +620,10 @@ impl Ctx {
             self.lib.scan_again = true;
             return;
         }
-        let progress = Arc::new(ScanProgress::default());
+        let progress = Arc::new(ScanProgress {
+            forget: std::mem::take(&mut self.lib.forget),
+            ..Default::default()
+        });
         self.lib.scan = Some(progress.clone());
         let db = self.paths.songs_cache();
         let roots = scan_roots(&self.config, &self.paths);
@@ -646,6 +660,7 @@ impl Ctx {
         let now = crate::platform::unix_ms();
         events.extend(self.net.ir.poll(now, &mut self.config.ir));
         self.handle(events);
+        crate::scene::skinned::settle(self, crate::platform::Instant::now());
         self.poll_scan();
         let events = self.tables.poll(&self.paths, &self.config.tables);
         self.handle(events);

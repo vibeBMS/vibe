@@ -95,7 +95,7 @@ impl Home {
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
 /// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
 /// while it is built. The file is noted as loading until a frame has been
-/// drawn with it ([`guard`]).
+/// drawn with it ready, or what the load made is let go ([`guard`]).
 pub fn load_file(
     path: &std::path::Path,
     skins_root: &std::path::Path,
@@ -104,21 +104,26 @@ pub fn load_file(
     state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    guard::loading(path);
-    no_panic(path, || {
+    let note = guard::loading(path);
+    let mut skin = no_panic(path, || {
         if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
             lr2::load_with(path, skins_root, user, static_option, image_size)
         } else {
             beatoraja::load_with(path, skins_root, user, state, image_size)
         }
-    })
+    })?;
+    skin.note = note.map(std::sync::Arc::new);
+    Ok(skin)
 }
 
 /// `read` (what reads the skin file `path`), a panic in it as an error:
 /// what a skin file holds must not take the game down. What the readers
 /// change while they run is their own (the model being built, a Lua
 /// state) and is dropped as the panic unwinds; the caches they share are
-/// written once a read is done, and never held across one.
+/// written once a read is done, and never held across one. Where a panic
+/// aborts, the web's build (wasm32-unknown-unknown has no unwinding), this
+/// catches nothing and the page stops: there the skin guard is the cover,
+/// its note kept to set the skin aside at the next start ([`guard`]).
 fn no_panic<T>(
     path: &std::path::Path,
     read: impl FnOnce() -> Result<T, String>,
@@ -137,8 +142,11 @@ fn no_panic<T>(
 /// Bytes of a file a skin is written in (its lines, a script, a font's
 /// glyph list) and of what a script reads.
 const TEXT_MAX: u64 = 16 << 20;
-/// Bytes of an image, a font or a sound a skin or a sound set names.
+/// Bytes of an image or a sound a skin or a sound set names.
 const MEDIA_MAX: u64 = 256 << 20;
+/// Bytes of a TrueType / OpenType font a skin names (a CJK font of every
+/// weight is some 30 MB).
+pub(crate) const FONT_MAX: u64 = 64 << 20;
 
 /// A file a skin names can be read whole: it has at most `max` bytes and
 /// is no device or pipe (which have no end, whatever size they state).
@@ -167,6 +175,11 @@ pub(crate) fn read_text(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
 /// Read an image or a sound a skin names ([`MEDIA_MAX`]).
 pub(crate) fn read_media(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
     read_capped(p, MEDIA_MAX)
+}
+
+/// Read a font a skin names ([`FONT_MAX`]).
+pub(crate) fn read_font(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    read_capped(p, FONT_MAX)
 }
 
 /// Bytes a skin load reads through `#INCLUDE` / `include` in all: the
@@ -1179,6 +1192,9 @@ pub struct Skin {
     /// The ops of the skin's own options in effect (each property's
     /// chosen item), for what the game draws itself.
     pub options_on: std::collections::HashSet<i32>,
+    /// The file's load as [`guard`] notes it: past once the skin is drawn
+    /// ready, or let go.
+    pub note: Option<std::sync::Arc<guard::Note>>,
 }
 
 impl Skin {
@@ -1216,6 +1232,7 @@ impl Skin {
             perspective: false,
             horizontal: false,
             options_on: Default::default(),
+            note: None,
         }
     }
 

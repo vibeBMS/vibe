@@ -6,8 +6,34 @@
 //! it.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use vibebms_core::course::CourseDef;
+
+/// The largest database read (bytes): an LR2 song.db of a large library or
+/// a player's score database is tens of megabytes.
+const MAX_FILE: u64 = 256 << 20;
+
+/// The bytes of the database file at `path`, if it is one that is read.
+pub fn read_file(path: &Path) -> Result<Vec<u8>, String> {
+    let size = crate::platform::vfs::stamp(path).1;
+    if u64::try_from(size).is_ok_and(|n| n > MAX_FILE) {
+        return Err(format!(
+            "{}: larger than {} MiB",
+            path.display(),
+            MAX_FILE >> 20
+        ));
+    }
+    crate::platform::vfs::read(path).map_err(|e| e.to_string())
+}
+
+/// `read` (what reads a database someone else made), a panic in it as an
+/// error: an import must not take the game down. (Where panics abort, the
+/// web's build, this catches nothing.)
+pub(crate) fn no_panic<T>(read: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(read))
+        .unwrap_or_else(|_| Err("the database reader failed".into()))
+}
 
 /// One row of a table: its columns' values, by name (the names are the
 /// table's, shared by its rows).
@@ -193,12 +219,13 @@ impl<'a> Db<'a> {
         Some(())
     }
 
-    /// The values of a record.
-    fn record(rec: &[u8]) -> Option<Vec<Value>> {
+    /// The first `n` values of a record (the ones a table has columns
+    /// for: a record may hold more).
+    fn record(rec: &[u8], n: usize) -> Option<Vec<Value>> {
         let (hlen, mut i) = varint(rec)?;
         let mut body = hlen as usize;
         let mut out = Vec::new();
-        while i < hlen as usize {
+        while i < hlen as usize && out.len() < n {
             let (t, n) = varint(rec.get(i..)?)?;
             i += n;
             let int = |len: usize| -> Option<i64> {
@@ -235,31 +262,34 @@ impl<'a> Db<'a> {
     }
 
     /// The rows of table `name` (`None`: no such table), each value by its
-    /// column's name; an `INTEGER PRIMARY KEY` column holds the rowid. A
-    /// row has the columns its record has values for (the ones a table was
-    /// given later are not in its older rows: as NULL).
-    pub fn table(&self, name: &str) -> Option<Vec<Row>> {
+    /// column's name, made as they are taken; an `INTEGER PRIMARY KEY`
+    /// column holds the rowid. A row has the columns its record has values
+    /// for (the ones a table was given later are not in its older rows: as
+    /// NULL).
+    pub fn table_rows(&self, name: &str) -> Option<impl Iterator<Item = Row>> {
         let master = self.walk(1)?;
         let (root, sql) = master.iter().find_map(|(_, rec)| {
-            let v = Self::record(rec)?;
+            let v = Self::record(rec, 5)?;
             let s = |i: usize| v.get(i).and_then(Value::text);
             (s(0)? == "table" && s(1)?.eq_ignore_ascii_case(name))
                 .then(|| Some((v.get(3)?.int()?, s(4)?)))?
         })?;
         let (cols, key) = columns(&sql);
         let rows = self.walk(u64::try_from(root).ok()?)?;
-        Some(
-            rows.into_iter()
-                .filter_map(|(rowid, rec)| {
-                    let vals = Self::record(&rec)?.into_iter().enumerate();
-                    let named = cols.iter().zip(vals).map(|(c, (i, v))| match key {
-                        Some(k) if k == i => (c.clone(), Value::Int(rowid)),
-                        _ => (c.clone(), v),
-                    });
-                    Some(named.collect())
-                })
-                .collect(),
-        )
+        Some(rows.into_iter().filter_map(move |(rowid, rec)| {
+            let vals = Self::record(&rec, cols.len())?.into_iter().enumerate();
+            let named = cols.iter().zip(vals).map(|(c, (i, v))| match key {
+                Some(k) if k == i => (c.clone(), Value::Int(rowid)),
+                _ => (c.clone(), v),
+            });
+            Some(named.collect())
+        }))
+    }
+
+    /// [`Db::table_rows`], all of them.
+    #[cfg(test)]
+    pub fn table(&self, name: &str) -> Option<Vec<Row>> {
+        Some(self.table_rows(name)?.collect())
     }
 }
 
@@ -320,36 +350,37 @@ pub struct Lr2Course {
 /// `expert`, `nonstop`, `grade`. A row is played as the kind its packed
 /// string says (S-OLR2b 2.3); a row whose string is not one is left out.
 pub fn courses(bytes: &[u8]) -> Result<Vec<Lr2Course>, String> {
-    let db = Db::open(bytes)?;
-    let mut out = Vec::new();
-    let mut found = false;
-    for name in ["expert", "nonstop", "grade"] {
-        let Some(mut rows) = db.table(name) else {
-            continue;
-        };
-        found = true;
-        rows.sort_by_key(|r| std::cmp::Reverse(get(r, "id").and_then(|v| v.int()).unwrap_or(0)));
-        for r in &rows {
-            let Some(def) = get(r, "hash")
-                .and_then(|v| v.text())
-                .and_then(|h| CourseDef::parse(&h))
-            else {
+    no_panic(|| {
+        let db = Db::open(bytes)?;
+        let mut out = Vec::new();
+        let mut found = false;
+        for name in ["expert", "nonstop", "grade"] {
+            let Some(rows) = db.table_rows(name) else {
                 continue;
             };
-            if def.stages.is_empty() {
-                continue;
-            }
-            out.push(Lr2Course {
-                title: get(r, "title").and_then(Value::text).unwrap_or_default(),
-                def,
-                ir: get(r, "ir").and_then(Value::int) == Some(1),
-            });
+            found = true;
+            let mut table: Vec<(i64, Lr2Course)> = rows
+                .filter_map(|r| {
+                    let def = get(&r, "hash")
+                        .and_then(|v| v.text())
+                        .and_then(|h| CourseDef::parse(&h))
+                        .filter(|d| !d.stages.is_empty())?;
+                    let course = Lr2Course {
+                        title: get(&r, "title").and_then(Value::text).unwrap_or_default(),
+                        def,
+                        ir: get(&r, "ir").and_then(Value::int) == Some(1),
+                    };
+                    Some((get(&r, "id").and_then(|v| v.int()).unwrap_or(0), course))
+                })
+                .collect();
+            table.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
+            out.extend(table.into_iter().map(|(_, c)| c));
         }
-    }
-    if !found {
-        return Err("no course tables (expert, nonstop, grade) in it".into());
-    }
-    Ok(out)
+        if !found {
+            return Err("no course tables (expert, nonstop, grade) in it".into());
+        }
+        Ok(out)
+    })
 }
 
 /// A minimal SQLite writer, to make the tests' `song.db`: one leaf page
@@ -666,6 +697,32 @@ pub(crate) mod tests {
         assert_eq!(get(&rows[0], "id"), Some(&Value::Int(7)));
         assert_eq!(get(&rows[0], "a"), Some(&Value::Text(b"x".to_vec())));
         assert_eq!(get(&rows[0], "later"), None);
+    }
+
+    /// A record is read as far as its table has columns, a database file
+    /// past a size not at all.
+    #[test]
+    fn what_a_database_holds_is_read_within_bounds() {
+        let sql = "CREATE TABLE t (a INTEGER)";
+        let bytes = db(&[(
+            "t",
+            sql,
+            vec![(1, vec![V::Int(5), V::Null, V::Null, V::Null])],
+        )]);
+        let rows = Db::open(&bytes).unwrap().table("t").unwrap();
+        assert_eq!(rows, [vec![("a".into(), Value::Int(5))]]);
+        let nulls = (0..5).map(|_| V::Null).collect();
+        let b = db(&[("t", "CREATE TABLE t (a, b, c)", vec![(1, nulls)])]);
+        assert_eq!(Db::open(&b).unwrap().table("t").unwrap()[0].len(), 3);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = std::env::temp_dir().join(format!("vibebms-bigdb-{}", std::process::id()));
+            let f = std::fs::File::create(&path).unwrap();
+            f.set_len(MAX_FILE + 1).unwrap();
+            let e = read_file(&path).unwrap_err();
+            std::fs::remove_file(&path).ok();
+            assert!(e.contains("larger than"), "{e}");
+        }
     }
 
     #[test]

@@ -10,26 +10,62 @@ use symphonia::core::formats::{FormatOptions, FormatReader, Track, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
-/// The longest sound that is decoded (seconds at the mixer's rate): one
-/// that plays on is cut there. A keysound is seconds long; a chart's long
-/// sound is its background track, minutes long. However long a file says
-/// it is, and whatever sample rate it states, no more comes out of it.
+/// The longest sound decoded on its own ([`decode_bytes`]: a song's
+/// preview, a guide sound), in seconds at the mixer's rate: one that plays
+/// on is cut there. However long a file says it is, and whatever sample
+/// rate it states, no more comes out of it. A play's sounds have no such
+/// cap: their budget bounds them ([`max_play_bytes`]).
 pub const MAX_SOUND_SECS: u64 = 30 * 60;
 
-/// The decoded PCM (bytes) the sounds of one play take together at most:
-/// what is past it is cut or left out. A play's sounds decoded are about
-/// its files as 16-bit WAV, tens to hundreds of megabytes for the charts
-/// there are; this is some three hours of stereo at 48 kHz (a quarter of
-/// it where memory is short: 32-bit targets, phones).
-pub const MAX_PLAY_BYTES: usize = if cfg!(any(
+/// Where memory is short: 32-bit targets (the web), phones.
+const SMALL: bool = cfg!(any(
     target_pointer_width = "32",
     target_os = "android",
     target_os = "ios"
-)) {
-    512 << 20
-} else {
-    2 << 30
-};
+));
+
+/// The decoded PCM (bytes) the sounds of one play take together at most:
+/// what is past it is cut or left out, the files after it in the chart's
+/// order first. A play's sounds decoded are about its files as 16-bit WAV,
+/// tens to hundreds of megabytes for most charts, 600-900 MB for the
+/// heaviest keysound charts at 48 kHz; this is some three hours of stereo
+/// at 48 kHz. On a phone a quarter of the device's memory, between 512 MiB
+/// and that (known on 64-bit Android: `/proc/meminfo`; iOS and 32-bit
+/// targets, the web among them, keep 512 MiB).
+pub fn max_play_bytes() -> usize {
+    static BYTES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| play_bytes(SMALL, device_memory()))
+}
+
+/// [`max_play_bytes`] on a device with memory short or not, of `memory`
+/// bytes if it is known.
+fn play_bytes(small: bool, memory: Option<u64>) -> usize {
+    const MOST: u64 = 2 << 30;
+    const LEAST: u64 = 512 << 20;
+    match (small, memory) {
+        (false, _) => MOST as usize,
+        (true, Some(m)) => (m / 4).clamp(LEAST, MOST) as usize,
+        (true, None) => LEAST as usize,
+    }
+}
+
+/// The device's memory (bytes), where it is known and a play's sounds may
+/// take more than the least for it: 64-bit Android.
+fn device_memory() -> Option<u64> {
+    #[cfg(all(target_os = "android", target_pointer_width = "64"))]
+    if let Ok(t) = std::fs::read_to_string("/proc/meminfo") {
+        return mem_total(&t);
+    }
+    None
+}
+
+/// `MemTotal` of a `/proc/meminfo` (bytes).
+#[cfg(any(test, all(target_os = "android", target_pointer_width = "64")))]
+fn mem_total(meminfo: &str) -> Option<u64> {
+    let line = meminfo.lines().find(|l| l.starts_with("MemTotal:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    kb.checked_mul(1024)
+}
 
 /// The output frames reserved for a sound before it is decoded, per byte
 /// of its file: what the header says of its length is believed only as far
@@ -38,16 +74,27 @@ pub const MAX_PLAY_BYTES: usize = if cfg!(any(
 /// rest grows as it is decoded.
 const RESERVE_PER_BYTE: usize = 16;
 
-/// Bytes of PCM the sounds decoded together may still take.
-struct Budget(AtomicUsize);
+/// Bytes of PCM the sounds decoded together may still take, and how long
+/// each may be at most (seconds).
+pub struct Budget {
+    left: AtomicUsize,
+    longest: u64,
+}
 
 impl Budget {
+    pub fn new(bytes: usize, longest_secs: u64) -> Budget {
+        Budget {
+            left: AtomicUsize::new(bytes),
+            longest: longest_secs,
+        }
+    }
+
     /// Up to `want` bytes of it: how many there were.
     fn take(&self, want: usize) -> usize {
-        let mut left = self.0.load(Ordering::Relaxed);
+        let mut left = self.left.load(Ordering::Relaxed);
         loop {
             let got = want.min(left);
-            let set = self.0.compare_exchange_weak(
+            let set = self.left.compare_exchange_weak(
                 left,
                 left - got,
                 Ordering::Relaxed,
@@ -94,6 +141,14 @@ impl Sample {
     /// The PCM's size in bytes.
     fn bytes(&self) -> usize {
         std::mem::size_of_val(self.data.as_slice())
+    }
+
+    /// Cut to its first frames, `bytes` of them at most.
+    fn cut(&mut self, bytes: usize) {
+        let ch = self.channels.max(1) as usize;
+        self.frames = self.frames.min(bytes / (ch * 2));
+        self.data.truncate(self.frames * ch);
+        self.data.shrink_to_fit();
     }
 
     /// The sample played `speed` times as fast, its pitch with it (as a
@@ -149,17 +204,30 @@ pub fn decode_bytes(
     ext: &str,
     rate: u32,
 ) -> Result<Sample, String> {
-    let alone = Budget(AtomicUsize::new(MAX_PLAY_BYTES));
-    decode_within(bytes.into(), ext, rate, &alone)
+    let alone = Budget::new(max_play_bytes(), MAX_SOUND_SECS);
+    decode_bytes_within(bytes, ext, rate, &alone)
 }
 
-/// [`decode_bytes`] of a sound that takes its bytes from `budget`.
+/// [`decode_bytes`] of a sound that takes its bytes from `budget` (it is
+/// cut where that runs out).
+pub fn decode_bytes_within(
+    bytes: impl Into<Arc<Vec<u8>>>,
+    ext: &str,
+    rate: u32,
+    budget: &Budget,
+) -> Result<Sample, String> {
+    decode_within(bytes.into(), ext, rate, budget).map(|(s, _)| s)
+}
+
+/// A sound decoded, and whether `budget` ran out for it (it is cut).
+type Decoded = (Sample, bool);
+
 fn decode_within(
     bytes: Arc<Vec<u8>>,
     ext: &str,
     rate: u32,
     budget: &Budget,
-) -> Result<Sample, String> {
+) -> Result<Decoded, String> {
     let bytes = Bytes(bytes);
     decode_symphonia(bytes.clone(), ext, rate, budget).or_else(|e| {
         // tolerate broken RIFF headers that symphonia rejects
@@ -207,7 +275,12 @@ fn decoder_options() -> AudioDecoderOptions {
     AudioDecoderOptions::default().gapless(true)
 }
 
-fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32, budget: &Budget) -> Result<Sample, String> {
+fn decode_symphonia(
+    bytes: Bytes,
+    ext: &str,
+    rate: u32,
+    budget: &Budget,
+) -> Result<Decoded, String> {
     let len = bytes.0.len();
     let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
@@ -274,7 +347,7 @@ fn decode_symphonia(bytes: Bytes, ext: &str, rate: u32, budget: &Budget) -> Resu
 }
 
 /// Minimal PCM RIFF reader that ignores bogus chunk sizes.
-fn decode_wav_fallback(b: &[u8], rate: u32, budget: &Budget) -> Option<Sample> {
+fn decode_wav_fallback(b: &[u8], rate: u32, budget: &Budget) -> Option<Decoded> {
     if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
         return None;
     }
@@ -324,8 +397,8 @@ fn decode_wav_fallback(b: &[u8], rate: u32, budget: &Budget) -> Option<Sample> {
 
 /// Downmixes to <= 2 channels, resamples (linear) and quantises to i16, a
 /// decoded packet at a time: no whole file in `f32`. What it makes is as
-/// long as the frames that really come, up to the sound's cap
-/// ([`MAX_SOUND_SECS`]) and what the budget has left.
+/// long as the frames that really come, up to the budget's longest sound
+/// and what it has left.
 struct Convert<'a> {
     ch: usize,
     out_ch: usize,
@@ -345,6 +418,8 @@ struct Convert<'a> {
     room: usize,
     cap: usize,
     budget: &'a Budget,
+    /// The budget gave less than was asked.
+    starved: bool,
 }
 
 impl<'a> Convert<'a> {
@@ -360,7 +435,8 @@ impl<'a> Convert<'a> {
         let ch = channels.max(1) as usize;
         let out_ch = ch.min(2);
         let ratio = (sr != rate && sr != 0).then(|| sr as f64 / rate as f64);
-        let cap = usize::try_from(rate as u64 * MAX_SOUND_SECS).unwrap_or(usize::MAX);
+        let cap =
+            usize::try_from((rate as u64).saturating_mul(budget.longest)).unwrap_or(usize::MAX);
         let stated = frames.map_or(0, |f| (f as f64 / ratio.unwrap_or(1.0)) as usize);
         let reserve = stated
             .min(file_len.saturating_mul(RESERVE_PER_BYTE))
@@ -380,6 +456,7 @@ impl<'a> Convert<'a> {
             room: 0,
             cap,
             budget,
+            starved: false,
         }
     }
 
@@ -389,7 +466,9 @@ impl<'a> Convert<'a> {
         if to > self.room {
             let frame = self.out_ch * size_of::<i16>();
             let want = (to - self.room).saturating_mul(frame);
-            self.room += self.budget.take(want) / frame;
+            let got = self.budget.take(want);
+            self.starved |= got < want;
+            self.room += got / frame;
         }
         self.room.min(to)
     }
@@ -445,16 +524,17 @@ impl<'a> Convert<'a> {
         limit == whole
     }
 
-    fn finish(mut self) -> Sample {
+    fn finish(mut self) -> Decoded {
         if let Some(ratio) = self.ratio {
             self.resample(ratio, true);
         }
         self.data.shrink_to_fit();
-        Sample {
+        let s = Sample {
             channels: self.out_ch as u16,
             frames: self.data.len() / self.out_ch,
             data: self.data,
-        }
+        };
+        (s, self.starved)
     }
 }
 
@@ -486,8 +566,42 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, max_threads: usize, f: F) {
     });
 }
 
+/// Sounds decoded at once from one budget of `most` bytes (which got what
+/// depends on how the threads ran) made what the budget gives taken in
+/// their order: the same at every load. Each fits whole up to the first
+/// that does not, which is cut where the budget ends (decoded `again` with
+/// what is left when it came out shorter), and the ones after it are left
+/// out. That one and the ones left out (that were decoded), if any.
+fn fit_in_order(
+    decoded: &mut [Option<Decoded>],
+    most: usize,
+    again: impl Fn(usize, &Budget) -> Option<Decoded>,
+) -> Option<(usize, Vec<usize>)> {
+    let mut left = most;
+    let m = decoded.iter().position(|d| match d {
+        Some((s, starved)) if !starved && s.bytes() <= left => {
+            left -= s.bytes();
+            false
+        }
+        Some(_) => true,
+        None => false,
+    })?;
+    let out = (m + 1..decoded.len())
+        .filter(|&k| decoded[k].take().is_some())
+        .collect();
+    let cut = match decoded[m].take() {
+        Some((mut s, starved)) if !starved || s.bytes() >= left => {
+            s.cut(left);
+            s
+        }
+        _ => again(m, &Budget::new(left, u64::MAX)).map_or_else(Sample::default, |d| d.0),
+    };
+    decoded[m] = Some((cut, true));
+    Some((m, out))
+}
+
 /// All sound files of a chart, decoded in parallel: each file once, shared
-/// by the sounds that name it, and all of them within [`MAX_PLAY_BYTES`].
+/// by the sounds that name it, and all of them within [`max_play_bytes`].
 #[derive(Default)]
 pub struct SoundBank {
     pub samples: Vec<Option<Arc<Sample>>>,
@@ -536,44 +650,61 @@ impl SoundBank {
             });
             files[k].1.push(i);
         }
-        let budget = Budget(AtomicUsize::new(MAX_PLAY_BYTES));
-        let load_one = |p: &Path| -> Option<Arc<Sample>> {
-            match decode_within(read(p)?, &ext_of(p), rate, &budget) {
-                Ok(s) => Some(Arc::new(s)),
+        let most = max_play_bytes();
+        let load_one = |p: &Path, budget: &Budget| -> Option<Decoded> {
+            match decode_within(read(p)?, &ext_of(p), rate, budget) {
+                Ok(d) => Some(d),
                 Err(e) => {
                     log::debug!("decode {}: {e}", p.display());
                     None
                 }
             }
         };
-        let slots = Mutex::new(vec![None; paths.len()]);
+        // (several at once, the budget taken as they come)
+        let budget = Budget::new(most, u64::MAX);
+        let decoded: Vec<Mutex<Option<Decoded>>> = files.iter().map(|_| Mutex::default()).collect();
         parallel_for(files.len(), 16, |k| {
             let (p, sounds) = &files[k];
-            let r = load_one(p);
-            let mut slots = slots.lock().unwrap();
-            for &i in sounds {
-                slots[i] = r.clone();
-            }
+            *decoded[k].lock().unwrap() = load_one(p, &budget);
             progress.fetch_add(sounds.len(), Ordering::Relaxed);
         });
-        if budget.0.load(Ordering::Relaxed) == 0 {
+        let mut decoded: Vec<Option<Decoded>> = decoded
+            .into_iter()
+            .map(|d| d.into_inner().unwrap())
+            .collect();
+        let again = |k: usize, b: &Budget| load_one(files[k].0, b);
+        if let Some((m, out)) = fit_in_order(&mut decoded, most, again) {
+            let names: Vec<String> = (out.iter().take(20))
+                .map(|&k| files[k].0.display().to_string())
+                .collect();
+            let frames = decoded[m].as_ref().map_or(0, |d| d.0.frames);
             log::warn!(
-                "sounds: more than {} MiB decoded, the rest is left out",
-                MAX_PLAY_BYTES >> 20
+                "sounds: more than {} MiB decoded: {} cut at {:.1} s, {} files after it left out: {}{}",
+                most >> 20,
+                files[m].0.display(),
+                frames as f64 / rate.max(1) as f64,
+                out.len(),
+                names.join(", "),
+                if out.len() > names.len() { ", ..." } else { "" },
             );
         }
-        SoundBank {
-            samples: slots.into_inner().unwrap(),
+        let mut samples = vec![None; paths.len()];
+        for ((_, sounds), d) in files.iter().zip(decoded) {
+            let s = d.map(|(s, _)| Arc::new(s));
+            for &i in sounds {
+                samples[i] = s.clone();
+            }
         }
+        SoundBank { samples }
     }
 
     /// The sounds `sounds` played `speed` times as fast (and as high): a
     /// sample several of them are, once, and the bank still within
-    /// [`MAX_PLAY_BYTES`] (what does not fit is cut).
+    /// [`max_play_bytes`] (what does not fit is cut).
     pub fn resample(&mut self, sounds: Range<usize>, speed: f64) {
         let (before, rest) = self.samples.split_at_mut(sounds.start);
         let (these, after) = rest.split_at_mut(sounds.len());
-        let mut room = MAX_PLAY_BYTES.saturating_sub(held(before.iter().chain(after.iter())));
+        let mut room = max_play_bytes().saturating_sub(held(before.iter().chain(after.iter())));
         let mut done: HashMap<*const Sample, Arc<Sample>> = HashMap::new();
         for s in these.iter_mut().flatten() {
             let r = done.entry(Arc::as_ptr(s)).or_insert_with(|| {
@@ -611,7 +742,7 @@ mod tests {
     use super::*;
 
     fn ample() -> Budget {
-        Budget(AtomicUsize::new(usize::MAX))
+        Budget::new(usize::MAX, MAX_SOUND_SECS)
     }
 
     /// A 16-bit PCM WAV of `ch` channels.
@@ -733,7 +864,7 @@ mod tests {
                         break;
                     }
                 }
-                let got = c.finish();
+                let got = c.finish().0;
                 let want = convert_whole(ch, sr, &pcm, rate);
                 assert_eq!(got.channels, ch.min(2), "{sr} -> {rate}, {ch} ch");
                 assert_eq!(got.frames * got.channels as usize, want.len());
@@ -760,7 +891,7 @@ mod tests {
                     "{ext} {sr} -> {rate}"
                 );
                 let s =
-                    (ext == "wav").then(|| decode_wav_fallback(&bytes, rate, &ample()).unwrap());
+                    (ext == "wav").then(|| decode_wav_fallback(&bytes, rate, &ample()).unwrap().0);
                 assert!(s.is_none_or(|s| s.data == convert_whole(ch, sr, &pcm, rate)));
             }
         }
@@ -811,19 +942,22 @@ mod tests {
         let cap = 2 * MAX_SOUND_SECS as usize;
         let b = wav(2, cap + 500, 1);
         assert_eq!(decode_bytes(b.clone(), "wav", 2).unwrap().frames, cap);
-        assert_eq!(decode_wav_fallback(&b, 2, &ample()).unwrap().frames, cap);
+        assert_eq!(decode_wav_fallback(&b, 2, &ample()).unwrap().0.frames, cap);
         // a file that states a low rate is stretched no further
-        let s = decode_wav_fallback(&wav(1, 5000, 2), 4, &ample()).unwrap();
+        let s = decode_wav_fallback(&wav(1, 5000, 2), 4, &ample())
+            .unwrap()
+            .0;
         assert_eq!(s.frames, 4 * MAX_SOUND_SECS as usize);
     }
 
     #[test]
     fn sounds_decoded_together_share_a_budget() {
         let b = Arc::new(wav(44_100, 1000, 2));
-        let budget = Budget(AtomicUsize::new(1200 * 4));
+        let budget = Budget::new(1200 * 4, MAX_SOUND_SECS);
         let frames = |rate| {
             decode_within(b.clone(), "wav", rate, &budget)
                 .unwrap()
+                .0
                 .frames
         };
         assert_eq!(
@@ -831,9 +965,76 @@ mod tests {
             [1000, 200, 0]
         );
         // resampled too
-        let budget = Budget(AtomicUsize::new(300 * 4));
-        let s = decode_within(b.clone(), "wav", 48_000, &budget).unwrap();
+        let budget = Budget::new(300 * 4, MAX_SOUND_SECS);
+        let s = decode_within(b.clone(), "wav", 48_000, &budget).unwrap().0;
         assert_eq!((s.frames, s.data.len()), (300, 600));
+    }
+
+    /// What a play's budget leaves out is what it would leave out taken in
+    /// the chart's order, however the threads ran.
+    #[test]
+    fn the_budget_is_taken_in_the_charts_order() {
+        let sample = |frames: usize| Sample {
+            channels: 1,
+            frames,
+            data: (0..frames as i16).collect(),
+        };
+        let lens = |d: &[Option<Decoded>]| -> Vec<Option<usize>> {
+            d.iter().map(|d| d.as_ref().map(|d| d.0.frames)).collect()
+        };
+        let again = |k: usize, b: &Budget| {
+            assert_eq!(k, 1);
+            Some((sample(b.left.load(Ordering::Relaxed) / 2), true))
+        };
+        // the second had less than its turn: decoded again with what is left
+        let mut d = vec![
+            Some((sample(50), false)),
+            Some((sample(5), true)),
+            None,
+            Some((sample(20), false)),
+        ];
+        assert_eq!(fit_in_order(&mut d, 160, again), Some((1, vec![3])));
+        assert_eq!(lens(&d), [Some(50), Some(30), None, None]);
+        // the second whole, but past its turn: cut
+        let mut d = vec![
+            Some((sample(50), false)),
+            Some((sample(70), false)),
+            Some((sample(0), true)),
+        ];
+        assert_eq!(fit_in_order(&mut d, 160, again), Some((1, vec![2])));
+        assert_eq!(lens(&d), [Some(50), Some(30), None]);
+        // all whole within it: as they are
+        let mut d = vec![Some((sample(50), false)), None, Some((sample(30), false))];
+        assert_eq!(fit_in_order(&mut d, 160, again), None);
+        assert_eq!(lens(&d), [Some(50), None, Some(30)]);
+    }
+
+    /// A play's sound is as long as its budget holds; one decoded alone is
+    /// cut at [`MAX_SOUND_SECS`].
+    #[test]
+    fn a_play_sound_is_bounded_by_the_budget_only() {
+        // (a mixer at 2 Hz: an hour of it is few frames)
+        let long = 2 * MAX_SOUND_SECS as usize + 500;
+        let file = Arc::new(wav(2, long, 1));
+        let bank = SoundBank::load_paths(
+            &[Some(PathBuf::from("a.wav"))],
+            2,
+            &AtomicUsize::new(0),
+            &|_| Some(file.clone()),
+        );
+        assert_eq!(bank.get(0).unwrap().frames, long);
+    }
+
+    #[test]
+    fn a_phone_takes_a_quarter_of_its_memory_for_a_play() {
+        let meminfo = "MemTotal:        7812500 kB\nMemFree:          100000 kB\n";
+        assert_eq!(mem_total(meminfo), Some(8_000_000_000));
+        assert_eq!(mem_total("MemFree: 1 kB\n"), None);
+        assert_eq!(play_bytes(false, None), 2 << 30);
+        assert_eq!(play_bytes(true, None), 512 << 20);
+        assert_eq!(play_bytes(true, Some(4 << 30)), 1 << 30);
+        assert_eq!(play_bytes(true, Some(1 << 30)), 512 << 20);
+        assert_eq!(play_bytes(true, Some(16 << 30)), 2 << 30);
     }
 
     #[test]
@@ -873,7 +1074,7 @@ mod tests {
         assert!(decode_wav_fallback(&b, 44_100, &ample()).is_none());
         let mut b = wav(44_100, 10, 1);
         b[40..44].copy_from_slice(&0xffff_fffcu32.to_le_bytes());
-        let s = decode_wav_fallback(&b, 44_100, &ample()).unwrap();
+        let s = decode_wav_fallback(&b, 44_100, &ample()).unwrap().0;
         assert_eq!(s.frames, 10);
     }
 

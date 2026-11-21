@@ -811,6 +811,9 @@ impl LoadedSkin {
         }
         self.draw_objects(d, &xf, now, &Overlay { st, rt, offsets }, hooks);
         d.b.set_base_clip(None);
+        if let Some(n) = &self.skin.note {
+            n.drawn();
+        }
     }
 
     /// A click on an object with event `act`: script events are taken

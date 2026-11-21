@@ -16,7 +16,9 @@ pub mod loudness;
 mod out;
 mod voice;
 
-pub use decode::{decode_bytes, decode_file, parallel_for, Sample, SoundBank};
+pub use decode::{
+    decode_bytes, decode_bytes_within, decode_file, parallel_for, Budget, Sample, SoundBank,
+};
 pub use voice::{Bus, GROUPS};
 
 use out::{us_since, Device, Output};

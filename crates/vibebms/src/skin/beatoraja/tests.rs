@@ -27,7 +27,11 @@ fn read(
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
 ) -> Result<(Value, Option<script::Script>), String> {
-    read_skin(path, &Home::of(path, own(path)), skin_config, state)
+    let limits = match skin_config {
+        Some(_) => script::LOAD,
+        None => script::HEADER,
+    };
+    read_skin(path, &Home::of(path, own(path)), skin_config, state, limits)
 }
 
 #[test]
@@ -76,7 +80,8 @@ fn lua_runs_like_beatoraja() {
         }
     }
     let path = skin.join("t.luaskin");
-    let (v, _) = read_skin(&path, &Home::of(&path, &dir), None, Some(&St)).unwrap();
+    let home = Home::of(&path, &dir);
+    let (v, _) = read_skin(&path, &home, None, Some(&St), script::HEADER).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     let want = serde_json::json!({
         "lines": 2, "first": "a", "written": true, "part": 7, "band": 15, "shift": 16,
@@ -669,21 +674,26 @@ fn constant_texts() {
     let dir = std::env::temp_dir().join(format!("vibebms-ctext-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
-        "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}],
+        "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}, {"id": 2, "path": "big.ttf"}],
         "text": [{"id": "t", "constantText": "A\nB", "ref": 10, "font": 0},
-                 {"id": "u", "ref": 10, "font": 1}],
+                 {"id": "u", "ref": 10, "font": 1}, {"id": "v", "ref": 10, "font": 2}],
         "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
-                        {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+                        {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                        {"id": "v", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
     std::fs::write(dir.join("r.json"), json).unwrap();
+    // (larger than a font a skin brings is read)
+    let big = std::fs::File::create(dir.join("big.ttf")).unwrap();
+    big.set_len(crate::skin::FONT_MAX + 1).unwrap();
     let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     let Kind::Text { constant, face, .. } = &s.objects[0].kind else {
         panic!()
     };
     assert_eq!(constant.as_deref(), Some("A\nB"));
-    // TrueType fonts are drawn with, bitmap ones are not
+    // TrueType fonts are drawn with, bitmap ones are not, nor one too large
     assert!(face.as_ref().is_some_and(|p| p.ends_with("f.TTF")));
     assert!(matches!(&s.objects[1].kind, Kind::Text { face: None, .. }));
+    assert!(matches!(&s.objects[2].kind, Kind::Text { face: None, .. }));
 }
 
 struct ScriptSt {
@@ -1104,6 +1114,26 @@ fn json_nested_too_deep_is_refused() {
     let h = header(&path, &dir);
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(h, None);
+}
+
+/// A Lua skin's code that takes longer than a listing gives it loads: its
+/// first run, for its header, has a load's time too.
+#[test]
+fn a_lua_skin_loads_in_a_loads_time() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("s.luaskin");
+    std::fs::write(
+        &path,
+        "for i = 1, 1e8 do end
+         return { type = 7, name = 'S', w = 100, h = 100, font = { { id = 0, path = 'f.ttf' } },
+           text = { { id = 't', constantText = 'A', ref = 10, font = 0 } },
+           destination = { { id = 't', dst = { { x = 0, y = 0, w = 10, h = 10 } } } } }",
+    )
+    .unwrap();
+    let s = load(&path, &HashMap::new(), &|_| None);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(s.unwrap().name, "S");
 }
 
 /// A Lua skin that never ends is given up on in the time a header has

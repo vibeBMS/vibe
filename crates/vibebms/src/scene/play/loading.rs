@@ -395,15 +395,20 @@ impl BgaFiles {
     }
 
     fn picture(&mut self, path: &Path) -> Option<Kept> {
+        let left_out = || {
+            log::warn!(
+                "BGA: {} left out: more than {} MiB of images",
+                path.display(),
+                MAX_PICTURE_BYTES >> 20
+            )
+        };
         if self.room == 0 {
+            left_out();
             return None;
         }
         let pic = crate::gfx::load_picture(path, &crate::gfx::key_black)?;
         let Some(room) = self.room.checked_sub(pic.px.len()) else {
-            log::warn!(
-                "BGA: more than {} MiB of images, the rest is left out",
-                MAX_PICTURE_BYTES >> 20
-            );
+            left_out();
             self.room = 0;
             return None;
         };

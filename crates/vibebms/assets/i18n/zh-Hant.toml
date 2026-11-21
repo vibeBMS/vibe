@@ -823,6 +823,7 @@ _untranslated = [
 "No file manager here" = "這裡沒有檔案管理器"
 "No replay of this play" = "這局沒有重播"
 "No replay of this play to keep" = "這局沒有可儲存的重播"
+"This play's replay is too long to keep: not saved" = "這局的重播太長，未儲存"
 "No room to keep the song: free some in Settings › LIBRARY" = "沒有空間儲存歌曲：請在設定 › 曲庫中釋放空間"
 "No such profile" = "沒有這個個人檔案"
 "No try yet: choose a section, then PLAY." = "還沒有嘗試：選擇區段，然後遊玩。"

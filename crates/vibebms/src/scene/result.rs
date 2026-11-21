@@ -182,6 +182,10 @@ impl ResultScene {
         if let Some(r) = d.replay.as_ref().filter(|r| r.keepable()) {
             if let Err(e) = crate::replay::save(r, &ctx.paths.player, crate::replay::Slot::Last) {
                 log::warn!("replay: {e}");
+                // (none is kept as the best either)
+                if e == vibebms_core::replay::TOO_LONG {
+                    ctx.toast(tr!("This play's replay is too long to keep: not saved"));
+                }
             }
         }
         // a replay watched (a course's too) is never recorded
@@ -835,6 +839,38 @@ mod tests {
         assert!(scene.after.is_some());
         assert!(ctx.best_key(&key.id, key.ln, key.rule).is_some());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A replay too long to keep is said, not only logged.
+    #[test]
+    fn a_replay_too_long_to_keep_is_said() {
+        let root = std::env::temp_dir().join(format!("vibebms-longrep-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let mut ctx = Ctx::for_test(root.clone());
+        let song = crate::library::Song {
+            sha256: "cd".repeat(32),
+            title: "Song".into(),
+            ..Default::default()
+        };
+        let mut d = played(&song, None);
+        d.replay = Some(crate::replay::Replay {
+            version: crate::replay::VERSION,
+            sha256: song.sha256.clone(),
+            md5: String::new(),
+            title: "x".repeat(vibebms_core::replay::MAX_JSON),
+            ln: 0,
+            date: 0,
+            seed: 0,
+            play: Default::default(),
+            ex_score: 0,
+            clear: ClearType::Normal,
+            ghost: Vec::new(),
+            ops: Vec::new(),
+            course: None,
+        });
+        drop(ResultScene::new(&mut ctx, d));
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(ctx.toasts.iter().any(|t| t.0.contains("too long to keep")));
     }
 
     #[test]

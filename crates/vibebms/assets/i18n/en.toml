@@ -232,6 +232,7 @@ Using them is your own responsibility: follow each site's terms and respect the 
 "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back" = "↑↓ row   ←→ change   Enter / START play   tap the graph: the section's nearer edge   Esc back"
 
 # scene/result.rs
+"This play's replay is too long to keep: not saved" = "This play's replay is too long to keep: not saved"
 "COURSE STAGE: best score and FULL COMBO kept" = "COURSE STAGE: best score and FULL COMBO kept"
 "COURSE STAGE: not saved" = "COURSE STAGE: not saved"
 "{why}: not saved" = "{why}: not saved"

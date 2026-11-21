@@ -181,26 +181,37 @@ fn beatoraja_row(r: &Row) -> Option<ChartRow> {
 /// The rows of a score database: LR2's (its `score` table has `hash`) or
 /// beatoraja's (it has `sha256`), LR2oraja's when `lr2oraja`.
 pub fn read(bytes: &[u8], lr2oraja: bool) -> Result<Rows, String> {
-    let db = Db::open(bytes)?;
-    let rows = db.table("score").ok_or("no score table in it")?;
-    let has = |c: &str| rows.first().is_some_and(|r| get(r, c).is_some());
-    let (source, row): (_, fn(&Row) -> Option<ChartRow>) = if has("sha256") {
-        let s = if lr2oraja {
-            Source::Lr2oraja
+    crate::lr2db::no_panic(|| {
+        let db = Db::open(bytes)?;
+        let mut rows = db
+            .table_rows("score")
+            .ok_or("no score table in it")?
+            .peekable();
+        let first = rows.peek();
+        let has = |c: &str| first.is_some_and(|r| get(r, c).is_some());
+        let (source, row): (_, fn(&Row) -> Option<ChartRow>) = if has("sha256") {
+            let s = if lr2oraja {
+                Source::Lr2oraja
+            } else {
+                Source::Beatoraja
+            };
+            (s, beatoraja_row)
+        } else if has("hash") || first.is_none() {
+            (Source::Lr2, lr2_row)
         } else {
-            Source::Beatoraja
+            return Err("not an LR2 or beatoraja score table".into());
         };
-        (s, beatoraja_row)
-    } else if has("hash") || rows.is_empty() {
-        (Source::Lr2, lr2_row)
-    } else {
-        return Err("not an LR2 or beatoraja score table".into());
-    };
-    let charts: Vec<ChartRow> = rows.iter().filter_map(row).collect();
-    Ok(Rows {
-        source,
-        skipped: rows.len() - charts.len(),
-        charts,
+        // (a row at a time: what a score needs is kept of it)
+        let (mut charts, mut n) = (Vec::new(), 0);
+        for r in rows {
+            n += 1;
+            charts.extend(row(&r));
+        }
+        Ok(Rows {
+            source,
+            skipped: n - charts.len(),
+            charts,
+        })
     })
 }
 

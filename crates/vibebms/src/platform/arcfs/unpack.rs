@@ -16,10 +16,12 @@ const CHART_MAX: u64 = vibebms_core::limits::MAX_FILE as u64;
 /// The charts of one archive the scan reads, in all (bytes). They stay in
 /// memory until the scan has parsed them, and several archives are read at
 /// once. An archive with more is not one the library lists ([`too_large`]).
+/// A song's charts are some 300 KB (four to six of 50-80 KB): this holds a
+/// pack of some 3500 songs (850 where memory is short).
 const CHARTS_MAX: u64 = if cfg!(small_device) {
-    64 << 20
-} else {
     256 << 20
+} else {
+    1 << 30
 };
 
 /// What is read of an archive at most, whatever is wanted of it.

@@ -224,8 +224,12 @@ impl Header {
 }
 
 /// A skin file's header, read once per version of the file: a Lua skin
-/// runs for it.
-fn header_of(path: &Path, home: &Home) -> Result<std::sync::Arc<Header>, String> {
+/// runs for it, within `limits` (a load's, or a listing's).
+fn header_of(
+    path: &Path,
+    home: &Home,
+    limits: script::Limits,
+) -> Result<std::sync::Arc<Header>, String> {
     type Cache = HashMap<(PathBuf, (i64, i64)), std::sync::Arc<Header>>;
     static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
     let key = (path.to_path_buf(), vfs::stamp(path));
@@ -233,7 +237,7 @@ fn header_of(path: &Path, home: &Home) -> Result<std::sync::Arc<Header>, String>
     if let Some(h) = CACHE.lock().ok().as_deref_mut().and_then(cached) {
         return Ok(h);
     }
-    let h = std::sync::Arc::new(Header::of(&read_skin(path, home, None, None)?.0));
+    let h = std::sync::Arc::new(Header::of(&read_skin(path, home, None, None, limits)?.0));
     if let Ok(mut c) = CACHE.lock() {
         c.get_or_insert_default().insert(key, h.clone());
     }
@@ -242,7 +246,7 @@ fn header_of(path: &Path, home: &Home) -> Result<std::sync::Arc<Header>, String>
 
 /// The `offset` list of a skin: positions the user may adjust.
 pub fn custom_offsets(path: &Path, skins_root: &Path) -> Vec<CustomOffset> {
-    header_of(path, &Home::of(path, skins_root))
+    header_of(path, &Home::of(path, skins_root), script::HEADER)
         .map(|h| h.offsets.clone())
         .unwrap_or_default()
 }
@@ -251,7 +255,7 @@ pub fn custom_offsets(path: &Path, skins_root: &Path) -> Vec<CustomOffset> {
 /// choices.
 pub fn custom_options(path: &Path, skins_root: &Path) -> Vec<CustomOption> {
     let home = Home::of(path, skins_root);
-    let Ok(h) = header_of(path, &home) else {
+    let Ok(h) = header_of(path, &home, script::HEADER) else {
         return Vec::new();
     };
     let mut out: Vec<CustomOption> = h.props.iter().filter_map(to_custom).collect();
@@ -289,15 +293,17 @@ fn is_lua(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("luaskin") || e.eq_ignore_ascii_case("lua"))
 }
 
-/// A skin's table, with the Lua state it ran in (Lua skins).
+/// A skin's table, with the Lua state it ran in (Lua skins: within
+/// `limits`).
 fn read_skin(
     path: &Path,
     home: &Home,
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
+    limits: script::Limits,
 ) -> Result<(Value, Option<script::Script>), String> {
     if is_lua(path) {
-        return lua::eval(path, home, skin_config, state).map(|(v, s)| (v, Some(s)));
+        return lua::eval(path, home, skin_config, state, limits).map(|(v, s)| (v, Some(s)));
     }
     let text = read_text(path)
         .map(|b| vibebms_core::encoding::decode_text(&b))
@@ -310,13 +316,13 @@ fn read_skin(
 }
 /// A skin's size (w, h), without building it.
 pub fn size(path: &Path, skins_root: &Path) -> Option<(f32, f32)> {
-    let read = || header_of(path, &Home::of(path, skins_root)).map(|h| h.size);
+    let read = || header_of(path, &Home::of(path, skins_root), script::HEADER).map(|h| h.size);
     no_panic(path, read).ok()
 }
 
 /// (type, name) without building the skin.
 pub fn header(path: &Path, skins_root: &Path) -> Option<(SkinType, String)> {
-    let h = header_of(path, &Home::of(path, skins_root)).ok()?;
+    let h = header_of(path, &Home::of(path, skins_root), script::HEADER).ok()?;
     Some((SkinType::from_id(h.kind? as i32), h.name.clone()))
 }
 
@@ -366,11 +372,12 @@ pub fn load_with(
     image_size: &dyn Fn(&Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
     let home = Home::of(path, skins_root);
-    // pass 1: header + defaults (a Lua skin's run without settings is kept)
+    // pass 1: header + defaults (a Lua skin's run without settings is kept;
+    // it has the time of a load)
     let (header, json) = if is_lua(path) {
-        (header_of(path, &home)?, None)
+        (header_of(path, &home, script::LOAD)?, None)
     } else {
-        let v = read_skin(path, &home, None, None)?.0;
+        let v = read_skin(path, &home, None, None, script::LOAD)?.0;
         (std::sync::Arc::new(Header::of(&v)), Some(v))
     };
     let props = &header.props;
@@ -380,7 +387,7 @@ pub fn load_with(
         Some(v) => (v, None),
         None => {
             let config = (&by_name, &*header, &user.offsets, &user.files);
-            read_skin(path, &home, Some(config), state)?
+            read_skin(path, &home, Some(config), state, script::LOAD)?
         }
     };
     let mut files = Files {
