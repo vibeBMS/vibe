@@ -586,9 +586,7 @@ mod imp {
     /// holding no chart unpacked too).
     pub fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
-        let stem = (super::super::arcfs::archive_stem(name).map(str::to_owned))
-            .or_else(|| Some(Path::new(name).file_stem()?.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| "archive".into());
+        let stem = super::super::arcfs::archive_folder(name).unwrap_or_else(|| "archive".into());
         let base = dir.join(stem);
         match unpack(Blob::Bytes(bytes), &crate::placement::Vfs, &base, BUDGET) {
             Ok(m) => m.len(),
