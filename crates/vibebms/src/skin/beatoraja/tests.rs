@@ -674,21 +674,26 @@ fn constant_texts() {
     let dir = std::env::temp_dir().join(format!("vibebms-ctext-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let json = r#"{"type": 7, "name": "T", "w": 100, "h": 100,
-        "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}],
+        "font": [{"id": 0, "path": "f.TTF"}, {"id": 1, "path": "b.fnt"}, {"id": 2, "path": "big.ttf"}],
         "text": [{"id": "t", "constantText": "A\nB", "ref": 10, "font": 0},
-                 {"id": "u", "ref": 10, "font": 1}],
+                 {"id": "u", "ref": 10, "font": 1}, {"id": "v", "ref": 10, "font": 2}],
         "destination": [{"id": "t", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
-                        {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
+                        {"id": "u", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]},
+                        {"id": "v", "dst": [{"x": 0, "y": 0, "w": 10, "h": 10}]}]}"#;
     std::fs::write(dir.join("r.json"), json).unwrap();
+    // (larger than a font a skin brings is read)
+    let big = std::fs::File::create(dir.join("big.ttf")).unwrap();
+    big.set_len(crate::skin::FONT_MAX + 1).unwrap();
     let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     let Kind::Text { constant, face, .. } = &s.objects[0].kind else {
         panic!()
     };
     assert_eq!(constant.as_deref(), Some("A\nB"));
-    // TrueType fonts are drawn with, bitmap ones are not
+    // TrueType fonts are drawn with, bitmap ones are not, nor one too large
     assert!(face.as_ref().is_some_and(|p| p.ends_with("f.TTF")));
     assert!(matches!(&s.objects[1].kind, Kind::Text { face: None, .. }));
+    assert!(matches!(&s.objects[2].kind, Kind::Text { face: None, .. }));
 }
 
 struct ScriptSt {

@@ -139,8 +139,11 @@ fn no_panic<T>(
 /// Bytes of a file a skin is written in (its lines, a script, a font's
 /// glyph list) and of what a script reads.
 const TEXT_MAX: u64 = 16 << 20;
-/// Bytes of an image, a font or a sound a skin or a sound set names.
+/// Bytes of an image or a sound a skin or a sound set names.
 const MEDIA_MAX: u64 = 256 << 20;
+/// Bytes of a TrueType / OpenType font a skin names (a CJK font of every
+/// weight is some 30 MB).
+pub(crate) const FONT_MAX: u64 = 64 << 20;
 
 /// A file a skin names can be read whole: it has at most `max` bytes and
 /// is no device or pipe (which have no end, whatever size they state).
@@ -169,6 +172,11 @@ pub(crate) fn read_text(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
 /// Read an image or a sound a skin names ([`MEDIA_MAX`]).
 pub(crate) fn read_media(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
     read_capped(p, MEDIA_MAX)
+}
+
+/// Read a font a skin names ([`FONT_MAX`]).
+pub(crate) fn read_font(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    read_capped(p, FONT_MAX)
 }
 
 /// Bytes a skin load reads through `#INCLUDE` / `include` in all: the

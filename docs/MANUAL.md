@@ -304,6 +304,19 @@ The touch perspective play skin uses its lanes as the controls ([SKINS.md](SKINS
   Rescan, or F12 on the song select). Closing the game, or a phone or browser closing it in the background, does not
   count, unless the file had been read for much longer than one of its size takes (a minute, and 2 MiB a second).
 
+### Media limits
+
+What a song's files can ask of the game is bounded too, far above what real songs use:
+
+- **Sounds**: a play's sounds take at most 2 GiB once decoded, some three hours of stereo at 48 kHz; on an Android
+  phone a quarter of its memory, between 512 MiB and 2 GiB; on iOS and the web 512 MiB. Past it, the sounds named last
+  in the chart are left out, the same ones at every load, and the log names them. A song's preview and a guide sound
+  are cut at 30 minutes; a sound set's sounds take ten minutes of stereo together.
+- **Pictures** of a BGA: 1 GiB once decoded (256 MiB on phones and the web); the ones past it are left out, and the
+  log names them.
+- **Images**: 16,384 pixels a side and 67 million pixels (8192 × 8192) at most.
+- **Videos**: six play at once at most (the BGA's layers and a skin's), each at 1920 × 1080 at most.
+
 ## Songs in archives
 
 A `.zip`, `.7z`, `.rar`, `.lzh` (`.lha`) or `.tar` (`.tar.gz`, `.tgz`; told by its bytes too) in the library is

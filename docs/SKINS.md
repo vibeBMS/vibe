@@ -63,7 +63,8 @@ A skin is someone else's file: what it can ask of the game is bounded, far above
 | | limit |
 |---|---|
 | a skin file, an included file, a script, a font's glyph list, a file a script reads | 16 MiB; no device or pipe |
-| an image, a font, a sound | 256 MiB; no device or pipe |
+| an image, a sound | 256 MiB; no device or pipe |
+| a TrueType / OpenType font | 64 MiB; no device or pipe |
 | files read through `#INCLUDE` / `include` by one load | 16 MiB in all (a file counts 4 KiB at least), 8 levels deep |
 | animation frames | 65,536 an object, 1,048,576 a skin |
 | gauge cells (`#SRC_GROOVEGAUGE`'s count, `gauge.parts`) | 1000 |

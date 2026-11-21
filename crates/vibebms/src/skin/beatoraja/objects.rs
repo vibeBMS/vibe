@@ -219,7 +219,7 @@ impl<'a> Ctx<'a> {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        (matches!(ext.as_str(), "ttf" | "otf" | "ttc") && readable(&p, MEDIA_MAX)).then_some(p)
+        (matches!(ext.as_str(), "ttf" | "otf" | "ttc") && readable(&p, FONT_MAX)).then_some(p)
     }
 
     pub(super) fn number_kind(&self, def: &Value) -> Option<Kind> {
