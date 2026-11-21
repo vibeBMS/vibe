@@ -339,7 +339,7 @@ played without unpacking it yourself.
 - Not read: archives in an archive, encrypted archives, tars compressed other than with gzip (`.tar.xz`, `.tar.bz2`,
   `.tar.zst`).
 - Limits, as an archive can say or hold anything. An archive is left out (the log says why; it is read again when it
-  changes) when its charts are more than 256 MB in all (64 MB on phones and the web), when it lists more than
+  changes) when its charts are more than 1 GB in all (256 MB on phones and the web), when it lists more than
   1,000,000 files (250,000), or when a 7z, RAR, LZH or tar decodes to more than 64 GB. A chart larger than a chart
   file may be (32 MB) is passed by. A song larger than 4 GB, or than the disk has room for with 256 MB to spare, is
   not unpacked.
