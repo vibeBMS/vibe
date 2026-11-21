@@ -28,10 +28,11 @@
 
 use crate::loudness::Loudness;
 use crate::platform::{vfs, Job};
+use crate::skin::guard;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use vibebms_audio::{Bus, Mixer, PlayOptions, Sample};
+use vibebms_audio::{Budget, Bus, Mixer, PlayOptions, Sample};
 
 /// A system sound (beatoraja's `SoundType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -476,14 +477,24 @@ struct Loaded {
     folders: Vec<PathBuf>,
 }
 
-/// A sound file decoded at the mixer's `rate`.
-fn decode(p: &Path, rate: u32) -> Result<Sample, String> {
+/// The PCM a set's short sounds take together, and a screen's music each
+/// time it is decoded to play: ten minutes of stereo at the mixer's `rate`
+/// (110 MiB at 48 kHz). The short sounds are seconds long, a few minutes
+/// all told; a screen's music a few minutes. However long its files say
+/// they are, no more comes out of them.
+fn set_budget(rate: u32) -> Budget {
+    let bytes = (rate as usize).saturating_mul(4 * 10 * 60);
+    Budget::new(bytes, vibebms_audio::decode::MAX_SOUND_SECS)
+}
+
+/// A sound file decoded at the mixer's `rate`, within `budget`.
+fn decode(p: &Path, rate: u32, budget: &Budget) -> Result<Sample, String> {
     let ext = p
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     let b = crate::skin::read_media(p).map_err(|e| e.to_string())?;
-    vibebms_audio::decode_bytes(b, &ext, rate)
+    vibebms_audio::decode_bytes_within(b, &ext, rate, budget)
 }
 
 /// The chosen set's sounds, decoded off the main thread.
@@ -573,6 +584,13 @@ impl SystemSounds {
                 false => Vec::new(),
             };
             let variant = draw(&vars);
+            // a set that takes the game down as it is decoded is set aside
+            // at the next start, as a skin is (RANDOM too when it drew it)
+            let mut noted = vec![guard::loading(&path)];
+            if value == RANDOM_SET {
+                noted.push(guard::loading(&root.join(RANDOM_SET)));
+            }
+            let budget = set_budget(rate);
             log::info!(
                 "sound set {}{}",
                 path.display(),
@@ -587,7 +605,7 @@ impl SystemSounds {
                     long.insert(k, p);
                     continue;
                 }
-                match decode(&p, rate) {
+                match decode(&p, rate, &budget) {
                     Ok(x) => {
                         let music = k.0.music(k.1);
                         let l = music.then(|| crate::loudness::measure_sound(&x, rate));
@@ -678,14 +696,16 @@ impl SystemSounds {
         // (music is measured once)
         let measure = k.0.music(k.1) && !self.loudness.contains_key(&k);
         let rate = self.rate;
-        let job = Job::spawn("sound set music", move |_| match decode(&p, rate) {
-            Ok(x) => {
-                let l = measure.then(|| crate::loudness::measure_sound(&x, rate));
-                Some((x, l))
-            }
-            Err(e) => {
-                log::warn!("sound set: {}: {e}", p.display());
-                None
+        let job = Job::spawn("sound set music", move |_| {
+            match decode(&p, rate, &set_budget(rate)) {
+                Ok(x) => {
+                    let l = measure.then(|| crate::loudness::measure_sound(&x, rate));
+                    Some((x, l))
+                }
+                Err(e) => {
+                    log::warn!("sound set: {}: {e}", p.display());
+                    None
+                }
             }
         });
         self.decoding.push((k, job));
@@ -1009,6 +1029,38 @@ mod tests {
         let info = set_info(&root.join(RANDOM_SET)).unwrap();
         assert_eq!(info.name, "RANDOM");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A set's short sounds take one budget together, however long their
+    /// files say they are.
+    #[test]
+    fn a_sets_sounds_share_a_budget() {
+        let root = std::env::temp_dir().join(format!("vibebms-ssetb-{}", std::process::id()));
+        // a WAV that states 1 Hz: its 4000 frames are an hour
+        let mut wav = b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\
+            \x01\0\0\0\x02\0\0\0\x02\0\x10\0data\x40\x1f\0\0"
+            .to_vec();
+        wav.resize(wav.len() + 8000, 1);
+        let set = root.join("sounds/set");
+        std::fs::create_dir_all(&set).unwrap();
+        for f in ["o-change.wav", "o-open.wav", "o-close.wav", "f-open.wav"] {
+            std::fs::write(set.join(f), &wav).unwrap();
+        }
+        let mut s = SystemSounds::default();
+        let m = mixer();
+        let rate = 100;
+        s.sync("sounds/set", &root, rate);
+        for _ in 0..2000 {
+            s.poll(&m, None);
+            if s.job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        std::fs::remove_dir_all(&root).ok();
+        let bytes: usize = s.samples.values().map(|x| x.data.len() * 2).sum();
+        assert_eq!(s.samples.len(), 4);
+        assert!(bytes <= rate as usize * 4 * 10 * 60, "{bytes}");
     }
 
     /// A screen's music is decoded when it plays, not kept; the short

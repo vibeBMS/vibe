@@ -45,7 +45,11 @@ impl Guard {
             let _ = vfs::remove_file(&self.file);
             return;
         }
-        let lines: Vec<_> = self.loading.iter().map(|(p, _)| p.to_string_lossy()).collect();
+        let lines: Vec<_> = self
+            .loading
+            .iter()
+            .map(|(p, _)| p.to_string_lossy())
+            .collect();
         let _ = vfs::write(&self.file, lines.join("\n").as_bytes());
     }
 
