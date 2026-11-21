@@ -230,7 +230,10 @@ impl IrService {
     /// the place of one the player entered). True when the configuration
     /// held one (it is then saved without it).
     pub fn take_old_tokens(&mut self, ir: &mut IrSettings) -> bool {
-        self.bind_keys(ir);
+        let bound = (self.keys).bind(|p| ir.account(p).map(key_origin));
+        if let Err(e) = bound {
+            log::warn!("credentials: {e}");
+        }
         let mut moved = false;
         for a in ir.accounts.iter_mut().filter(|a| !a.old_token.0.is_empty()) {
             let token = std::mem::take(&mut a.old_token.0);
@@ -249,16 +252,17 @@ impl IrService {
         moved
     }
 
-    /// The keys kept without their server get the one their account's
-    /// address is now, where it takes a key (`Keys::bind`).
-    pub fn bind_keys(&mut self, ir: &IrSettings) {
-        if let Err(e) = (self.keys).bind(|p| ir.account(p).map(key_origin)) {
-            log::warn!("credentials: {e}");
+    /// The player entered `a`'s address: a key held for the account is
+    /// for that server, when it takes one (`Keys::bind_held`).
+    pub fn entered_address(&mut self, a: &IrAccount) -> io::Result<()> {
+        match key_origin(a) {
+            Some(origin) => self.keys.bind_held(a.provider, &origin),
+            None => Ok(()),
         }
     }
 
-    /// A key is kept for `a`'s account until its address is one a key may
-    /// be sent to.
+    /// A key is held for `a`'s account: sent nowhere until the player
+    /// enters an address (or the key) in the settings.
     pub fn key_held(&self, a: &IrAccount) -> bool {
         self.keys.held(a.provider)
     }
@@ -1195,14 +1199,6 @@ mod tests {
             assert_eq!(a.url, lan);
             assert!(ir.key_held(a) && ir.creds(a).is_none());
         }
-        // an address a key may go to: the key goes there
-        let mut config = Config::load(&file);
-        config.ir.accounts[0].url = "https://192.168.1.10:8443".into();
-        let mut ir = IrService::new(&paths, 0);
-        ir.bind_keys(&config.ir);
-        let a = &config.ir.accounts[0];
-        assert!(!ir.key_held(a));
-        assert_eq!(ir.creds(a).unwrap().token.expose(), "s3cr3t");
         std::fs::remove_dir_all(&root).ok();
     }
 

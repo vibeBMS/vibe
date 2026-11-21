@@ -892,3 +892,43 @@ fn third_party_skins_are_offered_with_their_sources_on() {
     assert!(!ids.contains(&"catalog.third_party"));
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// A key held for a server on another machine over plain `http` goes to
+/// an `https` address only when the player enters it here: not because
+/// config.toml names one at the next start (a configuration shared by
+/// someone else moves no key).
+#[test]
+fn a_held_key_goes_only_to_an_address_entered_here() {
+    let root = std::env::temp_dir().join(format!("vibebms-settings-held-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let mut ctx = Ctx::for_test(root.clone());
+    let p = ProviderId::VibeJson(0);
+    let file = ctx.paths.private.join("credentials.json");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    // a key kept by a version before, for a server at home
+    std::fs::write(&file, r#"{"keys":{"vibe-json:0":"k0"}}"#).unwrap();
+    ctx.config.ir.accounts = vec![IrAccount {
+        provider: p,
+        url: "http://192.168.1.10:8080".into(),
+        ..Default::default()
+    }];
+    ctx.net.ir = crate::ir::IrService::new(&ctx.paths, 0);
+    ctx.net.ir.take_old_tokens(&mut ctx.config.ir);
+    assert!(ctx.net.ir.key_held(&ctx.config.ir.accounts[0]));
+    // the next start, with config.toml naming an https server for it
+    let https = "https://ir.example/api";
+    ctx.config.ir.accounts[0].url = https.into();
+    ctx.net.ir = crate::ir::IrService::new(&ctx.paths, 0);
+    ctx.net.ir.take_old_tokens(&mut ctx.config.ir);
+    let a = &ctx.config.ir.accounts[0];
+    assert!(ctx.net.ir.key_held(a) && !ctx.net.ir.has_key(a));
+    assert!(!std::fs::read_to_string(&file)
+        .unwrap()
+        .contains("ir.example"));
+    // the player enters the address
+    online::commit(&mut ctx, TextField::IrUrl(0), https.into());
+    let a = &ctx.config.ir.accounts[0];
+    assert!(!ctx.net.ir.key_held(a) && ctx.net.ir.has_key(a));
+    assert!(crate::ir::IrService::new(&ctx.paths, 0).has_key(a));
+    std::fs::remove_dir_all(&root).ok();
+}

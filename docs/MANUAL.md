@@ -654,9 +654,11 @@ vibeBMS's JSON protocol ([IR_PROTOCOL.md](IR_PROTOCOL.md)), Bokutachi or BMS-IR.
   not sent and `SETTINGS › ONLINE` asks for it again. A server's address is `https://` (`http://` only on this
   computer): a key sent over plain `http` can be read on the way. Your own server on another machine (e.g.
   `http://192.168.1.10:8080`) is shown as BAD ADDRESS and gets no request; a key kept for it is held, never sent,
-  until you give the account an address that takes one or remove the account. To use such a server, give it an
-  `https://` address with a certificate this device trusts (e.g. behind a reverse proxy), or forward a port of this
-  computer to it (`ssh -L 8080:192.168.1.10:8080 …`) and use `http://127.0.0.1:8080`.
+  until you enter an address that takes one (or the key) for the account in `SETTINGS › ONLINE`, or remove the
+  account. An `https://` address in `config.toml` alone does not release it: a configuration from someone else
+  moves no key. To use such a server, give it an `https://` address with a certificate this device trusts (e.g.
+  behind a reverse proxy), or forward a port of this computer to it (`ssh -L 8080:192.168.1.10:8080 …`) and use
+  `http://127.0.0.1:8080`.
 - I in song select (or SCORE STATUS's IR PAGE button) opens the chosen chart's page on the IR the rankings come from,
   in the system's browser (the web build: a new tab). BMS-IR's page is found by the chart's MD5 (a bmson has none);
   Bokutachi's by its own chart id, learnt from your PB lists, so a chart you have no score on there has no page yet;

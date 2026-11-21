@@ -40,8 +40,10 @@ struct Doc {
 enum Stored {
     /// With the origin ([`origin`]) of the server it was entered for.
     Bound { key: String, origin: String },
-    /// As versions before kept it: given a server once ([`Keys::bind`]),
-    /// never given out before.
+    /// For an account whose address takes no key: never given out, until
+    /// the player enters an address for it ([`Keys::bind_held`]).
+    Held { held: String },
+    /// As versions before kept it: given a server once ([`Keys::bind`]).
     Unbound(String),
 }
 
@@ -159,9 +161,9 @@ impl Keys {
         self.doc.keys.contains_key(&p)
     }
 
-    /// `p`'s key is kept without a server yet ([`Keys::bind`]).
+    /// `p`'s key is held: kept for no server yet ([`Keys::hold`]).
     pub fn held(&self, p: ProviderId) -> bool {
-        matches!(self.doc.keys.get(&p), Some(Stored::Unbound(_)))
+        matches!(self.doc.keys.get(&p), Some(Stored::Held { .. }))
     }
 
     /// Keep `key` for `p`'s account at the server at `origin` (`None`:
@@ -175,11 +177,26 @@ impl Keys {
         })
     }
 
-    /// Keep `key` for `p`'s account until the account has an address a key
-    /// may go to ([`Keys::bind`]).
+    /// Hold `key` for `p`'s account, whose address takes no key: it is
+    /// sent nowhere until the player enters an address ([`Keys::bind_held`]).
     pub fn hold(&mut self, p: ProviderId, key: String) -> io::Result<()> {
         self.change(|doc| {
-            doc.keys.insert(p, Stored::Unbound(key));
+            doc.keys.insert(p, Stored::Held { held: key });
+        })
+    }
+
+    /// The player entered the address of the server at `origin` for `p`'s
+    /// account: a key held for it is for that server. (Only the player's
+    /// own entry: an address a configuration brings moves no key.)
+    pub fn bind_held(&mut self, p: ProviderId, origin: &str) -> io::Result<()> {
+        if !self.held(p) {
+            return Ok(());
+        }
+        self.change(|doc| {
+            if let Some(Stored::Held { held }) = doc.keys.remove(&p) {
+                let (key, origin) = (held, origin.to_string());
+                doc.keys.insert(p, Stored::Bound { key, origin });
+            }
         })
     }
 
@@ -187,18 +204,14 @@ impl Keys {
     /// their account has now (`account`: None when there is no such
     /// account, `Some(None)` when its address is not one a key may go to).
     /// Once: a key is kept with its server from then on. One whose account
-    /// is gone goes; one whose account's address takes no key is held,
-    /// never given out, until the account has such an address or is
-    /// removed.
+    /// is gone goes; one whose account's address takes no key is held
+    /// ([`Keys::hold`]).
     pub fn bind(
         &mut self,
         account: impl Fn(ProviderId) -> Option<Option<String>>,
     ) -> io::Result<()> {
-        let held = |p: &ProviderId, s: &Stored| match s {
-            Stored::Unbound(_) => account(*p) == Some(None),
-            Stored::Bound { .. } => true,
-        };
-        if self.doc.keys.iter().all(|(p, s)| held(p, s)) {
+        let unbound = |s: &Stored| matches!(s, Stored::Unbound(_));
+        if !self.doc.keys.values().any(unbound) {
             return Ok(());
         }
         self.change(|doc| {
@@ -209,10 +222,10 @@ impl Keys {
                         p,
                         match account(p)? {
                             Some(origin) => Stored::Bound { key, origin },
-                            None => Stored::Unbound(key),
+                            None => Stored::Held { held: key },
                         },
                     )),
-                    bound => Some((p, bound)),
+                    kept => Some((p, kept)),
                 })
                 .collect();
         })
@@ -485,15 +498,18 @@ mod tests {
             assert!(c.has(lan) && c.held(lan) && !c.held(a));
             assert!(c.get(lan, "http://192.168.1.10:8080").is_none());
         }
+        // bound for good: another address later does not get it, nor the
+        // held one (an address a configuration brings moves no key)
         let mut c = Keys::open(&paths);
-        c.bind(accounts).unwrap();
-        assert!(c.held(lan));
-        // bound for good: another address later does not get it; the held
-        // one gets the address its account has now
         let other = "https://lan.example:443";
         c.bind(|_| Some(Some(other.into()))).unwrap();
         assert!(c.get(a, "https://ir.example:443").is_some());
         assert!(c.get(a, other).is_none());
+        assert!(c.held(lan) && c.get(lan, other).is_none());
+        // the address the player enters for it: the held one's server
+        c.bind_held(a, other).unwrap();
+        assert!(c.get(a, other).is_none());
+        c.bind_held(lan, other).unwrap();
         assert_eq!(c.get(lan, other).unwrap().token.expose(), "k2");
         assert!(!Keys::open(&paths).held(lan));
         std::fs::remove_dir_all(&root).ok();
