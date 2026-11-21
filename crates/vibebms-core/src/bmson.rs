@@ -354,7 +354,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
 
     let mut ev = Vec::new();
     for e in &b.bpm_events {
-        if let Some(bpm) = limits::number(e.bpm) {
+        if let Some(bpm) = limits::clamped(e.bpm) {
             ev.push((beat(e.y), TimingEvent::Bpm(bpm)));
         }
     }
@@ -362,7 +362,7 @@ pub fn parse_bmson(bytes: &[u8]) -> Result<Chart, ChartError> {
         ev.push((beat(e.y), TimingEvent::StopBeats(e.duration / res)));
     }
     for e in &b.scroll_events {
-        if let Some(rate) = limits::number(e.rate) {
+        if let Some(rate) = limits::clamped(e.rate) {
             ev.push((beat(e.y), TimingEvent::Scroll(rate)));
         }
     }
@@ -592,8 +592,9 @@ mod tests {
         assert!(parse_bmson(tiny.as_bytes()).is_err());
     }
 
-    /// Numbers no arithmetic stays finite with are as ones not given: what
-    /// the chart says of itself can be written down and read again.
+    /// Numbers no arithmetic stays finite with are as ones not given (a
+    /// tempo change: the fastest there may be): what the chart says of
+    /// itself can be written down and read again.
     #[test]
     fn hostile_bmson_numbers_stay_finite() {
         let src = r#"{"version": "1.0.0",
@@ -604,7 +605,10 @@ mod tests {
             "sound_channels": [{"name": "a.wav", "notes": [{"x": 1, "y": 0}, {"x": 1, "y": 960}]}]}"#;
         let c = parse_bmson(src.as_bytes()).unwrap();
         let m = &c.meta;
-        assert_eq!((m.initial_bpm, m.min_bpm, m.max_bpm), (130.0, 130.0, 180.0));
+        assert_eq!(
+            (m.initial_bpm, m.min_bpm, m.max_bpm),
+            (130.0, 130.0, limits::MAX_NUMBER)
+        );
         assert_eq!(m.total, Some(c.total(LnType::Ln)));
         assert_eq!(m.judge_rank, JudgeRank::Bmson(100.0));
         assert!(c.notes.iter().all(|n| n.pos.is_finite()));
@@ -667,6 +671,23 @@ mod tests {
         let c = parse_bmson(src.as_bytes()).unwrap();
         assert_eq!((c.notes.len(), c.bgm.len()), (1, 5));
         assert_eq!(c.notes[0].lane, 1);
+    }
+
+    /// A tempo or a scroll rate past the limit is the fastest there may be,
+    /// not left out.
+    #[test]
+    fn a_tempo_past_the_limit_is_clamped() {
+        let last = |bpm: &str| {
+            let src = format!(
+                r#"{{"info": {{"init_bpm": 120}}, "bpm_events": [{{"y": 240, "bpm": {bpm}}}],
+                   "scroll_events": [{{"y": 240, "rate": {bpm}}}],
+                   "sound_channels": [{{"name": "a", "notes": [{{"x": 1, "y": 96000}}]}}]}}"#
+            );
+            parse_bmson(src.as_bytes()).unwrap().notes[0].time
+        };
+        assert_eq!(last("1e10"), last("1e9"));
+        assert_eq!(last("-1e10"), last("-1e9"));
+        assert!(last("1e9") < 1_000_000);
     }
 
     #[test]

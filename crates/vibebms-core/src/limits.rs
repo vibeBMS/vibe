@@ -68,6 +68,13 @@ pub(crate) fn number(v: f64) -> Option<f64> {
     (v.is_finite() && v.abs() <= MAX_NUMBER).then_some(v)
 }
 
+/// A number a chart gives brought within [`MAX_NUMBER`] either side of 0
+/// (a tempo or a scroll rate past it is as fast as one may be, not left
+/// out); none for one that is no number.
+pub(crate) fn clamped(v: f64) -> Option<f64> {
+    (!v.is_nan()).then(|| v.clamp(-MAX_NUMBER, MAX_NUMBER))
+}
+
 fn clip(text: &mut String) {
     if text.len() > MAX_TEXT {
         let mut end = MAX_TEXT;
