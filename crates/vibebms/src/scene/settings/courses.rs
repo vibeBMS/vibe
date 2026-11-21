@@ -96,7 +96,7 @@ pub(super) fn import(c: &mut Ctx, path: &str) {
     let Some(bytes) = candidates
         .iter()
         .filter(|f| !f.is_dir())
-        .find_map(|f| crate::platform::vfs::read(f).ok())
+        .find_map(|f| crate::lr2db::read_file(f).ok())
     else {
         c.toast(tr!("No LR2 song.db at {path}", path = p.display()));
         return;
