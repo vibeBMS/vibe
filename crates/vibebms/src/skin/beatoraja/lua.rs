@@ -4,19 +4,16 @@ use super::*;
 /// Run a `.luaskin` and return its table as JSON (functions become
 /// script markers) with the Lua state. `skin_config` (option name ->
 /// selected op) is exported like beatoraja does; without it the skin runs
-/// for its header only, in the time one has.
+/// for its header only. It runs within `limits`.
 pub fn eval(
     path: &Path,
     home: &Home,
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
+    limits: script::Limits,
 ) -> Result<(Value, script::Script), String> {
     let src = read_text(path).map_err(|e| e.to_string())?;
     let e = |e: mlua::Error| format!("{}: {e}", path.display());
-    let limits = match skin_config {
-        Some(_) => script::LOAD,
-        None => script::HEADER,
-    };
     let mut sc = script::Script::new(home, false, limits).map_err(e)?;
     let lua = sc.lua().clone();
     let g = lua.globals();

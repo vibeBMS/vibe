@@ -27,7 +27,11 @@ fn read(
     skin_config: Option<SkinConfig<'_>>,
     state: Option<&dyn SkinState>,
 ) -> Result<(Value, Option<script::Script>), String> {
-    read_skin(path, &Home::of(path, own(path)), skin_config, state)
+    let limits = match skin_config {
+        Some(_) => script::LOAD,
+        None => script::HEADER,
+    };
+    read_skin(path, &Home::of(path, own(path)), skin_config, state, limits)
 }
 
 #[test]
@@ -76,7 +80,8 @@ fn lua_runs_like_beatoraja() {
         }
     }
     let path = skin.join("t.luaskin");
-    let (v, _) = read_skin(&path, &Home::of(&path, &dir), None, Some(&St)).unwrap();
+    let home = Home::of(&path, &dir);
+    let (v, _) = read_skin(&path, &home, None, Some(&St), script::HEADER).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     let want = serde_json::json!({
         "lines": 2, "first": "a", "written": true, "part": 7, "band": 15, "shift": 16,
@@ -1104,6 +1109,26 @@ fn json_nested_too_deep_is_refused() {
     let h = header(&path, &dir);
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(h, None);
+}
+
+/// A Lua skin's code that takes longer than a listing gives it loads: its
+/// first run, for its header, has a load's time too.
+#[test]
+fn a_lua_skin_loads_in_a_loads_time() {
+    let dir = std::env::temp_dir().join(format!("vibebms-lload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("s.luaskin");
+    std::fs::write(
+        &path,
+        "for i = 1, 1e8 do end
+         return { type = 7, name = 'S', w = 100, h = 100, font = { { id = 0, path = 'f.ttf' } },
+           text = { { id = 't', constantText = 'A', ref = 10, font = 0 } },
+           destination = { { id = 't', dst = { { x = 0, y = 0, w = 10, h = 10 } } } } }",
+    )
+    .unwrap();
+    let s = load(&path, &HashMap::new(), &|_| None);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(s.unwrap().name, "S");
 }
 
 /// A Lua skin that never ends is given up on in the time a header has
