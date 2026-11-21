@@ -26,6 +26,9 @@ const OLDEST: u32 = 1;
 /// a thousand updates a second. A file that unpacks to more is not one.
 pub const MAX_JSON: usize = 128 << 20;
 
+/// Why a replay past [`MAX_JSON`] is not kept.
+pub const TOO_LONG: &str = "the replay is too long to keep";
+
 /// A play's replay. `P`: its play options, the rules and whatever else the
 /// player kept with them (the app's view options).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -103,7 +106,7 @@ impl<P: Serialize> Replay<P> {
     pub fn encode(&self) -> Result<Vec<u8>, String> {
         let json = serde_json::to_vec(self).map_err(|e| e.to_string())?;
         if json.len() > MAX_JSON {
-            return Err("the replay is too long to keep".into());
+            return Err(TOO_LONG.into());
         }
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         gz.write_all(&json).map_err(|e| e.to_string())?;

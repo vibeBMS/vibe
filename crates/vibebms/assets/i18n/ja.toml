@@ -822,6 +822,7 @@ _untranslated = [
 "No file manager here" = "ファイルマネージャーがありません"
 "No replay of this play" = "このプレーのリプレイはありません"
 "No replay of this play to keep" = "保存するこのプレーのリプレイがありません"
+"This play's replay is too long to keep: not saved" = "このプレーのリプレイは長すぎるため保存されません"
 "No room to keep the song: free some in Settings › LIBRARY" = "曲を保存する空きがありません：設定 › ライブラリで空けてください"
 "No such profile" = "そのプロフィールはありません"
 "No try yet: choose a section, then PLAY." = "まだ挑戦していません：区間を選んでプレー。"
