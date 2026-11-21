@@ -95,7 +95,7 @@ impl Home {
 /// Load any supported skin file (LR2 CSV, beatoraja JSON or Lua).
 /// `static_option` answers LR2 `#IF`s, `state` what a Lua skin reads
 /// while it is built. The file is noted as loading until a frame has been
-/// drawn with it ([`guard`]).
+/// drawn with it ready, or what the load made is let go ([`guard`]).
 pub fn load_file(
     path: &std::path::Path,
     skins_root: &std::path::Path,
@@ -104,14 +104,16 @@ pub fn load_file(
     state: Option<&dyn SkinState>,
     image_size: &dyn Fn(&std::path::Path) -> Option<(u32, u32)>,
 ) -> Result<Skin, String> {
-    guard::loading(path);
-    no_panic(path, || {
+    let note = guard::loading(path);
+    let mut skin = no_panic(path, || {
         if SkinFormat::of(path) == Some(SkinFormat::Lr2) {
             lr2::load_with(path, skins_root, user, static_option, image_size)
         } else {
             beatoraja::load_with(path, skins_root, user, state, image_size)
         }
-    })
+    })?;
+    skin.note = note.map(std::sync::Arc::new);
+    Ok(skin)
 }
 
 /// `read` (what reads the skin file `path`), a panic in it as an error:
@@ -1179,6 +1181,9 @@ pub struct Skin {
     /// The ops of the skin's own options in effect (each property's
     /// chosen item), for what the game draws itself.
     pub options_on: std::collections::HashSet<i32>,
+    /// The file's load as [`guard`] notes it: past once the skin is drawn
+    /// ready, or let go.
+    pub note: Option<std::sync::Arc<guard::Note>>,
 }
 
 impl Skin {
@@ -1216,6 +1221,7 @@ impl Skin {
             perspective: false,
             horizontal: false,
             options_on: Default::default(),
+            note: None,
         }
     }
 
