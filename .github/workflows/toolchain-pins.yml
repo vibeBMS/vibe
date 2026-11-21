@@ -397,7 +397,11 @@ jobs:
           for kind in update major; do
             git switch -q --detach "$main"
             branch="toolchain-pins/$kind"
-            open="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+            # this workflow's own pull request, from this repository's branch:
+            # --head matches by branch name alone, so a fork's pull request
+            # can have the same head
+            open="$(gh pr list --head "$branch" --state open --json number,isCrossRepository,author \
+              --jq '[.[] | select((.isCrossRepository | not) and (.author.login | test("^(app/)?github-actions(\\[bot\\])?$")))][0].number // empty')"
             if cmp -s "$RUNNER_TEMP/$kind.env" tools/repro.env && cmp -s "$RUNNER_TEMP/$kind.lock" tools/linux-arm64.lock; then
               echo "$kind: the pins are current" | tee -a "$GITHUB_STEP_SUMMARY"
               [ -z "$open" ] || gh pr close "$open" --delete-branch --comment "The pins are current."

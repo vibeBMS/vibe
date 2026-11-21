@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Tests of tools/repro_pins.py: python3 tools/repro_pins_test.py (CI's test job runs it)."""
+"""Tests of tools/repro_pins.py and of which pull request .github/workflows/toolchain-pins.yml takes as its own:
+python3 tools/repro_pins_test.py (CI's test job runs it)."""
 import contextlib
 import importlib.util
 import io
+import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -171,6 +174,29 @@ class Check(unittest.TestCase):
         for extra in ("NDK_VERSION=1", "touch pwned", "X=1"):
             rc, _, _ = self.check("CARGO_NDK_VERSION", f"4.1.3\n{extra}")
             self.assertEqual(rc, 1, extra)
+
+
+class OwnPullRequest(unittest.TestCase):
+    """Which open pull request the workflow (.github/workflows/toolchain-pins.yml) takes as its own."""
+
+    WORKFLOW = (HERE.parent / ".github" / "workflows" / "toolchain-pins.yml").read_text()
+    FILTER = re.search(r"gh pr list --head \"\$branch\".*?--jq '([^']*)'", WORKFLOW, re.S).group(1)
+
+    def own(self, prs):
+        out = subprocess.run(["jq", "-r", self.FILTER], input=json.dumps(prs), capture_output=True, text=True, check=True)
+        return out.stdout.strip()
+
+    def test_only_its_own_from_this_repository(self):
+        ours = {"number": 7, "isCrossRepository": False, "author": {"login": "app/github-actions", "is_bot": True}}
+        fork = {"number": 5, "isCrossRepository": True, "author": {"login": "app/github-actions"}}
+        person = {"number": 6, "isCrossRepository": False, "author": {"login": "someone"}}
+        lookalike = {"number": 8, "isCrossRepository": False, "author": {"login": "github-actions-fan"}}
+        self.assertEqual(self.own([ours]), "7")
+        self.assertEqual(self.own([{**ours, "author": {"login": "github-actions[bot]"}}]), "7")
+        self.assertEqual(self.own([fork, person, lookalike, ours]), "7")
+        self.assertEqual(self.own([{**fork, "author": {"login": "someone"}}]), "")
+        self.assertEqual(self.own([fork, person, lookalike]), "")
+        self.assertEqual(self.own([]), "")
 
 
 if __name__ == "__main__":
