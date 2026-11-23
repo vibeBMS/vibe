@@ -147,7 +147,7 @@ frames later, so play does not stall.
 | T | read the song's text files; O (or OPEN) then opens the file shown in the system's text viewer (desktop) |
 | U | open the chart's web page in the browser: its `#URL`, a bmson `info.url`, else its link in a difficulty table (http(s) only) |
 | B | SAME FOLDER: the charts in the chosen chart's folder |
-| F12 | rescan the library |
+| F12 | scan the library for new and changed charts, and update the tables (files left out for stopping the game stay out: SETTINGS › LIBRARY › Rescan reads them again) |
 | I | the chart's IR page |
 | P | watch the chart's replay, or a course's (see [Replays and ghosts](#replays-and-ghosts)) |
 | E | practice the chart (also the PRACTICE button) |
@@ -304,10 +304,11 @@ The touch perspective play skin uses its lanes as the controls ([SKINS.md](SKINS
 - Not read (no real chart is so): a chart file over 32 MiB, a chart whose last note or sound is past 24 hours, one
   with more than 4,000,000 objects. A header's text is read to 1024 bytes, a number to a thousand million.
 - A chart or an archive the scan was reading when the game stopped (a crash, or a hang you ended) is read on its own by
-  the next scan, before the others. If the game stops again while it is read, it is left out from then on (the log
-  names it) until the file changes, another version of the game scans, or you ask for a rescan (SETTINGS › LIBRARY ›
-  Rescan, or F12 on the song select). Closing the game, or a phone or browser closing it in the background, does not
-  count, unless the file had been read for much longer than one of its size takes (a minute, and 2 MiB a second).
+  the next scan, before the others. If the game stops again while it is read, it is left out from then on (the log names
+  it) until the file changes, another version of the game scans, or you ask for a rescan (SETTINGS › LIBRARY › Rescan;
+  F12 on the song select scans for changes and leaves these out). Closing the game, or a phone or browser ending it in
+  the background (the scan goes on there), does not count, unless the file had already been read for much longer than
+  one of its size takes (a minute, and 2 MiB a second) when the game was closed or sent to the background.
 
 ### Media limits
 

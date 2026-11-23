@@ -9,7 +9,9 @@
 //! start then sets aside (`scene::skinned::recover`). A load that fails,
 //! or a skin let go before it was drawn (a trial load, a preview), is
 //! past too. The skins compiled into the game are not noted; a sound set
-//! is noted while it is decoded.
+//! is noted while it is decoded. While the game is in the background (no
+//! frames drawn, and the system may end it at any time) the marker is
+//! taken away, the notes kept: being ended there says nothing of a skin.
 
 use crate::platform::vfs;
 use std::path::{Path, PathBuf};
@@ -23,6 +25,8 @@ struct Guard {
     loading: Vec<(PathBuf, usize)>,
     /// Skins drawn ready in the frame being made.
     drawn: Vec<PathBuf>,
+    /// In the background: the notes are not written.
+    away: bool,
 }
 
 impl Guard {
@@ -36,12 +40,13 @@ impl Guard {
             file,
             loading: Vec::new(),
             drawn: Vec::new(),
+            away: false,
         };
         (guard, left)
     }
 
     fn write(&self) {
-        if self.loading.is_empty() {
+        if self.loading.is_empty() || self.away {
             let _ = vfs::remove_file(&self.file);
             return;
         }
@@ -79,6 +84,11 @@ impl Guard {
         for p in std::mem::take(&mut self.drawn) {
             self.past(&p);
         }
+    }
+
+    fn away(&mut self, away: bool) {
+        self.away = away;
+        self.write();
     }
 }
 
@@ -146,6 +156,11 @@ pub fn frame_drawn() {
     with(Guard::frame_drawn);
 }
 
+/// The game goes to the background (`true`) or is back from it.
+pub fn away(away: bool) {
+    with(|g| g.away(away));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +199,38 @@ mod tests {
         g.drawn.push(a.clone());
         g.frame_drawn();
         assert!(Guard::open(file).1.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Sent to the background before a skin is drawn, and ended there by
+    /// the system: the skin is not set aside. Back, it is noted again.
+    #[test]
+    fn the_background_leaves_no_note() {
+        let dir = std::env::temp_dir().join(format!("vibebms-guard-bg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("skins-loading");
+        let (a, b) = (dir.join("skins/a/play.json"), dir.join("sounds/b"));
+        let (mut g, _) = Guard::open(file.clone());
+        g.loading(&a);
+        g.away(true);
+        assert!(!file.exists());
+        // a sound set decoded meanwhile, a skin let go: not written either
+        g.loading(&b);
+        g.past(&b);
+        assert!(!file.exists());
+        // back: what is still loading is noted again
+        g.away(false);
+        assert_eq!(Guard::open(file.clone()).1, std::slice::from_ref(&a));
+        let (mut g, _) = Guard::open(file.clone());
+        g.loading(&a);
+        g.away(true);
+        // ended in the background: nothing for the next run
+        assert!(Guard::open(file.clone()).1.is_empty());
+        // or back, then drawn: past
+        g.away(false);
+        g.drawn.push(a.clone());
+        g.frame_drawn();
+        assert!(!file.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

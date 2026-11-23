@@ -823,31 +823,77 @@ impl Slot {
     }
 
     /// The file it noted, if it was reading one, and when it was begun
-    /// (Unix seconds; 0 in a note of an older version).
-    fn left(path: &Path) -> Option<(Mark, u64)> {
+    /// (not known in a note of an older version).
+    fn left(path: &Path) -> Option<(Mark, Option<At>)> {
         let b = vfs::read(path).ok()?;
         let line = b.split(|c| *c == b'\n').next()?;
-        (serde_json::from_slice(line).ok())
-            .or_else(|| serde_json::from_slice(line).ok().map(|m| (m, 0)))
+        let note = serde_json::from_slice(line)
+            .ok()
+            .map(|(m, at)| (m, Some(at)));
+        // (older versions: begun in Unix seconds, or no time at all)
+        let older = || {
+            (serde_json::from_slice::<(Mark, u64)>(line).map(|(m, _)| m))
+                .or_else(|_| serde_json::from_slice(line))
+                .ok()
+        };
+        note.or_else(|| older().map(|m| (m, None)))
     }
 }
 
-/// Beside the song cache: when the game last stopped in order (Unix
-/// seconds), while a scan may have been reading.
+/// A moment of this run of the game: the time since it began, which does
+/// not jump as the wall clock may. Two moments compare only within a run.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct At {
+    run: u64,
+    ms: u64,
+}
+
+impl At {
+    fn now() -> At {
+        use crate::platform::{Instant, SystemTime, UNIX_EPOCH};
+        static BEGUN: std::sync::OnceLock<(u64, Instant)> = std::sync::OnceLock::new();
+        let (run, begun) = *BEGUN.get_or_init(|| {
+            let wall = SystemTime::now().duration_since(UNIX_EPOCH);
+            (
+                wall.map(|d| d.as_nanos() as u64).unwrap_or(0),
+                Instant::now(),
+            )
+        });
+        At {
+            run,
+            ms: begun.elapsed().as_millis() as u64,
+        }
+    }
+}
+
+/// Beside the song cache: the game stopped in order ([`stopping`]) and has
+/// not gone on since; it holds when, as an [`At`].
 fn stop_file(songs_file: &Path) -> PathBuf {
     songs_file.with_file_name("scan-stopped")
 }
 
 /// The game stops in order (it is closed, or put away where the system may
-/// end it unasked: a phone app sent to the background, a page left): what a
-/// scan is reading now is no suspect at the next start, unless it was in
-/// work for longer than a file of its size takes ([`Marks::open`]).
+/// end it unasked: a phone app sent to the background, a page left): until
+/// it goes on ([`going_on`]) or starts again, what a scan reads is no
+/// suspect if the game ends, unless it was begun before this and in work for
+/// longer than a file of its size takes ([`Marks::open`]). A scan goes on in
+/// the background, and the system may end the game there at any time.
 pub fn stopping(songs_file: &Path) {
-    let now = crate::platform::unix_now().to_string();
-    let _ = vfs::write(&stop_file(songs_file), now.as_bytes());
+    let f = stop_file(songs_file);
+    let now = At::now();
+    // (a stop of this run not gone on from stands: what was begun after it
+    // was begun in the background)
+    let held = vfs::read(&f).ok();
+    if held
+        .and_then(|b| serde_json::from_slice::<At>(&b).ok())
+        .is_some_and(|a| a.run == now.run)
+    {
+        return;
+    }
+    let _ = vfs::write(&f, &serde_json::to_vec(&now).unwrap_or_default());
 }
 
-/// The game goes on after [`stopping`] (back from the background).
+/// The game goes on after [`stopping`] (back in the foreground).
 pub fn going_on(songs_file: &Path) {
     let f = stop_file(songs_file);
     if vfs::is_file(&f) {
@@ -891,19 +937,28 @@ impl Marks {
                 .and_then(|b| serde_json::from_slice(&b).ok())
                 .unwrap_or_default(),
         };
-        let stopped: Option<u64> = vfs::read_to_string(&stop_file(songs_file))
-            .ok()
-            .and_then(|t| t.trim().parse().ok());
-        if stopped.is_some() {
+        // (when, if it was this version that stopped)
+        let stopped: Option<Option<At>> =
+            (vfs::read(&stop_file(songs_file)).ok()).map(|b| serde_json::from_slice(&b).ok());
+        // a stop of an earlier run: this one has not stopped since it began
+        // (a stop of this one stays until it goes on: this scan may be in the
+        // background)
+        if stopped.is_some_and(|s| s.is_none_or(|a| a.run != At::now().run)) {
             let _ = vfs::remove_file(&stop_file(songs_file));
         }
         let slots: Vec<PathBuf> = (0..Self::SLOTS)
             .map(|k| songs_file.with_file_name(format!("scan-reading-{k}")))
             .collect();
-        let crashed = |(Mark(_, stamp), begun): &(Mark, u64)| {
-            !stopped.is_some_and(|t| t >= *begun && t - begun < read_time(stamp.1))
+        // stopped in order, the game could not tell being ended from a crash:
+        // only a file it was reading too long as it stopped counts
+        let crashed = |(Mark(_, stamp), begun): &(Mark, Option<At>)| match stopped {
+            None => true,
+            Some(stop) => stop.zip(*begun).is_some_and(|(t, b)| {
+                let hung = |d: u64| d >= read_time(stamp.1) * 1000;
+                t.run == b.run && t.ms.checked_sub(b.ms).is_some_and(hung)
+            }),
         };
-        let noted: Vec<(Mark, u64)> = slots.iter().filter_map(|p| Slot::left(p)).collect();
+        let noted: Vec<(Mark, Option<At>)> = slots.iter().filter_map(|p| Slot::left(p)).collect();
         let left: Vec<Mark> = (noted.iter().filter(|n| crashed(n)))
             .map(|(m, _)| m.clone())
             .collect();
@@ -953,8 +1008,7 @@ impl Marks {
         // (more threads than slots: the first one's turn is waited for)
         let mut slot =
             free.unwrap_or_else(|| self.slots[0].lock().unwrap_or_else(|e| e.into_inner()));
-        let begun = crate::platform::unix_now();
-        let mut line = serde_json::to_vec(&(m, begun)).unwrap_or_default();
+        let mut line = serde_json::to_vec(&(m, At::now())).unwrap_or_default();
         line.push(b'\n');
         slot.put(&line);
         slot
@@ -2291,23 +2345,27 @@ mod tests {
             t.sort();
             t
         };
-        // what the game was reading of `f` (begun `ago` seconds before)
-        // as it stopped, in order or not
-        let stops = |f: &Path, ago: u64, in_order: bool| {
+        // what an earlier run of the game was reading of `f` as it ended,
+        // begun `ago` seconds before it stopped in order, or not stopped
+        let stops = |f: &Path, ago: i64, in_order: bool| {
             drop(Marks::open(&file, false));
-            let begun = crate::platform::unix_now() - ago;
+            let run = At::now().run.wrapping_add(1);
+            let begun = At { run, ms: 7_200_000 };
             let line = serde_json::to_vec(&(Mark::of(f, vfs::stamp(f)), begun)).unwrap();
             std::fs::write(cache.join("scan-reading-0"), line).unwrap();
             if in_order {
-                stopping(&file);
+                let ms = begun.ms.saturating_add_signed(ago * 1000);
+                let stop = serde_json::to_vec(&At { run, ms }).unwrap();
+                std::fs::write(stop_file(&file), stop).unwrap();
             }
         };
         assert_eq!(run(false), ["A", "B", "T"]);
         std::fs::write(&b, "#TITLE B2\n#00111:01\n").unwrap();
-        // two quits while b is read: no strike
+        // two quits while b is read, or b begun after them: no strike
         stops(&b, 5, true);
-        stops(&b, 5, true);
+        stops(&b, -1, true);
         assert_eq!(run(false), ["A", "B2", "T"]);
+        assert!(!vfs::is_file(&stop_file(&file)));
         // in work for an hour at each quit: it hung, twice
         std::fs::write(&b, "#TITLE B three\n#00111:01\n").unwrap();
         stops(&b, 3600, true);
@@ -2317,10 +2375,9 @@ mod tests {
         // changed one) stopped it twice
         let two = [("t.bms", chart), ("u.bms", chart)];
         std::fs::write(&tar, bmseeker::testkit::tar(&two)).unwrap();
-        for _ in 0..2 {
-            stops(&tar, 5, true);
-            going_on(&file);
-        }
+        stops(&tar, 5, true);
+        going_on(&file);
+        stops(&tar, 5, false);
         assert_eq!(run(false), ["A"]);
         assert_eq!(run(false), ["A"]);
         // a rescan the player asks for reads both again
@@ -2334,6 +2391,53 @@ mod tests {
         assert_eq!(ix().left_out_by, "0.0.1");
         run(false);
         assert!(ix().error.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Sent to the background, the game goes on scanning, and a scan may
+    /// start there; the system may end it at any time: no strike, however
+    /// often. Back in the foreground, a crash counts again.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn ended_in_the_background_is_no_strike() {
+        let dir = std::env::temp_dir().join(format!("vibebms-lib-bg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let songs = dir.join("pack");
+        std::fs::create_dir_all(&songs).unwrap();
+        let cache = dir.join("cache");
+        let file = cache.join("songs.json");
+        std::fs::write(songs.join("a.bme"), "#TITLE A\n#00111:01\n").unwrap();
+        let b = songs.join("b.bme");
+        std::fs::write(&b, "#TITLE B\n#00111:01\n").unwrap();
+        let run = || {
+            let p = Arc::new(ScanProgress::default());
+            scan(file.clone(), vec![songs.clone()], [cache.clone()].into(), p);
+            let mut t: Vec<String> = cached_songs(&file).into_iter().map(|s| s.title).collect();
+            t.sort();
+            t
+        };
+        // a scan that begins b, and the game ends; then the next start's
+        // scan takes in what it left
+        let ended_reading_b = || {
+            let marks = Marks::open(&file, false);
+            drop(marks.note(&Mark::of(&b, vfs::stamp(&b))));
+            drop(Marks::open(&file, false));
+        };
+        assert_eq!(run(), ["A", "B"]);
+        std::fs::write(&b, "#TITLE B2\n#00111:01\n").unwrap();
+        for _ in 0..2 {
+            stopping(&file);
+            // (a scan started in the background, which ends)
+            drop(Marks::open(&file, false));
+            ended_reading_b();
+        }
+        assert_eq!(run(), ["A", "B2"]);
+        // in the foreground again: the stop is over
+        going_on(&file);
+        std::fs::write(&b, "#TITLE B three\n#00111:01\n").unwrap();
+        ended_reading_b();
+        ended_reading_b();
+        assert_eq!(run(), ["A"]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

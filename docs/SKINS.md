@@ -81,7 +81,8 @@ A skin is someone else's file: what it can ask of the game is bounded, far above
 - A listing of the skins gives Lua skins 4 s in all to say what they are; those left come with the next listing.
 - Choosing a skin loads it once before the choice is saved. A skin the game stopped in the middle of loading (a
   crash, a hang that was ended) is set aside at the next start: its screen has the built-in skin again, and a
-  message names it. `cache/skins-loading` is the note of the skins being loaded.
+  message names it. The game ended by a phone's system while in the background does not count. `cache/skins-loading`
+  is the note of the skins being loaded.
 
 ## LR2 skins
 
