@@ -233,7 +233,8 @@ The key is kept away from the build. CI's `android` job builds the unsigned APK 
 output (any job of the run can upload an artifact, but only that job sets its outputs), and signs it
 (`tools/build_release.sh sign`), with the JDK, the pinned build-tools and apksigcopier alone; the keystore exists for
 that one step. It gives the signed APK's SHA-256 as an output in turn: the `nightly` job checks the APK against it
-before it builds the F-Droid index or publishes anything. On the default branch that job
+before it builds the F-Droid index or publishes anything (Self-update, below, "The files the nightly publishes"). On
+the default branch that job
 and the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
 the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
 the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
@@ -356,10 +357,12 @@ none. In a channel, `version` is the release's (the run that published it); `fil
 executable in the release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`, `-arm64-portable`, `vibebms-macos-arm64`,
 `-x64`, `vibebms-macos-universal.app.zip`, `vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with,
 its SHA-256 and its size in bytes. Each desktop build job writes its
-`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `update-manifest` job reads it. The nightly is released
-only when every build passed, so every entry of `nightly` is this run's: nothing of the previous `nightly` part is
-kept, and the job fails if a build's file is missing. The `nightly` job publishes the `latest.json` that
-`update-manifest` made (and `sign-update` signed, below).
+`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `update-manifest` job reads it. Each build job also
+gives the SHA-256 of each file it uploads as a job output, and `update-manifest` takes an executable only when it
+matches (below, "The files the nightly publishes"). The nightly is released only when every build passed, so every
+entry of `nightly` is this run's: nothing of the previous `nightly` part is kept, and the job fails if a build's file
+is missing or is not the one its job made. The `nightly` job publishes the `latest.json` that `update-manifest` made
+(and `sign-update` signed, below).
 
 An executable picks its own file by its OS and architecture, on Linux by whether it was built with the
 `browser` feature (the `-portable` builds are `--no-default-features`), and on macOS by whether it runs in the app
@@ -397,7 +400,8 @@ build that has the key takes the list only with a signature that matches.
   The job `verify-update`, which has no secret, then checks both files against those SHA-256s, and the signature
   with `ssh-keygen -Y verify` against `tools/update_key.pub`. The `nightly` job (and `pages`) waits for both: if
   signing or the check fails, nothing is published. The `nightly` job checks the two files against the same
-  SHA-256s again, so it publishes the very files that were signed and checked. If `tools/update_key.pub` is in the
+  SHA-256s again, so it publishes the very files that were signed and checked (with every other file it publishes:
+  below). If `tools/update_key.pub` is in the
   repository but the secret is missing, the run fails and says so. The release then has `latest.json.sig` next to
   `latest.json` (the armoured SSH signature format, OpenSSH's `PROTOCOL.sshsig`).
 - build.rs reads `tools/update_key.pub` into the build (the build fails if the file is not one `ssh-ed25519` line).
@@ -421,11 +425,6 @@ What it does not protect against:
 - Someone who can change the default branch: CI builds what is there and signs it.
 - An old signed `latest.json` put back, with its signature: a build older than that list is offered the older
   nightly it names. A build newer than it is offered nothing (the run number only grows).
-- A job of the same run that runs foreign code (a crate's build script, a Gradle plugin, a package) replacing a
-  build's artifact before `update-manifest` reads it: the list then names that file. After that, a replaced file is
-  refused: the jobs that sign and publish take `latest.json`, its signature and the APK by their exact artifact
-  names and check each against the SHA-256 that the job that made it gave, and the `nightly` job checks each
-  executable against the list. The build jobs give no such SHA-256 of their own files yet.
 
 To make the key (once; on any machine with OpenSSH):
 ```sh
@@ -442,6 +441,35 @@ To replace the key: make a new one the same way, replace the secret, and commit 
 `tools/update_key.pub` in the same push. Builds made from then on check with the new key. Builds made before it
 still have the old key: every `latest.json` from then on fails their check, so they stop updating themselves.
 Their users must download a new build by hand once. Say so in the release notes.
+
+### The files the nightly publishes
+Any job of a run can upload an artifact, under any name, and replace another job's (a crate's build script, a Gradle
+plugin or a package that runs in one job could do so). Only a job sets its own outputs. So each file is bound to the
+job that made it by its SHA-256, given as a job output, and the jobs after it take an artifact's file only when it
+matches:
+- Each job that makes a file of the release gives the SHA-256 of the file as it uploads it: `build-linux`
+  (`sha256-linux-x64`, `-arm64`, and `sha256-linux-x64-flatpak`, `-arm64-flatpak` for the Flatpaks),
+  `build-linux-portable` (`sha256-linux-x64-portable`, `-arm64-portable`), `build-windows` (`sha256-windows-x64`,
+  `-arm64`), `macos` (`sha256-macos-arm64`, `-x64`, and `sha256-macos-universal` for the app's zip), `macos-dmg`,
+  `ios`, `android-sign`, `update-manifest` and `sign-update` (`sha256`). The outputs of a matrix job are one set for
+  all its legs, and when two legs set the same name the last one wins: so each name is one leg's, and the other legs
+  leave it empty (an empty output is not set, so it does not replace the value that leg set). The `web` job gives
+  the SHA-256 of the list of its build's files (each file's SHA-256 and name, in name order, without the hidden files
+  that upload-artifact leaves out).
+- `macos-dmg` makes the `.dmg` only of the app zip whose SHA-256 `macos` gave. `update-manifest` takes each
+  executable only when it matches its job's output: `latest.json` names only files the build jobs made.
+- The `nightly` job zips only the web build whose files match the `web` job's output. The files it makes itself (the
+  web build's zip, `altstore.json`) are given as the SHA-256 outputs of the step that made them.
+- Its step "check the files" then checks every file in `out/` against the output of its maker. Every one of them
+  must match, and a file that no maker names, or whose maker gave no SHA-256, stops the release: nothing is
+  published. It runs before the F-Droid index is built (so the index has the APK `android-sign` signed) and
+  `builds.json` is written.
+
+What it does not protect against:
+- Foreign code in the job that makes a file (a crate's build script in a build job, a Gradle plugin in `android`)
+  changing that file before the job takes its SHA-256: the output then names that file.
+- Code that runs in the `nightly` job itself after the check: the pinned fdroidserver of the F-Droid steps (each of
+  its files pinned by SHA-256; it already has the F-Droid key) could change a file in `out/` before the upload.
 
 ## Build manifest (`builds.json`)
 The nightly release also has a `builds.json`: every build the `nightly` job published, the oldest first, with the

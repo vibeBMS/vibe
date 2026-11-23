@@ -230,6 +230,16 @@ jobs:
             arch: arm64
             loader: /lib/ld-linux-aarch64.so.1
     runs-on: ${{ matrix.os }}
+    # the SHA-256 of each file the job uploads (update-manifest and the
+    # nightly job take only these files: any job of the run can upload an
+    # artifact, but only this one sets these). The legs' outputs are one set:
+    # each name is one leg's, and every other leg leaves it empty (an empty
+    # output is not set, so it does not replace the other leg's value)
+    outputs:
+      sha256-linux-x64: ${{ matrix.name == 'linux-x64' && steps.sha256.outputs.sha256 || '' }}
+      sha256-linux-arm64: ${{ matrix.name == 'linux-arm64' && steps.sha256.outputs.sha256 || '' }}
+      sha256-linux-x64-flatpak: ${{ matrix.name == 'linux-x64' && steps.flatpak-sha256.outputs.sha256 || '' }}
+      sha256-linux-arm64-flatpak: ${{ matrix.name == 'linux-arm64' && steps.flatpak-sha256.outputs.sha256 || '' }}
     env:
       # (rust-cache's: its cache is saved when only the Flatpak failed)
       CACHE_ON_FAILURE: "true"
@@ -279,6 +289,8 @@ jobs:
                 tools/build_release.sh "$ARTIFACT"'
       # the version it was built with, for the nightly's latest.json
       - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
+      - id: sha256
+        run: echo "sha256=$(sha256sum < target/${{ matrix.target }}/release/vibebms | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       # the executable alone (the downloads job links it in the run summary)
       - uses: actions/upload-artifact@v7
         with:
@@ -325,6 +337,9 @@ jobs:
           flatpak run --command=${{ matrix.loader }} "$VIBEBMS_APP_ID" --list /app/bin/vibebms | tee out/libs.txt
           grep -q 'libwebkit2gtk-4\.1\.so.* => /' out/libs.txt
           ! grep 'not found' out/libs.txt
+      - id: flatpak-sha256
+        if: steps.flatpak-check.outcome == 'success'
+        run: echo "sha256=$(sha256sum < out/vibeBMS-linux-${{ matrix.arch }}.flatpak | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - if: steps.flatpak-check.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
@@ -349,6 +364,10 @@ jobs:
           - { name: windows-x64, target: x86_64-pc-windows-msvc }
           - { name: windows-arm64, target: aarch64-pc-windows-msvc }
     runs-on: ${{ needs.pins.outputs.windows }}
+    # each leg's executable's SHA-256 under its own name (as build-linux's)
+    outputs:
+      sha256-windows-x64: ${{ matrix.name == 'windows-x64' && steps.sha256.outputs.sha256 || '' }}
+      sha256-windows-arm64: ${{ matrix.name == 'windows-arm64' && steps.sha256.outputs.sha256 || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-build
@@ -356,6 +375,10 @@ jobs:
           name: ${{ matrix.name }}
           target: ${{ matrix.target }}
           cache-key: ${{ matrix.target }}-${{ needs.pins.outputs.key-windows }}
+      # (the file the action has just uploaded, as it uploaded it)
+      - id: sha256
+        shell: bash
+        run: echo "sha256=$(sha256sum < target/${{ matrix.target }}/release/vibebms.exe | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
 
   # macOS: both architectures on one runner (x86_64 cross-built on the arm64
   # one), then the app: one universal executable in an ad-hoc signed bundle
@@ -368,6 +391,11 @@ jobs:
     name: build macOS (arm64, x64, universal app)
     needs: [test, pins]
     runs-on: ${{ needs.pins.outputs.macos }}
+    # the SHA-256 of each file the job uploads, as build-linux's
+    outputs:
+      sha256-macos-arm64: ${{ steps.executables.outputs.sha256-arm64 }}
+      sha256-macos-x64: ${{ steps.executables.outputs.sha256-x64 }}
+      sha256-macos-universal: ${{ steps.package.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
@@ -378,11 +406,13 @@ jobs:
       # each executable as the other builds give theirs (the nightly's
       # vibebms-macos-arm64 / -x64 and latest.json read these artifacts)
       - name: executables
+        id: executables
         run: |
           for t in arm64:aarch64 x64:x86_64; do
             mkdir -p "art/vibeBMS-macos-${t%%:*}"
             cp "target/${t#*:}-apple-darwin/release/vibebms" "art/vibeBMS-macos-${t%%:*}/"
             echo "$VIBEBMS_VERSION" > "art/vibeBMS-macos-${t%%:*}/version.txt"
+            echo "sha256-${t%%:*}=$(shasum -a 256 < "art/vibeBMS-macos-${t%%:*}/vibebms" | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
           done
       - uses: actions/upload-artifact@v7
         with:
@@ -393,11 +423,13 @@ jobs:
           name: vibeBMS-macos-x64
           path: art/vibeBMS-macos-x64
       - name: package
+        id: package
         run: |
           mkdir out
           tools/package_macos.sh art/vibeBMS-macos-arm64/vibebms art/vibeBMS-macos-x64/vibebms out
           # the version the executables were built with, for latest.json
           echo "$VIBEBMS_VERSION" > out/version.txt
+          echo "sha256=$(shasum -a 256 < out/vibebms-macos-universal.app.zip | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-macos-universal
@@ -419,6 +451,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    outputs:
+      # the .dmg's SHA-256: the nightly job publishes only this file
+      sha256: ${{ steps.dmg.outputs.sha256 }}
     steps:
       # (the image has no git yet: the checkout is the commit's files)
       - uses: actions/checkout@v7
@@ -427,7 +462,19 @@ jobs:
         with:
           name: vibeBMS-macos-universal
           path: app
-      - run: tools/package_dmg.sh app/vibebms-macos-universal.app.zip out
+      # the app the macos job made, not one another job uploaded
+      - env:
+          ZIP_SHA256: ${{ needs.macos.outputs.sha256-macos-universal }}
+        run: |
+          f=app/vibebms-macos-universal.app.zip
+          if [ ! -f "$f" ] || [ "$(sha256sum < "$f" | cut -d' ' -f1)" != "$ZIP_SHA256" ]; then
+            echo "::error::the artifact vibeBMS-macos-universal is not the app the job macos made (its SHA-256 differs): no .dmg is made"
+            exit 1
+          fi
+      - id: dmg
+        run: |
+          tools/package_dmg.sh app/vibebms-macos-universal.app.zip out
+          echo "sha256=$(sha256sum < out/vibeBMS-macos-universal.dmg | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
         env:
           SOURCE_DATE_EPOCH: ${{ needs.pins.outputs.source-date-epoch }}
       - uses: actions/upload-artifact@v7
@@ -494,6 +541,10 @@ jobs:
           - { name: linux-arm64-portable, os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.arch == 'x64' && needs.pins.outputs.portable-x64 || needs.pins.outputs.portable-arm64 }}
+    # each leg's executable's SHA-256 under its own name (as build-linux's)
+    outputs:
+      sha256-linux-x64-portable: ${{ matrix.name == 'linux-x64-portable' && steps.sha256.outputs.sha256 || '' }}
+      sha256-linux-arm64-portable: ${{ matrix.name == 'linux-arm64-portable' && steps.sha256.outputs.sha256 || '' }}
     steps:
       - uses: actions/checkout@v7
       - run: tools/build_deps.sh ${{ matrix.name }}
@@ -506,6 +557,9 @@ jobs:
       # the version it was built with, for the nightly's latest.json
       - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
         shell: bash
+      - id: sha256
+        shell: bash
+        run: echo "sha256=$(sha256sum < target/${{ matrix.target }}/release/vibebms | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-${{ matrix.name }}
@@ -525,6 +579,10 @@ jobs:
         shell: bash
     permissions:
       contents: read
+    outputs:
+      # the build's SHA-256 (of the list of its files' SHA-256s and names):
+      # the nightly job zips only this build
+      sha256: ${{ steps.sha256.outputs.sha256 }}
     steps:
       # (the image has no git yet: the checkout is the commit's files, which is
       # all the build needs)
@@ -557,6 +615,19 @@ jobs:
       # only fails when the page loads
       - name: no undefined imports
         run: node tools/check_wasm_imports.mjs web/pkg/vibebms_web_bg.wasm
+      - name: the web build's SHA-256
+        id: sha256
+        run: |
+          # the files as the artifact holds them (upload-artifact leaves out
+          # hidden ones and follows links), as the nightly job's "files" step
+          # reads them
+          tree_sha256() (
+            cd "$1"
+            find -L . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
+              while IFS= read -r f; do printf '%s  %s\n' "$(sha256sum < "$f" | cut -d' ' -f1)" "$f"; done |
+              sha256sum | cut -d' ' -f1
+          )
+          echo "sha256=$(tree_sha256 web)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-web
@@ -595,6 +666,9 @@ jobs:
     needs: [test, pins]
     # (the pinned image and Xcode, as the macOS build's)
     runs-on: ${{ needs.pins.outputs.macos }}
+    outputs:
+      # the .ipa's SHA-256: the nightly job publishes only this file
+      sha256: ${{ steps.ipa.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
@@ -604,6 +678,8 @@ jobs:
       # the app (iOS 14 and later; each channel its own: io.github.vibebms.nightly,
       # "vibeBMS Nightly"), zipped as Payload/vibeBMS.app
       - run: tools/build_release.sh ios out
+      - id: ipa
+        run: echo "sha256=$(shasum -a 256 < out/vibeBMS-unsigned.ipa | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-ios-unsigned
@@ -755,6 +831,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # (the builds' SHA-256 outputs)
+          NEEDS: ${{ toJSON(needs) }}
         run: |
           # the version the builds were given (tools/ci_version.sh)
           base="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2 | sed 's/[-+].*//')"
@@ -767,22 +845,37 @@ jobs:
             echo "signed=$signed"
           } | tee -a "$GITHUB_OUTPUT"
           # the executables, named as the nightly job's "files" step names them;
-          # this job runs only when every build passed, so each is there
+          # this job runs only when every build passed, so each is there. Each
+          # is the file whose SHA-256 the job that built it gave as its output
+          # sha256-<artifact> (any job of the run can upload an artifact, but
+          # only that job sets its outputs)
           mkdir out
-          take() { # <artifact> <file> <name>
+          take() { # <artifact> <file> <name> <job>
+            local sha
+            sha="$(jq -r --arg job "$4" --arg out "sha256-$1" '.[$job].outputs[$out] // ""' <<< "$NEEDS")"
             if [ ! -f "art/vibeBMS-$1/$2" ]; then
               echo "::error::the artifact vibeBMS-$1 has no $2"
               exit 1
             fi
+            if [ -z "$sha" ] || [ "$(sha256sum < "art/vibeBMS-$1/$2" | cut -d' ' -f1)" != "$sha" ]; then
+              echo "::error::the artifact vibeBMS-$1 is not the build the job $4 made (its $2's SHA-256 differs): no latest.json is written"
+              exit 1
+            fi
             cp "art/vibeBMS-$1/$2" "out/$3"
           }
-          for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable macos-arm64 macos-x64; do
-            take "$t" vibebms "vibebms-$t"
+          for t in linux-x64 linux-arm64; do
+            take "$t" vibebms "vibebms-$t" build-linux
+          done
+          for t in linux-x64-portable linux-arm64-portable; do
+            take "$t" vibebms "vibebms-$t" build-linux-portable
+          done
+          for t in macos-arm64 macos-x64; do
+            take "$t" vibebms "vibebms-$t" macos
           done
           for t in windows-x64 windows-arm64; do
-            take "$t" vibebms.exe "vibebms-$t.exe"
+            take "$t" vibebms.exe "vibebms-$t.exe" build-windows
           done
-          take macos-universal vibebms-macos-universal.app.zip vibebms-macos-universal.app.zip
+          take macos-universal vibebms-macos-universal.app.zip vibebms-macos-universal.app.zip macos
           new='{}'
           for f in out/vibebms-*; do
             name="${f#out/}"
@@ -945,9 +1038,8 @@ jobs:
   # the "nightly" prerelease: the default branch's latest builds, each file
   # as it is (no zip but the web build's), published only when every build
   # passed. Of the artifacts it takes only the files it names, and only the
-  # ones the jobs that made them gave as their SHA-256 (latest.json, its
-  # signature, the signed APK) or that the checked latest.json names (the
-  # executables).
+  # ones the jobs that made them gave as their SHA-256 (the "check the files"
+  # steps).
   # The run's downloads (a summary with each build's artifact link, on every
   # run) and, for a push to the default branch, the rolling nightly release
   # (or a run started by hand on it: Actions > CI > Run workflow, e.g. after
@@ -1015,11 +1107,29 @@ jobs:
         run: |
           echo "BASE_VERSION=$BASE" >> "$GITHUB_ENV"
           echo "VERSION=$FULL" >> "$GITHUB_ENV"
+      # latest.json (update-manifest) and, when the repository has
+      # tools/update_key.pub, its signature (sign-update), which verify-update
+      # checked
+      - uses: actions/download-artifact@v8
+        if: env.RELEASE == 'true'
+        with:
+          name: update-manifest
+          path: update
+      - uses: actions/download-artifact@v8
+        if: env.RELEASE == 'true' && needs.update-manifest.outputs.signed == 'true'
+        with:
+          name: update-signature
+          path: update
+      # the files to publish, in out/; what this step makes of them (the web
+      # build's zip, altstore.json) it gives as its SHA-256 outputs, for the
+      # check below
       - name: files
+        id: files
         if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          WEB_SHA256: ${{ needs.web.outputs.sha256 }}
         run: |
           mkdir out
           for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable macos-arm64 macos-x64; do
@@ -1038,9 +1148,24 @@ jobs:
           done
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
-          # the same zip as tools/reproduce.sh makes of its web build
-          [ -d art/vibeBMS-web ] && SOURCE_DATE_EPOCH="$(git -C src log -1 --format=%ct)" \
-            src/tools/build_release.sh zip out/vibeBMS-web.zip art/vibeBMS-web
+          # the same zip as tools/reproduce.sh makes of its web build, of the
+          # build the web job made (its files as that job's "the web build's
+          # SHA-256" lists them)
+          if [ -d art/vibeBMS-web ]; then
+            tree_sha256() (
+              cd "$1"
+              find -L . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
+                while IFS= read -r f; do printf '%s  %s\n' "$(sha256sum < "$f" | cut -d' ' -f1)" "$f"; done |
+                sha256sum | cut -d' ' -f1
+            )
+            if [ "$(tree_sha256 art/vibeBMS-web)" != "$WEB_SHA256" ]; then
+              echo "::error::the artifact vibeBMS-web is not the build the job web made (its SHA-256 differs): nothing is published"
+              exit 1
+            fi
+            SOURCE_DATE_EPOCH="$(git -C src log -1 --format=%ct)" \
+              src/tools/build_release.sh zip out/vibeBMS-web.zip art/vibeBMS-web
+            echo "web-zip=$(sha256sum < out/vibeBMS-web.zip | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          fi
           # an AltStore / SideStore source: add its URL once, and the app
           # store offers each new nightly .ipa as an update
           if [ -f out/vibeBMS-unsigned.ipa ]; then
@@ -1087,46 +1212,65 @@ jobs:
                   | select(.bundleIdentifier != $id and ((.versions[0].downloadURL // "") != $url))]
             ' out/altstore.new.json > out/altstore.json
             rm out/altstore.new.json
+            echo "altstore=$(sha256sum < out/altstore.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           fi
+          for f in latest.json latest.json.sig; do
+            [ ! -f "update/$f" ] || cp "update/$f" out/
+          done
           ls -l out
-      # latest.json (update-manifest) and, when the repository has
-      # tools/update_key.pub, its signature (sign-update), which verify-update
-      # checked
-      - uses: actions/download-artifact@v8
-        if: env.RELEASE == 'true'
-        with:
-          name: update-manifest
-          path: update
-      - uses: actions/download-artifact@v8
-        if: env.RELEASE == 'true' && needs.update-manifest.outputs.signed == 'true'
-        with:
-          name: update-signature
-          path: update
-      # what is published is what the jobs that made it gave as their SHA-256,
-      # before anything is signed (the F-Droid index) or published
+      # each file in out/ is the one its maker gave as its SHA-256 output: a
+      # job (any job of the run can upload an artifact, but only that job sets
+      # its outputs) or a step of this job, which made it of such a file. A
+      # file that no maker names stops the release too. Before anything is
+      # signed (the F-Droid index) or published
       - name: check the files
         if: env.RELEASE == 'true'
         env:
-          SIGNED: ${{ needs.update-manifest.outputs.signed }}
-          MANIFEST_SHA256: ${{ needs.update-manifest.outputs.sha256 }}
-          SIGNATURE_SHA256: ${{ needs.sign-update.outputs.sha256 }}
-          APK_SHA256: ${{ needs.android-sign.outputs.sha256 }}
+          NEEDS: ${{ toJSON(needs) }}
+          STEPS: ${{ toJSON(steps) }}
         run: |
-          check() { # <file> <SHA-256> <what it is>
-            if [ ! -f "$1" ] || [ "$(sha256sum < "$1" | cut -d' ' -f1)" != "$2" ]; then
-              echo "::error::${1##*/} is not $3 (its SHA-256 differs): nothing is published"
-              exit 1
+          declare -A want who optional
+          row() { want[$1]="$2"; who[$1]="$3"; optional[$1]="${4:-}"; } # <file> <SHA-256> <maker> [optional]
+          job() { jq -r --arg j "$1" --arg o "$2" '.[$j].outputs[$o] // ""' <<< "$NEEDS"; }
+          step() { jq -r --arg s "$1" --arg o "$2" '.[$s].outputs[$o] // ""' <<< "$STEPS"; }
+          for t in linux-x64 linux-arm64; do
+            row "vibebms-$t" "$(job build-linux "sha256-$t")" "the job build-linux"
+            row "vibeBMS-$t.flatpak" "$(job build-linux "sha256-$t-flatpak")" "the job build-linux"
+          done
+          for t in linux-x64-portable linux-arm64-portable; do
+            row "vibebms-$t" "$(job build-linux-portable "sha256-$t")" "the job build-linux-portable"
+          done
+          for t in windows-x64 windows-arm64; do
+            row "vibebms-$t.exe" "$(job build-windows "sha256-$t")" "the job build-windows"
+          done
+          for t in macos-arm64 macos-x64; do
+            row "vibebms-$t" "$(job macos "sha256-$t")" "the job macos"
+          done
+          row vibebms-macos-universal.app.zip "$(job macos sha256-macos-universal)" "the job macos"
+          row vibeBMS-macos-universal.dmg "$(job macos-dmg sha256)" "the job macos-dmg"
+          row vibeBMS-unsigned.ipa "$(job ios sha256)" "the job ios"
+          row vibeBMS.apk "$(job android-sign sha256)" "the job android-sign"
+          row latest.json "$(job update-manifest sha256)" "the job update-manifest"
+          [ "$(job update-manifest signed)" != true ] ||
+            row latest.json.sig "$(job sign-update sha256)" "the job sign-update"
+          row vibeBMS-web.zip "$(step files web-zip)" "this job's step files (of the job web's build)"
+          row altstore.json "$(step files altstore)" "this job's step files"
+          bad=false
+          refuse() { echo "::error::$1: nothing is published"; bad=true; }
+          for name in $(printf '%s\n' "${!want[@]}" | LC_ALL=C sort); do
+            f="out/$name"
+            if [ -n "${want[$name]}" ]; then
+              [ -f "$f" ] && [ ! -L "$f" ] && [ "$(sha256sum < "$f" | cut -d' ' -f1)" = "${want[$name]}" ] ||
+                refuse "$name is not the one ${who[$name]} made (its SHA-256 differs)"
+            elif [ -z "${optional[$name]}" ] || [ -e "$f" ] || [ -L "$f" ]; then
+              refuse "$name is not the one ${who[$name]} made (it gave no SHA-256)"
             fi
-          }
-          check update/latest.json "$MANIFEST_SHA256" "the one the job update-manifest made"
-          [ "$SIGNED" != true ] || check update/latest.json.sig "$SIGNATURE_SHA256" "the one the job sign-update made"
-          check out/vibeBMS.apk "$APK_SHA256" "the APK the job android-sign signed"
-          # each executable is the one latest.json names
-          while IFS=$'\t' read -r name sha; do
-            check "out/$name" "$sha" "the file latest.json names"
-          done < <(jq -r '.channels.nightly.files | to_entries[] | "\(.key)\t\(.value.sha256)"' update/latest.json)
-          cp update/latest.json out/
-          [ "$SIGNED" != true ] || cp update/latest.json.sig out/
+          done
+          shopt -s nullglob dotglob
+          for f in out/*; do
+            [ -n "${want[${f#out/}]+x}" ] || refuse "${f#out/} is not the file of any job (none gives its SHA-256)"
+          done
+          [ "$bad" = false ]
       # every published build's executables, for IR operators who accept a
       # client by its executable's SHA-256 (docs/BUILDING.md,
       # crates/vibebms/src/ir/build_id.rs): appended to the previous
