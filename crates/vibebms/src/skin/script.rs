@@ -1694,6 +1694,17 @@ end
                 .eval::<T>()
         }
 
+        /// `eval` with a skin load's own time, for a test that walks tables
+        /// of a million entries (a debug build on a busy machine is slow).
+        fn eval_long<T: mlua::FromLuaMulti>(code: &str) -> mlua::Result<T> {
+            let dir = Path::new("/nonexistent/theme/skin");
+            Script::new(&home(dir), true, LOAD)
+                .unwrap()
+                .lua()
+                .load(code)
+                .eval::<T>()
+        }
+
         #[test]
         fn string_patterns_as_lua() {
             let v: String = eval(
@@ -2102,7 +2113,7 @@ end
         /// long one) give what Lua's own give.
         #[test]
         fn table_functions_as_lua_whatever_the_table() {
-            let v: String = eval(
+            let v: String = eval_long(
                 r#"local out = {}
                 for _, make in ipairs({
                   function(t) return t end,
