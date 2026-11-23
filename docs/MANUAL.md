@@ -171,6 +171,11 @@ frames later, so play does not stall.
 - RANDOM SELECT, the second bar of each folder with charts, plays one of them drawn at random, as filtered. 0 (or
   its OPTIONS button) chooses from which, by the lamps of the judge preset chosen.
 - Entering a folder puts the cursor on the folder's own row; deciding on it closes the folder (as in LR2).
+- A chart held in several folders (the same file, by its SHA-256) is one chart: ALL SONGS, search, FAVORITE, the
+  virtual folders, RANDOM MIX and the library's chart count list it once, as its first copy in path order (a loose
+  file before one inside an archive). Each folder it is in, and SAME FOLDER, still shows its own copy, and a folder's
+  count is the charts in it. Scores, replays and chart favourites are the chart's; a song favourite stays with its
+  folder.
 
 Holding START or SELECT shows beatoraja's option panels, in its key layout:
 
