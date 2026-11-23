@@ -569,35 +569,46 @@ pub fn parallel_for<F: Fn(usize) + Sync>(n: usize, max_threads: usize, f: F) {
 /// Sounds decoded at once from one budget of `most` bytes (which got what
 /// depends on how the threads ran) made what the budget gives taken in
 /// their order: the same at every load. Each fits whole up to the first
-/// that does not, which is cut where the budget ends (decoded `again` with
-/// what is left when it came out shorter), and the ones after it are left
-/// out. That one and the ones left out (that were decoded), if any.
+/// that does not, which is cut where the budget ends, and the ones after it
+/// are left out. One that came out shorter is decoded `again` with what is
+/// left, and goes on the walk if it is whole then. That one cut and the ones
+/// left out (that were decoded), if any.
 fn fit_in_order(
     decoded: &mut [Option<Decoded>],
     most: usize,
     again: impl Fn(usize, &Budget) -> Option<Decoded>,
 ) -> Option<(usize, Vec<usize>)> {
     let mut left = most;
-    let m = decoded.iter().position(|d| match d {
-        Some((s, starved)) if !starved && s.bytes() <= left => {
+    // decoded, then let go for one before them decoded again (so that the
+    // budget holds meanwhile): decoded again in their turn
+    let mut let_go = vec![false; decoded.len()];
+    for m in 0..decoded.len() {
+        let (mut s, starved) = match decoded[m].take() {
+            Some((s, false)) => (s, false),
+            // (already as long as what is left)
+            Some((s, true)) if s.bytes() >= left => (s, true),
+            None if !let_go[m] => continue,
+            short => {
+                drop(short);
+                for k in m + 1..decoded.len() {
+                    let_go[k] |= decoded[k].take().is_some();
+                }
+                again(m, &Budget::new(left, u64::MAX)).unwrap_or_else(|| (Sample::default(), true))
+            }
+        };
+        if !starved && s.bytes() <= left {
             left -= s.bytes();
-            false
+            decoded[m] = Some((s, false));
+            continue;
         }
-        Some(_) => true,
-        None => false,
-    })?;
-    let out = (m + 1..decoded.len())
-        .filter(|&k| decoded[k].take().is_some())
-        .collect();
-    let cut = match decoded[m].take() {
-        Some((mut s, starved)) if !starved || s.bytes() >= left => {
-            s.cut(left);
-            s
-        }
-        _ => again(m, &Budget::new(left, u64::MAX)).map_or_else(Sample::default, |d| d.0),
-    };
-    decoded[m] = Some((cut, true));
-    Some((m, out))
+        s.cut(left);
+        decoded[m] = Some((s, true));
+        let out = (m + 1..decoded.len())
+            .filter(|&k| decoded[k].take().is_some() || let_go[k])
+            .collect();
+        return Some((m, out));
+    }
+    None
 }
 
 /// All sound files of a chart, decoded in parallel: each file once, shared
@@ -1007,6 +1018,52 @@ mod tests {
         let mut d = vec![Some((sample(50), false)), None, Some((sample(30), false))];
         assert_eq!(fit_in_order(&mut d, 160, again), None);
         assert_eq!(lens(&d), [Some(50), None, Some(30)]);
+    }
+
+    /// Which of the sounds had less than their turn depends on the order
+    /// the threads took the budget in; what is kept does not.
+    #[test]
+    fn what_is_kept_is_the_same_whatever_order_decodes_end_in() {
+        let lens = [50, 30, 20, 100];
+        // a sound of `frames` decoded within `b` (mono: 2 bytes a frame)
+        let decode = |frames: usize, b: &Budget| {
+            let got = b.take(frames * 2) / 2;
+            let s = Sample {
+                channels: 1,
+                frames: got,
+                data: vec![1; got],
+            };
+            (s, got < frames)
+        };
+        let again = |k: usize, b: &Budget| Some(decode(lens[k], b));
+        let mut orders = vec![vec![]];
+        for _ in 0..lens.len() {
+            orders = (orders.iter())
+                .flat_map(|o: &Vec<usize>| {
+                    let rest = (0..lens.len()).filter(|k| !o.contains(k));
+                    rest.map(|k| [o.as_slice(), &[k]].concat())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+        }
+        assert_eq!(orders.len(), 24);
+        for order in orders {
+            let budget = Budget::new(160 * 2, u64::MAX);
+            let mut d: Vec<Option<Decoded>> = lens.iter().map(|_| None).collect();
+            for &k in &order {
+                d[k] = Some(decode(lens[k], &budget));
+            }
+            let fit = fit_in_order(&mut d, 160 * 2, again);
+            let kept: Vec<usize> = d
+                .iter()
+                .map(|d| d.as_ref().map_or(0, |d| d.0.frames))
+                .collect();
+            assert_eq!(
+                (fit, kept),
+                (Some((3, vec![])), vec![50, 30, 20, 60]),
+                "{order:?}"
+            );
+        }
     }
 
     /// A play's sound is as long as its budget holds; one decoded alone is
