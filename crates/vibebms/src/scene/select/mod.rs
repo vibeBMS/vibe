@@ -74,8 +74,8 @@ pub struct SelectScene {
     last_move: Instant,
     /// Up / down held: the cursor moves on.
     held_nav: Option<Repeat<Nav>>,
-    md5_map: HashMap<String, usize>,
-    sha_map: HashMap<String, usize>,
+    /// The library's charts by hash, copies of one chart as one.
+    charts: crate::charts::Charts,
     /// The library's charts by the folder of their file (a song's charts).
     song_dirs: HashMap<String, Vec<usize>>,
     /// The selected chart's replay and text files.
@@ -141,8 +141,7 @@ impl SelectScene {
             drag: None,
             last_move: Instant::now(),
             held_nav: None,
-            md5_map: HashMap::new(),
-            sha_map: HashMap::new(),
+            charts: Default::default(),
             song_dirs: HashMap::new(),
             files: Default::default(),
             preview_for: None,
@@ -192,18 +191,13 @@ impl SelectScene {
             .unwrap_or(self.cursor.min(self.bars.len().saturating_sub(1)));
     }
 
-    /// The library's charts by MD5, SHA-256 and folder, and the course
-    /// bars' facts, again.
+    /// The library's charts by hash and folder, and the course bars'
+    /// facts, again.
     fn index(&mut self, ctx: &Ctx) {
-        self.md5_map.clear();
-        self.sha_map.clear();
+        self.charts = crate::charts::Charts::new(&ctx.lib.songs);
         self.song_dirs.clear();
         self.courses.get_mut().clear();
         for (i, s) in ctx.lib.songs.iter().enumerate() {
-            if !s.md5.is_empty() {
-                self.md5_map.insert(s.md5.clone(), i);
-            }
-            self.sha_map.insert(s.sha256.clone(), i);
             self.song_dirs
                 .entry(status::song_dir(s).into())
                 .or_default()

@@ -176,7 +176,7 @@ pub(super) fn rows(b: &mut Rows) {
         Row::new(
             "library.rescan",
             tr!("Rescan"),
-            tr!("{n} charts", n = ctx.lib.songs.len()),
+            tr!("{n} charts", n = ctx.lib.charts),
             Act::Run(|c, _| c.rescan(), 0),
         )
         .desc(tr!("Read the folders again for new or changed charts."))
@@ -348,7 +348,7 @@ pub(super) fn table(b: &mut Rows, url: &str) {
 /// LIBRARY's chips on the top level.
 pub(super) fn chips(ctx: &Ctx) -> Vec<String> {
     let on = ctx.config.tables.iter().filter(|t| t.enabled).count();
-    let n = ctx.lib.songs.len();
+    let n = ctx.lib.charts;
     vec![
         if n == 1 {
             tr!("1 chart").into()

@@ -102,6 +102,11 @@ impl Song {
                 .is_some_and(|b| !LnProfile::from_bits(b).undefined)
     }
 
+    /// Whether its file is inside an archive (`platform::arcfs`).
+    pub fn in_archive(&self) -> bool {
+        arcfs::split(Path::new(&self.path)).is_some()
+    }
+
     pub fn full_title(&self) -> String {
         if self.subtitle.is_empty() {
             self.title.clone()
@@ -362,18 +367,17 @@ pub fn cached_songs(file: &Path) -> Vec<Song> {
             ..r.song
         })
         .collect();
-    let packed = |s: &Song| arcfs::split(Path::new(&s.path)).is_some();
-    if !songs.iter().any(packed) {
+    if !songs.iter().any(Song::in_archive) {
         return songs;
     }
     let loose: HashSet<String> = songs
         .iter()
-        .filter(|s| !packed(s))
+        .filter(|s| !s.in_archive())
         .map(|s| s.sha256.clone())
         .collect();
     songs
         .into_iter()
-        .filter(|s| !packed(s) || !loose.contains(&s.sha256))
+        .filter(|s| !s.in_archive() || !loose.contains(&s.sha256))
         .collect()
 }
 

@@ -221,22 +221,17 @@ pub fn read(bytes: &[u8], lr2oraja: bool) -> Result<Rows, String> {
 /// one record are taken together. Also: how many rows were of charts not
 /// in the library.
 pub fn records(rows: &Rows, songs: &[Song]) -> (Vec<(RecordKey, BestScore)>, usize) {
-    let by: HashMap<&str, &Song> = songs
-        .iter()
-        .map(|s| {
-            let h = match rows.source {
-                Source::Lr2 => &s.md5,
-                _ => &s.sha256,
-            };
-            (h.as_str(), s)
-        })
-        .collect();
+    let charts = crate::charts::Charts::new(songs);
     let rule = rows.source.rule();
     let mut out: Vec<(RecordKey, BestScore)> = Vec::new();
     let mut at: HashMap<RecordKey, usize> = HashMap::new();
     let mut unknown = 0;
     for r in &rows.charts {
-        let Some(song) = by.get(r.hash.as_str()) else {
+        let found = match rows.source {
+            Source::Lr2 => charts.by_md5(songs, &r.hash, "", ""),
+            _ => charts.by_sha(&r.hash),
+        };
+        let Some(song) = found.map(|i| &songs[i]) else {
             unknown += 1;
             continue;
         };
@@ -588,6 +583,22 @@ mod tests {
             .0
             .iter()
             .all(|(k, _)| k.rule == JudgePreset::Lr2));
+    }
+
+    /// An LR2 row of an MD5 two charts share goes to the first of them.
+    #[test]
+    fn an_lr2_md5_of_two_charts_is_the_first() {
+        let rows = Rows {
+            source: Source::Lr2,
+            charts: vec![ChartRow {
+                hash: h('a', 32),
+                ln: LnType::Ln,
+                best: BestScore::default(),
+            }],
+            skipped: 0,
+        };
+        let (recs, _) = records(&rows, &[song('a', 'c', None), song('a', 'd', None)]);
+        assert_eq!(recs[0].0.id, h('c', 64));
     }
 
     #[test]

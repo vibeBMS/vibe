@@ -3,6 +3,7 @@
 //! `<root>/scores/courses.json`. The difficulty tables' dan courses are
 //! played as class courses beside them.
 
+use crate::charts::Charts;
 use crate::library::{RecordKey, Song};
 use crate::platform::vfs;
 use serde::{Deserialize, Serialize};
@@ -118,18 +119,6 @@ pub struct CourseStore {
     pub editing: Option<u64>,
 }
 
-/// The library's chart with this MD5 (else this SHA-256).
-pub fn find<'a>(songs: &'a [Song], md5: &str, sha256: &str) -> Option<&'a Song> {
-    songs
-        .iter()
-        .find(|s| !md5.is_empty() && s.md5.eq_ignore_ascii_case(md5))
-        .or_else(|| {
-            songs
-                .iter()
-                .find(|s| !sha256.is_empty() && s.sha256.eq_ignore_ascii_case(sha256))
-        })
-}
-
 impl CourseStore {
     pub fn open(dir: &Path) -> CourseStore {
         let file = dir.join("courses.json");
@@ -215,6 +204,7 @@ impl CourseStore {
     /// here yet (by identity): how many were added.
     pub fn import(&mut self, courses: Vec<crate::lr2db::Lr2Course>, songs: &[Song]) -> usize {
         let have: Vec<String> = self.list.iter().map(|c| c.def().id()).collect();
+        let charts = Charts::new(songs);
         let mut added = 0;
         for c in courses.into_iter().rev() {
             if have.contains(&c.def.id()) {
@@ -224,8 +214,8 @@ impl CourseStore {
                 .def
                 .stages
                 .iter()
-                .map(|md5| match find(songs, md5, "") {
-                    Some(s) => Stage::of(s),
+                .map(|md5| match charts.by_md5(songs, md5, "", "") {
+                    Some(i) => Stage::of(&songs[i]),
                     None => Stage {
                         md5: md5.clone(),
                         ..Default::default()
@@ -257,10 +247,11 @@ impl CourseStore {
         kind: CourseKind,
         rules: &RandomMix,
         songs: &[Song],
+        charts: &Charts,
         mode: PlayMode,
         seed: i64,
     ) -> Result<u64, String> {
-        let stages = mix(rules, songs, mode, seed);
+        let stages = mix(rules, songs, charts, mode, seed);
         if stages.is_empty() {
             return Err("RANDOM MIX: no chart fits its settings".into());
         }
@@ -315,8 +306,15 @@ fn song_dir(s: &Song) -> &Path {
 
 /// RANDOM MIX's draw: the charts in random order, within the limits; with
 /// a BPM range the first of one BPM and the others near it; no two of one
-/// song (folder); then each its song's chart nearest the optimum level.
-fn mix<'a>(r: &RandomMix, songs: &'a [Song], mode: PlayMode, seed: i64) -> Vec<&'a Song> {
+/// song (folder), a chart in several folders drawn as one; then each its
+/// song's chart nearest the optimum level.
+fn mix<'a>(
+    r: &RandomMix,
+    songs: &'a [Song],
+    charts: &Charts,
+    mode: PlayMode,
+    seed: i64,
+) -> Vec<&'a Song> {
     let mut rng = JavaRandom::new(seed);
     let count = if (1..=MAX_STAGES as u32).contains(&r.stages) {
         r.stages as usize
@@ -335,9 +333,9 @@ fn mix<'a>(r: &RandomMix, songs: &'a [Song], mode: PlayMode, seed: i64) -> Vec<&
         (r.min_bpm <= 0.0 || s.main_bpm >= r.min_bpm)
             && (r.max_bpm <= 0.0 || s.main_bpm <= r.max_bpm)
     };
-    let mut pool: Vec<&Song> = songs
-        .iter()
-        .filter(|s| s.mode == mode && level_ok(s) && bpm_ok(s))
+    let mut pool: Vec<&Song> = (songs.iter().enumerate())
+        .filter(|&(i, s)| charts.is_taken(i) && s.mode == mode && level_ok(s) && bpm_ok(s))
+        .map(|(_, s)| s)
         .collect();
     // Fisher-Yates with the seed's sequence
     for i in (1..pool.len()).rev() {
@@ -486,7 +484,7 @@ mod tests {
             ..Default::default()
         };
         for seed in 0..20 {
-            let got = mix(&r, &songs, PlayMode::Beat7K, seed);
+            let got = mix(&r, &songs, &Charts::new(&songs), PlayMode::Beat7K, seed);
             // level 12 and BPM 200 and the song of two BPMs (as first) out;
             // one chart a folder; folder a's nearest 8: its 9
             let dirs: Vec<&Path> = got.iter().map(|s| song_dir(s)).collect();
@@ -506,10 +504,24 @@ mod tests {
         let mut st = store("mix");
         st.list.clear();
         let id = st
-            .random_mix(CourseKind::Nonstop, &r, &songs, PlayMode::Beat7K, 1)
+            .random_mix(
+                CourseKind::Nonstop,
+                &r,
+                &songs,
+                &Charts::new(&songs),
+                PlayMode::Beat7K,
+                1,
+            )
             .unwrap();
         let again = st
-            .random_mix(CourseKind::Nonstop, &r, &songs, PlayMode::Beat7K, 2)
+            .random_mix(
+                CourseKind::Nonstop,
+                &r,
+                &songs,
+                &Charts::new(&songs),
+                PlayMode::Beat7K,
+                2,
+            )
             .unwrap();
         // the last RANDOM MIX is replaced
         assert_eq!(st.of_kind(CourseKind::Nonstop).len(), 1);
@@ -517,8 +529,31 @@ mod tests {
         let c = st.get(again).unwrap();
         assert_eq!(c.joins.len(), c.stages.len() - 1);
         assert!(st
-            .random_mix(CourseKind::Expert, &r, &songs, PlayMode::Beat14K, 1)
+            .random_mix(
+                CourseKind::Expert,
+                &r,
+                &songs,
+                &Charts::new(&songs),
+                PlayMode::Beat14K,
+                1
+            )
             .is_err());
         let _ = std::fs::remove_file(&st.file);
+    }
+
+    /// A chart held in two folders is drawn once.
+    #[test]
+    fn mix_draws_copies_once() {
+        let songs = [song("a", "5", 150.0, 'a'), song("b", "5", 150.0, 'a')];
+        let r = RandomMix {
+            stages: 2,
+            bpm_range: 0.0,
+            ..Default::default()
+        };
+        for seed in 0..10 {
+            let got = mix(&r, &songs, &Charts::new(&songs), PlayMode::Beat7K, seed);
+            assert_eq!(got.len(), 1, "{seed}");
+            assert_eq!(got[0].path, "/bms/a/5.bms");
+        }
     }
 }
