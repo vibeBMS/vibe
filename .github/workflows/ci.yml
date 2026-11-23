@@ -1222,13 +1222,14 @@ jobs:
       # job (any job of the run can upload an artifact, but only that job sets
       # its outputs) or a step of this job, which made it of such a file. A
       # file that no maker names stops the release too. Before anything is
-      # signed (the F-Droid index) or published
+      # signed (the F-Droid index) or published; the same check runs again
+      # right before the upload ("check the files again")
       - name: check the files
         if: env.RELEASE == 'true'
-        env:
+        env: &check-files-env
           NEEDS: ${{ toJSON(needs) }}
           STEPS: ${{ toJSON(steps) }}
-        run: |
+        run: &check-files |
           declare -A want who optional
           row() { want[$1]="$2"; who[$1]="$3"; optional[$1]="${4:-}"; } # <file> <SHA-256> <maker> [optional]
           job() { jq -r --arg j "$1" --arg o "$2" '.[$j].outputs[$o] // ""' <<< "$NEEDS"; }
@@ -1255,6 +1256,11 @@ jobs:
             row latest.json.sig "$(job sign-update sha256)" "the job sign-update"
           row vibeBMS-web.zip "$(step files web-zip)" "this job's step files (of the job web's build)"
           row altstore.json "$(step files altstore)" "this job's step files"
+          # (made after the first check, and fdroid.txt only when the F-Droid
+          # repository is built)
+          row builds.json "$(step builds sha256)" "this job's step builds.json" optional
+          row fdroid.txt "$(step fdroid sha256-txt)" "this job's step F-Droid repository" optional
+          row fdroid-qr.png "$(step fdroid sha256-qr)" "this job's step F-Droid repository" optional
           bad=false
           refuse() { echo "::error::$1: nothing is published"; bad=true; }
           for name in $(printf '%s\n' "${!want[@]}" | LC_ALL=C sort); do
@@ -1278,6 +1284,7 @@ jobs:
       # Files inside a package are hashed as they run: the macOS app's
       # executable and the Android libraries.
       - name: builds.json
+        id: builds
         if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1320,6 +1327,7 @@ jobs:
                 else .out += [$b] end) | .out)}
           ' prev/builds.json > out/builds.json
           jq -c '.builds[-1]' out/builds.json
+          echo "sha256=$(sha256sum < out/builds.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       # the F-Droid repository (tools/fdroid_repo.sh, docs/BUILDING.md): the
       # APK as uploaded, the only version, in an index signed with
       # FDROID_KEYSTORE (else ANDROID_KEYSTORE). Built here, so fdroid.txt
@@ -1389,8 +1397,20 @@ jobs:
           fi
           PATH="$RUNNER_TEMP/fdroidserver/bin:$PATH" src/tools/fdroid_repo.sh build out/vibeBMS.apk "$RUNNER_TEMP/fdroid"
           rm "$FDROID_KEYSTORE_FILE"
+          # (their SHA-256 first: the check before the upload publishes them
+          # only with these)
+          echo "sha256-txt=$(sha256sum < "$RUNNER_TEMP/fdroid/fdroid.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sha256-qr=$(sha256sum < "$RUNNER_TEMP/fdroid/fdroid-qr.png" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           cp "$RUNNER_TEMP/fdroid/fdroid.txt" "$RUNNER_TEMP/fdroid/fdroid-qr.png" out/
           echo "built=true" >> "$GITHUB_OUTPUT"
+      # the same check again, the last step before the upload: the steps since
+      # the first check (builds.json, the F-Droid tools and repository: the
+      # pinned fdroidserver's code) could have changed out/. The same text,
+      # from the workflow, not a file the steps before could change
+      - name: check the files again
+        if: env.RELEASE == 'true'
+        env: *check-files-env
+        run: *check-files
       - name: release
         id: release
         if: env.RELEASE == 'true'

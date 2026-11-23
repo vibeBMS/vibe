@@ -489,6 +489,18 @@ class Outputs(unittest.TestCase):
                 self.assertIn(f"name: {leg}", "\n".join(job_lines(job)))
                 self.assertRegex(value, rf"^\$\{{\{{ matrix\.name == '{re.escape(leg)}' && steps\.[\w-]+\.outputs\.sha256 \|\| '' \}}\}}$")
 
+    def test_the_check_runs_again_right_before_the_upload(self):
+        # the same text (a YAML alias of the first check's), the step just before the release
+        self.assertEqual(key_of("check the files", "run"), "&check-files |")
+        self.assertEqual(key_of("check the files", "env"), "&check-files-env")
+        self.assertEqual(key_of("check the files again", "run"), "*check-files")
+        self.assertEqual(key_of("check the files again", "env"), "*check-files-env")
+        self.assertEqual(key_of("check the files", "if"), key_of("check the files again", "if"))
+        _, end = step_at("check the files again")
+        self.assertEqual(LINES[end].strip(), "- name: release")
+        # and after the steps that write to out/ since the first
+        self.assertLess(step_at("F-Droid repository")[0], step_at("check the files again")[0])
+        self.assertLess(step_at("builds.json")[0], step_at("check the files again")[0])
 
 
 class Nightly(ManifestJob):
@@ -553,19 +565,22 @@ class Nightly(ManifestJob):
         return r
 
     def check_files(self, outputs=None):
-        """The step "check the files"."""
+        """The step "check the files" (and "check the files again": the same text and environment)."""
         return run(FILES, self.nightly, NEEDS=self.needs(outputs), STEPS=json.dumps(self.steps))
 
     def builds(self):
         r = run(BUILDS, self.nightly, GH_TOKEN="x", GH_REPO="o/r", VERSION="0.1.0-nightly.42+abcdef0",
                 GITHUB_SHA="abcdef0" + "0" * 33, GITHUB_RUN_NUMBER="42", GH_RELEASE=str(self.release))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.steps["builds"] = {"outputs": r.outputs}
 
     def fdroid(self):
-        """What the step "F-Droid repository" puts in out/."""
+        """What the step "F-Droid repository" puts in out/ (and gives as its outputs)."""
         out = self.nightly / "out"
         (out / "fdroid.txt").write_text("address\n")
         (out / "fdroid-qr.png").write_bytes(b"png")
+        self.steps["fdroid"] = {"outputs": {"built": "true", "sha256-txt": sha256(out / "fdroid.txt"),
+                                            "sha256-qr": sha256(out / "fdroid-qr.png")}}
 
     def release_uploads(self):
         log = self.dir / "gh.log"
@@ -584,13 +599,14 @@ class Nightly(ManifestJob):
     def test_the_files_made_go_out(self):
         self.assert_ok(self.files())
         self.assert_ok(self.check_files())
+        self.builds()
+        self.fdroid()
+        self.assert_ok(self.check_files())
         out = self.nightly / "out"
         published = {f.name for f in out.iterdir()}
         self.assertEqual(published, {n for _, _, n, _ in EXECUTABLES} | {n for _, n, _, _ in PACKAGES} | {
-            "vibeBMS-web.zip", "altstore.json", "latest.json", "latest.json.sig"})
-        self.builds()
-        self.fdroid()
-        published |= {"builds.json", "fdroid.txt", "fdroid-qr.png"}
+            "vibeBMS-web.zip", "altstore.json", "latest.json", "latest.json.sig", "builds.json", "fdroid.txt",
+            "fdroid-qr.png"})
         self.assertEqual(sha256(out / "latest.json"), self.manifest_sha)
         self.assertEqual(sha256(out / "latest.json.sig"), self.sig_sha)
         # the zip has the web job's build as the artifact holds it (no hidden files, the link's file)
@@ -610,6 +626,10 @@ class Nightly(ManifestJob):
         self.assertFalse((self.nightly / "out" / "latest.json.sig").exists())
         shutil.copy(self.sign / "manifest" / "latest.json.sig", self.nightly / "out")
         self.assert_refused(self.check_files(), "latest.json.sig")
+        # (nor without the F-Droid repository, or before builds.json)
+        (self.nightly / "out" / "latest.json.sig").unlink()
+        self.builds()
+        self.assert_ok(self.check_files())
 
     def test_a_replaced_file_stops_the_release(self):
         # another job's file in any artifact (an executable, the Flatpaks, the dmg, the ipa, the APK)
@@ -675,6 +695,28 @@ class Nightly(ManifestJob):
                 r = self.check_files()
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn(f"::error::{name} is not the file of any job", r.stdout)
+        # the F-Droid repository's files only with the SHA-256s that step gave, builds.json with its step's
+        self.assert_ok(self.files())
+        self.fdroid()
+        del self.steps["fdroid"]
+        self.assert_refused(self.check_files(), "fdroid.txt")
+        self.fdroid()
+        self.assert_ok(self.check_files())
+        (self.nightly / "out" / "builds.json").write_text("{}")
+        self.assert_refused(self.check_files(), "builds.json")
+
+    def test_a_file_changed_after_the_first_check_stops_the_upload(self):
+        # what the steps between the two checks (builds.json, the F-Droid tools and repository) could do
+        for name in ("vibeBMS.apk", "vibebms-linux-arm64", "vibeBMS-web.zip", "builds.json", "fdroid.txt"):
+            with self.subTest(name):
+                self.steps = {}
+                self.assert_ok(self.files())
+                self.assert_ok(self.check_files())
+                self.builds()
+                self.fdroid()
+                self.assert_ok(self.check_files())
+                (self.nightly / "out" / name).write_bytes(b"changed")
+                self.assert_refused(self.check_files(), name)
 
     def test_the_list_is_uploaded_last(self):
         self.assert_ok(self.files())

@@ -233,8 +233,8 @@ The key is kept away from the build. CI's `android` job builds the unsigned APK 
 output (any job of the run can upload an artifact, but only that job sets its outputs), and signs it
 (`tools/build_release.sh sign`), with the JDK, the pinned build-tools and apksigcopier alone; the keystore exists for
 that one step. It gives the signed APK's SHA-256 as an output in turn: the `nightly` job checks the APK against it
-before it builds the F-Droid index or publishes anything (Self-update, below, "The files the nightly publishes"). On
-the default branch that job
+before it builds the F-Droid index, and again right before it uploads the release (Self-update, below, "The files
+the nightly publishes"). On the default branch that job
 and the `nightly` job (for the F-Droid repository's key) run in the environment `release`. Keep the keys there, not in
 the repository's secrets: Settings › Environments › `release`, "Deployment branches and tags": selected branches,
 the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD` (and `FDROID_KEYSTORE`,
@@ -459,17 +459,22 @@ matches:
 - `macos-dmg` makes the `.dmg` only of the app zip whose SHA-256 `macos` gave. `update-manifest` takes each
   executable only when it matches its job's output: `latest.json` names only files the build jobs made.
 - The `nightly` job zips only the web build whose files match the `web` job's output. The files it makes itself (the
-  web build's zip, `altstore.json`) are given as the SHA-256 outputs of the step that made them.
-- Its step "check the files" then checks every file in `out/` against the output of its maker. Every one of them
-  must match, and a file that no maker names, or whose maker gave no SHA-256, stops the release: nothing is
-  published. It runs before the F-Droid index is built (so the index has the APK `android-sign` signed) and
-  `builds.json` is written.
+  web build's zip, `altstore.json`, `builds.json`, and `fdroid.txt` and `fdroid-qr.png` when the F-Droid repository
+  is built) are given as the SHA-256 outputs of the steps that made them.
+- Its step "check the files" then checks every file in `out/` (what it uploads) against the output of its maker.
+  Every one of them must match, and a file that no maker names, or whose maker gave no SHA-256, stops the release:
+  nothing is published. It runs before the F-Droid index is built (so the index has the APK `android-sign` signed),
+  and again ("check the files again", the same text: a YAML alias in the workflow, not a file a step could change)
+  as the last step before the upload, so a file that the steps in between (`builds.json`, the F-Droid tools and
+  repository) changed is not published.
 
 What it does not protect against:
 - Foreign code in the job that makes a file (a crate's build script in a build job, a Gradle plugin in `android`)
   changing that file before the job takes its SHA-256: the output then names that file.
-- Code that runs in the `nightly` job itself after the check: the pinned fdroidserver of the F-Droid steps (each of
-  its files pinned by SHA-256; it already has the F-Droid key) could change a file in `out/` before the upload.
+- Code that runs in the `nightly` job itself between the checks: the pinned fdroidserver of the F-Droid steps (each
+  of its files pinned by SHA-256; it already has the F-Droid key) could change what the later steps run (their
+  `PATH` or environment, a process left running), which no check in the same job can rule out. The second check
+  sees any file it changed in `out/`.
 
 ## Build manifest (`builds.json`)
 The nightly release also has a `builds.json`: every build the `nightly` job published, the oldest first, with the
