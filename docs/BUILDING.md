@@ -556,9 +556,9 @@ Everything else is fixed by the commit:
   the executable), on macOS and iOS the linker's `-S` (no debug map: its object paths
   would go into the executable's `LC_UUID`), the variables the code reads (`VIBEBMS_THIRD_PARTY`) and the
   deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
-  Lua's C sources compiled in name order (`vendor/lua-src`, patched in for the lua-src crate, which takes them in the
-  file system's order: on Linux's ext4 that is a hash seeded per file system, so two machines linked them
-  differently; `tools/build_release.sh` stops if `Cargo.lock` takes lua-src from the registry);
+  Lua's C sources compiled in name order (lua-src 551.1.1 and later does; before, it took them in the file system's
+  order, on Linux's ext4 a hash seeded per file system, so two machines linked them differently;
+  `tools/build_release.sh` stops if `Cargo.lock` takes an older lua-src);
 - **dates**: `SOURCE_DATE_EPOCH` is the commit's time; zips (the web zip, the iOS `.ipa`, the macOS app's zip) are
   made with every file at that time, mode 644/755, in name order, no extra fields, TZ=UTC
   (`tools/build_release.sh zip`); the Flatpak's release date and OSTree commit take it, and the bundle's own

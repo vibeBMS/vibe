@@ -278,10 +278,11 @@ case "$artifact" in
 esac
 # Cargo.lock as committed: a build that would change it stops here
 cargo metadata --locked --format-version 1 > /dev/null
-# Lua from vendor/lua-src (its sources in name order): the registry's lua-src
-# compiles them in the file system's order, which differs between machines
-if grep -A2 '^name = "lua-src"$' Cargo.lock | grep -q '^source = '; then
-  die "Cargo.lock takes lua-src from the registry, not vendor/lua-src ([patch.crates-io]): see vendor/lua-src/Cargo.toml"
+# lua-src 551.1.1 or later: it compiles Lua's sources in name order (before,
+# in the file system's order, which differs between machines)
+lua_src="$(grep -A1 '^name = "lua-src"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+if [ -n "$lua_src" ] && [ "$(printf '%s\n' 551.1.1 "$lua_src" | sort -V | head -1)" != 551.1.1 ]; then
+  die "Cargo.lock takes lua-src $lua_src: 551.1.1 or later compiles Lua's sources in name order (docs/BUILDING.md, \"Reproducible builds\")"
 fi
 
 echo "building $artifact $version ($commit) with $(rustc -V)"

@@ -10,12 +10,11 @@ crates.io).
 
 `crates/vibebms/src/skin/luapat.rs` is a port of Lua's pattern matcher
 (`lstrlib.c`); the Lua interpreter itself is linked through mlua, and every
-build compiles Lua's sources from `crates/vibebms-lua-web/lua/` (Lua 5.4.9,
-unmodified): the web build in `crates/vibebms-lua-web` (its setjmp / longjmp
-runtime in `crates/vibebms-lua-web/shim/libc.c` follows emscripten's and
-wasi-libc's), the others through `vendor/lua-src`, a copy of the lua-src crate
-(MIT, Aleksandr Orlenko; its licence in `vendor/lua-src/LICENSE`) that compiles
-them in name order.
+build compiles Lua 5.4.9's sources, unmodified: the web build from
+`crates/vibebms-lua-web/lua/` in `crates/vibebms-lua-web` (its setjmp /
+longjmp runtime in `crates/vibebms-lua-web/shim/libc.c` follows emscripten's
+and wasi-libc's), the others from the lua-src crate's copy of the same files
+(lua-src: MIT, Aleksandr Orlenko).
 
 ```
 Copyright (C) 1994-2026 Lua.org, PUC-Rio.
