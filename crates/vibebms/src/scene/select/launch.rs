@@ -85,7 +85,7 @@ impl SelectScene {
                 match ctx
                     .lib
                     .courses
-                    .random_mix(kind, &mix, &songs, mix.mode, seed)
+                    .random_mix(kind, &mix, &songs, &self.charts, mix.mode, seed)
                 {
                     Ok(id) => {
                         ctx.lib.version += 1;
@@ -499,7 +499,8 @@ pub(crate) fn course_best<'a>(ctx: &'a Ctx, id: &str) -> Option<&'a crate::libra
 struct Course {
     name: String,
     def: CourseDef,
-    stages: Vec<(String, String)>,
+    /// Its charts' MD5, SHA-256 and title.
+    stages: Vec<(String, String, String)>,
     constraints: Vec<String>,
 }
 
@@ -514,7 +515,7 @@ fn course_of(ctx: &Ctx, c: &CourseBar) -> Result<Course, String> {
                 .map(|k| {
                     let get =
                         |v: &Vec<String>| v.get(k).map_or(String::new(), |s| s.to_lowercase());
-                    (get(&tc.md5), get(&tc.sha256))
+                    (get(&tc.md5), get(&tc.sha256), String::new())
                 })
                 .collect();
             let def = CourseDef {
@@ -531,7 +532,7 @@ fn course_of(ctx: &Ctx, c: &CourseBar) -> Result<Course, String> {
         CourseBar::Mine(id) => {
             let mc = ctx.lib.courses.get(*id).ok_or(tr!("no such course"))?;
             let stages = (mc.stages.iter())
-                .map(|s| (s.md5.to_lowercase(), s.sha256.to_lowercase()))
+                .map(|s| (s.md5.clone(), s.sha256.clone(), s.title.clone()))
                 .collect();
             Ok(Course {
                 name: mc.title.clone(),
@@ -545,16 +546,8 @@ fn course_of(ctx: &Ctx, c: &CourseBar) -> Result<Course, String> {
 }
 
 impl SelectScene {
-    /// The library's chart a course stage names: by its MD5, else its
-    /// SHA-256 (both lower case).
-    fn stage_chart(&self, md5: &str, sha: &str) -> Option<usize> {
-        let md5 = (!md5.is_empty()).then(|| self.md5_map.get(md5)).flatten();
-        md5.or_else(|| (!sha.is_empty()).then(|| self.sha_map.get(sha)).flatten())
-            .copied()
-    }
-
     /// A course's charts (library indices), else why it cannot be played.
-    fn stage_charts(&self, c: &Course) -> Result<Vec<usize>, String> {
+    fn stage_charts(&self, ctx: &Ctx, c: &Course) -> Result<Vec<usize>, String> {
         let name = &c.name;
         if c.stages.is_empty() {
             return Err(tr!(
@@ -570,8 +563,8 @@ impl SelectScene {
             ));
         }
         (c.stages.iter().enumerate())
-            .map(|(k, (md5, sha))| {
-                self.stage_chart(md5, sha).ok_or_else(|| {
+            .map(|(k, (md5, sha, title))| {
+                (self.charts.find(&ctx.lib.songs, md5, sha, title, "")).ok_or_else(|| {
                     tr!(
                         "Course {name}: stage {n} is not installed",
                         name = name,
@@ -586,7 +579,7 @@ impl SelectScene {
     /// (else why it cannot be played).
     pub(super) fn course_run(&self, ctx: &Ctx, c: &CourseBar) -> Result<CourseRun, String> {
         let mut course = course_of(ctx, c)?;
-        let found: Vec<_> = (self.stage_charts(&course)?.into_iter())
+        let found: Vec<_> = (self.stage_charts(ctx, &course)?.into_iter())
             .map(|i| ctx.lib.songs[i].clone())
             .collect();
         // a table course's identity: its charts' MD5s
@@ -640,7 +633,7 @@ impl SelectScene {
         };
         let course = course_of(ctx, c).ok();
         let songs = (course.as_ref())
-            .and_then(|c| self.stage_charts(c).ok())
+            .and_then(|c| self.stage_charts(ctx, c).ok())
             .unwrap_or_default();
         let id = match (c, course) {
             (CourseBar::Mine(_), Some(c)) => Some(c.def.id()),

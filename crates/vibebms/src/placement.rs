@@ -127,11 +127,9 @@ pub fn chart_info(path: &Path) -> Option<ChartInfo> {
 /// Charts in archives are left out: nothing is written into an archive, so
 /// their songs' folders take no file.
 pub fn library(root: &Path, songs: &[crate::library::Song]) -> bmseeker::library::Library {
-    let in_archive =
-        |s: &&crate::library::Song| crate::platform::arcfs::split(Path::new(&s.path)).is_some();
     let owned = songs
         .iter()
-        .filter(|s| !in_archive(s))
+        .filter(|s| !s.in_archive())
         .map(|s| bmseeker::library::Owned {
             path: s.path.clone().into(),
             md5: s.md5.clone(),

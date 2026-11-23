@@ -172,17 +172,12 @@ pub struct Filed {
 /// each under the LN mode the chart's plays of its LN mode are filed
 /// under; rows that fall on one record are taken together.
 pub fn records(rows: &[ScoreRow], songs: &[Song]) -> Filed {
-    let mut by: HashMap<&str, &Song> = HashMap::new();
-    for s in songs {
-        by.insert(s.sha256.as_str(), s);
-        if !s.md5.is_empty() {
-            by.insert(s.md5.as_str(), s);
-        }
-    }
+    let charts = crate::charts::Charts::new(songs);
     let mut f = Filed::default();
     let mut at: HashMap<RecordKey, usize> = HashMap::new();
     for r in rows {
-        let Some(song) = by.get(r.hash.as_str()) else {
+        let found = (charts.by_sha(&r.hash)).or_else(|| charts.by_md5(songs, &r.hash, "", ""));
+        let Some(song) = found.map(|i| &songs[i]) else {
             f.unknown += 1;
             continue;
         };
@@ -328,6 +323,21 @@ mod tests {
         assert_eq!(keys, [("a".into(), 0), ("c".into(), LnType::Hcn as i32)]);
         // its notes from the library where the service gave none
         assert_eq!(f.records[0].1.notes, 1000);
+    }
+
+    /// A row by an MD5 two charts share goes to the first of them, as
+    /// everywhere a chart is found by its hash.
+    #[test]
+    fn an_md5_of_two_charts_is_the_first() {
+        let songs = vec![song('a', 'b', None, false), song('c', 'b', None, false)];
+        let row = ScoreRow {
+            hash: "b".repeat(32),
+            rule: JudgePreset::Beatoraja,
+            ln: None,
+            best: best_of(&lamp(ClearType::Hard, Some(900))),
+        };
+        let f = records(&[row], &songs);
+        assert_eq!(f.records[0].0.id, "a".repeat(64));
     }
 
     #[test]

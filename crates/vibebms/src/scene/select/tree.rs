@@ -275,12 +275,20 @@ pub(super) fn event(ctx: &Ctx, url: &str) -> Option<usize> {
 }
 
 impl SelectScene {
-    pub(super) fn find(&self, md5: &str, sha: &str) -> Option<usize> {
-        (!sha.is_empty())
-            .then(|| self.sha_map.get(sha))
-            .flatten()
-            .or_else(|| (!md5.is_empty()).then(|| self.md5_map.get(md5)).flatten())
-            .copied()
+    /// The library's chart a table entry names.
+    fn entry_chart(&self, ctx: &Ctx, e: &bmseeker::table::TableEntry) -> Option<usize> {
+        (self.charts).find(&ctx.lib.songs, &e.md5, &e.sha256, &e.title, &e.artist)
+    }
+
+    /// How many charts of the library the filters and `has` keep, a chart
+    /// in several folders once (what a list not of one folder shows).
+    fn count(&self, ctx: &Ctx, has: impl Fn(&Song) -> bool) -> usize {
+        let songs = &ctx.lib.songs;
+        let mut v: Vec<usize> = (0..songs.len())
+            .filter(|&i| shown(ctx, &songs[i]) && has(&songs[i]))
+            .collect();
+        self.charts.one_each(&mut v);
+        v.len()
     }
 
     /// What keeps a bar recognisable when the list is built again.
@@ -310,6 +318,11 @@ impl SelectScene {
             }
             v.into_iter().map(Bar::Song).collect()
         };
+        // a list not of one folder: a chart in several folders once
+        let once = |mut v: Vec<usize>| -> Vec<Bar> {
+            self.charts.one_each(&mut v);
+            sorted(v)
+        };
         match node {
             Node::Close(_) => Vec::new(),
             Node::Root => {
@@ -317,7 +330,7 @@ impl SelectScene {
                     label: "ALL SONGS".into(),
                     sub: String::new(),
                     node: Node::All,
-                    count: songs.iter().filter(|s| shown(s)).count(),
+                    count: self.count(ctx, |_| true),
                 }];
                 // the bulk downloads, while there are any
                 let queue = &ctx.net.bulk;
@@ -334,21 +347,15 @@ impl SelectScene {
                     label: "FAVORITE".into(),
                     sub: "♥".into(),
                     node: Node::Favorites,
-                    count: songs
-                        .iter()
-                        .filter(|s| shown(s) && favorite(ctx, s))
-                        .count(),
+                    count: self.count(ctx, |s| favorite(ctx, s)),
                 });
                 let now = crate::platform::unix_now() as i64;
                 for (f, _) in SMART_ROOT {
                     let count = match &f {
                         Smart::ClearTypes | Smart::Ranks | Smart::Levels => {
-                            songs.iter().filter(|s| shown(s)).count()
+                            self.count(ctx, |_| true)
                         }
-                        f => songs
-                            .iter()
-                            .filter(|s| shown(s) && f.has(ctx, s, now))
-                            .count(),
+                        f => self.count(ctx, |s| f.has(ctx, s, now)),
                     };
                     bars.push(Bar::Folder {
                         label: f.name(),
@@ -357,6 +364,7 @@ impl SelectScene {
                         count,
                     });
                 }
+                // (a folder's count: the charts in it)
                 let mut folders: Vec<(String, usize)> = Vec::new();
                 let mut idx: HashMap<&str, usize> = HashMap::new();
                 for s in songs.iter().filter(|s| shown(s)) {
@@ -422,8 +430,8 @@ impl SelectScene {
                 }
                 bars
             }
-            Node::All => sorted((0..songs.len()).collect()),
-            Node::Favorites => sorted(
+            Node::All => once((0..songs.len()).collect()),
+            Node::Favorites => once(
                 (0..songs.len())
                     .filter(|i| favorite(ctx, &songs[*i]))
                     .collect(),
@@ -450,7 +458,7 @@ impl SelectScene {
                         levels.into_iter().map(|l| Smart::Level(l.into())).collect()
                     }
                     f => {
-                        return sorted(
+                        return once(
                             (0..songs.len())
                                 .filter(|i| f.has(ctx, &songs[*i], now))
                                 .collect(),
@@ -459,7 +467,7 @@ impl SelectScene {
                 };
                 sub.into_iter()
                     .filter_map(|f| {
-                        let count = kept().filter(|s| f.has(ctx, s, now)).count();
+                        let count = self.count(ctx, |s| f.has(ctx, s, now));
                         (count > 0).then(|| Bar::Folder {
                             label: f.name(),
                             sub: "virtual".into(),
@@ -472,7 +480,7 @@ impl SelectScene {
             Node::Search(q) => {
                 let q = q.to_lowercase();
                 let has = |s: &str| s.to_lowercase().contains(&q);
-                sorted(
+                once(
                     (0..songs.len())
                         .filter(|i| {
                             let s = &songs[*i];
@@ -513,7 +521,7 @@ impl SelectScene {
                             table.entries.iter().filter(|e| e.level == l).collect();
                         let have = entries
                             .iter()
-                            .filter(|e| self.find(&e.md5, &e.sha256).is_some())
+                            .filter(|e| self.entry_chart(ctx, e).is_some())
                             .count();
                         Bar::Folder {
                             label: table.label(&l),
@@ -532,8 +540,8 @@ impl SelectScene {
                 let root = &ctx.paths.root;
                 let mut bars = Vec::new();
                 for w in &ev.works {
-                    // the folder it was downloaded to, else a chart with its
-                    // title and artist
+                    // the folder it was downloaded to, else the charts with its
+                    // title and artist (a chart in several folders once)
                     let mine: Vec<usize> = match ctx.net.archives.installed_dir(&ev.name, w.num) {
                         Some(dir) => {
                             let dir = root.join(dir);
@@ -541,12 +549,19 @@ impl SelectScene {
                                 .filter(|i| Path::new(&songs[*i].path).starts_with(&dir))
                                 .collect()
                         }
-                        None => (0..songs.len())
-                            .filter(|i| {
-                                crate::placement::same_title(&songs[*i].title, &w.title)
-                                    && crate::placement::same_artist(&songs[*i].artist, &w.artist)
-                            })
-                            .collect(),
+                        None => {
+                            let mut v = (0..songs.len())
+                                .filter(|i| {
+                                    crate::placement::same_title(&songs[*i].title, &w.title)
+                                        && crate::placement::same_artist(
+                                            &songs[*i].artist,
+                                            &w.artist,
+                                        )
+                                })
+                                .collect();
+                            self.charts.one_each(&mut v);
+                            v
+                        }
                     };
                     if mine.is_empty() {
                         bars.push(Bar::Missing(Missing {
@@ -576,7 +591,7 @@ impl SelectScene {
                     .entries
                     .iter()
                     .filter(|e| &e.level == l)
-                    .filter_map(|e| match self.find(&e.md5, &e.sha256) {
+                    .filter_map(|e| match self.entry_chart(ctx, e) {
                         Some(i) => shown(&songs[i]).then_some(Bar::Song(i)),
                         None => Some(Bar::Missing(Missing {
                             title: e.title.clone(),
@@ -1133,6 +1148,207 @@ mod tests {
                 Bar::Bulk(BulkBar::Item(1))
             ]
         ));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A copy of chart `sha` in folder `dir` (below `/bms`).
+    fn copy(title: &str, dir: &str, sha: &str) -> Song {
+        Song {
+            path: format!("/bms/{dir}/{title}.bms"),
+            folder: format!("/bms/{dir}"),
+            sha256: sha.into(),
+            md5: format!("md5 of {sha}"),
+            ..song(title, PlayMode::Beat7K, 2, "5", 0)
+        }
+    }
+
+    /// The paths of the charts `node` lists, and the counts of the root's
+    /// folders.
+    fn paths(s: &SelectScene, ctx: &Ctx, node: &Node) -> Vec<String> {
+        (s.build(ctx, node, true).iter())
+            .filter_map(|b| match b {
+                Bar::Song(i) => Some(ctx.lib.songs[*i].path.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn root_counts(s: &SelectScene, ctx: &Ctx) -> Vec<String> {
+        (s.build(ctx, &Node::Root, true).iter())
+            .filter_map(|b| match b {
+                Bar::Folder { label, count, .. } => Some(format!("{label} {count}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A chart in two folders: one row in ALL SONGS, search, the virtual
+    /// folders and their counts; its row in each of its folders.
+    #[test]
+    fn copies_are_one_chart() {
+        let root = std::env::temp_dir().join(format!("vibebms-copies-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.songs = Arc::new(vec![
+            copy("x", "a", "sx"),
+            copy("x", "b", "sx"),
+            copy("y", "b", "sy"),
+        ]);
+        let s = SelectScene::new(&mut ctx);
+        let (a, b) = ("/bms/a/x.bms", "/bms/b/x.bms");
+        assert_eq!(paths(&s, &ctx, &Node::All), [a, "/bms/b/y.bms"]);
+        assert_eq!(paths(&s, &ctx, &Node::Search("x".into())), [a]);
+        assert_eq!(
+            paths(&s, &ctx, &Node::Smart(Smart::Level("5".into()))).len(),
+            2
+        );
+        assert_eq!(paths(&s, &ctx, &Node::Folder("/bms/a".into())), [a]);
+        assert_eq!(
+            paths(&s, &ctx, &Node::Folder("/bms/b".into())),
+            [b, "/bms/b/y.bms"]
+        );
+        assert_eq!(paths(&s, &ctx, &Node::SameFolder("/bms/b".into())).len(), 2);
+        let counts = root_counts(&s, &ctx);
+        assert_eq!(counts[0], "ALL SONGS 2");
+        assert!(counts.contains(&"LEVEL 2".to_string()), "{counts:?}");
+        assert!(counts.contains(&"a 1".to_string()), "{counts:?}");
+        assert!(counts.contains(&"b 2".to_string()), "{counts:?}");
+        // RANDOM SELECT draws from the rows
+        let bars = s.listing(&ctx, &Node::All);
+        assert_eq!(random_candidates(&ctx, &bars).len(), 2);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A copy inside an archive and a loose one: the loose one is the
+    /// row; three copies are one row; records without a SHA-256 are never
+    /// one chart.
+    #[test]
+    fn archived_three_and_unhashed_copies() {
+        let root = std::env::temp_dir().join(format!("vibebms-copies3-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let packed = Song {
+            path: "/bms/a.zip!/x.bms".into(),
+            folder: "/bms/a.zip!".into(),
+            ..copy("x", "a", "sx")
+        };
+        ctx.lib.songs = Arc::new(vec![
+            packed,
+            copy("x", "b", "sx"),
+            copy("x", "c", "sx"),
+            copy("z", "d", ""),
+            copy("z", "e", ""),
+        ]);
+        let s = SelectScene::new(&mut ctx);
+        assert_eq!(
+            paths(&s, &ctx, &Node::All),
+            ["/bms/b/x.bms", "/bms/d/z.bms", "/bms/e/z.bms"]
+        );
+        assert_eq!(root_counts(&s, &ctx)[0], "ALL SONGS 3");
+        for dir in ["/bms/a.zip!", "/bms/b", "/bms/c"] {
+            assert_eq!(paths(&s, &ctx, &Node::Folder(dir.into())).len(), 1, "{dir}");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The favourites: a song favourite (by folder) on a later copy lists
+    /// that copy, once.
+    #[test]
+    fn favorite_copy() {
+        let root = std::env::temp_dir().join(format!("vibebms-favcopy-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.lib.songs = Arc::new(vec![copy("x", "a", "sx"), copy("x", "b", "sx")]);
+        let mut lib = crate::library::Library::open(&root, &root, |_, _| None);
+        lib.toggle_favorite(&ctx.lib.songs[1], true);
+        ctx.lib.db = Some(lib);
+        let s = SelectScene::new(&mut ctx);
+        assert_eq!(paths(&s, &ctx, &Node::Favorites), ["/bms/b/x.bms"]);
+        assert!(root_counts(&s, &ctx).contains(&"FAVORITE 1".to_string()));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A table entry and a course stage take the first copy in library
+    /// order, whatever other charts are around it.
+    #[test]
+    fn tables_and_courses_take_the_first_copy() {
+        use bmseeker::table::{DifficultyTable, TableEntry};
+        let root = std::env::temp_dir().join(format!("vibebms-first-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.tables.list = vec![DifficultyTable {
+            source_url: "t".into(),
+            entries: vec![TableEntry {
+                md5: "md5 of sx".into(),
+                level: "1".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+        ctx.lib.courses.list.push(crate::courses::Course {
+            id: 1,
+            title: "C".into(),
+            stages: vec![crate::courses::Stage {
+                md5: "md5 of sx".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let (x, y, z) = (
+            copy("x", "a", "sx"),
+            copy("y", "a", "sy"),
+            copy("z", "a", "sz"),
+        );
+        let x2 = copy("x", "b", "sx");
+        for order in [
+            vec![x.clone(), y.clone(), x2.clone()],
+            vec![z.clone(), x.clone(), x2.clone(), y.clone()],
+        ] {
+            ctx.lib.songs = Arc::new(order);
+            ctx.lib.version += 1;
+            let s = SelectScene::new(&mut ctx);
+            let level = Node::Level("t".into(), "1".into());
+            assert_eq!(paths(&s, &ctx, &level), ["/bms/a/x.bms"]);
+            let stages = s.course_facts(&ctx, &CourseBar::Mine(1), |f| f.songs.clone());
+            let got: Vec<&str> = stages
+                .iter()
+                .map(|&i| ctx.lib.songs[i].path.as_str())
+                .collect();
+            assert_eq!(got, ["/bms/a/x.bms"]);
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Two charts of one MD5 (a collision): a table entry's title and
+    /// artist choose; without a title, the first.
+    #[test]
+    fn md5_collision_goes_by_title() {
+        use bmseeker::table::{DifficultyTable, TableEntry};
+        let root = std::env::temp_dir().join(format!("vibebms-collide-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let crafted = Song {
+            md5: "m".into(),
+            artist: "someone else".into(),
+            ..copy("aaa crafted", "a", "s1")
+        };
+        let real = Song {
+            md5: "m".into(),
+            ..copy("real song", "b", "s2")
+        };
+        ctx.lib.songs = Arc::new(vec![crafted, real]);
+        let entry = |title: &str, level: &str| TableEntry {
+            md5: "m".into(),
+            title: title.into(),
+            artist: "artist 9".into(),
+            level: level.into(),
+            ..Default::default()
+        };
+        ctx.tables.list = vec![DifficultyTable {
+            source_url: "t".into(),
+            entries: vec![entry("Real Song", "1"), entry("", "2")],
+            ..Default::default()
+        }];
+        let s = SelectScene::new(&mut ctx);
+        let level = |l: &str| Node::Level("t".into(), l.into());
+        assert_eq!(paths(&s, &ctx, &level("1")), ["/bms/b/real song.bms"]);
+        assert_eq!(paths(&s, &ctx, &level("2")), ["/bms/a/aaa crafted.bms"]);
         std::fs::remove_dir_all(&root).ok();
     }
 }

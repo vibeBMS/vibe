@@ -75,6 +75,8 @@ pub struct Lib {
     pub courses: crate::courses::CourseStore,
     /// Sorted by title, then level.
     pub songs: Arc<Vec<Song>>,
+    /// How many charts `songs` are, a chart in several folders once.
+    pub charts: usize,
     pub scores: HashMap<RecordKey, BestScore>,
     /// Counts changes to what the music select lists (the songs, tables,
     /// events).
@@ -552,7 +554,7 @@ impl Ctx {
         self.read_unread(unread);
         // (with charts being read in, another scan follows: the count then)
         if self.lib.prefetch.is_none() {
-            let n = self.lib.songs.len();
+            let n = self.lib.charts;
             self.toast(tr!("Library: {n} charts", n = n));
         }
         if !again {
@@ -638,6 +640,7 @@ impl Ctx {
             let mut songs = lib.songs();
             lib.merge_fixed_ln(&songs);
             songs.sort_by_cached_key(|s| (s.title.to_lowercase(), s.level_num()));
+            self.lib.charts = crate::charts::Charts::new(&songs).count();
             self.lib.songs = Arc::new(songs);
             self.lib.scores = lib.scores();
         }

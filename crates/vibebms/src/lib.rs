@@ -6,6 +6,7 @@ pub mod app;
 pub mod archive;
 pub mod browser;
 pub mod bulk;
+pub mod charts;
 pub mod config;
 pub mod courses;
 pub mod formats;
