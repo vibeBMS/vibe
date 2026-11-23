@@ -1,17 +1,78 @@
-//! Compile Lua 5.4 (`lua/`) and its C library (`shim/`) for
-//! wasm32-unknown-unknown with clang. Other targets build nothing: there
-//! mlua compiles Lua itself (feature "vendored"), from lua-src's copy of
-//! the same Lua 5.4.9 sources.
+//! Compile Lua 5.4 and its C library (`shim/`) for wasm32-unknown-unknown
+//! with clang. Lua's sources are lua-src's, the same files mlua compiles
+//! on the other targets (feature "vendored"); lua-src is a build
+//! dependency here so that cargo fetches it for a web build too. Other
+//! targets build nothing here.
 //!
 //! Lua raises errors with setjmp / longjmp; clang lowers them to Wasm
 //! exception handling (`-mllvm -wasm-enable-sjlj`), whose runtime is in
 //! `shim/libc.c`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Lua 5.4's sources in lua-src as cargo unpacked it: the version
+/// Cargo.lock names, in the registry's sources (CARGO_HOME). lua-src does
+/// not tell where its files are, and a build dependency is always fetched
+/// and unpacked there.
+fn lua_sources(here: &Path) -> PathBuf {
+    let lock = here
+        .ancestors()
+        .map(|d| d.join("Cargo.lock"))
+        .find(|p| p.is_file())
+        .expect("no Cargo.lock above the crate");
+    let text = std::fs::read_to_string(&lock).unwrap();
+    let version = text
+        .split("[[package]]")
+        .find_map(|p| {
+            let field = |k: &str| {
+                p.lines()
+                    .find_map(|l| l.strip_prefix(k))
+                    .map(|v| v.trim().trim_matches('"').to_string())
+            };
+            (field("name = ").as_deref() == Some("lua-src"))
+                .then(|| field("version = "))
+                .flatten()
+        })
+        .expect("Cargo.lock has no lua-src");
+    let home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cargo")))
+        .expect("neither CARGO_HOME nor HOME is set");
+    let mut registries: Vec<_> = std::fs::read_dir(home.join("registry/src"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path().join(format!("lua-src-{version}")))
+        .filter(|d| d.is_dir())
+        .collect();
+    registries.sort();
+    for crate_dir in registries {
+        let mut lua: Vec<_> = std::fs::read_dir(&crate_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|d| {
+                d.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("lua-5.4."))
+                    && d.join("lua.h").is_file()
+            })
+            .collect();
+        if lua.len() == 1 {
+            return lua.remove(0);
+        }
+    }
+    panic!(
+        "lua-src {version}'s Lua 5.4 sources are not in {}/registry/src \
+         (lua-src is a build dependency: cargo unpacks it there)",
+        home.display()
+    );
+}
 
 fn main() {
-    println!("cargo:rerun-if-changed=lua");
     println!("cargo:rerun-if-changed=shim");
+    println!("cargo:rerun-if-changed=../../Cargo.lock");
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if arch != "wasm32" || os != "unknown" {
@@ -49,10 +110,14 @@ fn main() {
     if legacy {
         b.flag("-mllvm").flag("-wasm-use-legacy-eh=true");
     }
-    // as lua-src builds Lua 5.4 for the other targets
+    // as lua-src builds Lua 5.4 for the other targets (its sources, not
+    // its build: that one is for WASI)
+    let _ = lua_src::Lua54;
+    let lua = lua_sources(here);
+    println!("cargo:rerun-if-changed={}", lua.display());
     b.define("LUA_COMPAT_5_3", None);
-    b.include(here.join("lua"));
-    let mut files: Vec<_> = std::fs::read_dir(here.join("lua"))
+    b.include(&lua);
+    let mut files: Vec<_> = std::fs::read_dir(&lua)
         .unwrap()
         .flatten()
         .map(|e| e.path())
