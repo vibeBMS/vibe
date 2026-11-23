@@ -223,8 +223,10 @@ impl SelectScene {
             KeyCode::KeyB if !is_play_key(keys, code) => self.same_folder(ctx),
             KeyCode::Insert => self.add_to_course(ctx),
             KeyCode::KeyC if !is_play_key(keys, code) => self.add_to_course(ctx),
+            // (a plain scan: the files left out for stopping the game stay
+            // so; SETTINGS > LIBRARY > Rescan reads them again)
             KeyCode::F12 => {
-                ctx.rescan();
+                ctx.start_scan();
                 ctx.tables.refresh(&ctx.config.tables, true);
             }
             KeyCode::F10 => self.open_search(),
@@ -410,4 +412,26 @@ fn is_play_key(keys: &KeyConfig, code: KeyCode) -> bool {
         || [&keys.start, &keys.select, &keys.p2_start, &keys.p2_select]
             .into_iter()
             .any(has)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// F12 scans for what changed; the files left out for stopping the game
+    /// stay left out (a crash each, at every F12, otherwise).
+    #[test]
+    fn f12_does_not_forget_what_was_left_out() {
+        let root = std::env::temp_dir().join(format!("vibebms-f12-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        ctx.config.tables.clear();
+        let mut s = SelectScene::new(&mut ctx);
+        s.key(&mut ctx, KeyCode::F12, true, false);
+        let scan = ctx.lib.scan.clone().expect("a scan");
+        assert!(!scan.forget);
+        while !scan.done.load(std::sync::atomic::Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
 }
