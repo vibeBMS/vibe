@@ -110,14 +110,15 @@ pollster = "1"
 # the system's language (the UI's when LANGUAGE is AUTO; web: navigator.language)
 sys-locale = "0.3"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
-# beatoraja Lua skins (Lua is compiled from source)
-mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+# beatoraja Lua skins (Lua is compiled from source: lua-src, from 551.1.1 in
+# name order, so the executables are the same on every machine)
+mlua = { version = "0.12.3", features = ["lua54", "vendored", "serialize"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # beatoraja Lua skins: Lua is compiled by vibebms-lua-web (clang), mlua
 # links to it
-mlua = { version = "0.12", features = ["lua54", "serialize"] }
-mlua-sys = { version = "0.13", features = ["external"] }
+mlua = { version = "0.12.3", features = ["lua54", "serialize"] }
+mlua-sys = { version = "0.14", features = ["external"] }
 vibebms-lua-web = { path = "../vibebms-lua-web" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

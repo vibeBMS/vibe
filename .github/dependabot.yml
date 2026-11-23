@@ -16,10 +16,6 @@ updates:
       # (the project's own repository: its commits do not wait)
       exclude: ["bmseeker"]
     open-pull-requests-limit: 5
-    ignore:
-      # vendor/lua-src is a copy of it (its sources compiled in name order,
-      # for reproducible builds): a new release is taken there by hand
-      - dependency-name: "lua-src"
     groups:
       cargo:
         update-types: [minor, patch]
