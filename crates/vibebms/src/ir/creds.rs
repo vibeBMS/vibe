@@ -29,6 +29,11 @@ use vibebms_ir::{ProviderId, Secret};
 #[serde(default)]
 struct Doc {
     keys: BTreeMap<ProviderId, Stored>,
+    /// Keys for accounts whose address takes none: never given out, until
+    /// the player enters an address for one ([`Keys::bind_held`]). Apart
+    /// from `keys`, which versions before read whole: they skip this field.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    held: BTreeMap<ProviderId, String>,
     /// In the root's document (the OBS settings are app-wide).
     #[serde(skip_serializing_if = "Option::is_none")]
     obs: Option<ObsSecret>,
@@ -40,8 +45,8 @@ struct Doc {
 enum Stored {
     /// With the origin ([`origin`]) of the server it was entered for.
     Bound { key: String, origin: String },
-    /// For an account whose address takes no key: never given out, until
-    /// the player enters an address for it ([`Keys::bind_held`]).
+    /// A held key as a version before kept it: into [`Doc::held`] as the
+    /// document is read.
     Held { held: String },
     /// As versions before kept it: given a server once ([`Keys::bind`]).
     Unbound(String),
@@ -115,8 +120,9 @@ pub fn kept() -> &'static str {
     imp::kept()
 }
 
-fn read(at: &imp::Place) -> Doc {
-    match imp::read(at) {
+/// The document at `at`; whether it had held keys among the others.
+fn read(at: &imp::Place) -> (Doc, bool) {
+    let mut doc: Doc = match imp::read(at) {
         Ok(Some(t)) => serde_json::from_str(&t).unwrap_or_else(|e| {
             log::warn!("credentials: {e}");
             Doc::default()
@@ -126,23 +132,45 @@ fn read(at: &imp::Place) -> Doc {
             log::warn!("credentials: {e}");
             Doc::default()
         }
+    };
+    let mut moved = false;
+    for (p, s) in std::mem::take(&mut doc.keys) {
+        match s {
+            Stored::Held { held } => {
+                moved = true;
+                doc.held.insert(p, held);
+            }
+            s => {
+                doc.keys.insert(p, s);
+            }
+        }
     }
+    (doc, moved)
 }
 
 impl Keys {
     /// The keys of the profile in use.
     pub fn open(paths: &Paths) -> Keys {
-        let at = imp::place(&paths.private);
-        let doc = read(&at);
-        Keys { at, doc }
+        Keys::at(imp::place(&paths.private))
     }
 
     /// The root's document, whichever profile is in use: OBS's password.
     #[cfg(desktop)]
     pub fn open_root(paths: &Paths) -> Keys {
-        let at = imp::place(&paths.private_of(""));
-        let doc = read(&at);
-        Keys { at, doc }
+        Keys::at(imp::place(&paths.private_of("")))
+    }
+
+    fn at(at: imp::Place) -> Keys {
+        let (doc, moved) = read(&at);
+        let mut keys = Keys { at, doc };
+        // written again at once: versions before cannot read a held key
+        // among the others, and then have none
+        if moved {
+            if let Err(e) = keys.change(|_| {}) {
+                log::warn!("credentials: {e}");
+            }
+        }
+        keys
     }
 
     /// The credentials of `p`'s account for its requests to the server at
@@ -158,18 +186,19 @@ impl Keys {
 
     /// A key is kept for `p`'s account (for whichever server).
     pub fn has(&self, p: ProviderId) -> bool {
-        self.doc.keys.contains_key(&p)
+        self.doc.keys.contains_key(&p) || self.held(p)
     }
 
     /// `p`'s key is held: kept for no server yet ([`Keys::hold`]).
     pub fn held(&self, p: ProviderId) -> bool {
-        matches!(self.doc.keys.get(&p), Some(Stored::Held { .. }))
+        self.doc.held.contains_key(&p)
     }
 
     /// Keep `key` for `p`'s account at the server at `origin` (`None`:
     /// forget the account's key).
     pub fn set(&mut self, p: ProviderId, key: Option<(String, String)>) -> io::Result<()> {
         self.change(|doc| {
+            doc.held.remove(&p);
             match key {
                 Some((key, origin)) => doc.keys.insert(p, Stored::Bound { key, origin }),
                 None => doc.keys.remove(&p),
@@ -181,7 +210,8 @@ impl Keys {
     /// sent nowhere until the player enters an address ([`Keys::bind_held`]).
     pub fn hold(&mut self, p: ProviderId, key: String) -> io::Result<()> {
         self.change(|doc| {
-            doc.keys.insert(p, Stored::Held { held: key });
+            doc.keys.remove(&p);
+            doc.held.insert(p, key);
         })
     }
 
@@ -193,8 +223,8 @@ impl Keys {
             return Ok(());
         }
         self.change(|doc| {
-            if let Some(Stored::Held { held }) = doc.keys.remove(&p) {
-                let (key, origin) = (held, origin.to_string());
+            if let Some(key) = doc.held.remove(&p) {
+                let origin = origin.to_string();
                 doc.keys.insert(p, Stored::Bound { key, origin });
             }
         })
@@ -215,19 +245,21 @@ impl Keys {
             return Ok(());
         }
         self.change(|doc| {
-            let old = std::mem::take(&mut doc.keys);
-            doc.keys = (old.into_iter())
-                .filter_map(|(p, s)| match s {
-                    Stored::Unbound(key) => Some((
-                        p,
-                        match account(p)? {
-                            Some(origin) => Stored::Bound { key, origin },
-                            None => Stored::Held { held: key },
-                        },
-                    )),
-                    kept => Some((p, kept)),
-                })
-                .collect();
+            for (p, s) in std::mem::take(&mut doc.keys) {
+                let Stored::Unbound(key) = s else {
+                    doc.keys.insert(p, s);
+                    continue;
+                };
+                match account(p) {
+                    Some(Some(origin)) => {
+                        doc.keys.insert(p, Stored::Bound { key, origin });
+                    }
+                    Some(None) => {
+                        doc.held.insert(p, key);
+                    }
+                    None => {}
+                }
+            }
         })
     }
 
@@ -258,7 +290,7 @@ impl Keys {
     /// Change the document and write it. It is read again first: the
     /// default profile's keys and OBS's password are one file, held twice.
     fn change(&mut self, f: impl FnOnce(&mut Doc)) -> io::Result<()> {
-        self.doc = read(&self.at);
+        self.doc = read(&self.at).0;
         f(&mut self.doc);
         let text = serde_json::to_string(&self.doc).map_err(io::Error::other)?;
         imp::write(&self.at, &text)
@@ -532,6 +564,66 @@ mod tests {
         let mut c = Keys::open(&paths);
         c.bind(|_| None).unwrap();
         assert!(!Keys::open(&paths).has(p));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The document as versions before this one read it: they skip a
+    /// field they do not know, but not an entry of `keys` they cannot read.
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct OlderDoc {
+        keys: BTreeMap<ProviderId, OlderStored>,
+        obs: Option<ObsSecret>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OlderStored {
+        Bound { key: String, origin: String },
+        Unbound(String),
+    }
+
+    /// Held keys are kept apart from the others, where versions before do
+    /// not read them; a document that has them among the others is put in
+    /// that shape as it is read.
+    #[test]
+    fn held_keys_leave_the_others_readable_to_older_versions() {
+        let root = temp("older-reads");
+        let paths = Paths::at(root.clone());
+        let file = root.join("config/credentials.json");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let (lan, a) = (ProviderId::VibeJson(0), ProviderId::VibeJson(1));
+        std::fs::write(
+            &file,
+            r#"{"keys":{"vibe-json:0":{"held":"k0"},"vibe-json:1":{"key":"k1","origin":"https://a:443"}},"obs":{"password":"pw","host":"127.0.0.1","port":4455}}"#,
+        )
+        .unwrap();
+        // what an older version has: the keys, with their servers, and OBS's
+        let older = || {
+            let t = std::fs::read_to_string(&file).unwrap();
+            let d = serde_json::from_str::<OlderDoc>(&t).ok()?;
+            let keys = d.keys.into_values().map(|s| match s {
+                OlderStored::Bound { key, origin } => format!("{key} {origin}"),
+                OlderStored::Unbound(key) => key,
+            });
+            Some((keys.collect::<Vec<_>>(), d.obs.map(|o| o.password)))
+        };
+        assert!(older().is_none());
+        let c = Keys::open(&paths);
+        assert!(c.held(lan) && c.get(lan, "https://a:443").is_none());
+        assert_eq!(c.get(a, "https://a:443").unwrap().token.expose(), "k1");
+        let pw = Some("pw".to_string());
+        assert_eq!(older(), Some((vec!["k1 https://a:443".into()], pw.clone())));
+        let mut c = Keys::open(&paths);
+        assert!(c.held(lan) && c.has(lan) && !c.held(a));
+        // and as this version writes them
+        c.set(lan, None).unwrap();
+        c.hold(ProviderId::VibeJson(2), "k2".into()).unwrap();
+        let b = Some(("k3".into(), "https://b:443".into()));
+        c.set(ProviderId::VibeJson(3), b).unwrap();
+        let both = vec!["k1 https://a:443".into(), "k3 https://b:443".into()];
+        assert_eq!(older(), Some((both, pw)));
+        assert!(Keys::open(&paths).held(ProviderId::VibeJson(2)));
         std::fs::remove_dir_all(&root).ok();
     }
 
