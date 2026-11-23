@@ -5199,6 +5199,7 @@ dependencies = [
  "js-sys",
  "libm",
  "log",
+ "lua-src",
  "wasm-bindgen",
 ]
 

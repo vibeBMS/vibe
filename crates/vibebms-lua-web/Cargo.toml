@@ -1,6 +1,6 @@
 [package]
 name = "vibebms-lua-web"
-description = "Lua 5.4 for the web build of vibeBMS (wasm32-unknown-unknown): the C sources and the C library they need"
+description = "Lua 5.4 for the web build of vibeBMS (wasm32-unknown-unknown): lua-src's sources compiled with the C library they need"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,3 +16,6 @@ log.workspace = true
 
 [build-dependencies]
 cc = "1"
+# not called: its Lua 5.4 sources are compiled (build.rs), the version mlua
+# compiles on the other targets
+lua-src = "551.1.1"
