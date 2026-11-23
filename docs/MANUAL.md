@@ -306,8 +306,9 @@ The touch perspective play skin uses its lanes as the controls ([SKINS.md](SKINS
 - A chart or an archive the scan was reading when the game stopped (a crash, or a hang you ended) is read on its own by
   the next scan, before the others. If the game stops again while it is read, it is left out from then on (the log
   names it) until the file changes, another version of the game scans, or you ask for a rescan (SETTINGS › LIBRARY ›
-  Rescan, or F12 on the song select). Closing the game, or a phone or browser closing it in the background, does not
-  count, unless the file had been read for much longer than one of its size takes (a minute, and 2 MiB a second).
+  Rescan, or F12 on the song select). Closing the game, or a phone or browser ending it in the background (the scan
+  goes on there), does not count, unless the file had already been read for much longer than one of its size takes
+  (a minute, and 2 MiB a second) when the game was closed or sent to the background.
 
 ### Media limits
 
