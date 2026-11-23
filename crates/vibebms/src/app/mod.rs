@@ -863,6 +863,7 @@ impl ApplicationHandler<UserEvent> for App {
         if let Some(r) = self.run.as_mut() {
             r.set_activity(|a| a.suspended = false);
             crate::library::going_on(&r.ctx.paths.songs_cache());
+            crate::skin::guard::away(false);
         }
         if self.run.is_some() || self.creating {
             return;
@@ -951,6 +952,7 @@ impl ApplicationHandler<UserEvent> for App {
             r.set_activity(|a| a.suspended = true);
             // (the system may end the app from here without a word)
             crate::library::stopping(&r.ctx.paths.songs_cache());
+            crate::skin::guard::away(true);
         }
     }
 
