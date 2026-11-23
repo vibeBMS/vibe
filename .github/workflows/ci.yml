@@ -1344,7 +1344,7 @@ jobs:
       # version takes other wheels, which no hash there covers)
       - if: env.RELEASE == 'true'
         continue-on-error: true
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: F-Droid tools
