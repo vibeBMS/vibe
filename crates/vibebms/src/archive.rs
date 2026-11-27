@@ -486,8 +486,7 @@ fn work_stem(files: &[File]) -> String {
         }
     });
     // (`Song.tar.gz`: `Song`)
-    crate::platform::arcfs::archive_folder(main.map(String::as_str).unwrap_or(""))
-        .unwrap_or_else(|| "work".into())
+    bmseeker::unpack::archive_folder(main.map(String::as_str).unwrap_or(""))
 }
 
 /// Where a work unpacks, from the data root: `bms/<event>/<stem>`. `None`
@@ -681,9 +680,9 @@ mod tests {
         assert_eq!(work_stem(&[file("Song_ogg.zip")]), "Song_ogg");
         assert_eq!(work_stem(&[file("notes.txt")]), "notes");
         // nothing left of the name but what Windows drops: a neutral one
-        assert_eq!(work_stem(&[file(". .zip")]), "work");
-        assert_eq!(work_stem(&[file(" . . .7z")]), "work");
-        assert_eq!(work_stem(&[file("...zip")]), "zip");
+        assert_eq!(work_stem(&[file(". .zip")]), "archive");
+        assert_eq!(work_stem(&[file(" . . .7z")]), "archive");
+        assert_eq!(work_stem(&[file("...zip")]), "archive");
     }
 
     #[test]

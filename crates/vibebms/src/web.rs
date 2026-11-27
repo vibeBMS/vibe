@@ -39,7 +39,7 @@ pub fn install_file_input(root: PathBuf) {
                 crate::platform::vfs::add_files(&root, &files, "picked");
                 for i in 0..files.length() {
                     if let Some(f) = files.get(i) {
-                        if crate::platform::arcfs::is_archive(Path::new(&f.name())) {
+                        if bmseeker::unpack::is_archive(Path::new(&f.name())) {
                             mount_zip_file(f);
                         }
                     }
