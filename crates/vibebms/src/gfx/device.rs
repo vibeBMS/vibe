@@ -2,14 +2,16 @@
 //! drawing a frame's batch.
 
 use super::batch::Vertex;
-use super::texture::GpuTexture;
-use super::{Batch, Color, SdfStyle, ATLAS, ATLAS_SIZE};
+use super::texture::{TexDevice, Texture};
+use super::{Batch, Color, Gfx, SdfStyle};
 use crate::config::GraphicsBackend;
 use crate::platform::{Duration, Instant};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-pub struct Gfx {
+/// What draws and presents frames; the textures they are drawn from are
+/// a [`Gfx`] made with it.
+pub struct Gpu {
     /// The window's (`None`: headless, drawn into a texture of
     /// `offscreen`).
     pub surface: Option<wgpu::Surface<'static>>,
@@ -25,11 +27,8 @@ pub struct Gfx {
     sdf_bind: wgpu::BindGroup,
     sdf_stride: u64,
     sdf_cap: u64,
-    pub(super) tex_layout: wgpu::BindGroupLayout,
     uniform_buf: wgpu::Buffer,
     uniform_bind: wgpu::BindGroup,
-    pub(super) sampler: wgpu::Sampler,
-    pub(super) textures: Vec<Option<GpuTexture>>,
     vbuf: wgpu::Buffer,
     vcap: u64,
     pub present_modes: Vec<wgpu::PresentMode>,
@@ -39,14 +38,14 @@ pub struct Gfx {
     capture_next: bool,
     capture: Option<super::capture::Pending>,
     pub adapter_name: String,
-    /// Set when the graphics API chosen did not start (`Gfx::new`).
+    /// Set when the graphics API chosen did not start (`Gpu::new`).
     pub fallback: Option<Fallback>,
     /// Told before each present (Wayland paces frames by it).
     window: Option<Arc<winit::window::Window>>,
 }
 
 /// The graphics API asked for could not start and another one did
-/// (`Gfx::new`): the app says so once and keeps the one that started.
+/// (`Gpu::new`): the app says so once and keeps the one that started.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fallback {
     pub wanted: GraphicsBackend,
@@ -54,7 +53,7 @@ pub struct Fallback {
     pub error: String,
 }
 
-impl Gfx {
+impl Gpu {
     /// Blocking constructor for native platforms: the graphics API chosen
     /// (`backend`), else the next one the platform has that starts
     /// (`attempts`); `fallback` then says which.
@@ -63,11 +62,11 @@ impl Gfx {
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
         backend: GraphicsBackend,
-    ) -> Result<Gfx, String> {
+    ) -> Result<(Gpu, Gfx), String> {
         let mut errors: Vec<(GraphicsBackend, String)> = Vec::new();
         for b in attempts(backend, &available_backends()) {
             match pollster::block_on(Self::create_with(window.clone(), mode, wgpu_backends(b))) {
-                Ok(mut g) => {
+                Ok((mut g, gfx)) => {
                     if let Some((_, e)) = errors.first() {
                         g.fallback = Some(Fallback {
                             wanted: backend,
@@ -75,7 +74,7 @@ impl Gfx {
                             error: e.clone(),
                         });
                     }
-                    return Ok(g);
+                    return Ok((g, gfx));
                 }
                 Err(e) => {
                     log::warn!("gpu: {} could not start: {e}", b.label());
@@ -95,7 +94,7 @@ impl Gfx {
     pub async fn create(
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
-    ) -> Result<Gfx, String> {
+    ) -> Result<(Gpu, Gfx), String> {
         Self::create_with(window, mode, wgpu::Backends::all()).await
     }
 
@@ -103,7 +102,7 @@ impl Gfx {
         window: Arc<winit::window::Window>,
         mode: crate::config::PresentMode,
         backends: wgpu::Backends,
-    ) -> Result<Gfx, String> {
+    ) -> Result<(Gpu, Gfx), String> {
         // (OpenGL on Linux presents through the window's display connection)
         let display: Box<dyn wgpu::wgt::WgpuHasDisplayHandle> = Box::new(window.clone());
         let desc = instance_desc(backends, Some(display));
@@ -166,9 +165,9 @@ impl Gfx {
         ))
     }
 
-    /// The pipelines, buffers and atlas for drawing on `device` into
-    /// images of `config` (`out`: the window's surface; without it,
-    /// headless).
+    /// The pipelines and buffers for drawing on `device` into images of
+    /// `config` (`out`: the window's surface; without it, headless), and
+    /// the textures (with the atlas) made on it.
     pub(super) fn with_device(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -176,7 +175,7 @@ impl Gfx {
         caps: &wgpu::SurfaceCapabilities,
         info: &wgpu::AdapterInfo,
         out: Option<(wgpu::Surface<'static>, Arc<winit::window::Window>)>,
-    ) -> Gfx {
+    ) -> (Gpu, Gfx) {
         let (surface, window) = out.unzip();
         let format = config.format;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -323,7 +322,13 @@ impl Gfx {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let mut g = Gfx {
+        let gfx = Gfx::new(TexDevice {
+            device: device.clone(),
+            queue: queue.clone(),
+            layout: tex_layout,
+            sampler,
+        });
+        let g = Gpu {
             surface,
             device,
             queue,
@@ -335,11 +340,8 @@ impl Gfx {
             sdf_bind,
             sdf_stride,
             sdf_cap,
-            tex_layout,
             uniform_buf,
             uniform_bind,
-            sampler,
-            textures: Vec::new(),
             vbuf,
             vcap,
             present_modes: caps.present_modes.clone(),
@@ -350,12 +352,7 @@ impl Gfx {
             fallback: None,
             window,
         };
-        // atlas: transparent (wgpu makes textures zeroed: nothing to
-        // upload) with a white block in the corner
-        let id = g.create_texture(ATLAS_SIZE, ATLAS_SIZE, &[]);
-        debug_assert_eq!(id, ATLAS);
-        g.update_texture(ATLAS, 0, 0, 4, 4, &[255; 4 * 4 * 4]);
-        g
+        (g, gfx)
     }
 
     pub fn width(&self) -> f32 {
@@ -432,11 +429,16 @@ impl Gfx {
             .then_some(self.config.desired_maximum_frame_latency as f64)
     }
 
-    /// Draw and present a frame; how long it waited for its image (with
+    /// Draw and present a frame (from `gfx`'s textures); how long it waited for its image (with
     /// FIFO, the display holding it back: Vulkan, DX12 and Metal wait
     /// there). An image that could not be had is an error, its frame not
     /// drawn (a covered window's, on macOS: none, quietly).
-    pub fn render(&mut self, batch: &Batch, clear: Color) -> Result<Duration, &'static str> {
+    pub fn render(
+        &mut self,
+        gfx: &Gfx,
+        batch: &Batch,
+        clear: Color,
+    ) -> Result<Duration, &'static str> {
         let t0 = Instant::now();
         let Some(surface) = self.surface.as_ref() else {
             return Ok(Duration::ZERO);
@@ -453,7 +455,7 @@ impl Gfx {
             C::Validation => return Err("the window's next image could not be had"),
         };
         let waited = t0.elapsed();
-        let mut enc = self.encode(batch, clear, &frame.texture);
+        let mut enc = self.encode(gfx, batch, clear, &frame.texture);
         let capture = match std::mem::take(&mut self.capture_next) {
             true if self.capture.is_none() => {
                 super::capture::copy(&self.device, &mut enc, &frame.texture)
@@ -478,6 +480,7 @@ impl Gfx {
     /// config's size and format) recorded.
     pub(super) fn encode(
         &mut self,
+        gfx: &Gfx,
         batch: &Batch,
         clear: Color,
         target: &wgpu::Texture,
@@ -543,7 +546,7 @@ impl Gfx {
             pass.set_vertex_buffer(0, self.vbuf.slice(..));
             let (sw, sh) = (self.config.width, self.config.height);
             for c in &batch.cmds {
-                let Some(Some(t)) = self.textures.get(c.tex) else {
+                let Some(Some(Texture { gpu: Some(t), .. })) = gfx.textures.get(c.tex) else {
                     continue;
                 };
                 match c.clip {

@@ -17,7 +17,7 @@ use crate::config::Config;
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, Text, TextStyle};
 use crate::gfx::theme;
-use crate::gfx::{rgba, with_alpha, Batch, Draw, Gfx, Rect};
+use crate::gfx::{rgba, with_alpha, Batch, Draw, Gfx, Gpu, Rect};
 use crate::input::{InputEv, Phase};
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant, Job};
@@ -31,6 +31,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 struct Running {
     window: Arc<Window>,
+    gpu: Gpu,
     gfx: Gfx,
     text: Text,
     batch: Batch,
@@ -90,7 +91,7 @@ struct Running {
 
 pub enum UserEvent {
     /// GPU initialisation finished (asynchronous in browsers).
-    GfxReady(Arc<Window>, Box<Result<Gfx, String>>),
+    GfxReady(Arc<Window>, Box<Result<(Gpu, Gfx), String>>),
     /// Hardware keyboard keys came in (`platform::ios::take_keys`).
     #[cfg(target_os = "ios")]
     Keys,
@@ -203,7 +204,7 @@ impl Running {
         if let Some(r) = self
             .shot_name
             .is_some()
-            .then(|| self.gfx.take_capture())
+            .then(|| self.gpu.take_capture())
             .flatten()
         {
             let name = self.shot_name.take().unwrap_or_default();
@@ -229,7 +230,7 @@ impl Running {
     /// The display paces the frames, uncapped, at a rate it tells (the
     /// web's browser paces them itself).
     fn vsync_paced(&self) -> bool {
-        self.gfx.vsync()
+        self.gpu.vsync()
             && self.ctx.config.display.max_fps == 0
             && self.refresh_hz > 0.0
             && !crate::platform::IS_WEB
@@ -430,7 +431,7 @@ impl Running {
                 .set_fullscreen(fs.then_some(Fullscreen::Borderless(None)));
         }
         if std::mem::take(&mut self.ctx.view.want_present_mode) {
-            self.gfx
+            self.gpu
                 .set_present_mode(self.ctx.config.display.present_mode);
         }
         let next = match self.scenes.last_mut() {
@@ -439,7 +440,7 @@ impl Running {
         };
         // scenes are drawn for when the frame will be shown, updated
         // (judged, sounds scheduled) for now
-        let shown = self.pacer.frame(now, self.gfx.frames_ahead());
+        let shown = self.pacer.frame(now, self.gpu.frames_ahead());
         self.apply(el, next);
         // in use again: heard from here (the scenes had their frame to stop
         // what played meanwhile), or a scene of play over or begun
@@ -478,7 +479,7 @@ impl Running {
         (self.ctx.toasts).retain(|(_, t)| now.duration_since(*t) < Duration::from_secs(4));
         draw_overlay(&self.ctx, &mut d, now);
         if std::mem::take(&mut self.ctx.view.want_screenshot) && self.shot_name.is_none() {
-            if self.gfx.request_capture() {
+            if self.gpu.request_capture() {
                 let label = self.scenes.last().map(|s| s.screenshot_label(&self.ctx));
                 let name = crate::app::screenshot::file_name(
                     &crate::app::screenshot::stamp(),
@@ -491,8 +492,8 @@ impl Running {
             }
         }
         let waited = self
-            .gfx
-            .render(&self.batch, theme::BACKGROUND)
+            .gpu
+            .render(&self.gfx, &self.batch, theme::BACKGROUND)
             .unwrap_or_else(|e| {
                 log::warn!("render: {e}");
                 Duration::ZERO
@@ -637,7 +638,7 @@ fn draw_overlay(ctx: &Ctx, d: &mut Draw, now: Instant) {
 }
 
 impl App {
-    fn init(&mut self, window: Arc<Window>, mut gfx: Gfx) {
+    fn init(&mut self, window: Arc<Window>, mut gpu: Gpu, gfx: Gfx) {
         diag::startup("graphics");
         let config = (self.launch.config.take())
             .unwrap_or_else(|| crate::profiles::load_config(&self.paths));
@@ -648,7 +649,7 @@ impl App {
         let size = {
             let (width, height) = surface_size(&window);
             // the renderer started from winit's idea of the size
-            gfx.resize(width, height);
+            gpu.resize(width, height);
             winit::dpi::PhysicalSize::new(width, height)
         };
         let screen = crate::platform::screen::detect(&window);
@@ -660,7 +661,7 @@ impl App {
             screen.guessed_inches(scale),
             screen.points_per_inch
         );
-        let view = crate::ctx::View::new(size, scale, screen, &gfx.adapter_name);
+        let view = crate::ctx::View::new(size, scale, screen, &gpu.adapter_name);
         // this launch's options (not saved)
         let overrides = std::mem::take(&mut self.launch.overrides);
         for l in overrides.describe() {
@@ -670,7 +671,7 @@ impl App {
         let mut ctx = Ctx::new(self.paths.clone(), profiles, config, overrides, mixer, view);
         // the graphics API chosen did not start: the one that did is kept
         // (saved below), and said once
-        if let Some(f) = gfx.fallback.take() {
+        if let Some(f) = gpu.fallback.take() {
             log::error!(
                 "gpu: {} could not start ({}); {} is used and kept",
                 f.wanted.label(),
@@ -713,6 +714,7 @@ impl App {
         pacer.set_refresh(refresh_hz);
         self.run = Some(Running {
             window,
+            gpu,
             gfx,
             text,
             batch: Batch::default(),
@@ -756,7 +758,7 @@ impl ApplicationHandler<UserEvent> for App {
     fn user_event(&mut self, el: &ActiveEventLoop, ev: UserEvent) {
         match ev {
             UserEvent::GfxReady(window, gfx) => match *gfx {
-                Ok(gfx) => self.init(window, gfx),
+                Ok((gpu, gfx)) => self.init(window, gpu, gfx),
                 Err(e) => {
                     log::error!("graphics init failed: {e}");
                     el.exit();
@@ -842,13 +844,13 @@ impl ApplicationHandler<UserEvent> for App {
         {
             let proxy = self.proxy.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let g = Gfx::create(window.clone(), mode).await;
+                let g = Gpu::create(window.clone(), mode).await;
                 let _ = proxy.send_event(UserEvent::GfxReady(window, Box::new(g)));
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
-        match Gfx::new(window.clone(), mode, backend) {
-            Ok(g) => self.init(window, g),
+        match Gpu::new(window.clone(), mode, backend) {
+            Ok((gpu, gfx)) => self.init(window, gpu, gfx),
             Err(e) => {
                 log::error!("graphics init failed: {e}");
                 el.exit();

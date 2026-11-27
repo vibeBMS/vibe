@@ -400,7 +400,7 @@ pub fn export_video(
     let size = winit::dpi::PhysicalSize::new(w, h);
     let view = crate::ctx::View {
         fps: fps as f32,
-        ..crate::ctx::View::new(size, 1.0, screen, &off.gfx.adapter_name)
+        ..crate::ctx::View::new(size, 1.0, screen, &off.gpu.adapter_name)
     };
     let profiles = crate::profiles::Profiles::open(paths);
     let mut ctx = Ctx::new(
