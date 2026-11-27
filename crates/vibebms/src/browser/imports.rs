@@ -86,3 +86,42 @@ fn ask_folder(ctx: &mut Ctx, chart: &Path, _folders: &[(PathBuf, String)]) -> bo
     ));
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::import::Imported;
+    use std::sync::atomic::Ordering;
+
+    fn toasts(ctx: &Ctx) -> Vec<String> {
+        ctx.toasts.iter().map(|(t, _)| t.clone()).collect()
+    }
+
+    /// What an import says is shown, in order, before the rest of it is
+    /// acted on (the song's page, the scan).
+    #[test]
+    fn what_an_import_says_comes_first() {
+        let root = std::env::temp_dir().join(format!("vibebms-imports-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let done = || -> ImportResult {
+            let song = root.join("bms/Song");
+            Ok((
+                Imported::Unpacked(song, 3),
+                vec![root.join("downloads/b.bme")],
+            ))
+        };
+        let said = import::report(done()).said;
+        assert_eq!(said.len(), 2);
+        let imports = Imports::default();
+        imports.tx.send(done()).unwrap();
+        let mut shown = None;
+        imports.poll(&mut ctx, |ctx| shown = Some(toasts(ctx)));
+        assert_eq!(shown.as_ref(), Some(&said));
+        assert_eq!(toasts(&ctx), said);
+        let scan = ctx.lib.scan.clone().expect("the library scanned");
+        while !scan.done.load(Ordering::Acquire) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
