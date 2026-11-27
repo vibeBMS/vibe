@@ -144,7 +144,7 @@ pub(super) fn rows(b: &mut Rows) {
                 };
                 let i = (i + d).rem_euclid(3);
                 (a.preview, a.preview_once) = (i < 2, i == 0);
-                c.audio.mixer.stop(crate::scene::select::PREVIEW_KEY);
+                c.audio.mixer.stop(crate::audio::PREVIEW_KEY);
             },
         )
         .desc(tr!("Play the chart's preview in the song select: LOOP, ONCE or OFF.")),

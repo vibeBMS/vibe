@@ -17,8 +17,6 @@ use std::sync::Arc;
 use vibebms_audio::{Bus, PlayOptions};
 use vibebms_ir::lamps::RankView;
 
-pub const PREVIEW_KEY: u64 = u64::MAX - 1;
-
 /// How long the cursor rests before the preview plays, the ranking is
 /// asked for and the banner is decoded.
 const PREVIEW_AFTER: Duration = Duration::from_millis(450);
@@ -64,14 +62,6 @@ fn preview_file(song: &Song) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
-/// The image a chart names (`#STAGEFILE`, `#BANNER`, `#BACKBMP`) in its
-/// song's folder `dir`, trying common extension substitutions. The name
-/// is the chart author's text: one that leaves the folder finds nothing
-/// ([`vfs::inside`], which the lookup starts with).
-pub fn resolve_image(dir: &Path, name: &str) -> Option<PathBuf> {
-    vfs::find_by_stem(dir, name, vfs::IMAGE_EXTS)
-}
-
 impl SelectScene {
     /// The sound set's BGM while no song preview plays, and the option
     /// panels' open / close sounds.
@@ -103,7 +93,7 @@ impl SelectScene {
 
     /// The preview and the BGM stop (another screen comes).
     pub(super) fn stop_sounds(&mut self, ctx: &mut Ctx) {
-        ctx.audio.mixer.stop(PREVIEW_KEY);
+        ctx.audio.mixer.stop(crate::audio::PREVIEW_KEY);
         self.preview_for = None;
         self.preview_until = None;
         self.preview_wait = false;
@@ -127,7 +117,7 @@ impl SelectScene {
             let gain = crate::audio::loudness::chart_target(&ctx.config.audio)
                 .map_or(1.0, |t| crate::audio::loudness::gain(&l, t));
             let opts = PlayOptions {
-                key: PREVIEW_KEY,
+                key: crate::audio::PREVIEW_KEY,
                 bus: Bus::Bgm,
                 volume: 0.8 * gain,
                 looping: !once,
@@ -277,59 +267,8 @@ impl SelectScene {
         }
         self.free_banner(gfx);
         self.banner_job = want
-            .and_then(|(dir, img)| resolve_image(dir, img))
+            .and_then(|(dir, img)| crate::library::chart_image(dir, img))
             .map(|rp| ImageJobs::start(vec![rp], None));
         self.banner = key.map(|p| (p, None));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `#STAGEFILE` / `#BANNER` are looked for in the song's folder only,
-    /// whatever screen asks.
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn a_chart_image_is_in_its_songs_folder() {
-        let root = std::env::temp_dir().join(format!("vibebms-chartimg-{}", std::process::id()));
-        let dir = root.join("bms/Song");
-        std::fs::create_dir_all(dir.join("img")).unwrap();
-        for f in ["secret.png", "bms/other.png", "bms/Song/bg.png"] {
-            std::fs::write(root.join(f), b"x").unwrap();
-        }
-        std::fs::write(dir.join("img/Title.JPG"), b"x").unwrap();
-        let found = |name: &str| resolve_image(&dir, name);
-        assert_eq!(found("bg.png"), Some(dir.join("bg.png")));
-        assert_eq!(found("BG.bmp"), Some(dir.join("bg.png")));
-        assert_eq!(found("img\\title.bmp"), Some(dir.join("img/Title.JPG")));
-        let outside = root.join("secret.png");
-        for bad in [
-            "../other.png",
-            "../../secret.png",
-            "img/../../other.png",
-            outside.to_str().unwrap(),
-            "\\\\host\\share\\a.png",
-            "//host/share/a.png",
-            "",
-        ] {
-            assert_eq!(found(bad), None, "{bad}");
-        }
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    /// A song in an archive: its images are the archive's files.
-    #[test]
-    fn a_chart_image_in_an_archive() {
-        use crate::platform::arcfs;
-        let pack = Path::new("/vibebms-chartimg/pack.zip");
-        let files = ["Song/a.bms", "Song/bg.png", "top.png"]
-            .iter()
-            .map(|p| (PathBuf::from(p), 1))
-            .collect();
-        arcfs::set_index(pack, arcfs::Index::new((0, 0), "zip", files));
-        let dir = arcfs::join(pack, Path::new("Song"));
-        assert_eq!(resolve_image(&dir, "bg.bmp"), Some(dir.join("bg.png")));
-        assert_eq!(resolve_image(&dir, "../top.png"), None);
     }
 }

@@ -17,7 +17,7 @@ use super::options::{self, SelectOption};
 use super::preview::Rank;
 use super::status::{self, Keep, SIBLINGS};
 use super::tree::{table, Bar, BulkBar, Node};
-use super::{SelectScene, REFERENCE_BPMS};
+use super::SelectScene;
 use crate::config::{Bpms, HiSpeedMode, KeyFilter, RandomSelect, SortMode};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
@@ -315,7 +315,7 @@ impl<'a> SelectState<'a> {
             song,
             best: song.and_then(|s| ctx.best(s, ctx.config.play.ln_pref())),
             chart: song.map(ChartFacts::of_song),
-            bpms: song.map_or(REFERENCE_BPMS, Bpms::of_song),
+            bpms: song.map_or(Bpms::REFERENCE, Bpms::of_song),
             rank: song.and_then(|x| s.ranking.get(&x.sha256)),
             beside: ctx.net.ir.beside(&ctx.config.ir),
             local: match &ctx.config.ir.beside {

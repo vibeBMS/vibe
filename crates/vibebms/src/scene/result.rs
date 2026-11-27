@@ -413,7 +413,7 @@ impl Scene for ResultScene {
             let dir = std::path::Path::new(&self.d.request.song.path)
                 .parent()
                 .unwrap_or(std::path::Path::new(""));
-            self.stage_tex = crate::scene::select::resolve_image(dir, &self.d.meta.stagefile)
+            self.stage_tex = crate::library::chart_image(dir, &self.d.meta.stagefile)
                 .and_then(|rp| crate::gfx::ImageTex::load(gfx, &rp, &|_| {}));
             let kind = if self.d.course_total {
                 SkinType::CourseResult

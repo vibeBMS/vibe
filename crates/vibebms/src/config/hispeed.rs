@@ -16,6 +16,16 @@ pub struct Bpms {
 }
 
 impl Bpms {
+    /// The BPMs hi-speeds are shown and set for without a chart
+    /// (beatoraja's 150).
+    pub const REFERENCE: Bpms = Bpms {
+        start: 150.0,
+        min: 150.0,
+        max: 150.0,
+        main: 150.0,
+        now: None,
+    };
+
     /// One BPM for all (a chart without changes, or a reference).
     pub fn flat(bpm: f64) -> Bpms {
         Bpms {

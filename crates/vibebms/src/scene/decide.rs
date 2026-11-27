@@ -195,7 +195,7 @@ impl Scene for DecideScene {
                 .unwrap_or(std::path::Path::new(""))
                 .to_path_buf();
             let mut load = |name: &str| {
-                super::select::resolve_image(&dir, name)
+                crate::library::chart_image(&dir, name)
                     .and_then(|p| ImageTex::load(gfx, &p, &|_| {}))
             };
             self.stage_tex = load(&song.stagefile);

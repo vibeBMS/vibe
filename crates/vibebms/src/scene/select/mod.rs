@@ -11,7 +11,6 @@ mod skin;
 mod status;
 mod tree;
 
-pub use preview::{resolve_image, PREVIEW_KEY};
 pub(crate) use skin::SelectState;
 #[cfg(test)]
 pub(crate) use tree::Missing;
@@ -34,16 +33,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tree::Distribution;
-
-/// The BPMs hi-speeds are shown and set for without a chart (beatoraja's
-/// 150).
-pub(crate) const REFERENCE_BPMS: Bpms = Bpms {
-    start: 150.0,
-    min: 150.0,
-    max: 150.0,
-    main: 150.0,
-    now: None,
-};
 
 /// Time constant (s) of the list easing toward the cursor: 30 % of the
 /// way per 1/60 s.
@@ -244,7 +233,7 @@ impl SelectScene {
             .map(|(_, s)| std::path::PathBuf::from(&s.path));
         crate::platform::vfs::keep_song(chosen.as_deref());
         if self.preview_for.take().is_some() {
-            ctx.audio.mixer.stop(preview::PREVIEW_KEY);
+            ctx.audio.mixer.stop(crate::audio::PREVIEW_KEY);
         }
         self.preview_until = None;
         self.preview_wait = false;
@@ -271,10 +260,10 @@ impl SelectScene {
         }
     }
 
-    /// The selected chart's BPMs, else [`REFERENCE_BPMS`].
+    /// The selected chart's BPMs, else [`Bpms::REFERENCE`].
     fn bpms(&self, ctx: &Ctx) -> Bpms {
         self.selected_song(ctx)
-            .map_or(REFERENCE_BPMS, |(_, s)| Bpms::of_song(s))
+            .map_or(Bpms::REFERENCE, |(_, s)| Bpms::of_song(s))
     }
 
     /// The list wraps around: scroll the short way to the cursor, the same
@@ -399,7 +388,7 @@ impl Scene for SelectScene {
     }
 
     fn exit(&mut self, ctx: &mut Ctx, gfx: &mut Gfx) {
-        ctx.audio.mixer.stop(preview::PREVIEW_KEY);
+        ctx.audio.mixer.stop(crate::audio::PREVIEW_KEY);
         self.stop_bgm(ctx);
         self.host.free(gfx);
         self.free_banner(gfx);
