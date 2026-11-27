@@ -645,8 +645,9 @@ impl Ctx {
 
     /// What the background work did since the last frame.
     pub fn poll_jobs(&mut self) {
-        let mut events = self.net.archives.poll(&self.paths);
-        events.extend(self.net.song_fetch.poll());
+        let archives = self.net.archives.poll(&self.paths);
+        let mut events: Vec<AppEvent> = archives.into_iter().map(AppEvent::from).collect();
+        events.extend(self.net.song_fetch.poll().into_iter().map(AppEvent::from));
         if crate::bulk::tick(
             &mut self.net.bulk,
             &mut self.net.song_fetch,
@@ -659,9 +660,11 @@ impl Ctx {
             self.lib.version += 1;
         }
         events.extend(self.net.updater.poll().into_iter().map(AppEvent::Toast));
-        events.extend(self.skins.store.poll(&self.paths));
+        let skins = self.skins.store.poll(&self.paths);
+        events.extend(skins.into_iter().map(AppEvent::from));
         let now = crate::platform::unix_ms();
-        events.extend(self.net.ir.poll(now, &mut self.config.ir));
+        let ir = self.net.ir.poll(now, &mut self.config.ir);
+        events.extend(ir.into_iter().map(AppEvent::from));
         self.handle(events);
         crate::scene::skinned::settle(self, crate::platform::Instant::now());
         self.poll_scan();

@@ -1,6 +1,7 @@
 //! What the background work reports, for the shared state to act on.
 
-/// What a background subsystem's `poll` reports, for the app to act on.
+/// What a background subsystem's `poll` reports (a service's own report
+/// made one of these), for `Ctx` to act on.
 #[derive(Debug, PartialEq)]
 pub enum AppEvent {
     Toast(String),
@@ -22,4 +23,49 @@ pub enum AppEvent {
     /// The player's own scores read from an IR: to be taken into the
     /// records (`ir::download`).
     IrScores(Box<crate::ir::download::Download>),
+}
+
+impl From<crate::archive::Polled> for AppEvent {
+    fn from(p: crate::archive::Polled) -> AppEvent {
+        use crate::archive::Polled as P;
+        match p {
+            P::Toast(s) => AppEvent::Toast(s),
+            P::Rescan => AppEvent::Rescan,
+            P::Browse(url) => AppEvent::Browse(url),
+            P::LibraryChanged => AppEvent::LibraryChanged,
+        }
+    }
+}
+
+impl From<crate::songfetch::Polled> for AppEvent {
+    fn from(p: crate::songfetch::Polled) -> AppEvent {
+        use crate::songfetch::Polled as P;
+        match p {
+            P::Toast(s) => AppEvent::Toast(s),
+            P::Rescan => AppEvent::Rescan,
+            P::Browse(url) => AppEvent::Browse(url),
+        }
+    }
+}
+
+impl From<crate::skinstore::Polled> for AppEvent {
+    fn from(p: crate::skinstore::Polled) -> AppEvent {
+        use crate::skinstore::Polled as P;
+        match p {
+            P::Toast(s) => AppEvent::Toast(s),
+            P::SkinsChanged => AppEvent::SkinsChanged,
+            P::OpenUrl(url) => AppEvent::OpenUrl(url),
+        }
+    }
+}
+
+impl From<crate::ir::Polled> for AppEvent {
+    fn from(p: crate::ir::Polled) -> AppEvent {
+        use crate::ir::Polled as P;
+        match p {
+            P::Toast(s) => AppEvent::Toast(s),
+            P::Changed => AppEvent::IrChanged,
+            P::Scores(d) => AppEvent::IrScores(d),
+        }
+    }
 }

@@ -3,7 +3,6 @@
 //! web through the vibeBMS proxy, unpacked / placed in memory. A link that
 //! leads to a page instead opens it in the browser.
 
-use crate::ctx::AppEvent;
 use crate::library::Song;
 use crate::platform::Job;
 use bmseeker::progress::{Progress, Stage};
@@ -27,6 +26,16 @@ impl SongId {
             artist: artist.to_string(),
         }
     }
+}
+
+/// What [`SongFetch::poll`] reports, in order.
+#[derive(Debug, PartialEq)]
+pub enum Polled {
+    Toast(String),
+    /// Files came into the library: scan it again.
+    Rescan,
+    /// A song's download page, which needs a person.
+    Browse(String),
 }
 
 #[derive(Default)]
@@ -298,7 +307,7 @@ impl SongFetch {
     }
 
     /// What the songs that finished since the last call brought.
-    pub fn poll(&mut self) -> Vec<AppEvent> {
+    pub fn poll(&mut self) -> Vec<Polled> {
         let mut done = Vec::new();
         self.jobs.retain_mut(|(id, job, quiet)| match job.poll() {
             Some(d) => {
@@ -320,7 +329,7 @@ impl SongFetch {
             if quiet {
                 // (the library read again for what came)
                 if bmseeker::install::got(&d) {
-                    out.push(AppEvent::Rescan);
+                    out.push(Polled::Rescan);
                 }
                 let o = Outcome::of(&d, p.cancelled());
                 self.ended.push((id.title, id.artist, o));
@@ -333,37 +342,37 @@ impl SongFetch {
 }
 
 /// What to tell of a link of the song `title`, and do.
-fn events(title: &str, d: Done) -> Vec<AppEvent> {
+fn events(title: &str, d: Done) -> Vec<Polled> {
     use bmseeker::fs::file_name as name;
-    let toast = |s: String| vec![AppEvent::Toast(s)];
+    let toast = |s: String| vec![Polled::Toast(s)];
     match d {
         Done::Added(dir, n) => vec![
-            AppEvent::Toast(tr!("Added {name} ({n} files)", name = name(&dir), n = n)),
-            AppEvent::Rescan,
+            Polled::Toast(tr!("Added {name} ({n} files)", name = name(&dir), n = n)),
+            Polled::Rescan,
         ],
         // (files its folder lacked may have come in)
         Done::Owned(dir) => vec![
-            AppEvent::Toast(tr!(
+            Polled::Toast(tr!(
                 "{title}: already installed ({folder})",
                 title = title,
                 folder = name(&dir)
             )),
-            AppEvent::Rescan,
+            Polled::Rescan,
         ],
         Done::Placed(p) => {
             let dir = p.parent().map(name).unwrap_or_default();
             vec![
-                AppEvent::Toast(format!("{} → {dir}", name(&p))),
-                AppEvent::Rescan,
+                Polled::Toast(format!("{} → {dir}", name(&p))),
+                Polled::Rescan,
             ]
         }
         Done::Waiting(p) => toast(tr!("{name}: download its song too", name = name(&p))),
         Done::Page(url) => vec![
-            AppEvent::Toast(tr!(
+            Polled::Toast(tr!(
                 "{title}: no direct download, opening its page",
                 title = title
             )),
-            AppEvent::Browse(url),
+            Polled::Browse(url),
         ],
         // (cancelled: said when it was)
         Done::Failed(e) if e.cancelled() => Vec::new(),

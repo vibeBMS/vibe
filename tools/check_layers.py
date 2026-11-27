@@ -48,12 +48,7 @@ LAYERS = [
 ]
 
 # (from module or the modules under it, to module, items, why it stays)
-EVENT = "what a service has done reaches the shared state as an AppEvent"
 UPWARD = [
-    ("archive", "ctx", ["AppEvent"], EVENT),
-    ("ir", "ctx", ["AppEvent"], EVENT),
-    ("skinstore", "ctx", ["AppEvent"], EVENT),
-    ("songfetch", "ctx", ["AppEvent"], EVENT),
     ("ctx", "scene::skinned", ["settle"], "a skin being tried is settled as the background work is polled"),
     ("i18n", "platform::android", ["locale"],
      "AUTO's language on Android is the Java locale; passing the system's locale in from the start instead "
