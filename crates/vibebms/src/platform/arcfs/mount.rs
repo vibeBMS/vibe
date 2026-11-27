@@ -207,7 +207,7 @@ pub fn read(archive: &Path, rel: &Path) -> io::Result<Arc<Vec<u8>>> {
         }
     }
     let want = |r: &Path| r == rel;
-    let cap = size.max(1) << 1;
+    let cap = size.max(1).saturating_mul(2);
     let u = unpack(archive, &want, false, Some(1), &Dest::Memory, cap)?;
     let b = (u.files.into_iter().next())
         .map(|(_, b)| Arc::new(b))
@@ -283,9 +283,11 @@ pub fn retain(chart: Option<&Path>) {
 /// Unpack the files below `folder` in `archive`.
 fn mount(archive: &Path, folder: &Path, stamp: (i64, i64)) -> io::Result<Mount> {
     let ix = index(archive, true).ok_or_else(|| not_found(archive, folder))?;
-    let (count, total) = ix
-        .below(folder)
-        .fold((0usize, 0u64), |(c, t), (_, n)| (c + 1, t + n));
+    // (sizes an archive states: their sum held at the largest, which no
+    // song is unpacked at)
+    let (count, total) = ix.below(folder).fold((0usize, 0u64), |(c, t), (_, n)| {
+        (c + 1, t.saturating_add(*n))
+    });
     let want = |r: &Path| r.starts_with(folder);
     log::info!(
         "{}: unpacking {} ({count} files, {} MB)",
@@ -367,7 +369,7 @@ fn memory_files(
         false,
         Some(count),
         &Dest::Memory,
-        total + (16 << 20),
+        total.saturating_add(16 << 20),
     )?;
     Ok(Files::Memory(
         u.files.into_iter().map(|(p, b)| (p, Arc::new(b))).collect(),
@@ -443,6 +445,15 @@ mod tests {
         assert_eq!(e.kind(), FileTooLarge, "{e}");
         assert!(e.to_string().contains("huge.zip"), "{e}");
         assert!(!is_ready(&zip, Path::new("HugeSong/a.bms")));
+        // sizes whose sum is more than a number holds
+        let listed = [("HugeSong/a.bms", 1 << 63), ("HugeSong/a.wav", 1 << 63)]
+            .into_iter()
+            .map(|(p, n)| (PathBuf::from(p), n))
+            .collect();
+        let ix = super::super::Index::new(vfs::stamp(&zip), "zip", listed);
+        super::super::set_index(&zip, ix);
+        let e = prepare(std::slice::from_ref(&chart)).unwrap_err();
+        assert_eq!(e.kind(), FileTooLarge, "{e}");
         // (the folder songs are unpacked in is the run's: other tests' too)
         let work = state().work.clone().unwrap();
         let left = std::fs::read_dir(&work)

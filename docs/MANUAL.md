@@ -334,8 +334,10 @@ played without unpacking it yourself.
   in it: `bms/packs/pack.zip!/Song/chart.bme`. That path also plays from the command line. Song select lists an
   archive right in a library folder as a folder of its own.
 - An archive is read when it is new or its size or time changed: its list of files goes into `cache/archives.json`,
-  and only its charts are read. A 7z, RAR, LZH or tar (solid ones and gzip-compressed tars included) is decoded from
-  the start once. An unchanged archive is not opened by the scan.
+  and only its charts are read. A 7z, a solid RAR and a `.tar.gz` are decoded from the start once; a zip is listed
+  from its directory, and an LZH, a tar and a RAR that is not solid from their files' headers, without decoding
+  what is not a chart. The sizes listed are the ones the archive gives (a file whose size a RAR does not give is
+  decoded to count it). An unchanged archive is not opened by the scan.
 - Playing a chart unpacks its song (the folder that holds the chart, with its sub-folders) once: into memory, or
   into `cache/unpacked/` (emptied at start) when it is larger than 512 MB (32 MB on Android and iOS). It is kept
   while the song stays chosen and let go when another is chosen.
@@ -344,8 +346,11 @@ played without unpacking it yourself.
 - Nothing is written into an archive: song downloads take a song in an archive for not installed, and a separate
   chart for it is not put into it. A chart that is also a file of its own (the archive unpacked beside it) is listed
   once, as the file.
-- Not read: archives in an archive, encrypted archives, tars compressed other than with gzip (`.tar.xz`, `.tar.bz2`,
-  `.tar.zst`).
+- Not read: archives in an archive, encrypted archives (in a zip, its encrypted files; the others are), tars
+  compressed other than with gzip (`.tar.xz`, `.tar.bz2`, `.tar.zst`), a file more than 32 folders deep, and a zip
+  joined after another (only the first is read, if at all). A zip's file whose header beside its data names another
+  file, method or encryption than its directory does cannot be read, nor its song played (a chart so stored
+  leaves its archive out).
 - Limits, as an archive can say or hold anything. An archive is left out (the log says why; it is read again when it
   changes) when its charts are more than 1 GB in all (256 MB on phones and the web), when it lists more than
   1,000,000 files (250,000), or when a 7z, RAR, LZH or tar decodes to more than 64 GB. A chart larger than a chart
