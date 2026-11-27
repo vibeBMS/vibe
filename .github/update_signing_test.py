@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Tests of how .github/workflows/ci.yml writes, signs, checks and publishes latest.json and the other
-files of the nightly (the steps "write latest.json" of update-manifest, "sign latest.json" of
-sign-update, "check the signature" of verify-update, "the web build's SHA-256" of web, and "files",
-"check the files", "builds.json" and "release" of the nightly job), run as the workflow runs them,
+"""Tests of how .github/workflows/ci.yml writes, signs, checks and publishes latest.json, the site and the
+other files of the nightly (the steps "write latest.json" of update-manifest, "sign latest.json" of
+sign-update, "check the signature" of verify-update, "the web build's SHA-256" of web, "check the web
+build" of pages and the nightly job, and "files", "check the files", "builds.json" and "release" of the
+nightly job), run as the workflow runs them,
 with the runner's ssh-keygen, a key made for the test and stand-ins for gh and git:
 python3 .github/update_signing_test.py (CI's test job runs it)."""
 import hashlib
@@ -24,9 +25,9 @@ def indent(line):
     return len(line) - len(line.lstrip())
 
 
-def step_at(name):
-    """The line where the step `name` starts, and the line after its last."""
-    at = LINES.index(next(l for l in LINES if l.strip() == f"- name: {name}"))
+def step_at(name, start=0):
+    """The line where the step `name` starts (the first at or after line `start`), and the line after its last."""
+    at = next(i for i in range(start, len(LINES)) if LINES[i].strip() == f"- name: {name}")
     end = next(i for i in range(at + 1, len(LINES)) if LINES[i].strip() and (
         indent(LINES[i]) < indent(LINES[at]) or (indent(LINES[i]) == indent(LINES[at]) and LINES[i].lstrip()[0] in "-#")))
     return at, end
@@ -44,48 +45,68 @@ def step(name):
     return textwrap.dedent("\n".join(body)).rstrip("\n") + "\n"
 
 
-def key_of(name, key):
-    """The value of `key:` in the step `name`, as written (with its anchor or as an alias)."""
-    at, end = step_at(name)
+def job_at(job):
+    return LINES.index(f"  {job}:")
+
+
+def key_of(name, key, job=None):
+    """The value of `key:` in the step `name` (of the job `job`), as written (with its anchor or as an alias)."""
+    at, end = step_at(name, job_at(job) if job else 0)
     return next(l.strip()[len(key) + 1:].strip() for l in LINES[at:end] if l.strip().startswith(f"{key}:"))
 
 
 def job_lines(job):
     """The lines of the job `job`."""
-    at = LINES.index(f"  {job}:")
+    at = job_at(job)
     end = next((i for i in range(at + 1, len(LINES)) if LINES[i].strip() and indent(LINES[i]) <= 2
                 and not LINES[i].lstrip().startswith("#")), len(LINES))
     return LINES[at:end]
+
+
+def expand(lines):
+    """`lines` with the block each alias (`key: *name`) stands for after it."""
+    out = []
+    for line in lines:
+        out.append(line)
+        m = re.fullmatch(r"\s*(?:- )?[\w-]+: \*([\w-]+)", line)
+        if m:
+            at = next(i for i, l in enumerate(LINES) if re.search(rf": &{m.group(1)}( |$)", l))
+            out += [l for l in LINES[at + 1:next(i for i in range(at + 1, len(LINES))
+                                                 if LINES[i].strip() and indent(LINES[i]) <= indent(LINES[at]))]]
+    return out
 
 
 MANIFEST = step("write latest.json")
 SIGN = step("sign latest.json")
 CHECK = step("check the signature")
 WEB = step("the web build's SHA-256")
+CHECK_WEB = step("check the web build")
 FILES_STEP = step("files")
 FILES = step("check the files")
 BUILDS = step("builds.json")
 RELEASE = step("release")
 
 # the executables update-manifest takes: (artifact, file in it, name in the release, the job that
-# builds it, which gives its SHA-256 as its output sha256-<artifact>)
-EXECUTABLES = [(t, "vibebms", f"vibebms-{t}", job) for t, job in (
-    ("linux-x64", "build-linux"), ("linux-arm64", "build-linux"),
-    ("linux-x64-portable", "build-linux-portable"), ("linux-arm64-portable", "build-linux-portable"),
-    ("macos-arm64", "macos"), ("macos-x64", "macos"))]
-EXECUTABLES += [(t, "vibebms.exe", f"vibebms-{t}.exe", "build-windows") for t in ("windows-x64", "windows-arm64")]
-EXECUTABLES += [("macos-universal", "vibebms-macos-universal.app.zip", "vibebms-macos-universal.app.zip", "macos")]
+# builds it, the output it gives its SHA-256 as)
+EXECUTABLES = [(t, "vibebms", f"vibebms-{t}", f"build-{t}", "sha256")
+               for t in ("linux-x64", "linux-arm64", "linux-x64-portable", "linux-arm64-portable")]
+EXECUTABLES += [(t, "vibebms", f"vibebms-{t}", "macos", f"sha256-{t}") for t in ("macos-arm64", "macos-x64")]
+EXECUTABLES += [(t, "vibebms.exe", f"vibebms-{t}.exe", f"build-{t}", "sha256") for t in ("windows-x64", "windows-arm64")]
+EXECUTABLES += [("macos-universal", "vibebms-macos-universal.app.zip", "vibebms-macos-universal.app.zip", "macos",
+                 "sha256-macos-universal")]
 # the other files the nightly publishes as a job uploaded them: (artifact, file, job, its output)
 PACKAGES = [
-    ("linux-x64-flatpak", "vibeBMS-linux-x64.flatpak", "build-linux", "sha256-linux-x64-flatpak"),
-    ("linux-arm64-flatpak", "vibeBMS-linux-arm64.flatpak", "build-linux", "sha256-linux-arm64-flatpak"),
+    ("linux-x64-flatpak", "vibeBMS-linux-x64.flatpak", "build-linux-x64", "sha256-flatpak"),
+    ("linux-arm64-flatpak", "vibeBMS-linux-arm64.flatpak", "build-linux-arm64", "sha256-flatpak"),
     ("macos-dmg", "vibeBMS-macos-universal.dmg", "macos-dmg", "sha256"),
     ("ios-unsigned", "vibeBMS-unsigned.ipa", "ios", "sha256"),
     ("android", "vibeBMS.apk", "android-sign", "sha256"),
 ]
-# the matrix jobs' legs: each sets the outputs of its own name
-MATRIX = {"build-linux": ["linux-x64", "linux-arm64"], "build-windows": ["windows-x64", "windows-arm64"],
-          "build-linux-portable": ["linux-x64-portable", "linux-arm64-portable"]}
+# the jobs of one build, an architecture each (each a matrix of one, its steps an alias of the first's), and the
+# job name their cache keys keep
+SPLIT = {"build-linux": ["build-linux-x64", "build-linux-arm64"],
+          "build-windows": ["build-windows-x64", "build-windows-arm64"],
+          "build-linux-portable": ["build-linux-x64-portable", "build-linux-arm64-portable"]}
 
 # gh as the steps call it: `release download nightly -p <name> -D <dir>` copies <name> from
 # $GH_RELEASE (failing when it is not there); every call is logged to $GH_LOG
@@ -284,13 +305,12 @@ class ManifestJob(Base):
         (self.job / "tools").mkdir(parents=True)
         (self.job / "Cargo.toml").write_text('[package]\nname = "vibebms"\nversion = "0.1.0-dev"\n')
         # what each build job uploaded, and the SHA-256 it gave of it
-        self.outputs = {job: {} for job in ("build-linux", "build-windows", "build-linux-portable", "macos")}
-        for artifact, name, _, job in EXECUTABLES:
+        self.outputs = {}
+        for artifact, name, _, job, out in EXECUTABLES:
             d = self.job / "art" / f"vibeBMS-{artifact}"
             d.mkdir(parents=True, exist_ok=True)
             (d / name).write_bytes(f"the {artifact} build".encode())
-            (d / "version.txt").write_text("0.1.0-nightly.42+abcdef0\n")
-            self.outputs[job][f"sha256-{artifact}"] = sha256(d / name)
+            self.outputs.setdefault(job, {})[out] = sha256(d / name)
         self.release = self.dir / "release"
         self.release.mkdir()
 
@@ -329,8 +349,8 @@ class ManifestJob(Base):
     def assert_nightly_is_this_run(self, channels):
         self.assertEqual(channels["nightly"]["version"], "0.1.0-nightly.42+abcdef0")
         files = channels["nightly"]["files"]
-        self.assertEqual(sorted(files), sorted(n for _, _, n, _ in EXECUTABLES))
-        for artifact, _, name, _ in EXECUTABLES:
+        self.assertEqual(sorted(files), sorted(n for _, _, n, _, _ in EXECUTABLES))
+        for artifact, _, name, _, _ in EXECUTABLES:
             content = f"the {artifact} build".encode()
             self.assertEqual(files[name], {"version": "0.1.0-nightly.42+abcdef0",
                                            "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)})
@@ -398,6 +418,33 @@ class Manifest(ManifestJob):
 
 
 
+    def test_the_version_is_the_runs(self):
+        # an artifact with a version.txt (another job's: a lower version would hide this nightly, a higher one show a
+        # wrong number) changes nothing in latest.json
+        for artifact, _, _, _, _ in EXECUTABLES:
+            (self.job / "art" / f"vibeBMS-{artifact}" / "version.txt").write_text("0.1.0-nightly.1+0000000\n")
+        channels = self.manifest()
+        self.assert_nightly_is_this_run(channels)
+        self.assertNotIn("nightly.1+", json.dumps(channels))
+
+    def test_the_version_is_the_one_the_builds_were_given(self):
+        # update-manifest makes it as tools/ci_version.sh makes the builds' (the commit's Cargo.toml, run, commit)
+        root = WORKFLOW.parents[2]
+        work = self.dir / "repo"
+        (work / "tools").mkdir(parents=True)
+        for f in ("Cargo.toml", "Cargo.lock"):
+            shutil.copy(root / f, work / f)
+        shutil.copy(root / "tools" / "ci_version.sh", work / "tools")
+        shutil.copy(work / "Cargo.toml", self.job / "Cargo.toml")
+        given = subprocess.run(["bash", str(work / "tools" / "ci_version.sh"), "42", "abcdef0123456789abcdef0123456789abcdef01"],
+                               capture_output=True, text=True, check=True, env={**os.environ, "GITHUB_ENV": ""}).stdout
+        version = re.search(r"^export VIBEBMS_VERSION=(\S+)$", given, re.M).group(1)
+        r = self.run_manifest()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.outputs["version"], version)
+        files = json.loads((self.job / "out" / "latest.json").read_text())["channels"]["nightly"]["files"]
+        self.assertEqual({f["version"] for f in files.values()}, {version})
+
     def assert_refused(self, r, artifact, job):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn(f"::error::the artifact vibeBMS-{artifact} is not the build the job {job} made", r.stdout)
@@ -411,7 +458,7 @@ class Manifest(ManifestJob):
 
     def test_a_replaced_executable_stops_it(self):
         # another job's file in any leg's artifact: no latest.json names it
-        for artifact, name, _, job in EXECUTABLES:
+        for artifact, name, _, job, _ in EXECUTABLES:
             with self.subTest(artifact):
                 f = self.job / "art" / f"vibeBMS-{artifact}" / name
                 made = f.read_bytes()
@@ -420,49 +467,61 @@ class Manifest(ManifestJob):
                 f.write_bytes(made)
         self.manifest()
 
-    def test_each_leg_is_checked_against_its_own_output(self):
-        for job, legs in MATRIX.items():
-            for leg in legs:
-                with self.subTest(leg):
-                    # a leg that gave no SHA-256 (its output empty, so not set)
+    def test_each_build_is_checked_against_its_own_jobs_output(self):
+        for artifact, _, _, job, out in EXECUTABLES:
+            with self.subTest(artifact):
+                # a job that gave no SHA-256 (its output empty, so not set)
+                outputs = json.loads(json.dumps(self.outputs))
+                del outputs[job][out]
+                self.assert_refused(self.run_manifest(outputs=outputs), artifact, job)
+                # another build's SHA-256 under its name
+                other = next(e for e in EXECUTABLES if e[0] != artifact)
+                outputs[job][out] = self.outputs[other[3]][other[4]]
+                self.assert_refused(self.run_manifest(outputs=outputs), artifact, job)
+                # the same output set by another job (one that sets no such name itself) does not count
+                for elsewhere in ("test", next(j for j in self.outputs if out not in self.outputs[j])):
                     outputs = json.loads(json.dumps(self.outputs))
-                    del outputs[job][f"sha256-{leg}"]
-                    self.assert_refused(self.run_manifest(outputs=outputs), leg, job)
-                    # the other leg's SHA-256 under its name
-                    other = next(l for l in legs if l != leg)
-                    outputs[job][f"sha256-{leg}"] = self.outputs[job][f"sha256-{other}"]
-                    self.assert_refused(self.run_manifest(outputs=outputs), leg, job)
-                    # an output of another job does not count
-                    outputs = json.loads(json.dumps(self.outputs))
-                    outputs["test"] = {f"sha256-{leg}": outputs[job].pop(f"sha256-{leg}")}
-                    self.assert_refused(self.run_manifest(outputs=outputs), leg, job)
+                    outputs.setdefault(elsewhere, {})[out] = outputs[job].pop(out)
+                    self.assert_refused(self.run_manifest(outputs=outputs), artifact, job)
 
 
 class Outputs(unittest.TestCase):
     """Each SHA-256 the steps read is an output its job declares, and the reader needs that job."""
 
-    def outputs(self, job):
+    def block(self, job, key):
+        """The lines of the job's `key:` block (an alias's anchored block), comments left out."""
         lines = job_lines(job)
-        at = lines.index("    outputs:")
-        out = {}
-        for line in lines[at + 1:]:
-            if line.strip().startswith("#"):
+        line = next(l for l in lines if l.startswith(f"    {key}:"))
+        value = line.split(":", 1)[1].strip()
+        if value.startswith("*"):
+            at = next(i for i, l in enumerate(LINES) if l.startswith(f"    {key}: &{value[1:]}") and l.endswith(value[1:]))
+            lines = LINES[at:]
+        else:
+            lines = lines[lines.index(line):]
+        out = []
+        for l in lines[1:]:
+            if l.strip().startswith("#"):
                 continue
-            if indent(line) <= 4:
+            if indent(l) <= 4:
                 break
-            key, value = line.strip().split(": ", 1)
-            out[key] = value
+            out.append(l)
         return out
+
+    def outputs(self, job):
+        return dict(l.strip().split(": ", 1) for l in self.block(job, "outputs"))
 
     def needs(self, job):
         line = next(l for l in job_lines(job) if l.startswith("    needs: "))
         return [n.strip() for n in line.split(": ", 1)[1].strip("[]").split(",")]
 
     def step_ids(self, job):
-        return {m.group(1) for l in job_lines(job) if (m := re.fullmatch(r"(?:- )?id: ([\w-]+)", l.strip()))}
+        return {m.group(1) for l in self.block(job, "steps") if (m := re.fullmatch(r"(?:- )?id: ([\w-]+)", l.strip()))}
+
+    def jobs(self):
+        return [l.strip()[:-1] for l in LINES[LINES.index("jobs:") + 1:] if re.fullmatch(r"  [\w-]+:", l)]
 
     def test_declared(self):
-        read = {(job, f"sha256-{artifact}") for artifact, _, _, job in EXECUTABLES}
+        read = {(job, out) for _, _, _, job, out in EXECUTABLES}
         for job in ("update-manifest", "nightly"):
             for maker, _ in read:
                 self.assertIn(maker, self.needs(job), job)
@@ -475,19 +534,91 @@ class Outputs(unittest.TestCase):
             ids = self.step_ids(maker)
             for sid in re.findall(r"steps\.([\w-]+)\.outputs", self.outputs(maker)[out]):
                 self.assertIn(sid, ids, (maker, out))
+        # the pages job deploys only the web job's build
+        self.assertIn("web", self.needs("pages"))
 
-    def test_each_leg_sets_only_its_own(self):
-        # the legs' outputs are one set: a name that two legs set is the last one's
-        for job, legs in MATRIX.items():
-            outputs = self.outputs(job)
-            names = {f"sha256-{leg}" for leg in legs}
-            if job == "build-linux":
-                names |= {f"sha256-{leg}-flatpak" for leg in legs}
-            self.assertEqual(set(outputs), names, job)
-            for name, value in outputs.items():
-                leg = name[len("sha256-"):].removesuffix("-flatpak")
-                self.assertIn(f"name: {leg}", "\n".join(job_lines(job)))
-                self.assertRegex(value, rf"^\$\{{\{{ matrix\.name == '{re.escape(leg)}' && steps\.[\w-]+\.outputs\.sha256 \|\| '' \}}\}}$")
+    def test_every_job_read_is_needed(self):
+        # every `needs.<job>.outputs.<name>` a job reads (in its own lines and in the anchored blocks it aliases) is
+        # of a job it needs, and an output that job declares
+        for job in self.jobs():
+            text = "\n".join(expand(job_lines(job)))
+            for maker, out in re.findall(r"needs\.([\w-]+)\.outputs\.([\w-]+)", text):
+                with self.subTest(f"{job}: {maker}.{out}"):
+                    self.assertIn(maker, self.needs(job))
+                    self.assertIn(out, self.outputs(maker))
+        # (and the scripts that read the needs context as JSON: update-manifest's and the nightly's checks)
+        for reader, script in (("update-manifest", MANIFEST), ("nightly", FILES)):
+            seen = 0
+            ts = [""]
+            for line in script.splitlines():
+                if m := re.fullmatch(r"\s*for t in (.*); do", line):
+                    ts = m.group(1).split()
+                elif line.strip() == "done":
+                    ts = [""]
+                m = re.search(r'(?:^\s*take \S+ \S+ \S+ |\$\(job )"?([\w$-]+)"? "?([\w$-]+)"?', line)
+                for t in ts if m else []:
+                    maker, out = m.group(1).replace("$t", t), m.group(2).replace("$t", t)
+                    with self.subTest(f"{reader}: {maker}.{out}"):
+                        self.assertIn(maker, self.needs(reader))
+                        self.assertIn(out, self.outputs(maker))
+                    seen += 1
+            self.assertGreaterEqual(seen, 9, reader)
+
+    def test_each_architecture_is_a_job_of_its_own(self):
+        # one leg per job, so each output name is set by one job only (a matrix's legs give one set of outputs)
+        for build, jobs in SPLIT.items():
+            first = jobs[0]
+            for job in jobs:
+                with self.subTest(job):
+                    lines = job_lines(job)
+                    legs = [l for l in self.block(job, "strategy") if l.strip().startswith("- ")]
+                    self.assertEqual(len(legs), 1, job)
+                    self.assertIn(f"name: {job.removeprefix('build-')}", legs[0])
+                    self.assertIn("    name: build ${{ matrix.name }}", lines)
+                    self.assertEqual(self.needs(job), ["test", "pins"])
+                    for key in ("steps", "outputs"):
+                        line = next(l for l in lines if l.startswith(f"    {key}:"))
+                        self.assertEqual(line, f"    {key}: {'&' if job == first else '*'}{build}-{key}".replace(
+                            "build-linux-portable", "build-portable"), job)
+                    # the outputs name no leg: the job is the leg
+                    for value in self.outputs(job).values():
+                        self.assertRegex(value, r"^\$\{\{ steps\.[\w-]+\.outputs\.sha256 \}\}$")
+                    # the cache keeps the matrix job's name
+                    self.assertIn(f"cache-job: {build}", "\n".join(self.block(job, "steps")))
+        # and no job is a matrix of more than one
+        for job in self.jobs():
+            lines = job_lines(job)
+            if "    strategy:" in lines:
+                self.assertTrue(any(job in js for js in SPLIT.values()), job)
+
+    def test_the_pages_job_deploys_the_checked_build(self):
+        at = job_at("pages")
+        steps = self.block("pages", "steps")
+        text = "\n".join(steps)
+        uses = [l.strip().removeprefix("- ").removeprefix("uses: ") for l in steps if "uses: " in l]
+        self.assertEqual(uses, ["actions/download-artifact@v8", "actions/upload-pages-artifact@v5",
+                                "actions/deploy-pages@v5", "actions/deploy-pages@v5"])
+        # the web job's artifact by its name, checked where it was put, and that folder uploaded
+        self.assertIn("          name: vibeBMS-web\n          path: art/vibeBMS-web", text)
+        self.assertIn("art/vibeBMS-web", CHECK_WEB)
+        self.assertIn("          path: art/vibeBMS-web\n          name: github-pages-${{ github.run_attempt }}", text)
+        # the check runs right after the download and right before the upload
+        names = [l.strip() for l in steps if re.fullmatch(r"\s+- (name|uses): .*", l)]
+        self.assertEqual(names[:3], ["- uses: actions/download-artifact@v8", "- name: check the web build",
+                                     "- uses: actions/upload-pages-artifact@v5"])
+        # both tries deploy the artifact this attempt uploaded, and nothing else in the job uploads one
+        self.assertEqual(re.findall(r"artifact_name: (.*)", text), ["github-pages-${{ github.run_attempt }}"] * 2)
+        self.assertNotIn("upload-artifact", text)
+        # the web job makes no Pages artifact of its own any more
+        self.assertNotIn("upload-pages-artifact", "\n".join(job_lines("web")))
+        # the nightly job's check is the same text
+        self.assertEqual(key_of("check the web build", "run", "pages"), "&check-web |")
+        self.assertEqual(key_of("check the web build", "run", "nightly"), "*check-web")
+        self.assertEqual(key_of("check the web build", "env", "nightly"), "*check-web-env")
+        _, end = step_at("check the web build", job_at("nightly"))
+        self.assertEqual(LINES[end + [i for i, l in enumerate(LINES[end:]) if l.strip().startswith("- name:")][0]].strip(),
+                         "- name: files")
+        self.assertLess(at, job_at("nightly"))
 
     def test_the_check_runs_again_right_before_the_upload(self):
         # the same text (a YAML alias of the first check's), the step just before the release
@@ -541,6 +672,7 @@ class Nightly(ManifestJob):
         shutil.copy(web / "web" / "index.html", w / "index.html")
         shutil.copy(web / "web" / "pkg" / "vibebms_web_bg.wasm", w / "pkg")
         shutil.copy(web / "web" / "index.html", w / "pkg" / "link.html")
+        shutil.copytree(w, self.dir / "nightly-web")
         (self.nightly / "update").mkdir()
         shutil.copy(self.sign / "manifest" / "latest.json", self.nightly / "update")
         shutil.copy(self.sign / "manifest" / "latest.json.sig", self.nightly / "update")
@@ -556,13 +688,17 @@ class Nightly(ManifestJob):
     def files(self, **env):
         """The step "files", in a new out/."""
         shutil.rmtree(self.nightly / "out", ignore_errors=True)
-        env = {"GH_TOKEN": "x", "GH_REPO": "o/r", "WEB_SHA256": self.outputs["web"]["sha256"], "BASE_VERSION": "0.1.0",
+        env = {"GH_TOKEN": "x", "GH_REPO": "o/r", "BASE_VERSION": "0.1.0",
                "VERSION": "0.1.0-nightly.42+abcdef0", "GITHUB_REPOSITORY": "o/r", "GITHUB_SHA": "abcdef0" + "0" * 33,
                "GITHUB_RUN_NUMBER": "42", "GH_RELEASE": str(self.release), **env}
         r = run(FILES_STEP, self.nightly, **env)
         if r.returncode == 0:
             self.steps["files"] = {"outputs": r.outputs}
         return r
+
+    def check_web(self, where=None, **env):
+        """The step "check the web build", in `where` (the nightly's folder; the pages job's is the same text)."""
+        return run(CHECK_WEB, where or self.nightly, **{"WEB_SHA256": self.outputs["web"]["sha256"], **env})
 
     def check_files(self, outputs=None):
         """The step "check the files" (and "check the files again": the same text and environment)."""
@@ -597,6 +733,7 @@ class Nightly(ManifestJob):
         self.assertIn(f"::error::{what} is not", r.stdout)
 
     def test_the_files_made_go_out(self):
+        self.assert_ok(self.check_web())
         self.assert_ok(self.files())
         self.assert_ok(self.check_files())
         self.builds()
@@ -604,7 +741,7 @@ class Nightly(ManifestJob):
         self.assert_ok(self.check_files())
         out = self.nightly / "out"
         published = {f.name for f in out.iterdir()}
-        self.assertEqual(published, {n for _, _, n, _ in EXECUTABLES} | {n for _, n, _, _ in PACKAGES} | {
+        self.assertEqual(published, {n for _, _, n, _, _ in EXECUTABLES} | {n for _, n, _, _ in PACKAGES} | {
             "vibeBMS-web.zip", "altstore.json", "latest.json", "latest.json.sig", "builds.json", "fdroid.txt",
             "fdroid-qr.png"})
         self.assertEqual(sha256(out / "latest.json"), self.manifest_sha)
@@ -633,7 +770,7 @@ class Nightly(ManifestJob):
 
     def test_a_replaced_file_stops_the_release(self):
         # another job's file in any artifact (an executable, the Flatpaks, the dmg, the ipa, the APK)
-        for artifact, name, published in [(a, f, n) for a, f, n, _ in EXECUTABLES] + [(a, f, f) for a, f, _, _ in PACKAGES]:
+        for artifact, name, published in [(a, f, n) for a, f, n, _, _ in EXECUTABLES] + [(a, f, f) for a, f, _, _ in PACKAGES]:
             with self.subTest(published):
                 f = self.nightly / "art" / f"vibeBMS-{artifact}" / name
                 made = f.read_bytes()
@@ -645,32 +782,44 @@ class Nightly(ManifestJob):
         self.assert_ok(self.check_files())
 
     def test_a_maker_that_gave_no_sha256_stops_the_release(self):
-        for job, out in [(j, f"sha256-{a}") for a, _, _, j in EXECUTABLES] + [(j, o) for _, _, j, o in PACKAGES]:
+        for job, out in [(j, o) for _, _, _, j, o in EXECUTABLES] + [(j, o) for _, _, j, o in PACKAGES]:
             with self.subTest(f"{job} {out}"):
                 outputs = json.loads(json.dumps(self.outputs))
                 del outputs[job][out]
                 self.assert_ok(self.files())
                 r = self.check_files(outputs)
                 self.assertNotEqual(r.returncode, 0)
-                self.assertIn("(it gave no SHA-256): nothing is published", r.stdout)
+                self.assertIn(f"made (it gave no SHA-256: GitHub drops a job output in which a secret's value appears, "
+                              f"as a short secret of hex digits can; docs/BUILDING.md, \"Android signing\"): nothing is "
+                              f"published", r.stdout)
+                self.assertIn(f"the job {job} made", r.stdout)
 
-    def test_a_replaced_web_build_stops_the_release(self):
-        w = self.nightly / "art" / "vibeBMS-web"
-        for change in ("replace", "add", "remove"):
-            with self.subTest(change):
-                {"replace": lambda: (w / "index.html").write_text("<html>another</html>\n"),
-                 "add": lambda: (w / "extra.js").write_text("x\n"),
-                 "remove": lambda: (w / "pkg" / "link.html").unlink()}[change]()
-                r = self.files()
-                self.assertNotEqual(r.returncode, 0)
-                self.assertIn("::error::the artifact vibeBMS-web is not the build the job web made", r.stdout)
-                self.assertFalse((self.nightly / "out" / "vibeBMS-web.zip").exists())
-                shutil.copy(self.dir / "web-job" / "web" / "index.html", w / "index.html")
-                shutil.copy(self.dir / "web-job" / "web" / "index.html", w / "pkg" / "link.html")
-                (w / "extra.js").unlink(missing_ok=True)
-        r = self.files(WEB_SHA256="")
-        self.assertIn("::error::the artifact vibeBMS-web is not the build the job web made", r.stdout)
-        self.assert_ok(self.files())
+    def test_a_replaced_web_build_stops_the_release_and_the_site(self):
+        # the nightly's folder, and the pages job's: its download of vibeBMS-web, which it then uploads as the site
+        pages = self.dir / "pages"
+        shutil.copytree(self.nightly / "art" / "vibeBMS-web", pages / "art" / "vibeBMS-web")
+        for where in (self.nightly, pages):
+            w = where / "art" / "vibeBMS-web"
+            for change in ("replace", "add", "remove", "hidden-only", "all"):
+                with self.subTest(f"{where.name} {change}"):
+                    {"replace": lambda: (w / "index.html").write_text("<html>another</html>\n"),
+                     "add": lambda: (w / "extra.js").write_text("x\n"),
+                     "remove": lambda: (w / "pkg" / "link.html").unlink(),
+                     # (a hidden file is in neither upload: it changes nothing)
+                     "hidden-only": lambda: (w / ".well-known").write_text("x\n"),
+                     "all": lambda: shutil.rmtree(w)}[change]()
+                    r = self.check_web(where)
+                    if change == "hidden-only":
+                        self.assert_ok(r)
+                        (w / ".well-known").unlink()
+                        continue
+                    self.assertNotEqual(r.returncode, 0)
+                    self.assertIn("::error::the artifact vibeBMS-web is not the build the job web made", r.stdout)
+                    shutil.rmtree(w, ignore_errors=True)
+                    shutil.copytree(self.dir / "nightly-web", w)
+            r = self.check_web(where, WEB_SHA256="")
+            self.assertIn("::error::the artifact vibeBMS-web is not the build the job web made", r.stdout)
+            self.assert_ok(self.check_web(where))
 
     def test_a_replaced_zip_or_list_stops_the_release(self):
         # the files this job makes (the web zip, altstore.json) and the ones it downloads by name

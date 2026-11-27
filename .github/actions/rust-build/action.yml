@@ -1,7 +1,7 @@
 name: build vibeBMS
 description: >-
   The release executable for one target, stamped with the CI version, as the
-  artifact vibeBMS-<name> (with version.txt for the nightly's latest.json).
+  artifact vibeBMS-<name>.
 
 inputs:
   name:
@@ -13,6 +13,9 @@ inputs:
   cache-key:
     description: rust-cache key (the target and the runner image)
     required: true
+  cache-job:
+    description: The job named in the cache key (rust-setup's cache-job)
+    default: ""
 
 runs:
   using: composite
@@ -23,11 +26,9 @@ runs:
         # the runner image too: a build cached on another image (ubuntu-24.04
         # before 22.04) restored as fresh but without its crates' files
         cache-key: ${{ inputs.cache-key }}
+        cache-job: ${{ inputs.cache-job }}
     # as tools/reproduce.sh and the Reproducible builds workflow build it
     - run: tools/build_release.sh ${{ inputs.name }}
-      shell: bash
-    # the version it was built with, for the nightly's latest.json
-    - run: echo "$VIBEBMS_VERSION" > target/${{ inputs.target }}/release/version.txt
       shell: bash
     # the executable alone (the downloads job links it in the run summary)
     - uses: actions/upload-artifact@v7
@@ -36,4 +37,3 @@ runs:
         path: |
           target/${{ inputs.target }}/release/vibebms
           target/${{ inputs.target }}/release/vibebms.exe
-          target/${{ inputs.target }}/release/version.txt

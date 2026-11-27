@@ -105,7 +105,8 @@ without wasm-opt, plus the CJK fonts (see Reproducible builds).
   turns them on by default in that build; the page then says once, at its first start, what they are (OK keeps them
   on, Turn off turns them off).
 - CI deploys the default branch's web build to GitHub Pages (the `pages` job; Settings › Pages › Source: GitHub
-  Actions); other branches' builds are the run's artifact.
+  Actions); other branches' builds are the run's artifact. The `pages` job deploys the `vibeBMS-web` artifact only
+  when its files match the `web` job's SHA-256 (Self-update, "The files the nightly publishes").
 
 # Development
 
@@ -249,6 +250,12 @@ the default branch only; then add `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD
 whatever its workflow file says, then cannot read them. (Until then the environment is an empty one GitHub makes on
 first use, and the repository's secrets are used.) No reviewers or wait timer: each would hold every nightly.
 
+Make the passwords (`ANDROID_KEYSTORE_PASSWORD`, `FDROID_KEYSTORE_PASSWORD`) long, and not of hex digits alone
+(`0-9`, `a-f`). GitHub leaves out a job output in which the value of a secret of that job appears, and the jobs give
+SHA-256s, 64 hex digits, as outputs: a short password of hex digits is somewhere in one of them now and then (for 4
+digits about one run in a thousand). The `nightly` job then refuses the file whose maker "gave no SHA-256", and
+nothing is published.
+
 Gradle builds the APK unsigned and `tools/build_release.sh sign` signs it with
 the pinned build-tools' apksigner (`BUILD_TOOLS_VERSION`), with APK Signature Scheme v2 alone, as the Android Gradle
 plugin signed it before (v1 is needed only before Android 7; the APK's `minSdk` is 26, Android 8.0), keeping the entries as they
@@ -362,10 +369,10 @@ has `tools/update_key.pub`, that file's signature (`latest.json.sig`) verifies w
 none. In a channel, `version` is the release's (the run that published it); `files` has an entry for each desktop
 executable in the release (`vibebms-linux-x64`, `-arm64`, `-x64-portable`, `-arm64-portable`, `vibebms-macos-arm64`,
 `-x64`, `vibebms-macos-universal.app.zip`, `vibebms-windows-x64.exe`, `-arm64.exe`): the version it was built with,
-its SHA-256 and its size in bytes. Each desktop build job writes its
-`VIBEBMS_VERSION` to a `version.txt` in its artifact, and the `update-manifest` job reads it. Each build job also
-gives the SHA-256 of each file it uploads as a job output, and `update-manifest` takes an executable only when it
-matches (below, "The files the nightly publishes"). The nightly is released only when every build passed, so every
+its SHA-256 and its size in bytes. The version of each file is the run's: every build of the run is given the same
+one (`tools/ci_version.sh`, from the commit's `Cargo.toml`, the run number and the commit), and `update-manifest`
+makes it from the same three, so it reads nothing for it from an artifact. Each build job gives the SHA-256 of each
+file it uploads as a job output, and `update-manifest` takes an executable only when it matches (below, "The files the nightly publishes"). The nightly is released only when every build passed, so every
 entry of `nightly` is this run's: nothing of the previous `nightly` part is kept, and the job fails if a build's file
 is missing or is not the one its job made. The `nightly` job publishes the `latest.json` that `update-manifest` made
 (and `sign-update` signed, below).
@@ -453,18 +460,23 @@ Any job of a run can upload an artifact, under any name, and replace another job
 plugin or a package that runs in one job could do so). Only a job sets its own outputs. So each file is bound to the
 job that made it by its SHA-256, given as a job output, and the jobs after it take an artifact's file only when it
 matches:
-- Each job that makes a file of the release gives the SHA-256 of the file as it uploads it: `build-linux`
-  (`sha256-linux-x64`, `-arm64`, and `sha256-linux-x64-flatpak`, `-arm64-flatpak` for the Flatpaks),
-  `build-linux-portable` (`sha256-linux-x64-portable`, `-arm64-portable`), `build-windows` (`sha256-windows-x64`,
-  `-arm64`), `macos` (`sha256-macos-arm64`, `-x64`, and `sha256-macos-universal` for the app's zip), `macos-dmg`,
-  `ios`, `android-sign`, `update-manifest` and `sign-update` (`sha256`). The outputs of a matrix job are one set for
-  all its legs, and when two legs set the same name the last one wins: so each name is one leg's, and the other legs
-  leave it empty (an empty output is not set, so it does not replace the value that leg set). The `web` job gives
-  the SHA-256 of the list of its build's files (each file's SHA-256 and name, in name order, without the hidden files
-  that upload-artifact leaves out).
+- Each job that makes a file of the release gives the SHA-256 of the file as it uploads it: `build-linux-x64`,
+  `build-linux-arm64` (`sha256`, and `sha256-flatpak` for the Flatpak), `build-linux-x64-portable`,
+  `build-linux-arm64-portable`, `build-windows-x64`, `build-windows-arm64`, `macos-dmg`, `ios`, `android-sign`,
+  `update-manifest` and `sign-update` (`sha256`), and `macos` (`sha256-macos-arm64`, `-x64`, and
+  `sha256-macos-universal` for the app's zip). Each architecture is a job of its own, not a leg of a matrix: the legs
+  of a matrix give one set of outputs, which the runner fills at the end of each leg, so a leg whose code took over
+  its runner could set its sibling's output and replace that build too. (The jobs share their steps through YAML
+  anchors, and each is a matrix of one, so the names in a run and the cache keys are as they were.) The `web` job
+  gives the SHA-256 of the list of its build's files (each file's SHA-256 and name, in name order, without the
+  hidden files that upload-artifact leaves out).
 - `macos-dmg` makes the `.dmg` only of the app zip whose SHA-256 `macos` gave. `update-manifest` takes each
   executable only when it matches its job's output: `latest.json` names only files the build jobs made.
-- The `nightly` job zips only the web build whose files match the `web` job's output. The files it makes itself (the
+- The `nightly` job zips only the web build whose files match the `web` job's output, and the `pages` job deploys
+  only that build: it downloads `vibeBMS-web`, checks it with the same step (a YAML alias), and makes the Pages
+  artifact of it itself, named for the attempt (`github-pages-<attempt>`, so a re-run of the job deploys its own).
+  Upload-artifact and upload-pages-artifact both leave out the hidden files and follow links, so the site has the
+  files of the web build as before. The files it makes itself (the
   web build's zip, `altstore.json`, `builds.json`, and `fdroid.txt` and `fdroid-qr.png` when the F-Droid repository
   is built) are given as the SHA-256 outputs of the steps that made them.
 - Its step "check the files" then checks every file in `out/` (what it uploads) against the output of its maker.
@@ -477,10 +489,29 @@ matches:
 What it does not protect against:
 - Foreign code in the job that makes a file (a crate's build script in a build job, a Gradle plugin in `android`)
   changing that file before the job takes its SHA-256: the output then names that file.
+- The build caches. Each build job restores its Rust cache (the `target` folder and the crates' unpacked sources,
+  which Cargo does not check again) before it builds. A job of a run of the default branch can save a cache entry
+  under a build job's key, when that key is new (a change of `Cargo.lock`, the toolchain or the pins), and the build
+  job then builds from it: its SHA-256 names what it built, so every check passes. The Reproducible builds workflow
+  (started by hand) builds the release files again without any cache: a file it does not make to the same bytes
+  shows such a difference.
 - Code that runs in the `nightly` job itself between the checks: the pinned fdroidserver of the F-Droid steps (each
   of its files pinned by SHA-256; it already has the F-Droid key) could change what the later steps run (their
   `PATH` or environment, a process left running), which no check in the same job can rule out. The second check
-  sees any file it changed in `out/`.
+  sees any file it changed in `out/`. The `nightly` job runs at the same time as the `pages` job, so this code could
+  also replace the Pages artifact between that job's upload and its deploy.
+- The F-Droid repository pushed to the branch `fdroid-repo`: only `fdroid.txt` and `fdroid-qr.png` are checked.
+  The index and the copy of the APK in it are what fdroidserver wrote (the point above); clients check the index's
+  signature, and the APK's own signature, as they install it.
+- What is carried from the previous release without a signature: the other apps of `altstore.json` and the older
+  entries of `builds.json`, taken from the release as it is (the other channels of `latest.json` are kept only when
+  their signature verifies).
+- The artifacts as the run's page lists them: the downloads summary links each build's artifact without a check,
+  for pull requests too, and any job of the run could have replaced one. The files of the release are the checked
+  ones.
+- The environments' branch rule ("Deployment branches and tags": the default branch only, for `release` and
+  `update-signing`) is a setting of the repository (Settings › Environments), not part of the workflow, which cannot
+  check it. Without it, a run of another branch whose workflow file asks for the environment gets its secrets.
 
 ## Build manifest (`builds.json`)
 The nightly release also has a `builds.json`: every build the `nightly` job published, the oldest first, with the

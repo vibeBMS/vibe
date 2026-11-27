@@ -201,7 +201,7 @@ jobs:
   # a Flatpak. One job per architecture, on the Ubuntu 22.04 runner:
   # - the executable is built in the pinned Ubuntu 22.04 image (glibc 2.35
   #   and WebKitGTK 4.1, the oldest base that has it: Ubuntu 22.04, Debian 12
-  #   and newer; `build-linux-portable` has the rest), its packages from the
+  #   and newer; `build-linux-*-portable` have the rest), its packages from the
   #   Ubuntu snapshot (x64) or as tools/linux-arm64.lock lists them (arm64:
   #   the ports archive has no snapshot) (the image by digest and the
   #   packages: tools/repro.env; tools/reproduce.sh builds the same). Only
@@ -214,11 +214,14 @@ jobs:
   #   host's user namespaces. The executable's artifact is uploaded before
   #   the Flatpak steps, which do not fail the job, so the nightly has the
   #   executable either way and the caches are saved.
-  build-linux:
+  # Each job is a matrix of one (its steps, shared through the anchor, read
+  # matrix.*), not one matrix of two: a matrix's legs give one set of outputs,
+  # which a leg that took over its runner could fill under its sibling's name.
+  # The cache keeps the name build-linux (cache-job).
+  build-linux-x64:
     name: build ${{ matrix.name }}
     needs: [test, pins]
     strategy:
-      fail-fast: false
       matrix:
         include:
           - name: linux-x64
@@ -226,26 +229,17 @@ jobs:
             target: x86_64-unknown-linux-gnu
             arch: x64
             loader: /lib64/ld-linux-x86-64.so.2
-          - name: linux-arm64
-            os: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
-            arch: arm64
-            loader: /lib/ld-linux-aarch64.so.1
     runs-on: ${{ matrix.os }}
     # the SHA-256 of each file the job uploads (update-manifest and the
     # nightly job take only these files: any job of the run can upload an
-    # artifact, but only this one sets these). The legs' outputs are one set:
-    # each name is one leg's, and every other leg leaves it empty (an empty
-    # output is not set, so it does not replace the other leg's value)
-    outputs:
-      sha256-linux-x64: ${{ matrix.name == 'linux-x64' && steps.sha256.outputs.sha256 || '' }}
-      sha256-linux-arm64: ${{ matrix.name == 'linux-arm64' && steps.sha256.outputs.sha256 || '' }}
-      sha256-linux-x64-flatpak: ${{ matrix.name == 'linux-x64' && steps.flatpak-sha256.outputs.sha256 || '' }}
-      sha256-linux-arm64-flatpak: ${{ matrix.name == 'linux-arm64' && steps.flatpak-sha256.outputs.sha256 || '' }}
-    env:
+    # artifact, but only this one sets these)
+    outputs: &build-linux-outputs
+      sha256: ${{ steps.sha256.outputs.sha256 }}
+      sha256-flatpak: ${{ steps.flatpak-sha256.outputs.sha256 }}
+    env: &build-linux-env
       # (rust-cache's: its cache is saved when only the Flatpak failed)
       CACHE_ON_FAILURE: "true"
-    steps:
+    steps: &build-linux-steps
       - uses: actions/checkout@v7
       - uses: ./.github/actions/apt
         with:
@@ -263,6 +257,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           cache-key: ${{ matrix.name }}-${{ needs.pins.outputs.key-linux }}
+          cache-job: build-linux
       # in the pinned image: its packages as root (tools/build_deps.sh), then
       # tools/build_release.sh as the runner's user, so what it writes into the
       # mounted folders stays the runner's
@@ -289,17 +284,13 @@ jobs:
               mkdir -p "$HOME" && chown "$USER_IDS" "$HOME"
               exec setpriv --reuid="${USER_IDS%:*}" --regid="${USER_IDS#*:}" --clear-groups \
                 tools/build_release.sh "$ARTIFACT"'
-      # the version it was built with, for the nightly's latest.json
-      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
       - id: sha256
         run: echo "sha256=$(sha256sum < target/${{ matrix.target }}/release/vibebms | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       # the executable alone (the downloads job links it in the run summary)
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-${{ matrix.name }}
-          path: |
-            target/${{ matrix.target }}/release/vibebms
-            target/${{ matrix.target }}/release/version.txt
+          path: target/${{ matrix.target }}/release/vibebms
       - name: Flatpak runtime
         run: |
           # org.gnome.Platform//51, from the manifest
@@ -352,35 +343,61 @@ jobs:
           echo "::error::the Flatpak (linux-${{ matrix.arch }}) failed: nothing is released or published"
           exit 1
 
+  build-linux-arm64:
+    name: build ${{ matrix.name }}
+    needs: [test, pins]
+    strategy:
+      matrix:
+        include:
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            arch: arm64
+            loader: /lib/ld-linux-aarch64.so.1
+    runs-on: ${{ matrix.os }}
+    outputs: *build-linux-outputs
+    env: *build-linux-env
+    steps: *build-linux-steps
+
   # on the pinned runner image, with its pinned MSVC toolset and Windows SDK
   # (tools/repro.env; tools/build_release.sh selects them through
   # vcvarsall.bat, adds the toolset's ARM64 tools with the Visual Studio
   # installer, which the image lacks, and stops if it cannot)
-  build-windows:
+  # (one job per architecture, each a matrix of one, as build-linux-x64's)
+  build-windows-x64:
     name: build ${{ matrix.name }}
     needs: [test, pins]
     strategy:
-      fail-fast: false
       matrix:
         include:
           - { name: windows-x64, target: x86_64-pc-windows-msvc }
-          - { name: windows-arm64, target: aarch64-pc-windows-msvc }
     runs-on: ${{ needs.pins.outputs.windows }}
-    # each leg's executable's SHA-256 under its own name (as build-linux's)
-    outputs:
-      sha256-windows-x64: ${{ matrix.name == 'windows-x64' && steps.sha256.outputs.sha256 || '' }}
-      sha256-windows-arm64: ${{ matrix.name == 'windows-arm64' && steps.sha256.outputs.sha256 || '' }}
-    steps:
+    # the executable's SHA-256 (as build-linux-x64's)
+    outputs: &build-windows-outputs
+      sha256: ${{ steps.sha256.outputs.sha256 }}
+    steps: &build-windows-steps
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-build
         with:
           name: ${{ matrix.name }}
           target: ${{ matrix.target }}
           cache-key: ${{ matrix.target }}-${{ needs.pins.outputs.key-windows }}
+          cache-job: build-windows
       # (the file the action has just uploaded, as it uploaded it)
       - id: sha256
         shell: bash
         run: echo "sha256=$(sha256sum < target/${{ matrix.target }}/release/vibebms.exe | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
+
+  build-windows-arm64:
+    name: build ${{ matrix.name }}
+    needs: [test, pins]
+    strategy:
+      matrix:
+        include:
+          - { name: windows-arm64, target: aarch64-pc-windows-msvc }
+    runs-on: ${{ needs.pins.outputs.windows }}
+    outputs: *build-windows-outputs
+    steps: *build-windows-steps
 
   # macOS: both architectures on one runner (x86_64 cross-built on the arm64
   # one), then the app: one universal executable in an ad-hoc signed bundle
@@ -393,7 +410,7 @@ jobs:
     name: build macOS (arm64, x64, universal app)
     needs: [test, pins]
     runs-on: ${{ needs.pins.outputs.macos }}
-    # the SHA-256 of each file the job uploads, as build-linux's
+    # the SHA-256 of each file the job uploads, as build-linux-x64's
     outputs:
       sha256-macos-arm64: ${{ steps.executables.outputs.sha256-arm64 }}
       sha256-macos-x64: ${{ steps.executables.outputs.sha256-x64 }}
@@ -413,7 +430,6 @@ jobs:
           for t in arm64:aarch64 x64:x86_64; do
             mkdir -p "art/vibeBMS-macos-${t%%:*}"
             cp "target/${t#*:}-apple-darwin/release/vibebms" "art/vibeBMS-macos-${t%%:*}/"
-            echo "$VIBEBMS_VERSION" > "art/vibeBMS-macos-${t%%:*}/version.txt"
             echo "sha256-${t%%:*}=$(shasum -a 256 < "art/vibeBMS-macos-${t%%:*}/vibebms" | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
           done
       - uses: actions/upload-artifact@v7
@@ -429,15 +445,11 @@ jobs:
         run: |
           mkdir out
           tools/package_macos.sh art/vibeBMS-macos-arm64/vibebms art/vibeBMS-macos-x64/vibebms out
-          # the version the executables were built with, for latest.json
-          echo "$VIBEBMS_VERSION" > out/version.txt
           echo "sha256=$(shasum -a 256 < out/vibebms-macos-universal.app.zip | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-macos-universal
-          path: |
-            out/vibebms-macos-universal.app.zip
-            out/version.txt
+          path: out/vibebms-macos-universal.app.zip
 
   # the .dmg of the app's zip (tools/package_dmg.sh: an HFS+ volume with the
   # app and a link to /Applications, made with hfsprogs and libdmg-hfsplus,
@@ -532,42 +544,48 @@ jobs:
   # (the image by digest: tools/repro.env, which names its packages too, at
   # the versions AlmaLinux 8 has that day; tools/reproduce.sh builds the same
   # in the same image)
-  build-linux-portable:
+  # (one job per architecture, each a matrix of one, as build-linux-x64's)
+  build-linux-x64-portable:
     name: build ${{ matrix.name }}
     needs: [test, pins]
     strategy:
-      fail-fast: false
       matrix:
         include:
           - { name: linux-x64-portable, os: ubuntu-latest, arch: x64, target: x86_64-unknown-linux-gnu }
-          - { name: linux-arm64-portable, os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.arch == 'x64' && needs.pins.outputs.portable-x64 || needs.pins.outputs.portable-arm64 }}
-    # each leg's executable's SHA-256 under its own name (as build-linux's)
-    outputs:
-      sha256-linux-x64-portable: ${{ matrix.name == 'linux-x64-portable' && steps.sha256.outputs.sha256 || '' }}
-      sha256-linux-arm64-portable: ${{ matrix.name == 'linux-arm64-portable' && steps.sha256.outputs.sha256 || '' }}
-    steps:
+    container: ${{ needs.pins.outputs.portable-x64 }}
+    # the executable's SHA-256 (as build-linux-x64's)
+    outputs: &build-portable-outputs
+      sha256: ${{ steps.sha256.outputs.sha256 }}
+    steps: &build-portable-steps
       - uses: actions/checkout@v7
       - run: tools/build_deps.sh ${{ matrix.name }}
       - uses: ./.github/actions/rust-setup
         with:
           targets: ${{ matrix.target }}
           cache-key: ${{ matrix.name }}-${{ needs.pins.outputs.key-portable }}
+          cache-job: build-linux-portable
       # (it checks that the executable needs glibc 2.28 at most)
       - run: tools/build_release.sh ${{ matrix.name }}
-      # the version it was built with, for the nightly's latest.json
-      - run: echo "$VIBEBMS_VERSION" > target/${{ matrix.target }}/release/version.txt
-        shell: bash
       - id: sha256
         shell: bash
         run: echo "sha256=$(sha256sum < target/${{ matrix.target }}/release/vibebms | cut -d' ' -f1)" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-${{ matrix.name }}
-          path: |
-            target/${{ matrix.target }}/release/vibebms
-            target/${{ matrix.target }}/release/version.txt
+          path: target/${{ matrix.target }}/release/vibebms
+
+  build-linux-arm64-portable:
+    name: build ${{ matrix.name }}
+    needs: [test, pins]
+    strategy:
+      matrix:
+        include:
+          - { name: linux-arm64-portable, os: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    container: ${{ needs.pins.outputs.portable-arm64 }}
+    outputs: *build-portable-outputs
+    steps: *build-portable-steps
 
   # in a pinned image with pinned packages (tools/repro.env): clang, which
   # compiles Lua into the module, is part of what makes the build
@@ -621,30 +639,29 @@ jobs:
         id: sha256
         run: |
           # the files as the artifact holds them (upload-artifact leaves out
-          # hidden ones and follows links), as the nightly job's "files" step
-          # reads them
+          # hidden ones and follows links), as the step "check the web build"
+          # of the pages and nightly jobs reads them
           tree_sha256() (
-            cd "$1"
+            cd "$1" || exit
             find -L . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
               while IFS= read -r f; do printf '%s  %s\n' "$(sha256sum < "$f" | cut -d' ' -f1)" "$f"; done |
               sha256sum | cut -d' ' -f1
           )
           echo "sha256=$(tree_sha256 web)" | tee -a "$GITHUB_OUTPUT"
+      # (also the site's: the pages job deploys it, on the default branch)
       - uses: actions/upload-artifact@v7
         with:
           name: vibeBMS-web
           path: web
-      # the default branch's build is the site (other branches' stay artifacts)
-      - if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: web
 
   # GitHub Pages (Settings > Pages > Source: GitHub Actions): each deploy
   # replaces the whole site with the default branch's web build, once every
-  # build of the commit has passed (the site and the nightly then agree)
+  # build of the commit has passed (the site and the nightly then agree).
+  # The site is the build the web job made (its SHA-256), checked and made
+  # into the Pages artifact here, after the jobs that run the builds' code
+  # have ended.
   pages:
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
+    needs: [test, cross-check, build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64, build-linux-x64-portable, build-linux-arm64-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
     if: ${{ !failure() && !cancelled() && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     permissions:
@@ -652,14 +669,52 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.first.outputs.page_url || steps.second.outputs.page_url }}
     # one deploy after another, none stopped half way
     concurrency:
       group: pages
       cancel-in-progress: false
     steps:
-      - id: deploy
+      - uses: actions/download-artifact@v8
+        with:
+          name: vibeBMS-web
+          path: art/vibeBMS-web
+      # (the same text as the nightly job's: a YAML alias there)
+      - name: check the web build
+        env: &check-web-env
+          WEB_SHA256: ${{ needs.web.outputs.sha256 }}
+        run: &check-web |
+          # the files as the artifact holds them (upload-artifact leaves out
+          # hidden ones and follows links), as the web job's "the web build's
+          # SHA-256" lists them
+          tree_sha256() (
+            cd "$1" || exit
+            find -L . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
+              while IFS= read -r f; do printf '%s  %s\n' "$(sha256sum < "$f" | cut -d' ' -f1)" "$f"; done |
+              sha256sum | cut -d' ' -f1
+          )
+          if [ ! -d art/vibeBMS-web ] || [ "$(tree_sha256 art/vibeBMS-web)" != "$WEB_SHA256" ]; then
+            echo "::error::the artifact vibeBMS-web is not the build the job web made (its SHA-256 differs): nothing is published"
+            exit 1
+          fi
+      # (named for this attempt: a re-run of this job finds only its own; the
+      # listing can lag the upload by a moment, so a second try)
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: art/vibeBMS-web
+          name: github-pages-${{ github.run_attempt }}
+      - id: first
+        continue-on-error: true
         uses: actions/deploy-pages@v5
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+      - if: steps.first.outcome == 'failure'
+        run: sleep 30
+      - id: second
+        if: steps.first.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
 
   # an unsigned .ipa: install it by signing it with your own Apple ID
   # (AltStore, Sideloadly) or a developer certificate
@@ -801,7 +856,7 @@ jobs:
   # the nightly publishes; it has no secret and reads only.
   update-manifest:
     name: latest.json
-    needs: [build-linux, build-windows, build-linux-portable, macos]
+    needs: [build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64, build-linux-x64-portable, build-linux-arm64-portable, macos]
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     outputs:
@@ -849,12 +904,12 @@ jobs:
           # the executables, named as the nightly job's "files" step names them;
           # this job runs only when every build passed, so each is there. Each
           # is the file whose SHA-256 the job that built it gave as its output
-          # sha256-<artifact> (any job of the run can upload an artifact, but
-          # only that job sets its outputs)
+          # (any job of the run can upload an artifact, but only that job sets
+          # its outputs)
           mkdir out
-          take() { # <artifact> <file> <name> <job>
+          take() { # <artifact> <file> <name> <job> <output>
             local sha
-            sha="$(jq -r --arg job "$4" --arg out "sha256-$1" '.[$job].outputs[$out] // ""' <<< "$NEEDS")"
+            sha="$(jq -r --arg job "$4" --arg out "$5" '.[$job].outputs[$out] // ""' <<< "$NEEDS")"
             if [ ! -f "art/vibeBMS-$1/$2" ]; then
               echo "::error::the artifact vibeBMS-$1 has no $2"
               exit 1
@@ -865,28 +920,23 @@ jobs:
             fi
             cp "art/vibeBMS-$1/$2" "out/$3"
           }
-          for t in linux-x64 linux-arm64; do
-            take "$t" vibebms "vibebms-$t" build-linux
-          done
-          for t in linux-x64-portable linux-arm64-portable; do
-            take "$t" vibebms "vibebms-$t" build-linux-portable
-          done
-          for t in macos-arm64 macos-x64; do
-            take "$t" vibebms "vibebms-$t" macos
+          for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable; do
+            take "$t" vibebms "vibebms-$t" "build-$t" sha256
           done
           for t in windows-x64 windows-arm64; do
-            take "$t" vibebms.exe "vibebms-$t.exe" build-windows
+            take "$t" vibebms.exe "vibebms-$t.exe" "build-$t" sha256
           done
-          take macos-universal vibebms-macos-universal.app.zip vibebms-macos-universal.app.zip macos
+          for t in macos-arm64 macos-x64; do
+            take "$t" vibebms "vibebms-$t" macos "sha256-$t"
+          done
+          take macos-universal vibebms-macos-universal.app.zip vibebms-macos-universal.app.zip macos sha256-macos-universal
+          # each file's version is the run's: every build of the run was given
+          # it (tools/ci_version.sh, from the same Cargo.toml, run number and
+          # commit), so nothing an artifact holds says it
           new='{}'
           for f in out/vibebms-*; do
             name="${f#out/}"
-            t="${name#vibebms-}"
-            t="${t%.exe}"
-            t="${t%.app.zip}"
-            v="$VERSION"
-            [ -s "art/vibeBMS-$t/version.txt" ] && v="$(tr -d '[:space:]' < "art/vibeBMS-$t/version.txt")"
-            new="$(jq -c --arg n "$name" --arg v "$v" \
+            new="$(jq -c --arg n "$name" --arg v "$VERSION" \
               --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$f")" \
               '. + {($n): {version: $v, sha256: $sha, size: $size}}' <<< "$new")"
           done
@@ -1048,7 +1098,7 @@ jobs:
   # commits that skip CI)
   nightly:
     name: downloads & nightly
-    needs: [test, cross-check, build-linux, build-windows, build-linux-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
+    needs: [test, cross-check, build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64, build-linux-x64-portable, build-linux-arm64-portable, macos, macos-dmg, macos-dmg-check, android, android-sign, ios, web, update-manifest, sign-update, verify-update]
     if: always()
     runs-on: ubuntu-latest
     # (the F-Droid repository's key, as android-sign's)
@@ -1122,6 +1172,12 @@ jobs:
         with:
           name: update-signature
           path: update
+      # the web build the web job made (the pages job's check), which the next
+      # step zips
+      - name: check the web build
+        if: env.RELEASE == 'true'
+        env: *check-web-env
+        run: *check-web
       # the files to publish, in out/; what this step makes of them (the web
       # build's zip, altstore.json) it gives as its SHA-256 outputs, for the
       # check below
@@ -1131,7 +1187,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          WEB_SHA256: ${{ needs.web.outputs.sha256 }}
         run: |
           mkdir out
           for t in linux-x64 linux-arm64 linux-x64-portable linux-arm64-portable macos-arm64 macos-x64; do
@@ -1151,23 +1206,10 @@ jobs:
           [ -f art/vibeBMS-android/vibeBMS.apk ] && cp art/vibeBMS-android/vibeBMS.apk out/vibeBMS.apk
           [ -f art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa ] && cp art/vibeBMS-ios-unsigned/vibeBMS-unsigned.ipa out/vibeBMS-unsigned.ipa
           # the same zip as tools/reproduce.sh makes of its web build, of the
-          # build the web job made (its files as that job's "the web build's
-          # SHA-256" lists them)
-          if [ -d art/vibeBMS-web ]; then
-            tree_sha256() (
-              cd "$1"
-              find -L . -name '.*' ! -name . -prune -o -type f -print | sed 's|^\./||' | LC_ALL=C sort |
-                while IFS= read -r f; do printf '%s  %s\n' "$(sha256sum < "$f" | cut -d' ' -f1)" "$f"; done |
-                sha256sum | cut -d' ' -f1
-            )
-            if [ "$(tree_sha256 art/vibeBMS-web)" != "$WEB_SHA256" ]; then
-              echo "::error::the artifact vibeBMS-web is not the build the job web made (its SHA-256 differs): nothing is published"
-              exit 1
-            fi
-            SOURCE_DATE_EPOCH="$(git -C src log -1 --format=%ct)" \
-              src/tools/build_release.sh zip out/vibeBMS-web.zip art/vibeBMS-web
-            echo "web-zip=$(sha256sum < out/vibeBMS-web.zip | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          fi
+          # build the step before checked
+          SOURCE_DATE_EPOCH="$(git -C src log -1 --format=%ct)" \
+            src/tools/build_release.sh zip out/vibeBMS-web.zip art/vibeBMS-web
+          echo "web-zip=$(sha256sum < out/vibeBMS-web.zip | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           # an AltStore / SideStore source: add its URL once, and the app
           # store offers each new nightly .ipa as an update
           if [ -f out/vibeBMS-unsigned.ipa ]; then
@@ -1237,14 +1279,14 @@ jobs:
           job() { jq -r --arg j "$1" --arg o "$2" '.[$j].outputs[$o] // ""' <<< "$NEEDS"; }
           step() { jq -r --arg s "$1" --arg o "$2" '.[$s].outputs[$o] // ""' <<< "$STEPS"; }
           for t in linux-x64 linux-arm64; do
-            row "vibebms-$t" "$(job build-linux "sha256-$t")" "the job build-linux"
-            row "vibeBMS-$t.flatpak" "$(job build-linux "sha256-$t-flatpak")" "the job build-linux"
+            row "vibebms-$t" "$(job "build-$t" sha256)" "the job build-$t"
+            row "vibeBMS-$t.flatpak" "$(job "build-$t" sha256-flatpak)" "the job build-$t"
           done
           for t in linux-x64-portable linux-arm64-portable; do
-            row "vibebms-$t" "$(job build-linux-portable "sha256-$t")" "the job build-linux-portable"
+            row "vibebms-$t" "$(job "build-$t" sha256)" "the job build-$t"
           done
           for t in windows-x64 windows-arm64; do
-            row "vibebms-$t.exe" "$(job build-windows "sha256-$t")" "the job build-windows"
+            row "vibebms-$t.exe" "$(job "build-$t" sha256)" "the job build-$t"
           done
           for t in macos-arm64 macos-x64; do
             row "vibebms-$t" "$(job macos "sha256-$t")" "the job macos"
@@ -1271,7 +1313,7 @@ jobs:
               [ -f "$f" ] && [ ! -L "$f" ] && [ "$(sha256sum < "$f" | cut -d' ' -f1)" = "${want[$name]}" ] ||
                 refuse "$name is not the one ${who[$name]} made (its SHA-256 differs)"
             elif [ -z "${optional[$name]}" ] || [ -e "$f" ] || [ -L "$f" ]; then
-              refuse "$name is not the one ${who[$name]} made (it gave no SHA-256)"
+              refuse "$name is not the one ${who[$name]} made (it gave no SHA-256: GitHub drops a job output in which a secret's value appears, as a short secret of hex digits can; docs/BUILDING.md, \"Android signing\")"
             fi
           done
           shopt -s nullglob dotglob
