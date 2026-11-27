@@ -252,6 +252,39 @@ fn is_cjk(c: char) -> bool {
         | 0x20000..=0x2FFFF)
 }
 
+/// Where download `p` is ("Finding the file… (host)", "12.3 / 40.0 MB",
+/// "Unpacking…"), in the language in use; the hosts it refused are named
+/// while it looks for the file.
+pub fn progress_line(p: &bmseeker::progress::Progress) -> String {
+    use bmseeker::progress::Stage;
+    let mb = |b: u64| format!("{:.1}", b as f64 / 1048576.0);
+    let (at, refused) = (p.at(), p.refusals());
+    let skipped = match refused.is_empty() {
+        true => String::new(),
+        false => format!(
+            " · {}",
+            tr!("{hosts} refused, skipped", hosts = refused.join(", "))
+        ),
+    };
+    match p.stage() {
+        Stage::Waiting => tr!("Waiting…").into(),
+        Stage::Finding if at.is_empty() => format!("{}{skipped}", tr!("Finding the file…")),
+        Stage::Finding => format!("{}{skipped}", tr!("Finding the file… ({at})", at = at)),
+        Stage::Downloading => {
+            let size = match p.bytes() {
+                (got, Some(total)) => format!("{} / {} MB", mb(got), mb(total)),
+                (got, None) => format!("{} MB", mb(got)),
+            };
+            match at.is_empty() {
+                true => size,
+                false => format!("{size} · {at}"),
+            }
+        }
+        Stage::Unpacking => tr!("Unpacking…").into(),
+        Stage::Adding => tr!("Adding to the library…").into(),
+    }
+}
+
 #[cfg(test)]
 mod break_tests {
     use super::{break_words, cut};
@@ -310,5 +343,76 @@ mod break_tests {
             break_words("판정 오프셋"),
             vec![(false, "판정"), (true, "오프셋")]
         );
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::progress_line;
+    use crate::i18n::Lang;
+    use bmseeker::progress::{Progress, Stage};
+
+    /// In English the line is BMSeeker's own, in every kind of line.
+    #[test]
+    fn english_is_the_label() {
+        crate::i18n::set(Lang::En);
+        let lines = |p: &Progress| {
+            let (ours, label) = (progress_line(p), p.label());
+            assert_eq!(ours, label);
+            ours
+        };
+        let p = Progress::new();
+        let mut seen = vec![lines(&p)];
+        p.set_stage(Stage::Finding);
+        seen.push(lines(&p));
+        p.refused("a.example");
+        seen.push(lines(&p));
+        p.refused("b.example");
+        p.set_at("drive.google.com");
+        seen.push(lines(&p));
+        let p = Progress::new();
+        p.set_stage(Stage::Finding);
+        p.set_at("mega.nz");
+        seen.push(lines(&p));
+        p.refused("a.example");
+        p.start_file(Some(40 << 20));
+        p.add(12_900_000);
+        seen.push(lines(&p));
+        p.set_at("");
+        seen.push(lines(&p));
+        p.start_file(None);
+        p.add(1 << 20);
+        seen.push(lines(&p));
+        p.set_at("mega.nz");
+        seen.push(lines(&p));
+        p.set_stage(Stage::Unpacking);
+        seen.push(lines(&p));
+        p.set_stage(Stage::Adding);
+        seen.push(lines(&p));
+        assert_eq!(
+            seen,
+            [
+                "Waiting…",
+                "Finding the file…",
+                "Finding the file… · a.example refused, skipped",
+                "Finding the file… (drive.google.com) · a.example, b.example refused, skipped",
+                "Finding the file… (mega.nz)",
+                "12.3 / 40.0 MB · mega.nz",
+                "12.3 / 40.0 MB",
+                "1.0 MB",
+                "1.0 MB · mega.nz",
+                "Unpacking…",
+                "Adding to the library…",
+            ]
+        );
+    }
+
+    #[test]
+    fn other_languages_have_their_words() {
+        crate::i18n::set(Lang::Ja);
+        let p = Progress::new();
+        p.set_stage(Stage::Unpacking);
+        assert_ne!(progress_line(&p), p.label());
+        crate::i18n::set(Lang::En);
     }
 }

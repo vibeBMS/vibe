@@ -8,6 +8,7 @@
 
 use crate::platform::Job;
 use bmseeker::install::job::{Effect, Fed, Files, Got, Missed, Step};
+use bmseeker::manbow::mirror::{self, File, Work};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,36 +21,8 @@ const REFRESH_S: u64 = 86_400;
 /// URLs of the indexes in it may change.
 const CATALOG_REFRESH_S: u64 = 600;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct File {
-    pub name: String,
-    pub url: String,
-    pub size: u64,
-    /// The file name the author published.
-    pub original: String,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Work {
-    pub num: u32,
-    pub title: String,
-    pub artist: String,
-    pub team: String,
-    pub kind: String,
-    pub page: String,
-    /// The main archive first, then add-ons.
-    pub files: Vec<File>,
-    /// The authors' download links (works the mirror could not copy), in
-    /// the order to try them (the index puts those found to bring the song
-    /// first).
-    pub links: Vec<String>,
-    /// Links found to hold add-ons for the song (charts without their
-    /// sounds: 差分), to put into its folder.
-    pub addons: Vec<String>,
-}
-
+/// An event as the music select lists it, with its index's works (and as
+/// it is cached).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Event {
@@ -76,37 +49,13 @@ impl Event {
     }
 }
 
-/// An event in `events.json`.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct CatalogEntry {
-    pub tag: String,
-    pub name: String,
-    pub title: String,
-    pub mirror: bool,
-    pub index: String,
-}
-
 /// A list of events (`events.json`).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Catalog {
     pub url: String,
-    pub events: Vec<CatalogEntry>,
+    pub events: Vec<mirror::Event>,
     pub fetched_at: u64,
-}
-
-/// The events of a list (`events.json`). An entry that does not read (a
-/// field of another type, a null) is left out, not the whole list; one
-/// without an index is kept and skipped later. Fields the app does not
-/// use (`venue`, `date`) may be missing or null.
-pub fn parse_catalog(bytes: &[u8]) -> Result<Vec<CatalogEntry>, String> {
-    let entries: Vec<serde_json::Value> =
-        serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    Ok(entries
-        .into_iter()
-        .filter_map(|e| serde_json::from_value(e).ok())
-        .collect())
 }
 
 /// Whether a configured URL is a list of events.
@@ -126,6 +75,23 @@ fn folder_name(tag: &str) -> Option<String> {
 pub fn event_name(url: &str) -> Option<String> {
     let tag = url.trim_end_matches('/').rsplit('/').nth(1);
     folder_name(tag.unwrap_or("archive"))
+}
+
+/// Whether the index a list names is read: over `https`, on the host the
+/// list came from. The list is another party's text, and the app fetches
+/// what it names by itself.
+fn index_of_list(index: &str, list: &str) -> bool {
+    use crate::ir::creds::origin;
+    origin(index).is_some_and(|o| o.starts_with("https://") && origin(list) == Some(o))
+}
+
+/// Fetch a list or an index: at most what [`mirror`] reads of one.
+fn fetch(url: &str, map: impl FnOnce(Result<Vec<u8>, String>) -> Msg + Send + 'static) -> Job<Msg> {
+    Job::start(|tx, _| {
+        crate::platform::http::http_get_within(url, mirror::MAX_BYTES as u64, move |r| {
+            let _ = tx.send(map(r));
+        })
+    })
 }
 
 /// Why a work did not arrive.
@@ -154,7 +120,7 @@ impl From<&str> for Fail {
 }
 
 enum Msg {
-    Catalog(String, Result<Vec<CatalogEntry>, String>),
+    Catalog(String, Result<Vec<mirror::Event>, String>),
     Index(String, Result<Vec<Work>, String>),
     Status(String),
     /// A work finished: (event, number, its folder relative to the data root).
@@ -241,6 +207,13 @@ impl Archives {
                         log::warn!("archive events {u}: {:?} is no folder name", e.tag);
                         continue;
                     };
+                    if !index_of_list(&e.index, u) {
+                        log::warn!(
+                            "archive events {u}: {:?} is not an https URL on its host",
+                            e.index
+                        );
+                        continue;
+                    }
                     wanted.push(Event {
                         url: e.index.clone(),
                         name,
@@ -293,8 +266,8 @@ impl Archives {
             .collect();
         for url in lists {
             let u = url.clone();
-            self.jobs.push(Job::get(&url, move |r| {
-                Msg::Catalog(u, r.and_then(|b| parse_catalog(&b)))
+            self.jobs.push(fetch(&url, move |r| {
+                Msg::Catalog(u, r.and_then(|b| mirror::parse_catalog(&b)))
             }));
         }
         let todo: Vec<String> = self
@@ -305,11 +278,8 @@ impl Archives {
             .collect();
         for url in todo {
             let u = url.clone();
-            self.jobs.push(Job::get(&url, move |r| {
-                let r = r.and_then(|b| {
-                    serde_json::from_slice::<Vec<Work>>(&b).map_err(|e| e.to_string())
-                });
-                Msg::Index(u, r)
+            self.jobs.push(fetch(&url, move |r| {
+                Msg::Index(u, r.and_then(|b| mirror::parse_index(&b)))
             }));
         }
     }
@@ -615,6 +585,9 @@ mod tests {
     use super::*;
     use crate::config::{CATALOG, OLD_DEFAULT};
 
+    /// Where the mirror's list is, and so its indexes.
+    const MIRROR: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main";
+
     #[test]
     fn names() {
         assert_eq!(
@@ -641,9 +614,11 @@ mod tests {
     #[test]
     fn reads_the_events() {
         let j = r#"[{"tag": "boftt", "name": "BOF:TT", "title": "T", "venue": 146,
-            "mirror": true, "index": "https://x/boftt/index.json"},
+            "mirror": true,
+            "index": "https://raw.githubusercontent.com/vibeBMS/BMS/main/boftt/index.json"},
             {"tag": "bofnt", "name": "BOF:NT", "title": "N", "venue": 142,
-            "mirror": false, "index": "https://x/bofnt/index.json"}]"#;
+            "mirror": false,
+            "index": "https://raw.githubusercontent.com/vibeBMS/BMS/main/bofnt/index.json"}]"#;
         let mut a = Archives {
             sources: vec![CATALOG.into(), "https://y/download/bof22/index.json".into()],
             catalogs: vec![Catalog {
@@ -677,13 +652,17 @@ mod tests {
         // only; an entry that does not read is left out, the rest kept
         let j = r#"[{"tag": "mumei2026", "name": "無名戦&A-1 2026",
             "title": "自称無名BMS作家が物申す！ & A-1 ClimaX 2026", "venue": 151,
-            "date": "2026-05-01", "mirror": false, "index": "https://x/mumei2026/index.json"},
+            "date": "2026-05-01", "mirror": false,
+            "index": "https://raw.githubusercontent.com/vibeBMS/BMS/main/mumei2026/index.json"},
             {"tag": "dpbms2014", "name": "DPBMS差分大会", "title": "合作！DPBMS差分大会",
-            "venue": null, "mirror": true, "index": "https://x/dpbms2014/index.json"},
-            {"tag": "pabat", "title": "P", "index": "https://x/pabat/index.json"},
-            {"tag": "bad", "name": null, "index": "https://x/bad/index.json"},
+            "venue": null, "mirror": true,
+            "index": "https://raw.githubusercontent.com/vibeBMS/BMS/main/dpbms2014/index.json"},
+            {"tag": "pabat", "title": "P",
+            "index": "https://raw.githubusercontent.com/vibeBMS/BMS/main/pabat/index.json"},
+            {"tag": "bad", "name": null,
+            "index": "https://raw.githubusercontent.com/vibeBMS/BMS/main/bad/index.json"},
             {"tag": "noindex", "name": "N"}]"#;
-        let events = parse_catalog(j.as_bytes()).unwrap();
+        let events = mirror::parse_catalog(j.as_bytes()).unwrap();
         assert_eq!(events.len(), 4);
         let mut a = Archives {
             sources: vec![CATALOG.into()],
@@ -714,7 +693,7 @@ mod tests {
                 ("PABAT", "PABAT", "P", false)
             ]
         );
-        assert!(parse_catalog(b"{}").is_err());
+        assert!(mirror::parse_catalog(b"{}").is_err());
         // a links-only work: no files, so its page opens rather than a download
         a.events[0].works = serde_json::from_str(
             r#"[{"num": 3, "title": "T", "artist": "A", "team": "", "kind": "",
@@ -728,9 +707,9 @@ mod tests {
     /// path for it has no event, and a work is not written outside `bms`.
     #[test]
     fn an_event_is_one_folder_below_bms() {
-        let entry = |(i, tag): (usize, &str)| CatalogEntry {
+        let entry = |(i, tag): (usize, &str)| mirror::Event {
             tag: tag.into(),
-            index: format!("https://x/{i}/index.json"),
+            index: format!("{MIRROR}/{i}/index.json"),
             ..Default::default()
         };
         let tags = [
@@ -871,8 +850,130 @@ mod tests {
             "page": "p", "files": [{"name": "042.zip", "url": "u", "size": 3, "original": "t.zip"}]},
             {"num": 21, "title": "U", "artist": "B", "team": "Y", "kind": "Original",
             "page": "q", "files": [], "links": ["https://1drv.ms/x"]}]"#;
-        let w: Vec<Work> = serde_json::from_str(j).unwrap();
+        let w = mirror::parse_index(j.as_bytes()).unwrap();
         assert_eq!(w[0].files[0].original, "t.zip");
         assert_eq!(w[1].links.len(), 1);
+    }
+
+    /// What the mirror's reader refuses: an index with a work that has no
+    /// number (it was work 0), or any larger than [`mirror::MAX_BYTES`];
+    /// in a list, an entry given as an array or with a key twice (they
+    /// were read), and one whose venue is no number (it was passed by).
+    #[test]
+    fn reads_only_what_the_schema_says() {
+        assert!(mirror::parse_index(br#"[{"title": "T", "files": []}]"#).is_err());
+        let big = format!("[{}{{\"num\": 1}}]", " ".repeat(mirror::MAX_BYTES));
+        assert!(mirror::parse_index(big.as_bytes()).is_err());
+        let j = r#"[["array", "A", "T", null, true, "https://i/a/index.json"],
+            {"tag": "twice", "tag": "again", "index": "https://i/t/index.json"},
+            {"tag": "venue", "venue": "151", "index": "https://i/v/index.json"},
+            {"tag": "minus", "venue": -1, "index": "https://i/m/index.json"},
+            {"tag": "kept", "venue": null, "index": "https://i/k/index.json"},
+            {"tag": "numbered", "venue": 146, "index": "https://i/n/index.json"}]"#;
+        let tags: Vec<String> = (mirror::parse_catalog(j.as_bytes()).unwrap())
+            .into_iter()
+            .map(|e| e.tag)
+            .collect();
+        assert_eq!(tags, ["kept", "numbered"]);
+    }
+
+    /// A list's index is read only over https from the list's own host.
+    #[test]
+    fn an_index_is_on_its_lists_host() {
+        let good = [
+            format!("{MIRROR}/bof22/index.json"),
+            "https://RAW.githubusercontent.com:443/vibeBMS/BMS/main/x/index.json".into(),
+        ];
+        let bad = [
+            "http://raw.githubusercontent.com/vibeBMS/BMS/main/x/index.json",
+            "https://raw.githubusercontent.com:8443/x/index.json",
+            "https://raw.githubusercontent.com.example/x/index.json",
+            "https://raw.githubusercontent.com@example.com/x/index.json",
+            "https://example.com/x/index.json",
+            "https://127.0.0.1/x/index.json",
+            "http://192.168.1.1/x/index.json",
+            "file:///etc/x/index.json",
+            "/x/index.json",
+        ];
+        for u in &good {
+            assert!(index_of_list(u, CATALOG), "{u}");
+        }
+        for u in bad {
+            assert!(!index_of_list(u, CATALOG), "{u}");
+        }
+        // a list served over http names no index
+        assert!(!index_of_list(
+            "http://h/x/index.json",
+            "http://h/events.json"
+        ));
+        assert!(index_of_list(
+            "https://h/x/index.json",
+            "https://h/l/events.json"
+        ));
+
+        let entries = [good[0].as_str(), bad[4], bad[6]].map(|u| mirror::Event {
+            tag: format!("e{}", u.len()),
+            index: u.to_string(),
+            ..Default::default()
+        });
+        let mut a = Archives {
+            sources: vec![CATALOG.into()],
+            catalogs: vec![Catalog {
+                url: CATALOG.into(),
+                events: entries.into(),
+                fetched_at: 1,
+            }],
+            ..Default::default()
+        };
+        let paths = crate::paths::Paths::at(std::env::temp_dir().join("vibebms-archive-test-4"));
+        a.rebuild(&paths);
+        let urls: Vec<&str> = a.events.iter().map(|e| e.url.as_str()).collect();
+        assert_eq!(urls, [good[0].as_str()]);
+    }
+
+    /// The list and indexes cached by an earlier version (its own types)
+    /// read back; a cache that does not read is as none: fetched again.
+    #[test]
+    fn earlier_caches_load() {
+        let root =
+            std::env::temp_dir().join(format!("vibebms-archive-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = crate::paths::Paths::at(root.clone());
+        std::fs::create_dir_all(Archives::dir(&paths)).unwrap();
+        let (tt, nt) = (
+            format!("{MIRROR}/boftt/index.json"),
+            format!("{MIRROR}/bofnt/index.json"),
+        );
+        let list = format!(
+            r#"{{"url":"{CATALOG}","events":[{{"tag":"boftt","name":"BOF:TT","title":"T",
+            "mirror":true,"index":"{tt}"}},{{"tag":"bofnt","name":"BOF:NT","title":"N",
+            "mirror":false,"index":"{nt}"}}],"fetched_at":5}}"#
+        );
+        let index = format!(
+            r#"{{"url":"{tt}","name":"BOFTT","label":"BOF:TT","title":"T","mirrored":true,
+            "works":[{{"num":42,"title":"W","artist":"A","team":"X","kind":"Original","page":"p",
+            "files":[{{"name":"042.zip","url":"u","size":3,"original":"w.zip"}}],"links":[],
+            "addons":[]}}],"fetched_at":7}}"#
+        );
+        // (not written by any version: a work without its number)
+        let broken = format!(r#"{{"url":"{nt}","works":[{{"title":"W"}}],"fetched_at":7}}"#);
+        for (u, j) in [
+            (CATALOG, &list),
+            (tt.as_str(), &index),
+            (nt.as_str(), &broken),
+        ] {
+            std::fs::write(Archives::cache_file(&paths, u), j).unwrap();
+        }
+        let a = Archives::load(&paths, &[CATALOG.into()]);
+        assert_eq!(a.catalogs[0].fetched_at, 5);
+        let got: Vec<(&str, &str, usize, u64)> = a
+            .events
+            .iter()
+            .map(|e| (e.name.as_str(), e.label(), e.works.len(), e.fetched_at))
+            .collect();
+        assert_eq!(got, [("BOFTT", "BOF:TT", 1, 7), ("BOFNT", "BOF:NT", 0, 0)]);
+        assert_eq!(a.events[0].works[0].files[0].original, "w.zip");
+        assert!(a.can_download(0, 42));
+        std::fs::remove_dir_all(&root).ok();
     }
 }
