@@ -15,7 +15,7 @@ use crate::touch;
 use crate::ui;
 
 impl PlayScene {
-    pub(super) fn draw_play(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    pub(super) fn draw_play(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
         self.sync_sides(&ctx.config.play);
         self.lay_out(ctx);
         let view = self.touch.view;

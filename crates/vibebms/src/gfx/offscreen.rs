@@ -1,10 +1,11 @@
 //! Drawing without a window (desktop): each frame drawn into a texture
 //! and read back (`vibebms export video`).
 
-use super::{Batch, Color, Gfx};
+use super::{Batch, Color, Gfx, Gpu};
 
-/// A [`Gfx`] that draws into a texture of a fixed size.
+/// A [`Gpu`] that draws into a texture of a fixed size, and its textures.
 pub struct Offscreen {
+    pub gpu: Gpu,
     pub gfx: Gfx,
     target: wgpu::Texture,
 }
@@ -86,26 +87,26 @@ impl Offscreen {
             usage,
             view_formats: &[],
         });
-        let mut gfx = Gfx::with_device(device, queue, config, &caps, &info, None);
+        let (mut gpu, gfx) = Gpu::with_device(device, queue, config, &caps, &info, None);
         // (the size's uniforms)
-        gfx.resize(w, h);
-        Ok(Offscreen { gfx, target })
+        gpu.resize(w, h);
+        Ok(Offscreen { gpu, gfx, target })
     }
 
     /// Draw `batch` and read the frame back: RGBA rows, opaque.
     pub fn frame(&mut self, batch: &Batch, clear: Color) -> Result<Vec<u8>, String> {
-        let gfx = &mut self.gfx;
-        let mut enc = gfx.encode(batch, clear, &self.target);
-        let copy = super::capture::copy(&gfx.device, &mut enc, &self.target)
+        let gpu = &mut self.gpu;
+        let mut enc = gpu.encode(&self.gfx, batch, clear, &self.target);
+        let copy = super::capture::copy(&gpu.device, &mut enc, &self.target)
             .ok_or("the frame's format cannot be read")?;
-        gfx.queue.submit(Some(enc.finish()));
+        gpu.queue.submit(Some(enc.finish()));
         copy.start();
-        let _ = gfx.device.poll(wgpu::PollType::wait_indefinitely());
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
         loop {
             if let Some(img) = copy.take() {
                 return img.map(|i| i.into_raw());
             }
-            let _ = gfx.device.poll(wgpu::PollType::wait_indefinitely());
+            let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
             std::thread::yield_now();
         }
     }

@@ -271,7 +271,7 @@ impl Scene for DecideScene {
         }
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let st = DecideState::new(self, ctx);
         let mut hooks = DecideHooks {

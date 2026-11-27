@@ -568,7 +568,7 @@ impl Scene for TouchLayoutScene {
         Next::Stay
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, _now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, _now: Instant) {
         let ui = ctx.ui();
         let mm = ctx.px_per_mm();
         let (w, h) = (ctx.view.width, ctx.view.height);

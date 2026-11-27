@@ -77,6 +77,15 @@ pub struct Batch {
     sdf: Option<u32>,
 }
 
+#[cfg(test)]
+impl Batch {
+    /// The draws recorded: each one's texture and its triangles' vertices.
+    pub fn draws(&self) -> impl Iterator<Item = (TexId, &[Vertex])> {
+        let verts = |c: &Cmd| &self.verts[c.start as usize..(c.start + c.count) as usize];
+        self.cmds.iter().map(move |c| (c.tex, verts(c)))
+    }
+}
+
 impl Batch {
     pub fn clear(&mut self) {
         self.verts.clear();

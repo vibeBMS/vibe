@@ -362,7 +362,7 @@ impl SettingsScene {
         }
     }
 
-    pub(super) fn draw_all(&mut self, ctx: &mut Ctx, d: &mut Draw) {
+    pub(super) fn draw_all(&mut self, ctx: &Ctx, d: &mut Draw) {
         let (w, h) = (ctx.view.width, ctx.view.height);
         d.b.gradient(
             Rect::new(0.0, 0.0, w, h),
@@ -485,7 +485,7 @@ impl SettingsScene {
     }
 
     /// The search field at `r` (the wide one on the top level).
-    fn draw_search(&mut self, ctx: &mut Ctx, d: &mut Draw, r: Rect, wide: bool) {
+    fn draw_search(&mut self, ctx: &Ctx, d: &mut Draw, r: Rect, wide: bool) {
         let ui = ctx.ui();
         let on = self.search.is_some();
         let border = if on { ACCENT } else { edge() };
@@ -504,7 +504,7 @@ impl SettingsScene {
         match &self.search {
             Some(s) => {
                 // an on-screen keyboard comes up
-                ctx.input.text_input = true;
+                d.text_input = true;
                 let shown = ellipsize(d, &format!("{}_", s.input.buf), size, tw);
                 d.text(
                     &shown,
@@ -540,7 +540,7 @@ impl SettingsScene {
         }
     }
 
-    fn draw_top(&mut self, ctx: &mut Ctx, d: &mut Draw) {
+    fn draw_top(&mut self, ctx: &Ctx, d: &mut Draw) {
         let ui = ctx.ui();
         let (w, h) = (ctx.view.width, ctx.view.height);
         let u = |v: f32| v * ui;
@@ -714,7 +714,7 @@ impl SettingsScene {
         }
     }
 
-    fn draw_rail(&mut self, ctx: &mut Ctx, d: &mut Draw) {
+    fn draw_rail(&mut self, ctx: &Ctx, d: &mut Draw) {
         let ui = ctx.ui();
         let u = |v: f32| v * ui;
         let portrait = ctx.portrait();

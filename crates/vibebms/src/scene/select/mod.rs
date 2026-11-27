@@ -96,7 +96,7 @@ pub struct SelectScene {
     banner_job: Option<crate::gfx::ImageJobs>,
     ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
-    host: SkinHost,
+    pub(crate) host: SkinHost,
     /// The sound set's BGM is playing; the panel its sounds last saw.
     bgm_on: bool,
     sound_panel: usize,
@@ -298,7 +298,7 @@ impl SelectScene {
         }
     }
 
-    fn draw_skinned(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw_skinned(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
         let view = Rect::new(0.0, 0.0, ctx.view.width, ctx.view.height);
         let (bars, pitch) = {
             let st = SelectState::new(self, ctx);
@@ -434,7 +434,7 @@ impl Scene for SelectScene {
         self.free_banner(gfx);
     }
 
-    fn draw(&mut self, ctx: &mut Ctx, d: &mut Draw, now: Instant) {
+    fn draw(&mut self, ctx: &Ctx, d: &mut Draw, now: Instant) {
         self.draw_skinned(ctx, d, now);
     }
 }

@@ -77,9 +77,9 @@ impl TextInput {
     }
 
     /// A box at `r` showing `label` and the text; a tap on it commits.
-    pub fn draw_box(&mut self, ctx: &mut Ctx, d: &mut Draw, r: Rect, label: &str) {
+    pub fn draw_box(&mut self, ctx: &Ctx, d: &mut Draw, r: Rect, label: &str) {
         // (an on-screen keyboard or input method comes up)
-        ctx.input.text_input = true;
+        d.text_input = true;
         let ui = ctx.ui();
         self.area = r;
         self.buttons.clear();
@@ -96,8 +96,8 @@ impl TextInput {
 
     /// A dialog over the screen with `title`, the text (`masked`: as dots)
     /// and OK / Cancel buttons.
-    pub fn draw_modal(&mut self, ctx: &mut Ctx, d: &mut Draw, title: &str, masked: bool) {
-        ctx.input.text_input = true;
+    pub fn draw_modal(&mut self, ctx: &Ctx, d: &mut Draw, title: &str, masked: bool) {
+        d.text_input = true;
         let ui = ctx.ui();
         let (w, h) = (ctx.view.width, ctx.view.height);
         // the on-screen keyboard (iOS, Android) covers the lower half

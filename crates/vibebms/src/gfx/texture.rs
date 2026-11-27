@@ -1,19 +1,67 @@
-//! Textures on the GPU: made, updated, freed; images loaded into them.
+//! The textures frames are drawn from: made, updated, freed; images
+//! loaded into them.
 
-use super::{Gfx, TexId, ATLAS};
+use super::{TexId, ATLAS, ATLAS_SIZE};
 
-pub struct GpuTexture {
-    pub texture: wgpu::Texture,
-    pub(super) bind: wgpu::BindGroup,
-    pub w: u32,
-    pub h: u32,
+/// The textures by id, with the size of each: what scenes make their
+/// images in and a frame's batch names. They are made on the GPU's device
+/// ([`super::Gpu`] draws from them); without one (tests) a texture is its
+/// size only, so that frames can be recorded where nothing draws them.
+pub struct Gfx {
+    dev: Option<TexDevice>,
+    pub(super) textures: Vec<Option<Texture>>,
+}
+
+/// What textures are made with: the device and queue, and the layout and
+/// sampler the pipelines bind them with.
+pub(super) struct TexDevice {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub layout: wgpu::BindGroupLayout,
+    pub sampler: wgpu::Sampler,
+}
+
+pub(super) struct Texture {
+    /// (`None` without a device)
+    pub gpu: Option<GpuTexture>,
+    w: u32,
+    h: u32,
+}
+
+pub(super) struct GpuTexture {
+    texture: wgpu::Texture,
+    pub bind: wgpu::BindGroup,
 }
 
 impl Gfx {
+    pub(super) fn new(dev: TexDevice) -> Gfx {
+        Gfx::with(Some(dev))
+    }
+
+    /// Textures with no device: their sizes are kept, nothing is uploaded.
+    #[cfg(test)]
+    pub fn without_gpu() -> Gfx {
+        Gfx::with(None)
+    }
+
+    fn with(dev: Option<TexDevice>) -> Gfx {
+        let mut g = Gfx {
+            dev,
+            textures: Vec::new(),
+        };
+        // atlas: transparent (wgpu makes textures zeroed: nothing to
+        // upload) with a white block in the corner
+        let id = g.create_texture(ATLAS_SIZE, ATLAS_SIZE, &[]);
+        debug_assert_eq!(id, ATLAS);
+        g.update_texture(ATLAS, 0, 0, 4, 4, &[255; 4 * 4 * 4]);
+        g
+    }
+
     /// The size a `w`×`h` image is stored at: scaled down to the GPU's
     /// largest texture (coordinates keep using the image's own size).
     fn stored_size(&self, w: u32, h: u32) -> (u32, u32) {
-        let max = self.device.limits().max_texture_dimension_2d;
+        let max =
+            (self.dev.as_ref()).map_or(u32::MAX, |d| d.device.limits().max_texture_dimension_2d);
         if w <= max && h <= max {
             return (w.max(1), h.max(1));
         }
@@ -28,51 +76,15 @@ impl Gfx {
         if (sw, sh) != (w, h) && w > 0 && h > 0 {
             log::warn!("{w}x{h} image is larger than the GPU allows; scaled to {sw}x{sh}");
         }
-        let size = wgpu::Extent3d {
-            width: sw,
-            height: sh,
-            depth_or_array_layers: 1,
-        };
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let gt = {
-            let view = texture.create_view(&Default::default());
-            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.tex_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-            GpuTexture {
-                texture,
-                bind,
-                w,
-                h,
-            }
-        };
+        let gpu = self.dev.as_ref().map(|d| d.texture(sw, sh));
+        let t = Texture { gpu, w, h };
         let id = match self.textures.iter().position(|t| t.is_none()) {
             Some(i) => {
-                self.textures[i] = Some(gt);
+                self.textures[i] = Some(t);
                 i
             }
             None => {
-                self.textures.push(Some(gt));
+                self.textures.push(Some(t));
                 self.textures.len() - 1
             }
         };
@@ -81,13 +93,15 @@ impl Gfx {
     }
 
     pub fn update_texture(&self, id: TexId, x: u32, y: u32, w: u32, h: u32, rgba: &[u8]) {
-        let Some(Some(t)) = self.textures.get(id) else {
+        let (Some(dev), Some(Some(t @ Texture { gpu: Some(gt), .. }))) =
+            (&self.dev, self.textures.get(id))
+        else {
             return;
         };
         if w == 0 || h == 0 || rgba.len() < (w * h * 4) as usize {
             return;
         }
-        let stored = t.texture.size();
+        let stored = gt.texture.size();
         let scaled;
         let (w, h, rgba) = if (stored.width, stored.height) == (t.w, t.h) {
             (w, h, rgba)
@@ -103,9 +117,9 @@ impl Gfx {
         } else {
             return;
         };
-        self.queue.write_texture(
+        dev.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &t.texture,
+                texture: &gt.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
@@ -137,5 +151,41 @@ impl Gfx {
                 *t = None;
             }
         }
+    }
+}
+
+impl TexDevice {
+    /// A texture of `w`×`h` on the device, and its binding.
+    fn texture(&self, w: u32, h: u32) -> GpuTexture {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        GpuTexture { texture, bind }
     }
 }

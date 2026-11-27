@@ -30,7 +30,7 @@ impl Running {
             }
             WindowEvent::Resized(_) => {
                 let (w, h) = surface_size(&self.window);
-                self.gfx.resize(w, h);
+                self.gpu.resize(w, h);
                 self.ctx.view.width = w as f32;
                 self.ctx.view.height = h as f32;
                 self.ctx.view.scale = self.window.scale_factor() as f32;

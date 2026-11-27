@@ -200,9 +200,6 @@ impl View {
 pub struct Input {
     /// A touch screen has been touched.
     pub touch_seen: bool,
-    /// A text field is being edited (scenes set it as they draw): the
-    /// on-screen keyboard is shown on iOS and Android.
-    pub text_input: bool,
     /// Where the mouse is (screen pixels); `None` before it moves and once
     /// it has left the window.
     pub pointer: Option<(f32, f32)>,
@@ -333,19 +330,12 @@ impl Ctx {
     }
 
     /// A context for tests: default settings, data under `root`, no
-    /// library, silent audio.
+    /// library, an offline mixer (no sound device is opened; nothing
+    /// asks it for frames).
     #[cfg(test)]
     pub fn for_test(root: PathBuf) -> Ctx {
-        let silent = crate::config::AudioSettings {
-            buffer_frames: 0,
-            sample_rate: 44100,
-            master: 0.0,
-            key: 0.0,
-            bgm: 0.0,
-            system: 0.0,
-            ..Default::default()
-        };
-        let mixer = Mixer::new(&silent.mixer_config(16));
+        let audio = crate::config::AudioSettings::default();
+        let mixer = Mixer::offline(&audio.mixer_config(16), 44100);
         let view = View::new(
             winit::dpi::PhysicalSize::new(1280, 720),
             1.0,
