@@ -70,7 +70,7 @@ impl Startup {
         }
         for a in Job::drain_slot(&mut self.events) {
             ctx.net.archives = a;
-            ctx.net.archives.refresh(false);
+            ctx.net.archives.refresh(&ctx.net.hosts, false);
             ctx.lib.version += 1;
         }
         for s in Job::drain_slot(&mut self.skins) {

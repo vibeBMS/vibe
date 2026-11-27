@@ -198,11 +198,58 @@ class CheckLayers(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("app::screenshot: 3 lines with a platform condition, more than the 2", out)
 
+    def test_a_folders_parts_named_in_it_are_read(self):
+        # (its own modules by their names, as `self::scoredb::…` is)
+        for rel, text, says in [
+            ("library/mod.rs", "pub use scoredb::Rows;\n", "library (library) uses library::scoredb::Rows"),
+            ("library/mod.rs", "pub fn f(b: u8) {\n    scoredb::read(b, false);\n}\n",
+             "library (library) uses library::scoredb::read"),
+            ("library/mod.rs", "pub use courses::{CourseStore, Course as C};\n",
+             "library (library) uses library::courses::Course"),
+            ("gfx/mod.rs", "pub fn f() -> usize {\n    theme::NAMES.len()\n}\n",
+             "gfx (drawing and input) uses gfx::theme::NAMES"),
+            ("gfx/mod.rs", "pub fn f() {\n    video::set_offline(true);\n}\n",
+             "gfx (drawing and input) uses gfx::video::set_offline"),
+            ("library/mod.rs", "impl courses::CourseStore {}\n", "methods of library::courses's CourseStore"),
+        ]:
+            code, out = self.run_on({rel: text})
+            self.assertEqual(code, 1, text + out)
+            self.assertIn(says, out)
+        code, out = self.run_on({"library/mod.rs": "pub fn f() {\n    sqlite::read_file();\n}\n",
+                                 "library/sqlite.rs": "pub fn g(_: crate::library::Song) {}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("a cycle between units: library, library::sqlite (", out)
+
+    def test_a_reexported_item_is_its_modules(self):
+        code, out = self.run_on({"library/mod.rs": "pub use courses::CourseStore;\n",
+                                 "net/placement.rs": "pub fn f(_: crate::library::CourseStore) {}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("net::placement (placement) uses library::courses::CourseStore", out)
+        code, out = self.run_on({"library/mod.rs": "pub(crate) use self::courses::CourseStore as Store;\n",
+                                 "net/placement.rs": "use crate::library::Store;\nimpl Store {}\n"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("net/placement.rs:", out)
+        self.assertIn("methods of library::courses's Store", out)
+
+    def test_a_glob_of_a_folder_with_units_fails(self):
+        for text in ["use crate::library::*;\npub fn f(b: u8) {\n    scoredb::read(b, false);\n}\n",
+                     "pub use super::super::library::*;\n"]:
+            code, out = self.run_on({"net/placement.rs": text})
+            self.assertEqual(code, 1, text + out)
+            self.assertIn("net/placement.rs:", out)
+            self.assertIn("a glob import of library, whose parts library::charts, library::courses", out)
+        # a folder that is one unit
+        self.assertEqual(self.run_on({"net/placement.rs": "use crate::formats::*;\n"})[0], 0)
+
     def test_a_platform_condition_more_fails(self):
         for text in ['#[cfg(target_os = "linux")]\npub fn f() {}\n',
                      '#[cfg(not(any(windows, target_arch = "wasm32")))]\npub fn f() {}\n',
                      "#[cfg_attr(\n    desktop,\n    allow(dead_code)\n)]\npub fn f() {}\n",
                      "pub fn f() -> bool {\n    cfg!(unix)\n}\n",
+                     "pub fn f() -> bool {\n    std::cfg!(windows)\n}\n",
+                     "pub fn f() -> bool {\n    core :: cfg!(target_os = \"ios\")\n}\n",
+                     '#[cfg(target_pointer_width = "32")]\npub fn f() {}\n',
+                     '#[cfg(any(target_endian = "big", target_has_atomic = "64"))]\npub fn f() {}\n',
                      "pub fn f() -> bool {\n    cfg!(all(test, small_device))\n}\n"]:
             code, out = self.run_on({"formats/mod.rs": text})
             self.assertEqual(code, 1, text + out)
@@ -220,11 +267,26 @@ class CheckLayers(unittest.TestCase):
             ("formats/mod.rs", "#[cfg(test)]\nmod more_tests {\n    #[cfg(unix)]\n    fn f() {}\n}\n"),
             ("formats/mod.rs", '// #[cfg(windows)]\n/// cfg!(unix)\npub const S: &str = "#[cfg(unix)]";\n'),
             ("formats/mod.rs", '#[cfg(feature = "x")]\npub fn f() {}\n#[cfg_attr(test, doc = "windows")]\npub fn g() {}\n'),
-            ("formats/mod.rs", "pub fn f(windows: u8) -> u8 {\n    config(windows)\n}\n"),
+            ("formats/mod.rs",
+             "pub fn f(windows: u8) -> u8 {\n    mycfg(windows) + self.cfg(windows) + util::cfg(windows)\n}\n"),
             ("platform/mod.rs", "#[cfg(windows)]\npub fn f() {}\n"),
             ("app/mod.rs", "#[cfg(desktop)]\npub fn f() {}\n"),
             ("browser/mod.rs", '#[cfg(target_os = "ios")]\npub fn f() {}\n'),
         ]:
+            self.assertEqual(self.run_on({rel: text})[0], 0, rel + ": " + text)
+
+    def test_a_constant_for_a_platform_more_fails(self):
+        for text in ["pub fn f() -> bool {\n    crate::platform::IS_WEB\n}\n",
+                     "use crate::platform::IS_WEB;\npub fn f() -> bool {\n    !IS_WEB\n}\n",
+                     "pub fn f() -> bool {\n    crate::ctx::IN_APP_BROWSER\n}\n"]:
+            code, out = self.run_on({"formats/mod.rs": text})
+            self.assertEqual(code, 1, text + out)
+            self.assertIn("formats: 1 lines with IS_WEB or IN_APP_BROWSER, more than the 0 STOOD_IN allows", out)
+        # (net::hosts has one)
+        for rel, text in [("net/hosts.rs", "#[allow(unused_imports)]\nuse crate::platform::IS_WEB;\n"),
+                          ("net/hosts.rs", "// IS_WEB\npub const S: &str = \"IS_WEB\";\n"),
+                          ("net/hosts.rs", "#[cfg(test)]\nfn t() -> bool {\n    crate::platform::IS_WEB\n}\n"),
+                          ("app/mod.rs", "pub fn f() -> bool {\n    crate::platform::IS_WEB\n}\n")]:
             self.assertEqual(self.run_on({rel: text})[0], 0, rel + ": " + text)
 
     def test_a_count_gone_down_is_to_be_lowered(self):

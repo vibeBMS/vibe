@@ -29,7 +29,7 @@ fn browse(c: &mut Ctx, _: usize) {
     }
 }
 
-/// Scores from LR2, beatoraja or LR2oraja (`scoredb`): `path` is the
+/// Scores from LR2, beatoraja or LR2oraja (`library::scoredb`): `path` is the
 /// player's database, or a folder that has one.
 pub(super) fn import_scores(c: &mut Ctx, path: &str) {
     use crate::library::scoredb;

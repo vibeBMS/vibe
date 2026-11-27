@@ -191,15 +191,11 @@ mod imp {
     pub fn remove_dir(dir: &Path) {
         let _ = std::fs::remove_dir_all(dir);
     }
-    /// A skin's file that came as bytes: written, its folder made (on the
-    /// web its bytes stay in memory too).
-    pub fn store_resident(p: &Path, data: Vec<u8>) {
+    pub(super) fn store_resident(p: &Path, data: Vec<u8>) -> io::Result<()> {
         if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
+            std::fs::create_dir_all(d)?;
         }
-        if let Err(e) = write(p, &data) {
-            log::warn!("{}: {e}", p.display());
-        }
+        write(p, &data)
     }
 }
 
@@ -565,7 +561,7 @@ mod imp {
             let mut fs = fs.borrow_mut();
             for i in 0..files.length() {
                 let Some(f) = files.get(i) else { continue };
-                // (song packs are unpacked: `web::install_file_input`)
+                // (song packs are unpacked: `app::web::install_file_input`)
                 if bmseeker::unpack::is_archive(Path::new(&f.name())) {
                     continue;
                 }
@@ -594,7 +590,7 @@ mod imp {
     /// Unpack an archive under `<dir>/<archive name>/` (`Song.tar.gz`:
     /// `Song/`; entry names in Shift_JIS / EUC-KR decoded; archives in one
     /// holding no chart unpacked too).
-    pub fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
+    fn add_archive_at(dir: &Path, name: &str, bytes: Vec<u8>) -> usize {
         use bmseeker::unpack::{unpack, Blob, BUDGET};
         let base = dir.join(bmseeker::unpack::archive_folder(name));
         match unpack(Blob::Bytes(bytes), &crate::platform::Vfs, &base, BUDGET) {
@@ -629,10 +625,9 @@ mod imp {
         });
     }
 
-    /// A skin's file: kept in the browser's storage, and its bytes stay in
-    /// memory (skins are read at once, Lua's `require` too, with no time to
-    /// fetch a file back from the storage).
-    pub fn store_resident(p: &Path, data: Vec<u8>) {
+    /// (skins are read at once, Lua's `require` too, with no time to fetch
+    /// a file back from the storage)
+    pub(super) fn store_resident(p: &Path, data: Vec<u8>) -> io::Result<()> {
         let data = Rc::new(data);
         super::super::opfs::save(p, &data, |_| {});
         FS.with(|fs| {
@@ -645,6 +640,7 @@ mod imp {
                 },
             );
         });
+        Ok(())
     }
 
     /// A file of the player's own (a replay): held in memory and kept in
@@ -782,6 +778,14 @@ fn in_archive(p: &Path) -> io::Result<()> {
 pub fn write(p: &Path, data: &[u8]) -> io::Result<()> {
     in_archive(p)?;
     imp::write(p, data)
+}
+
+/// A skin's file that came as bytes (a web page's download): written, its
+/// folder made; on the web kept in the browser's storage, and its bytes
+/// stay in memory.
+pub(crate) fn store_resident(p: &Path, data: Vec<u8>) -> io::Result<()> {
+    in_archive(p)?;
+    imp::store_resident(p, data)
 }
 
 pub fn remove_file(p: &Path) -> io::Result<()> {
@@ -1147,6 +1151,21 @@ mod tests {
             assert_eq!(inside(dir, bad), None, "{bad}");
         }
         assert_eq!(normalize(Path::new("/a/b/../c/./d")), Path::new("/a/c/d"));
+    }
+
+    /// A skin's file that came as bytes is written as any file is: its
+    /// folder made, nothing into an archive, a failure said.
+    #[test]
+    fn a_skins_file_is_written_as_files_are() {
+        let d = std::env::temp_dir().join(format!("vibebms-vfs-resident-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        store_resident(&d.join("Skin/play/a.json"), b"{}".to_vec()).unwrap();
+        assert_eq!(read(&d.join("Skin/play/a.json")).unwrap(), b"{}");
+        let e = store_resident(&d.join("pack.zip!/a.json"), b"{}".to_vec()).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!d.join("pack.zip!").exists());
+        assert!(store_resident(&d.join("Skin/play/a.json/b.json"), b"{}".to_vec()).is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// A name Windows keeps for a device is no file's, in a song's folder

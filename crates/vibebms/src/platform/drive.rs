@@ -24,6 +24,10 @@ struct Net {
     refused: Option<Arc<Refusals>>,
 }
 
+/// What runs a job of the player's: [`run_job`]; in tests also
+/// [`in_page`], the web's driver, which every target builds then.
+pub type Launch<J> = fn(J, &Context, Box<dyn FnOnce(<J as Job>::Output) + Send>);
+
 /// Run a bmseeker job kept to `cx`'s refusals (a service that refused is
 /// not asked again), its files reporting to `cx`'s progress and ended by
 /// its cancel; then `on_done` with its result. Natively on a thread of its
@@ -55,7 +59,7 @@ where
 /// a file ended by a stall too, a MEGA file decrypted and checked here;
 /// its waits on a timer.
 #[cfg(any(target_arch = "wasm32", test))]
-fn in_page<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
+pub(crate) fn in_page<J>(job: J, cx: &Context, on_done: impl FnOnce(J::Output) + Send + 'static)
 where
     J: Job + 'static,
     J::Output: Send + 'static,

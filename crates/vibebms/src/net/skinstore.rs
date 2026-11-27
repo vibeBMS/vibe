@@ -392,9 +392,18 @@ impl SkinStore {
         let id = e.id.clone();
         let job = Job::start(|tx, progress| {
             let cx = cx.with_progress(progress);
-            fetch_and_install(&paths.root, paths.skins.clone(), &cx, e, old, move |r| {
-                let _ = tx.send(r);
-            })
+            let launch = crate::platform::run_job;
+            fetch_and_install(
+                &paths.root,
+                paths.skins.clone(),
+                &cx,
+                e,
+                old,
+                launch,
+                move |r| {
+                    let _ = tx.send(r);
+                },
+            )
         });
         self.busy.push((id, job));
         Ok(msg)
@@ -506,7 +515,9 @@ fn remove_folder(skins: &Path, name: &str) {
         return;
     }
     let dir = skins.join(name);
-    if crate::platform::vfs::is_dir(&dir) {
+    // (natively a link there too, whatever it leads to: the link itself
+    // goes, not what it leads to, so that the skin can be put there)
+    if crate::platform::vfs::is_dir(&dir) || std::fs::symlink_metadata(&dir).is_ok() {
         crate::platform::vfs::remove_dir(&dir);
     }
 }
@@ -705,7 +716,7 @@ fn unpack(
 /// removed first: a file moved there, bytes kept in the browser's storage
 /// (and in memory: skins are read at once). Returns the folders below
 /// `skins` it is in.
-pub fn install_files(
+fn install_files(
     blobs: Vec<bmseeker::unpack::Blob>,
     skins: &Path,
     staging: &Path,
@@ -750,7 +761,8 @@ fn install_staged(
                     std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
                 }
             }
-            Unpacked::Bytes(data) => crate::platform::vfs::store_resident(&to, data),
+            Unpacked::Bytes(data) => crate::platform::vfs::store_resident(&to, data)
+                .map_err(|e| format!("{}: {e}", to.display()))?,
         }
     }
     Ok(folders)
@@ -778,14 +790,16 @@ fn missed(m: bmseeker::install::job::Missed) -> Fail {
 /// Download entry `e`'s archives one after another (bmseeker's `Files`;
 /// `cx`'s progress tells how far): natively into their slots below
 /// `<root>/downloads`, on the web through the vibeBMS proxy into memory
-/// ([`crate::platform::run_job`]). Then install them ([`install_files`])
-/// and `done` with the folders below `skins` the skin is in.
+/// (`launch`: [`crate::platform::run_job`]). Then install them
+/// ([`install_files`]) and `done` with the folders below `skins` the skin
+/// is in.
 fn fetch_and_install(
     root: &Path,
     skins: PathBuf,
     cx: &crate::net::hosts::Context,
     e: SkinEntry,
     old: Vec<String>,
+    launch: crate::platform::Launch<bmseeker::install::job::Files>,
     done: impl FnOnce(Result<Vec<String>, Fail>) + Send + 'static,
 ) {
     use bmseeker::install::job::Files;
@@ -799,20 +813,24 @@ fn fetch_and_install(
         .collect();
     let job = Files::new(sources(&e), staging.clone(), cx);
     let told = cx.clone();
-    crate::platform::run_job(job, cx, move |r| {
-        let r = match r {
-            Ok(got) => {
-                told.stage(bmseeker::progress::Stage::Unpacking);
-                let blobs = got.into_iter().map(|g| g.blob).collect();
-                install_files(blobs, &skins, &staging, &e, &old).map_err(Fail::Msg)
+    launch(
+        job,
+        cx,
+        Box::new(move |r| {
+            let r = match r {
+                Ok(got) => {
+                    told.stage(bmseeker::progress::Stage::Unpacking);
+                    let blobs = got.into_iter().map(|g| g.blob).collect();
+                    install_files(blobs, &skins, &staging, &e, &old).map_err(Fail::Msg)
+                }
+                Err(m) => Err(missed(m)),
+            };
+            for f in &slots {
+                let _ = crate::platform::vfs::remove_file(f);
             }
-            Err(m) => Err(missed(m)),
-        };
-        for f in &slots {
-            let _ = crate::platform::vfs::remove_file(f);
-        }
-        done(r)
-    });
+            done(r)
+        }),
+    );
 }
 
 #[cfg(test)]
@@ -1209,7 +1227,110 @@ mod tests {
         assert!(r.is_err());
         assert!(skins.join("Repo/play/play7.json").is_file());
         assert_eq!(std::fs::read(skins.join("Mine/play.json")).unwrap(), b"{}");
+        // a file that cannot be written fails the install (a file where
+        // its folder goes)
+        std::fs::remove_dir_all(skins.join("Repo")).unwrap();
+        std::fs::write(skins.join("Repo"), "a file").unwrap();
+        let bytes = zip(&[
+            ("repo-main/play/play7.json", b"{\"type\":0}"),
+            ("repo-main/README.md", b"r"),
+        ]);
+        let r = install_files(vec![Blob::Bytes(bytes)], &skins, &staging, &e, &[]);
+        assert!(r.unwrap_err().contains("Repo"));
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A link where the skin's folder goes is taken away, not followed:
+    /// one that leads nowhere, to a file or to a folder (what it leads to
+    /// is kept), and the skin is put there.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_the_skins_folder_is_replaced() {
+        let base = std::env::temp_dir().join(format!("vibebms-skinlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (skins, staging) = (base.join("skins"), base.join("downloads/.skin-t"));
+        std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+        std::fs::create_dir_all(&skins).unwrap();
+        std::fs::write(base.join("elsewhere/kept.txt"), "kept").unwrap();
+        std::fs::write(base.join("file.txt"), "kept").unwrap();
+        let a = base.join("a.zip");
+        let files: [(&str, &[u8]); 2] = [
+            ("repo-main/play/play7.json", b"{\"type\":0}"),
+            ("repo-main/README.md", b"r"),
+        ];
+        let e = entry("beatoraja", "Repo");
+        for target in ["gone", "file.txt", "elsewhere"] {
+            let link = skins.join("Repo");
+            std::os::unix::fs::symlink(base.join(target), &link).unwrap();
+            std::fs::write(&a, zip(&files)).unwrap();
+            let got = install_files(vec![Blob::File(a.clone())], &skins, &staging, &e, &[]);
+            assert_eq!(got.unwrap(), ["Repo"], "{target}");
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.is_dir() && skins.join("Repo/play/play7.json").is_file());
+            std::fs::remove_dir_all(&link).unwrap();
+        }
+        assert!(!base.join("gone").exists());
+        assert_eq!(std::fs::read(base.join("file.txt")).unwrap(), b"kept");
+        assert_eq!(
+            std::fs::read(base.join("elsewhere/kept.txt")).unwrap(),
+            b"kept"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// An entry downloaded and installed through each driver (natively's
+    /// own, files on disk; the web's, bytes in memory), from a test
+    /// server: the skin in place and nothing left in the downloads; a
+    /// download that is no archive changes nothing.
+    #[test]
+    fn an_entry_is_fetched_and_installed() {
+        let launchers: [(&str, crate::platform::Launch<_>); 2] = [
+            ("thread", crate::platform::run_job),
+            ("page", crate::platform::in_page),
+        ];
+        let tar = bmseeker::testkit::tar(&[
+            ("repo-main/play/play7.json", "{\"type\":0}"),
+            ("repo-main/README.md", "r"),
+        ]);
+        for (how, launch) in launchers {
+            let root = std::env::temp_dir()
+                .join(format!("vibebms-skinfetch-{how}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let skins = root.join("skins");
+            std::fs::create_dir_all(&skins).unwrap();
+            let cx = crate::net::hosts::Context::new(bmseeker::config::Config {
+                local_hosts: true,
+                ..Default::default()
+            });
+            let fetch = |body: &[u8]| {
+                let body = std::str::from_utf8(body).unwrap();
+                let ok = format!(
+                    "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let (url, _) =
+                    crate::platform::http::tests::serve(vec![Box::leak(ok.into_boxed_str())]);
+                let e = SkinEntry {
+                    downloads: vec![format!("{url}/t.zip")],
+                    ..entry("beatoraja", "Repo")
+                };
+                let (tx, rx) = std::sync::mpsc::channel();
+                fetch_and_install(&root, skins.clone(), &cx, e, Vec::new(), launch, move |r| {
+                    let _ = tx.send(r);
+                });
+                rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap()
+            };
+            match fetch(&tar) {
+                Ok(got) => assert_eq!(got, ["Repo"], "{how}"),
+                Err(Fail::Msg(e) | Fail::Page(e)) => panic!("{how}: {e}"),
+            }
+            assert!(skins.join("Repo/play/play7.json").is_file(), "{how}");
+            let left = std::fs::read_dir(root.join("downloads")).unwrap().count();
+            assert_eq!(left, 0, "{how}");
+            assert!(fetch(b"<html>").is_err(), "{how}");
+            assert!(skins.join("Repo/play/play7.json").is_file(), "{how}");
+            std::fs::remove_dir_all(&root).ok();
+        }
     }
 
     /// A download with a hash in the catalog is installed only when it is
@@ -1265,6 +1386,7 @@ mod tests {
             &cx.with_progress(p),
             e,
             old,
+            crate::platform::run_job,
             move |r| {
                 let _ = tx.send(r);
             },

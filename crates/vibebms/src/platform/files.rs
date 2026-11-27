@@ -51,18 +51,35 @@ impl bmseeker::fs::Fs for Vfs {
     }
 }
 
+/// A file an archive holds whose path reads as one in an archive (a name
+/// such as `x.zip!`: nothing is written into an archive) is left out, with
+/// a log line, and the rest of the archive unpacked; but a chart, whose
+/// song would be installed without it.
+fn left_out(p: &Path) -> std::io::Result<Box<dyn Write + 'static>> {
+    if vibebms_core::is_chart(p) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("{}: a chart named as a path in an archive", p.display()),
+        ));
+    }
+    log::warn!("{}: named as a path in an archive: left out", p.display());
+    Ok(Box::new(std::io::sink()))
+}
+
 impl bmseeker::fs::Store for Vfs {
     #[cfg(not(target_arch = "wasm32"))]
     fn create(&self, p: &Path, mtime: Option<i64>) -> std::io::Result<Box<dyn Write + '_>> {
-        // (nothing is written into an archive)
         if crate::platform::arcfs::split(p).is_some() {
-            return Err(std::io::ErrorKind::PermissionDenied.into());
+            return left_out(p);
         }
         bmseeker::fs::Store::create(&bmseeker::fs::Disk, p, mtime)
     }
     /// Held in memory (and kept in the browser's storage) once written.
     #[cfg(target_arch = "wasm32")]
     fn create(&self, p: &Path, _mtime: Option<i64>) -> std::io::Result<Box<dyn Write + '_>> {
+        if crate::platform::arcfs::split(p).is_some() {
+            return left_out(p);
+        }
         Ok(Box::new(WebFile {
             p: p.to_path_buf(),
             buf: Vec::new(),
@@ -134,6 +151,27 @@ mod tests {
         assert!(Vfs.keeps_times());
         bmseeker::fs::Store::remove_dir(&Vfs, &d);
         assert!(!d.exists());
+    }
+
+    /// A file an archive holds that is named as a path in an archive
+    /// (`x.zip!`) is left out, the rest unpacked; a chart so named fails
+    /// the archive (its song would be short of it).
+    #[test]
+    fn a_file_named_as_in_an_archive_is_left_out() {
+        use bmseeker::unpack::{unpack, Blob, BUDGET};
+        let d = std::env::temp_dir().join(format!("vibebms-vfs-marked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let tar = bmseeker::testkit::tar(&[
+            ("a.bms", "#TITLE A"),
+            ("bonus.zip!", "x"),
+            ("extra.zip!/readme.txt", "r"),
+        ]);
+        unpack(Blob::Bytes(tar), &Vfs, &d, BUDGET).unwrap();
+        assert!(d.join("a.bms").is_file());
+        assert!(!d.join("bonus.zip!").exists() && !d.join("extra.zip!").exists());
+        let tar = bmseeker::testkit::tar(&[("a.bms", "#TITLE A"), ("x.zip!/b.bme", "#TITLE B")]);
+        assert!(unpack(Blob::Bytes(tar), &Vfs, &d.join("2"), BUDGET).is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// A folder a download is staged in is made new, never one that was

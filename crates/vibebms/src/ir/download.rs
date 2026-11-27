@@ -1,5 +1,5 @@
 //! The player's own scores read from an IR, filed as vibeBMS's records
-//! the way a score database import is (`scoredb`, `Library::import`):
+//! the way a score database import is (`library::scoredb`, `Library::import`):
 //! the better lamp, EX score, combo and BP kept, never a worse value over
 //! a better one, the same scores read again changing nothing.
 //!

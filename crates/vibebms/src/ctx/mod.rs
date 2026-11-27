@@ -168,7 +168,7 @@ pub struct View {
     /// Asked of the window by a scene (taken by the event loop).
     pub want_fullscreen: Option<bool>,
     pub want_present_mode: bool,
-    /// A screenshot of the next frame is wanted (`screenshot`).
+    /// A screenshot of the next frame is wanted (`app::screenshot`).
     pub want_screenshot: bool,
 }
 
@@ -646,7 +646,7 @@ impl Ctx {
     /// What the downloads, the self-update and the IR did since the last
     /// frame.
     pub fn poll_jobs(&mut self) {
-        let archives = self.net.archives.poll(&self.paths);
+        let archives = self.net.archives.poll(&self.paths, &self.net.hosts);
         let mut events: Vec<AppEvent> = archives.into_iter().map(AppEvent::from).collect();
         events.extend(self.net.song_fetch.poll().into_iter().map(AppEvent::from));
         if crate::net::bulk::tick(
