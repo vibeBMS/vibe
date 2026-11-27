@@ -14,7 +14,7 @@ pub use text_input::{TextEvent, TextInput};
 
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
-use crate::gfx::{with_alpha, Draw, Rect};
+use crate::gfx::{mix_opaque, with_alpha, Draw, Rect};
 
 /// How far (in UI units) a press may move and still be a tap, not a drag.
 pub const DRAG_SLOP: f32 = 10.0;
@@ -41,7 +41,7 @@ fn opaque(c: crate::gfx::Color) -> crate::gfx::Color {
 /// A button; returns its rect for hit-testing.
 pub fn button(d: &mut Draw, r: Rect, label: &str, ui: f32, active: bool) -> Rect {
     let (fill, border) = if active {
-        (mix(PANEL, ACCENT, 0.22), ACCENT)
+        (mix_opaque(PANEL, ACCENT, 0.22), ACCENT)
     } else {
         (lighter(PANEL), edge())
     };
@@ -56,28 +56,19 @@ pub fn button(d: &mut Draw, r: Rect, label: &str, ui: f32, active: bool) -> Rect
     r
 }
 
-fn mix(a: crate::gfx::Color, b: crate::gfx::Color, t: f32) -> crate::gfx::Color {
-    [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-        1.0,
-    ]
-}
-
 fn lighter(c: crate::gfx::Color) -> crate::gfx::Color {
     lift(c, 0.05)
 }
 
 /// `c` moved towards white by `t` (opaque).
 pub fn lift(c: crate::gfx::Color, t: f32) -> crate::gfx::Color {
-    mix(c, [1.0, 1.0, 1.0, 1.0], t)
+    mix_opaque(c, [1.0, 1.0, 1.0, 1.0], t)
 }
 
 /// A list row (settings items, menus); `selected` uses the accent.
 pub fn row(d: &mut Draw, r: Rect, selected: bool) {
     if selected {
-        d.b.rounded_panel(r, 6.0, mix(PANEL, ACCENT, 0.18), ACCENT, 1.5);
+        d.b.rounded_panel(r, 6.0, mix_opaque(PANEL, ACCENT, 0.18), ACCENT, 1.5);
     } else {
         d.b.rounded_panel(r, 6.0, lighter(PANEL), edge(), 1.0);
     }

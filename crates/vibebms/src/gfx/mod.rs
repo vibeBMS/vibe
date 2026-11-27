@@ -56,6 +56,16 @@ impl Rect {
     pub fn center(&self) -> (f32, f32) {
         (self.x + self.w * 0.5, self.y + self.h * 0.5)
     }
+    /// This rect moved towards `b` by `t` (0..1).
+    pub fn lerp(self, b: Rect, t: f32) -> Rect {
+        let l = |x: f32, y: f32| x + (y - x) * t;
+        Rect::new(
+            l(self.x, b.x),
+            l(self.y, b.y),
+            l(self.w, b.w),
+            l(self.h, b.h),
+        )
+    }
 }
 
 pub type Color = [f32; 4];
@@ -67,6 +77,18 @@ pub const fn rgba(hex: u32) -> Color {
         ((hex >> 8) & 0xff) as f32 / 255.0,
         (hex & 0xff) as f32 / 255.0,
     ]
+}
+
+/// `a` moved towards `b` by `t` (0..1).
+pub fn mix(a: Color, b: Color, t: f32) -> Color {
+    let l = |x: f32, y: f32| x + (y - x) * t;
+    [l(a[0], b[0]), l(a[1], b[1]), l(a[2], b[2]), l(a[3], b[3])]
+}
+
+/// [`mix`], opaque.
+pub fn mix_opaque(a: Color, b: Color, t: f32) -> Color {
+    let c = mix(a, b, t);
+    [c[0], c[1], c[2], 1.0]
 }
 
 pub fn with_alpha(c: Color, a: f32) -> Color {

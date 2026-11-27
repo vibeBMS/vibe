@@ -84,21 +84,10 @@ impl Dst {
                     2 => r = 1.0 - (r - 1.0) * (r - 1.0),
                     _ => {}
                 }
-                let l = |x: f32, y: f32| x + (y - x) * r;
                 (
-                    Rect::new(
-                        l(a.rect.x, b.rect.x),
-                        l(a.rect.y, b.rect.y),
-                        l(a.rect.w, b.rect.w),
-                        l(a.rect.h, b.rect.h),
-                    ),
-                    [
-                        l(a.color[0], b.color[0]),
-                        l(a.color[1], b.color[1]),
-                        l(a.color[2], b.color[2]),
-                        l(a.color[3], b.color[3]),
-                    ],
-                    l(a.angle, b.angle),
+                    a.rect.lerp(b.rect, r),
+                    crate::gfx::mix(a.color, b.color, r),
+                    a.angle + (b.angle - a.angle) * r,
                 )
             }
             _ => (a.rect, a.color, a.angle),

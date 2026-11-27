@@ -7,7 +7,7 @@
 use super::scroll::Scroll;
 use super::skin::PlayState;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{rgba, with_alpha, Blend, Color, Draw};
+use crate::gfx::{mix, rgba, with_alpha, Blend, Color, Draw};
 use crate::perspective::{Depths, Fan, FanLane};
 use crate::platform::Instant;
 use crate::touch::Shape;
@@ -53,15 +53,6 @@ fn floor_color(mode: PlayMode, l: &FanLane) -> Color {
     } else {
         rgba(0x151a26f0)
     }
-}
-
-fn mix(a: Color, b: Color, t: f32) -> Color {
-    [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-        a[3] + (b[3] - a[3]) * t,
-    ]
 }
 
 /// A piece of a fan between depths `d0` (near) and `d1` (far).

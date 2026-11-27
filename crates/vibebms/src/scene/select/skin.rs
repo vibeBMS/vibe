@@ -892,11 +892,6 @@ fn download_progress(d: &mut Draw, r: Rect, p: &bmseeker::progress::Progress, no
     );
 }
 
-fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
-    let l = |x: f32, y: f32| x + (y - x) * t;
-    Rect::new(l(a.x, b.x), l(a.y, b.y), l(a.w, b.w), l(a.h, b.h))
-}
-
 impl Hooks for SelectHooks<'_> {
     fn ref_image(&self, id: i32) -> Option<TexId> {
         match id {
@@ -959,7 +954,7 @@ impl Hooks for SelectHooks<'_> {
                 continue;
             };
             // items move one slot up as the scroll position advances
-            let r = lerp_rect(a.rect, b.rect, frac);
+            let r = a.rect.lerp(b.rect, frac);
             let fr = Frame { rect: r, ..a };
             let Some(info) = self.st.bar(idx) else {
                 continue;
