@@ -7,7 +7,7 @@ use super::{online, skins, Page, SettingsScene, Target, View, SESSION};
 use crate::ctx::Ctx;
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::theme::{ACCENT, BACKGROUND, PANEL, TEXT, TEXT_DIM};
-use crate::gfx::{rgba, with_alpha, Color, Draw, Rect};
+use crate::gfx::{mix_opaque, rgba, with_alpha, Color, Draw, Rect};
 use crate::ui;
 use crate::ui::{ellipsize, wrap};
 
@@ -48,16 +48,6 @@ fn tone_color(t: Tone) -> Color {
         Tone::Red => RED,
         Tone::Dim => TEXT_DIM,
     }
-}
-
-/// `a` moved towards `b` by `t` (opaque).
-fn mix(a: Color, b: Color, t: f32) -> Color {
-    [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-        1.0,
-    ]
 }
 
 fn solid() -> Color {
@@ -566,7 +556,7 @@ impl SettingsScene {
             d.b.rounded_panel(
                 tile,
                 u(8.0),
-                mix(solid(), color, 0.16),
+                mix_opaque(solid(), color, 0.16),
                 with_alpha(color, 0.6),
                 1.0,
             );
@@ -597,7 +587,7 @@ impl SettingsScene {
                     line,
                     r.x + u(22.0),
                     r.y + u(88.0) + k as f32 * u(20.0),
-                    TextStyle::new(size, mix(TEXT, solid(), 0.12), Align::Left),
+                    TextStyle::new(size, mix_opaque(TEXT, solid(), 0.12), Align::Left),
                 );
             }
             // the chips, left to right
@@ -621,7 +611,7 @@ impl SettingsScene {
         d.b.rounded_panel(
             banner,
             u(8.0),
-            mix(solid(), ACCENT, 0.07),
+            mix_opaque(solid(), ACCENT, 0.07),
             with_alpha(ACCENT, 0.45),
             1.0,
         );
@@ -729,7 +719,7 @@ impl SettingsScene {
         for (i, &(r, p)) in self.lay.rail.iter().enumerate() {
             let active = Some(p) == cur;
             let (fill, border) = if active {
-                (mix(solid(), ACCENT, 0.2), ACCENT)
+                (mix_opaque(solid(), ACCENT, 0.2), ACCENT)
             } else {
                 (ui::lift(solid(), 0.04), edge())
             };
@@ -873,7 +863,7 @@ impl SettingsScene {
                 d.b.rounded_panel(
                     r,
                     u(8.0),
-                    mix(solid(), ACCENT, 0.08),
+                    mix_opaque(solid(), ACCENT, 0.08),
                     with_alpha(ACCENT, 0.45),
                     1.0,
                 );
@@ -911,7 +901,7 @@ impl SettingsScene {
                 d.b.rounded_panel(
                     r,
                     u(8.0),
-                    mix(solid(), BACKGROUND, 0.4),
+                    mix_opaque(solid(), BACKGROUND, 0.4),
                     border,
                     if sel { 1.5 } else { 1.0 },
                 );
@@ -945,11 +935,15 @@ impl SettingsScene {
             Kind::Cell { on } => {
                 let (fill, border, t) = match (*on, sel) {
                     (_, true) => (
-                        mix(solid(), ACCENT, if *on { 0.16 } else { 0.06 }),
+                        mix_opaque(solid(), ACCENT, if *on { 0.16 } else { 0.06 }),
                         ACCENT,
                         2.0,
                     ),
-                    (true, false) => (mix(solid(), ACCENT, 0.1), with_alpha(ACCENT, 0.55), 1.0),
+                    (true, false) => (
+                        mix_opaque(solid(), ACCENT, 0.1),
+                        with_alpha(ACCENT, 0.55),
+                        1.0,
+                    ),
                     (false, false) => (ui::lift(solid(), 0.03), edge(), 1.0),
                 };
                 d.b.rounded_panel(r, u(6.0), fill, border, t);
@@ -983,7 +977,7 @@ impl SettingsScene {
                 d.b.rounded_panel(
                     tile,
                     u(8.0),
-                    mix(solid(), tc, 0.12),
+                    mix_opaque(solid(), tc, 0.12),
                     fade(with_alpha(tc, 0.5)),
                     1.0,
                 );

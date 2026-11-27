@@ -72,7 +72,7 @@ fn lua_runs_like_beatoraja() {
         fn number(&self, id: i32) -> Option<i64> {
             (id == 71).then_some(1234)
         }
-        fn text(&self, _: i32) -> Option<String> {
+        fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
             None
         }
         fn rate(&self, _: i32) -> f32 {
@@ -566,15 +566,10 @@ fn loads_json_skin() {
         s.lanes[0].rect.unwrap(),
         Rect::new(10.0, 120.0, 20.0, 500.0)
     );
-    assert!(matches!(
-        s.objects[2].kind,
-        Kind::Number {
-            id: 101,
-            keta: 4,
-            digits: 10,
-            ..
-        }
-    ));
+    let Kind::Number { id, font } = &s.objects[2].kind else {
+        panic!("{:?}", s.objects[2].kind)
+    };
+    assert_eq!((*id, font.style.keta, font.style.digits), (101, 4, 10));
     assert_eq!(s.objects[2].dst.ops, vec![32]);
     assert!(s.judges[0].judge[0].is_some());
     std::fs::remove_dir_all(&dir).ok();
@@ -595,14 +590,10 @@ char id=65 x=2 y=3 width=20 height=24 xoffset=1 yoffset=5 xadvance=22 page=0 chn
     std::fs::write(dir.join("r.json"), json).unwrap();
     let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
     std::fs::remove_dir_all(&dir).ok();
-    assert!(matches!(
-        &s.objects[0].kind,
-        Kind::Text {
-            font: Some(0),
-            size: Some(24.0),
-            ..
-        }
-    ));
+    let Kind::Text { style, .. } = &s.objects[0].kind else {
+        panic!("{:?}", s.objects[0].kind)
+    };
+    assert_eq!((style.font, style.size), (Some(0), Some(24.0)));
     let f = &s.fonts[0];
     assert_eq!((f.size, f.em), (36.0, 32.0));
     // glyphs scale by the text's size over the font's (beatoraja), not
@@ -641,9 +632,10 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
     std::fs::write(dir.join("r.json"), json).unwrap();
     let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((64, 64))).unwrap();
     std::fs::remove_dir_all(&dir).ok();
-    let Kind::Text { fx, .. } = &s.objects[0].kind else {
+    let Kind::Text { style, .. } = &s.objects[0].kind else {
         panic!()
     };
+    let fx = &style.fx;
     assert_eq!(
         *fx,
         TextFx {
@@ -659,9 +651,10 @@ page id=0 file=\"f_0.png\"\nchar id=65 x=0 y=0 width=20 height=24 xoffset=0 yoff
     assert!((st.outline_distance - 0.3).abs() < 1e-6);
     assert_eq!(st.shadow_smoothing, 0.25);
     // nothing given: beatoraja's defaults (transparent white, no shadow)
-    let Kind::Text { fx, font, .. } = &s.objects[1].kind else {
+    let Kind::Text { style, .. } = &s.objects[1].kind else {
         panic!()
     };
+    let (fx, font) = (&style.fx, style.font);
     assert_eq!(*fx, TextFx::default());
     assert!(!fx.has_shadow());
     assert_eq!(fx.sdf().outline_distance, 0.5);
@@ -686,14 +679,19 @@ fn constant_texts() {
     big.set_len(crate::gfx::text::FONT_MAX + 1).unwrap();
     let s = load(&dir.join("r.json"), &HashMap::new(), &|_| Some((1, 1))).unwrap();
     std::fs::remove_dir_all(&dir).ok();
-    let Kind::Text { constant, face, .. } = &s.objects[0].kind else {
+    let Kind::Text {
+        constant, style, ..
+    } = &s.objects[0].kind
+    else {
         panic!()
     };
+    let face = &style.face;
     assert_eq!(constant.as_deref(), Some("A\nB"));
     // TrueType fonts are drawn with, bitmap ones are not, nor one too large
     assert!(face.as_ref().is_some_and(|p| p.ends_with("f.TTF")));
-    assert!(matches!(&s.objects[1].kind, Kind::Text { face: None, .. }));
-    assert!(matches!(&s.objects[2].kind, Kind::Text { face: None, .. }));
+    for o in &s.objects[1..] {
+        assert!(matches!(&o.kind, Kind::Text { style, .. } if style.face.is_none()));
+    }
 }
 
 struct ScriptSt {
@@ -709,7 +707,7 @@ impl SkinState for ScriptSt {
     fn number(&self, id: i32) -> Option<i64> {
         (id == 71).then_some(21)
     }
-    fn text(&self, _: i32) -> Option<String> {
+    fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
         None
     }
     fn rate(&self, _: i32) -> f32 {
@@ -1151,13 +1149,13 @@ fn a_lua_skin_that_does_not_end_does_not_hold_the_listing() {
     assert!(read(&skins[0], None, None).is_err());
     assert!(t.elapsed() < script::LOAD_TIME);
     let read: fn(&PathBuf) -> bool = |p| crate::skin::header_read(p).is_some();
-    assert!(crate::skin::lr2::find_skins(&dir).is_empty());
+    assert!(crate::skin::find_skins(&dir).is_empty());
     assert_eq!(
         skins.iter().map(read).collect::<Vec<_>>(),
         [true, false, false]
     );
     for _ in 0..2 {
-        crate::skin::lr2::find_skins(&dir);
+        crate::skin::find_skins(&dir);
     }
     assert!(skins.iter().all(read));
     std::fs::remove_dir_all(&dir).ok();

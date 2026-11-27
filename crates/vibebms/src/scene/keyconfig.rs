@@ -31,6 +31,7 @@ use crate::scene::{Next, Scene};
 use crate::skin::render::Xf;
 use crate::skin::{SkinState, SkinType};
 use crate::ui::{self, HitMap, ListView};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use winit::keyboard::KeyCode;
 
@@ -354,7 +355,7 @@ impl SkinState for KeyState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let k = &self.ctx.config.keys;
         let rows = slots(self.s.mode);
         let lv = |base: i32| {
@@ -363,17 +364,17 @@ impl SkinState for KeyState<'_> {
                 .find(|s| lv_text_slot(self.s.mode, *s).map(|t| t + base) == Some(id))
         };
         Some(match id {
-            2 => self.ctx.config.player_name.clone(),
-            50 => self.s.host.skin.as_ref()?.skin.name.clone(),
-            51 => self.s.host.skin.as_ref()?.skin.author.clone(),
+            2 => self.ctx.config.player_name.as_str().into(),
+            50 => self.s.host.skin.as_ref()?.skin.name.as_str().into(),
+            51 => self.s.host.skin.as_ref()?.skin.author.as_str().into(),
             // LR2: the chosen key's binding per slot
-            40..=49 if self.s.lr2 => {
-                keybind::device_label(k, self.s.slot(), (id - 40) as usize).unwrap_or_default()
-            }
+            40..=49 if self.s.lr2 => keybind::device_label(k, self.s.slot(), (id - 40) as usize)
+                .unwrap_or_default()
+                .into(),
             // beatoraja: what row i is bound to
             40..=49 | 240..=283 => {
                 let i = if id < 50 { id - 40 } else { id - 230 } as usize;
-                keybind::first_label(k, *rows.get(i)?)
+                keybind::first_label(k, *rows.get(i)?).into()
             }
             300 => tr!("KEY").into(),
             301 => tr!("BINDING").into(),
@@ -382,8 +383,8 @@ impl SkinState for KeyState<'_> {
             304 => tr!("Left / Right: key mode").into(),
             305 => tr!("Esc: back").into(),
             306 => tr!("Spin the turntable to bind its axis").into(),
-            311..=344 => lv(311)?.label(),
-            351..=384 => keybind::first_label(k, lv(351)?),
+            311..=344 => lv(311)?.label().into(),
+            351..=384 => keybind::first_label(k, lv(351)?).into(),
             _ => return None,
         })
     }

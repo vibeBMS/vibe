@@ -732,9 +732,13 @@ impl SkinState for SelectState<'_> {
         })
     }
 
-    fn distribution(&self, rank: bool) -> Option<Vec<u32>> {
+    fn distribution(&self, rank: bool) -> Option<Counts> {
         let (l, r) = self.s.folder_distribution(self.ctx, self.s.cursor)?;
-        Some(if rank { r.to_vec() } else { l.to_vec() })
+        Some(if rank {
+            Counts::new(&r)
+        } else {
+            Counts::new(&l)
+        })
     }
 
     fn button(&self, id: i32) -> Option<i64> {
@@ -752,69 +756,72 @@ impl SkinState for SelectState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let song = self.song;
         Some(match id {
-            2 => self.ctx.config.player_name.clone(),
+            2 => self.ctx.config.player_name.as_str().into(),
             // folders and courses show their name as the title
-            10 | 12 if song.is_none() => self.bar_title(self.bar?)?.into_owned(),
+            10 | 12 if song.is_none() => self.bar_title(self.bar?)?,
             11 if song.is_none() => match self.bar? {
-                Bar::Folder { sub, .. } => sub.clone(),
+                Bar::Folder { sub, .. } => sub.as_str().into(),
                 _ => return None,
             },
             14 | 16 if song.is_none() => match self.bar? {
-                Bar::Missing(m) => m.artist.clone(),
+                Bar::Missing(m) => m.artist.as_str().into(),
                 _ => return None,
             },
             10..=16 | 1030 | 1031 => return chart_text(&ChartText::of_song(song?), id),
-            120..=129 => self.ranking()?.get((id - 120) as usize)?.player.clone(),
-            TEXT_IR => return self.ir_line(),
-            n @ TEXT_KEY_OPTION..=9617 => {
-                self.key_option_texts()[(n - TEXT_KEY_OPTION) as usize].clone()
-            }
-            TEXT_MODE => status::mode_label(song?),
+            120..=129 => self
+                .ranking()?
+                .get((id - 120) as usize)?
+                .player
+                .as_str()
+                .into(),
+            TEXT_IR => return self.ir_line().map(Cow::Owned),
+            n @ TEXT_KEY_OPTION..=9617 => self.key_option_texts()[(n - TEXT_KEY_OPTION) as usize]
+                .as_str()
+                .into(),
+            TEXT_MODE => status::mode_label(song?).into(),
             TEXT_QUERY => self.s.query().unwrap_or_default().into(),
             TEXT_LAST_PLAYED => {
                 let t = self.best.filter(|_| song.is_some())?.last_played;
                 let local = chrono::DateTime::from_timestamp(t, 0)?.with_timezone(&chrono::Local);
-                (t > 0).then(|| local.format("%Y-%m-%d").to_string())?
+                (t > 0)
+                    .then(|| local.format("%Y-%m-%d").to_string())?
+                    .into()
             }
             TEXT_SAVE => self.outcome().0.label().into(),
             TEXT_CLEAR => match self.outcome().1 {
                 Some(c) => c.label().into(),
                 None => "—".into(),
             },
-            TEXT_NETWORK => status::network(self.ctx).0,
-            TEXT_ASSIST => status::assist_summary(&self.ctx.config.play),
-            TEXT_COVER => status::lane_cover_summary(&self.ctx.config.play),
+            TEXT_NETWORK => status::network(self.ctx).0.into(),
+            TEXT_ASSIST => status::assist_summary(&self.ctx.config.play).into(),
+            TEXT_COVER => status::lane_cover_summary(&self.ctx.config.play).into(),
             TEXT_PROFILE => (self.ctx.profiles.registry)
                 .name(&self.ctx.paths.profile)
-                .to_string(),
-            30 => self
-                .s
-                .search_edit
-                .as_ref()
-                .map_or(String::new(), |t| t.buf.clone()),
-            1000 => self.s.path_label(self.ctx),
+                .into(),
+            30 => (self.s.search_edit.as_ref()).map_or("".into(), |t| t.buf.as_str().into()),
+            1000 => self.s.path_label(self.ctx).into(),
             // the table being browsed, else the selected chart's
             1001..=1003 => match &self.s.node {
                 Node::Level(t, l) => {
                     let t = table(self.ctx, t)?;
                     match id {
-                        1001 => t.header.name.clone(),
-                        1002 => t.label(l),
-                        _ => format!("{}{}", t.label(l), t.header.name),
+                        1001 => t.header.name.as_str().into(),
+                        1002 => t.label(l).into(),
+                        _ => format!("{}{}", t.label(l), t.header.name).into(),
                     }
                 }
                 Node::Table(t) | Node::Courses(t) if id != 1002 => {
-                    table(self.ctx, t)?.header.name.clone()
+                    table(self.ctx, t)?.header.name.as_str().into()
                 }
                 _ => return table_text(self.table()?, id),
             },
-            1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
+            1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")).into(),
             n if (OPTION_TEXT..OPTION_TEXT + 100).contains(&n) => {
                 let o = SelectOption::ALL.get((n - OPTION_TEXT) as usize)?;
-                o.value(self.ctx, song.map(Bpms::of_song), song)
+                o.value(self.ctx, song.map(Bpms::of_song), song).into()
             }
             n if (OPTION_NAME..OPTION_NAME + 100).contains(&n) => SelectOption::ALL
                 .get((n - OPTION_NAME) as usize)?
@@ -892,11 +899,6 @@ fn download_progress(d: &mut Draw, r: Rect, p: &bmseeker::progress::Progress, no
     );
 }
 
-fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
-    let l = |x: f32, y: f32| x + (y - x) * t;
-    Rect::new(l(a.x, b.x), l(a.y, b.y), l(a.w, b.w), l(a.h, b.h))
-}
-
 impl Hooks for SelectHooks<'_> {
     fn ref_image(&self, id: i32) -> Option<TexId> {
         match id {
@@ -959,7 +961,7 @@ impl Hooks for SelectHooks<'_> {
                 continue;
             };
             // items move one slot up as the scroll position advances
-            let r = lerp_rect(a.rect, b.rect, frac);
+            let r = a.rect.lerp(b.rect, frac);
             let fr = Frame { rect: r, ..a };
             let Some(info) = self.st.bar(idx) else {
                 continue;
@@ -986,9 +988,10 @@ impl Hooks for SelectHooks<'_> {
                     (xf.rect(rr), f)
                 })
             };
-            if let Some((t, align, overflow, font)) = sl.text.as_ref() {
+            if let Some(title) = sl.text.as_ref() {
                 let chart = matches!(info.base, BAR_SONG | BAR_NOSONG);
-                let t = sl.folder_text.as_ref().filter(|_| !chart).unwrap_or(t);
+                let t = sl.folder_text.as_ref().filter(|_| !chart);
+                let t = t.unwrap_or(&title.dst);
                 if let Some((tr, f)) = sub(t) {
                     let mut c = f.color;
                     c[3] *= fr.color[3];
@@ -998,10 +1001,15 @@ impl Hooks for SelectHooks<'_> {
                     }
                     // the selected bar's title scrolls when it is too long
                     let shown = selected.then(|| now - st.timer(11).unwrap_or(0));
-                    let face = sl.text_face.as_deref().and_then(|p| d.text.face(p));
+                    let style = &title.style;
+                    let face = style.face.as_deref().and_then(|p| d.text.face(p));
                     d.text.set_face(face.unwrap_or(0));
-                    let (al, of, fx, size) = (*align, *overflow, &sl.text_fx, sl.text_size);
-                    skin.text(d, &info.title, tr, al, of, c, *font, shown, fx, size, xf.sy);
+                    let at = Frame {
+                        rect: tr,
+                        color: c,
+                        ..f
+                    };
+                    skin.text(d, &info.title, style, &at, shown, xf.sy);
                     d.text.set_face(0);
                 }
             }
@@ -1014,26 +1022,14 @@ impl Hooks for SelectHooks<'_> {
             ];
             for (n, (font, dst)) in numbers.iter().filter_map(|(n, f)| n.zip(*f)) {
                 if let Some((lr, f)) = sub(dst) {
-                    skin.number(
-                        d,
-                        &font.src,
-                        font.digits,
-                        font.keta,
-                        font.align,
-                        None,
-                        n,
-                        now,
-                        st,
-                        lr,
-                        &f,
-                    );
+                    skin.number(d, font, n, now, st, &Frame { rect: lr, ..f });
                 }
             }
-            if let Some((dst, gsrc, rank)) = sl.graph.as_ref() {
+            if let Some(g) = sl.graph.as_ref() {
                 if let Some((l, r)) = self.st.s.folder_distribution(self.st.ctx, idx) {
-                    if let Some((gr, f)) = sub(dst) {
-                        let counts: &[u32] = if *rank { &r } else { &l };
-                        skin.distribution(d, gsrc.as_ref(), counts, *rank, now, st, gr, &f);
+                    if let Some((gr, f)) = sub(&g.dst) {
+                        let counts: &[u32] = if g.bar.rank { &r } else { &l };
+                        skin.distribution(d, &g.bar, counts, now, st, &Frame { rect: gr, ..f });
                     }
                 }
             }

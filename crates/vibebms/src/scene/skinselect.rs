@@ -28,6 +28,7 @@ use crate::scene::{Next, Scene};
 use crate::skin::render::{Hooks, LoadedSkin};
 use crate::skin::{CustomOffset, CustomOption, SkinState, SkinType, OFFSET_FIELDS};
 use crate::ui::{self, ListView};
+use std::borrow::Cow;
 use winit::keyboard::KeyCode;
 
 /// The skin types offered, in the order PgUp / PgDn walk them.
@@ -386,7 +387,7 @@ impl SkinState for PreviewState {
     fn number(&self, id: i32) -> Option<i64> {
         skinvals::clock_number(id)
     }
-    fn text(&self, _: i32) -> Option<String> {
+    fn text(&self, _: i32) -> Option<std::borrow::Cow<'_, str>> {
         None
     }
     fn rate(&self, _: i32) -> f32 {
@@ -416,25 +417,26 @@ impl SkinState for SelectState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let value = self.s.value(self.ctx);
         Some(match id {
-            2 => self.ctx.config.player_name.clone(),
+            2 => self.ctx.config.player_name.as_str().into(),
             50 | 51 => {
                 let (n, a) = skinned::choice_name(self.ctx, self.s.kind(), &value);
                 if id == 50 {
-                    n
+                    n.into()
                 } else {
-                    a
+                    a.into()
                 }
             }
             100..=109 => self
                 .items
                 .get(self.s.offset() + (id - 100) as usize)?
-                .name(),
+                .name()
+                .into(),
             110..=119 => {
                 let it = self.items.get(self.s.offset() + (id - 110) as usize)?;
-                item_value(self.ctx, &value, it)
+                item_value(self.ctx, &value, it).into()
             }
             _ => return None,
         })

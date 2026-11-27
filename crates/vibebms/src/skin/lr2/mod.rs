@@ -19,7 +19,14 @@
 
 mod commands;
 
-use super::*;
+use super::graph::*;
+use super::images::*;
+use super::load::*;
+use super::model::*;
+use super::options::*;
+use super::style::*;
+use super::types::*;
+use crate::gfx::Rect;
 use crate::platform::vfs;
 use commands::{LaneImage, Line};
 use std::collections::HashMap;
@@ -119,8 +126,8 @@ fn add_dst_signed(dst: &mut Dst, v: &[i64; 22], mirror: bool) {
         h = -h;
     }
     if dst.keys.is_empty() {
-        dst.acc = v[7] as i32;
-        dst.blend = v[12] as i32;
+        dst.acc = Acc::of(v[7]);
+        dst.blend = crate::gfx::Blend::from_skin(v[12] as i32);
         dst.center = v[15].clamp(0, 9) as usize;
         dst.loop_ms = v[16];
         dst.timer = v[17] as i32;
@@ -170,7 +177,7 @@ struct Loader<'a> {
     /// beatoraja `#IMAGESET` images, chosen from by `#SRC_IMAGESET`.
     imagesets: Vec<Option<Src>>,
     /// beatoraja `#STRETCH` for the images that follow.
-    stretch: i32,
+    stretch: Stretch,
     /// User values of `#CUSTOMOFFSET`s, by name.
     user_offsets: HashMap<String, [i32; 6]>,
     /// The user's `#CUSTOMFILE` choices, by name.
@@ -413,7 +420,7 @@ pub fn load_with(
         cur: None,
         pending_line: None,
         imagesets: Vec::new(),
-        stretch: 0,
+        stretch: Stretch::Full,
         user_offsets: user_offsets.clone(),
         user_files: user.files.clone(),
         panel_ops: Vec::new(),
@@ -442,19 +449,19 @@ pub fn load_with(
         turn_lanes(&mut skin);
     }
     // text is anchored at x: its left edge, centre or right edge by align
-    let anchor = |d: &mut Dst, align: i32| {
-        let k = align.clamp(0, 2) as f32 * 0.5;
+    let anchor = |d: &mut Dst, align: Align| {
+        let k = align.share();
         for key in &mut d.keys {
             key.rect.x -= key.rect.w * k;
         }
     };
     for o in &mut skin.objects {
-        if let Kind::Text { align, .. } = o.kind {
-            anchor(&mut o.dst, align);
+        if let Kind::Text { style, .. } = &o.kind {
+            anchor(&mut o.dst, style.align);
         }
     }
-    if let Some((d, align, ..)) = skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
-        anchor(d, *align);
+    if let Some(t) = skin.songlist.as_mut().and_then(|s| s.text.as_mut()) {
+        anchor(&mut t.dst, t.style.align);
     }
     // beatoraja's own key config skin is empty: its screen draws the rows
     if skin.objects.is_empty() && skin.kind != SkinType::KeyConfig {
@@ -751,85 +758,6 @@ pub fn glob_path(p: &Path) -> PathBuf {
         .next()
         .unwrap_or_else(|| p.to_path_buf())
 }
-
-/// The files matching a `*` in the file name of `p` (sorted), else `p`.
-pub fn glob_paths(p: &Path) -> Vec<PathBuf> {
-    let name = p
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let Some((pre, post)) = name.split_once('*') else {
-        return vec![p.to_path_buf()];
-    };
-    let (pre, post) = (pre.to_lowercase(), post.to_lowercase());
-    let dir = p.parent().unwrap_or(Path::new(""));
-    let mut c: Vec<PathBuf> = vfs::read_dir(dir)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|e| e.path)
-        .filter(|c| {
-            let n = c
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            n.starts_with(&pre) && n.ends_with(&post) && n.len() >= pre.len() + post.len()
-        })
-        .collect();
-    c.sort();
-    c
-}
-
-/// Play skins below `dir`, the skins folder: LR2 (`.lr2skin`) and
-/// beatoraja (`.json`, `.luaskin`).
-pub fn find_skins(dir: &Path) -> Vec<(PathBuf, SkinType, String)> {
-    fn walk(d: &Path, depth: usize, out: &mut Vec<PathBuf>) {
-        if depth > 4 {
-            return;
-        }
-        for e in vfs::read_dir(d).unwrap_or_default() {
-            let ext = e
-                .path
-                .extension()
-                .map(|x| x.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            if e.is_dir {
-                walk(&e.path, depth + 1, out);
-            } else if matches!(ext.as_str(), "lr2skin" | "json" | "luaskin") {
-                out.push(e.path);
-            }
-        }
-    }
-    let mut files = Vec::new();
-    walk(dir, 0, &mut files);
-    files.sort();
-    // a Lua skin runs to say what it is: once those of a listing have
-    // taken `LIST_TIME`, the ones not read before wait for the next
-    let mut spent = std::time::Duration::ZERO;
-    let mut found = Vec::new();
-    for p in files {
-        let lua = p
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("luaskin"));
-        let runs = lua && super::header_read(&p).is_none();
-        if runs && spent >= LIST_TIME {
-            continue;
-        }
-        let start = crate::platform::Instant::now();
-        let header = super::header(&p, dir);
-        if runs {
-            spent += start.elapsed();
-        }
-        found.extend(header.map(|(t, n)| (p, t, n)));
-    }
-    found
-}
-
-/// Time a listing of the skins gives Lua skins to say what they are (a
-/// folder of skins that take long to); the rest come with a later one.
-#[cfg(not(test))]
-const LIST_TIME: std::time::Duration = std::time::Duration::from_secs(4);
-#[cfg(test)]
-const LIST_TIME: std::time::Duration = super::script::HEADER_TIME;
 
 #[cfg(test)]
 mod tests;

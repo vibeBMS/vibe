@@ -3,6 +3,7 @@
 //! field (lanes, notes, judgements); `#DST_*` lines of other objects last.
 
 use super::*;
+use vibebms_core::judge::Judge;
 
 /// A command line: its name (upper case), fields and their numbers, and
 /// its first field as text.
@@ -166,7 +167,7 @@ impl Loader<'_> {
                 });
                 self.fonts.push(font);
             }
-            "#STRETCH" => self.stretch = v[1] as i32,
+            "#STRETCH" => self.stretch = Stretch::of(v[1]),
             // a horizontal play skin: `#HORIZONTAL` (`#HORIZONTAL,0` is off)
             "#HORIZONTAL" => self.skin.horizontal = s1.is_empty() || v[1] != 0,
             "#PLAYSTART" => self.skin.play_start_ms = Some(v[1].clamp(0, 10_000)),
@@ -283,41 +284,52 @@ impl Loader<'_> {
                 };
                 if cmd == "#SRC_NUMBER" {
                     self.push(Kind::Number {
-                        src: s,
-                        digits,
                         id: v[11] as i32,
-                        align: v[12] as i32,
-                        keta: v[13].clamp(1, 32) as usize,
-                        pad: (digits > 10).then_some(10),
+                        font: NumberFont {
+                            src: s,
+                            style: NumberStyle {
+                                digits,
+                                keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
+                                align: Align::of_number(v[12]),
+                                pad: (digits > 10).then_some(10),
+                            },
+                        },
                     });
                 } else {
                     let side = judge_side(cmd);
                     let Some(j) = judge_slot(v[1]) else {
                         return true;
                     };
-                    let keta = v[13].clamp(1, 32) as usize;
-                    self.skin.judges[side].combo[j] = Some((s, Dst::default(), keta));
+                    let style = NumberStyle {
+                        digits,
+                        keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
+                        align: Align::Left,
+                        pad: None,
+                    };
+                    self.skin.judges[side].combo[j] = Some(ComboSkin {
+                        font: NumberFont { src: s, style },
+                        dst: Dst::default(),
+                    });
                 }
             }
             "#DST_NOWCOMBO_1P" | "#DST_NOWCOMBO_2P" | "#DST_NOWCOMBO_3P" => {
                 let side = judge_side(cmd);
-                if let Some((_, d, _)) =
+                if let Some(c) =
                     judge_slot(v[1]).and_then(|j| self.skin.judges[side].combo[j].as_mut())
                 {
-                    add_dst(d, &v);
+                    add_dst(&mut c.dst, &v);
                 }
             }
             "#SRC_TEXT" => {
                 let font = self.font(v[2]);
                 self.push(Kind::Text {
                     id: v[3] as i32,
-                    font,
-                    align: v[4] as i32,
-                    overflow: 0,
                     constant: None,
-                    face: None,
-                    fx: TextFx::default(),
-                    size: None,
+                    style: TextStyle {
+                        align: Align::of_text(v[4]),
+                        font,
+                        ..Default::default()
+                    },
                 })
             }
             "#SRC_BARGRAPH" => {
@@ -326,7 +338,7 @@ impl Loader<'_> {
                     self.push(Kind::Bar {
                         src: s,
                         id: v[11] as i32 + 100,
-                        dir: v[12] as i32,
+                        dir: Dir::of_bar(v[12]),
                         minmax: None,
                     });
                 }
@@ -338,7 +350,7 @@ impl Loader<'_> {
                     self.push(Kind::Slider {
                         src: s,
                         id: v[13] as i32,
-                        dir: v[11] as i32,
+                        dir: Dir::of_slider(v[11]),
                         range: v[12] as f32,
                         minmax: Some((v[15] as f32, v[16] as f32)),
                     });
@@ -351,7 +363,7 @@ impl Loader<'_> {
                     self.push(Kind::Bar {
                         src: s,
                         id: v[11] as i32,
-                        dir: v[12] as i32,
+                        dir: Dir::of_bar(v[12]),
                         minmax: Some((v[13] as f32, v[14] as f32)),
                     });
                 }
@@ -362,7 +374,7 @@ impl Loader<'_> {
                     self.push(Kind::Slider {
                         src: s,
                         id: v[13] as i32,
-                        dir: v[11] as i32,
+                        dir: Dir::of_slider(v[11]),
                         range: v[12] as f32,
                         minmax: None,
                     });
@@ -465,16 +477,16 @@ impl Loader<'_> {
                 if v[1] == 0 {
                     let font = self.font(v[2]);
                     let sl = self.songlist();
-                    let t = sl.text.get_or_insert_with(|| (Dst::default(), 0, 0, None));
-                    t.1 = v[4] as i32;
-                    t.3 = font;
+                    let t = sl.text.get_or_insert_with(SongTitle::default);
+                    t.style.align = Align::of_text(v[4]);
+                    t.style.font = font;
                 }
             }
             "#DST_BAR_TITLE" => {
                 if v[1] == 0 {
                     let sl = self.songlist();
-                    let (d, ..) = sl.text.get_or_insert_with(|| (Dst::default(), 0, 0, None));
-                    add_dst(d, &v);
+                    let t = sl.text.get_or_insert_with(SongTitle::default);
+                    add_dst(&mut t.dst, &v);
                 }
             }
             "#SRC_BAR_LEVEL" => {
@@ -492,9 +504,12 @@ impl Loader<'_> {
                 let k = v[1].clamp(0, 6) as usize;
                 let font = NumberFont {
                     src: s_,
-                    digits,
-                    keta: v[13].clamp(1, 32) as usize,
-                    align: v[12] as i32,
+                    style: NumberStyle {
+                        digits,
+                        keta: v[13].clamp(1, NumberStyle::PLACES as i64) as usize,
+                        align: Align::of_number(v[12]),
+                        pad: None,
+                    },
                 };
                 let sl = self.songlist();
                 if sl.level.len() <= k {
@@ -553,18 +568,16 @@ impl Loader<'_> {
                 if v[1] == 0 {
                     let s_ = src(&v, &self.images);
                     let sl = self.songlist();
-                    let g = sl
-                        .graph
-                        .get_or_insert_with(|| (Dst::default(), None, false));
-                    g.1 = s_;
+                    let g = sl.graph.get_or_insert_with(FolderGraph::default);
+                    g.bar.src = s_;
                 } else {
                     log::debug!("lr2 skin: #SRC_BAR_GRAPH type {} is not supported", v[1]);
                 }
             }
             "#DST_BAR_GRAPH" => {
                 if v[1] == 0 {
-                    if let Some((d, ..)) = self.songlist().graph.as_mut() {
-                        add_dst(d, &v);
+                    if let Some(g) = self.songlist().graph.as_mut() {
+                        add_dst(&mut g.dst, &v);
                     }
                 }
             }
@@ -583,7 +596,9 @@ impl Loader<'_> {
                 self.cur = None;
                 if v[1] == 0 {
                     self.push(Kind::Graph(Graph::Gauge(GaugeGraph {
-                        colors: Some(super::beatoraja::gauge_colors(&serde_json::Value::Null)),
+                        colors: Some(crate::skin::beatoraja::gauge_colors(
+                            &serde_json::Value::Null,
+                        )),
                         line_width: v[6].max(1) as f32,
                         delay: (v[14] - v[13]).max(0),
                     })));

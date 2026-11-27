@@ -12,8 +12,9 @@ use crate::scene::play_skin::{
     PERSPECTIVE,
 };
 use crate::scene::skinvals::*;
-use crate::skin::render::{Hooks, LoadedSkin, Xf};
+use crate::skin::render::{GaugeView, Hooks, LoadedSkin, Xf};
 use crate::skin::{SkinState, OFFSET_HIDDEN_COVER, OFFSET_LANECOVER, OFFSET_LIFT};
+use std::borrow::Cow;
 use std::cell::OnceCell;
 use vibebms_core::course::CourseKind;
 use vibebms_core::engine::Engine;
@@ -598,14 +599,14 @@ impl SkinState for PlayState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let s = self.s;
         Some(match id {
-            2 => self.ctx.config.player_name.clone(),
+            2 => self.ctx.config.player_name.as_str().into(),
             // the IR rival TARGET chose, the target's name
-            1 => crate::scene::target::name(self.ctx).1?,
+            1 => crate::scene::target::name(self.ctx).1?.into(),
             // (a battle's target is the opponent: the result names it)
-            3 if self.opp_ex.is_none() => crate::scene::target::name(self.ctx).0,
+            3 if self.opp_ex.is_none() => crate::scene::target::name(self.ctx).0.into(),
             1001..=1003 => return table_text(self.table()?, id),
             // course stages' titles
             150..=159 => s
@@ -614,7 +615,8 @@ impl SkinState for PlayState<'_> {
                 .as_ref()?
                 .songs
                 .get((id - 150) as usize)?
-                .full_title(),
+                .full_title()
+                .into(),
             // a NONSTOP course: its stage's
             _ => match s.session.stage_at(s.session.chart_us(self.now)) {
                 Some(k) => {
@@ -794,14 +796,18 @@ impl Hooks for PlayHooks<'_> {
         }
     }
 
-    fn gauge(&self, side: usize) -> (f32, f32, bool, usize) {
+    fn gauge(&self, side: usize) -> GaugeView {
         match self.st.s.session.side(side).map(|s| &s.engine) {
             Some(e) => {
                 let g = e.gauge.current();
-                let ty = crate::scene::skinvals::skin_gauge(g.ty);
-                (g.value(), g.elem.border, g.ty.is_survival(), ty)
+                GaugeView {
+                    value: g.value(),
+                    border: g.elem.border,
+                    survival: g.ty.is_survival(),
+                    kind: crate::scene::skinvals::skin_gauge(g.ty),
+                }
             }
-            None => (0.0, 80.0, false, 2),
+            None => GaugeView::default(),
         }
     }
 

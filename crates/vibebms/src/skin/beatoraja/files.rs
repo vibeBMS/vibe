@@ -94,7 +94,7 @@ pub(super) fn filepath_files(home: &Home, path: &str) -> Vec<String> {
     let Some(pattern) = home.file(&pattern) else {
         return Vec::new();
     };
-    super::lr2::glob_paths(&vfs::resolve_case(&pattern))
+    crate::skin::load::glob_paths(&vfs::resolve_case(&pattern))
         .iter()
         .filter(|p| !p.to_string_lossy().contains('*'))
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))

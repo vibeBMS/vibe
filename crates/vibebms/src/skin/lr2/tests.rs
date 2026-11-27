@@ -1,4 +1,5 @@
 use super::*;
+use vibebms_core::judge::Judge;
 
 /// [`load_with`] with only options chosen.
 fn load(
@@ -70,14 +71,10 @@ fn lr2_fonts() {
         .unwrap()
         .ends_with("f/t.png"));
     // font 1 (0 is a placeholder); centred text is anchored at x
-    assert!(matches!(
-        s.objects[0].kind,
-        Kind::Text {
-            font: Some(0),
-            align: 1,
-            ..
-        }
-    ));
+    let Kind::Text { style, .. } = &s.objects[0].kind else {
+        panic!("{:?}", s.objects[0].kind)
+    };
+    assert_eq!((style.font, style.align), (Some(0), Align::Center));
     assert_eq!(s.objects[0].dst.keys[0].rect.x, 60.0);
 }
 
@@ -179,7 +176,7 @@ fn parses_select_bars() {
     assert!(sl.body[BAR_SONG].is_some() && sl.body[BAR_FOLDER].is_some());
     assert!(sl.text.is_some());
     let (font, _) = sl.level[2].as_ref().unwrap();
-    assert_eq!((font.digits, font.keta), (10, 2));
+    assert_eq!((font.style.digits, font.style.keta), (10, 2));
     // LR2 lamp 3 (clear) is beatoraja's NORMAL (5)
     assert!(sl.lamp[5].is_some());
     // the player's and the rival's beside each other: hard (6), failed (1)
@@ -197,9 +194,10 @@ fn parses_select_bars() {
     assert_eq!((d.keys[0].rect.x, d.keys[0].rect.w), (80.0, 10.0));
     assert!(sl.trophy[1].is_some() && sl.trophy[0].is_none());
     // the lamp distribution (type 0: two frames of 11), not the DJ levels'
-    let (d, src, rank) = sl.graph.as_ref().unwrap();
+    let g = sl.graph.as_ref().unwrap();
+    let (src, rank) = (&g.bar.src, g.bar.rank);
     assert!(!rank && src.as_ref().is_some_and(|s| s.frames.len() == 22));
-    assert_eq!(d.keys[0].rect.w, 90.0);
+    assert_eq!(g.dst.keys[0].rect.w, 90.0);
 }
 
 #[test]
@@ -341,7 +339,7 @@ fn beatoraja_extensions() {
         ..Default::default()
     };
     let s = load_with(&dir.join("e.lr2skin"), &dir, &user, &|_| None, &size).unwrap();
-    assert_eq!(s.objects[0].dst.stretch, 1);
+    assert_eq!(s.objects[0].dst.stretch, Stretch::Fit);
     assert_eq!(s.objects[0].dst.offsets, vec![50]);
     assert_eq!(s.offsets.get(&50).map(|o| (o[0], o[1])), Some((3.0, -4.0)));
     let Kind::Cover {
@@ -351,7 +349,7 @@ fn beatoraja_extensions() {
         panic!("{:?}", s.objects[1].kind)
     };
     assert_eq!((*line, *link_lift), (Some(300.0), false));
-    assert_eq!(s.objects[1].dst.stretch, 0);
+    assert_eq!(s.objects[1].dst.stretch, Stretch::Full);
     assert_eq!(
         s.objects[1].dst.offsets,
         vec![OFFSET_LIFT, OFFSET_HIDDEN_COVER]
@@ -441,15 +439,10 @@ fn parses_play_skin() {
     assert_eq!(s.objects[0].dst.keys.len(), 2);
     assert_eq!(s.objects[0].dst.timer, 41);
     assert_eq!(s.objects[0].dst.ops, vec![32]);
-    assert!(matches!(
-        s.objects[1].kind,
-        Kind::Number {
-            digits: 11,
-            id: 101,
-            keta: 6,
-            ..
-        }
-    ));
+    let Kind::Number { id, font } = &s.objects[1].kind else {
+        panic!("{:?}", s.objects[1].kind)
+    };
+    assert_eq!((font.style.digits, *id, font.style.keta), (11, 101, 6));
     assert_eq!(s.lanes[7].rect.unwrap().w, 20.0); // scratch
     assert!(s.lanes[0].note.is_some());
     assert!(s.objects.iter().any(|o| matches!(o.kind, Kind::Notes)));

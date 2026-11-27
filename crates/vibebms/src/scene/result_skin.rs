@@ -10,6 +10,7 @@ use crate::library::BestScore;
 use crate::platform::Instant;
 use crate::skin::render::Hooks;
 use crate::skin::{Graph, SkinState};
+use std::borrow::Cow;
 use std::cell::OnceCell;
 use vibebms_core::judge::Judge;
 use vibebms_core::score::{ClearType, DjLevel};
@@ -235,16 +236,16 @@ impl SkinState for ResultState<'_> {
         })
     }
 
-    fn text(&self, id: i32) -> Option<String> {
+    fn text(&self, id: i32) -> Option<Cow<'_, str>> {
         let d = &self.s.d;
         let song = &d.request.song;
         Some(match id {
-            TEXT_OPPONENT => d.p2.as_ref()?.name.clone(),
-            2 => self.ctx.config.player_name.clone(),
-            1 => crate::scene::target::name(self.ctx).1?,
+            TEXT_OPPONENT => d.p2.as_ref()?.name.as_str().into(),
+            2 => self.ctx.config.player_name.as_str().into(),
+            1 => crate::scene::target::name(self.ctx).1?.into(),
             3 => match &d.p2 {
-                Some(o) => o.name.clone(),
-                None => crate::scene::target::name(self.ctx).0,
+                Some(o) => o.name.as_str().into(),
+                None => crate::scene::target::name(self.ctx).0.into(),
             },
             1001..=1003 => {
                 let t = self
@@ -252,7 +253,7 @@ impl SkinState for ResultState<'_> {
                     .get_or_init(|| table_of(self.ctx, &song.md5, &song.sha256));
                 return table_text(t.as_ref()?, id);
             }
-            1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")),
+            1010 => format!("vibeBMS {}", env!("CARGO_PKG_VERSION")).into(),
             _ => return chart_text(&ChartText::of_meta(&d.meta, song), id),
         })
     }
