@@ -36,7 +36,8 @@ struct Doc {
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum Stored {
-    /// With the origin ([`origin`]) of the server it was entered for.
+    /// With the origin ([`origin`](crate::platform::http::origin)) of the
+    /// server it was entered for.
     Bound { key: String, origin: String },
     /// A held key as a version before kept it: into [`Doc::held`] as the
     /// document is read.
@@ -51,55 +52,6 @@ struct ObsSecret {
     password: String,
     host: String,
     port: u16,
-}
-
-/// `host` is this computer.
-pub fn loopback(host: &str) -> bool {
-    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
-}
-
-/// The origin of an IR server's address, as `scheme://host:port`: `https`,
-/// or `http` on this computer (a key sent over plain `http` can be read on
-/// the way). None for any other address, and for one whose host is not
-/// plain to read (a user name in it, characters a URL parser may take
-/// another way): no request goes there.
-pub fn origin(url: &str) -> Option<String> {
-    let (scheme, rest) = url.trim().split_once("://")?;
-    let scheme = scheme.to_ascii_lowercase();
-    let default_port: u16 = match scheme.as_str() {
-        "https" => 443,
-        "http" => 80,
-        _ => return None,
-    };
-    if rest.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return None;
-    }
-    let authority = rest.split(['/', '?', '#']).next()?;
-    let (host, port) = match authority.rfind(':') {
-        Some(i) if !authority[i..].contains(']') => (&authority[..i], Some(&authority[i + 1..])),
-        _ => (authority, None),
-    };
-    let port = match port {
-        Some(p) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => p.parse().ok()?,
-        Some(_) => return None,
-        None => default_port,
-    };
-    let named = !host.is_empty()
-        && host
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
-    let v6 = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .is_some_and(|h| h.parse::<std::net::Ipv6Addr>().is_ok());
-    if !(named || v6) || (scheme == "http" && !loopback(host)) {
-        return None;
-    }
-    Some(format!("{scheme}://{}:{port}", host.to_ascii_lowercase()))
 }
 
 /// The accounts' keys.
@@ -383,7 +335,7 @@ mod tests {
         assert!(c.has(a) && c.get(a, "https://ir.example:443").is_none());
         let accounts = |p| match p {
             p if p == a => Some(Some("https://ir.example:443".to_string())),
-            p if p == lan => Some(origin("http://192.168.1.10:8080/")),
+            p if p == lan => Some(crate::platform::http::origin("http://192.168.1.10:8080/")),
             _ => None,
         };
         c.bind(accounts).unwrap();
@@ -512,54 +464,6 @@ mod tests {
         assert_eq!(older(), Some((both, pw)));
         assert!(Keys::open(&paths).held(ProviderId::VibeJson(2)));
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn origins() {
-        let o = |u: &str| origin(u);
-        assert_eq!(
-            o("https://IR.example/api/").as_deref(),
-            Some("https://ir.example:443")
-        );
-        assert_eq!(
-            o(" HTTPS://ir.example:8443?x#y").as_deref(),
-            Some("https://ir.example:8443")
-        );
-        // plain http: this computer only
-        assert_eq!(
-            o("http://127.0.0.1:8080/api").as_deref(),
-            Some("http://127.0.0.1:8080")
-        );
-        assert_eq!(
-            o("http://localhost").as_deref(),
-            Some("http://localhost:80")
-        );
-        assert_eq!(o("http://[::1]:9/").as_deref(), Some("http://[::1]:9"));
-        assert_eq!(
-            o("https://[2001:db8::1]").as_deref(),
-            Some("https://[2001:db8::1]:443")
-        );
-        for bad in [
-            "http://ir.example/api",
-            "http://127.0.0.1.evil.example/",
-            "ftp://ir.example",
-            "ir.example",
-            "",
-            // not plainly one host
-            "https://user:key@ir.example/",
-            "https://ir.example@evil.example/",
-            "https://ir.example\\@evil.example/",
-            "https://ir.example:443@evil.example",
-            "https://ir.example:x/",
-            "https://ir.example:/",
-            "https://ir.example:99999/",
-            "https://ir%2eexample/",
-            "https://ir.exa mple/",
-            "https://[::1/",
-            "https:///api",
-        ] {
-            assert_eq!(o(bad), None, "{bad}");
-        }
     }
 
     /// OBS's password is in the root's document beside the default

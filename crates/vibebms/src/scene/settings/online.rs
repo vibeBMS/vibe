@@ -256,7 +256,9 @@ fn card(ctx: &Ctx, a: &IrAccount) -> Row {
     let (state, tone) = match () {
         _ if !a.enabled => (tr!("OFF"), Tone::Dim),
         // (an address from a configuration: one entered here is checked)
-        _ if matches!(p, ProviderId::VibeJson(_)) && creds::origin(&a.url).is_none() => {
+        _ if matches!(p, ProviderId::VibeJson(_))
+            && crate::platform::http::origin(&a.url).is_none() =>
+        {
             (tr!("BAD ADDRESS"), Tone::Red)
         }
         _ if p == ProviderId::BmsIr => (tr!("READ ONLY"), Tone::Amber),
@@ -738,7 +740,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             }
         }
         TextField::IrUrl(i) => {
-            let Some(origin) = creds::origin(&s) else {
+            let Some(origin) = crate::platform::http::origin(&s) else {
                 return not_an_address(ctx);
             };
             let Some(a) = ir.accounts.get_mut(i) else {
@@ -746,7 +748,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             };
             // another server: who the account is there is not known, and
             // the key (kept for the old one) is asked for again
-            if creds::origin(&a.url).as_deref() != Some(origin.as_str()) {
+            if crate::platform::http::origin(&a.url).as_deref() != Some(origin.as_str()) {
                 a.user.clear();
                 a.user_id.clear();
                 a.chart_page.clear();
@@ -805,7 +807,7 @@ pub(super) fn commit(ctx: &mut Ctx, tf: TextField, s: String) {
             }
         }
         TextField::AddIrServer if !s.is_empty() => {
-            if creds::origin(&s).is_none() {
+            if crate::platform::http::origin(&s).is_none() {
                 return not_an_address(ctx);
             }
             let Some(n) = ir.free_slot() else { return };

@@ -81,7 +81,7 @@ pub fn event_name(url: &str) -> Option<String> {
 /// list came from. The list is another party's text, and the app fetches
 /// what it names by itself.
 fn index_of_list(index: &str, list: &str) -> bool {
-    use crate::ir::creds::origin;
+    use crate::platform::http::origin;
     origin(index).is_some_and(|o| o.starts_with("https://") && origin(list) == Some(o))
 }
 
