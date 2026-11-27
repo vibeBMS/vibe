@@ -4,9 +4,9 @@
 
 use super::skin::{PlayHooks, PlayState};
 use super::{PlayScene, Stage};
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{rgba, with_alpha, Rect};
+use crate::gfx::{rgba, with_alpha, Draw, Rect};
 use crate::input;
 use crate::platform::Instant;
 use crate::scene::skinvals::ms_since;

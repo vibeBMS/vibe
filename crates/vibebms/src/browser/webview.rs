@@ -15,7 +15,8 @@
 use super::gate::{Arrival, Gate};
 use super::imports::Imports;
 use super::MAX_DOWNLOAD;
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
+use crate::gfx::Draw;
 use crate::input::InputEv;
 use crate::ui::Notice;
 use std::cell::RefCell;

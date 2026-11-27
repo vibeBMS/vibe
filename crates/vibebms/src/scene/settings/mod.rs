@@ -30,10 +30,11 @@ mod system;
 mod web_storage;
 
 use super::keybind::{self, Learn, Learned};
-use crate::app::{Ctx, Draw, Next, Scene};
-use crate::gfx::Gfx;
+use crate::app::Ctx;
+use crate::gfx::{Draw, Gfx};
 use crate::input::{nav_from_key, nav_from_pad, AxisStepper, InputEv, Nav, Phase};
 use crate::platform::{Duration, Instant};
+use crate::scene::{Next, Scene};
 use crate::skin::SkinType;
 use crate::ui::{self, Armed, ListView, TextEvent, TextInput};
 use controls::KeySet;

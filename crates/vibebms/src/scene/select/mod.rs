@@ -17,14 +17,14 @@ pub(crate) use skin::SelectState;
 pub(crate) use tree::Missing;
 pub(crate) use tree::{Bar, CourseBar, Node};
 
-use crate::app::{Ctx, Draw, Next, Scene};
+use crate::app::Ctx;
 use crate::config::Bpms;
-use crate::gfx::{Gfx, Rect};
+use crate::gfx::{Draw, Gfx, Rect};
 use crate::input::{AxisStepper, InputEv, Nav, Repeat};
 use crate::library::Song;
 use crate::platform::{Instant, Job};
 use crate::scene::skin_host::SkinHost;
-use crate::scene::skinned;
+use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
 use crate::ui::{HitMap, TextInput};
 use input::{Drag, PanelKey};
@@ -93,7 +93,7 @@ pub struct SelectScene {
     preview_fetch: Option<(crate::platform::vfs::Prefetch, PathBuf)>,
     banner: Option<(String, Option<crate::gfx::ImageTex>)>,
     /// The banner's image while it is decoded.
-    banner_job: Option<crate::skin::render::ImageJobs>,
+    banner_job: Option<crate::gfx::ImageJobs>,
     ranking: HashMap<String, Rank>,
     quit_armed: Option<Instant>,
     host: SkinHost,

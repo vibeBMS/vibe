@@ -3,8 +3,7 @@
 //! hit-test its clickable objects.
 
 use super::skinvals::ms_since;
-use crate::app::Draw;
-use crate::gfx::{Gfx, Rect, TexId};
+use crate::gfx::{Draw, Gfx, Rect, TexId};
 use crate::platform::Instant;
 use crate::skin::render::{Hooks, LoadedSkin, Xf};
 use crate::skin::{Graph, SkinState};

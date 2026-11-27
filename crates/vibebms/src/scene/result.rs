@@ -1,10 +1,10 @@
 //! Result screen: lamp, score, judge breakdown, gauge graph, timing histogram,
 //! saving best scores, and what became of the play at each IR.
 
-use crate::app::{Ctx, Draw, Next, Scene};
+use crate::app::Ctx;
 use crate::config::SubmitPolicy;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{Gfx, Rect};
+use crate::gfx::{Draw, Gfx, Rect};
 use crate::input::{nav_from_key, nav_from_pad, InputEv, Nav, Phase};
 use crate::library::{BestScore, RecordKey};
 use crate::platform::{Duration, Instant};
@@ -13,7 +13,7 @@ use crate::scene::result_skin::{
     ResultHooks, ResultState, EVENT_CONTINUE, EVENT_REPLAY, EVENT_RETRY, EVENT_SAVE_SLOT,
 };
 use crate::scene::skin_host::{SkinHost, Tap};
-use crate::scene::skinned;
+use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
 use crate::sysound::Sound;
 use crate::theme;

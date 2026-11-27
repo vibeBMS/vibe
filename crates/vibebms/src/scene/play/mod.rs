@@ -30,13 +30,14 @@ pub(crate) use {
     skin::{ghost_ex, PlayState},
 };
 
-use crate::app::{Ctx, Draw, Next, Scene};
+use crate::app::Ctx;
 use crate::config::PlayConfig;
-use crate::gfx::Gfx;
+use crate::gfx::{Draw, Gfx};
 use crate::input::{InputEv, LaneEv};
 use crate::library::Song;
 use crate::platform::{Duration, Instant};
 use crate::replay::Replay;
+use crate::scene::{Next, Scene};
 use session::{Out, Show};
 use std::borrow::Cow;
 use std::sync::Arc;

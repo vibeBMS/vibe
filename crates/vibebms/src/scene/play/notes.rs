@@ -7,10 +7,9 @@
 
 use super::scroll::Scroll;
 use super::skin::PlayState;
-use crate::app::Draw;
 use crate::config::PlayConfig;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{Color, Rect};
+use crate::gfx::{Color, Draw, Rect};
 use crate::skin::render::{LoadedSkin, Xf};
 use crate::skin::{Frame, LaneSkin, SkinState, Src};
 use vibebms_core::chart::NoteKind;

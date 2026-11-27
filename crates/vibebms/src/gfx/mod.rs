@@ -5,8 +5,10 @@ mod anim;
 mod batch;
 mod capture;
 mod device;
+mod draw;
 mod font;
 mod image;
+mod jobs;
 #[cfg(desktop)]
 mod offscreen;
 pub mod text;
@@ -16,6 +18,8 @@ pub use self::image::{key_black, load_picture, load_picture_bytes, Picture};
 pub use anim::{Animation, ImageTex};
 pub use batch::{Batch, Blend, SdfStyle};
 pub use device::{available_backends, Fallback, Gfx};
+pub use draw::Draw;
+pub use jobs::ImageJobs;
 #[cfg(desktop)]
 pub use offscreen::Offscreen;
 

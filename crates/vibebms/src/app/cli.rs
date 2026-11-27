@@ -8,9 +8,10 @@
 //! battle for the chart. Subcommands: `songs scan`, `songs list [--json]`,
 //! `export video` (`export`).
 
-use super::{Ctx, Scene};
+use super::Ctx;
 use crate::config::Config;
 use crate::scene::play::{ghost_for, vs_refusal, PlayRequest, PlayScene, Versus};
+use crate::scene::Scene;
 use serde::Serialize;
 use std::path::PathBuf;
 use vibebms_core::Labeled;

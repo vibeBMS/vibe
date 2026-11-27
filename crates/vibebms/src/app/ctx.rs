@@ -687,7 +687,7 @@ impl Ctx {
             }
         }
         if !pages.is_empty() {
-            if super::IN_APP_BROWSER {
+            if crate::browser::IN_APP_BROWSER {
                 self.net.browse(pages);
             } else {
                 for p in &pages {

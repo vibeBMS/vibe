@@ -1333,17 +1333,6 @@ impl TextFx {
     pub fn has_shadow(&self) -> bool {
         self.shadow_offset != (0.0, 0.0)
     }
-
-    /// The distance-field style (beatoraja's shader uniforms).
-    pub fn sdf(&self) -> crate::gfx::SdfStyle {
-        crate::gfx::SdfStyle {
-            outline_color: self.outline_color,
-            shadow_color: self.shadow_color,
-            shadow_offset: [self.shadow_offset.0, self.shadow_offset.1],
-            outline_distance: (0.5 - self.outline_width / 2.0).max(0.1),
-            shadow_smoothing: self.shadow_smoothness / 2.0,
-        }
-    }
 }
 
 /// An LR2 bitmap font: glyph images at a design height.

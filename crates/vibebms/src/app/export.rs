@@ -5,12 +5,13 @@
 //! sounds are mixed offline at the chart's sample rate into a WAV file,
 //! which a second `ffmpeg` run puts beside the frames.
 
-use super::{Ctx, Draw, Next, Scene};
+use super::Ctx;
 use crate::gfx::text::Text;
-use crate::gfx::{Batch, Offscreen};
+use crate::gfx::{Batch, Draw, Offscreen};
 use crate::paths::Paths;
 use crate::platform::{Duration, Instant};
 use crate::scene::play::{PlayRequest, PlayScene};
+use crate::scene::{Next, Scene};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

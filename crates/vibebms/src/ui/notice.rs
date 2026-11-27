@@ -1,8 +1,8 @@
 use super::HitMap;
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::config::KeyConfig;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::Rect;
+use crate::gfx::{Draw, Rect};
 use crate::input::{nav_from_key, nav_from_pad_rows, InputEv, Nav, Phase};
 use crate::theme;
 use winit::keyboard::KeyCode;

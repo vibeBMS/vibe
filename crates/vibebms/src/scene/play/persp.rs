@@ -6,9 +6,8 @@
 
 use super::scroll::Scroll;
 use super::skin::PlayState;
-use crate::app::Draw;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{rgba, with_alpha, Blend, Color};
+use crate::gfx::{rgba, with_alpha, Blend, Color, Draw};
 use crate::perspective::{Depths, Fan, FanLane};
 use crate::platform::Instant;
 use crate::touch::Shape;

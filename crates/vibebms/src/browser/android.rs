@@ -7,7 +7,8 @@
 
 use super::imports::Imports;
 use super::MAX_DOWNLOAD;
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
+use crate::gfx::Draw;
 use crate::input::InputEv;
 use crate::platform::android::{app_class, string, with_java};
 use jni::objects::JValue;

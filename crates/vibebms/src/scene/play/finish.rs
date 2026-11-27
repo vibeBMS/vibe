@@ -2,10 +2,11 @@
 
 use super::session::Role;
 use super::{single_mode, CourseRun, PlayRequest, PlayScene, Versus};
-use crate::app::{Ctx, Next};
+use crate::app::Ctx;
 use crate::config::PlayConfig;
 use crate::replay::Replay;
 use crate::scene::result::{ResultData, ResultScene, SideResult};
+use crate::scene::Next;
 use vibebms_core::gauge::GaugeAutoShift;
 use vibebms_core::record::{
     self, thin_gauge_log, CourseStage, DeviceFacts, Platform, PlayFlags, PlayRecord, PlayResult,

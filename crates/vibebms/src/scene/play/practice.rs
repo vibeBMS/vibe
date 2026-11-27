@@ -5,9 +5,9 @@
 
 use super::session::{Role, SideState};
 use super::{PlayScene, Session, Stage};
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{rgba, with_alpha, Rect};
+use crate::gfx::{rgba, with_alpha, Draw, Rect};
 use crate::platform::{Duration, Instant};
 use crate::theme;
 use std::sync::{Arc, Mutex};

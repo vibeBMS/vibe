@@ -1,7 +1,7 @@
 use super::HitMap;
-use crate::app::{Ctx, Draw};
+use crate::app::Ctx;
 use crate::gfx::text::{Align, TextStyle};
-use crate::gfx::{with_alpha, Rect};
+use crate::gfx::{with_alpha, Draw, Rect};
 use crate::input::{InputEv, Phase};
 use crate::theme;
 use winit::keyboard::KeyCode;

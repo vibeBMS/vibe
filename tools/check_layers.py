@@ -45,12 +45,11 @@ LAYERS = [
 ]
 
 # (from module or the modules under it, to module, items, why it stays)
-SHELL = "defined in app/, the shell, until the scenes' contract and the shared state have modules of their own"
+SHELL = "the shared state is defined in app/, the shell, until it has a module of its own"
 UPWARD = [
-    ("scene", "app", ["Ctx", "Draw", "Next", "Scene", "IN_APP_BROWSER"], SHELL),
-    ("ui", "app", ["Ctx", "Draw"], SHELL),
-    ("browser", "app", ["Ctx", "Draw"], SHELL),
-    ("skin::render", "app", ["Draw"], SHELL),
+    ("scene", "app", ["Ctx"], SHELL),
+    ("ui", "app", ["Ctx"], SHELL),
+    ("browser", "app", ["Ctx"], SHELL),
     ("loudness", "app", ["Ctx"], SHELL + "; it takes the whole Ctx to pass parts of it on"),
     ("bulk", "app", ["Ctx"], SHELL + "; it takes the whole Ctx to pass parts of it on"),
     ("import", "app", ["Ctx"], SHELL + "; it takes the whole Ctx to pass parts of it on"),
