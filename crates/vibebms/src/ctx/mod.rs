@@ -2,10 +2,10 @@
 
 mod event;
 mod mute;
-pub mod overrides;
-pub mod tables;
+pub(crate) mod overrides;
+pub(crate) mod tables;
 
-pub use event::AppEvent;
+pub(crate) use event::AppEvent;
 pub use mute::Mute;
 pub use overrides::Overrides;
 use tables::Tables;

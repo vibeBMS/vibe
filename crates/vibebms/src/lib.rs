@@ -9,7 +9,7 @@ pub mod bulk;
 pub mod charts;
 pub mod config;
 pub mod courses;
-pub mod ctx;
+pub(crate) mod ctx;
 pub mod formats;
 pub mod gfx;
 pub mod hosts;
