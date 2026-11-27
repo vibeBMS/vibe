@@ -128,27 +128,20 @@ pub fn entry(
 ) -> bmseeker::install::Entry {
     let e = bmseeker::table::TableEntry {
         md5: w.md5.clone(),
+        title: w.title.clone(),
+        artist: w.artist.clone(),
+        org_md5: w.org_md5.clone(),
         url: w.url.clone(),
         url_diff: w.url_diff.clone(),
         ..Default::default()
     };
-    let mut song = known.song_links(&e);
+    let mut entry = bmseeker::install::Entry::from_table_in(&e, &known.lists());
     for u in more {
-        if !song.contains(&u) {
-            song.push(u);
+        if !entry.song.contains(&u) {
+            entry.song.push(u);
         }
     }
-    bmseeker::install::Entry {
-        md5: w.md5.clone(),
-        want: bmseeker::hosts::Want {
-            title: w.title.clone(),
-            artist: w.artist.clone(),
-        },
-        org_md5: w.org_md5.clone(),
-        song,
-        chart: known.chart_links(&e),
-        ..Default::default()
-    }
+    entry
 }
 
 /// What a link brought (`bytes`; a chart's own link: its file name
@@ -189,10 +182,6 @@ fn take(
 ) -> Vec<Done> {
     let lib = &mut crate::net::placement::library(root, songs);
     take_in(root, lib, bytes, q, check, file)
-}
-
-fn is_link(u: &str) -> bool {
-    u.starts_with("https://") || u.starts_with("http://")
 }
 
 impl SongFetch {
@@ -247,7 +236,7 @@ impl SongFetch {
         root: &Path,
         songs: &Arc<Vec<Song>>,
         cx: &crate::net::hosts::Context,
-        mut e: bmseeker::install::Entry,
+        e: bmseeker::install::Entry,
         addons: Vec<String>,
         quiet: bool,
     ) -> bool {
@@ -255,8 +244,6 @@ impl SongFetch {
         if self.is_busy(&e.want.title, &e.want.artist) {
             return false;
         }
-        e.song.retain(|u| is_link(u));
-        e.chart.retain(|u| is_link(u));
         let id = SongId::new(&e.want.title, &e.want.artist);
         let lib = self.library(root, songs);
         let mut started = false;
@@ -274,7 +261,7 @@ impl SongFetch {
                 sources,
                 &cx,
             )
-            .addons(addons.into_iter().filter(|u| is_link(u)));
+            .addons(addons);
             if job.is_empty() {
                 return;
             }
@@ -547,6 +534,106 @@ mod tests {
             "{done:?}"
         );
         assert!(!song.join("ours_.bms").exists() && passed(&r));
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    /// A table's chart: its own link, then those the tables and the list
+    /// know for its MD5, then `more` (each link once); its separate
+    /// chart's the same way.
+    #[test]
+    fn entry_links_in_order() {
+        let a = "a".repeat(32);
+        let table = bmseeker::table::DifficultyTable {
+            entries: vec![bmseeker::table::TableEntry {
+                md5: a.clone(),
+                url: "https://t/a.zip".into(),
+                url_diff: "https://t/a.bms".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut known = crate::net::links::LinkLists::default();
+        known.set_tables(bmseeker::links::Links::from_tables([&table]), &mut []);
+        let w = Wanted {
+            title: "Song".into(),
+            artist: "alpha".into(),
+            md5: a.clone(),
+            org_md5: vec!["b".repeat(32)],
+            url: "https://own/a.zip".into(),
+            ..Default::default()
+        };
+        let more = ["https://t/a.zip", "https://page/a"]
+            .map(String::from)
+            .to_vec();
+        let e = entry(&known, &w, more);
+        assert_eq!(
+            e.song,
+            ["https://own/a.zip", "https://t/a.zip", "https://page/a"]
+        );
+        assert_eq!(e.chart, ["https://t/a.bms"]);
+        assert_eq!((e.md5, e.org_md5), (a, w.org_md5.clone()));
+        assert_eq!(
+            (e.want.title.as_str(), e.want.artist.as_str()),
+            ("Song", "alpha")
+        );
+    }
+
+    /// What a download could not try is not tried: links not plainly
+    /// written (a user name, a backslash, a control character) leave
+    /// nothing to try, as no links do; a link in capitals or with spaces
+    /// around it is tried.
+    #[test]
+    fn only_web_links_are_tried() {
+        let cx = crate::net::hosts::context(&Default::default());
+        let songs = Arc::new(Vec::new());
+        let r = root("web-links");
+        let mut f = SongFetch::default();
+        let e = |song: &[&str]| bmseeker::install::Entry {
+            want: bmseeker::hosts::Want {
+                title: "Song".into(),
+                artist: "alpha".into(),
+            },
+            song: song.iter().map(|u| u.to_string()).collect(),
+            ..Default::default()
+        };
+        let none: &[&str] = &[];
+        let unplain = [
+            "https://user@127.0.0.1/a.zip",
+            "https://127.0.0.1\\a.zip",
+            "https://127.0.0.1/\u{7}a.zip",
+        ];
+        for links in [
+            none,
+            &["", "not a link", "file:///a.zip", "javascript:x"],
+            &unplain,
+        ] {
+            assert!(
+                !f.start(&r, &songs, &cx, e(links), Vec::new(), true),
+                "{links:?}"
+            );
+            assert!(!f.start(
+                &r,
+                &songs,
+                &cx,
+                e(none),
+                links.iter().map(|u| u.to_string()).collect(),
+                true
+            ));
+        }
+        // (a host of this machine: refused before any request)
+        for link in [
+            "HTTPS://127.0.0.1/a.zip",
+            "Http://127.0.0.1/a.zip",
+            " https://127.0.0.1/a.zip ",
+        ] {
+            for (song, addons) in [(vec![link], vec![]), (vec![], vec![link.to_string()])] {
+                assert!(f.start(&r, &songs, &cx, e(&song), addons, true), "{link:?}");
+                while !f.jobs.is_empty() {
+                    f.poll();
+                    std::thread::yield_now();
+                }
+            }
+        }
         let _ = std::fs::remove_dir_all(&r);
     }
 

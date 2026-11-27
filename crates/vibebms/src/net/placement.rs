@@ -2,7 +2,7 @@
 //! on the player's files (`platform::Vfs`).
 
 use crate::platform::Vfs;
-pub use bmseeker::placement::{is_chart, same_artist, same_name, same_title, Located};
+pub use bmseeker::placement::{is_chart, Located};
 use bmseeker::placement::{ChartInfo, Rules};
 use std::path::Path;
 

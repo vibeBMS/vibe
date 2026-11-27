@@ -26,12 +26,14 @@ use crate::scene::skin_host::SkinHost;
 use crate::scene::{skinned, Next, Scene};
 use crate::skin::SkinType;
 use crate::ui::{HitMap, TextInput};
+use bmseeker::placement::SongKey;
 use input::PanelKey;
 use preview::Rank;
 use skin::{SelectHooks, PANELS};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Weak};
 use tree::Distribution;
 
 /// Time constant (s) of the list easing toward the cursor: 30 % of the
@@ -67,6 +69,9 @@ pub struct SelectScene {
     charts: crate::library::charts::Charts,
     /// The library's charts by the folder of their file (a song's charts).
     song_dirs: HashMap<String, Vec<usize>>,
+    /// Each chart's song as the downloads compare it (`SongKey`), made when
+    /// first asked of this list of songs.
+    song_keys: RefCell<(Weak<Vec<Song>>, Vec<SongKey>)>,
     /// The selected chart's replay and text files.
     files: RefCell<status::ChartFiles>,
     preview_for: Option<String>,
@@ -132,6 +137,7 @@ impl SelectScene {
             held_nav: None,
             charts: Default::default(),
             song_dirs: HashMap::new(),
+            song_keys: Default::default(),
             files: Default::default(),
             preview_for: None,
             preview_until: None,
@@ -192,6 +198,20 @@ impl SelectScene {
                 .or_default()
                 .push(i);
         }
+    }
+
+    /// The library's charts' songs as the downloads compare them, in
+    /// library order: made once per list of songs (an NFKC pass and the
+    /// credit rules each), not per comparison.
+    fn song_keys(&self, ctx: &Ctx) -> std::cell::Ref<'_, [SongKey]> {
+        let songs = Arc::downgrade(&ctx.lib.songs);
+        if !self.song_keys.borrow().0.ptr_eq(&songs) {
+            let keys = (ctx.lib.songs.iter())
+                .map(|s| SongKey::of(&s.title, &s.artist))
+                .collect();
+            *self.song_keys.borrow_mut() = (songs, keys);
+        }
+        std::cell::Ref::map(self.song_keys.borrow(), |k| k.1.as_slice())
     }
 
     fn enter(&mut self, ctx: &mut Ctx, node: Node) {

@@ -398,13 +398,14 @@ impl SelectScene {
             ..Default::default()
         };
         let entry = crate::net::songfetch::entry(&ctx.tables.links, &want, more);
-        // the song is in the library (another of its charts): what to say
-        // when nothing can be tried
-        let have_song = !md5.is_empty()
-            && ctx.lib.songs.iter().any(|s| {
-                crate::net::placement::same_name(&s.title, &title)
-                    && crate::net::placement::same_artist(&s.artist, &artist)
-            });
+        // the song is in the library (a chart of its title and artist, or
+        // one the table names as the song's own, as the download decides):
+        // what to say when nothing can be tried
+        let have_song = !md5.is_empty() && {
+            let song = bmseeker::placement::SongKey::of(&title, &artist);
+            (want.org_md5.iter()).any(|m| self.charts.by_md5(&ctx.lib.songs, m, "", "").is_some())
+                || self.song_keys(ctx).iter().any(|k| k.same_song(&song))
+        };
         if ctx
             .net
             .song_fetch
@@ -427,7 +428,7 @@ impl SelectScene {
         // the song's folder)
         let pages: Vec<&str> = [url.as_str(), url_diff.as_str()]
             .into_iter()
-            .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+            .filter(|u| crate::platform::is_web_url(u))
             .collect();
         if crate::ctx::IN_APP_BROWSER && !pages.is_empty() {
             ctx.toast(tr!("Download {title} in the browser window", title = title));
@@ -668,5 +669,42 @@ fn pick_name(p: crate::config::ReplayPick) -> &'static str {
     match p {
         crate::config::ReplayPick::Auto => tr!("kept"),
         p => p.label(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A chart whose only links are not plainly written (another host than
+    /// they seem to name): nothing is tried and no page opened, as for a
+    /// chart without links.
+    #[test]
+    fn links_not_plainly_written_open_no_page() {
+        let root = std::env::temp_dir().join(format!("vibebms-unplain-{}", std::process::id()));
+        let mut ctx = Ctx::for_test(root.clone());
+        let mut s = SelectScene::new(&mut ctx);
+        for (url, url_diff) in [
+            ("https://trusted.example@evil.example/x", ""),
+            ("", "https://user:pw@evil.example/x.bms"),
+            ("https://evil.example\\@trusted.example/x", ""),
+            ("", ""),
+        ] {
+            let m = Missing {
+                title: "Song".into(),
+                artist: "x".into(),
+                url: url.into(),
+                url_diff: url_diff.into(),
+                ..Missing::default()
+            };
+            s.fetch(&mut ctx, m);
+            assert_eq!(ctx.net.take_pages(), None, "{url} {url_diff}");
+            assert_eq!(
+                ctx.toasts.last().map(|t| t.0.as_str()),
+                Some("Not installed: Song (no download link)"),
+                "{url} {url_diff}"
+            );
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 }
