@@ -25,6 +25,11 @@ pub struct Charts {
     by_md5: HashMap<String, Vec<u32>>,
 }
 
+/// Of the charts of one MD5, how many a lookup compares names with: a pack
+/// can hold thousands of one MD5 (collisions are cheap to chain), and a
+/// table thousands of rows of it.
+const NAMED_OF: usize = 16;
+
 /// A hash as it is looked up: trimmed, lower case.
 fn key(h: &str) -> Cow<'_, str> {
     let h = h.trim();
@@ -92,9 +97,9 @@ impl Charts {
         Some(self.taken[n as usize])
     }
 
-    /// The chart of this MD5: of several charts with it, the first whose
-    /// title (and artist, when one is given) are `title`'s and `artist`'s,
-    /// else the first.
+    /// The chart of this MD5: of several charts with it, the first (of the
+    /// first [`NAMED_OF`]) whose title (and artist, when one is given) are
+    /// `title`'s and `artist`'s, else the first.
     pub fn by_md5(&self, songs: &[Song], md5: &str, title: &str, artist: &str) -> Option<usize> {
         let found = self.by_md5.get(key(md5).as_ref())?;
         let copies = || found.iter().map(|&n| self.taken[n as usize]);
@@ -104,7 +109,7 @@ impl Charts {
                 && (artist.is_empty() || same_artist(&s.artist, artist))
         };
         (found.len() > 1 && !title.is_empty())
-            .then(|| copies().find(named))
+            .then(|| copies().take(NAMED_OF).find(named))
             .flatten()
             .or_else(|| copies().next())
     }
@@ -206,5 +211,25 @@ mod tests {
         // the SHA-256 needs no hint
         assert_eq!(c.find(&songs, "m", "s1", "Real Song", ""), Some(0));
         assert_eq!(c.find(&songs, "m", "s9", "Real Song", ""), Some(1));
+    }
+
+    /// Thousands of charts of one MD5 and a table of thousands of rows of
+    /// it: each row looks at a few of them, not at all.
+    #[test]
+    fn many_charts_of_one_md5_are_looked_up_quickly() {
+        // (titles as long as many are)
+        let title = |k: usize| format!("T{k} - a song with a long title [ANOTHER] -remix-");
+        let songs: Vec<Song> = (0..5000)
+            .map(|k| song(&format!("/bms/{k}/x.bms"), &format!("s{k}"), "m", &title(k)))
+            .collect();
+        let c = Charts::new(&songs);
+        let begun = std::time::Instant::now();
+        for _ in 0..5000 {
+            assert_eq!(c.by_md5(&songs, "m", &title(99_999), ""), Some(0));
+        }
+        // (all of them, one by one: minutes)
+        assert!(begun.elapsed().as_secs() < 10, "{:?}", begun.elapsed());
+        assert_eq!(c.by_md5(&songs, "m", &title(15), ""), Some(15));
+        assert_eq!(c.by_md5(&songs, "m", &title(16), ""), Some(0));
     }
 }
