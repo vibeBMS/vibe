@@ -595,7 +595,9 @@ Everything else is fixed by the commit:
   deployment targets set, nightlies' thin LTO over 16 codegen units (a stable build keeps the profile's fat LTO);
   Lua's C sources compiled in name order (lua-src 551.1.1 and later does; before, it took them in the file system's
   order, on Linux's ext4 a hash seeded per file system, so two machines linked them differently;
-  `tools/build_release.sh` stops if `Cargo.lock` takes an older lua-src);
+  `tools/build_release.sh` stops if `Cargo.lock` takes an older lua-src). The web build compiles the same
+  sources itself and takes only a folder whose files have the SHA-256 in `crates/vibebms-lua-web/build.rs`
+  (`LUA_SHA256`): when lua-src is updated, the web build stops and prints the new value to set there;
 - **dates**: `SOURCE_DATE_EPOCH` is the commit's time; zips (the web zip, the iOS `.ipa`, the macOS app's zip) are
   made with every file at that time, mode 644/755, in name order, no extra fields, TZ=UTC
   (`tools/build_release.sh zip`); the Flatpak's release date and OSTree commit take it, and the bundle's own

@@ -166,6 +166,7 @@ jobs:
       # modules use only the layers below their own (docs/BUILDING.md)
       - run: python3 tools/repro_pins_test.py
       - run: python3 tools/check_layers.py
+      - run: python3 tools/check_layers_test.py
       - run: python3 .github/dependabot_merge_test.py
       - run: python3 .github/update_signing_test.py
       - run: cargo fmt --all --check
