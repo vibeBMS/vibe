@@ -3,9 +3,8 @@
 use super::PlayScene;
 use crate::app::Ctx;
 use crate::config::{Bpms, PlayConfig, HISPEED_STEP};
-use crate::input::{LaneEv, LaneMapper};
+use crate::input::{self, LaneEv, LaneMapper};
 use crate::platform::{Duration, Instant};
-use crate::touch;
 use vibebms_core::PlayMode;
 
 /// beatoraja's controls while playing: with START held the white keys
@@ -99,8 +98,8 @@ impl PlayScene {
             return 0;
         }
         match lane {
-            touch::START | touch::SELECT => 0,
-            touch::START2 | touch::SELECT2 => 1,
+            input::START | input::SELECT => 0,
+            input::START2 | input::SELECT2 => 1,
             l => self.session.mode.player_of_lane(l as usize).min(1),
         }
     }
@@ -109,12 +108,12 @@ impl PlayScene {
     /// was taken (it does not reach the judge).
     pub(super) fn control(&mut self, ctx: &mut Ctx, e: &LaneEv) -> bool {
         // the second player's START / SELECT do nothing out of VS
-        if !self.session.vs && matches!(e.lane, touch::START2 | touch::SELECT2) {
+        if !self.session.vs && matches!(e.lane, input::START2 | input::SELECT2) {
             return true;
         }
         let side = self.control_side(e.lane);
         // the keys go to the judge while the panel is closed
-        if e.lane < touch::SYSTEM && !self.controls.panel[side].open() {
+        if e.lane < input::SYSTEM && !self.controls.panel[side].open() {
             return false;
         }
         let bpm = &self.bpms_at(e.time);
@@ -148,7 +147,7 @@ pub(super) fn control(
 ) -> bool {
     let was_open = c.open();
     match e.lane {
-        touch::START | touch::START2 => {
+        input::START | input::START2 => {
             c.start = e.pressed;
             if e.pressed {
                 let twice = c
@@ -168,7 +167,7 @@ pub(super) fn control(
                 c.last_start = (!twice).then_some(e.time);
             }
         }
-        touch::SELECT | touch::SELECT2 => c.select = e.pressed,
+        input::SELECT | input::SELECT2 => c.select = e.pressed,
         _ if !c.open() => return false,
         // releases go on to the judge (the key may have been down first)
         _ if !e.pressed => {
@@ -219,8 +218,8 @@ mod tests {
         let mut c = Control::default();
         let mut p = PlayConfig::default();
         let press = |c: &mut Control, p: &mut PlayConfig, at| {
-            assert!(control(c, mode, p, &bpm, &ev(touch::START, 0, true, at)));
-            assert!(control(c, mode, p, &bpm, &ev(touch::START, 0, false, at)));
+            assert!(control(c, mode, p, &bpm, &ev(input::START, 0, true, at)));
+            assert!(control(c, mode, p, &bpm, &ev(input::START, 0, false, at)));
         };
         press(&mut c, &mut p, ms(0));
         assert!(!p.lane_cover);
@@ -257,7 +256,7 @@ mod tests {
             mode,
             &mut p,
             &bpm,
-            &ev(touch::START, 0, true, ms(0))
+            &ev(input::START, 0, true, ms(0))
         ));
         assert!(control(
             c,
@@ -293,7 +292,7 @@ mod tests {
             mode,
             &mut p,
             &bpm,
-            &ev(touch::SELECT, 0, true, ms(100))
+            &ev(input::SELECT, 0, true, ms(100))
         ));
         cs.tick(&mut p, &bpm, ms(1000));
         assert!(!cs.quit);

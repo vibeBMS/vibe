@@ -45,6 +45,7 @@ mod key;
 #[cfg(desktop)]
 mod sig;
 
+use crate::paths::app_bundle;
 use crate::platform::Job;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -225,18 +226,6 @@ pub fn asset_name() -> Option<String> {
         cfg!(feature = "browser"),
         exe_path().is_some_and(|e| app_bundle(&e).is_some()),
     )
-}
-
-/// The app `exe` is the executable of, by the macOS bundle layout
-/// (`<name>.app/Contents/MacOS/<exe>`).
-pub fn app_bundle(exe: &Path) -> Option<&Path> {
-    let macos = exe.parent()?;
-    let contents = macos.parent()?;
-    let app = contents.parent()?;
-    let ok = macos.file_name()? == "MacOS"
-        && contents.file_name()? == "Contents"
-        && app.extension()? == "app";
-    ok.then_some(app)
 }
 
 /// The app `exe` runs in, on macOS: the bundle is what an update replaces.
@@ -796,23 +785,6 @@ mod tests {
             "C:\\Games\\vibeBMS\\vibebms.exe",
         ] {
             assert_eq!(managed_location(Path::new(p)), None, "{p}");
-        }
-    }
-
-    #[test]
-    fn app_bundles() {
-        let exe = Path::new("/Applications/vibeBMS Nightly.app/Contents/MacOS/vibebms");
-        assert_eq!(
-            app_bundle(exe),
-            Some(Path::new("/Applications/vibeBMS Nightly.app"))
-        );
-        for p in [
-            "/Applications/vibeBMS.app/Contents/Resources/vibebms",
-            "/Applications/vibeBMS/Contents/MacOS/vibebms",
-            "/home/me/vibeBMS/vibebms",
-            "vibebms",
-        ] {
-            assert_eq!(app_bundle(Path::new(p)), None, "{p}");
         }
     }
 

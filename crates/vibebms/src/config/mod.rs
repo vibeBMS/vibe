@@ -217,6 +217,16 @@ impl Default for TableConfig {
     }
 }
 
+/// The event mirror's list of events (`archive`).
+pub const CATALOG: &str = "https://raw.githubusercontent.com/vibeBMS/BMS/main/events.json";
+
+/// Mirrors read unless the configuration names others: a list of events
+/// (`…/events.json`) or one event's `index.json`.
+pub const DEFAULT_INDEXES: &[&str] = &[CATALOG];
+
+/// The default before the list of events (BOF22 alone).
+pub const OLD_DEFAULT: &str = "https://github.com/vibeBMS/BMS/releases/download/bof22/index.json";
+
 /// Whether third parties' mirrors are on by default: a build made with
 /// `VIBEBMS_THIRD_PARTY=1` (the web build's CI, from a repository
 /// variable) turns them on for those who have not chosen.
@@ -311,10 +321,7 @@ impl Default for Config {
                     enabled: true,
                 })
                 .collect(),
-            archives: crate::archive::DEFAULT_INDEXES
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            archives: DEFAULT_INDEXES.iter().map(|s| s.to_string()).collect(),
             third_party_mirrors: THIRD_PARTY_DEFAULT,
             third_party_acknowledged: false,
             name_song_folders: false,

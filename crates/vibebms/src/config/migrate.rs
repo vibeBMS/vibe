@@ -1,6 +1,6 @@
 //! Settings of older configurations, read the way they are now.
 
-use super::{HISPEED_MAX, HISPEED_MIN, HISPEED_STEP};
+use super::{CATALOG, HISPEED_MAX, HISPEED_MIN, HISPEED_STEP, OLD_DEFAULT};
 
 /// The BPM a duration from an old configuration is read at.
 const LEGACY_BPM: f64 = 150.0;
@@ -57,8 +57,8 @@ fn settings(v: &mut toml::Value) {
     }
     if let Some(a) = v.get_mut("archives").and_then(|a| a.as_array_mut()) {
         for u in a.iter_mut() {
-            if u.as_str() == Some(crate::archive::OLD_DEFAULT) {
-                *u = toml::Value::String(crate::archive::CATALOG.into());
+            if u.as_str() == Some(OLD_DEFAULT) {
+                *u = toml::Value::String(CATALOG.into());
             }
         }
     }
@@ -197,15 +197,12 @@ mod tests {
     fn the_mirror_becomes_its_list_of_events() {
         let mut v: toml::Value = toml::from_str(&format!(
             "archives = [\"{}\", \"https://x/e/index.json\"]\n",
-            crate::archive::OLD_DEFAULT
+            OLD_DEFAULT
         ))
         .unwrap();
         migrate(&mut v);
         let c: Config = v.try_into().unwrap();
-        assert_eq!(
-            c.archives,
-            [crate::archive::CATALOG, "https://x/e/index.json"]
-        );
+        assert_eq!(c.archives, [CATALOG, "https://x/e/index.json"]);
     }
 
     #[test]

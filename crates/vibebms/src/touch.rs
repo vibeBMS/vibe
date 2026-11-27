@@ -7,7 +7,7 @@
 
 use crate::config::{TouchButton, TouchConfig, TouchLayout, TouchSide, TouchStyle};
 use crate::gfx::{with_alpha, Batch, Rect};
-use crate::input::{LaneEv, Phase};
+use crate::input::{LaneEv, Phase, SELECT, START, SYSTEM};
 use crate::platform::Instant;
 use std::collections::HashMap;
 use vibebms_core::PlayMode;
@@ -26,15 +26,6 @@ pub enum Shape {
     /// sideways swipes.
     Strip(std::sync::Arc<[[f32; 3]]>),
 }
-
-/// Pseudo lanes of the START and SELECT buttons (the hi-speed panel), and
-/// the second player's in VS.
-pub const START: u8 = 254;
-pub const SELECT: u8 = 255;
-pub const START2: u8 = 252;
-pub const SELECT2: u8 = 253;
-/// The first pseudo lane: lanes from here on are buttons, not keys.
-pub const SYSTEM: u8 = START2;
 
 #[derive(Clone, Debug)]
 pub struct Zone {

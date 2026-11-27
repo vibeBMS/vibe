@@ -175,6 +175,18 @@ fn profile_private(private_root: &Path, id: &str) -> PathBuf {
     }
 }
 
+/// The app `exe` is the executable of, by the macOS bundle layout
+/// (`<name>.app/Contents/MacOS/<exe>`).
+pub fn app_bundle(exe: &Path) -> Option<&Path> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let app = contents.parent()?;
+    let ok = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app";
+    ok.then_some(app)
+}
+
 fn default_root() -> PathBuf {
     #[cfg(target_os = "ios")]
     {
@@ -197,7 +209,7 @@ fn default_root() -> PathBuf {
     // in an Applications folder, or where it cannot write (a disk image, App
     // Translocation), the user's Application Support
     #[cfg(target_os = "macos")]
-    if let Some(r) = crate::update::app_bundle(&exe).and_then(Path::parent) {
+    if let Some(r) = app_bundle(&exe).and_then(Path::parent) {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         return match home {
             Some(h) if r.ends_with("Applications") || !crate::platform::vfs::writable(r) => {
@@ -227,4 +239,26 @@ fn fallback_root() -> PathBuf {
         base.display()
     );
     base.join("vibeBMS")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_bundles() {
+        let exe = Path::new("/Applications/vibeBMS Nightly.app/Contents/MacOS/vibebms");
+        assert_eq!(
+            app_bundle(exe),
+            Some(Path::new("/Applications/vibeBMS Nightly.app"))
+        );
+        for p in [
+            "/Applications/vibeBMS.app/Contents/Resources/vibebms",
+            "/Applications/vibeBMS/Contents/MacOS/vibebms",
+            "/home/me/vibeBMS/vibebms",
+            "vibebms",
+        ] {
+            assert_eq!(app_bundle(Path::new(p)), None, "{p}");
+        }
+    }
 }

@@ -152,7 +152,7 @@ pub(super) fn draw(st: &PlayState, d: &mut Draw) {
                 .touch
                 .zones
                 .iter()
-                .filter(|z| z.lane < crate::touch::SYSTEM)
+                .filter(|z| z.lane < crate::input::SYSTEM)
             {
                 let (Shape::Strip(rows), Some(l)) =
                     (&z.shape, f.lanes.iter().find(|l| l.lane == z.lane as usize))

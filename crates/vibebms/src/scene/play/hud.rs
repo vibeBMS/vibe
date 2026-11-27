@@ -7,6 +7,7 @@ use super::{PlayScene, Stage};
 use crate::app::{Ctx, Draw};
 use crate::gfx::text::{Align, TextStyle};
 use crate::gfx::{rgba, with_alpha, Rect};
+use crate::input;
 use crate::platform::Instant;
 use crate::scene::skinvals::ms_since;
 use crate::theme;
@@ -37,16 +38,16 @@ impl PlayScene {
             }
             // (the perspective lanes draw their own touch areas)
             let shown = if self.perspective() {
-                let first = zones.iter().position(|z| z.lane >= touch::SYSTEM);
+                let first = zones.iter().position(|z| z.lane >= input::SYSTEM);
                 &zones[first.unwrap_or(zones.len())..]
             } else {
                 &zones[..]
             };
             self.touch.input.draw(d.b, shown, ctx.config.touch.opacity);
-            for z in zones.iter().filter(|z| z.lane >= touch::SYSTEM) {
+            for z in zones.iter().filter(|z| z.lane >= input::SYSTEM) {
                 if let touch::Shape::Rect(r) = z.shape {
                     let label = match z.lane {
-                        touch::START | touch::START2 => "START",
+                        input::START | input::START2 => "START",
                         _ => "SELECT",
                     };
                     let size = (r.w * 0.22).min(14.0 * ui);
