@@ -60,6 +60,12 @@ class CheckLayers(unittest.TestCase):
         ]:
             self.assertEqual(self.run_on({"formats/mod.rs": text})[0], 0, text)
 
+    def test_a_byte_raw_string_is_a_string(self):
+        for lit in ['br#"{"a": "}"}"#', 'br"}"']:
+            text = ("#[cfg(test)]\nmod more_tests {\n    const J: &[u8] = %s;\n"
+                    "    #[test]\n    fn t() {\n        %s();\n    }\n}\n" % (lit, UP))
+            self.assertEqual(self.run_on({"formats/mod.rs": text}), (0, self.run_on({})[1]), lit)
+
 
 if __name__ == "__main__":
     unittest.main()

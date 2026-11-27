@@ -85,7 +85,7 @@ def blank(text):
                 j += 2 if text[j] == "\\" else 1
             j += 1
             out.append('"' + re.sub(r"[^\n]", " ", text[i + 1 : j - 1]) + '"')
-        elif c == "r" and (m := re.compile(r'r(#*)"').match(text, i)) and not re.match(r"\w", text[i - 1 : i]):
+        elif c in "br" and (m := re.compile(r'b?r(#*)"').match(text, i)) and not re.match(r"\w", text[i - 1 : i]):
             end = '"' + m.group(1)
             j = text.find(end, m.end())
             j = n if j < 0 else j + len(end)
